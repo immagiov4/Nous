@@ -4,11 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/start-all.js",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "vite",
     "dev:backend": "cd backend && npm run dev",
     "dev:tts": "cd tts-server && python -m api.main",
-    "stop": "node scripts/stop-all.js",
     "setup:tts": "cd tts-server && python download_model.py",
     "build": "vite build",
     "preview": "vite preview",
@@ -16,6 +15,7 @@
   },
   "dependencies": {
     "@types/react-syntax-highlighter": "^15.5.13",
+    "concurrently": "^9.2.1",
     "jszip": "3.10.1",
     "lucide-react": "^0.563.0",
     "react": "^19.2.4",

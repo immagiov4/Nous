@@ -54,12 +54,7 @@ const PORT = process.env.BACKEND_PORT || 3001;
 app.listen(PORT, () => {
   console.log(`[Backend] Server running on http://localhost:${PORT}`);
   console.log(`[Backend] TTS API available at http://localhost:${PORT}/api/tts`);
-  
-  // Check for existing TTS server (don't auto-start)
-  console.log('[Backend] Checking for TTS server...');
-  processManager.start().catch(err => {
-    console.error('[Backend] Error checking TTS server:', err);
-  });
+  console.log('[Backend] Expecting TTS server to be running externally on port 8880');
 });
 
 // Graceful shutdown
