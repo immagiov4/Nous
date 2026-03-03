@@ -5,10 +5,12 @@ import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from "../const
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
-// Model configuration - can be changed to any OpenRouter-supported model
-export const MODEL_REASONING = 'google/gemini-2.0-flash-exp:free';
-export const MODEL_FAST = 'google/gemini-2.0-flash-exp:free';
-export const MODEL_PRO = 'google/gemini-2.0-pro-exp';
+// Model configuration from environment variables
+export const MODEL_FLASH = process.env.MODEL_FLASH || 'google/gemini-2.5-flash-preview';
+export const MODEL_REASONING = process.env.MODEL_REASONING || 'google/gemini-2.5-flash-preview';
+
+// Max output tokens from environment (default: 32000)
+const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || '32000', 10);
 
 // Headers for OpenRouter API
 const getHeaders = () => ({
@@ -72,7 +74,7 @@ const callOpenRouter = async <T = string>(options: ChatCompletionOptions): Promi
       model: options.model,
       messages: options.messages,
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.max_tokens ?? 8192,
+      max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
       response_format: options.response_format,
       tools: options.tools
     })
@@ -127,7 +129,7 @@ Parla in Italiano.`;
         history.push({ role: 'user', content: params.message });
         
         const response = await callOpenRouter({
-          model: MODEL_FAST,
+          model: MODEL_FLASH,
           messages: history
         });
   
@@ -192,7 +194,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   return retryWithBackoff(async () => {
     const response = await callOpenRouter({
-      model: MODEL_PRO,
+      model: MODEL_REASONING,
       messages: [
         { role: 'system', content: SYSTEM_INSTRUCTION_PLANNER },
         {
@@ -245,7 +247,7 @@ Rispondi SOLO con un oggetto JSON:
 
   return retryWithBackoff(async () => {
     const response = await callOpenRouter({
-      model: MODEL_FAST,
+      model: MODEL_FLASH,
       messages: [
         {
           role: 'user',
@@ -277,6 +279,7 @@ Rispondi SOLO con un oggetto JSON:
 
 /**
  * Generates the detailed content for a specific section.
+ * Single-pass generation with high token limit for comprehensive lessons.
  */
 export const generateSectionContent = async (
   file: FileData,
@@ -286,82 +289,60 @@ export const generateSectionContent = async (
   onStatusUpdate?: (status: string) => void
 ): Promise<{ content: string; quiz: any[] }> => {
   
-  // STEP 1: DRAFTING
-  if (onStatusUpdate) onStatusUpdate("Analisi strutturale e bozza iniziale...");
-  
-  const draftPrompt = `Sei il Professor Lumina.
-Obiettivo: Scrivere una BOZZA strutturale per la lezione: "${sectionTitle}".
-Descrizione: "${sectionDescription}".
+  if (onStatusUpdate) onStatusUpdate("Generazione lezione completa in corso...");
 
-Contesto precedente: ${previousContext || "Inizio percorso"}.
+  const prompt = `Sei il Professor Lumina. Devi generare una LEZIONE COMPLETA E APPROFONDITA.
 
-Compito:
-Scrivi una lezione accademica solida ma concisa. 
-Definisci i concetti chiave che devono essere trattati.
-Crea la struttura logica (Introduzione, Concetti Chiave, Analisi, Conclusione).
-Usa titoli chiari.`;
+TITOLO LEZIONE: "${sectionTitle}"
+DESCRIZIONE: "${sectionDescription}"
 
-  const draftResponse = await retryWithBackoff(async () => {
-    return await callOpenRouter({
-      model: MODEL_FAST,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: fileToDataUrl(file) } },
-            { type: 'text', text: draftPrompt }
-          ]
-        }
-      ]
-    });
-  });
+CONTESTO PRECEDENTE: ${previousContext || "Inizio percorso"}.
 
-  const draftText = draftResponse || "";
+REGOLE FONDAMENTALI:
+1. **PROFONDITÀ**: Questa lezione deve essere ESAUSTIVA. Non limitarti a una panoramica. 
+   Spiega ogni concetto in dettaglio, con esempi concreti, formule (in LaTeX $$...$$), e codice dove appropriato.
+   
+2. **STRUTTURA DISCORSIVA**: Scrivi paragrafi completi, non liste puntate. 
+   La lezione deve leggersi come un capitolo di un libro, non come una slide.
 
-  // STEP 2: EXPANDING
-  if (onStatusUpdate) onStatusUpdate("Espansione e iniezione dettagli tecnici...");
+3. **RIFERIMENTI AL TESTO**: Cita specificamente il documento originale.
+   Es. "L'autore, nella sezione X, introduce questo concetto come..."
 
-  const refinementPrompt = `Agisci come un Ricercatore Senior e Editor Tecnico.
+4. **ESEMPI E ANALOGIE**: Ogni concetto importante deve avere un esempio pratico o un'analogia.
 
-Hai ricevuto la seguente BOZZA di lezione (generata sopra):
---- INIZIO BOZZA ---
-${draftText}
---- FINE BOZZA ---
+5. **STRUTTURA**:
+   - Introduzione (il contesto e perché importa)
+   - Concetti Fondamentali (spiegati in dettaglio)
+   - Analisi Approfondita (con riferimenti al testo)
+   - Applicazioni Pratiche
+   - Conclusione (sintesi e connessioni con il prossimo argomento)
 
-IL TUO COMPITO (ESPANSIONE, NON RISCRITTURA):
-1. Mantieni RIGOROSAMENTE la struttura, i titoli e il flusso della bozza. NON cambiare l'ordine degli argomenti.
-2. Il tuo unico scopo è ESPANDERE i paragrafi esistenti iniettando dettagli tecnici precisi dal DOCUMENTO SORGENTE.
-
-AZIONI DI ESPANSIONE:
-- Dove la bozza menziona un concetto matematico, INSERISCI la formula esatta in LaTeX (block mode $$...$$) trovata nel testo originale.
-- Dove la bozza menziona un algoritmo o codice, INSERISCI lo snippet di codice o pseudocodice.
-- Dove la bozza è generica ("L'autore afferma..."), AGGIUNGI la citazione precisa o il dato numerico.
-
-Risultato finale: Una versione densa, tecnica e ricca della bozza originale, ma con la stessa struttura.
+6. **LUNGHEZZA**: Non preoccuparti di essere troppo lungo. Una lezione completa può essere lunga.
+   È meglio essere comprensibili che concisi.
 
 Formatta in Markdown ricco.
 
-AL TERMINE DELLA LEZIONE ESPANSA:
-Genera un separatore "---QUIZ---" seguito da un array JSON di 3 domande a risposta multipla basate ESCLUSIVAMENTE sui dettagli specifici che hai appena inserito.
-Formato JSON Quiz: [{ "question": "...", "options": ["A", "B", "C"], "correctIndex": 0 }]`;
+AL TERMINE DELLA LEZIONE:
+Genera un separatore "---QUIZ---" seguito da un array JSON di 5 domande a risposta multipla basate sulla lezione.
+Formato JSON Quiz: [{ "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }]`;
 
-  const finalResponse = await retryWithBackoff(async () => {
+  const response = await retryWithBackoff(async () => {
     return await callOpenRouter({
-      model: MODEL_PRO,
+      model: MODEL_REASONING,
       messages: [
         { role: 'system', content: SYSTEM_INSTRUCTION_TEACHER },
         {
           role: 'user',
           content: [
             { type: 'image_url', image_url: { url: fileToDataUrl(file) } },
-            { type: 'text', text: refinementPrompt }
+            { type: 'text', text: prompt }
           ]
         }
       ]
     });
   });
 
-  const rawText = finalResponse || "";
+  const rawText = response || "";
   const [content, quizPart] = rawText.split("---QUIZ---");
   
   let quiz = [];
@@ -393,7 +374,7 @@ Se la risposta è nel paper, cita il paper.`;
 
   return retryWithBackoff(async () => {
     const response = await callOpenRouter({
-      model: MODEL_FAST,
+      model: MODEL_FLASH,
       messages: [
         {
           role: 'user',
@@ -437,7 +418,7 @@ const cleanJson = (text: string): string => {
     if (end !== -1) clean = clean.substring(0, end + 1);
     
     clean = clean.replace(/\\u(?![0-9a-fA-F]{4})/g, 'u');
-    clean = clean.replace(/\\(?![bfnrtu"\\\/])/g, '');
+    clean = clean.replace(/\\(?![bfnrtu"\\/])/g, '');
     
     return clean;
 };
@@ -585,7 +566,7 @@ Titles: ${JSON.stringify(modules.map(m => m.title))}
 Return JSON: { "valid": true } or { "valid": false }`;
 
     const response = await callOpenRouter({
-        model: MODEL_FAST,
+        model: MODEL_FLASH,
         messages: [{ role: 'user', content: checkPrompt }],
         response_format: { type: 'json_object' }
     });
@@ -684,13 +665,13 @@ export const generateLearnLessonContent = async (
 ): Promise<string> => {
   const { pastContext, futureContext, currentLessonDescription } = getCurriculumContext(syllabus, currentModuleId, currentLessonId);
 
-  onStatusUpdate("Consulting the archives...");
+  onStatusUpdate("Generating comprehensive lesson...");
   
   const studentContext = profile?.context || "General Learner";
   const studentLevel = profile?.experienceLevel || "Intermediate";
   const studentLang = profile?.language || "Italian";
 
-  const draftPrompt = `ROLE: World-Class Technical Author & Professor.
+  const prompt = `ROLE: World-Class Technical Author & Professor.
 TONE: Authoritative, "No BS", Charismatic, Narrative-driven.
 
 LESSON: "${lessonTitle}" (Module: "${moduleTitle}")
@@ -702,12 +683,15 @@ LANG: ${studentLang}
 
 TECHNICAL CONTEXT: "${contextPrompt || "Explain this clearly."}"
 
+PAST TOPICS (already covered): ${pastContext || "None - this is the first lesson"}
+FUTURE TOPICS (coming next): ${futureContext || "End of curriculum"}
+
 CRITICAL WRITING RULES:
 1. **The Bridge**: If this lesson covers distinct layers (e.g., UI vs Database), you MUST explain the connection. 
 2. **The Hook**: Start with a paradox or a bold statement. Never say "Welcome".
 3. **Visuals**: DO NOT use Mermaid diagrams or any other diagramming language. We cannot render them. Use standard markdown tables, lists, or ASCII art if visual representation is needed.
 4. **Code**: Use realistic, detailed examples.
-5. **Depth**: Write a comprehensive, deep-dive lesson. Do not rush. Expand on concepts thoroughly, explain the 'Why' and 'How' in detail, and provide substantial content.
+5. **Depth**: Write a COMPREHENSIVE, DEEP-DIVE lesson. Do not rush. Expand on concepts thoroughly, explain the 'Why' and 'How' in detail, and provide substantial content. This lesson should be LONG and THOROUGH.
 6. **Structure**: 
    - The Concept (The Mental Model)
    - The Architecture (The 'Why')
@@ -716,35 +700,14 @@ CRITICAL WRITING RULES:
 
 FORMAT: Markdown.`;
 
-  const draftText = await retryWithBackoff(async () => {
+  const response = await retryWithBackoff(async () => {
     return await callOpenRouter({
         model: MODEL_REASONING,
-        messages: [{ role: 'user', content: draftPrompt }]
+        messages: [{ role: 'user', content: prompt }]
     });
   }, 2, 1000);
 
-  onStatusUpdate("Refining the narrative flow...");
-  
-  const critiquePrompt = `ROLE: Senior Editor at a prestigious technical publisher.
-TASK: Polish this lesson.
-
-Directives:
-1. **Check Transitions**: Does the text jump wildly between topics? If so, insert a smooth transition sentence explaining the link.
-2. **Tone Check**: Ensure it sounds like an expert speaking to a peer/apprentice, not a wiki page.
-3. **Sanitize**: Remove "Here is the lesson" or meta-talk.
-4. **Format**: Ensure valid Markdown. DO NOT use Mermaid diagrams.
-5. **Depth**: Ensure the lesson feels comprehensive and not rushed. Expand on sections that feel too brief.
-
-DRAFT TEXT:
-${draftText}`;
-
-  let finalText = await retryWithBackoff(async () => {
-    return await callOpenRouter({
-        model: MODEL_REASONING,
-        messages: [{ role: 'user', content: critiquePrompt }]
-    });
-  }, 1, 1000);
-
+  let finalText = response || "";
   finalText = finalText.replace(/^Here is.*?:\s*/i, '')
                        .replace(/^Certamente.*?:\s*/i, '')
                        .replace(/```json/g, '')

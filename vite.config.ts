@@ -11,7 +11,10 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
-        'process.env.OPENROUTER_API_KEY': JSON.stringify(env.OPENROUTER_API_KEY)
+        'process.env.OPENROUTER_API_KEY': JSON.stringify(env.OPENROUTER_API_KEY),
+        'process.env.MODEL_FLASH': JSON.stringify(env.MODEL_FLASH),
+        'process.env.MODEL_REASONING': JSON.stringify(env.MODEL_REASONING),
+        'process.env.MAX_OUTPUT_TOKENS': JSON.stringify(env.MAX_OUTPUT_TOKENS)
       },
       resolve: {
         alias: {
