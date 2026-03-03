@@ -110,8 +110,7 @@ function startBackend() {
   const npmCmd = isWindows ? 'npm.cmd' : 'npm';
   backendProcess = spawn(npmCmd, ['run', 'dev:backend'], {
     stdio: 'inherit',
-    shell: true,
-    cwd: process.cwd()
+    shell: isWindows
   });
 
   backendProcess.on('error', (err) => {
@@ -134,8 +133,7 @@ function startFrontend() {
   const npmCmd = isWindows ? 'npm.cmd' : 'npm';
   frontendProcess = spawn(npmCmd, ['run', 'dev:frontend'], {
     stdio: 'inherit',
-    shell: true,
-    cwd: process.cwd()
+    shell: isWindows
   });
 
   frontendProcess.on('error', (err) => {
