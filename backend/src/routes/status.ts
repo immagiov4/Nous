@@ -14,20 +14,22 @@ router.get('/', async (req: Request, res: Response) => {
     const processState = processManager.getState();
     const config = loadServerConfig();
     
-    // Check actual server health
+    // Always check actual TTS server health (even if not started by processManager)
     const health = await ttsClient.checkHealth();
+    const isTtsHealthy = health.healthy;
     
     // Calculate uptime
-    const uptime = processState.startTime 
-      ? Math.floor((Date.now() - processState.startTime) / 1000) 
+    const uptime = processState.startTime
+      ? Math.floor((Date.now() - processState.startTime) / 1000)
       : 0;
 
     res.json({
       success: true,
       status: {
-        isRunning: processState.isRunning,
-        isReady: processState.isReady && health.healthy,
-        modelLoaded: health.healthy,
+        // If TTS is healthy, consider it running even if processManager doesn't know about it
+        isRunning: processState.isRunning || isTtsHealthy,
+        isReady: isTtsHealthy,
+        modelLoaded: isTtsHealthy,
         currentDevice: config.device,
         uptime,
         pid: processState.pid,
@@ -38,9 +40,9 @@ router.get('/', async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[Status Route] Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'Failed to get status' 
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get status'
     });
   }
 });

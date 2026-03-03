@@ -57,7 +57,9 @@ app.listen(PORT, () => {
   
   // Check for existing TTS server (don't auto-start)
   console.log('[Backend] Checking for TTS server...');
-  processManager.start();
+  processManager.start().catch(err => {
+    console.error('[Backend] Error checking TTS server:', err);
+  });
 });
 
 // Graceful shutdown
