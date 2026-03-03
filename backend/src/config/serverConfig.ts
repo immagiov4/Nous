@@ -11,7 +11,7 @@ const defaultConfig: ServerConfig = {
   pythonExecutable: 'python',
   ttsServerModule: 'api.main',
   ttsServerCwd: './tts-server',
-  ttsServerPort: 8000,
+  ttsServerPort: 8880, // Changed default to 8880
   ttsServerHost: '127.0.0.1',
   modelId: 'Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign',
   modelCachePath: './models',
