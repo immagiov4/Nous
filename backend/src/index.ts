@@ -50,8 +50,8 @@ app.listen(PORT, () => {
   console.log(`[Backend] Server running on http://localhost:${PORT}`);
   console.log(`[Backend] TTS API available at http://localhost:${PORT}/api/tts`);
   
-  // Start TTS server process
-  console.log('[Backend] Starting TTS server...');
+  // Check for existing TTS server (don't auto-start)
+  console.log('[Backend] Checking for TTS server...');
   processManager.start();
 });
 
