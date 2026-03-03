@@ -29,6 +29,11 @@ app.use('/api/tts', ttsRouter);
 app.use('/api/voices', voicesRouter);
 app.use('/api/status', statusRouter);
 
+// Root redirect to frontend
+app.get('/', (req, res) => {
+  res.redirect('http://localhost:5173');
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -213,13 +213,13 @@ async function main() {
   startFrontend();
 
   log('Lifecycle', 'All services started!', colors.green);
-  log('Lifecycle', 'Press CTRL+C to stop all services', colors.yellow);
-  console.log('\n' + '-'.repeat(60));
-  console.log(`${colors.cyan}  Frontend:  http://localhost:5173${colors.reset}`);
-  console.log(`${colors.cyan}  Backend:   http://localhost:3001${colors.reset}`);
-  console.log(`${colors.cyan}  TTS API:   http://localhost:8000${colors.reset}`);
-  console.log('-'.repeat(60) + '\n');
-}
+    log('Lifecycle', 'Press CTRL+C to stop all services', colors.yellow);
+    console.log('\n' + '-'.repeat(60));
+    console.log(`${colors.cyan}  Frontend:  http://localhost:5173${colors.reset}`);
+    console.log(`${colors.cyan}  Backend:   http://localhost:3001${colors.reset}`);
+    console.log(`${colors.cyan}  TTS API:   http://localhost:8880${colors.reset}`);
+    console.log('-'.repeat(60) + '\n');
+  }
 
 main().catch((err) => {
   log('Lifecycle', `Fatal error: ${err.message}`, colors.red);
