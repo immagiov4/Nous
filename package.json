@@ -10,8 +10,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
-    "@google/genai": "^1.38.0",
-    "@types/react-syntax-highlighter": "^15.5.13",
+      "@types/react-syntax-highlighter": "^15.5.13",
     "jszip": "3.10.1",
     "lucide-react": "^0.563.0",
     "react": "^19.2.4",
