@@ -6,8 +6,8 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 // Model configuration from environment variables
-export const MODEL_FLASH = process.env.MODEL_FLASH || 'google/gemini-2.5-flash-preview';
-export const MODEL_REASONING = process.env.MODEL_REASONING || 'google/gemini-2.5-flash-preview';
+export const MODEL_FLASH = process.env.MODEL_FLASH || 'google/gemini-3-flash-preview';
+export const MODEL_REASONING = process.env.MODEL_REASONING || 'google/gemini-3-flash-preview';
 
 // Max output tokens from environment (default: 32000)
 const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || '32000', 10);
