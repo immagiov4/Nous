@@ -47,7 +47,11 @@
         height: 100%;
         margin: 0;
         padding: 0;
-        overflow: hidden; /* Prevent body scroll, handle inside app */
+        overflow: auto; /* Allow scrolling */
+      }
+      
+      #root {
+        min-height: 100vh;
       }
       body {
         background-color: var(--bg-paper);
@@ -141,7 +145,7 @@
       }
       
       #root {
-        height: 100%;
+        min-height: 100vh;
         display: flex;
         flex-direction: column;
       }

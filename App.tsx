@@ -1355,9 +1355,9 @@ const App: React.FC = () => {
   };
 
   // ... (Upload View, Assessment View - Same)
-  if (state === AppState.UPLOAD) { 
+  if (state === AppState.UPLOAD) {
       return (
-      <div className="h-full w-full flex items-center justify-center bg-paper-light dark:bg-paper-dark p-4 transition-colors duration-300">
+      <div className="min-h-screen w-full flex items-center justify-center bg-paper-light dark:bg-paper-dark p-4 transition-colors duration-300">
         <button 
           onClick={() => setIsDarkMode(!isDarkMode)}
           className="absolute top-6 right-6 p-2 rounded-full text-gray-500 hover:bg-gray-200 dark:hover:bg-zinc-800 dark:text-gray-400 transition-colors"
@@ -1578,7 +1578,7 @@ const App: React.FC = () => {
   }
   if (state === AppState.ASSESSMENT) {
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center bg-paper-light dark:bg-paper-dark p-4 font-sans transition-colors duration-300">
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-paper-light dark:bg-paper-dark p-4 font-sans transition-colors duration-300">
         <div className="max-w-3xl w-full bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border border-gray-100 dark:border-zinc-800 overflow-hidden flex flex-col h-[80vh]">
           <div className="p-6 border-b border-gray-100 dark:border-zinc-800 bg-orange-50 dark:bg-zinc-900 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -1656,7 +1656,7 @@ const App: React.FC = () => {
   if (state === AppState.PLANNING) { return <LoadingScreen message="Analisi Volume in Corso..." subMessage={loadingStatus || "Costruzione piano..."} />; }
 
   return (
-    <div className="h-full flex bg-paper-light dark:bg-paper-dark font-sans overflow-hidden transition-colors duration-300" onClick={handleGlobalClick}>
+    <div className="min-h-screen flex bg-paper-light dark:bg-paper-dark font-sans transition-colors duration-300" onClick={handleGlobalClick}>
       
       {/* IMPLICIT AUTOTRACK: If ruler is active, we pass it down */}
       {isRulerActive && (
@@ -1781,7 +1781,7 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 relative flex flex-col h-full overflow-hidden bg-paper-light dark:bg-paper-dark transition-colors duration-300">
+      <div className="flex-1 relative flex flex-col min-h-0 bg-paper-light dark:bg-paper-dark transition-colors duration-300">
         
         {/* HEADER 
             UPDATED: Opacity changes based on isRulerActive and Hover state.
@@ -1876,9 +1876,9 @@ const App: React.FC = () => {
            </div>
         </div>
 
-        <div 
+        <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto relative scroll-smooth"
+          className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth"
         >
           <div className={`mx-auto py-12 px-12 pb-48 transition-all duration-500 ${isFocusMode ? 'max-w-3xl' : 'max-w-4xl'}`}>
             
