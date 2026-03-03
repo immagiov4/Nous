@@ -107,10 +107,10 @@ async function killAllPorts() {
 function startBackend() {
   log('Backend', 'Starting Node.js backend...', colors.green);
   
-  const npmCmd = isWindows ? 'npm.cmd' : 'npm';
-  backendProcess = spawn(npmCmd, ['run', 'dev:backend'], {
+  const cmd = isWindows ? 'npm.cmd' : 'npm';
+  backendProcess = spawn(cmd, ['run', 'dev:backend'], {
     stdio: 'inherit',
-    shell: isWindows
+    shell: true
   });
 
   backendProcess.on('error', (err) => {
@@ -130,10 +130,10 @@ function startBackend() {
 function startFrontend() {
   log('Frontend', 'Starting Vite dev server...', colors.green);
   
-  const npmCmd = isWindows ? 'npm.cmd' : 'npm';
-  frontendProcess = spawn(npmCmd, ['run', 'dev:frontend'], {
+  const cmd = isWindows ? 'npm.cmd' : 'npm';
+  frontendProcess = spawn(cmd, ['run', 'dev:frontend'], {
     stdio: 'inherit',
-    shell: isWindows
+    shell: true
   });
 
   frontendProcess.on('error', (err) => {
