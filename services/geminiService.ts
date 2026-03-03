@@ -390,15 +390,103 @@ Se la risposta è nel paper, cita il paper.`;
   });
 };
 
+// Backend TTS API URL
+const BACKEND_URL = 'http://localhost:3001';
+
 /**
- * Generates audio speech from text.
- * Note: OpenRouter doesn't support TTS directly. This would need a separate TTS service.
- * For now, we'll throw an error indicating TTS is not available.
+ * Generates audio speech from text using the local TTS server.
+ * Supports both legacy Gemini voices (for backward compatibility) and new Qwen3-TTS voices.
  */
 export const generateSpeech = async (text: string, voice: VoiceName): Promise<ArrayBuffer> => {
-  // TTS is not supported via OpenRouter
-  // You would need to integrate a separate TTS service (e.g., ElevenLabs, OpenAI TTS, etc.)
-  throw new Error("Text-to-speech is not currently supported with OpenRouter. Please integrate a separate TTS provider.");
+  // Map legacy Gemini voices to new TTS voices
+  const voiceMapping: Record<string, string> = {
+    'Kore': 'giulia',    // Female voice
+    'Fenrir': 'marco',   // Male voice
+    'Puck': 'marco',     // Male voice
+    'Zephyr': 'giulia',  // Female voice
+    'Charon': 'marco',   // Male voice
+    'Marco': 'marco',    // Direct mapping
+    'Giulia': 'giulia'   // Direct mapping
+  };
+
+  const ttsVoice = voiceMapping[voice] || 'marco';
+
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/tts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text,
+        voice: ttsVoice,
+        speed: 1.0
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(`TTS API error: ${response.status} - ${errorData.error || 'Unknown error'}`);
+    }
+
+    return response.arrayBuffer();
+  } catch (error: any) {
+    // Check if it's a connection error
+    if (error.code === 'ECONNREFUSED' || error.message?.includes('Failed to fetch')) {
+      throw new Error('TTS server is not running. Please start the server with "npm run dev"');
+    }
+    throw error;
+  }
+};
+
+/**
+ * Check if the TTS server is available and ready.
+ */
+export const checkTTSStatus = async (): Promise<{ isRunning: boolean; isReady: boolean; error?: string }> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/status`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (!response.ok) {
+      return { isRunning: false, isReady: false, error: `Status check failed: ${response.status}` };
+    }
+
+    const data = await response.json();
+    return {
+      isRunning: data.status?.isRunning || false,
+      isReady: data.status?.isReady || false,
+      error: data.status?.lastError
+    };
+  } catch (error: any) {
+    return {
+      isRunning: false,
+      isReady: false,
+      error: error.message || 'Connection failed'
+    };
+  }
+};
+
+/**
+ * Get available TTS voices.
+ */
+export const getTTSVoices = async (): Promise<{ id: string; name: string; language: string }[]> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/voices`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+    return data.voices || [];
+  } catch {
+    return [];
+  }
 };
 
 // --- LEARN MODE (NO ATTACHMENTS) ---

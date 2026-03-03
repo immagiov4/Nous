@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Loader2, Volume2, FastForward, SkipForward, SkipBack, ChevronRight, Crosshair } from 'lucide-react';
+import { Play, Pause, Loader2, Volume2, FastForward, SkipForward, SkipBack, ChevronRight, Crosshair, Wifi, WifiOff } from 'lucide-react';
 import { VoiceName } from '../types';
 
 interface AudioPlayerProps {
@@ -11,6 +11,7 @@ interface AudioPlayerProps {
   isAudioSyncLinked: boolean; 
   currentTime: number;
   duration: number;
+  ttsConnected?: boolean; // New: TTS connection status
   onPlayPause: () => void;
   onVoiceChange: (voice: VoiceName) => void;
   onSpeedChange: (speed: number) => void;
@@ -28,6 +29,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   isAudioSyncLinked,
   currentTime,
   duration,
+  ttsConnected = false,
   onPlayPause,
   onVoiceChange,
   onSpeedChange,
@@ -36,7 +38,8 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onSkipChunk
 }) => {
   
-  const voices: VoiceName[] = ['Charon', 'Fenrir', 'Kore', 'Puck', 'Zephyr'];
+  // Updated voices to include Marco and Giulia
+  const voices: VoiceName[] = ['Marco', 'Giulia', 'Charon', 'Fenrir', 'Kore'];
   
   // State for docking logic
   const [isHovered, setIsHovered] = useState(false);
@@ -125,6 +128,25 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
         `}
       >
         
+        {/* TTS Connection Indicator */}
+        {!isVertical && (
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2">
+              {ttsConnected ? (
+                <>
+                  <Wifi className="w-3 h-3 text-green-500" />
+                  <span className="text-[10px] font-medium text-green-600 dark:text-green-400">TTS Connesso</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-3 h-3 text-red-500" />
+                  <span className="text-[10px] font-medium text-red-600 dark:text-red-400">TTS Disconnesso</span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+        
         {/* Timeline (Horizontal Only) */}
         {!isVertical && (
           <div className="w-full flex items-center gap-3 text-[11px] font-mono font-medium text-gray-500 dark:text-gray-400 mb-1 px-1">
@@ -152,6 +174,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
               <button
               onClick={onPlayPause}
+              disabled={!ttsConnected && !isPlaying}
               className={`
                 w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200 shadow-md
                 ${isLoading 
@@ -160,10 +183,12 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
                     ? 'bg-black dark:bg-white text-white dark:text-black hover:scale-105' 
                     : isDockedState 
                         ? 'bg-transparent border border-current text-gray-400 dark:text-zinc-500' // Ring only in ghost mode
-                        : 'bg-black dark:bg-white text-white dark:text-black hover:scale-105 pl-1' 
+                        : !ttsConnected
+                          ? 'bg-gray-300 dark:bg-zinc-700 text-gray-500 dark:text-zinc-400 cursor-not-allowed'
+                          : 'bg-black dark:bg-white text-white dark:text-black hover:scale-105 pl-1' 
                 }
               `}
-              title={isLoading ? "In caricamento (Clicca per annullare/pausa)" : isPlaying ? "Pausa" : "Play"}
+              title={!ttsConnected && !isPlaying ? "TTS non disponibile" : isLoading ? "In caricamento (Clicca per annullare/pausa)" : isPlaying ? "Pausa" : "Play"}
             >
               {isLoading ? (
                 <div className="relative">
@@ -195,7 +220,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
                   value={currentVoice}
                   onChange={(e) => onVoiceChange(e.target.value as VoiceName)}
                   className={`bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none cursor-pointer ${iconColorClass} ${iconHoverClass} text-center appearance-none min-w-[70px]`}
-                  disabled={isLoading || isPlaying}
+                  disabled={isLoading || isPlaying || !ttsConnected}
                 >
                   {voices.map(v => (
                     <option key={v} value={v} className="dark:bg-zinc-800 dark:text-gray-100">{v}</option>

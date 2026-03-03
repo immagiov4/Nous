@@ -69,7 +69,18 @@ export interface ContextMenuState {
   selectedText: string;
 }
 
-export type VoiceName = 'Kore' | 'Fenrir' | 'Puck' | 'Zephyr' | 'Charon';
+// Updated VoiceName to support both legacy Gemini voices and new TTS voices
+export type VoiceName = 'Kore' | 'Fenrir' | 'Puck' | 'Zephyr' | 'Charon' | 'Marco' | 'Giulia';
+
+// TTS Status interface
+export interface TTSStatus {
+  isRunning: boolean;
+  isReady: boolean;
+  modelLoaded: boolean;
+  currentDevice: string;
+  uptime: number;
+  lastError?: string;
+}
 
 export interface AudioChunk {
   text: string;

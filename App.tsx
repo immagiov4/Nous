@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Upload, BookOpen, CheckCircle2, ChevronRight, BrainCircuit, GraduationCap, MessageSquare, Download, FileJson, CornerDownRight, Eye, EyeOff, Ruler, ArrowRight, FileText, X, Moon, Sun, ChevronsUp, ChevronsDown, SidebarOpen, SidebarClose, Gauge, Archive, FolderArchive } from 'lucide-react';
+import { Upload, BookOpen, CheckCircle2, ChevronRight, BrainCircuit, GraduationCap, MessageSquare, Download, FileJson, CornerDownRight, Eye, EyeOff, Ruler, ArrowRight, FileText, X, Moon, Sun, ChevronsUp, ChevronsDown, SidebarOpen, SidebarClose, Gauge, Archive, FolderArchive, Wifi, WifiOff } from 'lucide-react';
 import JSZip from 'jszip';
 import { FileData, AppState, Message, LearningPlan, LearningSection, ContextMenuState, VoiceName, AudioState, AudioChunk, CalibrationPoint } from './types';
 import * as GeminiService from './services/geminiService';
@@ -125,7 +125,7 @@ const App: React.FC = () => {
   // Audio State
   const [audioState, setAudioState] = useState<AudioState>({
     isPlaying: false,
-    currentVoice: 'Charon', 
+    currentVoice: 'Marco',
     playbackRate: 1.0,
     chunks: [],
     currentChunkIndex: 0,
@@ -143,6 +143,10 @@ const App: React.FC = () => {
   
   // NEW: Audio Sync Link State (Mirino)
   const [isAudioSyncLinked, setIsAudioSyncLinked] = useState(false);
+  
+  // NEW: TTS Connection Status
+  const [ttsConnected, setTtsConnected] = useState(false);
+  const ttsCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Refs
   const contentRef = useRef<HTMLDivElement>(null);
@@ -189,6 +193,30 @@ const App: React.FC = () => {
       setIsAutoTrackEnabled(audioState.isPlaying);
     }
   }, [audioState.isPlaying, isAudioSyncLinked]);
+
+  // TTS Status Check
+  useEffect(() => {
+    const checkTTS = async () => {
+      try {
+        const status = await GeminiService.checkTTSStatus();
+        setTtsConnected(status.isReady);
+      } catch {
+        setTtsConnected(false);
+      }
+    };
+
+    // Check immediately
+    checkTTS();
+
+    // Then check every 10 seconds
+    ttsCheckIntervalRef.current = setInterval(checkTTS, 10000);
+
+    return () => {
+      if (ttsCheckIntervalRef.current) {
+        clearInterval(ttsCheckIntervalRef.current);
+      }
+    };
+  }, []);
 
 
   useEffect(() => {
@@ -1845,7 +1873,7 @@ const App: React.FC = () => {
         
         {/* Audio Player now visible in BOTH modes, but prop controls layout */}
         {sectionContent && (
-          <AudioPlayer 
+          <AudioPlayer
             isPlaying={audioState.isPlaying}
             // CRITICAL: Only show loading on player if CURRENT chunk is loading.
             // Future chunks loading in bg should not lock UI.
@@ -1862,6 +1890,7 @@ const App: React.FC = () => {
             onSkipChunk={handleSkipChunk}
             isAudioSyncLinked={isAudioSyncLinked}
             onToggleAudioSyncLink={handleToggleAudioSyncLink}
+            ttsConnected={ttsConnected}
           />
         )}
         
