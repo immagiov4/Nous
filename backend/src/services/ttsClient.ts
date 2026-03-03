@@ -28,26 +28,26 @@ class TTSClient {
       }
     }
 
-    // Default profiles
-    return {
-      profiles: [
-        {
-          id: 'marco',
-          name: 'Marco',
-          language: 'it-IT',
-          mode: 'voice_design',
-          voiceDesignPrompt: 'Un uomo italiano di 40 anni, voce calda e professionale',
-          modelSettings: { temperature: 0.7, speed: 1.0 }
-        },
-        {
-          id: 'giulia',
-          name: 'Giulia',
-          language: 'it-IT',
-          mode: 'voice_design',
-          voiceDesignPrompt: 'Una donna italiana di 30 anni, voce chiara e amichevole',
-          modelSettings: { temperature: 0.8, speed: 1.0 }
-        }
-      ],
+    // Default profiles - using supported TTS speaker names
+        return {
+          profiles: [
+            {
+              id: 'marco',
+              name: 'Marco',
+              language: 'it-IT',
+              mode: 'voice_design',
+              voiceDesignPrompt: 'eric',
+              modelSettings: { temperature: 0.7, speed: 1.0 }
+            },
+            {
+              id: 'giulia',
+              name: 'Giulia',
+              language: 'it-IT',
+              mode: 'voice_design',
+              voiceDesignPrompt: 'serena',
+              modelSettings: { temperature: 0.8, speed: 1.0 }
+            }
+          ],
       defaultProfile: 'marco'
     };
   }
@@ -87,7 +87,7 @@ class TTSClient {
       temperature = defaultProfile.modelSettings.temperature;
     }
 
-    console.log(`[TTSClient] Generating speech for ${text.length} chars with voice: ${voice || 'default'}`);
+    console.log(`[TTSClient] Generating speech for ${text.length} chars with voice: ${voice || 'default'} -> using speaker: ${voicePrompt}`);
 
     // Call the OpenAI-compatible TTS API
     const response = await fetch(`${this.serverUrl}/v1/audio/speech`, {
