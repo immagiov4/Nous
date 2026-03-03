@@ -37,12 +37,13 @@ router.get('/', (req: Request, res: Response) => {
  */
 router.get('/:id', (req: Request, res: Response) => {
   try {
-    const profile = ttsClient.getVoiceProfile(req.params.id);
+    const voiceId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const profile = ttsClient.getVoiceProfile(voiceId);
 
     if (!profile) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Voice profile not found' 
+      return res.status(404).json({
+        success: false,
+        error: 'Voice profile not found'
       });
     }
 
