@@ -391,7 +391,7 @@ Se la risposta è nel paper, cita il paper.`;
 };
 
 // Backend TTS API URL
-const BACKEND_URL = 'http://localhost:3001';
+const BACKEND_URL = 'http://localhost:56372';
 
 /**
  * Generates audio speech from text using the local TTS server.
