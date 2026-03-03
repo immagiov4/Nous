@@ -1,5 +1,5 @@
 {
-  "pythonExecutable": "python",
+  "pythonExecutable": "C:\\Python313\\python.exe",
   "ttsServerModule": "api.main",
   "ttsServerCwd": "./tts-server",
   "ttsServerPort": 8000,
