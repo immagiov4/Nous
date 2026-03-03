@@ -93,7 +93,7 @@ function killPort(port) {
 async function killAllPorts() {
   log('Lifecycle', 'Cleaning up existing processes...', colors.yellow);
   await Promise.all([
-    killPort(8880),  // TTS Server (don't kill if manually running)
+    // DON'T kill port 8880 - user may have TTS server running manually
     killPort(3001),  // Backend
     killPort(5173)   // Frontend
   ]);
