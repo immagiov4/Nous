@@ -81,7 +81,7 @@ async function stopAll() {
   console.log('='.repeat(50) + '\n');
 
   const ports = [
-    { port: 8000, name: 'TTS Server' },
+    { port: 8880, name: 'TTS Server' },
     { port: 3001, name: 'Backend' },
     { port: 5173, name: 'Frontend' }
   ];

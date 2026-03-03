@@ -29,6 +29,26 @@ class ProcessManager {
       return true;
     }
 
+    // First, check if TTS server is already running externally
+    console.log('[ProcessManager] Checking for existing TTS server...');
+    try {
+      const response = await fetch(`http://${this.config.ttsServerHost}:${this.config.ttsServerPort}/health`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(3000)
+      });
+      
+      if (response.ok) {
+        console.log('[ProcessManager] TTS server already running externally!');
+        this.state.isRunning = true;
+        this.state.isReady = true;
+        this.state.startTime = Date.now();
+        this.startHealthCheck();
+        return true;
+      }
+    } catch (error) {
+      console.log('[ProcessManager] No external TTS server found, attempting to start...');
+    }
+
     console.log('[ProcessManager] Starting TTS server...');
     console.log(`[ProcessManager] Python: ${this.config.pythonExecutable}`);
     console.log(`[ProcessManager] Module: ${this.config.ttsServerModule}`);
