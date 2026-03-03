@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Upload, BookOpen, CheckCircle2, ChevronRight, BrainCircuit, GraduationCap, MessageSquare, Download, FileJson, CornerDownRight, Eye, EyeOff, Ruler, ArrowRight, FileText, X, Moon, Sun, ChevronsUp, ChevronsDown, SidebarOpen, SidebarClose, Gauge, Archive, FolderArchive, Wifi, WifiOff } from 'lucide-react';
+import { Upload, BookOpen, CheckCircle2, ChevronRight, BrainCircuit, GraduationCap, MessageSquare, Download, FileJson, CornerDownRight, Eye, EyeOff, Ruler, ArrowRight, FileText, X, Moon, Sun, ChevronsUp, ChevronsDown, SidebarOpen, SidebarClose, Gauge, Archive, FolderArchive, Wifi, WifiOff, Volume2, Play, Pause } from 'lucide-react';
 import JSZip from 'jszip';
 import { FileData, AppState, Message, LearningPlan, LearningSection, ContextMenuState, VoiceName, AudioState, AudioChunk, CalibrationPoint } from './types';
 import * as GeminiService from './services/geminiService';
@@ -147,6 +147,12 @@ const App: React.FC = () => {
   // NEW: TTS Connection Status
   const [ttsConnected, setTtsConnected] = useState(false);
   const ttsCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  // TTS Test State
+  const [testVoice, setTestVoice] = useState<VoiceName>('Marco');
+  const [testText, setTestText] = useState<string>("Ciao! Sono la tua voce AI. Questo è un test del sistema di sintesi vocale.");
+  const [isTestPlaying, setIsTestPlaying] = useState(false);
+  const testAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Refs
   const contentRef = useRef<HTMLDivElement>(null);
@@ -696,6 +702,45 @@ const App: React.FC = () => {
          setIsRulerActive(audioState.isPlaying);
          setIsAutoTrackEnabled(audioState.isPlaying);
      }
+  };
+
+  // TTS Test Handler
+  const handleTTSPlayTest = async () => {
+    if (isTestPlaying && testAudioRef.current) {
+      testAudioRef.current.pause();
+      setIsTestPlaying(false);
+      return;
+    }
+
+    setIsTestPlaying(true);
+    try {
+      const pcmBuffer = await GeminiService.generateSpeech(testText, testVoice);
+      const wavBlob = createWavBlob(pcmBuffer);
+      const url = URL.createObjectURL(wavBlob);
+      
+      if (testAudioRef.current) {
+        testAudioRef.current.pause();
+      }
+      
+      const audio = new Audio(url);
+      testAudioRef.current = audio;
+      
+      audio.onended = () => {
+        setIsTestPlaying(false);
+        URL.revokeObjectURL(url);
+      };
+      
+      audio.onerror = () => {
+        setIsTestPlaying(false);
+        alert("Errore nella riproduzione audio");
+      };
+      
+      await audio.play();
+    } catch (error: any) {
+      console.error("TTS Test error:", error);
+      alert("Errore TTS: " + error.message);
+      setIsTestPlaying(false);
+    }
   };
 
   // Helper to extract text from a zip file
@@ -1445,6 +1490,87 @@ const App: React.FC = () => {
                 Carica almeno il file Fonte (PDF o ZIP) per attivare l'analisi del documento.
               </p>
             )}
+          </div>
+
+          {/* TTS Test Panel */}
+          <div className="mt-8 pt-8 border-t border-gray-200 dark:border-zinc-800">
+            <div className="max-w-2xl mx-auto">
+              <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-zinc-800">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                    <Volume2 className="w-5 h-5 text-orange-500" />
+                    Test Sintesi Vocale (Qwen3-TTS)
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    {ttsConnected ? (
+                      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                        <Wifi className="w-3 h-3" /> Connesso
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+                        <WifiOff className="w-3 h-3" /> Disconnesso
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  {/* Voice Selection */}
+                  <div className="flex items-center gap-4">
+                    <label className="text-sm text-gray-600 dark:text-gray-400">Voce:</label>
+                    <div className="flex gap-2">
+                      {(['Marco', 'Giulia'] as VoiceName[]).map((voice) => (
+                        <button
+                          key={voice}
+                          onClick={() => setTestVoice(voice)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                            testVoice === voice
+                              ? 'bg-orange-600 text-white'
+                              : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-zinc-700'
+                          }`}
+                        >
+                          {voice}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Text Input */}
+                  <div>
+                    <textarea
+                      value={testText}
+                      onChange={(e) => setTestText(e.target.value)}
+                      placeholder="Inserisci il testo da sintetizzare..."
+                      className="w-full p-3 border border-gray-200 dark:border-zinc-700 rounded-lg bg-gray-50 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 text-sm resize-none"
+                      rows={3}
+                    />
+                  </div>
+                  
+                  {/* Play Button */}
+                  <button
+                    onClick={handleTTSPlayTest}
+                    disabled={!ttsConnected}
+                    className={`w-full py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                      ttsConnected
+                        ? isTestPlaying
+                          ? 'bg-red-500 text-white hover:bg-red-600'
+                          : 'bg-orange-600 text-white hover:bg-orange-700'
+                        : 'bg-gray-300 dark:bg-zinc-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {isTestPlaying ? (
+                      <>
+                        <Pause className="w-5 h-5" /> Interrompi
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-5 h-5" /> Riproduci Test
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
