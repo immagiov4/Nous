@@ -93,6 +93,50 @@ Two Italian voices are pre-configured:
 | **Marco** | Male, 40 years, warm and professional |
 | **Giulia** | Female, 30 years, clear and friendly |
 
+## Model Variants (1.7B vs 0.6B)
+
+The app now uses cloned voice flow (`clone:Mario`) and must run a **Base** model.
+
+- `Qwen/Qwen3-TTS-12Hz-1.7B-Base`: better quality, slower.
+- `Qwen/Qwen3-TTS-12Hz-0.6B-Base`: faster, lower quality.
+
+### Quick switch (PowerShell)
+
+Start with **0.6B**:
+
+```powershell
+$env:TTS_MODEL_NAME="Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+npm run dev
+```
+
+Start with **1.7B**:
+
+```powershell
+$env:TTS_MODEL_NAME="Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+npm run dev
+```
+
+### If you run only the Python TTS server manually
+
+```powershell
+cd tts-server
+$env:TTS_BACKEND="official"
+$env:TTS_MODEL_NAME="Qwen/Qwen3-TTS-12Hz-0.6B-Base"  # or 1.7B-Base
+$env:FORCED_VOICE_PROFILE="Mario"
+python -m api.main
+```
+
+### Verify active model
+
+Check startup logs and confirm:
+
+- `Model: Qwen/Qwen3-TTS-12Hz-0.6B-Base` (or `1.7B-Base`)
+- Voice clone capability endpoint returns `supported: true`:
+
+```powershell
+Invoke-RestMethod http://localhost:8880/v1/audio/voice-clone/capabilities
+```
+
 ## Configuration
 
 Edit `server.config.json` to customize:

@@ -289,6 +289,7 @@ class PyTorchCPUBackend(TTSBackend):
         language: str = "Auto",
         x_vector_only_mode: bool = False,
         speed: float = 1.0,
+        cache_key: Optional[str] = None,
     ) -> Tuple[np.ndarray, int]:
         """
         Generate speech by cloning a voice from reference audio.
@@ -301,6 +302,7 @@ class PyTorchCPUBackend(TTSBackend):
             language: Language code
             x_vector_only_mode: If True, use x-vector only
             speed: Speech speed multiplier
+            cache_key: Optional cache key (used by optimized backend, ignored here)
         
         Returns:
             Tuple of (audio_array, sample_rate)

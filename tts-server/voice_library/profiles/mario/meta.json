@@ -1,0 +1,11 @@
+{
+  "name": "Mario",
+  "profile_id": "mario",
+  "ref_audio_filename": "reference.wav",
+  "ref_text": "",
+  "x_vector_only_mode": false,
+  "language": "it",
+  "mode": "custom_voice",
+  "voice_id": "qwen-tts-vc-Mario-voice-20260304090728458-5ea0",
+  "target_model": "qwen3-tts-vc-2026-01-22"
+}

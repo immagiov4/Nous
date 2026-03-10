@@ -11,6 +11,7 @@ request (voice-library profiles always require the Base model).
 """
 
 import asyncio
+import importlib.util
 import logging
 import os
 import time
@@ -135,6 +136,21 @@ class OptimizedQwen3TTSBackend(TTSBackend):
 
         opt = self.config.get("optimization", {})
         attn_impl = opt.get("attention", "flash_attention_2")
+        if attn_impl == "flash_attention_2" and self.device != "cpu":
+            has_flash_attn_pkg = importlib.util.find_spec("flash_attn") is not None
+            sm_major = 0
+            sm_minor = 0
+            try:
+                sm_major, sm_minor = torch.cuda.get_device_capability(0)
+            except Exception:
+                pass
+            if not has_flash_attn_pkg or sm_major < 8:
+                logger.info(
+                    "Configured flash_attention_2 is not supported on this runtime; "
+                    f"falling back to sdpa (flash_attn_installed={has_flash_attn_pkg}, "
+                    f"compute_capability={sm_major}.{sm_minor})"
+                )
+                attn_impl = "sdpa"
 
         try:
             self.model = Qwen3TTSModel.from_pretrained(

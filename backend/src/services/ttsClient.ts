@@ -28,27 +28,19 @@ class TTSClient {
       }
     }
 
-    // Default profiles - using supported TTS speaker names
-        return {
-          profiles: [
-            {
-              id: 'marco',
-              name: 'Marco',
-              language: 'it-IT',
-              mode: 'voice_design',
-              voiceDesignPrompt: 'eric',
-              modelSettings: { temperature: 0.7, speed: 1.0 }
-            },
-            {
-              id: 'giulia',
-              name: 'Giulia',
-              language: 'it-IT',
-              mode: 'voice_design',
-              voiceDesignPrompt: 'serena',
-              modelSettings: { temperature: 0.8, speed: 1.0 }
-            }
-          ],
-      defaultProfile: 'marco'
+    // Default profiles - force clone profile only
+    return {
+      profiles: [
+        {
+          id: 'mario',
+          name: 'Mario',
+          language: 'it-IT',
+          mode: 'voice_design',
+          voiceDesignPrompt: 'clone:Mario',
+          modelSettings: { temperature: 0.7, speed: 1.0 }
+        }
+      ],
+      defaultProfile: 'mario'
     };
   }
 
@@ -68,24 +60,20 @@ class TTSClient {
   async generateSpeech(request: TTSRequest): Promise<ArrayBuffer> {
     const { text, voice, speed = 1.0 } = request;
 
-    // Resolve voice profile
+    // Resolve voice profile (forced to clone:Mario)
     let voicePrompt: string;
     let temperature = 0.7;
 
     if (voice) {
       const profile = this.getVoiceProfile(voice);
       if (profile) {
-        voicePrompt = profile.voiceDesignPrompt;
         temperature = profile.modelSettings.temperature;
-      } else {
-        // Treat as direct voice design prompt
-        voicePrompt = voice;
       }
     } else {
       const defaultProfile = this.getDefaultProfile();
-      voicePrompt = defaultProfile.voiceDesignPrompt;
       temperature = defaultProfile.modelSettings.temperature;
     }
+    voicePrompt = 'clone:Mario';
 
     console.log(`[TTSClient] Generating speech for ${text.length} chars with voice: ${voice || 'default'} -> using speaker: ${voicePrompt}`);
 

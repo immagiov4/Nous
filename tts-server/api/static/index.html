@@ -439,15 +439,7 @@
                         <div class="form-group">
                             <label for="voice">Voice</label>
                             <select id="voice">
-                                <option value="Vivian">Vivian (Female, English)</option>
-                                <option value="Ryan">Ryan (Male, English)</option>
-                                <option value="Sophia">Sophia (Female, English)</option>
-                                <option value="Isabella">Isabella (Female, English)</option>
-                                <option value="Evan">Evan (Male, English)</option>
-                                <option value="Lily">Lily (Female, English)</option>
-                                <option value="alloy">Alloy (OpenAI)</option>
-                                <option value="echo">Echo (OpenAI)</option>
-                                <option value="nova">Nova (OpenAI)</option>
+                                <option value="clone:Mario">clone:Mario (Custom)</option>
                             </select>
                         </div>
 
@@ -676,7 +668,7 @@ client = OpenAI(
 <span class="comment"># Generate speech</span>
 response = client.audio.speech.<span class="function">create</span>(
     model=<span class="string">"qwen3-tts"</span>,
-    voice=<span class="string">"Vivian"</span>,
+    voice=<span class="string">"clone:Mario"</span>,
     input=<span class="string">"Hello! This is Qwen3-TTS."</span>
 )
 
@@ -815,6 +807,7 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
 
         // Load voices from API
         async function loadVoices() {
+            const forcedVoice = 'clone:Mario';
             try {
                 let response = await fetch('/v1/audio/voices');
                 if (!response.ok) {
@@ -824,19 +817,16 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
                     const data = await response.json();
                     const voiceSelect = document.getElementById('voice');
                     voiceSelect.innerHTML = '';
-                    
-                    data.voices.forEach(voice => {
-                        const option = document.createElement('option');
-                        option.value = voice.id;
-                        let voiceTypeLabel = 'Qwen3 voice';
-                        if ((voice.description || '').toLowerCase().includes('custom cloned voice')) {
-                            voiceTypeLabel = 'Custom voice';
-                        } else if ((voice.description || '').toLowerCase().includes('openai-compatible')) {
-                            voiceTypeLabel = 'OpenAI alias';
-                        }
-                        option.textContent = `${voice.name} [${voiceTypeLabel}]` + (voice.description ? ` - ${voice.description}` : '');
-                        voiceSelect.appendChild(option);
-                    });
+                    const marioVoice = (data.voices || []).find(
+                        (voice) => (voice.id || '').toLowerCase() === forcedVoice.toLowerCase()
+                    );
+                    const option = document.createElement('option');
+                    option.value = forcedVoice;
+                    option.textContent = marioVoice
+                        ? `${marioVoice.name} [Custom voice]` + (marioVoice.description ? ` - ${marioVoice.description}` : '')
+                        : 'clone:Mario [Custom voice]';
+                    voiceSelect.appendChild(option);
+                    voiceSelect.value = forcedVoice;
 
                     // Populate language dropdown from API if available
                     if (data.languages && data.languages.length > 0) {

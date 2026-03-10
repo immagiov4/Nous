@@ -13,7 +13,7 @@ const defaultConfig: ServerConfig = {
   ttsServerCwd: './tts-server',
   ttsServerPort: 8880, // Changed default to 8880
   ttsServerHost: '127.0.0.1',
-  modelId: 'Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign',
+  modelId: 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
   modelCachePath: './models',
   device: 'auto',
   startupTimeoutMs: 120000,

@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -26,6 +27,8 @@ from ..structures.schemas import (
     VoiceInfo,
     VoiceCloneRequest,
     VoiceCloneCapabilities,
+    CloudVoiceEnrollmentRequest,
+    CloudVoiceEnrollmentResponse,
 )
 from ..services.text_processing import normalize_text
 from ..services.audio_encoding import encode_audio, get_content_type, DEFAULT_SAMPLE_RATE
@@ -46,6 +49,8 @@ _generation_semaphore = asyncio.Semaphore(_MAX_CONCURRENT)
 VOICE_LIBRARY_DIR = Path(
     os.environ.get("VOICE_LIBRARY_DIR", "./voice_library")
 ).resolve()
+FORCED_VOICE_PROFILE = os.environ.get("FORCED_VOICE_PROFILE", "Mario")
+FORCED_CLONE_VOICE = f"clone:{FORCED_VOICE_PROFILE}"
 
 # In-process cache for reference audio reads (profile_name -> (audio_np, sample_rate)).
 # Avoids re-reading and re-decoding the same WAV file on every request.
@@ -188,17 +193,24 @@ def _load_voice_profile(name_or_id: str) -> dict:
             or meta.get("name", "").lower() == name_or_id.lower()
         ):
             ref_filename = meta.get("ref_audio_filename", "")
-            if not ref_filename:
-                raise ValueError(f"Profile '{name_or_id}' has no reference audio filename")
-            ref_path = child / ref_filename
-            if not ref_path.exists():
-                raise ValueError(f"Reference audio missing: {ref_path}")
+            ref_path = None
+            if ref_filename:
+                candidate = child / ref_filename
+                if candidate.exists():
+                    ref_path = candidate
+
+            voice_id = meta.get("voice_id") or meta.get("voiceId")
+            if not ref_path and not voice_id:
+                raise ValueError(
+                    f"Profile '{name_or_id}' has neither a valid reference audio nor a cloud voice_id"
+                )
             return {
-                "ref_audio_path": str(ref_path),
+                "ref_audio_path": str(ref_path) if ref_path else None,
                 "ref_text": meta.get("ref_text", ""),
                 "x_vector_only_mode": meta.get("x_vector_only_mode", False),
                 "language": meta.get("language", "Auto"),
                 "name": meta.get("name", name_or_id),
+                "voice_id": voice_id,
             }
 
     raise ValueError(f"Voice profile not found: '{name_or_id}'")
@@ -311,6 +323,13 @@ async def create_speech(
         )
     
     try:
+        # Force all synthesis requests to use only the configured clone profile.
+        if request.voice != FORCED_CLONE_VOICE:
+            logger.info(
+                f"Overriding requested voice '{request.voice}' -> '{FORCED_CLONE_VOICE}'"
+            )
+        request.voice = FORCED_CLONE_VOICE
+
         # Normalize input text
         normalized_text = normalize_text(request.input, request.normalization_options)
         
@@ -358,6 +377,47 @@ async def create_speech(
                 )
 
             backend = await get_tts_backend()
+            clone_lang = (
+                language if language != "Auto" else profile["language"]
+            )
+
+            # Cloud path: if profile has voice_id and backend is Alibaba, synthesize directly.
+            if backend.get_backend_name() == "alibaba" and profile.get("voice_id"):
+                logger.info(
+                    f"Cloud voice profile '{profile['name']}' via Alibaba: "
+                    f"lang={clone_lang}, stream={request.stream}"
+                )
+                async with _generation_semaphore:
+                    audio, sample_rate = await backend.generate_speech(
+                        text=normalized_text,
+                        voice=profile["voice_id"],
+                        language=clone_lang,
+                        instruct=request.instruct,
+                        speed=request.speed,
+                    )
+                fmt = request.response_format
+                audio_bytes = await asyncio.to_thread(encode_audio, audio, fmt, sample_rate)
+                content_type = get_content_type(fmt)
+                return Response(
+                    content=audio_bytes,
+                    media_type=content_type,
+                    headers={
+                        "Content-Disposition": f"inline; filename=speech.{fmt}",
+                        "Cache-Control": "no-cache",
+                    },
+                )
+            if backend.get_backend_name() == "alibaba" and not profile.get("voice_id"):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "missing_cloud_voice_id",
+                        "message": (
+                            f"Profile '{profile['name']}' has no cloud voice_id. "
+                            "Enroll it first via POST /v1/audio/voices/clone."
+                        ),
+                        "type": "invalid_request_error",
+                    },
+                )
 
             # Check that voice cloning is supported by the current backend/model
             if not backend.supports_voice_cloning():
@@ -394,6 +454,18 @@ async def create_speech(
 
             # Cache reference audio reads to avoid repeated disk I/O
             ref_audio_path = profile["ref_audio_path"]
+            if not ref_audio_path:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "profile_missing_reference",
+                        "message": (
+                            f"Profile '{profile['name']}' has no local reference audio "
+                            "for this backend."
+                        ),
+                        "type": "invalid_request_error",
+                    },
+                )
             if canonical_key not in _ref_audio_cache:
                 try:
                     ref_audio_np, ref_sr = sf.read(ref_audio_path)
@@ -416,9 +488,6 @@ async def create_speech(
                     )
             ref_audio_np, ref_sr = _ref_audio_cache[canonical_key]
 
-            clone_lang = (
-                language if language != "Auto" else profile["language"]
-            )
             logger.info(
                 f"Voice library clone '{profile['name']}': "
                 f"lang={clone_lang}, "
@@ -688,27 +757,7 @@ async def list_voices():
     Includes built-in Qwen3-TTS speakers, OpenAI-compatible aliases, and any
     saved voice profiles from the voice library (listed with a ``clone:`` prefix).
     """
-    # Default voices (always available)
-    default_voices = [
-        VoiceInfo(id="Vivian", name="Vivian", language="English", description="Female voice"),
-        VoiceInfo(id="Ryan", name="Ryan", language="English", description="Male voice"),
-        VoiceInfo(id="Sophia", name="Sophia", language="English", description="Female voice"),
-        VoiceInfo(id="Isabella", name="Isabella", language="English", description="Female voice"),
-        VoiceInfo(id="Evan", name="Evan", language="English", description="Male voice"),
-        VoiceInfo(id="Lily", name="Lily", language="English", description="Female voice"),
-    ]
-    
-    # OpenAI-compatible voice aliases
-    openai_voices = [
-        VoiceInfo(id="alloy", name="Alloy", description="OpenAI-compatible voice (maps to Vivian)"),
-        VoiceInfo(id="echo", name="Echo", description="OpenAI-compatible voice (maps to Ryan)"),
-        VoiceInfo(id="fable", name="Fable", description="OpenAI-compatible voice (maps to Sophia)"),
-        VoiceInfo(id="nova", name="Nova", description="OpenAI-compatible voice (maps to Isabella)"),
-        VoiceInfo(id="onyx", name="Onyx", description="OpenAI-compatible voice (maps to Evan)"),
-        VoiceInfo(id="shimmer", name="Shimmer", description="OpenAI-compatible voice (maps to Lily)"),
-    ]
-    
-    default_languages = ["English", "Chinese", "Japanese", "Korean", "German", "French", "Spanish", "Russian", "Portuguese", "Italian"]
+    default_languages = ["Italian"]
 
     # Discover voice library profiles (clone: prefix voices)
     clone_voices: List[dict] = []
@@ -740,53 +789,26 @@ async def list_voices():
             except Exception:
                 pass
 
-    try:
-        backend = await get_tts_backend()
-        
-        # Get supported speakers from the backend
-        speakers = backend.get_supported_voices()
-        
-        # Get supported languages
-        languages = backend.get_supported_languages()
-        
-        # Build voice list from backend
-        if speakers:
-            voices = []
-            for speaker in speakers:
-                if hasattr(backend, "is_custom_voice") and backend.is_custom_voice(speaker):
-                    description = f"Custom cloned voice: {speaker}"
-                else:
-                    description = f"Qwen3-TTS voice: {speaker}"
-                voice_info = VoiceInfo(
-                    id=speaker,
-                    name=speaker,
-                    language=languages[0] if languages else "Auto",
-                    description=description,
-                )
-                voices.append(voice_info.model_dump())
-        else:
-            voices = [v.model_dump() for v in default_voices]
-        
-        # OpenAI aliases map to built-in speakers; skip them on Base models
-        if backend.get_model_type() != "base":
-            voices += [v.model_dump() for v in openai_voices]
-
-        return {
-            "voices": voices + clone_voices,
-            "languages": languages if languages else default_languages,
-        }
-        
-    except Exception as e:
-        logger.warning(f"Could not get voices from backend: {e}")
-        # Return default voices if backend is not loaded
-        return {
-            "voices": (
-                [v.model_dump() for v in default_voices]
-                + [v.model_dump() for v in openai_voices]
-                + clone_voices
+    forced_id = FORCED_CLONE_VOICE
+    forced_voice = next(
+        (v for v in clone_voices if v.get("id", "").lower() == forced_id.lower()),
+        None,
+    )
+    if forced_voice is None:
+        forced_voice = VoiceInfo(
+            id=forced_id,
+            name=forced_id,
+            language="Italian",
+            description=(
+                f"Forced voice profile: {FORCED_VOICE_PROFILE} "
+                f"(missing under {VOICE_LIBRARY_DIR / 'profiles'})"
             ),
-            "languages": default_languages,
-        }
+        ).model_dump()
+
+    return {
+        "voices": [forced_voice],
+        "languages": default_languages,
+    }
 
 
 @router.get("/audio/voice-clone/capabilities")
@@ -950,3 +972,105 @@ async def create_voice_clone(
                 "type": "server_error",
             },
         )
+
+
+@router.post("/audio/voices/clone")
+async def create_cloud_voice_profile(request: CloudVoiceEnrollmentRequest):
+    """
+    Enroll a custom voice profile in cloud TTS and save it to voice_library.
+
+    Requires TTS_BACKEND=alibaba.
+    """
+    try:
+        backend = await get_tts_backend()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "enrollment_backend_init_failed",
+                "message": str(exc),
+                "type": "server_error",
+            },
+        )
+    if backend.get_backend_name() != "alibaba" or not hasattr(backend, "enroll_voice_from_audio"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "unsupported_backend",
+                "message": "This endpoint requires TTS_BACKEND=alibaba.",
+                "type": "invalid_request_error",
+            },
+        )
+
+    try:
+        base64.b64decode(request.audio_base64)
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_audio",
+                "message": "audioBase64 is not valid base64.",
+                "type": "invalid_request_error",
+            },
+        )
+
+    try:
+        enroll_result = await backend.enroll_voice_from_audio(
+            audio_base64=request.audio_base64,
+            mime_type=request.mime_type,
+            preferred_name=request.name,
+            language=request.language,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "enrollment_failed",
+                "message": str(exc),
+                "type": "server_error",
+            },
+        )
+
+    # Persist profile in the local voice library.
+    safe_slug = re.sub(r"[^a-z0-9_-]+", "-", request.name.lower()).strip("-") or "voice"
+    profile_dir = VOICE_LIBRARY_DIR / "profiles" / safe_slug
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    ext_map = {
+        "audio/wav": "wav",
+        "audio/x-wav": "wav",
+        "audio/mpeg": "mp3",
+        "audio/mp3": "mp3",
+        "audio/flac": "flac",
+        "audio/ogg": "ogg",
+        "audio/m4a": "m4a",
+    }
+    ext = ext_map.get(request.mime_type.lower(), "wav")
+    ref_filename = f"reference.{ext}"
+    ref_path = profile_dir / ref_filename
+    ref_path.write_bytes(base64.b64decode(request.audio_base64))
+
+    meta = {
+        "name": request.name,
+        "profile_id": safe_slug,
+        "ref_audio_filename": ref_filename,
+        "ref_text": "",
+        "x_vector_only_mode": False,
+        "language": request.language,
+        "mode": "custom_voice",
+        "voice_id": enroll_result["voice_id"],
+        "target_model": enroll_result.get("target_model"),
+    }
+    (profile_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    return CloudVoiceEnrollmentResponse(
+        id=safe_slug,
+        name=request.name,
+        language=request.language,
+        mode="custom_voice",
+        voice_id=enroll_result["voice_id"],
+        model_settings={"temperature": 0.7, "speed": 1.0},
+    ).model_dump(by_alias=True)

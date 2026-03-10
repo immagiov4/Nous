@@ -228,6 +228,7 @@ class OpenVINOBackend(TTSBackend):
         language: str = "Auto",
         x_vector_only_mode: bool = False,
         speed: float = 1.0,
+        cache_key: Optional[str] = None,
     ) -> Tuple[np.ndarray, int]:
         """
         Voice cloning is not implemented for OpenVINO backend.

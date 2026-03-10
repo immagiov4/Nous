@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Loader2, Volume2, FastForward, SkipForward, SkipBack, ChevronRight, Crosshair, Wifi, WifiOff } from 'lucide-react';
+import { Play, Pause, Loader2, Volume2, FastForward, SkipForward, SkipBack, ChevronRight, Crosshair } from 'lucide-react';
 import { VoiceName } from '../types';
 
 interface AudioPlayerProps {
@@ -8,6 +8,7 @@ interface AudioPlayerProps {
   currentVoice: VoiceName;
   playbackRate: number;
   isVertical?: boolean;
+  dockOffsetPx?: number;
   isAudioSyncLinked: boolean; 
   currentTime: number;
   duration: number;
@@ -26,6 +27,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   currentVoice,
   playbackRate,
   isVertical = false,
+  dockOffsetPx = 0,
   isAudioSyncLinked,
   currentTime,
   duration,
@@ -38,8 +40,8 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onSkipChunk
 }) => {
   
-  // Updated voices to include Marco and Giulia
-  const voices: VoiceName[] = ['Marco', 'Giulia', 'Charon', 'Fenrir', 'Kore'];
+  // Force a single TTS voice in UI.
+  const voices: VoiceName[] = ['Mario' as VoiceName];
   
   // State for docking logic
   const [isHovered, setIsHovered] = useState(false);
@@ -78,19 +80,20 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const isDockedState = isVertical && !isHovered;
 
   const positionClasses = isVertical
-    ? "fixed top-1/2 left-0 z-50 flex items-center" 
-    : "fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center w-full max-w-xl px-4";
+    ? "fixed top-1/2 left-0 z-10 flex items-center" 
+    : "fixed bottom-8 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center w-full max-w-xl px-4";
 
   const transformStyle = isVertical 
-    ? { 
-        transform: isHovered ? 'translateX(20px) translateY(-50%)' : 'translateX(-70%) translateY(-50%)',
-        transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)' 
+    ? {
+        left: `${dockOffsetPx}px`,
+        transform: isHovered ? 'translateX(18px) translateY(-50%)' : 'translateX(-72%) translateY(-50%)',
+        transition: 'left 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)'
       }
     : {};
 
   const containerStyle = isDockedState
-    ? "bg-transparent border-gray-400/40 dark:border-zinc-500/40 shadow-none backdrop-blur-[2px]" // Ghost Mode
-    : "bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-700 shadow-2xl shadow-black/20"; // Active Mode
+    ? "bg-white/10 dark:bg-zinc-900/20 border-gray-300/30 dark:border-zinc-500/30 shadow-none backdrop-blur-[2px]"
+    : "bg-white/96 dark:bg-zinc-900/96 border-gray-200 dark:border-zinc-700 shadow-2xl shadow-black/15";
 
   const iconColorClass = isDockedState 
     ? "text-gray-600 dark:text-gray-400 opacity-20" // Heavily muted when docked
@@ -127,25 +130,6 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
           ${isVertical ? 'rounded-2xl p-4 flex flex-col gap-4 min-w-[100px]' : 'rounded-2xl p-4 w-auto flex flex-col gap-2'}
         `}
       >
-        
-        {/* TTS Connection Indicator */}
-        {!isVertical && (
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2">
-              {ttsConnected ? (
-                <>
-                  <Wifi className="w-3 h-3 text-green-500" />
-                  <span className="text-[10px] font-medium text-green-600 dark:text-green-400">TTS Connesso</span>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-3 h-3 text-red-500" />
-                  <span className="text-[10px] font-medium text-red-600 dark:text-red-400">TTS Disconnesso</span>
-                </>
-              )}
-            </div>
-          </div>
-        )}
         
         {/* Timeline (Horizontal Only) */}
         {!isVertical && (

@@ -60,13 +60,19 @@ class ProcessManager {
     console.log(`[ProcessManager] CWD: ${this.config.ttsServerCwd}`);
 
     // Set environment variables
+    const selectedModel = process.env.TTS_MODEL_NAME || this.config.modelId;
+
     const env = {
       ...process.env,
-      TTS_MODEL_NAME: this.config.modelId,
+      TTS_BACKEND: 'official',
+      TTS_MODEL_NAME: selectedModel,
+      FORCED_VOICE_PROFILE: 'Mario',
       TTS_DEVICE: this.config.device,
       HF_HOME: this.config.modelCachePath,
       PYTHONUNBUFFERED: '1'
     };
+
+    console.log(`[ProcessManager] TTS model: ${selectedModel}`);
 
     try {
       this.process = spawn(

@@ -14,6 +14,7 @@ from .official_qwen3_tts import OfficialQwen3TTSBackend
 from .vllm_omni_qwen3_tts import VLLMOmniQwen3TTSBackend
 from .pytorch_backend import PyTorchCPUBackend
 from .openvino_backend import OpenVINOBackend
+from .alibaba_dashscope import AlibabaDashScopeBackend
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ def get_backend() -> TTSBackend:
     - "vllm_omni": Use vLLM-Omni for faster inference
     - "pytorch": CPU-optimized PyTorch backend
     - "openvino": Experimental OpenVINO backend for Intel CPUs
+    - "alibaba": Alibaba DashScope cloud TTS backend
     
     Returns:
         TTSBackend instance
@@ -42,7 +44,7 @@ def get_backend() -> TTSBackend:
     
     # Read configuration from environment variables directly to support testing
     backend_type = os.getenv("TTS_BACKEND", "official").lower()
-    model_name = os.getenv("TTS_MODEL_NAME", os.getenv("TTS_MODEL_ID", "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"))
+    model_name = os.getenv("TTS_MODEL_NAME", os.getenv("TTS_MODEL_ID", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"))
     
     # Device and dtype settings
     device = os.getenv("TTS_DEVICE", "auto")
@@ -72,7 +74,7 @@ def get_backend() -> TTSBackend:
         if model_name:
             _backend_instance = OfficialQwen3TTSBackend(model_name=model_name)
         else:
-            # Use default CustomVoice model
+            # Use default Base model (voice cloning support)
             _backend_instance = OfficialQwen3TTSBackend()
         
         logger.info(f"Using official Qwen3-TTS backend with model: {_backend_instance.get_model_id()}")
@@ -123,12 +125,16 @@ def get_backend() -> TTSBackend:
             "OpenVINO backend is experimental and requires manual model export. "
             "For reliable CPU inference, use TTS_BACKEND=pytorch instead."
         )
+
+    elif backend_type == "alibaba":
+        _backend_instance = AlibabaDashScopeBackend()
+        logger.info("Using Alibaba DashScope backend")
     
     else:
         logger.error(f"Unknown backend type: {backend_type}")
         raise ValueError(
             f"Unknown TTS_BACKEND: {backend_type}. "
-            f"Supported values: 'optimized', 'official', 'vllm_omni', 'pytorch', 'openvino'"
+            f"Supported values: 'optimized', 'official', 'vllm_omni', 'pytorch', 'openvino', 'alibaba'"
         )
     
     return _backend_instance

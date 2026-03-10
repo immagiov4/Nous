@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Upload, BookOpen, CheckCircle2, ChevronRight, BrainCircuit, GraduationCap, MessageSquare, Download, FileJson, CornerDownRight, Eye, EyeOff, Ruler, ArrowRight, FileText, X, Moon, Sun, ChevronsUp, ChevronsDown, SidebarOpen, SidebarClose, Gauge, Archive, FolderArchive, Wifi, WifiOff, Volume2, Play, Pause } from 'lucide-react';
 import JSZip from 'jszip';
-import { FileData, AppState, Message, LearningPlan, LearningSection, ContextMenuState, VoiceName, AudioState, AudioChunk, CalibrationPoint } from './types';
+import { FileData, AppState, Message, LearningPlan, LearningSection, ContextMenuState, VoiceName, AudioState, AudioChunk, CalibrationPoint, SyllabusItem } from './types';
 import * as GeminiService from './services/geminiService';
 import { ASSESSMENT_MIN_TURNS } from './constants';
 import MarkdownRenderer from './components/MarkdownRenderer';
@@ -52,8 +52,9 @@ const createWavBlob = (pcmData: ArrayBuffer, sampleRate: number = 24000): Blob =
   return new Blob([header, pcmData], { type: 'audio/wav' });
 };
 
-// Reduced to 800 to prevent ServiceWorker/Network timeouts on cloud environments
-const CHUNK_SIZE_APPROX = 800; 
+// Smaller chunks reduce per-request latency and improve playback stability on slower TTS setups.
+const CHUNK_SIZE_APPROX = 420; 
+const SIDEBAR_WIDTH_PX = 384;
 
 // IGNORED_DIRS: We still filter these to avoid noise and massive performance hits
 // from dependencies or build artifacts, even if they contain text.
@@ -76,6 +77,72 @@ const isBinaryFile = (uint8Array: Uint8Array): boolean => {
     }
   }
   return false;
+};
+
+interface SidebarGroup {
+  id: string;
+  title: string;
+  sections: LearningSection[];
+}
+
+const buildSidebarGroups = (
+  learningPlan: LearningPlan | null,
+  syllabus: SyllabusItem[]
+): SidebarGroup[] => {
+  if (!learningPlan || learningPlan.sections.length === 0) return [];
+
+  const sectionById = new Map(learningPlan.sections.map(section => [section.id, section]));
+  const usedSectionIds = new Set<string>();
+  const groups: SidebarGroup[] = [];
+
+  syllabus.forEach((module) => {
+    const moduleSections = (module.children || [])
+      .map((lesson) => sectionById.get(lesson.id))
+      .filter((section): section is LearningSection => Boolean(section));
+
+    if (moduleSections.length === 0) return;
+
+    groups.push({
+      id: module.id,
+      title: module.title,
+      sections: moduleSections
+    });
+
+    moduleSections.forEach((section) => usedSectionIds.add(section.id));
+  });
+
+  const orphanGroups = new Map<string, LearningSection[]>();
+  const orphanOrder: string[] = [];
+
+  learningPlan.sections.forEach((section) => {
+    if (usedSectionIds.has(section.id)) return;
+
+    const groupKey = section.parentId || '__ungrouped__';
+    if (!orphanGroups.has(groupKey)) {
+      orphanGroups.set(groupKey, []);
+      orphanOrder.push(groupKey);
+    }
+
+    orphanGroups.get(groupKey)!.push(section);
+  });
+
+  orphanOrder.forEach((groupKey, index) => {
+    const sections = orphanGroups.get(groupKey) || [];
+    if (sections.length === 0) return;
+
+    const matchingModule = syllabus.find((module) => module.id === groupKey);
+    const isUngrouped = groupKey === '__ungrouped__';
+
+    groups.push({
+      id: isUngrouped ? `group-${index}` : groupKey,
+      title: matchingModule?.title || (isUngrouped ? 'Percorso' : `Modulo ${groups.length + 1}`),
+      sections
+    });
+  });
+
+  return groups.length > 0
+    ? groups
+    : [{ id: 'group-0', title: 'Percorso', sections: learningPlan.sections }];
 };
 
 const App: React.FC = () => {
@@ -117,7 +184,8 @@ const App: React.FC = () => {
   const [teleprompterSpeed, setTeleprompterSpeed] = useState(1); // 1 is now slow, based on user feedback
   const [isLearnMode, setIsLearnMode] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
-  const [syllabus, setSyllabus] = useState<any[]>([]);
+  const [syllabus, setSyllabus] = useState<SyllabusItem[]>([]);
+  const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
   
   // UI Visibilty States
   const [isHeaderHovered, setIsHeaderHovered] = useState(false);
@@ -165,22 +233,13 @@ const App: React.FC = () => {
 
   // NEW: Promise Cache to handle race conditions between Pre-fetch and OnEnded
   const chunkPromisesRef = useRef<{ [index: number]: Promise<string | null> }>({});
+  const playbackSessionRef = useRef(0);
+  const playRequestIdRef = useRef(0);
+  const generatedObjectUrlsRef = useRef<Set<string>>(new Set());
+  const previousActiveSectionIdRef = useRef<string | null>(null);
 
-  // --- SCRIBBLE / FIDGET GESTURE REFS ---
-  // Tracks the "rubbing" motion on text selection
-  const gestureStateRef = useRef<{
-    lastLen: number;
-    direction: 'grow' | 'shrink' | 'none';
-    oscillations: number;
-    lastText: string;
-    isTracking: boolean;
-  }>({
-    lastLen: 0,
-    direction: 'none',
-    oscillations: 0,
-    lastText: '',
-    isTracking: false
-  });
+  const sidebarGroups = buildSidebarGroups(learningPlan, syllabus);
+  const audioDockOffset = isFocusMode ? 0 : SIDEBAR_WIDTH_PX;
 
   // --- Effects ---
   
@@ -230,6 +289,38 @@ const App: React.FC = () => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [assessmentMessages, state]);
+
+  useEffect(() => {
+    if (sidebarGroups.length === 0) {
+      if (expandedModuleId !== null) {
+        setExpandedModuleId(null);
+      }
+      previousActiveSectionIdRef.current = null;
+      return;
+    }
+
+    const currentGroupStillExists = expandedModuleId
+      ? sidebarGroups.some((group) => group.id === expandedModuleId)
+      : false;
+
+    if (!currentGroupStillExists) {
+      const nextGroup = sidebarGroups.find((group) => group.sections.some((section) => !section.isCompleted)) || sidebarGroups[0];
+      setExpandedModuleId(nextGroup.id);
+      previousActiveSectionIdRef.current = activeSectionId;
+      return;
+    }
+
+    if (!activeSectionId || previousActiveSectionIdRef.current === activeSectionId) {
+      return;
+    }
+
+    previousActiveSectionIdRef.current = activeSectionId;
+
+    const activeGroup = sidebarGroups.find((group) => group.sections.some((section) => section.id === activeSectionId));
+    if (activeGroup && activeGroup.id !== expandedModuleId) {
+      setExpandedModuleId(activeGroup.id);
+    }
+  }, [activeSectionId, expandedModuleId, sidebarGroups]);
 
   // AGGRESSIVE AUDIO CLEANUP
   // When active section changes, we must fully reset audio to prevent ghosting.
@@ -289,83 +380,6 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []); // Empty dependency array, relying on Refs
 
-  // --- SCRIBBLE GESTURE LISTENER ---
-  useEffect(() => {
-    const handleSelectionChange = () => {
-        // Only run if we are reading content
-        if (state !== AppState.READING || !contentRef.current) return;
-        
-        const selection = window.getSelection();
-        if (!selection || selection.rangeCount === 0) {
-            gestureStateRef.current = { lastLen: 0, direction: 'none', oscillations: 0, lastText: '', isTracking: false };
-            return;
-        }
-
-        // Check if selection is inside content
-        if (!contentRef.current.contains(selection.anchorNode)) return;
-
-        const text = selection.toString();
-        const len = text.length;
-
-        // Reset if selection cleared
-        if (len === 0) {
-            gestureStateRef.current = { lastLen: 0, direction: 'none', oscillations: 0, lastText: '', isTracking: false };
-            return;
-        }
-
-        const s = gestureStateRef.current;
-
-        // Start tracking
-        if (!s.isTracking) {
-             s.isTracking = true;
-             s.lastLen = len;
-             s.lastText = text;
-             return;
-        }
-
-        // Logic: Oscillation detection
-        // Growing -> Shrinking -> Growing = 1 Oscillation (rub)
-        
-        // Threshold to prevent jitter (must change by at least 1 char)
-        if (Math.abs(len - s.lastLen) < 1) return;
-
-        if (len > s.lastLen) {
-            // GROWING
-            if (s.direction === 'shrink') {
-                // Was shrinking, now growing -> Reversal!
-                s.oscillations += 1;
-            }
-            s.direction = 'grow';
-        } else if (len < s.lastLen) {
-            // SHRINKING
-            s.direction = 'shrink';
-        }
-
-        s.lastLen = len;
-        s.lastText = text;
-
-        // TRIGGER ACTION
-        if (s.oscillations >= 3) {
-            // The user has actively rubbed the text.
-            // We use the currently selected text as the seed.
-            // applyStyleToSelection will handle expanding it to full words.
-            const rawText = selection.toString();
-            
-            if (rawText.trim().length > 0) {
-                applyStyleToSelection(rawText, 'scribble');
-            }
-            
-            // Clear selection and state to prevent double trigger
-            selection.removeAllRanges();
-            gestureStateRef.current = { lastLen: 0, direction: 'none', oscillations: 0, lastText: '', isTracking: false };
-        }
-    };
-
-    document.addEventListener('selectionchange', handleSelectionChange);
-    return () => document.removeEventListener('selectionchange', handleSelectionChange);
-  }, [state, sectionContent, activeSectionId]);
-
-
   // --- Helper: Chunk Text ---
   const splitContentIntoChunks = (text: string): string[] => {
     // Remove existing mark tags from text sent to Audio
@@ -402,6 +416,43 @@ const App: React.FC = () => {
 
   // --- Audio Logic ---
 
+  const revokeTrackedUrl = (url: string | null | undefined) => {
+    if (!url) return;
+    if (generatedObjectUrlsRef.current.has(url)) {
+      URL.revokeObjectURL(url);
+      generatedObjectUrlsRef.current.delete(url);
+    }
+  };
+
+  const disposeAudioElement = (audio: HTMLAudioElement | null) => {
+    if (!audio) return;
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.src = '';
+    audio.load();
+  };
+
+  const releaseCurrentAudioElement = () => {
+    const current = audioStateRef.current.audioElement;
+    if (current) {
+      disposeAudioElement(current);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      releaseCurrentAudioElement();
+      if (testAudioRef.current) {
+        testAudioRef.current.pause();
+        testAudioRef.current.src = '';
+      }
+      generatedObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      generatedObjectUrlsRef.current.clear();
+      chunkPromisesRef.current = {};
+    };
+  }, []);
+
   const generateChunkAudio = async (index: number, retries = 2): Promise<string | null> => {
     // 1. Check if already has URL
     if (audioStateRef.current.chunks[index]?.blobUrl) {
@@ -426,11 +477,27 @@ const App: React.FC = () => {
 
         try {
             const chunk = audioStateRef.current.chunks[index];
+            const requestedVoice = audioStateRef.current.currentVoice;
             if (!chunk) throw new Error("Chunk not found");
+            const requestedText = chunk.text;
 
-            const pcmBuffer = await GeminiService.generateSpeech(chunk.text, audioStateRef.current.currentVoice);
+            const pcmBuffer = await GeminiService.generateSpeech(requestedText, requestedVoice);
             const wavBlob = createWavBlob(pcmBuffer);
             const url = URL.createObjectURL(wavBlob);
+            generatedObjectUrlsRef.current.add(url);
+
+            // Drop stale generation results (voice/text may have changed while request was running).
+            const latestChunk = audioStateRef.current.chunks[index];
+            if (!latestChunk || latestChunk.text !== requestedText || audioStateRef.current.currentVoice !== requestedVoice) {
+                revokeTrackedUrl(url);
+                delete chunkPromisesRef.current[index];
+                return null;
+            }
+
+            const previousUrl = latestChunk.blobUrl;
+            if (previousUrl && previousUrl !== url) {
+                revokeTrackedUrl(previousUrl);
+            }
 
             setAudioState(prev => {
                 const newChunks = [...prev.chunks];
@@ -469,9 +536,9 @@ const App: React.FC = () => {
   };
 
   const playAudio = async (startIndex: number = 0) => {
-    if (audioStateRef.current.audioElement) {
-        audioStateRef.current.audioElement.pause();
-    }
+    const requestId = ++playRequestIdRef.current;
+    const sessionId = playbackSessionRef.current;
+    releaseCurrentAudioElement();
 
     const chunk = audioStateRef.current.chunks[startIndex];
     if (!chunk) return;
@@ -483,14 +550,18 @@ const App: React.FC = () => {
         url = await generateChunkAudio(startIndex);
         // Intent Check: The user might have hit pause WHILE generating.
         if (!shouldPlayRef.current) return;
+        if (requestId !== playRequestIdRef.current || sessionId !== playbackSessionRef.current) return;
         if (!url) return;
     }
+
+    if (requestId !== playRequestIdRef.current || sessionId !== playbackSessionRef.current) return;
 
     const audio = new Audio(url);
     audio.playbackRate = audioStateRef.current.playbackRate;
     
     // Check intent again right before playing
     if (!shouldPlayRef.current) return;
+    if (requestId !== playRequestIdRef.current || sessionId !== playbackSessionRef.current) return;
 
     setAudioState(prev => ({
         ...prev,
@@ -507,6 +578,7 @@ const App: React.FC = () => {
     }
 
     audio.onended = () => {
+        if (requestId !== playRequestIdRef.current || sessionId !== playbackSessionRef.current) return;
         const nextIndex = startIndex + 1;
         if (nextIndex < audioStateRef.current.chunks.length) {
             if (shouldPlayRef.current) {
@@ -523,6 +595,9 @@ const App: React.FC = () => {
        await audio.play();
     } catch (e) {
         console.error("Play failed", e);
+        if (requestId === playRequestIdRef.current && sessionId === playbackSessionRef.current) {
+          setAudioState(prev => ({ ...prev, isPlaying: false }));
+        }
     }
   };
 
@@ -539,10 +614,15 @@ const App: React.FC = () => {
         shouldPlayRef.current = true;
         
         if (currentAudio) {
-            currentAudio.play();
-            setAudioState(prev => ({ ...prev, isPlaying: true }));
+            currentAudio.play().then(() => {
+              setAudioState(prev => ({ ...prev, isPlaying: true }));
+            }).catch((e) => {
+              console.error("Resume failed", e);
+              setAudioState(prev => ({ ...prev, isPlaying: false }));
+            });
         } else {
-             if (audioState.chunks.length === 0) {
+             const currentState = audioStateRef.current;
+             if (currentState.chunks.length === 0) {
                  const chunks = splitContentIntoChunks(sectionContent);
                  const audioChunks: AudioChunk[] = chunks.map((t, i) => ({
                      text: t,
@@ -557,47 +637,23 @@ const App: React.FC = () => {
                     startFromScratch(audioChunks);
                  }, 0);
             } else {
-                playAudio(audioState.currentChunkIndex);
+                playAudio(currentState.currentChunkIndex);
             }
         }
     }
   };
 
   const startFromScratch = async (chunks: AudioChunk[]) => {
-      if (audioStateRef.current.audioElement) {
-        audioStateRef.current.audioElement.pause();
-      }
+      playbackSessionRef.current += 1;
+      releaseCurrentAudioElement();
+      playRequestIdRef.current += 1;
 
       setAudioState(prev => ({ ...prev, chunks: chunks, currentChunkIndex: 0 }));
+      audioStateRef.current = { ...audioStateRef.current, chunks, currentChunkIndex: 0, audioElement: null, isPlaying: false };
       shouldPlayRef.current = true;
       chunkPromisesRef.current = {}; 
       
-      const url = await generateChunkAudio(0);
-      
-      if (!shouldPlayRef.current || !url) {
-          setAudioState(prev => ({ ...prev, isPlaying: false }));
-          return;
-      }
-
-      const audio = new Audio(url);
-      audio.playbackRate = audioState.playbackRate;
-      
-      setAudioState(prev => ({
-          ...prev, 
-          audioElement: audio,
-          isPlaying: true
-      }));
-      
-      // Trigger Next
-      if (1 < chunks.length) generateChunkAudio(1);
-
-      audio.onended = () => {
-         if (shouldPlayRef.current) {
-             playAudio(1);
-         }
-      };
-      
-      await audio.play();
+      await playAudio(0);
   };
 
   const handleNextChunk = (nextIndex: number) => {
@@ -615,15 +671,18 @@ const App: React.FC = () => {
 
   const stopAudio = (clearChunks = false) => {
     shouldPlayRef.current = false;
+    playbackSessionRef.current += 1;
+    playRequestIdRef.current += 1;
     
     // Stop element if playing
-    if (audioStateRef.current.audioElement) {
-      audioStateRef.current.audioElement.pause();
-      audioStateRef.current.audioElement.src = '';
-    }
+    releaseCurrentAudioElement();
     
     // Clear the promises cache to prevent async returns from resolving into a dead state
     chunkPromisesRef.current = {};
+
+    if (clearChunks) {
+      audioStateRef.current.chunks.forEach((chunk) => revokeTrackedUrl(chunk.blobUrl));
+    }
 
     setAudioState(prev => ({ 
         ...prev, 
@@ -641,26 +700,42 @@ const App: React.FC = () => {
   
   // Seek Handler
   const handleSeek = (time: number) => {
-    if (audioState.audioElement) {
-        audioState.audioElement.currentTime = time;
+    if (audioStateRef.current.audioElement) {
+        audioStateRef.current.audioElement.currentTime = time;
         setPlayerCurrentTime(time);
     }
   };
 
   // Skip Chunk Handler
   const handleSkipChunk = (direction: 'prev' | 'next') => {
-    if (audioState.audioElement) audioState.audioElement.pause();
-    
-    shouldPlayRef.current = true;
+    const current = audioStateRef.current;
+    const wasPlaying = shouldPlayRef.current && Boolean(current.audioElement) && !current.audioElement.paused;
+    releaseCurrentAudioElement();
+    playRequestIdRef.current += 1;
+    shouldPlayRef.current = wasPlaying;
 
-    let newIndex = audioState.currentChunkIndex;
+    let newIndex = current.currentChunkIndex;
     if (direction === 'next') newIndex++;
     else newIndex--;
 
-    if (newIndex >= 0 && newIndex < audioState.chunks.length) {
-        playAudio(newIndex);
+    if (newIndex >= 0 && newIndex < current.chunks.length) {
+        if (wasPlaying) {
+          playAudio(newIndex);
+        } else {
+          setAudioState(prev => ({
+            ...prev,
+            currentChunkIndex: newIndex,
+            audioElement: null,
+            isPlaying: false
+          }));
+          if (!current.chunks[newIndex].blobUrl) {
+            generateChunkAudio(newIndex);
+          }
+        }
     } else {
-        if (audioState.audioElement) audioState.audioElement.play();
+        if (wasPlaying && current.audioElement) {
+          current.audioElement.play().catch((e) => console.error("Resume after invalid skip failed", e));
+        }
     }
   };
   
@@ -868,7 +943,7 @@ const App: React.FC = () => {
               setIsLearnMode(true);
             }
             if (json.userProfile) setUserProfile(json.userProfile);
-            if (json.syllabus) setSyllabus(json.syllabus);
+            if (json.syllabus) setSyllabus(json.syllabus as SyllabusItem[]);
           } else {
             setImportedPlan(json);
             // If it's a legacy JSON but has sections with parentId, it's likely Learn Mode
@@ -1027,7 +1102,7 @@ const App: React.FC = () => {
       const newSyllabus = await GeminiService.generateFullCurriculum(
         profile,
         (msg) => setLoadingStatus(msg),
-        (items) => setSyllabus(items),
+        (items) => setSyllabus(items as SyllabusItem[]),
         () => setLoadingStatus("Revisione finale...")
       );
       
@@ -1255,8 +1330,7 @@ const App: React.FC = () => {
     } catch (e) { console.error(e); alert("Impossibile creare la lezione."); } finally { setIsContextLoading(false); }
   };
 
-  // Generic Function to apply a style (mark or scribble) to selection
-  const applyStyleToSelection = (targetText: string, styleType: 'highlight' | 'scribble') => {
+  const applyStyleToSelection = (targetText: string) => {
       if (!activeSectionId || !learningPlan) return;
 
       // 1. Split selected text into alphanumeric words (Unicode supported).
@@ -1291,10 +1365,6 @@ const App: React.FC = () => {
       
       let newContent = sectionContent;
 
-      // Wrapper definitions
-      const startTag = styleType === 'highlight' ? '<mark>' : '<span class="scribble-highlight">';
-      const endTag = styleType === 'highlight' ? '</mark>' : '</span>';
-
       if (match) {
           const startIdx = match.index!;
           const endIdx = startIdx + match[0].length;
@@ -1304,7 +1374,7 @@ const App: React.FC = () => {
           // We need to check for both styles to allow overriding or removing
           // Use the EXACT matched text for the check
           const escapedMatch = matchedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const exactHighlightedRegex = new RegExp(`${startTag}${escapedMatch}${endTag}`, 'i');
+          const exactHighlightedRegex = new RegExp(`<mark>${escapedMatch}</mark>`, 'i');
           
           if (exactHighlightedRegex.test(sectionContent)) {
                // Toggle OFF
@@ -1313,12 +1383,12 @@ const App: React.FC = () => {
                // Apply Style
                const before = sectionContent.substring(0, startIdx);
                const after = sectionContent.substring(endIdx);
-               newContent = before + `${startTag}${matchedText}${endTag}` + after;
+               newContent = before + `<mark>${matchedText}</mark>` + after;
           }
       } else {
           // Fallback simple replace if fuzzy match fails (shouldn't happen often)
           if (sectionContent.includes(targetText)) {
-               newContent = sectionContent.replace(targetText, `${startTag}${targetText}${endTag}`);
+               newContent = sectionContent.replace(targetText, `<mark>${targetText}</mark>`);
           }
       }
       
@@ -1340,7 +1410,7 @@ const App: React.FC = () => {
     const { selectedText } = contextMenu;
     if (!selectedText) return;
     
-    applyStyleToSelection(selectedText, 'highlight');
+    applyStyleToSelection(selectedText);
     setContextMenu({ ...contextMenu, visible: false });
   };
 
@@ -1671,24 +1741,15 @@ const App: React.FC = () => {
         />
       )}
       
-      {/* LEFT EDGE DOCK - REMOVED AS REQUESTED. Toggle logic moved to Header. */}
-      
-      {/* Sidebar - Same as before */}
-      <div className={`w-96 bg-white dark:bg-zinc-900 border-r border-gray-200 dark:border-zinc-800 flex flex-col flex-shrink-0 z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)] h-full transition-all duration-500 ${isFocusMode ? '-ml-96' : ''}`}>
-        {/* ... Sidebar Content ... */}
-        <div className="p-6 border-b border-gray-100 dark:border-zinc-800 flex flex-col gap-4">
-          <div className="flex justify-between items-start">
-             <div>
-                <h1 className="font-serif font-bold text-xl text-gray-900 dark:text-white leading-tight">
-                {learningPlan?.title || "Percorso di Studio"}
-                </h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 line-clamp-3">
-                {learningPlan?.summary}
-                </p>
-             </div>
+      <div className={`w-96 bg-white dark:bg-zinc-900 border-r border-gray-200/80 dark:border-zinc-800 flex flex-col flex-shrink-0 z-20 h-full transition-all duration-500 ${isFocusMode ? '-ml-96' : ''}`}>
+        <div className="px-6 py-5 border-b border-gray-200/80 dark:border-zinc-800 flex flex-col gap-4">
+          <div className="flex justify-between items-start gap-4">
+             <h1 className="font-serif font-bold text-xl text-gray-900 dark:text-white leading-tight">
+              {learningPlan?.title || "Percorso di Studio"}
+             </h1>
              <button 
                 onClick={() => setIsFocusMode(true)}
-                className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 p-1 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-md transition-colors"
+                className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 p-1 hover:bg-gray-100/80 dark:hover:bg-zinc-800 rounded-md transition-colors"
                 title="Nascondi Menu (Focus Mode)"
              >
                 <SidebarClose className="w-5 h-5" />
@@ -1698,86 +1759,75 @@ const App: React.FC = () => {
           <button 
             onClick={handleExportPlan}
             disabled={isLoading}
-            className={`flex items-center justify-center gap-2 w-full py-2 bg-gray-100 dark:bg-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`flex items-center justify-center gap-2 w-full py-2.5 bg-gray-100/80 dark:bg-zinc-800/90 hover:bg-gray-200/90 dark:hover:bg-zinc-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <Download className="w-4 h-4" /> Salva Progresso (.json)
           </button>
         </div>
         
-        <div className="flex-1 overflow-y-auto p-4 space-y-1">
-          {syllabus && syllabus.length > 0 ? (
-            syllabus.map((module, mIdx) => {
-              const moduleSections = learningPlan?.sections.filter(s => s.parentId === module.id) || [];
-              if (moduleSections.length === 0) return null;
-              
+        <div className="flex-1 overflow-y-auto px-4 py-5">
+          <div className="space-y-3">
+            {sidebarGroups.map((group) => {
+              const isExpanded = expandedModuleId === group.id;
+
               return (
-                <div key={module.id} className={`mb-6 ${mIdx === 0 ? '' : 'mt-6'}`}>
-                  <div className="px-3 mb-2">
-                    <h3 className="text-xs font-bold text-gray-400 dark:text-zinc-500 uppercase tracking-wider">
-                      {module.title}
-                    </h3>
+                <section key={group.id} className="border-b border-gray-200/70 dark:border-zinc-800/90 pb-3 last:border-b-0 last:pb-0">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedModuleId(group.id)}
+                    className={`w-full px-3 py-2 flex items-center gap-3 rounded-lg text-left transition-colors ${
+                      isExpanded
+                        ? 'text-gray-900 dark:text-gray-100'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100/70 dark:hover:bg-zinc-800/70'
+                    }`}
+                  >
+                    <ChevronRight className={`w-4 h-4 flex-shrink-0 transition-transform duration-300 ${isExpanded ? 'rotate-90' : ''}`} />
+                    <span className="min-w-0 flex-1 text-[11px] font-semibold uppercase tracking-[0.18em] truncate">
+                      {group.title}
+                    </span>
+                  </button>
+
+                  <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-70'}`}>
+                    <div className="overflow-hidden">
+                      <div className="mt-2 ml-5 space-y-1 border-l border-gray-200 dark:border-zinc-800 pl-4">
+                        {group.sections.map((section) => {
+                          const isActive = activeSectionId === section.id;
+
+                          return (
+                            <button
+                              key={section.id}
+                              onClick={() => loadSection(section)}
+                              disabled={isLoading}
+                              className={`w-full text-left py-2 flex items-center gap-3 transition-colors ${
+                                isActive
+                                  ? 'text-gray-900 dark:text-gray-100'
+                                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                              } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                              <div className={`w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center rounded-full border transition-colors ${
+                                section.isCompleted
+                                  ? 'border-gray-300 dark:border-zinc-600 bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400'
+                                  : isActive
+                                    ? 'border-gray-500 dark:border-zinc-400 bg-gray-500 dark:bg-zinc-400 text-transparent'
+                                    : 'border-gray-300 dark:border-zinc-700 bg-transparent text-transparent'
+                              }`}>
+                                {section.isCompleted ? <CheckCircle2 className="w-3 h-3" /> : null}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className={`text-sm truncate ${isActive ? 'font-medium' : 'font-normal'}`}>
+                                  {section.title}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-0.5">
-                    {moduleSections.map((section) => (
-                      <button
-                        key={section.id}
-                        onClick={() => loadSection(section)}
-                        disabled={isLoading}
-                        className={`w-full text-left py-2 px-3 rounded-md transition-all flex items-center gap-3 group ${
-                          activeSectionId === section.id
-                            ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300'
-                            : 'bg-transparent hover:bg-gray-50 dark:hover:bg-zinc-800/50 text-gray-600 dark:text-gray-400'
-                        } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      >
-                        <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center rounded-full border ${
-                          section.isCompleted 
-                            ? 'bg-green-100 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-600 dark:text-green-400'
-                            : activeSectionId === section.id
-                              ? 'border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400'
-                              : 'border-gray-300 dark:border-zinc-700 text-transparent'
-                        }`}>
-                          {section.isCompleted ? <CheckCircle2 className="w-3 h-3" /> : <div className="w-1.5 h-1.5 rounded-full bg-current" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium truncate">
-                            {section.title}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                </section>
               );
-            })
-          ) : (
-            learningPlan?.sections.map((section) => (
-              <button
-                key={section.id}
-                onClick={() => loadSection(section)}
-                disabled={isLoading}
-                className={`w-full text-left py-2 px-3 rounded-md transition-all flex items-center gap-3 group ${
-                  activeSectionId === section.id
-                    ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300'
-                    : 'bg-transparent hover:bg-gray-50 dark:hover:bg-zinc-800/50 text-gray-600 dark:text-gray-400'
-                } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center rounded-full border ${
-                  section.isCompleted 
-                    ? 'bg-green-100 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-600 dark:text-green-400'
-                    : activeSectionId === section.id
-                      ? 'border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400'
-                      : 'border-gray-300 dark:border-zinc-700 text-transparent'
-                }`}>
-                  {section.isCompleted ? <CheckCircle2 className="w-3 h-3" /> : <div className="w-1.5 h-1.5 rounded-full bg-current" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">
-                    {section.title}
-                  </div>
-                </div>
-              </button>
-            ))
-          )}
+            })}
+          </div>
         </div>
       </div>
 
@@ -1798,8 +1848,7 @@ const App: React.FC = () => {
             onMouseEnter={() => setIsHeaderHovered(true)}
             onMouseLeave={() => setIsHeaderHovered(false)}
         >
-           <div className="flex items-center gap-4">
-              {/* SIDEBAR TOGGLE IN HEADER (Only if focus mode active) */}
+           <div className="flex items-center gap-4 min-w-0">
               {isFocusMode && (
                 <button 
                   onClick={() => setIsFocusMode(false)}
@@ -1809,11 +1858,6 @@ const App: React.FC = () => {
                   <SidebarOpen className="w-5 h-5" />
                 </button>
               )}
-
-              <div className={`flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm ${isFocusMode ? 'border-l border-gray-200 dark:border-zinc-700 pl-4 h-full' : ''}`}>
-                <BookOpen className="w-4 h-4" />
-                <span className="font-medium text-xs">Scribble Mode: Frega il testo per evidenziare (x3)</span>
-              </div>
            </div>
            
            <div className="flex items-center gap-6">
@@ -1923,12 +1967,6 @@ const App: React.FC = () => {
               )}
             </div>
             
-            {/* Player moved INSIDE the scrollable content area but absolutely positioned to stick to view. 
-                Actually, putting it here makes it scroll WITH content which is wrong if we want sticky.
-                BUT, we put it in the flex-1 relative container in the XML change above, which is correct.
-                This comment is just a placeholder to confirm location. 
-            */}
-
             {/* Quiz Section (Keep existing) */}
             {quiz.length > 0 && sectionContent && (
                   <div className="mt-24 pt-12 border-t-2 border-dashed border-gray-200 dark:border-zinc-800">
@@ -1997,7 +2035,6 @@ const App: React.FC = () => {
           </div>
         </div>
         
-        {/* Audio Player now visible in BOTH modes, but prop controls layout */}
         {sectionContent && (
           <AudioPlayer
             isPlaying={audioState.isPlaying}
@@ -2006,7 +2043,8 @@ const App: React.FC = () => {
             isLoading={audioState.chunks[audioState.currentChunkIndex]?.isLoading || false}
             currentVoice={audioState.currentVoice}
             playbackRate={audioState.playbackRate}
-            isVertical={isFocusMode} // Controlled by Focus Mode state
+            isVertical
+            dockOffsetPx={audioDockOffset}
             currentTime={playerCurrentTime}
             duration={playerDuration}
             onPlayPause={togglePlayPause}

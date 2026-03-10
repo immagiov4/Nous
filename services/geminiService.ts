@@ -398,18 +398,19 @@ const BACKEND_URL = 'http://localhost:3001';
  * Supports both legacy Gemini voices (for backward compatibility) and new Qwen3-TTS voices.
  */
 export const generateSpeech = async (text: string, voice: VoiceName): Promise<ArrayBuffer> => {
-  // Map legacy Gemini voices to new TTS voices
+  // Map every app voice to the same forced clone profile.
   const voiceMapping: Record<string, string> = {
-    'Kore': 'giulia',    // Female voice
-    'Fenrir': 'marco',   // Male voice
-    'Puck': 'marco',     // Male voice
-    'Zephyr': 'giulia',  // Female voice
-    'Charon': 'marco',   // Male voice
-    'Marco': 'marco',    // Direct mapping
-    'Giulia': 'giulia'   // Direct mapping
+    'Kore': 'mario',
+    'Fenrir': 'mario',
+    'Puck': 'mario',
+    'Zephyr': 'mario',
+    'Charon': 'mario',
+    'Marco': 'mario',
+    'Giulia': 'mario',
+    'Mario': 'mario'
   };
 
-  const ttsVoice = voiceMapping[voice] || 'marco';
+  const ttsVoice = voiceMapping[voice] || 'mario';
 
   try {
     const response = await fetch(`${BACKEND_URL}/api/tts`, {

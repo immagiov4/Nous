@@ -3,7 +3,7 @@
 # The optimized backend reads this file at startup.
 
 # Model to load on first request (must match a key in the `models` section below)
-default_model: 0.6B-CustomVoice
+default_model: 0.6B-Base
 
 # Available models.  Each entry maps a short name to a HuggingFace repo id (or
 # a local path) and a model type ("customvoice" or "base").
@@ -27,8 +27,9 @@ models:
 # Performance optimizations (only used with TTS_BACKEND=optimized)
 optimization:
   # Attention implementation.  Options: flash_attention_2 | sdpa | eager
-  # flash_attention_2 is fastest on modern GPUs; falls back to sdpa automatically.
-  attention: flash_attention_2
+  # Windows setup currently lacks flash-attn build prerequisites (nvcc/CUDA_HOME),
+  # so use SDPA for a fast and stable default.
+  attention: sdpa
 
   # torch.compile mode.  Options: default | reduce-overhead | max-autotune
   # max-autotune gives the best throughput after a ~75 s compilation on first start.
@@ -36,7 +37,7 @@ optimization:
 
   # Whether to enable torch.compile at all.  Set to false to skip compilation
   # (faster startup, lower throughput).
-  use_compile: true
+  use_compile: false
 
   # Whether to capture CUDA graphs (works on both CUDA and ROCm).
   # Required for max-autotune to reach peak performance.

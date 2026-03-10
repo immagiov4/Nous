@@ -5,7 +5,7 @@ Pydantic schemas for OpenAI-compatible TTS API.
 """
 
 from typing import List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class NormalizationOptions(BaseModel):
@@ -163,3 +163,43 @@ class VoiceCloneCapabilities(BaseModel):
         ...,
         description="Whether x-vector only mode is available.",
     )
+
+
+class CloudVoiceEnrollmentRequest(BaseModel):
+    """Request schema for cloud voice enrollment."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    audio_base64: str = Field(
+        ...,
+        alias="audioBase64",
+        description="Base64-encoded reference audio.",
+    )
+    mime_type: str = Field(
+        default="audio/wav",
+        alias="mimeType",
+        description="MIME type for the reference audio.",
+    )
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Profile display name.",
+    )
+    language: str = Field(
+        default="it",
+        description="Language code used during enrollment.",
+    )
+
+
+class CloudVoiceEnrollmentResponse(BaseModel):
+    """Response schema for cloud voice enrollment."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    name: str
+    language: str
+    mode: str
+    voice_id: str = Field(alias="voiceId")
+    model_settings: dict = Field(alias="modelSettings")

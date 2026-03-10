@@ -8,6 +8,7 @@ from the qwen_tts package.
 """
 
 import asyncio
+import importlib.util
 import logging
 import re
 from pathlib import Path
@@ -72,9 +73,26 @@ class OfficialQwen3TTSBackend(TTSBackend):
             
             logger.info(f"Loading Qwen3-TTS model '{self.model_name}' on {self.device}...")
 
-            # Try loading with Flash Attention 2, fallback to SDPA or eager if not supported
-            # (e.g., RTX 5090/Blackwell GPUs don't have pre-built flash-attn wheels yet)
-            attn_implementations = ["flash_attention_2", "sdpa", "eager"]
+            # Build attention priority list based on runtime capabilities.
+            # FlashAttention2 is only viable when package+GPU capability are compatible.
+            attn_implementations = ["sdpa", "eager"]
+            if torch.cuda.is_available():
+                has_flash_attn_pkg = importlib.util.find_spec("flash_attn") is not None
+                sm_major = 0
+                sm_minor = 0
+                try:
+                    sm_major, sm_minor = torch.cuda.get_device_capability(0)
+                except Exception:
+                    pass
+
+                if has_flash_attn_pkg and sm_major >= 8:
+                    attn_implementations = ["flash_attention_2", "sdpa", "eager"]
+                else:
+                    logger.info(
+                        "Skipping flash_attention_2 "
+                        f"(flash_attn_installed={has_flash_attn_pkg}, "
+                        f"compute_capability={sm_major}.{sm_minor})"
+                    )
             model_loaded = False
 
             last_error = None
@@ -310,6 +328,7 @@ class OfficialQwen3TTSBackend(TTSBackend):
         language: str = "Auto",
         x_vector_only_mode: bool = False,
         speed: float = 1.0,
+        cache_key: Optional[str] = None,
     ) -> Tuple[np.ndarray, int]:
         """
         Generate speech by cloning a voice from reference audio.
@@ -322,6 +341,7 @@ class OfficialQwen3TTSBackend(TTSBackend):
             language: Language code (e.g., "English", "Chinese", "Auto")
             x_vector_only_mode: If True, use x-vector only (no ref_text needed)
             speed: Speech speed multiplier (0.25 to 4.0)
+            cache_key: Optional cache key (used by optimized backend, ignored here)
 
         Returns:
             Tuple of (audio_array, sample_rate)
