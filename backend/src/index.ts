@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
-import { processManager } from './services/processManager.js';
-import { loadServerConfig } from './config/serverConfig.js';
 
-// Import routes
+import { buildTTSServerUrl, loadServerConfig } from './config/serverConfig.js';
+import { processManager } from './services/processManager.js';
+
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
 import statusRouter from './routes/status.js';
@@ -11,36 +11,30 @@ import statusRouter from './routes/status.js';
 const app = express();
 const config = loadServerConfig();
 
-// Middleware
 app.use(cors({
-  origin: true, // Allow all origins in development
-  credentials: true
+  origin: true,
+  credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// Request logging
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   console.log(`[Backend] ${req.method} ${req.path}`);
   next();
 });
 
-// Routes
 app.use('/api/tts', ttsRouter);
 app.use('/api/voices', voicesRouter);
 app.use('/api/status', statusRouter);
 
-// Root redirect to frontend
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.redirect('http://localhost:5173');
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Error handling middleware
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[Backend] Unhandled error:', err);
   res.status(500).json({ 
     success: false, 
@@ -48,16 +42,14 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
   });
 });
 
-// Start server
 const PORT = process.env.BACKEND_PORT || 3001;
 
 app.listen(PORT, () => {
   console.log(`[Backend] Server running on http://localhost:${PORT}`);
   console.log(`[Backend] TTS API available at http://localhost:${PORT}/api/tts`);
-  console.log('[Backend] Expecting TTS server to be running externally on port 8880');
+  console.log(`[Backend] Expecting TTS server at ${buildTTSServerUrl(config)}`);
 });
 
-// Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('[Backend] SIGTERM received, shutting down...');
   await processManager.stop();

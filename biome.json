@@ -1,0 +1,84 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.6/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!!**/dist",
+      "!!**/node_modules",
+      "!!**/.git",
+      "!!**/.codex",
+      "!!**/.specify",
+      "!!**/tts-server/qwen_tts.egg-info",
+      "!!**/tts-server/__pycache__",
+      "!!**/tts-server/api/__pycache__",
+      "!!**/tts-server/qwen_tts/__pycache__"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedImports": "warn",
+        "noUnusedVariables": "warn",
+        "noUnusedFunctionParameters": "warn",
+        "useExhaustiveDependencies": "warn"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn",
+        "noArrayIndexKey": "warn",
+        "noGlobalIsNan": "warn",
+        "noTsIgnore": "warn",
+        "useIterableCallbackReturn": "warn"
+      },
+      "style": {
+        "noNonNullAssertion": "warn",
+        "useConst": "warn",
+        "useImportType": "warn",
+        "useNodejsImportProtocol": "warn",
+        "useTemplate": "warn"
+      },
+      "complexity": {
+        "useArrowFunction": "warn",
+        "useOptionalChain": "warn"
+      },
+      "a11y": {
+        "noStaticElementInteractions": "warn"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "double",
+      "trailingCommas": "es5",
+      "semicolons": "always",
+      "arrowParentheses": "asNeeded"
+    }
+  },
+  "json": {
+    "formatter": {
+      "enabled": true
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}

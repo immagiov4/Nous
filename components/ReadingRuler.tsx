@@ -1,23 +1,19 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { buildReadableBlocks, type ReadableBlock } from '../utils/readingText';
+
+const Y_PERCENTAGE = 0.45;
 
 interface ReadingRulerProps {
   isPlaying?: boolean;
   progress?: number; // 0 to 1
-  contentRef?: React.RefObject<HTMLDivElement>;
-  scrollContainerRef?: React.RefObject<HTMLDivElement>; 
+  contentRef?: RefObject<HTMLDivElement | null>;
+  scrollContainerRef?: RefObject<HTMLDivElement | null>;
   calibrationOffset: number; 
   teleprompterSpeed?: number;
   isHeaderHovered: boolean; 
 }
 
-interface TextSegment {
-  startAudio: number;
-  endAudio: number;
-  top: number;
-  bottom: number;
-}
-
-const ReadingRuler: React.FC<ReadingRulerProps> = ({ 
+const ReadingRuler = ({
   isPlaying, 
   progress = 0, 
   contentRef,
@@ -25,24 +21,14 @@ const ReadingRuler: React.FC<ReadingRulerProps> = ({
   calibrationOffset,
   teleprompterSpeed = 1,
   isHeaderHovered
-}) => {
-  const Y_PERCENTAGE = 0.45;
+}: ReadingRulerProps) => {
   const [y, setY] = useState(window.innerHeight * Y_PERCENTAGE); 
-  const [segments, setSegments] = useState<TextSegment[]>([]);
+  const [segments, setSegments] = useState<ReadableBlock[]>([]);
   const teleprompterRef = useRef<number>(0);
   
   // Float accumulator for smooth sub-pixel scrolling
   const scrollAccumulatorRef = useRef<number>(0);
-
-  // UPDATED: Heavily weighted to simulate human reading pauses
-  const getReadingWeight = (text: string): number => {
-    const baseLength = text.length;
-    const periods = (text.match(/[.!?]/g) || []).length;
-    const commas = (text.match(/[,;:]/g) || []).length;
-    return baseLength + (periods * 60) + (commas * 20);
-  };
-
-  const BLOCK_PAUSE_WEIGHT = 200; 
+  const contentMarkup = contentRef?.current?.innerHTML ?? '';
 
   // Initialize accumulator
   useEffect(() => {
@@ -57,63 +43,34 @@ const ReadingRuler: React.FC<ReadingRulerProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  const calculateSegments = useCallback(() => {
+    void contentMarkup;
+
+    const container = contentRef?.current;
+    if (!container) {
+      setSegments([]);
+      return;
+    }
+
+    const nextSegments = buildReadableBlocks(container);
+    if (nextSegments.length === 0) {
+      setSegments([]);
+      return;
+    }
+
+    setSegments(nextSegments);
+  }, [contentMarkup, contentRef]);
+
   useEffect(() => {
-    if (!contentRef?.current) return;
-    
-    const calculateSegments = () => {
-       const container = contentRef.current;
-       if (!container) return;
-       const containerRect = container.getBoundingClientRect();
-
-       const proseContainer = container.querySelector('.prose') || container;
-       const textElements = proseContainer.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
-       
-       let totalWeight = 0;
-       
-       textElements.forEach(el => {
-          totalWeight += getReadingWeight((el as HTMLElement).innerText) + BLOCK_PAUSE_WEIGHT;
-       });
-
-       if (totalWeight === 0) return;
-
-       const newSegments: TextSegment[] = [];
-       let weightSoFar = 0;
-       
-       textElements.forEach(el => {
-         const element = el as HTMLElement;
-         const text = element.innerText;
-         const weight = getReadingWeight(text);
-         
-         if (weight === 0) return;
-
-         const startPct = weightSoFar / totalWeight;
-         const endPct = (weightSoFar + weight) / totalWeight;
-         
-         const elRect = element.getBoundingClientRect();
-         const elTop = elRect.top - containerRect.top;
-         const elHeight = elRect.height;
-
-         newSegments.push({
-            startAudio: startPct,
-            endAudio: endPct,
-            top: elTop,
-            bottom: elTop + elHeight
-         });
-
-         weightSoFar += (weight + BLOCK_PAUSE_WEIGHT);
-       });
-       
-       setSegments(newSegments);
-    };
-
     calculateSegments();
     window.addEventListener('resize', calculateSegments);
-    return () => window.removeEventListener('resize', calculateSegments);
 
-  }, [contentRef?.current?.innerHTML]);
+    return () => {
+      window.removeEventListener('resize', calculateSegments);
+    };
+  }, [calculateSegments]);
 
-
-  const getCalibratedY = (rawProgress: number, rect: DOMRect): number => {
+  const getCalibratedY = useCallback((rawProgress: number, rect: DOMRect): number => {
     let effectiveProgress = rawProgress + calibrationOffset;
     effectiveProgress = Math.max(0, Math.min(1, effectiveProgress));
 
@@ -152,30 +109,35 @@ const ReadingRuler: React.FC<ReadingRulerProps> = ({
     }
     
     return rect.top + targetPxRelativeToContainer;
-  };
+  }, [calibrationOffset, segments]);
 
   // --- AUDIO SYNC SCROLLING ---
   useEffect(() => {
-    if (isPlaying && contentRef?.current && scrollContainerRef?.current) {
+    const contentElement = contentRef?.current;
+    const scrollElement = scrollContainerRef?.current;
+
+    if (isPlaying && contentElement && scrollElement) {
       const sweetSpotY = window.innerHeight * Y_PERCENTAGE;
-      const rect = contentRef.current.getBoundingClientRect();
+      const rect = contentElement.getBoundingClientRect();
       const targetPointOnScreen = getCalibratedY(progress, rect);
       
       if (Math.abs(targetPointOnScreen - sweetSpotY) > 2) {
          const delta = targetPointOnScreen - sweetSpotY;
-         scrollContainerRef.current.scrollBy({ top: delta, behavior: 'auto' }); 
-         scrollAccumulatorRef.current = scrollContainerRef.current.scrollTop;
+         scrollElement.scrollBy({ top: delta, behavior: 'auto' }); 
+         scrollAccumulatorRef.current = scrollElement.scrollTop;
       }
     } 
-  }, [isPlaying, progress, contentRef, scrollContainerRef, segments, calibrationOffset]);
+  }, [contentRef, getCalibratedY, isPlaying, progress, scrollContainerRef]);
 
   // --- TELEPROMPTER MODE (Fixed Physics) ---
   useEffect(() => {
+    const scrollElement = scrollContainerRef?.current;
+
     // Implicit: If Ruler is rendered and Audio is NOT playing, we auto-scroll.
-    if (!isPlaying && scrollContainerRef?.current && teleprompterSpeed && teleprompterSpeed > 0) {
+    if (!isPlaying && scrollElement && teleprompterSpeed && teleprompterSpeed > 0) {
        let lastTime = performance.now();
        
-       scrollAccumulatorRef.current = scrollContainerRef.current.scrollTop;
+       scrollAccumulatorRef.current = scrollElement.scrollTop;
 
        const animate = (time: number) => {
          const delta = time - lastTime;
@@ -189,9 +151,7 @@ const ReadingRuler: React.FC<ReadingRulerProps> = ({
             
             scrollAccumulatorRef.current += speedPxPerFrame;
             
-            if (scrollContainerRef.current) {
-                scrollContainerRef.current.scrollTop = scrollAccumulatorRef.current;
-            }
+            scrollElement.scrollTop = scrollAccumulatorRef.current;
 
             lastTime = time;
          }
@@ -201,7 +161,7 @@ const ReadingRuler: React.FC<ReadingRulerProps> = ({
        teleprompterRef.current = requestAnimationFrame(animate);
        return () => cancelAnimationFrame(teleprompterRef.current);
     }
-  }, [isPlaying, teleprompterSpeed]); 
+  }, [isPlaying, scrollContainerRef, teleprompterSpeed]); 
 
 
   const clearHeight = 60; 
@@ -221,7 +181,6 @@ const ReadingRuler: React.FC<ReadingRulerProps> = ({
         className="fixed inset-0 pointer-events-none z-[30] hidden md:block transition-opacity duration-700 ease-in-out"
         style={{ opacity: currentOpacity }}
       >
-          {/* Inner Gradient Div - Static Gradient, Opacity controlled by parent */}
           <div 
             className="w-full h-full"
             style={{
@@ -245,6 +204,28 @@ const ReadingRuler: React.FC<ReadingRulerProps> = ({
             )`
             }}
           />
+          <div
+            className="absolute left-0 right-0"
+            style={{ top: y - half, height: clearHeight }}
+          >
+            <div
+              className="mx-auto h-full rounded-full"
+              style={{
+                width: 'min(70vw, 920px)',
+                background: `linear-gradient(
+                  to right,
+                  rgba(255, 255, 255, 0) 0%,
+                  rgba(255, 255, 255, 0.05) 12%,
+                  rgba(255, 255, 255, 0.14) 28%,
+                  rgba(255, 255, 255, 0.24) 50%,
+                  rgba(255, 255, 255, 0.14) 72%,
+                  rgba(255, 255, 255, 0.05) 88%,
+                  rgba(255, 255, 255, 0) 100%
+                )`,
+                boxShadow: '0 0 48px rgba(255, 255, 255, 0.08)',
+              }}
+            />
+          </div>
       </div>
       
       {/* Calibration Hint Cursor/Marker */}
@@ -263,4 +244,4 @@ const ReadingRuler: React.FC<ReadingRulerProps> = ({
   );
 };
 
-export default ReadingRuler;
+export default memo(ReadingRuler);

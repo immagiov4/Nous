@@ -1,4 +1,4 @@
-import React from 'react';
+import { memo, type CSSProperties, type HTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -10,12 +10,22 @@ interface MarkdownRendererProps {
   content: string;
   className?: string;
   isDarkMode?: boolean;
-  onContextMenu?: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: MouseEvent) => void;
 }
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '', isDarkMode = false, onContextMenu }) => {
+interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
+  inline?: boolean;
+  className?: string;
+  children?: ReactNode;
+}
+
+const MarkdownRenderer = ({ content, className = '', isDarkMode = false, onContextMenu }: MarkdownRendererProps) => {
+  const syntaxTheme: { [key: string]: CSSProperties } = isDarkMode
+    ? (oneDark as unknown as { [key: string]: CSSProperties })
+    : (oneLight as unknown as { [key: string]: CSSProperties });
+
   return (
-    <div 
+    <article
       className={`prose max-w-none ${className}`}
       onContextMenu={onContextMenu}
     >
@@ -23,12 +33,13 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
         remarkPlugins={[remarkMath]}
         rehypePlugins={[rehypeKatex, rehypeRaw]}
         components={{
-          code({ node, inline, className, children, ...props }: any) {
+          code({ inline, className, children }: CodeRendererProps) {
             const match = /language-(\w+)/.exec(className || '');
+
             return !inline && match ? (
               <div className="my-4 rounded-lg overflow-hidden shadow-sm border border-gray-200 dark:border-zinc-800">
                 <SyntaxHighlighter
-                  style={isDarkMode ? oneDark : oneLight}
+                  style={syntaxTheme}
                   language={match[1]}
                   PreTag="div"
                   customStyle={{
@@ -37,13 +48,12 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
                     fontSize: '0.9rem',
                     backgroundColor: isDarkMode ? '#18181b' : '#f9fafb',
                   }}
-                  {...props}
                 >
                   {String(children).replace(/\n$/, '')}
                 </SyntaxHighlighter>
               </div>
             ) : (
-              <code className="bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded text-sm font-mono font-bold inherit-color" {...props}>
+              <code className="bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded text-sm font-mono font-bold inherit-color">
                 {children}
               </code>
             );
@@ -62,7 +72,6 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
                </a>
              );
           },
-          // @ts-ignore
           mark({ children }) {
              return (
                <mark className="bg-orange-200 dark:bg-orange-900/50 text-gray-900 dark:text-white px-1 py-0.5 rounded mx-0.5 decoration-clone box-decoration-clone">
@@ -74,8 +83,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className 
       >
         {content}
       </ReactMarkdown>
-    </div>
+    </article>
   );
 };
 
-export default MarkdownRenderer;
+export default memo(MarkdownRenderer);

@@ -1,5 +1,7 @@
-import { Router, Request, Response } from 'express';
-import { ttsClient } from '../services/ttsClient.js';
+import { Router, type Request, type Response } from 'express';
+
+import { getVoiceDetails, listVoices } from '../services/voiceService.js';
+import { sendErrorResponse } from '../utils/httpResponses.js';
 
 const router = Router();
 
@@ -7,27 +9,17 @@ const router = Router();
  * GET /api/voices
  * Get available voice profiles
  */
-router.get('/', (req: Request, res: Response) => {
+router.get('/', (_req: Request, res: Response) => {
   try {
-    const profiles = ttsClient.getVoiceProfiles();
-    const defaultProfile = ttsClient.getDefaultProfile();
+    const payload = listVoices();
 
     res.json({
       success: true,
-      voices: profiles.map(p => ({
-        id: p.id,
-        name: p.name,
-        language: p.language,
-        mode: p.mode
-      })),
-      defaultVoice: defaultProfile.id
+      ...payload,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[Voices Route] Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'Failed to get voice profiles' 
-    });
+    sendErrorResponse(res, 500, error, 'Failed to get voice profiles');
   }
 });
 
@@ -38,31 +30,22 @@ router.get('/', (req: Request, res: Response) => {
 router.get('/:id', (req: Request, res: Response) => {
   try {
     const voiceId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const profile = ttsClient.getVoiceProfile(voiceId);
+    const voiceDetails = getVoiceDetails(voiceId);
 
-    if (!profile) {
+    if (!voiceDetails) {
       return res.status(404).json({
         success: false,
-        error: 'Voice profile not found'
+        error: 'Voice profile not found',
       });
     }
 
     res.json({
       success: true,
-      voice: {
-        id: profile.id,
-        name: profile.name,
-        language: profile.language,
-        mode: profile.mode,
-        settings: profile.modelSettings
-      }
+      ...voiceDetails,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('[Voices Route] Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'Failed to get voice profile' 
-    });
+    sendErrorResponse(res, 500, error, 'Failed to get voice profile');
   }
 });
 

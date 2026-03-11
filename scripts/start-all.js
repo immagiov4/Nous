@@ -9,8 +9,8 @@
  * 4. Handles graceful shutdown on CTRL+C
  */
 
-import { spawn, exec } from 'child_process';
-import { platform } from 'os';
+import { spawn, exec } from 'node:child_process';
+import { platform } from 'node:os';
 
 const isWindows = platform() === 'win32';
 
@@ -56,7 +56,7 @@ function killPort(port) {
         lines.forEach(line => {
           const parts = line.trim().split(/\s+/);
           const pid = parts[parts.length - 1];
-          if (pid && !isNaN(pid)) {
+          if (pid && !Number.isNaN(Number(pid))) {
             pids.add(pid);
           }
         });
@@ -193,9 +193,9 @@ async function shutdown() {
  * Main entry point
  */
 async function main() {
-  console.log('\n' + '='.repeat(60));
+  console.log(`\n${'='.repeat(60)}`);
   console.log(`${colors.bright}${colors.magenta}  Lumina Deep Reader - Development Server${colors.reset}`);
-  console.log('='.repeat(60) + '\n');
+  console.log(`${'='.repeat(60)}\n`);
 
   // Handle CTRL+C
   process.on('SIGINT', shutdown);
@@ -214,11 +214,11 @@ async function main() {
 
   log('Lifecycle', 'All services started!', colors.green);
     log('Lifecycle', 'Press CTRL+C to stop all services', colors.yellow);
-    console.log('\n' + '-'.repeat(60));
+    console.log(`\n${'-'.repeat(60)}`);
     console.log(`${colors.cyan}  Frontend:  http://localhost:5173${colors.reset}`);
     console.log(`${colors.cyan}  Backend:   http://localhost:3001${colors.reset}`);
     console.log(`${colors.cyan}  TTS API:   http://localhost:8880${colors.reset}`);
-    console.log('-'.repeat(60) + '\n');
+    console.log(`${'-'.repeat(60)}\n`);
   }
 
 main().catch((err) => {

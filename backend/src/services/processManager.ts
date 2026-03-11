@@ -1,6 +1,10 @@
-import { spawn, ChildProcess } from 'child_process';
-import { ProcessState, ServerConfig } from '../types/index.js';
+import { spawn, type ChildProcess } from 'node:child_process';
+
+import type { ProcessState, ServerConfig } from '../types/index.js';
+
 import { loadServerConfig } from '../config/serverConfig.js';
+import { getErrorMessage } from '../utils/errors.js';
+import { checkTtsHealth } from './ttsHealth.js';
 
 class ProcessManager {
   private process: ChildProcess | null = null;
@@ -29,15 +33,11 @@ class ProcessManager {
       return true;
     }
 
-    // First, check if TTS server is already running externally
     console.log('[ProcessManager] Checking for existing TTS server...');
     try {
-      const response = await fetch(`http://${this.config.ttsServerHost}:${this.config.ttsServerPort}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(3000)
-      });
-      
-      if (response.ok) {
+      const health = await checkTtsHealth(this.config);
+
+      if (health.healthy) {
         console.log('[ProcessManager] TTS server already running externally!');
         this.state.isRunning = true;
         this.state.isReady = true;
@@ -45,10 +45,9 @@ class ProcessManager {
         this.startHealthCheck();
         return true;
       }
-    } catch (error) {
+    } catch (_error) {
       console.log('[ProcessManager] No external TTS server found.');
       console.log('[ProcessManager] To start TTS server, run: npm run dev:tts');
-      // Don't try to auto-start, just mark as not ready
       this.state.isRunning = false;
       this.state.isReady = false;
       return false;
@@ -59,7 +58,6 @@ class ProcessManager {
     console.log(`[ProcessManager] Module: ${this.config.ttsServerModule}`);
     console.log(`[ProcessManager] CWD: ${this.config.ttsServerCwd}`);
 
-    // Set environment variables
     const selectedModel = process.env.TTS_MODEL_NAME || this.config.modelId;
 
     const env = {
@@ -69,7 +67,7 @@ class ProcessManager {
       FORCED_VOICE_PROFILE: 'Mario',
       TTS_DEVICE: this.config.device,
       HF_HOME: this.config.modelCachePath,
-      PYTHONUNBUFFERED: '1'
+      PYTHONUNBUFFERED: '1',
     };
 
     console.log(`[ProcessManager] TTS model: ${selectedModel}`);
@@ -81,53 +79,46 @@ class ProcessManager {
         {
           cwd: this.config.ttsServerCwd,
           env,
-          stdio: ['ignore', 'pipe', 'pipe']
-        }
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
       );
 
       this.state.isRunning = true;
       this.state.pid = this.process.pid;
       this.state.startTime = Date.now();
 
-      // Handle stdout
       this.process.stdout?.on('data', (data: Buffer) => {
         const output = data.toString();
         console.log(`[TTS stdout] ${output.trim()}`);
-        
-        // Check for startup complete signal
-        if (output.includes('Application startup complete') || 
+
+        if (output.includes('Application startup complete') ||
             output.includes('Uvicorn running') ||
             output.includes('Running on')) {
           this.markReady();
         }
       });
 
-      // Handle stderr
       this.process.stderr?.on('data', (data: Buffer) => {
         const output = data.toString();
         console.error(`[TTS stderr] ${output.trim()}`);
-        
-        // Some servers log startup to stderr
-        if (output.includes('Application startup complete') || 
+
+        if (output.includes('Application startup complete') ||
             output.includes('Uvicorn running')) {
           this.markReady();
         }
       });
 
-      // Handle process exit
       this.process.on('exit', (code, signal) => {
         console.log(`[ProcessManager] TTS server exited with code ${code}, signal ${signal}`);
         this.handleExit(code);
       });
 
-      // Handle process error
       this.process.on('error', (err) => {
         console.error('[ProcessManager] Failed to start TTS server:', err);
         this.state.lastError = err.message;
         this.handleExit(1);
       });
 
-      // Set startup timeout
       this.startupTimeout = setTimeout(() => {
         if (!this.state.isReady) {
           console.warn('[ProcessManager] Startup timeout reached');
@@ -138,35 +129,35 @@ class ProcessManager {
       }, this.config.startupTimeoutMs);
 
       return true;
-    } catch (error: any) {
+    } catch (error) {
       console.error('[ProcessManager] Failed to spawn TTS server:', error);
-      this.state.lastError = error.message;
+      this.state.lastError = getErrorMessage(error, 'Failed to spawn TTS server');
       return false;
     }
   }
 
   private markReady(): void {
-    if (this.state.isReady) return;
-    
+    if (this.state.isReady) {
+      return;
+    }
+
     console.log('[ProcessManager] TTS server is ready!');
     this.state.isReady = true;
     this.state.restartAttempts = 0;
-    
+
     if (this.startupTimeout) {
       clearTimeout(this.startupTimeout);
       this.startupTimeout = null;
     }
 
-    // Start health check
     this.startHealthCheck();
-    
-    // Notify callbacks
-    this.onReadyCallbacks.forEach(cb => cb());
+
+    this.onReadyCallbacks.forEach((callback) => {
+      callback();
+    });
   }
 
   private handleExit(code: number | null): void {
-    const wasReady = this.state.isReady;
-    
     this.state.isRunning = false;
     this.state.isReady = false;
     this.state.pid = undefined;
@@ -181,10 +172,10 @@ class ProcessManager {
       this.startupTimeout = null;
     }
 
-    // Notify exit callbacks
-    this.onExitCallbacks.forEach(cb => cb(code));
+    this.onExitCallbacks.forEach((callback) => {
+      callback(code);
+    });
 
-    // Auto-restart if configured and not a clean exit
     if (this.config.restartOnCrash && code !== 0 && code !== null) {
       if (this.state.restartAttempts < this.config.maxRestartAttempts) {
         console.log(`[ProcessManager] Scheduling restart (attempt ${this.state.restartAttempts + 1}/${this.config.maxRestartAttempts})`);
@@ -204,11 +195,13 @@ class ProcessManager {
   }
 
   async stop(): Promise<void> {
-    if (!this.process) return;
+    if (!this.process) {
+      return;
+    }
 
     console.log('[ProcessManager] Stopping TTS server...');
-    
-    return new Promise((resolve) => {
+
+    await new Promise<void>((resolve) => {
       if (!this.process) {
         resolve();
         return;
@@ -237,20 +230,18 @@ class ProcessManager {
     }
 
     this.healthCheckInterval = setInterval(async () => {
-      if (!this.state.isRunning) return;
+      if (!this.state.isRunning) {
+        return;
+      }
 
       try {
-        const response = await fetch(`http://${this.config.ttsServerHost}:${this.config.ttsServerPort}/health`, {
-          method: 'GET',
-          signal: AbortSignal.timeout(5000)
-        });
+        const health = await checkTtsHealth(this.config);
 
-        if (!response.ok) {
-          console.warn('[ProcessManager] Health check failed:', response.status);
+        if (!health.healthy) {
+          console.warn('[ProcessManager] Health check failed:', health.message);
         }
       } catch (error) {
-        console.warn('[ProcessManager] Health check error:', error);
-        // Don't auto-restart on health check failure - the process might still be recovering
+        console.warn('[ProcessManager] Health check error:', getErrorMessage(error));
       }
     }, this.config.healthCheckIntervalMs);
   }
@@ -267,5 +258,4 @@ class ProcessManager {
   }
 }
 
-// Singleton instance
 export const processManager = new ProcessManager();

@@ -1,8 +1,11 @@
-import { TTSRequest, VoiceProfile, VoiceProfilesConfig } from '../types/index.js';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import type { TTSRequest, VoiceProfile, VoiceProfilesConfig } from '../types/index.js';
+
 import { getTTSServerUrl, loadServerConfig } from '../config/serverConfig.js';
-import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { loadOptionalJsonFile } from '../config/jsonFile.js';
+import { checkTtsHealth, checkTtsReadiness } from './ttsHealth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,17 +21,12 @@ class TTSClient {
 
   private loadVoiceProfiles(): VoiceProfilesConfig {
     const profilesPath = join(__dirname, '..', 'config', 'voice-profiles.json');
-    
-    if (existsSync(profilesPath)) {
-      try {
-        const content = readFileSync(profilesPath, 'utf-8');
-        return JSON.parse(content);
-      } catch (error) {
-        console.warn('[TTSClient] Failed to load voice profiles, using defaults');
-      }
+    const loadedProfiles = loadOptionalJsonFile<VoiceProfilesConfig>(profilesPath, 'voice-profiles.json');
+
+    if (loadedProfiles) {
+      return loadedProfiles;
     }
 
-    // Default profiles - force clone profile only
     return {
       profiles: [
         {
@@ -37,10 +35,10 @@ class TTSClient {
           language: 'it-IT',
           mode: 'voice_design',
           voiceDesignPrompt: 'clone:Mario',
-          modelSettings: { temperature: 0.7, speed: 1.0 }
-        }
+          modelSettings: { temperature: 0.7, speed: 1.0 },
+        },
       ],
-      defaultProfile: 'mario'
+      defaultProfile: 'mario',
     };
   }
 
@@ -57,85 +55,90 @@ class TTSClient {
     return this.voiceProfiles.profiles.find(p => p.id === id);
   }
 
+  private normalizeOpenAiModel(modelId: string | undefined): string {
+    if (!modelId) {
+      return 'qwen3-tts';
+    }
+
+    const normalized = modelId.trim();
+    if (
+      normalized === 'qwen3-tts' ||
+      normalized === 'tts-1' ||
+      normalized === 'tts-1-hd'
+    ) {
+      return normalized;
+    }
+
+    return 'qwen3-tts';
+  }
+
+  private async getErrorDetails(response: Response): Promise<string> {
+    const responseText = await response.text();
+
+    if (!responseText) {
+      return response.statusText || 'Unknown TTS error';
+    }
+
+    try {
+      const parsed = JSON.parse(responseText) as {
+        detail?: { message?: string; error?: string };
+        message?: string;
+        error?: string;
+      };
+
+      return (
+        parsed.detail?.message ||
+        parsed.detail?.error ||
+        parsed.message ||
+        parsed.error ||
+        responseText
+      );
+    } catch {
+      return responseText;
+    }
+  }
+
   async generateSpeech(request: TTSRequest): Promise<ArrayBuffer> {
     const { text, voice, speed = 1.0 } = request;
-
-    // Resolve voice profile (forced to clone:Mario)
-    let voicePrompt: string;
-    let temperature = 0.7;
-
-    if (voice) {
-      const profile = this.getVoiceProfile(voice);
-      if (profile) {
-        temperature = profile.modelSettings.temperature;
-      }
-    } else {
-      const defaultProfile = this.getDefaultProfile();
-      temperature = defaultProfile.modelSettings.temperature;
-    }
-    voicePrompt = 'clone:Mario';
+    const config = loadServerConfig();
+    const selectedProfile = voice
+      ? this.getVoiceProfile(voice) ?? this.getDefaultProfile()
+      : this.getDefaultProfile();
+    const temperature = selectedProfile.modelSettings.temperature;
+    const voicePrompt = 'clone:Mario';
 
     console.log(`[TTSClient] Generating speech for ${text.length} chars with voice: ${voice || 'default'} -> using speaker: ${voicePrompt}`);
 
-    // Call the OpenAI-compatible TTS API
     const response = await fetch(`${this.serverUrl}/v1/audio/speech`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'qwen3-tts',
+        model: this.normalizeOpenAiModel(config.modelId),
         input: text,
         voice: voicePrompt,
         response_format: 'wav',
-        speed: speed
-      })
+        speed,
+        temperature,
+      }),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await this.getErrorDetails(response);
       throw new Error(`TTS API error: ${response.status} - ${errorText}`);
     }
 
-    // Return audio as ArrayBuffer
     return response.arrayBuffer();
   }
 
   async checkHealth(): Promise<{ healthy: boolean; message: string }> {
-    try {
-      const response = await fetch(`${this.serverUrl}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      });
-
-      if (response.ok) {
-        return { healthy: true, message: 'TTS server is healthy' };
-      } else {
-        return { healthy: false, message: `Health check failed: ${response.status}` };
-      }
-    } catch (error: any) {
-      return { healthy: false, message: `Connection failed: ${error.message}` };
-    }
+    return checkTtsHealth(loadServerConfig());
   }
 
   async checkReady(): Promise<{ ready: boolean; message: string }> {
-    try {
-      // Try a minimal TTS request to check if model is loaded
-      const response = await fetch(`${this.serverUrl}/v1/models`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      });
-
-      if (response.ok) {
-        return { ready: true, message: 'TTS server is ready' };
-      } else {
-        return { ready: false, message: `Ready check failed: ${response.status}` };
-      }
-    } catch (error: any) {
-      return { ready: false, message: `Connection failed: ${error.message}` };
-    }
+    return checkTtsReadiness(loadServerConfig());
   }
 }
 
-// Singleton instance
 export const ttsClient = new TTSClient();

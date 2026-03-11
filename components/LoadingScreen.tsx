@@ -1,4 +1,3 @@
-import React from 'react';
 import { Loader2 } from 'lucide-react';
 
 interface LoadingScreenProps {
@@ -6,7 +5,7 @@ interface LoadingScreenProps {
   subMessage?: string;
 }
 
-const LoadingScreen: React.FC<LoadingScreenProps> = ({ message, subMessage }) => {
+const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
   return (
     <div className="h-full w-full flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500 bg-paper-light dark:bg-paper-dark transition-colors">
       <div className="relative mb-8">

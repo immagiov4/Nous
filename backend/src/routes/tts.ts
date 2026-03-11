@@ -1,5 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, type Request, type Response } from 'express';
+
 import { ttsClient } from '../services/ttsClient.js';
+import { isConnectionError } from '../utils/errors.js';
+import { sendErrorResponse } from '../utils/httpResponses.js';
 
 const router = Router();
 
@@ -30,29 +33,24 @@ router.post('/', async (req: Request, res: Response) => {
 
     const audioBuffer = await ttsClient.generateSpeech({ text, voice, speed });
 
-    // Set appropriate headers for audio
     res.set({
       'Content-Type': 'audio/wav',
       'Content-Length': audioBuffer.byteLength.toString(),
-      'Cache-Control': 'public, max-age=3600'
+      'Cache-Control': 'public, max-age=3600',
     });
 
     res.send(Buffer.from(audioBuffer));
-  } catch (error: any) {
+  } catch (error) {
     console.error('[TTS Route] Error:', error);
-    
-    // Check if it's a connection error (TTS server not running)
-    if (error.code === 'ECONNREFUSED' || error.message?.includes('Connection failed')) {
+
+    if (isConnectionError(error)) {
       return res.status(503).json({ 
         success: false, 
         error: 'TTS server is not available. Please ensure the TTS server is running.' 
       });
     }
 
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'Failed to generate speech' 
-    });
+    sendErrorResponse(res, 500, error, 'Failed to generate speech');
   }
 });
 

@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Headphones, Music, Volume2, X, Play, Pause, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface MusicPlayerProps {
@@ -12,24 +11,57 @@ interface MusicPlayerProps {
 }
 
 declare global {
+  interface YouTubePlayerEvent {
+    target: {
+      setVolume: (value: number) => void;
+      playVideo: () => void;
+      pauseVideo: () => void;
+    };
+    data: number;
+  }
+
+  interface YouTubePlayerInstance {
+    playVideo: () => void;
+    pauseVideo: () => void;
+    setVolume: (value: number) => void;
+    getPlayerState: () => number;
+  }
+
   interface Window {
-    YT: any;
+    YT?: {
+      Player: new (
+        element: HTMLIFrameElement,
+        config: {
+          events: {
+            onReady: (event: YouTubePlayerEvent) => void;
+            onStateChange: (event: YouTubePlayerEvent) => void;
+            onError: (event: YouTubePlayerEvent) => void;
+          };
+        }
+      ) => YouTubePlayerInstance;
+    };
     onYouTubeIframeAPIReady: () => void;
   }
 }
 
-const MusicPlayer: React.FC<MusicPlayerProps> = ({ 
+const MusicPlayer = ({ 
   url, setUrl, isPlaying, setIsPlaying, volume, setVolume 
-}) => {
+}: MusicPlayerProps) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [player, setPlayer] = useState<any>(null);
   const [isReady, setIsReady] = useState(false);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [hasError, setHasError] = useState(false);
+  const inputId = useId();
+  const presets = [
+    { name: 'Lofi Girl', url: 'https://www.youtube.com/watch?v=jfKfPfyJRdk' },
+    { name: 'Synthwave', url: 'https://www.youtube.com/watch?v=4xDzrJKXOOY' },
+    { name: 'Rain', url: 'https://www.youtube.com/watch?v=5qap5aO4i9A' },
+    { name: 'Classical', url: 'https://www.youtube.com/watch?v=M73x3O7dhmg' },
+  ] as const;
   
   // Use a Ref for the iframe directly
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const playerRef = useRef<any>(null);
+  const playerRef = useRef<YouTubePlayerInstance | null>(null);
 
   // Extract Video ID from URL
   useEffect(() => {
@@ -46,9 +78,8 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
         setVideoId(id);
         // Reset player ref when video changes to force re-attachment
         playerRef.current = null;
-        setPlayer(null);
     }
-  }, [url]);
+  }, [url, videoId]);
 
   // Load YouTube API
   useEffect(() => {
@@ -72,21 +103,21 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
         try {
             const newPlayer = new window.YT.Player(iframeRef.current, {
                 events: {
-                    'onReady': (event: any) => {
+                    onReady: event => {
                         event.target.setVolume(volume);
                         if (isPlaying) {
                             event.target.playVideo();
                         }
                     },
-                    'onStateChange': (event: any) => {
+                    onStateChange: event => {
                         if (event.data === 1) { // Playing
                             setIsPlaying(true);
                             setHasError(false);
                         }
                         if (event.data === 2) setIsPlaying(false); // Paused
                     },
-                    'onError': (event: any) => {
-                        console.warn("YouTube Player Error:", event.data);
+                    onError: event => {
+                        console.warn('YouTube Player Error:', event.data);
                         // Errors: 150/101 = restricted embed.
                         if (event.data === 100 || event.data === 101 || event.data === 150) {
                             setHasError(true);
@@ -95,13 +126,12 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                     }
                 }
             });
-            setPlayer(newPlayer);
             playerRef.current = newPlayer;
         } catch (e) {
-            console.error("YT init error", e);
+            console.error('YT init error', e);
         }
     }
-  }, [isReady, videoId]);
+  }, [isPlaying, isReady, setIsPlaying, videoId, volume]);
 
   // Handle Play/Pause via API
   useEffect(() => {
@@ -114,7 +144,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
           } else {
              if (p.getPlayerState() === 1) p.pauseVideo();
           }
-      } catch(e) {}
+      } catch {}
     }
   }, [isPlaying]);
 
@@ -142,6 +172,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
   return (
     <div className="relative">
       <button 
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={`
             p-2 rounded-full transition-all duration-300 border
@@ -158,23 +189,29 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
 
       {isOpen && (
         <>
-            <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+            <button
+              type="button"
+              aria-label="Chiudi pannello musica"
+              className="fixed inset-0 z-40 cursor-default"
+              onClick={() => setIsOpen(false)}
+            />
             <div className="absolute right-0 top-12 z-50 w-80 bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border border-gray-200 dark:border-zinc-800 p-4 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-sm">
                         <Music className="w-4 h-4" />
                         <span>Background Mood</span>
                     </div>
-                    <button onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-gray-600">
+                    <button type="button" onClick={() => setIsOpen(false)} className="text-gray-400 hover:text-gray-600">
                         <X className="w-4 h-4" />
                     </button>
                 </div>
 
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">YouTube Link</label>
+                        <label htmlFor={inputId} className="block text-xs font-semibold text-gray-500 mb-1">YouTube Link</label>
                         <div className="flex gap-2">
                             <input 
+                                id={inputId}
                                 type="text" 
                                 value={url}
                                 onChange={(e) => setUrl(e.target.value)}
@@ -183,6 +220,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                             />
                             {hasError && (
                                 <button 
+                                    type="button"
                                     onClick={handleRetry}
                                     className="p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-lg transition-colors"
                                     title="Riprova a caricare"
@@ -201,6 +239,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
 
                     <div className="flex items-center gap-4 bg-gray-50 dark:bg-zinc-800/50 p-3 rounded-xl border border-gray-100 dark:border-zinc-800">
                         <button
+                            type="button"
                             onClick={() => setIsPlaying(!isPlaying)}
                             disabled={!videoId || hasError}
                             className={`
@@ -233,14 +272,10 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
                     <div className="pt-2 border-t border-gray-100 dark:border-zinc-800">
                          <p className="text-[10px] text-gray-400 mb-2">Preset Sicuri:</p>
                          <div className="flex flex-wrap gap-2">
-                             {[
-                                 { name: "Lofi Girl", url: "https://www.youtube.com/watch?v=jfKfPfyJRdk" },
-                                 { name: "Synthwave", url: "https://www.youtube.com/watch?v=4xDzrJKXOOY" },
-                                 { name: "Rain", url: "https://www.youtube.com/watch?v=5qap5aO4i9A" },
-                                 { name: "Classical", url: "https://www.youtube.com/watch?v=M73x3O7dhmg" }
-                             ].map((preset, idx) => (
+                             {presets.map(preset => (
                                  <button 
-                                    key={idx}
+                                    type="button"
+                                    key={preset.url}
                                     onClick={() => setUrl(preset.url)}
                                     className="px-2 py-1 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded text-[10px] text-gray-600 dark:text-gray-400 hover:border-indigo-300 hover:text-indigo-600 transition-colors"
                                  >

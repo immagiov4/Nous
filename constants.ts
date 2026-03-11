@@ -1,5 +1,3 @@
-import { LearningPlan } from "./types";
-
 export const SYSTEM_INSTRUCTION_PLANNER = `
 Sei un Architetto dell'Apprendimento esperto e un ricercatore accademico di livello mondiale.
 Il tuo compito è analizzare documenti ESTREMAMENTE COMPLESSI E VOLUMINOSI (libri di 800+ pagine, paper densi) e creare un piano di studio personalizzato.

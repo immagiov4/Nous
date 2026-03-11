@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Play, Pause, Loader2, Volume2, FastForward, SkipForward, SkipBack, ChevronRight, Crosshair } from 'lucide-react';
-import { VoiceName } from '../types';
+import type { VoiceName } from '../types';
 
 interface AudioPlayerProps {
   isPlaying: boolean;
@@ -21,7 +21,7 @@ interface AudioPlayerProps {
   onSkipChunk: (direction: 'prev' | 'next') => void;
 }
 
-const AudioPlayer: React.FC<AudioPlayerProps> = ({
+const AudioPlayer = ({
   isPlaying,
   isLoading,
   currentVoice,
@@ -38,7 +38,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   onToggleAudioSyncLink,
   onSeek,
   onSkipChunk
-}) => {
+}: AudioPlayerProps) => {
   
   // Force a single TTS voice in UI.
   const voices: VoiceName[] = ['Mario' as VoiceName];
@@ -49,7 +49,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   // Format time mm:ss
   const formatTime = (t: number) => {
-    if (!t || isNaN(t)) return "00:00";
+    if (!t || Number.isNaN(t)) return "00:00";
     const m = Math.floor(t / 60);
     const s = Math.floor(t % 60);
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
@@ -62,10 +62,10 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const handleMouseLeave = () => {
-    // Wait 2 seconds before hiding
+    // Keep the player visible a bit less before docking again.
     exitTimerRef.current = setTimeout(() => {
       setIsHovered(false);
-    }, 2000);
+    }, 1500);
   };
 
   // Cleanup
@@ -86,14 +86,14 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const transformStyle = isVertical 
     ? {
         left: `${dockOffsetPx}px`,
-        transform: isHovered ? 'translateX(18px) translateY(-50%)' : 'translateX(-72%) translateY(-50%)',
+        transform: isHovered ? 'translateX(14px) translateY(-50%)' : 'translateX(-86%) translateY(-50%)',
         transition: 'left 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)'
       }
     : {};
 
   const containerStyle = isDockedState
-    ? "bg-white/10 dark:bg-zinc-900/20 border-gray-300/30 dark:border-zinc-500/30 shadow-none backdrop-blur-[2px]"
-    : "bg-white/96 dark:bg-zinc-900/96 border-gray-200 dark:border-zinc-700 shadow-2xl shadow-black/15";
+    ? "bg-white/6 dark:bg-zinc-900/12 border-gray-300/20 dark:border-zinc-500/20 shadow-none backdrop-blur-[1px]"
+    : "bg-white/96 dark:bg-zinc-900/96 border-gray-200 dark:border-zinc-700 shadow-xl shadow-black/10";
 
   const iconColorClass = isDockedState 
     ? "text-gray-600 dark:text-gray-400 opacity-20" // Heavily muted when docked
@@ -102,7 +102,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const iconHoverClass = "hover:text-orange-600 dark:hover:text-orange-400";
 
   return (
-    <div 
+    <aside
       className={positionClasses}
       style={isVertical ? transformStyle : {}}
       onMouseEnter={handleMouseEnter}
@@ -115,19 +115,23 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
       {/* DOCKED HANDLE INDICATOR */}
       {isDockedState && (
-        <div className="absolute top-1/2 -right-6 -translate-y-1/2 flex flex-col items-center gap-1 opacity-50">
-           <div className="w-1 h-8 bg-gray-400/50 dark:bg-zinc-500/50 rounded-full" />
-           <ChevronRight className="w-4 h-4 text-gray-500 dark:text-zinc-400" />
-           <div className="w-1 h-8 bg-gray-400/50 dark:bg-zinc-500/50 rounded-full" />
+        <div className="absolute top-1/2 -right-6 -translate-y-1/2 flex flex-col items-center gap-1 opacity-45">
+           <div className="w-1 h-8 bg-gray-400/40 dark:bg-zinc-500/40 rounded-full" />
+           <ChevronRight className="w-4 h-4 text-gray-500/80 dark:text-zinc-400/80" />
+           <div className="w-1 h-8 bg-gray-400/40 dark:bg-zinc-500/40 rounded-full" />
         </div>
       )}
 
       <div 
         className={`
-          relative pointer-events-auto
+          relative pointer-events-auto overflow-hidden
           border transition-all duration-300
           ${containerStyle}
-          ${isVertical ? 'rounded-2xl p-4 flex flex-col gap-4 min-w-[100px]' : 'rounded-2xl p-4 w-auto flex flex-col gap-2'}
+          ${isVertical
+            ? isDockedState
+              ? 'rounded-r-2xl rounded-l-none py-4 px-0 w-5 flex flex-col gap-4'
+              : 'rounded-2xl p-4 flex flex-col gap-4 min-w-[100px]'
+            : 'rounded-2xl p-4 w-auto flex flex-col gap-2'}
         `}
       >
         
@@ -148,15 +152,25 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
         )}
 
         {/* Controls Container */}
-        <div className={`flex items-center justify-center ${isVertical ? 'flex-col gap-5' : 'flex-row gap-8'}`}>
+        <div
+          className={`flex items-center justify-center transition-[opacity,transform] duration-200 ${
+            isVertical ? 'flex-col gap-5' : 'flex-row gap-8'
+          } ${
+            isDockedState
+              ? 'opacity-0 -translate-x-3 pointer-events-none'
+              : 'opacity-100 translate-x-0'
+          }`}
+          aria-hidden={isDockedState}
+        >
           
           {/* Main Transport Controls */}
           <div className={`flex items-center ${isVertical ? 'flex-col gap-4' : 'gap-4'}`}>
-              <button onClick={() => onSkipChunk('prev')} className={`${iconColorClass} ${iconHoverClass} transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800`}>
+              <button type="button" onClick={() => onSkipChunk('prev')} className={`${iconColorClass} ${iconHoverClass} transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800`}>
                 <SkipBack className="w-5 h-5" />
               </button>
 
               <button
+              type="button"
               onClick={onPlayPause}
               disabled={!ttsConnected && !isPlaying}
               className={`
@@ -186,7 +200,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
               )}
             </button>
 
-            <button onClick={() => onSkipChunk('next')} className={`${iconColorClass} ${iconHoverClass} transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800`}>
+            <button type="button" onClick={() => onSkipChunk('next')} className={`${iconColorClass} ${iconHoverClass} transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800`}>
                 <SkipForward className="w-5 h-5" />
             </button>
           </div>
@@ -218,6 +232,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
               <div className={`flex ${isVertical ? 'flex-col gap-1' : 'gap-1'}`}>
                 {[1, 1.25, 1.5].map((rate) => (
                   <button
+                    type="button"
                     key={rate}
                     onClick={() => onSpeedChange(rate)}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors
@@ -239,6 +254,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
           {/* Audio Sync Link Toggle (Mirino) */}
           <button
+              type="button"
               onClick={onToggleAudioSyncLink}
               title={isAudioSyncLinked ? "Modalità Focus: Righello legato all'Audio" : "Attiva Modalità Focus (Lega Righello ad Audio)"}
               className={`p-2 rounded-full transition-all duration-300 border 
@@ -252,7 +268,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
         </div>
       </div>
-    </div>
+    </aside>
   );
 };
 

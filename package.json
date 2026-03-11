@@ -11,7 +11,15 @@
     "setup:tts": "cd tts-server && python download_model.py",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "npm run lint:types",
+    "lint:biome": "biome lint .",
+    "lint:frontend": "tsc --noEmit",
+    "lint:backend": "tsc --noEmit -p backend/tsconfig.json",
+    "lint:types": "npm run lint:frontend && npm run lint:backend",
+    "quality": "npm run lint && npm run lint:biome",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format ."
   },
   "dependencies": {
     "@types/react-syntax-highlighter": "^15.5.13",
@@ -27,6 +35,7 @@
     "remark-math": "^6.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",

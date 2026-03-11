@@ -515,7 +515,9 @@
                     <div class="status" id="status"></div>
 
                     <div class="audio-container" id="audioContainer">
-                        <audio id="audioPlayer" controls></audio>
+                        <audio id="audioPlayer" controls>
+                            <track kind="captions" srclang="en" label="Generated audio captions" src="data:text/vtt;charset=utf-8,WEBVTT">
+                        </audio>
                     </div>
                 </form>
             </section>
@@ -552,7 +554,9 @@
 
                     <div class="audio-container" id="refAudioPreview" style="margin-top: 0;">
                         <label style="margin-bottom: 10px; display: block;">Reference Audio Preview</label>
-                        <audio id="refAudioPlayer" controls style="width: 100%;"></audio>
+                        <audio id="refAudioPlayer" controls style="width: 100%;">
+                            <track kind="captions" srclang="en" label="Reference audio captions" src="data:text/vtt;charset=utf-8,WEBVTT">
+                        </audio>
                     </div>
 
                     <div class="form-group" id="refTextGroup">
@@ -612,7 +616,9 @@
 
                     <div class="audio-container" id="cloneAudioContainer">
                         <label style="margin-bottom: 10px; display: block;">Generated Audio</label>
-                        <audio id="cloneAudioPlayer" controls></audio>
+                        <audio id="cloneAudioPlayer" controls>
+                            <track kind="captions" srclang="en" label="Cloned audio captions" src="data:text/vtt;charset=utf-8,WEBVTT">
+                        </audio>
                     </div>
                 </form>
             </section>
@@ -726,7 +732,7 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
         const speedValue = document.getElementById('speedValue');
         
         speedSlider.addEventListener('input', () => {
-            speedValue.textContent = speedSlider.value + 'x';
+            speedValue.textContent = `${speedSlider.value}x`;
         });
 
         // Form submission
@@ -798,10 +804,10 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
 
         function showStatus(message, type) {
             status.textContent = message;
-            status.className = 'status visible ' + type;
+            status.className = `status visible ${type}`;
         }
 
-        function hideStatus() {
+        function _hideStatus() {
             status.classList.remove('visible');
         }
 
@@ -823,7 +829,7 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
                     const option = document.createElement('option');
                     option.value = forcedVoice;
                     option.textContent = marioVoice
-                        ? `${marioVoice.name} [Custom voice]` + (marioVoice.description ? ` - ${marioVoice.description}` : '')
+                        ? `${marioVoice.name} [Custom voice]${marioVoice.description ? ` - ${marioVoice.description}` : ''}`
                         : 'clone:Mario [Custom voice]';
                     voiceSelect.appendChild(option);
                     voiceSelect.value = forcedVoice;
@@ -945,7 +951,7 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
                 }
             } catch (error) {
                 console.error('Error loading backend status:', error);
-                statusContainer.innerHTML = '<p style="color: #ff3232;">Error: ' + error.message + '</p>';
+                statusContainer.innerHTML = `<p style="color: #ff3232;">Error: ${error.message}</p>`;
             }
         }
 
@@ -955,7 +961,7 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
         loadBackendStatus();
 
         // Voice Cloning functionality
-        const voiceCloneCard = document.getElementById('voiceCloneCard');
+        const _voiceCloneCard = document.getElementById('voiceCloneCard');
         const cloneModeSelect = document.getElementById('cloneMode');
         const refTextGroup = document.getElementById('refTextGroup');
         const refAudioInput = document.getElementById('refAudio');
@@ -971,7 +977,7 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
 
         // Clone speed slider
         cloneSpeedSlider.addEventListener('input', () => {
-            cloneSpeedValue.textContent = cloneSpeedSlider.value + 'x';
+            cloneSpeedValue.textContent = `${cloneSpeedSlider.value}x`;
         });
 
         // Clone mode toggle - show/hide ref_text field
@@ -1079,10 +1085,10 @@ response.<span class="function">stream_to_file</span>(<span class="string">"outp
 
         function showCloneStatus(message, type) {
             cloneStatus.textContent = message;
-            cloneStatus.className = 'status visible ' + type;
+            cloneStatus.className = `status visible ${type}`;
         }
 
-        function hideCloneStatus() {
+        function _hideCloneStatus() {
             cloneStatus.classList.remove('visible');
         }
 

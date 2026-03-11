@@ -122,18 +122,18 @@
     <script>
       // Fix for "Cannot set property fetch of #<Window> which has only a getter"
       // This happens when libraries (like formdata-polyfill) try to overwrite window.fetch
-      (function() {
+      (() => {
         try {
           let currentFetch = window.fetch;
           Object.defineProperty(window, 'fetch', {
-            get: function() { return currentFetch; },
-            set: function(val) { 
+            get: () => currentFetch,
+            set: (val) => {
               currentFetch = val;
             },
             configurable: true,
             enumerable: true
           });
-        } catch (e) {
+        } catch (_e) {
           // Ignore errors during patching
         }
       })();

@@ -5,8 +5,8 @@
  * Kills processes on ports 8000, 3001, 5173
  */
 
-import { exec } from 'child_process';
-import { platform } from 'os';
+import { exec } from 'node:child_process';
+import { platform } from 'node:os';
 
 const isWindows = platform() === 'win32';
 
@@ -41,7 +41,7 @@ function killPort(port) {
         lines.forEach(line => {
           const parts = line.trim().split(/\s+/);
           const pid = parts[parts.length - 1];
-          if (pid && !isNaN(pid)) {
+          if (pid && !Number.isNaN(Number(pid))) {
             pids.add(pid);
           }
         });
@@ -76,9 +76,9 @@ function killPort(port) {
 }
 
 async function stopAll() {
-  console.log('\n' + '='.repeat(50));
+  console.log(`\n${'='.repeat(50)}`);
   console.log('  Stopping Lumina Deep Reader Services');
-  console.log('='.repeat(50) + '\n');
+  console.log(`${'='.repeat(50)}\n`);
 
   const ports = [
     { port: 8880, name: 'TTS Server' },
@@ -91,9 +91,9 @@ async function stopAll() {
     await killPort(port);
   }
 
-  console.log('\n' + '-'.repeat(50));
+  console.log(`\n${'-'.repeat(50)}`);
   log('All services stopped.', colors.green);
-  console.log('-'.repeat(50) + '\n');
+  console.log(`${'-'.repeat(50)}\n`);
 }
 
 stopAll().catch((err) => {
