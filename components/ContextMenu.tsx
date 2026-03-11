@@ -23,16 +23,21 @@ const ContextMenu = ({ x, y, selectedText, onClose, onAsk, onCreateLesson, onHig
 
   const handleAsk = (e: FormEvent) => {
     e.preventDefault();
+    if ('stopPropagation' in e) {
+      e.stopPropagation();
+    }
     if (input.trim()) onAsk(input);
   };
 
   const handleCreate = (e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     onCreateLesson(input);
   };
   
   const handleHighlightClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     onHighlight();
   };
 

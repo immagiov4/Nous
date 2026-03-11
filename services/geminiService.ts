@@ -1,6 +1,7 @@
 export { createAssessmentChat, createLearnAssessmentChat } from './gemini/assessment';
 export {
   askContextualQuestion,
+  createLearnSubChapterMetadata,
   createSubChapterMetadata,
   generateLearningPlan,
   generateSectionContent,

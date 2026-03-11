@@ -19,14 +19,30 @@ interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
   children?: ReactNode;
 }
 
+const looksLikeRenderedHtml = (content: string) =>
+  /<(?:p|div|h[1-6]|pre|code|blockquote|ul|ol|li|table|mark)\b/i.test(content);
+
+const articleClassName = (className: string) =>
+  `prose max-w-none [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone dark:[&_mark]:bg-orange-900/50 dark:[&_mark]:text-white ${className}`;
+
 const MarkdownRenderer = ({ content, className = '', isDarkMode = false, onContextMenu }: MarkdownRendererProps) => {
   const syntaxTheme: { [key: string]: CSSProperties } = isDarkMode
     ? (oneDark as unknown as { [key: string]: CSSProperties })
     : (oneLight as unknown as { [key: string]: CSSProperties });
 
+  if (looksLikeRenderedHtml(content)) {
+    return (
+      <article
+        className={articleClassName(className)}
+        onContextMenu={onContextMenu}
+        dangerouslySetInnerHTML={{ __html: content }}
+      />
+    );
+  }
+
   return (
     <article
-      className={`prose max-w-none ${className}`}
+      className={articleClassName(className)}
       onContextMenu={onContextMenu}
     >
       <ReactMarkdown
