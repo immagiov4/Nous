@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { BookOpen, CheckCircle2, ChevronRight, BrainCircuit, GraduationCap, MessageSquare, Download, FileJson, Ruler, ArrowRight, FileText, X, Moon, Sun, SidebarOpen, SidebarClose, Gauge, FolderArchive, Wifi, WifiOff, Volume2, Play, Pause } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronRight, BrainCircuit, GraduationCap, MessageSquare, Download, Ruler, Moon, Sun, SidebarOpen, SidebarClose, Gauge, LibraryBig } from 'lucide-react';
 import JSZip from 'jszip';
-import { AppState, type ContextMenuState, type FileData, type LearningPlan, type LearningSection, type Message, type QuizQuestion, type SyllabusItem, type UserProfile, type VoiceName } from './types';
+import { AppState, type ContextMenuState, type FileData, type LearningPlan, type LearningSection, type Message, type QuizQuestion, type SyllabusItem, type UserProfile } from './types';
 import * as GeminiService from './services/geminiService';
 import { ASSESSMENT_MIN_TURNS } from './constants';
+import AssessmentView from './components/AssessmentView';
 import MarkdownRenderer from './components/MarkdownRenderer';
 import ContextMenu from './components/ContextMenu';
 import LoadingScreen from './components/LoadingScreen';
 import AudioPlayer from './components/AudioPlayer';
 import ReadingRuler from './components/ReadingRuler';
 import MusicPlayer from './components/MusicPlayer';
+import LibraryView from './components/LibraryView';
 import { useTtsPlayer } from './hooks/useTtsPlayer.ts';
+import { useProjectLibrary } from './hooks/useProjectLibrary.ts';
+import { createProjectId, createProjectSnapshot } from './services/projectSnapshot';
 import { buildReadableBlocks } from './utils/readingText';
+
 const SIDEBAR_WIDTH_PX = 384;
 
 // IGNORED_DIRS: We still filter these to avoid noise and massive performance hits
@@ -64,6 +69,160 @@ const getErrorMessage = (error: unknown): string => {
   return 'Unknown error';
 };
 
+const getSelectionContext = (selection: Selection): { contextBefore: string; contextAfter: string } => {
+  const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+  if (!range) {
+    return { contextBefore: '', contextAfter: '' };
+  }
+
+  const beforeRange = range.cloneRange();
+  beforeRange.selectNodeContents(range.commonAncestorContainer);
+  beforeRange.setEnd(range.startContainer, range.startOffset);
+  const beforeText = beforeRange.toString().slice(-48);
+
+  const afterRange = range.cloneRange();
+  afterRange.selectNodeContents(range.commonAncestorContainer);
+  afterRange.setStart(range.endContainer, range.endOffset);
+  const afterText = afterRange.toString().slice(0, 48);
+
+  return {
+    contextBefore: beforeText,
+    contextAfter: afterText,
+  };
+};
+
+const getRenderedArticle = (contentRoot: HTMLDivElement | null): HTMLElement | null => {
+  if (!contentRoot) {
+    return null;
+  }
+
+  return contentRoot.querySelector('article.prose');
+};
+
+const getNodePath = (root: Node, target: Node): number[] | null => {
+  if (root === target) {
+    return [];
+  }
+
+  const path: number[] = [];
+  let current: Node | null = target;
+
+  while (current && current !== root) {
+    const parent = current.parentNode;
+    if (!parent) {
+      return null;
+    }
+
+    const childIndex = Array.prototype.indexOf.call(parent.childNodes, current) as number;
+    if (childIndex < 0) {
+      return null;
+    }
+
+    path.unshift(childIndex);
+    current = parent;
+  }
+
+  return current === root ? path : null;
+};
+
+const resolveNodePath = (root: Node, path: number[]): Node | null => {
+  let current: Node | null = root;
+
+  for (const childIndex of path) {
+    current = current?.childNodes.item(childIndex) ?? null;
+    if (!current) {
+      return null;
+    }
+  }
+
+  return current;
+};
+
+const highlightRangeInArticle = (article: HTMLElement, selectionRange: Range): string | null => {
+  const startPath = getNodePath(article, selectionRange.startContainer);
+  const endPath = getNodePath(article, selectionRange.endContainer);
+  if (!startPath || !endPath) {
+    return null;
+  }
+
+  const articleClone = article.cloneNode(true) as HTMLElement;
+  const clonedStartContainer = resolveNodePath(articleClone, startPath);
+  const clonedEndContainer = resolveNodePath(articleClone, endPath);
+  if (!clonedStartContainer || !clonedEndContainer) {
+    return null;
+  }
+
+  const clonedRange = document.createRange();
+  clonedRange.setStart(clonedStartContainer, selectionRange.startOffset);
+  clonedRange.setEnd(clonedEndContainer, selectionRange.endOffset);
+
+  const textSegments: Array<{ node: Text; start: number; end: number }> = [];
+  const walker = document.createTreeWalker(articleClone, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!(node instanceof Text) || !node.textContent) {
+        return NodeFilter.FILTER_REJECT;
+      }
+
+      return clonedRange.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+
+  let currentNode = walker.nextNode();
+  while (currentNode) {
+    const textNode = currentNode as Text;
+    const textLength = textNode.textContent?.length ?? 0;
+    let start = 0;
+    let end = textLength;
+
+    if (textNode === clonedRange.startContainer) {
+      start = clonedRange.startOffset;
+    }
+
+    if (textNode === clonedRange.endContainer) {
+      end = clonedRange.endOffset;
+    }
+
+    if (end > start) {
+      textSegments.push({ node: textNode, start, end });
+    }
+
+    currentNode = walker.nextNode();
+  }
+
+  if (textSegments.length === 0) {
+    return null;
+  }
+
+  let didApplyHighlight = false;
+
+  for (const segment of textSegments) {
+    if (segment.node.parentElement?.closest('mark')) {
+      continue;
+    }
+
+    let targetNode = segment.node;
+    if (segment.start > 0) {
+      targetNode = targetNode.splitText(segment.start);
+    }
+
+    const highlightLength = segment.end - segment.start;
+    if (highlightLength <= 0) {
+      continue;
+    }
+
+    if (highlightLength < (targetNode.textContent?.length ?? 0)) {
+      targetNode.splitText(highlightLength);
+    }
+
+    const mark = document.createElement('mark');
+    targetNode.parentNode?.replaceChild(mark, targetNode);
+    mark.appendChild(targetNode);
+    didApplyHighlight = true;
+  }
+
+  return didApplyHighlight ? articleClone.innerHTML : null;
+};
+
 const buildSidebarGroups = (
   learningPlan: LearningPlan | null,
   syllabus: SyllabusItem[]
@@ -71,70 +230,115 @@ const buildSidebarGroups = (
   if (!learningPlan || learningPlan.sections.length === 0) return [];
 
   const sectionById = new Map(learningPlan.sections.map(section => [section.id, section]));
-  const usedSectionIds = new Set<string>();
-  const groups: SidebarGroup[] = [];
+  const moduleTitleById = new Map(syllabus.map(module => [module.id, module.title]));
+  const moduleIdBySectionId = new Map<string, string>();
 
   syllabus.forEach((module) => {
-    const moduleSections = (module.children || [])
-      .map((lesson) => sectionById.get(lesson.id))
-      .filter((section): section is LearningSection => Boolean(section));
-
-    if (moduleSections.length === 0) return;
-
-    groups.push({
-      id: module.id,
-      title: module.title,
-      sections: moduleSections
-    });
-
-    moduleSections.forEach(section => {
-      usedSectionIds.add(section.id);
+    (module.children || []).forEach((lesson) => {
+      moduleIdBySectionId.set(lesson.id, module.id);
     });
   });
 
-  const orphanGroups = new Map<string, LearningSection[]>();
-  const orphanOrder: string[] = [];
+  const resolveModuleId = (sectionId: string): string | null => {
+    const visited = new Set<string>();
+    let currentId: string | undefined = sectionId;
+
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+
+      const directModuleId = moduleIdBySectionId.get(currentId);
+      if (directModuleId) {
+        return directModuleId;
+      }
+
+      const currentSection = sectionById.get(currentId);
+      currentId = currentSection?.parentId;
+    }
+
+    return null;
+  };
+
+  const groupedSections = new Map<string, LearningSection[]>();
+  const groupOrder: string[] = syllabus.map(module => module.id);
 
   learningPlan.sections.forEach((section) => {
-    if (usedSectionIds.has(section.id)) return;
+    const groupKey = resolveModuleId(section.id) || section.parentId || '__ungrouped__';
 
-    const groupKey = section.parentId || '__ungrouped__';
-    if (!orphanGroups.has(groupKey)) {
-      orphanGroups.set(groupKey, []);
-      orphanOrder.push(groupKey);
+    if (!groupedSections.has(groupKey)) {
+      groupedSections.set(groupKey, []);
+      if (!groupOrder.includes(groupKey)) {
+        groupOrder.push(groupKey);
+      }
     }
 
-    const targetGroup = orphanGroups.get(groupKey);
-    if (targetGroup) {
-      targetGroup.push(section);
+    groupedSections.get(groupKey)?.push(section);
+  });
+
+  const groups = groupOrder
+    .map((groupKey, index) => {
+      const sections = groupedSections.get(groupKey) || [];
+      if (sections.length === 0) {
+        return null;
+      }
+
+      const isUngrouped = groupKey === '__ungrouped__';
+
+      return {
+        id: isUngrouped ? `group-${index}` : groupKey,
+        title: moduleTitleById.get(groupKey) || (isUngrouped ? 'Percorso' : `Modulo ${index + 1}`),
+        sections,
+      };
+    })
+    .filter((group): group is SidebarGroup => Boolean(group));
+
+  return groups.length > 0 ? groups : [{ id: 'group-0', title: 'Percorso', sections: learningPlan.sections }];
+};
+
+const resolveLearnSectionContext = (
+  section: LearningSection,
+  learningPlan: LearningPlan | null,
+  syllabus: SyllabusItem[]
+): {
+  anchorLessonId: string;
+  anchorLessonContextPrompt?: string;
+  moduleId: string;
+  moduleTitle: string;
+} => {
+  const sectionById = new Map(learningPlan?.sections.map(item => [item.id, item]) || []);
+  const moduleById = new Map(syllabus.map(module => [module.id, module]));
+
+  let currentSection: LearningSection | undefined = section;
+  let anchorLesson = section;
+  let moduleId = '';
+  let moduleTitle = '';
+  const visited = new Set<string>();
+
+  while (currentSection && !visited.has(currentSection.id)) {
+    visited.add(currentSection.id);
+    anchorLesson = currentSection;
+
+    if (currentSection.parentId && moduleById.has(currentSection.parentId)) {
+      moduleId = currentSection.parentId;
+      moduleTitle = moduleById.get(currentSection.parentId)?.title || '';
+      break;
     }
-  });
 
-  orphanOrder.forEach((groupKey, index) => {
-    const sections = orphanGroups.get(groupKey) || [];
-    if (sections.length === 0) return;
+    currentSection = currentSection.parentId ? sectionById.get(currentSection.parentId) : undefined;
+  }
 
-    const matchingModule = syllabus.find((module) => module.id === groupKey);
-    const isUngrouped = groupKey === '__ungrouped__';
-
-    groups.push({
-      id: isUngrouped ? `group-${index}` : groupKey,
-      title: matchingModule?.title || (isUngrouped ? 'Percorso' : `Modulo ${groups.length + 1}`),
-      sections
-    });
-  });
-
-  return groups.length > 0
-    ? groups
-    : [{ id: 'group-0', title: 'Percorso', sections: learningPlan.sections }];
+  return {
+    anchorLessonId: anchorLesson.id,
+    anchorLessonContextPrompt: anchorLesson.contextPrompt,
+    moduleId,
+    moduleTitle,
+  };
 };
 
 const App = () => {
   // State
-  const [state, setState] = useState<AppState>(AppState.UPLOAD);
+  const [state, setState] = useState<AppState>(AppState.LIBRARY);
   const [file, setFile] = useState<FileData | null>(null);
-  const [importedPlan, setImportedPlan] = useState<LearningPlan | null>(null);
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string>("Caricamento..."); // Detailed status
   const [isContextLoading, setIsContextLoading] = useState(false);
@@ -176,6 +380,7 @@ const App = () => {
 
   const headerHoverBoundaryRef = useRef(64);
   const isHeaderHoveredRef = useRef(false);
+  const fileUploadModeRef = useRef<'new-project' | 'reattach-source'>('new-project');
 
   // Refs
   const contentRef = useRef<HTMLDivElement>(null);
@@ -183,30 +388,24 @@ const App = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const assessmentInputRef = useRef<HTMLInputElement>(null);
   const previousActiveSectionIdRef = useRef<string | null>(null);
+  const highlightRangeRef = useRef<Range | null>(null);
   const sourceFileInputId = useId();
   const planFileInputId = useId();
   const assessmentInputId = useId();
-  const ttsTestTextId = useId();
-  const ttsVoiceGroupLabelId = useId();
 
   const {
     audioState,
     calibrationOffset,
     handleToggleAudioSyncLink,
     handleToggleRuler,
-    handleTTSPlayTest,
     isAudioSyncLinked,
     isAutoTrackEnabled,
     isRulerActive,
-    isTestPlaying,
     playerCurrentTime,
     playerDuration,
     setCalibrationFromRelativeY,
-    setTestText,
     setTestVoice,
     visualProgress,
-    testText,
-    testVoice,
     ttsConnected,
     togglePlayPause,
     stopAudio,
@@ -218,6 +417,71 @@ const App = () => {
     activeSectionId,
     sectionContent,
     speechBlocks,
+  });
+
+  const {
+    applySnapshotToWorkspace,
+    currentProjectId,
+    deleteStoredProject,
+    downloadProject,
+    importProjectData,
+    isLibraryLoading,
+    loadStoredProject,
+    needsSourceFile,
+    persistSnapshot,
+    refreshSavedProjects,
+    resetWorkspace,
+    saveCurrentProject,
+    savedProjects,
+    setCurrentProjectId,
+    setNeedsSourceFile,
+    setProjectHydrated,
+    storageError,
+    touchStoredProject,
+  } = useProjectLibrary<ChatSession, ContextAnswerState>({
+    audioHandlers: {
+      applyPlaybackRate: handleSpeedChange,
+      applyPreferredVoice: handleVoiceChange,
+      setTestVoice,
+    },
+    workspace: {
+      activeSectionId,
+      file,
+      isDarkMode,
+      isLearnMode,
+      learningPlan,
+      musicUrl,
+      playbackRate: audioState.playbackRate,
+      preferredVoice: audioState.currentVoice,
+      state,
+      syllabus,
+      teleprompterSpeed,
+      userProfile,
+    },
+    setters: {
+      setActiveSectionId,
+      setAssessmentMessages,
+      setChatSession,
+      setContextAnswer,
+      setContextMenu,
+      setCurrentAssessmentInput,
+      setFile,
+      setIsDarkMode,
+      setIsFocusMode,
+      setIsLearnMode,
+      setIsLoading,
+      setIsQuizSubmitted,
+      setLearningPlan,
+      setMusicUrl,
+      setQuiz,
+      setQuizAnswers,
+      setSectionContent,
+      setSpeechBlocks,
+      setState,
+      setSyllabus,
+      setTeleprompterSpeed,
+      setUserProfile,
+    },
   });
 
   const sidebarGroups = buildSidebarGroups(learningPlan, syllabus);
@@ -474,114 +738,172 @@ const App = () => {
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setIsLoading(true);
-      setLoadingStatus("Caricamento..."); // Reset status
-      try {
-        let newFile: FileData;
+    if (!selectedFile) {
+      return;
+    }
 
-        if (selectedFile.name.endsWith('.zip')) {
-           newFile = await processZipFile(selectedFile);
-        } else {
-           // Existing PDF/Image logic
-           const reader = new FileReader();
-           newFile = await new Promise<FileData>((resolve) => {
-              reader.onload = (event) => {
-                const base64Data = (event.target?.result as string).split(',')[1];
-                resolve({
-                  name: selectedFile.name,
-                  mimeType: selectedFile.type,
-                  data: base64Data
-                });
-              };
-              reader.readAsDataURL(selectedFile);
-           });
-        }
+    setIsLoading(true);
+    setLoadingStatus("Caricamento...");
+
+    try {
+      let newFile: FileData;
+
+      if (selectedFile.name.endsWith('.zip')) {
+        newFile = await processZipFile(selectedFile);
+      } else {
+        const reader = new FileReader();
+        newFile = await new Promise<FileData>((resolve) => {
+          reader.onload = (event) => {
+            const base64Data = (event.target?.result as string).split(',')[1];
+            resolve({
+              name: selectedFile.name,
+              mimeType: selectedFile.type,
+              data: base64Data,
+            });
+          };
+          reader.readAsDataURL(selectedFile);
+        });
+      }
+
+      if (fileUploadModeRef.current === 'reattach-source' && currentProjectId) {
         setFile(newFile);
-      } catch (err) {
-        alert(`Errore nel caricamento del file: ${getErrorMessage(err)}`);
-      } finally {
-        setIsLoading(false);
+        setNeedsSourceFile(false);
+        setProjectHydrated(true);
+        await saveCurrentProject({ file: newFile, state: learningPlan ? AppState.READING : state });
+      } else {
+        const nextProjectId = createProjectId();
+        resetWorkspace();
+        setCurrentProjectId(nextProjectId);
+        setFile(newFile);
+        setNeedsSourceFile(false);
+        setProjectHydrated(true);
+
+        await persistSnapshot(createProjectSnapshot({
+          id: nextProjectId,
+          state: AppState.ASSESSMENT,
+          file: newFile,
+        }));
+
+        await startAssessment(newFile);
       }
+    } catch (err) {
+      alert(`Errore nel caricamento del file: ${getErrorMessage(err)}`);
+    } finally {
+      if (e.target) {
+        e.target.value = '';
+      }
+      fileUploadModeRef.current = 'new-project';
+      setIsLoading(false);
     }
   };
 
-  const handlePlanUpload = (e: ChangeEvent<HTMLInputElement>) => {
+  const handlePlanUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const json = JSON.parse(event.target?.result as string);
-          
-          // Check if it's a full export or just the plan
-          if (json.learningPlan) {
-            setImportedPlan(json.learningPlan);
-            if (json.isLearnMode !== undefined) {
-              setIsLearnMode(json.isLearnMode);
-            } else if (json.syllabus && json.syllabus.length > 0) {
-              // Infer learn mode from presence of syllabus
-              setIsLearnMode(true);
-            }
-            if (json.userProfile) setUserProfile(json.userProfile);
-            if (json.syllabus) setSyllabus(json.syllabus as SyllabusItem[]);
-          } else {
-            setImportedPlan(json);
-            // If it's a legacy JSON but has sections with parentId, it's likely Learn Mode
-            if (Array.isArray(json.sections) && json.sections.some((s: { parentId?: string }) => Boolean(s.parentId))) {
-              setIsLearnMode(true);
-            }
-          }
-        } catch (_err) {
-          alert("Il file JSON non è valido.");
+    if (!selectedFile) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        const { snapshot } = await importProjectData(json);
+        await touchStoredProject(snapshot.id);
+        await refreshSavedProjects();
+        applySnapshotToWorkspace(snapshot);
+      } catch (_err) {
+        alert("Il file JSON non è valido.");
+      } finally {
+        if (e.target) {
+          e.target.value = '';
         }
-      };
-      reader.readAsText(selectedFile);
-    }
-  };
-
-  const handleStartJourney = () => {
-    if (!file && !importedPlan) return;
-
-    if (importedPlan) {
-      setActiveSectionId(null); // Reset to force loadSection to trigger
-      
-      // Infer Learn Mode if not explicitly set but sections have parentId
-      if (importedPlan.sections?.some(s => !!s.parentId)) {
-        setIsLearnMode(true);
       }
-      
-      setLearningPlan(importedPlan);
-      // Load music from plan if it exists
-      if (importedPlan.backgroundMusicUrl) {
-          setMusicUrl(importedPlan.backgroundMusicUrl);
-      }
-      setState(AppState.READING);
-      const next = importedPlan.sections.find(s => !s.isCompleted) || importedPlan.sections[0];
-      if (next) loadSection(next, importedPlan);
-    } else {
-      startAssessment(file);
-    }
-  };
-
-  const handleExportPlan = () => {
-    if (!learningPlan) return;
-    
-    const exportData = {
-      learningPlan,
-      isLearnMode,
-      userProfile,
-      syllabus,
-      version: "2.0"
     };
+    reader.readAsText(selectedFile);
+  };
 
-    const dataStr = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(exportData))}`;
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `lumina-plan-${new Date().toISOString().slice(0,10)}.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
+  const handleOpenProject = async (projectId: string) => {
+    const snapshot = await loadStoredProject(projectId);
+    if (!snapshot) {
+      return;
+    }
+
+    await touchStoredProject(projectId);
+    await refreshSavedProjects();
+    applySnapshotToWorkspace(snapshot);
+
+    if (!snapshot.learningPlan && snapshot.file) {
+      await startAssessment(snapshot.file);
+      return;
+    }
+
+    if (snapshot.learningPlan) {
+      const nextSection =
+        snapshot.learningPlan.sections.find(section => section.id === snapshot.activeSectionId) ||
+        snapshot.learningPlan.sections.find(section => !section.isCompleted) ||
+        snapshot.learningPlan.sections[0];
+
+      if (nextSection) {
+        await loadSection(nextSection, snapshot.learningPlan);
+      }
+    }
+  };
+
+  const handleExportPlan = useCallback(async (projectId?: string) => {
+    await downloadProject(projectId);
+  }, [downloadProject]);
+
+  const handleDeleteProject = useCallback(async (projectId: string) => {
+    const targetProject = savedProjects.find(project => project.id === projectId);
+    const shouldDelete = window.confirm(`Eliminare "${targetProject?.title || 'questo progetto'}" dalla libreria locale?`);
+    if (!shouldDelete) {
+      return;
+    }
+
+    await deleteStoredProject(projectId);
+    if (currentProjectId === projectId) {
+      stopAudio(true);
+      resetWorkspace();
+      setState(AppState.LIBRARY);
+    }
+    await refreshSavedProjects();
+  }, [currentProjectId, refreshSavedProjects, resetWorkspace, savedProjects, stopAudio]);
+
+  const handleBackToLibrary = useCallback(() => {
+    stopAudio(true);
+    setIsFocusMode(false);
+    setState(AppState.LIBRARY);
+  }, [stopAudio]);
+
+  const handleAttachSourceFile = useCallback(() => {
+    fileUploadModeRef.current = 'reattach-source';
+    const sourceInput = document.getElementById(sourceFileInputId) as HTMLInputElement | null;
+    sourceInput?.click();
+  }, [sourceFileInputId]);
+
+  const handleUploadSourceClick = useCallback(() => {
+    fileUploadModeRef.current = 'new-project';
+    const sourceInput = document.getElementById(sourceFileInputId) as HTMLInputElement | null;
+    sourceInput?.click();
+  }, [sourceFileInputId]);
+
+  const handleImportJsonClick = useCallback(() => {
+    const planInput = document.getElementById(planFileInputId) as HTMLInputElement | null;
+    planInput?.click();
+  }, [planFileInputId]);
+
+  const handleStartLearnJourney = async () => {
+    const nextProjectId = createProjectId();
+    resetWorkspace();
+    setCurrentProjectId(nextProjectId);
+    setIsLearnMode(true);
+    setProjectHydrated(true);
+    await persistSnapshot(createProjectSnapshot({
+      id: nextProjectId,
+      state: AppState.ASSESSMENT,
+      isLearnMode: true,
+    }));
+    await startLearnAssessment();
   };
 
   const startAssessment = async (currentFile: FileData) => {
@@ -596,7 +918,7 @@ const App = () => {
     } catch (err) {
       console.error(err);
       alert("Errore nell'inizializzare la chat con Gemini. Controlla la console.");
-      setState(AppState.UPLOAD);
+      setState(AppState.LIBRARY);
     } finally {
       setIsLoading(false);
     }
@@ -616,7 +938,7 @@ const App = () => {
     } catch (err) {
       console.error(err);
       alert("Errore nell'inizializzare la chat con Gemini. Controlla la console.");
-      setState(AppState.UPLOAD);
+      setState(AppState.LIBRARY);
     } finally {
       setIsLoading(false);
     }
@@ -644,6 +966,7 @@ const App = () => {
             language: 'Italiano',
           } as UserProfile;
           setUserProfile(profile);
+          await saveCurrentProject({ userProfile: profile, isLearnMode: true, state: AppState.ASSESSMENT });
           
           setAssessmentMessages(prev => [...prev, { role: 'model', text: "Perfetto, ho capito le tue esigenze. Sto creando il tuo piano di studi personalizzato..." }]);
           
@@ -709,14 +1032,33 @@ const App = () => {
       
       setLearningPlan(plan);
       setState(AppState.READING);
+      setNeedsSourceFile(false);
       
       if (plan.sections.length > 0) {
-        loadSection(plan.sections[0], plan);
+        const firstSection = plan.sections[0];
+        const projectId = currentProjectId || createProjectId();
+        if (!currentProjectId) {
+          setCurrentProjectId(projectId);
+          setProjectHydrated(true);
+        }
+        setActiveSectionId(firstSection.id);
+        await persistSnapshot(createProjectSnapshot({
+          id: projectId,
+          state: AppState.READING,
+          file,
+          learningPlan: plan,
+          isLearnMode: true,
+          userProfile: profile,
+          syllabus: newSyllabus,
+          activeSectionId: firstSection.id,
+          musicUrl,
+        }));
+        loadSection(firstSection, plan);
       }
     } catch (err) {
       console.error("Plan generation error", err);
       alert("Errore nella generazione del piano. Riprova.");
-      setState(AppState.UPLOAD); 
+      setState(AppState.LIBRARY); 
     } finally {
       setIsLoading(false);
     }
@@ -729,14 +1071,33 @@ const App = () => {
       const plan = await GeminiService.generateLearningPlan(file, history);
       setLearningPlan(plan);
       setState(AppState.READING);
+      setNeedsSourceFile(false);
       
       if (plan.sections.length > 0) {
-        loadSection(plan.sections[0], plan);
+        const firstSection = plan.sections[0];
+        const projectId = currentProjectId || createProjectId();
+        if (!currentProjectId) {
+          setCurrentProjectId(projectId);
+          setProjectHydrated(true);
+        }
+        setActiveSectionId(firstSection.id);
+        await persistSnapshot(createProjectSnapshot({
+          id: projectId,
+          state: AppState.READING,
+          file,
+          learningPlan: plan,
+          isLearnMode,
+          userProfile,
+          syllabus,
+          activeSectionId: firstSection.id,
+          musicUrl,
+        }));
+        loadSection(firstSection, plan);
       }
     } catch (err) {
       console.error("Plan generation error", err);
       alert("Errore nella generazione del piano. Riprova.");
-      setState(AppState.UPLOAD); 
+      setState(AppState.LIBRARY); 
     } finally {
       setIsLoading(false);
     }
@@ -760,6 +1121,8 @@ const App = () => {
     setContextAnswer(null);
     setIsQuizSubmitted(false);
     setQuizAnswers([]);
+    setNeedsSourceFile(false);
+    await saveCurrentProject({ activeSectionId: section.id, state: AppState.READING });
     
     if (section.content && section.content.length > 0) {
       setSectionContent(section.content);
@@ -776,7 +1139,7 @@ const App = () => {
     const canGenerateInLearnMode = isLearnMode || (syllabus && syllabus.length > 0) || hasParentIds;
     
     if (!file && !canGenerateInLearnMode) {
-        alert("Contenuto non disponibile. Carica il file fonte per generare questa lezione.");
+        setNeedsSourceFile(true);
         return;
     }
 
@@ -792,16 +1155,14 @@ const App = () => {
       // If we don't have a file but we have parentIds, we MUST use Learn Mode generation
       if (isLearnMode || (!file && hasParentIds)) {
         if (!isLearnMode) setIsLearnMode(true); // Sync state if inferred
-        
-        const parentModule = syllabus.find(m => m.id === section.parentId);
-        const moduleTitle = parentModule ? parentModule.title : '';
+        const { anchorLessonContextPrompt, anchorLessonId, moduleId, moduleTitle } = resolveLearnSectionContext(section, currentPlan, syllabus);
 
         const content = await GeminiService.generateLearnLessonContent(
           section.title,
           moduleTitle,
-          section.parentId ?? '',
-          section.id,
-          section.contextPrompt,
+          moduleId,
+          anchorLessonId,
+          section.contextPrompt || anchorLessonContextPrompt,
           userProfile,
           syllabus,
           (status) => setLoadingStatus(status)
@@ -810,15 +1171,18 @@ const App = () => {
         setSectionContent(content);
         setQuiz([]);
         setQuizAnswers([]);
-
-        setLearningPlan((prev) => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            sections: prev.sections.map(s => 
-              s.id === section.id ? { ...s, content: content, quiz: [] } : s
-            )
-          };
+        const updatedPlan = {
+          ...currentPlan,
+          sections: currentPlan.sections.map(s => 
+            s.id === section.id ? { ...s, content: content, quiz: [] } : s
+          )
+        };
+        setLearningPlan(updatedPlan);
+        await saveCurrentProject({
+          learningPlan: updatedPlan,
+          activeSectionId: section.id,
+          state: AppState.READING,
+          isLearnMode: true,
         });
 
       } else {
@@ -838,15 +1202,17 @@ const App = () => {
         setSectionContent(content);
         setQuiz(quiz);
         setQuizAnswers(new Array(quiz.length).fill(-1));
-
-        setLearningPlan((prev) => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            sections: prev.sections.map(s => 
-              s.id === section.id ? { ...s, content: content, quiz: quiz } : s
-            )
-          };
+        const updatedPlan = {
+          ...currentPlan,
+          sections: currentPlan.sections.map(s => 
+            s.id === section.id ? { ...s, content: content, quiz: quiz } : s
+          )
+        };
+        setLearningPlan(updatedPlan);
+        await saveCurrentProject({
+          learningPlan: updatedPlan,
+          activeSectionId: section.id,
+          state: AppState.READING,
         });
       }
 
@@ -861,17 +1227,26 @@ const App = () => {
   // ... Context Menu Handlers
   const handleContextMenu = useCallback((e: ReactMouseEvent) => {
     const selection = window.getSelection();
-    if (selection && selection.toString().trim().length > 0) {
-      if (contentRef.current?.contains(selection.anchorNode?.parentElement || null)) {
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+    if (selection && range && selection.toString().trim().length > 0) {
+      if (contentRef.current?.contains(range.commonAncestorContainer)) {
         e.preventDefault();
+        highlightRangeRef.current = range.cloneRange();
+        const { contextBefore, contextAfter } = getSelectionContext(selection);
         setContextMenu({
           visible: true,
           x: e.clientX,
           y: e.clientY,
-          selectedText: selection.toString()
+          selectedText: selection.toString(),
+          contextBefore,
+          contextAfter,
         });
+        return;
       }
     }
+
+    highlightRangeRef.current = null;
   }, []);
 
   const handleContextQuestion = async (question: string) => {
@@ -886,95 +1261,82 @@ const App = () => {
   };
 
   const handleCreateLesson = async (instructions: string) => {
-    if (!file || !learningPlan || !activeSectionId) return;
+    if (!learningPlan || !activeSectionId) {
+      alert("La lezione attiva non e disponibile. Riprova dopo aver aperto una sezione del percorso.");
+      return;
+    }
+
     const { selectedText } = contextMenu;
     const parentSection = learningPlan.sections.find(s => s.id === activeSectionId);
-    if (!parentSection) return;
+    if (!parentSection) {
+      alert("Non riesco a trovare la lezione corrente nel piano. Ricarica il progetto e riprova.");
+      return;
+    }
+
     setIsContextLoading(true);
     try {
-      const newSection = await GeminiService.createSubChapterMetadata(file, parentSection, selectedText, instructions);
+      const canCreateWithoutFile = isLearnMode || syllabus.length > 0 || learningPlan.sections.some(section => Boolean(section.parentId));
+      const newSection = file
+        ? await GeminiService.createSubChapterMetadata(file, parentSection, selectedText, instructions)
+        : canCreateWithoutFile
+          ? await GeminiService.createLearnSubChapterMetadata(
+              parentSection,
+              selectedText,
+              instructions,
+              resolveLearnSectionContext(parentSection, learningPlan, syllabus).moduleTitle,
+              userProfile
+            )
+          : null;
+
+      if (!newSection) {
+        setNeedsSourceFile(true);
+        alert("Questo progetto non ha un file sorgente collegato. Ricollega il PDF o lo ZIP prima di creare una sottolezione.");
+        return;
+      }
+
       const parentIndex = learningPlan.sections.findIndex(s => s.id === activeSectionId);
       const newSections = [...learningPlan.sections];
       newSections.splice(parentIndex + 1, 0, newSection);
-      setLearningPlan({ ...learningPlan, sections: newSections });
+      const updatedPlan = { ...learningPlan, sections: newSections };
+      setLearningPlan(updatedPlan);
+      await saveCurrentProject({ learningPlan: updatedPlan, activeSectionId, state: AppState.READING });
       setContextMenu({ ...contextMenu, visible: false });
-      alert(`Nuova lezione "${newSection.title}" aggiunta al piano!`);
+      await loadSection(newSection, updatedPlan);
     } catch (e) { console.error(e); alert("Impossibile creare la lezione."); } finally { setIsContextLoading(false); }
   };
 
-  const applyStyleToSelection = (targetText: string) => {
-      if (!activeSectionId || !learningPlan) return;
+  const applyStyleToSelection = () => {
+      if (!activeSectionId || !learningPlan || !contentRef.current || !highlightRangeRef.current) return;
 
-      // 1. Split selected text into alphanumeric words (Unicode supported).
-      const words = targetText.match(/[\p{L}\p{N}]+/gu) || [];
-      
-      if (words.length === 0) return;
-
-      // 2. Escape Regex for each word
-      const escapedWords = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-      
-      // 3. Join words allowing for basically ANYTHING in between that isn't the next word.
-      const junkPattern = '[^\\p{L}\\p{N}]+';
-      
-      // Pattern: word1 + junk + word2 + junk ...
-      const pattern = escapedWords.join(junkPattern);
-      
-      // SNAP-TO-WORD LOGIC:
-      // We wrap the pattern in word characters to capture partial selections.
-      // e.g. "roble" -> match "\w*roble\w*" -> "problema"
-      // Note: We use [\p{L}\p{N}] instead of \w to support unicode (accents).
-      const wordChar = '[\\p{L}\\p{N}]';
-      
-      // This regex matches:
-      // 0 or more word-chars + the selected text + 0 or more word-chars
-      // effectively expanding the match to the nearest word boundaries.
-      const expandedPattern = `${wordChar}*${pattern}${wordChar}*`;
-      
-      const regex = new RegExp(expandedPattern, 'iu'); // Case insensitive + Unicode
-      
-      // Find the expanded match in the content
-      const match = sectionContent.match(regex);
-      
-      let newContent = sectionContent;
-
-      if (match) {
-          const startIdx = match.index ?? 0;
-          const endIdx = startIdx + match[0].length;
-          const matchedText = match[0]; // The FULL word(s) found
-          
-          // Check if ALREADY styled with specific tag (Toggle logic)
-          // We need to check for both styles to allow overriding or removing
-          // Use the EXACT matched text for the check
-          const escapedMatch = matchedText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const exactHighlightedRegex = new RegExp(`<mark>${escapedMatch}</mark>`, 'i');
-          
-          if (exactHighlightedRegex.test(sectionContent)) {
-               // Toggle OFF
-               newContent = sectionContent.replace(exactHighlightedRegex, matchedText);
-          } else {
-               // Apply Style
-               const before = sectionContent.substring(0, startIdx);
-               const after = sectionContent.substring(endIdx);
-               newContent = `${before}<mark>${matchedText}</mark>${after}`;
-          }
-      } else {
-          // Fallback simple replace if fuzzy match fails (shouldn't happen often)
-          if (sectionContent.includes(targetText)) {
-               newContent = sectionContent.replace(targetText, `<mark>${targetText}</mark>`);
-          }
+      const article = getRenderedArticle(contentRef.current);
+      const range = highlightRangeRef.current.cloneRange();
+      if (!article || !article.contains(range.commonAncestorContainer)) {
+        highlightRangeRef.current = null;
+        return;
       }
-      
+
+      const newContent = highlightRangeInArticle(article, range);
+      if (!newContent) {
+        highlightRangeRef.current = null;
+        return;
+      }
+
+      const updatedPlan = {
+        ...learningPlan,
+        sections: learningPlan.sections.map(s =>
+          s.id === activeSectionId ? { ...s, content: newContent } : s
+        ),
+      };
+
       setSectionContent(newContent);
-      
-      // Persist to plan
-      setLearningPlan((prev) => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            sections: prev.sections.map(s => 
-              s.id === activeSectionId ? { ...s, content: newContent } : s
-            )
-          };
+      setLearningPlan(updatedPlan);
+      highlightRangeRef.current = null;
+      window.getSelection()?.removeAllRanges();
+
+      void saveCurrentProject({
+        learningPlan: updatedPlan,
+        activeSectionId,
+        state: AppState.READING,
       });
   };
   
@@ -982,335 +1344,76 @@ const App = () => {
     const { selectedText } = contextMenu;
     if (!selectedText) return;
     
-    applyStyleToSelection(selectedText);
+    applyStyleToSelection();
     setContextMenu({ ...contextMenu, visible: false });
   };
 
-  const completeSection = () => {
+  const completeSection = async () => {
     if (!learningPlan || !activeSectionId) return;
     const newSections = learningPlan.sections.map(s => s.id === activeSectionId ? { ...s, isCompleted: true } : s);
     const updatedPlan = { ...learningPlan, sections: newSections };
     setLearningPlan(updatedPlan);
+    await saveCurrentProject({ learningPlan: updatedPlan, activeSectionId, state: AppState.READING });
     const currentIndex = newSections.findIndex(s => s.id === activeSectionId);
     if (currentIndex < newSections.length - 1) loadSection(newSections[currentIndex + 1], updatedPlan);
     else alert("Percorso completato! Ricordati di esportare il tuo progresso.");
   };
 
-  // ... (Upload View, Assessment View - Same)
-  if (state === AppState.UPLOAD) {
-      return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-paper-light dark:bg-paper-dark p-4 transition-colors duration-300">
-        <button 
-          type="button"
-          onClick={() => setIsDarkMode(!isDarkMode)}
-          className="absolute top-6 right-6 p-2 rounded-full text-gray-500 hover:bg-gray-200 dark:hover:bg-zinc-800 dark:text-gray-400 transition-colors"
-        >
-          {isDarkMode ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
-        </button>
-        <div className="max-w-4xl w-full text-center space-y-12">
-          <div>
-            <h1 className="text-6xl font-serif font-bold text-gray-900 dark:text-white mb-6 tracking-tight">Lumina Deep Reader</h1>
-            <p className="text-gray-500 dark:text-gray-400 font-sans text-xl max-w-xl mx-auto leading-relaxed">
-              Il tuo compagno AI per lo studio approfondito di volumi complessi e basi di codice.
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-4">
-            <div className={`relative group transition-all duration-300 ${file ? 'opacity-100 scale-100' : 'opacity-100'}`}>
-               <label htmlFor={sourceFileInputId} className={`
-                  flex flex-col items-center justify-center h-64 cursor-pointer rounded-3xl border-2 transition-all duration-300 relative overflow-hidden bg-white dark:bg-zinc-900
-                  ${file 
-                    ? 'border-green-500 shadow-[0_20px_40px_-10px_rgba(34,197,94,0.15)] ring-4 ring-green-50 dark:ring-green-900/20' 
-                    : 'border-gray-200 dark:border-zinc-800 hover:border-orange-300 dark:hover:border-orange-700 hover:shadow-xl hover:shadow-orange-100/50 dark:hover:shadow-none dashed'
-                  }
-               `}>
-                  {file ? (
-                    <div className="flex flex-col items-center animate-in zoom-in duration-300">
-                      <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center mb-4 shadow-sm">
-                        <CheckCircle2 className="w-8 h-8" />
-                      </div>
-                      <span className="text-green-800 dark:text-green-200 font-bold text-lg px-8 truncate max-w-xs">{file.name}</span>
-                      <span className="text-green-600/60 dark:text-green-400/60 text-sm mt-1">Pronto per l'analisi</span>
-                      
-                      <button 
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFile(null); }}
-                        className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                  ) : (
-                    isLoading ? (
-                        <div className="flex flex-col items-center">
-                            <Gauge className="w-10 h-10 text-orange-500 animate-spin mb-4" />
-                            <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">{loadingStatus}</p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center group-hover:scale-105 transition-transform duration-300">
-                        <div className="w-20 h-20 bg-orange-50 dark:bg-orange-900/20 text-orange-500 rounded-2xl flex items-center justify-center mb-6 rotate-3 group-hover:rotate-6 transition-transform relative">
-                             <FileText className="w-10 h-10 absolute -ml-4 -mt-2" />
-                             <FolderArchive className="w-8 h-8 absolute ml-4 mt-4 text-orange-400" />
-                        </div>
-                        <p className="text-xl font-serif font-bold text-gray-800 dark:text-gray-200 mb-2">1. Carica Fonte</p>
-                        <p className="text-sm text-gray-400 max-w-[200px]">PDF (Libri, Paper)<br/>o ZIP (Codice, Progetti)</p>
-                        <div className="mt-6 px-4 py-1 bg-gray-100 dark:bg-zinc-800 text-gray-500 dark:text-gray-400 text-xs font-bold uppercase tracking-wider rounded-full">Obbligatorio</div>
-                        </div>
-                    )
-                  )}
-                  <input id={sourceFileInputId} type="file" className="hidden" accept=".pdf,.zip" onChange={handleFileUpload} />
-               </label>
-            </div>
-
-            <div className="relative group">
-              <label htmlFor={planFileInputId} className={`
-                  flex flex-col items-center justify-center h-64 cursor-pointer rounded-3xl border-2 border-dashed transition-all duration-300 bg-white dark:bg-zinc-900
-                  ${importedPlan 
-                    ? 'border-blue-500 shadow-[0_20px_40px_-10px_rgba(59,130,246,0.15)] ring-4 ring-blue-50 dark:ring-blue-900/20 border-solid' 
-                    : 'border-gray-200 dark:border-zinc-800 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-xl hover:shadow-blue-100/50 dark:hover:shadow-none'
-                  }
-               `}>
-                 {importedPlan ? (
-                    <div className="flex flex-col items-center animate-in zoom-in duration-300">
-                      <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center mb-4 shadow-sm">
-                        <CheckCircle2 className="w-8 h-8" />
-                      </div>
-                      <span className="text-blue-900 dark:text-blue-200 font-bold text-lg px-8 truncate max-w-xs">{importedPlan.title || "Piano Personalizzato"}</span>
-                      <span className="text-blue-600/60 dark:text-blue-400/60 text-sm mt-1">{importedPlan.sections.length} Lezioni caricate</span>
-                      
-                      <button 
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setImportedPlan(null); }}
-                        className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center group-hover:scale-105 transition-transform duration-300">
-                      <div className="w-20 h-20 bg-blue-50 dark:bg-blue-900/20 text-blue-500 rounded-2xl flex items-center justify-center mb-6 -rotate-3 group-hover:-rotate-6 transition-transform">
-                        <FileJson className="w-10 h-10" />
-                      </div>
-                      <p className="text-xl font-serif font-bold text-gray-800 dark:text-gray-200 mb-2">2. Carica Piano</p>
-                      <p className="text-sm text-gray-400 max-w-[200px]">Hai già un file .json?<br/>Riprendi da dove hai lasciato.</p>
-                      <div className="mt-6 px-4 py-1 bg-gray-100 dark:bg-zinc-800 text-gray-400 text-xs font-bold uppercase tracking-wider rounded-full">Opzionale</div>
-                    </div>
-                  )}
-                <input id={planFileInputId} type="file" className="hidden" accept=".json" onChange={handlePlanUpload} disabled={!!importedPlan} />
-              </label>
-            </div>
-          </div>
-          
-          <div className="pt-8">
-            <button
-              type="button"
-              onClick={handleStartJourney}
-              disabled={!file && !importedPlan}
-              className={`
-                group relative inline-flex items-center justify-center gap-3 px-12 py-5 rounded-full text-lg font-medium transition-all duration-300
-                ${(file || importedPlan) 
-                  ? 'bg-gray-900 dark:bg-white text-white dark:text-black hover:bg-black dark:hover:bg-gray-200 hover:scale-105 hover:shadow-2xl cursor-pointer' 
-                  : 'bg-gray-200 dark:bg-zinc-800 text-gray-400 dark:text-zinc-600 cursor-not-allowed'
-                }
-              `}
-            >
-              {importedPlan ? "Riprendi lo Studio" : "Inizia Analisi & Percorso"}
-              <ArrowRight className={`w-5 h-5 transition-transform duration-300 ${(file || importedPlan) ? 'group-hover:translate-x-1' : ''}`} />
-            </button>
-            
-            <div className="mt-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLearnMode(true);
-                  startLearnAssessment();
-                }}
-                className="group relative inline-flex items-center justify-center gap-3 px-8 py-3 rounded-full text-md font-medium transition-all duration-300 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-900/50 hover:scale-105 cursor-pointer"
-              >
-                <BrainCircuit className="w-5 h-5" />
-                Impara Qualcosa di Nuovo (Senza File)
-              </button>
-            </div>
-
-            {!file && !importedPlan && (
-              <p className="mt-4 text-sm text-gray-400 animate-in fade-in">
-                Carica almeno il file Fonte (PDF o ZIP) per attivare l'analisi del documento.
-              </p>
-            )}
-          </div>
-
-          {/* TTS Test Panel */}
-          <div className="mt-8 pt-8 border-t border-gray-200 dark:border-zinc-800">
-            <div className="max-w-2xl mx-auto">
-              <div className="bg-white dark:bg-zinc-900 rounded-2xl p-6 shadow-lg border border-gray-100 dark:border-zinc-800">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                    <Volume2 className="w-5 h-5 text-orange-500" />
-                    Test Sintesi Vocale (Qwen3-TTS)
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    {ttsConnected ? (
-                      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                        <Wifi className="w-3 h-3" /> Connesso
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
-                        <WifiOff className="w-3 h-3" /> Disconnesso
-                      </span>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="space-y-4">
-                  {/* Voice Selection */}
-                  <div className="flex items-center gap-4">
-                    <fieldset className="flex items-center gap-4">
-                      <legend id={ttsVoiceGroupLabelId} className="text-sm text-gray-600 dark:text-gray-400">Voce:</legend>
-                      <div className="flex gap-2">
-                      {(['Marco', 'Giulia'] as VoiceName[]).map((voice) => (
-                        <button
-                          type="button"
-                          key={voice}
-                          onClick={() => setTestVoice(voice)}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            testVoice === voice
-                              ? 'bg-orange-600 text-white'
-                              : 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-zinc-700'
-                          }`}
-                        >
-                          {voice}
-                        </button>
-                      ))}
-                      </div>
-                    </fieldset>
-                  </div>
-                  
-                  {/* Text Input */}
-                  <div>
-                    <label htmlFor={ttsTestTextId} className="sr-only">Testo per il test TTS</label>
-                    <textarea
-                      id={ttsTestTextId}
-                      value={testText}
-                      onChange={(e) => setTestText(e.target.value)}
-                      placeholder="Inserisci il testo da sintetizzare..."
-                      className="w-full p-3 border border-gray-200 dark:border-zinc-700 rounded-lg bg-gray-50 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 text-sm resize-none"
-                      rows={3}
-                    />
-                  </div>
-                  
-                  {/* Play Button */}
-                  <button
-                    type="button"
-                    onClick={handleTTSPlayTest}
-                    disabled={!ttsConnected}
-                    className={`w-full py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-                      ttsConnected
-                        ? isTestPlaying
-                          ? 'bg-red-500 text-white hover:bg-red-600'
-                          : 'bg-orange-600 text-white hover:bg-orange-700'
-                        : 'bg-gray-300 dark:bg-zinc-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                    }`}
-                  >
-                    {isTestPlaying ? (
-                      <>
-                        <Pause className="w-5 h-5" /> Interrompi
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-5 h-5" /> Riproduci Test
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+  if (state === AppState.LIBRARY) {
+    return (
+      <LibraryView
+        isDarkMode={isDarkMode}
+        isLibraryLoading={isLibraryLoading}
+        isWorking={isLoading}
+        loadingStatus={loadingStatus}
+        planFileInputId={planFileInputId}
+        projects={savedProjects}
+        sourceFileInputId={sourceFileInputId}
+        storageError={storageError}
+        onDeleteProject={handleDeleteProject}
+        onExportProject={(projectId) => {
+          void handleExportPlan(projectId);
+        }}
+        onOpenProject={(projectId) => {
+          void handleOpenProject(projectId);
+        }}
+        onPlanUpload={(event) => {
+          void handlePlanUpload(event);
+        }}
+        onStartLearnJourney={() => {
+          void handleStartLearnJourney();
+        }}
+        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        onUploadSourceClick={handleUploadSourceClick}
+        onSourceFileUpload={(event) => {
+          void handleFileUpload(event);
+        }}
+        onImportJsonClick={handleImportJsonClick}
+      />
     );
   }
   if (state === AppState.ASSESSMENT) {
     return (
-      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-paper-light dark:bg-paper-dark p-4 font-sans transition-colors duration-300">
-        <div className="max-w-3xl w-full bg-white dark:bg-zinc-900 rounded-2xl shadow-xl border border-gray-100 dark:border-zinc-800 overflow-hidden flex flex-col h-[80vh]">
-          <div className="p-6 border-b border-gray-100 dark:border-zinc-800 bg-orange-50 dark:bg-zinc-900 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <BrainCircuit className="w-6 h-6 text-orange-600" />
-              <div>
-                <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Calibrazione Conoscenze</h2>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Analisi approfondita per contenuti densi</p>
-              </div>
-            </div>
-            <div className="text-xs font-mono text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-2 py-1 rounded">
-               Turno {assessmentMessages.filter(m => m.role === 'user').length + 1} / {ASSESSMENT_MIN_TURNS}
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {assessmentMessages.map((msg) => {
-               const displayContent = msg.text.replace('[ASSESSMENT_COMPLETE]', '');
-               return (
-                <div key={`${msg.role}-${displayContent.slice(0, 48)}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] p-5 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                    msg.role === 'user' 
-                      ? 'bg-orange-600 text-white rounded-br-none' 
-                      : 'bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 text-gray-800 dark:text-gray-200 rounded-bl-none'
-                  }`}>
-                    <MarkdownRenderer 
-                      content={displayContent} 
-                      isDarkMode={isDarkMode}
-                      className={`prose-sm ${
-                        msg.role === 'user' 
-                          ? 'prose-invert marker:text-white/70 prose-p:text-white prose-headings:text-white prose-strong:text-white prose-a:text-white prose-code:text-white' 
-                          : 'dark:prose-invert prose-p:text-gray-800 dark:prose-p:text-gray-200 prose-headings:text-gray-900 dark:prose-headings:text-white prose-strong:text-orange-700 dark:prose-strong:text-orange-400'
-                      }`}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            {isLoading && (
-              <div className="flex justify-start">
-                <div className="bg-white dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 p-4 rounded-2xl rounded-bl-none w-auto flex gap-2 items-center text-sm text-gray-500 dark:text-gray-400 shadow-sm">
-                   <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '0ms'}}></div>
-                   <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '150ms'}}></div>
-                   <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{ animationDelay: '300ms'}}></div>
-                   <span>{loadingStatus}</span>
-                </div>
-              </div>
-            )}
-             <div ref={messagesEndRef} />
-          </div>
-
-          <form onSubmit={handleAssessmentSubmit} className="p-4 border-t border-gray-100 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-            <div className="flex gap-2">
-              <input 
-                id={assessmentInputId}
-                ref={assessmentInputRef}
-                type="text" 
-                value={currentAssessmentInput}
-                onChange={(e) => setCurrentAssessmentInput(e.target.value)}
-                placeholder="Scrivi la tua risposta dettagliata..."
-                className="flex-1 p-4 border border-gray-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-200 dark:focus:ring-orange-900 bg-gray-50 dark:bg-zinc-800 text-gray-900 dark:text-white placeholder-gray-400 transition-all focus:bg-white dark:focus:bg-zinc-800"
-                disabled={isLoading}
-              />
-              <button 
-                type="submit" 
-                disabled={isLoading || !currentAssessmentInput.trim()}
-                className="bg-orange-600 text-white px-8 py-3 rounded-xl font-medium hover:bg-orange-700 disabled:opacity-50 transition-all shadow-md hover:shadow-lg disabled:shadow-none"
-              >
-                Invia
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
+      <AssessmentView
+        assessmentInputId={assessmentInputId}
+        assessmentInputRef={assessmentInputRef}
+        currentAssessmentInput={currentAssessmentInput}
+        isDarkMode={isDarkMode}
+        isLoading={isLoading}
+        loadingStatus={loadingStatus}
+        messages={assessmentMessages}
+        messagesEndRef={messagesEndRef}
+        onBackToLibrary={handleBackToLibrary}
+        onInputChange={setCurrentAssessmentInput}
+        onSubmit={handleAssessmentSubmit}
+      />
     );
   }
   if (state === AppState.PLANNING) { return <LoadingScreen message="Analisi Volume in Corso..." subMessage={loadingStatus || "Costruzione piano..."} />; }
 
   return (
     <div className="h-screen overflow-hidden flex bg-paper-light dark:bg-paper-dark font-sans transition-colors duration-300">
+      <input id={sourceFileInputId} type="file" className="hidden" accept=".pdf,.zip" onChange={handleFileUpload} />
       
       {/* IMPLICIT AUTOTRACK: If ruler is active, we pass it down */}
       {isRulerActive && (
@@ -1345,14 +1448,25 @@ const App = () => {
              </button>
           </div>
 
-          <button 
-            type="button"
-            onClick={handleExportPlan}
-            disabled={isLoading}
-            className={`flex items-center justify-center gap-2 w-full py-2.5 bg-gray-100/80 dark:bg-zinc-800/90 hover:bg-gray-200/90 dark:hover:bg-zinc-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <Download className="w-4 h-4" /> Salva Progresso (.json)
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={handleBackToLibrary}
+              className="flex items-center justify-center gap-2 w-full py-2.5 bg-gray-100/80 dark:bg-zinc-800/90 hover:bg-gray-200/90 dark:hover:bg-zinc-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors"
+            >
+              <LibraryBig className="w-4 h-4" /> Libreria
+            </button>
+            <button 
+              type="button"
+              onClick={() => {
+                void handleExportPlan();
+              }}
+              disabled={isLoading}
+              className={`flex items-center justify-center gap-2 w-full py-2.5 bg-gray-100/80 dark:bg-zinc-800/90 hover:bg-gray-200/90 dark:hover:bg-zinc-700 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <Download className="w-4 h-4" /> Esporta
+            </button>
+          </div>
         </div>
         
         <div className="flex-1 overflow-y-auto px-4 py-5">
@@ -1427,6 +1541,41 @@ const App = () => {
           isFocusMode ? 'ml-0' : 'ml-96'
         }`}
       >
+        {storageError ? (
+          <div className="mx-8 mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+            <span>{storageError}</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleExportPlan();
+                }}
+                className="inline-flex items-center justify-center rounded-full border border-red-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700 transition-colors hover:bg-red-100 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/60"
+              >
+                Esporta
+              </button>
+              <button
+                type="button"
+                onClick={handleBackToLibrary}
+                className="inline-flex items-center justify-center rounded-full border border-red-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-red-700 transition-colors hover:bg-red-100 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/60"
+              >
+                Libreria
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {needsSourceFile ? (
+          <div className="mx-8 mt-5 flex items-center justify-between gap-4 rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-600 dark:border-zinc-800 dark:bg-zinc-900/90 dark:text-zinc-300">
+            <span>Questo progetto e stato importato senza file sorgente. Ricollega il PDF o lo ZIP per generare nuove lezioni.</span>
+            <button
+              type="button"
+              onClick={handleAttachSourceFile}
+              className="inline-flex items-center justify-center rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-white transition-colors hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            >
+              Ricollega sorgente
+            </button>
+          </div>
+        ) : null}
         
         {/* HEADER 
             UPDATED: Opacity changes based on isRulerActive and Hover state.

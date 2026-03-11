@@ -26,11 +26,15 @@ export interface FileData {
 }
 
 export enum AppState {
-  UPLOAD = 'UPLOAD',
+  LIBRARY = 'LIBRARY',
   ASSESSMENT = 'ASSESSMENT',
   PLANNING = 'PLANNING',
   READING = 'READING',
 }
+
+export type ProjectId = string;
+export type ProjectSourceKind = 'document' | 'codebase' | 'learn-mode' | 'imported-json';
+export type ProjectSyncState = 'local-only' | 'sync-ready' | 'sync-error';
 
 export interface Message {
   role: 'user' | 'model';
@@ -62,11 +66,65 @@ export interface LearningPlan {
   backgroundMusicUrl?: string; // Optional field for YouTube background music
 }
 
+export interface SavedProjectMeta {
+  id: ProjectId;
+  title: string;
+  sourceKind: ProjectSourceKind;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt: string;
+  lessonCount: number;
+  completedCount: number;
+  hasSourceFile: boolean;
+  coverLabel: string;
+  syncState: ProjectSyncState;
+}
+
+export interface ProjectSnapshot {
+  id: ProjectId;
+  version: string;
+  sourceKind: ProjectSourceKind;
+  state: AppState;
+  file: FileData | null;
+  learningPlan: LearningPlan | null;
+  isLearnMode: boolean;
+  userProfile: UserProfile | null;
+  syllabus: SyllabusItem[];
+  activeSectionId: string | null;
+  musicUrl: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt: string;
+}
+
+export interface ProjectExportData {
+  id?: ProjectId;
+  version: string;
+  state?: AppState;
+  file?: FileData | null;
+  learningPlan: LearningPlan | null;
+  isLearnMode: boolean;
+  userProfile: UserProfile | null;
+  syllabus: SyllabusItem[];
+  activeSectionId?: string | null;
+  musicUrl?: string;
+  sourceKind?: ProjectSourceKind;
+}
+
+export interface UiPreferences {
+  isDarkMode: boolean;
+  teleprompterSpeed: number;
+  preferredVoice: VoiceName;
+  playbackRate: number;
+}
+
 export interface ContextMenuState {
   visible: boolean;
   x: number;
   y: number;
   selectedText: string;
+  contextBefore?: string;
+  contextAfter?: string;
 }
 
 // Updated VoiceName to support both legacy Gemini voices and new TTS voices

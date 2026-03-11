@@ -12,6 +12,7 @@ import {
   type LearningSection,
   type Message,
   type QuizQuestion,
+  type UserProfile,
 } from './shared';
 
 export const generateLearningPlan = async (
@@ -119,6 +120,61 @@ Rispondi SOLO con un oggetto JSON:
       isCompleted: false,
       type: 'deep-dive',
       parentId: parentSection.id,
+    };
+  });
+};
+
+export const createLearnSubChapterMetadata = async (
+  parentSection: LearningSection,
+  selection: string,
+  userInstructions: string,
+  moduleTitle: string,
+  profile: UserProfile | null
+): Promise<LearningSection> => {
+  const prompt = `Sei un curriculum architect esperto.
+
+CONTESTO PERCORSO: "${profile?.topic || moduleTitle || parentSection.title}"
+CONTESTO STUDENTE: "${profile?.context || 'Learner in a fileless AI-generated curriculum'}"
+MODULO: "${moduleTitle || 'Percorso'}"
+LEZIONE PADRE: "${parentSection.title}"
+DESCRIZIONE LEZIONE PADRE: "${parentSection.description}"
+
+TESTO EVIDENZIATO DALL'UTENTE:
+"${selection}"
+
+ISTRUZIONI EXTRA DELL'UTENTE:
+"${userInstructions || 'Approfondisci questo concetto in dettaglio'}"
+
+Il tuo compito e creare il METADATA per una nuova sottolezione deep dive.
+Questa sottolezione deve essere coerente con il percorso corrente ma non dipendere da un file sorgente.
+
+Rispondi SOLO con un oggetto JSON:
+{
+  "title": "Titolo specifico della nuova sottolezione",
+  "description": "Cosa si imparera in questo approfondimento",
+  "contextPrompt": "Prompt tecnico sintetico da usare poi per generare il contenuto della sottolezione"
+}`;
+
+  return retryWithBackoff(async () => {
+    const response = await callOpenRouter({
+      model: MODEL_FLASH,
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+    });
+
+    if (!response) {
+      throw new Error('Failed to generate learn-mode sub-chapter metadata');
+    }
+
+    const json = JSON.parse(response) as { title: string; description: string; contextPrompt?: string };
+    return {
+      id: crypto.randomUUID(),
+      title: json.title,
+      description: json.description,
+      isCompleted: false,
+      type: 'deep-dive',
+      parentId: parentSection.id,
+      contextPrompt: json.contextPrompt || `${selection}\n\n${userInstructions || 'Approfondisci questo concetto in dettaglio'}`,
     };
   });
 };
