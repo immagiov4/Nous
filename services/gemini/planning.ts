@@ -246,29 +246,71 @@ Formato JSON Quiz: [{ "question": "...", "options": ["A", "B", "C", "D"], "corre
   return { content: content.trim(), quiz };
 };
 
-export const askContextualQuestion = async (
-  file: FileData,
-  selection: string,
-  question: string
-): Promise<string> => {
-  const prompt = `L'utente ha evidenziato questo testo: "${selection}"
-Domanda dell'utente: "${question}"
+interface AskContextualQuestionInput {
+  file?: FileData | null;
+  selection: string;
+  question: string;
+  lessonTitle?: string;
+  lessonDescription?: string;
+  lessonContent?: string;
+  contextBefore?: string;
+  contextAfter?: string;
+}
 
-Rispondi in modo conciso e utile basandoti sul documento caricato.
-Se la risposta e nel paper, cita il paper.`;
+export const askContextualQuestion = async ({
+  file,
+  selection,
+  question,
+  lessonTitle,
+  lessonDescription,
+  lessonContent,
+  contextBefore,
+  contextAfter,
+}: AskContextualQuestionInput): Promise<string> => {
+  const selectionContext = [contextBefore, selection, contextAfter].filter(Boolean).join(' ');
+  const basePrompt = `L'utente ha evidenziato questo testo:
+"${selection}"
+
+Contesto immediato della selezione:
+"${selectionContext || selection}"
+
+Domanda dell'utente:
+"${question}"`;
 
   return retryWithBackoff(async () => {
     const response = await callOpenRouter({
       model: MODEL_FLASH,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: fileToDataUrl(file) } },
-            { type: 'text', text: prompt },
+      messages: file
+        ? [
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: fileToDataUrl(file) } },
+                {
+                  type: 'text',
+                  text: `${basePrompt}
+
+Rispondi in modo conciso e utile basandoti sul documento caricato.
+Se la risposta e presente nella fonte originale, citala chiaramente.`,
+                },
+              ],
+            },
+          ]
+        : [
+            {
+              role: 'user',
+              content: `${basePrompt}
+
+Titolo lezione corrente: "${lessonTitle || 'Lezione corrente'}"
+Descrizione lezione: "${lessonDescription || 'Nessuna descrizione disponibile'}"
+
+Contenuto della lezione corrente:
+${lessonContent || 'Nessun contenuto disponibile.'}
+
+La fonte originale non e allegata. Rispondi usando solo il contesto della lezione corrente.
+Se il dettaglio richiesto non e supportato dal testo disponibile, dichiaralo esplicitamente invece di inventare riferimenti.`,
+            },
           ],
-        },
-      ],
     });
 
     return response || 'Non ho potuto generare una risposta.';

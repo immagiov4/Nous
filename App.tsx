@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { BookOpen, CheckCircle2, ChevronRight, BrainCircuit, GraduationCap, MessageSquare, Download, Ruler, Moon, Sun, SidebarOpen, SidebarClose, Gauge, LibraryBig } from 'lucide-react';
+import { BookOpen, CheckCircle2, ChevronRight, GraduationCap, MessageSquare, Download, Ruler, Moon, Sun, SidebarOpen, SidebarClose, Gauge, LibraryBig } from 'lucide-react';
 import JSZip from 'jszip';
 import { AppState, type ContextMenuState, type FileData, type LearningPlan, type LearningSection, type Message, type QuizQuestion, type SyllabusItem, type UserProfile } from './types';
 import * as GeminiService from './services/geminiService';
@@ -19,6 +19,11 @@ import { createProjectId, createProjectSnapshot } from './services/projectSnapsh
 import { buildReadableBlocks } from './utils/readingText';
 
 const SIDEBAR_WIDTH_PX = 384;
+const CONTEXT_ANSWER_DEFAULT_WIDTH = 512;
+const CONTEXT_ANSWER_DEFAULT_HEIGHT = 544;
+const CONTEXT_ANSWER_MIN_WIDTH = 352;
+const CONTEXT_ANSWER_MIN_HEIGHT = 256;
+const CONTEXT_ANSWER_VIEWPORT_MARGIN = 32;
 
 // IGNORED_DIRS: We still filter these to avoid noise and massive performance hits
 // from dependencies or build artifacts, even if they contain text.
@@ -59,6 +64,18 @@ interface ChatSession {
 interface ContextAnswerState {
   q: string;
   a: string;
+}
+
+interface ContextAnswerSize {
+  width: number;
+  height: number;
+}
+
+interface ContextAnswerResizeState {
+  startX: number;
+  startY: number;
+  startWidth: number;
+  startHeight: number;
 }
 
 const getErrorMessage = (error: unknown): string => {
@@ -365,6 +382,10 @@ const App = () => {
   const [isQuizSubmitted, setIsQuizSubmitted] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0, selectedText: '' });
   const [contextAnswer, setContextAnswer] = useState<ContextAnswerState | null>(null);
+  const [contextAnswerSize, setContextAnswerSize] = useState<ContextAnswerSize>({
+    width: CONTEXT_ANSWER_DEFAULT_WIDTH,
+    height: CONTEXT_ANSWER_DEFAULT_HEIGHT,
+  });
 
   // Focus & Accessibility State
   const [isFocusMode, setIsFocusMode] = useState(false);
@@ -389,6 +410,7 @@ const App = () => {
   const assessmentInputRef = useRef<HTMLInputElement>(null);
   const previousActiveSectionIdRef = useRef<string | null>(null);
   const highlightRangeRef = useRef<Range | null>(null);
+  const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
   const sourceFileInputId = useId();
   const planFileInputId = useId();
   const assessmentInputId = useId();
@@ -486,6 +508,19 @@ const App = () => {
 
   const sidebarGroups = buildSidebarGroups(learningPlan, syllabus);
   const audioDockOffset = isFocusMode ? 0 : SIDEBAR_WIDTH_PX;
+  const clampContextAnswerSize = useCallback((width: number, height: number): ContextAnswerSize => {
+    const maxWidth = typeof window === 'undefined'
+      ? CONTEXT_ANSWER_DEFAULT_WIDTH
+      : Math.max(CONTEXT_ANSWER_MIN_WIDTH, window.innerWidth - CONTEXT_ANSWER_VIEWPORT_MARGIN);
+    const maxHeight = typeof window === 'undefined'
+      ? CONTEXT_ANSWER_DEFAULT_HEIGHT
+      : Math.max(CONTEXT_ANSWER_MIN_HEIGHT, window.innerHeight - CONTEXT_ANSWER_VIEWPORT_MARGIN);
+
+    return {
+      width: Math.min(Math.max(width, CONTEXT_ANSWER_MIN_WIDTH), maxWidth),
+      height: Math.min(Math.max(height, CONTEXT_ANSWER_MIN_HEIGHT), maxHeight),
+    };
+  }, []);
   const handleModuleToggle = useCallback((groupId: string) => {
     flushSync(() => {
       setExpandedModuleId((currentId) => (currentId === groupId ? null : groupId));
@@ -512,6 +547,17 @@ const App = () => {
   }, [assessmentMessages, state]);
 
   useEffect(() => {
+    const handleResize = () => {
+      setContextAnswerSize((currentSize) => clampContextAnswerSize(currentSize.width, currentSize.height));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [clampContextAnswerSize]);
+
+  useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       const nextIsHovered = event.clientY <= headerHoverBoundaryRef.current;
       if (nextIsHovered === isHeaderHoveredRef.current) {
@@ -527,6 +573,36 @@ const App = () => {
       document.removeEventListener('pointermove', handlePointerMove);
     };
   }, []);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const resizeState = contextAnswerResizeRef.current;
+      if (!resizeState) {
+        return;
+      }
+
+      const nextWidth = resizeState.startWidth + (resizeState.startX - event.clientX);
+      const nextHeight = resizeState.startHeight + (resizeState.startY - event.clientY);
+      setContextAnswerSize(clampContextAnswerSize(nextWidth, nextHeight));
+    };
+
+    const handlePointerUp = () => {
+      if (!contextAnswerResizeRef.current) {
+        return;
+      }
+
+      contextAnswerResizeRef.current = null;
+      document.body.style.removeProperty('user-select');
+      document.body.style.removeProperty('cursor');
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [clampContextAnswerSize]);
 
   useEffect(() => {
     if (!contextMenu.visible) {
@@ -867,7 +943,7 @@ const App = () => {
       setState(AppState.LIBRARY);
     }
     await refreshSavedProjects();
-  }, [currentProjectId, refreshSavedProjects, resetWorkspace, savedProjects, stopAudio]);
+  }, [currentProjectId, deleteStoredProject, refreshSavedProjects, resetWorkspace, savedProjects, stopAudio]);
 
   const handleBackToLibrary = useCallback(() => {
     stopAudio(true);
@@ -1250,11 +1326,30 @@ const App = () => {
   }, []);
 
   const handleContextQuestion = async (question: string) => {
-    if (!file) return;
     const { selectedText } = contextMenu;
+    const activeSection = learningPlan?.sections.find((section) => section.id === activeSectionId) || null;
+    const canAnswerFromLesson = Boolean(
+      activeSection?.content || sectionContent || contextMenu.contextBefore || contextMenu.contextAfter
+    );
+
+    if (!file && !canAnswerFromLesson) {
+      setNeedsSourceFile(true);
+      alert("Questo progetto non ha una fonte collegata e la lezione corrente non contiene abbastanza contesto per rispondere.");
+      return;
+    }
+
     setIsContextLoading(true);
     try {
-      const answer = await GeminiService.askContextualQuestion(file, selectedText, question);
+      const answer = await GeminiService.askContextualQuestion({
+        file,
+        selection: selectedText,
+        question,
+        lessonTitle: activeSection?.title,
+        lessonDescription: activeSection?.description,
+        lessonContent: activeSection?.content || sectionContent,
+        contextBefore: contextMenu.contextBefore,
+        contextAfter: contextMenu.contextAfter,
+      });
       setContextAnswer({ q: question, a: answer });
       setContextMenu({ ...contextMenu, visible: false });
     } catch (e) { console.error(e); } finally { setIsContextLoading(false); }
@@ -1347,6 +1442,19 @@ const App = () => {
     applyStyleToSelection();
     setContextMenu({ ...contextMenu, visible: false });
   };
+
+  const handleContextAnswerResizeStart = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    contextAnswerResizeRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: contextAnswerSize.width,
+      startHeight: contextAnswerSize.height,
+    };
+    document.body.style.setProperty('user-select', 'none');
+    document.body.style.setProperty('cursor', 'nesw-resize');
+  }, [contextAnswerSize.height, contextAnswerSize.width]);
 
   const completeSection = async () => {
     if (!learningPlan || !activeSectionId) return;
@@ -1808,18 +1916,31 @@ const App = () => {
         {/* Context Menu and Answer overlays (Same) */}
         {contextAnswer && (
           <div 
-            className="fixed bottom-24 right-8 max-w-md w-full bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] border border-orange-100 dark:border-orange-900/30 animate-in slide-in-from-bottom-10 duration-500 z-50"
+            className="fixed bottom-24 right-8 z-50 flex flex-col overflow-hidden rounded-2xl border border-orange-100 bg-white p-6 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] animate-in slide-in-from-bottom-10 duration-500 dark:border-orange-900/30 dark:bg-zinc-900"
+            style={{ width: contextAnswerSize.width, height: contextAnswerSize.height }}
           >
-             <div className="flex justify-between items-start mb-4">
+             <div className="mb-4 flex items-start justify-between gap-3">
                <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400 text-xs font-bold uppercase tracking-wider bg-orange-50 dark:bg-orange-900/20 px-3 py-1 rounded-full">
                   <MessageSquare className="w-3 h-3" /> Risposta AI
                </div>
                <button type="button" onClick={() => setContextAnswer(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-50 dark:bg-zinc-800 p-1 rounded-full"><XIcon className="w-4 h-4" /></button>
               </div>
-             <p className="text-base font-serif font-bold text-gray-900 dark:text-gray-100 mb-3 border-l-2 border-orange-500 pl-3">"{contextAnswer.q}"</p>
-             <div className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+             <p className="mb-3 shrink-0 border-l-2 border-orange-500 pl-3 text-base font-serif font-bold text-gray-900 dark:text-gray-100">"{contextAnswer.q}"</p>
+             <div className="custom-scrollbar min-h-0 flex-1 overflow-auto pr-2 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
                 <MarkdownRenderer content={contextAnswer.a} isDarkMode={isDarkMode} className="prose-sm prose-p:text-gray-600 dark:prose-p:text-gray-300" />
              </div>
+             <button
+               type="button"
+               aria-label="Ridimensiona pannello risposta"
+               onMouseDown={handleContextAnswerResizeStart}
+               className="absolute bottom-3 left-3 flex h-5 w-5 cursor-nesw-resize items-end justify-start rounded-sm text-orange-300 transition-colors hover:text-orange-500 dark:text-orange-700 dark:hover:text-orange-400"
+             >
+               <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4">
+                 <path d="M1 15L15 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                 <path d="M1 11L11 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                 <path d="M1 7L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+               </svg>
+             </button>
           </div>
         )}
 
