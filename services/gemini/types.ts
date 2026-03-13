@@ -3,6 +3,9 @@ import type {
   LearningPlan,
   LearningSection,
   Message,
+  LessonImageRef,
+  PdfDocumentAssets,
+  PdfImageAsset,
   QuizQuestion,
   SyllabusItem,
   UserProfile,
@@ -19,16 +22,46 @@ export interface TextContentPart {
   text: string;
 }
 
+export interface FileContentPart {
+  type: 'file';
+  file: {
+    filename: string;
+    file_data: string;
+  };
+}
+
 export interface ImageContentPart {
   type: 'image_url';
   image_url: { url: string };
 }
 
-export type ChatMessageContent = string | Array<TextContentPart | ImageContentPart>;
+export type ChatMessageContent = string | Array<TextContentPart | ImageContentPart | FileContentPart>;
+
+export interface FileAnnotationTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface FileAnnotationImagePart {
+  type: 'image_url';
+  image_url: { url: string };
+}
+
+export type FileAnnotationContentPart = FileAnnotationTextPart | FileAnnotationImagePart;
+
+export interface FileAnnotation {
+  type: 'file';
+  file: {
+    name?: string;
+    hash?: string;
+    content?: FileAnnotationContentPart[];
+  };
+}
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: ChatMessageContent;
+  annotations?: FileAnnotation[];
 }
 
 export interface ChatCompletionOptions {
@@ -38,11 +71,13 @@ export interface ChatCompletionOptions {
   max_tokens?: number;
   response_format?: JsonSchemaFormat;
   tools?: Record<string, unknown>[];
+  plugins?: Record<string, unknown>[];
 }
 
 export interface OpenRouterChoice {
   message?: {
     content?: OpenRouterMessageContent;
+    annotations?: FileAnnotation[];
   };
 }
 
@@ -101,7 +136,10 @@ export type {
   FileData,
   LearningPlan,
   LearningSection,
+  LessonImageRef,
   Message,
+  PdfDocumentAssets,
+  PdfImageAsset,
   QuizQuestion,
   SyllabusItem,
   UserProfile,

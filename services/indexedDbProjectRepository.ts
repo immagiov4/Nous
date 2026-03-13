@@ -96,24 +96,17 @@ export class IndexedDbProjectRepository implements ProjectRepository {
 
   async touchProject(id: ProjectId): Promise<void> {
     const db = await this.dbPromise;
-    const [meta, snapshot] = await Promise.all([db.get(META_STORE, id), db.get(SNAPSHOT_STORE, id)]);
-    if (!meta || !snapshot) {
+    const meta = await db.get(META_STORE, id);
+    if (!meta) {
       return;
     }
 
     const touchedAt = new Date().toISOString();
 
-    await Promise.all([
-      db.put(META_STORE, {
-        ...meta,
-        lastOpenedAt: touchedAt,
-        updatedAt: touchedAt,
-      }),
-      db.put(SNAPSHOT_STORE, {
-        ...snapshot,
-        lastOpenedAt: touchedAt,
-        updatedAt: touchedAt,
-      }),
-    ]);
+    await db.put(META_STORE, {
+      ...meta,
+      lastOpenedAt: touchedAt,
+      updatedAt: touchedAt,
+    });
   }
 }

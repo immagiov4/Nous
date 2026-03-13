@@ -1,4 +1,4 @@
-import { BACKEND_URL } from './config';
+import { getBackendUrl } from './config';
 import type { TtsStatusResponse, TtsVoiceDescriptor } from './types';
 
 interface GenerateSpeechPayload {
@@ -16,7 +16,7 @@ interface TtsVoicesResponse {
 }
 
 export const requestSpeechAudio = async (payload: GenerateSpeechPayload): Promise<ArrayBuffer> => {
-  const response = await fetch(`${BACKEND_URL}/api/tts`, {
+  const response = await fetch(`${getBackendUrl()}/api/tts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -33,7 +33,7 @@ export const requestSpeechAudio = async (payload: GenerateSpeechPayload): Promis
 };
 
 export const requestTtsStatus = async (): Promise<TtsStatusResponse> => {
-  const response = await fetch(`${BACKEND_URL}/api/status`, {
+  const response = await fetch(`${getBackendUrl()}/api/status`, {
     method: 'GET',
     signal: AbortSignal.timeout(5000),
   });
@@ -46,7 +46,7 @@ export const requestTtsStatus = async (): Promise<TtsStatusResponse> => {
 };
 
 export const requestTtsVoices = async (): Promise<TtsVoiceDescriptor[]> => {
-  const response = await fetch(`${BACKEND_URL}/api/voices`, {
+  const response = await fetch(`${getBackendUrl()}/api/voices`, {
     method: 'GET',
     signal: AbortSignal.timeout(5000),
   });

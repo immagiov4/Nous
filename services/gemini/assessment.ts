@@ -1,8 +1,8 @@
 import {
+  buildDocumentInputContent,
   MODEL_FLASH,
   MODEL_REASONING,
   callOpenRouter,
-  fileToDataUrl,
   parseFunctionCallProfile,
   type ChatMessage,
   type ChatSession,
@@ -25,13 +25,10 @@ Parla in Italiano.`;
     { role: 'system', content: systemPrompt },
     {
       role: 'user',
-      content: [
-        { type: 'image_url', image_url: { url: fileToDataUrl(file) } },
-        {
-          type: 'text',
-          text: 'Ho caricato questo documento. Voglio che tu mi valuti per creare un piano di studio su di esso.',
-        },
-      ],
+      content: buildDocumentInputContent(
+        file,
+        'Ho caricato questo documento. Voglio che tu mi valuti per creare un piano di studio su di esso.'
+      ),
     },
     {
       role: 'assistant',

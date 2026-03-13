@@ -5,6 +5,7 @@ import NewProjectPanel from './NewProjectPanel';
 import ProjectCard from './ProjectCard';
 
 interface LibraryViewProps {
+  openingProjectId: string | null;
   isDarkMode: boolean;
   isLibraryLoading: boolean;
   isWorking: boolean;
@@ -25,6 +26,7 @@ interface LibraryViewProps {
 }
 
 const LibraryView = ({
+  openingProjectId,
   isDarkMode,
   isLibraryLoading,
   isWorking,
@@ -51,7 +53,7 @@ const LibraryView = ({
       <input id={planFileInputId} type="file" className="hidden" accept=".json" onChange={onPlanUpload} />
 
       <div className="mx-auto max-w-7xl">
-        <header className="mb-6 flex items-start justify-between gap-6">
+        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
           <div className="max-w-4xl space-y-4">
             <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-gray-500 dark:text-zinc-500">
               <span className="rounded-full border border-gray-200/80 bg-white/80 px-3 py-1 text-gray-700 dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-300">
@@ -65,14 +67,16 @@ const LibraryView = ({
             </h1>
           </div>
 
-          <button
-            type="button"
-            onClick={onToggleDarkMode}
-            className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-white"
-            aria-label="Cambia tema"
-          >
-            {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onToggleDarkMode}
+              className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md border border-gray-200 bg-white text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-white"
+              aria-label="Cambia tema"
+            >
+              {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </button>
+          </div>
         </header>
 
         {storageError ? (
@@ -123,6 +127,7 @@ const LibraryView = ({
               {projects.map((project) => (
                 <ProjectCard
                   key={project.id}
+                  isOpening={openingProjectId === project.id}
                   project={project}
                   onDelete={onDeleteProject}
                   onExport={onExportProject}

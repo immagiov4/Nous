@@ -47,8 +47,33 @@ export interface QuizQuestion {
   correctIndex: number;
 }
 
+export interface LessonImageRef {
+  assetId: string;
+  alt: string;
+  caption?: string;
+  anchorHeading?: string;
+}
+
+export interface PdfImageAsset {
+  id: string;
+  mimeType: string;
+  dataUrl: string;
+  textBefore: string;
+  textAfter: string;
+  sourceOrder: number;
+}
+
+export interface PdfDocumentAssets {
+  kind: 'pdf';
+  parsedAt: string;
+  imageCount: number;
+  sourceHash?: string;
+  usedImages: PdfImageAsset[];
+}
+
 export interface LearningSection {
   id: string;
+  moduleTitle?: string;
   title: string;
   description: string;
   isCompleted: boolean;
@@ -56,6 +81,7 @@ export interface LearningSection {
   parentId?: string; // ID of the parent section if this is a sub-chapter
   content?: string; // The generated full lesson content (persisted)
   quiz?: QuizQuestion[]; // The generated quiz (persisted)
+  imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
   contextPrompt?: string; // For Learn Mode
 }
 
@@ -95,6 +121,7 @@ export interface ProjectSnapshot {
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
+  documentAssets?: PdfDocumentAssets | null;
 }
 
 export interface ProjectExportData {
@@ -109,6 +136,7 @@ export interface ProjectExportData {
   activeSectionId?: string | null;
   musicUrl?: string;
   sourceKind?: ProjectSourceKind;
+  documentAssets?: PdfDocumentAssets | null;
 }
 
 export interface UiPreferences {

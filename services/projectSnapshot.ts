@@ -1,6 +1,6 @@
-import { AppState, type FileData, type LearningPlan, type ProjectExportData, type ProjectId, type ProjectSnapshot, type ProjectSourceKind, type SavedProjectMeta, type SyllabusItem, type UserProfile } from '../types';
+import { AppState, type FileData, type LearningPlan, type PdfDocumentAssets, type ProjectExportData, type ProjectId, type ProjectSnapshot, type ProjectSourceKind, type SavedProjectMeta, type SyllabusItem, type UserProfile } from '../types';
 
-const CURRENT_PROJECT_VERSION = '3.0';
+const CURRENT_PROJECT_VERSION = '3.1';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
@@ -105,6 +105,7 @@ export const createProjectSnapshot = (
   createdAt: partial.createdAt || new Date().toISOString(),
   updatedAt: partial.updatedAt || new Date().toISOString(),
   lastOpenedAt: partial.lastOpenedAt || new Date().toISOString(),
+  documentAssets: partial.documentAssets ?? null,
 });
 
 const parseFileData = (value: unknown): FileData | null => {
@@ -137,6 +138,30 @@ const parseLearningPlan = (value: unknown): LearningPlan | null => {
     summary: ensureString(value.summary),
     sections: value.sections as LearningPlan['sections'],
     backgroundMusicUrl: ensureString(value.backgroundMusicUrl),
+  };
+};
+
+const parseDocumentAssets = (value: unknown): PdfDocumentAssets | null => {
+  if (!isRecord(value) || value.kind !== 'pdf' || !Array.isArray(value.usedImages)) {
+    return null;
+  }
+
+  return {
+    kind: 'pdf',
+    parsedAt: ensureString(value.parsedAt, new Date().toISOString()),
+    imageCount: typeof value.imageCount === 'number' ? value.imageCount : value.usedImages.length,
+    sourceHash: ensureString(value.sourceHash),
+    usedImages: value.usedImages
+      .filter(isRecord)
+      .map(image => ({
+        id: ensureString(image.id),
+        mimeType: ensureString(image.mimeType, 'image/png'),
+        dataUrl: ensureString(image.dataUrl),
+        textBefore: ensureString(image.textBefore),
+        textAfter: ensureString(image.textAfter),
+        sourceOrder: typeof image.sourceOrder === 'number' ? image.sourceOrder : 0,
+      }))
+      .filter(image => image.id && image.dataUrl),
   };
 };
 
@@ -193,6 +218,7 @@ export const normalizeImportedProject = (data: unknown): ProjectSnapshot => {
     createdAt: ensureString(data.createdAt, now),
     updatedAt: ensureString(data.updatedAt, now),
     lastOpenedAt: ensureString(data.lastOpenedAt, now),
+    documentAssets: parseDocumentAssets(data.documentAssets),
   });
 };
 
@@ -208,4 +234,5 @@ export const exportProjectData = (snapshot: ProjectSnapshot): ProjectExportData 
   activeSectionId: snapshot.activeSectionId,
   musicUrl: snapshot.musicUrl || snapshot.learningPlan?.backgroundMusicUrl || '',
   sourceKind: snapshot.sourceKind,
+  documentAssets: snapshot.documentAssets ?? null,
 });

@@ -209,6 +209,10 @@ export const generateLearnLessonContent = async (
     currentModuleId,
     currentLessonId
   );
+  const isFirstLesson = pastContext.trim().length === 0;
+  const continuityRule = isFirstLesson
+    ? "This is the first lesson. Do not mention previous lessons, prior chapters, or phrases like 'as we already saw'."
+    : 'Only refer to previous lessons if they are present in PAST TOPICS. Do not invent prior material.';
 
   onStatusUpdate('Generating comprehensive lesson...');
 
@@ -238,6 +242,7 @@ CRITICAL WRITING RULES:
    - The Architecture
    - The Implementation
    - The Trap
+7. ${continuityRule}
 
 FORMAT: Markdown.`;
 

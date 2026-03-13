@@ -48,7 +48,7 @@ const createHttpError = async (response: Response): Promise<HttpError> => {
   return error;
 };
 
-export const callOpenRouter = async (options: ChatCompletionOptions): Promise<string> => {
+export const callOpenRouterRaw = async (options: ChatCompletionOptions): Promise<OpenRouterResponse> => {
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: getHeaders(),
@@ -59,6 +59,7 @@ export const callOpenRouter = async (options: ChatCompletionOptions): Promise<st
       max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
       response_format: options.response_format,
       tools: options.tools,
+      plugins: options.plugins,
     }),
   });
 
@@ -66,6 +67,10 @@ export const callOpenRouter = async (options: ChatCompletionOptions): Promise<st
     throw await createHttpError(response);
   }
 
-  const data = (await response.json()) as OpenRouterResponse;
+  return (await response.json()) as OpenRouterResponse;
+};
+
+export const callOpenRouter = async (options: ChatCompletionOptions): Promise<string> => {
+  const data = await callOpenRouterRaw(options);
   return extractTextContent(data.choices?.[0]?.message?.content);
 };

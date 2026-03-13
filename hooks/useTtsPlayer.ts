@@ -9,6 +9,7 @@ const CHUNK_CROSSFADE_SECONDS = 0.035;
 
 interface UseTtsPlayerParams {
   activeSectionId: string | null;
+  backendUrl: string;
   sectionContent: string;
   speechBlocks: string[];
 }
@@ -213,6 +214,7 @@ const getErrorMessage = (error: unknown): string => {
 
 export const useTtsPlayer = ({
   activeSectionId,
+  backendUrl,
   sectionContent,
   speechBlocks,
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
@@ -273,7 +275,7 @@ export const useTtsPlayer = ({
     audio.pause();
     audio.src = '';
     audio.load();
-  }, []);
+  }, [backendUrl]);
 
   const releaseCurrentAudioElement = useCallback(() => {
     disposeAudioElement(audioStateRef.current.audioElement);

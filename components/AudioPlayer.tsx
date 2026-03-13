@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, Loader2, Volume2, FastForward, SkipForward, SkipBack, ChevronRight, Crosshair } from 'lucide-react';
+import { ChevronRight, Crosshair, FastForward, Loader2, Pause, Play, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 import type { VoiceName } from '../types';
 
 interface AudioPlayerProps {
@@ -9,10 +9,10 @@ interface AudioPlayerProps {
   playbackRate: number;
   isVertical?: boolean;
   dockOffsetPx?: number;
-  isAudioSyncLinked: boolean; 
+  isAudioSyncLinked: boolean;
   currentTime: number;
   duration: number;
-  ttsConnected?: boolean; // New: TTS connection status
+  ttsConnected?: boolean;
   onPlayPause: () => void;
   onVoiceChange: (voice: VoiceName) => void;
   onSpeedChange: (speed: number) => void;
@@ -37,69 +37,115 @@ const AudioPlayer = ({
   onSpeedChange,
   onToggleAudioSyncLink,
   onSeek,
-  onSkipChunk
+  onSkipChunk,
 }: AudioPlayerProps) => {
-  
-  // Force a single TTS voice in UI.
   const voices: VoiceName[] = ['Mario' as VoiceName];
-  
-  // State for docking logic
   const [isHovered, setIsHovered] = useState(false);
+  const [isTouchExpanded, setIsTouchExpanded] = useState(false);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Format time mm:ss
-  const formatTime = (t: number) => {
-    if (!t || Number.isNaN(t)) return "00:00";
-    const m = Math.floor(t / 60);
-    const s = Math.floor(t % 60);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  const formatTime = (value: number) => {
+    if (!value || Number.isNaN(value)) {
+      return '00:00';
+    }
+
+    const minutes = Math.floor(value / 60);
+    const seconds = Math.floor(value % 60);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // --- Docking Handlers ---
   const handleMouseEnter = () => {
-    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    if (exitTimerRef.current) {
+      clearTimeout(exitTimerRef.current);
+    }
     setIsHovered(true);
   };
 
   const handleMouseLeave = () => {
-    // Keep the player visible a bit less before docking again.
+    if (isCoarsePointer) {
+      return;
+    }
+
     exitTimerRef.current = setTimeout(() => {
       setIsHovered(false);
     }, 1500);
   };
 
-  // Cleanup
+  const scheduleTouchDock = () => {
+    if (!isCoarsePointer) {
+      return;
+    }
+
+    if (exitTimerRef.current) {
+      clearTimeout(exitTimerRef.current);
+    }
+
+    exitTimerRef.current = setTimeout(() => {
+      setIsTouchExpanded(false);
+    }, 2200);
+  };
+
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(pointer: coarse)');
+    const updatePointerMode = () => {
+      setIsCoarsePointer(mediaQuery.matches);
+    };
+
+    updatePointerMode();
+    mediaQuery.addEventListener('change', updatePointerMode);
     return () => {
-      if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+      mediaQuery.removeEventListener('change', updatePointerMode);
     };
   }, []);
 
-  // --- Styles & Positioning ---
+  useEffect(() => {
+    if (!isCoarsePointer && isTouchExpanded) {
+      setIsTouchExpanded(false);
+    }
+  }, [isCoarsePointer, isTouchExpanded]);
 
-  const isDockedState = isVertical && !isHovered;
+  useEffect(
+    () => () => {
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const isDockedState = isVertical && !(isCoarsePointer ? isTouchExpanded : isHovered);
 
   const positionClasses = isVertical
-    ? "fixed top-1/2 left-0 z-10 flex items-center" 
-    : "fixed bottom-8 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center w-full max-w-xl px-4";
+    ? `fixed top-1/2 left-0 ${isCoarsePointer ? 'z-40' : 'z-20'} flex items-center`
+    : 'fixed bottom-8 left-1/2 z-10 flex w-full max-w-xl -translate-x-1/2 flex-col items-center px-4';
 
-  const transformStyle = isVertical 
+  const transformStyle = isVertical
     ? {
         left: `${dockOffsetPx}px`,
-        transform: isHovered ? 'translateX(14px) translateY(-50%)' : 'translateX(-86%) translateY(-50%)',
-        transition: 'left 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)'
+        transform: isDockedState
+          ? `translateX(${isCoarsePointer ? '-96%' : '-86%'}) translateY(-50%)`
+          : `translateX(${isCoarsePointer ? '2px' : '14px'}) translateY(-50%)`,
+        transition: 'left 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
       }
     : {};
 
   const containerStyle = isDockedState
-    ? "bg-white/6 dark:bg-zinc-900/12 border-gray-300/20 dark:border-zinc-500/20 shadow-none backdrop-blur-[1px]"
-    : "bg-white/96 dark:bg-zinc-900/96 border-gray-200 dark:border-zinc-700 shadow-xl shadow-black/10";
+    ? isCoarsePointer
+      ? 'border-gray-200/90 bg-white/96 shadow-lg shadow-black/10 backdrop-blur-md dark:border-zinc-700/90 dark:bg-zinc-900/96'
+      : 'border-gray-300/20 bg-white/6 shadow-none backdrop-blur-[1px] dark:border-zinc-500/20 dark:bg-zinc-900/12'
+    : 'border-gray-200 bg-white shadow-2xl shadow-black/15 dark:border-zinc-700 dark:bg-zinc-900';
 
-  const iconColorClass = isDockedState 
-    ? "text-gray-600 dark:text-gray-400 opacity-20" // Heavily muted when docked
-    : "text-gray-900 dark:text-gray-100";
-
-  const iconHoverClass = "hover:text-orange-600 dark:hover:text-orange-400";
+  const iconColorClass = isDockedState
+    ? isCoarsePointer
+      ? 'text-gray-700 opacity-95 dark:text-zinc-200'
+      : 'text-gray-600 opacity-20 dark:text-gray-400'
+    : 'text-gray-900 dark:text-gray-100';
+  const iconHoverClass = 'hover:text-orange-600 dark:hover:text-orange-400';
 
   return (
     <aside
@@ -107,140 +153,172 @@ const AudioPlayer = ({
       style={isVertical ? transformStyle : {}}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onPointerDown={() => {
+        if (isCoarsePointer && !isDockedState) {
+          scheduleTouchDock();
+        }
+      }}
     >
-       {/* HIT AREA EXTENSION FOR VERTICAL DOCKING */}
-       {isVertical && (
-          <div className="absolute inset-y-0 -right-24 w-24 bg-transparent pointer-events-auto cursor-pointer" />
-       )}
+      {isVertical && !isCoarsePointer ? (
+        <div className="absolute inset-y-0 -right-24 w-24 cursor-pointer bg-transparent pointer-events-auto" />
+      ) : null}
 
-      {/* DOCKED HANDLE INDICATOR */}
-      {isDockedState && (
-        <div className="absolute top-1/2 -right-6 -translate-y-1/2 flex flex-col items-center gap-1 opacity-45">
-           <div className="w-1 h-8 bg-gray-400/40 dark:bg-zinc-500/40 rounded-full" />
-           <ChevronRight className="w-4 h-4 text-gray-500/80 dark:text-zinc-400/80" />
-           <div className="w-1 h-8 bg-gray-400/40 dark:bg-zinc-500/40 rounded-full" />
-        </div>
-      )}
+      {isDockedState ? (
+        isCoarsePointer ? (
+          <button
+            type="button"
+            onClick={() => {
+              setIsTouchExpanded(true);
+              scheduleTouchDock();
+            }}
+            className="absolute top-1/2 -right-6 -translate-y-1/2 flex items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-lg shadow-black/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            aria-label="Apri player TTS"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        ) : (
+          <div className="pointer-events-none absolute top-1/2 -right-6 -translate-y-1/2 flex flex-col items-center gap-1 opacity-95">
+            <div className="h-8 w-1 rounded-full bg-gray-500/55 dark:bg-zinc-300/45" />
+            <ChevronRight className="h-4 w-4 text-gray-700 dark:text-zinc-200" />
+            <div className="h-8 w-1 rounded-full bg-gray-500/55 dark:bg-zinc-300/45" />
+          </div>
+        )
+      ) : null}
 
-      <div 
+      {isVertical && isCoarsePointer && !isDockedState ? (
+        <button
+          type="button"
+          onClick={() => {
+            setIsTouchExpanded(false);
+            if (exitTimerRef.current) {
+              clearTimeout(exitTimerRef.current);
+            }
+          }}
+          className="absolute top-1/2 -right-6 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-lg shadow-black/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          aria-label="Riduci player TTS"
+        >
+          <ChevronRight className="h-4 w-4 rotate-180" />
+        </button>
+      ) : null}
+
+      <div
         className={`
-          relative pointer-events-auto overflow-hidden
-          border transition-all duration-300
+          relative overflow-hidden border pointer-events-auto transition-all duration-300
           ${containerStyle}
           ${isVertical
             ? isDockedState
-              ? 'rounded-r-2xl rounded-l-none py-4 px-0 w-5 flex flex-col gap-4'
-              : 'rounded-2xl p-4 flex flex-col gap-4 min-w-[100px]'
-            : 'rounded-2xl p-4 w-auto flex flex-col gap-2'}
+              ? 'flex w-7 flex-col gap-4 rounded-r-2xl rounded-l-none px-0 py-4'
+              : 'relative flex min-w-[100px] flex-col gap-4 rounded-2xl p-4'
+            : 'flex w-auto flex-col gap-2 rounded-2xl p-4'}
         `}
       >
-        
-        {/* Timeline (Horizontal Only) */}
-        {!isVertical && (
-          <div className="w-full flex items-center gap-3 text-[11px] font-mono font-medium text-gray-500 dark:text-gray-400 mb-1 px-1">
-              <span className="w-9 text-right">{formatTime(currentTime)}</span>
-              <input 
-                type="range" 
-                min="0" 
-                max={duration || 100} 
-                value={currentTime}
-                onChange={(e) => onSeek(parseFloat(e.target.value))}
-                className="flex-1 h-1.5 bg-gray-200 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-orange-600 dark:accent-orange-500"
-              />
-              <span className="w-9">{formatTime(duration)}</span>
+        {!isVertical ? (
+          <div className="mb-1 flex w-full items-center gap-3 px-1 font-mono text-[11px] font-medium text-gray-500 dark:text-gray-400">
+            <span className="w-9 text-right">{formatTime(currentTime)}</span>
+            <input
+              type="range"
+              min="0"
+              max={duration || 100}
+              value={currentTime}
+              onChange={(event) => onSeek(parseFloat(event.target.value))}
+              className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-orange-600 dark:bg-zinc-700 dark:accent-orange-500"
+            />
+            <span className="w-9">{formatTime(duration)}</span>
           </div>
-        )}
+        ) : null}
 
-        {/* Controls Container */}
         <div
           className={`flex items-center justify-center transition-[opacity,transform] duration-200 ${
             isVertical ? 'flex-col gap-5' : 'flex-row gap-8'
           } ${
             isDockedState
-              ? 'opacity-0 -translate-x-3 pointer-events-none'
-              : 'opacity-100 translate-x-0'
+              ? 'pointer-events-none -translate-x-3 opacity-0'
+              : 'translate-x-0 opacity-100'
           }`}
           aria-hidden={isDockedState}
         >
-          
-          {/* Main Transport Controls */}
           <div className={`flex items-center ${isVertical ? 'flex-col gap-4' : 'gap-4'}`}>
-              <button type="button" onClick={() => onSkipChunk('prev')} className={`${iconColorClass} ${iconHoverClass} transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800`}>
-                <SkipBack className="w-5 h-5" />
-              </button>
+            <button
+              type="button"
+              onClick={() => onSkipChunk('prev')}
+              className={`${iconColorClass} ${iconHoverClass} rounded-md p-1 transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800`}
+            >
+              <SkipBack className="h-5 w-5" />
+            </button>
 
-              <button
+            <button
               type="button"
               onClick={onPlayPause}
               disabled={!ttsConnected && !isPlaying}
               className={`
-                w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200 shadow-md
-                ${isLoading 
-                  ? 'bg-gray-100 dark:bg-zinc-800 text-gray-400 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/10 hover:text-red-500' 
-                  : isPlaying 
-                    ? 'bg-black dark:bg-white text-white dark:text-black hover:scale-105' 
-                    : isDockedState 
-                        ? 'bg-transparent border border-current text-gray-400 dark:text-zinc-500' // Ring only in ghost mode
-                        : !ttsConnected
-                          ? 'bg-gray-300 dark:bg-zinc-700 text-gray-500 dark:text-zinc-400 cursor-not-allowed'
-                          : 'bg-black dark:bg-white text-white dark:text-black hover:scale-105 pl-1' 
-                }
+                flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full shadow-md transition-all duration-200
+                ${isLoading
+                  ? 'cursor-pointer bg-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:bg-zinc-800 dark:hover:bg-red-900/10'
+                  : isPlaying
+                    ? 'bg-black text-white hover:scale-105 dark:bg-white dark:text-black'
+                    : isDockedState
+                      ? 'border border-current bg-transparent text-gray-500 dark:text-zinc-400'
+                      : !ttsConnected
+                        ? 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-zinc-700 dark:text-zinc-400'
+                        : 'bg-black pl-1 text-white hover:scale-105 dark:bg-white dark:text-black'}
               `}
-              title={!ttsConnected && !isPlaying ? "TTS non disponibile" : isLoading ? "In caricamento (Clicca per annullare/pausa)" : isPlaying ? "Pausa" : "Play"}
+              title={!ttsConnected && !isPlaying ? 'TTS non disponibile' : isLoading ? 'In caricamento' : isPlaying ? 'Pausa' : 'Play'}
             >
               {isLoading ? (
                 <div className="relative">
-                   <Loader2 className="w-6 h-6 animate-spin" />
-                   <Pause className="w-3 h-3 absolute inset-0 m-auto opacity-0 hover:opacity-100 transition-opacity fill-red-500 text-red-500" />
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <Pause className="absolute inset-0 m-auto h-3 w-3 fill-red-500 text-red-500 opacity-0 transition-opacity hover:opacity-100" />
                 </div>
               ) : isPlaying ? (
-                <Pause className="w-6 h-6 fill-current" />
+                <Pause className="h-6 w-6 fill-current" />
               ) : (
-                <Play className="w-6 h-6 fill-current" />
+                <Play className="h-6 w-6 fill-current" />
               )}
             </button>
 
-            <button type="button" onClick={() => onSkipChunk('next')} className={`${iconColorClass} ${iconHoverClass} transition-colors p-1 rounded-md hover:bg-gray-100 dark:hover:bg-zinc-800`}>
-                <SkipForward className="w-5 h-5" />
+            <button
+              type="button"
+              onClick={() => onSkipChunk('next')}
+              className={`${iconColorClass} ${iconHoverClass} rounded-md p-1 transition-colors hover:bg-gray-100 dark:hover:bg-zinc-800`}
+            >
+              <SkipForward className="h-5 w-5" />
             </button>
           </div>
 
-          {/* Separator */}
-          <div className={`${isVertical ? 'w-8 h-px' : 'h-8 w-px'} ${isDockedState ? 'bg-gray-300/20' : 'bg-gray-200 dark:bg-zinc-700'}`} />
+          <div className={`${isVertical ? 'h-px w-8' : 'h-8 w-px'} ${isDockedState ? 'bg-gray-300/20' : 'bg-gray-200 dark:bg-zinc-700'}`} />
 
-          {/* Voice & Speed */}
           <div className={`flex items-center ${isVertical ? 'flex-col gap-4' : 'gap-8'}`}>
-            
-            {/* Voice */}
             <div className={`flex items-center gap-2 ${isVertical ? 'flex-col' : ''}`}>
-               <Volume2 className={`w-4 h-4 ${iconColorClass}`} />
-               <select 
-                  value={currentVoice}
-                  onChange={(e) => onVoiceChange(e.target.value as VoiceName)}
-                  className={`bg-transparent text-xs font-bold uppercase tracking-wider focus:outline-none cursor-pointer ${iconColorClass} ${iconHoverClass} text-center appearance-none min-w-[70px]`}
-                  disabled={isLoading || isPlaying || !ttsConnected}
-                >
-                  {voices.map(v => (
-                    <option key={v} value={v} className="dark:bg-zinc-800 dark:text-gray-100">{v}</option>
-                  ))}
-                </select>
+              <Volume2 className={`h-4 w-4 ${iconColorClass}`} />
+              <select
+                value={currentVoice}
+                onChange={(event) => onVoiceChange(event.target.value as VoiceName)}
+                className={`min-w-[70px] cursor-pointer appearance-none bg-transparent text-center text-xs font-bold uppercase tracking-wider focus:outline-none ${iconColorClass} ${iconHoverClass}`}
+                disabled={isLoading || isPlaying || !ttsConnected}
+              >
+                {voices.map((voice) => (
+                  <option key={voice} value={voice} className="dark:bg-zinc-800 dark:text-gray-100">
+                    {voice}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Speed */}
             <div className={`flex items-center gap-2 ${isVertical ? 'flex-col' : ''}`}>
-              <FastForward className={`w-4 h-4 ${iconColorClass}`} />
+              <FastForward className={`h-4 w-4 ${iconColorClass}`} />
               <div className={`flex ${isVertical ? 'flex-col gap-1' : 'gap-1'}`}>
                 {[1, 1.25, 1.5].map((rate) => (
                   <button
                     type="button"
                     key={rate}
                     onClick={() => onSpeedChange(rate)}
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors
-                      ${playbackRate === rate 
-                        ? (isDockedState ? 'bg-gray-400/20 text-current' : 'bg-black dark:bg-white text-white dark:text-black')
-                        : `text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-zinc-800`
-                      }
-                    `}
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                      playbackRate === rate
+                        ? isDockedState
+                          ? 'bg-gray-400/20 text-current'
+                          : 'bg-black text-white dark:bg-white dark:text-black'
+                        : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-zinc-800'
+                    }`}
                   >
                     {rate}x
                   </button>
@@ -249,23 +327,20 @@ const AudioPlayer = ({
             </div>
           </div>
 
-          {/* Separator */}
-          <div className={`${isVertical ? 'w-8 h-px' : 'h-8 w-px'} ${isDockedState ? 'bg-gray-300/20' : 'bg-gray-200 dark:bg-zinc-700'}`} />
+          <div className={`${isVertical ? 'h-px w-8' : 'h-8 w-px'} ${isDockedState ? 'bg-gray-300/20' : 'bg-gray-200 dark:bg-zinc-700'}`} />
 
-          {/* Audio Sync Link Toggle (Mirino) */}
           <button
-              type="button"
-              onClick={onToggleAudioSyncLink}
-              title={isAudioSyncLinked ? "Modalità Focus: Righello legato all'Audio" : "Attiva Modalità Focus (Lega Righello ad Audio)"}
-              className={`p-2 rounded-full transition-all duration-300 border 
-                ${isAudioSyncLinked
-                  ? 'bg-orange-600 text-white border-orange-600 shadow-md'
-                  : `bg-transparent border-transparent ${iconColorClass} hover:bg-gray-100 dark:hover:bg-zinc-800`
-                }`}
+            type="button"
+            onClick={onToggleAudioSyncLink}
+            title={isAudioSyncLinked ? "Modalità Focus: righello legato all'audio" : "Attiva modalità Focus"}
+            className={`rounded-full border p-2 transition-all duration-300 ${
+              isAudioSyncLinked
+                ? 'border-orange-600 bg-orange-600 text-white shadow-md'
+                : `border-transparent bg-transparent ${iconColorClass} hover:bg-gray-100 dark:hover:bg-zinc-800`
+            }`}
           >
-            <Crosshair className={`w-4 h-4 ${isAudioSyncLinked ? 'animate-pulse' : ''}`} />
+            <Crosshair className={`h-4 w-4 ${isAudioSyncLinked ? 'animate-pulse' : ''}`} />
           </button>
-
         </div>
       </div>
     </aside>

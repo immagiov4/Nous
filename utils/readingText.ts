@@ -29,6 +29,7 @@ export interface ReadableBlock extends ReadableSegment {
 
 export const prepareMarkdownForSpeech = (content: string): string => {
   const cleanedContent = content
+    .replace(/\{\{PDF_IMAGE:[^}]+\}\}/g, ' ')
     .replace(/<\/?mark>/g, '')
     .replace(/<\/?span[^>]*>/g, '')
     .replace(/```[\s\S]*?```/g, '\n')

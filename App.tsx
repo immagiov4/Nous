@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { BookOpen, CheckCircle2, ChevronRight, GraduationCap, MessageSquare, Download, Ruler, Moon, Sun, SidebarOpen, SidebarClose, Gauge, LibraryBig } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, ChevronRight, Download, Gauge, GraduationCap, LibraryBig, MessageSquare, Moon, Ruler, SidebarClose, SidebarOpen, Sun } from 'lucide-react';
 import JSZip from 'jszip';
-import { AppState, type ContextMenuState, type FileData, type LearningPlan, type LearningSection, type Message, type QuizQuestion, type SyllabusItem, type UserProfile } from './types';
+import { AppState, type ContextMenuState, type FileData, type LearningPlan, type LearningSection, type LessonImageRef, type Message, type PdfDocumentAssets, type PdfImageAsset, type QuizQuestion, type SyllabusItem, type UserProfile } from './types';
 import * as GeminiService from './services/geminiService';
 import { ASSESSMENT_MIN_TURNS } from './constants';
 import AssessmentView from './components/AssessmentView';
@@ -16,9 +16,12 @@ import LibraryView from './components/LibraryView';
 import { useTtsPlayer } from './hooks/useTtsPlayer.ts';
 import { useProjectLibrary } from './hooks/useProjectLibrary.ts';
 import { createProjectId, createProjectSnapshot } from './services/projectSnapshot';
+import { getBackendUrl } from './services/gemini/config';
 import { buildReadableBlocks } from './utils/readingText';
+import { toggleHighlightInContent } from './utils/highlightSelection';
 
 const SIDEBAR_WIDTH_PX = 384;
+const MOBILE_LAYOUT_BREAKPOINT_PX = 1024;
 const CONTEXT_ANSWER_DEFAULT_WIDTH = 512;
 const CONTEXT_ANSWER_DEFAULT_HEIGHT = 544;
 const CONTEXT_ANSWER_MIN_WIDTH = 352;
@@ -108,138 +111,6 @@ const getSelectionContext = (selection: Selection): { contextBefore: string; con
   };
 };
 
-const getRenderedArticle = (contentRoot: HTMLDivElement | null): HTMLElement | null => {
-  if (!contentRoot) {
-    return null;
-  }
-
-  return contentRoot.querySelector('article.prose');
-};
-
-const getNodePath = (root: Node, target: Node): number[] | null => {
-  if (root === target) {
-    return [];
-  }
-
-  const path: number[] = [];
-  let current: Node | null = target;
-
-  while (current && current !== root) {
-    const parent = current.parentNode;
-    if (!parent) {
-      return null;
-    }
-
-    const childIndex = Array.prototype.indexOf.call(parent.childNodes, current) as number;
-    if (childIndex < 0) {
-      return null;
-    }
-
-    path.unshift(childIndex);
-    current = parent;
-  }
-
-  return current === root ? path : null;
-};
-
-const resolveNodePath = (root: Node, path: number[]): Node | null => {
-  let current: Node | null = root;
-
-  for (const childIndex of path) {
-    current = current?.childNodes.item(childIndex) ?? null;
-    if (!current) {
-      return null;
-    }
-  }
-
-  return current;
-};
-
-const highlightRangeInArticle = (article: HTMLElement, selectionRange: Range): string | null => {
-  const startPath = getNodePath(article, selectionRange.startContainer);
-  const endPath = getNodePath(article, selectionRange.endContainer);
-  if (!startPath || !endPath) {
-    return null;
-  }
-
-  const articleClone = article.cloneNode(true) as HTMLElement;
-  const clonedStartContainer = resolveNodePath(articleClone, startPath);
-  const clonedEndContainer = resolveNodePath(articleClone, endPath);
-  if (!clonedStartContainer || !clonedEndContainer) {
-    return null;
-  }
-
-  const clonedRange = document.createRange();
-  clonedRange.setStart(clonedStartContainer, selectionRange.startOffset);
-  clonedRange.setEnd(clonedEndContainer, selectionRange.endOffset);
-
-  const textSegments: Array<{ node: Text; start: number; end: number }> = [];
-  const walker = document.createTreeWalker(articleClone, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      if (!(node instanceof Text) || !node.textContent) {
-        return NodeFilter.FILTER_REJECT;
-      }
-
-      return clonedRange.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-    },
-  });
-
-  let currentNode = walker.nextNode();
-  while (currentNode) {
-    const textNode = currentNode as Text;
-    const textLength = textNode.textContent?.length ?? 0;
-    let start = 0;
-    let end = textLength;
-
-    if (textNode === clonedRange.startContainer) {
-      start = clonedRange.startOffset;
-    }
-
-    if (textNode === clonedRange.endContainer) {
-      end = clonedRange.endOffset;
-    }
-
-    if (end > start) {
-      textSegments.push({ node: textNode, start, end });
-    }
-
-    currentNode = walker.nextNode();
-  }
-
-  if (textSegments.length === 0) {
-    return null;
-  }
-
-  let didApplyHighlight = false;
-
-  for (const segment of textSegments) {
-    if (segment.node.parentElement?.closest('mark')) {
-      continue;
-    }
-
-    let targetNode = segment.node;
-    if (segment.start > 0) {
-      targetNode = targetNode.splitText(segment.start);
-    }
-
-    const highlightLength = segment.end - segment.start;
-    if (highlightLength <= 0) {
-      continue;
-    }
-
-    if (highlightLength < (targetNode.textContent?.length ?? 0)) {
-      targetNode.splitText(highlightLength);
-    }
-
-    const mark = document.createElement('mark');
-    targetNode.parentNode?.replaceChild(mark, targetNode);
-    mark.appendChild(targetNode);
-    didApplyHighlight = true;
-  }
-
-  return didApplyHighlight ? articleClone.innerHTML : null;
-};
-
 const buildSidebarGroups = (
   learningPlan: LearningPlan | null,
   syllabus: SyllabusItem[]
@@ -276,16 +147,32 @@ const buildSidebarGroups = (
   };
 
   const groupedSections = new Map<string, LearningSection[]>();
+  const fallbackGroupTitleByKey = new Map<string, string>();
   const groupOrder: string[] = syllabus.map(module => module.id);
 
+  const getFallbackGroupTitle = (section: LearningSection): string =>
+    section.moduleTitle?.trim() ||
+    (section.type === 'prerequisite'
+      ? 'Prerequisiti'
+      : section.type === 'summary'
+        ? 'Sintesi'
+        : 'Percorso');
+
   learningPlan.sections.forEach((section) => {
-    const groupKey = resolveModuleId(section.id) || section.parentId || '__ungrouped__';
+    const resolvedModuleId = resolveModuleId(section.id);
+    const fallbackTitle = getFallbackGroupTitle(section);
+    const fallbackGroupKey = section.parentId || `group:${fallbackTitle}`;
+    const groupKey = resolvedModuleId || fallbackGroupKey || '__ungrouped__';
 
     if (!groupedSections.has(groupKey)) {
       groupedSections.set(groupKey, []);
       if (!groupOrder.includes(groupKey)) {
         groupOrder.push(groupKey);
       }
+    }
+
+    if (!resolvedModuleId && !fallbackGroupTitleByKey.has(groupKey)) {
+      fallbackGroupTitleByKey.set(groupKey, fallbackTitle);
     }
 
     groupedSections.get(groupKey)?.push(section);
@@ -302,7 +189,10 @@ const buildSidebarGroups = (
 
       return {
         id: isUngrouped ? `group-${index}` : groupKey,
-        title: moduleTitleById.get(groupKey) || (isUngrouped ? 'Percorso' : `Modulo ${index + 1}`),
+        title:
+          moduleTitleById.get(groupKey) ||
+          fallbackGroupTitleByKey.get(groupKey) ||
+          (isUngrouped ? 'Percorso' : `Modulo ${index + 1}`),
         sections,
       };
     })
@@ -351,6 +241,58 @@ const resolveLearnSectionContext = (
   };
 };
 
+const buildLessonImageRefMap = (imageRefs?: LessonImageRef[]): Record<string, LessonImageRef> =>
+  Object.fromEntries((imageRefs || []).map(imageRef => [imageRef.assetId, imageRef]));
+
+const buildLessonAssetMap = (
+  imageRefs: LessonImageRef[] | undefined,
+  documentAssets: PdfDocumentAssets | null
+): Record<string, PdfImageAsset> => {
+  if (!documentAssets || !imageRefs?.length) {
+    return {};
+  }
+
+  const assetIds = new Set(imageRefs.map(imageRef => imageRef.assetId));
+  return Object.fromEntries(
+    documentAssets.usedImages
+      .filter(asset => assetIds.has(asset.id))
+      .map(asset => [asset.id, asset])
+  );
+};
+
+const mergeDocumentAssetsForPlan = (
+  nextPlan: LearningPlan,
+  currentAssets: PdfDocumentAssets | null,
+  incomingAssets: PdfDocumentAssets | null
+): PdfDocumentAssets | null => {
+  const template = incomingAssets || currentAssets;
+  if (!template) {
+    return null;
+  }
+
+  const referencedAssetIds = new Set(
+    nextPlan.sections.flatMap(section => (section.imageRefs || []).map(imageRef => imageRef.assetId))
+  );
+  const availableAssets = new Map<string, PdfImageAsset>();
+
+  currentAssets?.usedImages.forEach(asset => {
+    availableAssets.set(asset.id, asset);
+  });
+  incomingAssets?.usedImages.forEach(asset => {
+    availableAssets.set(asset.id, asset);
+  });
+
+  return {
+    kind: 'pdf',
+    parsedAt: incomingAssets?.parsedAt || currentAssets?.parsedAt || template.parsedAt,
+    imageCount: incomingAssets?.imageCount ?? currentAssets?.imageCount ?? template.imageCount,
+    sourceHash: incomingAssets?.sourceHash || currentAssets?.sourceHash,
+    usedImages: Array.from(referencedAssetIds)
+      .map(assetId => availableAssets.get(assetId))
+      .filter((asset): asset is PdfImageAsset => Boolean(asset)),
+  };
+};
+
 const App = () => {
   // State
   const [state, setState] = useState<AppState>(AppState.LIBRARY);
@@ -367,6 +309,7 @@ const App = () => {
 
   // Planning State
   const [learningPlan, setLearningPlan] = useState<LearningPlan | null>(null);
+  const [documentAssets, setDocumentAssets] = useState<PdfDocumentAssets | null>(null);
 
   // Background Music State
   const [musicUrl, setMusicUrl] = useState<string>('');
@@ -395,6 +338,12 @@ const App = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [syllabus, setSyllabus] = useState<SyllabusItem[]>([]);
   const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < MOBILE_LAYOUT_BREAKPOINT_PX
+  );
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const [backendUrl, setBackendUrl] = useState(() => getBackendUrl());
   
   // UI Visibilty States
   const [isHeaderHovered, setIsHeaderHovered] = useState(false);
@@ -409,7 +358,6 @@ const App = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const assessmentInputRef = useRef<HTMLInputElement>(null);
   const previousActiveSectionIdRef = useRef<string | null>(null);
-  const highlightRangeRef = useRef<Range | null>(null);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
   const sourceFileInputId = useId();
   const planFileInputId = useId();
@@ -437,6 +385,7 @@ const App = () => {
     handleSpeedChange,
   } = useTtsPlayer({
     activeSectionId,
+    backendUrl,
     sectionContent,
     speechBlocks,
   });
@@ -468,6 +417,7 @@ const App = () => {
     },
     workspace: {
       activeSectionId,
+      documentAssets,
       file,
       isDarkMode,
       isLearnMode,
@@ -487,6 +437,7 @@ const App = () => {
       setContextAnswer,
       setContextMenu,
       setCurrentAssessmentInput,
+      setDocumentAssets,
       setFile,
       setIsDarkMode,
       setIsFocusMode,
@@ -507,7 +458,21 @@ const App = () => {
   });
 
   const sidebarGroups = buildSidebarGroups(learningPlan, syllabus);
-  const audioDockOffset = isFocusMode ? 0 : SIDEBAR_WIDTH_PX;
+  const activeSection = learningPlan?.sections.find(section => section.id === activeSectionId) || null;
+  const activeSidebarGroup = sidebarGroups.find((group) =>
+    group.sections.some((section) => section.id === activeSectionId)
+  ) || null;
+  const activeSectionAssetsById = useMemo(
+    () => buildLessonAssetMap(activeSection?.imageRefs, documentAssets),
+    [activeSection?.imageRefs, documentAssets]
+  );
+  const activeSectionImageRefsById = useMemo(
+    () => buildLessonImageRefMap(activeSection?.imageRefs),
+    [activeSection?.imageRefs]
+  );
+  const shouldUseDesktopSidebar = !isMobileViewport && !isFocusMode;
+  const shouldShowSidebar = isMobileViewport ? isMobileSidebarOpen : !isFocusMode;
+  const audioDockOffset = shouldUseDesktopSidebar ? SIDEBAR_WIDTH_PX : 0;
   const clampContextAnswerSize = useCallback((width: number, height: number): ContextAnswerSize => {
     const maxWidth = typeof window === 'undefined'
       ? CONTEXT_ANSWER_DEFAULT_WIDTH
@@ -526,7 +491,6 @@ const App = () => {
       setExpandedModuleId((currentId) => (currentId === groupId ? null : groupId));
     });
   }, []);
-
   // --- Effects ---
   
   useEffect(() => {
@@ -536,6 +500,31 @@ const App = () => {
       document.documentElement.classList.remove('dark');
     }
   }, [isDarkMode]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileViewport(window.innerWidth < MOBILE_LAYOUT_BREAKPOINT_PX);
+      setBackendUrl(getBackendUrl());
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setIsMobileSidebarOpen(false);
+    }
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+    if (isMobileViewport && activeSectionId) {
+      setIsMobileSidebarOpen(false);
+    }
+  }, [activeSectionId, isMobileViewport]);
 
   useEffect(() => {
     const shouldFocusAssessment = state === AppState.ASSESSMENT && assessmentMessages.length >= 0;
@@ -884,9 +873,12 @@ const App = () => {
       try {
         const json = JSON.parse(event.target?.result as string);
         const { snapshot } = await importProjectData(json);
-        await touchStoredProject(snapshot.id);
-        await refreshSavedProjects();
         applySnapshotToWorkspace(snapshot);
+        void touchStoredProject(snapshot.id)
+          .then(() => refreshSavedProjects())
+          .catch((error) => {
+            console.warn('Unable to refresh imported project metadata.', error);
+          });
       } catch (_err) {
         alert("Il file JSON non è valido.");
       } finally {
@@ -899,29 +891,40 @@ const App = () => {
   };
 
   const handleOpenProject = async (projectId: string) => {
-    const snapshot = await loadStoredProject(projectId);
-    if (!snapshot) {
-      return;
-    }
+    setOpeningProjectId(projectId);
+    setLoadingStatus('Apertura progetto...');
 
-    await touchStoredProject(projectId);
-    await refreshSavedProjects();
-    applySnapshotToWorkspace(snapshot);
-
-    if (!snapshot.learningPlan && snapshot.file) {
-      await startAssessment(snapshot.file);
-      return;
-    }
-
-    if (snapshot.learningPlan) {
-      const nextSection =
-        snapshot.learningPlan.sections.find(section => section.id === snapshot.activeSectionId) ||
-        snapshot.learningPlan.sections.find(section => !section.isCompleted) ||
-        snapshot.learningPlan.sections[0];
-
-      if (nextSection) {
-        await loadSection(nextSection, snapshot.learningPlan);
+    try {
+      const snapshot = await loadStoredProject(projectId);
+      if (!snapshot) {
+        return;
       }
+
+      setIsMobileSidebarOpen(false);
+      applySnapshotToWorkspace(snapshot);
+      void touchStoredProject(projectId)
+        .then(() => refreshSavedProjects())
+        .catch((error) => {
+          console.warn('Unable to refresh project last-opened timestamp.', error);
+        });
+
+      if (!snapshot.learningPlan && snapshot.file) {
+        await startAssessment(snapshot.file);
+        return;
+      }
+
+      if (snapshot.learningPlan) {
+        const nextSection =
+          snapshot.learningPlan.sections.find(section => section.id === snapshot.activeSectionId) ||
+          snapshot.learningPlan.sections.find(section => !section.isCompleted) ||
+          snapshot.learningPlan.sections[0];
+
+        if (nextSection && (!nextSection.content || nextSection.content.length === 0)) {
+          await loadSection(nextSection, snapshot.learningPlan);
+        }
+      }
+    } finally {
+      setOpeningProjectId(null);
     }
   };
 
@@ -948,6 +951,7 @@ const App = () => {
   const handleBackToLibrary = useCallback(() => {
     stopAudio(true);
     setIsFocusMode(false);
+    setIsMobileSidebarOpen(false);
     setState(AppState.LIBRARY);
   }, [stopAudio]);
 
@@ -1107,6 +1111,7 @@ const App = () => {
       };
       
       setLearningPlan(plan);
+      setDocumentAssets(null);
       setState(AppState.READING);
       setNeedsSourceFile(false);
       
@@ -1123,6 +1128,7 @@ const App = () => {
           state: AppState.READING,
           file,
           learningPlan: plan,
+          documentAssets: null,
           isLearnMode: true,
           userProfile: profile,
           syllabus: newSyllabus,
@@ -1144,8 +1150,9 @@ const App = () => {
     if (!file) return;
     setIsLoading(true);
     try {
-      const plan = await GeminiService.generateLearningPlan(file, history);
+      const plan = await GeminiService.generateLearningPlan(file, history, (status) => setLoadingStatus(status));
       setLearningPlan(plan);
+      setDocumentAssets(null);
       setState(AppState.READING);
       setNeedsSourceFile(false);
       
@@ -1162,6 +1169,7 @@ const App = () => {
           state: AppState.READING,
           file,
           learningPlan: plan,
+          documentAssets: null,
           isLearnMode,
           userProfile,
           syllabus,
@@ -1192,22 +1200,23 @@ const App = () => {
     stopAudio(true);
 
     setActiveSectionId(section.id);
-    setSectionContent('');
-    setQuiz([]);
     setContextAnswer(null);
     setIsQuizSubmitted(false);
-    setQuizAnswers([]);
     setNeedsSourceFile(false);
-    await saveCurrentProject({ activeSectionId: section.id, state: AppState.READING });
     
     if (section.content && section.content.length > 0) {
       setSectionContent(section.content);
-      if (section.quiz) {
-        setQuiz(section.quiz);
-        setQuizAnswers(new Array(section.quiz.length).fill(-1));
-      }
+      const cachedQuiz = section.quiz || [];
+      setQuiz(cachedQuiz);
+      setQuizAnswers(new Array(cachedQuiz.length).fill(-1));
+      void saveCurrentProject({ activeSectionId: section.id, state: AppState.READING });
       return;
     }
+
+    setSectionContent('');
+    setQuiz([]);
+    setQuizAnswers([]);
+    void saveCurrentProject({ activeSectionId: section.id, state: AppState.READING });
 
     // If we reach here, we need to generate content.
     // We need either a file or to be in Learn Mode (or have a syllabus to infer it)
@@ -1250,12 +1259,15 @@ const App = () => {
         const updatedPlan = {
           ...currentPlan,
           sections: currentPlan.sections.map(s => 
-            s.id === section.id ? { ...s, content: content, quiz: [] } : s
+            s.id === section.id ? { ...s, content: content, quiz: [], imageRefs: [] } : s
           )
         };
+        const mergedDocumentAssets = mergeDocumentAssetsForPlan(updatedPlan, documentAssets, null);
         setLearningPlan(updatedPlan);
+        setDocumentAssets(mergedDocumentAssets);
         await saveCurrentProject({
           learningPlan: updatedPlan,
+          documentAssets: mergedDocumentAssets,
           activeSectionId: section.id,
           state: AppState.READING,
           isLearnMode: true,
@@ -1267,7 +1279,7 @@ const App = () => {
           throw new Error('Missing source file for section generation');
         }
 
-        const { content, quiz } = await GeminiService.generateSectionContent(
+        const { content, quiz, imageRefs, documentAssets: nextDocumentAssets } = await GeminiService.generateSectionContent(
           sourceFile, 
           section.title, 
           section.description, 
@@ -1281,12 +1293,15 @@ const App = () => {
         const updatedPlan = {
           ...currentPlan,
           sections: currentPlan.sections.map(s => 
-            s.id === section.id ? { ...s, content: content, quiz: quiz } : s
+            s.id === section.id ? { ...s, content: content, quiz: quiz, imageRefs } : s
           )
         };
+        const mergedDocumentAssets = mergeDocumentAssetsForPlan(updatedPlan, documentAssets, nextDocumentAssets);
         setLearningPlan(updatedPlan);
+        setDocumentAssets(mergedDocumentAssets);
         await saveCurrentProject({
           learningPlan: updatedPlan,
+          documentAssets: mergedDocumentAssets,
           activeSectionId: section.id,
           state: AppState.READING,
         });
@@ -1308,7 +1323,6 @@ const App = () => {
     if (selection && range && selection.toString().trim().length > 0) {
       if (contentRef.current?.contains(range.commonAncestorContainer)) {
         e.preventDefault();
-        highlightRangeRef.current = range.cloneRange();
         const { contextBefore, contextAfter } = getSelectionContext(selection);
         setContextMenu({
           visible: true,
@@ -1321,13 +1335,10 @@ const App = () => {
         return;
       }
     }
-
-    highlightRangeRef.current = null;
   }, []);
 
   const handleContextQuestion = async (question: string) => {
     const { selectedText } = contextMenu;
-    const activeSection = learningPlan?.sections.find((section) => section.id === activeSectionId) || null;
     const canAnswerFromLesson = Boolean(
       activeSection?.content || sectionContent || contextMenu.contextBefore || contextMenu.contextAfter
     );
@@ -1401,18 +1412,17 @@ const App = () => {
   };
 
   const applyStyleToSelection = () => {
-      if (!activeSectionId || !learningPlan || !contentRef.current || !highlightRangeRef.current) return;
+      if (!activeSectionId || !learningPlan) return;
 
-      const article = getRenderedArticle(contentRef.current);
-      const range = highlightRangeRef.current.cloneRange();
-      if (!article || !article.contains(range.commonAncestorContainer)) {
-        highlightRangeRef.current = null;
-        return;
-      }
-
-      const newContent = highlightRangeInArticle(article, range);
+      const currentSection = learningPlan.sections.find(section => section.id === activeSectionId);
+      const sourceContent = currentSection?.content || sectionContent;
+      const newContent = toggleHighlightInContent({
+        content: sourceContent,
+        selectedText: contextMenu.selectedText,
+        contextBefore: contextMenu.contextBefore,
+        contextAfter: contextMenu.contextAfter,
+      });
       if (!newContent) {
-        highlightRangeRef.current = null;
         return;
       }
 
@@ -1425,7 +1435,6 @@ const App = () => {
 
       setSectionContent(newContent);
       setLearningPlan(updatedPlan);
-      highlightRangeRef.current = null;
       window.getSelection()?.removeAllRanges();
 
       void saveCurrentProject({
@@ -1474,6 +1483,7 @@ const App = () => {
         isLibraryLoading={isLibraryLoading}
         isWorking={isLoading}
         loadingStatus={loadingStatus}
+        openingProjectId={openingProjectId}
         planFileInputId={planFileInputId}
         projects={savedProjects}
         sourceFileInputId={sourceFileInputId}
@@ -1520,7 +1530,7 @@ const App = () => {
   if (state === AppState.PLANNING) { return <LoadingScreen message="Analisi Volume in Corso..." subMessage={loadingStatus || "Costruzione piano..."} />; }
 
   return (
-    <div className="h-screen overflow-hidden flex bg-paper-light dark:bg-paper-dark font-sans transition-colors duration-300">
+    <div className="flex h-screen max-w-full overflow-hidden bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark">
       <input id={sourceFileInputId} type="file" className="hidden" accept=".pdf,.zip" onChange={handleFileUpload} />
       
       {/* IMPLICIT AUTOTRACK: If ruler is active, we pass it down */}
@@ -1535,25 +1545,46 @@ const App = () => {
           isHeaderHovered={isHeaderHovered}
         />
       )}
+
+      {isMobileViewport && shouldShowSidebar ? (
+        <button
+          type="button"
+          aria-label="Chiudi elenco lezioni"
+          className="fixed inset-0 z-20 bg-black/40 backdrop-blur-[1px]"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      ) : null}
       
       <aside
-        className={`fixed inset-y-0 left-0 w-96 bg-white dark:bg-zinc-900 border-r border-gray-200/80 dark:border-zinc-800 flex flex-col z-30 h-screen transition-transform duration-500 ${
-          isFocusMode ? '-translate-x-full' : 'translate-x-0'
+        className={`fixed inset-y-0 left-0 z-30 flex h-screen flex-col border-r border-gray-200/80 bg-white dark:border-zinc-800 dark:bg-zinc-900 transition-transform duration-300 ${
+          shouldShowSidebar ? 'translate-x-0' : '-translate-x-full'
         }`}
+        style={{ width: isMobileViewport ? 'min(92vw, 24rem)' : SIDEBAR_WIDTH_PX }}
       >
-        <div className="px-6 py-5 border-b border-gray-200/80 dark:border-zinc-800 flex flex-col gap-4">
+        <div className="flex flex-col gap-4 border-b border-gray-200/80 px-5 py-5 dark:border-zinc-800 sm:px-6">
           <div className="flex justify-between items-start gap-4">
              <h1 className="font-serif font-bold text-xl text-gray-900 dark:text-white leading-tight">
               {learningPlan?.title || "Percorso di Studio"}
              </h1>
-             <button 
-                type="button"
-                onClick={() => setIsFocusMode(true)}
-                className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 p-1 hover:bg-gray-100/80 dark:hover:bg-zinc-800 rounded-md transition-colors"
-                title="Nascondi Menu (Focus Mode)"
-             >
-                <SidebarClose className="w-5 h-5" />
-             </button>
+             {isMobileViewport ? (
+               <button
+                 type="button"
+                 onClick={() => setIsMobileSidebarOpen(false)}
+                 className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100/80 hover:text-gray-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
+                 title="Chiudi elenco lezioni"
+               >
+                 <XIcon className="w-5 h-5" />
+               </button>
+             ) : (
+               <button 
+                  type="button"
+                  onClick={() => setIsFocusMode(true)}
+                  className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100/80 hover:text-gray-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
+                  title="Nascondi Menu (Focus Mode)"
+               >
+                  <SidebarClose className="w-5 h-5" />
+               </button>
+             )}
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -1609,7 +1640,12 @@ const App = () => {
                             <button
                               type="button"
                               key={section.id}
-                              onClick={() => loadSection(section)}
+                              onClick={() => {
+                                if (isMobileViewport) {
+                                  setIsMobileSidebarOpen(false);
+                                }
+                                void loadSection(section);
+                              }}
                               disabled={isLoading}
                               className={`w-full text-left py-2 flex items-center gap-3 transition-colors ${
                                 isActive
@@ -1645,12 +1681,11 @@ const App = () => {
       </aside>
 
       <div
-        className={`flex-1 relative flex flex-col min-h-0 bg-paper-light dark:bg-paper-dark transition-[margin] duration-500 ${
-          isFocusMode ? 'ml-0' : 'ml-96'
-        }`}
+        className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-x-hidden bg-paper-light transition-[margin] duration-300 dark:bg-paper-dark"
+        style={{ marginLeft: shouldUseDesktopSidebar ? SIDEBAR_WIDTH_PX : 0 }}
       >
         {storageError ? (
-          <div className="mx-8 mt-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+          <div className="mx-4 mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300 sm:mx-8 sm:mt-5">
             <span>{storageError}</span>
             <div className="flex items-center gap-2">
               <button
@@ -1673,7 +1708,7 @@ const App = () => {
           </div>
         ) : null}
         {needsSourceFile ? (
-          <div className="mx-8 mt-5 flex items-center justify-between gap-4 rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-600 dark:border-zinc-800 dark:bg-zinc-900/90 dark:text-zinc-300">
+          <div className="mx-4 mt-4 flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-600 dark:border-zinc-800 dark:bg-zinc-900/90 dark:text-zinc-300 sm:mx-8 sm:mt-5 sm:flex-row sm:items-center">
             <span>Questo progetto e stato importato senza file sorgente. Ricollega il PDF o lo ZIP per generare nuove lezioni.</span>
             <button
               type="button"
@@ -1692,14 +1727,43 @@ const App = () => {
         */}
         <header 
             className={`
-                h-16 border-b border-gray-100 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur 
-                flex items-center px-8 justify-between flex-shrink-0 z-40 relative
+                border-b border-gray-100 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/80 
+                sticky top-0 relative z-50 flex flex-shrink-0 items-center justify-between overflow-hidden
                 transition-opacity duration-500 ease-in-out
+                ${isMobileViewport ? 'min-h-[4.5rem] px-4 py-3 gap-3' : 'h-16 px-8'}
                 ${isRulerActive && !isHeaderHovered ? 'opacity-0 hover:opacity-100' : 'opacity-100'}
             `}
         >
-           <div className="flex items-center gap-4 min-w-0">
-              {isFocusMode && (
+           <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+              {isMobileViewport ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleBackToLibrary}
+                    className="rounded-full border border-gray-200 bg-white/85 p-2 text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:bg-zinc-900/85 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:text-white"
+                    title="Torna alla libreria"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileSidebarOpen(true)}
+                    className="rounded-full border border-gray-200 bg-white/85 p-2 text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:bg-zinc-900/85 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:text-white"
+                    title="Apri elenco lezioni"
+                  >
+                    <SidebarOpen className="h-4 w-4" />
+                  </button>
+                  <div className="min-w-0">
+                    <p className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+                      {activeSidebarGroup?.title || learningPlan?.title || 'Percorso'}
+                    </p>
+                    <h2 className="truncate font-serif text-base text-gray-900 dark:text-white">
+                      {activeSection?.title || learningPlan?.title || 'Lezione'}
+                    </h2>
+                  </div>
+                </>
+              ) : (
+                isFocusMode && (
                 <button 
                   type="button"
                   onClick={() => setIsFocusMode(false)}
@@ -1708,19 +1772,20 @@ const App = () => {
                 >
                   <SidebarOpen className="w-5 h-5" />
                 </button>
+                )
               )}
            </div>
            
-           <div className="flex items-center gap-6">
+           <div className={`flex shrink-0 items-center ${isMobileViewport ? 'gap-3' : 'gap-6'}`}>
              {isLoading && (
-               <div className="flex items-center gap-2 px-4 py-1.5 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-full text-xs font-bold animate-pulse">
+               <div className={`flex items-center gap-2 rounded-full bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 animate-pulse ${isMobileViewport ? 'px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]' : 'px-4 py-1.5 text-xs font-bold'}`}>
                  <span className="w-2 h-2 rounded-full bg-orange-500"></span>
-                 {loadingStatus.toUpperCase()}
+                 {isMobileViewport ? 'Carica' : loadingStatus.toUpperCase()}
                </div>
              )}
              
              {/* Reading Tools */}
-             <div className="flex items-center bg-gray-100 dark:bg-zinc-800 rounded-full p-1 border border-gray-200 dark:border-zinc-700 transition-all shadow-sm">
+             <div className={`flex items-center rounded-full border border-gray-200 bg-gray-100 p-1 shadow-sm transition-all dark:border-zinc-700 dark:bg-zinc-800 ${isMobileViewport ? 'max-w-[11rem]' : ''}`}>
                <button 
                 type="button"
                 onClick={handleToggleRuler}
@@ -1732,7 +1797,7 @@ const App = () => {
                
                {/* Teleprompter Controls (SLIDER REPLACEMENT) */}
                {isRulerActive && (
-                  <div className={`flex items-center gap-2 mx-2 animate-in fade-in zoom-in-95 border-l border-gray-300 dark:border-zinc-600 pl-2 ${audioState.isPlaying ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}>
+                  <div className={`mx-2 flex items-center gap-2 animate-in fade-in zoom-in-95 border-l border-gray-300 pl-2 dark:border-zinc-600 ${audioState.isPlaying ? 'cursor-not-allowed opacity-50 grayscale' : ''}`}>
                       <Gauge className="w-3 h-3 text-gray-400" />
                       <input 
                         type="range"
@@ -1742,25 +1807,28 @@ const App = () => {
                         value={teleprompterSpeed}
                         onChange={(e) => !audioState.isPlaying && setTeleprompterSpeed(parseFloat(e.target.value))}
                         disabled={audioState.isPlaying}
-                        className={`w-24 h-1.5 bg-gray-300 dark:bg-zinc-600 rounded-lg appearance-none accent-orange-600 ${audioState.isPlaying ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                        className={`h-1.5 appearance-none rounded-lg bg-gray-300 accent-orange-600 dark:bg-zinc-600 ${isMobileViewport ? 'w-14' : 'w-24'} ${audioState.isPlaying ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                         title={audioState.isPlaying ? "Velocità controllata dall'audio" : "Velocità Autoscroll"}
                       />
-                      <span className="text-[10px] font-mono text-gray-500 w-8 text-right">{teleprompterSpeed.toFixed(1)}x</span>
+                      <span className={`w-8 text-right font-mono text-gray-500 ${isMobileViewport ? 'text-[9px]' : 'text-[10px]'}`}>{teleprompterSpeed.toFixed(1)}x</span>
                   </div>
                )}
              </div>
              
              {/* Music Player Control */}
-             <MusicPlayer 
-                url={musicUrl}
-                setUrl={setMusicUrl}
-                isPlaying={isMusicPlaying}
-                setIsPlaying={setIsMusicPlaying}
-                volume={musicVolume}
-                setVolume={setMusicVolume}
-             />
-
-             <div className="w-px h-4 bg-gray-300 dark:bg-zinc-600 mx-1"></div>
+             {!isMobileViewport ? (
+               <>
+                 <MusicPlayer 
+                    url={musicUrl}
+                    setUrl={setMusicUrl}
+                    isPlaying={isMusicPlaying}
+                    setIsPlaying={setIsMusicPlaying}
+                    volume={musicVolume}
+                    setVolume={setMusicVolume}
+                 />
+                 <div className="mx-1 h-4 w-px bg-gray-300 dark:bg-zinc-600"></div>
+               </>
+             ) : null}
 
               <button 
               type="button"
@@ -1775,13 +1843,13 @@ const App = () => {
 
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden relative scroll-smooth"
+          className="relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden scroll-smooth"
         >
-          <div className={`mx-auto py-12 px-12 pb-48 transition-all duration-500 ${isFocusMode ? 'max-w-3xl' : 'max-w-4xl'}`}>
+          <div className={`mx-auto w-full min-w-0 max-w-full px-4 pb-36 pt-8 transition-all duration-500 sm:px-8 lg:px-12 ${isFocusMode ? 'max-w-3xl' : 'max-w-4xl'}`}>
             
             <section 
               ref={contentRef}
-              className={`mb-16 min-h-[50vh] ${isAutoTrackEnabled ? 'cursor-crosshair' : ''}`}
+              className={`mb-16 min-h-[50vh] min-w-0 max-w-full ${isAutoTrackEnabled ? 'cursor-crosshair' : ''}`}
             >
               {isLoading ? (
                   <div className="space-y-8 animate-pulse mt-8 max-w-2xl mx-auto">
@@ -1798,7 +1866,9 @@ const App = () => {
                     <MarkdownRenderer 
                       content={sectionContent} 
                       isDarkMode={isDarkMode}
-                      className={`prose-xl leading-loose
+                      lessonAssetsById={activeSectionAssetsById}
+                      lessonImageRefsById={activeSectionImageRefsById}
+                      className={`prose-lg sm:prose-xl leading-7 sm:leading-loose
                         prose-p:text-gray-800 dark:prose-p:text-gray-200 
                         prose-headings:text-gray-900 dark:prose-headings:text-white 
                         prose-headings:font-serif prose-headings:font-normal 
@@ -1810,9 +1880,9 @@ const App = () => {
                     />
                   )}
                   {!sectionContent && (
-                    <div className="text-center text-gray-400 mt-20 flex flex-col items-center">
+                    <div className="mt-16 flex flex-col items-center text-center text-gray-400 sm:mt-20">
                        <BookOpen className="w-16 h-16 opacity-20 mb-4" />
-                       <p>Seleziona una sezione dal piano di studi per iniziare.</p>
+                       <p>{isMobileViewport ? 'Apri il menu lezioni per scegliere cosa leggere.' : 'Seleziona una sezione dal piano di studi per iniziare.'}</p>
                     </div>
                   )}
                  </>
@@ -1916,8 +1986,10 @@ const App = () => {
         {/* Context Menu and Answer overlays (Same) */}
         {contextAnswer && (
           <div 
-            className="fixed bottom-24 right-8 z-50 flex flex-col overflow-hidden rounded-2xl border border-orange-100 bg-white p-6 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] animate-in slide-in-from-bottom-10 duration-500 dark:border-orange-900/30 dark:bg-zinc-900"
-            style={{ width: contextAnswerSize.width, height: contextAnswerSize.height }}
+            className={`fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-orange-100 bg-white p-6 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] animate-in slide-in-from-bottom-10 duration-500 dark:border-orange-900/30 dark:bg-zinc-900 ${
+              isMobileViewport ? 'inset-x-3 bottom-24 top-24' : 'bottom-24 right-8'
+            }`}
+            style={isMobileViewport ? undefined : { width: contextAnswerSize.width, height: contextAnswerSize.height }}
           >
              <div className="mb-4 flex items-start justify-between gap-3">
                <div className="flex items-center gap-2 text-orange-600 dark:text-orange-400 text-xs font-bold uppercase tracking-wider bg-orange-50 dark:bg-orange-900/20 px-3 py-1 rounded-full">
@@ -1929,18 +2001,21 @@ const App = () => {
              <div className="custom-scrollbar min-h-0 flex-1 overflow-auto pr-2 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
                 <MarkdownRenderer content={contextAnswer.a} isDarkMode={isDarkMode} className="prose-sm prose-p:text-gray-600 dark:prose-p:text-gray-300" />
              </div>
-             <button
-               type="button"
-               aria-label="Ridimensiona pannello risposta"
-               onMouseDown={handleContextAnswerResizeStart}
-               className="absolute bottom-3 left-3 flex h-5 w-5 cursor-nesw-resize items-end justify-start rounded-sm text-orange-300 transition-colors hover:text-orange-500 dark:text-orange-700 dark:hover:text-orange-400"
-             >
-               <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4">
-                 <path d="M1 15L15 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                 <path d="M1 11L11 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                 <path d="M1 7L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-               </svg>
-             </button>
+             {!isMobileViewport ? (
+               <button
+                 type="button"
+                 aria-label="Ridimensiona pannello risposta"
+                 onMouseDown={handleContextAnswerResizeStart}
+                 className="absolute bottom-3 left-3 flex h-5 w-5 cursor-nesw-resize items-end justify-start rounded-sm text-orange-300 transition-colors hover:text-orange-500 dark:text-orange-700 dark:hover:text-orange-400"
+               >
+                 <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4">
+                   <title>Ridimensiona pannello risposta</title>
+                   <path d="M1 15L15 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                   <path d="M1 11L11 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                   <path d="M1 7L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                 </svg>
+               </button>
+             ) : null}
           </div>
         )}
 

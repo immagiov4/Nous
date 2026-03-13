@@ -2,6 +2,7 @@ import { BookCopy, Clock3, Download, FileArchive, FileText, TriangleAlert, Trash
 import type { SavedProjectMeta } from '../types';
 
 interface ProjectCardProps {
+  isOpening?: boolean;
   project: SavedProjectMeta;
   onDelete: (projectId: string) => void;
   onExport: (projectId: string) => void;
@@ -22,7 +23,7 @@ const formatDate = (value: string): string =>
     year: 'numeric',
   }).format(new Date(value));
 
-const ProjectCard = ({ project, onDelete, onExport, onOpen }: ProjectCardProps) => {
+const ProjectCard = ({ isOpening = false, project, onDelete, onExport, onOpen }: ProjectCardProps) => {
   const CoverIcon = project.sourceKind === 'codebase' ? FileArchive : project.sourceKind === 'learn-mode' ? BookCopy : FileText;
   const showSourceWarning = !project.hasSourceFile && project.sourceKind !== 'learn-mode';
 
@@ -101,9 +102,14 @@ const ProjectCard = ({ project, onDelete, onExport, onOpen }: ProjectCardProps) 
         <button
           type="button"
           onClick={() => onOpen(project.id)}
-          className="inline-flex w-full items-center justify-center rounded-full bg-gray-900 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-200"
+          disabled={isOpening}
+          className={`inline-flex w-full items-center justify-center rounded-full px-5 py-3 text-sm font-medium transition-colors ${
+            isOpening
+              ? 'cursor-wait bg-gray-300 text-gray-600 dark:bg-zinc-700 dark:text-zinc-300'
+              : 'bg-gray-900 text-white hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-200'
+          }`}
         >
-          Apri progetto
+          {isOpening ? 'Apertura...' : 'Apri progetto'}
         </button>
 
         <div className="flex items-center gap-2">

@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type 
 import { IndexedDbProjectRepository } from '../services/indexedDbProjectRepository';
 import { createProjectSnapshot, exportProjectData } from '../services/projectSnapshot';
 import { ProjectStorageError } from '../services/projectRepository';
+import { restoreLegacyPdfImagePlaceholders } from '../utils/pdfImagePlaceholders';
 import {
   AppState,
   type ContextMenuState,
   type FileData,
   type LearningPlan,
   type Message,
+  type PdfDocumentAssets,
   type ProjectExportData,
   type ProjectSnapshot,
   type QuizQuestion,
@@ -25,6 +27,7 @@ interface WorkspaceState {
   state: AppState;
   file: FileData | null;
   learningPlan: LearningPlan | null;
+  documentAssets: PdfDocumentAssets | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
@@ -41,6 +44,7 @@ interface ProjectLibrarySetters<TChatSession, TContextAnswer> {
   setIsLoading: Dispatch<SetStateAction<boolean>>;
   setFile: Dispatch<SetStateAction<FileData | null>>;
   setLearningPlan: Dispatch<SetStateAction<LearningPlan | null>>;
+  setDocumentAssets: Dispatch<SetStateAction<PdfDocumentAssets | null>>;
   setAssessmentMessages: Dispatch<SetStateAction<Message[]>>;
   setCurrentAssessmentInput: Dispatch<SetStateAction<string>>;
   setChatSession: Dispatch<SetStateAction<TChatSession | null>>;
@@ -81,6 +85,37 @@ const getErrorMessage = (error: unknown): string => {
   return 'Unknown error';
 };
 
+const normalizeLearningPlanContent = (learningPlan: LearningPlan | null): LearningPlan | null => {
+  if (!learningPlan) {
+    return null;
+  }
+
+  let didChange = false;
+  const normalizedSections = learningPlan.sections.map((section) => {
+    if (!section.content) {
+      return section;
+    }
+
+    const normalizedContent = restoreLegacyPdfImagePlaceholders(section.content);
+    if (normalizedContent === section.content) {
+      return section;
+    }
+
+    didChange = true;
+    return {
+      ...section,
+      content: normalizedContent,
+    };
+  });
+
+  return didChange
+    ? {
+        ...learningPlan,
+        sections: normalizedSections,
+      }
+    : learningPlan;
+};
+
 export const useProjectLibrary = <TChatSession, TContextAnswer>({
   audioHandlers,
   workspace,
@@ -101,6 +136,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setIsLoading,
     setIsQuizSubmitted,
     setLearningPlan,
+    setDocumentAssets,
     setMusicUrl,
     setQuiz,
     setQuizAnswers,
@@ -163,6 +199,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setCurrentProjectId(null);
     setFile(null);
     setLearningPlan(null);
+    setDocumentAssets(null);
     setAssessmentMessages([]);
     setCurrentAssessmentInput('');
     setChatSession(null);
@@ -180,7 +217,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setUserProfile(null);
     setSyllabus([]);
     setNeedsSourceFile(false);
-  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setFile, setIsFocusMode, setIsLearnMode, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setSyllabus, setUserProfile]);
+  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setDocumentAssets, setFile, setIsFocusMode, setIsLearnMode, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setSyllabus, setUserProfile]);
 
   const currentProjectMeta = useMemo(
     () => savedProjects.find((project) => project.id === currentProjectId) || null,
@@ -205,6 +242,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
       state: overrides?.state || workspace.state,
       file: overrides?.file !== undefined ? overrides.file : workspace.file,
       learningPlan: planWithMusic,
+      documentAssets: overrides?.documentAssets !== undefined ? overrides.documentAssets : workspace.documentAssets,
       isLearnMode: overrides?.isLearnMode ?? workspace.isLearnMode,
       userProfile: overrides?.userProfile !== undefined ? overrides.userProfile : workspace.userProfile,
       syllabus: overrides?.syllabus ?? workspace.syllabus,
@@ -269,19 +307,29 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
   }, [buildSnapshotFromState, currentProjectId, downloadJson]);
 
   const applySnapshotToWorkspace = useCallback((snapshot: ProjectSnapshot) => {
+    const normalizedLearningPlan = normalizeLearningPlanContent(snapshot.learningPlan);
+    const normalizedSnapshot =
+      normalizedLearningPlan === snapshot.learningPlan
+        ? snapshot
+        : {
+            ...snapshot,
+            learningPlan: normalizedLearningPlan,
+          };
+
     isProjectHydratedRef.current = false;
     setIsLoading(false);
-    setCurrentProjectId(snapshot.id);
-    setFile(snapshot.file);
-    setLearningPlan(snapshot.learningPlan);
+    setCurrentProjectId(normalizedSnapshot.id);
+    setFile(normalizedSnapshot.file);
+    setLearningPlan(normalizedSnapshot.learningPlan);
+    setDocumentAssets(normalizedSnapshot.documentAssets ?? null);
     setAssessmentMessages([]);
     setCurrentAssessmentInput('');
     setChatSession(null);
-    setIsLearnMode(snapshot.isLearnMode);
-    setUserProfile(snapshot.userProfile);
-    setSyllabus(snapshot.syllabus);
-    setMusicUrl(snapshot.musicUrl || snapshot.learningPlan?.backgroundMusicUrl || '');
-    setNeedsSourceFile(!snapshot.file && Boolean(snapshot.learningPlan) && !snapshot.isLearnMode);
+    setIsLearnMode(normalizedSnapshot.isLearnMode);
+    setUserProfile(normalizedSnapshot.userProfile);
+    setSyllabus(normalizedSnapshot.syllabus);
+    setMusicUrl(normalizedSnapshot.musicUrl || normalizedSnapshot.learningPlan?.backgroundMusicUrl || '');
+    setNeedsSourceFile(!normalizedSnapshot.file && Boolean(normalizedSnapshot.learningPlan) && !normalizedSnapshot.isLearnMode);
     setIsQuizSubmitted(false);
     setContextAnswer(null);
     setContextMenu({ visible: false, x: 0, y: 0, selectedText: '' });
@@ -289,21 +337,21 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setIsFocusMode(false);
 
     const nextSection =
-      snapshot.learningPlan?.sections.find(section => section.id === snapshot.activeSectionId) ||
-      snapshot.learningPlan?.sections.find(section => !section.isCompleted) ||
-      snapshot.learningPlan?.sections[0] ||
+      normalizedSnapshot.learningPlan?.sections.find(section => section.id === normalizedSnapshot.activeSectionId) ||
+      normalizedSnapshot.learningPlan?.sections.find(section => !section.isCompleted) ||
+      normalizedSnapshot.learningPlan?.sections[0] ||
       null;
 
     setActiveSectionId(nextSection?.id || null);
     setSectionContent(nextSection?.content || '');
     setQuiz(nextSection?.quiz || []);
     setQuizAnswers(nextSection?.quiz ? new Array(nextSection.quiz.length).fill(-1) : []);
-    setState(snapshot.learningPlan ? AppState.READING : AppState.LIBRARY);
+    setState(normalizedSnapshot.learningPlan ? AppState.READING : AppState.LIBRARY);
 
     window.setTimeout(() => {
       isProjectHydratedRef.current = true;
     }, 0);
-  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setFile, setIsFocusMode, setIsLearnMode, setIsLoading, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setState, setSyllabus, setUserProfile]);
+  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setDocumentAssets, setFile, setIsFocusMode, setIsLearnMode, setIsLoading, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setState, setSyllabus, setUserProfile]);
 
   useEffect(() => {
     if (didLoadInitialStateRef.current) {
