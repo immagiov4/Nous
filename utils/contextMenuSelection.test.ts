@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createClosedContextMenuState, resolveContextMenuSelection } from './contextMenuSelection.ts';
+import {
+  createClosedContextMenuState,
+  resolveContextMenuSelection,
+  resolveMobileContextMenuSyncAction,
+} from './contextMenuSelection.ts';
 
 test('creates a closed context menu state with desktop placement default', () => {
   assert.deepEqual(createClosedContextMenuState(), {
@@ -108,4 +112,35 @@ test('returns null when selection is empty or outside the content container', ()
     placement: 'desktop-floating',
     selection: outsideSelection,
   }), null);
+});
+
+test('keeps the mobile sheet open when the native selection disappears during scroll', () => {
+  assert.equal(
+    resolveMobileContextMenuSyncAction({
+      hasSelection: false,
+      isMenuFocused: false,
+      isMenuVisible: true,
+    }),
+    'keep-existing-menu'
+  );
+});
+
+test('closes the mobile sheet only when there is no live selection and no pinned menu', () => {
+  assert.equal(
+    resolveMobileContextMenuSyncAction({
+      hasSelection: false,
+      isMenuFocused: false,
+      isMenuVisible: false,
+    }),
+    'close-menu'
+  );
+
+  assert.equal(
+    resolveMobileContextMenuSyncAction({
+      hasSelection: true,
+      isMenuFocused: false,
+      isMenuVisible: false,
+    }),
+    'open-from-selection'
+  );
 });

@@ -1,6 +1,7 @@
-import type { FileData, LearningPlan, LearningSection, PdfTextChunk, PdfTextIndex } from '../../types';
+import type { FileData, LearningPlan, PdfTextChunk, PdfTextIndex } from '../../types';
 import { getPdfTextSession } from './pdfAssets';
 import { MODEL_FLASH, callOpenRouter, isPdfFile, parseCleanJson, retryWithBackoff } from './shared';
+import { getPdfProjectHydrationState } from '../../utils/pdfProjectHydration';
 
 const TARGET_CHUNK_CHARS = 7000;
 const MIN_CHUNK_CHARS = 3500;
@@ -381,16 +382,11 @@ export const needsPdfLessonMappingMigration = (
   plan: LearningPlan | null,
   documentIndex: PdfTextIndex | null | undefined
 ): boolean => {
-  if (!file || !isPdfFile(file) || !plan || plan.sections.length === 0) {
-    return false;
-  }
-
-  if (!documentIndex || documentIndex.chunks.length === 0) {
-    return true;
-  }
-
-  return plan.sections.some(section => !section.primaryChunkIds || section.primaryChunkIds.length === 0);
+  const hydrationState = getPdfProjectHydrationState(file, plan, documentIndex);
+  return hydrationState !== 'ready' && hydrationState !== 'idle';
 };
+
+export { getPdfProjectHydrationState as getPdfLessonMappingState } from '../../utils/pdfProjectHydration';
 
 export const buildLessonChunkContext = (
   documentIndex: PdfTextIndex | null | undefined,

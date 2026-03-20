@@ -223,7 +223,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setUserProfile(null);
     setSyllabus([]);
     setNeedsSourceFile(false);
-  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setDocumentAssets, setFile, setIsFocusMode, setIsLearnMode, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setSyllabus, setUserProfile]);
+  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setDocumentAssets, setDocumentIndex, setFile, setIsFocusMode, setIsLearnMode, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setSyllabus, setUserProfile]);
 
   const currentProjectMeta = useMemo(
     () => savedProjects.find((project) => project.id === currentProjectId) || null,
@@ -359,7 +359,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     window.setTimeout(() => {
       isProjectHydratedRef.current = true;
     }, 0);
-  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setDocumentAssets, setFile, setIsFocusMode, setIsLearnMode, setIsLoading, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setState, setSyllabus, setUserProfile]);
+  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setDocumentAssets, setDocumentIndex, setFile, setIsFocusMode, setIsLearnMode, setIsLoading, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setState, setSyllabus, setUserProfile]);
 
   useEffect(() => {
     if (didLoadInitialStateRef.current) {

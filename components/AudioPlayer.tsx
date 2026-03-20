@@ -121,17 +121,25 @@ const AudioPlayer = ({
   const isDockedState = isVertical && !(isCoarsePointer ? isTouchExpanded : isHovered);
 
   const positionClasses = isVertical
-    ? `fixed top-1/2 left-0 ${isCoarsePointer ? 'z-40' : 'z-20'} flex items-center`
+    ? isCoarsePointer
+      ? 'fixed bottom-0 left-0 z-40 flex items-end'
+      : 'fixed top-1/2 left-0 z-20 flex items-center'
     : 'fixed bottom-8 left-1/2 z-10 flex w-full max-w-xl -translate-x-1/2 flex-col items-center px-4';
 
   const transformStyle = isVertical
-    ? {
-        left: `${dockOffsetPx}px`,
-        transform: isDockedState
-          ? `translateX(${isCoarsePointer ? '-96%' : '-86%'}) translateY(-50%)`
-          : `translateX(${isCoarsePointer ? '2px' : '14px'}) translateY(-50%)`,
-        transition: 'left 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
-      }
+    ? isCoarsePointer
+      ? {
+          bottom: 'env(safe-area-inset-bottom, 0px)',
+          transform: isDockedState ? 'translateX(-95%)' : 'translateX(0)',
+          transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }
+      : {
+          left: `${dockOffsetPx}px`,
+          transform: isDockedState
+            ? 'translateX(-86%) translateY(-50%)'
+            : 'translateX(14px) translateY(-50%)',
+          transition: 'left 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }
     : {};
 
   const containerStyle = isDockedState

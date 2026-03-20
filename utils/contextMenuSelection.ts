@@ -23,6 +23,8 @@ interface ResolvedSelectionPayload {
 
 const DEFAULT_CONTEXT_WINDOW = 48;
 
+export type MobileContextMenuSyncAction = 'open-from-selection' | 'keep-existing-menu' | 'close-menu';
+
 const getNodeForContainmentCheck = (node: Node): Node => {
   return node.nodeType === 3 && node.parentNode ? node.parentNode : node;
 };
@@ -60,6 +62,26 @@ export const createClosedContextMenuState = (): ContextMenuState => ({
   placement: 'desktop-floating',
   selectedText: '',
 });
+
+export const resolveMobileContextMenuSyncAction = ({
+  hasSelection,
+  isMenuFocused,
+  isMenuVisible,
+}: {
+  hasSelection: boolean;
+  isMenuFocused: boolean;
+  isMenuVisible: boolean;
+}): MobileContextMenuSyncAction => {
+  if (hasSelection) {
+    return 'open-from-selection';
+  }
+
+  if (isMenuFocused || isMenuVisible) {
+    return 'keep-existing-menu';
+  }
+
+  return 'close-menu';
+};
 
 export const resolveContextMenuSelection = ({
   container,

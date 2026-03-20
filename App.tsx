@@ -17,9 +17,15 @@ import { useTtsPlayer } from './hooks/useTtsPlayer.ts';
 import { useProjectLibrary } from './hooks/useProjectLibrary.ts';
 import { createProjectId, createProjectSnapshot } from './services/projectSnapshot';
 import { getBackendUrl } from './services/gemini/config';
-import { createClosedContextMenuState, resolveContextMenuSelection } from './utils/contextMenuSelection';
+import {
+  createClosedContextMenuState,
+  resolveContextMenuSelection,
+  resolveMobileContextMenuSyncAction,
+} from './utils/contextMenuSelection';
 import { buildReadableBlocks } from './utils/readingText';
 import { toggleHighlightInContent } from './utils/highlightSelection';
+import { buildProjectLocationHref, getProjectIdFromLocation } from './utils/projectLocation';
+import { resolveLessonGenerationState } from './utils/lessonGenerationState';
 
 const SIDEBAR_WIDTH_PX = 384;
 const MOBILE_LAYOUT_BREAKPOINT_PX = 1024;
@@ -85,6 +91,15 @@ interface ContextAnswerResizeState {
 
 interface LoadSectionOptions {
   forceRegenerate?: boolean;
+  context?: Partial<LoadSectionRuntimeContext>;
+}
+
+interface LoadSectionRuntimeContext {
+  documentAssets: PdfDocumentAssets | null;
+  file: FileData | null;
+  isLearnMode: boolean;
+  syllabus: SyllabusItem[];
+  userProfile: UserProfile | null;
 }
 
 const getErrorMessage = (error: unknown): string => {
@@ -329,6 +344,9 @@ const App = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const [backendUrl, setBackendUrl] = useState(() => getBackendUrl());
+  const [locationProjectId, setLocationProjectId] = useState<string | null>(() =>
+    typeof window === 'undefined' ? null : getProjectIdFromLocation(window.location)
+  );
   
   // UI Visibilty States
   const [isHeaderHovered, setIsHeaderHovered] = useState(false);
@@ -336,6 +354,10 @@ const App = () => {
   const headerHoverBoundaryRef = useRef(64);
   const isHeaderHoveredRef = useRef(false);
   const fileUploadModeRef = useRef<'new-project' | 'reattach-source'>('new-project');
+  const hasPendingExternalLocationRef = useRef(Boolean(locationProjectId));
+  const nextLocationHistoryModeRef = useRef<'push' | 'replace'>('replace');
+  const openProjectRequestRef = useRef(0);
+  const openProjectHandlerRef = useRef<((projectId: string, options?: { source?: 'library' | 'route' }) => Promise<void>) | null>(null);
 
   // Refs
   const contentRef = useRef<HTMLDivElement>(null);
@@ -494,6 +516,21 @@ const App = () => {
       setExpandedModuleId((currentId) => (currentId === groupId ? null : groupId));
     });
   }, []);
+  const syncProjectLocation = useCallback((projectId: string | null, historyMode: 'push' | 'replace' = 'replace') => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const nextHref = buildProjectLocationHref(window.location, projectId);
+    const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (nextHref !== currentHref) {
+      window.history[historyMode === 'push' ? 'pushState' : 'replaceState']({}, '', nextHref);
+    }
+
+    hasPendingExternalLocationRef.current = false;
+    setLocationProjectId(projectId);
+  }, []);
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((currentMenu) => {
@@ -552,17 +589,23 @@ const App = () => {
       selectionMenuTimeoutRef.current = null;
 
       const selection = window.getSelection();
-      if (selection && openContextMenuFromSelection(selection, 'mobile-sheet')) {
+      const syncAction = resolveMobileContextMenuSyncAction({
+        hasSelection: Boolean(selection?.toString().trim() && selection.rangeCount > 0),
+        isMenuFocused: Boolean(contextMenuRef.current?.contains(document.activeElement)),
+        isMenuVisible: contextMenu.visible,
+      });
+
+      if (selection && syncAction === 'open-from-selection' && openContextMenuFromSelection(selection, 'mobile-sheet')) {
         return;
       }
 
-      if (contextMenuRef.current?.contains(document.activeElement)) {
+      if (syncAction === 'keep-existing-menu') {
         return;
       }
 
       closeContextMenu();
     }, CONTEXT_MENU_MOBILE_DEBOUNCE_MS);
-  }, [closeContextMenu, isMobileViewport, openContextMenuFromSelection]);
+  }, [closeContextMenu, contextMenu.visible, isMobileViewport, openContextMenuFromSelection]);
   // --- Effects ---
   
   useEffect(() => {
@@ -583,6 +626,18 @@ const App = () => {
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      hasPendingExternalLocationRef.current = true;
+      setLocationProjectId(getProjectIdFromLocation(window.location));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
     };
   }, []);
 
@@ -681,7 +736,7 @@ const App = () => {
       }
 
       if (isMobileViewport) {
-        window.getSelection()?.removeAllRanges();
+        return;
       }
 
       closeContextMenu();
@@ -722,7 +777,9 @@ const App = () => {
   }, [isMobileViewport, scheduleMobileContextMenuSync]);
 
   useEffect(() => {
-    closeContextMenu();
+    if (activeSectionId === null || activeSectionId.length > 0) {
+      closeContextMenu();
+    }
   }, [activeSectionId, closeContextMenu]);
 
   useEffect(() => {
@@ -1007,26 +1064,58 @@ const App = () => {
     reader.readAsText(selectedFile);
   };
 
-  const handleOpenProject = async (projectId: string) => {
+  const handleOpenProject = async (projectId: string, options?: { source?: 'library' | 'route' }) => {
+    const requestId = openProjectRequestRef.current + 1;
+    openProjectRequestRef.current = requestId;
+
     setOpeningProjectId(projectId);
     setLoadingStatus('Apertura progetto...');
 
+    if (options?.source === 'library') {
+      nextLocationHistoryModeRef.current = 'push';
+    }
+
     try {
       const snapshot = await loadStoredProject(projectId);
+      if (openProjectRequestRef.current !== requestId) {
+        return;
+      }
+
       if (!snapshot) {
+        if (options?.source === 'route') {
+          syncProjectLocation(null, 'replace');
+        }
         return;
       }
 
       let nextSnapshot = snapshot;
-      if (snapshot.file && snapshot.learningPlan && GeminiService.needsPdfLessonMappingMigration(snapshot.file, snapshot.learningPlan, snapshot.documentIndex)) {
+      const pdfHydrationState = GeminiService.getPdfLessonMappingState(
+        snapshot.file,
+        snapshot.learningPlan,
+        snapshot.documentIndex
+      );
+
+      if (pdfHydrationState === 'missing-document-index' || pdfHydrationState === 'missing-primary-chunk-mappings') {
         setIsLoading(true);
+        setLoadingStatus(
+          pdfHydrationState === 'missing-document-index'
+            ? 'Indicizzazione capitoli del PDF...'
+            : 'Allineamento lezioni con il PDF...'
+        );
         const prepared = await preparePdfLessonPlan(snapshot.file, snapshot.learningPlan, snapshot.documentIndex);
+        if (openProjectRequestRef.current !== requestId) {
+          return;
+        }
+
         nextSnapshot = createProjectSnapshot({
           ...snapshot,
           learningPlan: prepared.learningPlan,
           documentIndex: prepared.documentIndex,
         });
         await persistSnapshot(nextSnapshot);
+        if (openProjectRequestRef.current !== requestId) {
+          return;
+        }
       }
 
       setIsMobileSidebarOpen(false);
@@ -1049,18 +1138,29 @@ const App = () => {
           nextSnapshot.learningPlan.sections[0];
 
         if (nextSection && (!nextSection.content || nextSection.content.length === 0)) {
-          await loadSection(nextSection, nextSnapshot.learningPlan, nextSnapshot.documentIndex ?? null);
+          await loadSection(nextSection, nextSnapshot.learningPlan, nextSnapshot.documentIndex ?? null, {
+            context: {
+              documentAssets: nextSnapshot.documentAssets ?? null,
+              file: nextSnapshot.file,
+              isLearnMode: nextSnapshot.isLearnMode,
+              syllabus: nextSnapshot.syllabus,
+              userProfile: nextSnapshot.userProfile,
+            },
+          });
         }
       }
     } finally {
-      setIsLoading(false);
-      setOpeningProjectId(null);
+      if (openProjectRequestRef.current === requestId) {
+        setIsLoading(false);
+        setOpeningProjectId(null);
+      }
     }
   };
 
   const handleExportPlan = useCallback(async (projectId?: string) => {
     await downloadProject(projectId);
   }, [downloadProject]);
+  openProjectHandlerRef.current = handleOpenProject;
 
   const handleDeleteProject = useCallback(async (projectId: string) => {
     const targetProject = savedProjects.find(project => project.id === projectId);
@@ -1079,6 +1179,7 @@ const App = () => {
   }, [currentProjectId, deleteStoredProject, refreshSavedProjects, resetWorkspace, savedProjects, stopAudio]);
 
   const handleBackToLibrary = useCallback(() => {
+    nextLocationHistoryModeRef.current = 'replace';
     stopAudio(true);
     setIsFocusMode(false);
     setIsMobileSidebarOpen(false);
@@ -1268,7 +1369,15 @@ const App = () => {
           activeSectionId: firstSection.id,
           musicUrl,
         }));
-        loadSection(firstSection, plan, null);
+        void loadSection(firstSection, plan, null, {
+          context: {
+            documentAssets: null,
+            file,
+            isLearnMode: true,
+            syllabus: newSyllabus,
+            userProfile: profile,
+          },
+        });
       }
     } catch (err) {
       console.error("Plan generation error", err);
@@ -1312,7 +1421,15 @@ const App = () => {
           activeSectionId: firstSection.id,
           musicUrl,
         }));
-        loadSection(firstSection, prepared.learningPlan, prepared.documentIndex);
+        void loadSection(firstSection, prepared.learningPlan, prepared.documentIndex, {
+          context: {
+            documentAssets: null,
+            file,
+            isLearnMode,
+            syllabus,
+            userProfile,
+          },
+        });
       }
     } catch (err) {
       console.error("Plan generation error", err);
@@ -1331,6 +1448,12 @@ const App = () => {
   ) => {
     if (!currentPlan) return;
     const forceRegenerate = options.forceRegenerate === true;
+    const resolvedContext = options.context;
+    const resolvedFile = resolvedContext?.file !== undefined ? resolvedContext.file : file;
+    const resolvedIsLearnMode = resolvedContext?.isLearnMode ?? isLearnMode;
+    const resolvedSyllabus = resolvedContext?.syllabus ?? syllabus;
+    const resolvedUserProfile = resolvedContext?.userProfile !== undefined ? resolvedContext.userProfile : userProfile;
+    const resolvedDocumentAssets = resolvedContext?.documentAssets !== undefined ? resolvedContext.documentAssets : documentAssets;
     
     // 1. BLOCKING NAVIGATION if already loading another section (Fixes override issue)
     if (isLoading) return;
@@ -1363,11 +1486,14 @@ const App = () => {
     void saveCurrentProject({ activeSectionId: section.id, state: AppState.READING });
 
     // If we reach here, we need to generate content.
-    // We need either a file or to be in Learn Mode (or have a syllabus to infer it)
-    const hasParentIds = currentPlan.sections.some(s => !!s.parentId);
-    const canGenerateInLearnMode = isLearnMode || (syllabus && syllabus.length > 0) || hasParentIds;
-    
-    if (!file && !canGenerateInLearnMode) {
+    const lessonGenerationState = resolveLessonGenerationState({
+      file: resolvedFile,
+      isLearnMode: resolvedIsLearnMode,
+      learningPlan: currentPlan,
+      syllabus: resolvedSyllabus,
+    });
+
+    if (lessonGenerationState === 'blocked-missing-source') {
         setNeedsSourceFile(true);
         return;
     }
@@ -1381,10 +1507,16 @@ const App = () => {
       .join(", ");
 
     try {
-      // If we don't have a file but we have parentIds, we MUST use Learn Mode generation
-      if (isLearnMode || (!file && hasParentIds)) {
-        if (!isLearnMode) setIsLearnMode(true); // Sync state if inferred
-        const { anchorLessonContextPrompt, anchorLessonId, moduleId, moduleTitle } = resolveLearnSectionContext(section, currentPlan, syllabus);
+      if (lessonGenerationState === 'learn-mode') {
+        if (!resolvedIsLearnMode) {
+          setIsLearnMode(true);
+        }
+
+        const { anchorLessonContextPrompt, anchorLessonId, moduleId, moduleTitle } = resolveLearnSectionContext(
+          section,
+          currentPlan,
+          resolvedSyllabus
+        );
 
         const content = await GeminiService.generateLearnLessonContent(
           section.title,
@@ -1392,8 +1524,8 @@ const App = () => {
           moduleId,
           anchorLessonId,
           section.contextPrompt || anchorLessonContextPrompt,
-          userProfile,
-          syllabus,
+          resolvedUserProfile,
+          resolvedSyllabus,
           (status) => setLoadingStatus(status)
         );
         
@@ -1406,7 +1538,7 @@ const App = () => {
             s.id === section.id ? { ...s, content: content, quiz: [], imageRefs: [] } : s
           )
         };
-        const mergedDocumentAssets = mergeDocumentAssetsForPlan(updatedPlan, documentAssets, null);
+        const mergedDocumentAssets = mergeDocumentAssetsForPlan(updatedPlan, resolvedDocumentAssets, null);
         setLearningPlan(updatedPlan);
         setDocumentAssets(mergedDocumentAssets);
         await saveCurrentProject({
@@ -1418,7 +1550,7 @@ const App = () => {
         });
 
       } else {
-        const sourceFile = file;
+        const sourceFile = resolvedFile;
         if (!sourceFile) {
           throw new Error('Missing source file for section generation');
         }
@@ -1442,7 +1574,7 @@ const App = () => {
             s.id === section.id ? { ...s, content: content, quiz: quiz, imageRefs } : s
           )
         };
-        const mergedDocumentAssets = mergeDocumentAssetsForPlan(updatedPlan, documentAssets, nextDocumentAssets);
+        const mergedDocumentAssets = mergeDocumentAssetsForPlan(updatedPlan, resolvedDocumentAssets, nextDocumentAssets);
         setLearningPlan(updatedPlan);
         setDocumentAssets(mergedDocumentAssets);
         await saveCurrentProject({
@@ -1564,7 +1696,15 @@ const App = () => {
       await saveCurrentProject({ learningPlan: updatedPlan, documentIndex: nextDocumentIndex, activeSectionId, state: AppState.READING });
       closeContextMenu();
       const mappedNewSection = updatedPlan.sections.find(section => section.id === newSection.id) || newSection;
-      await loadSection(mappedNewSection, updatedPlan, nextDocumentIndex);
+      await loadSection(mappedNewSection, updatedPlan, nextDocumentIndex, {
+        context: {
+          documentAssets,
+          file,
+          isLearnMode,
+          syllabus,
+          userProfile,
+        },
+      });
     } catch (e) { console.error(e); alert("Impossibile creare la lezione."); } finally { setIsContextLoading(false); }
   };
 
@@ -1641,6 +1781,49 @@ const App = () => {
     else alert("Percorso completato! Ricordati di esportare il tuo progresso.");
   };
 
+  useEffect(() => {
+    if (isLibraryLoading) {
+      return;
+    }
+
+    if (!locationProjectId) {
+      if (hasPendingExternalLocationRef.current && state !== AppState.LIBRARY) {
+        handleBackToLibrary();
+      }
+
+      hasPendingExternalLocationRef.current = false;
+      return;
+    }
+
+    if (openingProjectId === locationProjectId) {
+      return;
+    }
+
+    if (locationProjectId === currentProjectId && state !== AppState.LIBRARY) {
+      hasPendingExternalLocationRef.current = false;
+      return;
+    }
+
+    void openProjectHandlerRef.current?.(locationProjectId, { source: 'route' });
+  }, [
+    currentProjectId,
+    handleBackToLibrary,
+    isLibraryLoading,
+    locationProjectId,
+    openingProjectId,
+    state,
+  ]);
+
+  useEffect(() => {
+    const expectedProjectId = state === AppState.LIBRARY ? null : currentProjectId;
+    if (hasPendingExternalLocationRef.current && locationProjectId !== expectedProjectId) {
+      return;
+    }
+
+    syncProjectLocation(expectedProjectId, nextLocationHistoryModeRef.current);
+    nextLocationHistoryModeRef.current = 'replace';
+  }, [currentProjectId, locationProjectId, state, syncProjectLocation]);
+
   if (state === AppState.LIBRARY) {
     return (
       <LibraryView
@@ -1658,7 +1841,7 @@ const App = () => {
           void handleExportPlan(projectId);
         }}
         onOpenProject={(projectId) => {
-          void handleOpenProject(projectId);
+          void handleOpenProject(projectId, { source: 'library' });
         }}
         onPlanUpload={(event) => {
           void handlePlanUpload(event);
