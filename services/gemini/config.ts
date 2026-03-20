@@ -5,7 +5,7 @@ export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || '32000', 10);
 
 export const MODEL_FLASH = process.env.MODEL_FLASH || 'google/gemini-3-flash-preview';
-export const MODEL_REASONING = process.env.MODEL_REASONING || 'google/gemini-3-flash-preview';
+export const MODEL_REASONING = process.env.MODEL_REASONING || 'mistralai/mistral-small-2603';
 
 export const DEFAULT_BACKEND_PORT = 3001;
 export const DEFAULT_BACKEND_URL = `http://localhost:${DEFAULT_BACKEND_PORT}`;

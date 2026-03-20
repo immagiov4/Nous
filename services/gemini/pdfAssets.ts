@@ -1,35 +1,19 @@
 import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset } from '../../types';
 import {
-  MODEL_FLASH,
+  MODEL_REASONING,
   callOpenRouter,
-  callOpenRouterRaw,
   fileToDataUrl,
   getBackendUrl,
   isPdfFile,
   retryWithBackoff,
-  type FileAnnotation,
-  type FileAnnotationContentPart,
   type FileData,
 } from './shared';
 
 const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
-const CONTEXT_WINDOW_CHARS = 320;
+const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const IMAGE_ID_PREFIX = 'pdf-img-';
 const MAX_BACKEND_EXTRACTED_IMAGES = 36;
 const MAX_CAPTIONED_IMAGES = 24;
-
-interface NormalizedTextBlock {
-  type: 'text';
-  text: string;
-}
-
-interface NormalizedImageBlock {
-  type: 'image';
-  dataUrl: string;
-  mimeType: string;
-}
-
-type NormalizedPdfBlock = NormalizedTextBlock | NormalizedImageBlock;
 
 interface BackendPdfImage {
   id: string;
@@ -46,24 +30,22 @@ interface BackendPdfExtractResponse {
   error?: string;
 }
 
+interface BackendPdfTextResponse {
+  success: boolean;
+  text?: string;
+  textLength?: number;
+  parser?: 'pdftotext' | 'pdf-parse';
+  sourceHash?: string;
+  pageCount?: number;
+  error?: string;
+}
+
 export interface PdfAssetSession {
-  annotations: FileAnnotation[];
   images: PdfImageAsset[];
+  extractedText: string;
   parsedAt: string;
   sourceHash?: string;
 }
-
-const summarizeAnnotations = (annotations: FileAnnotation[]) =>
-  annotations.map(annotation => {
-    const content = Array.isArray(annotation.file.content) ? annotation.file.content : [];
-    return {
-      type: annotation.type,
-      name: annotation.file.name,
-      hash: annotation.file.hash,
-      textBlocks: content.filter(part => part.type === 'text').length,
-      imageBlocks: content.filter(part => part.type === 'image_url').length,
-    };
-  });
 
 const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
   console.groupCollapsed(`[Lumina][PDF] ${label}`);
@@ -74,83 +56,6 @@ const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
 };
 
 const getPdfCacheKey = (file: FileData): string => `${file.name}:${file.data.length}:${file.data.slice(0, 96)}`;
-
-const normalizeWhitespace = (text: string): string =>
-  text.replace(/\s+/g, ' ').trim();
-
-const clipContext = (text: string, takeFromEnd = false): string => {
-  const normalized = normalizeWhitespace(text);
-  if (normalized.length <= CONTEXT_WINDOW_CHARS) {
-    return normalized;
-  }
-
-  return takeFromEnd
-    ? normalized.slice(-CONTEXT_WINDOW_CHARS)
-    : normalized.slice(0, CONTEXT_WINDOW_CHARS);
-};
-
-const getMimeTypeFromDataUrl = (dataUrl: string): string => {
-  const match = /^data:([^;]+);base64,/i.exec(dataUrl);
-  return match?.[1] || 'image/png';
-};
-
-const flattenAnnotationContent = (annotations: FileAnnotation[]): NormalizedPdfBlock[] => {
-  const blocks: NormalizedPdfBlock[] = [];
-
-  annotations.forEach(annotation => {
-    if (annotation.type !== 'file' || !Array.isArray(annotation.file.content)) {
-      return;
-    }
-
-    annotation.file.content.forEach((part: FileAnnotationContentPart) => {
-      if (part.type === 'text' && typeof part.text === 'string' && part.text.trim()) {
-        blocks.push({ type: 'text', text: part.text });
-        return;
-      }
-
-      if (
-        part.type === 'image_url' &&
-        typeof part.image_url?.url === 'string' &&
-        part.image_url.url.startsWith('data:image/')
-      ) {
-        blocks.push({
-          type: 'image',
-          dataUrl: part.image_url.url,
-          mimeType: getMimeTypeFromDataUrl(part.image_url.url),
-        });
-      }
-    });
-  });
-
-  return blocks;
-};
-
-const extractPdfImageAssets = (annotations: FileAnnotation[]): PdfImageAsset[] => {
-  const blocks = flattenAnnotationContent(annotations);
-  const images = blocks.filter((block): block is NormalizedImageBlock => block.type === 'image');
-
-  return images.map((block, index) => {
-    const priorText = blocks
-      .slice(0, blocks.indexOf(block))
-      .filter((candidate): candidate is NormalizedTextBlock => candidate.type === 'text')
-      .map(candidate => candidate.text)
-      .join(' ');
-    const nextText = blocks
-      .slice(blocks.indexOf(block) + 1)
-      .filter((candidate): candidate is NormalizedTextBlock => candidate.type === 'text')
-      .map(candidate => candidate.text)
-      .join(' ');
-
-    return {
-      id: `${IMAGE_ID_PREFIX}${String(index + 1).padStart(3, '0')}`,
-      mimeType: block.mimeType,
-      dataUrl: block.dataUrl,
-      textBefore: clipContext(priorText, true),
-      textAfter: clipContext(nextText),
-      sourceOrder: index + 1,
-    };
-  });
-};
 
 const captionBackendImage = async (image: BackendPdfImage, index: number): Promise<PdfImageAsset> => {
   const prompt = `Describe this PDF figure in Italian with a concise, factual caption.
@@ -163,7 +68,7 @@ Rules:
   const response = await retryWithBackoff(
     () =>
       callOpenRouter({
-        model: MODEL_FLASH,
+        model: MODEL_REASONING,
         max_tokens: 120,
         messages: [
           {
@@ -243,61 +148,63 @@ const extractPdfImagesViaBackend = async (file: FileData): Promise<PdfImageAsset
   return captionedImages.filter(image => image.textBefore.trim().length > 0);
 };
 
-const parsePdfAnnotations = async (file: FileData): Promise<PdfAssetSession> => {
-  const response = await retryWithBackoff(
-    () =>
-      callOpenRouterRaw({
-        model: MODEL_FLASH,
-        max_tokens: 256,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: 'Parse this PDF and return a short acknowledgement. Preserve file annotations so I can reuse text and images later.',
-              },
-              {
-                type: 'file',
-                file: {
-                  filename: file.name,
-                  file_data: fileToDataUrl(file),
-                },
-              },
-            ],
-          },
-        ],
-        plugins: [{ id: 'file-parser', pdf: { engine: 'mistral-ocr' } }],
-      }),
-    2,
-    1000
-  );
+const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession> => {
+  const response = await fetch(`${getBackendUrl()}/api/pdf/extract-text`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fileData: fileToDataUrl(file),
+    }),
+  });
 
-  const message = response.choices?.[0]?.message;
-  const annotations = Array.isArray(message?.annotations) ? message.annotations : [];
-  const sourceHash = annotations.find(annotation => annotation.type === 'file')?.file.hash;
-  const images = extractPdfImageAssets(annotations);
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`PDF text backend error: ${response.status} ${errorText}`);
+  }
 
-  logPdfAssetDebug('Parse result', {
+  const payload = (await response.json()) as BackendPdfTextResponse;
+  if (!payload.success) {
+    throw new Error(payload.error || 'Unknown PDF text backend error');
+  }
+
+  const extractedText = typeof payload.text === 'string' ? payload.text : '';
+  logPdfAssetDebug('Backend text extraction result', {
     filename: file.name,
-    annotationCount: annotations.length,
-    annotationSummary: summarizeAnnotations(annotations),
-    extractedImageCount: images.length,
-    extractedImages: images.map(image => ({
-      id: image.id,
-      mimeType: image.mimeType,
-      sourceOrder: image.sourceOrder,
-      textBefore: image.textBefore.slice(-120),
-      textAfter: image.textAfter.slice(0, 120),
-    })),
+    parser: payload.parser,
+    pageCount: payload.pageCount,
+    textLength: extractedText.length,
+    sourceHash: payload.sourceHash,
+    preview: extractedText.slice(0, 400),
   });
 
   return {
-    annotations,
-    images,
+    images: [],
+    extractedText,
     parsedAt: new Date().toISOString(),
-    sourceHash,
+    sourceHash: payload.sourceHash,
   };
+};
+
+export const getPdfTextSession = async (file: FileData): Promise<PdfAssetSession | null> => {
+  if (!isPdfFile(file)) {
+    return null;
+  }
+
+  const cacheKey = getPdfCacheKey(file);
+  const cached = PDF_TEXT_PARSE_CACHE.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const nextPromise = extractPdfTextViaBackend(file).catch(error => {
+    PDF_TEXT_PARSE_CACHE.delete(cacheKey);
+    throw error;
+  });
+
+  PDF_TEXT_PARSE_CACHE.set(cacheKey, nextPromise);
+  return nextPromise;
 };
 
 export const getPdfAssetSession = async (file: FileData): Promise<PdfAssetSession | null> => {
@@ -312,14 +219,21 @@ export const getPdfAssetSession = async (file: FileData): Promise<PdfAssetSessio
   }
 
   const nextPromise = (async () => {
+    const parsedResult = await getPdfTextSession(file);
+    if (!parsedResult) {
+      return null;
+    }
+
+    if (parsedResult.images.length > 0) {
+      return parsedResult;
+    }
+
     try {
       const backendImages = await extractPdfImagesViaBackend(file);
       if (backendImages.length > 0) {
         return {
-          annotations: [],
+          ...parsedResult,
           images: backendImages,
-          parsedAt: new Date().toISOString(),
-          sourceHash: undefined,
         } satisfies PdfAssetSession;
       }
 
@@ -327,10 +241,10 @@ export const getPdfAssetSession = async (file: FileData): Promise<PdfAssetSessio
         filename: file.name,
       });
     } catch (error) {
-      console.warn('[Lumina][PDF] Backend extraction failed, falling back to annotation parsing.', error);
+      console.warn('[Lumina][PDF] Backend extraction failed, using text-only parsed session.', error);
     }
 
-    return parsePdfAnnotations(file);
+    return parsedResult;
   })().catch(error => {
     PDF_PARSE_CACHE.delete(cacheKey);
     throw error;

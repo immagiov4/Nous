@@ -16,7 +16,7 @@ app.use(cors({
   origin: true,
   credentials: true,
 }));
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '50mb' }));
 
 app.use((req, _res, next) => {
   console.log(`[Backend] ${req.method} ${req.path}`);

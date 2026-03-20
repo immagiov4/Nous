@@ -71,6 +71,23 @@ export interface PdfDocumentAssets {
   usedImages: PdfImageAsset[];
 }
 
+export interface PdfTextChunk {
+  id: string;
+  text: string;
+  headingPath: string[];
+  sequence: number;
+  startOffset: number;
+  endOffset: number;
+}
+
+export interface PdfTextIndex {
+  kind: 'pdf-text-index';
+  parsedAt: string;
+  sourceHash?: string;
+  documentTitle?: string;
+  chunks: PdfTextChunk[];
+}
+
 export interface LearningSection {
   id: string;
   moduleTitle?: string;
@@ -83,6 +100,7 @@ export interface LearningSection {
   quiz?: QuizQuestion[]; // The generated quiz (persisted)
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
   contextPrompt?: string; // For Learn Mode
+  primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
 }
 
 export interface LearningPlan {
@@ -122,6 +140,7 @@ export interface ProjectSnapshot {
   updatedAt: string;
   lastOpenedAt: string;
   documentAssets?: PdfDocumentAssets | null;
+  documentIndex?: PdfTextIndex | null;
 }
 
 export interface ProjectExportData {
@@ -137,6 +156,7 @@ export interface ProjectExportData {
   musicUrl?: string;
   sourceKind?: ProjectSourceKind;
   documentAssets?: PdfDocumentAssets | null;
+  documentIndex?: PdfTextIndex | null;
 }
 
 export interface UiPreferences {
@@ -146,11 +166,22 @@ export interface UiPreferences {
   playbackRate: number;
 }
 
+export interface SelectionRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+export type ContextMenuPlacement = 'desktop-floating' | 'mobile-sheet';
+
 export interface ContextMenuState {
   visible: boolean;
-  x: number;
-  y: number;
+  placement: ContextMenuPlacement;
   selectedText: string;
+  anchorX?: number;
+  anchorY?: number;
+  selectionRect?: SelectionRect;
   contextBefore?: string;
   contextAfter?: string;
 }

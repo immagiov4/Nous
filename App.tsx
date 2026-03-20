@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { flushSync } from 'react-dom';
-import { ArrowLeft, BookOpen, CheckCircle2, ChevronRight, Download, Gauge, GraduationCap, LibraryBig, MessageSquare, Moon, Ruler, SidebarClose, SidebarOpen, Sun } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, ChevronRight, Download, Gauge, GraduationCap, LibraryBig, MessageSquare, Moon, RefreshCw, Ruler, SidebarClose, SidebarOpen, Sun } from 'lucide-react';
 import JSZip from 'jszip';
-import { AppState, type ContextMenuState, type FileData, type LearningPlan, type LearningSection, type LessonImageRef, type Message, type PdfDocumentAssets, type PdfImageAsset, type QuizQuestion, type SyllabusItem, type UserProfile } from './types';
+import { AppState, type ContextMenuPlacement, type ContextMenuState, type FileData, type LearningPlan, type LearningSection, type LessonImageRef, type Message, type PdfDocumentAssets, type PdfImageAsset, type PdfTextIndex, type QuizQuestion, type SyllabusItem, type UserProfile } from './types';
 import * as GeminiService from './services/geminiService';
 import { ASSESSMENT_MIN_TURNS } from './constants';
 import AssessmentView from './components/AssessmentView';
@@ -17,6 +17,7 @@ import { useTtsPlayer } from './hooks/useTtsPlayer.ts';
 import { useProjectLibrary } from './hooks/useProjectLibrary.ts';
 import { createProjectId, createProjectSnapshot } from './services/projectSnapshot';
 import { getBackendUrl } from './services/gemini/config';
+import { createClosedContextMenuState, resolveContextMenuSelection } from './utils/contextMenuSelection';
 import { buildReadableBlocks } from './utils/readingText';
 import { toggleHighlightInContent } from './utils/highlightSelection';
 
@@ -27,6 +28,7 @@ const CONTEXT_ANSWER_DEFAULT_HEIGHT = 544;
 const CONTEXT_ANSWER_MIN_WIDTH = 352;
 const CONTEXT_ANSWER_MIN_HEIGHT = 256;
 const CONTEXT_ANSWER_VIEWPORT_MARGIN = 32;
+const CONTEXT_MENU_MOBILE_DEBOUNCE_MS = 160;
 
 // IGNORED_DIRS: We still filter these to avoid noise and massive performance hits
 // from dependencies or build artifacts, even if they contain text.
@@ -81,34 +83,16 @@ interface ContextAnswerResizeState {
   startHeight: number;
 }
 
+interface LoadSectionOptions {
+  forceRegenerate?: boolean;
+}
+
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;
   }
 
   return 'Unknown error';
-};
-
-const getSelectionContext = (selection: Selection): { contextBefore: string; contextAfter: string } => {
-  const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-  if (!range) {
-    return { contextBefore: '', contextAfter: '' };
-  }
-
-  const beforeRange = range.cloneRange();
-  beforeRange.selectNodeContents(range.commonAncestorContainer);
-  beforeRange.setEnd(range.startContainer, range.startOffset);
-  const beforeText = beforeRange.toString().slice(-48);
-
-  const afterRange = range.cloneRange();
-  afterRange.selectNodeContents(range.commonAncestorContainer);
-  afterRange.setStart(range.endContainer, range.endOffset);
-  const afterText = afterRange.toString().slice(0, 48);
-
-  return {
-    contextBefore: beforeText,
-    contextAfter: afterText,
-  };
 };
 
 const buildSidebarGroups = (
@@ -310,6 +294,7 @@ const App = () => {
   // Planning State
   const [learningPlan, setLearningPlan] = useState<LearningPlan | null>(null);
   const [documentAssets, setDocumentAssets] = useState<PdfDocumentAssets | null>(null);
+  const [documentIndex, setDocumentIndex] = useState<PdfTextIndex | null>(null);
 
   // Background Music State
   const [musicUrl, setMusicUrl] = useState<string>('');
@@ -323,7 +308,7 @@ const App = () => {
   const [quiz, setQuiz] = useState<QuizQuestion[]>([]);
   const [quizAnswers, setQuizAnswers] = useState<number[]>([]);
   const [isQuizSubmitted, setIsQuizSubmitted] = useState(false);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0, selectedText: '' });
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(createClosedContextMenuState);
   const [contextAnswer, setContextAnswer] = useState<ContextAnswerState | null>(null);
   const [contextAnswerSize, setContextAnswerSize] = useState<ContextAnswerSize>({
     width: CONTEXT_ANSWER_DEFAULT_WIDTH,
@@ -354,6 +339,8 @@ const App = () => {
 
   // Refs
   const contentRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const selectionMenuTimeoutRef = useRef<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const assessmentInputRef = useRef<HTMLInputElement>(null);
@@ -418,6 +405,7 @@ const App = () => {
     workspace: {
       activeSectionId,
       documentAssets,
+      documentIndex,
       file,
       isDarkMode,
       isLearnMode,
@@ -438,6 +426,7 @@ const App = () => {
       setContextMenu,
       setCurrentAssessmentInput,
       setDocumentAssets,
+      setDocumentIndex,
       setFile,
       setIsDarkMode,
       setIsFocusMode,
@@ -456,6 +445,20 @@ const App = () => {
       setUserProfile,
     },
   });
+
+  const preparePdfLessonPlan = useCallback(async (
+    sourceFile: FileData | null,
+    plan: LearningPlan,
+    existingIndex?: PdfTextIndex | null,
+    sectionIds?: string[]
+  ): Promise<{ learningPlan: LearningPlan; documentIndex: PdfTextIndex | null }> => {
+    if (!sourceFile) {
+      return { learningPlan: plan, documentIndex: existingIndex ?? null };
+    }
+
+    setLoadingStatus(sectionIds?.length ? 'Associazione chunk alla nuova lezione...' : 'Indicizzazione capitoli del PDF...');
+    return GeminiService.preparePdfLessonMappings(sourceFile, plan, existingIndex, sectionIds);
+  }, []);
 
   const sidebarGroups = buildSidebarGroups(learningPlan, syllabus);
   const activeSection = learningPlan?.sections.find(section => section.id === activeSectionId) || null;
@@ -491,6 +494,75 @@ const App = () => {
       setExpandedModuleId((currentId) => (currentId === groupId ? null : groupId));
     });
   }, []);
+
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((currentMenu) => {
+      if (!currentMenu.visible) {
+        return currentMenu;
+      }
+
+      return createClosedContextMenuState();
+    });
+  }, []);
+
+  const openContextMenuFromSelection = useCallback((selection: Selection, placement: ContextMenuPlacement, fallbackAnchorX?: number, fallbackAnchorY?: number) => {
+    if (!contentRef.current) {
+      return false;
+    }
+
+    const nextMenu = resolveContextMenuSelection({
+      container: contentRef.current,
+      fallbackAnchorX,
+      fallbackAnchorY,
+      placement,
+      selection,
+    });
+
+    if (!nextMenu) {
+      return false;
+    }
+
+    setContextMenu((currentMenu) => {
+      if (
+        currentMenu.visible &&
+        currentMenu.placement === nextMenu.placement &&
+        currentMenu.selectedText === nextMenu.selectedText &&
+        currentMenu.contextBefore === nextMenu.contextBefore &&
+        currentMenu.contextAfter === nextMenu.contextAfter
+      ) {
+        return currentMenu;
+      }
+
+      return nextMenu;
+    });
+
+    return true;
+  }, []);
+
+  const scheduleMobileContextMenuSync = useCallback(() => {
+    if (!isMobileViewport) {
+      return;
+    }
+
+    if (selectionMenuTimeoutRef.current) {
+      window.clearTimeout(selectionMenuTimeoutRef.current);
+    }
+
+    selectionMenuTimeoutRef.current = window.setTimeout(() => {
+      selectionMenuTimeoutRef.current = null;
+
+      const selection = window.getSelection();
+      if (selection && openContextMenuFromSelection(selection, 'mobile-sheet')) {
+        return;
+      }
+
+      if (contextMenuRef.current?.contains(document.activeElement)) {
+        return;
+      }
+
+      closeContextMenu();
+    }, CONTEXT_MENU_MOBILE_DEBOUNCE_MS);
+  }, [closeContextMenu, isMobileViewport, openContextMenuFromSelection]);
   // --- Effects ---
   
   useEffect(() => {
@@ -598,15 +670,60 @@ const App = () => {
       return;
     }
 
-    const handlePointerDown = () => {
-      setContextMenu(prev => ({ ...prev, visible: false }));
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (contextMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      if (isMobileViewport) {
+        window.getSelection()?.removeAllRanges();
+      }
+
+      closeContextMenu();
     };
 
-    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('pointerdown', handlePointerDown, true);
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('pointerdown', handlePointerDown, true);
     };
-  }, [contextMenu.visible]);
+  }, [closeContextMenu, contextMenu.visible, isMobileViewport]);
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      if (selectionMenuTimeoutRef.current) {
+        window.clearTimeout(selectionMenuTimeoutRef.current);
+        selectionMenuTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    const handleSelectionEvent = () => {
+      scheduleMobileContextMenuSync();
+    };
+
+    document.addEventListener('selectionchange', handleSelectionEvent);
+    window.addEventListener('pointerup', handleSelectionEvent);
+    window.addEventListener('touchend', handleSelectionEvent);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionEvent);
+      window.removeEventListener('pointerup', handleSelectionEvent);
+      window.removeEventListener('touchend', handleSelectionEvent);
+
+      if (selectionMenuTimeoutRef.current) {
+        window.clearTimeout(selectionMenuTimeoutRef.current);
+        selectionMenuTimeoutRef.current = null;
+      }
+    };
+  }, [isMobileViewport, scheduleMobileContextMenuSync]);
+
+  useEffect(() => {
+    closeContextMenu();
+  }, [activeSectionId, closeContextMenu]);
 
   useEffect(() => {
     if (sidebarGroups.length === 0) {
@@ -900,30 +1017,43 @@ const App = () => {
         return;
       }
 
+      let nextSnapshot = snapshot;
+      if (snapshot.file && snapshot.learningPlan && GeminiService.needsPdfLessonMappingMigration(snapshot.file, snapshot.learningPlan, snapshot.documentIndex)) {
+        setIsLoading(true);
+        const prepared = await preparePdfLessonPlan(snapshot.file, snapshot.learningPlan, snapshot.documentIndex);
+        nextSnapshot = createProjectSnapshot({
+          ...snapshot,
+          learningPlan: prepared.learningPlan,
+          documentIndex: prepared.documentIndex,
+        });
+        await persistSnapshot(nextSnapshot);
+      }
+
       setIsMobileSidebarOpen(false);
-      applySnapshotToWorkspace(snapshot);
+      applySnapshotToWorkspace(nextSnapshot);
       void touchStoredProject(projectId)
         .then(() => refreshSavedProjects())
         .catch((error) => {
           console.warn('Unable to refresh project last-opened timestamp.', error);
         });
 
-      if (!snapshot.learningPlan && snapshot.file) {
-        await startAssessment(snapshot.file);
+      if (!nextSnapshot.learningPlan && nextSnapshot.file) {
+        await startAssessment(nextSnapshot.file);
         return;
       }
 
-      if (snapshot.learningPlan) {
+      if (nextSnapshot.learningPlan) {
         const nextSection =
-          snapshot.learningPlan.sections.find(section => section.id === snapshot.activeSectionId) ||
-          snapshot.learningPlan.sections.find(section => !section.isCompleted) ||
-          snapshot.learningPlan.sections[0];
+          nextSnapshot.learningPlan.sections.find(section => section.id === nextSnapshot.activeSectionId) ||
+          nextSnapshot.learningPlan.sections.find(section => !section.isCompleted) ||
+          nextSnapshot.learningPlan.sections[0];
 
         if (nextSection && (!nextSection.content || nextSection.content.length === 0)) {
-          await loadSection(nextSection, snapshot.learningPlan);
+          await loadSection(nextSection, nextSnapshot.learningPlan, nextSnapshot.documentIndex ?? null);
         }
       }
     } finally {
+      setIsLoading(false);
       setOpeningProjectId(null);
     }
   };
@@ -991,8 +1121,9 @@ const App = () => {
     setIsLoading(true);
     setLoadingStatus("Avvio Valutazione...");
     try {
-      const session = GeminiService.createAssessmentChat(currentFile);
+      const session = await GeminiService.createAssessmentChat(currentFile, (status) => setLoadingStatus(status));
       setChatSession(session);
+      setLoadingStatus("Avvio domande valutazione...");
       const result = await session.sendMessage({ message: "Analizza il contesto (anche se è un documento lungo) e inizia la valutazione." });
       setAssessmentMessages([{ role: 'model', text: result.text || '' }]);
     } catch (err) {
@@ -1112,6 +1243,7 @@ const App = () => {
       
       setLearningPlan(plan);
       setDocumentAssets(null);
+      setDocumentIndex(null);
       setState(AppState.READING);
       setNeedsSourceFile(false);
       
@@ -1129,13 +1261,14 @@ const App = () => {
           file,
           learningPlan: plan,
           documentAssets: null,
+          documentIndex: null,
           isLearnMode: true,
           userProfile: profile,
           syllabus: newSyllabus,
           activeSectionId: firstSection.id,
           musicUrl,
         }));
-        loadSection(firstSection, plan);
+        loadSection(firstSection, plan, null);
       }
     } catch (err) {
       console.error("Plan generation error", err);
@@ -1151,13 +1284,15 @@ const App = () => {
     setIsLoading(true);
     try {
       const plan = await GeminiService.generateLearningPlan(file, history, (status) => setLoadingStatus(status));
-      setLearningPlan(plan);
+      const prepared = await preparePdfLessonPlan(file, plan, documentIndex);
+      setLearningPlan(prepared.learningPlan);
       setDocumentAssets(null);
+      setDocumentIndex(prepared.documentIndex);
       setState(AppState.READING);
       setNeedsSourceFile(false);
       
-      if (plan.sections.length > 0) {
-        const firstSection = plan.sections[0];
+      if (prepared.learningPlan.sections.length > 0) {
+        const firstSection = prepared.learningPlan.sections[0];
         const projectId = currentProjectId || createProjectId();
         if (!currentProjectId) {
           setCurrentProjectId(projectId);
@@ -1168,15 +1303,16 @@ const App = () => {
           id: projectId,
           state: AppState.READING,
           file,
-          learningPlan: plan,
+          learningPlan: prepared.learningPlan,
           documentAssets: null,
+          documentIndex: prepared.documentIndex,
           isLearnMode,
           userProfile,
           syllabus,
           activeSectionId: firstSection.id,
           musicUrl,
         }));
-        loadSection(firstSection, plan);
+        loadSection(firstSection, prepared.learningPlan, prepared.documentIndex);
       }
     } catch (err) {
       console.error("Plan generation error", err);
@@ -1187,14 +1323,20 @@ const App = () => {
     }
   };
 
-  const loadSection = async (section: LearningSection, currentPlan: LearningPlan | null = learningPlan) => {
+  const loadSection = async (
+    section: LearningSection,
+    currentPlan: LearningPlan | null = learningPlan,
+    currentDocumentIndex: PdfTextIndex | null = documentIndex,
+    options: LoadSectionOptions = {}
+  ) => {
     if (!currentPlan) return;
+    const forceRegenerate = options.forceRegenerate === true;
     
     // 1. BLOCKING NAVIGATION if already loading another section (Fixes override issue)
     if (isLoading) return;
 
     // 2. Prevent reloading same section ONLY if it already has content
-    if (activeSectionId === section.id && section.content && section.content.length > 0) return;
+    if (!forceRegenerate && activeSectionId === section.id && section.content && section.content.length > 0) return;
     
     // 3. IMMEDIATE RESET of Audio to prevent caching issues
     stopAudio(true);
@@ -1204,7 +1346,7 @@ const App = () => {
     setIsQuizSubmitted(false);
     setNeedsSourceFile(false);
     
-    if (section.content && section.content.length > 0) {
+    if (!forceRegenerate && section.content && section.content.length > 0) {
       setSectionContent(section.content);
       const cachedQuiz = section.quiz || [];
       setQuiz(cachedQuiz);
@@ -1213,9 +1355,11 @@ const App = () => {
       return;
     }
 
-    setSectionContent('');
-    setQuiz([]);
-    setQuizAnswers([]);
+    if (!forceRegenerate) {
+      setSectionContent('');
+      setQuiz([]);
+      setQuizAnswers([]);
+    }
     void saveCurrentProject({ activeSectionId: section.id, state: AppState.READING });
 
     // If we reach here, we need to generate content.
@@ -1229,7 +1373,7 @@ const App = () => {
     }
 
     setIsLoading(true);
-    setLoadingStatus("Analisi contenuti...");
+    setLoadingStatus(forceRegenerate ? "Rigenerazione lezione..." : "Analisi contenuti...");
 
     const completedTitles = currentPlan.sections
       .filter(s => s.isCompleted)
@@ -1284,6 +1428,8 @@ const App = () => {
           section.title, 
           section.description, 
           completedTitles,
+          section.primaryChunkIds,
+          currentDocumentIndex,
           (status) => setLoadingStatus(status)
         );
         
@@ -1317,25 +1463,26 @@ const App = () => {
 
   // ... Context Menu Handlers
   const handleContextMenu = useCallback((e: ReactMouseEvent) => {
-    const selection = window.getSelection();
-    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-
-    if (selection && range && selection.toString().trim().length > 0) {
-      if (contentRef.current?.contains(range.commonAncestorContainer)) {
-        e.preventDefault();
-        const { contextBefore, contextAfter } = getSelectionContext(selection);
-        setContextMenu({
-          visible: true,
-          x: e.clientX,
-          y: e.clientY,
-          selectedText: selection.toString(),
-          contextBefore,
-          contextAfter,
-        });
-        return;
-      }
+    if (isMobileViewport) {
+      return;
     }
-  }, []);
+
+    const selection = window.getSelection();
+    if (!selection) {
+      return;
+    }
+
+    const didOpen = openContextMenuFromSelection(
+      selection,
+      'desktop-floating',
+      e.clientX,
+      e.clientY
+    );
+
+    if (didOpen) {
+      e.preventDefault();
+    }
+  }, [isMobileViewport, openContextMenuFromSelection]);
 
   const handleContextQuestion = async (question: string) => {
     const { selectedText } = contextMenu;
@@ -1362,7 +1509,7 @@ const App = () => {
         contextAfter: contextMenu.contextAfter,
       });
       setContextAnswer({ q: question, a: answer });
-      setContextMenu({ ...contextMenu, visible: false });
+      closeContextMenu();
     } catch (e) { console.error(e); } finally { setIsContextLoading(false); }
   };
 
@@ -1403,12 +1550,30 @@ const App = () => {
       const parentIndex = learningPlan.sections.findIndex(s => s.id === activeSectionId);
       const newSections = [...learningPlan.sections];
       newSections.splice(parentIndex + 1, 0, newSection);
-      const updatedPlan = { ...learningPlan, sections: newSections };
+      let updatedPlan = { ...learningPlan, sections: newSections };
+      let nextDocumentIndex = documentIndex;
+
+      if (file) {
+        const prepared = await preparePdfLessonPlan(file, updatedPlan, documentIndex, [newSection.id]);
+        updatedPlan = prepared.learningPlan;
+        nextDocumentIndex = prepared.documentIndex;
+      }
+
       setLearningPlan(updatedPlan);
-      await saveCurrentProject({ learningPlan: updatedPlan, activeSectionId, state: AppState.READING });
-      setContextMenu({ ...contextMenu, visible: false });
-      await loadSection(newSection, updatedPlan);
+      setDocumentIndex(nextDocumentIndex);
+      await saveCurrentProject({ learningPlan: updatedPlan, documentIndex: nextDocumentIndex, activeSectionId, state: AppState.READING });
+      closeContextMenu();
+      const mappedNewSection = updatedPlan.sections.find(section => section.id === newSection.id) || newSection;
+      await loadSection(mappedNewSection, updatedPlan, nextDocumentIndex);
     } catch (e) { console.error(e); alert("Impossibile creare la lezione."); } finally { setIsContextLoading(false); }
+  };
+
+  const handleRegenerateActiveSection = () => {
+    if (!activeSection || !learningPlan) {
+      return;
+    }
+
+    void loadSection(activeSection, learningPlan, documentIndex, { forceRegenerate: true });
   };
 
   const applyStyleToSelection = () => {
@@ -1449,7 +1614,7 @@ const App = () => {
     if (!selectedText) return;
     
     applyStyleToSelection();
-    setContextMenu({ ...contextMenu, visible: false });
+    closeContextMenu();
   };
 
   const handleContextAnswerResizeStart = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -1783,6 +1948,25 @@ const App = () => {
                  {isMobileViewport ? 'Carica' : loadingStatus.toUpperCase()}
                </div>
              )}
+
+             <button
+               type="button"
+               onClick={handleRegenerateActiveSection}
+               disabled={!activeSection || isLoading}
+               className={`inline-flex items-center justify-center rounded-full border transition-colors ${
+                 isMobileViewport
+                   ? 'h-10 w-10'
+                   : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
+               } ${
+                 !activeSection || isLoading
+                   ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500'
+                   : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-700 dark:bg-zinc-900/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
+               }`}
+               title={activeSection ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'}
+             >
+               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+               {!isMobileViewport ? <span>Rigenera</span> : null}
+             </button>
              
              {/* Reading Tools */}
              <div className={`flex items-center rounded-full border border-gray-200 bg-gray-100 p-1 shadow-sm transition-all dark:border-zinc-700 dark:bg-zinc-800 ${isMobileViewport ? 'max-w-[11rem]' : ''}`}>
@@ -2022,7 +2206,8 @@ const App = () => {
         {contextMenu.visible && (
           <ContextMenu 
             {...contextMenu} 
-            onClose={() => setContextMenu({ ...contextMenu, visible: false })}
+            containerRef={contextMenuRef}
+            onClose={closeContextMenu}
             onAsk={handleContextQuestion}
             onCreateLesson={handleCreateLesson}
             onHighlight={handleHighlight}

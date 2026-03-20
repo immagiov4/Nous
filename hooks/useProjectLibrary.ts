@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type 
 import { IndexedDbProjectRepository } from '../services/indexedDbProjectRepository';
 import { createProjectSnapshot, exportProjectData } from '../services/projectSnapshot';
 import { ProjectStorageError } from '../services/projectRepository';
+import { createClosedContextMenuState } from '../utils/contextMenuSelection';
 import { restoreLegacyPdfImagePlaceholders } from '../utils/pdfImagePlaceholders';
 import {
   AppState,
@@ -10,6 +11,7 @@ import {
   type LearningPlan,
   type Message,
   type PdfDocumentAssets,
+  type PdfTextIndex,
   type ProjectExportData,
   type ProjectSnapshot,
   type QuizQuestion,
@@ -28,6 +30,7 @@ interface WorkspaceState {
   file: FileData | null;
   learningPlan: LearningPlan | null;
   documentAssets: PdfDocumentAssets | null;
+  documentIndex: PdfTextIndex | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
@@ -45,6 +48,7 @@ interface ProjectLibrarySetters<TChatSession, TContextAnswer> {
   setFile: Dispatch<SetStateAction<FileData | null>>;
   setLearningPlan: Dispatch<SetStateAction<LearningPlan | null>>;
   setDocumentAssets: Dispatch<SetStateAction<PdfDocumentAssets | null>>;
+  setDocumentIndex: Dispatch<SetStateAction<PdfTextIndex | null>>;
   setAssessmentMessages: Dispatch<SetStateAction<Message[]>>;
   setCurrentAssessmentInput: Dispatch<SetStateAction<string>>;
   setChatSession: Dispatch<SetStateAction<TChatSession | null>>;
@@ -137,6 +141,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setIsQuizSubmitted,
     setLearningPlan,
     setDocumentAssets,
+    setDocumentIndex,
     setMusicUrl,
     setQuiz,
     setQuizAnswers,
@@ -200,6 +205,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setFile(null);
     setLearningPlan(null);
     setDocumentAssets(null);
+    setDocumentIndex(null);
     setAssessmentMessages([]);
     setCurrentAssessmentInput('');
     setChatSession(null);
@@ -210,7 +216,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setQuiz([]);
     setQuizAnswers([]);
     setIsQuizSubmitted(false);
-    setContextMenu({ visible: false, x: 0, y: 0, selectedText: '' });
+    setContextMenu(createClosedContextMenuState());
     setContextAnswer(null);
     setIsFocusMode(false);
     setIsLearnMode(false);
@@ -243,6 +249,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
       file: overrides?.file !== undefined ? overrides.file : workspace.file,
       learningPlan: planWithMusic,
       documentAssets: overrides?.documentAssets !== undefined ? overrides.documentAssets : workspace.documentAssets,
+      documentIndex: overrides?.documentIndex !== undefined ? overrides.documentIndex : workspace.documentIndex,
       isLearnMode: overrides?.isLearnMode ?? workspace.isLearnMode,
       userProfile: overrides?.userProfile !== undefined ? overrides.userProfile : workspace.userProfile,
       syllabus: overrides?.syllabus ?? workspace.syllabus,
@@ -322,6 +329,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setFile(normalizedSnapshot.file);
     setLearningPlan(normalizedSnapshot.learningPlan);
     setDocumentAssets(normalizedSnapshot.documentAssets ?? null);
+    setDocumentIndex(normalizedSnapshot.documentIndex ?? null);
     setAssessmentMessages([]);
     setCurrentAssessmentInput('');
     setChatSession(null);
@@ -332,7 +340,7 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     setNeedsSourceFile(!normalizedSnapshot.file && Boolean(normalizedSnapshot.learningPlan) && !normalizedSnapshot.isLearnMode);
     setIsQuizSubmitted(false);
     setContextAnswer(null);
-    setContextMenu({ visible: false, x: 0, y: 0, selectedText: '' });
+    setContextMenu(createClosedContextMenuState());
     setSpeechBlocks([]);
     setIsFocusMode(false);
 

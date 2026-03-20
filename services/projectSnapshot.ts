@@ -1,6 +1,6 @@
-import { AppState, type FileData, type LearningPlan, type PdfDocumentAssets, type ProjectExportData, type ProjectId, type ProjectSnapshot, type ProjectSourceKind, type SavedProjectMeta, type SyllabusItem, type UserProfile } from '../types';
+import { AppState, type FileData, type LearningPlan, type PdfDocumentAssets, type PdfTextIndex, type ProjectExportData, type ProjectId, type ProjectSnapshot, type ProjectSourceKind, type SavedProjectMeta, type SyllabusItem, type UserProfile } from '../types';
 
-const CURRENT_PROJECT_VERSION = '3.1';
+const CURRENT_PROJECT_VERSION = '3.2';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
@@ -106,6 +106,7 @@ export const createProjectSnapshot = (
   updatedAt: partial.updatedAt || new Date().toISOString(),
   lastOpenedAt: partial.lastOpenedAt || new Date().toISOString(),
   documentAssets: partial.documentAssets ?? null,
+  documentIndex: partial.documentIndex ?? null,
 });
 
 const parseFileData = (value: unknown): FileData | null => {
@@ -165,6 +166,30 @@ const parseDocumentAssets = (value: unknown): PdfDocumentAssets | null => {
   };
 };
 
+const parseDocumentIndex = (value: unknown): PdfTextIndex | null => {
+  if (!isRecord(value) || value.kind !== 'pdf-text-index' || !Array.isArray(value.chunks)) {
+    return null;
+  }
+
+  return {
+    kind: 'pdf-text-index',
+    parsedAt: ensureString(value.parsedAt, new Date().toISOString()),
+    sourceHash: ensureString(value.sourceHash),
+    documentTitle: ensureString(value.documentTitle),
+    chunks: value.chunks
+      .filter(isRecord)
+      .map(chunk => ({
+        id: ensureString(chunk.id),
+        text: ensureString(chunk.text),
+        headingPath: Array.isArray(chunk.headingPath) ? chunk.headingPath.map(item => ensureString(item)).filter(Boolean) : [],
+        sequence: typeof chunk.sequence === 'number' ? chunk.sequence : 0,
+        startOffset: typeof chunk.startOffset === 'number' ? chunk.startOffset : 0,
+        endOffset: typeof chunk.endOffset === 'number' ? chunk.endOffset : 0,
+      }))
+      .filter(chunk => chunk.id && chunk.text),
+  };
+};
+
 const parseUserProfile = (value: unknown): UserProfile | null => {
   if (!isRecord(value)) {
     return null;
@@ -219,6 +244,7 @@ export const normalizeImportedProject = (data: unknown): ProjectSnapshot => {
     updatedAt: ensureString(data.updatedAt, now),
     lastOpenedAt: ensureString(data.lastOpenedAt, now),
     documentAssets: parseDocumentAssets(data.documentAssets),
+    documentIndex: parseDocumentIndex(data.documentIndex),
   });
 };
 
@@ -235,4 +261,5 @@ export const exportProjectData = (snapshot: ProjectSnapshot): ProjectExportData 
   musicUrl: snapshot.musicUrl || snapshot.learningPlan?.backgroundMusicUrl || '',
   sourceKind: snapshot.sourceKind,
   documentAssets: snapshot.documentAssets ?? null,
+  documentIndex: snapshot.documentIndex ?? null,
 });

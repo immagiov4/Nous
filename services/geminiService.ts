@@ -1,5 +1,10 @@
 export { createAssessmentChat, createLearnAssessmentChat } from './gemini/assessment';
 export {
+  buildLessonChunkContext,
+  needsPdfLessonMappingMigration,
+  preparePdfLessonMappings,
+} from './gemini/documentIndex';
+export {
   askContextualQuestion,
   createLearnSubChapterMetadata,
   createSubChapterMetadata,

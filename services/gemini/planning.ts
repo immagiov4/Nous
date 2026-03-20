@@ -15,14 +15,20 @@ import {
   type LearningSection,
   type Message,
   type PdfDocumentAssets,
+  type PdfTextIndex,
   type QuizQuestion,
   type UserProfile,
 } from './shared';
-import { buildStoredPdfDocumentAssets, getPdfAssetSession } from './pdfAssets';
+import { buildLessonChunkContext } from './documentIndex';
+import { buildStoredPdfDocumentAssets, getPdfAssetSession, getPdfTextSession } from './pdfAssets';
 
-const MAX_CANDIDATE_PDF_IMAGES = 12;
 const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
+const MAX_PLAN_SOURCE_CHARS = 180_000;
+const MAX_METADATA_SOURCE_CHARS = 32_000;
+const MAX_CONTEXTUAL_ANSWER_SOURCE_CHARS = 32_000;
+const MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS = 36_000;
+const MAX_LESSON_REPAIR_SOURCE_CHARS = 24_000;
 const PDF_KEYWORD_STOP_WORDS = new Set([
   'about', 'agli', 'alla', 'alle', 'anche', 'avere', 'bene', 'che', 'come', 'con', 'core',
   'dall', 'dalla', 'dalle', 'degli', 'della', 'delle', 'dello', 'dopo', 'dove', 'ecco',
@@ -44,6 +50,71 @@ interface PdfSectionContentPayload {
   quiz?: QuizQuestion[];
   imagePlacements?: SectionImagePlacement[];
 }
+
+const LESSON_RESPONSE_SCHEMA = {
+  name: 'lumina_lesson_response',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      contentMarkdown: {
+        type: 'string',
+      },
+      quiz: {
+        type: 'array',
+        minItems: 5,
+        maxItems: 5,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            question: {
+              type: 'string',
+            },
+            options: {
+              type: 'array',
+              minItems: 4,
+              maxItems: 4,
+              items: {
+                type: 'string',
+              },
+            },
+            correctIndex: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 3,
+            },
+          },
+          required: ['question', 'options', 'correctIndex'],
+        },
+      },
+      imagePlacements: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            assetId: {
+              type: 'string',
+            },
+            alt: {
+              type: 'string',
+            },
+            caption: {
+              type: 'string',
+            },
+            anchorHeading: {
+              type: 'string',
+            },
+          },
+          required: ['assetId', 'alt'],
+        },
+      },
+    },
+    required: ['contentMarkdown', 'quiz', 'imagePlacements'],
+  },
+} as const;
 
 interface LearningPlanSectionDraft {
   id?: string;
@@ -98,8 +169,13 @@ const selectCandidatePdfImages = (
       right.score === left.score ? left.image.sourceOrder - right.image.sourceOrder : right.score - left.score
     );
 
-  const relevant = scored.filter(item => item.score > 0).slice(0, MAX_CANDIDATE_PDF_IMAGES).map(item => item.image);
-  return relevant;
+  const relevant = scored.filter(item => item.score > 0).map(item => item.image);
+  if (relevant.length > 0) {
+    return relevant;
+  }
+
+  // With long-context models, prefer recall over premature local filtering.
+  return scored.map(item => item.image);
 };
 
 const scoreKeywordHits = (haystack: string, keywords: Iterable<string>): number =>
@@ -162,6 +238,23 @@ const buildImageContextSummary = (
   return compact.length > 140 ? `${compact.slice(0, 137).trim()}...` : compact;
 };
 
+const buildVisibleImageLabel = (
+  image: PdfDocumentAssets['usedImages'][number],
+  sectionTitle: string,
+  sectionDescription: string
+): string => {
+  const summary = buildImageContextSummary(image, sectionTitle, sectionDescription)
+    .replace(/^(la|il|lo|i|gli|le|una|un|uno)\s+/i, '')
+    .replace(/[.:;!?].*$/, '')
+    .trim();
+
+  if (!summary) {
+    return `Figura del PDF: ${sectionTitle}`;
+  }
+
+  return summary.length > 72 ? `${summary.slice(0, 69).trim()}...` : summary;
+};
+
 const pickFallbackAnchorHeading = (
   image: PdfDocumentAssets['usedImages'][number],
   headings: string[],
@@ -194,7 +287,8 @@ const buildFallbackImageRefs = (
   sectionTitle: string,
   sectionDescription: string,
   contentMarkdown: string,
-  maxImages: number
+  maxImages: number,
+  visibleLabelByAssetId: Map<string, string>
 ): LessonImageRef[] => {
   const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
   const headings = getMarkdownHeadings(contentMarkdown);
@@ -221,6 +315,7 @@ const buildFallbackImageRefs = (
     .map(({ image }) => ({
       assetId: image.id,
       alt: sanitizePlaceholderValue(buildImageContextSummary(image, sectionTitle, sectionDescription) || `Figura dal PDF: ${sectionTitle}`),
+      caption: sanitizePlaceholderValue(visibleLabelByAssetId.get(image.id) || ''),
       anchorHeading: pickFallbackAnchorHeading(image, headings, sectionTitle, sectionDescription),
     }));
 };
@@ -276,7 +371,8 @@ const injectImagePlaceholders = (contentMarkdown: string, imageRefs: LessonImage
 const normalizeImagePlacements = (
   placements: SectionImagePlacement[] | undefined,
   availableAssetIds: Set<string>,
-  maxImages: number
+  maxImages: number,
+  visibleLabelByAssetId: Map<string, string>
 ): LessonImageRef[] => {
   if (!Array.isArray(placements)) {
     return [];
@@ -304,7 +400,9 @@ const normalizeImagePlacements = (
     refs.push({
       assetId: placement.assetId,
       alt,
-      caption: placement.caption ? sanitizePlaceholderValue(placement.caption) : undefined,
+      caption: sanitizePlaceholderValue(
+        placement.caption || visibleLabelByAssetId.get(placement.assetId) || ''
+      ) || undefined,
       anchorHeading: placement.anchorHeading ? sanitizePlaceholderValue(placement.anchorHeading) : undefined,
     });
     seenAssetIds.add(placement.assetId);
@@ -312,6 +410,296 @@ const normalizeImagePlacements = (
 
   return refs;
 };
+
+const sanitizeAssetIdMentions = (
+  contentMarkdown: string,
+  visibleLabelByAssetId: Map<string, string>
+): string =>
+  contentMarkdown
+    .replace(/\b([Ff]igura|[Ii]mmagine)\s+(pdf-img-\d+)\b/g, (_match, noun: string, assetId: string) => {
+      const label = visibleLabelByAssetId.get(assetId.toLowerCase());
+      return label ? `${noun} "${label}"` : `${noun} seguente`;
+    })
+    .replace(/\b(pdf-img-\d+)\b/gi, (_match, assetId: string) => {
+      const label = visibleLabelByAssetId.get(assetId.toLowerCase());
+      return label ? `"${label}"` : 'figura seguente';
+    })
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/""/g, '"');
+
+const BLOCKISH_PARAGRAPH_PREFIX = /^(#{1,6}\s|[-*+]\s|>\s|```|~~~|\|.*\||\{\{PDF_IMAGE:)/;
+const LABEL_BODY_REGEX = /^(?:\*\*)?([^*\n:]{2,90})(?:\*\*)?:\s+(.+)$/;
+const STANDALONE_LABEL_REGEX = /^(?:\*\*)?([^*\n:]{2,90})(?:\*\*)?:\s*$/;
+const MAX_LIST_LABEL_WORDS = 12;
+
+const normalizeParagraphForDetection = (paragraph: string): string =>
+  paragraph.replace(/\n+/g, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+
+const isReasonableListLabel = (label: string): boolean => {
+  const trimmed = label.trim();
+  if (!trimmed || trimmed.length > 90 || !/^[A-ZÀ-ÖØ-Þ]/.test(trimmed)) {
+    return false;
+  }
+
+  const words = trimmed.split(/\s+/);
+  return words.length <= MAX_LIST_LABEL_WORDS;
+};
+
+const toStandaloneSubheading = (paragraph: string): string | null => {
+  const normalized = normalizeParagraphForDetection(paragraph);
+  if (BLOCKISH_PARAGRAPH_PREFIX.test(normalized)) {
+    return null;
+  }
+
+  const match = normalized.match(STANDALONE_LABEL_REGEX);
+  if (!match) {
+    return null;
+  }
+
+  const label = match[1].trim();
+  return isReasonableListLabel(label) ? `#### ${label}` : null;
+};
+
+const toListItemParagraph = (paragraph: string): string | null => {
+  const normalized = normalizeParagraphForDetection(paragraph);
+  if (BLOCKISH_PARAGRAPH_PREFIX.test(normalized)) {
+    return null;
+  }
+
+  const match = normalized.match(LABEL_BODY_REGEX);
+  if (!match) {
+    return null;
+  }
+
+  const [, rawLabel, rawBody] = match;
+  const label = rawLabel.trim();
+  const body = rawBody.trim();
+
+  if (!isReasonableListLabel(label) || !body) {
+    return null;
+  }
+
+  return `- **${label}**: ${body}`;
+};
+
+const normalizePseudoLists = (contentMarkdown: string): string => {
+  const paragraphs = contentMarkdown
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean);
+
+  const normalizedParagraphs: string[] = [];
+
+  for (let index = 0; index < paragraphs.length;) {
+    const standaloneSubheading = toStandaloneSubheading(paragraphs[index]);
+    if (standaloneSubheading) {
+      normalizedParagraphs.push(standaloneSubheading);
+      index += 1;
+      continue;
+    }
+
+    const listItems: string[] = [];
+    let cursor = index;
+
+    while (cursor < paragraphs.length) {
+      const item = toListItemParagraph(paragraphs[cursor]);
+      if (!item) {
+        break;
+      }
+
+      listItems.push(item);
+      cursor += 1;
+    }
+
+    if (listItems.length >= 2) {
+      normalizedParagraphs.push(listItems.join('\n'));
+      index = cursor;
+      continue;
+    }
+
+    normalizedParagraphs.push(paragraphs[index]);
+    index += 1;
+  }
+
+  return normalizedParagraphs.join('\n\n');
+};
+
+const stripModelMarkdownImages = (contentMarkdown: string): string =>
+  contentMarkdown
+    .replace(/!\[[^\]]*]\([^)\n]*\)/g, '')
+    .replace(/<img\b[^>]*>/gi, '')
+    .replace(/\n{3,}/g, '\n\n');
+
+const QUIZ_SECTION_HEADING_REGEX =
+  /^\s{0,3}(#{1,6}\s*(?:quiz|verifica|domande(?:\s+di\s+verifica)?|test\s+finale|quiz\s+finale|domande\s+finali)\s*)$/gim;
+
+const stripStructuredQuizFromMarkdown = (
+  contentMarkdown: string,
+  structuredQuiz: QuizQuestion[]
+): string => {
+  if (structuredQuiz.length === 0) {
+    return contentMarkdown;
+  }
+
+  const headingMatch = Array.from(contentMarkdown.matchAll(QUIZ_SECTION_HEADING_REGEX))[0];
+  if (headingMatch?.index !== undefined) {
+    return contentMarkdown.slice(0, headingMatch.index).trim();
+  }
+
+  const paragraphs = contentMarkdown
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) {
+    return contentMarkdown.trim();
+  }
+
+  let firstQuizParagraphIndex = -1;
+
+  for (let index = 0; index < paragraphs.length; index += 1) {
+    const normalized = paragraphs[index].toLowerCase();
+    const looksLikeQuizIntro =
+      /^(quiz|verifica|domande(?:\s+di\s+verifica)?|test\s+finale)/i.test(paragraphs[index]) ||
+      (normalized.includes('domanda 1') && normalized.includes('risposta')) ||
+      (normalized.includes('1.') && normalized.includes('2.') && normalized.includes('3.'));
+
+    if (looksLikeQuizIntro) {
+      firstQuizParagraphIndex = index;
+      break;
+    }
+  }
+
+  if (firstQuizParagraphIndex === -1) {
+    return contentMarkdown.trim();
+  }
+
+  return paragraphs.slice(0, firstQuizParagraphIndex).join('\n\n').trim();
+};
+
+const sanitizeLessonMarkdownContent = (
+  contentMarkdown: string,
+  structuredQuiz: QuizQuestion[],
+  visibleLabelByAssetId?: Map<string, string>
+): string => {
+  let next = contentMarkdown || '';
+
+  if (visibleLabelByAssetId) {
+    next = sanitizeAssetIdMentions(next, visibleLabelByAssetId);
+  }
+
+  next = stripModelMarkdownImages(next);
+  next = stripStructuredQuizFromMarkdown(next, structuredQuiz);
+  return prettifyMarkdownSpacing(next);
+};
+
+const LESSON_CONCLUSION_HEADING_REGEX = /(^|\n)#{1,6}\s+Conclusione\b/i;
+const LESSON_ABORTED_ENDING_REGEX = /(include|includono|comprende|comprendono|principali sono|si dividono in|origini includono)\s*:\s*$/i;
+
+const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
+  const issues: string[] = [];
+  const trimmed = contentMarkdown.trim();
+  if (!trimmed) {
+    return ['Il contenuto e vuoto.'];
+  }
+
+  if (/[:;,]\s*$/.test(trimmed) || LESSON_ABORTED_ENDING_REGEX.test(trimmed)) {
+    issues.push('La lezione sembra tronca o si interrompe su un elenco introdotto ma non completato.');
+  }
+
+  const paragraphs = trimmed
+    .split(/\n{2,}/)
+    .map(paragraph => paragraph.trim())
+    .filter(Boolean);
+  const labelLikeParagraphs = paragraphs.filter(paragraph => {
+    const normalized = normalizeParagraphForDetection(paragraph);
+    return !BLOCKISH_PARAGRAPH_PREFIX.test(normalized) && (LABEL_BODY_REGEX.test(normalized) || STANDALONE_LABEL_REGEX.test(normalized));
+  }).length;
+
+  if (paragraphs.length >= 8 && labelLikeParagraphs / paragraphs.length > 0.35) {
+    issues.push('La prosa e troppo frammentata in blocchi stile lista o pseudo-lista.');
+  }
+
+  const meaningfulLines = trimmed
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0 && !/^(#{1,6}\s|```|~~~|\|.*\||\{\{PDF_IMAGE:)/.test(line));
+  const markdownListLines = meaningfulLines.filter(line => /^([-*+]|\d+\.)\s+/.test(line)).length;
+
+  if (meaningfulLines.length >= 14 && markdownListLines / meaningfulLines.length > 0.4) {
+    issues.push('La lezione usa troppe liste rispetto ai paragrafi discorsivi.');
+  }
+
+  if (trimmed.length > 3500 && !LESSON_CONCLUSION_HEADING_REGEX.test(trimmed)) {
+    issues.push('Manca una conclusione esplicita.');
+  }
+
+  return issues;
+};
+
+const repairLessonMarkdown = async (
+  contentMarkdown: string,
+  sectionTitle: string,
+  sectionDescription: string,
+  sourceContext: string
+): Promise<string> => {
+  const issues = getLessonMarkdownIssues(contentMarkdown);
+  if (issues.length === 0) {
+    return contentMarkdown;
+  }
+
+  const repairPrompt = `Sei un editor didattico di Lumina Reader.
+
+Devi REVISIONARE una lezione markdown gia generata.
+
+TITOLO LEZIONE: "${sectionTitle}"
+DESCRIZIONE: "${sectionDescription}"
+
+PROBLEMI DA CORREGGERE:
+${issues.map(issue => `- ${issue}`).join('\n')}
+
+REGOLE:
+1. Mantieni i contenuti validi e il significato tecnico originale.
+2. Se il testo e troncato, completalo in modo coerente usando il contesto sorgente.
+3. Riduci lo stile lista-like: preferisci paragrafi completi e usa liste solo per vere enumerazioni.
+4. Mantieni heading chiari e chiudi con una sezione "Conclusione".
+5. NON inserire quiz nel testo.
+6. NON inserire markdown image syntax, tag <img> o riferimenti ad asset tecnici.
+7. Restituisci SOLO markdown pulito, senza JSON e senza spiegazioni.
+
+CONTESTO SORGENTE:
+${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
+
+BOZZA ATTUALE DA REVISIONARE:
+${contentMarkdown}`;
+
+  return retryWithBackoff(
+    () =>
+      callOpenRouter({
+        model: MODEL_REASONING,
+        messages: [
+          { role: 'system', content: teacherInstruction },
+          { role: 'user', content: repairPrompt },
+        ],
+        temperature: 0.15,
+      }),
+    1,
+    500
+  );
+};
+
+const prettifyMarkdownSpacing = (contentMarkdown: string): string =>
+  normalizePseudoLists(
+    contentMarkdown
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    // If a heading was accidentally kept inline, restore it as a block heading.
+    .replace(/([^\n])\s+(#{1,6}\s+)/g, '$1\n\n$2')
+    // Ensure a heading starts on its own block after normal text.
+    .replace(/([^\n])\n(#{1,6}\s+)/g, '$1\n\n$2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  );
 
 const parseQuizPayload = (value: unknown): QuizQuestion[] =>
   Array.isArray(value)
@@ -324,21 +712,6 @@ const parseQuizPayload = (value: unknown): QuizQuestion[] =>
           typeof (item as QuizQuestion).correctIndex === 'number'
       )
     : [];
-
-const parseLegacyQuizResponse = (response: string): { content: string; quiz: QuizQuestion[] } => {
-  const [content, quizPart] = response.split('---QUIZ---');
-  let quiz: QuizQuestion[] = [];
-
-  if (quizPart) {
-    try {
-      quiz = JSON.parse(quizPart.replace(/```json/g, '').replace(/```/g, '').trim()) as QuizQuestion[];
-    } catch (error) {
-      console.warn('Quiz parsing failed', error);
-    }
-  }
-
-  return { content: content.trim(), quiz };
-};
 
 const normalizeLearningPlan = (plan: LearningPlanDraft): LearningPlan => {
   const sections = Array.isArray(plan.sections) ? plan.sections : [];
@@ -363,6 +736,48 @@ const normalizeLearningPlan = (plan: LearningPlanDraft): LearningPlan => {
       }))
       .filter(section => section.title && section.description),
   };
+};
+
+const clipPdfSourceText = (text: string, maxChars: number): string => {
+  const normalized = text.replace(/\r\n?/g, '\n').trim();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxChars).trim()}\n\n[ESTRATTO PDF TRONCATO PER LIMITI DI CONTESTO]`;
+};
+
+const buildReasoningContentForFile = async (
+  file: FileData,
+  prompt: string,
+  maxPdfChars: number
+) => {
+  if (!isPdfFile(file)) {
+    return buildDocumentInputContent(file, prompt);
+  }
+
+  try {
+    const pdfSession = await getPdfTextSession(file);
+    const extractedText = pdfSession?.extractedText?.trim() || '';
+
+    if (extractedText) {
+      return `Documento: ${file.name}
+
+${prompt}
+
+TESTO ESTRATTO DAL PDF:
+${clipPdfSourceText(extractedText, maxPdfChars)}`;
+    }
+  } catch (error) {
+    console.warn('[Lumina][Planning] PDF text extraction failed for reasoning prompt.', error);
+  }
+
+  return `Documento: ${file.name}
+
+${prompt}
+
+Nota importante: non e stato possibile estrarre il testo del PDF in modo affidabile.
+Non presumere dettagli non supportati e non affermare di aver letto il file se il contenuto non e presente nel prompt.`;
 };
 
 const runInitialLearningPlan = async (
@@ -399,13 +814,15 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   ]
 }`;
 
+  const userContent = await buildReasoningContentForFile(file, prompt, MAX_PLAN_SOURCE_CHARS);
+
   const response = await callOpenRouter({
     model: MODEL_REASONING,
     messages: [
       { role: 'system', content: plannerInstruction },
       {
         role: 'user',
-        content: buildDocumentInputContent(file, prompt),
+        content: userContent,
       },
     ],
     response_format: { type: 'json_object' },
@@ -457,13 +874,15 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   ]
 }`;
 
+  const userContent = await buildReasoningContentForFile(file, prompt, MAX_PLAN_SOURCE_CHARS);
+
   const response = await callOpenRouter({
     model: MODEL_REASONING,
     messages: [
       { role: 'system', content: plannerInstruction },
       {
         role: 'user',
-        content: buildDocumentInputContent(file, prompt),
+        content: userContent,
       },
     ],
     response_format: { type: 'json_object' },
@@ -516,12 +935,13 @@ Rispondi SOLO con un oggetto JSON:
 }`;
 
   return retryWithBackoff(async () => {
+    const userContent = await buildReasoningContentForFile(file, prompt, MAX_METADATA_SOURCE_CHARS);
     const response = await callOpenRouter({
-      model: MODEL_FLASH,
+      model: MODEL_REASONING,
       messages: [
         {
           role: 'user',
-          content: buildDocumentInputContent(file, prompt),
+          content: userContent,
         },
       ],
       response_format: { type: 'json_object' },
@@ -603,6 +1023,8 @@ export const generateSectionContent = async (
   sectionTitle: string,
   sectionDescription: string,
   previousContext: string,
+  primaryChunkIds?: string[],
+  documentIndex?: PdfTextIndex | null,
   onStatusUpdate?: (status: string) => void
 ): Promise<{ content: string; quiz: QuizQuestion[]; imageRefs: LessonImageRef[]; documentAssets: PdfDocumentAssets | null }> => {
   onStatusUpdate?.('Generazione lezione completa in corso...');
@@ -642,16 +1064,24 @@ export const generateSectionContent = async (
 
     const candidateImagePayload = candidateImages.map(image => ({
       assetId: image.id,
+      visibleLabel: buildVisibleImageLabel(image, sectionTitle, sectionDescription),
       textBefore: image.textBefore,
       textAfter: image.textAfter,
       sourceOrder: image.sourceOrder,
     }));
+    const visibleLabelByAssetId = new Map(
+      candidateImagePayload.map(image => [image.assetId.toLowerCase(), image.visibleLabel])
+    );
 
+    const lessonSourceContext = buildLessonChunkContext(documentIndex, primaryChunkIds);
     const prompt = `Sei il Professor Lumina. Devi generare una LEZIONE COMPLETA E APPROFONDITA a partire da un PDF gia analizzato.
 
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
 CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.
+
+ESTRATTI RILEVANTI DAL PDF PER QUESTA LEZIONE:
+${lessonSourceContext || pdfSession.extractedText.slice(0, 12000)}
 
 REGOLE FONDAMENTALI:
 1. Scrivi una lezione esaustiva in Markdown ricco.
@@ -667,6 +1097,16 @@ REGOLE FONDAMENTALI:
 6. Se usi un'immagine, \`anchorHeading\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`, senza i simboli #.
 7. Se il materiale parla chiaramente di anatomia, strutture o meccanica visivamente spiegabili e tra le candidate c'e una figura pertinente, preferisci includerne almeno una.
 8. ${continuityRule}
+9. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
+10. \`quiz\` deve contenere ESATTAMENTE 5 domande con ESATTAMENTE 4 opzioni ciascuna.
+11. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.
+12. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
+13. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.
+14. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "nella figura seguente".
+15. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
+16. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
+17. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
+18. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
 
 IMMAGINI CANDIDATE:
 ${JSON.stringify(candidateImagePayload, null, 2)}
@@ -689,33 +1129,48 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
           { role: 'system', content: teacherInstruction },
           {
             role: 'user',
-            content: buildDocumentInputContent(
-              file,
-              'Analizza questo PDF e mantieni il contesto completo per la richiesta successiva.'
-            ),
-          },
-          {
-            role: 'assistant',
-            content: 'Documento PDF analizzato e contestualizzato.',
-            annotations: pdfSession.annotations,
-          },
-          {
-            role: 'user',
             content: prompt,
           },
         ],
-        response_format: { type: 'json_object' },
+        temperature: 0.2,
+        response_format: {
+          type: 'json_schema',
+          json_schema: LESSON_RESPONSE_SCHEMA,
+        },
       })
     );
 
     const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
-    const maxLessonImages = getDynamicLessonImageLimit(parsed.contentMarkdown || '');
+    const structuredQuiz = parseQuizPayload(parsed.quiz);
+    const repairedContentMarkdown = await repairLessonMarkdown(
+      parsed.contentMarkdown || '',
+      sectionTitle,
+      sectionDescription,
+      lessonSourceContext || clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS)
+    ).catch(error => {
+      console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
+      return parsed.contentMarkdown || '';
+    });
+
+    const maxLessonImages = getDynamicLessonImageLimit(repairedContentMarkdown);
     const availableAssetIds = new Set(candidateImages.map(image => image.id));
-    const normalizedImageRefs = normalizeImagePlacements(parsed.imagePlacements, availableAssetIds, maxLessonImages);
+    const normalizedImageRefs = normalizeImagePlacements(
+      parsed.imagePlacements,
+      availableAssetIds,
+      maxLessonImages,
+      visibleLabelByAssetId
+    );
     const fallbackImageRefs =
       normalizedImageRefs.length > 0
         ? []
-        : buildFallbackImageRefs(candidateImages, sectionTitle, sectionDescription, parsed.contentMarkdown || '', maxLessonImages);
+        : buildFallbackImageRefs(
+            candidateImages,
+            sectionTitle,
+            sectionDescription,
+            repairedContentMarkdown,
+            maxLessonImages,
+            visibleLabelByAssetId
+          );
     const imageRefs =
       normalizedImageRefs.length > 0
         ? normalizedImageRefs
@@ -729,7 +1184,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
     logPdfLessonDebug('Image placement result', {
       sectionTitle,
-      contentHeadingCount: getMarkdownHeadings(parsed.contentMarkdown || '').length,
+      contentHeadingCount: getMarkdownHeadings(repairedContentMarkdown).length,
       modelPlacementsRaw: parsed.imagePlacements || [],
       normalizedImageRefs,
       fallbackImageRefs,
@@ -751,11 +1206,16 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       );
     }
 
-    const content = injectImagePlaceholders(parsed.contentMarkdown || '', imageRefs);
+    const cleanedContentMarkdown = sanitizeLessonMarkdownContent(
+      repairedContentMarkdown,
+      structuredQuiz,
+      visibleLabelByAssetId
+    );
+    const content = injectImagePlaceholders(cleanedContentMarkdown, imageRefs);
 
     return {
       content,
-      quiz: parseQuizPayload(parsed.quiz),
+      quiz: structuredQuiz,
       imageRefs,
       documentAssets: buildStoredPdfDocumentAssets(pdfSession, imageRefs),
     };
@@ -771,8 +1231,9 @@ CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.
 REGOLE FONDAMENTALI:
 1. **PROFONDITA**: Questa lezione deve essere ESAUSTIVA. Non limitarti a una panoramica. 
    Spiega ogni concetto in dettaglio, con esempi concreti, formule (in LaTeX $$...$$), e codice dove appropriato.
-2. **STRUTTURA DISCORSIVA**: Scrivi paragrafi completi, non liste puntate. 
+2. **STRUTTURA DISCORSIVA**: Preferisci paragrafi completi, non una sequenza di punti telegrafici.
    La lezione deve leggersi come un capitolo di un libro, non come una slide.
+   Quando pero presenti 2 o piu elementi fratelli (tipi, gruppi, fasi, definizioni), usa una lista Markdown vera.
 3. **RIFERIMENTI AL TESTO**: Cita specificamente il documento originale.
 4. **ESEMPI E ANALOGIE**: Ogni concetto importante deve avere un esempio pratico o un'analogia.
 5. **STRUTTURA**:
@@ -783,13 +1244,24 @@ REGOLE FONDAMENTALI:
    - Conclusione
 6. **LUNGHEZZA**: E meglio essere comprensibili che concisi.
 7. **CONTINUITA NARRATIVA**: ${continuityRule}
+8. **OUTPUT OBBLIGATORIO**: La risposta finale deve essere SOLO un oggetto JSON valido.
+9. **SCHEMA QUIZ**: \`quiz\` deve contenere ESATTAMENTE 5 domande a risposta multipla con ESATTAMENTE 4 opzioni ciascuna.
+10. **NESSUN TESTO EXTRA**: Non aggiungere testo, commenti, markdown fences o spiegazioni fuori dal JSON.
+11. **IMMAGINI**: Per questa richiesta \`imagePlacements\` deve essere un array vuoto.
+12. **NO PSEUDO-LISTE**: Non scrivere blocchi con piu righe del tipo "Etichetta: ..." senza bullet. O fai una lista Markdown vera, oppure scrivi paragrafi completi.
+13. **NO IMMAGINI INLINE**: Non inserire markdown image syntax o tag HTML immagine dentro \`contentMarkdown\`.
+14. **NO QUIZ NEL TESTO**: Non aggiungere quiz, domande o sezioni di verifica dentro \`contentMarkdown\`; il quiz deve vivere solo nel campo \`quiz\`.
 
-Formatta in Markdown ricco.
+Rispondi SOLO con un oggetto JSON valido con questa struttura:
+{
+  "contentMarkdown": "Lezione completa in markdown",
+  "quiz": [
+    { "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+  ],
+  "imagePlacements": []
+}`;
 
-AL TERMINE DELLA LEZIONE:
-Genera un separatore "---QUIZ---" seguito da un array JSON di 5 domande a risposta multipla basate sulla lezione.
-Formato JSON Quiz: [{ "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }]`;
-
+  const userContent = await buildReasoningContentForFile(file, prompt, MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS);
   const response = await retryWithBackoff(() =>
     callOpenRouter({
       model: MODEL_REASONING,
@@ -797,15 +1269,34 @@ Formato JSON Quiz: [{ "question": "...", "options": ["A", "B", "C", "D"], "corre
         { role: 'system', content: teacherInstruction },
         {
           role: 'user',
-          content: buildDocumentInputContent(file, prompt),
+          content: userContent,
         },
       ],
+      temperature: 0.2,
+      response_format: {
+        type: 'json_schema',
+        json_schema: LESSON_RESPONSE_SCHEMA,
+      },
     })
   );
+  const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
+  const structuredQuiz = parseQuizPayload(parsed.quiz);
+  const repairedContentMarkdown = await repairLessonMarkdown(
+    parsed.contentMarkdown || '',
+    sectionTitle,
+    sectionDescription,
+    sectionDescription
+  ).catch(error => {
+    console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
+    return parsed.contentMarkdown || '';
+  });
 
-  const { content, quiz } = parseLegacyQuizResponse(response || '');
-
-  return { content: content.trim(), quiz, imageRefs: [], documentAssets: null };
+  return {
+    content: sanitizeLessonMarkdownContent(repairedContentMarkdown.trim(), structuredQuiz),
+    quiz: structuredQuiz,
+    imageRefs: [],
+    documentAssets: null,
+  };
 };
 
 interface AskContextualQuestionInput {
@@ -840,19 +1331,23 @@ Domanda dell'utente:
 "${question}"`;
 
   return retryWithBackoff(async () => {
+    const userContent = file
+      ? await buildReasoningContentForFile(
+          file,
+          `${basePrompt}
+
+Rispondi in modo conciso e utile basandoti sul documento caricato.
+Se la risposta e presente nella fonte originale, citala chiaramente.`,
+          MAX_CONTEXTUAL_ANSWER_SOURCE_CHARS
+        )
+      : null;
     const response = await callOpenRouter({
-      model: MODEL_FLASH,
+      model: MODEL_REASONING,
       messages: file
         ? [
             {
               role: 'user',
-              content: buildDocumentInputContent(
-                file,
-                `${basePrompt}
-
-Rispondi in modo conciso e utile basandoti sul documento caricato.
-Se la risposta e presente nella fonte originale, citala chiaramente.`
-              ),
+              content: userContent,
             },
           ]
         : [

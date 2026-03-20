@@ -1,5 +1,6 @@
 import { memo, type CSSProperties, type HTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
@@ -76,6 +77,38 @@ const buildMarkdownComponents = (
       </mark>
     );
   },
+  table({ children }: { children?: ReactNode }) {
+    return (
+      <div className="my-6 overflow-x-auto rounded-2xl border border-gray-200/80 dark:border-zinc-800">
+        <table className="m-0 w-full border-collapse text-left text-sm">
+          {children}
+        </table>
+      </div>
+    );
+  },
+  thead({ children }: { children?: ReactNode }) {
+    return <thead className="bg-gray-50/90 dark:bg-zinc-900/90">{children}</thead>;
+  },
+  tbody({ children }: { children?: ReactNode }) {
+    return <tbody className="divide-y divide-gray-200/70 dark:divide-zinc-800">{children}</tbody>;
+  },
+  tr({ children }: { children?: ReactNode }) {
+    return <tr className="align-top">{children}</tr>;
+  },
+  th({ children }: { children?: ReactNode }) {
+    return (
+      <th className="border-b border-gray-200/80 px-4 py-3 font-semibold text-gray-900 dark:border-zinc-800 dark:text-gray-100">
+        {children}
+      </th>
+    );
+  },
+  td({ children }: { children?: ReactNode }) {
+    return (
+      <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+        {children}
+      </td>
+    );
+  },
 });
 
 const MarkdownRenderer = ({
@@ -101,7 +134,7 @@ const MarkdownRenderer = ({
         part.type === 'markdown' ? (
           <ReactMarkdown
             key={part.key}
-            remarkPlugins={[remarkMath]}
+            remarkPlugins={[remarkGfm, remarkMath]}
             rehypePlugins={[rehypeKatex, rehypeRaw]}
             components={markdownComponents}
           >
