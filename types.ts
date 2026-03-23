@@ -1,5 +1,3 @@
-
-
 export interface UserProfile {
   topic: string;
   experienceLevel: string;
@@ -25,12 +23,42 @@ export interface FileData {
   data: string; // Base64
 }
 
-export enum AppState {
-  LIBRARY = 'LIBRARY',
-  ASSESSMENT = 'ASSESSMENT',
-  PLANNING = 'PLANNING',
-  READING = 'READING',
+export interface CodebaseSourceFile {
+  path: string;
+  text: string;
+  truncated?: boolean;
 }
+
+export interface CodebaseBundleStats {
+  includedFileCount: number;
+  skippedFileCount: number;
+  truncatedFileCount: number;
+  totalCharacterCount: number;
+}
+
+export interface PdfProjectSource {
+  kind: 'pdf';
+  file: FileData;
+}
+
+export interface CodebaseBundleSource {
+  kind: 'codebase-bundle';
+  name: string;
+  aggregatedText: string;
+  files: CodebaseSourceFile[];
+  stats: CodebaseBundleStats;
+}
+
+export type ProjectSource = PdfProjectSource | CodebaseBundleSource;
+
+export const AppState = {
+  LIBRARY: 'LIBRARY',
+  ASSESSMENT: 'ASSESSMENT',
+  PLANNING: 'PLANNING',
+  READING: 'READING',
+} as const;
+
+export type AppState = (typeof AppState)[keyof typeof AppState];
 
 export type ProjectId = string;
 export type ProjectSourceKind = 'document' | 'codebase' | 'learn-mode' | 'imported-json';
@@ -129,13 +157,12 @@ export interface ProjectSnapshot {
   version: string;
   sourceKind: ProjectSourceKind;
   state: AppState;
-  file: FileData | null;
+  source: ProjectSource | null;
   learningPlan: LearningPlan | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
   activeSectionId: string | null;
-  musicUrl: string;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
@@ -148,6 +175,7 @@ export interface ProjectExportData {
   version: string;
   state?: AppState;
   file?: FileData | null;
+  source?: ProjectSource | null;
   learningPlan: LearningPlan | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
@@ -159,10 +187,24 @@ export interface ProjectExportData {
   documentIndex?: PdfTextIndex | null;
 }
 
-export interface UiPreferences {
+export type OpenRouterModelSlot = 'lesson' | 'assessment' | 'context';
+
+export interface OpenRouterModelDefaults {
+  lessonModel: string;
+  assessmentModel: string;
+  contextModel: string;
+}
+
+export interface OpenRouterModelPreferences {
+  preferredLessonModel: string;
+  preferredAssessmentModel: string;
+  preferredContextModel: string;
+}
+
+export interface UiPreferences extends OpenRouterModelPreferences {
   isDarkMode: boolean;
   teleprompterSpeed: number;
-  preferredVoice: VoiceName;
+  preferredVoice: VoiceProfileId;
   playbackRate: number;
 }
 
@@ -186,8 +228,8 @@ export interface ContextMenuState {
   contextAfter?: string;
 }
 
-// Updated VoiceName to support both legacy Gemini voices and new TTS voices
-export type VoiceName = 'Kore' | 'Fenrir' | 'Puck' | 'Zephyr' | 'Charon' | 'Marco' | 'Giulia';
+export type VoiceProfileId = 'mario';
+export type VoiceName = VoiceProfileId;
 
 // TTS Status interface
 export interface TTSStatus {
@@ -209,7 +251,7 @@ export interface AudioChunk {
 
 export interface AudioState {
   isPlaying: boolean;
-  currentVoice: VoiceName;
+  currentVoice: VoiceProfileId;
   playbackRate: number;
   chunks: AudioChunk[];
   currentChunkIndex: number;
@@ -218,4 +260,15 @@ export interface AudioState {
 
 export interface CalibrationPoint {
   timeOffset: number; // The difference between Visual % and Audio %
+}
+
+export interface WorkspaceDomainState {
+  source: ProjectSource | null;
+  learningPlan: LearningPlan | null;
+  documentAssets: PdfDocumentAssets | null;
+  documentIndex: PdfTextIndex | null;
+  isLearnMode: boolean;
+  userProfile: UserProfile | null;
+  syllabus: SyllabusItem[];
+  activeSectionId: string | null;
 }

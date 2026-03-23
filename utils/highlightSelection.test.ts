@@ -63,3 +63,33 @@ test('toggles colon selections across markdown emphasis cleanly', () => {
 
   assert.equal(unhighlighted, content);
 });
+
+test('does not inject mark tags inside inline code spans', () => {
+  const content = 'Classe cardine: `Server`.';
+  const updated = toggleHighlightInContent({
+    content,
+    selectedText: 'Server',
+  });
+
+  assert.equal(updated, null);
+});
+
+test('matches long selections that cross inline code identifiers with underscores', () => {
+  const content = 'Se vedo `get_node_block_pos`, capisco meglio.';
+  const updated = toggleHighlightInContent({
+    content,
+    selectedText: 'Se vedo get_node_block_pos, capisco meglio.',
+  });
+
+  assert.equal(updated, '<mark>Se vedo</mark> `get_node_block_pos`<mark>, capisco meglio.</mark>');
+});
+
+test('does not inject mark tags inside fenced code blocks', () => {
+  const content = 'Esempio:\n\n```cpp\nServer server;\n```';
+  const updated = toggleHighlightInContent({
+    content,
+    selectedText: 'Server',
+  });
+
+  assert.equal(updated, null);
+});

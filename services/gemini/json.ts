@@ -1,4 +1,4 @@
-import type { Message, UserProfile } from './types';
+import type { Message, UserProfile } from './types.ts';
 
 export const parseJson = <T>(text: string, fallback: T): T => {
   try {

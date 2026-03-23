@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { ProjectExportData, ProjectId, ProjectSnapshot, SavedProjectMeta } from '../types';
-import { buildProjectMeta, exportProjectData, normalizeImportedProject } from './projectSnapshot';
+import { buildProjectMeta, exportProjectData, normalizeImportedProject, normalizeStoredProject } from './projectSnapshot';
 import { ProjectStorageError, type ProjectRepository } from './projectRepository';
 
 const DB_NAME = 'lumina-reader-projects';
@@ -57,7 +57,8 @@ export class IndexedDbProjectRepository implements ProjectRepository {
 
   async loadProject(id: ProjectId): Promise<ProjectSnapshot | null> {
     const db = await this.dbPromise;
-    return (await db.get(SNAPSHOT_STORE, id)) || null;
+    const snapshot = await db.get(SNAPSHOT_STORE, id);
+    return snapshot ? normalizeStoredProject(snapshot) : null;
   }
 
   async saveProject(snapshot: ProjectSnapshot): Promise<SavedProjectMeta> {

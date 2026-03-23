@@ -1,17 +1,23 @@
 import {
-  buildDocumentInputContent,
   isPdfFile,
-  MODEL_REASONING,
+  MODEL_ASSESSMENT,
   callOpenRouter,
   parseFunctionCallProfile,
   type ChatMessage,
   type ChatSession,
   type FileData,
   type UserProfile,
-} from './shared';
-import { getPdfTextSession } from './pdfAssets';
+} from './shared.ts';
+import { decodeTextBase64Preview } from '../projectSource.ts';
+import { getPdfTextSession } from './pdfAssets.ts';
 
 const MAX_ASSESSMENT_SOURCE_CHARS = 6000;
+const MAX_ASSESSMENT_SOURCE_PREVIEW_BYTES = 12_000;
+
+interface TextAssessmentSource {
+  name: string;
+  text: string;
+}
 
 interface AssessmentDocumentContext {
   content: ChatMessage['content'];
@@ -51,16 +57,125 @@ const buildAssessmentExcerpt = (text: string): string => {
     : excerpt;
 };
 
+const buildAssessmentTextPreview = (file: FileData): string => {
+  const preview = decodeTextBase64Preview(file.data, MAX_ASSESSMENT_SOURCE_PREVIEW_BYTES)
+    .replace(/\r/g, '\n')
+    .trim();
+
+  return clipAssessmentTextPreview(preview);
+};
+
+const clipAssessmentTextPreview = (text: string): string => {
+  const preview = text.trim();
+
+  if (!preview) {
+    return '';
+  }
+
+  if (preview.length <= MAX_ASSESSMENT_SOURCE_CHARS) {
+    return preview;
+  }
+
+  return `${preview.slice(0, MAX_ASSESSMENT_SOURCE_CHARS).trim()}\n\n[ANTEPRIMA ABBREVIATA DELLA SORGENTE]`;
+};
+
+const buildAssessmentDocumentContextFromTextSource = (
+  source: TextAssessmentSource
+): AssessmentDocumentContext => {
+  const preview = clipAssessmentTextPreview(source.text.replace(/\r/g, '\n'));
+
+  return {
+    content: preview
+      ? `Sorgente: ${source.name}
+
+Ho caricato questo materiale sorgente. Voglio che tu mi valuti per creare un piano di studio su di esso.
+
+ANTEPRIMA DELLA SORGENTE:
+${preview}`
+      : `Sorgente: ${source.name}
+
+Ho caricato questo materiale sorgente. Voglio che tu mi valuti per creare un piano di studio su di esso.
+
+Nota: non e stato possibile leggere un'anteprima affidabile della sorgente. Non assumere una struttura ideale del materiale e fai domande generiche di calibrazione.`,
+    hasReliableSourceContext: Boolean(preview),
+  };
+};
+
+const createSeededAssessmentSession = (
+  assessmentDocument: AssessmentDocumentContext
+): ChatSession => {
+  const baseSystemPrompt = `Sei un assistente empatico che deve valutare le conoscenze pregresse dell'utente SUL DOCUMENTO CARICATO.
+
+REGOLE FONDAMENTALI:
+1. NON INIZIARE MAI A SPIEGARE O FARE LEZIONI ORA. Il tuo unico scopo è fare domande.
+2. Fai domande brevi e dirette per capire il livello (principiante, intermedio, esperto).
+3. Se l'utente ti da una risposta molto dettagliata o se hai capito il suo livello PRIMA dei 3 turni previsti, FERMATI.
+4. Quando hai abbastanza informazioni per creare un piano di studi, scrivi ESATTAMENTE questo token alla fine della tua risposta: [ASSESSMENT_COMPLETE]
+
+Parla in Italiano.`;
+
+  const systemPrompt = `${baseSystemPrompt}
+
+${
+  assessmentDocument.hasReliableSourceContext
+    ? 'Hai contenuto affidabile della sorgente caricata. Basati solo su quello se ti serve contestualizzare le domande e non assumere una struttura ideale del materiale.'
+    : 'NON hai contenuto affidabile della sorgente. Non dire di conoscere il contenuto, non dedurlo dal titolo/nome file, e non fingere di averlo analizzato. Fai solo domande generiche di calibrazione.'
+}`;
+
+  const history: ChatMessage[] = [
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: assessmentDocument.content,
+    },
+    {
+      role: 'assistant',
+      content: assessmentDocument.hasReliableSourceContext
+        ? 'Perfetto. Ho ricevuto contenuto affidabile dalla sorgente caricata e ti faro qualche breve domanda per calibrare il percorso. Qual e il tuo obiettivo principale con questo materiale?'
+        : 'Perfetto. Il contenuto della sorgente non e disponibile in modo affidabile, quindi parto dal tuo background. Hai gia studiato questo argomento oppure stai iniziando da zero?',
+    },
+  ];
+
+  return {
+    sendMessage: async ({ message }) => {
+      history.push({ role: 'user', content: message });
+
+      const response = await callOpenRouter({
+        model: MODEL_ASSESSMENT,
+        modelSlot: 'assessment',
+        messages: history,
+      });
+
+      history.push({ role: 'assistant', content: response });
+      return { text: response };
+    },
+    getHistory: () => history,
+  };
+};
+
 const buildAssessmentDocumentPrompt = async (
   file: FileData,
   onStatusUpdate?: (status: string) => void
 ): Promise<AssessmentDocumentContext> => {
-  const baseInstruction = 'Ho caricato questo documento. Voglio che tu mi valuti per creare un piano di studio su di esso.';
+  const baseInstruction =
+    'Ho caricato questo materiale sorgente. Voglio che tu mi valuti per creare un piano di studio su di esso.';
 
   if (!isPdfFile(file)) {
+    const preview = buildAssessmentTextPreview(file);
     return {
-      content: buildDocumentInputContent(file, baseInstruction),
-      hasReliableSourceContext: true,
+      content: preview
+        ? `Sorgente: ${file.name}
+
+${baseInstruction}
+
+ANTEPRIMA DELLA SORGENTE:
+${preview}`
+        : `Sorgente: ${file.name}
+
+${baseInstruction}
+
+Nota: non e stato possibile leggere un'anteprima affidabile della sorgente. Non assumere una struttura ideale del materiale e fai domande generiche di calibrazione.`,
+      hasReliableSourceContext: Boolean(preview),
     };
   }
 
@@ -91,7 +206,10 @@ ${compactText}`,
       hasReliableSourceContext: true,
     };
   } catch (error) {
-    console.warn('[Lumina][Assessment] PDF parsing failed, using generic assessment fallback.', error);
+    console.warn(
+      '[Lumina][Assessment] PDF parsing failed, using generic assessment fallback.',
+      error
+    );
     onStatusUpdate?.('Parse PDF fallito: valutazione generica senza contenuto documento...');
     return {
       content: `Documento: ${file.name}\n\n${baseInstruction}\n\nNota: il parser del PDF e fallito. Non affermare di conoscere il contenuto del documento e non inferirlo dal titolo. Procedi con domande generiche su background, livello e obiettivi dell'utente.`,
@@ -103,53 +221,14 @@ ${compactText}`,
 export const createAssessmentChat = async (
   file: FileData,
   onStatusUpdate?: (status: string) => void
-): Promise<ChatSession> => {
-  const baseSystemPrompt = `Sei un assistente empatico che deve valutare le conoscenze pregresse dell'utente SUL DOCUMENTO CARICATO.
+): Promise<ChatSession> =>
+  createSeededAssessmentSession(await buildAssessmentDocumentPrompt(file, onStatusUpdate));
 
-REGOLE FONDAMENTALI:
-1. NON INIZIARE MAI A SPIEGARE O FARE LEZIONI ORA. Il tuo unico scopo è fare domande.
-2. Fai domande brevi e dirette per capire il livello (principiante, intermedio, esperto).
-3. Se l'utente ti da una risposta molto dettagliata o se hai capito il suo livello PRIMA dei 3 turni previsti, FERMATI.
-4. Quando hai abbastanza informazioni per creare un piano di studi, scrivi ESATTAMENTE questo token alla fine della tua risposta: [ASSESSMENT_COMPLETE]
-
-Parla in Italiano.`;
-
-  const assessmentDocument = await buildAssessmentDocumentPrompt(file, onStatusUpdate);
-  const systemPrompt = `${baseSystemPrompt}
-
-${assessmentDocument.hasReliableSourceContext
-  ? 'Hai un estratto affidabile del documento. Basati solo su quello se ti serve contestualizzare le domande.'
-  : 'NON hai contenuto affidabile del documento. Non dire di conoscere il contenuto, non dedurlo dal titolo/nome file, e non fingere di averlo analizzato. Fai solo domande generiche di calibrazione.'}`;
-
-  const history: ChatMessage[] = [
-    { role: 'system', content: systemPrompt },
-    {
-      role: 'user',
-      content: assessmentDocument.content,
-    },
-    {
-      role: 'assistant',
-      content: assessmentDocument.hasReliableSourceContext
-        ? 'Certamente. Ho letto un estratto affidabile del documento e ti faro qualche breve domanda per calibrare il percorso. Qual e il tuo obiettivo principale con questo testo?'
-        : 'Perfetto. Il contenuto del documento non e disponibile in modo affidabile, quindi parto dal tuo background. Hai gia studiato questo argomento oppure stai iniziando da zero?',
-    },
-  ];
-
-  return {
-    sendMessage: async ({ message }) => {
-      history.push({ role: 'user', content: message });
-
-      const response = await callOpenRouter({
-        model: MODEL_REASONING,
-        messages: history,
-      });
-
-      history.push({ role: 'assistant', content: response });
-      return { text: response };
-    },
-    getHistory: () => history,
-  };
-};
+export const createAssessmentChatFromTextSource = async (
+  source: TextAssessmentSource,
+  _onStatusUpdate?: (status: string) => void
+): Promise<ChatSession> =>
+  createSeededAssessmentSession(buildAssessmentDocumentContextFromTextSource(source));
 
 export const createLearnAssessmentChat = (language: string): ChatSession<UserProfile> => {
   const systemInstruction = `You are an Expert Curriculum Designer and Profiler.
@@ -191,7 +270,8 @@ Only return this JSON when you have enough information. Before that, just ask qu
       history.push({ role: 'user', content: message });
 
       const response = await callOpenRouter({
-        model: MODEL_REASONING,
+        model: MODEL_ASSESSMENT,
+        modelSlot: 'assessment',
         messages: history,
       });
 

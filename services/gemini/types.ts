@@ -11,8 +11,10 @@ import type {
   QuizQuestion,
   SyllabusItem,
   UserProfile,
+  VoiceProfileId,
   VoiceName,
-} from '../../types';
+  OpenRouterModelSlot,
+} from '../../types.ts';
 
 export interface JsonSchemaFormat {
   type: 'json_object' | 'json_schema';
@@ -37,7 +39,9 @@ export interface ImageContentPart {
   image_url: { url: string };
 }
 
-export type ChatMessageContent = string | Array<TextContentPart | ImageContentPart | FileContentPart>;
+export type ChatMessageContent =
+  | string
+  | Array<TextContentPart | ImageContentPart | FileContentPart>;
 
 export interface FileAnnotationTextPart {
   type: 'text';
@@ -68,6 +72,7 @@ export interface ChatMessage {
 
 export interface ChatCompletionOptions {
   model: string;
+  modelSlot?: OpenRouterModelSlot;
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
@@ -147,5 +152,6 @@ export type {
   QuizQuestion,
   SyllabusItem,
   UserProfile,
+  VoiceProfileId,
   VoiceName,
 };

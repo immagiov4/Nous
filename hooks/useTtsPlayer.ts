@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AudioChunk, AudioState, VoiceName } from '../types';
+import type { AudioChunk, AudioState, VoiceProfileId } from '../types';
 import * as GeminiService from '../services/geminiService';
 import { createWavBlob } from '../services/ttsAudio';
 import { prepareMarkdownForSpeech } from '../utils/readingText';
@@ -10,12 +10,12 @@ const DEBUG_TTS_PLAYER = false;
 
 interface UseTtsPlayerParams {
   activeSectionId: string | null;
-  backendUrl: string;
   sectionContent: string;
   speechBlocks: string[];
 }
 
 interface UseTtsPlayerResult {
+  availableVoices: Array<{ id: VoiceProfileId; label: string; language: string }>;
   audioState: AudioState;
   calibrationOffset: number;
   handleSeek: (time: number) => void;
@@ -24,7 +24,7 @@ interface UseTtsPlayerResult {
   handleToggleAudioSyncLink: () => void;
   handleToggleRuler: () => void;
   handleTTSPlayTest: () => Promise<void>;
-  handleVoiceChange: (voice: VoiceName) => void;
+  handleVoiceChange: (voice: VoiceProfileId) => void;
   isAudioSyncLinked: boolean;
   isAutoTrackEnabled: boolean;
   isRulerActive: boolean;
@@ -33,10 +33,10 @@ interface UseTtsPlayerResult {
   playerDuration: number;
   setCalibrationFromRelativeY: (relativeY: number) => void;
   setTestText: (text: string) => void;
-  setTestVoice: (voice: VoiceName) => void;
+  setTestVoice: (voice: VoiceProfileId) => void;
   stopAudio: (clearChunks?: boolean) => void;
   testText: string;
-  testVoice: VoiceName;
+  testVoice: VoiceProfileId;
   togglePlayPause: () => void;
   ttsConnected: boolean;
   visualProgress: number;
@@ -240,9 +240,12 @@ export const useTtsPlayer = ({
   sectionContent,
   speechBlocks,
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
+  const [availableVoices, setAvailableVoices] = useState<Array<{ id: VoiceProfileId; label: string; language: string }>>([
+    { id: 'mario', label: 'Mario', language: 'it-IT' },
+  ]);
   const [audioState, setAudioState] = useState<AudioState>({
     isPlaying: false,
-    currentVoice: 'Marco',
+    currentVoice: 'mario',
     playbackRate: 1,
     chunks: [],
     currentChunkIndex: 0,
@@ -256,7 +259,7 @@ export const useTtsPlayer = ({
   const [isAudioSyncLinked, setIsAudioSyncLinked] = useState(false);
   const [isRulerActive, setIsRulerActive] = useState(false);
   const [ttsConnected, setTtsConnected] = useState(false);
-  const [testVoice, setTestVoice] = useState<VoiceName>('Marco');
+  const [testVoice, setTestVoice] = useState<VoiceProfileId>('mario');
   const [testText, setTestText] = useState(
     'Ciao! Sono la tua voce AI. Questo e un test del sistema di sintesi vocale.'
   );
@@ -864,14 +867,22 @@ export const useTtsPlayer = ({
     startFromScratch,
   ]);
 
-  const handleVoiceChange = (voice: VoiceName) => {
+  const handleVoiceChange = useCallback((voice: VoiceProfileId) => {
+    if (audioStateRef.current.currentVoice === voice) {
+      return;
+    }
+
     stopAudio(true);
     setTrackedAudioState(previousState => ({ ...previousState, currentVoice: voice }));
-  };
+  }, [setTrackedAudioState, stopAudio]);
 
-  const handleSpeedChange = (speed: number) => {
+  const handleSpeedChange = useCallback((speed: number) => {
+    if (audioStateRef.current.playbackRate === speed) {
+      return;
+    }
+
     setTrackedAudioState(previousState => ({ ...previousState, playbackRate: speed }));
-  };
+  }, [setTrackedAudioState]);
 
   const handleSeek = (time: number) => {
     const currentAudio = playbackRunRef.current.currentAudio;
@@ -1006,17 +1017,30 @@ export const useTtsPlayer = ({
   }, [audioState.isPlaying, isAudioSyncLinked]);
 
   useEffect(() => {
-    const checkTTS = async () => {
+    const refreshTtsState = async () => {
       try {
-        const status = await GeminiService.checkTTSStatus();
+        const [status, voices] = await Promise.all([
+          GeminiService.checkTTSStatus(),
+          GeminiService.getTTSVoices(),
+        ]);
         setTtsConnected(status.isReady);
+        if (voices.length > 0) {
+          setAvailableVoices(voices);
+          const defaultVoice = voices[0].id;
+          if (!voices.some(voice => voice.id === audioStateRef.current.currentVoice)) {
+            setTrackedAudioState(previousState => ({ ...previousState, currentVoice: defaultVoice }));
+          }
+          if (!voices.some(voice => voice.id === testVoice)) {
+            setTestVoice(defaultVoice);
+          }
+        }
       } catch {
         setTtsConnected(false);
       }
     };
 
-    void checkTTS();
-    ttsCheckIntervalRef.current = setInterval(checkTTS, 10000);
+    void refreshTtsState();
+    ttsCheckIntervalRef.current = setInterval(refreshTtsState, 10000);
 
     return () => {
       if (ttsCheckIntervalRef.current) {
@@ -1224,6 +1248,7 @@ export const useTtsPlayer = ({
   );
 
   return {
+    availableVoices,
     audioState,
     calibrationOffset,
     handleSeek,

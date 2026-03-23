@@ -34,7 +34,7 @@ const NewProjectPanel = ({
         </div>
         <div>
           <p className="text-base font-medium text-gray-900 dark:text-zinc-100">Nuovo progetto</p>
-          <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">Da file PDF o ZIP</p>
+          <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">Da PDF, ZIP o file di testo</p>
         </div>
       </button>
 

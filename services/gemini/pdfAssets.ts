@@ -1,4 +1,4 @@
-import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset } from '../../types';
+import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset } from '../../types.ts';
 import {
   MODEL_REASONING,
   callOpenRouter,
@@ -7,7 +7,7 @@ import {
   isPdfFile,
   retryWithBackoff,
   type FileData,
-} from './shared';
+} from './shared.ts';
 
 const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();

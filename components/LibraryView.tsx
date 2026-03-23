@@ -1,7 +1,13 @@
-import { BookOpen, Moon, Sun } from 'lucide-react';
-import type { ChangeEvent } from 'react';
-import type { SavedProjectMeta } from '../types';
+import { BookOpen, Moon, Settings2, Sun } from 'lucide-react';
+import { useState, type ChangeEvent } from 'react';
+import type {
+  OpenRouterModelDefaults,
+  OpenRouterModelPreferences,
+  OpenRouterModelSlot,
+  SavedProjectMeta,
+} from '../types';
 import NewProjectPanel from './NewProjectPanel';
+import OpenRouterModelPanel from './OpenRouterModelPanel';
 import ProjectCard from './ProjectCard';
 
 interface LibraryViewProps {
@@ -10,12 +16,15 @@ interface LibraryViewProps {
   isLibraryLoading: boolean;
   isWorking: boolean;
   loadingStatus: string;
+  modelDefaults: OpenRouterModelDefaults;
   planFileInputId: string;
+  preferredModels: OpenRouterModelPreferences;
   projects: SavedProjectMeta[];
   sourceFileInputId: string;
   storageError: string | null;
   onDeleteProject: (projectId: string) => void;
   onExportProject: (projectId: string) => void;
+  onSetPreferredOpenRouterModel: (slot: OpenRouterModelSlot, value: string) => void;
   onOpenProject: (projectId: string) => void;
   onPlanUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onStartLearnJourney: () => void;
@@ -31,12 +40,15 @@ const LibraryView = ({
   isLibraryLoading,
   isWorking,
   loadingStatus,
+  modelDefaults,
   planFileInputId,
+  preferredModels,
   projects,
   sourceFileInputId,
   storageError,
   onDeleteProject,
   onExportProject,
+  onSetPreferredOpenRouterModel,
   onOpenProject,
   onPlanUpload,
   onStartLearnJourney,
@@ -45,12 +57,19 @@ const LibraryView = ({
   onSourceFileUpload,
   onImportJsonClick,
 }: LibraryViewProps) => {
+  const [isModelPanelOpen, setIsModelPanelOpen] = useState(false);
   const projectCountLabel = `${projects.length} ${projects.length === 1 ? 'progetto' : 'progetti'}`;
 
   return (
     <div className="min-h-screen bg-paper-light px-4 py-5 transition-colors duration-300 dark:bg-paper-dark sm:px-6 lg:px-10">
-      <input id={sourceFileInputId} type="file" className="hidden" accept=".pdf,.zip" onChange={onSourceFileUpload} />
-      <input id={planFileInputId} type="file" className="hidden" accept=".json" onChange={onPlanUpload} />
+      <input id={sourceFileInputId} type="file" className="hidden" onChange={onSourceFileUpload} />
+      <input
+        id={planFileInputId}
+        type="file"
+        className="hidden"
+        accept=".json"
+        onChange={onPlanUpload}
+      />
 
       <div className="mx-auto max-w-7xl">
         <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -68,6 +87,33 @@ const LibraryView = ({
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsModelPanelOpen(currentValue => !currentValue)}
+                className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-left text-gray-700 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:border-zinc-700 dark:hover:text-white"
+                aria-label="Apri configurazione modelli AI"
+              >
+                <Settings2 className="h-4 w-4 flex-shrink-0" />
+                <div className="hidden sm:block">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-500">
+                    AI Routing
+                  </p>
+                  <p className="text-sm text-gray-900 dark:text-zinc-100">Modelli</p>
+                </div>
+              </button>
+
+              {isModelPanelOpen ? (
+                <OpenRouterModelPanel
+                  className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-[min(26rem,calc(100vw-2rem))]"
+                  defaultModels={modelDefaults}
+                  preferredModels={preferredModels}
+                  onClose={() => setIsModelPanelOpen(false)}
+                  onModelChange={onSetPreferredOpenRouterModel}
+                />
+              ) : null}
+            </div>
+
             <button
               type="button"
               onClick={onToggleDarkMode}
@@ -96,9 +142,7 @@ const LibraryView = ({
         <section className="mt-8">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-serif text-gray-900 dark:text-zinc-100">
-                Recenti
-              </h2>
+              <h2 className="text-2xl font-serif text-gray-900 dark:text-zinc-100">Recenti</h2>
             </div>
             <div className="rounded-full border border-gray-200/80 bg-white/85 px-3 py-1.5 text-xs font-medium text-gray-600 dark:border-white/10 dark:bg-zinc-900/85 dark:text-zinc-400">
               {projectCountLabel}
@@ -124,7 +168,7 @@ const LibraryView = ({
 
           {!isLibraryLoading && projects.length > 0 ? (
             <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {projects.map((project) => (
+              {projects.map(project => (
                 <ProjectCard
                   key={project.id}
                   isOpening={openingProjectId === project.id}

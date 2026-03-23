@@ -1,4 +1,5 @@
 import {
+  MODEL_CONTEXT,
   MODEL_FLASH,
   MODEL_REASONING,
   buildDocumentInputContent,
@@ -18,9 +19,13 @@ import {
   type PdfTextIndex,
   type QuizQuestion,
   type UserProfile,
-} from './shared';
-import { buildLessonChunkContext } from './documentIndex';
-import { buildStoredPdfDocumentAssets, getPdfAssetSession, getPdfTextSession } from './pdfAssets';
+} from './shared.ts';
+import { buildLessonChunkContext } from './documentIndex.ts';
+import {
+  buildStoredPdfDocumentAssets,
+  getPdfAssetSession,
+  getPdfTextSession,
+} from './pdfAssets.ts';
 
 const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
@@ -30,19 +35,79 @@ const MAX_CONTEXTUAL_ANSWER_SOURCE_CHARS = 32_000;
 const MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS = 36_000;
 const MAX_LESSON_REPAIR_SOURCE_CHARS = 24_000;
 const PDF_KEYWORD_STOP_WORDS = new Set([
-  'about', 'agli', 'alla', 'alle', 'anche', 'avere', 'bene', 'che', 'come', 'con', 'core',
-  'dall', 'dalla', 'dalle', 'degli', 'della', 'delle', 'dello', 'dopo', 'dove', 'ecco',
-  'fare', 'figura', 'figure', 'from', 'have', 'into', 'lesson', 'lezione', 'line', 'nelle',
-  'nella', 'nelle', 'nello', 'niente', 'only', 'oppure', 'over', 'pero', 'perche', 'prima',
-  'quale', 'quali', 'quando', 'questa', 'queste', 'questi', 'questo', 'sara', 'same', 'section',
-  'sempre', 'senza', 'sono', 'solo', 'sotto', 'sugli', 'sulla', 'sulle', 'that', 'them', 'they',
-  'through', 'titolo', 'tutto', 'with', 'your',
+  'about',
+  'agli',
+  'alla',
+  'alle',
+  'anche',
+  'avere',
+  'bene',
+  'che',
+  'come',
+  'con',
+  'core',
+  'dall',
+  'dalla',
+  'dalle',
+  'degli',
+  'della',
+  'delle',
+  'dello',
+  'dopo',
+  'dove',
+  'ecco',
+  'fare',
+  'figura',
+  'figure',
+  'from',
+  'have',
+  'into',
+  'lesson',
+  'lezione',
+  'line',
+  'nelle',
+  'nella',
+  'nelle',
+  'nello',
+  'niente',
+  'only',
+  'oppure',
+  'over',
+  'pero',
+  'perche',
+  'prima',
+  'quale',
+  'quali',
+  'quando',
+  'questa',
+  'queste',
+  'questi',
+  'questo',
+  'sara',
+  'same',
+  'section',
+  'sempre',
+  'senza',
+  'sono',
+  'solo',
+  'sotto',
+  'sugli',
+  'sulla',
+  'sulle',
+  'that',
+  'them',
+  'they',
+  'through',
+  'titolo',
+  'tutto',
+  'with',
+  'your',
 ]);
 interface SectionImagePlacement {
   assetId: string;
   alt: string;
-  caption?: string;
-  anchorHeading?: string;
+  caption?: string | null;
+  anchorHeading?: string | null;
 }
 
 interface PdfSectionContentPayload {
@@ -51,7 +116,7 @@ interface PdfSectionContentPayload {
   imagePlacements?: SectionImagePlacement[];
 }
 
-const LESSON_RESPONSE_SCHEMA = {
+export const LESSON_RESPONSE_SCHEMA = {
   name: 'lumina_lesson_response',
   strict: true,
   schema: {
@@ -102,13 +167,13 @@ const LESSON_RESPONSE_SCHEMA = {
               type: 'string',
             },
             caption: {
-              type: 'string',
+              type: ['string', 'null'],
             },
             anchorHeading: {
-              type: 'string',
+              type: ['string', 'null'],
             },
           },
-          required: ['assetId', 'alt'],
+          required: ['assetId', 'alt', 'caption', 'anchorHeading'],
         },
       },
     },
@@ -166,7 +231,9 @@ const selectCandidatePdfImages = (
       return { image, score };
     })
     .sort((left, right) =>
-      right.score === left.score ? left.image.sourceOrder - right.image.sourceOrder : right.score - left.score
+      right.score === left.score
+        ? left.image.sourceOrder - right.image.sourceOrder
+        : right.score - left.score
     );
 
   const relevant = scored.filter(item => item.score > 0).map(item => item.image);
@@ -179,10 +246,7 @@ const selectCandidatePdfImages = (
 };
 
 const scoreKeywordHits = (haystack: string, keywords: Iterable<string>): number =>
-  Array.from(keywords).reduce(
-    (total, keyword) => total + (haystack.includes(keyword) ? 1 : 0),
-    0
-  );
+  Array.from(keywords).reduce((total, keyword) => total + (haystack.includes(keyword) ? 1 : 0), 0);
 
 const getMarkdownHeadings = (contentMarkdown: string): string[] =>
   contentMarkdown
@@ -309,12 +373,17 @@ const buildFallbackImageRefs = (
     })
     .filter(item => item.score >= MIN_FALLBACK_IMAGE_SCORE)
     .sort((left, right) =>
-      right.score === left.score ? left.image.sourceOrder - right.image.sourceOrder : right.score - left.score
+      right.score === left.score
+        ? left.image.sourceOrder - right.image.sourceOrder
+        : right.score - left.score
     )
     .slice(0, maxImages)
     .map(({ image }) => ({
       assetId: image.id,
-      alt: sanitizePlaceholderValue(buildImageContextSummary(image, sectionTitle, sectionDescription) || `Figura dal PDF: ${sectionTitle}`),
+      alt: sanitizePlaceholderValue(
+        buildImageContextSummary(image, sectionTitle, sectionDescription) ||
+          `Figura dal PDF: ${sectionTitle}`
+      ),
       caption: sanitizePlaceholderValue(visibleLabelByAssetId.get(image.id) || ''),
       anchorHeading: pickFallbackAnchorHeading(image, headings, sectionTitle, sectionDescription),
     }));
@@ -365,7 +434,10 @@ const injectImagePlaceholders = (contentMarkdown: string, imageRefs: LessonImage
     appendedCount += 1;
   });
 
-  return lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim();
+  return lines
+    .join('\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
 };
 
 const normalizeImagePlacements = (
@@ -400,10 +472,13 @@ const normalizeImagePlacements = (
     refs.push({
       assetId: placement.assetId,
       alt,
-      caption: sanitizePlaceholderValue(
-        placement.caption || visibleLabelByAssetId.get(placement.assetId) || ''
-      ) || undefined,
-      anchorHeading: placement.anchorHeading ? sanitizePlaceholderValue(placement.anchorHeading) : undefined,
+      caption:
+        sanitizePlaceholderValue(
+          placement.caption || visibleLabelByAssetId.get(placement.assetId) || ''
+        ) || undefined,
+      anchorHeading: placement.anchorHeading
+        ? sanitizePlaceholderValue(placement.anchorHeading)
+        : undefined,
     });
     seenAssetIds.add(placement.assetId);
   });
@@ -416,10 +491,13 @@ const sanitizeAssetIdMentions = (
   visibleLabelByAssetId: Map<string, string>
 ): string =>
   contentMarkdown
-    .replace(/\b([Ff]igura|[Ii]mmagine)\s+(pdf-img-\d+)\b/g, (_match, noun: string, assetId: string) => {
-      const label = visibleLabelByAssetId.get(assetId.toLowerCase());
-      return label ? `${noun} "${label}"` : `${noun} seguente`;
-    })
+    .replace(
+      /\b([Ff]igura|[Ii]mmagine)\s+(pdf-img-\d+)\b/g,
+      (_match, noun: string, assetId: string) => {
+        const label = visibleLabelByAssetId.get(assetId.toLowerCase());
+        return label ? `${noun} "${label}"` : `${noun} seguente`;
+      }
+    )
     .replace(/\b(pdf-img-\d+)\b/gi, (_match, assetId: string) => {
       const label = visibleLabelByAssetId.get(assetId.toLowerCase());
       return label ? `"${label}"` : 'figura seguente';
@@ -433,7 +511,10 @@ const STANDALONE_LABEL_REGEX = /^(?:\*\*)?([^*\n:]{2,90})(?:\*\*)?:\s*$/;
 const MAX_LIST_LABEL_WORDS = 12;
 
 const normalizeParagraphForDetection = (paragraph: string): string =>
-  paragraph.replace(/\n+/g, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+  paragraph
+    .replace(/\n+/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 
 const isReasonableListLabel = (label: string): boolean => {
   const trimmed = label.trim();
@@ -490,7 +571,7 @@ const normalizePseudoLists = (contentMarkdown: string): string => {
 
   const normalizedParagraphs: string[] = [];
 
-  for (let index = 0; index < paragraphs.length;) {
+  for (let index = 0; index < paragraphs.length; ) {
     const standaloneSubheading = toStandaloneSubheading(paragraphs[index]);
     if (standaloneSubheading) {
       normalizedParagraphs.push(standaloneSubheading);
@@ -594,7 +675,8 @@ const sanitizeLessonMarkdownContent = (
 };
 
 const LESSON_CONCLUSION_HEADING_REGEX = /(^|\n)#{1,6}\s+Conclusione\b/i;
-const LESSON_ABORTED_ENDING_REGEX = /(include|includono|comprende|comprendono|principali sono|si dividono in|origini includono)\s*:\s*$/i;
+const LESSON_ABORTED_ENDING_REGEX =
+  /(include|includono|comprende|comprendono|principali sono|si dividono in|origini includono)\s*:\s*$/i;
 
 const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
   const issues: string[] = [];
@@ -604,7 +686,9 @@ const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
   }
 
   if (/[:;,]\s*$/.test(trimmed) || LESSON_ABORTED_ENDING_REGEX.test(trimmed)) {
-    issues.push('La lezione sembra tronca o si interrompe su un elenco introdotto ma non completato.');
+    issues.push(
+      'La lezione sembra tronca o si interrompe su un elenco introdotto ma non completato.'
+    );
   }
 
   const paragraphs = trimmed
@@ -613,7 +697,10 @@ const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
     .filter(Boolean);
   const labelLikeParagraphs = paragraphs.filter(paragraph => {
     const normalized = normalizeParagraphForDetection(paragraph);
-    return !BLOCKISH_PARAGRAPH_PREFIX.test(normalized) && (LABEL_BODY_REGEX.test(normalized) || STANDALONE_LABEL_REGEX.test(normalized));
+    return (
+      !BLOCKISH_PARAGRAPH_PREFIX.test(normalized) &&
+      (LABEL_BODY_REGEX.test(normalized) || STANDALONE_LABEL_REGEX.test(normalized))
+    );
   }).length;
 
   if (paragraphs.length >= 8 && labelLikeParagraphs / paragraphs.length > 0.35) {
@@ -691,14 +778,14 @@ ${contentMarkdown}`;
 const prettifyMarkdownSpacing = (contentMarkdown: string): string =>
   normalizePseudoLists(
     contentMarkdown
-    .replace(/\r\n?/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    // If a heading was accidentally kept inline, restore it as a block heading.
-    .replace(/([^\n])\s+(#{1,6}\s+)/g, '$1\n\n$2')
-    // Ensure a heading starts on its own block after normal text.
-    .replace(/([^\n])\n(#{1,6}\s+)/g, '$1\n\n$2')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      // If a heading was accidentally kept inline, restore it as a block heading.
+      .replace(/([^\n])\s+(#{1,6}\s+)/g, '$1\n\n$2')
+      // Ensure a heading starts on its own block after normal text.
+      .replace(/([^\n])\n(#{1,6}\s+)/g, '$1\n\n$2')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
   );
 
 const parseQuizPayload = (value: unknown): QuizQuestion[] =>
@@ -1005,7 +1092,9 @@ Rispondi SOLO con un oggetto JSON:
       throw new Error('Failed to generate learn-mode sub-chapter metadata');
     }
 
-    const json = parseCleanJson<{ title: string; description: string; contextPrompt?: string }>(response);
+    const json = parseCleanJson<{ title: string; description: string; contextPrompt?: string }>(
+      response
+    );
     return {
       id: crypto.randomUUID(),
       title: json.title,
@@ -1013,7 +1102,9 @@ Rispondi SOLO con un oggetto JSON:
       isCompleted: false,
       type: 'deep-dive',
       parentId: parentSection.id,
-      contextPrompt: json.contextPrompt || `${selection}\n\n${userInstructions || 'Approfondisci questo concetto in dettaglio'}`,
+      contextPrompt:
+        json.contextPrompt ||
+        `${selection}\n\n${userInstructions || 'Approfondisci questo concetto in dettaglio'}`,
     };
   });
 };
@@ -1026,7 +1117,12 @@ export const generateSectionContent = async (
   primaryChunkIds?: string[],
   documentIndex?: PdfTextIndex | null,
   onStatusUpdate?: (status: string) => void
-): Promise<{ content: string; quiz: QuizQuestion[]; imageRefs: LessonImageRef[]; documentAssets: PdfDocumentAssets | null }> => {
+): Promise<{
+  content: string;
+  quiz: QuizQuestion[];
+  imageRefs: LessonImageRef[];
+  documentAssets: PdfDocumentAssets | null;
+}> => {
   onStatusUpdate?.('Generazione lezione completa in corso...');
   const isFirstLesson = previousContext.trim().length === 0;
   const continuityRule = isFirstLesson
@@ -1045,7 +1141,11 @@ export const generateSectionContent = async (
 
   if (pdfSession) {
     onStatusUpdate?.(`Analisi immagini del PDF... trovate ${pdfSession.images.length}`);
-    const candidateImages = selectCandidatePdfImages(pdfSession.images, sectionTitle, sectionDescription);
+    const candidateImages = selectCandidatePdfImages(
+      pdfSession.images,
+      sectionTitle,
+      sectionDescription
+    );
     logPdfLessonDebug('Candidate images selected', {
       sectionTitle,
       totalExtractedImages: pdfSession.images.length,
@@ -1146,7 +1246,8 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       parsed.contentMarkdown || '',
       sectionTitle,
       sectionDescription,
-      lessonSourceContext || clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS)
+      lessonSourceContext ||
+        clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS)
     ).catch(error => {
       console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
       return parsed.contentMarkdown || '';
@@ -1171,16 +1272,9 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
             maxLessonImages,
             visibleLabelByAssetId
           );
-    const imageRefs =
-      normalizedImageRefs.length > 0
-        ? normalizedImageRefs
-        : fallbackImageRefs;
+    const imageRefs = normalizedImageRefs.length > 0 ? normalizedImageRefs : fallbackImageRefs;
     const imageSelectionMode =
-      normalizedImageRefs.length > 0
-        ? 'model'
-        : fallbackImageRefs.length > 0
-          ? 'fallback'
-          : 'none';
+      normalizedImageRefs.length > 0 ? 'model' : fallbackImageRefs.length > 0 ? 'fallback' : 'none';
 
     logPdfLessonDebug('Image placement result', {
       sectionTitle,
@@ -1261,7 +1355,11 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   "imagePlacements": []
 }`;
 
-  const userContent = await buildReasoningContentForFile(file, prompt, MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS);
+  const userContent = await buildReasoningContentForFile(
+    file,
+    prompt,
+    MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS
+  );
   const response = await retryWithBackoff(() =>
     callOpenRouter({
       model: MODEL_REASONING,
@@ -1342,7 +1440,8 @@ Se la risposta e presente nella fonte originale, citala chiaramente.`,
         )
       : null;
     const response = await callOpenRouter({
-      model: MODEL_REASONING,
+      model: MODEL_CONTEXT,
+      modelSlot: 'context',
       messages: file
         ? [
             {

@@ -2,13 +2,14 @@ import {
   MAX_OUTPUT_TOKENS,
   OPENROUTER_API_KEY,
   OPENROUTER_BASE_URL,
-} from './config';
+  resolveOpenRouterModel,
+} from './config.ts';
 import type {
   ChatCompletionOptions,
   TextContentPart,
   OpenRouterMessageContent,
   OpenRouterResponse,
-} from './types';
+} from './types.ts';
 
 interface HttpError extends Error {
   status?: number;
@@ -32,8 +33,7 @@ const extractTextContent = (content: OpenRouterMessageContent | undefined): stri
 
   return content
     .filter(
-      (part): part is TextContentPart =>
-        part.type === 'text' && typeof part.text === 'string'
+      (part): part is TextContentPart => part.type === 'text' && typeof part.text === 'string'
     )
     .map(part => part.text)
     .join('\n');
@@ -48,12 +48,15 @@ const createHttpError = async (response: Response): Promise<HttpError> => {
   return error;
 };
 
-export const callOpenRouterRaw = async (options: ChatCompletionOptions): Promise<OpenRouterResponse> => {
+export const callOpenRouterRaw = async (
+  options: ChatCompletionOptions
+): Promise<OpenRouterResponse> => {
+  const selectedModel = resolveOpenRouterModel(options.model, options.modelSlot);
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({
-      model: options.model,
+      model: selectedModel,
       messages: options.messages,
       temperature: options.temperature ?? 0.7,
       max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,

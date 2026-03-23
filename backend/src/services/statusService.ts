@@ -16,11 +16,6 @@ export interface StatusSnapshot {
   uptime: number;
 }
 
-export interface StartTtsServerResult {
-  alreadyRunning: boolean;
-  started: boolean;
-}
-
 function getUptime(processState: ProcessState): number {
   if (!processState.startTime) {
     return 0;
@@ -45,24 +40,4 @@ export async function getStatusSnapshot(): Promise<StatusSnapshot> {
     restartAttempts: processState.restartAttempts,
     uptime: getUptime(processState),
   };
-}
-
-export async function startTtsServer(): Promise<StartTtsServerResult> {
-  const state = processManager.getState();
-
-  if (state.isRunning) {
-    return {
-      alreadyRunning: true,
-      started: true,
-    };
-  }
-
-  return {
-    alreadyRunning: false,
-    started: await processManager.start(),
-  };
-}
-
-export async function stopTtsServer(): Promise<void> {
-  await processManager.stop();
 }

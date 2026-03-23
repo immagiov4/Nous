@@ -8,6 +8,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { LessonImageRef, PdfImageAsset } from '../types';
 import { parsePdfContentParts } from '../utils/pdfImagePlaceholders';
+import { normalizeMarkdownForRendering } from '../utils/renderMarkdown.ts';
 
 interface MarkdownRendererProps {
   content: string;
@@ -138,7 +139,7 @@ const MarkdownRenderer = ({
             rehypePlugins={[rehypeKatex, rehypeRaw]}
             components={markdownComponents}
           >
-            {part.content}
+            {normalizeMarkdownForRendering(part.content)}
           </ReactMarkdown>
         ) : (
           <figure

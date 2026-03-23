@@ -1,5 +1,5 @@
-import { getBackendUrl } from './config';
-import type { TtsStatusResponse, TtsVoiceDescriptor } from './types';
+import { getBackendUrl } from './config.ts';
+import type { TtsStatusResponse, TtsVoiceDescriptor } from './types.ts';
 
 interface GenerateSpeechPayload {
   text: string;

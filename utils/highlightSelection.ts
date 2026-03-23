@@ -1,3 +1,5 @@
+import { getMarkdownCodeRanges, type MarkdownRange } from './markdownCodeRanges.ts';
+
 export interface HighlightSelectionOptions {
   content: string;
   contextAfter?: string;
@@ -13,11 +15,6 @@ interface VisibleProjection {
 interface TextMatch {
   index: number;
   text: string;
-}
-
-interface SourceSegment {
-  start: number;
-  end: number;
 }
 
 const MARK_OPEN = '<mark>';
@@ -36,6 +33,7 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
   const sourceIndexes: number[] = [];
   let index = 0;
   let atLineStart = true;
+  let activeCodeDelimiter: string | null = null;
 
   const pushCharacter = (character: string, sourceIndex: number) => {
     characters.push(character);
@@ -50,9 +48,7 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
     }
 
     if (atLineStart) {
-      const blockMarkerMatch = content
-        .slice(index)
-        .match(/^\s{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)\s+/u);
+      const blockMarkerMatch = content.slice(index).match(/^\s{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)\s+/u);
 
       if (blockMarkerMatch) {
         index += blockMarkerMatch[0].length;
@@ -72,6 +68,26 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
       pushCharacter('\n', index);
       atLineStart = true;
       index += 1;
+      continue;
+    }
+
+    if (activeCodeDelimiter) {
+      if (content.startsWith(activeCodeDelimiter, index)) {
+        index += activeCodeDelimiter.length;
+        activeCodeDelimiter = null;
+        continue;
+      }
+
+      pushCharacter(currentCharacter, index);
+      atLineStart = false;
+      index += 1;
+      continue;
+    }
+
+    if (currentCharacter === '`') {
+      const delimiterLength = content.slice(index).match(/^`+/u)?.[0].length ?? 1;
+      activeCodeDelimiter = '`'.repeat(delimiterLength);
+      index += delimiterLength;
       continue;
     }
 
@@ -111,7 +127,7 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
       continue;
     }
 
-    const markdownToken = MARKDOWN_TOKENS.find((token) => content.startsWith(token, index));
+    const markdownToken = MARKDOWN_TOKENS.find(token => content.startsWith(token, index));
     if (markdownToken) {
       index += markdownToken.length;
       continue;
@@ -141,16 +157,13 @@ const resolveExactMatch = (
   const selectionMatches = [...text.matchAll(exactSelectionRegex)];
 
   const match =
-    selectionMatches.find((candidate) => {
+    selectionMatches.find(candidate => {
       const candidateIndex = candidate.index ?? 0;
       const beforeSlice = normalizeWhitespace(
         text.slice(Math.max(0, candidateIndex - 64), candidateIndex)
       );
       const afterSlice = normalizeWhitespace(
-        text.slice(
-          candidateIndex + candidate[0].length,
-          candidateIndex + candidate[0].length + 64
-        )
+        text.slice(candidateIndex + candidate[0].length, candidateIndex + candidate[0].length + 64)
       );
 
       const beforeOk =
@@ -178,12 +191,12 @@ const buildSourceSegments = (
   projection: VisibleProjection,
   matchStart: number,
   matchLength: number
-): SourceSegment[] => {
+): MarkdownRange[] => {
   if (matchLength <= 0) {
     return [];
   }
 
-  const segments: SourceSegment[] = [];
+  const segments: MarkdownRange[] = [];
   let segmentStart = projection.sourceIndexes[matchStart];
   let previousSourceIndex = segmentStart;
 
@@ -203,18 +216,60 @@ const buildSourceSegments = (
   return segments;
 };
 
-const buildMarkableSegments = (content: string, segments: SourceSegment[]): SourceSegment[] =>
-  segments.flatMap((segment) => {
-    const segmentText = content.slice(segment.start, segment.end);
-    const leadingWhitespaceLength = segmentText.match(/^\s*/u)?.[0].length ?? 0;
-    const trailingWhitespaceLength = segmentText.match(/\s*$/u)?.[0].length ?? 0;
-    const start = segment.start + leadingWhitespaceLength;
-    const end = segment.end - trailingWhitespaceLength;
+const trimSegmentWhitespace = (content: string, segment: MarkdownRange): MarkdownRange | null => {
+  const segmentText = content.slice(segment.start, segment.end);
+  const leadingWhitespaceLength = segmentText.match(/^\s*/u)?.[0].length ?? 0;
+  const trailingWhitespaceLength = segmentText.match(/\s*$/u)?.[0].length ?? 0;
+  const start = segment.start + leadingWhitespaceLength;
+  const end = segment.end - trailingWhitespaceLength;
 
-    return start < end ? [{ start, end }] : [];
+  return start < end ? { start, end } : null;
+};
+
+const excludeProtectedRanges = (
+  segment: MarkdownRange,
+  protectedRanges: MarkdownRange[]
+): MarkdownRange[] => {
+  let fragments: MarkdownRange[] = [segment];
+
+  protectedRanges.forEach(protectedRange => {
+    fragments = fragments.flatMap(fragment => {
+      if (protectedRange.end <= fragment.start || protectedRange.start >= fragment.end) {
+        return [fragment];
+      }
+
+      const nextFragments: MarkdownRange[] = [];
+      if (protectedRange.start > fragment.start) {
+        nextFragments.push({ start: fragment.start, end: protectedRange.start });
+      }
+      if (protectedRange.end < fragment.end) {
+        nextFragments.push({ start: protectedRange.end, end: fragment.end });
+      }
+
+      return nextFragments;
+    });
   });
 
-const isSegmentWrapped = (content: string, segment: SourceSegment) => {
+  return fragments;
+};
+
+const buildMarkableSegments = (
+  content: string,
+  segments: MarkdownRange[],
+  protectedRanges: MarkdownRange[]
+): MarkdownRange[] =>
+  segments.flatMap(segment => {
+    const trimmedSegment = trimSegmentWhitespace(content, segment);
+    if (!trimmedSegment) {
+      return [];
+    }
+
+    return excludeProtectedRanges(trimmedSegment, protectedRanges)
+      .map(fragment => trimSegmentWhitespace(content, fragment))
+      .filter((fragment): fragment is MarkdownRange => Boolean(fragment));
+  });
+
+const isSegmentWrapped = (content: string, segment: MarkdownRange) => {
   if (segment.start < MARK_OPEN.length) {
     return false;
   }
@@ -225,12 +280,12 @@ const isSegmentWrapped = (content: string, segment: SourceSegment) => {
   );
 };
 
-const unwrapSegments = (content: string, segments: SourceSegment[]): string => {
+const unwrapSegments = (content: string, segments: MarkdownRange[]): string => {
   let updatedContent = content;
 
   [...segments]
     .sort((left, right) => right.start - left.start)
-    .forEach((segment) => {
+    .forEach(segment => {
       updatedContent =
         updatedContent.slice(0, segment.end) +
         updatedContent.slice(segment.end + MARK_CLOSE.length);
@@ -242,11 +297,11 @@ const unwrapSegments = (content: string, segments: SourceSegment[]): string => {
   return updatedContent;
 };
 
-const wrapSegments = (content: string, segments: SourceSegment[]): string => {
+const wrapSegments = (content: string, segments: MarkdownRange[]): string => {
   let cursor = 0;
   let updatedContent = '';
 
-  segments.forEach((segment) => {
+  segments.forEach(segment => {
     updatedContent += `${content.slice(cursor, segment.start)}${MARK_OPEN}${content.slice(segment.start, segment.end)}${MARK_CLOSE}`;
     cursor = segment.end;
   });
@@ -254,6 +309,14 @@ const wrapSegments = (content: string, segments: SourceSegment[]): string => {
   updatedContent += content.slice(cursor);
   return updatedContent;
 };
+
+const overlapsProtectedRange = (
+  segment: MarkdownRange,
+  protectedRanges: MarkdownRange[]
+): boolean =>
+  protectedRanges.some(
+    protectedRange => protectedRange.start < segment.end && protectedRange.end > segment.start
+  );
 
 export const toggleHighlightInContent = ({
   content,
@@ -267,6 +330,7 @@ export const toggleHighlightInContent = ({
   }
 
   const visibleProjection = buildVisibleProjection(content);
+  const protectedRanges = getMarkdownCodeRanges(content);
   const exactMatch = resolveExactMatch(
     visibleProjection.text,
     trimmedTargetText,
@@ -282,24 +346,25 @@ export const toggleHighlightInContent = ({
 
     const segments = buildMarkableSegments(
       content,
-      buildSourceSegments(visibleProjection, exactMatch.index, exactMatch.text.length)
+      buildSourceSegments(visibleProjection, exactMatch.index, exactMatch.text.length),
+      protectedRanges
     );
 
     if (segments.length === 0) {
       return null;
     }
 
-    if (segments.every((segment) => isSegmentWrapped(content, segment))) {
+    if (segments.every(segment => isSegmentWrapped(content, segment))) {
       return unwrapSegments(content, segments);
     }
 
     return wrapSegments(
       content,
-      segments.filter((segment) => !isSegmentWrapped(content, segment))
+      segments.filter(segment => !isSegmentWrapped(content, segment))
     );
   }
 
-  const escapedWords = words.map((word) => escapeRegex(word));
+  const escapedWords = words.map(word => escapeRegex(word));
   const junkPattern = '[^\\p{L}\\p{N}]+';
   const pattern = escapedWords.join(junkPattern);
   const wordChar = '[\\p{L}\\p{N}]';
@@ -314,24 +379,32 @@ export const toggleHighlightInContent = ({
     const startIdx = match.index ?? 0;
     const segments = buildMarkableSegments(
       content,
-      buildSourceSegments(visibleProjection, startIdx, matchedText.length)
+      buildSourceSegments(visibleProjection, startIdx, matchedText.length),
+      protectedRanges
     );
 
     if (segments.length === 0) {
       return null;
     }
 
-    if (segments.every((segment) => isSegmentWrapped(content, segment))) {
+    if (segments.every(segment => isSegmentWrapped(content, segment))) {
       return unwrapSegments(content, segments);
     }
 
     return wrapSegments(
       content,
-      segments.filter((segment) => !isSegmentWrapped(content, segment))
+      segments.filter(segment => !isSegmentWrapped(content, segment))
     );
   }
 
-  if (content.includes(selectedText)) {
+  const rawMatchIndex = content.indexOf(selectedText);
+  if (
+    rawMatchIndex !== -1 &&
+    !overlapsProtectedRange(
+      { start: rawMatchIndex, end: rawMatchIndex + selectedText.length },
+      protectedRanges
+    )
+  ) {
     return content.replace(selectedText, `${MARK_OPEN}${selectedText}${MARK_CLOSE}`);
   }
 

@@ -1,21 +1,12 @@
-import { getErrorMessage, normalizeTtsConnectionError, type VoiceName } from './shared';
-import { requestSpeechAudio, requestTtsStatus, requestTtsVoices } from './ttsClient';
+import { DEFAULT_VOICE_OPTIONS, normalizeVoiceProfileId, type VoiceOption } from '../voiceProfile.ts';
+import { getErrorMessage, normalizeTtsConnectionError, type VoiceProfileId } from './shared.ts';
+import { requestSpeechAudio, requestTtsStatus, requestTtsVoices } from './ttsClient.ts';
 
-const voiceMapping: Record<VoiceName, string> = {
-  Kore: 'mario',
-  Fenrir: 'mario',
-  Puck: 'mario',
-  Zephyr: 'mario',
-  Charon: 'mario',
-  Marco: 'mario',
-  Giulia: 'mario',
-};
-
-export const generateSpeech = async (text: string, voice: VoiceName): Promise<ArrayBuffer> => {
+export const generateSpeech = async (text: string, voice: VoiceProfileId): Promise<ArrayBuffer> => {
   try {
     return await requestSpeechAudio({
       text,
-      voice: voiceMapping[voice],
+      voice,
       speed: 1,
     });
   } catch (error) {
@@ -44,10 +35,15 @@ export const checkTTSStatus = async (): Promise<{
   }
 };
 
-export const getTTSVoices = async (): Promise<Array<{ id: string; name: string; language: string }>> => {
+export const getTTSVoices = async (): Promise<VoiceOption[]> => {
   try {
-    return await requestTtsVoices();
+    const voices = await requestTtsVoices();
+    return voices.map(voice => ({
+      id: normalizeVoiceProfileId(voice.id),
+      label: voice.name,
+      language: voice.language,
+    }));
   } catch {
-    return [];
+    return DEFAULT_VOICE_OPTIONS;
   }
 };

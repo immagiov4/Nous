@@ -1,6 +1,28 @@
-import { AppState, type FileData, type LearningPlan, type PdfDocumentAssets, type PdfTextIndex, type ProjectExportData, type ProjectId, type ProjectSnapshot, type ProjectSourceKind, type SavedProjectMeta, type SyllabusItem, type UserProfile } from '../types';
+import {
+  AppState,
+  type CodebaseBundleSource,
+  type FileData,
+  type LearningPlan,
+  type PdfDocumentAssets,
+  type PdfTextIndex,
+  type ProjectExportData,
+  type ProjectId,
+  type ProjectSnapshot,
+  type ProjectSource,
+  type ProjectSourceKind,
+  type SavedProjectMeta,
+  type SyllabusItem,
+  type UserProfile,
+} from '../types.ts';
+import {
+  createProjectSourceFromFile,
+  getProjectSourceFile,
+  getProjectSourceName,
+  isDocumentProjectSource,
+  isPdfFileData,
+} from './projectSource.ts';
 
-const CURRENT_PROJECT_VERSION = '3.2';
+const CURRENT_PROJECT_VERSION = '4.0';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
@@ -16,23 +38,32 @@ export const createProjectId = (): ProjectId => {
   return `project-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 };
 
-export const inferProjectSourceKind = (snapshot: Pick<ProjectSnapshot, 'file' | 'isLearnMode'>, imported = false): ProjectSourceKind => {
+export const inferProjectSourceKind = (
+  snapshot: Pick<ProjectSnapshot, 'source' | 'isLearnMode'>,
+  imported = false
+): ProjectSourceKind => {
   if (snapshot.isLearnMode) {
     return 'learn-mode';
   }
 
-  if (snapshot.file?.mimeType === 'application/zip' || snapshot.file?.name.toLowerCase().endsWith('.zip')) {
+  if (isDocumentProjectSource(snapshot.source)) {
+    return 'document';
+  }
+
+  if (snapshot.source?.kind === 'codebase-bundle') {
     return 'codebase';
   }
 
-  if (snapshot.file) {
+  if (snapshot.source) {
     return 'document';
   }
 
   return imported ? 'imported-json' : 'document';
 };
 
-export const getProjectTitle = (snapshot: Pick<ProjectSnapshot, 'learningPlan' | 'file' | 'userProfile' | 'isLearnMode'>): string => {
+export const getProjectTitle = (
+  snapshot: Pick<ProjectSnapshot, 'learningPlan' | 'source' | 'userProfile' | 'isLearnMode'>
+): string => {
   const planTitle = snapshot.learningPlan?.title?.trim();
   if (planTitle) {
     return planTitle;
@@ -43,17 +74,30 @@ export const getProjectTitle = (snapshot: Pick<ProjectSnapshot, 'learningPlan' |
     return userTopic;
   }
 
-  const fileName = snapshot.file?.name?.trim();
-  if (fileName) {
-    return fileName;
+  const sourceName = getProjectSourceName(snapshot.source).trim();
+  if (sourceName) {
+    return sourceName;
   }
 
   return snapshot.isLearnMode ? 'Nuovo percorso AI' : 'Nuovo progetto';
 };
 
-export const buildCoverLabel = (snapshot: Pick<ProjectSnapshot, 'file' | 'learningPlan' | 'isLearnMode'>, sourceKind: ProjectSourceKind): string => {
-  if (snapshot.file?.name) {
-    return snapshot.file.name;
+export const buildCoverLabel = (
+  snapshot: Pick<ProjectSnapshot, 'source' | 'learningPlan' | 'isLearnMode'>,
+  sourceKind: ProjectSourceKind
+): string => {
+  if (snapshot.source?.kind === 'pdf') {
+    return snapshot.source.file.name;
+  }
+
+  if (snapshot.source?.kind === 'codebase-bundle') {
+    if (sourceKind === 'document') {
+      return snapshot.source.name;
+    }
+
+    return snapshot.source.files.length > 0
+      ? `${snapshot.source.files.length} file`
+      : snapshot.source.name;
   }
 
   if (sourceKind === 'learn-mode') {
@@ -82,7 +126,7 @@ export const buildProjectMeta = (
     lastOpenedAt: previousMeta?.lastOpenedAt || now,
     lessonCount,
     completedCount,
-    hasSourceFile: Boolean(snapshot.file),
+    hasSourceFile: Boolean(snapshot.source),
     coverLabel: buildCoverLabel(snapshot, sourceKind),
     syncState: previousMeta?.syncState || 'local-only',
   };
@@ -93,15 +137,16 @@ export const createProjectSnapshot = (
 ): ProjectSnapshot => ({
   id: partial.id,
   version: partial.version || CURRENT_PROJECT_VERSION,
-  sourceKind: partial.sourceKind || inferProjectSourceKind({ file: partial.file || null, isLearnMode: partial.isLearnMode || false }),
+  sourceKind:
+    partial.sourceKind ||
+    inferProjectSourceKind({ source: partial.source || null, isLearnMode: partial.isLearnMode || false }),
   state: partial.state || AppState.LIBRARY,
-  file: partial.file || null,
+  source: partial.source || null,
   learningPlan: partial.learningPlan || null,
   isLearnMode: partial.isLearnMode || false,
   userProfile: partial.userProfile || null,
   syllabus: partial.syllabus || [],
   activeSectionId: partial.activeSectionId || null,
-  musicUrl: partial.musicUrl || partial.learningPlan?.backgroundMusicUrl || '',
   createdAt: partial.createdAt || new Date().toISOString(),
   updatedAt: partial.updatedAt || new Date().toISOString(),
   lastOpenedAt: partial.lastOpenedAt || new Date().toISOString(),
@@ -123,6 +168,61 @@ const parseFileData = (value: unknown): FileData | null => {
     mimeType: value.mimeType,
     data: value.data,
   };
+};
+
+const parseCodebaseBundleSource = (value: Record<string, unknown>): CodebaseBundleSource | null => {
+  if (!isString(value.name) || !isString(value.aggregatedText) || !Array.isArray(value.files)) {
+    return null;
+  }
+
+  return {
+    kind: 'codebase-bundle',
+    name: value.name,
+    aggregatedText: value.aggregatedText,
+    files: value.files
+      .filter(isRecord)
+      .map(file => ({
+        path: ensureString(file.path),
+        text: ensureString(file.text),
+        truncated: typeof file.truncated === 'boolean' ? file.truncated : undefined,
+      }))
+      .filter(file => file.path && file.text),
+    stats: {
+      includedFileCount:
+        isRecord(value.stats) && typeof value.stats.includedFileCount === 'number'
+          ? value.stats.includedFileCount
+          : 0,
+      skippedFileCount:
+        isRecord(value.stats) && typeof value.stats.skippedFileCount === 'number'
+          ? value.stats.skippedFileCount
+          : 0,
+      truncatedFileCount:
+        isRecord(value.stats) && typeof value.stats.truncatedFileCount === 'number'
+          ? value.stats.truncatedFileCount
+          : 0,
+      totalCharacterCount:
+        isRecord(value.stats) && typeof value.stats.totalCharacterCount === 'number'
+          ? value.stats.totalCharacterCount
+          : value.aggregatedText.length,
+    },
+  };
+};
+
+const parseProjectSource = (value: unknown): ProjectSource | null => {
+  if (!isRecord(value) || !isString(value.kind)) {
+    return null;
+  }
+
+  if (value.kind === 'pdf') {
+    const file = parseFileData(value.file);
+    return file && isPdfFileData(file) ? { kind: 'pdf', file } : null;
+  }
+
+  if (value.kind === 'codebase-bundle') {
+    return parseCodebaseBundleSource(value);
+  }
+
+  return null;
 };
 
 const parseLearningPlan = (value: unknown): LearningPlan | null => {
@@ -207,7 +307,12 @@ const parseUserProfile = (value: unknown): UserProfile | null => {
 
 const parseSyllabus = (value: unknown): SyllabusItem[] => (Array.isArray(value) ? (value as SyllabusItem[]) : []);
 
-export const normalizeImportedProject = (data: unknown): ProjectSnapshot => {
+const parseExplicitSourceKind = (value: unknown): ProjectSourceKind | undefined =>
+  value === 'document' || value === 'codebase' || value === 'learn-mode' || value === 'imported-json'
+    ? value
+    : undefined;
+
+const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapshot => {
   const nextId = createProjectId();
   const now = new Date().toISOString();
 
@@ -217,29 +322,27 @@ export const normalizeImportedProject = (data: unknown): ProjectSnapshot => {
 
   const learningPlan = parseLearningPlan(data.learningPlan ?? data);
   const syllabus = parseSyllabus(data.syllabus);
-  const file = parseFileData(data.file);
+  const source = parseProjectSource(data.source);
+  const legacyFile = parseFileData(data.file);
+  const fallbackSource = source || (legacyFile ? createProjectSourceFromFile(legacyFile) : null);
   const hasParentSections = learningPlan?.sections.some(section => Boolean(section.parentId)) || false;
   const isLearnMode = typeof data.isLearnMode === 'boolean' ? data.isLearnMode : syllabus.length > 0 || hasParentSections;
-  const explicitSourceKind =
-    data.sourceKind === 'document' ||
-    data.sourceKind === 'codebase' ||
-    data.sourceKind === 'learn-mode' ||
-    data.sourceKind === 'imported-json'
-      ? data.sourceKind
-      : undefined;
+  const explicitSourceKind = parseExplicitSourceKind(data.sourceKind);
 
   return createProjectSnapshot({
     id: isString(data.id) ? data.id : nextId,
     version: ensureString(data.version, CURRENT_PROJECT_VERSION),
     state: learningPlan ? AppState.READING : AppState.LIBRARY,
-    sourceKind: explicitSourceKind || inferProjectSourceKind({ file, isLearnMode }, true),
-    file,
-    learningPlan,
+    sourceKind: explicitSourceKind || inferProjectSourceKind({ source: fallbackSource, isLearnMode }, imported),
+    source: fallbackSource,
+    learningPlan:
+      learningPlan && !learningPlan.backgroundMusicUrl && isString(data.musicUrl)
+        ? { ...learningPlan, backgroundMusicUrl: ensureString(data.musicUrl) }
+        : learningPlan,
     isLearnMode,
     userProfile: parseUserProfile(data.userProfile),
     syllabus,
     activeSectionId: ensureString(data.activeSectionId) || null,
-    musicUrl: ensureString(data.musicUrl || learningPlan?.backgroundMusicUrl),
     createdAt: ensureString(data.createdAt, now),
     updatedAt: ensureString(data.updatedAt, now),
     lastOpenedAt: ensureString(data.lastOpenedAt, now),
@@ -248,17 +351,24 @@ export const normalizeImportedProject = (data: unknown): ProjectSnapshot => {
   });
 };
 
+export const normalizeStoredProject = (data: unknown): ProjectSnapshot =>
+  normalizeProjectRecord(data, false);
+
+export const normalizeImportedProject = (data: unknown): ProjectSnapshot =>
+  normalizeProjectRecord(data, true);
+
 export const exportProjectData = (snapshot: ProjectSnapshot): ProjectExportData => ({
   id: snapshot.id,
   version: snapshot.version,
   state: snapshot.state,
-  file: snapshot.file,
+  file: getProjectSourceFile(snapshot.source),
+  source: snapshot.source,
   learningPlan: snapshot.learningPlan,
   isLearnMode: snapshot.isLearnMode,
   userProfile: snapshot.userProfile,
   syllabus: snapshot.syllabus,
   activeSectionId: snapshot.activeSectionId,
-  musicUrl: snapshot.musicUrl || snapshot.learningPlan?.backgroundMusicUrl || '',
+  musicUrl: snapshot.learningPlan?.backgroundMusicUrl || '',
   sourceKind: snapshot.sourceKind,
   documentAssets: snapshot.documentAssets ?? null,
   documentIndex: snapshot.documentIndex ?? null,

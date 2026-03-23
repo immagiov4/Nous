@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, Crosshair, FastForward, Loader2, Pause, Play, SkipBack, SkipForward, Volume2 } from 'lucide-react';
-import type { VoiceName } from '../types';
+import type { VoiceProfileId } from '../types';
 
 interface AudioPlayerProps {
   isPlaying: boolean;
   isLoading: boolean;
-  currentVoice: VoiceName;
+  availableVoices: Array<{ id: VoiceProfileId; label: string; language: string }>;
+  currentVoice: VoiceProfileId;
   playbackRate: number;
   isVertical?: boolean;
   dockOffsetPx?: number;
@@ -14,7 +15,7 @@ interface AudioPlayerProps {
   duration: number;
   ttsConnected?: boolean;
   onPlayPause: () => void;
-  onVoiceChange: (voice: VoiceName) => void;
+  onVoiceChange: (voice: VoiceProfileId) => void;
   onSpeedChange: (speed: number) => void;
   onToggleAudioSyncLink: () => void;
   onSeek: (time: number) => void;
@@ -24,6 +25,7 @@ interface AudioPlayerProps {
 const AudioPlayer = ({
   isPlaying,
   isLoading,
+  availableVoices,
   currentVoice,
   playbackRate,
   isVertical = false,
@@ -39,7 +41,6 @@ const AudioPlayer = ({
   onSeek,
   onSkipChunk,
 }: AudioPlayerProps) => {
-  const voices: VoiceName[] = ['Mario' as VoiceName];
   const [isHovered, setIsHovered] = useState(false);
   const [isTouchExpanded, setIsTouchExpanded] = useState(false);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
@@ -298,15 +299,15 @@ const AudioPlayer = ({
           <div className={`flex items-center ${isVertical ? 'flex-col gap-4' : 'gap-8'}`}>
             <div className={`flex items-center gap-2 ${isVertical ? 'flex-col' : ''}`}>
               <Volume2 className={`h-4 w-4 ${iconColorClass}`} />
-              <select
+                <select
                 value={currentVoice}
-                onChange={(event) => onVoiceChange(event.target.value as VoiceName)}
+                onChange={(event) => onVoiceChange(event.target.value as VoiceProfileId)}
                 className={`min-w-[70px] cursor-pointer appearance-none bg-transparent text-center text-xs font-bold uppercase tracking-wider focus:outline-none ${iconColorClass} ${iconHoverClass}`}
                 disabled={isLoading || isPlaying || !ttsConnected}
               >
-                {voices.map((voice) => (
-                  <option key={voice} value={voice} className="dark:bg-zinc-800 dark:text-gray-100">
-                    {voice}
+                {availableVoices.map((voice) => (
+                  <option key={voice.id} value={voice.id} className="dark:bg-zinc-800 dark:text-gray-100">
+                    {voice.label}
                   </option>
                 ))}
               </select>

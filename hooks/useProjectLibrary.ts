@@ -1,185 +1,56 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getErrorMessage } from '../services/errorMessage.ts';
 import { IndexedDbProjectRepository } from '../services/indexedDbProjectRepository';
 import { createProjectSnapshot, exportProjectData } from '../services/projectSnapshot';
+import { buildPersistenceSignature } from '../services/persistenceSignature';
 import { ProjectStorageError } from '../services/projectRepository';
-import { createClosedContextMenuState } from '../utils/contextMenuSelection';
-import { restoreLegacyPdfImagePlaceholders } from '../utils/pdfImagePlaceholders';
+import { resolvePersistedAppState } from '../services/workspacePersistence';
 import {
-  AppState,
-  type ContextMenuState,
-  type FileData,
-  type LearningPlan,
-  type Message,
-  type PdfDocumentAssets,
-  type PdfTextIndex,
   type ProjectExportData,
   type ProjectSnapshot,
-  type QuizQuestion,
   type SavedProjectMeta,
-  type SyllabusItem,
-  type UiPreferences,
-  type UserProfile,
-  type VoiceName,
+  type WorkspaceDomainState,
 } from '../types';
 
-const UI_PREFERENCES_KEY = 'lumina-ui-preferences';
 const projectRepository = new IndexedDbProjectRepository();
 
-interface WorkspaceState {
-  state: AppState;
-  file: FileData | null;
-  learningPlan: LearningPlan | null;
-  documentAssets: PdfDocumentAssets | null;
-  documentIndex: PdfTextIndex | null;
-  isLearnMode: boolean;
-  userProfile: UserProfile | null;
-  syllabus: SyllabusItem[];
-  activeSectionId: string | null;
-  musicUrl: string;
-  isDarkMode: boolean;
-  teleprompterSpeed: number;
-  preferredVoice: VoiceName;
-  playbackRate: number;
+interface UseProjectLibraryArgs {
+  domainState: WorkspaceDomainState;
 }
 
-interface ProjectLibrarySetters<TChatSession, TContextAnswer> {
-  setState: Dispatch<SetStateAction<AppState>>;
-  setIsLoading: Dispatch<SetStateAction<boolean>>;
-  setFile: Dispatch<SetStateAction<FileData | null>>;
-  setLearningPlan: Dispatch<SetStateAction<LearningPlan | null>>;
-  setDocumentAssets: Dispatch<SetStateAction<PdfDocumentAssets | null>>;
-  setDocumentIndex: Dispatch<SetStateAction<PdfTextIndex | null>>;
-  setAssessmentMessages: Dispatch<SetStateAction<Message[]>>;
-  setCurrentAssessmentInput: Dispatch<SetStateAction<string>>;
-  setChatSession: Dispatch<SetStateAction<TChatSession | null>>;
-  setIsLearnMode: Dispatch<SetStateAction<boolean>>;
-  setUserProfile: Dispatch<SetStateAction<UserProfile | null>>;
-  setSyllabus: Dispatch<SetStateAction<SyllabusItem[]>>;
-  setMusicUrl: Dispatch<SetStateAction<string>>;
-  setIsQuizSubmitted: Dispatch<SetStateAction<boolean>>;
-  setContextAnswer: Dispatch<SetStateAction<TContextAnswer | null>>;
-  setContextMenu: Dispatch<SetStateAction<ContextMenuState>>;
-  setSpeechBlocks: Dispatch<SetStateAction<string[]>>;
-  setIsFocusMode: Dispatch<SetStateAction<boolean>>;
-  setActiveSectionId: Dispatch<SetStateAction<string | null>>;
-  setSectionContent: Dispatch<SetStateAction<string>>;
-  setQuiz: Dispatch<SetStateAction<QuizQuestion[]>>;
-  setQuizAnswers: Dispatch<SetStateAction<number[]>>;
-  setIsDarkMode: Dispatch<SetStateAction<boolean>>;
-  setTeleprompterSpeed: Dispatch<SetStateAction<number>>;
-}
+const sortProjects = (projects: SavedProjectMeta[]) =>
+  projects
+    .slice()
+    .sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime());
 
-interface AudioPreferenceHandlers {
-  applyPreferredVoice: (voice: VoiceName) => void;
-  applyPlaybackRate: (rate: number) => void;
-  setTestVoice: (voice: VoiceName) => void;
-}
-
-interface UseProjectLibraryArgs<TChatSession, TContextAnswer> {
-  audioHandlers: AudioPreferenceHandlers;
-  workspace: WorkspaceState;
-  setters: ProjectLibrarySetters<TChatSession, TContextAnswer>;
-}
-
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return 'Unknown error';
-};
-
-const normalizeLearningPlanContent = (learningPlan: LearningPlan | null): LearningPlan | null => {
-  if (!learningPlan) {
-    return null;
-  }
-
-  let didChange = false;
-  const normalizedSections = learningPlan.sections.map((section) => {
-    if (!section.content) {
-      return section;
-    }
-
-    const normalizedContent = restoreLegacyPdfImagePlaceholders(section.content);
-    if (normalizedContent === section.content) {
-      return section;
-    }
-
-    didChange = true;
-    return {
-      ...section,
-      content: normalizedContent,
-    };
-  });
-
-  return didChange
-    ? {
-        ...learningPlan,
-        sections: normalizedSections,
-      }
-    : learningPlan;
-};
-
-export const useProjectLibrary = <TChatSession, TContextAnswer>({
-  audioHandlers,
-  workspace,
-  setters,
-}: UseProjectLibraryArgs<TChatSession, TContextAnswer>) => {
-  const { applyPlaybackRate, applyPreferredVoice, setTestVoice } = audioHandlers;
-  const {
-    setActiveSectionId,
-    setAssessmentMessages,
-    setChatSession,
-    setContextAnswer,
-    setContextMenu,
-    setCurrentAssessmentInput,
-    setFile,
-    setIsDarkMode,
-    setIsFocusMode,
-    setIsLearnMode,
-    setIsLoading,
-    setIsQuizSubmitted,
-    setLearningPlan,
-    setDocumentAssets,
-    setDocumentIndex,
-    setMusicUrl,
-    setQuiz,
-    setQuizAnswers,
-    setSectionContent,
-    setSpeechBlocks,
-    setState,
-    setSyllabus,
-    setTeleprompterSpeed,
-    setUserProfile,
-  } = setters;
-
+export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [savedProjects, setSavedProjects] = useState<SavedProjectMeta[]>([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
-  const [needsSourceFile, setNeedsSourceFile] = useState(false);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const isProjectHydratedRef = useRef(false);
   const persistentStorageRequestedRef = useRef(false);
   const didLoadInitialStateRef = useRef(false);
+  const lastPersistedSignatureRef = useRef<string>('');
 
-  const sortProjects = useCallback(
-    (projects: SavedProjectMeta[]) => projects.slice().sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime()),
-    []
+  const currentProjectMeta = useMemo(
+    () => savedProjects.find(project => project.id === currentProjectId) || null,
+    [currentProjectId, savedProjects]
   );
-
-  const syncProjectMeta = useCallback((meta: SavedProjectMeta) => {
-    setSavedProjects((previousProjects) => {
-      const nextProjects = previousProjects.filter(project => project.id !== meta.id);
-      nextProjects.push(meta);
-      return sortProjects(nextProjects);
-    });
-  }, [sortProjects]);
 
   const refreshSavedProjects = useCallback(async () => {
     const projects = await projectRepository.listProjects();
     setSavedProjects(sortProjects(projects));
-  }, [sortProjects]);
+  }, []);
+
+  const syncProjectMeta = useCallback((meta: SavedProjectMeta) => {
+    setSavedProjects(previousProjects => {
+      const nextProjects = previousProjects.filter(project => project.id !== meta.id);
+      nextProjects.push(meta);
+      return sortProjects(nextProjects);
+    });
+  }, []);
 
   const requestPersistentStorage = useCallback(async () => {
     if (persistentStorageRequestedRef.current) {
@@ -199,90 +70,74 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     }
   }, []);
 
-  const resetWorkspace = useCallback(() => {
-    isProjectHydratedRef.current = false;
-    setCurrentProjectId(null);
-    setFile(null);
-    setLearningPlan(null);
-    setDocumentAssets(null);
-    setDocumentIndex(null);
-    setAssessmentMessages([]);
-    setCurrentAssessmentInput('');
-    setChatSession(null);
-    setMusicUrl('');
-    setActiveSectionId(null);
-    setSectionContent('');
-    setSpeechBlocks([]);
-    setQuiz([]);
-    setQuizAnswers([]);
-    setIsQuizSubmitted(false);
-    setContextMenu(createClosedContextMenuState());
-    setContextAnswer(null);
-    setIsFocusMode(false);
-    setIsLearnMode(false);
-    setUserProfile(null);
-    setSyllabus([]);
-    setNeedsSourceFile(false);
-  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setDocumentAssets, setDocumentIndex, setFile, setIsFocusMode, setIsLearnMode, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setSyllabus, setUserProfile]);
+  const buildSnapshotFromDomain = useCallback(
+    (overrides?: Partial<ProjectSnapshot>): ProjectSnapshot | null => {
+      const projectId = overrides?.id || currentProjectId;
+      if (!projectId) {
+        return null;
+      }
 
-  const currentProjectMeta = useMemo(
-    () => savedProjects.find((project) => project.id === currentProjectId) || null,
-    [currentProjectId, savedProjects]
+      return createProjectSnapshot({
+        id: projectId,
+        version: overrides?.version,
+        sourceKind: overrides?.sourceKind || currentProjectMeta?.sourceKind || undefined,
+        state: overrides?.state || resolvePersistedAppState(domainState),
+        source: overrides?.source !== undefined ? overrides.source : domainState.source,
+        learningPlan:
+          overrides?.learningPlan !== undefined ? overrides.learningPlan : domainState.learningPlan,
+        documentAssets:
+          overrides?.documentAssets !== undefined
+            ? overrides.documentAssets
+            : domainState.documentAssets,
+        documentIndex:
+          overrides?.documentIndex !== undefined
+            ? overrides.documentIndex
+            : domainState.documentIndex,
+        isLearnMode: overrides?.isLearnMode ?? domainState.isLearnMode,
+        userProfile:
+          overrides?.userProfile !== undefined ? overrides.userProfile : domainState.userProfile,
+        syllabus: overrides?.syllabus ?? domainState.syllabus,
+        activeSectionId:
+          overrides?.activeSectionId !== undefined
+            ? overrides.activeSectionId
+            : domainState.activeSectionId,
+        createdAt: overrides?.createdAt || currentProjectMeta?.createdAt,
+        updatedAt: overrides?.updatedAt || new Date().toISOString(),
+        lastOpenedAt: overrides?.lastOpenedAt || currentProjectMeta?.lastOpenedAt,
+      });
+    },
+    [currentProjectId, currentProjectMeta, domainState]
   );
 
-  const buildSnapshotFromState = useCallback((overrides?: Partial<ProjectSnapshot>): ProjectSnapshot | null => {
-    const projectId = overrides?.id || currentProjectId;
-    if (!projectId) {
-      return null;
-    }
+  const persistSnapshot = useCallback(
+    async (snapshot: ProjectSnapshot) => {
+      try {
+        const meta = await projectRepository.saveProject(snapshot);
+        syncProjectMeta(meta);
+        setStorageError(null);
+        lastPersistedSignatureRef.current = buildPersistenceSignature(snapshot);
+        void requestPersistentStorage();
+        return meta;
+      } catch (error) {
+        const message = error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+        setStorageError(message);
+        return null;
+      }
+    },
+    [requestPersistentStorage, syncProjectMeta]
+  );
 
-    const resolvedMusicUrl = overrides?.musicUrl ?? workspace.musicUrl ?? workspace.learningPlan?.backgroundMusicUrl ?? '';
-    const planWithMusic =
-      overrides?.learningPlan ??
-      (workspace.learningPlan ? { ...workspace.learningPlan, backgroundMusicUrl: resolvedMusicUrl } : null);
+  const saveCurrentProject = useCallback(
+    async (overrides?: Partial<ProjectSnapshot>) => {
+      const snapshot = buildSnapshotFromDomain(overrides);
+      if (!snapshot) {
+        return null;
+      }
 
-    return createProjectSnapshot({
-      id: projectId,
-      version: overrides?.version,
-      sourceKind: overrides?.sourceKind || currentProjectMeta?.sourceKind,
-      state: overrides?.state || workspace.state,
-      file: overrides?.file !== undefined ? overrides.file : workspace.file,
-      learningPlan: planWithMusic,
-      documentAssets: overrides?.documentAssets !== undefined ? overrides.documentAssets : workspace.documentAssets,
-      documentIndex: overrides?.documentIndex !== undefined ? overrides.documentIndex : workspace.documentIndex,
-      isLearnMode: overrides?.isLearnMode ?? workspace.isLearnMode,
-      userProfile: overrides?.userProfile !== undefined ? overrides.userProfile : workspace.userProfile,
-      syllabus: overrides?.syllabus ?? workspace.syllabus,
-      activeSectionId: overrides?.activeSectionId !== undefined ? overrides.activeSectionId : workspace.activeSectionId,
-      musicUrl: overrides?.musicUrl !== undefined ? overrides.musicUrl : workspace.musicUrl,
-      createdAt: overrides?.createdAt || currentProjectMeta?.createdAt,
-      updatedAt: overrides?.updatedAt,
-      lastOpenedAt: overrides?.lastOpenedAt || currentProjectMeta?.lastOpenedAt,
-    });
-  }, [currentProjectId, currentProjectMeta, workspace]);
-
-  const persistSnapshot = useCallback(async (snapshot: ProjectSnapshot) => {
-    try {
-      const meta = await projectRepository.saveProject(snapshot);
-      syncProjectMeta(meta);
-      setStorageError(null);
-      void requestPersistentStorage();
-      return meta;
-    } catch (error) {
-      const message = error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
-      setStorageError(message);
-      return null;
-    }
-  }, [requestPersistentStorage, syncProjectMeta]);
-
-  const saveCurrentProject = useCallback(async (overrides?: Partial<ProjectSnapshot>) => {
-    const snapshot = buildSnapshotFromState(overrides);
-    if (!snapshot) {
-      return null;
-    }
-
-    return persistSnapshot(snapshot);
-  }, [buildSnapshotFromState, persistSnapshot]);
+      return persistSnapshot(snapshot);
+    },
+    [buildSnapshotFromDomain, persistSnapshot]
+  );
 
   const downloadJson = useCallback((data: unknown, filename: string) => {
     const dataStr = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data))}`;
@@ -294,72 +149,27 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     downloadAnchorNode.remove();
   }, []);
 
-  const downloadProject = useCallback(async (projectId?: string) => {
-    const targetProjectId = projectId || currentProjectId;
-    if (!targetProjectId) {
-      return;
-    }
+  const downloadProject = useCallback(
+    async (projectId?: string) => {
+      const targetProjectId = projectId || currentProjectId;
+      if (!targetProjectId) {
+        return;
+      }
 
-    const exportData =
-      targetProjectId === currentProjectId
-        ? buildSnapshotFromState()
-        : await projectRepository.loadProject(targetProjectId);
+      const exportData =
+        targetProjectId === currentProjectId
+          ? buildSnapshotFromDomain()
+          : await projectRepository.loadProject(targetProjectId);
 
-    if (!exportData) {
-      return;
-    }
+      if (!exportData) {
+        return;
+      }
 
-    const payload: ProjectExportData = exportProjectData(exportData);
-    downloadJson(payload, `lumina-plan-${new Date().toISOString().slice(0, 10)}.json`);
-  }, [buildSnapshotFromState, currentProjectId, downloadJson]);
-
-  const applySnapshotToWorkspace = useCallback((snapshot: ProjectSnapshot) => {
-    const normalizedLearningPlan = normalizeLearningPlanContent(snapshot.learningPlan);
-    const normalizedSnapshot =
-      normalizedLearningPlan === snapshot.learningPlan
-        ? snapshot
-        : {
-            ...snapshot,
-            learningPlan: normalizedLearningPlan,
-          };
-
-    isProjectHydratedRef.current = false;
-    setIsLoading(false);
-    setCurrentProjectId(normalizedSnapshot.id);
-    setFile(normalizedSnapshot.file);
-    setLearningPlan(normalizedSnapshot.learningPlan);
-    setDocumentAssets(normalizedSnapshot.documentAssets ?? null);
-    setDocumentIndex(normalizedSnapshot.documentIndex ?? null);
-    setAssessmentMessages([]);
-    setCurrentAssessmentInput('');
-    setChatSession(null);
-    setIsLearnMode(normalizedSnapshot.isLearnMode);
-    setUserProfile(normalizedSnapshot.userProfile);
-    setSyllabus(normalizedSnapshot.syllabus);
-    setMusicUrl(normalizedSnapshot.musicUrl || normalizedSnapshot.learningPlan?.backgroundMusicUrl || '');
-    setNeedsSourceFile(!normalizedSnapshot.file && Boolean(normalizedSnapshot.learningPlan) && !normalizedSnapshot.isLearnMode);
-    setIsQuizSubmitted(false);
-    setContextAnswer(null);
-    setContextMenu(createClosedContextMenuState());
-    setSpeechBlocks([]);
-    setIsFocusMode(false);
-
-    const nextSection =
-      normalizedSnapshot.learningPlan?.sections.find(section => section.id === normalizedSnapshot.activeSectionId) ||
-      normalizedSnapshot.learningPlan?.sections.find(section => !section.isCompleted) ||
-      normalizedSnapshot.learningPlan?.sections[0] ||
-      null;
-
-    setActiveSectionId(nextSection?.id || null);
-    setSectionContent(nextSection?.content || '');
-    setQuiz(nextSection?.quiz || []);
-    setQuizAnswers(nextSection?.quiz ? new Array(nextSection.quiz.length).fill(-1) : []);
-    setState(normalizedSnapshot.learningPlan ? AppState.READING : AppState.LIBRARY);
-
-    window.setTimeout(() => {
-      isProjectHydratedRef.current = true;
-    }, 0);
-  }, [setActiveSectionId, setAssessmentMessages, setChatSession, setContextAnswer, setContextMenu, setCurrentAssessmentInput, setDocumentAssets, setDocumentIndex, setFile, setIsFocusMode, setIsLearnMode, setIsLoading, setIsQuizSubmitted, setLearningPlan, setMusicUrl, setQuiz, setQuizAnswers, setSectionContent, setSpeechBlocks, setState, setSyllabus, setUserProfile]);
+      const payload: ProjectExportData = exportProjectData(exportData);
+      downloadJson(payload, `lumina-plan-${new Date().toISOString().slice(0, 10)}.json`);
+    },
+    [buildSnapshotFromDomain, currentProjectId, downloadJson]
+  );
 
   useEffect(() => {
     if (didLoadInitialStateRef.current) {
@@ -370,28 +180,6 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
 
     const loadInitialState = async () => {
       try {
-        const rawPreferences = window.localStorage.getItem(UI_PREFERENCES_KEY);
-        if (rawPreferences) {
-          const parsed = JSON.parse(rawPreferences) as Partial<UiPreferences>;
-          if (typeof parsed.isDarkMode === 'boolean') {
-            setIsDarkMode(parsed.isDarkMode);
-          }
-          if (typeof parsed.teleprompterSpeed === 'number') {
-            setTeleprompterSpeed(parsed.teleprompterSpeed);
-          }
-          if (typeof parsed.preferredVoice === 'string') {
-            applyPreferredVoice(parsed.preferredVoice as VoiceName);
-            setTestVoice(parsed.preferredVoice as VoiceName);
-          }
-          if (typeof parsed.playbackRate === 'number') {
-            applyPlaybackRate(parsed.playbackRate);
-          }
-        }
-      } catch {
-        // Ignore corrupted local UI preferences.
-      }
-
-      try {
         await refreshSavedProjects();
       } finally {
         setIsLibraryLoading(false);
@@ -399,21 +187,19 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     };
 
     void loadInitialState();
-  }, [applyPlaybackRate, applyPreferredVoice, refreshSavedProjects, setIsDarkMode, setTeleprompterSpeed, setTestVoice]);
+  }, [refreshSavedProjects]);
 
-  useEffect(() => {
-    const nextPreferences: UiPreferences = {
-      isDarkMode: workspace.isDarkMode,
-      teleprompterSpeed: workspace.teleprompterSpeed,
-      preferredVoice: workspace.preferredVoice,
-      playbackRate: workspace.playbackRate,
-    };
-
-    window.localStorage.setItem(UI_PREFERENCES_KEY, JSON.stringify(nextPreferences));
-  }, [workspace.isDarkMode, workspace.playbackRate, workspace.preferredVoice, workspace.teleprompterSpeed]);
+  const currentPersistenceSignature = useMemo(
+    () => buildPersistenceSignature(domainState),
+    [domainState]
+  );
 
   useEffect(() => {
     if (!currentProjectId || !isProjectHydratedRef.current) {
+      return;
+    }
+
+    if (currentPersistenceSignature === lastPersistedSignatureRef.current) {
       return;
     }
 
@@ -431,10 +217,9 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
         autosaveTimeoutRef.current = null;
       }
     };
-  }, [currentProjectId, saveCurrentProject]);
+  }, [currentPersistenceSignature, currentProjectId, saveCurrentProject]);
 
   return {
-    applySnapshotToWorkspace,
     currentProjectId,
     deleteStoredProject: projectRepository.deleteProject.bind(projectRepository),
     downloadProject,
@@ -442,16 +227,16 @@ export const useProjectLibrary = <TChatSession, TContextAnswer>({
     isLibraryLoading,
     isProjectHydratedRef,
     loadStoredProject: projectRepository.loadProject.bind(projectRepository),
-    needsSourceFile,
     persistSnapshot,
     refreshSavedProjects,
-    resetWorkspace,
     saveCurrentProject,
     savedProjects,
     setCurrentProjectId,
-    setNeedsSourceFile,
     setProjectHydrated: (value: boolean) => {
       isProjectHydratedRef.current = value;
+      if (value) {
+        lastPersistedSignatureRef.current = currentPersistenceSignature;
+      }
     },
     storageError,
     touchStoredProject: projectRepository.touchProject.bind(projectRepository),

@@ -10,7 +10,7 @@ import {
   type ModuleBlueprint,
   type SyllabusItem,
   type UserProfile,
-} from './shared';
+} from './shared.ts';
 
 const runArchitect = async (profile: UserProfile): Promise<ModuleBlueprint[]> => {
   const prompt = `ROLE: Curriculum Architect & Researcher.
