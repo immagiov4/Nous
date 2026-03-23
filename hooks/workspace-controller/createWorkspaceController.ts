@@ -20,7 +20,9 @@ export const createWorkspaceController = (
   return {
     ...sectionCommands,
     ...projectLifecycleCommands,
+    confirmPlanGeneration: assessmentCommands.confirmPlanGeneration,
     exportProject: context.projectLibrary.downloadProject,
+    startHomeChat: assessmentCommands.startHomeChat,
     startLearnJourney: assessmentCommands.startLearnJourney,
     submitAssessment: assessmentCommands.submitAssessment,
   };

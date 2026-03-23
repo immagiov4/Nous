@@ -215,7 +215,7 @@ const MusicPlayer = ({
             rounded-full border p-2 transition-colors
             ${
               isOpen || isPlaying
-                ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200'
+                ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-200'
                 : 'bg-transparent border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-800'
             }
             ${hasError ? 'border-red-200 bg-red-50 text-red-500 dark:border-red-900/50 dark:bg-red-950/20' : ''}
@@ -233,7 +233,7 @@ const MusicPlayer = ({
             className="fixed inset-0 z-40 cursor-default"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 top-12 z-50 w-80 rounded-md border border-gray-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+          <div className="absolute right-0 top-12 z-50 w-80 rounded-md border border-gray-200 bg-white p-4 dark:border-zinc-700/80 dark:bg-zinc-950">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-zinc-200">
                 <Music className="w-4 h-4" />
@@ -260,7 +260,7 @@ const MusicPlayer = ({
                     value={url}
                     onChange={e => setUrl(e.target.value)}
                     placeholder="incolla link YouTube..."
-                    className={`flex-1 rounded-md border bg-white px-3 py-2 text-xs text-gray-800 outline-none transition-colors focus:border-gray-400 dark:bg-zinc-950 dark:text-gray-200 dark:focus:border-zinc-500 ${hasError ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200 dark:border-zinc-700'}`}
+                    className={`flex-1 rounded-md border bg-white px-3 py-2 text-xs text-gray-800 outline-none transition-colors focus:border-gray-400 dark:bg-zinc-950 dark:text-gray-200 dark:focus:border-zinc-500 ${hasError ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200 dark:border-zinc-600/80'}`}
                   />
                   {hasError && (
                     <button
@@ -281,7 +281,7 @@ const MusicPlayer = ({
                 )}
               </div>
 
-              <div className="flex items-center gap-4 rounded-md border border-gray-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+              <div className="flex items-center gap-4 rounded-md border border-gray-200 bg-white p-3 dark:border-zinc-700/80 dark:bg-zinc-900">
                 <button
                   type="button"
                   onClick={() => setIsPlaying(!isPlaying)}
@@ -320,7 +320,7 @@ const MusicPlayer = ({
                 </div>
               </div>
 
-              <div className="border-t border-gray-200/80 pt-2 dark:border-zinc-800">
+              <div className="border-t border-gray-200/80 pt-2 dark:border-zinc-700/80">
                 <p className="mb-2 text-[10px] text-gray-400">Preset Sicuri:</p>
                 <div className="flex flex-wrap gap-2">
                   {presets.map(preset => (
@@ -328,7 +328,7 @@ const MusicPlayer = ({
                       type="button"
                       key={preset.url}
                       onClick={() => setUrl(preset.url)}
-                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-gray-400 dark:hover:border-zinc-600 dark:hover:text-white"
+                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-gray-400 dark:hover:border-zinc-500 dark:hover:text-white"
                     >
                       {preset.name}
                     </button>

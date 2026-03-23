@@ -1,5 +1,6 @@
 import { ChevronRight, GraduationCap } from 'lucide-react';
 import type { QuizQuestion } from '../../types.ts';
+import MarkdownRenderer from '../MarkdownRenderer.tsx';
 
 interface WorkspaceReaderQuizProps {
   isQuizSubmitted: boolean;
@@ -37,7 +38,7 @@ const getQuizOptionClassName = ({
     return 'border-orange-300 bg-orange-50 text-orange-900 shadow-sm dark:border-orange-700 dark:bg-orange-900/10 dark:text-orange-300';
   }
 
-  return 'border-gray-100 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-gray-400 dark:hover:bg-zinc-700';
+  return 'border-gray-100 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-gray-400 dark:hover:bg-zinc-700';
 };
 
 export default function WorkspaceReaderQuiz({
@@ -49,7 +50,7 @@ export default function WorkspaceReaderQuiz({
   quizAnswers,
 }: WorkspaceReaderQuizProps) {
   return (
-    <div className="mt-24 border-t-2 border-dashed border-gray-200 pt-12 dark:border-zinc-800">
+    <div className="mt-24 border-t-2 border-dashed border-gray-200 pt-12 dark:border-zinc-700/80">
       <div className="mb-8 flex items-center gap-3">
         <div className="rounded-lg bg-orange-100 p-2 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400">
           <GraduationCap className="h-6 w-6" />
@@ -63,18 +64,18 @@ export default function WorkspaceReaderQuiz({
         {quiz.map((question, questionIndex) => (
           <div
             key={question.question}
-            className="rounded-2xl border border-gray-100 bg-white p-8 shadow-sm transition-all hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900"
+            className="rounded-2xl border border-gray-100 bg-white p-8 shadow-sm transition-all hover:shadow-md dark:border-zinc-700/80 dark:bg-zinc-800"
           >
-            <p className="mb-6 font-serif text-lg font-medium text-gray-800 dark:text-gray-200">
-              {question.question}
-            </p>
+            <div className="mb-6 font-serif text-lg font-medium text-gray-800 dark:text-gray-200">
+              <MarkdownRenderer content={question.question} className="prose-lg max-w-none" />
+            </div>
             <div className="space-y-3">
               {question.options.map((option, optionIndex) => (
                 <button
                   type="button"
                   key={`${question.question}-${option}`}
                   onClick={() => onSelectQuizAnswer(questionIndex, optionIndex)}
-                  className={`w-full rounded-xl border-2 p-4 text-left text-base transition-all ${getQuizOptionClassName(
+                  className={`flex w-full items-baseline gap-2 rounded-xl border-2 p-4 text-left text-base transition-all ${getQuizOptionClassName(
                     {
                       correctIndex: question.correctIndex,
                       isQuizSubmitted,
@@ -83,10 +84,12 @@ export default function WorkspaceReaderQuiz({
                     }
                   )}`}
                 >
-                  <span className="mr-2 inline-block w-6 font-bold opacity-40">
+                  <span className="mr-2 inline-block w-6 shrink-0 font-bold opacity-40">
                     {String.fromCharCode(65 + optionIndex)}.
                   </span>
-                  {option}
+                  <span className="min-w-0 flex-1">
+                    <MarkdownRenderer content={option} className="prose-sm max-w-none [&>p]:m-0" />
+                  </span>
                 </button>
               ))}
             </div>

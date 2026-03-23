@@ -76,7 +76,7 @@ export const resolveMobileContextMenuSyncAction = ({
     return 'open-from-selection';
   }
 
-  if (isMenuFocused || isMenuVisible) {
+  if (isMenuFocused) {
     return 'keep-existing-menu';
   }
 

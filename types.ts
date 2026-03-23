@@ -203,7 +203,6 @@ export interface OpenRouterModelPreferences {
 
 export interface UiPreferences extends OpenRouterModelPreferences {
   isDarkMode: boolean;
-  teleprompterSpeed: number;
   preferredVoice: VoiceProfileId;
   playbackRate: number;
 }
@@ -256,10 +255,6 @@ export interface AudioState {
   chunks: AudioChunk[];
   currentChunkIndex: number;
   audioElement: HTMLAudioElement | null;
-}
-
-export interface CalibrationPoint {
-  timeOffset: number; // The difference between Visual % and Audio %
 }
 
 export interface WorkspaceDomainState {

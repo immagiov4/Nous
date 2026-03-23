@@ -6,9 +6,11 @@ import type {
   PdfImageAsset,
   SyllabusItem,
 } from '../types.ts';
+import { buildSectionHierarchyInfoById } from './learningSectionTree.ts';
 
 export interface SidebarGroup {
   id: string;
+  sectionDepthById: Record<string, number>;
   title: string;
   sections: LearningSection[];
 }
@@ -22,6 +24,7 @@ export const buildSidebarGroups = (
   }
 
   const sectionById = new Map(learningPlan.sections.map(section => [section.id, section]));
+  const hierarchyInfoById = buildSectionHierarchyInfoById(learningPlan.sections);
   const moduleTitleById = new Map(syllabus.map(module => [module.id, module.title]));
   const moduleIdBySectionId = new Map<string, string>();
 
@@ -64,8 +67,10 @@ export const buildSidebarGroups = (
 
   learningPlan.sections.forEach(section => {
     const resolvedModuleId = resolveModuleId(section.id);
-    const fallbackTitle = getFallbackGroupTitle(section);
-    const fallbackGroupKey = section.parentId || `group:${fallbackTitle}`;
+    const rootSectionId = hierarchyInfoById[section.id]?.rootSectionId || null;
+    const fallbackAnchorSection = rootSectionId ? sectionById.get(rootSectionId) || section : section;
+    const fallbackTitle = getFallbackGroupTitle(fallbackAnchorSection);
+    const fallbackGroupKey = `group:${fallbackTitle}`;
     const groupKey = resolvedModuleId || fallbackGroupKey || '__ungrouped__';
 
     if (!groupedSections.has(groupKey)) {
@@ -93,6 +98,9 @@ export const buildSidebarGroups = (
 
       return {
         id: isUngrouped ? `group-${index}` : groupKey,
+        sectionDepthById: Object.fromEntries(
+          sections.map(section => [section.id, hierarchyInfoById[section.id]?.depth ?? 0])
+        ),
         title:
           moduleTitleById.get(groupKey) ||
           fallbackGroupTitleByKey.get(groupKey) ||
@@ -104,7 +112,16 @@ export const buildSidebarGroups = (
 
   return groups.length > 0
     ? groups
-    : [{ id: 'group-0', title: 'Percorso', sections: learningPlan.sections }];
+    : [
+        {
+          id: 'group-0',
+          sectionDepthById: Object.fromEntries(
+            learningPlan.sections.map(section => [section.id, hierarchyInfoById[section.id]?.depth ?? 0])
+          ),
+          title: 'Percorso',
+          sections: learningPlan.sections,
+        },
+      ];
 };
 
 export const buildLessonImageRefMap = (

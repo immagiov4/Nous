@@ -1,5 +1,5 @@
+import { useLayoutEffect } from 'react';
 import AudioPlayer from './AudioPlayer.tsx';
-import ReadingRuler from './ReadingRuler.tsx';
 import WorkspaceReaderBanners from './workspace-reader-shell/WorkspaceReaderBanners.tsx';
 import WorkspaceReaderContent from './workspace-reader-shell/WorkspaceReaderContent.tsx';
 import WorkspaceReaderHeader from './workspace-reader-shell/WorkspaceReaderHeader.tsx';
@@ -13,24 +13,31 @@ export default function WorkspaceReaderShell({
   content,
   header,
   overlays,
-  ruler,
   shouldUseDesktopSidebar,
   sidebar,
 }: WorkspaceReaderShellProps) {
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const resetScrollPosition = () => {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      content.scrollContainerRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    };
+
+    resetScrollPosition();
+    const frameId = window.requestAnimationFrame(resetScrollPosition);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [content.scrollContainerRef]);
+
   return (
     <div className="flex h-screen max-w-full overflow-hidden bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark">
-      {ruler.isRulerActive ? (
-        <ReadingRuler
-          isPlaying={ruler.isPlaying}
-          progress={ruler.visualProgress}
-          contentRef={ruler.contentRef}
-          scrollContainerRef={ruler.scrollContainerRef}
-          calibrationOffset={ruler.calibrationOffset}
-          teleprompterSpeed={ruler.teleprompterSpeed}
-          isHeaderHovered={ruler.isHeaderHovered}
-        />
-      ) : null}
-
       <WorkspaceReaderSidebar {...sidebar} />
 
       <div
@@ -41,7 +48,7 @@ export default function WorkspaceReaderShell({
         <WorkspaceReaderHeader {...header} />
         <WorkspaceReaderContent {...content} />
 
-        {audioPlayer.sectionContent ? (
+        {audioPlayer.sectionContent && audioPlayer.ttsConnected ? (
           <AudioPlayer
             availableVoices={audioPlayer.availableVoices}
             isPlaying={audioPlayer.audioState.isPlaying}
@@ -57,8 +64,6 @@ export default function WorkspaceReaderShell({
             onSpeedChange={audioPlayer.onSpeedChange}
             onSeek={audioPlayer.onSeek}
             onSkipChunk={audioPlayer.onSkipChunk}
-            isAudioSyncLinked={audioPlayer.isAudioSyncLinked}
-            onToggleAudioSyncLink={audioPlayer.onToggleAudioSyncLink}
             ttsConnected={audioPlayer.ttsConnected}
           />
         ) : null}

@@ -1,7 +1,10 @@
 export {
   createAssessmentChat,
+  createEmbeddedAssessmentChat,
   createAssessmentChatFromTextSource,
+  createEmbeddedAssessmentChatFromTextSource,
   createLearnAssessmentChat,
+  createEmbeddedLearnAssessmentChat,
 } from './gemini/assessment.ts';
 export {
   buildLessonChunkContext,

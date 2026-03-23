@@ -1,5 +1,15 @@
 import { AppState, type LearningPlan, type LearningSection, type ProjectSnapshot } from '../../types.ts';
+import { pushLuminaDebugTrace } from '../debugTrace.ts';
 import { restoreLegacyPdfImagePlaceholders } from '../../utils/pdfImagePlaceholders.ts';
+import { normalizeMarkdownForRendering } from '../../utils/renderMarkdown.ts';
+
+const HYDRATION_TRACE_PREVIEW_CHARS = 1600;
+
+const summarizeHydratedContent = (content: string) => ({
+  hasCodeFence: /(^|\n)```/.test(content),
+  length: content.length,
+  preview: content.slice(0, HYDRATION_TRACE_PREVIEW_CHARS),
+});
 
 export const normalizeLearningPlanContent = (
   learningPlan: LearningPlan | null
@@ -14,7 +24,9 @@ export const normalizeLearningPlanContent = (
       return section;
     }
 
-    const normalizedContent = restoreLegacyPdfImagePlaceholders(section.content);
+    const normalizedContent = normalizeMarkdownForRendering(
+      restoreLegacyPdfImagePlaceholders(section.content)
+    );
     if (normalizedContent === section.content) {
       return section;
     }
@@ -60,6 +72,14 @@ export const resolveScreenStateForSnapshot = (
 export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   const normalizedLearningPlan = normalizeLearningPlanContent(snapshot.learningPlan);
   const nextSection = resolvePlanSection(normalizedLearningPlan, snapshot.activeSectionId);
+
+  if (nextSection?.content) {
+    pushLuminaDebugTrace('snapshot-hydration:active-section', {
+      sectionId: nextSection.id,
+      sectionTitle: nextSection.title,
+      ...summarizeHydratedContent(nextSection.content),
+    });
+  }
 
   return {
     ...snapshot,

@@ -14,6 +14,7 @@ import { useWorkspaceReaderActions } from './hooks/useWorkspaceReaderActions.ts'
 import { useWorkspaceReaderRuntime } from './hooks/useWorkspaceReaderRuntime.ts';
 import { useUiPreferencesPersistence } from './hooks/useUiPreferencesPersistence.ts';
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from './services/geminiService.ts';
+import { useEffect, useState } from 'react';
 
 const notify = (message: string) => {
   window.alert(message);
@@ -26,6 +27,8 @@ const defaultModelConfig = {
 };
 
 const App = () => {
+  const [assessmentComplete, setAssessmentComplete] = useState(false);
+  const [pendingHomeSourceFile, setPendingHomeSourceFile] = useState<File | null>(null);
   const domain = useWorkspaceDomain();
   const readerRuntime = useWorkspaceReaderRuntime({
     activeSection: domain.activeSection,
@@ -59,6 +62,7 @@ const App = () => {
     askContextQuestion,
     blockingMessage,
     completeActiveSection,
+    confirmPlanGeneration,
     createLessonFromSelection,
     currentProjectId,
     deleteProject,
@@ -79,12 +83,14 @@ const App = () => {
     regenerateActiveSection,
     savedProjects,
     screenState,
+    startHomeChat,
     sectionContent,
     setMusicUrl,
     startLearnJourney,
     storageError,
     submitAssessment,
     updateActiveSectionContent,
+    workflowState,
   } = controller;
 
   const assessmentScreen = useWorkspaceAssessmentScreen({
@@ -144,9 +150,60 @@ const App = () => {
     setIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
   });
 
+  useEffect(() => {
+    if (screenState !== AppState.READING) {
+      readerRuntime.readerContext.closeContextMenu();
+    }
+  }, [screenState, readerRuntime.readerContext.closeContextMenu]);
+
+  useEffect(() => {
+    if (screenState === AppState.LIBRARY || typeof window === 'undefined') {
+      return;
+    }
+
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [screenState]);
+
   const isLoading = isBlocking;
   const isContextLoading = isContextBusy;
+  const isHomeChatLoading = workflowState.assessment.status === 'pending';
+  const homeChatLoadingStatus = workflowState.assessment.message || 'Caricamento...';
   const loadingStatus = blockingMessage || 'Caricamento...';
+  const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0] || null;
+    setPendingHomeSourceFile(selectedFile);
+    if (event.target) {
+      event.target.value = '';
+    }
+  };
+
+  const handleHomeChatSubmit = async (message: string) => {
+    const result = assessmentMessages.length
+      ? await submitAssessment(message)
+      : await startHomeChat({ input: message, selectedFile: pendingHomeSourceFile });
+
+    if (result.outcome === 'assessment-complete') {
+      setAssessmentComplete(true);
+    } else if (result.outcome === 'continued') {
+      setAssessmentComplete(false);
+    }
+
+    if (result.outcome !== 'failed' && result.outcome !== 'noop') {
+      setPendingHomeSourceFile(null);
+    }
+
+    if (result.errorMessage) {
+      notify(result.errorMessage);
+    }
+  };
+
+  const handleConfirmGenerate = async () => {
+    setAssessmentComplete(false);
+    const result = await confirmPlanGeneration();
+    if (result.errorMessage) {
+      notify(result.errorMessage);
+    }
+  };
   const playerCurrentChunkIsLoading =
     readerRuntime.ttsPlayer.audioState.chunks[readerRuntime.ttsPlayer.audioState.currentChunkIndex]
       ?.isLoading || false;
@@ -157,12 +214,10 @@ const App = () => {
       availableVoices: readerRuntime.ttsPlayer.availableVoices,
       currentTime: readerRuntime.ttsPlayer.playerCurrentTime,
       duration: readerRuntime.ttsPlayer.playerDuration,
-      isAudioSyncLinked: readerRuntime.ttsPlayer.isAudioSyncLinked,
       onPlayPause: readerRuntime.ttsPlayer.togglePlayPause,
       onSeek: readerRuntime.ttsPlayer.handleSeek,
       onSkipChunk: readerRuntime.ttsPlayer.handleSkipChunk,
       onSpeedChange: readerRuntime.ttsPlayer.handleSpeedChange,
-      onToggleAudioSyncLink: readerRuntime.ttsPlayer.handleToggleAudioSyncLink,
       onVoiceChange: readerRuntime.ttsPlayer.handleVoiceChange,
       playerCurrentChunkIsLoading,
       sectionContent,
@@ -181,7 +236,6 @@ const App = () => {
       activeSectionAssetsById: readerRuntime.activeSectionAssetsById,
       activeSectionImageRefsById: readerRuntime.activeSectionImageRefsById,
       contentRef: readerRuntime.contentRef,
-      isAutoTrackEnabled: readerRuntime.ttsPlayer.isAutoTrackEnabled,
       isDarkMode: readerRuntime.readerChrome.isDarkMode,
       isFocusMode: readerRuntime.readerChrome.isFocusMode,
       isLoading,
@@ -201,14 +255,12 @@ const App = () => {
     header: {
       activeSection,
       activeSidebarGroup: readerRuntime.activeSidebarGroup,
-      audioState: readerRuntime.ttsPlayer.audioState,
       isDarkMode: readerRuntime.readerChrome.isDarkMode,
       isFocusMode: readerRuntime.readerChrome.isFocusMode,
-      isHeaderHovered: readerRuntime.readerChrome.isHeaderHovered,
       isLoading,
       isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+      isMobileSidebarOpen: readerRuntime.readerChrome.isMobileSidebarOpen,
       isMusicPlaying: readerRuntime.isMusicPlaying,
-      isRulerActive: readerRuntime.ttsPlayer.isRulerActive,
       isSettingsOpen: readerRuntime.readerChrome.isSettingsOpen,
       learningPlanTitle: learningPlan?.title || 'Percorso di Studio',
       loadingStatus,
@@ -216,7 +268,7 @@ const App = () => {
       musicUrl,
       musicVolume: readerRuntime.musicVolume,
       onBackToLibrary: handleBackToLibrary,
-      onOpenSidebar: () => readerRuntime.readerChrome.setIsMobileSidebarOpen(true),
+      onOpenSidebar: () => readerRuntime.readerChrome.setIsMobileSidebarOpen(v => !v),
       onRegenerateActiveSection: readerActions.handleRegenerateActiveSection,
       onSetDarkMode: readerRuntime.readerChrome.setIsDarkMode,
       onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
@@ -225,13 +277,12 @@ const App = () => {
       onSetMusicVolume: readerRuntime.setMusicVolume,
       onSetPreferredOpenRouterModel: readerRuntime.setPreferredOpenRouterModel,
       onSetSettingsOpen: readerRuntime.readerChrome.setIsSettingsOpen,
-      onSetTeleprompterSpeed: readerRuntime.readerChrome.setTeleprompterSpeed,
-      onToggleRuler: readerRuntime.ttsPlayer.handleToggleRuler,
       preferredModels: readerRuntime.preferredModels,
-      teleprompterSpeed: readerRuntime.readerChrome.teleprompterSpeed,
     },
     overlays: {
       contextAnswer: readerRuntime.readerContext.contextAnswer,
+      contextAnswerPanelRef: readerRuntime.readerContext.contextAnswerPanelRef,
+      contextAnswerResizePreviewRef: readerRuntime.readerContext.contextAnswerResizePreviewRef,
       contextAnswerSize: readerRuntime.readerContext.contextAnswerSize,
       contextMenu: readerRuntime.readerContext.contextMenu,
       contextMenuRef: readerRuntime.readerContext.contextMenuRef,
@@ -244,16 +295,6 @@ const App = () => {
       onCloseContextMenu: readerRuntime.readerContext.closeContextMenu,
       onCreateLesson: readerActions.handleCreateLesson,
       onHighlight: readerActions.handleHighlight,
-    },
-    ruler: {
-      calibrationOffset: readerRuntime.ttsPlayer.calibrationOffset,
-      contentRef: readerRuntime.contentRef,
-      isHeaderHovered: readerRuntime.readerChrome.isHeaderHovered,
-      isPlaying: readerRuntime.ttsPlayer.audioState.isPlaying,
-      isRulerActive: readerRuntime.ttsPlayer.isRulerActive,
-      scrollContainerRef: readerRuntime.scrollContainerRef,
-      teleprompterSpeed: readerRuntime.readerChrome.teleprompterSpeed,
-      visualProgress: readerRuntime.ttsPlayer.visualProgress,
     },
     shouldUseDesktopSidebar: readerRuntime.readerChrome.shouldUseDesktopSidebar,
     sidebar: {
@@ -278,21 +319,27 @@ const App = () => {
   if (screenState === AppState.LIBRARY) {
     return (
       <LibraryView
+        assessmentComplete={assessmentComplete}
+        assessmentMessages={assessmentMessages}
         isDarkMode={readerRuntime.readerChrome.isDarkMode}
         isLibraryLoading={isLibraryLoading}
-        isWorking={isLoading}
-        loadingStatus={loadingStatus}
+        isWorking={isHomeChatLoading}
+        loadingStatus={homeChatLoadingStatus}
         modelDefaults={defaultModelConfig}
         openingProjectId={openingProjectId}
         planFileInputId={planFileInputId}
         preferredModels={readerRuntime.preferredModels}
         projects={savedProjects}
+        pendingHomeFileName={pendingHomeSourceFile?.name || null}
         sourceFileInputId={sourceFileInputId}
         storageError={storageError}
+        onClearPendingHomeFile={() => setPendingHomeSourceFile(null)}
+        onConfirmGenerate={handleConfirmGenerate}
         onDeleteProject={handleDeleteProject}
         onExportProject={projectId => {
           void handleExportProject(projectId);
         }}
+        onHomeChatSubmit={handleHomeChatSubmit}
         onImportJsonClick={handleImportJsonClick}
         onOpenProject={projectId => {
           void handleOpenProject(projectId, { source: 'library' });
@@ -301,12 +348,7 @@ const App = () => {
           void handlePlanUpload(event);
         }}
         onSetPreferredOpenRouterModel={readerRuntime.setPreferredOpenRouterModel}
-        onSourceFileUpload={event => {
-          void handleFileUpload(event);
-        }}
-        onStartLearnJourney={() => {
-          void assessmentScreen.handleStartLearnJourney();
-        }}
+        onSourceFileUpload={handleHomeSourceFileUpload}
         onToggleDarkMode={() =>
           readerRuntime.readerChrome.setIsDarkMode(!readerRuntime.readerChrome.isDarkMode)
         }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronRight, Crosshair, FastForward, Loader2, Pause, Play, SkipBack, SkipForward, Volume2 } from 'lucide-react';
+import { ChevronRight, FastForward, Loader2, Pause, Play, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 import type { VoiceProfileId } from '../types';
 
 interface AudioPlayerProps {
@@ -10,14 +10,12 @@ interface AudioPlayerProps {
   playbackRate: number;
   isVertical?: boolean;
   dockOffsetPx?: number;
-  isAudioSyncLinked: boolean;
   currentTime: number;
   duration: number;
   ttsConnected?: boolean;
   onPlayPause: () => void;
   onVoiceChange: (voice: VoiceProfileId) => void;
   onSpeedChange: (speed: number) => void;
-  onToggleAudioSyncLink: () => void;
   onSeek: (time: number) => void;
   onSkipChunk: (direction: 'prev' | 'next') => void;
 }
@@ -30,14 +28,12 @@ const AudioPlayer = ({
   playbackRate,
   isVertical = false,
   dockOffsetPx = 0,
-  isAudioSyncLinked,
   currentTime,
   duration,
   ttsConnected = false,
   onPlayPause,
   onVoiceChange,
   onSpeedChange,
-  onToggleAudioSyncLink,
   onSeek,
   onSkipChunk,
 }: AudioPlayerProps) => {
@@ -145,9 +141,9 @@ const AudioPlayer = ({
 
   const containerStyle = isDockedState
     ? isCoarsePointer
-      ? 'border-gray-200/90 bg-white/96 shadow-lg shadow-black/10 backdrop-blur-md dark:border-zinc-700/90 dark:bg-zinc-900/96'
+      ? 'border-gray-200/90 bg-white/96 shadow-lg shadow-black/10 backdrop-blur-md dark:border-zinc-600/80 dark:bg-zinc-900/96'
       : 'border-gray-300/20 bg-white/6 shadow-none backdrop-blur-[1px] dark:border-zinc-500/20 dark:bg-zinc-900/12'
-    : 'border-gray-200 bg-white shadow-2xl shadow-black/15 dark:border-zinc-700 dark:bg-zinc-900';
+    : 'border-gray-200 bg-white shadow-2xl shadow-black/15 dark:border-zinc-600/80 dark:bg-zinc-900';
 
   const iconColorClass = isDockedState
     ? isCoarsePointer
@@ -180,7 +176,7 @@ const AudioPlayer = ({
               setIsTouchExpanded(true);
               scheduleTouchDock();
             }}
-            className="absolute top-1/2 -right-6 -translate-y-1/2 flex items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-lg shadow-black/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            className="absolute top-1/2 -right-6 -translate-y-1/2 flex items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-lg shadow-black/10 dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-100"
             aria-label="Apri player TTS"
           >
             <ChevronRight className="h-4 w-4" />
@@ -203,7 +199,7 @@ const AudioPlayer = ({
               clearTimeout(exitTimerRef.current);
             }
           }}
-          className="absolute top-1/2 -right-6 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-lg shadow-black/10 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          className="absolute top-1/2 -right-6 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-lg shadow-black/10 dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-100"
           aria-label="Riduci player TTS"
         >
           <ChevronRight className="h-4 w-4 rotate-180" />
@@ -335,21 +331,6 @@ const AudioPlayer = ({
               </div>
             </div>
           </div>
-
-          <div className={`${isVertical ? 'h-px w-8' : 'h-8 w-px'} ${isDockedState ? 'bg-gray-300/20' : 'bg-gray-200 dark:bg-zinc-700'}`} />
-
-          <button
-            type="button"
-            onClick={onToggleAudioSyncLink}
-            title={isAudioSyncLinked ? "Modalità Focus: righello legato all'audio" : "Attiva modalità Focus"}
-            className={`rounded-full border p-2 transition-all duration-300 ${
-              isAudioSyncLinked
-                ? 'border-orange-600 bg-orange-600 text-white shadow-md'
-                : `border-transparent bg-transparent ${iconColorClass} hover:bg-gray-100 dark:hover:bg-zinc-800`
-            }`}
-          >
-            <Crosshair className={`h-4 w-4 ${isAudioSyncLinked ? 'animate-pulse' : ''}`} />
-          </button>
         </div>
       </div>
     </aside>

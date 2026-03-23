@@ -24,6 +24,17 @@ interface ProjectLifecycleDependencies {
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
 }
 
+const REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE = [
+  'openProject',
+  'importProject',
+  'assessment',
+  'generatePlan',
+  'loadSection',
+  'contextQuestion',
+  'createLesson',
+  'completeSection',
+] as const;
+
 export const createProjectLifecycleCommands = (
   context: WorkspaceControllerContext,
   { openSection, startAssessment }: ProjectLifecycleDependencies
@@ -86,6 +97,8 @@ export const createProjectLifecycleCommands = (
       });
 
       if (options?.mode === 'reattach-source' && projectLibrary.currentProjectId) {
+        state.invalidateWorkflows([...REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE]);
+        state.resetRuntimeState();
         domain.setSource(nextSource);
         projectLibrary.setProjectHydrated(true);
         await projectLibrary.saveCurrentProject({ source: nextSource });

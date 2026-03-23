@@ -4,6 +4,7 @@ import { mergeDocumentAssetsForPlan } from '../../services/workspace-controller/
 import { resolveLearnSectionContext } from '../../services/workspace-controller/learnMode.ts';
 import { selectIsBlocking } from '../../services/workspaceWorkflow.ts';
 import { AppState, type LearningSection } from '../../types.ts';
+import { insertSectionAfterSubtree } from '../../utils/learningSectionTree.ts';
 import { resolveLessonGenerationState } from '../../utils/lessonGenerationState.ts';
 import type {
   CompleteSectionOutcome,
@@ -298,11 +299,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         return { outcome: 'blocked-missing-source' };
       }
 
-      const parentIndex = domain.learningPlan.sections.findIndex(
-        currentSection => currentSection.id === domain.activeSectionId
+      const newSections = insertSectionAfterSubtree(
+        domain.learningPlan.sections,
+        parentSection.id,
+        newSection
       );
-      const newSections = [...domain.learningPlan.sections];
-      newSections.splice(parentIndex + 1, 0, newSection);
 
       let updatedPlan = { ...domain.learningPlan, sections: newSections };
       let nextDocumentIndex = domain.documentIndex;
@@ -396,6 +397,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
   async function goToLibrary(): Promise<void> {
     stopAudio(true);
+    state.resetRuntimeState();
     state.setScreenState(AppState.LIBRARY);
   }
 

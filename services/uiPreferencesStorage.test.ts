@@ -23,7 +23,6 @@ test('parseUiPreferences normalizes supported fields and ignores the rest', () =
 
   assert.deepEqual(preferences, {
     isDarkMode: true,
-    teleprompterSpeed: 88,
     preferredVoice: 'mario',
     playbackRate: 1.25,
     preferredLessonModel: 'openai/gpt-5.4-mini',
@@ -48,7 +47,6 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
 
   writeUiPreferences(storage, {
     isDarkMode: false,
-    teleprompterSpeed: 72,
     preferredVoice: 'mario',
     playbackRate: 1,
     preferredLessonModel: 'openai/gpt-5.4-mini',
@@ -59,7 +57,6 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
   assert.equal(storedValues.has(UI_PREFERENCES_KEY), true);
   assert.deepEqual(readUiPreferences(storage), {
     isDarkMode: false,
-    teleprompterSpeed: 72,
     preferredVoice: 'mario',
     playbackRate: 1,
     preferredLessonModel: 'openai/gpt-5.4-mini',

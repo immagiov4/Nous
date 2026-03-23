@@ -21,10 +21,6 @@ export const parseUiPreferences = (
       nextPreferences.isDarkMode = parsedPreferences.isDarkMode;
     }
 
-    if (isFiniteNumber(parsedPreferences.teleprompterSpeed)) {
-      nextPreferences.teleprompterSpeed = parsedPreferences.teleprompterSpeed;
-    }
-
     if (typeof parsedPreferences.preferredVoice === 'string') {
       nextPreferences.preferredVoice = normalizeVoiceProfileId(parsedPreferences.preferredVoice);
     }

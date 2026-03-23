@@ -32,6 +32,33 @@ export const createWorkspaceWorkflowState = (): WorkspaceWorkflowState =>
     WORKSPACE_WORKFLOW_IDS.map(workflowId => [workflowId, createIdleWorkflowEntry()])
   ) as WorkspaceWorkflowState;
 
+export const invalidateWorkspaceWorkflows = (
+  workflowState: WorkspaceWorkflowState,
+  workflowIds: WorkspaceWorkflowId[]
+): WorkspaceWorkflowState => {
+  if (workflowIds.length === 0) {
+    return workflowState;
+  }
+
+  const workflowIdSet = new Set(workflowIds);
+
+  return Object.fromEntries(
+    WORKSPACE_WORKFLOW_IDS.map(workflowId => {
+      if (!workflowIdSet.has(workflowId)) {
+        return [workflowId, workflowState[workflowId]];
+      }
+
+      return [
+        workflowId,
+        {
+          status: 'idle' as const,
+          requestId: workflowState[workflowId].requestId + 1,
+        },
+      ];
+    })
+  ) as WorkspaceWorkflowState;
+};
+
 export const selectIsBlocking = (workflowState: WorkspaceWorkflowState): boolean =>
   workflowState.openProject.status === 'pending' ||
   workflowState.attachSource.status === 'pending' ||

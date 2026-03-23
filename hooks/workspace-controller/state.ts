@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { pushLuminaDebugTrace } from '../../services/debugTrace.ts';
 import {
   createWorkspaceWorkflowState,
+  invalidateWorkspaceWorkflows,
   type WorkspaceWorkflowId,
   type WorkspaceWorkflowState,
 } from '../../services/workspaceWorkflow.ts';
@@ -80,6 +81,11 @@ export const useWorkspaceControllerState = () => {
       getAssessmentMessages: () => assessmentMessagesRef.current,
       getChatSession: () => chatSessionRef.current,
       getWorkflowState: () => workflowStateRef.current,
+      invalidateWorkflows: workflowIds => {
+        const nextState = invalidateWorkspaceWorkflows(workflowStateRef.current, workflowIds);
+        commitWorkflowState(nextState);
+        pushLuminaDebugTrace('workflow:invalidate', { workflowIds });
+      },
       isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) =>
         workflowStateRef.current[workflowId].requestId === requestId,
       resetRuntimeState: () => {

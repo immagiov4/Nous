@@ -57,12 +57,12 @@ const AssessmentView = ({
   return (
     <div className="flex min-h-screen flex-col bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark">
       {/* Compact top bar */}
-      <header className="border-b border-gray-200/80 bg-white/90 px-4 py-3 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-6">
+      <header className="border-b border-gray-200/80 bg-white/90 px-4 py-3 backdrop-blur-sm dark:border-zinc-700/80 dark:bg-paper-surface/90 sm:px-6">
         <div className="mx-auto flex max-w-3xl items-center gap-4">
           <button
             type="button"
             onClick={onBackToLibrary}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-white"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-paper-surface dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-white"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Libreria
@@ -82,7 +82,7 @@ const AssessmentView = ({
               <button
                 type="button"
                 onClick={() => setIsModelPanelOpen(currentValue => !currentValue)}
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:text-white"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-paper-surface dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
                 aria-label="Apri configurazione modelli AI"
               >
                 <Settings2 className="h-3.5 w-3.5" />
@@ -123,7 +123,7 @@ const AssessmentView = ({
         <div className="mx-auto max-w-3xl space-y-5">
           {/* Inline tips — shown only at the start */}
           {showTips ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600 dark:border-zinc-700/80 dark:bg-paper-surface dark:text-zinc-400">
               <Sparkles className="h-3.5 w-3.5 text-orange-400" />
               {tips.map((tip, i) => (
                 <span key={tip} className="inline-flex items-center gap-1.5">
@@ -148,7 +148,7 @@ const AssessmentView = ({
                   className={`max-w-[85%] rounded-2xl px-5 py-4 text-sm leading-relaxed ${
                     message.role === 'user'
                       ? 'rounded-br-md bg-orange-600 text-white'
-                      : 'rounded-bl-md border border-gray-200 bg-white text-gray-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-gray-200'
+                      : 'rounded-bl-md border border-gray-200 bg-white text-gray-800 dark:border-zinc-700/80 dark:bg-paper-surface dark:text-gray-200'
                   }`}
                 >
                   <MarkdownRenderer
@@ -167,7 +167,7 @@ const AssessmentView = ({
 
           {isLoading ? (
             <div className="flex justify-start">
-              <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+              <div className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600 dark:border-zinc-700/80 dark:bg-paper-surface dark:text-zinc-400">
                 <div
                   className="h-1.5 w-1.5 animate-bounce rounded-full bg-orange-400"
                   style={{ animationDelay: '0ms' }}
@@ -189,7 +189,7 @@ const AssessmentView = ({
       </div>
 
       {/* Input pinned to bottom */}
-      <div className="border-t border-gray-200/80 bg-white/96 px-4 py-3 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/96 sm:px-6">
+      <div className="border-t border-gray-200/80 bg-white/96 px-4 py-3 backdrop-blur-sm dark:border-zinc-700/80 dark:bg-paper-surface/95 sm:px-6">
         <form onSubmit={onSubmit} className="mx-auto flex max-w-3xl gap-3">
           <input
             id={assessmentInputId}
@@ -198,7 +198,7 @@ const AssessmentView = ({
             value={currentAssessmentInput}
             onChange={event => onInputChange(event.target.value)}
             placeholder="Descrivi obiettivi, livello e come preferisci imparare…"
-            className="flex-1 rounded-xl border border-gray-200 bg-[#fcfaf6] px-4 py-3 text-sm text-gray-900 outline-none transition-colors focus:border-orange-300 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:focus:border-orange-800"
+            className="flex-1 rounded-xl border border-gray-200 bg-[#fcfaf6] px-4 py-3 text-sm text-gray-900 outline-none transition-colors focus:border-orange-300 dark:border-zinc-600/80 dark:bg-paper-surface dark:text-white dark:focus:border-orange-800"
             disabled={isLoading}
           />
           <button

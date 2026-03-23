@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
 import type { ContextMenuPlacement, ContextMenuState } from '../types.ts';
@@ -27,6 +28,7 @@ interface ContextAnswerState {
 }
 
 interface ContextAnswerResizeState {
+  pointerId: number;
   startX: number;
   startY: number;
   startWidth: number;
@@ -51,8 +53,11 @@ export const useReaderContext = ({
   );
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextAnswerPanelRef = useRef<HTMLDivElement>(null);
+  const contextAnswerResizePreviewRef = useRef<HTMLDivElement>(null);
   const selectionMenuTimeoutRef = useRef<number | null>(null);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
+  const contextAnswerDraftSizeRef = useRef<ContextAnswerSize>(CONTEXT_ANSWER_DEFAULT_SIZE);
 
   const clearSelectionMenuTimeout = useCallback(() => {
     if (selectionMenuTimeoutRef.current === null) {
@@ -81,6 +86,52 @@ export const useReaderContext = ({
       height: window.innerHeight,
     });
   }, []);
+
+  const applyContextAnswerPanelSize = useCallback(
+    (size: ContextAnswerSize) => {
+      contextAnswerDraftSizeRef.current = size;
+
+      if (!contextAnswerPanelRef.current) {
+        return;
+      }
+
+      if (isMobileViewport) {
+        contextAnswerPanelRef.current.style.removeProperty('width');
+        contextAnswerPanelRef.current.style.removeProperty('height');
+        contextAnswerPanelRef.current.style.removeProperty('will-change');
+        contextAnswerPanelRef.current.style.removeProperty('contain');
+        contextAnswerPanelRef.current.style.removeProperty('transform');
+        contextAnswerPanelRef.current.style.removeProperty('backface-visibility');
+        contextAnswerPanelRef.current.style.removeProperty('animation');
+        return;
+      }
+
+      contextAnswerPanelRef.current.style.willChange = 'width, height';
+      contextAnswerPanelRef.current.style.width = `${size.width}px`;
+      contextAnswerPanelRef.current.style.height = `${size.height}px`;
+    },
+    [isMobileViewport]
+  );
+
+  const applyContextAnswerResizePreview = useCallback(
+    (size: ContextAnswerSize | null) => {
+      if (!contextAnswerResizePreviewRef.current) {
+        return;
+      }
+
+      if (isMobileViewport || !size) {
+        contextAnswerResizePreviewRef.current.style.display = 'none';
+        contextAnswerResizePreviewRef.current.style.removeProperty('width');
+        contextAnswerResizePreviewRef.current.style.removeProperty('height');
+        return;
+      }
+
+      contextAnswerResizePreviewRef.current.style.display = 'block';
+      contextAnswerResizePreviewRef.current.style.width = `${size.width}px`;
+      contextAnswerResizePreviewRef.current.style.height = `${size.height}px`;
+    },
+    [isMobileViewport]
+  );
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(currentMenu => {
@@ -168,45 +219,76 @@ export const useReaderContext = ({
   );
 
   const handleContextAnswerResizeStart = useCallback(
-    (event: ReactMouseEvent<HTMLButtonElement>) => {
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
       event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+
       contextAnswerResizeRef.current = {
+        pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
-        startWidth: contextAnswerSize.width,
-        startHeight: contextAnswerSize.height,
+        startWidth: contextAnswerDraftSizeRef.current.width,
+        startHeight: contextAnswerDraftSizeRef.current.height,
       };
+
+      if (contextAnswerPanelRef.current) {
+        contextAnswerPanelRef.current.style.animation = 'none';
+        contextAnswerPanelRef.current.style.opacity = '0.78';
+      }
+      applyContextAnswerResizePreview(contextAnswerDraftSizeRef.current);
+
       document.body.style.setProperty('user-select', 'none');
-      document.body.style.setProperty('cursor', 'nesw-resize');
+      document.body.style.setProperty('cursor', 'nwse-resize');
     },
-    [contextAnswerSize.height, contextAnswerSize.width]
+    [applyContextAnswerResizePreview]
   );
 
-  const handleContextAnswerResizeMove = useCallback((event: PointerEvent) => {
+  const handleContextAnswerResizeMove = useCallback(
+    (event: PointerEvent) => {
+      const resizeState = contextAnswerResizeRef.current;
+      if (!resizeState || event.pointerId !== resizeState.pointerId) {
+        return;
+      }
+
+      const nextSize = clampContextAnswerSize({
+        width: resizeState.startWidth + (resizeState.startX - event.clientX),
+        height: resizeState.startHeight + (event.clientY - resizeState.startY),
+      });
+
+      contextAnswerDraftSizeRef.current = nextSize;
+      applyContextAnswerResizePreview(nextSize);
+    },
+    [applyContextAnswerResizePreview, clampContextAnswerSize]
+  );
+
+  const handleContextAnswerResizeEnd = useCallback((event?: PointerEvent) => {
     const resizeState = contextAnswerResizeRef.current;
-    if (!resizeState) {
-      return;
-    }
-
-    const nextWidth = resizeState.startWidth + (resizeState.startX - event.clientX);
-    const nextHeight = resizeState.startHeight + (resizeState.startY - event.clientY);
-    setContextAnswerSize(
-      clampContextAnswerSize({
-        width: nextWidth,
-        height: nextHeight,
-      })
-    );
-  }, [clampContextAnswerSize]);
-
-  const handleContextAnswerResizeEnd = useCallback(() => {
-    if (!contextAnswerResizeRef.current) {
+    if (!resizeState || (event && event.pointerId !== resizeState.pointerId)) {
       return;
     }
 
     contextAnswerResizeRef.current = null;
+    const nextSize = clampContextAnswerSize(contextAnswerDraftSizeRef.current);
+    applyContextAnswerPanelSize(nextSize);
+    applyContextAnswerResizePreview(null);
+    if (contextAnswerPanelRef.current) {
+      contextAnswerPanelRef.current.style.removeProperty('will-change');
+      contextAnswerPanelRef.current.style.removeProperty('animation');
+      contextAnswerPanelRef.current.style.removeProperty('opacity');
+    }
+    setContextAnswerSize(currentSize =>
+      currentSize.width === nextSize.width && currentSize.height === nextSize.height
+        ? currentSize
+        : nextSize
+    );
     resetContextAnswerResizeStyles();
-  }, [resetContextAnswerResizeStyles]);
+  }, [
+    applyContextAnswerPanelSize,
+    applyContextAnswerResizePreview,
+    clampContextAnswerSize,
+    resetContextAnswerResizeStyles,
+  ]);
 
   const syncMobileContextMenu = useCallback(() => {
     if (!isMobileViewport) {
@@ -248,29 +330,48 @@ export const useReaderContext = ({
 
   useEffect(() => {
     const handleResize = () => {
-      setContextAnswerSize(currentSize => clampContextAnswerSize(currentSize));
+      setContextAnswerSize(currentSize => {
+        const nextSize = clampContextAnswerSize(currentSize);
+        applyContextAnswerPanelSize(nextSize);
+        return nextSize;
+      });
     };
 
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, [clampContextAnswerSize]);
+  }, [applyContextAnswerPanelSize, clampContextAnswerSize]);
 
   useEffect(() => {
     window.addEventListener('pointermove', handleContextAnswerResizeMove);
     window.addEventListener('pointerup', handleContextAnswerResizeEnd);
+    window.addEventListener('pointercancel', handleContextAnswerResizeEnd);
     return () => {
       window.removeEventListener('pointermove', handleContextAnswerResizeMove);
       window.removeEventListener('pointerup', handleContextAnswerResizeEnd);
+      window.removeEventListener('pointercancel', handleContextAnswerResizeEnd);
       contextAnswerResizeRef.current = null;
+      if (contextAnswerPanelRef.current) {
+        contextAnswerPanelRef.current.style.removeProperty('will-change');
+        contextAnswerPanelRef.current.style.removeProperty('animation');
+        contextAnswerPanelRef.current.style.removeProperty('opacity');
+      }
+      applyContextAnswerResizePreview(null);
       resetContextAnswerResizeStyles();
     };
   }, [
+    applyContextAnswerResizePreview,
     handleContextAnswerResizeEnd,
     handleContextAnswerResizeMove,
     resetContextAnswerResizeStyles,
   ]);
+
+  useEffect(() => {
+    const nextSize = clampContextAnswerSize(contextAnswerSize);
+    applyContextAnswerPanelSize(nextSize);
+    contextAnswerDraftSizeRef.current = nextSize;
+  }, [applyContextAnswerPanelSize, clampContextAnswerSize, contextAnswerSize]);
 
   useEffect(() => {
     if (!contextMenu.visible) {
@@ -334,6 +435,8 @@ export const useReaderContext = ({
       closeContextAnswer,
       closeContextMenu,
       contextAnswer,
+      contextAnswerPanelRef,
+      contextAnswerResizePreviewRef,
       contextAnswerSize,
       contextMenu,
       contextMenuRef,
@@ -346,6 +449,8 @@ export const useReaderContext = ({
       closeContextAnswer,
       closeContextMenu,
       contextAnswer,
+      contextAnswerPanelRef,
+      contextAnswerResizePreviewRef,
       contextAnswerSize,
       contextMenu,
       handleContentContextMenu,

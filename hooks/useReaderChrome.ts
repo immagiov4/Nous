@@ -5,7 +5,6 @@ import type { SidebarGroup } from '../utils/workspaceReader.ts';
 
 const SIDEBAR_WIDTH_PX = 384;
 const MOBILE_LAYOUT_BREAKPOINT_PX = 1024;
-const HEADER_HOVER_BOUNDARY_PX = 64;
 const MOBILE_LAYOUT_MEDIA_QUERY = `(max-width: ${MOBILE_LAYOUT_BREAKPOINT_PX - 1}px)`;
 
 interface UseReaderChromeArgs {
@@ -16,14 +15,12 @@ interface UseReaderChromeArgs {
 export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChromeArgs) => {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [teleprompterSpeed, setTeleprompterSpeed] = useState(1);
   const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY).matches
   );
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isHeaderHovered, setIsHeaderHovered] = useState(false);
 
   const previousActiveSectionIdRef = useRef<string | null>(null);
   const shouldUseDesktopSidebar = !isMobileViewport && !isFocusMode;
@@ -32,13 +29,6 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
 
   const handleModuleToggle = useCallback((groupId: string) => {
     setExpandedModuleId(currentId => (currentId === groupId ? null : groupId));
-  }, []);
-
-  const handleHeaderPointerMove = useCallback((event: PointerEvent) => {
-    setIsHeaderHovered(currentValue => {
-      const nextValue = event.clientY <= HEADER_HOVER_BOUNDARY_PX;
-      return currentValue === nextValue ? currentValue : nextValue;
-    });
   }, []);
 
   useEffect(() => {
@@ -75,13 +65,6 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
   }, [activeSectionId, isMobileViewport]);
 
   useEffect(() => {
-    document.addEventListener('pointermove', handleHeaderPointerMove);
-    return () => {
-      document.removeEventListener('pointermove', handleHeaderPointerMove);
-    };
-  }, [handleHeaderPointerMove]);
-
-  useEffect(() => {
     const nextState: ExpandedModuleState = resolveExpandedModuleState({
       activeSectionId,
       currentExpandedModuleId: expandedModuleId,
@@ -105,7 +88,6 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
       handleModuleToggle,
       isDarkMode,
       isFocusMode,
-      isHeaderHovered,
       isMobileSidebarOpen,
       isMobileViewport,
       isSettingsOpen,
@@ -113,10 +95,8 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
       setIsFocusMode,
       setIsMobileSidebarOpen,
       setIsSettingsOpen,
-      setTeleprompterSpeed,
       shouldShowSidebar,
       shouldUseDesktopSidebar,
-      teleprompterSpeed,
     }),
     [
       audioDockOffset,
@@ -124,13 +104,11 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
       handleModuleToggle,
       isDarkMode,
       isFocusMode,
-      isHeaderHovered,
       isMobileSidebarOpen,
       isMobileViewport,
       isSettingsOpen,
       shouldShowSidebar,
       shouldUseDesktopSidebar,
-      teleprompterSpeed,
     ]
   );
 };

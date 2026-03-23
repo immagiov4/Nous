@@ -46,7 +46,7 @@ const buildFigureHtml = (asset: PdfImageAsset, imageRef?: LessonImageRef, altFal
   const alt = escapeHtml(imageRef?.alt || altFallback || 'Figura dal PDF');
   const caption = imageRef?.caption || captionFallback || '';
 
-  return `<figure class="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/85">
+  return `<figure class="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85">
   <img src="${escapeHtml(asset.dataUrl)}" alt="${alt}" loading="lazy" data-pdf-asset-id="${escapeHtml(asset.id)}" class="m-0 block w-full bg-gray-50 object-contain dark:bg-zinc-950" />
   ${caption ? `<figcaption class="px-5 py-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">${escapeHtml(caption)}</figcaption>` : ''}
 </figure>`;

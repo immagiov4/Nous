@@ -17,29 +17,15 @@ interface UseTtsPlayerParams {
 interface UseTtsPlayerResult {
   availableVoices: Array<{ id: VoiceProfileId; label: string; language: string }>;
   audioState: AudioState;
-  calibrationOffset: number;
   handleSeek: (time: number) => void;
   handleSkipChunk: (direction: 'prev' | 'next') => void;
   handleSpeedChange: (speed: number) => void;
-  handleToggleAudioSyncLink: () => void;
-  handleToggleRuler: () => void;
-  handleTTSPlayTest: () => Promise<void>;
   handleVoiceChange: (voice: VoiceProfileId) => void;
-  isAudioSyncLinked: boolean;
-  isAutoTrackEnabled: boolean;
-  isRulerActive: boolean;
-  isTestPlaying: boolean;
   playerCurrentTime: number;
   playerDuration: number;
-  setCalibrationFromRelativeY: (relativeY: number) => void;
-  setTestText: (text: string) => void;
-  setTestVoice: (voice: VoiceProfileId) => void;
   stopAudio: (clearChunks?: boolean) => void;
-  testText: string;
-  testVoice: VoiceProfileId;
   togglePlayPause: () => void;
   ttsConnected: boolean;
-  visualProgress: number;
 }
 
 type PlaybackStatus = 'idle' | 'starting' | 'playing' | 'crossfading' | 'paused' | 'stopping';
@@ -217,14 +203,6 @@ const splitContentIntoChunks = (text: string, speechBlocks: string[]): string[] 
   return chunks;
 };
 
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return 'Unknown error';
-};
-
 const createIdlePlaybackRun = (): PlaybackRun => ({
   runId: 0,
   status: 'idle',
@@ -253,17 +231,7 @@ export const useTtsPlayer = ({
   });
   const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
-  const [visualProgress, setVisualProgress] = useState(0);
-  const [isAutoTrackEnabled, setIsAutoTrackEnabled] = useState(false);
-  const [calibrationOffset, setCalibrationOffset] = useState(0);
-  const [isAudioSyncLinked, setIsAudioSyncLinked] = useState(false);
-  const [isRulerActive, setIsRulerActive] = useState(false);
   const [ttsConnected, setTtsConnected] = useState(false);
-  const [testVoice, setTestVoice] = useState<VoiceProfileId>('mario');
-  const [testText, setTestText] = useState(
-    'Ciao! Sono la tua voce AI. Questo e un test del sistema di sintesi vocale.'
-  );
-  const [isTestPlaying, setIsTestPlaying] = useState(false);
 
   const audioStateRef = useRef(audioState);
   const shouldPlayRef = useRef(false);
@@ -273,7 +241,6 @@ export const useTtsPlayer = ({
   const playRequestIdRef = useRef(0);
   const generatedObjectUrlsRef = useRef<Set<string>>(new Set());
   const ttsCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const testAudioRef = useRef<HTMLAudioElement | null>(null);
   const playbackRunRef = useRef<PlaybackRun>(createIdlePlaybackRun());
   const pausedTimeRef = useRef(0);
 
@@ -615,7 +582,6 @@ export const useTtsPlayer = ({
       }));
       setPlayerCurrentTime(0);
       setPlayerDuration(0);
-      setVisualProgress(0);
       shouldPlayRef.current = false;
       playbackRunRef.current.currentChunkIndex = 0;
     },
@@ -820,8 +786,6 @@ export const useTtsPlayer = ({
       playbackRunRef.current = createIdlePlaybackRun();
       setPlayerCurrentTime(0);
       setPlayerDuration(0);
-      setVisualProgress(0);
-      setCalibrationOffset(0);
     },
     [abortCurrentRun, revokeTrackedUrl, setTrackedAudioState]
   );
@@ -944,77 +908,9 @@ export const useTtsPlayer = ({
     }
   };
 
-  const handleToggleRuler = () => {
-    const nextState = !isRulerActive;
-    setIsRulerActive(nextState);
-    setIsAutoTrackEnabled(nextState);
-    if (!nextState) {
-      setIsAudioSyncLinked(false);
-    }
-  };
-
-  const handleToggleAudioSyncLink = () => {
-    const nextState = !isAudioSyncLinked;
-    setIsAudioSyncLinked(nextState);
-
-    if (!nextState) {
-      setIsRulerActive(false);
-      setIsAutoTrackEnabled(false);
-      return;
-    }
-
-    setIsRulerActive(audioState.isPlaying);
-    setIsAutoTrackEnabled(audioState.isPlaying);
-  };
-
-  const setCalibrationFromRelativeY = useCallback((relativeY: number) => {
-    setCalibrationOffset(relativeY - visualProgress);
-  }, [visualProgress]);
-
-  const handleTTSPlayTest = async () => {
-    if (isTestPlaying && testAudioRef.current) {
-      testAudioRef.current.pause();
-      setIsTestPlaying(false);
-      return;
-    }
-
-    setIsTestPlaying(true);
-    try {
-      const pcmBuffer = await GeminiService.generateSpeech(testText, testVoice);
-      const wavBlob = createWavBlob(pcmBuffer);
-      const url = URL.createObjectURL(wavBlob);
-
-      testAudioRef.current?.pause();
-
-      const audio = new Audio(url);
-      testAudioRef.current = audio;
-      audio.onended = () => {
-        setIsTestPlaying(false);
-        URL.revokeObjectURL(url);
-      };
-      audio.onerror = () => {
-        setIsTestPlaying(false);
-        alert('Errore nella riproduzione audio');
-      };
-
-      await audio.play();
-    } catch (error) {
-      console.error('TTS Test error:', error);
-      alert(`Errore TTS: ${getErrorMessage(error)}`);
-      setIsTestPlaying(false);
-    }
-  };
-
   useEffect(() => {
     audioStateRef.current = audioState;
   }, [audioState]);
-
-  useEffect(() => {
-    if (isAudioSyncLinked) {
-      setIsRulerActive(audioState.isPlaying);
-      setIsAutoTrackEnabled(audioState.isPlaying);
-    }
-  }, [audioState.isPlaying, isAudioSyncLinked]);
 
   useEffect(() => {
     const refreshTtsState = async () => {
@@ -1029,9 +925,6 @@ export const useTtsPlayer = ({
           const defaultVoice = voices[0].id;
           if (!voices.some(voice => voice.id === audioStateRef.current.currentVoice)) {
             setTrackedAudioState(previousState => ({ ...previousState, currentVoice: defaultVoice }));
-          }
-          if (!voices.some(voice => voice.id === testVoice)) {
-            setTestVoice(defaultVoice);
           }
         }
       } catch {
@@ -1082,18 +975,6 @@ export const useTtsPlayer = ({
       if (audio.paused) {
         return;
       }
-
-      const localProgress = audio.duration ? audio.currentTime / audio.duration : 0;
-      const totalTextLength = currentState.chunks.reduce((sum, chunk) => sum + chunk.text.length, 0);
-      let processedTextLength = 0;
-      for (let index = 0; index < run.currentChunkIndex; index += 1) {
-        processedTextLength += currentState.chunks[index]?.text.length || 0;
-      }
-
-      const currentChunkLength = currentState.chunks[run.currentChunkIndex]?.text.length || 0;
-      const estimatedGlobalProgress =
-        (processedTextLength + currentChunkLength * localProgress) / (totalTextLength || 1);
-      setVisualProgress(estimatedGlobalProgress);
 
       if (
         shouldPlayRef.current &&
@@ -1234,10 +1115,6 @@ export const useTtsPlayer = ({
       playRequestIdRef.current += 1;
       abortCurrentRun('unmount');
       playbackRunRef.current = createIdlePlaybackRun();
-      if (testAudioRef.current) {
-        testAudioRef.current.pause();
-        testAudioRef.current.src = '';
-      }
       generatedObjectUrlsRef.current.forEach(url => {
         URL.revokeObjectURL(url);
       });
@@ -1250,28 +1127,14 @@ export const useTtsPlayer = ({
   return {
     availableVoices,
     audioState,
-    calibrationOffset,
     handleSeek,
     handleSkipChunk,
     handleSpeedChange,
-    handleToggleAudioSyncLink,
-    handleToggleRuler,
-    handleTTSPlayTest,
     handleVoiceChange,
-    isAudioSyncLinked,
-    isAutoTrackEnabled,
-    isRulerActive,
-    isTestPlaying,
     playerCurrentTime,
     playerDuration,
-    setCalibrationFromRelativeY,
-    setTestText,
-    setTestVoice,
     stopAudio,
-    testText,
-    testVoice,
     togglePlayPause,
     ttsConnected,
-    visualProgress,
   };
 };

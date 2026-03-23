@@ -51,9 +51,9 @@ export default function OpenRouterModelPanel({
 }: OpenRouterModelPanelProps) {
   return (
     <div
-      className={`rounded-md border border-gray-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950 ${className ?? ''}`}
+      className={`rounded-2xl border border-gray-200 bg-white p-4 shadow-lg dark:border-zinc-500/60 dark:bg-stone-700 ${className ?? ''}`}
     >
-      <div className="flex items-start justify-between gap-4 border-b border-gray-200 pb-3 dark:border-zinc-800">
+      <div className="flex items-start justify-between gap-4 border-b border-gray-200 pb-3 dark:border-zinc-500/40">
         <div>
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Modelli AI</h3>
           <p className="mt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
@@ -64,7 +64,7 @@ export default function OpenRouterModelPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-white"
+            className="rounded-full border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-500/60 dark:text-zinc-300 dark:hover:border-zinc-400 dark:hover:text-white"
           >
             Chiudi
           </button>
@@ -85,7 +85,7 @@ export default function OpenRouterModelPanel({
               value={preferredModels[field.value]}
               onChange={event => onModelChange(field.slot, event.target.value)}
               placeholder={defaultModels[field.placeholder]}
-              className="mt-2 w-full rounded-md border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-gray-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:focus:border-zinc-500"
+              className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-gray-400 dark:border-zinc-500/60 dark:bg-stone-800 dark:text-white dark:focus:border-zinc-400"
             />
             <p className="mt-1 text-[11px] text-gray-400 dark:text-zinc-500">
               Default: <code>{defaultModels[field.placeholder]}</code>
@@ -94,7 +94,7 @@ export default function OpenRouterModelPanel({
         ))}
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-200 pt-3 dark:border-zinc-800">
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-gray-200 pt-3 dark:border-zinc-500/40">
         <p className="text-xs text-gray-500 dark:text-zinc-400">
           I valori vengono salvati localmente e applicati per tipo di richiesta.
         </p>
@@ -105,7 +105,7 @@ export default function OpenRouterModelPanel({
             onModelChange('assessment', '');
             onModelChange('context', '');
           }}
-          className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:text-white"
+          className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-500/60 dark:text-zinc-300 dark:hover:border-zinc-400 dark:hover:text-white"
         >
           Reset
         </button>

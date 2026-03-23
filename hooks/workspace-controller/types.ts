@@ -91,6 +91,7 @@ export interface WorkspaceControllerStateAdapter {
   getAssessmentMessages: () => Message[];
   getChatSession: () => WorkspaceChatSession | null;
   getWorkflowState: () => WorkspaceWorkflowState;
+  invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
   isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) => boolean;
   resetRuntimeState: () => void;
   setAssessmentMessages: (
@@ -186,10 +187,15 @@ export interface WorkspaceControllerCommands {
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }>;
   openSection: (section: LearningSection, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
   regenerateActiveSection: () => Promise<OpenSectionOutcome>;
+  confirmPlanGeneration: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'planned' }>;
+  startHomeChat: (args: {
+    input: string;
+    selectedFile?: File | null;
+  }) => Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }>;
   startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
   submitAssessment: (
     input: string
-  ) => Promise<{ errorMessage?: string; outcome: 'continued' | 'failed' | 'noop' | 'planned' }>;
+  ) => Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }>;
 }
 
 export interface UseWorkspaceControllerArgs {

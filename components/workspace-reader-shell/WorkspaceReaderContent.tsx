@@ -7,7 +7,6 @@ export default function WorkspaceReaderContent({
   activeSectionAssetsById,
   activeSectionImageRefsById,
   contentRef,
-  isAutoTrackEnabled,
   isDarkMode,
   isFocusMode,
   isLoading,
@@ -37,12 +36,7 @@ export default function WorkspaceReaderContent({
       <div
         className={`mx-auto w-full min-w-0 transition-all duration-500 ${readingShellClassName}`}
       >
-        <section
-          ref={contentRef}
-          className={`mb-16 min-h-[50vh] min-w-0 ${
-            isAutoTrackEnabled ? 'cursor-crosshair' : ''
-          }`}
-        >
+        <section ref={contentRef} className="mb-16 min-h-[50vh] min-w-0">
           {isLoading ? (
             <div className="mx-auto mt-8 max-w-3xl animate-pulse space-y-8">
               <div className="mb-12 h-8 w-3/4 rounded bg-gray-200 dark:bg-zinc-800" />

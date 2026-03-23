@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReaderChrome } from './useReaderChrome.ts';
 import { useReaderContext } from './useReaderContext.ts';
-import { useReaderCalibration, useReaderSpeechBlocks } from './useReaderSpeech.ts';
+import { useReaderSpeechBlocks } from './useReaderSpeech.ts';
 import { useTtsPlayer } from './useTtsPlayer.ts';
 import {
   buildLessonAssetMap,
@@ -74,12 +74,6 @@ export const useWorkspaceReaderRuntime = ({
     speechBlocks,
   });
 
-  useReaderCalibration({
-    contentRef,
-    isAutoTrackEnabled: ttsPlayer.isAutoTrackEnabled,
-    setCalibrationFromRelativeY: ttsPlayer.setCalibrationFromRelativeY,
-  });
-
   const setPreferredOpenRouterModel = useCallback((slot: OpenRouterModelSlot, value: string) => {
     const trimmedValue = value.trim();
     setPreferredModels(currentModels => {
@@ -107,13 +101,8 @@ export const useWorkspaceReaderRuntime = ({
         readerChrome.setIsDarkMode(preferences.isDarkMode);
       }
 
-      if (typeof preferences.teleprompterSpeed === 'number') {
-        readerChrome.setTeleprompterSpeed(preferences.teleprompterSpeed);
-      }
-
       if (preferences.preferredVoice) {
         ttsPlayer.handleVoiceChange(preferences.preferredVoice);
-        ttsPlayer.setTestVoice(preferences.preferredVoice);
       }
 
       if (typeof preferences.playbackRate === 'number') {
@@ -137,17 +126,14 @@ export const useWorkspaceReaderRuntime = ({
     },
     [
       readerChrome.setIsDarkMode,
-      readerChrome.setTeleprompterSpeed,
       ttsPlayer.handleSpeedChange,
       ttsPlayer.handleVoiceChange,
-      ttsPlayer.setTestVoice,
     ]
   );
 
   const uiPreferences = useMemo<UiPreferences>(
     () => ({
       isDarkMode: readerChrome.isDarkMode,
-      teleprompterSpeed: readerChrome.teleprompterSpeed,
       preferredVoice: ttsPlayer.audioState.currentVoice,
       playbackRate: ttsPlayer.audioState.playbackRate,
       preferredLessonModel: preferredModels.preferredLessonModel,
@@ -159,7 +145,6 @@ export const useWorkspaceReaderRuntime = ({
       preferredModels.preferredContextModel,
       preferredModels.preferredLessonModel,
       readerChrome.isDarkMode,
-      readerChrome.teleprompterSpeed,
       ttsPlayer.audioState.currentVoice,
       ttsPlayer.audioState.playbackRate,
     ]

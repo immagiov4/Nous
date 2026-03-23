@@ -17,9 +17,15 @@ interface TextMatch {
   text: string;
 }
 
+interface LooseProjection {
+  sourceIndexes: number[];
+  text: string;
+}
+
 const MARK_OPEN = '<mark>';
 const MARK_CLOSE = '</mark>';
 const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
+const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -27,6 +33,14 @@ const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim()
 
 const buildContextRegex = (value: string) =>
   escapeRegex(normalizeWhitespace(value)).replace(/\s+/g, '\\s+');
+
+const normalizeLooseCharacter = (value: string): string =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .toLowerCase();
 
 const buildVisibleProjection = (content: string): VisibleProjection => {
   const characters: string[] = [];
@@ -144,6 +158,69 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
   };
 };
 
+const buildLooseProjection = (content: string): LooseProjection => {
+  const visibleProjection = buildVisibleProjection(content);
+  const characters: string[] = [];
+  const sourceIndexes: number[] = [];
+
+  visibleProjection.text.split('').forEach((character, index) => {
+    const normalizedCharacter = normalizeLooseCharacter(character);
+    if (/^[\p{L}\p{N}]$/u.test(normalizedCharacter)) {
+      characters.push(normalizedCharacter);
+      sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+      return;
+    }
+
+    if (/\s/u.test(character)) {
+      if (characters[characters.length - 1] !== ' ') {
+        characters.push(' ');
+        sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+      }
+      return;
+    }
+
+    if (characters[characters.length - 1] !== ' ') {
+      characters.push(' ');
+      sourceIndexes.push(visibleProjection.sourceIndexes[index]);
+    }
+  });
+
+  return {
+    text: characters.join('').trim(),
+    sourceIndexes,
+  };
+};
+
+const buildSourceLooseProjection = (content: string): LooseProjection => {
+  const characters: string[] = [];
+  const sourceIndexes: number[] = [];
+
+  content.split('').forEach((character, index) => {
+    const normalizedCharacter = normalizeLooseCharacter(character);
+    if (/^[\p{L}\p{N}]$/u.test(normalizedCharacter)) {
+      characters.push(normalizedCharacter);
+      sourceIndexes.push(index);
+      return;
+    }
+
+    if (characters[characters.length - 1] !== ' ') {
+      characters.push(' ');
+      sourceIndexes.push(index);
+    }
+  });
+
+  return {
+    text: characters.join('').trim(),
+    sourceIndexes,
+  };
+};
+
+const normalizeLooseText = (value: string): string =>
+  normalizeLooseCharacter(value)
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 const resolveExactMatch = (
   text: string,
   selectedText: string,
@@ -216,6 +293,32 @@ const buildSourceSegments = (
   return segments;
 };
 
+const splitSegmentOnParagraphBreaks = (
+  content: string,
+  segment: MarkdownRange
+): MarkdownRange[] => {
+  const segmentText = content.slice(segment.start, segment.end);
+  const fragments: MarkdownRange[] = [];
+  let cursor = segment.start;
+
+  for (const match of segmentText.matchAll(PARAGRAPH_BREAK_REGEX)) {
+    const breakStart = segment.start + (match.index ?? 0);
+    const breakEnd = breakStart + match[0].length;
+
+    if (cursor < breakStart) {
+      fragments.push({ start: cursor, end: breakStart });
+    }
+
+    cursor = breakEnd;
+  }
+
+  if (cursor < segment.end) {
+    fragments.push({ start: cursor, end: segment.end });
+  }
+
+  return fragments;
+};
+
 const trimSegmentWhitespace = (content: string, segment: MarkdownRange): MarkdownRange | null => {
   const segmentText = content.slice(segment.start, segment.end);
   const leadingWhitespaceLength = segmentText.match(/^\s*/u)?.[0].length ?? 0;
@@ -258,16 +361,18 @@ const buildMarkableSegments = (
   segments: MarkdownRange[],
   protectedRanges: MarkdownRange[]
 ): MarkdownRange[] =>
-  segments.flatMap(segment => {
-    const trimmedSegment = trimSegmentWhitespace(content, segment);
-    if (!trimmedSegment) {
-      return [];
-    }
+  segments
+    .flatMap(segment => splitSegmentOnParagraphBreaks(content, segment))
+    .flatMap(segment => {
+      const trimmedSegment = trimSegmentWhitespace(content, segment);
+      if (!trimmedSegment) {
+        return [];
+      }
 
-    return excludeProtectedRanges(trimmedSegment, protectedRanges)
-      .map(fragment => trimSegmentWhitespace(content, fragment))
-      .filter((fragment): fragment is MarkdownRange => Boolean(fragment));
-  });
+      return excludeProtectedRanges(trimmedSegment, protectedRanges)
+        .map(fragment => trimSegmentWhitespace(content, fragment))
+        .filter((fragment): fragment is MarkdownRange => Boolean(fragment));
+    });
 
 const isSegmentWrapped = (content: string, segment: MarkdownRange) => {
   if (segment.start < MARK_OPEN.length) {
@@ -330,6 +435,8 @@ export const toggleHighlightInContent = ({
   }
 
   const visibleProjection = buildVisibleProjection(content);
+  const looseProjection = buildLooseProjection(content);
+  const sourceLooseProjection = buildSourceLooseProjection(content);
   const protectedRanges = getMarkdownCodeRanges(content);
   const exactMatch = resolveExactMatch(
     visibleProjection.text,
@@ -395,6 +502,60 @@ export const toggleHighlightInContent = ({
       content,
       segments.filter(segment => !isSegmentWrapped(content, segment))
     );
+  }
+
+  const normalizedLooseSelection = normalizeLooseText(trimmedTargetText);
+  if (normalizedLooseSelection) {
+    const looseRegex = new RegExp(buildContextRegex(normalizedLooseSelection), 'u');
+    const looseMatch = looseProjection.text.match(looseRegex);
+
+    if (looseMatch) {
+      const segments = buildMarkableSegments(
+        content,
+        buildSourceSegments(
+          looseProjection,
+          looseMatch.index ?? 0,
+          looseMatch[0].length
+        ),
+        protectedRanges
+      );
+
+      if (segments.length > 0) {
+        if (segments.every(segment => isSegmentWrapped(content, segment))) {
+          return unwrapSegments(content, segments);
+        }
+
+        return wrapSegments(
+          content,
+          segments.filter(segment => !isSegmentWrapped(content, segment))
+        );
+      }
+    }
+
+    const sourceLooseMatch = sourceLooseProjection.text.match(looseRegex);
+
+    if (sourceLooseMatch) {
+      const segments = buildMarkableSegments(
+        content,
+        buildSourceSegments(
+          sourceLooseProjection,
+          sourceLooseMatch.index ?? 0,
+          sourceLooseMatch[0].length
+        ),
+        protectedRanges
+      );
+
+      if (segments.length > 0) {
+        if (segments.every(segment => isSegmentWrapped(content, segment))) {
+          return unwrapSegments(content, segments);
+        }
+
+        return wrapSegments(
+          content,
+          segments.filter(segment => !isSegmentWrapped(content, segment))
+        );
+      }
+    }
   }
 
   const rawMatchIndex = content.indexOf(selectedText);

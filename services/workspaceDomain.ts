@@ -10,6 +10,7 @@ import type {
   UserProfile,
   WorkspaceDomainState,
 } from '../types';
+import { insertSectionAfterSubtree } from '../utils/learningSectionTree.ts';
 
 export const createEmptyWorkspaceDomainState = (): WorkspaceDomainState => ({
   source: null,
@@ -169,21 +170,13 @@ export const workspaceDomainReducer = (
 
     case 'insert-section-after':
       return updateLearningPlan(state, learningPlan => {
-        const parentIndex = learningPlan.sections.findIndex(
-          section => section.id === action.parentSectionId
-        );
-
-        if (parentIndex < 0) {
-          return learningPlan;
-        }
-
         return {
           ...learningPlan,
-          sections: [
-            ...learningPlan.sections.slice(0, parentIndex + 1),
-            action.section,
-            ...learningPlan.sections.slice(parentIndex + 1),
-          ],
+          sections: insertSectionAfterSubtree(
+            learningPlan.sections,
+            action.parentSectionId,
+            action.section
+          ),
         };
       });
   }

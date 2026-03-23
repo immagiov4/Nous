@@ -20,6 +20,8 @@ import {
   type QuizQuestion,
   type UserProfile,
 } from './shared.ts';
+import { pushLuminaDebugTrace } from '../debugTrace.ts';
+import { normalizeMarkdownForRendering } from '../../utils/renderMarkdown.ts';
 import { buildLessonChunkContext } from './documentIndex.ts';
 import {
   buildStoredPdfDocumentAssets,
@@ -115,6 +117,25 @@ interface PdfSectionContentPayload {
   quiz?: QuizQuestion[];
   imagePlacements?: SectionImagePlacement[];
 }
+
+const LESSON_MARKDOWN_TRACE_PREVIEW_CHARS = 1600;
+
+const summarizeLessonMarkdownForTrace = (content: string) => ({
+  hasCodeFence: /(^|\n)```/.test(content),
+  length: content.length,
+  preview: content.slice(0, LESSON_MARKDOWN_TRACE_PREVIEW_CHARS),
+});
+
+const traceLessonMarkdownStage = (
+  stage: 'cleaned' | 'raw' | 'repaired',
+  sectionTitle: string,
+  content: string
+) => {
+  pushLuminaDebugTrace(`lesson-markdown:${stage}`, {
+    sectionTitle,
+    ...summarizeLessonMarkdownForTrace(content),
+  });
+};
 
 export const LESSON_RESPONSE_SCHEMA = {
   name: 'lumina_lesson_response',
@@ -671,7 +692,7 @@ const sanitizeLessonMarkdownContent = (
 
   next = stripModelMarkdownImages(next);
   next = stripStructuredQuizFromMarkdown(next, structuredQuiz);
-  return prettifyMarkdownSpacing(next);
+  return normalizeMarkdownForRendering(prettifyMarkdownSpacing(next));
 };
 
 const LESSON_CONCLUSION_HEADING_REGEX = /(^|\n)#{1,6}\s+Conclusione\b/i;
@@ -1241,6 +1262,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     );
 
     const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
+    traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
     const structuredQuiz = parseQuizPayload(parsed.quiz);
     const repairedContentMarkdown = await repairLessonMarkdown(
       parsed.contentMarkdown || '',
@@ -1252,6 +1274,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
       return parsed.contentMarkdown || '';
     });
+    traceLessonMarkdownStage('repaired', sectionTitle, repairedContentMarkdown || '');
 
     const maxLessonImages = getDynamicLessonImageLimit(repairedContentMarkdown);
     const availableAssetIds = new Set(candidateImages.map(image => image.id));
@@ -1305,6 +1328,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       structuredQuiz,
       visibleLabelByAssetId
     );
+    traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown || '');
     const content = injectImagePlaceholders(cleanedContentMarkdown, imageRefs);
 
     return {
@@ -1378,6 +1402,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     })
   );
   const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
+  traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
   const structuredQuiz = parseQuizPayload(parsed.quiz);
   const repairedContentMarkdown = await repairLessonMarkdown(
     parsed.contentMarkdown || '',
@@ -1388,9 +1413,16 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
     return parsed.contentMarkdown || '';
   });
+  traceLessonMarkdownStage('repaired', sectionTitle, repairedContentMarkdown || '');
+
+  const cleanedContentMarkdown = sanitizeLessonMarkdownContent(
+    repairedContentMarkdown.trim(),
+    structuredQuiz
+  );
+  traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown);
 
   return {
-    content: sanitizeLessonMarkdownContent(repairedContentMarkdown.trim(), structuredQuiz),
+    content: cleanedContentMarkdown,
     quiz: structuredQuiz,
     imageRefs: [],
     documentAssets: null,

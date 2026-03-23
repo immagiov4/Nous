@@ -10,7 +10,7 @@ const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
     <div className="h-full w-full flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500 bg-paper-light dark:bg-paper-dark transition-colors">
       <div className="relative mb-8">
         <div className="absolute inset-0 bg-orange-200 dark:bg-orange-900 rounded-full opacity-20 animate-ping"></div>
-        <div className="relative bg-white dark:bg-zinc-900 p-4 rounded-full shadow-lg border border-orange-100 dark:border-zinc-800">
+        <div className="relative bg-white dark:bg-paper-surface p-4 rounded-full shadow-lg border border-orange-100 dark:border-zinc-700/80">
           <Loader2 className="w-8 h-8 text-orange-600 dark:text-orange-400 animate-spin" />
         </div>
       </div>

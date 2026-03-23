@@ -3,14 +3,14 @@ import type { WorkspaceReaderSidebarModel } from './types.ts';
 
 const renderSectionStatus = (isActive: boolean, isCompleted: boolean) => {
   if (isCompleted) {
-    return 'border-gray-300 bg-gray-100 text-gray-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-gray-400';
+    return 'border-gray-300 bg-gray-100 text-gray-500 dark:border-zinc-500/80 dark:bg-zinc-800 dark:text-gray-400';
   }
 
   if (isActive) {
     return 'border-gray-500 bg-gray-500 text-transparent dark:border-zinc-400 dark:bg-zinc-400';
   }
 
-  return 'border-gray-300 bg-transparent text-transparent dark:border-zinc-700';
+  return 'border-gray-300 bg-transparent text-transparent dark:border-zinc-600/80';
 };
 
 export default function WorkspaceReaderSidebar({
@@ -34,18 +34,18 @@ export default function WorkspaceReaderSidebar({
         <button
           type="button"
           aria-label="Chiudi elenco lezioni"
-          className="fixed inset-0 z-20 bg-black/40 backdrop-blur-[1px]"
+          className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-[1px]"
           onClick={() => onSetIsMobileSidebarOpen(false)}
         />
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex h-screen flex-col border-r border-gray-200/80 bg-white transition-transform duration-300 dark:border-zinc-800 dark:bg-zinc-900 ${
+        className={`fixed inset-y-0 left-0 z-[70] flex h-screen flex-col border-r border-gray-200/80 bg-white transition-transform duration-300 dark:border-zinc-700/80 dark:bg-zinc-800 ${
           shouldShowSidebar ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ width: isMobileViewport ? 'min(92vw, 24rem)' : 384 }}
       >
-        <div className="flex flex-col gap-4 border-b border-gray-200/80 px-5 py-5 dark:border-zinc-800 sm:px-6">
+        <div className="flex flex-col gap-4 border-b border-gray-200/80 px-5 py-5 dark:border-zinc-700/80 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <h1 className="font-serif text-xl font-bold leading-tight text-gray-900 dark:text-white">
               {learningPlanTitle || 'Percorso di Studio'}
@@ -75,7 +75,7 @@ export default function WorkspaceReaderSidebar({
             <button
               type="button"
               onClick={onBackToLibrary}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-100/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-200/90 dark:bg-zinc-800/90 dark:text-gray-300 dark:hover:bg-zinc-700"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600"
             >
               <LibraryBig className="h-4 w-4" /> Libreria
             </button>
@@ -83,7 +83,7 @@ export default function WorkspaceReaderSidebar({
               type="button"
               onClick={onExportProject}
               disabled={isLoading}
-              className={`flex w-full items-center justify-center gap-2 rounded-lg bg-gray-100/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-200/90 dark:bg-zinc-800/90 dark:text-gray-300 dark:hover:bg-zinc-700 ${
+              className={`flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600 ${
                 isLoading ? 'cursor-not-allowed opacity-50' : ''
               }`}
             >
@@ -100,7 +100,7 @@ export default function WorkspaceReaderSidebar({
               return (
                 <section
                   key={group.id}
-                  className="border-b border-gray-200/70 pb-3 last:border-b-0 last:pb-0 dark:border-zinc-800/90"
+                  className="border-b border-gray-200/70 pb-3 last:border-b-0 last:pb-0 dark:border-zinc-700/80"
                 >
                   <button
                     type="button"
@@ -122,9 +122,10 @@ export default function WorkspaceReaderSidebar({
                   </button>
 
                   {isExpanded ? (
-                    <div className="mt-2 ml-5 space-y-1 border-l border-gray-200 pl-4 dark:border-zinc-800">
+                    <div className="mt-2 ml-5 space-y-1 border-l border-gray-200 pl-4 dark:border-zinc-700/80">
                       {group.sections.map(section => {
                         const isActive = activeSectionId === section.id;
+                        const depth = group.sectionDepthById[section.id] ?? 0;
 
                         return (
                           <button
@@ -132,6 +133,7 @@ export default function WorkspaceReaderSidebar({
                             key={section.id}
                             onClick={() => onSelectSection(section)}
                             disabled={isLoading}
+                            style={{ paddingLeft: `${depth * 0.9}rem` }}
                             className={`flex w-full items-center gap-3 py-2 text-left transition-colors ${
                               isActive
                                 ? 'text-gray-900 dark:text-gray-100'

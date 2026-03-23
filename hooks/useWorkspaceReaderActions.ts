@@ -115,6 +115,7 @@ export const useWorkspaceReaderActions = ({
       contextAfter: contextMenu.contextAfter,
     });
     if (!newContent) {
+      notify('Non sono riuscito a evidenziare questa selezione in modo affidabile. Prova con una selezione leggermente piu corta.');
       return;
     }
 

@@ -11,6 +11,9 @@ import type { SidebarGroup } from './workspaceReader.ts';
 const sidebarGroups: SidebarGroup[] = [
   {
     id: 'group-a',
+    sectionDepthById: {
+      'lesson-a1': 0,
+    },
     title: 'Modulo A',
     sections: [
       {
@@ -24,6 +27,9 @@ const sidebarGroups: SidebarGroup[] = [
   },
   {
     id: 'group-b',
+    sectionDepthById: {
+      'lesson-b1': 0,
+    },
     title: 'Modulo B',
     sections: [
       {
@@ -81,6 +87,36 @@ test('resolveExpandedModuleState follows the active section when it changes grou
     {
       expandedModuleId: 'group-b',
       previousActiveSectionId: 'lesson-b1',
+    }
+  );
+});
+
+test('resolveExpandedModuleState preserves a manual close while the active section is unchanged', () => {
+  assert.deepEqual(
+    resolveExpandedModuleState({
+      activeSectionId: 'lesson-b1',
+      currentExpandedModuleId: null,
+      previousActiveSectionId: 'lesson-b1',
+      sidebarGroups,
+    }),
+    {
+      expandedModuleId: null,
+      previousActiveSectionId: 'lesson-b1',
+    }
+  );
+});
+
+test('resolveExpandedModuleState reopens the active group after a manual close when the active section changes', () => {
+  assert.deepEqual(
+    resolveExpandedModuleState({
+      activeSectionId: 'lesson-a1',
+      currentExpandedModuleId: null,
+      previousActiveSectionId: 'lesson-b1',
+      sidebarGroups,
+    }),
+    {
+      expandedModuleId: 'group-a',
+      previousActiveSectionId: 'lesson-a1',
     }
   );
 });

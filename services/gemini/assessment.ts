@@ -90,11 +90,15 @@ const buildAssessmentDocumentContextFromTextSource = (
 
 Ho caricato questo materiale sorgente. Voglio che tu mi valuti per creare un piano di studio su di esso.
 
+IMPORTANTE: questo messaggio contiene solo il materiale di riferimento e NON conta come risposta di calibrazione dell'utente.
+
 ANTEPRIMA DELLA SORGENTE:
 ${preview}`
       : `Sorgente: ${source.name}
 
 Ho caricato questo materiale sorgente. Voglio che tu mi valuti per creare un piano di studio su di esso.
+
+IMPORTANTE: questo messaggio contiene solo il materiale di riferimento e NON conta come risposta di calibrazione dell'utente.
 
 Nota: non e stato possibile leggere un'anteprima affidabile della sorgente. Non assumere una struttura ideale del materiale e fai domande generiche di calibrazione.`,
     hasReliableSourceContext: Boolean(preview),
@@ -102,15 +106,24 @@ Nota: non e stato possibile leggere un'anteprima affidabile della sorgente. Non 
 };
 
 const createSeededAssessmentSession = (
-  assessmentDocument: AssessmentDocumentContext
+  assessmentDocument: AssessmentDocumentContext,
+  options?: { seedAssistant?: boolean }
 ): ChatSession => {
-  const baseSystemPrompt = `Sei un assistente empatico che deve valutare le conoscenze pregresse dell'utente SUL DOCUMENTO CARICATO.
+  const baseSystemPrompt = `Sei un assistente empatico che deve valutare le conoscenze pregresse dell'utente SUL DOCUMENTO CARICATO per costruire un piano di studi personalizzato.
 
-REGOLE FONDAMENTALI:
-1. NON INIZIARE MAI A SPIEGARE O FARE LEZIONI ORA. Il tuo unico scopo è fare domande.
-2. Fai domande brevi e dirette per capire il livello (principiante, intermedio, esperto).
-3. Se l'utente ti da una risposta molto dettagliata o se hai capito il suo livello PRIMA dei 3 turni previsti, FERMATI.
-4. Quando hai abbastanza informazioni per creare un piano di studi, scrivi ESATTAMENTE questo token alla fine della tua risposta: [ASSESSMENT_COMPLETE]
+REGOLE:
+1. Il tuo unico scopo è fare domande. NON spiegare, NON fare lezioni, NON riassumere il documento.
+2. Fai domande brevi e dirette per capire: livello attuale, obiettivi, difficolta, tipo di materiale che serve e preferenze sul percorso.
+3. Il messaggio che contiene la sorgente caricata NON conta come risposta dell'utente.
+4. Di norma, dopo circa 3 risposte utili dell'utente dovresti gia avere abbastanza informazioni. Fai piu domande solo se manca davvero un dato ad alto impatto per personalizzare il percorso.
+5. Evita domande logistiche o a basso impatto, per esempio ore di studio a settimana, disponibilita sul calendario, orari o dettagli organizzativi simili, a meno che sia l'utente a portarli come vincolo decisivo.
+6. Le domande devono concentrarsi su capacita, lacune, familiarita con il materiale, obiettivo finale e preferenze sul tipo di spiegazione o progressione.
+7. Quando sei davvero sicuro di avere abbastanza informazioni, scrivi ESATTAMENTE il token [ASSESSMENT_COMPLETE] alla fine della tua ultima risposta.
+
+STILE:
+- Ogni tua risposta dovrebbe terminare con una domanda concreta, tranne l'ultima con [ASSESSMENT_COMPLETE].
+- Se sei incerto su qualcosa, chiedi. Non assumere.
+- Sii conciso e diretto, non prolisso.
 
 Parla in Italiano.`;
 
@@ -128,13 +141,16 @@ ${
       role: 'user',
       content: assessmentDocument.content,
     },
-    {
+  ];
+
+  if (options?.seedAssistant !== false) {
+    history.push({
       role: 'assistant',
       content: assessmentDocument.hasReliableSourceContext
         ? 'Perfetto. Ho ricevuto contenuto affidabile dalla sorgente caricata e ti faro qualche breve domanda per calibrare il percorso. Qual e il tuo obiettivo principale con questo materiale?'
         : 'Perfetto. Il contenuto della sorgente non e disponibile in modo affidabile, quindi parto dal tuo background. Hai gia studiato questo argomento oppure stai iniziando da zero?',
-    },
-  ];
+    });
+  }
 
   return {
     sendMessage: async ({ message }) => {
@@ -224,13 +240,32 @@ export const createAssessmentChat = async (
 ): Promise<ChatSession> =>
   createSeededAssessmentSession(await buildAssessmentDocumentPrompt(file, onStatusUpdate));
 
+export const createEmbeddedAssessmentChat = async (
+  file: FileData,
+  onStatusUpdate?: (status: string) => void
+): Promise<ChatSession> =>
+  createSeededAssessmentSession(await buildAssessmentDocumentPrompt(file, onStatusUpdate), {
+    seedAssistant: false,
+  });
+
 export const createAssessmentChatFromTextSource = async (
   source: TextAssessmentSource,
   _onStatusUpdate?: (status: string) => void
 ): Promise<ChatSession> =>
   createSeededAssessmentSession(buildAssessmentDocumentContextFromTextSource(source));
 
-export const createLearnAssessmentChat = (language: string): ChatSession<UserProfile> => {
+export const createEmbeddedAssessmentChatFromTextSource = async (
+  source: TextAssessmentSource,
+  _onStatusUpdate?: (status: string) => void
+): Promise<ChatSession> =>
+  createSeededAssessmentSession(buildAssessmentDocumentContextFromTextSource(source), {
+    seedAssistant: false,
+  });
+
+const createLearnAssessmentSession = (
+  language: string,
+  options?: { seedOpeningExchange?: boolean }
+): ChatSession<UserProfile> => {
   const systemInstruction = `You are an Expert Curriculum Designer and Profiler.
 
 CRITICAL INSTRUCTION: You MUST speak in ${language}. 
@@ -247,6 +282,9 @@ Protocol:
 1. If the user gives a generic answer (e.g., "I want to learn code"), ask what for.
 2. If the user mentions specific technologies (e.g., "Lua", "Vite", "Supabase"), ASK how they use them or what frustrates them about them.
 3. Understand their MENTAL MODEL. Do they like theory first? Or hacking first?
+4. In most cases, after about 3 useful user answers you should already have enough information to finalize the profile. Ask more only if a high-impact gap remains.
+5. Avoid low-impact logistical questions like hours per week, calendar availability, schedules, or classroom-style organization details unless the user explicitly frames them as critical constraints.
+6. Prioritize questions about actual skill level, prior exposure, target outcomes, frustrations, and preferred learning style or progression.
 
 When you have gathered enough information, respond with a JSON object containing the profile:
 {
@@ -259,11 +297,12 @@ When you have gathered enough information, respond with a JSON object containing
 
 Only return this JSON when you have enough information. Before that, just ask questions.`;
 
-  const history: ChatMessage[] = [
-    { role: 'system', content: systemInstruction },
-    { role: 'user', content: 'Voglio imparare qualcosa di nuovo.' },
-    { role: 'assistant', content: 'Cosa vuoi imparare esattamente, e perche?' },
-  ];
+  const history: ChatMessage[] = [{ role: 'system', content: systemInstruction }];
+
+  if (options?.seedOpeningExchange !== false) {
+    history.push({ role: 'user', content: 'Voglio imparare qualcosa di nuovo.' });
+    history.push({ role: 'assistant', content: 'Cosa vuoi imparare esattamente, e perche?' });
+  }
 
   return {
     sendMessage: async ({ message }) => {
@@ -290,3 +329,10 @@ Only return this JSON when you have enough information. Before that, just ask qu
     getHistory: () => history,
   };
 };
+
+export const createLearnAssessmentChat = (language: string): ChatSession<UserProfile> =>
+  createLearnAssessmentSession(language);
+
+export const createEmbeddedLearnAssessmentChat = (
+  language: string
+): ChatSession<UserProfile> => createLearnAssessmentSession(language, { seedOpeningExchange: false });

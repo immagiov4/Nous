@@ -62,8 +62,32 @@ export const resolveExpandedModuleState = ({
     ? sidebarGroups.some(group => group.id === currentExpandedModuleId)
     : false;
 
+  const activeGroup = activeSectionId
+    ? sidebarGroups.find(group => group.sections.some(section => section.id === activeSectionId))
+    : null;
+
+  if (currentExpandedModuleId === null) {
+    if (previousActiveSectionId === activeSectionId && previousActiveSectionId !== null) {
+      return {
+        expandedModuleId: null,
+        previousActiveSectionId,
+      };
+    }
+
+    const nextGroup =
+      activeGroup ||
+      sidebarGroups.find(group => group.sections.some(section => !section.isCompleted)) ||
+      sidebarGroups[0];
+
+    return {
+      expandedModuleId: nextGroup.id,
+      previousActiveSectionId: activeSectionId,
+    };
+  }
+
   if (!currentGroupStillExists) {
     const nextGroup =
+      activeGroup ||
       sidebarGroups.find(group => group.sections.some(section => !section.isCompleted)) ||
       sidebarGroups[0];
 
@@ -79,10 +103,6 @@ export const resolveExpandedModuleState = ({
       previousActiveSectionId,
     };
   }
-
-  const activeGroup = sidebarGroups.find(group =>
-    group.sections.some(section => section.id === activeSectionId)
-  );
 
   return {
     expandedModuleId: activeGroup?.id || currentExpandedModuleId,

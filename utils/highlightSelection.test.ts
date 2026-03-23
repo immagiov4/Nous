@@ -84,6 +84,34 @@ test('matches long selections that cross inline code identifiers with underscore
   assert.equal(updated, '<mark>Se vedo</mark> `get_node_block_pos`<mark>, capisco meglio.</mark>');
 });
 
+test('splits multi-paragraph highlights so each paragraph start stays marked', () => {
+  const content =
+    'Primo paragrafo con `const` e chiusura.\n\nSecondo inizio normale prima di `foo_bar` e conclusione.';
+  const updated = toggleHighlightInContent({
+    content,
+    selectedText:
+      'Primo paragrafo con const e chiusura.\n\nSecondo inizio normale prima di foo_bar e conclusione.',
+  });
+
+  assert.equal(
+    updated,
+    '<mark>Primo paragrafo con</mark> `const` <mark>e chiusura.</mark>\n\n<mark>Secondo inizio normale prima di</mark> `foo_bar` <mark>e conclusione.</mark>'
+  );
+});
+
+test('falls back to loose normalized matching for accented and punctuated prose', () => {
+  const content = 'I nomi devono essere in snake_case, e ogni file deve includere tutto cio da cui dipende.';
+  const updated = toggleHighlightInContent({
+    content,
+    selectedText: 'I nomi devono essere in snake_case, e ogni file deve includere tutto ciò da cui dipende.',
+  });
+
+  assert.equal(
+    updated,
+    '<mark>I nomi devono essere in snake_case,</mark> <mark>e ogni file deve includere tutto cio da cui dipende</mark>.'
+  );
+});
+
 test('does not inject mark tags inside fenced code blocks', () => {
   const content = 'Esempio:\n\n```cpp\nServer server;\n```';
   const updated = toggleHighlightInContent({

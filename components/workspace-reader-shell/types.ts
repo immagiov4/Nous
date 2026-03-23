@@ -1,4 +1,8 @@
-import type { MouseEvent as ReactMouseEvent, RefObject } from 'react';
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  RefObject,
+} from 'react';
 import type {
   AudioState,
   ContextMenuState,
@@ -56,14 +60,12 @@ export interface WorkspaceReaderBannersModel {
 export interface WorkspaceReaderHeaderModel {
   activeSection: LearningSection | null;
   activeSidebarGroup: SidebarGroup | null;
-  audioState: AudioState;
   isDarkMode: boolean;
   isFocusMode: boolean;
-  isHeaderHovered: boolean;
   isLoading: boolean;
+  isMobileSidebarOpen: boolean;
   isMobileViewport: boolean;
   isMusicPlaying: boolean;
-  isRulerActive: boolean;
   isSettingsOpen: boolean;
   learningPlanTitle: string;
   loadingStatus: string;
@@ -80,17 +82,13 @@ export interface WorkspaceReaderHeaderModel {
   onSetMusicVolume: (value: number) => void;
   onSetPreferredOpenRouterModel: (slot: OpenRouterModelSlot, value: string) => void;
   onSetSettingsOpen: (value: boolean) => void;
-  onSetTeleprompterSpeed: (value: number) => void;
-  onToggleRuler: () => void;
   preferredModels: OpenRouterModelPreferences;
-  teleprompterSpeed: number;
 }
 
 export interface WorkspaceReaderContentModel {
   activeSectionAssetsById: Record<string, PdfImageAsset>;
   activeSectionImageRefsById: Record<string, LessonImageRef>;
   contentRef: RefObject<HTMLDivElement | null>;
-  isAutoTrackEnabled: boolean;
   isDarkMode: boolean;
   isFocusMode: boolean;
   isLoading: boolean;
@@ -112,12 +110,10 @@ export interface WorkspaceReaderAudioPlayerModel {
   availableVoices: WorkspaceReaderVoiceOption[];
   currentTime: number;
   duration: number;
-  isAudioSyncLinked: boolean;
   onPlayPause: () => void;
   onSeek: (time: number) => void;
   onSkipChunk: (direction: 'prev' | 'next') => void;
   onSpeedChange: (value: number) => void;
-  onToggleAudioSyncLink: () => void;
   onVoiceChange: (voiceId: VoiceProfileId) => void;
   playerCurrentChunkIsLoading: boolean;
   sectionContent: string;
@@ -126,10 +122,12 @@ export interface WorkspaceReaderAudioPlayerModel {
 
 export interface WorkspaceReaderOverlaysModel {
   contextAnswer: ContextAnswerState | null;
+  contextAnswerPanelRef: RefObject<HTMLDivElement | null>;
+  contextAnswerResizePreviewRef: RefObject<HTMLDivElement | null>;
   contextAnswerSize: ContextAnswerSize;
   contextMenu: ContextMenuState;
   contextMenuRef: RefObject<HTMLDivElement | null>;
-  handleContextAnswerResizeStart: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+  handleContextAnswerResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   isContextLoading: boolean;
   isDarkMode: boolean;
   isMobileViewport: boolean;
@@ -140,24 +138,12 @@ export interface WorkspaceReaderOverlaysModel {
   onHighlight: () => void;
 }
 
-export interface WorkspaceReaderRulerModel {
-  calibrationOffset: number;
-  contentRef: RefObject<HTMLDivElement | null>;
-  isHeaderHovered: boolean;
-  isRulerActive: boolean;
-  isPlaying: boolean;
-  scrollContainerRef: RefObject<HTMLDivElement | null>;
-  teleprompterSpeed: number;
-  visualProgress: number;
-}
-
 export interface WorkspaceReaderShellProps {
   audioPlayer: WorkspaceReaderAudioPlayerModel;
   banners: WorkspaceReaderBannersModel;
   content: WorkspaceReaderContentModel;
   header: WorkspaceReaderHeaderModel;
   overlays: WorkspaceReaderOverlaysModel;
-  ruler: WorkspaceReaderRulerModel;
   shouldUseDesktopSidebar: boolean;
   sidebar: WorkspaceReaderSidebarModel;
 }

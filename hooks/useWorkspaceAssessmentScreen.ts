@@ -8,7 +8,7 @@ interface UseWorkspaceAssessmentScreenArgs {
   startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
   submitAssessment: (
     input: string
-  ) => Promise<{ errorMessage?: string; outcome: 'continued' | 'failed' | 'noop' | 'planned' }>;
+  ) => Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }>;
 }
 
 export const useWorkspaceAssessmentScreen = ({

@@ -87,3 +87,56 @@ test('reducer can mark a section as completed without extra duplicate state', ()
 
   assert.equal(nextState.learningPlan?.sections[0].isCompleted, true);
 });
+
+test('reducer inserts a new section after the full subtree of its parent', () => {
+  const nestedPlan: LearningPlan = {
+    ...learningPlan,
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Introduzione',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+      },
+      {
+        id: 'lesson-1-deep',
+        title: 'Dettaglio',
+        description: 'Figlia',
+        isCompleted: false,
+        type: 'deep-dive',
+        parentId: 'lesson-1',
+      },
+      {
+        id: 'lesson-2',
+        title: 'Seguito',
+        description: 'Next',
+        isCompleted: false,
+        type: 'core',
+      },
+    ],
+  };
+
+  const nextState = workspaceDomainReducer(
+    buildState({
+      learningPlan: nestedPlan,
+    }),
+    {
+      type: 'insert-section-after',
+      parentSectionId: 'lesson-1',
+      section: {
+        id: 'lesson-1-deep-2',
+        title: 'Nuovo dettaglio',
+        description: 'Nuova figlia',
+        isCompleted: false,
+        type: 'deep-dive',
+        parentId: 'lesson-1',
+      },
+    }
+  );
+
+  assert.deepEqual(
+    nextState.learningPlan?.sections.map(section => section.id),
+    ['lesson-1', 'lesson-1-deep', 'lesson-1-deep-2', 'lesson-2']
+  );
+});

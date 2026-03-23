@@ -32,7 +32,7 @@ export default function WorkspaceReaderBanners({
       ) : null}
 
       {needsSourceFile ? (
-        <div className="mx-4 mt-4 flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-600 dark:border-zinc-800 dark:bg-zinc-900/90 dark:text-zinc-300 sm:mx-8 sm:mt-5 sm:flex-row sm:items-center">
+        <div className="mx-4 mt-4 flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-600 dark:border-zinc-700/80 dark:bg-zinc-800/90 dark:text-zinc-300 sm:mx-8 sm:mt-5 sm:flex-row sm:items-center">
           <span>
             Questo progetto e stato importato senza file sorgente. Ricollega il PDF o lo ZIP per
             generare nuove lezioni.

@@ -114,18 +114,29 @@ test('returns null when selection is empty or outside the content container', ()
   }), null);
 });
 
-test('keeps the mobile sheet open when the native selection disappears during scroll', () => {
+test('closes the mobile sheet when the native selection disappears', () => {
   assert.equal(
     resolveMobileContextMenuSyncAction({
       hasSelection: false,
       isMenuFocused: false,
       isMenuVisible: true,
     }),
+    'close-menu'
+  );
+});
+
+test('keeps the mobile sheet open only while the menu itself is focused', () => {
+  assert.equal(
+    resolveMobileContextMenuSyncAction({
+      hasSelection: false,
+      isMenuFocused: true,
+      isMenuVisible: true,
+    }),
     'keep-existing-menu'
   );
 });
 
-test('closes the mobile sheet only when there is no live selection and no pinned menu', () => {
+test('opens the mobile sheet for a live selection and closes it otherwise', () => {
   assert.equal(
     resolveMobileContextMenuSyncAction({
       hasSelection: false,

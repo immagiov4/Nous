@@ -1,4 +1,4 @@
-import { memo, type CSSProperties, type HTMLAttributes, type MouseEvent, type ReactNode } from 'react';
+import { memo, useMemo, type CSSProperties, type HTMLAttributes, type MouseEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -26,7 +26,7 @@ interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
 }
 
 const articleClassName = (className: string) =>
-  `prose w-full min-w-0 max-w-none overflow-x-hidden break-words [overflow-wrap:anywhere] [&_*]:max-w-full [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone dark:[&_mark]:bg-orange-900/50 dark:[&_mark]:text-white ${className}`;
+  `prose w-full min-w-0 max-w-none overflow-x-hidden break-words [overflow-wrap:anywhere] [&_*]:max-w-full [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone [&_strong_mark]:font-semibold [&_mark_strong]:font-semibold [&_em_mark]:italic [&_mark_em]:italic dark:[&_mark]:bg-orange-900/50 dark:[&_mark]:text-white ${className}`;
 
 const buildMarkdownComponents = (
   syntaxTheme: { [key: string]: CSSProperties },
@@ -36,7 +36,7 @@ const buildMarkdownComponents = (
     const match = /language-(\w+)/.exec(className || '');
 
     return !inline && match ? (
-      <div className="my-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm dark:border-zinc-800">
+      <div className="my-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm dark:border-zinc-700/80">
         <SyntaxHighlighter
           style={syntaxTheme}
           language={match[1]}
@@ -73,14 +73,17 @@ const buildMarkdownComponents = (
   },
   mark({ children }: { children?: ReactNode }) {
     return (
-      <mark className="mx-0.5 rounded bg-orange-200 px-1 py-0.5 text-gray-900 decoration-clone box-decoration-clone dark:bg-orange-900/50 dark:text-white">
+      <mark
+        className="mx-0.5 rounded bg-orange-200 px-1 py-0.5 text-gray-900 decoration-clone box-decoration-clone dark:bg-orange-900/50 dark:text-white"
+        style={{ fontStyle: 'inherit', fontWeight: 'inherit' }}
+      >
         {children}
       </mark>
     );
   },
   table({ children }: { children?: ReactNode }) {
     return (
-      <div className="my-6 overflow-x-auto rounded-2xl border border-gray-200/80 dark:border-zinc-800">
+      <div className="my-6 overflow-x-auto rounded-2xl border border-gray-200/80 dark:border-zinc-700/80">
         <table className="m-0 w-full border-collapse text-left text-sm">
           {children}
         </table>
@@ -98,7 +101,7 @@ const buildMarkdownComponents = (
   },
   th({ children }: { children?: ReactNode }) {
     return (
-      <th className="border-b border-gray-200/80 px-4 py-3 font-semibold text-gray-900 dark:border-zinc-800 dark:text-gray-100">
+      <th className="border-b border-gray-200/80 px-4 py-3 font-semibold text-gray-900 dark:border-zinc-700/80 dark:text-gray-100">
         {children}
       </th>
     );
@@ -125,6 +128,20 @@ const MarkdownRenderer = ({
     : (oneLight as unknown as { [key: string]: CSSProperties });
   const contentParts = parsePdfContentParts(content, lessonAssetsById, lessonImageRefsById);
   const markdownComponents = buildMarkdownComponents(syntaxTheme, isDarkMode);
+  const tracedMarkdownParts = useMemo(
+    () =>
+      contentParts
+        .filter(part => part.type === 'markdown')
+        .map(part => {
+          const normalizedContent = normalizeMarkdownForRendering(part.content);
+          return {
+            key: part.key,
+            normalizedContent,
+            rawContent: part.content,
+          };
+        }),
+    [contentParts]
+  );
 
   return (
     <article
@@ -139,12 +156,12 @@ const MarkdownRenderer = ({
             rehypePlugins={[rehypeKatex, rehypeRaw]}
             components={markdownComponents}
           >
-            {normalizeMarkdownForRendering(part.content)}
+            {tracedMarkdownParts.find(candidate => candidate.key === part.key)?.normalizedContent || ''}
           </ReactMarkdown>
         ) : (
           <figure
             key={part.key}
-            className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/85"
+            className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85"
           >
             <img
               src={part.asset.dataUrl}

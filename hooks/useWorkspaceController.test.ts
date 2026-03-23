@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createProjectSnapshot } from '../services/projectSnapshot.ts';
 import { createProjectSourceFromFile } from '../services/projectSource.ts';
-import { createWorkspaceWorkflowState } from '../services/workspaceWorkflow.ts';
+import {
+  createWorkspaceWorkflowState,
+  invalidateWorkspaceWorkflows,
+} from '../services/workspaceWorkflow.ts';
 import { AppState, type FileData, type LearningPlan, type Message, type PdfTextIndex, type ProjectSnapshot, type SavedProjectMeta, type SyllabusItem, type UserProfile } from '../types.ts';
 import { createWorkspaceController, type WorkspaceChatSession, type WorkspaceDomainControllerAdapter, type WorkspaceProjectLibraryAdapter } from './useWorkspaceController.ts';
 
@@ -323,6 +326,9 @@ const createStateAdapter = () => {
       getAssessmentMessages: () => runtime.assessmentMessages,
       getChatSession: () => runtime.chatSession,
       getWorkflowState: () => runtime.workflowState,
+      invalidateWorkflows: workflowIds => {
+        runtime.workflowState = invalidateWorkspaceWorkflows(runtime.workflowState, workflowIds);
+      },
       isWorkflowCurrent: (workflowId, requestId) =>
         runtime.workflowState[workflowId].requestId === requestId,
       resetRuntimeState: () => {
@@ -716,6 +722,46 @@ test('handleSourceUpload creates a fresh project and lands in assessment for doc
   assert.equal(state.runtime.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
+test('handleSourceUpload reattach clears transient runtime state and invalidates stale workflows', async () => {
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    domain: {
+      learningPlan: buildPlan(),
+      activeSectionId: 'lesson-1',
+    },
+    projectLibrary: {
+      currentProjectId: 'project-reattach',
+    },
+  });
+  const uploadedFile = new File(['fake pdf'], 'dispensa.pdf', {
+    type: 'application/pdf',
+  });
+
+  state.runtime.assessmentMessages = [{ role: 'model', text: 'Vecchia chat' }];
+  state.runtime.chatSession = {
+    sendMessage: async () => ({ text: 'unused' }),
+  };
+  state.runtime.openingProjectId = 'project-opening';
+  const staleLoadSectionRequestId = state.adapter.beginWorkflow('loadSection', 'Analisi contenuti...');
+
+  const result = await controller.handleSourceUpload(uploadedFile, {
+    mode: 'reattach-source',
+  });
+
+  assert.equal(result.outcome, 'reattached');
+  assert.equal(domain.source?.kind, 'pdf');
+  assert.equal(projectLibrary.savedOverrides.length, 1);
+  assert.equal(projectLibrary.savedOverrides[0]?.source?.kind, 'pdf');
+  assert.deepEqual(state.runtime.assessmentMessages, []);
+  assert.equal(state.runtime.chatSession, null);
+  assert.equal(state.runtime.openingProjectId, null);
+  assert.equal(state.runtime.workflowState.loadSection.status, 'idle');
+  assert.equal(
+    state.adapter.isWorkflowCurrent('loadSection', staleLoadSectionRequestId),
+    false
+  );
+  assert.equal(state.runtime.workflowState.attachSource.status, 'succeeded');
+});
+
 test('handleSourceUpload accepts markdown sources with missing mime and stores them as document projects', async () => {
   let textAssessmentCalls = 0;
   let fileAssessmentCalls = 0;
@@ -1061,7 +1107,7 @@ test('openSection ignores user navigation while another blocking workflow is pen
   assert.equal(result, 'ignored-busy');
 });
 
-test('createLessonFromSelection inserts the deep dive after the parent and opens it', async () => {
+test('createLessonFromSelection inserts the deep dive after the parent subtree and opens it', async () => {
   const basePlan = buildPlan({
     sections: [
       {
@@ -1070,6 +1116,14 @@ test('createLessonFromSelection inserts the deep dive after the parent and opens
         description: 'Intro',
         isCompleted: false,
         type: 'core',
+      },
+      {
+        id: 'lesson-1-deep-existing',
+        title: 'Approfondimento esistente',
+        description: 'Gia presente',
+        isCompleted: false,
+        type: 'deep-dive',
+        parentId: 'lesson-1',
       },
       {
         id: 'lesson-2',
@@ -1106,9 +1160,88 @@ test('createLessonFromSelection inserts the deep dive after the parent and opens
   });
 
   assert.equal(result.outcome, 'created');
-  assert.equal(domain.learningPlan?.sections[1]?.id, 'deep-1');
+  assert.equal(domain.learningPlan?.sections[2]?.id, 'deep-1');
   assert.equal(domain.activeSectionId, 'deep-1');
-  assert.equal(domain.learningPlan?.sections[1]?.content, '# Lezione dal documento');
+  assert.equal(domain.learningPlan?.sections[2]?.content, '# Lezione dal documento');
+});
+
+test('createLessonFromSelection nests a child of child before the next sibling branch', async () => {
+  const basePlan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Lezione 1',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+      },
+      {
+        id: 'lesson-1-deep',
+        title: 'Approfondimento esistente',
+        description: 'Figlia diretta',
+        isCompleted: false,
+        type: 'deep-dive',
+        parentId: 'lesson-1',
+      },
+      {
+        id: 'lesson-1-deep-sibling',
+        title: 'Seconda figlia',
+        description: 'Ramo fratello',
+        isCompleted: false,
+        type: 'deep-dive',
+        parentId: 'lesson-1',
+      },
+      {
+        id: 'lesson-2',
+        title: 'Lezione 2',
+        description: 'Follow-up',
+        isCompleted: false,
+        type: 'core',
+      },
+    ],
+  });
+  const { controller, domain } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1-deep',
+      documentIndex: createReadyIndex(),
+      file: pdfFile,
+      learningPlan: basePlan,
+      source: createProjectSourceFromFile(pdfFile),
+      domainState: {
+        source: createProjectSourceFromFile(pdfFile),
+        learningPlan: basePlan,
+        documentAssets: null,
+        documentIndex: createReadyIndex(),
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: 'lesson-1-deep',
+      },
+    },
+    gemini: {
+      createSubChapterMetadata: async () => ({
+        id: 'deep-1-nested',
+        title: 'Approfondimento annidato',
+        description: 'Dettaglio ricorsivo',
+        isCompleted: false,
+        type: 'deep-dive',
+        parentId: 'lesson-1-deep',
+      }),
+    },
+  });
+
+  const result = await controller.createLessonFromSelection({
+    instructions: 'Scendi di un livello',
+    selectedText: 'testo',
+  });
+
+  assert.equal(result.outcome, 'created');
+  assert.deepEqual(
+    domain.learningPlan?.sections.map(section => section.id),
+    ['lesson-1', 'lesson-1-deep', 'deep-1-nested', 'lesson-1-deep-sibling', 'lesson-2']
+  );
+  assert.equal(domain.activeSectionId, 'deep-1-nested');
+  assert.equal(domain.learningPlan?.sections[2]?.content, '# Lezione dal documento');
 });
 
 test('completeActiveSection marks progress and opens the next lesson, then reports journey completion on the last one', async () => {
