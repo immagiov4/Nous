@@ -142,7 +142,7 @@ const transformSingleLineCodeBlock = (line: string): string[] | null => {
     return null;
   }
 
-  return ['```' + normalizedLanguage, code, '```'];
+  return [`\`\`\`${normalizedLanguage}`, code, '```'];
 };
 
 const getCodeLanguageLabel = (line: string): string | null => {
@@ -248,7 +248,7 @@ const processMarkdownSegment = (segment: string): string => {
       const { codeLines, lastIndex } = collectCodeContinuationLines(lines, index + 1);
       if (codeLines.length > 0) {
         output.push(
-          ...normalizeCodeFenceSpacing(['```' + languageOnlyLine, ...codeLines, '```'])
+          ...normalizeCodeFenceSpacing([`\`\`\`${languageOnlyLine}`, ...codeLines, '```'])
         );
         index = lastIndex;
         continue;
@@ -261,7 +261,7 @@ const processMarkdownSegment = (segment: string): string => {
       if (codeLines.length > 0) {
         output.push(
           ...normalizeCodeFenceSpacing([
-            '```' + inlineCodeLead.language,
+            `\`\`\`${inlineCodeLead.language}`,
             inlineCodeLead.code,
             ...codeLines,
             '```',
@@ -289,7 +289,7 @@ const processMarkdownSegment = (segment: string): string => {
 
       output.push(
         ...normalizeCodeFenceSpacing([
-          '```' + inferStandaloneCodeLanguage(codeLines),
+          `\`\`\`${inferStandaloneCodeLanguage(codeLines)}`,
           ...codeLines,
           '```',
         ])
@@ -305,19 +305,6 @@ const processMarkdownSegment = (segment: string): string => {
   }
 
   return output.join('\n');
-};
-
-const isLikelyTrailingProseLine = (line: string): boolean => {
-  const trimmed = line.trim();
-  if (!trimmed) {
-    return false;
-  }
-
-  if (isStandaloneCodeLine(trimmed) || isCodeContinuationLine(trimmed)) {
-    return false;
-  }
-
-  return /[A-Za-zÀ-ÿ]/.test(trimmed) && /\s/.test(trimmed);
 };
 
 const ORPHANED_CODE_CONTINUATION_LINE_REGEX =

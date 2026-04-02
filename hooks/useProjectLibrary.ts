@@ -5,11 +5,11 @@ import { createProjectSnapshot, exportProjectData } from '../services/projectSna
 import { buildPersistenceSignature } from '../services/persistenceSignature';
 import { ProjectStorageError } from '../services/projectRepository';
 import { resolvePersistedAppState } from '../services/workspacePersistence';
-import {
-  type ProjectExportData,
-  type ProjectSnapshot,
-  type SavedProjectMeta,
-  type WorkspaceDomainState,
+import type {
+  ProjectExportData,
+  ProjectSnapshot,
+  SavedProjectMeta,
+  WorkspaceDomainState,
 } from '../types';
 
 const projectRepository = new IndexedDbProjectRepository();

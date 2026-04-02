@@ -36,5 +36,3 @@ export const pushLuminaDebugTrace = (
 
   console.info(`[Lumina][Trace] ${event}`, payload || {});
 };
-
-export {};

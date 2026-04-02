@@ -22,7 +22,7 @@ import {
   isPdfFileData,
 } from './projectSource.ts';
 
-const CURRENT_PROJECT_VERSION = '4.0';
+const CURRENT_PROJECT_VERSION = '4.1';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 

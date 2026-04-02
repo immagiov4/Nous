@@ -12,14 +12,54 @@ import type {
   OpenRouterModelPreferences,
   OpenRouterModelSlot,
   PdfImageAsset,
+  ProjectSource,
   QuizQuestion,
+  SectionAnnotation,
   VoiceProfileId,
 } from '../../types.ts';
 import type { SidebarGroup } from '../../utils/workspaceReader.ts';
 
 export interface ContextAnswerState {
-  q: string;
-  a: string;
+  attachedAnnotationNote?: string;
+  attachedAnnotationText?: string;
+  contextAfter?: string;
+  contextBefore?: string;
+  id: string;
+  initialQuestion: string;
+  lessonContent?: string;
+  lessonDescription?: string;
+  lessonTitle?: string;
+  selectedText: string;
+  sourceKind?: ProjectSource['kind'];
+  sourceMaterial?: string;
+  sourceName?: string;
+}
+
+export interface ConversationSelectionAnchor {
+  contextAfter?: string;
+  contextBefore?: string;
+  selectedText: string;
+}
+
+export interface ContextChatToolPreferences {
+  annotate: boolean;
+  webSearch: boolean;
+}
+
+export interface SaveConversationNoteToolInput extends ConversationSelectionAnchor {
+  note: string;
+}
+
+export interface SaveConversationNoteInput extends SaveConversationNoteToolInput {
+  fallbackSelection?: ConversationSelectionAnchor;
+}
+
+export interface SaveConversationNoteResult {
+  annotationId?: string;
+  error?: string;
+  merged: boolean;
+  resolvedText?: string;
+  saved: boolean;
 }
 
 export interface ContextAnswerSize {
@@ -95,12 +135,14 @@ export interface WorkspaceReaderContentModel {
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
   onCompleteSection: () => void;
+  onContentClick: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
   onSetIsQuizSubmitted: (value: boolean) => void;
   quiz: QuizQuestion[];
   quizAnswers: number[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;
+  sectionAnnotations?: SectionAnnotation[];
   sectionContent: string;
 }
 
@@ -135,7 +177,15 @@ export interface WorkspaceReaderOverlaysModel {
   onCloseContextAnswer: () => void;
   onCloseContextMenu: () => void;
   onCreateLesson: (instructions: string) => void;
+  onDeleteAnnotation: () => void;
   onHighlight: () => void;
+  onSaveConversationNote: (
+    input: SaveConversationNoteInput
+  ) => Promise<SaveConversationNoteResult>;
+  onUpdateConversationNote: (
+    input: SaveConversationNoteInput
+  ) => Promise<SaveConversationNoteResult>;
+  onSaveNote: (note: string) => void;
 }
 
 export interface WorkspaceReaderShellProps {

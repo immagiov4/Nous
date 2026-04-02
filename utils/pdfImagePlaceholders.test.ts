@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import type { LessonImageRef, PdfImageAsset } from '../types';
 import { replacePdfImagePlaceholders, restoreLegacyPdfImagePlaceholders, stripPdfImagePlaceholders } from './pdfImagePlaceholders.ts';
 

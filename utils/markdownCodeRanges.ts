@@ -3,7 +3,7 @@ export interface MarkdownRange {
   end: number;
 }
 
-const MARK_TAG_REGEX = /<\/?mark>/g;
+const MARK_TAG_REGEX = /<\/?mark\b[^>]*>/g;
 
 const isLineStart = (content: string, index: number) => index === 0 || content[index - 1] === '\n';
 

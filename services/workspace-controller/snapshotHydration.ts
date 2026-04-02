@@ -2,6 +2,7 @@ import { AppState, type LearningPlan, type LearningSection, type ProjectSnapshot
 import { pushLuminaDebugTrace } from '../debugTrace.ts';
 import { restoreLegacyPdfImagePlaceholders } from '../../utils/pdfImagePlaceholders.ts';
 import { normalizeMarkdownForRendering } from '../../utils/renderMarkdown.ts';
+import { migrateSectionAnnotations } from '../../utils/sectionAnnotations.ts';
 
 const HYDRATION_TRACE_PREVIEW_CHARS = 1600;
 
@@ -27,14 +28,20 @@ export const normalizeLearningPlanContent = (
     const normalizedContent = normalizeMarkdownForRendering(
       restoreLegacyPdfImagePlaceholders(section.content)
     );
-    if (normalizedContent === section.content) {
+    const migratedSection = migrateSectionAnnotations({
+      annotations: section.annotations,
+      content: normalizedContent,
+    });
+
+    if (!migratedSection.didChange && normalizedContent === section.content) {
       return section;
     }
 
     didChange = true;
     return {
       ...section,
-      content: normalizedContent,
+      content: migratedSection.content,
+      annotations: migratedSection.annotations,
     };
   });
 

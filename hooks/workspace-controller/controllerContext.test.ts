@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { decodeTextBase64 } from '../../services/projectSource.ts';
 import { readSourceFileData } from './controllerContext.ts';
 

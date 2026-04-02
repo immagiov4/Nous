@@ -7,7 +7,14 @@ import {
 } from '../../services/projectSource.ts';
 import { createProjectId, createProjectSnapshot } from '../../services/projectSnapshot.ts';
 import { buildLearningPlanFromSyllabus } from '../../services/workspace-controller/learnMode.ts';
-import { AppState, type FileData, type Message, type SyllabusItem, type UserProfile } from '../../types.ts';
+import {
+  AppState,
+  type FileData,
+  type HomeChatToolPreferences,
+  type Message,
+  type SyllabusItem,
+  type UserProfile,
+} from '../../types.ts';
 import { readSourceFileData } from './controllerContext.ts';
 import type {
   AssessmentSourceInput,
@@ -29,6 +36,24 @@ const MIN_DOCUMENT_USER_TURNS_BEFORE_PLANNING = 2;
 const TARGET_DOCUMENT_USER_TURNS_BEFORE_AUTO_COMPLETE = 3;
 const LOCAL_ASSESSMENT_COMPLETE_MESSAGE =
   'Ho tutte le info ad alto impatto che mi servono per costruire il percorso. Se vuoi posso generare il corso ora, oppure puoi aggiungere un ultimo dettaglio davvero importante.';
+
+const buildHomeChatMessageForModel = (
+  input: string,
+  toolPreferences?: HomeChatToolPreferences
+): string => {
+  const trimmedInput = input.trim();
+  if (!toolPreferences?.newCourse) {
+    return trimmedInput;
+  }
+
+  return `[Preferenza utente attiva: Nuovo corso]
+L'utente sta usando questa conversazione per impostare o costruire un nuovo corso.
+Tratta quindi la richiesta come orientata alla definizione del percorso, dei materiali, dell'obiettivo finale e dei confini del corso, invece che come una semplice query generica.
+Non parlare esplicitamente di questa preferenza se non serve, ma tienila a mente mentre rispondi.
+
+Messaggio utente:
+${trimmedInput}`;
+};
 
 const normalizeAssessmentText = (value: string): string =>
   value
@@ -401,6 +426,7 @@ export const createAssessmentPlanningCommands = (
   async function startHomeChat(args: {
     input: string;
     selectedFile?: File | null;
+    toolPreferences?: HomeChatToolPreferences;
   }): Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }> {
     const trimmedInput = args.input.trim();
     if (!trimmedInput) {
@@ -458,7 +484,9 @@ export const createAssessmentPlanningCommands = (
       state.setChatSession(session);
       state.setAssessmentMessages([{ role: 'user', text: trimmedInput } satisfies Message]);
 
-      const response = await session.sendMessage({ message: trimmedInput });
+      const response = await session.sendMessage({
+        message: buildHomeChatMessageForModel(trimmedInput, args.toolPreferences),
+      });
 
       if (domain.isLearnMode) {
         const call = response.functionCalls?.[0];
@@ -513,7 +541,8 @@ export const createAssessmentPlanningCommands = (
   }
 
   async function submitAssessment(
-    input: string
+    input: string,
+    toolPreferences?: HomeChatToolPreferences
   ): Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }> {
     const trimmedInput = input.trim();
     const chatSession = state.getChatSession();
@@ -528,7 +557,9 @@ export const createAssessmentPlanningCommands = (
 
     try {
       if (domain.isLearnMode) {
-        const response = await chatSession.sendMessage({ message: trimmedInput });
+        const response = await chatSession.sendMessage({
+          message: buildHomeChatMessageForModel(trimmedInput, toolPreferences),
+        });
         const call = response.functionCalls?.[0];
 
         if (call && call.name === 'finalizeProfile') {
@@ -566,7 +597,9 @@ export const createAssessmentPlanningCommands = (
         return { outcome: 'assessment-complete' };
       }
 
-      const response = await chatSession.sendMessage({ message: trimmedInput });
+      const response = await chatSession.sendMessage({
+        message: buildHomeChatMessageForModel(trimmedInput, toolPreferences),
+      });
       const modelText = response.text || '';
       const nextHistory: Message[] = [
         ...previousMessages,

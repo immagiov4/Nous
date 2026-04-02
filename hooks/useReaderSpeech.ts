@@ -78,7 +78,7 @@ export const useReaderSpeechBlocks = ({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [contentRef, sectionContent]);
+  }, [contentRef, sectionContent, updateSpeechBlocks]);
 
   return useMemo(
     () => ({

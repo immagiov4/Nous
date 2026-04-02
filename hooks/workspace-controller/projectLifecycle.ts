@@ -10,7 +10,14 @@ import {
   prepareSnapshotForHydration,
   resolvePlanSection,
 } from '../../services/workspace-controller/snapshotHydration.ts';
-import { AppState, type FileData, type LearningPlan, type LearningSection, type ProjectSource } from '../../types.ts';
+import {
+  AppState,
+  type FileData,
+  type LearningPlan,
+  type LearningSection,
+  type ProjectSnapshot,
+  type ProjectSource,
+} from '../../types.ts';
 import { readJsonFile, readSourceFileData } from './controllerContext.ts';
 import type {
   AssessmentSourceInput,
@@ -40,6 +47,17 @@ export const createProjectLifecycleCommands = (
   { openSection, startAssessment }: ProjectLifecycleDependencies
 ) => {
   const { domain, gemini, persistHydratedSnapshot, projectLibrary, state, stopAudio } = context;
+
+  const persistPreparedSnapshotIfChanged = async (
+    originalSnapshot: ProjectSnapshot,
+    preparedSnapshot: ProjectSnapshot
+  ) => {
+    if (JSON.stringify(preparedSnapshot) === JSON.stringify(originalSnapshot)) {
+      return;
+    }
+
+    await projectLibrary.persistSnapshot(preparedSnapshot);
+  };
 
   const refreshLibraryMetadataInBackground = (projectId: string, requestId: number) => {
     void (async () => {
@@ -157,6 +175,7 @@ export const createProjectLifecycleCommands = (
       const json = await readJsonFile(selectedFile);
       const { snapshot } = await projectLibrary.importProjectData(json);
       const preparedSnapshot = prepareSnapshotForHydration(snapshot);
+      await persistPreparedSnapshotIfChanged(snapshot, preparedSnapshot);
       persistHydratedSnapshot(preparedSnapshot);
       await projectLibrary.touchStoredProject(preparedSnapshot.id);
       await projectLibrary.refreshSavedProjects();
@@ -243,6 +262,7 @@ export const createProjectLifecycleCommands = (
       }
 
       const preparedSnapshot = prepareSnapshotForHydration(nextSnapshot);
+      await persistPreparedSnapshotIfChanged(nextSnapshot, preparedSnapshot);
       persistHydratedSnapshot(preparedSnapshot);
       pushLuminaDebugTrace('open-project:hydrated-snapshot', {
         hasLearningPlan: Boolean(preparedSnapshot.learningPlan),

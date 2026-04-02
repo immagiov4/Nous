@@ -1,6 +1,7 @@
 import type {
   AppState,
   FileData,
+  HomeChatToolPreferences,
   LearningPlan,
   LearningSection,
   Message,
@@ -65,6 +66,10 @@ export interface WorkspaceDomainControllerAdapter {
   source: ProjectSource | null;
   syllabus: SyllabusItem[];
   updateActiveSectionContent: (content: string) => void;
+  updateSection: (
+    sectionId: string,
+    updater: (section: LearningSection) => LearningSection
+  ) => void;
   userProfile: UserProfile | null;
 }
 
@@ -191,10 +196,12 @@ export interface WorkspaceControllerCommands {
   startHomeChat: (args: {
     input: string;
     selectedFile?: File | null;
+    toolPreferences?: HomeChatToolPreferences;
   }) => Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }>;
   startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
   submitAssessment: (
-    input: string
+    input: string,
+    toolPreferences?: HomeChatToolPreferences
   ) => Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }>;
 }
 

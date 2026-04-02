@@ -13,12 +13,14 @@ export default function WorkspaceReaderContent({
   isMobileViewport,
   isQuizSubmitted,
   onCompleteSection,
+  onContentClick,
   onContentContextMenu,
   onSelectQuizAnswer,
   onSetIsQuizSubmitted,
   quiz,
   quizAnswers,
   scrollContainerRef,
+  sectionAnnotations,
   sectionContent,
 }: WorkspaceReaderContentModel) {
   const readingShellClassName = isFocusMode
@@ -52,7 +54,9 @@ export default function WorkspaceReaderContent({
               isDarkMode={isDarkMode}
               lessonAssetsById={activeSectionAssetsById}
               lessonImageRefsById={activeSectionImageRefsById}
+              onClick={onContentClick}
               onContextMenu={onContentContextMenu}
+              sectionAnnotations={sectionAnnotations}
               className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
                 ${readingColumnClassName}
                 prose-p:text-gray-800 dark:prose-p:text-gray-200
@@ -76,7 +80,10 @@ export default function WorkspaceReaderContent({
         </section>
 
         {quiz.length > 0 && sectionContent ? (
-          <div className="mx-auto max-w-5xl">
+          <div
+            data-testid="reader-quiz-column"
+            className={`${readingColumnClassName} w-full`}
+          >
             <WorkspaceReaderQuiz
               isQuizSubmitted={isQuizSubmitted}
               onCompleteSection={onCompleteSection}

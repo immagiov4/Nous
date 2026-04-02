@@ -52,6 +52,8 @@ export const useWorkspaceReaderRuntime = ({
     preferredAssessmentModel: '',
     preferredContextModel: '',
   });
+  const previousQuizSectionIdRef = useRef(activeSectionId);
+  const previousQuizSubmissionSectionIdRef = useRef(activeSectionId);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -63,6 +65,8 @@ export const useWorkspaceReaderRuntime = ({
     activeSectionId,
     contentRef,
     isMobileViewport: readerChrome.isMobileViewport,
+    sectionAnnotations: activeSection?.annotations,
+    sectionContent,
   });
   const { speechBlocks } = useReaderSpeechBlocks({
     contentRef,
@@ -166,11 +170,30 @@ export const useWorkspaceReaderRuntime = ({
   );
 
   useEffect(() => {
+    if (previousQuizSubmissionSectionIdRef.current === activeSectionId) {
+      return;
+    }
+
+    previousQuizSubmissionSectionIdRef.current = activeSectionId;
     setIsQuizSubmitted(false);
   }, [activeSectionId]);
 
   useEffect(() => {
-    setQuizAnswers(quiz.length > 0 ? new Array(quiz.length).fill(-1) : []);
+    const sectionChanged = previousQuizSectionIdRef.current !== activeSectionId;
+    previousQuizSectionIdRef.current = activeSectionId;
+
+    setQuizAnswers(currentAnswers => {
+      const nextAnswers = quiz.length > 0 ? new Array(quiz.length).fill(-1) : [];
+      if (
+        !sectionChanged &&
+        currentAnswers.length === nextAnswers.length &&
+        currentAnswers.every(answer => answer === -1)
+      ) {
+        return currentAnswers;
+      }
+
+      return nextAnswers;
+    });
   }, [activeSectionId, quiz]);
 
   const handleSelectQuizAnswer = useCallback(

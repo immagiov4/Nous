@@ -1,6 +1,7 @@
 import { BookOpen, FileJson, Moon, Settings2, Sun } from 'lucide-react';
 import { useState, type ChangeEvent } from 'react';
 import type {
+  HomeChatToolPreferences,
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
   OpenRouterModelSlot,
@@ -29,7 +30,10 @@ interface LibraryViewProps {
   onConfirmGenerate: () => void;
   onDeleteProject: (projectId: string) => void;
   onExportProject: (projectId: string) => void;
-  onHomeChatSubmit: (message: string) => Promise<void>;
+  onHomeChatSubmit: (
+    message: string,
+    options?: { toolPreferences?: HomeChatToolPreferences }
+  ) => Promise<void>;
   onSetPreferredOpenRouterModel: (slot: OpenRouterModelSlot, value: string) => void;
   onOpenProject: (projectId: string) => void;
   onPlanUpload: (event: ChangeEvent<HTMLInputElement>) => void;

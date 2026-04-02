@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { createEmptyWorkspaceDomainState } from '../services/workspaceDomain.ts';
 import { buildPersistenceSignature } from '../services/persistenceSignature.ts';
 

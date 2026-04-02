@@ -1,16 +1,60 @@
-import { CheckCircle2, ChevronRight, Download, LibraryBig, SidebarClose, X } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Download, LibraryBig, Minus, SidebarClose, X } from 'lucide-react';
 import type { WorkspaceReaderSidebarModel } from './types.ts';
 
-const renderSectionStatus = (isActive: boolean, isCompleted: boolean) => {
+const getSectionStatusLabel = ({
+  hasGeneratedContent,
+  isActive,
+  isCompleted,
+}: {
+  hasGeneratedContent: boolean;
+  isActive: boolean;
+  isCompleted: boolean;
+}) => {
   if (isCompleted) {
-    return 'border-gray-300 bg-gray-100 text-gray-500 dark:border-zinc-500/80 dark:bg-zinc-800 dark:text-gray-400';
+    return 'Lezione completata';
   }
 
   if (isActive) {
-    return 'border-gray-500 bg-gray-500 text-transparent dark:border-zinc-400 dark:bg-zinc-400';
+    return 'Lezione attiva';
   }
 
-  return 'border-gray-300 bg-transparent text-transparent dark:border-zinc-600/80';
+  if (hasGeneratedContent) {
+    return 'Lezione gia generata';
+  }
+
+  return 'Lezione non ancora generata';
+};
+
+const renderSectionStatus = ({
+  hasGeneratedContent,
+  isActive,
+  isCompleted,
+}: {
+  hasGeneratedContent: boolean;
+  isActive: boolean;
+  isCompleted: boolean;
+}) => {
+  if (isCompleted) {
+    return <CheckCircle2 className="h-4 w-4 text-gray-600 dark:text-zinc-300" />;
+  }
+
+  if (isActive) {
+    return <span className="h-2.5 w-2.5 rounded-full bg-gray-600 dark:bg-zinc-300" />;
+  }
+
+  if (hasGeneratedContent) {
+    return (
+      <span className="h-3 w-3 rounded-full border border-gray-500/80 dark:border-zinc-300/80" />
+    );
+  }
+
+  return (
+    <Minus
+      className="h-3.5 w-3.5 text-gray-500/75 dark:text-zinc-300/75"
+      strokeWidth={1.8}
+      absoluteStrokeWidth
+    />
+  );
 };
 
 export default function WorkspaceReaderSidebar({
@@ -126,6 +170,7 @@ export default function WorkspaceReaderSidebar({
                       {group.sections.map(section => {
                         const isActive = activeSectionId === section.id;
                         const depth = group.sectionDepthById[section.id] ?? 0;
+                        const hasGeneratedContent = Boolean(section.content?.trim());
 
                         return (
                           <button
@@ -141,12 +186,18 @@ export default function WorkspaceReaderSidebar({
                             } ${isLoading ? 'cursor-not-allowed opacity-50' : ''}`}
                           >
                             <div
-                              className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border transition-colors ${renderSectionStatus(
+                              className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
+                              title={getSectionStatusLabel({
+                                hasGeneratedContent,
                                 isActive,
-                                section.isCompleted
-                              )}`}
+                                isCompleted: section.isCompleted,
+                              })}
                             >
-                              {section.isCompleted ? <CheckCircle2 className="h-3 w-3" /> : null}
+                              {renderSectionStatus({
+                                hasGeneratedContent,
+                                isActive,
+                                isCompleted: section.isCompleted,
+                              })}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { buildCodebaseBundleSource, isBinaryFile } from './codebaseBundle.ts';
 
 test('buildCodebaseBundleSource sorts files deterministically and keeps stable aggregated text', () => {

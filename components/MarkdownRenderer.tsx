@@ -1,4 +1,12 @@
-import { memo, useMemo, type CSSProperties, type HTMLAttributes, type MouseEvent, type ReactNode } from 'react';
+import {
+  memo,
+  useMemo,
+  type ComponentPropsWithoutRef,
+  type CSSProperties,
+  type HTMLAttributes,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -6,7 +14,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import type { LessonImageRef, PdfImageAsset } from '../types';
+import type { LessonImageRef, PdfImageAsset, SectionAnnotation } from '../types';
 import { parsePdfContentParts } from '../utils/pdfImagePlaceholders';
 import { normalizeMarkdownForRendering } from '../utils/renderMarkdown.ts';
 
@@ -14,9 +22,11 @@ interface MarkdownRendererProps {
   content: string;
   className?: string;
   isDarkMode?: boolean;
+  onClick?: (e: MouseEvent) => void;
   onContextMenu?: (e: MouseEvent) => void;
   lessonAssetsById?: Record<string, PdfImageAsset>;
   lessonImageRefsById?: Record<string, LessonImageRef>;
+  sectionAnnotations?: SectionAnnotation[];
 }
 
 interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
@@ -26,11 +36,12 @@ interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
 }
 
 const articleClassName = (className: string) =>
-  `prose w-full min-w-0 max-w-none overflow-x-hidden break-words [overflow-wrap:anywhere] [&_*]:max-w-full [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone [&_strong_mark]:font-semibold [&_mark_strong]:font-semibold [&_em_mark]:italic [&_mark_em]:italic dark:[&_mark]:bg-orange-900/50 dark:[&_mark]:text-white ${className}`;
+  `prose w-full min-w-0 max-w-none overflow-x-hidden break-words [overflow-wrap:anywhere] [&_*]:max-w-full [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-2 [&_.katex-display]:overscroll-x-contain [&_.katex-display]:[-webkit-overflow-scrolling:touch] [&_.katex-display_.katex]:min-w-max max-sm:[&_.katex-display]:text-[0.94em] [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone [&_mark[data-lumina-annotation-id]]:cursor-pointer [&_strong_mark]:font-semibold [&_mark_strong]:font-semibold [&_em_mark]:italic [&_mark_em]:italic dark:[&_mark]:bg-orange-900/50 dark:[&_mark]:text-white ${className}`;
 
 const buildMarkdownComponents = (
   syntaxTheme: { [key: string]: CSSProperties },
-  isDarkMode: boolean
+  isDarkMode: boolean,
+  noteAnnotationIds: Set<string>
 ) => ({
   code({ inline, className, children }: CodeRendererProps) {
     const match = /language-(\w+)/.exec(className || '');
@@ -71,11 +82,33 @@ const buildMarkdownComponents = (
       </a>
     );
   },
-  mark({ children }: { children?: ReactNode }) {
+  mark({
+    node: _node,
+    children,
+    className: _className,
+    ...props
+  }: ComponentPropsWithoutRef<'mark'> & { children?: ReactNode; node?: unknown }) {
+    const annotationId = props['data-lumina-annotation-id'];
+    const hasAttachedNote =
+      typeof annotationId === 'string' && noteAnnotationIds.has(annotationId);
+
     return (
       <mark
         className="mx-0.5 rounded bg-orange-200 px-1 py-0.5 text-gray-900 decoration-clone box-decoration-clone dark:bg-orange-900/50 dark:text-white"
-        style={{ fontStyle: 'inherit', fontWeight: 'inherit' }}
+        style={{
+          fontStyle: 'inherit',
+          fontWeight: 'inherit',
+          ...(hasAttachedNote
+            ? {
+                border: `1.5px dashed ${isDarkMode ? 'rgba(196, 151, 111, 0.9)' : '#8A5A34'}`,
+                paddingInline: '0.16em',
+                paddingBlock: '0.24em',
+                lineHeight: '2.35',
+              }
+            : null),
+        }}
+        data-lumina-note-attached={hasAttachedNote ? 'true' : undefined}
+        {...props}
       >
         {children}
       </mark>
@@ -119,15 +152,26 @@ const MarkdownRenderer = ({
   content,
   className = '',
   isDarkMode = false,
+  onClick,
   onContextMenu,
   lessonAssetsById = {},
   lessonImageRefsById = {},
+  sectionAnnotations = [],
 }: MarkdownRendererProps) => {
   const syntaxTheme: { [key: string]: CSSProperties } = isDarkMode
     ? (oneDark as unknown as { [key: string]: CSSProperties })
     : (oneLight as unknown as { [key: string]: CSSProperties });
   const contentParts = parsePdfContentParts(content, lessonAssetsById, lessonImageRefsById);
-  const markdownComponents = buildMarkdownComponents(syntaxTheme, isDarkMode);
+  const noteAnnotationIds = useMemo(
+    () =>
+      new Set(
+        sectionAnnotations
+          .filter(annotation => annotation.note.trim().length > 0)
+          .map(annotation => annotation.id)
+      ),
+    [sectionAnnotations]
+  );
+  const markdownComponents = buildMarkdownComponents(syntaxTheme, isDarkMode, noteAnnotationIds);
   const tracedMarkdownParts = useMemo(
     () =>
       contentParts
@@ -146,6 +190,7 @@ const MarkdownRenderer = ({
   return (
     <article
       className={articleClassName(className)}
+      onClick={onClick}
       onContextMenu={onContextMenu}
     >
       {contentParts.map(part =>

@@ -59,10 +59,10 @@ const MusicPlayer = ({
   const [hasError, setHasError] = useState(false);
   const inputId = useId();
   const presets = [
-    { name: 'Lofi Girl', url: 'https://www.youtube.com/watch?v=jfKfPfyJRdk' },
-    { name: 'Synthwave', url: 'https://www.youtube.com/watch?v=4xDzrJKXOOY' },
-    { name: 'Rain', url: 'https://www.youtube.com/watch?v=5qap5aO4i9A' },
-    { name: 'Classical', url: 'https://www.youtube.com/watch?v=M73x3O7dhmg' },
+    {
+      name: 'Anti-anxiety',
+      url: 'https://www.youtube.com/watch?v=8p7LwCBgpCE&list=PLeAQnc67cxxRtrDpUavOpv8jzwcFRD0FV',
+    },
   ] as const;
 
   // Use a Ref for the iframe directly

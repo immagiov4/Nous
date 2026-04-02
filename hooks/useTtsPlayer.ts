@@ -40,7 +40,7 @@ interface PlaybackRun {
   cancelled: boolean;
 }
 
-const splitOversizedText = (text: string, maxLength: number): string[] => {
+export const splitOversizedText = (text: string, maxLength: number): string[] => {
   if (text.length <= maxLength) {
     return [text];
   }
@@ -91,7 +91,7 @@ const splitOversizedText = (text: string, maxLength: number): string[] => {
   return segments;
 };
 
-const splitContentIntoChunks = (text: string, speechBlocks: string[]): string[] => {
+export const splitContentIntoChunks = (text: string, speechBlocks: string[]): string[] => {
   const normalizedBlocks = speechBlocks
     .map(block => block.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
@@ -940,7 +940,7 @@ export const useTtsPlayer = ({
         clearInterval(ttsCheckIntervalRef.current);
       }
     };
-  }, []);
+  }, [setTrackedAudioState]);
 
   useEffect(() => {
     if (activeSectionId === null) {

@@ -1,6 +1,6 @@
-import { ArrowUp, Loader2, Paperclip, Sparkles, X } from 'lucide-react';
+import { ArrowUp, BookPlus, Check, Loader2, Paperclip, Plus, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { Message } from '../types';
+import type { HomeChatToolPreferences, Message } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 
 interface HomeChatPanelProps {
@@ -12,7 +12,10 @@ interface HomeChatPanelProps {
   pendingFileName: string | null;
   onClearPendingFile: () => void;
   onConfirmGenerate: () => void;
-  onSendMessage: (message: string) => Promise<void>;
+  onSendMessage: (
+    message: string,
+    options?: { toolPreferences?: HomeChatToolPreferences }
+  ) => Promise<void>;
   onUploadSourceClick: () => void;
 }
 
@@ -29,8 +32,13 @@ const HomeChatPanel = ({
   onUploadSourceClick,
 }: HomeChatPanelProps) => {
   const [input, setInput] = useState('');
+  const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
+  const [toolPreferences, setToolPreferences] = useState<HomeChatToolPreferences>({
+    newCourse: false,
+  });
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const toolMenuRef = useRef<HTMLDivElement>(null);
   const lastMessage = messages[messages.length - 1] || null;
 
   useEffect(() => {
@@ -41,6 +49,26 @@ const HomeChatPanel = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [assessmentComplete, isLoading, lastMessage]);
 
+  useEffect(() => {
+    if (!isToolMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || toolMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsToolMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, [isToolMenuOpen]);
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const submittedInput = input.trim();
@@ -49,7 +77,15 @@ const HomeChatPanel = ({
     }
 
     setInput('');
-    await onSendMessage(submittedInput);
+    setIsToolMenuOpen(false);
+    await onSendMessage(submittedInput, { toolPreferences });
+  };
+
+  const toggleNewCoursePreference = () => {
+    setToolPreferences(currentPreferences => ({
+      ...currentPreferences,
+      newCourse: !currentPreferences.newCourse,
+    }));
   };
 
   const hasMessages = messages.length > 0;
@@ -162,6 +198,57 @@ const HomeChatPanel = ({
             <Paperclip className="h-[1.1rem] w-[1.1rem]" />
           </button>
 
+          <div ref={toolMenuRef} className="relative flex shrink-0 items-center">
+            <button
+              type="button"
+              onClick={() => setIsToolMenuOpen(currentValue => !currentValue)}
+              className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
+                toolPreferences.newCourse
+                  ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:hover:bg-orange-500/25'
+                  : 'text-gray-400 hover:bg-gray-200/60 hover:text-gray-600 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300'
+              }`}
+              title="Apri strumenti conversazione"
+              aria-expanded={isToolMenuOpen}
+              aria-haspopup="menu"
+            >
+              <Plus className="h-[1.1rem] w-[1.1rem]" />
+            </button>
+
+            {isToolMenuOpen ? (
+              <div
+                className="absolute bottom-[calc(100%+0.55rem)] left-0 z-20 w-[min(18rem,calc(100vw-3rem))] overflow-hidden rounded-2xl border border-gray-200/90 bg-white/95 p-2 shadow-[0_18px_50px_-24px_rgba(24,24,27,0.4)] dark:border-zinc-600/80 dark:bg-stone-800/95"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  onClick={toggleNewCoursePreference}
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/80"
+                  role="menuitemcheckbox"
+                  aria-checked={toolPreferences.newCourse}
+                >
+                  <span
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                      toolPreferences.newCourse
+                        ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
+                        : 'border-gray-300 text-transparent dark:border-zinc-500'
+                    }`}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-zinc-100">
+                      <BookPlus className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                      Nuovo corso
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                      Segnala al modello che questa conversazione serve a impostare un nuovo corso.
+                    </span>
+                  </span>
+                </button>
+              </div>
+            ) : null}
+          </div>
+
           <input
             ref={inputRef}
             type="text"
@@ -189,6 +276,15 @@ const HomeChatPanel = ({
             )}
           </button>
         </form>
+
+        {toolPreferences.newCourse ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
+              <BookPlus className="h-3.5 w-3.5" />
+              Nuovo corso attivo
+            </span>
+          </div>
+        ) : null}
       </div>
     </section>
   );

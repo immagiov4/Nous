@@ -12,6 +12,13 @@ import {
   type UserProfile,
 } from './shared.ts';
 
+export const CURRICULUM_PROPEDEUTIC_ORDER_RULES = [
+  "L'indice del corso deve essere in ordine strettamente propedeutico: non mettere mai prima gli argomenti che dipendono da concetti spiegati dopo.",
+  'I moduli devono procedere dalle fondamenta ai meccanismi centrali, poi alle applicazioni, e solo dopo ai casi avanzati.',
+  'Dentro ogni modulo, ordina le lezioni dal semplice al complesso e dal generale allo specifico.',
+  "Se una lezione richiede definizioni, lessico o prerequisiti, questi devono comparire prima nella sequenza del corso.",
+] as const;
+
 const runArchitect = async (profile: UserProfile): Promise<ModuleBlueprint[]> => {
   const prompt = `ROLE: Curriculum Architect & Researcher.
 TOPIC: ${profile.topic || 'General Knowledge'} (${profile.experienceLevel || 'Intermediate'})
@@ -25,6 +32,8 @@ RULES:
 - Titles MUST be short (max 6 words).
 - No "Introduction to..." boilerplate.
 - Structure logically: Foundations -> Core Mechanics -> Advanced Patterns -> Mastery.
+- Enforce prerequisite order across the whole curriculum:
+${CURRICULUM_PROPEDEUTIC_ORDER_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}
 - Each lesson must focus on one core concept.
 - For each lesson, provide a specific contextPrompt for the writer.
 
@@ -236,13 +245,16 @@ CRITICAL WRITING RULES:
 2. Start with a paradox or a bold statement. Never say "Welcome".
 3. Do not use Mermaid diagrams.
 4. Use realistic, detailed examples.
-5. Write a comprehensive, deep-dive lesson.
+5. Write a comprehensive lesson, but keep it tightly scoped to the current lesson only.
 6. Structure:
    - The Concept
    - The Architecture
    - The Implementation
    - The Trap
 7. ${continuityRule}
+8. Do not explain future lessons in detail. You may mention them briefly as forward references, but do not define, unpack, or teach their content here.
+9. Do not add "deep-dive" sections just to make the lesson longer. If the current lesson's focus is complete, stop.
+10. Every section must serve the current lesson. If one of the suggested headings adds no value, adapt or omit it.
 
 FORMAT: Markdown.`;
 

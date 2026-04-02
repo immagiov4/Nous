@@ -22,15 +22,18 @@ export const useWorkspaceAssessmentScreen = ({
   const assessmentInputId = useId();
   const assessmentInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const assessmentMessageCount = assessmentMessages.length;
 
   useEffect(() => {
     if (screenState !== AppState.ASSESSMENT) {
       return;
     }
 
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({
+      behavior: assessmentMessageCount > 0 ? 'smooth' : 'auto',
+    });
     assessmentInputRef.current?.focus();
-  }, [assessmentMessages, screenState]);
+  }, [assessmentMessageCount, screenState]);
 
   const handleStartLearnJourney = async () => {
     const result = await startLearnJourney();

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { normalizeVoiceProfileId } from '../voiceProfile.ts';
 
 test('normalizeVoiceProfileId aligns legacy voice labels to the backend-supported profile id', () => {

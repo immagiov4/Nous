@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { normalizeMarkdownForRendering } from './renderMarkdown.ts';
 
 test('normalizeMarkdownForRendering converts single-line cpp snippets into fenced code blocks', () => {
@@ -110,8 +110,22 @@ test('normalizeMarkdownForRendering strips accidental mark tags from inline code
   assert.equal(normalizeMarkdownForRendering(input), 'Classi: `Server` e `Client`.');
 });
 
+test('normalizeMarkdownForRendering strips accidental mark tags with annotation attributes from inline code spans', () => {
+  const input =
+    'Classi: `<mark data-lumina-annotation-id="annotation-1">Server</mark>`.';
+
+  assert.equal(normalizeMarkdownForRendering(input), 'Classi: `Server`.');
+});
+
 test('normalizeMarkdownForRendering strips accidental mark tags from fenced code blocks', () => {
   const input = '```cpp\n<mark>Server</mark> server;\n```';
+
+  assert.equal(normalizeMarkdownForRendering(input), '```cpp\nServer server;\n```');
+});
+
+test('normalizeMarkdownForRendering strips accidental mark tags with annotation attributes from fenced code blocks', () => {
+  const input =
+    '```cpp\n<mark data-lumina-annotation-id="annotation-1">Server</mark> server;\n```';
 
   assert.equal(normalizeMarkdownForRendering(input), '```cpp\nServer server;\n```');
 });

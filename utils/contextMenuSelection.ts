@@ -1,6 +1,8 @@
 import type {
+  AnnotationContextMenuState,
   ContextMenuPlacement,
   ContextMenuState,
+  SelectionContextMenuState,
   SelectionRect,
 } from '../types';
 
@@ -58,17 +60,42 @@ const getSelectionRect = (range: Range): SelectionRect => {
 };
 
 export const createClosedContextMenuState = (): ContextMenuState => ({
+  type: 'selection',
   visible: false,
   placement: 'desktop-floating',
   selectedText: '',
+  contextBefore: '',
+  contextAfter: '',
+});
+
+export const createAnnotationContextMenuState = ({
+  anchorX,
+  anchorY,
+  annotationId,
+  annotationNote,
+  placement,
+  selectedText,
+  selectionRect,
+}: Omit<AnnotationContextMenuState, 'type' | 'visible'>): AnnotationContextMenuState => ({
+  type: 'annotation',
+  visible: true,
+  placement,
+  selectedText,
+  anchorX,
+  anchorY,
+  selectionRect,
+  annotationId,
+  annotationNote,
 });
 
 export const resolveMobileContextMenuSyncAction = ({
   hasSelection,
+  isInteractingWithinMenu,
   isMenuFocused,
   isMenuVisible,
 }: {
   hasSelection: boolean;
+  isInteractingWithinMenu: boolean;
   isMenuFocused: boolean;
   isMenuVisible: boolean;
 }): MobileContextMenuSyncAction => {
@@ -76,7 +103,11 @@ export const resolveMobileContextMenuSyncAction = ({
     return 'open-from-selection';
   }
 
-  if (isMenuFocused) {
+  if (!isMenuVisible) {
+    return 'close-menu';
+  }
+
+  if (isMenuFocused || isInteractingWithinMenu) {
     return 'keep-existing-menu';
   }
 
@@ -89,7 +120,7 @@ export const resolveContextMenuSelection = ({
   fallbackAnchorY,
   placement,
   selection,
-}: ResolveContextMenuSelectionArgs): ContextMenuState | null => {
+}: ResolveContextMenuSelectionArgs): SelectionContextMenuState | null => {
   const selectedText = selection.toString().trim();
   if (!selectedText || selection.rangeCount === 0) {
     return null;
@@ -107,6 +138,7 @@ export const resolveContextMenuSelection = ({
   const anchorY = fallbackAnchorY ?? selectionRect.top + selectionRect.height;
 
   return {
+    type: 'selection',
     visible: true,
     placement,
     selectedText,

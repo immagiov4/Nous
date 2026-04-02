@@ -69,6 +69,10 @@ export interface Message {
   text: string;
 }
 
+export interface HomeChatToolPreferences {
+  newCourse: boolean;
+}
+
 export interface QuizQuestion {
   question: string;
   options: string[];
@@ -129,6 +133,7 @@ export interface LearningSection {
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
   contextPrompt?: string; // For Learn Mode
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
+  annotations?: SectionAnnotation[]; // Persistent text annotations/highlights for the section
 }
 
 export interface LearningPlan {
@@ -216,16 +221,35 @@ export interface SelectionRect {
 
 export type ContextMenuPlacement = 'desktop-floating' | 'mobile-sheet';
 
-export interface ContextMenuState {
+export interface SectionAnnotation {
+  id: string;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface BaseContextMenuState {
   visible: boolean;
   placement: ContextMenuPlacement;
   selectedText: string;
   anchorX?: number;
   anchorY?: number;
   selectionRect?: SelectionRect;
+}
+
+export interface SelectionContextMenuState extends BaseContextMenuState {
+  type: 'selection';
   contextBefore?: string;
   contextAfter?: string;
 }
+
+export interface AnnotationContextMenuState extends BaseContextMenuState {
+  type: 'annotation';
+  annotationId: string;
+  annotationNote: string;
+}
+
+export type ContextMenuState = SelectionContextMenuState | AnnotationContextMenuState;
 
 export type VoiceProfileId = 'mario';
 export type VoiceName = VoiceProfileId;

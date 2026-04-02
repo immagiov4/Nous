@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { AppState } from '../types.ts';
 import { shouldOpenProjectFromLocation } from './useWorkspaceNavigation.ts';
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import {
   CONTEXT_ANSWER_MIN_HEIGHT,
   CONTEXT_ANSWER_MIN_WIDTH,

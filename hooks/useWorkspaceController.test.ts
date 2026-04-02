@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { createProjectSnapshot } from '../services/projectSnapshot.ts';
 import { createProjectSourceFromFile } from '../services/projectSource.ts';
 import {
@@ -210,6 +210,20 @@ const createDomainAdapter = (
       domain.domainState.learningPlan = domain.learningPlan;
       syncDomainDerived(domain);
     },
+    updateSection: (sectionId, updater) => {
+      if (!domain.learningPlan) {
+        return;
+      }
+
+      domain.learningPlan = {
+        ...domain.learningPlan,
+        sections: domain.learningPlan.sections.map(section =>
+          section.id === sectionId ? updater(section) : section
+        ),
+      };
+      domain.domainState.learningPlan = domain.learningPlan;
+      syncDomainDerived(domain);
+    },
     userProfile: null,
   };
 
@@ -403,6 +417,15 @@ const createGeminiMock = (overrides: Partial<typeof import('../services/geminiSe
       ],
       sendMessage: async () => ({ text: 'Domanda iniziale' }),
     }),
+    createEmbeddedAssessmentChat: async () => ({
+      sendMessage: async () => ({ text: 'Domanda iniziale' }),
+    }),
+    createEmbeddedAssessmentChatFromTextSource: async () => ({
+      sendMessage: async () => ({ text: 'Domanda iniziale' }),
+    }),
+    createEmbeddedLearnAssessmentChat: () => ({
+      sendMessage: async () => ({ text: 'Profilazione' }),
+    }),
     createLearnAssessmentChat: () => ({
       sendMessage: async () => ({ text: 'Profilazione' }),
     }),
@@ -549,8 +572,8 @@ test('openProject hydrates pdf mappings before applying a stored plan', async ()
   const result = await controller.openProject('project-pdf');
 
   assert.equal(result.outcome, 'opened');
-  assert.equal(projectLibrary.persistedSnapshots.length, 1);
-  assert.equal(projectLibrary.persistedSnapshots[0]?.documentIndex?.chunks[0]?.id, 'chunk-001');
+  assert.equal(projectLibrary.persistedSnapshots.length, 2);
+  assert.equal(projectLibrary.persistedSnapshots[1]?.documentIndex?.chunks[0]?.id, 'chunk-001');
   assert.equal(domain.documentIndex?.chunks[0]?.id, 'chunk-001');
 });
 
@@ -560,7 +583,7 @@ test('openProject skips pdf hydration checks for text document sources', async (
     source: createProjectSourceFromFile(markdownFile),
     state: AppState.ASSESSMENT,
   });
-  let hydrationFileArg: FileData | null | undefined = undefined;
+  let hydrationFileArg: FileData | null | undefined;
 
   const { controller } = createControllerHarness({
     gemini: {
@@ -851,6 +874,30 @@ test('startLearnJourney resets the workspace and lands in learn assessment', asy
   assert.equal(state.runtime.assessmentMessages[0]?.text.includes('Architect'), true);
 });
 
+test('startHomeChat passes the Nuovo corso preference to the model without altering the visible user message', async () => {
+  let sentMessage = '';
+  const { controller, state } = createControllerHarness({
+    gemini: {
+      createEmbeddedLearnAssessmentChat: () => ({
+        sendMessage: async ({ message }) => {
+          sentMessage = message;
+          return { text: 'Profilazione' };
+        },
+      }),
+    },
+  });
+
+  const result = await controller.startHomeChat({
+    input: 'Vorrei capire meglio come studiare',
+    toolPreferences: { newCourse: true },
+  });
+
+  assert.equal(result.outcome, 'continued');
+  assert.equal(state.runtime.assessmentMessages[0]?.text, 'Vorrei capire meglio come studiare');
+  assert.equal(sentMessage.includes('[Preferenza utente attiva: Nuovo corso]'), true);
+  assert.equal(sentMessage.includes('Vorrei capire meglio come studiare'), true);
+});
+
 test('submitAssessment in learn mode finalizes the profile and generates the first lesson', async () => {
   const profileArgs = {
     topic: 'TypeScript',
@@ -873,6 +920,9 @@ test('submitAssessment in learn mode finalizes the profile and generates the fir
         activeSectionId: null,
       },
     },
+    projectLibrary: {
+      currentProjectId: 'learn-project',
+    },
   });
 
   state.adapter.setChatSession({
@@ -890,6 +940,41 @@ test('submitAssessment in learn mode finalizes the profile and generates the fir
   assert.equal(domain.activeSectionId, 'lesson-1');
   assert.equal(state.runtime.screenState, AppState.READING);
   assert.equal(projectLibrary.savedOverrides[0]?.userProfile?.topic, 'TypeScript');
+});
+
+test('submitAssessment forwards the Nuovo corso preference to the active chat session', async () => {
+  let sentMessage = '';
+  const { controller, state } = createControllerHarness({
+    domain: {
+      isLearnMode: true,
+      domainState: {
+        source: null,
+        learningPlan: null,
+        documentAssets: null,
+        documentIndex: null,
+        isLearnMode: true,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: null,
+      },
+    },
+  });
+
+  state.adapter.setChatSession({
+    sendMessage: async ({ message }) => {
+      sentMessage = message;
+      return { text: 'Profilazione' };
+    },
+  });
+
+  const result = await controller.submitAssessment('Fammi una domanda utile', {
+    newCourse: true,
+  });
+
+  assert.equal(result.outcome, 'continued');
+  assert.equal(sentMessage.includes('[Preferenza utente attiva: Nuovo corso]'), true);
+  assert.equal(sentMessage.includes('Fammi una domanda utile'), true);
+  assert.equal(state.runtime.assessmentMessages.at(-1)?.text, 'Profilazione');
 });
 
 test('submitAssessment in document mode generates the plan after the minimum number of turns', async () => {
@@ -927,7 +1012,7 @@ test('submitAssessment in document mode generates the plan after the minimum num
   });
 
   state.adapter.setChatSession({
-    sendMessage: async () => ({ text: 'Ancora una risposta' }),
+    sendMessage: async () => ({ text: '[ASSESSMENT_COMPLETE]' }),
   });
   state.adapter.setAssessmentMessages([
     { role: 'user', text: 'Uno' },
@@ -936,8 +1021,10 @@ test('submitAssessment in document mode generates the plan after the minimum num
     { role: 'model', text: 'Quattro' },
   ]);
 
-  const result = await controller.submitAssessment('Quinta risposta');
+  const assessmentResult = await controller.submitAssessment('Quinta risposta');
+  const result = await controller.confirmPlanGeneration();
 
+  assert.equal(assessmentResult.outcome, 'assessment-complete');
   assert.equal(result.outcome, 'planned');
   assert.equal(state.runtime.screenState, AppState.READING);
   assert.equal(domain.learningPlan?.sections[0]?.title, 'Lezione 1');
@@ -982,7 +1069,7 @@ test('submitAssessment in document mode can generate a plan for text-backed sour
   });
 
   state.adapter.setChatSession({
-    sendMessage: async () => ({ text: 'Ancora una risposta' }),
+    sendMessage: async () => ({ text: '[ASSESSMENT_COMPLETE]' }),
   });
   state.adapter.setAssessmentMessages([
     { role: 'user', text: 'Uno' },
@@ -991,8 +1078,10 @@ test('submitAssessment in document mode can generate a plan for text-backed sour
     { role: 'model', text: 'Quattro' },
   ]);
 
-  const result = await controller.submitAssessment('Quinta risposta');
+  const assessmentResult = await controller.submitAssessment('Quinta risposta');
+  const result = await controller.confirmPlanGeneration();
 
+  assert.equal(assessmentResult.outcome, 'assessment-complete');
   assert.equal(result.outcome, 'planned');
   assert.equal(planFileArg?.name, 'notes.md');
   assert.equal(planFileArg?.mimeType, 'text/markdown');

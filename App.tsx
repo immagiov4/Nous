@@ -15,6 +15,7 @@ import { useWorkspaceReaderRuntime } from './hooks/useWorkspaceReaderRuntime.ts'
 import { useUiPreferencesPersistence } from './hooks/useUiPreferencesPersistence.ts';
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from './services/geminiService.ts';
 import { useEffect, useState } from 'react';
+import type { HomeChatToolPreferences } from './types.ts';
 
 const notify = (message: string) => {
   window.alert(message);
@@ -89,7 +90,7 @@ const App = () => {
     startLearnJourney,
     storageError,
     submitAssessment,
-    updateActiveSectionContent,
+    updateSection,
     workflowState,
   } = controller;
 
@@ -108,6 +109,7 @@ const App = () => {
     completeActiveSection,
     contextMenu: readerRuntime.readerContext.contextMenu,
     createLessonFromSelection,
+    documentIndex: controller.documentIndex,
     isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
     learningPlan,
     notify,
@@ -116,7 +118,8 @@ const App = () => {
     regenerateActiveSection,
     sectionContent,
     setIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
-    updateActiveSectionContent,
+    source: controller.source,
+    updateSection,
   });
 
   const {
@@ -177,10 +180,17 @@ const App = () => {
     }
   };
 
-  const handleHomeChatSubmit = async (message: string) => {
+  const handleHomeChatSubmit = async (
+    message: string,
+    options?: { toolPreferences?: HomeChatToolPreferences }
+  ) => {
     const result = assessmentMessages.length
-      ? await submitAssessment(message)
-      : await startHomeChat({ input: message, selectedFile: pendingHomeSourceFile });
+      ? await submitAssessment(message, options?.toolPreferences)
+      : await startHomeChat({
+          input: message,
+          selectedFile: pendingHomeSourceFile,
+          toolPreferences: options?.toolPreferences,
+        });
 
     if (result.outcome === 'assessment-complete') {
       setAssessmentComplete(true);
@@ -244,12 +254,14 @@ const App = () => {
       onCompleteSection: () => {
         void readerActions.handleCompleteSection();
       },
+      onContentClick: readerRuntime.readerContext.handleContentClick,
       onContentContextMenu: readerRuntime.readerContext.handleContentContextMenu,
       onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
       onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
       quiz,
       quizAnswers: readerRuntime.quizAnswers,
       scrollContainerRef: readerRuntime.scrollContainerRef,
+      sectionAnnotations: activeSection?.annotations,
       sectionContent,
     },
     header: {
@@ -294,7 +306,11 @@ const App = () => {
       onCloseContextAnswer: readerRuntime.readerContext.closeContextAnswer,
       onCloseContextMenu: readerRuntime.readerContext.closeContextMenu,
       onCreateLesson: readerActions.handleCreateLesson,
+      onDeleteAnnotation: readerActions.handleDeleteAnnotation,
       onHighlight: readerActions.handleHighlight,
+      onSaveConversationNote: readerActions.handleSaveConversationNote,
+      onUpdateConversationNote: readerActions.handleUpdateConversationNote,
+      onSaveNote: readerActions.handleSaveNote,
     },
     shouldUseDesktopSidebar: readerRuntime.readerChrome.shouldUseDesktopSidebar,
     sidebar: {

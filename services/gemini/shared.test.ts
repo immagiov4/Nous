@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'vitest';
 import { encodeBytesBase64, encodeTextBase64 } from '../projectSource.ts';
 import { buildDocumentInputContent } from './shared.ts';
 
