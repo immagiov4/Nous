@@ -7,6 +7,7 @@ import {
   Sun,
   X,
 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import MusicPlayer from '../MusicPlayer.tsx';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
@@ -38,6 +39,48 @@ export default function WorkspaceReaderHeader({
   onSetSettingsOpen,
   preferredModels,
 }: WorkspaceReaderHeaderModel) {
+  const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
+  const regenerateConfirmRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isRegenerateConfirmOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || regenerateConfirmRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsRegenerateConfirmOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, [isRegenerateConfirmOpen]);
+
+  useEffect(() => {
+    if (!activeSection || isLoading) {
+      setIsRegenerateConfirmOpen(false);
+    }
+  }, [activeSection, isLoading]);
+
+  const handleRegenerateIntent = () => {
+    if (!activeSection || isLoading) {
+      return;
+    }
+
+    setIsRegenerateConfirmOpen(currentValue => !currentValue);
+  };
+
+  const handleConfirmRegenerate = () => {
+    setIsRegenerateConfirmOpen(false);
+    onRegenerateActiveSection();
+  };
+
   return (
     <header
       className={`
@@ -100,26 +143,63 @@ export default function WorkspaceReaderHeader({
           </div>
         ) : null}
 
-        <button
-          type="button"
-          onClick={onRegenerateActiveSection}
-          disabled={!activeSection || isLoading}
-          className={`inline-flex items-center justify-center rounded-full border transition-colors ${
-            isMobileViewport
-              ? 'h-10 w-10'
-              : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
-          } ${
-            !activeSection || isLoading
-              ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500'
-              : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
-          }`}
-          title={
-            activeSection ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
-          }
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          {!isMobileViewport ? <span>Rigenera</span> : null}
-        </button>
+        <div ref={regenerateConfirmRef} className="relative">
+          <button
+            type="button"
+            onClick={handleRegenerateIntent}
+            disabled={!activeSection || isLoading}
+            className={`inline-flex items-center justify-center rounded-full border transition-colors ${
+              isMobileViewport
+                ? 'h-10 w-10'
+                : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
+            } ${
+              !activeSection || isLoading
+                ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500'
+                : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
+            }`}
+            title={
+              activeSection ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
+            }
+            aria-expanded={isRegenerateConfirmOpen}
+            aria-haspopup="dialog"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            {!isMobileViewport ? <span>Rigenera</span> : null}
+          </button>
+
+          {isRegenerateConfirmOpen ? (
+            <div
+              role="dialog"
+              aria-label="Conferma rigenerazione lezione"
+              className={`absolute z-50 w-[min(20rem,calc(100vw-2rem))] rounded-[1.6rem] border border-stone-200/90 bg-white px-4 py-4 text-stone-700 shadow-[0_18px_40px_-24px_rgba(46,34,16,0.32)] dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-200 ${
+                isMobileViewport ? 'right-0 top-[calc(100%+0.75rem)]' : 'right-0 top-[calc(100%+0.75rem)]'
+              }`}
+            >
+              <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+                Rigenerare questa lezione?
+              </p>
+              <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.
+              </p>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRegenerateConfirmOpen(false)}
+                  className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmRegenerate}
+                  className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+                >
+                  Rigenera
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         {!isMobileViewport ? (
           <>

@@ -233,7 +233,7 @@ const MusicPlayer = ({
             className="fixed inset-0 z-40 cursor-default"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 top-12 z-50 w-80 rounded-md border border-gray-200 bg-white p-4 dark:border-zinc-700/80 dark:bg-zinc-950">
+          <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 overflow-hidden rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 shadow-[0_12px_30px_-8px_rgba(15,23,42,0.12),0_28px_60px_-22px_rgba(15,23,42,0.22)] dark:border-zinc-600/80 dark:bg-stone-700 dark:shadow-[0_16px_34px_-14px_rgba(0,0,0,0.35),0_30px_60px_-24px_rgba(0,0,0,0.38)]">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-zinc-200">
                 <Music className="w-4 h-4" />
@@ -260,13 +260,13 @@ const MusicPlayer = ({
                     value={url}
                     onChange={e => setUrl(e.target.value)}
                     placeholder="incolla link YouTube..."
-                    className={`flex-1 rounded-md border bg-white px-3 py-2 text-xs text-gray-800 outline-none transition-colors focus:border-gray-400 dark:bg-zinc-950 dark:text-gray-200 dark:focus:border-zinc-500 ${hasError ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200 dark:border-zinc-600/80'}`}
+                    className={`flex-1 rounded-[1.15rem] border bg-white px-3 py-2 text-xs text-gray-800 outline-none transition-colors focus:border-gray-400 dark:bg-stone-800 dark:text-gray-100 dark:focus:border-zinc-500 ${hasError ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200 dark:border-zinc-500/80'}`}
                   />
                   {hasError && (
                     <button
                       type="button"
                       onClick={handleRetry}
-                      className="rounded-md bg-red-50 p-2 text-red-500 transition-colors hover:bg-red-100"
+                      className="rounded-[1.15rem] bg-red-50 p-2 text-red-500 transition-colors hover:bg-red-100"
                       title="Riprova a caricare"
                     >
                       <RefreshCw className="w-4 h-4" />
@@ -274,14 +274,14 @@ const MusicPlayer = ({
                   )}
                 </div>
                 {hasError && (
-                  <div className="mt-2 flex items-start gap-2 rounded-md bg-red-50 p-2 text-[10px] font-medium leading-tight text-red-500 dark:bg-red-900/10">
+                  <div className="mt-2 flex items-start gap-2 rounded-[1.15rem] bg-red-50 p-2 text-[10px] font-medium leading-tight text-red-500 dark:bg-red-900/10">
                     <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
                     <span>Video limitato dal proprietario o da YouTube. Prova un altro link.</span>
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center gap-4 rounded-md border border-gray-200 bg-white p-3 dark:border-zinc-700/80 dark:bg-zinc-900">
+              <div className="flex items-center gap-4 rounded-[1.5rem] border border-gray-200 bg-white p-3 dark:border-zinc-500/80 dark:bg-stone-800">
                 <button
                   type="button"
                   onClick={() => setIsPlaying(!isPlaying)}
@@ -328,7 +328,7 @@ const MusicPlayer = ({
                       type="button"
                       key={preset.url}
                       onClick={() => setUrl(preset.url)}
-                      className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-gray-400 dark:hover:border-zinc-500 dark:hover:text-white"
+                      className="rounded-[1rem] border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-500/80 dark:bg-stone-800 dark:text-gray-300 dark:hover:border-zinc-400 dark:hover:text-white"
                     >
                       {preset.name}
                     </button>
