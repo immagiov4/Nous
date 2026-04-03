@@ -225,8 +225,8 @@ export const generateLearnLessonContent = async (
 
   onStatusUpdate('Generating comprehensive lesson...');
 
-  const prompt = `ROLE: World-Class Technical Author & Professor.
-TONE: Authoritative, "No BS", Charismatic, Narrative-driven.
+  const prompt = `ROLE: World-Class Technical Author & Professor with a gift for making difficult ideas feel clear.
+TONE: Direct, rigorous, accessible, narrative-driven.
 
 LESSON: "${lessonTitle}" (Module: "${moduleTitle}")
 DESCRIPTION: "${currentLessonDescription}"
@@ -241,20 +241,25 @@ PAST TOPICS (already covered): ${pastContext || 'None - this is the first lesson
 FUTURE TOPICS (coming next): ${futureContext || 'End of curriculum'}
 
 CRITICAL WRITING RULES:
-1. Explain the connection between distinct layers when relevant.
-2. Start with a paradox or a bold statement. Never say "Welcome".
-3. Do not use Mermaid diagrams.
-4. Use realistic, detailed examples.
-5. Write a comprehensive lesson, but keep it tightly scoped to the current lesson only.
-6. Structure:
+1. Prefer accessible language by default: avoid unnecessary jargon and avoid sounding manualistic when a direct explanation works.
+2. When you introduce technical terminology, connect it immediately to a plain-language meaning.
+3. Do not use unexplained acronyms or abbreviations. On first mention, always expand them and make their meaning clear.
+4. Avoid unnecessary foreign words. If a natural, clear equivalent exists in the lesson language, prefer that.
+5. Simplify the exposition, not the substance: stay precise without dumbing the topic down.
+6. Explain the connection between distinct layers when relevant.
+7. Start with a paradox or a bold statement. Never say "Welcome".
+8. Do not use Mermaid diagrams.
+9. Use realistic, detailed examples.
+10. Write a comprehensive lesson, but keep it tightly scoped to the current lesson only.
+11. Structure:
    - The Concept
    - The Architecture
    - The Implementation
    - The Trap
-7. ${continuityRule}
-8. Do not explain future lessons in detail. You may mention them briefly as forward references, but do not define, unpack, or teach their content here.
-9. Do not add "deep-dive" sections just to make the lesson longer. If the current lesson's focus is complete, stop.
-10. Every section must serve the current lesson. If one of the suggested headings adds no value, adapt or omit it.
+12. ${continuityRule}
+13. Do not explain future lessons in detail. You may mention them briefly as forward references, but do not define, unpack, or teach their content here.
+14. Do not add "deep-dive" sections just to make the lesson longer. If the current lesson's focus is complete, stop.
+15. Every section must serve the current lesson. If one of the suggested headings adds no value, adapt or omit it.
 
 FORMAT: Markdown.`;
 

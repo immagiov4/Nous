@@ -16,6 +16,7 @@ import { useUiPreferencesPersistence } from './hooks/workspace/useUiPreferencesP
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from './services/openrouter/index.ts';
 import { useEffect, useState } from 'react';
 import type { HomeChatToolPreferences } from './types.ts';
+import { getLessonSourcePageLabel } from './utils/context/sourceMaterial.ts';
 
 const notify = (message: string) => {
   window.alert(message);
@@ -172,6 +173,10 @@ const App = () => {
   const isHomeChatLoading = workflowState.assessment.status === 'pending';
   const homeChatLoadingStatus = workflowState.assessment.message || 'Caricamento...';
   const loadingStatus = blockingMessage || 'Caricamento...';
+  const activeSectionSourcePageRangeLabel = getLessonSourcePageLabel({
+    activeSection,
+    documentIndex: controller.documentIndex,
+  });
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0] || null;
     setPendingHomeSourceFile(selectedFile);
@@ -265,6 +270,7 @@ const App = () => {
       scrollContainerRef: readerRuntime.scrollContainerRef,
       sectionAnnotations: activeSection?.annotations,
       sectionContent,
+      sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
     },
     header: {
       activeSection,

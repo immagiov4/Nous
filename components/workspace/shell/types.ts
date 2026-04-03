@@ -145,6 +145,7 @@ export interface WorkspaceReaderContentModel {
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sectionAnnotations?: SectionAnnotation[];
   sectionContent: string;
+  sourcePageRangeLabel?: string;
 }
 
 export interface WorkspaceReaderAudioPlayerModel {

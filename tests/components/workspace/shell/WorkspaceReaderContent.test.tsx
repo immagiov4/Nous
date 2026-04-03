@@ -51,4 +51,17 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByTestId('reader-quiz-column')).toHaveClass('max-w-[82ch]');
     expect(screen.getByTestId('reader-quiz-column')).toHaveClass('w-full');
   });
+
+  test('appends the source page range directly to the lesson markdown', () => {
+    const { container } = render(
+      <WorkspaceReaderContent {...buildProps({ sourcePageRangeLabel: 'pag. 10-12' })} />
+    );
+
+    const renderedText = container.textContent || '';
+    expect(renderedText).toContain('Fonte originale: pag. 10-12');
+    expect(renderedText.indexOf('Contenuto')).toBeLessThan(
+      renderedText.indexOf('Fonte originale: pag. 10-12')
+    );
+    expect(container.querySelector('[data-testid="reader-source-page-range"]')).toBeNull();
+  });
 });

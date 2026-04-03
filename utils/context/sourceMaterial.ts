@@ -1,4 +1,5 @@
 import type { LearningSection, PdfTextChunk, PdfTextIndex, ProjectSource } from '../../types.ts';
+import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex.ts';
 
 const MAX_CONTEXT_SOURCE_CHARS = 168_000;
 const MAX_PDF_SOURCE_CHUNKS = 6;
@@ -51,6 +52,50 @@ const buildPdfSourceMaterial = (
     .filter(Boolean)
     .map(formatChunk)
     .join('\n\n---\n\n');
+};
+
+const formatPageRangeLabel = (startPage: number, endPage: number, exact: boolean): string => {
+  const baseLabel = startPage === endPage ? `pag. ${startPage}` : `pag. ${startPage}-${endPage}`;
+  return exact ? baseLabel : `${baseLabel} (stima)`;
+};
+
+export const getLessonSourcePageLabel = ({
+  activeSection,
+  documentIndex,
+}: {
+  activeSection: LearningSection | null;
+  documentIndex: PdfTextIndex | null;
+}): string | undefined => {
+  if (!activeSection?.primaryChunkIds?.length || !documentIndex?.chunks.length) {
+    return undefined;
+  }
+
+  const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
+  const resolvedSpans = activeSection.primaryChunkIds
+    .map(chunkId => indexById.get(chunkId))
+    .filter((chunk): chunk is PdfTextChunk => Boolean(chunk))
+    .map(chunk =>
+      resolvePdfChunkPageSpan(documentIndex, chunk, documentIndex.pageCount)
+    )
+    .filter(
+      (
+        span
+      ): span is {
+        startPage: number;
+        endPage: number;
+        exact: boolean;
+      } => Boolean(span)
+    );
+
+  if (resolvedSpans.length === 0) {
+    return undefined;
+  }
+
+  return formatPageRangeLabel(
+    Math.min(...resolvedSpans.map(span => span.startPage)),
+    Math.max(...resolvedSpans.map(span => span.endPage)),
+    resolvedSpans.every(span => span.exact)
+  );
 };
 
 export const buildContextSourceMaterial = ({

@@ -404,7 +404,7 @@ const ContextMenu = ({
         }`;
 
   const notePreviewClassName =
-    'max-h-52 overflow-y-auto rounded-[1.4rem] border border-stone-200/80 bg-white px-4 py-3 text-sm leading-6 text-stone-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:border-stone-400/95 dark:bg-stone-700/80 dark:text-stone-100';
+    'max-h-52 overflow-y-auto rounded-[1.4rem] border border-stone-200/80 bg-white px-4 py-3 text-sm leading-6 text-stone-800 dark:border-stone-400/95 dark:bg-stone-700/80 dark:text-stone-100';
 
   const renderRenderedNotePreview = () => (
     <div className={notePreviewClassName}>

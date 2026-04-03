@@ -1,6 +1,5 @@
 import {
   DefaultChatTransport,
-  isTextUIPart,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
@@ -20,7 +19,11 @@ import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.ts
 import ChatTextComposer from '../chat/ChatTextComposer.tsx';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
-import { dedupeUiMessagesById, getUiMessageText } from '../../../utils/uiChat.ts';
+import {
+  dedupeUiMessagesById,
+  getUiMessageRenderableParts,
+  getUiMessageText,
+} from '../../../utils/uiChat.ts';
 import type {
   ConversationSelectionAnchor,
   ContextChatToolPreferences,
@@ -336,7 +339,7 @@ export default function ContextAnswerPanel({
       return true;
     }
 
-    return getUiMessageText(message).length > 0 || message.parts.some(isToolUIPart);
+    return getUiMessageRenderableParts(message).length > 0;
   });
 
   const renderToolPart = (part: ContextChatMessage['parts'][number], messageId: string) => {
@@ -511,34 +514,33 @@ export default function ContextAnswerPanel({
       <div className="custom-scrollbar min-h-0 flex-1 overflow-auto pr-2">
         <div className="space-y-6 pb-5">
           {visibleMessages.map(message => {
-            const messageText = getUiMessageText(message);
-            const toolParts = message.parts.filter(isToolUIPart);
-            const isStreamingAssistantText =
-              message.role === 'assistant' &&
-              message.parts.some(part => isTextUIPart(part) && part.state === 'streaming');
-
             if (message.role === 'user') {
               return (
                 <div key={message.id} className="pt-2">
                   <div className="border-l-2 border-orange-500 pl-3 font-serif text-base font-bold leading-[1.35] text-gray-900 dark:text-gray-100">
-                    "{messageText}"
+                    "{getUiMessageText(message)}"
                   </div>
                 </div>
               );
             }
 
+            const renderableParts = getUiMessageRenderableParts(message);
+
             return (
               <div key={message.id} className="space-y-4">
-                {messageText ? (
-                  <StreamingMarkdownRenderer
-                    content={messageText}
-                    isStreaming={isStreamingAssistantText}
-                    isDarkMode={isDarkMode}
-                    className="prose-sm prose-p:text-gray-600 dark:prose-p:text-gray-300"
-                  />
-                ) : null}
-
-                {toolParts.map(part => renderToolPart(part, message.id))}
+                {renderableParts.map(part =>
+                  part.kind === 'text' ? (
+                    <StreamingMarkdownRenderer
+                      key={`${message.id}-${part.key}`}
+                      content={part.text}
+                      isStreaming={part.isStreaming}
+                      isDarkMode={isDarkMode}
+                      className="prose-sm prose-p:text-gray-600 dark:prose-p:text-gray-300"
+                    />
+                  ) : (
+                    renderToolPart(part.part, `${message.id}-${part.key}`)
+                  )
+                )}
               </div>
             );
           })}

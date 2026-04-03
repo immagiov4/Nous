@@ -276,6 +276,9 @@ Regole:
 - Rispondi in italiano, salvo richiesta esplicita diversa.
 - Considera i messaggi precedenti come follow-up della stessa domanda.
 - Usa il markdown solo quando migliora davvero la leggibilita.
+- Spiega in modo accessibile: evita gergo e formulazioni troppo manualistiche quando non servono.
+- Se devi usare un termine tecnico necessario, collegalo subito a un significato chiaro e comprensibile.
+- Semplifica il modo di spiegare, non il contenuto.
 - Se il contesto non basta, dillo chiaramente invece di inventare.
 - Se il materiale sorgente originale e presente, preferiscilo come base fattuale quando chiarisce meglio della lezione generata.
 - Se citi identificatori o simboli, usa i backtick.

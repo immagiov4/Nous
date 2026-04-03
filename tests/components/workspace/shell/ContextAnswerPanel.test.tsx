@@ -102,4 +102,48 @@ describe('ContextAnswerPanel', () => {
     expect(screen.getByText('Risposta in corso')).toBeInTheDocument();
     expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
   });
+
+  test('keeps assistant text after the note tool below the note card', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            { type: 'text', text: 'Prima della nota.', state: 'done' },
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'tool-1',
+              state: 'input-available',
+              input: {
+                noteDraft: 'Nota finale',
+                rationale: 'Vale la pena salvarla.',
+                selectedTextDraft: 'G-buffer',
+              },
+            },
+            { type: 'text', text: 'Dopo la nota.', state: 'done' },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    const { container } = render(<ContextAnswerPanel {...buildProps()} />);
+
+    const markdownBlocks = screen.getAllByTestId('markdown-renderer');
+    expect(markdownBlocks).toHaveLength(2);
+    expect(markdownBlocks[0]).toHaveTextContent('Prima della nota.');
+    expect(markdownBlocks[1]).toHaveTextContent('Dopo la nota.');
+
+    const renderedText = container.textContent || '';
+    expect(renderedText.indexOf('Prima della nota.')).toBeLessThan(
+      renderedText.indexOf('Vuoi aggiungerlo alle note?')
+    );
+    expect(renderedText.indexOf('Vuoi aggiungerlo alle note?')).toBeLessThan(
+      renderedText.indexOf('Dopo la nota.')
+    );
+  });
 });

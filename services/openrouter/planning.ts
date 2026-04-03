@@ -855,14 +855,16 @@ REGOLE:
 5. Non ripetere il titolo della lezione nel corpo e non lasciare heading duplicati o consecutivi identici.
 6. Taglia frasi metadiscorsive o riempitive come "questo e importante", "in pratica", "il punto centrale e" quando non aggiungono informazione tecnica nuova.
 7. Mantieni il tono discorsivo, ma riduci analogie ed esempi superflui: usa analogie solo per concetti davvero difficili o astratti, non come abitudine stilistica.
-8. Preferisci spiegazioni dirette ed esempi tratti dal materiale sorgente. Evita formule ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se" salvo casi rari in cui chiariscono davvero un passaggio difficile.
-9. Evita il tono da saggio divulgativo: niente piccoli riassunti, tesi di paragrafo o frasi che riformulano subito la stessa idea con parole diverse.
-10. Mantieni heading chiari e chiudi con una sezione "Conclusione".
-11. NON inserire quiz nel testo.
-12. NON inserire markdown image syntax, tag <img> o riferimenti ad asset tecnici.
-13. Normalizza i blocchi di codice Markdown: usa solo fence standard del tipo \`\`\` oppure \`\`\`lang con il SOLO nome del linguaggio (es. \`\`\`cpp). Non aggiungere commenti, etichette o testo extra sulla stessa riga del fence.
-14. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, fallo con una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
-15. Restituisci SOLO markdown pulito, senza JSON e senza spiegazioni.
+8. Non lasciare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza scioglili e chiariscili.
+9. Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo.
+10. Preferisci spiegazioni dirette ed esempi tratti dal materiale sorgente. Evita formule ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se" salvo casi rari in cui chiariscono davvero un passaggio difficile.
+11. Evita il tono da saggio divulgativo: niente piccoli riassunti, tesi di paragrafo o frasi che riformulano subito la stessa idea con parole diverse.
+12. Mantieni heading chiari e chiudi con una sezione "Conclusione".
+13. NON inserire quiz nel testo.
+14. NON inserire markdown image syntax, tag <img> o riferimenti ad asset tecnici.
+15. Normalizza i blocchi di codice Markdown: usa solo fence standard del tipo \`\`\` oppure \`\`\`lang con il SOLO nome del linguaggio (es. \`\`\`cpp). Non aggiungere commenti, etichette o testo extra sulla stessa riga del fence.
+16. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, fallo con una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
+17. Restituisci SOLO markdown pulito, senza JSON e senza spiegazioni.
 
 CONTESTO SORGENTE:
 ${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
@@ -958,10 +960,11 @@ ${scopeRule}
 7. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento.
 8. Verifica con particolare severita che descrizione, caption e immagine siano abbinate correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
 9. Se una figura e debole, ambigua, fuori tema o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
-10. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
-11. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
-12. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
-13. Nei dati immagine, \`caption\` e una descrizione sintetica generata; \`sourceContextCurrent\` e l'estratto reale della stessa pagina della figura; \`sourceContextBefore\` e \`sourceContextAfter\` sono gli estratti delle pagine adiacenti. Dai priorita a \`sourceContextCurrent\` per validare il tema effettivo della figura.
+10. Se trovi forestierismi inutili nel testo, sostituiscili con equivalenti italiani naturali, salvo casi in cui il termine straniero sia davvero lo standard tecnico necessario.
+11. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
+12. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
+13. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
+14. Nei dati immagine, \`caption\` e una descrizione sintetica generata; \`sourceContextCurrent\` e l'estratto reale della stessa pagina della figura; \`sourceContextBefore\` e \`sourceContextAfter\` sono gli estratti delle pagine adiacenti. Dai priorita a \`sourceContextCurrent\` per validare il tema effettivo della figura.
 
 ESTRATTI RILEVANTI DAL PDF / CONTESTO SORGENTE:
 ${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
@@ -1621,31 +1624,36 @@ REGOLE FONDAMENTALI:
 4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione in Introduzione, Concetti Fondamentali e Analisi Approfondita con semplici parafrasi.
 5. Non ripetere il titolo della lezione dentro \`contentMarkdown\` e non duplicare heading identici o quasi identici.
 6. Evita metadiscorso e enfasi ridondante: non usare continuamente formule come "questo e importante", "in pratica", "il punto centrale e", "qui si capisce", salvo rarissimi casi.
-7. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
-8. Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo. Se puoi spiegare bene in modo diretto, non usare alcuna analogia.
-9. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate.
-10. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
-11. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
-12. Usa un numero di immagini proporzionato alla struttura della lezione. Se ci sono piu sezioni/heading, puoi usare piu immagini; evita solo ridondanze inutili.
-13. Puoi referenziare SOLO questi assetId. Se nessuna immagine e chiaramente pertinente, restituisci un array vuoto.
-14. Se usi un'immagine, \`anchorHeading\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`, senza i simboli #.
-15. Se il materiale parla chiaramente di anatomia, strutture o meccanica visivamente spiegabili e tra le candidate c'e una figura pertinente, preferisci includerne almeno una.
-16. ${continuityRule}
-17. Vincoli di focus della lezione:
+7. Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta.
+8. Quando un termine tecnico e necessario, collegalo subito al suo significato pratico o concettuale in parole comprensibili.
+9. Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.
+10. Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
+11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
+12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
+13. Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo. Se puoi spiegare bene in modo diretto, non usare alcuna analogia.
+14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate.
+15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
+16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
+17. Usa un numero di immagini proporzionato alla struttura della lezione. Se ci sono piu sezioni/heading, puoi usare piu immagini; evita solo ridondanze inutili.
+18. Puoi referenziare SOLO questi assetId. Se nessuna immagine e chiaramente pertinente, restituisci un array vuoto.
+19. Se usi un'immagine, \`anchorHeading\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`, senza i simboli #.
+20. Se il materiale parla chiaramente di anatomia, strutture o meccanica visivamente spiegabili e tra le candidate c'e una figura pertinente, preferisci includerne almeno una.
+21. ${continuityRule}
+22. Vincoli di focus della lezione:
 ${scopeRule}
-18. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
-19. \`quiz\` deve contenere ESATTAMENTE 5 domande con ESATTAMENTE 4 opzioni ciascuna.
-20. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.
-21. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
-22. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.
-23. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "nella figura seguente".
-24. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
-25. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
-26. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\` oppure \`\`\`lang con solo il nome del linguaggio (es. \`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
-27. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
-28. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
-29. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
-30. Nei dati immagine, \`caption\` e una descrizione sintetica generata; \`sourceContextCurrent\` e l'estratto reale della stessa pagina della figura; \`sourceContextBefore\` e \`sourceContextAfter\` sono le pagine adiacenti e vanno usati solo come supporto per verificare il tema corretto della figura.
+23. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
+24. \`quiz\` deve contenere ESATTAMENTE 5 domande con ESATTAMENTE 4 opzioni ciascuna.
+25. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.
+26. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
+27. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.
+28. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "nella figura seguente".
+29. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
+30. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
+31. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\` oppure \`\`\`lang con solo il nome del linguaggio (es. \`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
+32. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
+33. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
+34. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
+35. Nei dati immagine, \`caption\` e una descrizione sintetica generata; \`sourceContextCurrent\` e l'estratto reale della stessa pagina della figura; \`sourceContextBefore\` e \`sourceContextAfter\` sono le pagine adiacenti e vanno usati solo come supporto per verificare il tema corretto della figura.
 
 IMMAGINI CANDIDATE:
 ${JSON.stringify(candidateImagePayload, null, 2)}
@@ -1818,25 +1826,30 @@ REGOLE FONDAMENTALI:
    Quando pero presenti 2 o piu elementi fratelli (tipi, gruppi, fasi, definizioni), usa una lista Markdown vera.
 3. **RIFERIMENTI AL TESTO**: Cita specificamente il documento originale.
 4. **ESEMPI E ANALOGIE**: Usa esempi pratici quando aiutano davvero, preferibilmente tratti dal materiale sorgente. Usa analogie solo per concetti difficili o astratti, e comunque al massimo 1 analogia breve nell'intera lezione. Se puoi spiegare bene in modo diretto, non usare analogie.
-5. **STRUTTURA**: Usa heading chiari, ma solo se servono davvero. Non inserire automaticamente sezioni come "Analisi Approfondita" o "Applicazioni Pratiche" se il focus della lezione non lo richiede.
-6. **PROGRESSIONE**: Ogni sezione deve introdurre informazione nuova o un nuovo livello di dettaglio; evita riprese ridondanti di concetti gia spiegati poche righe sopra.
-7. **NO TITOLO DUPLICATO**: Non ripetere il titolo della lezione all'inizio di \`contentMarkdown\` e non duplicare heading identici.
-8. **STILE**: Mantieni un tono discorsivo ma sobrio. Evita metadiscorso e frasi-segnaposto come "questo e importante", "in pratica", "il punto centrale e" quando non aggiungono contenuto tecnico nuovo.
-9. **NO SAGGIO DIVULGATIVO**: Non aprire continuamente paragrafi con formule come "un modo utile per capirlo", "l'analogia migliore", "pensiamolo come", "in sostanza". Vai dritto alla spiegazione tecnica.
-10. **LUNGHEZZA**: E meglio essere comprensibili che prolissi. Completo non significa verboso.
-11. **PARAGRAFI CHE AVANZANO**: Ogni paragrafo deve introdurre un fatto, una distinzione, una conseguenza o un esempio nuovo. Niente mini-riassunti subito dopo aver spiegato una cosa.
-12. **CONTINUITA NARRATIVA**: ${continuityRule}
-13. **FOCUS DELLA LEZIONE**:
+5. **LINGUAGGIO ACCESSIBILE**: Usa di default un lessico chiaro, accessibile e poco manualistico. Se puoi spiegare bene una cosa senza gergo superfluo, fallo.
+6. **TERMINI TECNICI CONTESTUALIZZATI**: Quando un termine tecnico e necessario, aggancialo subito al suo significato pratico o concettuale in parole comprensibili.
+7. **SIGLE SPIEGATE**: Non usare sigle, abbreviazioni o acronimi non spiegati. Alla prima occorrenza devi sempre scioglierli e chiarirli.
+8. **NO FORESTIERISMI INUTILI**: Evita forestierismi inutili. Se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
+9. **SEMPLIFICA L'ESPOSIZIONE, NON IL CONTENUTO**: Resta preciso e completo senza assumere un tono artificiosamente accademico.
+10. **STRUTTURA**: Usa heading chiari, ma solo se servono davvero. Non inserire automaticamente sezioni come "Analisi Approfondita" o "Applicazioni Pratiche" se il focus della lezione non lo richiede.
+11. **PROGRESSIONE**: Ogni sezione deve introdurre informazione nuova o un nuovo livello di dettaglio; evita riprese ridondanti di concetti gia spiegati poche righe sopra.
+12. **NO TITOLO DUPLICATO**: Non ripetere il titolo della lezione all'inizio di \`contentMarkdown\` e non duplicare heading identici.
+13. **STILE**: Mantieni un tono discorsivo ma sobrio. Evita metadiscorso e frasi-segnaposto come "questo e importante", "in pratica", "il punto centrale e" quando non aggiungono contenuto tecnico nuovo.
+14. **NO SAGGIO DIVULGATIVO**: Non aprire continuamente paragrafi con formule come "un modo utile per capirlo", "l'analogia migliore", "pensiamolo come", "in sostanza". Vai dritto alla spiegazione tecnica.
+15. **LUNGHEZZA**: E meglio essere comprensibili che prolissi. Completo non significa verboso.
+16. **PARAGRAFI CHE AVANZANO**: Ogni paragrafo deve introdurre un fatto, una distinzione, una conseguenza o un esempio nuovo. Niente mini-riassunti subito dopo aver spiegato una cosa.
+17. **CONTINUITA NARRATIVA**: ${continuityRule}
+18. **FOCUS DELLA LEZIONE**:
 ${scopeRule}
-14. **OUTPUT OBBLIGATORIO**: La risposta finale deve essere SOLO un oggetto JSON valido.
-15. **SCHEMA QUIZ**: \`quiz\` deve contenere ESATTAMENTE 5 domande a risposta multipla con ESATTAMENTE 4 opzioni ciascuna.
-16. **NESSUN TESTO EXTRA**: Non aggiungere testo, commenti, markdown fences o spiegazioni fuori dal JSON.
-17. **IMMAGINI**: Per questa richiesta \`imagePlacements\` deve essere un array vuoto.
-18. **NO PSEUDO-LISTE**: Non scrivere blocchi con piu righe del tipo "Etichetta: ..." senza bullet. O fai una lista Markdown vera, oppure scrivi paragrafi completi.
-19. **CODE BLOCK PULITI**: Per i blocchi di codice usa solo fence Markdown standard del tipo \`\`\` oppure \`\`\`lang con il solo nome del linguaggio. Niente testo extra o commenti sulla riga del fence.
-20. **NO LABEL SPURIE**: Non scrivere righe isolate come \`cpp\`, \`ts\`, \`cpp // commento\` o simili prima di un code block. Se vuoi introdurre il codice, fallo in una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco.
-21. **NO IMMAGINI INLINE**: Non inserire markdown image syntax o tag HTML immagine dentro \`contentMarkdown\`.
-22. **NO QUIZ NEL TESTO**: Non aggiungere quiz, domande o sezioni di verifica dentro \`contentMarkdown\`; il quiz deve vivere solo nel campo \`quiz\`.
+19. **OUTPUT OBBLIGATORIO**: La risposta finale deve essere SOLO un oggetto JSON valido.
+20. **SCHEMA QUIZ**: \`quiz\` deve contenere ESATTAMENTE 5 domande a risposta multipla con ESATTAMENTE 4 opzioni ciascuna.
+21. **NESSUN TESTO EXTRA**: Non aggiungere testo, commenti, markdown fences o spiegazioni fuori dal JSON.
+22. **IMMAGINI**: Per questa richiesta \`imagePlacements\` deve essere un array vuoto.
+23. **NO PSEUDO-LISTE**: Non scrivere blocchi con piu righe del tipo "Etichetta: ..." senza bullet. O fai una lista Markdown vera, oppure scrivi paragrafi completi.
+24. **CODE BLOCK PULITI**: Per i blocchi di codice usa solo fence Markdown standard del tipo \`\`\` oppure \`\`\`lang con il solo nome del linguaggio. Niente testo extra o commenti sulla riga del fence.
+25. **NO LABEL SPURIE**: Non scrivere righe isolate come \`cpp\`, \`ts\`, \`cpp // commento\` o simili prima di un code block. Se vuoi introdurre il codice, fallo in una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco.
+26. **NO IMMAGINI INLINE**: Non inserire markdown image syntax o tag HTML immagine dentro \`contentMarkdown\`.
+27. **NO QUIZ NEL TESTO**: Non aggiungere quiz, domande o sezioni di verifica dentro \`contentMarkdown\`; il quiz deve vivere solo nel campo \`quiz\`.
 
 Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {

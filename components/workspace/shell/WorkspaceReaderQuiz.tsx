@@ -50,7 +50,7 @@ export default function WorkspaceReaderQuiz({
   quizAnswers,
 }: WorkspaceReaderQuizProps) {
   return (
-    <div className="mt-24 border-t-2 border-dashed border-gray-200 pt-12 dark:border-zinc-700/80">
+    <div className="mt-10 border-t-2 border-dashed border-gray-200 pt-6 dark:border-zinc-700/80">
       <div className="mb-8 flex items-center gap-3">
         <div className="rounded-lg bg-orange-100 p-2 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400">
           <GraduationCap className="h-6 w-6" />

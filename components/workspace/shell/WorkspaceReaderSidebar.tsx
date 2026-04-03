@@ -160,7 +160,10 @@ export default function WorkspaceReaderSidebar({
                         isExpanded ? 'rotate-90' : ''
                       }`}
                     />
-                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.18em]">
+                    <span
+                      className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.18em]"
+                      title={group.title}
+                    >
                       {group.title}
                     </span>
                   </button>
@@ -202,6 +205,7 @@ export default function WorkspaceReaderSidebar({
                             <div className="min-w-0 flex-1">
                               <div
                                 className={`truncate text-sm ${isActive ? 'font-medium' : 'font-normal'}`}
+                                title={section.title}
                               >
                                 {section.title}
                               </div>

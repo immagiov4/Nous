@@ -23,6 +23,7 @@ export default function WorkspaceReaderContent({
   scrollContainerRef,
   sectionAnnotations,
   sectionContent,
+  sourcePageRangeLabel,
 }: WorkspaceReaderContentModel) {
   const readingShellClassName = isFocusMode
     ? 'max-w-[72rem] px-4 pb-36 pt-8 sm:px-8 lg:px-12 xl:px-16'
@@ -30,6 +31,10 @@ export default function WorkspaceReaderContent({
   const readingColumnClassName = isFocusMode
     ? 'mx-auto max-w-[76ch]'
     : 'mx-auto max-w-[82ch]';
+  const renderedSectionContent =
+    sectionContent && sourcePageRangeLabel
+      ? `${sectionContent.trim()}\n\n&nbsp;\n\n*Fonte originale: ${sourcePageRangeLabel}*`
+      : sectionContent;
 
   return (
     <div
@@ -42,7 +47,7 @@ export default function WorkspaceReaderContent({
       >
         <section
           ref={contentRef}
-          className="mb-16 min-h-[50vh] min-w-0"
+          className="mb-8 min-h-[50vh] min-w-0"
           onPointerDownCapture={onContentPointerDownCapture}
         >
           {isLoading ? (
@@ -56,7 +61,7 @@ export default function WorkspaceReaderContent({
             </div>
           ) : sectionContent ? (
             <MarkdownRenderer
-              content={sectionContent}
+              content={renderedSectionContent}
               isDarkMode={isDarkMode}
               lessonAssetsById={activeSectionAssetsById}
               lessonImageRefsById={activeSectionImageRefsById}

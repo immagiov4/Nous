@@ -46,6 +46,15 @@ test('LESSON_SCOPE_RULES prevent future-lesson spoilers and filler deep dives', 
   );
 });
 
+test('lesson generation prompts require expanding acronyms on first mention', async () => {
+  const planningModule = await import('../../../services/openrouter/planning.ts');
+  const source = planningModule.generateSectionContent.toString();
+
+  assert.match(source, /Non usare sigle, abbreviazioni o acronimi non spiegati/i);
+  assert.match(source, /prima occorrenza/i);
+  assert.match(source, /Evita forestierismi inutili/i);
+});
+
 test('PLAN_PROPEDEUTIC_ORDER_RULES enforce prerequisite ordering for modules and lessons', () => {
   assert.ok(
     PLAN_PROPEDEUTIC_ORDER_RULES.some(
