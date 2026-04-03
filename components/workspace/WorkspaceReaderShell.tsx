@@ -17,6 +17,31 @@ export default function WorkspaceReaderShell({
   sidebar,
 }: WorkspaceReaderShellProps) {
   useLayoutEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const html = document.documentElement;
+    const body = document.body;
+    const previousHtmlOverflow = html.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    const previousHtmlOverscroll = html.style.overscrollBehavior;
+    const previousBodyOverscroll = body.style.overscrollBehavior;
+
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    html.style.overscrollBehavior = 'none';
+    body.style.overscrollBehavior = 'none';
+
+    return () => {
+      html.style.overflow = previousHtmlOverflow;
+      body.style.overflow = previousBodyOverflow;
+      html.style.overscrollBehavior = previousHtmlOverscroll;
+      body.style.overscrollBehavior = previousBodyOverscroll;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -37,7 +62,10 @@ export default function WorkspaceReaderShell({
   }, [content.scrollContainerRef]);
 
   return (
-    <div className="flex h-screen max-w-full overflow-hidden bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark">
+    <div
+      className="flex h-screen max-w-full overflow-hidden overscroll-none bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark"
+      style={{ height: '100dvh', maxHeight: '100dvh' }}
+    >
       <WorkspaceReaderSidebar {...sidebar} />
 
       <div

@@ -18,7 +18,7 @@ import {
   type ProjectSnapshot,
   type ProjectSource,
 } from '../../../types.ts';
-import { readJsonFile, readSourceFileData } from './controllerContext.ts';
+import { readImportFile, readSourceFileData } from './controllerContext.ts';
 import type {
   AssessmentSourceInput,
   OpenSectionOptions,
@@ -172,8 +172,8 @@ export const createProjectLifecycleCommands = (
     const requestId = state.beginWorkflow('importProject', 'Importazione progetto...');
 
     try {
-      const json = await readJsonFile(selectedFile);
-      const { snapshot } = await projectLibrary.importProjectData(json);
+      const importedProject = await readImportFile(selectedFile);
+      const { snapshot } = await projectLibrary.importProjectData(importedProject);
       const preparedSnapshot = prepareSnapshotForHydration(snapshot);
       await persistPreparedSnapshotIfChanged(snapshot, preparedSnapshot);
       persistHydratedSnapshot(preparedSnapshot);

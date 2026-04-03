@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import {
   createProjectSourceFromFile,
   decodeTextBase64,
   encodeTextBase64,
   getProjectSourceFile,
 } from '../../../services/projects/projectSource.ts';
-import { buildCoverLabel, inferProjectSourceKind } from '../../../services/projects/projectSnapshot.ts';
+import {
+  buildCoverLabel,
+  exportProjectData,
+  inferProjectSourceKind,
+  normalizeImportedProject,
+} from '../../../services/projects/projectSnapshot.ts';
 
 test('createProjectSourceFromFile upgrades legacy zip payloads into structured codebase sources', () => {
   const source = createProjectSourceFromFile({
@@ -55,4 +61,59 @@ test('inferProjectSourceKind keeps zip-backed codebase bundles as codebase proje
   });
 
   assert.equal(inferProjectSourceKind({ source, isLearnMode: false }), 'codebase');
+});
+
+test('exportProjectData keeps the source only once for modern exports', () => {
+  const pdfFile = {
+    name: 'paper.pdf',
+    mimeType: 'application/pdf',
+    data: encodeTextBase64('fake-pdf-binary'),
+  };
+  const snapshot: ProjectSnapshot = {
+    id: 'project-1',
+    version: '4.1',
+    sourceKind: 'document',
+    state: AppState.READING,
+    source: {
+      kind: 'pdf',
+      file: pdfFile,
+    },
+    learningPlan: null,
+    isLearnMode: false,
+    userProfile: null,
+    syllabus: [],
+    activeSectionId: null,
+    createdAt: '2026-04-03T00:00:00.000Z',
+    updatedAt: '2026-04-03T00:00:00.000Z',
+    lastOpenedAt: '2026-04-03T00:00:00.000Z',
+    documentAssets: null,
+    documentIndex: null,
+  };
+
+  const exported = exportProjectData(snapshot);
+
+  assert.deepEqual(exported.source, snapshot.source);
+  assert.equal(Object.hasOwn(exported, 'file'), false);
+});
+
+test('normalizeImportedProject still supports legacy file-only exports', () => {
+  const pdfFile = {
+    name: 'paper.pdf',
+    mimeType: 'application/pdf',
+    data: encodeTextBase64('fake-pdf-binary'),
+  };
+
+  const imported = normalizeImportedProject({
+    version: '3.0',
+    file: pdfFile,
+    learningPlan: null,
+    isLearnMode: false,
+    userProfile: null,
+    syllabus: [],
+  });
+
+  assert.deepEqual(imported.source, {
+    kind: 'pdf',
+    file: pdfFile,
+  });
 });

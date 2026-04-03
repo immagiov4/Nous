@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Headphones, Music, Volume2, X, Play, Pause, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface MusicPlayerProps {
+  isMobileViewport?: boolean;
   url: string;
   setUrl: (url: string) => void;
   isPlaying: boolean;
@@ -46,6 +47,7 @@ declare global {
 }
 
 const MusicPlayer = ({
+  isMobileViewport = false,
   url,
   setUrl,
   isPlaying,
@@ -205,6 +207,9 @@ const MusicPlayer = ({
 
     return `https://www.youtube-nocookie.com/embed/${id}?${params.toString()}`;
   };
+  const panelClassName = isMobileViewport
+    ? 'fixed left-1/2 top-[calc(env(safe-area-inset-top,0px)+5.5rem)] z-50 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2'
+    : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80';
 
   return (
     <div className="relative">
@@ -233,7 +238,9 @@ const MusicPlayer = ({
             className="fixed inset-0 z-40 cursor-default"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 overflow-hidden rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 shadow-[0_12px_30px_-8px_rgba(15,23,42,0.12),0_28px_60px_-22px_rgba(15,23,42,0.22)] dark:border-zinc-600/80 dark:bg-stone-700 dark:shadow-[0_16px_34px_-14px_rgba(0,0,0,0.35),0_30px_60px_-24px_rgba(0,0,0,0.38)]">
+          <div
+            className={`${panelClassName} overflow-hidden rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 shadow-[0_12px_30px_-8px_rgba(15,23,42,0.12),0_28px_60px_-22px_rgba(15,23,42,0.22)] dark:border-zinc-600/80 dark:bg-stone-700 dark:shadow-[0_16px_34px_-14px_rgba(0,0,0,0.35),0_30px_60px_-24px_rgba(0,0,0,0.38)]`}
+          >
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-zinc-200">
                 <Music className="w-4 h-4" />

@@ -127,6 +127,15 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('NOTA GIA ASSOCIATA');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Annota: attiva');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Cerca sul web: attiva');
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      "Rispondi direttamente alla domanda dell'utente e fermati li."
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      "Non fare domande all'utente, non chiedere chiarimenti e non proporre prossimi passi di tua iniziativa."
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      "L'unica eccezione consentita e una domanda strettamente strumentale all'uso dei tool di annotazione"
+    );
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
       requestAddToNotes: expect.any(Object),
       saveConversationNote: expect.any(Object),

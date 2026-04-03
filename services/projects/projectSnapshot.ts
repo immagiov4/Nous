@@ -16,7 +16,6 @@ import {
 } from '../../types.ts';
 import {
   createProjectSourceFromFile,
-  getProjectSourceFile,
   getProjectSourceName,
   isDocumentProjectSource,
   isPdfFileData,
@@ -367,7 +366,6 @@ export const exportProjectData = (snapshot: ProjectSnapshot): ProjectExportData 
   id: snapshot.id,
   version: snapshot.version,
   state: snapshot.state,
-  file: getProjectSourceFile(snapshot.source),
   source: snapshot.source,
   learningPlan: snapshot.learningPlan,
   isLearnMode: snapshot.isLearnMode,

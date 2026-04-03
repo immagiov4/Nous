@@ -193,6 +193,29 @@ describe('WorkspaceReaderShell', () => {
     });
   });
 
+  test('locks document scrolling while the reader shell is mounted', () => {
+    const props = buildProps();
+
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+    document.documentElement.style.overscrollBehavior = 'auto';
+    document.body.style.overscrollBehavior = 'auto';
+
+    const { unmount } = render(<WorkspaceReaderShell {...props} />);
+
+    expect(document.documentElement.style.overflow).toBe('hidden');
+    expect(document.body.style.overflow).toBe('hidden');
+    expect(document.documentElement.style.overscrollBehavior).toBe('none');
+    expect(document.body.style.overscrollBehavior).toBe('none');
+
+    unmount();
+
+    expect(document.documentElement.style.overflow).toBe('auto');
+    expect(document.body.style.overflow).toBe('auto');
+    expect(document.documentElement.style.overscrollBehavior).toBe('auto');
+    expect(document.body.style.overscrollBehavior).toBe('auto');
+  });
+
   test('renders the docked audio player only when speech content is available and connected', () => {
     const props = buildProps();
     const { rerender } = render(<WorkspaceReaderShell {...props} />);

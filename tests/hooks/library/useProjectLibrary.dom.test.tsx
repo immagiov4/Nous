@@ -179,4 +179,34 @@ describe('useProjectLibrary', () => {
       state: AppState.READING,
     });
   });
+
+  test('downloadProject uses a zip-based backup filename', async () => {
+    const objectUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:lumina-backup');
+    const appendChildSpy = vi.spyOn(document.body, 'appendChild');
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    repositoryMocks.loadProject.mockResolvedValue(buildSnapshot('project-export'));
+
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+    );
+
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.downloadProject('project-export');
+    });
+
+    const anchor = appendChildSpy.mock.calls.find(
+      ([node]) => node instanceof HTMLAnchorElement
+    )?.[0] as HTMLAnchorElement | undefined;
+
+    expect(anchor?.download.endsWith('.lumina.zip')).toBe(true);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(objectUrlSpy).toHaveBeenCalledTimes(1);
+  });
 });

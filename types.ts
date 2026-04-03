@@ -190,7 +190,7 @@ export interface ProjectExportData {
   id?: ProjectId;
   version: string;
   state?: AppState;
-  file?: FileData | null;
+  file?: FileData | null; // Legacy import fallback for older exports
   source?: ProjectSource | null;
   learningPlan: LearningPlan | null;
   isLearnMode: boolean;

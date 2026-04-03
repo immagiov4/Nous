@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
+import {
+  createProjectArchiveBlob,
+  getProjectArchiveExtension,
+} from '../../services/projects/projectArchive.ts';
 import { IndexedDbProjectRepository } from '../../services/projects/indexedDbProjectRepository';
-import { createProjectSnapshot, exportProjectData } from '../../services/projects/projectSnapshot';
+import { createProjectSnapshot } from '../../services/projects/projectSnapshot';
 import { buildPersistenceSignature } from '../../services/projects/persistenceSignature';
 import { ProjectStorageError } from '../../services/projects/projectRepository';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
-  ProjectExportData,
   ProjectSnapshot,
   SavedProjectMeta,
   WorkspaceDomainState,
@@ -139,14 +142,17 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     [buildSnapshotFromDomain, persistSnapshot]
   );
 
-  const downloadJson = useCallback((data: unknown, filename: string) => {
-    const dataStr = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data))}`;
+  const downloadBlob = useCallback((blob: Blob, filename: string) => {
+    const objectUrl = URL.createObjectURL(blob);
     const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute('href', dataStr);
+    downloadAnchorNode.setAttribute('href', objectUrl);
     downloadAnchorNode.setAttribute('download', filename);
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
+    window.setTimeout(() => {
+      URL.revokeObjectURL(objectUrl);
+    }, 0);
   }, []);
 
   const downloadProject = useCallback(
@@ -165,10 +171,13 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         return;
       }
 
-      const payload: ProjectExportData = exportProjectData(exportData);
-      downloadJson(payload, `lumina-plan-${new Date().toISOString().slice(0, 10)}.json`);
+      const archive = await createProjectArchiveBlob(exportData);
+      downloadBlob(
+        archive,
+        `lumina-backup-${new Date().toISOString().slice(0, 10)}${getProjectArchiveExtension()}`
+      );
     },
-    [buildSnapshotFromDomain, currentProjectId, downloadJson]
+    [buildSnapshotFromDomain, currentProjectId, downloadBlob]
   );
 
   useEffect(() => {

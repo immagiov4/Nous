@@ -127,4 +127,14 @@ describe('MarkdownRenderer', () => {
       borderStyle: 'dashed',
     });
   });
+
+  test('uses a lighter highlight tone in dark mode for better contrast', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'Testo con <mark>focus</mark>.'} isDarkMode />
+    );
+
+    expect(container.querySelector('article')).toHaveClass('dark:[&_mark]:bg-amber-700/50');
+    expect(container.querySelector('mark')).toHaveClass('dark:bg-amber-700/50');
+    expect(container.querySelector('mark')).toHaveClass('dark:text-amber-50');
+  });
 });

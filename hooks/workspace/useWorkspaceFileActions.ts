@@ -70,7 +70,7 @@ export const useWorkspaceFileActions = ({
         if (result.errorMessage) {
           notifyError(
             result.errorMessage === 'Unknown error'
-              ? 'Il file JSON non è valido.'
+              ? 'Il file di backup non è valido.'
               : result.errorMessage
           );
         }

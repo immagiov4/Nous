@@ -76,6 +76,22 @@ describe('WorkspaceReaderHeader', () => {
     ).not.toBeInTheDocument();
   });
 
+  test('centers the regeneration confirmation dialog on mobile', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+
+    await user.click(
+      screen.getByRole('button', { name: /Rigenera la lezione corrente/i })
+    );
+
+    const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione lezione/i });
+    expect(dialog).toHaveClass('fixed');
+    expect(dialog).toHaveClass('left-1/2');
+    expect(dialog).toHaveClass('-translate-x-1/2');
+  });
+
   test('shows the actual loading status on mobile instead of a generic label', () => {
     const props = buildProps();
 
@@ -88,6 +104,18 @@ describe('WorkspaceReaderHeader', () => {
       />
     );
 
-    expect(screen.getByText('Indice raffinato: 31 lezioni')).toBeInTheDocument();
+    const loadingStatus = screen.getByText('Indice raffinato: 31 lezioni');
+
+    expect(loadingStatus).toBeInTheDocument();
+    expect(loadingStatus.parentElement).toHaveClass('w-full');
+    expect(loadingStatus.parentElement).toHaveClass('max-w-full');
+  });
+
+  test('keeps the music player available on mobile', () => {
+    const props = buildProps();
+
+    render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+
+    expect(screen.getByTestId('music-player')).toBeInTheDocument();
   });
 });

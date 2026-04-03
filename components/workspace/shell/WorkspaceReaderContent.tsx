@@ -34,7 +34,8 @@ export default function WorkspaceReaderContent({
   return (
     <div
       ref={scrollContainerRef}
-      className="relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden scroll-smooth"
+      className="relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth"
+      style={{ touchAction: 'pan-y' }}
     >
       <div
         className={`mx-auto w-full min-w-0 transition-all duration-500 ${readingShellClassName}`}

@@ -36,7 +36,7 @@ interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
 }
 
 const articleClassName = (className: string) =>
-  `prose w-full min-w-0 max-w-none overflow-x-hidden break-words [overflow-wrap:anywhere] [&_*]:max-w-full [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-2 [&_.katex-display]:overscroll-x-contain [&_.katex-display]:[-webkit-overflow-scrolling:touch] [&_.katex-display_.katex]:min-w-max max-sm:[&_.katex-display]:text-[0.94em] [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone [&_mark[data-lumina-annotation-id]]:cursor-pointer [&_strong_mark]:font-semibold [&_mark_strong]:font-semibold [&_em_mark]:italic [&_mark_em]:italic dark:[&_mark]:bg-orange-900/50 dark:[&_mark]:text-white ${className}`;
+  `prose w-full min-w-0 max-w-none overflow-x-hidden break-words [overflow-wrap:anywhere] [&_*]:max-w-full [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-2 [&_.katex-display]:overscroll-x-contain [&_.katex-display]:[-webkit-overflow-scrolling:touch] [&_.katex-display_.katex]:min-w-max max-sm:[&_.katex-display]:text-[0.94em] [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone [&_mark[data-lumina-annotation-id]]:cursor-pointer [&_strong_mark]:font-semibold [&_mark_strong]:font-semibold [&_em_mark]:italic [&_mark_em]:italic dark:[&_mark]:bg-amber-700/50 dark:[&_mark]:text-amber-50 ${className}`;
 
 const buildMarkdownComponents = (
   syntaxTheme: { [key: string]: CSSProperties },
@@ -94,7 +94,7 @@ const buildMarkdownComponents = (
 
     return (
       <mark
-        className="mx-0.5 rounded bg-orange-200 px-1 py-0.5 text-gray-900 decoration-clone box-decoration-clone dark:bg-orange-900/50 dark:text-white"
+        className="mx-0.5 rounded bg-orange-200 px-1 py-0.5 text-gray-900 decoration-clone box-decoration-clone dark:bg-amber-700/50 dark:text-amber-50"
         style={{
           fontStyle: 'inherit',
           fontWeight: 'inherit',

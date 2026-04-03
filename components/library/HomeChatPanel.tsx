@@ -185,8 +185,9 @@ const HomeChatPanel = ({
         ) : null}
 
         <form
+          ref={toolMenuRef}
           onSubmit={handleSubmit}
-          className="flex items-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50/50 px-2 py-1.5 transition-colors focus-within:border-gray-300 focus-within:bg-white dark:border-zinc-600/40 dark:bg-stone-700/40 dark:focus-within:border-zinc-500 dark:focus-within:bg-stone-700"
+          className="relative flex items-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50/50 px-2 py-1.5 transition-colors focus-within:border-gray-300 focus-within:bg-white dark:border-zinc-600/40 dark:bg-stone-700/40 dark:focus-within:border-zinc-500 dark:focus-within:bg-stone-700"
         >
           <button
             type="button"
@@ -198,7 +199,7 @@ const HomeChatPanel = ({
             <Paperclip className="h-[1.1rem] w-[1.1rem]" />
           </button>
 
-          <div ref={toolMenuRef} className="relative flex shrink-0 items-center">
+          <div className="relative flex shrink-0 items-center">
             <button
               type="button"
               onClick={() => setIsToolMenuOpen(currentValue => !currentValue)}
@@ -213,40 +214,6 @@ const HomeChatPanel = ({
             >
               <Plus className="h-[1.1rem] w-[1.1rem]" />
             </button>
-
-            {isToolMenuOpen ? (
-              <div
-                className="absolute bottom-[calc(100%+0.55rem)] left-0 z-20 w-[min(18rem,calc(100vw-3rem))] overflow-hidden rounded-2xl border border-gray-200/90 bg-white/95 p-2 shadow-[0_18px_50px_-24px_rgba(24,24,27,0.4)] dark:border-zinc-600/80 dark:bg-stone-800/95"
-                role="menu"
-              >
-                <button
-                  type="button"
-                  onClick={toggleNewCoursePreference}
-                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/80"
-                  role="menuitemcheckbox"
-                  aria-checked={toolPreferences.newCourse}
-                >
-                  <span
-                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
-                      toolPreferences.newCourse
-                        ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
-                        : 'border-gray-300 text-transparent dark:border-zinc-500'
-                    }`}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-zinc-100">
-                      <BookPlus className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                      Nuovo corso
-                    </span>
-                    <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                      Segnala al modello che questa conversazione serve a impostare un nuovo corso.
-                    </span>
-                  </span>
-                </button>
-              </div>
-            ) : null}
           </div>
 
           <input
@@ -275,6 +242,40 @@ const HomeChatPanel = ({
               <ArrowUp className="h-4 w-4" />
             )}
           </button>
+
+          {isToolMenuOpen ? (
+            <div
+              className="absolute bottom-[calc(100%+0.55rem)] left-1/2 z-20 w-[min(18rem,calc(100%-1rem))] -translate-x-1/2 overflow-hidden rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_18px_50px_-24px_rgba(24,24,27,0.4)] sm:left-0 sm:w-[min(18rem,calc(100vw-3rem))] sm:translate-x-0 dark:border-zinc-600 dark:bg-stone-800"
+              role="menu"
+            >
+              <button
+                type="button"
+                onClick={toggleNewCoursePreference}
+                className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/80"
+                role="menuitemcheckbox"
+                aria-checked={toolPreferences.newCourse}
+              >
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                    toolPreferences.newCourse
+                      ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
+                      : 'border-gray-300 text-transparent dark:border-zinc-500'
+                  }`}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-zinc-100">
+                    <BookPlus className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                    Nuovo corso
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                    Segnala al modello che questa conversazione serve a impostare un nuovo corso.
+                  </span>
+                </span>
+              </button>
+            </div>
+          ) : null}
         </form>
 
         {toolPreferences.newCourse ? (
