@@ -15,7 +15,7 @@ View your app in AI Studio: https://ai.studio/apps/d985924c-2339-4e80-834f-9b7ea
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set the `OPENROUTER_API_KEY` in [.env.local](.env.local)
 3. Run the app:
    `npm run dev`
 
@@ -24,14 +24,14 @@ View your app in AI Studio: https://ai.studio/apps/d985924c-2339-4e80-834f-9b7ea
 If you are changing the app and do not know where to start, this is the fastest map:
 
 - `App.tsx`: top-level screen shell. It decides whether we are in library, assessment, planning, or reading mode.
-- `hooks/useWorkspaceController.ts`: public entry point for app workflows. The actual logic is split under `hooks/workspace-controller/`.
-- `hooks/workspace-controller/assessmentPlanning.ts`: assessment chat flow and plan generation.
-- `hooks/workspace-controller/projectLifecycle.ts`: open/import/delete projects and source attachment.
-- `hooks/workspace-controller/sectionProgression.ts`: lesson loading, regeneration, deep dives, contextual Q&A, completion.
-- `hooks/useProjectLibrary.ts`: project repository + autosave only.
-- `hooks/useUiPreferencesPersistence.ts`: local UI preferences such as theme, voice, teleprompter speed, playback rate.
-- `hooks/useWorkspaceReaderRuntime.ts`: reader-side runtime wiring for chrome, context menu, quiz UI, music, and TTS player.
-- `components/WorkspaceReaderShell.tsx` and `components/workspace-reader-shell/`: reading UI composition and presentational pieces.
-- `services/workspace-controller/`: pure helpers for snapshot hydration, learn-mode planning, and PDF asset merging.
-- `services/geminiService.ts` and `services/gemini/`: AI-facing integrations and prompt orchestration.
+- `hooks/workspace/useWorkspaceController.ts`: public entry point for app workflows. The actual logic is split under `hooks/workspace/controller/`.
+- `hooks/workspace/controller/assessmentPlanning.ts`: assessment chat flow and plan generation.
+- `hooks/workspace/controller/projectLifecycle.ts`: open/import/delete projects and source attachment.
+- `hooks/workspace/controller/sectionProgression.ts`: lesson loading, regeneration, deep dives, contextual Q&A, completion.
+- `hooks/library/useProjectLibrary.ts`: project repository + autosave only.
+- `hooks/workspace/useUiPreferencesPersistence.ts`: local UI preferences such as theme, voice, teleprompter speed, playback rate.
+- `hooks/workspace/useWorkspaceReaderRuntime.ts`: reader-side runtime wiring for chrome, context menu, quiz UI, music, and TTS player.
+- `components/workspace/WorkspaceReaderShell.tsx` and `components/workspace/shell/`: reading UI composition and presentational pieces.
+- `services/workspace/controller/`: pure helpers for snapshot hydration, learn-mode planning, and PDF asset merging.
+- `services/openrouter/`: AI-facing integrations and prompt orchestration.
 - `backend/src/`: backend source of truth. `backend/dist/` is build output, not where you should edit code.

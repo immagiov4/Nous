@@ -11,7 +11,7 @@ export default defineConfig({
     environment: 'node',
     exclude: ['dist/**', 'backend/dist/**', '**/node_modules/**'],
     globals: false,
-    include: ['**/*.{test,spec}.{ts,tsx}'],
+    include: ['tests/**/*.{test,spec}.{ts,tsx}', 'backend/tests/**/*.{test,spec}.{ts,tsx}'],
     setupFiles: ['./tests/setup.ts'],
     coverage: {
       provider: 'v8',
