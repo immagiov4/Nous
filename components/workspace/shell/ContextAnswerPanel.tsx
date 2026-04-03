@@ -16,7 +16,7 @@ import {
   type RefObject,
 } from 'react';
 
-import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
+import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.tsx';
 import ChatTextComposer from '../chat/ChatTextComposer.tsx';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
@@ -207,7 +207,7 @@ export default function ContextAnswerPanel({
     id: contextAnswer.id,
     messages: [],
     transport,
-    experimental_throttle: 48,
+    experimental_throttle: 96,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onToolCall: async ({ toolCall }) => {
       if (
@@ -529,15 +529,10 @@ export default function ContextAnswerPanel({
 
             return (
               <div key={message.id} className="space-y-4">
-                {messageText && isStreamingAssistantText ? (
-                  <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-gray-600 dark:text-gray-300">
-                    {messageText}
-                  </div>
-                ) : null}
-
-                {messageText && !isStreamingAssistantText ? (
-                  <MarkdownRenderer
+                {messageText ? (
+                  <StreamingMarkdownRenderer
                     content={messageText}
+                    isStreaming={isStreamingAssistantText}
                     isDarkMode={isDarkMode}
                     className="prose-sm prose-p:text-gray-600 dark:prose-p:text-gray-300"
                   />

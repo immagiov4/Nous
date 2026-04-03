@@ -77,7 +77,7 @@ describe('ContextAnswerPanel', () => {
     expect(sendMessageMock).toHaveBeenCalledWith({ text: 'spiega meglio' });
   });
 
-  test('renders streaming assistant text without invoking markdown rendering', () => {
+  test('renders streaming assistant text through the markdown renderer during streaming', () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -100,6 +100,6 @@ describe('ContextAnswerPanel', () => {
     render(<ContextAnswerPanel {...buildProps()} />);
 
     expect(screen.getByText('Risposta in corso')).toBeInTheDocument();
-    expect(screen.queryByTestId('markdown-renderer')).not.toBeInTheDocument();
+    expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
   });
 });

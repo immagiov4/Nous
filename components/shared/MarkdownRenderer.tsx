@@ -18,7 +18,7 @@ import type { LessonImageRef, PdfImageAsset, SectionAnnotation } from '../../typ
 import { parsePdfContentParts } from '../../utils/pdf/imagePlaceholders';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 
-interface MarkdownRendererProps {
+export interface MarkdownRendererProps {
   content: string;
   className?: string;
   isDarkMode?: boolean;
@@ -158,10 +158,17 @@ const MarkdownRenderer = ({
   lessonImageRefsById = {},
   sectionAnnotations = [],
 }: MarkdownRendererProps) => {
-  const syntaxTheme: { [key: string]: CSSProperties } = isDarkMode
-    ? (oneDark as unknown as { [key: string]: CSSProperties })
-    : (oneLight as unknown as { [key: string]: CSSProperties });
-  const contentParts = parsePdfContentParts(content, lessonAssetsById, lessonImageRefsById);
+  const syntaxTheme = useMemo(
+    () =>
+      isDarkMode
+        ? (oneDark as unknown as { [key: string]: CSSProperties })
+        : (oneLight as unknown as { [key: string]: CSSProperties }),
+    [isDarkMode]
+  );
+  const contentParts = useMemo(
+    () => parsePdfContentParts(content, lessonAssetsById, lessonImageRefsById),
+    [content, lessonAssetsById, lessonImageRefsById]
+  );
   const noteAnnotationIds = useMemo(
     () =>
       new Set(
@@ -171,7 +178,10 @@ const MarkdownRenderer = ({
       ),
     [sectionAnnotations]
   );
-  const markdownComponents = buildMarkdownComponents(syntaxTheme, isDarkMode, noteAnnotationIds);
+  const markdownComponents = useMemo(
+    () => buildMarkdownComponents(syntaxTheme, isDarkMode, noteAnnotationIds),
+    [syntaxTheme, isDarkMode, noteAnnotationIds]
+  );
   const tracedMarkdownParts = useMemo(
     () =>
       contentParts
@@ -185,6 +195,16 @@ const MarkdownRenderer = ({
           };
         }),
     [contentParts]
+  );
+  const normalizedContentByPartKey = useMemo(
+    () =>
+      new Map(
+        tracedMarkdownParts.map(part => [
+          part.key,
+          part.normalizedContent,
+        ])
+      ),
+    [tracedMarkdownParts]
   );
 
   return (
@@ -201,7 +221,7 @@ const MarkdownRenderer = ({
             rehypePlugins={[rehypeKatex, rehypeRaw]}
             components={markdownComponents}
           >
-            {tracedMarkdownParts.find(candidate => candidate.key === part.key)?.normalizedContent || ''}
+            {normalizedContentByPartKey.get(part.key) || ''}
           </ReactMarkdown>
         ) : (
           <figure
