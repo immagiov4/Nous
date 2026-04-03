@@ -16,13 +16,19 @@ import {
   type LearningSection,
   type Message,
   type PdfDocumentAssets,
+  type PdfTextChunk,
   type PdfTextIndex,
   type QuizQuestion,
   type UserProfile,
 } from './shared.ts';
 import { pushLuminaDebugTrace } from '../debugTrace.ts';
 import { normalizeMarkdownForRendering } from '../../utils/renderMarkdown.ts';
-import { buildLessonChunkContext } from './documentIndex.ts';
+import {
+  buildLessonChunkContext,
+  buildPdfPageTextLayout,
+  resolveLessonContextChunks,
+  resolvePdfChunkPageSpan,
+} from './documentIndex.ts';
 import {
   buildStoredPdfDocumentAssets,
   getPdfAssetSession,
@@ -36,6 +42,8 @@ const MAX_METADATA_SOURCE_CHARS = 32_000;
 const MAX_CONTEXTUAL_ANSWER_SOURCE_CHARS = 32_000;
 const MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS = 36_000;
 const MAX_LESSON_REPAIR_SOURCE_CHARS = 24_000;
+const PDF_ASSET_SESSION_TIMEOUT_MS = 20_000;
+const PDF_IMAGE_PAGE_RADIUS = 2;
 const PDF_KEYWORD_STOP_WORDS = new Set([
   'about',
   'agli',
@@ -118,6 +126,22 @@ interface PdfSectionContentPayload {
   imagePlacements?: SectionImagePlacement[];
 }
 
+interface LessonVerificationDraft {
+  contentMarkdown: string;
+  quiz: QuizQuestion[];
+  imagePlacements: LessonImageRef[];
+}
+
+class SoftTimeoutError extends Error {
+  timeoutMs: number;
+
+  constructor(message: string, timeoutMs: number) {
+    super(message);
+    this.name = 'SoftTimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 const LESSON_MARKDOWN_TRACE_PREVIEW_CHARS = 1600;
 
 const summarizeLessonMarkdownForTrace = (content: string) => ({
@@ -126,8 +150,37 @@ const summarizeLessonMarkdownForTrace = (content: string) => ({
   preview: content.slice(0, LESSON_MARKDOWN_TRACE_PREVIEW_CHARS),
 });
 
+const withSoftTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise.then(
+        value => value,
+        error => {
+          throw error;
+        }
+      ),
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(
+            new SoftTimeoutError(`Operation exceeded soft timeout of ${timeoutMs}ms.`, timeoutMs)
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+};
+
+const isSoftTimeoutError = (error: unknown): error is SoftTimeoutError =>
+  error instanceof SoftTimeoutError;
+
 const traceLessonMarkdownStage = (
-  stage: 'cleaned' | 'raw' | 'repaired',
+  stage: 'cleaned' | 'raw' | 'repaired' | 'verified',
   sectionTitle: string,
   content: string
 ) => {
@@ -255,16 +308,50 @@ const getSearchKeywords = (text: string): string[] =>
     .split(' ')
     .filter(word => word.length >= 4 && !PDF_KEYWORD_STOP_WORDS.has(word));
 
+const getPdfImageSearchText = (image: PdfDocumentAssets['usedImages'][number]): string =>
+  [image.caption || '', image.textBefore, image.textCurrent || '', image.textAfter]
+    .filter(Boolean)
+    .join(' ');
+
+const scorePageProximity = (pageNumber: number | undefined, targetedPages: number[]): number => {
+  if (!Number.isInteger(pageNumber) || targetedPages.length === 0) {
+    return 0;
+  }
+
+  const centerPage = (targetedPages[0] + targetedPages[targetedPages.length - 1]) / 2;
+  const distance = Math.abs((pageNumber as number) - centerPage);
+  if (distance <= 0.5) {
+    return 4;
+  }
+
+  if (distance <= 1.5) {
+    return 3;
+  }
+
+  if (distance <= 2.5) {
+    return 2;
+  }
+
+  if (distance <= 3.5) {
+    return 1;
+  }
+
+  return 0;
+};
+
 const selectCandidatePdfImages = (
   images: PdfDocumentAssets['usedImages'],
   sectionTitle: string,
-  sectionDescription: string
+  sectionDescription: string,
+  targetedPages: number[] = []
 ) => {
   const keywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
   const scored = images
     .map(image => {
-      const haystack = normalizeSearchText(`${image.textBefore} ${image.textAfter}`);
-      const score = scoreKeywordHits(haystack, keywords);
+      const haystack = normalizeSearchText(getPdfImageSearchText(image));
+      const keywordScore = scoreKeywordHits(haystack, keywords);
+      const pageScore = scorePageProximity(image.pageNumber, targetedPages);
+      const score = keywordScore * 3 + pageScore;
       return { image, score };
     })
     .sort((left, right) =>
@@ -293,30 +380,12 @@ const getMarkdownHeadings = (contentMarkdown: string): string[] =>
     .map(line => line.replace(/^(#{1,6})\s+/, '').trim())
     .filter(Boolean);
 
-const getDynamicLessonImageLimit = (contentMarkdown: string): number => {
-  const headingCount = getMarkdownHeadings(contentMarkdown).length;
-
-  if (headingCount >= 6) {
-    return 6;
-  }
-
-  if (headingCount >= 4) {
-    return 4;
-  }
-
-  if (headingCount >= 2) {
-    return 3;
-  }
-
-  return 2;
-};
-
 const buildImageContextSummary = (
   image: PdfDocumentAssets['usedImages'][number],
   sectionTitle: string,
   sectionDescription: string
 ): string => {
-  const joinedContext = `${image.textBefore} ${image.textAfter}`.trim();
+  const joinedContext = getPdfImageSearchText(image).trim();
   const normalized = joinedContext.replace(/\s+/g, ' ').trim();
   const sentenceCandidates = normalized
     .split(/(?<=[.!?])\s+/)
@@ -330,7 +399,7 @@ const buildImageContextSummary = (
     }))
     .sort((left, right) => right.score - left.score)[0]?.sentence;
 
-  const chosen = bestSentence || sentenceCandidates[0] || normalized || sectionTitle;
+  const chosen = image.caption?.trim() || bestSentence || sentenceCandidates[0] || normalized || sectionTitle;
   const compact = chosen
     .replace(/^[:;,\-\s]+/, '')
     .replace(/[|}]/g, ' ')
@@ -366,7 +435,7 @@ const pickFallbackAnchorHeading = (
     return undefined;
   }
 
-  const imageHaystack = normalizeSearchText(`${image.textBefore} ${image.textAfter}`);
+  const imageHaystack = normalizeSearchText(getPdfImageSearchText(image));
   const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
   const bestHeading = headings
     .map(heading => {
@@ -388,7 +457,6 @@ const buildFallbackImageRefs = (
   sectionTitle: string,
   sectionDescription: string,
   contentMarkdown: string,
-  maxImages: number,
   visibleLabelByAssetId: Map<string, string>
 ): LessonImageRef[] => {
   const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
@@ -396,7 +464,7 @@ const buildFallbackImageRefs = (
 
   return images
     .map(image => {
-      const imageHaystack = normalizeSearchText(`${image.textBefore} ${image.textAfter}`);
+      const imageHaystack = normalizeSearchText(getPdfImageSearchText(image));
       const headingScore = headings.reduce((total, heading) => {
         const headingKeywords = getSearchKeywords(heading);
         return Math.max(total, scoreKeywordHits(imageHaystack, headingKeywords));
@@ -414,7 +482,6 @@ const buildFallbackImageRefs = (
         ? left.image.sourceOrder - right.image.sourceOrder
         : right.score - left.score
     )
-    .slice(0, maxImages)
     .map(({ image }) => ({
       assetId: image.id,
       alt: sanitizePlaceholderValue(
@@ -480,7 +547,6 @@ const injectImagePlaceholders = (contentMarkdown: string, imageRefs: LessonImage
 const normalizeImagePlacements = (
   placements: SectionImagePlacement[] | undefined,
   availableAssetIds: Set<string>,
-  maxImages: number,
   visibleLabelByAssetId: Map<string, string>
 ): LessonImageRef[] => {
   if (!Array.isArray(placements)) {
@@ -495,8 +561,7 @@ const normalizeImagePlacements = (
       !placement ||
       typeof placement.assetId !== 'string' ||
       !availableAssetIds.has(placement.assetId) ||
-      seenAssetIds.has(placement.assetId) ||
-      refs.length >= maxImages
+      seenAssetIds.has(placement.assetId)
     ) {
       return;
     }
@@ -845,6 +910,144 @@ const parseQuizPayload = (value: unknown): QuizQuestion[] =>
       )
     : [];
 
+interface BuildLessonVerificationPromptInput {
+  sectionTitle: string;
+  sectionDescription: string;
+  previousContext: string;
+  sourceContext: string;
+  continuityRule: string;
+  scopeRule: string;
+  draft: LessonVerificationDraft;
+  candidateImages: Array<{
+    assetId: string;
+    pageNumber?: number;
+    visibleLabel: string;
+    caption?: string;
+    sourceContextBefore: string;
+    sourceContextCurrent?: string;
+    sourceContextAfter: string;
+    sourceOrder: number;
+  }>;
+}
+
+export const buildLessonVerificationPrompt = ({
+  sectionTitle,
+  sectionDescription,
+  previousContext,
+  sourceContext,
+  continuityRule,
+  scopeRule,
+  draft,
+  candidateImages,
+}: BuildLessonVerificationPromptInput): string => `Sei il verificatore finale di Lumina Reader.
+
+Ricevi una bozza quasi finale di lezione. Devi fare un controllo conclusivo e correggere SOLO cio che serve.
+
+TITOLO LEZIONE: "${sectionTitle}"
+DESCRIZIONE: "${sectionDescription}"
+CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.
+
+OBIETTIVI DI VERIFICA:
+1. La lezione deve restare strettamente nel focus della lezione corrente.
+2. ${continuityRule}
+3. Devono valere tutti questi vincoli di focus:
+${scopeRule}
+4. \`quiz\` deve contenere ESATTAMENTE 5 domande con ESATTAMENTE 4 opzioni ciascuna.
+5. \`contentMarkdown\` non deve contenere quiz, markdown image syntax, tag <img>, assetId tecnici o riferimenti sbagliati alle immagini.
+6. I heading devono essere coerenti e ogni \`anchorHeading\` in \`imagePlacements\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`.
+7. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento.
+8. Verifica con particolare severita che descrizione, caption e immagine siano abbinate correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
+9. Se una figura e debole, ambigua, fuori tema o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
+10. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
+11. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
+12. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
+13. Nei dati immagine, \`caption\` e una descrizione sintetica generata; \`sourceContextCurrent\` e l'estratto reale della stessa pagina della figura; \`sourceContextBefore\` e \`sourceContextAfter\` sono gli estratti delle pagine adiacenti. Dai priorita a \`sourceContextCurrent\` per validare il tema effettivo della figura.
+
+ESTRATTI RILEVANTI DAL PDF / CONTESTO SORGENTE:
+${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
+
+IMMAGINI CANDIDATE DISPONIBILI:
+${candidateImages.length > 0 ? JSON.stringify(candidateImages, null, 2) : '[]'}
+
+BOZZA ATTUALE DA VERIFICARE:
+${JSON.stringify(draft, null, 2)}
+
+Rispondi SOLO con un oggetto JSON valido con questa struttura:
+{
+  "contentMarkdown": "Lezione finale verificata in markdown",
+  "quiz": [
+    { "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+  ],
+  "imagePlacements": [
+    { "assetId": "pdf-img-001", "alt": "Descrizione breve", "caption": "Caption opzionale", "anchorHeading": "Analisi Approfondita" }
+  ]
+}`;
+
+const verifyLessonDraft = async ({
+  sectionTitle,
+  sectionDescription,
+  previousContext,
+  sourceContext,
+  continuityRule,
+  scopeRule,
+  draft,
+  candidateImages,
+}: BuildLessonVerificationPromptInput): Promise<LessonVerificationDraft> => {
+  const verificationPrompt = buildLessonVerificationPrompt({
+    sectionTitle,
+    sectionDescription,
+    previousContext,
+    sourceContext,
+    continuityRule,
+    scopeRule,
+    draft,
+    candidateImages,
+  });
+
+  const response = await retryWithBackoff(
+    () =>
+      callOpenRouter({
+        model: MODEL_FLASH,
+        messages: [
+          { role: 'system', content: teacherInstruction },
+          { role: 'user', content: verificationPrompt },
+        ],
+        temperature: 0,
+        response_format: {
+          type: 'json_schema',
+          json_schema: LESSON_RESPONSE_SCHEMA,
+        },
+      }),
+    1,
+    500
+  );
+
+  const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
+  const verifiedQuiz = parseQuizPayload(parsed.quiz);
+  return {
+    contentMarkdown:
+      typeof parsed.contentMarkdown === 'string' && parsed.contentMarkdown.trim()
+        ? parsed.contentMarkdown
+        : draft.contentMarkdown,
+    quiz: verifiedQuiz.length > 0 ? verifiedQuiz : draft.quiz,
+    imagePlacements: Array.isArray(parsed.imagePlacements)
+      ? parsed.imagePlacements
+          .filter(
+            (placement): placement is LessonImageRef =>
+              Boolean(placement) &&
+              typeof placement.assetId === 'string' &&
+              typeof placement.alt === 'string'
+          )
+          .map(placement => ({
+            assetId: placement.assetId,
+            alt: placement.alt,
+            caption: placement.caption,
+            anchorHeading: placement.anchorHeading,
+          }))
+      : draft.imagePlacements,
+  };
+};
+
 const normalizeLearningPlan = (plan: LearningPlanDraft): LearningPlan => {
   const sections = Array.isArray(plan.sections) ? plan.sections : [];
 
@@ -877,6 +1080,129 @@ const clipPdfSourceText = (text: string, maxChars: number): string => {
   }
 
   return `${normalized.slice(0, maxChars).trim()}\n\n[ESTRATTO PDF TRONCATO PER LIMITI DI CONTESTO]`;
+};
+
+const formatEstimatedPageRange = (
+  span: { startPage: number; endPage: number } | null | undefined
+): string | null => {
+  if (!span) {
+    return null;
+  }
+
+  return span.startPage === span.endPage
+    ? `pag. ${span.startPage}`
+    : `pag. ${span.startPage}-${span.endPage}`;
+};
+
+export const buildPdfChunkUsageDebugPayload = (
+  sectionTitle: string,
+  documentIndex: PdfTextIndex | null | undefined,
+  primaryChunkIds: string[] | undefined,
+  pageCount: number | undefined,
+  targetedImagePages: number[] = [],
+  pdfPages?: Array<{ pageNumber: number; text: string }>
+): Record<string, unknown> | null => {
+  if (!documentIndex || documentIndex.chunks.length === 0) {
+    return null;
+  }
+
+  const pageLayout = buildPdfPageTextLayout(pdfPages);
+  const hasStoredChunkPages = documentIndex.chunks.some(
+    chunk => typeof chunk.pageStart === 'number' && typeof chunk.pageEnd === 'number'
+  );
+  const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
+  const primaryChunks = (primaryChunkIds || [])
+    .map(chunkId => indexById.get(chunkId))
+    .filter((chunk): chunk is PdfTextChunk => Boolean(chunk));
+  const contextChunks = resolveLessonContextChunks(documentIndex, primaryChunkIds);
+  const contextChunkSpans = contextChunks
+    .map(chunk => ({
+      chunk,
+      span: resolvePdfChunkPageSpan(documentIndex, chunk, pageCount, pageLayout),
+    }))
+    .filter(item => Boolean(item.chunk));
+  const pageStarts = contextChunkSpans.map(item => item.span?.startPage).filter(Number.isFinite) as number[];
+  const pageEnds = contextChunkSpans.map(item => item.span?.endPage).filter(Number.isFinite) as number[];
+
+  return {
+    sectionTitle,
+    pageCount: pageCount ?? 'unknown',
+    primaryChunkIds: primaryChunks.map(chunk => chunk.id),
+    primaryChunks: primaryChunks.map(chunk => ({
+      id: chunk.id,
+      sequence: chunk.sequence,
+      headingPath: chunk.headingPath.join(' > ') || 'Nessuno',
+      pageRange: formatEstimatedPageRange(
+        resolvePdfChunkPageSpan(documentIndex, chunk, pageCount, pageLayout)
+      ),
+      pageRangeSource: resolvePdfChunkPageSpan(documentIndex, chunk, pageCount, pageLayout)?.exact
+        ? 'exact'
+        : 'estimated',
+    })),
+    promptContextChunkIds: contextChunks.map(chunk => chunk.id),
+    promptContextPageRange:
+      pageStarts.length > 0 && pageEnds.length > 0
+        ? formatEstimatedPageRange({
+            startPage: Math.min(...pageStarts),
+            endPage: Math.max(...pageEnds),
+          })
+        : null,
+    promptContextChunks: contextChunkSpans.map(({ chunk, span }) => ({
+      id: chunk.id,
+      sequence: chunk.sequence,
+      headingPath: chunk.headingPath.join(' > ') || 'Nessuno',
+      pageRange: formatEstimatedPageRange(span),
+      pageRangeSource: span?.exact ? 'exact' : 'estimated',
+    })),
+    targetedImagePages:
+      targetedImagePages.length > 0
+        ? `pag. ${targetedImagePages[0]}-${targetedImagePages[targetedImagePages.length - 1]}`
+        : null,
+    pageMappingMode: pageLayout
+      ? 'exact-from-page-text'
+      : hasStoredChunkPages
+        ? 'exact-from-chunk-metadata'
+        : 'estimated-from-offsets',
+  };
+};
+
+export const estimateRelevantPdfImagePages = (
+  documentIndex: PdfTextIndex | null | undefined,
+  primaryChunkIds: string[] | undefined,
+  pageCount: number | undefined,
+  pdfPages?: Array<{ pageNumber: number; text: string }>
+): number[] => {
+  if (!documentIndex || documentIndex.chunks.length === 0 || !pageCount || pageCount < 1) {
+    return [];
+  }
+
+  const pageLayout = buildPdfPageTextLayout(pdfPages);
+  const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
+  const anchorChunks =
+    (primaryChunkIds || []).map(chunkId => indexById.get(chunkId)).filter(Boolean) || [];
+  const resolvedAnchorChunks =
+    anchorChunks.length > 0
+      ? anchorChunks
+      : documentIndex.chunks.slice(0, Math.min(2, documentIndex.chunks.length));
+
+  const pages = new Set<number>();
+
+  resolvedAnchorChunks.forEach(chunk => {
+    const span = resolvePdfChunkPageSpan(documentIndex, chunk, pageCount, pageLayout);
+    if (!span) {
+      return;
+    }
+
+    for (
+      let page = Math.max(1, span.startPage - PDF_IMAGE_PAGE_RADIUS);
+      page <= Math.min(pageCount, span.endPage + PDF_IMAGE_PAGE_RADIUS);
+      page += 1
+    ) {
+      pages.add(page);
+    }
+  });
+
+  return Array.from(pages).sort((left, right) => left - right);
 };
 
 const buildReasoningContentForFile = async (
@@ -1180,14 +1506,61 @@ export const generateSectionContent = async (
     : 'Se fai riferimenti al percorso, fallo solo usando il contesto precedente fornito e senza inventare lezioni mai avvenute.';
   const scopeRule = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
 
-  let pdfSession = null;
+  let pdfSession: Awaited<ReturnType<typeof getPdfAssetSession>> = null;
+  let pdfTextSession: Awaited<ReturnType<typeof getPdfTextSession>> = null;
+  let pdfPageCount: number | undefined;
+  let relevantPdfPages: number[] = [];
   if (isPdfFile(file)) {
     onStatusUpdate?.('Analisi immagini del PDF...');
     try {
-      pdfSession = await getPdfAssetSession(file);
+      pdfTextSession = await getPdfTextSession(file);
+      pdfPageCount = pdfTextSession?.pageCount;
+      relevantPdfPages = estimateRelevantPdfImagePages(
+        documentIndex,
+        primaryChunkIds,
+        pdfPageCount,
+        pdfTextSession?.pages
+      );
+      if (relevantPdfPages.length > 0) {
+        onStatusUpdate?.(
+          `Analisi immagini del PDF... pagine mirate ${relevantPdfPages[0]}-${relevantPdfPages[relevantPdfPages.length - 1]}`
+        );
+      }
+
+      pdfSession = await withSoftTimeout(
+        getPdfAssetSession(file, {
+          partialPages: relevantPdfPages,
+        }),
+        PDF_ASSET_SESSION_TIMEOUT_MS
+      );
     } catch (error) {
-      console.warn('PDF asset parsing failed, falling back to text-only lesson generation.', error);
+      if (isSoftTimeoutError(error)) {
+        console.warn(
+          '[Lumina][Lesson] PDF asset parsing timed out, continuing with text-only lesson generation for now.',
+          error
+        );
+        onStatusUpdate?.('PDF molto grande: continuo senza immagini per sbloccare la lezione...');
+      } else {
+        console.warn(
+          'PDF asset parsing failed, falling back to text-only lesson generation.',
+          error
+        );
+      }
     }
+  }
+
+  const pdfChunkUsageDebugPayload = isPdfFile(file)
+    ? buildPdfChunkUsageDebugPayload(
+        sectionTitle,
+        documentIndex,
+        primaryChunkIds,
+        pdfPageCount,
+        relevantPdfPages,
+        pdfTextSession?.pages
+      )
+    : null;
+  if (pdfChunkUsageDebugPayload) {
+    logPdfLessonDebug('Chunk source usage', pdfChunkUsageDebugPayload);
   }
 
   if (pdfSession) {
@@ -1195,7 +1568,8 @@ export const generateSectionContent = async (
     const candidateImages = selectCandidatePdfImages(
       pdfSession.images,
       sectionTitle,
-      sectionDescription
+      sectionDescription,
+      relevantPdfPages
     );
     logPdfLessonDebug('Candidate images selected', {
       sectionTitle,
@@ -1203,9 +1577,12 @@ export const generateSectionContent = async (
       candidateCount: candidateImages.length,
       candidates: candidateImages.map(image => ({
         id: image.id,
+        pageNumber: image.pageNumber,
+        caption: image.caption || '',
         sourceOrder: image.sourceOrder,
-        textBefore: image.textBefore.slice(-120),
-        textAfter: image.textAfter.slice(0, 120),
+        sourceContextBefore: image.textBefore,
+        sourceContextCurrent: image.textCurrent || '',
+        sourceContextAfter: image.textAfter,
       })),
     });
 
@@ -1215,9 +1592,12 @@ export const generateSectionContent = async (
 
     const candidateImagePayload = candidateImages.map(image => ({
       assetId: image.id,
+      pageNumber: image.pageNumber,
       visibleLabel: buildVisibleImageLabel(image, sectionTitle, sectionDescription),
-      textBefore: image.textBefore,
-      textAfter: image.textAfter,
+      caption: image.caption,
+      sourceContextBefore: image.textBefore,
+      sourceContextCurrent: image.textCurrent || '',
+      sourceContextAfter: image.textAfter,
       sourceOrder: image.sourceOrder,
     }));
     const visibleLabelByAssetId = new Map(
@@ -1265,6 +1645,7 @@ ${scopeRule}
 27. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
 28. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
 29. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
+30. Nei dati immagine, \`caption\` e una descrizione sintetica generata; \`sourceContextCurrent\` e l'estratto reale della stessa pagina della figura; \`sourceContextBefore\` e \`sourceContextAfter\` sono le pagine adiacenti e vanno usati solo come supporto per verificare il tema corretto della figura.
 
 IMMAGINI CANDIDATE:
 ${JSON.stringify(candidateImagePayload, null, 2)}
@@ -1313,12 +1694,10 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     });
     traceLessonMarkdownStage('repaired', sectionTitle, repairedContentMarkdown || '');
 
-    const maxLessonImages = getDynamicLessonImageLimit(repairedContentMarkdown);
     const availableAssetIds = new Set(candidateImages.map(image => image.id));
     const normalizedImageRefs = normalizeImagePlacements(
       parsed.imagePlacements,
       availableAssetIds,
-      maxLessonImages,
       visibleLabelByAssetId
     );
     const fallbackImageRefs =
@@ -1329,11 +1708,10 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
             sectionTitle,
             sectionDescription,
             repairedContentMarkdown,
-            maxLessonImages,
             visibleLabelByAssetId
           );
-    const imageRefs = normalizedImageRefs.length > 0 ? normalizedImageRefs : fallbackImageRefs;
-    const imageSelectionMode =
+    const draftImageRefs = normalizedImageRefs.length > 0 ? normalizedImageRefs : fallbackImageRefs;
+    const draftImageSelectionMode =
       normalizedImageRefs.length > 0 ? 'model' : fallbackImageRefs.length > 0 ? 'fallback' : 'none';
 
     logPdfLessonDebug('Image placement result', {
@@ -1342,8 +1720,55 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       modelPlacementsRaw: parsed.imagePlacements || [],
       normalizedImageRefs,
       fallbackImageRefs,
-      finalImageRefs: imageRefs,
+      draftImageRefs,
+      imageSelectionMode: draftImageSelectionMode,
+    });
+
+    onStatusUpdate?.('Verifica finale lezione e immagini...');
+    const verifiedDraft = await verifyLessonDraft({
+      sectionTitle,
+      sectionDescription,
+      previousContext,
+      sourceContext:
+        lessonSourceContext ||
+        clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS),
+      continuityRule,
+      scopeRule,
+      draft: {
+        contentMarkdown: repairedContentMarkdown,
+        quiz: structuredQuiz,
+        imagePlacements: draftImageRefs,
+      },
+      candidateImages: candidateImagePayload,
+    }).catch(error => {
+      console.warn('[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.', error);
+      return {
+        contentMarkdown: repairedContentMarkdown,
+        quiz: structuredQuiz,
+        imagePlacements: draftImageRefs,
+      } satisfies LessonVerificationDraft;
+    });
+    traceLessonMarkdownStage('verified', sectionTitle, verifiedDraft.contentMarkdown || '');
+
+    const verifiedImageRefs = normalizeImagePlacements(
+      verifiedDraft.imagePlacements,
+      availableAssetIds,
+      visibleLabelByAssetId
+    );
+    const imageRefs = verifiedImageRefs;
+    const imageSelectionMode =
+      imageRefs.length > 0
+        ? verifiedImageRefs.length === draftImageRefs.length &&
+          verifiedImageRefs.every((ref, index) => ref.assetId === draftImageRefs[index]?.assetId)
+          ? draftImageSelectionMode
+          : 'verified'
+        : 'none';
+
+    logPdfLessonDebug('Final lesson verification', {
+      sectionTitle,
+      verifiedImageRefs,
       imageSelectionMode,
+      verifiedQuizCount: verifiedDraft.quiz.length,
     });
 
     if (imageSelectionMode === 'none') {
@@ -1356,13 +1781,15 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       onStatusUpdate?.(
         imageSelectionMode === 'model'
           ? `Lezione con ${imageRefs.length} immagini dal PDF`
-          : `Lezione con ${imageRefs.length} immagini dal PDF (fallback)`
+          : imageSelectionMode === 'fallback'
+            ? `Lezione con ${imageRefs.length} immagini dal PDF (fallback)`
+            : `Lezione con ${imageRefs.length} immagini dal PDF (verificate)`
       );
     }
 
     const cleanedContentMarkdown = sanitizeLessonMarkdownContent(
-      repairedContentMarkdown,
-      structuredQuiz,
+      verifiedDraft.contentMarkdown,
+      verifiedDraft.quiz,
       visibleLabelByAssetId
     );
     traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown || '');
@@ -1370,7 +1797,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
     return {
       content,
-      quiz: structuredQuiz,
+      quiz: verifiedDraft.quiz,
       imageRefs,
       documentAssets: buildStoredPdfDocumentAssets(pdfSession, imageRefs),
     };
@@ -1456,15 +1883,39 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   });
   traceLessonMarkdownStage('repaired', sectionTitle, repairedContentMarkdown || '');
 
+  onStatusUpdate?.('Verifica finale lezione...');
+  const verifiedDraft = await verifyLessonDraft({
+    sectionTitle,
+    sectionDescription,
+    previousContext,
+    sourceContext: sectionDescription,
+    continuityRule,
+    scopeRule,
+    draft: {
+      contentMarkdown: repairedContentMarkdown.trim(),
+      quiz: structuredQuiz,
+      imagePlacements: [],
+    },
+    candidateImages: [],
+  }).catch(error => {
+    console.warn('[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.', error);
+    return {
+      contentMarkdown: repairedContentMarkdown.trim(),
+      quiz: structuredQuiz,
+      imagePlacements: [],
+    } satisfies LessonVerificationDraft;
+  });
+  traceLessonMarkdownStage('verified', sectionTitle, verifiedDraft.contentMarkdown || '');
+
   const cleanedContentMarkdown = sanitizeLessonMarkdownContent(
-    repairedContentMarkdown.trim(),
-    structuredQuiz
+    verifiedDraft.contentMarkdown.trim(),
+    verifiedDraft.quiz
   );
   traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown);
 
   return {
     content: cleanedContentMarkdown,
-    quiz: structuredQuiz,
+    quiz: verifiedDraft.quiz,
     imageRefs: [],
     documentAssets: null,
   };

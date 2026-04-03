@@ -8,6 +8,7 @@ const buildProps = () => ({
   anchorX: 240,
   anchorY: 180,
   isLoading: false,
+  horizontalBounds: undefined,
   onAsk: vi.fn(),
   onClose: vi.fn(),
   onCreateLesson: vi.fn(),
@@ -148,7 +149,34 @@ describe('ContextMenu', () => {
     expect(props.onSaveNote).toHaveBeenCalledWith('Ricordati di rivedere questo concetto');
   });
 
-  test('renders annotation mode with prefilled note, supports clearing it and deleting the evidenziazione', async () => {
+  test('renders annotation mode notes as formatted preview before entering edit mode', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      annotationNote: 'Formula **chiave**: $y(t)=x$',
+      type: 'annotation' as const,
+    };
+
+    const { container } = render(<ContextMenu {...props} />);
+
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Modifica' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Salva' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Rimuovi evidenziazione/i })).toBeInTheDocument();
+    expect(container.querySelector('strong')?.textContent).toBe('chiave');
+    expect(container.querySelector('.katex')).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Modifica' }));
+
+    expect(screen.queryByRole('button', { name: /Rimuovi evidenziazione/i })).not.toBeInTheDocument();
+    const textarea = screen.getByDisplayValue('Formula **chiave**: $y(t)=x$');
+    await user.clear(textarea);
+    await user.click(screen.getByRole('button', { name: 'Salva' }));
+
+    expect(props.onSaveNote).toHaveBeenCalledWith('');
+  });
+
+  test('allows removing an annotation directly from preview mode', async () => {
     const user = userEvent.setup();
     const props = {
       ...buildProps(),
@@ -158,13 +186,37 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
-    const textarea = screen.getByDisplayValue('Nota gia presente');
-    await user.clear(textarea);
-    await user.click(screen.getByRole('button', { name: 'Salva' }));
-
-    expect(props.onSaveNote).toHaveBeenCalledWith('');
-
     await user.click(screen.getByRole('button', { name: /Rimuovi evidenziazione/i }));
     expect(props.onDeleteAnnotation).toHaveBeenCalledTimes(1);
+  });
+
+  test('allows removing a highlight-only annotation even when no note exists yet', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      annotationNote: '',
+      type: 'annotation' as const,
+    };
+
+    render(<ContextMenu {...props} />);
+
+    expect(screen.getByPlaceholderText(/Scrivi, aggiorna o svuota la nota/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Rimuovi evidenziazione/i }));
+    expect(props.onDeleteAnnotation).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps the desktop menu inside the reading column bounds', () => {
+    const props = buildProps();
+    props.anchorX = 410;
+    props.horizontalBounds = {
+      left: 384,
+      right: 980,
+    };
+
+    const { container } = render(<ContextMenu {...props} />);
+    const menuRoot = container.firstElementChild as HTMLElement | null;
+
+    expect(menuRoot).not.toBeNull();
+    expect(menuRoot?.style.left).toBe('396px');
   });
 });

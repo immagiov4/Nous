@@ -46,6 +46,10 @@ interface UseReaderContextArgs {
 
 type OpenSelectionMenuOutcome = 'opened' | 'closed' | 'ignored';
 
+interface OpenSelectionMenuOptions {
+  allowToggleClose?: boolean;
+}
+
 interface SelectionMenuIdentity {
   contextAfter?: string;
   contextBefore?: string;
@@ -206,7 +210,8 @@ export const useReaderContext = ({
       selection: Selection,
       placement: ContextMenuPlacement,
       fallbackAnchorX?: number,
-      fallbackAnchorY?: number
+      fallbackAnchorY?: number,
+      options?: OpenSelectionMenuOptions
     ): OpenSelectionMenuOutcome => {
       if (!contentRef.current) {
         return 'ignored';
@@ -235,6 +240,7 @@ export const useReaderContext = ({
       }
 
       if (
+        options?.allowToggleClose !== false &&
         contextMenu.visible &&
         contextMenu.type === 'selection' &&
         getSelectionMenuKey(contextMenu) === nextMenuKey
@@ -282,7 +288,34 @@ export const useReaderContext = ({
         selection,
         'desktop-floating',
         event.clientX,
-        event.clientY
+        event.clientY,
+        { allowToggleClose: false }
+      );
+
+      if (selectionMenuOutcome !== 'ignored') {
+        event.preventDefault();
+      }
+    },
+    [isMobileViewport, openContextMenuFromSelection]
+  );
+
+  const handleContentPointerDownCapture = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (isMobileViewport || event.button !== 2) {
+        return;
+      }
+
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || !selection.toString().trim()) {
+        return;
+      }
+
+      const selectionMenuOutcome = openContextMenuFromSelection(
+        selection,
+        'desktop-floating',
+        event.clientX,
+        event.clientY,
+        { allowToggleClose: false }
       );
 
       if (selectionMenuOutcome !== 'ignored') {
@@ -315,6 +348,7 @@ export const useReaderContext = ({
       }
 
       const rect = annotationElement.getBoundingClientRect();
+      const contentRect = contentRef.current.getBoundingClientRect();
       const selectedText =
         getSectionAnnotationText(sectionContent, annotationId) ||
         annotationElement.innerText.trim() ||
@@ -334,6 +368,10 @@ export const useReaderContext = ({
           annotationNote,
           anchorX: rect.left + rect.width / 2,
           anchorY: rect.bottom,
+          horizontalBounds: {
+            left: contentRect.left,
+            right: contentRect.right,
+          },
           placement: isMobileViewport ? 'mobile-sheet' : 'desktop-floating',
           selectedText,
           selectionRect: {
@@ -445,7 +483,13 @@ export const useReaderContext = ({
       });
 
       if (selection && syncAction === 'open-from-selection') {
-        const selectionMenuOutcome = openContextMenuFromSelection(selection, 'mobile-sheet');
+        const selectionMenuOutcome = openContextMenuFromSelection(
+          selection,
+          'mobile-sheet',
+          undefined,
+          undefined,
+          { allowToggleClose: false }
+        );
         if (selectionMenuOutcome === 'opened' || selectionMenuOutcome === 'closed') {
           return;
         }
@@ -575,6 +619,7 @@ export const useReaderContext = ({
       contextMenuRef,
       handleContentClick,
       handleContentContextMenu,
+      handleContentPointerDownCapture,
       handleContextAnswerResizeStart,
       openContextAnswer,
       openContextMenuFromSelection,
@@ -587,6 +632,7 @@ export const useReaderContext = ({
       contextMenu,
       handleContentContextMenu,
       handleContentClick,
+      handleContentPointerDownCapture,
       handleContextAnswerResizeStart,
       openContextAnswer,
       openContextMenuFromSelection,

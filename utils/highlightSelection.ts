@@ -1,4 +1,10 @@
-import { getMarkdownCodeRanges, type MarkdownRange } from './markdownCodeRanges.ts';
+import {
+  getMarkdownMathRangeAt,
+  getMarkdownProtectedRanges,
+  normalizeMathSelectionArtifacts,
+  projectMarkdownMathRange,
+  type MarkdownRange,
+} from './markdownCodeRanges.ts';
 
 export interface HighlightSelectionOptions {
   content: string;
@@ -72,6 +78,20 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
     }
 
     const currentCharacter = content[index];
+
+    const mathRange = getMarkdownMathRangeAt(content, index);
+    if (mathRange) {
+      const mathProjection = projectMarkdownMathRange(content, mathRange);
+      mathProjection.text.split('').forEach((character, projectionIndex) => {
+        pushCharacter(
+          character,
+          mathProjection.sourceIndexes[projectionIndex] ?? mathRange.start
+        );
+      });
+      atLineStart = false;
+      index = mathRange.end;
+      continue;
+    }
 
     if (currentCharacter === '\r') {
       index += 1;
@@ -429,7 +449,7 @@ export const toggleHighlightInContent = ({
   contextBefore,
   selectedText,
 }: HighlightSelectionOptions): string | null => {
-  const trimmedTargetText = selectedText.trim();
+  const trimmedTargetText = normalizeMathSelectionArtifacts(selectedText).trim();
   if (!trimmedTargetText) {
     return null;
   }
@@ -437,12 +457,12 @@ export const toggleHighlightInContent = ({
   const visibleProjection = buildVisibleProjection(content);
   const looseProjection = buildLooseProjection(content);
   const sourceLooseProjection = buildSourceLooseProjection(content);
-  const protectedRanges = getMarkdownCodeRanges(content);
+  const protectedRanges = getMarkdownProtectedRanges(content);
   const exactMatch = resolveExactMatch(
     visibleProjection.text,
     trimmedTargetText,
-    contextBefore,
-    contextAfter
+    contextBefore ? normalizeMathSelectionArtifacts(contextBefore) : contextBefore,
+    contextAfter ? normalizeMathSelectionArtifacts(contextAfter) : contextAfter
   );
   const words = trimmedTargetText.match(/[\p{L}\p{N}]+/gu) || [];
 

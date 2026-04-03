@@ -20,6 +20,7 @@ const buildProps = (
   onCompleteSection: vi.fn(),
   onContentClick: vi.fn(),
   onContentContextMenu: vi.fn(),
+  onContentPointerDownCapture: vi.fn(),
   onSelectQuizAnswer: vi.fn(),
   onSetIsQuizSubmitted: vi.fn(),
   quiz: [

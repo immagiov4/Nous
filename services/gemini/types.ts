@@ -8,6 +8,7 @@ import type {
   PdfTextIndex,
   PdfTextChunk,
   PdfImageAsset,
+  PdfTextPage,
   QuizQuestion,
   SyllabusItem,
   UserProfile,
@@ -73,6 +74,7 @@ export interface ChatMessage {
 export interface ChatCompletionOptions {
   model: string;
   modelSlot?: OpenRouterModelSlot;
+  disableModelOverride?: boolean;
   messages: ChatMessage[];
   temperature?: number;
   max_tokens?: number;
@@ -149,6 +151,7 @@ export type {
   PdfTextIndex,
   PdfTextChunk,
   PdfImageAsset,
+  PdfTextPage,
   QuizQuestion,
   SyllabusItem,
   UserProfile,

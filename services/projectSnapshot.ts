@@ -258,9 +258,12 @@ const parseDocumentAssets = (value: unknown): PdfDocumentAssets | null => {
         id: ensureString(image.id),
         mimeType: ensureString(image.mimeType, 'image/png'),
         dataUrl: ensureString(image.dataUrl),
+        caption: ensureString(image.caption) || undefined,
         textBefore: ensureString(image.textBefore),
+        textCurrent: ensureString(image.textCurrent),
         textAfter: ensureString(image.textAfter),
         sourceOrder: typeof image.sourceOrder === 'number' ? image.sourceOrder : 0,
+        pageNumber: typeof image.pageNumber === 'number' ? image.pageNumber : undefined,
       }))
       .filter(image => image.id && image.dataUrl),
   };
@@ -276,6 +279,7 @@ const parseDocumentIndex = (value: unknown): PdfTextIndex | null => {
     parsedAt: ensureString(value.parsedAt, new Date().toISOString()),
     sourceHash: ensureString(value.sourceHash),
     documentTitle: ensureString(value.documentTitle),
+    pageCount: typeof value.pageCount === 'number' ? value.pageCount : undefined,
     chunks: value.chunks
       .filter(isRecord)
       .map(chunk => ({
@@ -285,6 +289,8 @@ const parseDocumentIndex = (value: unknown): PdfTextIndex | null => {
         sequence: typeof chunk.sequence === 'number' ? chunk.sequence : 0,
         startOffset: typeof chunk.startOffset === 'number' ? chunk.startOffset : 0,
         endOffset: typeof chunk.endOffset === 'number' ? chunk.endOffset : 0,
+        pageStart: typeof chunk.pageStart === 'number' ? chunk.pageStart : undefined,
+        pageEnd: typeof chunk.pageEnd === 'number' ? chunk.pageEnd : undefined,
       }))
       .filter(chunk => chunk.id && chunk.text),
   };

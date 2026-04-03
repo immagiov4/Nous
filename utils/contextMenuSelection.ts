@@ -2,9 +2,11 @@ import type {
   AnnotationContextMenuState,
   ContextMenuPlacement,
   ContextMenuState,
+  HorizontalViewportBounds,
   SelectionContextMenuState,
   SelectionRect,
 } from '../types';
+import { normalizeMathSelectionArtifacts, projectMarkdownMathRange } from './markdownCodeRanges.ts';
 
 interface ResolveContextMenuSelectionArgs {
   container: HTMLElement;
@@ -19,11 +21,62 @@ interface ResolvedSelectionPayload {
   anchorY: number;
   contextAfter: string;
   contextBefore: string;
+  horizontalBounds?: HorizontalViewportBounds;
   selectedText: string;
   selectionRect: SelectionRect;
 }
 
 const DEFAULT_CONTEXT_WINDOW = 48;
+const KATEX_TEX_ANNOTATION_SELECTOR = 'annotation[encoding="application/x-tex"]';
+
+const projectKatexAnnotationSource = (texSource: string): string => {
+  const wrappedExpression = `$${texSource}$`;
+  return (
+    projectMarkdownMathRange(wrappedExpression, {
+      start: 0,
+      end: wrappedExpression.length,
+    }).text || texSource
+  );
+};
+
+const extractRangeText = (range: Range, fallbackText = ''): string => {
+  try {
+    const ownerDocument =
+      range.commonAncestorContainer.ownerDocument ||
+      (range.commonAncestorContainer.nodeType === 9
+        ? (range.commonAncestorContainer as Document)
+        : null);
+    if (!ownerDocument || typeof range.cloneContents !== 'function') {
+      return normalizeMathSelectionArtifacts(fallbackText || range.toString());
+    }
+
+    const container = ownerDocument.createElement('div');
+    container.append(range.cloneContents());
+
+    Array.from(container.querySelectorAll('.katex')).forEach(katexNode => {
+      const texAnnotation = katexNode.querySelector(KATEX_TEX_ANNOTATION_SELECTOR);
+      const texSource = texAnnotation?.textContent?.trim();
+
+      if (texSource) {
+        const projectedText = projectKatexAnnotationSource(texSource).trim();
+        katexNode.replaceWith(ownerDocument.createTextNode(projectedText ? ` ${projectedText} ` : ' '));
+        return;
+      }
+
+      katexNode.querySelectorAll(KATEX_TEX_ANNOTATION_SELECTOR).forEach(node => node.remove());
+      if (katexNode.querySelector('.katex-mathml')) {
+        katexNode.querySelectorAll('.katex-html').forEach(node => node.remove());
+      }
+    });
+
+    container.querySelectorAll(KATEX_TEX_ANNOTATION_SELECTOR).forEach(node => node.remove());
+    container.querySelectorAll('script, style').forEach(node => node.remove());
+
+    return normalizeMathSelectionArtifacts(container.textContent || fallbackText || '');
+  } catch {
+    return normalizeMathSelectionArtifacts(fallbackText || range.toString());
+  }
+};
 
 export type MobileContextMenuSyncAction = 'open-from-selection' | 'keep-existing-menu' | 'close-menu';
 
@@ -44,8 +97,8 @@ const getSelectionContext = (
   afterRange.setStart(range.endContainer, range.endOffset);
 
   return {
-    contextBefore: beforeRange.toString().slice(-DEFAULT_CONTEXT_WINDOW),
-    contextAfter: afterRange.toString().slice(0, DEFAULT_CONTEXT_WINDOW),
+    contextBefore: extractRangeText(beforeRange, beforeRange.toString()).slice(-DEFAULT_CONTEXT_WINDOW),
+    contextAfter: extractRangeText(afterRange, afterRange.toString()).slice(0, DEFAULT_CONTEXT_WINDOW),
   };
 };
 
@@ -73,6 +126,7 @@ export const createAnnotationContextMenuState = ({
   anchorY,
   annotationId,
   annotationNote,
+  horizontalBounds,
   placement,
   selectedText,
   selectionRect,
@@ -83,6 +137,7 @@ export const createAnnotationContextMenuState = ({
   selectedText,
   anchorX,
   anchorY,
+  horizontalBounds,
   selectionRect,
   annotationId,
   annotationNote,
@@ -121,12 +176,16 @@ export const resolveContextMenuSelection = ({
   placement,
   selection,
 }: ResolveContextMenuSelectionArgs): SelectionContextMenuState | null => {
-  const selectedText = selection.toString().trim();
-  if (!selectedText || selection.rangeCount === 0) {
+  if (selection.rangeCount === 0) {
     return null;
   }
 
   const range = selection.getRangeAt(0);
+  const selectedText = extractRangeText(range, selection.toString()).trim();
+  if (!selectedText) {
+    return null;
+  }
+
   const ancestorNode = getNodeForContainmentCheck(range.commonAncestorContainer);
   if (!container.contains(ancestorNode)) {
     return null;
@@ -134,6 +193,7 @@ export const resolveContextMenuSelection = ({
 
   const selectionRect = getSelectionRect(range);
   const { contextBefore, contextAfter } = getSelectionContext(container, range);
+  const containerRect = container.getBoundingClientRect?.();
   const anchorX = fallbackAnchorX ?? selectionRect.left + (selectionRect.width / 2);
   const anchorY = fallbackAnchorY ?? selectionRect.top + selectionRect.height;
 
@@ -144,6 +204,12 @@ export const resolveContextMenuSelection = ({
     selectedText,
     anchorX,
     anchorY,
+    horizontalBounds: containerRect
+      ? {
+          left: containerRect.left,
+          right: containerRect.right,
+        }
+      : undefined,
     selectionRect,
     contextBefore,
     contextAfter,

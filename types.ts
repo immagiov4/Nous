@@ -86,13 +86,21 @@ export interface LessonImageRef {
   anchorHeading?: string;
 }
 
+export interface PdfTextPage {
+  pageNumber: number;
+  text: string;
+}
+
 export interface PdfImageAsset {
   id: string;
   mimeType: string;
   dataUrl: string;
+  caption?: string;
   textBefore: string;
+  textCurrent?: string;
   textAfter: string;
   sourceOrder: number;
+  pageNumber?: number;
 }
 
 export interface PdfDocumentAssets {
@@ -110,6 +118,8 @@ export interface PdfTextChunk {
   sequence: number;
   startOffset: number;
   endOffset: number;
+  pageStart?: number;
+  pageEnd?: number;
 }
 
 export interface PdfTextIndex {
@@ -117,6 +127,7 @@ export interface PdfTextIndex {
   parsedAt: string;
   sourceHash?: string;
   documentTitle?: string;
+  pageCount?: number;
   chunks: PdfTextChunk[];
 }
 
@@ -219,6 +230,11 @@ export interface SelectionRect {
   height: number;
 }
 
+export interface HorizontalViewportBounds {
+  left: number;
+  right: number;
+}
+
 export type ContextMenuPlacement = 'desktop-floating' | 'mobile-sheet';
 
 export interface SectionAnnotation {
@@ -234,6 +250,7 @@ interface BaseContextMenuState {
   selectedText: string;
   anchorX?: number;
   anchorY?: number;
+  horizontalBounds?: HorizontalViewportBounds;
   selectionRect?: SelectionRect;
 }
 

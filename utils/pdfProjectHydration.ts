@@ -6,12 +6,49 @@ export type PdfProjectHydrationState =
   | 'missing-primary-chunk-mappings'
   | 'ready';
 
+const MIN_SUSPICIOUS_MAPPING_SECTIONS = 4;
+const MIN_SUSPICIOUS_MAPPING_CHUNKS = 6;
+
 const isPdfFileData = (file: FileData | null): boolean => {
   if (!file) {
     return false;
   }
 
   return file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+};
+
+const getHydrationRelevantSections = (plan: LearningPlan) => {
+  const contentSections = plan.sections.filter(section => section.type !== 'summary');
+  return contentSections.length > 0 ? contentSections : plan.sections;
+};
+
+const sameChunkIds = (left: string[] | undefined, right: string[]): boolean =>
+  Array.isArray(left) &&
+  left.length === right.length &&
+  left.every((chunkId, index) => chunkId === right[index]);
+
+const hasSuspiciousFallbackChunkMappings = (
+  plan: LearningPlan,
+  documentIndex: PdfTextIndex
+): boolean => {
+  const relevantSections = getHydrationRelevantSections(plan);
+  if (
+    relevantSections.length < MIN_SUSPICIOUS_MAPPING_SECTIONS ||
+    documentIndex.chunks.length < MIN_SUSPICIOUS_MAPPING_CHUNKS
+  ) {
+    return false;
+  }
+
+  const fallbackChunkIds = documentIndex.chunks.slice(0, 2).map(chunk => chunk.id);
+  if (fallbackChunkIds.length < 2) {
+    return false;
+  }
+
+  const suspiciousSectionCount = relevantSections.filter(section =>
+    sameChunkIds(section.primaryChunkIds, fallbackChunkIds)
+  ).length;
+
+  return suspiciousSectionCount >= Math.max(3, Math.ceil(relevantSections.length * 0.6));
 };
 
 export const getPdfProjectHydrationState = (
@@ -27,7 +64,13 @@ export const getPdfProjectHydrationState = (
     return 'missing-document-index';
   }
 
-  if (plan.sections.some(section => !section.primaryChunkIds || section.primaryChunkIds.length === 0)) {
+  if (
+    plan.sections.some(section => !section.primaryChunkIds || section.primaryChunkIds.length === 0)
+  ) {
+    return 'missing-primary-chunk-mappings';
+  }
+
+  if (hasSuspiciousFallbackChunkMappings(plan, documentIndex)) {
     return 'missing-primary-chunk-mappings';
   }
 
@@ -40,5 +83,8 @@ export const needsPdfProjectHydration = (
   documentIndex: PdfTextIndex | null | undefined
 ): boolean => {
   const hydrationState = getPdfProjectHydrationState(file, plan, documentIndex);
-  return hydrationState === 'missing-document-index' || hydrationState === 'missing-primary-chunk-mappings';
+  return (
+    hydrationState === 'missing-document-index' ||
+    hydrationState === 'missing-primary-chunk-mappings'
+  );
 };

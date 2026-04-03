@@ -1,6 +1,7 @@
-import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset } from '../../types.ts';
+import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } from '../../types.ts';
 import {
-  MODEL_REASONING,
+  MODEL_PDF_IMAGE_CAPTION,
+  MODEL_FLASH,
   callOpenRouter,
   fileToDataUrl,
   getBackendUrl,
@@ -13,7 +14,7 @@ const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const IMAGE_ID_PREFIX = 'pdf-img-';
 const MAX_BACKEND_EXTRACTED_IMAGES = 36;
-const MAX_CAPTIONED_IMAGES = 24;
+const MAX_CAPTIONED_IMAGES = 12;
 
 interface BackendPdfImage {
   id: string;
@@ -21,6 +22,10 @@ interface BackendPdfImage {
   dataUrl: string;
   sizeBytes: number;
   hash: string;
+  pageNumber: number;
+  textBefore?: string;
+  textCurrent?: string;
+  textAfter?: string;
 }
 
 interface BackendPdfExtractResponse {
@@ -33,6 +38,7 @@ interface BackendPdfExtractResponse {
 interface BackendPdfTextResponse {
   success: boolean;
   text?: string;
+  pages?: PdfTextPage[];
   textLength?: number;
   parser?: 'pdftotext' | 'pdf-parse';
   sourceHash?: string;
@@ -43,6 +49,8 @@ interface BackendPdfTextResponse {
 export interface PdfAssetSession {
   images: PdfImageAsset[];
   extractedText: string;
+  pages: PdfTextPage[];
+  pageCount?: number;
   parsedAt: string;
   sourceHash?: string;
 }
@@ -55,20 +63,74 @@ const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
   console.groupEnd();
 };
 
-const getPdfCacheKey = (file: FileData): string => `${file.name}:${file.data.length}:${file.data.slice(0, 96)}`;
+const sanitizePartialPages = (partialPages?: number[]): number[] | undefined => {
+  if (!Array.isArray(partialPages) || partialPages.length === 0) {
+    return undefined;
+  }
 
-const captionBackendImage = async (image: BackendPdfImage, index: number): Promise<PdfImageAsset> => {
-  const prompt = `Describe this PDF figure in Italian with a concise, factual caption.
-Rules:
-- Mention anatomical structures, charts, diagrams, labels, or illustrations if visible.
-- Max 40 words.
-- No speculation.
-- If the image is decorative or not meaningful, answer exactly: DECORATIVE`;
+  const cleaned = Array.from(
+    new Set(
+      partialPages.filter(page => Number.isInteger(page) && page > 0).map(page => Math.trunc(page))
+    )
+  ).sort((left, right) => left - right);
 
+  return cleaned.length > 0 ? cleaned : undefined;
+};
+
+const getPdfCacheKey = (file: FileData, partialPages?: number[]): string => {
+  const partialPageKey = sanitizePartialPages(partialPages)?.join(',') || 'all-pages';
+  return `${file.name}:${file.data.length}:${file.data.slice(0, 96)}:${partialPageKey}`;
+};
+
+const normalizeCaptionResponse = (value: string): string => {
+  const trimmed = value.trim();
+  return /^DECORATIVE$/iu.test(trimmed) ? '' : trimmed;
+};
+
+const normalizePageContextText = (pageText: string): string =>
+  pageText.replace(/\r\n?/g, '\n').trim();
+
+const buildImageSourceContext = (
+  image: BackendPdfImage,
+  _pages: PdfTextPage[] | undefined
+): { promptContext: string; textBefore: string; textCurrent: string; textAfter: string } => {
+  const backendTextBefore = normalizePageContextText(image.textBefore || '');
+  const backendTextCurrent = normalizePageContextText(image.textCurrent || '');
+  const backendTextAfter = normalizePageContextText(image.textAfter || '');
+
+  if (backendTextBefore || backendTextCurrent || backendTextAfter) {
+    return {
+      promptContext: [
+        backendTextBefore ? `Text immediately above the image:\n${backendTextBefore}` : '',
+        backendTextCurrent ? `Text aligned with the image area:\n${backendTextCurrent}` : '',
+        backendTextAfter ? `Text immediately below the image:\n${backendTextAfter}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      textBefore: backendTextBefore,
+      textCurrent: backendTextCurrent,
+      textAfter: backendTextAfter,
+    };
+  }
+
+  return {
+    textBefore: '',
+    promptContext: '',
+    textCurrent: '',
+    textAfter: '',
+  };
+};
+
+const requestImageCaption = async (
+  image: BackendPdfImage,
+  prompt: string,
+  model: string
+): Promise<string> => {
   const response = await retryWithBackoff(
     () =>
       callOpenRouter({
-        model: MODEL_REASONING,
+        model,
+        disableModelOverride: true,
         max_tokens: 120,
         messages: [
           {
@@ -84,20 +146,56 @@ Rules:
     500
   );
 
-  const caption = (response || '').trim();
-  const normalizedCaption = caption === 'DECORATIVE' ? '' : caption;
+  return normalizeCaptionResponse(response || '');
+};
+
+const captionBackendImage = async (
+  image: BackendPdfImage,
+  index: number,
+  pages: PdfTextPage[]
+): Promise<PdfImageAsset> => {
+  const sourceContext = buildImageSourceContext(image, pages);
+  const prompt = `Describe this technical PDF figure in Italian with a concise, factual caption.
+Rules:
+- Mention the figure type when visible: diagram, schema, chart, UI mockup, architecture, map, raycast/visibility cone, labeled components, timeline, code screenshot, or illustration.
+- Mention labels, geometric relations, arrows, regions, overlays, or compared elements if clearly visible.
+- Max 45 words.
+- No speculation.
+- If the image is decorative or not meaningful, answer exactly: DECORATIVE
+${
+  sourceContext.promptContext
+    ? `
+
+PDF text context near the image (same/adjacent pages; use only to disambiguate labels/topic when consistent with the visible figure):
+Page ${image.pageNumber}
+${sourceContext.promptContext}`
+    : ''
+}`;
+
+  let normalizedCaption = await requestImageCaption(image, prompt, MODEL_PDF_IMAGE_CAPTION);
+
+  if (!normalizedCaption) {
+    normalizedCaption = await requestImageCaption(image, prompt, MODEL_FLASH);
+  }
 
   return {
     id: image.id || `${IMAGE_ID_PREFIX}${String(index + 1).padStart(3, '0')}`,
     mimeType: image.mimeType || 'image/png',
     dataUrl: image.dataUrl,
-    textBefore: normalizedCaption,
-    textAfter: '',
+    caption: normalizedCaption || undefined,
+    textBefore: sourceContext.textBefore,
+    textCurrent: sourceContext.textCurrent,
+    textAfter: sourceContext.textAfter,
     sourceOrder: index + 1,
+    pageNumber: image.pageNumber,
   };
 };
 
-const extractPdfImagesViaBackend = async (file: FileData): Promise<PdfImageAsset[]> => {
+const extractPdfImagesViaBackend = async (
+  file: FileData,
+  pages: PdfTextPage[],
+  partialPages?: number[]
+): Promise<PdfImageAsset[]> => {
   const response = await fetch(`${getBackendUrl()}/api/pdf/extract-images`, {
     method: 'POST',
     headers: {
@@ -106,6 +204,7 @@ const extractPdfImagesViaBackend = async (file: FileData): Promise<PdfImageAsset
     body: JSON.stringify({
       fileData: fileToDataUrl(file),
       limit: MAX_BACKEND_EXTRACTED_IMAGES,
+      partialPages: sanitizePartialPages(partialPages),
     }),
   });
 
@@ -125,6 +224,7 @@ const extractPdfImagesViaBackend = async (file: FileData): Promise<PdfImageAsset
     imageCount: images.length,
     images: images.slice(0, 12).map(image => ({
       id: image.id,
+      pageNumber: image.pageNumber,
       sizeBytes: image.sizeBytes,
       hash: image.hash,
     })),
@@ -132,20 +232,26 @@ const extractPdfImagesViaBackend = async (file: FileData): Promise<PdfImageAsset
 
   const captionTargets = images.slice(0, MAX_CAPTIONED_IMAGES);
   const captionedImages = await Promise.all(
-    captionTargets.map((image, index) => captionBackendImage(image, index))
+    captionTargets.map((image, index) => captionBackendImage(image, index, pages))
   );
 
   logPdfAssetDebug('Backend image captions', {
     filename: file.name,
+    captionModel: MODEL_PDF_IMAGE_CAPTION,
     captionedImageCount: captionedImages.length,
+    emptyCaptionCount: captionedImages.filter(image => !image.caption?.trim()).length,
     captionedImages: captionedImages.map(image => ({
       id: image.id,
-      caption: image.textBefore,
+      caption: image.caption || '',
+      sourceTextBeforeChars: image.textBefore.length,
+      sourceTextCurrentChars: image.textCurrent?.length || 0,
+      sourceTextAfterChars: image.textAfter.length,
+      pageNumber: image.pageNumber,
       sourceOrder: image.sourceOrder,
     })),
   });
 
-  return captionedImages.filter(image => image.textBefore.trim().length > 0);
+  return captionedImages;
 };
 
 const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession> => {
@@ -170,10 +276,22 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
   }
 
   const extractedText = typeof payload.text === 'string' ? payload.text : '';
+  const pages = Array.isArray(payload.pages)
+    ? payload.pages
+        .filter(
+          (page): page is PdfTextPage =>
+            Boolean(page) && Number.isInteger(page.pageNumber) && typeof page.text === 'string'
+        )
+        .map(page => ({
+          pageNumber: page.pageNumber,
+          text: page.text,
+        }))
+    : [];
   logPdfAssetDebug('Backend text extraction result', {
     filename: file.name,
     parser: payload.parser,
     pageCount: payload.pageCount,
+    pageTextCount: pages.length,
     textLength: extractedText.length,
     sourceHash: payload.sourceHash,
     preview: extractedText.slice(0, 400),
@@ -182,6 +300,8 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
   return {
     images: [],
     extractedText,
+    pages,
+    pageCount: payload.pageCount,
     parsedAt: new Date().toISOString(),
     sourceHash: payload.sourceHash,
   };
@@ -207,12 +327,16 @@ export const getPdfTextSession = async (file: FileData): Promise<PdfAssetSession
   return nextPromise;
 };
 
-export const getPdfAssetSession = async (file: FileData): Promise<PdfAssetSession | null> => {
+export const getPdfAssetSession = async (
+  file: FileData,
+  options?: { partialPages?: number[] }
+): Promise<PdfAssetSession | null> => {
   if (!isPdfFile(file)) {
     return null;
   }
 
-  const cacheKey = getPdfCacheKey(file);
+  const sanitizedPartialPages = sanitizePartialPages(options?.partialPages);
+  const cacheKey = getPdfCacheKey(file, sanitizedPartialPages);
   const cached = PDF_PARSE_CACHE.get(cacheKey);
   if (cached) {
     return cached;
@@ -229,7 +353,11 @@ export const getPdfAssetSession = async (file: FileData): Promise<PdfAssetSessio
     }
 
     try {
-      const backendImages = await extractPdfImagesViaBackend(file);
+      const backendImages = await extractPdfImagesViaBackend(
+        file,
+        parsedResult.pages,
+        sanitizedPartialPages
+      );
       if (backendImages.length > 0) {
         return {
           ...parsedResult,
@@ -241,7 +369,10 @@ export const getPdfAssetSession = async (file: FileData): Promise<PdfAssetSessio
         filename: file.name,
       });
     } catch (error) {
-      console.warn('[Lumina][PDF] Backend extraction failed, using text-only parsed session.', error);
+      console.warn(
+        '[Lumina][PDF] Backend extraction failed, using text-only parsed session.',
+        error
+      );
     }
 
     return parsedResult;

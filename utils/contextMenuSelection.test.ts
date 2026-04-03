@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
@@ -54,6 +55,10 @@ test('resolves selection payload when the range belongs to the content container
   } as unknown as Selection;
   const container = {
     contains: (node: Node) => node === ancestorNode,
+    getBoundingClientRect: () => ({
+      left: 384,
+      right: 1160,
+    }),
   } as HTMLElement;
 
   const resolved = resolveContextMenuSelection({
@@ -73,8 +78,61 @@ test('resolves selection payload when the range belongs to the content container
     width: 80,
     height: 24,
   });
+  assert.deepEqual(resolved?.horizontalBounds, {
+    left: 384,
+    right: 1160,
+  });
   assert.match(resolved?.contextBefore ?? '', /prefisso/);
   assert.match(resolved?.contextAfter ?? '', /suffisso/);
+});
+
+test('normalizes KaTeX selection text so annotation matching does not receive duplicated formula copies', () => {
+  const container = document.createElement('div');
+  container.innerHTML = `
+    <p>Dal modello analitico al game loop</p>
+    <p>
+      Un modello analitico produce la soluzione:
+      <span class="katex-display">
+        <span class="katex">
+          <span class="katex-mathml">
+            y(t)=12gt2+v0t+y0
+            <annotation encoding="application/x-tex">y(t)=\\frac{1}{2}gt^2+v_0t+y_0</annotation>
+          </span>
+          <span class="katex-html" aria-hidden="true">y(t)=21gt2+v0t+y0</span>
+        </span>
+      </span>
+      ma il videogioco procede per passi.
+    </p>
+  `;
+  document.body.append(container);
+
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  range.getBoundingClientRect = () =>
+    ({
+      top: 32,
+      left: 16,
+      width: 240,
+      height: 64,
+    }) as DOMRect;
+
+  const selection = {
+    rangeCount: 1,
+    getRangeAt: () => range,
+    toString: () => range.toString(),
+  } as unknown as Selection;
+
+  const resolved = resolveContextMenuSelection({
+    container,
+    placement: 'desktop-floating',
+    selection,
+  });
+
+  assert.ok(resolved);
+  assert.ok(resolved.selectedText.includes('y(t)=frac12gt2+v0t+y0'));
+  assert.equal((resolved.selectedText.match(/y\(t\)=frac12gt2\+v0t\+y0/gu) || []).length, 1);
+  assert.ok(!resolved.selectedText.includes('\\frac'));
+  assert.ok(!resolved.selectedText.includes('y(t)=21gt2+v0t+y0'));
 });
 
 test('returns null when selection is empty or outside the content container', () => {

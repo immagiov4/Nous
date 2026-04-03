@@ -4,6 +4,10 @@ export interface MarkdownRange {
 }
 
 const MARK_TAG_REGEX = /<\/?mark\b[^>]*>/g;
+const TEXT_LIKE_MATH_COMMANDS = new Set(['text', 'mathrm', 'mathtt', 'operatorname']);
+const ZERO_WIDTH_CHARACTERS_REGEX = /[\u200b-\u200d\uFEFF]/gu;
+const INLINE_MATH_LIKE_EXPRESSION_REGEX =
+  /[A-Za-z0-9]+(?:[_^]\{(?:\\[A-Za-z]+\{[^{}]*\}|[^{}]+)\})+/gu;
 
 const isLineStart = (content: string, index: number) => index === 0 || content[index - 1] === '\n';
 
@@ -68,6 +72,187 @@ const findInlineCodeRange = (content: string, startIndex: number): MarkdownRange
   };
 };
 
+const isEscapedCharacter = (content: string, index: number) => {
+  let slashCount = 0;
+  let cursor = index - 1;
+
+  while (cursor >= 0 && content[cursor] === '\\') {
+    slashCount += 1;
+    cursor -= 1;
+  }
+
+  return slashCount % 2 === 1;
+};
+
+const findDelimitedMathRange = (
+  content: string,
+  startIndex: number,
+  openDelimiter: '$' | '$$' | '\\(' | '\\[',
+  closeDelimiter: '$' | '$$' | '\\)' | '\\]',
+  allowNewlines: boolean
+): MarkdownRange | null => {
+  let cursor = startIndex + openDelimiter.length;
+
+  while (cursor < content.length) {
+    if (!allowNewlines && content[cursor] === '\n') {
+      return null;
+    }
+
+    if (content.startsWith(closeDelimiter, cursor) && !isEscapedCharacter(content, cursor)) {
+      return {
+        start: startIndex,
+        end: cursor + closeDelimiter.length,
+      };
+    }
+
+    cursor += 1;
+  }
+
+  return null;
+};
+
+export const getMarkdownMathRangeAt = (
+  content: string,
+  startIndex: number
+): MarkdownRange | null => {
+  if (content[startIndex] === '$' && !isEscapedCharacter(content, startIndex)) {
+    if (content[startIndex + 1] === '$') {
+      return findDelimitedMathRange(content, startIndex, '$$', '$$', true);
+    }
+
+    return findDelimitedMathRange(content, startIndex, '$', '$', false);
+  }
+
+  if (content.startsWith('\\(', startIndex) && !isEscapedCharacter(content, startIndex)) {
+    return findDelimitedMathRange(content, startIndex, '\\(', '\\)', false);
+  }
+
+  if (content.startsWith('\\[', startIndex) && !isEscapedCharacter(content, startIndex)) {
+    return findDelimitedMathRange(content, startIndex, '\\[', '\\]', true);
+  }
+
+  return null;
+};
+
+const getMarkdownMathInnerRange = (
+  content: string,
+  range: MarkdownRange
+): MarkdownRange => {
+  if (content.startsWith('$$', range.start)) {
+    return { start: range.start + 2, end: Math.max(range.start + 2, range.end - 2) };
+  }
+
+  if (content[range.start] === '$') {
+    return { start: range.start + 1, end: Math.max(range.start + 1, range.end - 1) };
+  }
+
+  return { start: range.start + 2, end: Math.max(range.start + 2, range.end - 2) };
+};
+
+export const projectMarkdownMathRange = (
+  content: string,
+  range: MarkdownRange
+): { text: string; sourceIndexes: number[] } => {
+  const innerRange = getMarkdownMathInnerRange(content, range);
+  const characters: string[] = [];
+  const sourceIndexes: number[] = [];
+
+  const pushCharacter = (character: string, sourceIndex: number) => {
+    characters.push(character);
+    sourceIndexes.push(sourceIndex);
+  };
+
+  const pushCommandText = (command: string, sourceIndex: number) => {
+    for (let index = 0; index < command.length; index += 1) {
+      pushCharacter(command[index], Math.min(sourceIndex + index, innerRange.end - 1));
+    }
+  };
+
+  let index = innerRange.start;
+
+  while (index < innerRange.end) {
+    if (content[index] === '\\') {
+      const commandMatch = content.slice(index + 1, innerRange.end).match(/^[A-Za-z]+/u);
+
+      if (commandMatch) {
+        const command = commandMatch[0];
+        const commandStart = index + 1;
+        index = commandStart + command.length;
+
+        if (!TEXT_LIKE_MATH_COMMANDS.has(command)) {
+          pushCommandText(command, commandStart);
+        }
+        continue;
+      }
+
+      if (index + 1 < innerRange.end) {
+        pushCharacter(content[index + 1], index + 1);
+        index += 2;
+        continue;
+      }
+    }
+
+    const currentCharacter = content[index];
+    if (
+      currentCharacter === '{' ||
+      currentCharacter === '}' ||
+      currentCharacter === '_' ||
+      currentCharacter === '^'
+    ) {
+      index += 1;
+      continue;
+    }
+
+    pushCharacter(currentCharacter, index);
+    index += 1;
+  }
+
+  return {
+    text: characters.join(''),
+    sourceIndexes,
+  };
+};
+
+const projectInlineMathLikeExpression = (expression: string): string => {
+  const projected = projectMarkdownMathRange(`$${expression}$`, {
+    start: 0,
+    end: expression.length + 2,
+  }).text;
+
+  return projected || expression;
+};
+
+const collapseAdjacentDuplicatedWordRuns = (value: string): string => {
+  let nextValue = value;
+
+  while (true) {
+    const collapsedValue = nextValue.replace(
+      /([A-Za-z][A-Za-z0-9]{2,})(?:\1){1,}/gu,
+      '$1'
+    );
+
+    if (collapsedValue === nextValue) {
+      return collapsedValue;
+    }
+
+    nextValue = collapsedValue;
+  }
+};
+
+export const normalizeMathSelectionArtifacts = (value: string): string => {
+  const strippedValue = value.replace(ZERO_WIDTH_CHARACTERS_REGEX, '');
+  const projectedValue = strippedValue.replace(
+    INLINE_MATH_LIKE_EXPRESSION_REGEX,
+    expression => projectInlineMathLikeExpression(expression)
+  );
+
+  if (projectedValue === strippedValue) {
+    return strippedValue;
+  }
+
+  return collapseAdjacentDuplicatedWordRuns(projectedValue);
+};
+
 const mergeRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
   if (ranges.length <= 1) {
     return ranges;
@@ -121,6 +306,45 @@ export const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
 
   return mergeRanges(ranges);
 };
+
+export const getMarkdownMathRanges = (content: string): MarkdownRange[] => {
+  const ranges: MarkdownRange[] = [];
+  let index = 0;
+
+  while (index < content.length) {
+    const currentCharacter = content[index];
+
+    if (
+      (currentCharacter === '`' || currentCharacter === '~') &&
+      isLineStart(content, index) &&
+      countRepeatedCharacter(content, index, currentCharacter) >= 3
+    ) {
+      const range = findFenceRange(content, index, currentCharacter);
+      index = range.end;
+      continue;
+    }
+
+    if (currentCharacter === '`') {
+      const range = findInlineCodeRange(content, index);
+      index = range.end;
+      continue;
+    }
+
+    const mathRange = getMarkdownMathRangeAt(content, index);
+    if (mathRange) {
+      ranges.push(mathRange);
+      index = mathRange.end;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return mergeRanges(ranges);
+};
+
+export const getMarkdownProtectedRanges = (content: string): MarkdownRange[] =>
+  mergeRanges([...getMarkdownCodeRanges(content), ...getMarkdownMathRanges(content)]);
 
 export const stripHighlightTagsInsideMarkdownCode = (content: string): string => {
   const ranges = getMarkdownCodeRanges(content);

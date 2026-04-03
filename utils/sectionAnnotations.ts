@@ -1,5 +1,11 @@
 import type { SectionAnnotation } from '../types.ts';
-import { getMarkdownCodeRanges, type MarkdownRange } from './markdownCodeRanges.ts';
+import {
+  getMarkdownMathRangeAt,
+  getMarkdownProtectedRanges,
+  normalizeMathSelectionArtifacts,
+  projectMarkdownMathRange,
+  type MarkdownRange,
+} from './markdownCodeRanges.ts';
 
 const MARK_CLOSE = '</mark>';
 const MARK_OPEN_WITH_ID = (annotationId: string) =>
@@ -145,6 +151,20 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
     }
 
     const currentCharacter = content[index];
+
+    const mathRange = getMarkdownMathRangeAt(content, index);
+    if (mathRange) {
+      const mathProjection = projectMarkdownMathRange(content, mathRange);
+      mathProjection.text.split('').forEach((character, projectionIndex) => {
+        pushCharacter(
+          character,
+          mathProjection.sourceIndexes[projectionIndex] ?? mathRange.start
+        );
+      });
+      atLineStart = false;
+      index = mathRange.end;
+      continue;
+    }
 
     if (currentCharacter === '\r') {
       index += 1;
@@ -461,7 +481,7 @@ const resolveSelectedSegments = ({
   ApplySectionAnnotationOptions,
   'content' | 'contextAfter' | 'contextBefore' | 'selectedText'
 >): MarkdownRange[] => {
-  const trimmedTargetText = selectedText.trim();
+  const trimmedTargetText = normalizeMathSelectionArtifacts(selectedText).trim();
   if (!trimmedTargetText) {
     return [];
   }
@@ -469,12 +489,12 @@ const resolveSelectedSegments = ({
   const visibleProjection = buildVisibleProjection(content);
   const looseProjection = buildLooseProjection(content);
   const sourceLooseProjection = buildSourceLooseProjection(content);
-  const protectedRanges = getMarkdownCodeRanges(content);
+  const protectedRanges = getMarkdownProtectedRanges(content);
   const exactMatch = resolveExactMatch(
     visibleProjection.text,
     trimmedTargetText,
-    contextBefore,
-    contextAfter
+    contextBefore ? normalizeMathSelectionArtifacts(contextBefore) : contextBefore,
+    contextAfter ? normalizeMathSelectionArtifacts(contextAfter) : contextAfter
   );
   const words = trimmedTargetText.match(/[\p{L}\p{N}]+/gu) || [];
 
@@ -562,7 +582,7 @@ const resolveSelectedSegments = ({
 };
 
 const parseMarkSegments = (content: string): ParsedMarkSegment[] => {
-  const protectedRanges = getMarkdownCodeRanges(content);
+  const protectedRanges = getMarkdownProtectedRanges(content);
   const segments: ParsedMarkSegment[] = [];
   const openStack: Array<{
     annotationId?: string;

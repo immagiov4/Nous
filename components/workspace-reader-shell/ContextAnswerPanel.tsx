@@ -1,4 +1,10 @@
-import { DefaultChatTransport, isToolUIPart, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
+import {
+  DefaultChatTransport,
+  isTextUIPart,
+  isToolUIPart,
+  lastAssistantMessageIsCompleteWithToolCalls,
+  type UIMessage,
+} from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { Check, Globe, LoaderCircle, NotebookPen, Plus, StickyNote, X } from 'lucide-react';
 import {
@@ -14,7 +20,7 @@ import MarkdownRenderer from '../MarkdownRenderer.tsx';
 import ChatTextComposer from '../chat/ChatTextComposer.tsx';
 import { getBackendUrl } from '../../services/gemini/config.ts';
 import { buildConversationNoteSaveCandidates } from '../../utils/contextConversationNote.ts';
-import { getUiMessageText } from '../../utils/uiChat.ts';
+import { dedupeUiMessagesById, getUiMessageText } from '../../utils/uiChat.ts';
 import type {
   ConversationSelectionAnchor,
   ContextChatToolPreferences,
@@ -118,6 +124,7 @@ interface ContextAnswerPanelProps {
 
 const toolCardClassName =
   'rounded-[1.4rem] border border-stone-200/90 bg-[#fbf7ef] px-4 py-3 text-sm text-stone-700 shadow-[0_12px_28px_-22px_rgba(46,34,16,0.55)] dark:border-stone-400/95 dark:bg-stone-700/90 dark:text-stone-200';
+const autoSubmittedInitialQuestionIds = new Set<string>();
 
 export default function ContextAnswerPanel({
   contextAnswer,
@@ -137,7 +144,6 @@ export default function ContextAnswerPanel({
     webSearch: false,
   });
   const hasSubmittedInitialQuestionRef = useRef(false);
-  const pendingToolContinuationRef = useRef<string | null>(null);
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const selectionAnchorRef = useRef<ConversationSelectionAnchor>({
     contextAfter: contextAnswer.contextAfter,
@@ -201,6 +207,7 @@ export default function ContextAnswerPanel({
     id: contextAnswer.id,
     messages: [],
     transport,
+    experimental_throttle: 48,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onToolCall: async ({ toolCall }) => {
       if (
@@ -211,7 +218,6 @@ export default function ContextAnswerPanel({
         return;
       }
 
-      const shouldContinueConversation = status === 'submitted' || status === 'streaming';
       const requestedTool =
         toolCall.toolName === 'updateConversationNote'
           ? 'updateConversationNote'
@@ -222,10 +228,6 @@ export default function ContextAnswerPanel({
           : onSaveConversationNote;
 
       if (!isSaveConversationNoteToolInput(toolCall.input)) {
-        if (shouldContinueConversation) {
-          pendingToolContinuationRef.current = toolCall.toolCallId;
-        }
-
         void addToolOutput({
           tool: requestedTool,
           toolCallId: toolCall.toolCallId,
@@ -246,10 +248,6 @@ export default function ContextAnswerPanel({
       })) {
         const result = await runNoteMutation(candidate);
         if (result.saved) {
-          if (shouldContinueConversation) {
-            pendingToolContinuationRef.current = toolCall.toolCallId;
-          }
-
           void addToolOutput({
             tool: requestedTool,
             toolCallId: toolCall.toolCallId,
@@ -259,10 +257,6 @@ export default function ContextAnswerPanel({
         }
 
         lastResult = result;
-      }
-
-      if (shouldContinueConversation) {
-        pendingToolContinuationRef.current = toolCall.toolCallId;
       }
 
       void addToolOutput({
@@ -279,13 +273,20 @@ export default function ContextAnswerPanel({
   });
 
   useEffect(() => {
-    if (hasSubmittedInitialQuestionRef.current || !contextAnswer.initialQuestion.trim()) {
+    const initialQuestion = contextAnswer.initialQuestion.trim();
+    if (
+      hasSubmittedInitialQuestionRef.current ||
+      !initialQuestion ||
+      messages.length > 0 ||
+      autoSubmittedInitialQuestionIds.has(contextAnswer.id)
+    ) {
       return;
     }
 
     hasSubmittedInitialQuestionRef.current = true;
-    void sendMessage({ text: contextAnswer.initialQuestion });
-  }, [contextAnswer.initialQuestion, sendMessage]);
+    autoSubmittedInitialQuestionIds.add(contextAnswer.id);
+    void sendMessage({ text: initialQuestion });
+  }, [contextAnswer.id, contextAnswer.initialQuestion, messages.length, sendMessage]);
 
   useEffect(() => {
     if (!isToolMenuOpen) {
@@ -308,33 +309,7 @@ export default function ContextAnswerPanel({
   }, [isToolMenuOpen]);
 
   useEffect(() => {
-    if (status !== 'ready' || !pendingToolContinuationRef.current) {
-      return;
-    }
-
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== 'assistant') {
-      return;
-    }
-
-    const pendingToolCallId = pendingToolContinuationRef.current;
-    const hasResolvedPendingTool = lastMessage.parts.some(
-      part =>
-        isToolUIPart(part) &&
-        part.toolCallId === pendingToolCallId &&
-        (part.state === 'output-available' || part.state === 'output-error')
-    );
-
-    if (!hasResolvedPendingTool || !lastAssistantMessageIsCompleteWithToolCalls({ messages })) {
-      return;
-    }
-
-    pendingToolContinuationRef.current = null;
-    void sendMessage();
-  }, [messages, sendMessage, status]);
-
-  useEffect(() => {
-    pendingToolContinuationRef.current = null;
+    hasSubmittedInitialQuestionRef.current = false;
     setIsToolMenuOpen(false);
     setToolPreferences({
       annotate: false,
@@ -356,7 +331,7 @@ export default function ContextAnswerPanel({
     void sendMessage({ text: trimmedInput });
   };
 
-  const visibleMessages = messages.filter(message => {
+  const visibleMessages = dedupeUiMessagesById(messages).filter(message => {
     if (message.role === 'user') {
       return true;
     }
@@ -538,6 +513,9 @@ export default function ContextAnswerPanel({
           {visibleMessages.map(message => {
             const messageText = getUiMessageText(message);
             const toolParts = message.parts.filter(isToolUIPart);
+            const isStreamingAssistantText =
+              message.role === 'assistant' &&
+              message.parts.some(part => isTextUIPart(part) && part.state === 'streaming');
 
             if (message.role === 'user') {
               return (
@@ -551,7 +529,13 @@ export default function ContextAnswerPanel({
 
             return (
               <div key={message.id} className="space-y-4">
-                {messageText ? (
+                {messageText && isStreamingAssistantText ? (
+                  <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-gray-600 dark:text-gray-300">
+                    {messageText}
+                  </div>
+                ) : null}
+
+                {messageText && !isStreamingAssistantText ? (
                   <MarkdownRenderer
                     content={messageText}
                     isDarkMode={isDarkMode}
@@ -604,7 +588,7 @@ export default function ContextAnswerPanel({
 
               {isToolMenuOpen ? (
                 <div
-                  className="absolute bottom-[calc(100%+0.55rem)] left-0 z-20 w-[min(18.5rem,calc(100vw-5rem))] overflow-hidden rounded-2xl border border-stone-200/90 bg-white/95 p-2 shadow-[0_18px_50px_-24px_rgba(24,24,27,0.4)] dark:border-zinc-600/80 dark:bg-stone-800/95"
+                  className="absolute bottom-[calc(100%+0.55rem)] left-0 z-20 w-[min(18.5rem,calc(100vw-5rem))] overflow-hidden rounded-2xl border border-stone-200/90 bg-white p-2 shadow-[0_18px_50px_-24px_rgba(24,24,27,0.4)] dark:border-zinc-600/80 dark:bg-stone-800"
                   role="menu"
                 >
                   <button

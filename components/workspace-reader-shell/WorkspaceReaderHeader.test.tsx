@@ -75,4 +75,19 @@ describe('WorkspaceReaderHeader', () => {
       screen.queryByRole('dialog', { name: /Conferma rigenerazione lezione/i })
     ).not.toBeInTheDocument();
   });
+
+  test('shows the actual loading status on mobile instead of a generic label', () => {
+    const props = buildProps();
+
+    render(
+      <WorkspaceReaderHeader
+        {...props}
+        isLoading
+        isMobileViewport
+        loadingStatus="Indice raffinato: 31 lezioni"
+      />
+    );
+
+    expect(screen.getByText('Indice raffinato: 31 lezioni')).toBeInTheDocument();
+  });
 });

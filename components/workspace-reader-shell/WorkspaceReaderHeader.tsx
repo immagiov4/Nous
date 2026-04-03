@@ -80,6 +80,7 @@ export default function WorkspaceReaderHeader({
     setIsRegenerateConfirmOpen(false);
     onRegenerateActiveSection();
   };
+  const visibleLoadingStatus = isMobileViewport ? loadingStatus : loadingStatus.toUpperCase();
 
   return (
     <header
@@ -132,14 +133,15 @@ export default function WorkspaceReaderHeader({
       <div className={`flex shrink-0 items-center ${isMobileViewport ? 'gap-3' : 'gap-6'}`}>
         {isLoading ? (
           <div
-            className={`flex animate-pulse items-center gap-2 rounded-full bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 ${
+            className={`flex max-w-[16rem] animate-pulse items-center gap-2 rounded-full bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 ${
               isMobileViewport
                 ? 'px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]'
                 : 'px-4 py-1.5 text-xs font-bold'
             }`}
+            title={loadingStatus}
           >
             <span className="h-2 w-2 rounded-full bg-orange-500" />
-            {isMobileViewport ? 'Carica' : loadingStatus.toUpperCase()}
+            <span className="truncate">{visibleLoadingStatus}</span>
           </div>
         ) : null}
 

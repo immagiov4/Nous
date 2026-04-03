@@ -136,12 +136,12 @@ const AssessmentView = ({
             </div>
           ) : null}
 
-          {messages.map(message => {
+          {messages.map((message, index) => {
             const displayContent = message.text.replace('[ASSESSMENT_COMPLETE]', '');
 
             return (
               <div
-                key={`${message.role}-${displayContent.slice(0, 48)}`}
+                key={`${message.role}-${index}`}
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div

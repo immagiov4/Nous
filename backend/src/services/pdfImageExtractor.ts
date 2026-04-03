@@ -2,6 +2,9 @@ import crypto from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
 
 const MIN_IMAGE_BYTES = 8_000;
+const IMAGE_CONTEXT_LINE_COUNT = 5;
+const LINE_THRESHOLD = 4.6;
+const CELL_THRESHOLD = 7;
 
 export interface ExtractedPdfImage {
   id: string;
@@ -9,37 +12,424 @@ export interface ExtractedPdfImage {
   dataUrl: string;
   sizeBytes: number;
   hash: string;
+  pageNumber: number;
+  textBefore?: string;
+  textCurrent?: string;
+  textAfter?: string;
+}
+
+interface ImageRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+interface PositionedPdfTextLine {
+  text: string;
+  top: number;
+  bottom: number;
+  centerY: number;
+}
+
+interface PageImagePlacement {
+  rect: ImageRect;
 }
 
 const PDF_DATA_URL_PREFIX = /^data:application\/pdf;base64,/i;
+const IMAGE_DATA_URL_PREFIX = /^data:([^;]+);base64,/i;
 
 const getMimeTypeFromDataUrl = (dataUrl: string): string => {
-  const match = /^data:([^;]+);base64,/i.exec(dataUrl);
+  const match = IMAGE_DATA_URL_PREFIX.exec(dataUrl);
   return match?.[1] || 'image/png';
+};
+
+const decodeImageDataUrl = (dataUrl: string): Buffer => {
+  const match = IMAGE_DATA_URL_PREFIX.exec(dataUrl);
+  const base64 = match ? dataUrl.slice(match[0].length) : '';
+  return Buffer.from(base64, 'base64');
+};
+
+const sanitizePartialPages = (partialPages: number[] | undefined): number[] | undefined => {
+  if (!Array.isArray(partialPages) || partialPages.length === 0) {
+    return undefined;
+  }
+
+  const cleaned = Array.from(
+    new Set(
+      partialPages.filter(page => Number.isInteger(page) && page > 0).map(page => Math.trunc(page))
+    )
+  ).sort((left, right) => left - right);
+
+  return cleaned.length > 0 ? cleaned : undefined;
+};
+
+const emptyImageTextContext = Object.freeze({
+  textBefore: '',
+  textCurrent: '',
+  textAfter: '',
+});
+
+const normalizeLineText = (value: string): string =>
+  value
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+const joinLineTexts = (lines: PositionedPdfTextLine[]): string =>
+  lines
+    .map(line => normalizeLineText(line.text))
+    .filter(Boolean)
+    .join('\n');
+
+export const buildLocalImageTextContext = (
+  lines: PositionedPdfTextLine[],
+  rect: ImageRect
+): { textBefore: string; textCurrent: string; textAfter: string } => {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return emptyImageTextContext;
+  }
+
+  const sortedLines = [...lines].sort((left, right) =>
+    left.centerY === right.centerY ? left.top - right.top : left.centerY - right.centerY
+  );
+
+  const beforeLines = sortedLines
+    .filter(line => line.centerY < rect.top)
+    .slice(-IMAGE_CONTEXT_LINE_COUNT);
+  const currentLines = sortedLines.filter(
+    line => line.bottom > rect.top && line.top < rect.bottom
+  );
+  const afterLines = sortedLines
+    .filter(line => line.centerY > rect.bottom)
+    .slice(0, IMAGE_CONTEXT_LINE_COUNT);
+
+  return {
+    textBefore: joinLineTexts(beforeLines),
+    textCurrent: joinLineTexts(currentLines),
+    textAfter: joinLineTexts(afterLines),
+  };
+};
+
+const getPdfJsModule = async () =>
+  await import(
+    new URL(
+      '../../node_modules/pdf-parse/node_modules/pdfjs-dist/legacy/build/pdf.mjs',
+      import.meta.url
+    ).href
+  );
+
+const transformPoint = (matrix: number[], x: number, y: number) => ({
+  x: matrix[0] * x + matrix[2] * y + matrix[4],
+  y: matrix[1] * x + matrix[3] * y + matrix[5],
+});
+
+const computeImageRect = (transformMatrix: number[], viewportTransform: number[]): ImageRect => {
+  const combinedMatrix = [
+    viewportTransform[0] * transformMatrix[0] + viewportTransform[2] * transformMatrix[1],
+    viewportTransform[1] * transformMatrix[0] + viewportTransform[3] * transformMatrix[1],
+    viewportTransform[0] * transformMatrix[2] + viewportTransform[2] * transformMatrix[3],
+    viewportTransform[1] * transformMatrix[2] + viewportTransform[3] * transformMatrix[3],
+    viewportTransform[0] * transformMatrix[4] +
+      viewportTransform[2] * transformMatrix[5] +
+      viewportTransform[4],
+    viewportTransform[1] * transformMatrix[4] +
+      viewportTransform[3] * transformMatrix[5] +
+      viewportTransform[5],
+  ];
+  const points = [
+    transformPoint(combinedMatrix, 0, 0),
+    transformPoint(combinedMatrix, 1, 0),
+    transformPoint(combinedMatrix, 0, 1),
+    transformPoint(combinedMatrix, 1, 1),
+  ];
+
+  return {
+    left: Math.min(...points.map(point => point.x)),
+    top: Math.min(...points.map(point => point.y)),
+    right: Math.max(...points.map(point => point.x)),
+    bottom: Math.max(...points.map(point => point.y)),
+  };
+};
+
+const resolveEmbeddedImage = (
+  pdfObjects: {
+    get: (name: unknown, callback: (imgData: unknown) => void) => void;
+  },
+  name: unknown
+): Promise<{ width: number; height: number }> =>
+  new Promise((resolve, reject) => {
+    pdfObjects.get(name, (imgData: unknown) => {
+      if (!imgData || typeof imgData !== 'object') {
+        reject(new Error(`Image object ${String(name)} not found`));
+        return;
+      }
+
+      const width = typeof (imgData as { width?: unknown }).width === 'number'
+        ? (imgData as { width: number }).width
+        : 0;
+      const height = typeof (imgData as { height?: unknown }).height === 'number'
+        ? (imgData as { height: number }).height
+        : 0;
+
+      if (!width || !height) {
+        reject(new Error(`Image object ${String(name)} has invalid dimensions`));
+        return;
+      }
+
+      resolve({ width, height });
+    });
+  });
+
+const extractPageTextLines = async (
+  page: {
+    getViewport: (params: { scale: number }) => {
+      convertToViewportPoint: (x: number, y: number) => [number, number];
+    };
+    getTextContent: (params: {
+      includeMarkedContent: boolean;
+      disableNormalization: boolean;
+    }) => Promise<{ items: unknown[] }>;
+  }
+): Promise<PositionedPdfTextLine[]> => {
+  const viewport = page.getViewport({ scale: 1 });
+  const textContent = await page.getTextContent({
+    includeMarkedContent: false,
+    disableNormalization: false,
+  });
+
+  const lines: Array<{
+    parts: string[];
+    top: number;
+    bottom: number;
+    baselineY: number;
+    lastX?: number;
+  }> = [];
+  let currentLine:
+    | {
+        parts: string[];
+        top: number;
+        bottom: number;
+        baselineY: number;
+        lastX?: number;
+      }
+    | null = null;
+
+  const flushCurrentLine = () => {
+    if (!currentLine) {
+      return;
+    }
+
+    const text = normalizeLineText(currentLine.parts.join(''));
+    if (text) {
+      lines.push({
+        parts: [text],
+        top: currentLine.top,
+        bottom: currentLine.bottom,
+        baselineY: currentLine.baselineY,
+      });
+    }
+
+    currentLine = null;
+  };
+
+  for (const item of textContent.items) {
+    if (!item || typeof item !== 'object' || !('str' in item)) {
+      continue;
+    }
+
+    const text = typeof item.str === 'string' ? item.str : '';
+    if (!text.trim()) {
+      continue;
+    }
+
+    const itemMetrics = item as unknown as {
+      transform?: number[];
+      height?: number;
+      width?: number;
+      hasEOL?: boolean;
+    };
+    const transform =
+      Array.isArray(itemMetrics.transform) && itemMetrics.transform.length >= 6
+        ? itemMetrics.transform
+        : [1, 0, 0, 1, 0, 0];
+    const [x, y] = viewport.convertToViewportPoint(transform[4], transform[5]);
+    const height = Math.max(
+      1,
+      Math.abs(
+        typeof itemMetrics.height === 'number' ? itemMetrics.height : transform[3]
+      )
+    );
+    const width = typeof itemMetrics.width === 'number' ? itemMetrics.width : 0;
+    const top = Math.min(y, y - height);
+    const bottom = Math.max(y, y - height);
+
+    if (!currentLine || Math.abs(currentLine.baselineY - y) > LINE_THRESHOLD) {
+      flushCurrentLine();
+      currentLine = {
+        parts: [],
+        top,
+        bottom,
+        baselineY: y,
+      };
+    } else {
+      currentLine.top = Math.min(currentLine.top, top);
+      currentLine.bottom = Math.max(currentLine.bottom, bottom);
+    }
+
+    if (
+      currentLine.lastX !== undefined &&
+      x - currentLine.lastX > CELL_THRESHOLD &&
+      currentLine.parts.length > 0
+    ) {
+      currentLine.parts.push(' ');
+    }
+
+    currentLine.parts.push(text);
+    currentLine.lastX = x + width;
+
+    if (itemMetrics.hasEOL === true || text.endsWith('\n')) {
+      flushCurrentLine();
+    }
+  }
+
+  flushCurrentLine();
+
+  return lines
+    .map(line => ({
+      text: line.parts[0],
+      top: line.top,
+      bottom: line.bottom,
+      centerY: (line.top + line.bottom) / 2,
+    }))
+    .filter(line => line.text.length > 0);
+};
+
+const extractPageImagePlacements = async (
+  page: {
+    commonObjs: {
+      has: (name: unknown) => boolean;
+      get: (name: unknown, callback: (imgData: unknown) => void) => void;
+    };
+    objs: { get: (name: unknown, callback: (imgData: unknown) => void) => void };
+    getViewport: (params: { scale: number }) => { transform: number[] };
+    getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
+  },
+  imageThreshold: number
+): Promise<PageImagePlacement[]> => {
+  const pdfjs = await getPdfJsModule();
+  const viewport = page.getViewport({ scale: 1 });
+  const opList = await page.getOperatorList();
+  let transformMatrix = [1, 0, 0, 1, 0, 0];
+  const transformStack: number[][] = [];
+  const placements: PageImagePlacement[] = [];
+
+  for (let index = 0; index < opList.fnArray.length; index += 1) {
+    const fn = opList.fnArray[index];
+    const args = Array.isArray(opList.argsArray[index]) ? (opList.argsArray[index] as unknown[]) : [];
+
+    if (fn === pdfjs.OPS.save) {
+      transformStack.push([...transformMatrix]);
+      continue;
+    }
+
+    if (fn === pdfjs.OPS.restore) {
+      const restoredMatrix = transformStack.pop();
+      if (restoredMatrix) {
+        transformMatrix = restoredMatrix;
+      }
+      continue;
+    }
+
+    if (fn === pdfjs.OPS.transform) {
+      transformMatrix = pdfjs.Util.transform(transformMatrix, args as number[]);
+      continue;
+    }
+
+    if (fn !== pdfjs.OPS.paintInlineImageXObject && fn !== pdfjs.OPS.paintImageXObject) {
+      continue;
+    }
+
+    const name = args[0];
+    const isCommon = page.commonObjs.has(name);
+    const { width, height } = await resolveEmbeddedImage(
+      isCommon ? page.commonObjs : page.objs,
+      name
+    );
+
+    if (imageThreshold >= width || imageThreshold >= height) {
+      continue;
+    }
+
+    placements.push({
+      rect: computeImageRect(transformMatrix, viewport.transform),
+    });
+  }
+
+  return placements;
 };
 
 export const extractPdfImages = async (
   pdfDataUrl: string,
-  limit = 36
+  limit = 36,
+  partialPages?: number[]
 ): Promise<ExtractedPdfImage[]> => {
   const base64 = pdfDataUrl.replace(PDF_DATA_URL_PREFIX, '');
   const pdfBuffer = Buffer.from(base64, 'base64');
   const parser = new PDFParse({ data: pdfBuffer });
   const dedupedImages = new Map<string, ExtractedPdfImage>();
+  const sanitizedPartialPages = sanitizePartialPages(partialPages);
 
   try {
-    const imageResult = await parser.getImage({ imageThreshold: 80 });
-    imageResult.pages.forEach(page => {
-      page.images.forEach(image => {
-        const dataBuffer = Buffer.from(image.data);
-        if (dataBuffer.length < MIN_IMAGE_BYTES || !image.dataUrl) {
-          return;
+    const imageResult = await parser.getImage({
+      imageThreshold: 80,
+      imageBuffer: false,
+      imageDataUrl: true,
+      partial: sanitizedPartialPages,
+    });
+    const pdfDocument = (parser as unknown as { doc?: { getPage: (pageNumber: number) => Promise<{
+      cleanup: () => void;
+      commonObjs: {
+        has: (name: unknown) => boolean;
+        get: (name: unknown, callback: (imgData: unknown) => void) => void;
+      };
+      objs: { get: (name: unknown, callback: (imgData: unknown) => void) => void };
+      getViewport: (params: { scale: number }) => {
+        transform: number[];
+        convertToViewportPoint: (x: number, y: number) => [number, number];
+      };
+      getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
+      getTextContent: (params: {
+        includeMarkedContent: boolean;
+        disableNormalization: boolean;
+      }) => Promise<{ items: unknown[] }>;
+    }> } }).doc;
+
+    for (const page of imageResult.pages) {
+      const pageProxy = pdfDocument ? await pdfDocument.getPage(page.pageNumber) : null;
+      const [pageLines, pagePlacements] = pageProxy
+        ? await Promise.all([extractPageTextLines(pageProxy), extractPageImagePlacements(pageProxy, 80)])
+        : [[], []];
+
+      for (const [pageImageIndex, image] of page.images.entries()) {
+        if (!image.dataUrl) {
+          continue;
+        }
+
+        const dataBuffer = decodeImageDataUrl(image.dataUrl);
+        if (dataBuffer.length < MIN_IMAGE_BYTES) {
+          continue;
         }
 
         const hash = crypto.createHash('sha1').update(dataBuffer).digest('hex');
         if (dedupedImages.has(hash)) {
-          return;
+          continue;
         }
+
+        const imageContext = pagePlacements[pageImageIndex]
+          ? buildLocalImageTextContext(pageLines, pagePlacements[pageImageIndex].rect)
+          : emptyImageTextContext;
 
         dedupedImages.set(hash, {
           id: `pdf-img-${String(dedupedImages.size + 1).padStart(3, '0')}`,
@@ -47,12 +437,26 @@ export const extractPdfImages = async (
           dataUrl: image.dataUrl,
           sizeBytes: dataBuffer.length,
           hash,
+          pageNumber: page.pageNumber,
+          textBefore: imageContext.textBefore,
+          textCurrent: imageContext.textCurrent,
+          textAfter: imageContext.textAfter,
         });
-      });
-    });
+
+        if (dedupedImages.size >= limit) {
+          break;
+        }
+      }
+
+      pageProxy?.cleanup();
+
+      if (dedupedImages.size >= limit) {
+        break;
+      }
+    }
   } finally {
     await parser.destroy().catch(() => undefined);
   }
 
-  return Array.from(dedupedImages.values()).slice(0, limit);
+  return Array.from(dedupedImages.values());
 };

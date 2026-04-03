@@ -51,7 +51,11 @@ const createHttpError = async (response: Response): Promise<HttpError> => {
 export const callOpenRouterRaw = async (
   options: ChatCompletionOptions
 ): Promise<OpenRouterResponse> => {
-  const selectedModel = resolveOpenRouterModel(options.model, options.modelSlot);
+  const selectedModel = resolveOpenRouterModel(
+    options.model,
+    options.modelSlot,
+    !options.disableModelOverride
+  );
   const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: getHeaders(),

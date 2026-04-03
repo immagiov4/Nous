@@ -256,6 +256,8 @@ const App = () => {
       },
       onContentClick: readerRuntime.readerContext.handleContentClick,
       onContentContextMenu: readerRuntime.readerContext.handleContentContextMenu,
+      onContentPointerDownCapture:
+        readerRuntime.readerContext.handleContentPointerDownCapture,
       onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
       onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
       quiz,
@@ -390,6 +392,16 @@ const App = () => {
         onSetPreferredOpenRouterModel={readerRuntime.setPreferredOpenRouterModel}
         onSubmit={assessmentScreen.handleAssessmentSubmit}
         preferredModels={readerRuntime.preferredModels}
+      />
+    );
+  }
+
+  // Anteprima dell'UI di caricamento per il debug (aggiungi #preview-loading all'URL)
+  if (typeof window !== 'undefined' && window.location.hash === '#preview-loading') {
+    return (
+      <LoadingScreen
+        message="Analisi Volume in Corso..."
+        subMessage="Strutturazione semantica del piano di studi..."
       />
     );
   }

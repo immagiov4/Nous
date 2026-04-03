@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -9,6 +10,10 @@ import {
   type RefObject,
   type TouchEvent,
 } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import {
   ArrowUp,
   BookPlus,
@@ -18,12 +23,15 @@ import {
   X,
 } from 'lucide-react';
 import type { ContextMenuPlacement, SelectionRect } from '../types';
+import type { HorizontalViewportBounds } from '../types';
+import { normalizeMarkdownForRendering } from '../utils/renderMarkdown.ts';
 
 interface ContextMenuProps {
   anchorX?: number;
   anchorY?: number;
   annotationNote?: string;
   containerRef?: RefObject<HTMLDivElement | null>;
+  horizontalBounds?: HorizontalViewportBounds;
   isLoading: boolean;
   onAsk: (question: string) => void;
   onClose: () => void;
@@ -61,6 +69,7 @@ const ContextMenu = ({
   anchorY,
   annotationNote = '',
   containerRef,
+  horizontalBounds,
   isLoading,
   onAsk,
   onClose,
@@ -76,17 +85,28 @@ const ContextMenu = ({
   const [input, setInput] = useState('');
   const [noteInput, setNoteInput] = useState(annotationNote);
   const [isLessonConfirmOpen, setIsLessonConfirmOpen] = useState(false);
-  const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(type === 'annotation');
+  const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(
+    type === 'annotation' ? annotationNote.trim().length === 0 : false
+  );
   const askInteractionLockRef = useRef(false);
   const highlightInteractionLockRef = useRef(false);
   const previousMenuKeyRef = useRef(`${type}:${selectedText}:${annotationNote}`);
   const isMobileSheet = placement === 'mobile-sheet';
   const isAnnotationMode = type === 'annotation';
+  const hasSavedAnnotationNote = annotationNote.trim().length > 0;
   const trimmedInput = input.trim();
   const trimmedNote = noteInput.trim();
+  const isAnnotationPreviewMode = isAnnotationMode && hasSavedAnnotationNote && !isNoteEditorOpen;
+  const isAnnotationEditingMode = isAnnotationMode && !isAnnotationPreviewMode;
+  const canDeleteAnnotationFromCurrentState =
+    isAnnotationMode && (isAnnotationPreviewMode || !hasSavedAnnotationNote);
   const lessonSelectionPreview = abbreviate(selectedText, 120);
   const lessonInstructionPreview = trimmedInput ? abbreviate(trimmedInput, 120) : null;
   const noteSelectionPreview = abbreviate(selectedText, 180);
+  const normalizedNotePreview = useMemo(
+    () => normalizeMarkdownForRendering(noteInput),
+    [noteInput]
+  );
 
   const handleContainerPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.stopPropagation();
@@ -232,6 +252,13 @@ const ContextMenu = ({
     onSaveNote(noteInput);
   };
 
+  const handleCancelNoteEdit = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setNoteInput(annotationNote);
+    setIsNoteEditorOpen(false);
+  };
+
   const handleDeleteAnnotationClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -262,11 +289,21 @@ const ContextMenu = ({
     previousMenuKeyRef.current = nextMenuKey;
     setIsLessonConfirmOpen(false);
     setNoteInput(annotationNote);
-    setIsNoteEditorOpen(type === 'annotation');
+    setIsNoteEditorOpen(type === 'annotation' ? annotationNote.trim().length === 0 : false);
   }, [annotationNote, selectedText, type]);
 
   const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight;
   const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth;
+  const desktopBoundaryLeft = horizontalBounds
+    ? clamp(horizontalBounds.left, 0, viewportWidth)
+    : 0;
+  const desktopBoundaryRight = horizontalBounds
+    ? clamp(horizontalBounds.right, desktopBoundaryLeft, viewportWidth)
+    : viewportWidth;
+  const desktopAvailableWidth = Math.max(
+    0,
+    desktopBoundaryRight - desktopBoundaryLeft - CONTEXT_MENU_VIEWPORT_PADDING * 2
+  );
   const shouldOpenAbove =
     !isMobileSheet &&
     (selectionRect?.top ?? anchorY ?? CONTEXT_MENU_VIEWPORT_PADDING) > viewportHeight / 3;
@@ -275,18 +312,26 @@ const ContextMenu = ({
       ? Math.min(
           CONTEXT_MENU_DESKTOP_MAX_WIDTH,
           Math.max(
-            CONTEXT_MENU_DESKTOP_MIN_WIDTH,
-            viewportWidth - CONTEXT_MENU_VIEWPORT_PADDING * 2
+            Math.min(CONTEXT_MENU_DESKTOP_MIN_WIDTH, desktopAvailableWidth),
+            desktopAvailableWidth
           )
         )
       : CONTEXT_MENU_DESKTOP_MAX_WIDTH;
+  const desktopMinLeft = Math.max(
+    CONTEXT_MENU_VIEWPORT_PADDING,
+    desktopBoundaryLeft + CONTEXT_MENU_VIEWPORT_PADDING
+  );
+  const desktopMaxLeft = Math.max(
+    desktopMinLeft,
+    Math.min(
+      viewportWidth - desktopMenuWidth - CONTEXT_MENU_VIEWPORT_PADDING,
+      desktopBoundaryRight - desktopMenuWidth - CONTEXT_MENU_VIEWPORT_PADDING
+    )
+  );
   const desktopLeft = clamp(
     (anchorX ?? CONTEXT_MENU_VIEWPORT_PADDING) - desktopMenuWidth / 2,
-    CONTEXT_MENU_VIEWPORT_PADDING,
-    Math.max(
-      CONTEXT_MENU_VIEWPORT_PADDING,
-      viewportWidth - desktopMenuWidth - CONTEXT_MENU_VIEWPORT_PADDING
-    )
+    desktopMinLeft,
+    desktopMaxLeft
   );
 
   const menuStyle: CSSProperties = isMobileSheet
@@ -347,16 +392,29 @@ const ContextMenu = ({
   }`;
 
   const noteEditorClassName = isMobileSheet
-    ? `overflow-hidden text-stone-700 transition-all duration-200 dark:text-stone-300 ${
+    ? `overflow-hidden text-stone-700 ${isAnnotationMode ? '' : 'transition-all duration-200'} dark:text-stone-300 ${
         isNoteEditorOpen || isAnnotationMode
           ? `${isAnnotationMode ? 'mt-0 max-h-[25rem] translate-y-0 border-t-0 pt-0 opacity-100' : 'mt-3 max-h-[25rem] translate-y-0 border-t border-stone-200/80 pt-3 opacity-100 dark:border-stone-400/70'}`
           : 'max-h-0 translate-y-[-6px] border-t-0 pt-0 opacity-0'
       }`
-    : `overflow-hidden rounded-[1.6rem] border border-stone-200/90 bg-[#fbf7ef] text-stone-700 shadow-[0_18px_40px_-30px_rgba(46,34,16,0.55)] transition-all duration-200 dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 ${
+    : `overflow-hidden rounded-[1.6rem] border border-stone-200/90 bg-[#fbf7ef] text-stone-700 shadow-[0_18px_40px_-30px_rgba(46,34,16,0.55)] ${isAnnotationMode ? '' : 'transition-all duration-200'} dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 ${
         isNoteEditorOpen || isAnnotationMode
           ? 'mt-2 max-h-[25rem] translate-y-0 opacity-100'
           : 'max-h-0 translate-y-[-6px] opacity-0'
-      }`;
+        }`;
+
+  const notePreviewClassName =
+    'max-h-52 overflow-y-auto rounded-[1.4rem] border border-stone-200/80 bg-white px-4 py-3 text-sm leading-6 text-stone-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:border-stone-400/95 dark:bg-stone-700/80 dark:text-stone-100';
+
+  const renderRenderedNotePreview = () => (
+    <div className={notePreviewClassName}>
+      <div className="prose prose-sm max-w-none text-stone-800 [overflow-wrap:anywhere] [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1.5 [&_.katex-display_.katex]:min-w-max [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 dark:prose-invert dark:text-stone-100">
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+          {normalizedNotePreview}
+        </ReactMarkdown>
+      </div>
+    </div>
+  );
 
   const renderNoteEditor = () => (
     <div className={noteEditorClassName} aria-hidden={!isNoteEditorOpen && !isAnnotationMode}>
@@ -370,18 +428,22 @@ const ContextMenu = ({
           </p>
         </div>
 
-        <textarea
-          value={noteInput}
-          onChange={event => setNoteInput(event.target.value)}
-          placeholder={
-            isAnnotationMode
-              ? 'Scrivi, aggiorna o svuota la nota...'
-              : 'Scrivi la nota che vuoi lasciare su questo passaggio...'
-          }
-          rows={4}
-          className="w-full resize-none rounded-[1.4rem] border border-stone-200/80 bg-white px-4 py-3 text-sm leading-6 text-stone-800 outline-none transition-colors placeholder:text-stone-400 focus:border-stone-300 dark:border-stone-400/95 dark:bg-stone-700/80 dark:text-stone-100 dark:placeholder:text-stone-300 dark:focus:border-stone-400"
-          disabled={isLoading}
-        />
+        {isAnnotationPreviewMode ? (
+          renderRenderedNotePreview()
+        ) : (
+          <textarea
+            value={noteInput}
+            onChange={event => setNoteInput(event.target.value)}
+            placeholder={
+              isAnnotationMode
+                ? 'Scrivi, aggiorna o svuota la nota...'
+                : 'Scrivi la nota che vuoi lasciare su questo passaggio...'
+            }
+            rows={4}
+            className="w-full resize-none rounded-[1.4rem] border border-stone-200/80 bg-white px-4 py-3 text-sm leading-6 text-stone-800 outline-none transition-colors placeholder:text-stone-400 focus:border-stone-300 dark:border-stone-400/95 dark:bg-stone-700/80 dark:text-stone-100 dark:placeholder:text-stone-300 dark:focus:border-stone-400"
+            disabled={isLoading}
+          />
+        )}
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           {!isAnnotationMode ? (
@@ -394,7 +456,17 @@ const ContextMenu = ({
             </button>
           ) : null}
 
-          {isAnnotationMode ? (
+          {isAnnotationEditingMode && hasSavedAnnotationNote ? (
+            <button
+              type="button"
+              onClick={handleCancelNoteEdit}
+              className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+            >
+              Annulla
+            </button>
+          ) : null}
+
+          {canDeleteAnnotationFromCurrentState ? (
             <button
               type="button"
               onClick={handleDeleteAnnotationClick}
@@ -406,14 +478,27 @@ const ContextMenu = ({
             </button>
           ) : null}
 
-          <button
-            type="button"
-            onClick={handleSaveNote}
-            disabled={isLoading || (!isAnnotationMode && !trimmedNote)}
-            className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
-          >
-            {isAnnotationMode ? 'Salva' : 'Salva nota'}
-          </button>
+          {isAnnotationPreviewMode ? (
+            <button
+              type="button"
+              onClick={handleToggleNoteEditor}
+              disabled={isLoading}
+              className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
+            >
+              Modifica
+            </button>
+          ) : null}
+
+          {!isAnnotationPreviewMode ? (
+            <button
+              type="button"
+              onClick={handleSaveNote}
+              disabled={isLoading || (!isAnnotationMode && !trimmedNote)}
+              className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
+            >
+              {isAnnotationMode ? 'Salva' : 'Salva nota'}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -646,10 +731,10 @@ const ContextMenu = ({
   return (
     <div
       ref={containerRef}
-      className={`fixed z-50 animate-in duration-200 ease-out ${
+      className={`fixed z-50 ${
         isMobileSheet
           ? 'left-1/2 rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] -translate-x-1/2 slide-in-from-bottom-10 dark:border-stone-400/95 dark:bg-stone-700'
-          : 'fade-in zoom-in-95'
+          : 'opacity-100'
       }`}
       style={menuStyle}
       onPointerDown={handleContainerPointerDown}

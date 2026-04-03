@@ -111,6 +111,46 @@ test('findSectionAnnotationForSelection resolves the existing annotation for the
   assert.equal(match.resolvedText, 'beta gamma');
 });
 
+test('applySectionAnnotation preserves inline math markdown while annotating the surrounding prose', () => {
+  const result = applySectionAnnotation({
+    annotations: [],
+    content: 'Ridurre soprattutto $T_{\\text{cluster}}$ e $T_{\\text{update}}$ accelera.',
+    createId: () => 'annotation-math',
+    now: '2026-04-02T10:00:00.000Z',
+    selectedText:
+      'Ridurre soprattutto TclusterT_{\\text{cluster}}Tcluster\u200b e TupdateT_{\\text{update}}Tupdate\u200b accelera.',
+  });
+
+  assert.ok(result);
+  assert.equal(
+    result.content,
+    '<mark data-lumina-annotation-id="annotation-math">Ridurre soprattutto</mark> $T_{\\text{cluster}}$ <mark data-lumina-annotation-id="annotation-math">e</mark> $T_{\\text{update}}$ <mark data-lumina-annotation-id="annotation-math">accelera.</mark>'
+  );
+  assert.equal(result.resolvedText, 'Ridurre soprattutto e accelera.');
+});
+
+test('applySectionAnnotation can anchor a note across display math selected via KaTeX-projected text', () => {
+  const result = applySectionAnnotation({
+    annotations: [],
+    content:
+      'Un modello analitico produce la soluzione:\n\n$$y(t)=\\frac{1}{2}gt^2+v_0t+y_0$$\n\nma il videogioco procede per passi.',
+    createId: () => 'annotation-display-math',
+    now: '2026-04-03T10:00:00.000Z',
+    selectedText:
+      'Un modello analitico produce la soluzione: y(t)=frac12gt2+v0t+y0 ma il videogioco procede per passi.',
+  });
+
+  assert.ok(result);
+  assert.equal(
+    result.content,
+    '<mark data-lumina-annotation-id="annotation-display-math">Un modello analitico produce la soluzione:</mark>\n\n$$y(t)=\\frac{1}{2}gt^2+v_0t+y_0$$\n\n<mark data-lumina-annotation-id="annotation-display-math">ma il videogioco procede per passi.</mark>'
+  );
+  assert.equal(
+    result.resolvedText,
+    'Un modello analitico produce la soluzione: ma il videogioco procede per passi.'
+  );
+});
+
 test('removeSectionAnnotation removes both metadata and markup', () => {
   const removed = removeSectionAnnotation({
     annotationId: 'annotation-1',

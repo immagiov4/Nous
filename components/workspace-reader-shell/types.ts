@@ -137,6 +137,7 @@ export interface WorkspaceReaderContentModel {
   onCompleteSection: () => void;
   onContentClick: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
+  onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
   onSetIsQuizSubmitted: (value: boolean) => void;
   quiz: QuizQuestion[];

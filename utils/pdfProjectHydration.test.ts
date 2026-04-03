@@ -39,6 +39,20 @@ const readyIndex: PdfTextIndex = {
   ],
 };
 
+const largeReadyIndex: PdfTextIndex = {
+  kind: 'pdf-text-index',
+  parsedAt: '2026-03-20T10:00:00.000Z',
+  sourceHash: 'hash-2',
+  chunks: Array.from({ length: 8 }, (_, index) => ({
+    id: `chunk-00${index + 1}`,
+    text: `Chunk ${index + 1}`,
+    headingPath: [`Chapter ${index + 1}`],
+    sequence: index,
+    startOffset: index * 10,
+    endOffset: index * 10 + 8,
+  })),
+};
+
 test('stays idle for non-pdf or fileless projects', () => {
   assert.equal(getPdfProjectHydrationState(null, basePlan, null), 'idle');
   assert.equal(
@@ -78,4 +92,43 @@ test('is ready only when the pdf plan already has a chunk index and primary mapp
 
   assert.equal(getPdfProjectHydrationState(pdfFile, mappedPlan, readyIndex), 'ready');
   assert.equal(needsPdfProjectHydration(pdfFile, mappedPlan, readyIndex), false);
+});
+
+test('treats legacy fallback mappings as stale when most lessons point to the first two chunks', () => {
+  const stalePlan: LearningPlan = {
+    title: 'Percorso',
+    summary: '',
+    sections: Array.from({ length: 5 }, (_, index) => ({
+      id: `lesson-${index + 1}`,
+      title: `Lezione ${index + 1}`,
+      description: 'Intro',
+      isCompleted: false,
+      type: 'core' as const,
+      primaryChunkIds: ['chunk-001', 'chunk-002'],
+    })),
+  };
+
+  assert.equal(
+    getPdfProjectHydrationState(pdfFile, stalePlan, largeReadyIndex),
+    'missing-primary-chunk-mappings'
+  );
+  assert.equal(needsPdfProjectHydration(pdfFile, stalePlan, largeReadyIndex), true);
+});
+
+test('does not flag small documents that only have the first chunks available', () => {
+  const smallDocPlan: LearningPlan = {
+    title: 'Percorso',
+    summary: '',
+    sections: Array.from({ length: 4 }, (_, index) => ({
+      id: `lesson-${index + 1}`,
+      title: `Lezione ${index + 1}`,
+      description: 'Intro',
+      isCompleted: false,
+      type: 'core' as const,
+      primaryChunkIds: ['chunk-001'],
+    })),
+  };
+
+  assert.equal(getPdfProjectHydrationState(pdfFile, smallDocPlan, readyIndex), 'ready');
+  assert.equal(needsPdfProjectHydration(pdfFile, smallDocPlan, readyIndex), false);
 });

@@ -105,9 +105,9 @@ const HomeChatPanel = ({
             </div>
           ) : null}
 
-          {messages.map(message => (
+          {messages.map((message, index) => (
             <div
-              key={`${message.role}-${message.text}`}
+              key={`${message.role}-${index}`}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div

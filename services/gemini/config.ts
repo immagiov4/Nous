@@ -10,12 +10,15 @@ export const MODEL_FLASH = process.env.MODEL_FLASH || 'openai/gpt-5.4-nano';
 export const MODEL_REASONING = process.env.MODEL_REASONING || 'openai/gpt-5.4-mini';
 export const MODEL_ASSESSMENT = process.env.MODEL_ASSESSMENT || 'mistralai/mistral-small-2603';
 export const MODEL_CONTEXT = process.env.MODEL_CONTEXT || 'openai/gpt-5.4-nano';
+export const MODEL_PDF_IMAGE_CAPTION =
+  process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
 
 export const resolveOpenRouterModel = (
   fallbackModel: string,
-  slot: OpenRouterModelSlot = 'lesson'
+  slot: OpenRouterModelSlot = 'lesson',
+  allowUiOverride = true
 ): string => {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !allowUiOverride) {
     return fallbackModel;
   }
 

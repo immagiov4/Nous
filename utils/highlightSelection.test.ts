@@ -112,6 +112,21 @@ test('falls back to loose normalized matching for accented and punctuated prose'
   );
 });
 
+test('highlights prose around inline math selections without injecting mark tags into KaTeX markdown', () => {
+  const content =
+    'Ridurre soprattutto $T_{\\text{cluster}}$ e $T_{\\text{update}}$ accelera.';
+  const updated = toggleHighlightInContent({
+    content,
+    selectedText:
+      'Ridurre soprattutto TclusterT_{\\text{cluster}}Tcluster\u200b e TupdateT_{\\text{update}}Tupdate\u200b accelera.',
+  });
+
+  assert.equal(
+    updated,
+    '<mark>Ridurre soprattutto</mark> $T_{\\text{cluster}}$ <mark>e</mark> $T_{\\text{update}}$ <mark>accelera.</mark>'
+  );
+});
+
 test('does not inject mark tags inside fenced code blocks', () => {
   const content = 'Esempio:\n\n```cpp\nServer server;\n```';
   const updated = toggleHighlightInContent({

@@ -2,12 +2,28 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { createProjectSnapshot } from '../services/projectSnapshot.ts';
 import { createProjectSourceFromFile } from '../services/projectSource.ts';
+import { getPdfProjectHydrationState } from '../utils/pdfProjectHydration.ts';
 import {
   createWorkspaceWorkflowState,
   invalidateWorkspaceWorkflows,
 } from '../services/workspaceWorkflow.ts';
-import { AppState, type FileData, type LearningPlan, type Message, type PdfTextIndex, type ProjectSnapshot, type SavedProjectMeta, type SyllabusItem, type UserProfile } from '../types.ts';
-import { createWorkspaceController, type WorkspaceChatSession, type WorkspaceDomainControllerAdapter, type WorkspaceProjectLibraryAdapter } from './useWorkspaceController.ts';
+import {
+  AppState,
+  type FileData,
+  type LearningPlan,
+  type Message,
+  type PdfTextIndex,
+  type ProjectSnapshot,
+  type SavedProjectMeta,
+  type SyllabusItem,
+  type UserProfile,
+} from '../types.ts';
+import {
+  createWorkspaceController,
+  type WorkspaceChatSession,
+  type WorkspaceDomainControllerAdapter,
+  type WorkspaceProjectLibraryAdapter,
+} from './useWorkspaceController.ts';
 
 const pdfFile: FileData = {
   name: 'dispensa.pdf',
@@ -75,14 +91,27 @@ const createReadyIndex = (): PdfTextIndex => ({
   ],
 });
 
+const createLargeReadyIndex = (): PdfTextIndex => ({
+  kind: 'pdf-text-index',
+  parsedAt: '2026-03-20T10:00:00.000Z',
+  sourceHash: 'hash-2',
+  chunks: Array.from({ length: 8 }, (_, index) => ({
+    id: `chunk-00${index + 1}`,
+    text: `Contenuto ${index + 1}`,
+    headingPath: [`Intro ${index + 1}`],
+    sequence: index,
+    startOffset: index * 10,
+    endOffset: index * 10 + 9,
+  })),
+});
+
 const syncDomainDerived = (domain: WorkspaceDomainControllerAdapter) => {
   domain.activeSection =
     domain.learningPlan?.sections.find(section => section.id === domain.activeSectionId) || null;
   domain.sectionContent = domain.activeSection?.content || '';
   domain.quiz = domain.activeSection?.quiz || [];
   domain.musicUrl = domain.learningPlan?.backgroundMusicUrl || '';
-  domain.needsSourceFile =
-    !domain.source && Boolean(domain.learningPlan) && !domain.isLearnMode;
+  domain.needsSourceFile = !domain.source && Boolean(domain.learningPlan) && !domain.isLearnMode;
 };
 
 const createDomainAdapter = (
@@ -238,9 +267,7 @@ const createDomainAdapter = (
   return domain;
 };
 
-const createProjectLibraryAdapter = (
-  overrides: Partial<WorkspaceProjectLibraryAdapter> = {}
-) => {
+const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryAdapter> = {}) => {
   const persistedSnapshots: ProjectSnapshot[] = [];
   const savedOverrides: Array<Partial<ProjectSnapshot> | undefined> = [];
   const deletedProjectIds: string[] = [];
@@ -478,7 +505,11 @@ const createGeminiMock = (overrides: Partial<typeof import('../services/geminiSe
       documentAssets: null,
     }),
     getPdfLessonMappingState: () => 'idle' as const,
-    preparePdfLessonMappings: async (_file: FileData, plan: LearningPlan, existingIndex?: PdfTextIndex | null) => ({
+    preparePdfLessonMappings: async (
+      _file: FileData,
+      plan: LearningPlan,
+      existingIndex?: PdfTextIndex | null
+    ) => ({
       learningPlan: plan,
       documentIndex: existingIndex ?? createReadyIndex(),
     }),
@@ -577,6 +608,59 @@ test('openProject hydrates pdf mappings before applying a stored plan', async ()
   assert.equal(domain.documentIndex?.chunks[0]?.id, 'chunk-001');
 });
 
+test('openProject remaps legacy fallback chunk assignments for old pdf projects', async () => {
+  const staleIndex = createLargeReadyIndex();
+  const stalePlan = buildPlan({
+    sections: Array.from({ length: 5 }, (_, index) => ({
+      id: `lesson-${index + 1}`,
+      title: `Lezione ${index + 1}`,
+      description: 'Intro',
+      isCompleted: false,
+      type: 'core' as const,
+      primaryChunkIds: ['chunk-001', 'chunk-002'],
+    })),
+  });
+  const snapshot = createProjectSnapshot({
+    id: 'project-pdf-stale',
+    source: createProjectSourceFromFile(pdfFile),
+    learningPlan: stalePlan,
+    documentIndex: staleIndex,
+    state: AppState.READING,
+  });
+  let prepareCalls = 0;
+
+  const { controller, projectLibrary } = createControllerHarness({
+    gemini: {
+      getPdfLessonMappingState: (file, plan, documentIndex) =>
+        getPdfProjectHydrationState(file, plan, documentIndex),
+      preparePdfLessonMappings: async () => {
+        prepareCalls += 1;
+        return {
+          learningPlan: {
+            ...stalePlan,
+            sections: stalePlan.sections.map((section, index) => ({
+              ...section,
+              primaryChunkIds: [`chunk-00${index + 3}`],
+            })),
+          },
+          documentIndex: staleIndex,
+        };
+      },
+    },
+    loadedSnapshot: snapshot,
+  });
+
+  const result = await controller.openProject('project-pdf-stale');
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(prepareCalls, 1);
+  assert.equal(projectLibrary.persistedSnapshots.length, 2);
+  assert.deepEqual(
+    projectLibrary.persistedSnapshots[1]?.learningPlan?.sections[0]?.primaryChunkIds,
+    ['chunk-003']
+  );
+});
+
 test('openProject skips pdf hydration checks for text document sources', async () => {
   const snapshot = createProjectSnapshot({
     id: 'project-md',
@@ -587,7 +671,7 @@ test('openProject skips pdf hydration checks for text document sources', async (
 
   const { controller } = createControllerHarness({
     gemini: {
-      getPdfLessonMappingState: (fileArg) => {
+      getPdfLessonMappingState: fileArg => {
         hydrationFileArg = fileArg;
         return 'idle';
       },
@@ -624,9 +708,7 @@ test('openProject starts assessment from stored text sources without rebuilding 
         assert.equal(source.name, 'notes.md');
         assert.equal(source.text.includes('Titolo'), true);
         return {
-          getHistory: () => [
-            { role: 'assistant', content: 'Domanda iniziale' },
-          ],
+          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
           sendMessage: async () => ({ text: 'Domanda iniziale' }),
         };
       },
@@ -764,7 +846,10 @@ test('handleSourceUpload reattach clears transient runtime state and invalidates
     sendMessage: async () => ({ text: 'unused' }),
   };
   state.runtime.openingProjectId = 'project-opening';
-  const staleLoadSectionRequestId = state.adapter.beginWorkflow('loadSection', 'Analisi contenuti...');
+  const staleLoadSectionRequestId = state.adapter.beginWorkflow(
+    'loadSection',
+    'Analisi contenuti...'
+  );
 
   const result = await controller.handleSourceUpload(uploadedFile, {
     mode: 'reattach-source',
@@ -778,10 +863,7 @@ test('handleSourceUpload reattach clears transient runtime state and invalidates
   assert.equal(state.runtime.chatSession, null);
   assert.equal(state.runtime.openingProjectId, null);
   assert.equal(state.runtime.workflowState.loadSection.status, 'idle');
-  assert.equal(
-    state.adapter.isWorkflowCurrent('loadSection', staleLoadSectionRequestId),
-    false
-  );
+  assert.equal(state.adapter.isWorkflowCurrent('loadSection', staleLoadSectionRequestId), false);
   assert.equal(state.runtime.workflowState.attachSource.status, 'succeeded');
 });
 
@@ -802,9 +884,7 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
         assert.equal(source.name, 'notes.md');
         assert.equal(source.text.includes('Titolo'), true);
         return {
-          getHistory: () => [
-            { role: 'assistant', content: 'Domanda iniziale' },
-          ],
+          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
           sendMessage: async () => ({ text: 'Domanda iniziale' }),
         };
       },
@@ -829,7 +909,10 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
 
 test('handleSourceUpload rejects unsupported binary sources with a clear error', async () => {
   const { controller, domain, projectLibrary, state } = createControllerHarness();
-  const uploadedFile = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 255])], 'diagram.bin');
+  const uploadedFile = new File(
+    [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 255])],
+    'diagram.bin'
+  );
 
   const result = await controller.handleSourceUpload(uploadedFile, {
     mode: 'new-project',

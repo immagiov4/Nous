@@ -183,7 +183,7 @@ const LibraryView = ({
           ) : null}
 
           {!isLibraryLoading && projects.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 md:gap-5 xl:grid-cols-3">
+            <div className="flex flex-col gap-2.5">
               {projects.map(project => (
                 <ProjectCard
                   key={project.id}

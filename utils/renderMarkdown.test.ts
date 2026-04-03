@@ -140,6 +140,26 @@ test('normalizeMarkdownForRendering repairs common katex text-mode underscore er
   );
 });
 
+test('normalizeMarkdownForRendering promotes bare word-like subscripts into text mode', () => {
+  const input =
+    'Qui il beneficio nasce dal ridurre $T_cluster$ e $T_update$.';
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    'Qui il beneficio nasce dal ridurre $T_{\\text{cluster}}$ e $T_{\\text{update}}$.'
+  );
+});
+
+test('normalizeMarkdownForRendering promotes braced word-like superscripts and subscripts into text mode', () => {
+  const input =
+    '$C_{server}$ scala meglio e $T^{update}$ resta locale, mentre $x_i$ e $a_{ij}$ restano invariati.';
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    '$C_{\\text{server}}$ scala meglio e $T^{\\text{update}}$ resta locale, mentre $x_i$ e $a_{ij}$ restano invariati.'
+  );
+});
+
 test('normalizeMarkdownForRendering does not swallow prose with backtick-wrapped C++ types into code blocks', () => {
   const input =
     'cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\tServer *server, MetricsBackend *mb):\n\tEnvironment(server),\n\tm_server(server)\n\nQui l\'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.';

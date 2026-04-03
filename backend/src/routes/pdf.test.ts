@@ -22,12 +22,17 @@ describe('POST /api/pdf', () => {
     pdfServiceMocks.extractPdfText.mockReset();
     pdfServiceMocks.extractPdfText.mockResolvedValue({
       text: 'Contenuto PDF',
+      pages: [
+        { pageNumber: 1, text: 'Pagina 1' },
+        { pageNumber: 2, text: 'Pagina 2' },
+        { pageNumber: 3, text: 'Pagina 3' },
+      ],
       parser: 'pdf-parse',
       sourceHash: 'hash-1',
       pageCount: 3,
     });
     pdfServiceMocks.extractPdfImages.mockResolvedValue([
-      { id: 'img-1', dataUrl: 'data:image/png;base64,ZmFrZQ==' },
+      { id: 'img-1', dataUrl: 'data:image/png;base64,ZmFrZQ==', pageNumber: 4 },
     ]);
   });
 
@@ -52,6 +57,11 @@ describe('POST /api/pdf', () => {
     expect(response.body).toEqual({
       success: true,
       text: 'Contenuto PDF',
+      pages: [
+        { pageNumber: 1, text: 'Pagina 1' },
+        { pageNumber: 2, text: 'Pagina 2' },
+        { pageNumber: 3, text: 'Pagina 3' },
+      ],
       textLength: 'Contenuto PDF'.length,
       parser: 'pdf-parse',
       sourceHash: 'hash-1',
@@ -62,17 +72,22 @@ describe('POST /api/pdf', () => {
   test('returns extracted images with the requested limit', async () => {
     const response = await request(createApp())
       .post('/api/pdf/extract-images')
-      .send({ fileData: 'data:application/pdf;base64,ZmFrZQ==', limit: 12 });
+      .send({
+        fileData: 'data:application/pdf;base64,ZmFrZQ==',
+        limit: 12,
+        partialPages: [3, 4, 5],
+      });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       success: true,
       imageCount: 1,
-      images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,ZmFrZQ==' }],
+      images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,ZmFrZQ==', pageNumber: 4 }],
     });
     expect(pdfServiceMocks.extractPdfImages).toHaveBeenCalledWith(
       'data:application/pdf;base64,ZmFrZQ==',
-      12
+      12,
+      [3, 4, 5]
     );
   });
 });
