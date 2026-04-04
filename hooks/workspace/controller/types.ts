@@ -183,7 +183,7 @@ export interface WorkspaceControllerCommands {
   handleSourceUpload: (
     selectedFile: File,
     options?: { mode?: 'new-project' | 'reattach-source' }
-  ) => Promise<{ errorMessage?: string; outcome: 'started-assessment' | 'reattached' }>;
+  ) => Promise<{ errorMessage?: string; outcome: 'imported' | 'started-assessment' | 'reattached' }>;
   importProjectFile: (
     selectedFile: File
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'imported' }>;
@@ -197,7 +197,10 @@ export interface WorkspaceControllerCommands {
     input: string;
     selectedFile?: File | null;
     toolPreferences?: HomeChatToolPreferences;
-  }) => Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }>;
+  }) => Promise<{
+    errorMessage?: string;
+    outcome: 'assessment-complete' | 'continued' | 'failed' | 'imported' | 'noop' | 'planned';
+  }>;
   startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
   submitAssessment: (
     input: string,

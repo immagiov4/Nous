@@ -1,7 +1,9 @@
 import { BookOpen } from 'lucide-react';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
-import WorkspaceReaderQuiz from './WorkspaceReaderQuiz.tsx';
+import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
+import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 import type { WorkspaceReaderContentModel } from './types.ts';
+import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 
 export default function WorkspaceReaderContent({
   activeSectionAssetsById,
@@ -11,13 +13,11 @@ export default function WorkspaceReaderContent({
   isFocusMode,
   isLoading,
   isMobileViewport,
-  isQuizSubmitted,
   onCompleteSection,
   onContentClick,
   onContentContextMenu,
   onContentPointerDownCapture,
   onSelectQuizAnswer,
-  onSetIsQuizSubmitted,
   quiz,
   quizAnswers,
   scrollContainerRef,
@@ -35,6 +35,9 @@ export default function WorkspaceReaderContent({
     sectionContent && sourcePageRangeLabel
       ? `${sectionContent.trim()}\n\n&nbsp;\n\n*Fonte originale: ${sourcePageRangeLabel}*`
       : sectionContent;
+  const inlineQuizLayout = buildInlineQuizLayout(renderedSectionContent || '', quiz.length);
+  const unansweredQuestionCount = quizAnswers.filter(answer => answer < 0).length;
+  const canCompleteSection = quiz.length === 0 || unansweredQuestionCount === 0;
 
   return (
     <div
@@ -60,24 +63,53 @@ export default function WorkspaceReaderContent({
               </div>
             </div>
           ) : sectionContent ? (
-            <MarkdownRenderer
-              content={renderedSectionContent}
-              isDarkMode={isDarkMode}
-              lessonAssetsById={activeSectionAssetsById}
-              lessonImageRefsById={activeSectionImageRefsById}
-              onClick={onContentClick}
-              onContextMenu={onContentContextMenu}
-              sectionAnnotations={sectionAnnotations}
-              className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
-                ${readingColumnClassName}
-                prose-p:text-gray-800 dark:prose-p:text-gray-200
-                prose-headings:font-serif prose-headings:font-normal
-                prose-headings:text-gray-900 dark:prose-headings:text-white
-                prose-strong:font-semibold
-                prose-strong:text-orange-800 dark:prose-strong:text-orange-400
-                ${isDarkMode ? 'prose-invert' : ''}
-              `}
-            />
+            <div className={`${readingColumnClassName} space-y-2`}>
+              {inlineQuizLayout.map((chunk, chunkIndex) => (
+                <div key={`chunk-${chunkIndex}`}>
+                  <MarkdownRenderer
+                    content={chunk.markdown}
+                    isDarkMode={isDarkMode}
+                    lessonAssetsById={activeSectionAssetsById}
+                    lessonImageRefsById={activeSectionImageRefsById}
+                    onClick={onContentClick}
+                    onContextMenu={onContentContextMenu}
+                    sectionAnnotations={sectionAnnotations}
+                    className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
+                      prose-p:text-gray-800 dark:prose-p:text-gray-200
+                      prose-headings:font-serif prose-headings:font-normal
+                      prose-headings:text-gray-900 dark:prose-headings:text-white
+                      prose-strong:font-semibold
+                      prose-strong:text-orange-800 dark:prose-strong:text-orange-400
+                      ${isDarkMode ? 'prose-invert' : ''}
+                    `}
+                  />
+
+                  {chunk.questionIndexes.map(questionIndex => {
+                    const question = quiz[questionIndex];
+                    if (!question) {
+                      return null;
+                    }
+
+                    return (
+                      <WorkspaceReaderInlineQuestion
+                        key={`${question.question}-${questionIndex}`}
+                        isDarkMode={isDarkMode}
+                        onSelectQuizAnswer={onSelectQuizAnswer}
+                        question={question}
+                        questionIndex={questionIndex}
+                        selectedIndex={quizAnswers[questionIndex] ?? -1}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+
+              <WorkspaceReaderQuizFooter
+                canComplete={canCompleteSection}
+                onCompleteSection={onCompleteSection}
+                remainingQuestionCount={unansweredQuestionCount}
+              />
+            </div>
           ) : (
             <div className="mt-16 flex flex-col items-center text-center text-gray-400 sm:mt-20">
               <BookOpen className="mb-4 h-16 w-16 opacity-20" />
@@ -89,22 +121,6 @@ export default function WorkspaceReaderContent({
             </div>
           )}
         </section>
-
-        {quiz.length > 0 && sectionContent ? (
-          <div
-            data-testid="reader-quiz-column"
-            className={`${readingColumnClassName} w-full`}
-          >
-            <WorkspaceReaderQuiz
-              isQuizSubmitted={isQuizSubmitted}
-              onCompleteSection={onCompleteSection}
-              onSelectQuizAnswer={onSelectQuizAnswer}
-              onSetIsQuizSubmitted={onSetIsQuizSubmitted}
-              quiz={quiz}
-              quizAnswers={quizAnswers}
-            />
-          </div>
-        ) : null}
       </div>
     </div>
   );

@@ -180,6 +180,6 @@ test('generateSectionContent keeps all verified image placements instead of trun
     result.imageRefs.map(ref => ref.assetId),
     ['pdf-img-001', 'pdf-img-002', 'pdf-img-003', 'pdf-img-004']
   );
-  assert.equal(result.quiz.length, 5);
+  assert.equal(result.quiz.length, 2);
   assert.match(result.content, /\{\{PDF_IMAGE:pdf-img-004/);
 });

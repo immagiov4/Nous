@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
 
-const MIN_IMAGE_BYTES = 8_000;
+const MIN_IMAGE_BYTES = 2_000;
 const IMAGE_CONTEXT_LINE_COUNT = 5;
 const LINE_THRESHOLD = 4.6;
 const CELL_THRESHOLD = 7;
+const IMAGE_DIMENSION_THRESHOLD = 32;
 
 export interface ExtractedPdfImage {
   id: string;
@@ -383,7 +384,7 @@ export const extractPdfImages = async (
 
   try {
     const imageResult = await parser.getImage({
-      imageThreshold: 80,
+      imageThreshold: IMAGE_DIMENSION_THRESHOLD,
       imageBuffer: false,
       imageDataUrl: true,
       partial: sanitizedPartialPages,
@@ -409,7 +410,10 @@ export const extractPdfImages = async (
     for (const page of imageResult.pages) {
       const pageProxy = pdfDocument ? await pdfDocument.getPage(page.pageNumber) : null;
       const [pageLines, pagePlacements] = pageProxy
-        ? await Promise.all([extractPageTextLines(pageProxy), extractPageImagePlacements(pageProxy, 80)])
+        ? await Promise.all([
+            extractPageTextLines(pageProxy),
+            extractPageImagePlacements(pageProxy, IMAGE_DIMENSION_THRESHOLD),
+          ])
         : [[], []];
 
       for (const [pageImageIndex, image] of page.images.entries()) {

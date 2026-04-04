@@ -371,7 +371,7 @@ export default function ContextAnswerPanel({
                 "{inputValue.selectedTextDraft}"
               </p>
               <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-stone-400 dark:text-stone-500">
-                Nota sintetica
+                Nota proposta
               </p>
               <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700 dark:text-stone-200">
                 {inputValue.noteDraft}

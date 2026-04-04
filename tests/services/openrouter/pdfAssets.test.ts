@@ -175,3 +175,54 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
   assert.match(session?.images[1]?.textAfter || '', /Secondary caption/);
   assert.match(session?.images[1]?.textAfter || '', new RegExp(nextPageTail));
 });
+
+test('getPdfAssetSession captions every extracted image from the targeted pages without truncating at twelve', async () => {
+  const manyImagesPdfFile: FileData = {
+    name: 'Many_Figures.pdf',
+    mimeType: 'application/pdf',
+    data: 'bWFueS1maWd1cmVz',
+  };
+  const extractedImages = Array.from({ length: 13 }, (_, index) => ({
+    id: `pdf-img-${String(index + 1).padStart(3, '0')}`,
+    mimeType: 'image/png',
+    dataUrl: `data:image/png;base64,${String(index + 1).padStart(4, 'A')}`,
+    sizeBytes: 1200 + index,
+    hash: `img-${index + 1}`,
+    pageNumber: 4,
+    textBefore: `Figura ${index + 1} sopra`,
+    textCurrent: `Figura ${index + 1} centro`,
+    textAfter: `Figura ${index + 1} sotto`,
+  }));
+
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        parser: 'pdf-parse',
+        text: 'Testo estratto',
+        pages: [{ pageNumber: 4, text: 'Pagina 4 con molte figure tecniche.' }],
+        pageCount: 4,
+        sourceHash: 'hash-many',
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        images: extractedImages,
+      }),
+    });
+  vi.stubGlobal('fetch', fetchMock);
+
+  callOpenRouterMock.mockResolvedValue('Schema tecnico sintetico.');
+
+  const session = await getPdfAssetSession(manyImagesPdfFile, { partialPages: [4] });
+
+  assert.ok(session);
+  assert.equal(session?.images.length, 13);
+  assert.equal(callOpenRouterMock.mock.calls.length, 13);
+  assert.equal(session?.images[12]?.id, 'pdf-img-013');
+  assert.equal(session?.images[12]?.caption, 'Schema tecnico sintetico.');
+});

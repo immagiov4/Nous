@@ -8,6 +8,10 @@ const PROJECT_ARCHIVE_VERSION = 1;
 const PROJECT_ARCHIVE_MIME_TYPE = 'application/zip';
 const PROJECT_ARCHIVE_MANIFEST_PATH = 'project.json';
 const PROJECT_ARCHIVE_SOURCE_DIR = 'source';
+const INVALID_BACKUP_ARCHIVE_MESSAGE =
+  "Questo ZIP non contiene un backup Lumina valido. Importa un file .lumina.zip esportato dall'app.";
+const INVALID_BACKUP_FILE_MESSAGE =
+  'Il file selezionato non e un backup Lumina valido.';
 
 type ArchivedPdfFileMeta = Omit<FileData, 'data'>;
 
@@ -35,8 +39,16 @@ interface ProjectArchiveManifest {
   };
 }
 
+interface LoadedProjectArchive {
+  manifest: ProjectArchiveManifest;
+  zip: JSZip;
+}
+
 const sanitizeArchivePathSegment = (value: string): string => {
-  const normalized = value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+  const withoutControlCharacters = Array.from(value.trim(), char =>
+    char <= '\u001f' ? '_' : char
+  ).join('');
+  const normalized = withoutControlCharacters.replace(/[<>:"/\\|?*]/g, '_');
   return normalized || 'source';
 };
 
@@ -47,10 +59,30 @@ const isZipArchive = (bytes: Uint8Array): boolean =>
   (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07) &&
   (bytes[3] === 0x04 || bytes[3] === 0x06 || bytes[3] === 0x08);
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isProjectImportPayload = (value: unknown): value is ProjectExportData =>
+  isRecord(value) &&
+  typeof value.version === 'string' &&
+  typeof value.isLearnMode === 'boolean' &&
+  Array.isArray(value.syllabus) &&
+  Object.hasOwn(value, 'learningPlan');
+
+function assertProjectImportPayload(
+  value: unknown,
+  invalidMessage = INVALID_BACKUP_FILE_MESSAGE
+): asserts value is ProjectExportData {
+  if (!isProjectImportPayload(value)) {
+    throw new Error(invalidMessage);
+  }
+}
+
 const buildArchiveManifest = (
   snapshot: ProjectSnapshot
 ): { attachment?: { bytes: Uint8Array; entry: ProjectArchiveAttachment }; manifest: ProjectArchiveManifest } => {
   const project = exportProjectData(snapshot);
+  const { file: _legacyFile, source: projectSource, ...projectRest } = project;
 
   if (snapshot.source?.kind !== 'pdf') {
     return {
@@ -58,8 +90,8 @@ const buildArchiveManifest = (
         format: PROJECT_ARCHIVE_FORMAT,
         archiveVersion: PROJECT_ARCHIVE_VERSION,
         project: {
-          ...project,
-          source: project.source || null,
+          ...projectRest,
+          source: projectSource || null,
         },
       },
     };
@@ -88,7 +120,7 @@ const buildArchiveManifest = (
         },
       },
       project: {
-        ...project,
+        ...projectRest,
         source: {
           kind: 'pdf',
           file: {
@@ -101,25 +133,33 @@ const buildArchiveManifest = (
   };
 };
 
-const decodeArchiveManifest = async (
-  bytes: Uint8Array
-): Promise<ProjectExportData> => {
+const loadProjectArchive = async (bytes: Uint8Array): Promise<LoadedProjectArchive> => {
   const zip = await JSZip.loadAsync(bytes);
   const manifestEntry = zip.file(PROJECT_ARCHIVE_MANIFEST_PATH);
 
   if (!manifestEntry) {
-    throw new Error('Archivio backup non valido: manca project.json.');
+    throw new Error(INVALID_BACKUP_ARCHIVE_MESSAGE);
   }
 
   const manifest = JSON.parse(await manifestEntry.async('string')) as ProjectArchiveManifest;
 
   if (manifest.format !== PROJECT_ARCHIVE_FORMAT) {
-    throw new Error('Archivio backup non riconosciuto.');
+    throw new Error(INVALID_BACKUP_ARCHIVE_MESSAGE);
   }
 
   if (!manifest.project || typeof manifest.project !== 'object') {
     throw new Error('Archivio backup non valido: manifest incompleto.');
   }
+
+  assertProjectImportPayload(manifest.project, INVALID_BACKUP_ARCHIVE_MESSAGE);
+
+  return { manifest, zip };
+};
+
+const decodeArchiveManifest = async (
+  bytes: Uint8Array
+): Promise<ProjectExportData> => {
+  const { manifest, zip } = await loadProjectArchive(bytes);
 
   if (manifest.attachments?.sourceFile && manifest.project.source?.kind === 'pdf') {
     const attachment = manifest.attachments.sourceFile;
@@ -144,7 +184,30 @@ const decodeArchiveManifest = async (
     };
   }
 
-  return manifest.project;
+  const source = manifest.project.source;
+
+  if (source?.kind === 'pdf') {
+    throw new Error('Archivio backup non valido: allegato PDF mancante.');
+  }
+
+  return {
+    ...manifest.project,
+    source: source || null,
+  };
+};
+
+export const isProjectArchiveFile = async (file: Blob): Promise<boolean> => {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!isZipArchive(bytes)) {
+    return false;
+  }
+
+  try {
+    await loadProjectArchive(bytes);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 export const createProjectArchiveBlob = async (
@@ -182,7 +245,9 @@ export const readProjectImportData = async (file: Blob): Promise<unknown> => {
     return decodeArchiveManifest(bytes);
   }
 
-  return JSON.parse(new TextDecoder().decode(bytes));
+  const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  assertProjectImportPayload(parsed);
+  return parsed;
 };
 
 export const getProjectArchiveExtension = () => '.lumina.zip';

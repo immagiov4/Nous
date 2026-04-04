@@ -260,6 +260,8 @@ CRITICAL WRITING RULES:
 13. Do not explain future lessons in detail. You may mention them briefly as forward references, but do not define, unpack, or teach their content here.
 14. Do not add "deep-dive" sections just to make the lesson longer. If the current lesson's focus is complete, stop.
 15. Every section must serve the current lesson. If one of the suggested headings adds no value, adapt or omit it.
+16. When introducing a concept for the first time, start with a positive, self-contained definition ('X is Y, used for Z'). Contrasting definitions ('X is not just Y') are only acceptable after the concept has been positively established.
+17. The lesson must be completely self-contained. Do not reference 'the document', 'the text', 'section X', or any external source structure as if the reader has it open. If you attribute an idea to a standard or framework, name it ('X defines Y as...') rather than pointing to a section or page number.
 
 FORMAT: Markdown.`;
 

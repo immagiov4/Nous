@@ -201,6 +201,8 @@ const App = () => {
       setAssessmentComplete(true);
     } else if (result.outcome === 'continued') {
       setAssessmentComplete(false);
+    } else if (result.outcome === 'imported') {
+      setAssessmentComplete(false);
     }
 
     if (result.outcome !== 'failed' && result.outcome !== 'noop') {

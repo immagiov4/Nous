@@ -3,6 +3,8 @@ import { test } from 'vitest';
 import {
   buildLessonVerificationPrompt,
   buildPdfChunkUsageDebugPayload,
+  collapseRedundantParagraphs,
+  estimateTargetQuizCount,
   estimateRelevantPdfImagePages,
   LESSON_RESPONSE_SCHEMA,
   LESSON_SCOPE_RULES,
@@ -53,6 +55,36 @@ test('lesson generation prompts require expanding acronyms on first mention', as
   assert.match(source, /Non usare sigle, abbreviazioni o acronimi non spiegati/i);
   assert.match(source, /prima occorrenza/i);
   assert.match(source, /Evita forestierismi inutili/i);
+  assert.match(source, /da 1 a 3 domande|numero minimo necessario/i);
+  assert.match(source, /ripetizione letterale/i);
+  assert.match(source, /diagnosi di errore|inferenza|applicazione/i);
+});
+
+test('collapseRedundantParagraphs removes nearby paraphrases of the same concept', () => {
+  const content = `## Come leggere il Core
+
+Nel Core del framework la struttura va letta come una gerarchia di risultati attesi, non come un elenco di compiti da spuntare. Le sottocategorie descrivono outcome specifici e non una sequenza operativa obbligatoria.
+
+Nel Core non bisogna interpretare le sottocategorie come una checklist di attivita da eseguire in ordine. La logica corretta e quella di una gerarchia di outcome, cioe di risultati che l'organizzazione deve saper raggiungere.
+
+La funzione piu utile di questa gerarchia e collegare obiettivi strategici e risultati osservabili senza imporre un unico metodo operativo.`;
+
+  const collapsed = collapseRedundantParagraphs(content);
+
+  assert.match(collapsed, /gerarchia di risultati attesi/i);
+  assert.match(collapsed, /collegare obiettivi strategici/i);
+  assert.doesNotMatch(collapsed, /checklist di attivita da eseguire in ordine/i);
+  assert.equal(collapsed.split(/\n{2,}/).length, 3);
+});
+
+test('estimateTargetQuizCount scales pauses conservatively with lesson density', () => {
+  const shortLesson = `## Concetto\n\nBreve spiegazione tecnica focalizzata su un solo punto.\n\nUna conseguenza pratica.`;
+  const mediumLesson = `## Concetto\n\n${'Spiegazione tecnica mirata. '.repeat(80)}\n\n## Applicazione\n\n${'Caso d uso e implicazioni operative. '.repeat(60)}`;
+  const longLesson = `## Parte 1\n\n${'Dettaglio tecnico e conseguenze operative. '.repeat(110)}\n\n## Parte 2\n\n${'Analisi di vincoli, errori tipici e mitigazioni. '.repeat(110)}\n\n## Parte 3\n\n${'Collegamento con processi, monitoraggio e recupero. '.repeat(110)}`;
+
+  assert.equal(estimateTargetQuizCount(shortLesson), 1);
+  assert.equal(estimateTargetQuizCount(mediumLesson), 2);
+  assert.equal(estimateTargetQuizCount(longLesson), 3);
 });
 
 test('PLAN_PROPEDEUTIC_ORDER_RULES enforce prerequisite ordering for modules and lessons', () => {
@@ -249,6 +281,7 @@ test('buildLessonVerificationPrompt enforces final checks on image placement and
     sourceContext: 'Estratti sorgente sulle decal applicate alle superfici.',
     continuityRule: 'Non inventare continuita inesistenti.',
     scopeRule: '1. Resta sul focus della lezione.',
+    targetQuizCount: 2,
     draft: {
       contentMarkdown: '## Decal\n\nTesto.',
       quiz: [
@@ -282,6 +315,7 @@ test('buildLessonVerificationPrompt enforces final checks on image placement and
   });
 
   assert.match(prompt, /verificatore finale/i);
+  assert.match(prompt, /ESATTAMENTE 2 domande/i);
   assert.match(prompt, /Ogni immagine selezionata deve essere nel punto giusto della lezione/i);
   assert.match(prompt, /descrizione, caption e immagine siano abbinate correttamente/i);
   assert.match(prompt, /Meglio meno immagini che immagini sbagliate/i);

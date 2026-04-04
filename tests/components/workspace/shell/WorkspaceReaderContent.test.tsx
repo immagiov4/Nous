@@ -38,23 +38,21 @@ const buildProps = (
 });
 
 describe('WorkspaceReaderContent', () => {
-  test('keeps the quiz column aligned with the reading text width in focus mode', () => {
+  test('renders inline quiz cards inside the reading column in focus mode', () => {
     render(<WorkspaceReaderContent {...buildProps({ isFocusMode: true })} />);
 
-    expect(screen.getByTestId('reader-quiz-column')).toHaveClass('max-w-[76ch]');
-    expect(screen.getByTestId('reader-quiz-column')).toHaveClass('w-full');
+    expect(screen.getByText('Pausa attiva 1')).toBeInTheDocument();
+    expect(screen.queryByTestId('reader-quiz-column')).toBeNull();
+    expect(screen.getByText('Completa e Prosegui')).toBeDisabled();
   });
 
-  test('keeps the quiz column aligned with the reading text width in standard mode', () => {
-    render(<WorkspaceReaderContent {...buildProps({ isFocusMode: false })} />);
-
-    expect(screen.getByTestId('reader-quiz-column')).toHaveClass('max-w-[82ch]');
-    expect(screen.getByTestId('reader-quiz-column')).toHaveClass('w-full');
-  });
-
-  test('appends the source page range directly to the lesson markdown', () => {
+  test('keeps the source page range appended after the lesson body with inline questions active', () => {
     const { container } = render(
-      <WorkspaceReaderContent {...buildProps({ sourcePageRangeLabel: 'pag. 10-12' })} />
+      <WorkspaceReaderContent
+        {...buildProps({
+          sourcePageRangeLabel: 'pag. 10-12',
+        })}
+      />
     );
 
     const renderedText = container.textContent || '';
@@ -63,5 +61,18 @@ describe('WorkspaceReaderContent', () => {
       renderedText.indexOf('Fonte originale: pag. 10-12')
     );
     expect(container.querySelector('[data-testid="reader-source-page-range"]')).toBeNull();
+  });
+
+  test('enables lesson completion once all inline questions have been answered', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          quizAnswers: [0],
+        })}
+      />
+    );
+
+    expect(screen.getByText('Completa e Prosegui')).toBeEnabled();
+    expect(screen.getByText('Corretta')).toBeInTheDocument();
   });
 });

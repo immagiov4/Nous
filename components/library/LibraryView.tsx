@@ -81,7 +81,7 @@ const LibraryView = ({
         id={planFileInputId}
         type="file"
         className="hidden"
-        accept=".json,.lumina,.zip"
+        accept=".lumina.zip,.zip,.json,.lumina"
         onChange={onPlanUpload}
       />
 
@@ -154,7 +154,7 @@ const LibraryView = ({
                 type="button"
                 onClick={onImportJsonClick}
                 className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-zinc-600/50 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
-                title="Importa backup da file Lumina o JSON"
+                title="Importa backup Lumina (.lumina.zip o JSON legacy)"
               >
                 <FileJson className="h-3.5 w-3.5" />
                 Importa

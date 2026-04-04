@@ -14,7 +14,6 @@ const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const IMAGE_ID_PREFIX = 'pdf-img-';
 const MAX_BACKEND_EXTRACTED_IMAGES = 36;
-const MAX_CAPTIONED_IMAGES = 12;
 
 interface BackendPdfImage {
   id: string;
@@ -230,9 +229,8 @@ const extractPdfImagesViaBackend = async (
     })),
   });
 
-  const captionTargets = images.slice(0, MAX_CAPTIONED_IMAGES);
   const captionedImages = await Promise.all(
-    captionTargets.map((image, index) => captionBackendImage(image, index, pages))
+    images.map((image, index) => captionBackendImage(image, index, pages))
   );
 
   logPdfAssetDebug('Backend image captions', {

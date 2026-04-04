@@ -16,6 +16,7 @@ import {
   type UserProfile,
 } from '../../../types.ts';
 import { readSourceFileData } from './controllerContext.ts';
+import { importProjectBackupFile, isLuminaBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
   OpenSectionOptions,
@@ -427,7 +428,10 @@ export const createAssessmentPlanningCommands = (
     input: string;
     selectedFile?: File | null;
     toolPreferences?: HomeChatToolPreferences;
-  }): Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }> {
+  }): Promise<{
+    errorMessage?: string;
+    outcome: 'assessment-complete' | 'continued' | 'failed' | 'imported' | 'noop' | 'planned';
+  }> {
     const trimmedInput = args.input.trim();
     if (!trimmedInput) {
       return { outcome: 'noop' };
@@ -451,6 +455,15 @@ export const createAssessmentPlanningCommands = (
         let nextFile: FileData | null = null;
 
         if (isZipFileData({ name: args.selectedFile.name, mimeType: args.selectedFile.type })) {
+          const isBackupArchive = await isLuminaBackupArchive(args.selectedFile);
+
+          if (isBackupArchive) {
+            state.setWorkflowMessage('assessment', requestId, 'Importazione backup...');
+            await importProjectBackupFile(context, args.selectedFile);
+            state.succeedWorkflow('assessment', requestId);
+            return { outcome: 'imported' };
+          }
+
           nextSource = await import('../../../utils/project/codebaseBundle.ts').then(module =>
             module.createCodebaseBundleSourceFromZip(args.selectedFile as File)
           );

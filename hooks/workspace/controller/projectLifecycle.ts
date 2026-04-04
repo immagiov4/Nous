@@ -15,10 +15,10 @@ import {
   type FileData,
   type LearningPlan,
   type LearningSection,
-  type ProjectSnapshot,
   type ProjectSource,
 } from '../../../types.ts';
-import { readImportFile, readSourceFileData } from './controllerContext.ts';
+import { readSourceFileData } from './controllerContext.ts';
+import { importProjectBackupFile, isLuminaBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
   OpenSectionOptions,
@@ -48,17 +48,6 @@ export const createProjectLifecycleCommands = (
 ) => {
   const { domain, openRouter, persistHydratedSnapshot, projectLibrary, state, stopAudio } = context;
 
-  const persistPreparedSnapshotIfChanged = async (
-    originalSnapshot: ProjectSnapshot,
-    preparedSnapshot: ProjectSnapshot
-  ) => {
-    if (JSON.stringify(preparedSnapshot) === JSON.stringify(originalSnapshot)) {
-      return;
-    }
-
-    await projectLibrary.persistSnapshot(preparedSnapshot);
-  };
-
   const refreshLibraryMetadataInBackground = (projectId: string, requestId: number) => {
     void (async () => {
       try {
@@ -78,7 +67,7 @@ export const createProjectLifecycleCommands = (
   async function handleSourceUpload(
     selectedFile: File,
     options?: { mode?: 'new-project' | 'reattach-source' }
-  ): Promise<{ errorMessage?: string; outcome: 'started-assessment' | 'reattached' }> {
+  ): Promise<{ errorMessage?: string; outcome: 'imported' | 'started-assessment' | 'reattached' }> {
     const requestId = state.beginWorkflow('attachSource', 'Caricamento...');
     pushLuminaDebugTrace('attach-source:start', {
       mode: options?.mode || 'new-project',
@@ -93,6 +82,26 @@ export const createProjectLifecycleCommands = (
       let nextFile: FileData | null = null;
 
       if (isZipFileData({ name: selectedFile.name, mimeType: selectedFile.type })) {
+        const isBackupArchive = await isLuminaBackupArchive(selectedFile);
+
+        if (isBackupArchive) {
+          if (options?.mode === 'reattach-source') {
+            throw new Error(
+              'Questo ZIP e un backup Lumina completo. Usa Importa dalla libreria invece di Ricollega sorgente.'
+            );
+          }
+
+          state.setWorkflowMessage('attachSource', requestId, 'Importazione backup...');
+          const importedSnapshot = await importProjectBackupFile(context, selectedFile);
+          pushLuminaDebugTrace('attach-source:backup-imported', {
+            projectId: importedSnapshot.id,
+            requestId,
+            screen: importedSnapshot.learningPlan ? 'reading' : 'assessment',
+          });
+          state.succeedWorkflow('attachSource', requestId);
+          return { outcome: 'imported' };
+        }
+
         nextSource = await import('../../../utils/project/codebaseBundle.ts').then(module =>
           module.createCodebaseBundleSourceFromZip(selectedFile)
         );
@@ -172,13 +181,7 @@ export const createProjectLifecycleCommands = (
     const requestId = state.beginWorkflow('importProject', 'Importazione progetto...');
 
     try {
-      const importedProject = await readImportFile(selectedFile);
-      const { snapshot } = await projectLibrary.importProjectData(importedProject);
-      const preparedSnapshot = prepareSnapshotForHydration(snapshot);
-      await persistPreparedSnapshotIfChanged(snapshot, preparedSnapshot);
-      persistHydratedSnapshot(preparedSnapshot);
-      await projectLibrary.touchStoredProject(preparedSnapshot.id);
-      await projectLibrary.refreshSavedProjects();
+      await importProjectBackupFile(context, selectedFile);
       state.succeedWorkflow('importProject', requestId);
       return { outcome: 'imported' };
     } catch (error) {
@@ -262,7 +265,9 @@ export const createProjectLifecycleCommands = (
       }
 
       const preparedSnapshot = prepareSnapshotForHydration(nextSnapshot);
-      await persistPreparedSnapshotIfChanged(nextSnapshot, preparedSnapshot);
+      if (JSON.stringify(preparedSnapshot) !== JSON.stringify(nextSnapshot)) {
+        await projectLibrary.persistSnapshot(preparedSnapshot);
+      }
       persistHydratedSnapshot(preparedSnapshot);
       pushLuminaDebugTrace('open-project:hydrated-snapshot', {
         hasLearningPlan: Boolean(preparedSnapshot.learningPlan),

@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import {
   createProjectArchiveBlob,
+  isProjectArchiveFile,
   readProjectImportData,
 } from '../../../services/projects/projectArchive.ts';
 import { encodeBytesBase64 } from '../../../services/projects/projectSource.ts';
@@ -54,10 +55,25 @@ test('createProjectArchiveBlob keeps pdf bytes outside the manifest and restores
   assert.equal(Boolean(manifestText), true);
   assert.equal(manifestText?.includes('"data"'), false);
   assert.equal(manifestText?.includes(snapshot.source?.kind === 'pdf' ? snapshot.source.file.data : ''), false);
+  assert.equal(await isProjectArchiveFile(archive), true);
 
   const imported = (await readProjectImportData(archive)) as ProjectSnapshot;
 
   assert.deepEqual(imported.source, snapshot.source);
+});
+
+test('isProjectArchiveFile rejects generic source zips and readProjectImportData reports a backup-specific error', async () => {
+  const zip = new JSZip();
+  zip.file('src/index.ts', 'export const answer = 42;');
+  const genericZip = new Blob([await zip.generateAsync({ type: 'uint8array' })], {
+    type: 'application/zip',
+  });
+
+  assert.equal(await isProjectArchiveFile(genericZip), false);
+  await assert.rejects(
+    () => readProjectImportData(genericZip),
+    /Questo ZIP non contiene un backup Lumina valido\./
+  );
 });
 
 test('readProjectImportData still supports legacy json exports', async () => {
@@ -81,4 +97,15 @@ test('readProjectImportData still supports legacy json exports', async () => {
   });
 
   assert.deepEqual(await readProjectImportData(legacyBlob), legacyExport);
+});
+
+test('readProjectImportData rejects arbitrary json files that are not Lumina backups', async () => {
+  const arbitraryJson = new Blob([JSON.stringify({ ok: true, items: [] })], {
+    type: 'application/json',
+  });
+
+  await assert.rejects(
+    () => readProjectImportData(arbitraryJson),
+    /Il file selezionato non e un backup Lumina valido\./
+  );
 });

@@ -38,7 +38,7 @@ const HomeChatPanel = ({
   });
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const toolMenuRef = useRef<HTMLDivElement>(null);
+  const toolMenuRef = useRef<HTMLFormElement>(null);
   const lastMessage = messages[messages.length - 1] || null;
 
   useEffect(() => {
@@ -89,6 +89,16 @@ const HomeChatPanel = ({
   };
 
   const hasMessages = messages.length > 0;
+  const renderedMessageKeys = (() => {
+    const counts = new Map<string, number>();
+
+    return messages.map(message => {
+      const baseKey = `${message.role}:${message.text}`;
+      const nextCount = (counts.get(baseKey) || 0) + 1;
+      counts.set(baseKey, nextCount);
+      return `${baseKey}:${nextCount}`;
+    });
+  })();
 
   return (
     <section className="overflow-hidden rounded-3xl border border-gray-300/70 bg-white dark:border-zinc-600/50 dark:bg-stone-800">
@@ -107,7 +117,7 @@ const HomeChatPanel = ({
 
           {messages.map((message, index) => (
             <div
-              key={`${message.role}-${index}`}
+              key={renderedMessageKeys[index]}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div

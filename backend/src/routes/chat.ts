@@ -41,7 +41,7 @@ const webSearchPreferencePrompt = (toolPreferences?: ContextChatToolPreferences)
 const contextChatTools = {
   requestAddToNotes: tool({
     description:
-      'Propone all\'utente di salvare un chiarimento riusabile come nota sintetica collegata al testo selezionato.',
+      "Propone all'utente di salvare un chiarimento riusabile come nota di studio collegata al testo selezionato.",
     inputSchema: jsonSchema<{
       noteDraft: string;
       rationale: string;
@@ -52,7 +52,8 @@ const contextChatTools = {
       properties: {
         noteDraft: {
           type: 'string',
-          description: 'Bozza sintetica della nota da salvare, pulita e riusabile.',
+          description:
+            'Bozza della nota da salvare: chiara, riusabile e abbastanza sviluppata da restare utile quando verra riletta da sola.',
         },
         rationale: {
           type: 'string',
@@ -100,7 +101,8 @@ const contextChatTools = {
         },
         note: {
           type: 'string',
-          description: 'Nota sintetica finale da salvare nella lezione.',
+          description:
+            'Nota finale da salvare nella lezione: chiara, autosufficiente e non telegrafica.',
         },
         selectedText: {
           type: 'string',
@@ -160,7 +162,8 @@ const contextChatTools = {
         },
         note: {
           type: 'string',
-          description: 'Nuova versione della nota da salvare sul passaggio esistente.',
+          description:
+            'Nuova versione della nota da salvare sul passaggio esistente, riscritta in modo chiaro e autosufficiente.',
         },
         selectedText: {
           type: 'string',
@@ -290,7 +293,10 @@ Regole:
 - Quando emerge un chiarimento davvero riusabile durante lo studio, puoi proporre il salvataggio nelle note con il tool \`requestAddToNotes\`.
 - Se l'utente ha appena sciolto un dubbio reale, ha corretto un fraintendimento o ha ottenuto una formulazione che sarebbe utile ritrovare rileggendo la lezione, proponi tu in modo proattivo \`requestAddToNotes\` al termine della risposta utile, anche se non te lo chiede esplicitamente.
 - Usa \`requestAddToNotes\` solo se la nota sarebbe utile rileggendo la lezione in futuro; non usarlo per dettagli banali o transitori.
-- La nota proposta deve essere una sintesi pulita e utile, non il transcript della conversazione.
+- La nota proposta deve essere pulita e utile, non il transcript della conversazione.
+- Quando proponi o salvi una nota, non essere telegrafico: in genere scrivi 2-4 frasi complete, abbastanza dense da poter essere capite anche rilette da sole.
+- Nella nota esplicita il concetto chiave, l'eventuale distinzione o correzione importante emersa, e perche conta per interpretare bene il passaggio.
+- Evita titoletti, bullet list e formule ellittiche da appunto minimo; meglio una breve spiegazione continua, concreta e autosufficiente.
 - Prima chiedi sempre conferma con \`requestAddToNotes\`.
 - Se l'utente approva, usa \`saveConversationNote\` con una selezione rifinita e ben formata, preferendo il chunk davvero pertinente al dubbio ma senza allontanarti inutilmente dal passaggio originale.
 - Se esiste gia una nota collegata al passaggio e l'utente chiede di cambiarla, correggerla, riscriverla, accorciarla o migliorarla, usa \`updateConversationNote\` invece di \`saveConversationNote\`.

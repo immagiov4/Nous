@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { createProjectSnapshot } from '../../../services/projects/projectSnapshot.ts';
+import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
+import {
+  createProjectSnapshot,
+  normalizeImportedProject,
+} from '../../../services/projects/projectSnapshot.ts';
 import { createProjectSourceFromFile } from '../../../services/projects/projectSource.ts';
 import { getPdfProjectHydrationState } from '../../../utils/pdf/projectHydration.ts';
 import {
@@ -905,6 +909,41 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
   assert.equal(textAssessmentCalls, 1);
   assert.equal(fileAssessmentCalls, 0);
   assert.equal(state.runtime.assessmentMessages[0]?.text, 'Domanda iniziale');
+});
+
+test('handleSourceUpload imports Lumina backup zips instead of treating them as codebase bundles', async () => {
+  const archivedSnapshot = createProjectSnapshot({
+    id: 'backup-project',
+    source: createProjectSourceFromFile(pdfFile),
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const archive = await createProjectArchiveBlob(archivedSnapshot);
+  const archiveFile = new File([await archive.arrayBuffer()], 'lumina-backup.lumina.zip', {
+    type: 'application/zip',
+  });
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    projectLibrary: {
+      importProjectData: async data => {
+        const snapshot = normalizeImportedProject(data);
+        return {
+          meta: buildMeta(snapshot.id),
+          snapshot,
+        };
+      },
+    },
+  });
+
+  const result = await controller.handleSourceUpload(archiveFile, {
+    mode: 'new-project',
+  });
+
+  assert.equal(result.outcome, 'imported');
+  assert.equal(projectLibrary.adapter.currentProjectId, 'backup-project');
+  assert.equal(state.runtime.screenState, AppState.READING);
+  assert.equal(domain.source?.kind, 'pdf');
+  assert.equal(domain.learningPlan?.title, archivedSnapshot.learningPlan?.title);
+  assert.deepEqual(state.runtime.assessmentMessages, []);
 });
 
 test('handleSourceUpload rejects unsupported binary sources with a clear error', async () => {

@@ -203,6 +203,10 @@ export const useWorkspaceReaderRuntime = ({
       }
 
       setQuizAnswers(currentAnswers => {
+        if (currentAnswers[questionIndex] !== -1) {
+          return currentAnswers;
+        }
+
         const nextAnswers = [...currentAnswers];
         nextAnswers[questionIndex] = optionIndex;
         return nextAnswers;
