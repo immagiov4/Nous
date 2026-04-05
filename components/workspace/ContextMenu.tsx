@@ -10,10 +10,6 @@ import {
   type RefObject,
   type TouchEvent,
 } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
 import {
   ArrowUp,
   BookPlus,
@@ -22,6 +18,7 @@ import {
   NotebookPen,
   X,
 } from 'lucide-react';
+import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import type { ContextMenuPlacement, SelectionRect } from '../../types';
 import type { HorizontalViewportBounds } from '../../types';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
@@ -32,6 +29,7 @@ interface ContextMenuProps {
   annotationNote?: string;
   containerRef?: RefObject<HTMLDivElement | null>;
   horizontalBounds?: HorizontalViewportBounds;
+  isDarkMode?: boolean;
   isLoading: boolean;
   onAsk: (question: string) => void;
   onClose: () => void;
@@ -70,6 +68,7 @@ const ContextMenu = ({
   annotationNote = '',
   containerRef,
   horizontalBounds,
+  isDarkMode = false,
   isLoading,
   onAsk,
   onClose,
@@ -408,11 +407,11 @@ const ContextMenu = ({
 
   const renderRenderedNotePreview = () => (
     <div className={notePreviewClassName}>
-      <div className="prose prose-sm max-w-none text-stone-800 [overflow-wrap:anywhere] [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-1.5 [&_.katex-display_.katex]:min-w-max [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 dark:prose-invert dark:text-stone-100">
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-          {normalizedNotePreview}
-        </ReactMarkdown>
-      </div>
+      <MarkdownRenderer
+        content={normalizedNotePreview}
+        isDarkMode={isDarkMode}
+        className="prose-sm text-stone-800 [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 [&_table]:text-sm dark:text-stone-100"
+      />
     </div>
   );
 

@@ -26,7 +26,7 @@ export const importProjectBackupFile = async (
   await persistPreparedSnapshotIfChanged(context, snapshot, preparedSnapshot);
   context.persistHydratedSnapshot(preparedSnapshot);
   await context.projectLibrary.touchStoredProject(preparedSnapshot.id);
-  await context.projectLibrary.refreshSavedProjects();
+  await context.projectLibrary.refreshLibraryState();
 
   return preparedSnapshot;
 };

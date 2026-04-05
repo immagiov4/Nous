@@ -1,5 +1,6 @@
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 import { resolveExpandedModuleState, type ExpandedModuleState } from '../../utils/reader/chrome.ts';
 import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
 
@@ -40,16 +41,17 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
   }, [isDarkMode]);
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) {
+      return;
+    }
+
     const mediaQueryList = window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY);
     const handleMediaQueryChange = (event: MediaQueryListEvent) => {
       setIsMobileViewport(event.matches);
     };
 
     setIsMobileViewport(mediaQueryList.matches);
-    mediaQueryList.addEventListener('change', handleMediaQueryChange);
-    return () => {
-      mediaQueryList.removeEventListener('change', handleMediaQueryChange);
-    };
+    return subscribeToMediaQuery(mediaQueryList, handleMediaQueryChange);
   }, []);
 
   useEffect(() => {

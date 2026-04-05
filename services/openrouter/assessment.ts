@@ -195,13 +195,13 @@ Nota: non e stato possibile leggere un'anteprima affidabile della sorgente. Non 
     };
   }
 
-  onStatusUpdate?.('Estrazione testo PDF per valutazione...');
+  onStatusUpdate?.('Estrazione testo...');
 
   try {
     const pdfSession = await getPdfTextSession(file);
     const extractedText = pdfSession?.extractedText?.trim() || '';
     if (!extractedText) {
-      onStatusUpdate?.('PDF senza testo utile: fallback alla valutazione generica');
+      onStatusUpdate?.('Nessun testo utile: fallback...');
       return {
         content: `Documento: ${file.name}\n\n${baseInstruction}\n\nNota: il parser non ha estratto testo utile dal PDF. Non presumere nulla sul contenuto dal titolo o dal nome file. Procedi con una valutazione generica del background e degli obiettivi dell'utente.`,
         hasReliableSourceContext: false,
@@ -210,7 +210,7 @@ Nota: non e stato possibile leggere un'anteprima affidabile della sorgente. Non 
 
     const compactText = buildAssessmentExcerpt(extractedText);
 
-    onStatusUpdate?.('PDF analizzato: avvio valutazione...');
+    onStatusUpdate?.('Avvio calibrazione...');
 
     return {
       content: `Documento: ${file.name}
@@ -226,7 +226,7 @@ ${compactText}`,
       '[Lumina][Assessment] PDF parsing failed, using generic assessment fallback.',
       error
     );
-    onStatusUpdate?.('Parse PDF fallito: valutazione generica senza contenuto documento...');
+    onStatusUpdate?.('Lettura fallita: fallback calibrazione...');
     return {
       content: `Documento: ${file.name}\n\n${baseInstruction}\n\nNota: il parser del PDF e fallito. Non affermare di conoscere il contenuto del documento e non inferirlo dal titolo. Procedi con domande generiche su background, livello e obiettivi dell'utente.`,
       hasReliableSourceContext: false,

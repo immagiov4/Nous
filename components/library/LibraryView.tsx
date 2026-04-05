@@ -1,7 +1,11 @@
-import { BookOpen, FileJson, Moon, Settings2, Sun } from 'lucide-react';
+import { Download, Moon, Plus, Settings2, Sun } from 'lucide-react';
 import { useState, type ChangeEvent } from 'react';
+import logoUrl from '@/assets/logo.png';
 import type {
-  HomeChatToolPreferences,
+  HomeChatMode,
+  LibraryContextRef,
+  LibraryScopeSummary,
+  LibraryTree,
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
   OpenRouterModelSlot,
@@ -9,16 +13,25 @@ import type {
 } from '../../types';
 import HomeChatPanel from './HomeChatPanel';
 import OpenRouterModelPanel from '../shared/OpenRouterModelPanel';
-import ProjectCard from './ProjectCard';
+import LibraryTreeView from './LibraryTreeView.tsx';
+import type { UIMessage } from 'ai';
 
 interface LibraryViewProps {
   assessmentComplete: boolean;
   assessmentMessages: import('../../types').Message[];
+  homeChatMode: HomeChatMode;
   openingProjectId: string | null;
   isDarkMode: boolean;
   isLibraryLoading: boolean;
-  isWorking: boolean;
-  loadingStatus: string;
+  isLibraryQueryLoading: boolean;
+  isNewCourseLoading: boolean;
+  libraryAttachedContextRefs: LibraryContextRef[];
+  libraryErrorMessage: string | null;
+  libraryMessages: UIMessage[];
+  libraryScopeSummary: LibraryScopeSummary;
+  libraryTree: LibraryTree;
+  libraryWebSearch: boolean;
+  newCourseLoadingStatus: string;
   modelDefaults: OpenRouterModelDefaults;
   planFileInputId: string;
   preferredModels: OpenRouterModelPreferences;
@@ -28,16 +41,31 @@ interface LibraryViewProps {
   storageError: string | null;
   onClearPendingHomeFile: () => void;
   onConfirmGenerate: () => void;
+  onCreateFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<unknown>;
   onDeleteProject: (projectId: string) => void;
+  onDeleteFolder: (folderId: string) => Promise<void>;
   onExportProject: (projectId: string) => void;
-  onHomeChatSubmit: (
-    message: string,
-    options?: { toolPreferences?: HomeChatToolPreferences }
-  ) => Promise<void>;
+  onHomeChatModeChange: (mode: HomeChatMode) => void;
+  onLibraryAssistantSend: (message: string) => void | Promise<void>;
+  onLibraryWebSearchChange: (value: boolean) => void;
+  onMoveFolder: (
+    folderId: string,
+    parentFolderId: string | null,
+    targetIndex?: number
+  ) => Promise<unknown>;
+  onMoveProjects: (
+    projectIds: string[],
+    folderId: string | null,
+    targetIndex?: number
+  ) => Promise<unknown>;
   onSetPreferredOpenRouterModel: (slot: OpenRouterModelSlot, value: string) => void;
   onOpenProject: (projectId: string) => void;
   onPlanUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  onRemoveLibraryContextRef: (reference: LibraryContextRef) => void;
+  onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
+  onSendAssessmentMessage: (message: string) => Promise<void>;
   onToggleDarkMode: () => void;
+  onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
   onUploadSourceClick: () => void;
   onSourceFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onImportJsonClick: () => void;
@@ -46,11 +74,19 @@ interface LibraryViewProps {
 const LibraryView = ({
   assessmentComplete,
   assessmentMessages,
+  homeChatMode,
   openingProjectId,
   isDarkMode,
   isLibraryLoading,
-  isWorking,
-  loadingStatus,
+  isLibraryQueryLoading,
+  isNewCourseLoading,
+  libraryAttachedContextRefs,
+  libraryErrorMessage,
+  libraryMessages,
+  libraryScopeSummary,
+  libraryTree,
+  libraryWebSearch,
+  newCourseLoadingStatus,
   modelDefaults,
   planFileInputId,
   preferredModels,
@@ -60,19 +96,29 @@ const LibraryView = ({
   storageError,
   onClearPendingHomeFile,
   onConfirmGenerate,
+  onCreateFolder,
   onDeleteProject,
+  onDeleteFolder,
   onExportProject,
-  onHomeChatSubmit,
+  onHomeChatModeChange,
   onSetPreferredOpenRouterModel,
+  onLibraryAssistantSend,
+  onLibraryWebSearchChange,
+  onMoveFolder,
+  onMoveProjects,
   onOpenProject,
   onPlanUpload,
+  onRemoveLibraryContextRef,
+  onRenameFolder,
+  onSendAssessmentMessage,
   onToggleDarkMode,
+  onToggleLibraryContextRef,
   onUploadSourceClick,
   onSourceFileUpload,
   onImportJsonClick,
 }: LibraryViewProps) => {
   const [isModelPanelOpen, setIsModelPanelOpen] = useState(false);
-  const projectCountLabel = `${projects.length} ${projects.length === 1 ? 'progetto' : 'progetti'}`;
+  const [newFolderTrigger, setNewFolderTrigger] = useState(0);
 
   return (
     <div className="min-h-screen bg-paper-light px-4 py-5 transition-colors duration-300 dark:bg-paper-dark sm:px-6 lg:px-10">
@@ -87,9 +133,10 @@ const LibraryView = ({
 
       <div className="mx-auto max-w-7xl">
         <header className="mb-6 flex items-start justify-between gap-4">
-          <div className="max-w-3xl">
+          <div className="flex items-center gap-3">
+            <img src={logoUrl} alt="Nous" className="h-10 w-10 object-contain" />
             <h1 className="text-3xl font-serif tracking-[-0.02em] text-gray-900 dark:text-zinc-100 sm:text-4xl">
-              Apri un progetto o iniziane uno nuovo.
+              Nous
             </h1>
           </div>
 
@@ -135,14 +182,28 @@ const LibraryView = ({
 
         <HomeChatPanel
           assessmentComplete={assessmentComplete}
+          assessmentMessages={assessmentMessages}
+          homeChatMode={homeChatMode}
           isDarkMode={isDarkMode}
-          isLoading={isWorking}
-          loadingStatus={loadingStatus}
-          messages={assessmentMessages}
+          isLibraryLoading={isLibraryLoading}
+          isLibraryModeLoading={isLibraryQueryLoading}
+          isNewCourseLoading={isNewCourseLoading}
+          libraryAttachedContextRefs={libraryAttachedContextRefs}
+          libraryErrorMessage={libraryErrorMessage}
+          libraryMessages={libraryMessages}
+          libraryScopeSummary={libraryScopeSummary}
+          libraryTree={libraryTree}
+          libraryWebSearch={libraryWebSearch}
+          newCourseLoadingStatus={newCourseLoadingStatus}
           pendingFileName={pendingHomeFileName}
           onClearPendingFile={onClearPendingHomeFile}
           onConfirmGenerate={onConfirmGenerate}
-          onSendMessage={onHomeChatSubmit}
+          onHomeChatModeChange={onHomeChatModeChange}
+          onLibraryMessageSend={onLibraryAssistantSend}
+          onLibraryWebSearchChange={onLibraryWebSearchChange}
+          onRemoveLibraryContextRef={onRemoveLibraryContextRef}
+          onSendAssessmentMessage={onSendAssessmentMessage}
+          onToggleLibraryContextRef={onToggleLibraryContextRef}
           onUploadSourceClick={onUploadSourceClick}
         />
 
@@ -156,12 +217,17 @@ const LibraryView = ({
                 className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-zinc-600/50 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
                 title="Importa backup Lumina (.lumina.zip o JSON legacy)"
               >
-                <FileJson className="h-3.5 w-3.5" />
+                <Download className="h-3.5 w-3.5" />
                 Importa
               </button>
-              <span className="rounded-full border border-gray-200/80 bg-white/85 px-3 py-1.5 text-xs font-medium text-gray-600 dark:border-white/10 dark:bg-paper-surface/85 dark:text-zinc-400">
-                {projectCountLabel}
-              </span>
+              <button
+                type="button"
+                onClick={() => setNewFolderTrigger(n => n + 1)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-zinc-600 dark:bg-[#201917] dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Nuova cartella
+              </button>
             </div>
           </div>
 
@@ -171,30 +237,20 @@ const LibraryView = ({
             </div>
           ) : null}
 
-          {!isLibraryLoading && projects.length === 0 ? (
-            <div className="rounded-[1.6rem] border border-dashed border-gray-300 bg-white/80 px-8 py-16 text-left dark:border-white/10 dark:bg-paper-surface/70">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 text-gray-700 dark:bg-zinc-800 dark:text-zinc-300">
-                <BookOpen className="h-6 w-6" />
-              </div>
-              <h3 className="mt-6 text-3xl font-serif text-gray-900 dark:text-zinc-100">
-                Nessun progetto salvato
-              </h3>
-            </div>
-          ) : null}
-
-          {!isLibraryLoading && projects.length > 0 ? (
-            <div className="flex flex-col gap-2.5">
-              {projects.map(project => (
-                <ProjectCard
-                  key={project.id}
-                  isOpening={openingProjectId === project.id}
-                  project={project}
-                  onDelete={onDeleteProject}
-                  onExport={onExportProject}
-                  onOpen={onOpenProject}
-                />
-              ))}
-            </div>
+          {!isLibraryLoading ? (
+            <LibraryTreeView
+              createRootTrigger={newFolderTrigger}
+              openingProjectId={openingProjectId}
+              onCreateFolder={onCreateFolder}
+              onDeleteFolder={onDeleteFolder}
+              onDeleteProject={onDeleteProject}
+              onExportProject={onExportProject}
+              onMoveFolder={onMoveFolder}
+              onMoveProjects={onMoveProjects}
+              onOpenProject={onOpenProject}
+              onRenameFolder={onRenameFolder}
+              tree={libraryTree}
+            />
           ) : null}
         </section>
       </div>

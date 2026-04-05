@@ -2,6 +2,9 @@ import type {
   AppState,
   FileData,
   HomeChatToolPreferences,
+  LibraryFolder,
+  LibraryPlacement,
+  LibraryTree,
   LearningPlan,
   LearningSection,
   Message,
@@ -74,14 +77,33 @@ export interface WorkspaceDomainControllerAdapter {
 }
 
 export interface WorkspaceProjectLibraryAdapter {
+  createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;
   currentProjectId: string | null;
   deleteStoredProject: (projectId: string) => Promise<void>;
+  deleteFolder: (folderId: string) => Promise<void>;
   downloadProject: (projectId?: string) => Promise<void>;
   importProjectData: (data: unknown) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   isLibraryLoading: boolean;
+  libraryFolders: LibraryFolder[];
+  libraryPlacements: LibraryPlacement[];
+  libraryTree: LibraryTree;
+  loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
   loadStoredProject: (projectId: string) => Promise<ProjectSnapshot | null>;
+  moveFolder: (
+    folderId: string,
+    parentFolderId: string | null,
+    targetIndex?: number
+  ) => Promise<LibraryFolder | null>;
+  moveProjects: (
+    projectIds: string[],
+    folderId: string | null,
+    targetIndex?: number
+  ) => Promise<LibraryPlacement[]>;
   persistSnapshot: (snapshot: ProjectSnapshot) => Promise<SavedProjectMeta | null>;
+  refreshLibraryOrganization: () => Promise<void>;
+  refreshLibraryState: () => Promise<void>;
   refreshSavedProjects: () => Promise<void>;
+  renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveCurrentProject: (overrides?: Partial<ProjectSnapshot>) => Promise<SavedProjectMeta | null>;
   savedProjects: SavedProjectMeta[];
   setCurrentProjectId: (projectId: string | null) => void;

@@ -1794,7 +1794,7 @@ export const generateSectionContent = async (
   imageRefs: LessonImageRef[];
   documentAssets: PdfDocumentAssets | null;
 }> => {
-  onStatusUpdate?.('Generazione lezione completa in corso...');
+  onStatusUpdate?.('Generazione lezione...');
   const isFirstLesson = previousContext.trim().length === 0;
   const continuityRule = isFirstLesson
     ? "PRIMA LEZIONE: non citare lezioni precedenti, capitoli gia visti, 'come abbiamo accennato', 'come vedremo', o altre formule di continuita retroattiva."
@@ -1806,7 +1806,7 @@ export const generateSectionContent = async (
   let pdfPageCount: number | undefined;
   let relevantPdfPages: number[] = [];
   if (isPdfFile(file)) {
-    onStatusUpdate?.('Analisi immagini del PDF...');
+    onStatusUpdate?.('Analisi immagini...');
     try {
       pdfTextSession = await getPdfTextSession(file);
       pdfPageCount = pdfTextSession?.pageCount;
@@ -1818,7 +1818,7 @@ export const generateSectionContent = async (
       );
       if (relevantPdfPages.length > 0) {
         onStatusUpdate?.(
-          `Analisi immagini del PDF... pagine mirate ${relevantPdfPages[0]}-${relevantPdfPages[relevantPdfPages.length - 1]}`
+          `Analisi immagini... pp. ${relevantPdfPages[0]}-${relevantPdfPages[relevantPdfPages.length - 1]}`
         );
       }
 
@@ -1834,7 +1834,7 @@ export const generateSectionContent = async (
           '[Lumina][Lesson] PDF asset parsing timed out, continuing with text-only lesson generation for now.',
           error
         );
-        onStatusUpdate?.('PDF molto grande: continuo senza immagini per sbloccare la lezione...');
+        onStatusUpdate?.('Salto immagini (PDF grande)...');
       } else {
         console.warn(
           'PDF asset parsing failed, falling back to text-only lesson generation.',
@@ -1859,7 +1859,7 @@ export const generateSectionContent = async (
   }
 
   if (pdfSession) {
-    onStatusUpdate?.(`Analisi immagini del PDF... trovate ${pdfSession.images.length}`);
+    onStatusUpdate?.(`Analisi immagini... trovate ${pdfSession.images.length}`);
     const candidateImages = selectCandidatePdfImages(
       pdfSession.images,
       sectionTitle,
@@ -2031,7 +2031,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       imageSelectionMode: draftImageSelectionMode,
     });
 
-    onStatusUpdate?.('Verifica finale lezione e immagini...');
+    onStatusUpdate?.('Verifica finale...');
     const verifiedDraft = await verifyLessonDraft({
       sectionTitle,
       sectionDescription,
@@ -2203,7 +2203,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const targetQuizCount = estimateTargetQuizCount(repairedContentMarkdown);
   const draftQuiz = normalizeQuizLength(structuredQuiz, targetQuizCount);
 
-  onStatusUpdate?.('Verifica finale lezione...');
+  onStatusUpdate?.('Verifica finale...');
   const verifiedDraft = await verifyLessonDraft({
     sectionTitle,
     sectionDescription,

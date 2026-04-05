@@ -10,10 +10,14 @@ import { buildPersistenceSignature } from '../../services/projects/persistenceSi
 import { ProjectStorageError } from '../../services/projects/projectRepository';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
+  LibraryFolder,
+  LibraryPlacement,
+  LibraryTree,
   ProjectSnapshot,
   SavedProjectMeta,
   WorkspaceDomainState,
 } from '../../types';
+import { buildLibraryTree } from '../../utils/library/tree.ts';
 
 const projectRepository = new IndexedDbProjectRepository();
 
@@ -28,6 +32,8 @@ const sortProjects = (projects: SavedProjectMeta[]) =>
 
 export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [libraryFolders, setLibraryFolders] = useState<LibraryFolder[]>([]);
+  const [libraryPlacements, setLibraryPlacements] = useState<LibraryPlacement[]>([]);
   const [savedProjects, setSavedProjects] = useState<SavedProjectMeta[]>([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -42,10 +48,33 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     [currentProjectId, savedProjects]
   );
 
+  const libraryTree = useMemo<LibraryTree>(
+    () =>
+      buildLibraryTree({
+        folders: libraryFolders,
+        placements: libraryPlacements,
+        projects: savedProjects,
+      }),
+    [libraryFolders, libraryPlacements, savedProjects]
+  );
+
   const refreshSavedProjects = useCallback(async () => {
     const projects = await projectRepository.listProjects();
     setSavedProjects(sortProjects(projects));
   }, []);
+
+  const refreshLibraryOrganization = useCallback(async () => {
+    const [folders, placements] = await Promise.all([
+      projectRepository.listFolders(),
+      projectRepository.listPlacements(),
+    ]);
+    setLibraryFolders(folders);
+    setLibraryPlacements(placements);
+  }, []);
+
+  const refreshLibraryState = useCallback(async () => {
+    await Promise.all([refreshSavedProjects(), refreshLibraryOrganization()]);
+  }, [refreshLibraryOrganization, refreshSavedProjects]);
 
   const syncProjectMeta = useCallback((meta: SavedProjectMeta) => {
     setSavedProjects(previousProjects => {
@@ -189,14 +218,17 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
 
     const loadInitialState = async () => {
       try {
-        await refreshSavedProjects();
+        await refreshLibraryState();
+        setStorageError(null);
+      } catch (error) {
+        setStorageError(getErrorMessage(error));
       } finally {
         setIsLibraryLoading(false);
       }
     };
 
     void loadInitialState();
-  }, [refreshSavedProjects]);
+  }, [refreshLibraryState]);
 
   const currentPersistenceSignature = useMemo(
     () => buildPersistenceSignature(domainState),
@@ -229,15 +261,68 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   }, [currentPersistenceSignature, currentProjectId, saveCurrentProject]);
 
   return {
+    createFolder: async (args: { name: string; parentFolderId?: string | null }) => {
+      const folder = await projectRepository.createFolder(args);
+      await refreshLibraryOrganization();
+      return folder;
+    },
     currentProjectId,
-    deleteStoredProject: projectRepository.deleteProject.bind(projectRepository),
+    deleteStoredProject: async (projectId: string) => {
+      await projectRepository.deleteProject(projectId);
+      await refreshLibraryState();
+    },
+    deleteFolder: async (folderId: string) => {
+      await projectRepository.deleteFolder(folderId);
+      await refreshLibraryOrganization();
+    },
     downloadProject,
-    importProjectData: projectRepository.importProject.bind(projectRepository),
+    importProjectData: async (data: unknown) => {
+      const imported = await projectRepository.importProject(data);
+      await refreshLibraryState();
+      return imported;
+    },
     isLibraryLoading,
     isProjectHydratedRef,
+    libraryFolders,
+    libraryPlacements,
+    libraryTree,
+    loadProjectsById: projectRepository.loadProjectsById.bind(projectRepository),
     loadStoredProject: projectRepository.loadProject.bind(projectRepository),
+    moveFolder: async (
+      folderId: string,
+      parentFolderId: string | null,
+      targetIndex?: number
+    ) => {
+      const nextFolder = await projectRepository.moveFolder(
+        folderId,
+        parentFolderId,
+        targetIndex
+      );
+      await refreshLibraryOrganization();
+      return nextFolder;
+    },
+    moveProjects: async (
+      projectIds: string[],
+      folderId: string | null,
+      targetIndex?: number
+    ) => {
+      const nextPlacements = await projectRepository.moveProjects(
+        projectIds,
+        folderId,
+        targetIndex
+      );
+      await refreshLibraryOrganization();
+      return nextPlacements;
+    },
     persistSnapshot,
+    refreshLibraryOrganization,
+    refreshLibraryState,
     refreshSavedProjects,
+    renameFolder: async (folderId: string, name: string) => {
+      const nextFolder = await projectRepository.renameFolder(folderId, name);
+      await refreshLibraryOrganization();
+      return nextFolder;
+    },
     saveCurrentProject,
     savedProjects,
     setCurrentProjectId,

@@ -167,43 +167,65 @@ export default function ContextAnswerPanel({
     contextAnswer.selectedText,
   ]);
 
+  const latestRequestStateRef = useRef({
+    attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
+    attachedAnnotationText: contextAnswer.attachedAnnotationText,
+    contextAfter: contextAnswer.contextAfter,
+    contextBefore: contextAnswer.contextBefore,
+    lessonContent: contextAnswer.lessonContent,
+    lessonDescription: contextAnswer.lessonDescription,
+    lessonTitle: contextAnswer.lessonTitle,
+    selectedText: contextAnswer.selectedText,
+    sourceKind: contextAnswer.sourceKind,
+    sourceMaterial: contextAnswer.sourceMaterial,
+    sourceName: contextAnswer.sourceName,
+    toolPreferences,
+  });
+
+  latestRequestStateRef.current = {
+    attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
+    attachedAnnotationText: contextAnswer.attachedAnnotationText,
+    contextAfter: contextAnswer.contextAfter,
+    contextBefore: contextAnswer.contextBefore,
+    lessonContent: contextAnswer.lessonContent,
+    lessonDescription: contextAnswer.lessonDescription,
+    lessonTitle: contextAnswer.lessonTitle,
+    selectedText: contextAnswer.selectedText,
+    sourceKind: contextAnswer.sourceKind,
+    sourceMaterial: contextAnswer.sourceMaterial,
+    sourceName: contextAnswer.sourceName,
+    toolPreferences,
+  };
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport<ContextChatMessage>({
         api: `${getBackendUrl()}/api/chat/context`,
-        prepareSendMessagesRequest: ({ id, messages }) => ({
-          body: {
-            id,
-            messages,
-            contextAfter: contextAnswer.contextAfter,
-            contextBefore: contextAnswer.contextBefore,
-            lessonContent: contextAnswer.lessonContent,
-            lessonDescription: contextAnswer.lessonDescription,
-            lessonTitle: contextAnswer.lessonTitle,
-            selectedText: contextAnswer.selectedText,
-            sourceKind: contextAnswer.sourceKind,
-            sourceMaterial: contextAnswer.sourceMaterial,
-            sourceName: contextAnswer.sourceName,
-            attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
-            attachedAnnotationText: contextAnswer.attachedAnnotationText,
-            toolPreferences,
-          },
-        }),
+        // `useChat` keeps the initial transport instance, so request data must come from a ref.
+        prepareSendMessagesRequest: ({ id, messages }) => {
+          const currentRequestState = latestRequestStateRef.current;
+
+          return {
+            body: {
+              id,
+              messages,
+              contextAfter: currentRequestState.contextAfter,
+              contextBefore: currentRequestState.contextBefore,
+              lessonContent: currentRequestState.lessonContent,
+              lessonDescription: currentRequestState.lessonDescription,
+              lessonTitle: currentRequestState.lessonTitle,
+              selectedText: currentRequestState.selectedText,
+              sourceKind: currentRequestState.sourceKind,
+              sourceMaterial: currentRequestState.sourceMaterial,
+              sourceName: currentRequestState.sourceName,
+              attachedAnnotationNote: currentRequestState.attachedAnnotationNote,
+              attachedAnnotationText: currentRequestState.attachedAnnotationText,
+              toolPreferences: currentRequestState.toolPreferences,
+            },
+          };
+        },
       }),
-    [
-      contextAnswer.contextAfter,
-      contextAnswer.contextBefore,
-      contextAnswer.lessonContent,
-      contextAnswer.lessonDescription,
-      contextAnswer.lessonTitle,
-      contextAnswer.attachedAnnotationNote,
-      contextAnswer.attachedAnnotationText,
-      contextAnswer.selectedText,
-      contextAnswer.sourceKind,
-      contextAnswer.sourceMaterial,
-      contextAnswer.sourceName,
-      toolPreferences,
-    ]
+    []
   );
 
   const { addToolOutput, error, messages, sendMessage, status } = useChat<ContextChatMessage>({

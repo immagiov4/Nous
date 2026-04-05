@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight, FastForward, Loader2, Pause, Play, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 import type { VoiceProfileId } from '../../types';
+import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 
 interface AudioPlayerProps {
   isPlaying: boolean;
@@ -94,10 +95,7 @@ const AudioPlayer = ({
     };
 
     updatePointerMode();
-    mediaQuery.addEventListener('change', updatePointerMode);
-    return () => {
-      mediaQuery.removeEventListener('change', updatePointerMode);
-    };
+    return subscribeToMediaQuery(mediaQuery, updatePointerMode);
   }, []);
 
   useEffect(() => {

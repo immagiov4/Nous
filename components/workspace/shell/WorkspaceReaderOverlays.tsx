@@ -53,6 +53,7 @@ export default function WorkspaceReaderOverlays({
         <ContextMenu
           {...contextMenu}
           containerRef={contextMenuRef}
+          isDarkMode={isDarkMode}
           onClose={onCloseContextMenu}
           onAsk={onAskContextQuestion}
           onCreateLesson={onCreateLesson}

@@ -60,6 +60,7 @@ const MusicPlayer = ({
   const [videoId, setVideoId] = useState<string | null>(null);
   const [hasError, setHasError] = useState(false);
   const inputId = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
   const presets = [
     {
       name: 'Anti-anxiety',
@@ -170,6 +171,18 @@ const MusicPlayer = ({
     }
   }, [volume]);
 
+  // Close panel when clicking/tapping outside the container
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [isOpen]);
+
   const handleRetry = () => {
     setHasError(false);
     const currentUrl = url;
@@ -212,32 +225,27 @@ const MusicPlayer = ({
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80';
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+        aria-label={isOpen ? 'Chiudi audio ambiente' : 'Apri audio ambiente'}
         className={`
-            rounded-full border p-2 transition-colors
+            cursor-pointer rounded-full border p-2 transition-colors
             ${
               isOpen || isPlaying
                 ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-200'
-                : 'bg-transparent border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-800'
+                : 'border-transparent bg-transparent text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-zinc-800 dark:hover:text-gray-300'
             }
             ${hasError ? 'border-red-200 bg-red-50 text-red-500 dark:border-red-900/50 dark:bg-red-950/20' : ''}
         `}
-        title="Musica di sottofondo (YouTube)"
+        title={isOpen ? 'Chiudi audio ambiente' : 'Audio ambiente (YouTube)'}
       >
         <Headphones className="h-5 w-5" />
       </button>
 
       {isOpen && (
-        <>
-          <button
-            type="button"
-            aria-label="Chiudi pannello musica"
-            className="fixed inset-0 z-40 cursor-default"
-            onClick={() => setIsOpen(false)}
-          />
           <div
             className={`${panelClassName} overflow-hidden rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 shadow-[0_12px_30px_-8px_rgba(15,23,42,0.12),0_28px_60px_-22px_rgba(15,23,42,0.22)] dark:border-zinc-600/80 dark:bg-stone-700 dark:shadow-[0_16px_34px_-14px_rgba(0,0,0,0.35),0_30px_60px_-24px_rgba(0,0,0,0.38)]`}
           >
@@ -249,7 +257,8 @@ const MusicPlayer = ({
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
+                className="cursor-pointer text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
+                title="Chiudi"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -344,7 +353,6 @@ const MusicPlayer = ({
               </div>
             </div>
           </div>
-        </>
       )}
 
       {/* Explicit Iframe Rendering for robustness */}

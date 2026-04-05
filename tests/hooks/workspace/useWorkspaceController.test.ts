@@ -280,10 +280,19 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
   let loadedSnapshot: ProjectSnapshot | null = null;
 
   const adapter: WorkspaceProjectLibraryAdapter = {
+    createFolder: async ({ name, parentFolderId }) => ({
+      id: 'folder-1',
+      name,
+      parentFolderId: parentFolderId ?? null,
+      createdAt: '2026-03-20T10:00:00.000Z',
+      updatedAt: '2026-03-20T10:00:00.000Z',
+      order: 1,
+    }),
     currentProjectId: null,
     deleteStoredProject: async projectId => {
       deletedProjectIds.push(projectId);
     },
+    deleteFolder: async () => {},
     downloadProject: async projectId => {
       exportedProjectIds.push(projectId);
     },
@@ -292,12 +301,31 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       snapshot: createProjectSnapshot({ id: 'imported-project' }),
     }),
     isLibraryLoading: false,
+    libraryFolders: [],
+    libraryPlacements: [],
+    libraryTree: {
+      descendantProjectIdsByFolderId: {},
+      folderById: {},
+      placementByProjectId: {},
+      rootNodes: [],
+    },
+    loadProjectsById: async ids =>
+      ids.map(id =>
+        createProjectSnapshot({
+          id,
+        })
+      ),
     loadStoredProject: async () => loadedSnapshot,
+    moveFolder: async () => null,
+    moveProjects: async () => [],
     persistSnapshot: async snapshot => {
       persistedSnapshots.push(snapshot);
       return buildMeta(snapshot.id);
     },
+    refreshLibraryOrganization: async () => {},
+    refreshLibraryState: async () => {},
     refreshSavedProjects: async () => {},
+    renameFolder: async () => null,
     saveCurrentProject: async overridesArg => {
       savedOverrides.push(overridesArg);
       return adapter.currentProjectId ? buildMeta(adapter.currentProjectId) : null;
@@ -1011,7 +1039,7 @@ test('startHomeChat passes the Nuovo corso preference to the model without alter
 
   const result = await controller.startHomeChat({
     input: 'Vorrei capire meglio come studiare',
-    toolPreferences: { newCourse: true },
+    toolPreferences: { mode: 'new-course', newCourse: true },
   });
 
   assert.equal(result.outcome, 'continued');
@@ -1090,6 +1118,7 @@ test('submitAssessment forwards the Nuovo corso preference to the active chat se
   });
 
   const result = await controller.submitAssessment('Fammi una domanda utile', {
+    mode: 'new-course',
     newCourse: true,
   });
 

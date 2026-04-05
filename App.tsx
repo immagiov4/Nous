@@ -4,6 +4,7 @@ import LibraryView from './components/library/LibraryView';
 import LoadingScreen from './components/shared/LoadingScreen';
 import WorkspaceReaderShell from './components/workspace/WorkspaceReaderShell.tsx';
 import type { WorkspaceReaderShellProps } from './components/workspace/shell/types.ts';
+import { useLibraryAssistantChat } from './hooks/library/useLibraryAssistantChat.ts';
 import { useProjectLibrary } from './hooks/library/useProjectLibrary.ts';
 import { useWorkspaceAssessmentScreen } from './hooks/workspace/useWorkspaceAssessmentScreen.ts';
 import { useWorkspaceController } from './hooks/workspace/useWorkspaceController.ts';
@@ -15,7 +16,7 @@ import { useWorkspaceReaderRuntime } from './hooks/workspace/useWorkspaceReaderR
 import { useUiPreferencesPersistence } from './hooks/workspace/useUiPreferencesPersistence.ts';
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from './services/openrouter/index.ts';
 import { useEffect, useState } from 'react';
-import type { HomeChatToolPreferences } from './types.ts';
+import type { HomeChatMode, HomeChatToolPreferences } from './types.ts';
 import { getLessonSourcePageLabel } from './utils/context/sourceMaterial.ts';
 
 const notify = (message: string) => {
@@ -30,6 +31,7 @@ const defaultModelConfig = {
 
 const App = () => {
   const [assessmentComplete, setAssessmentComplete] = useState(false);
+  const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>('new-course');
   const [pendingHomeSourceFile, setPendingHomeSourceFile] = useState<File | null>(null);
   const domain = useWorkspaceDomain();
   const readerRuntime = useWorkspaceReaderRuntime({
@@ -49,6 +51,12 @@ const App = () => {
 
   const projectLibrary = useProjectLibrary({
     domainState: domain.domainState,
+  });
+  const libraryAssistantChat = useLibraryAssistantChat({
+    folders: projectLibrary.libraryFolders,
+    loadProjectsById: projectLibrary.loadProjectsById,
+    projects: projectLibrary.savedProjects,
+    tree: projectLibrary.libraryTree,
   });
 
   const controller = useWorkspaceController({
@@ -185,16 +193,17 @@ const App = () => {
     }
   };
 
-  const handleHomeChatSubmit = async (
-    message: string,
-    options?: { toolPreferences?: HomeChatToolPreferences }
-  ) => {
+  const handleNewCourseMessage = async (message: string) => {
+    const toolPreferences: HomeChatToolPreferences = {
+      mode: 'new-course',
+      newCourse: true,
+    };
     const result = assessmentMessages.length
-      ? await submitAssessment(message, options?.toolPreferences)
+      ? await submitAssessment(message, toolPreferences)
       : await startHomeChat({
           input: message,
           selectedFile: pendingHomeSourceFile,
-          toolPreferences: options?.toolPreferences,
+          toolPreferences,
         });
 
     if (result.outcome === 'assessment-complete') {
@@ -347,11 +356,19 @@ const App = () => {
       <LibraryView
         assessmentComplete={assessmentComplete}
         assessmentMessages={assessmentMessages}
+        homeChatMode={homeChatMode}
         isDarkMode={readerRuntime.readerChrome.isDarkMode}
         isLibraryLoading={isLibraryLoading}
-        isWorking={isHomeChatLoading}
-        loadingStatus={homeChatLoadingStatus}
+        isLibraryQueryLoading={libraryAssistantChat.isLoading}
+        isNewCourseLoading={isHomeChatLoading}
+        libraryAttachedContextRefs={libraryAssistantChat.attachedContextRefs}
+        libraryErrorMessage={libraryAssistantChat.error?.message || null}
+        libraryMessages={libraryAssistantChat.messages}
+        libraryScopeSummary={libraryAssistantChat.scopeSummary}
+        libraryTree={projectLibrary.libraryTree}
+        libraryWebSearch={libraryAssistantChat.webSearch}
         modelDefaults={defaultModelConfig}
+        newCourseLoadingStatus={homeChatLoadingStatus}
         openingProjectId={openingProjectId}
         planFileInputId={planFileInputId}
         preferredModels={readerRuntime.preferredModels}
@@ -361,23 +378,33 @@ const App = () => {
         storageError={storageError}
         onClearPendingHomeFile={() => setPendingHomeSourceFile(null)}
         onConfirmGenerate={handleConfirmGenerate}
+        onCreateFolder={projectLibrary.createFolder}
+        onDeleteFolder={projectLibrary.deleteFolder}
         onDeleteProject={handleDeleteProject}
         onExportProject={projectId => {
           void handleExportProject(projectId);
         }}
-        onHomeChatSubmit={handleHomeChatSubmit}
+        onHomeChatModeChange={setHomeChatMode}
         onImportJsonClick={handleImportJsonClick}
+        onLibraryAssistantSend={libraryAssistantChat.sendLibraryMessage}
+        onLibraryWebSearchChange={libraryAssistantChat.setWebSearch}
+        onMoveFolder={projectLibrary.moveFolder}
+        onMoveProjects={projectLibrary.moveProjects}
         onOpenProject={projectId => {
           void handleOpenProject(projectId, { source: 'library' });
         }}
         onPlanUpload={event => {
           void handlePlanUpload(event);
         }}
+        onRemoveLibraryContextRef={libraryAssistantChat.removeAttachedContextRef}
+        onRenameFolder={projectLibrary.renameFolder}
+        onSendAssessmentMessage={handleNewCourseMessage}
         onSetPreferredOpenRouterModel={readerRuntime.setPreferredOpenRouterModel}
         onSourceFileUpload={handleHomeSourceFileUpload}
         onToggleDarkMode={() =>
           readerRuntime.readerChrome.setIsDarkMode(!readerRuntime.readerChrome.isDarkMode)
         }
+        onToggleLibraryContextRef={libraryAssistantChat.toggleAttachedContextRef}
         onUploadSourceClick={handleUploadSourceClick}
       />
     );

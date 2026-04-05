@@ -69,8 +69,69 @@ export interface Message {
   text: string;
 }
 
+export type HomeChatMode = 'new-course' | 'library-query';
+
+export interface LibraryContextRef {
+  id: string;
+  kind: 'folder' | 'project';
+  label: string;
+}
+
 export interface HomeChatToolPreferences {
+  attachedContextRefs?: LibraryContextRef[];
+  mode: HomeChatMode;
   newCourse: boolean;
+  webSearch?: boolean;
+}
+
+export interface LibraryFolder {
+  id: string;
+  name: string;
+  parentFolderId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  order: number;
+}
+
+export interface LibraryPlacement {
+  projectId: ProjectId;
+  folderId: string | null;
+  order: number;
+  updatedAt: string;
+}
+
+export interface LibraryProjectNode {
+  id: ProjectId;
+  kind: 'project';
+  order: number;
+  project: SavedProjectMeta;
+}
+
+export interface LibraryFolderNode {
+  id: string;
+  kind: 'folder';
+  order: number;
+  folder: LibraryFolder;
+  children: LibraryTreeNode[];
+  descendantProjectIds: ProjectId[];
+}
+
+export type LibraryTreeNode = LibraryFolderNode | LibraryProjectNode;
+
+export interface LibraryTree {
+  descendantProjectIdsByFolderId: Record<string, ProjectId[]>;
+  folderById: Record<string, LibraryFolder>;
+  placementByProjectId: Record<ProjectId, LibraryPlacement>;
+  rootNodes: LibraryTreeNode[];
+}
+
+export interface LibraryScopeSummary {
+  attachedFolderIds: string[];
+  attachedProjectIds: ProjectId[];
+  contextLabels: string[];
+  isWholeLibraryScope: boolean;
+  scopeProjectIds: ProjectId[];
+  scopeSummary: string;
 }
 
 export interface QuizQuestion {

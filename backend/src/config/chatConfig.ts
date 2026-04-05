@@ -15,8 +15,9 @@ loadEnvFile('../.env.local');
 loadEnvFile('../.env');
 
 export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+export const DEFAULT_CONTEXT_CHAT_MODEL = 'minimax/minimax-m2.7';
 export const CONTEXT_CHAT_MODEL =
-  process.env.MODEL_CONTEXT || process.env.MODEL_FLASH || 'openai/gpt-5.4-nano';
+  process.env.MODEL_CONTEXT || DEFAULT_CONTEXT_CHAT_MODEL;
 
 export const requireOpenRouterApiKey = () => {
   if (!OPENROUTER_API_KEY) {

@@ -354,7 +354,7 @@ export const createProjectLifecycleCommands = (
       state.resetRuntimeState();
       state.setScreenState(AppState.LIBRARY);
     }
-    await projectLibrary.refreshSavedProjects();
+    await projectLibrary.refreshLibraryState();
   }
 
   return {

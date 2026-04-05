@@ -153,7 +153,8 @@ describe('ContextMenu', () => {
     const user = userEvent.setup();
     const props = {
       ...buildProps(),
-      annotationNote: 'Formula **chiave**: $y(t)=x$',
+      annotationNote:
+        'Formula **chiave**: $y(t)=x$\n\n| Simbolo | Significato |\n| --- | --- |\n| $x$ | stato |',
       type: 'annotation' as const,
     };
 
@@ -165,11 +166,13 @@ describe('ContextMenu', () => {
     expect(screen.getByRole('button', { name: /Rimuovi evidenziazione/i })).toBeInTheDocument();
     expect(container.querySelector('strong')?.textContent).toBe('chiave');
     expect(container.querySelector('.katex')).not.toBeNull();
+    expect(screen.getByRole('table')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Modifica' }));
 
     expect(screen.queryByRole('button', { name: /Rimuovi evidenziazione/i })).not.toBeInTheDocument();
-    const textarea = screen.getByDisplayValue('Formula **chiave**: $y(t)=x$');
+    const textarea = screen.getByRole('textbox');
+    expect(textarea).toHaveValue(props.annotationNote);
     await user.clear(textarea);
     await user.click(screen.getByRole('button', { name: 'Salva' }));
 

@@ -70,7 +70,7 @@ const buildMarkdownComponents = (
   },
   blockquote({ children }: { children?: ReactNode }) {
     return (
-      <blockquote className="my-2 border-l-4 border-current pl-4 py-2 italic opacity-80">
+      <blockquote className="my-2 border-l-4 border-orange-400/70 pl-4 py-2 italic text-gray-700 dark:border-amber-500/70 dark:text-zinc-200">
         {children}
       </blockquote>
     );

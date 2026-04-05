@@ -7,6 +7,8 @@ const aiMocks = vi.hoisted(() => ({
   streamText: vi.fn(),
 }));
 
+const fetchMock = vi.hoisted(() => vi.fn());
+
 const openRouterMocks = vi.hoisted(() => ({
   createOpenRouter: vi.fn(),
   chat: vi.fn(),
@@ -54,6 +56,8 @@ describe('POST /api/chat/context', () => {
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
     openRouterMocks.chat.mockReturnValue('context-model');
     openRouterMocks.createOpenRouter.mockReturnValue({
       chat: openRouterMocks.chat,
@@ -128,6 +132,15 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Annota: attiva');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Cerca sul web: attiva');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'devi usare davvero il tool `searchWeb` almeno una volta in questo turno'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Tratta quindi ogni tua risposta come un messaggio unico autosufficiente'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Non scrivere introduzioni sospese che si aspettano contenuti "dopo" o "qui sotto"'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
       "Rispondi direttamente alla domanda dell'utente e fermati li."
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
@@ -137,23 +150,300 @@ describe('POST /api/chat/context', () => {
       "L'unica eccezione consentita e una domanda strettamente strumentale all'uso dei tool di annotazione"
     );
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
+      searchWeb: expect.any(Object),
       requestAddToNotes: expect.any(Object),
       saveConversationNote: expect.any(Object),
       updateConversationNote: expect.any(Object),
     });
-    expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toMatchObject({
-      openrouter: {
-        plugins: [
-          expect.objectContaining({
-            id: 'web',
-            max_results: 5,
-          }),
+    expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toBeUndefined();
+    expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
+    expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');
+
+    const initialStep = await aiMocks.streamText.mock.calls[0][0].prepareStep({
+      steps: [],
+    });
+
+    expect(initialStep).toMatchObject({
+      activeTools: expect.arrayContaining([
+        'searchWeb',
+        'requestAddToNotes',
+        'saveConversationNote',
+        'updateConversationNote',
+      ]),
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              annotations: [
+                {
+                  type: 'url_citation',
+                  url_citation: {
+                    title: 'Example source',
+                    url: 'https://example.com/article',
+                  },
+                },
+              ],
+              content: 'Cross-check esterno eseguito.',
+            },
+          },
         ],
-        web_search_options: expect.objectContaining({
-          engine: 'native',
-          max_results: 5,
-        }),
-      },
+        usage: {
+          server_tool_use: {
+            web_search_requests: 1,
+          },
+        },
+      }),
+    });
+
+    const toolResult = await aiMocks.streamText.mock.calls[0][0].tools.searchWeb.execute({
+      query: 'NVIDIA forest real-time ray tracing alternatives foliage lighting',
+    });
+
+    expect(toolResult).toMatchObject({
+      query: 'NVIDIA forest real-time ray tracing alternatives foliage lighting',
+      summary: 'Cross-check esterno eseguito.',
+      webSearchRequests: 1,
+      sources: [
+        {
+          title: 'Example source',
+          url: 'https://example.com/article',
+        },
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
+    expect(fetchOptions?.body).toContain('"type":"openrouter:web_search"');
+    expect(fetchOptions?.body).toContain('"tool_choice":"required"');
+    expect(fetchOptions?.body).toContain('NVIDIA forest real-time ray tracing alternatives foliage lighting');
+    expect(fetchOptions?.body).toContain('Puntatore');
+  });
+});
+
+describe('POST /api/chat/library', () => {
+  beforeEach(() => {
+    aiMocks.convertToModelMessages.mockReset();
+    aiMocks.pipeUIMessageStreamToResponse.mockReset();
+    aiMocks.streamText.mockReset();
+    openRouterMocks.chat.mockReset();
+    openRouterMocks.createOpenRouter.mockReset();
+    chatConfigMocks.requireOpenRouterApiKey.mockReset();
+
+    chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    openRouterMocks.chat.mockReturnValue('context-model');
+    openRouterMocks.createOpenRouter.mockReturnValue({
+      chat: openRouterMocks.chat,
+    });
+    aiMocks.convertToModelMessages.mockResolvedValue([{ role: 'user', content: 'Ciao' }]);
+    aiMocks.streamText.mockReturnValue({
+      toUIMessageStream: () => 'stream-token',
+    });
+    aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
+      ({ response }: { response: { status: (code: number) => { json: (body: unknown) => void } } }) => {
+        response.status(200).json({ success: true, streamed: true });
+      }
+    );
+  });
+
+  test('validates that library chat messages are present', async () => {
+    const response = await request(createApp())
+      .post('/api/chat/library')
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Missing chat messages for library chat.',
+    });
+  });
+
+  test('streams a library answer with scoped tool contracts and optional web search', async () => {
+    const response = await request(createApp())
+      .post('/api/chat/library')
+      .send({
+        attachedContextRefs: [
+          {
+            id: 'folder-1',
+            kind: 'folder',
+            label: 'Frontend',
+          },
+        ],
+        resolvedScopeSummary: {
+          attachedFolderIds: ['folder-1'],
+          attachedProjectIds: [],
+          contextLabels: ['Frontend'],
+          isWholeLibraryScope: false,
+          scopeProjectIds: ['project-1', 'project-2'],
+          scopeSummary: '2 corsi nello scope allegato: Frontend.',
+        },
+        toolPreferences: {
+          webSearch: true,
+        },
+        messages: [{ id: '1', role: 'user', content: 'Riassumimi le note' }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, streamed: true });
+    expect(aiMocks.streamText).toHaveBeenCalledTimes(1);
+    expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
+      model: 'context-model',
+      messages: [{ role: 'user', content: 'Ciao' }],
+    });
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      '2 corsi nello scope allegato: Frontend.'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Riferimenti allegati: folder:Frontend'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Cerca sul web: attiva'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Le istruzioni esplicite dell\'utente hanno precedenza sulla preferenza "Cerca sul web".'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Se l\'utente non lo specifica, la preferenza "Cerca sul web" attiva rafforza l\'uso di `searchWeb`'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Tratta quindi ogni tua risposta come un messaggio unico autosufficiente'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Non scrivere introduzioni sospese che si aspettano contenuti "dopo" o "qui sotto"'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
+      searchWeb: expect.any(Object),
+      listLibraryTree: expect.any(Object),
+      getProjectOverviews: expect.any(Object),
+      getProjectStructures: expect.any(Object),
+      getLessonDetails: expect.any(Object),
+      searchLibrary: expect.any(Object),
+    });
+    expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toBeUndefined();
+    expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
+    expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');
+
+    const initialStep = await aiMocks.streamText.mock.calls[0][0].prepareStep({
+      steps: [],
+    });
+
+    expect(initialStep).toMatchObject({
+      activeTools: expect.arrayContaining([
+        'searchWeb',
+        'listLibraryTree',
+        'getProjectOverviews',
+        'getProjectStructures',
+        'getLessonDetails',
+        'searchLibrary',
+      ]),
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              annotations: [
+                {
+                  type: 'url_citation',
+                  url_citation: {
+                    title: 'Example source',
+                    url: 'https://example.com/article',
+                  },
+                },
+              ],
+              content: 'Cross-check esterno eseguito.',
+            },
+          },
+        ],
+        usage: {
+          server_tool_use: {
+            web_search_requests: 1,
+          },
+        },
+      }),
+    });
+
+    const toolResult = await aiMocks.streamText.mock.calls[0][0].tools.searchWeb.execute({
+      query: 'NIS2 identity authentication authorization IAM',
+    });
+
+    expect(toolResult).toMatchObject({
+      query: 'NIS2 identity authentication authorization IAM',
+      summary: 'Cross-check esterno eseguito.',
+      webSearchRequests: 1,
+      sources: [
+        {
+          title: 'Example source',
+          url: 'https://example.com/article',
+        },
+      ],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+    const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
+    expect(fetchOptions?.body).toContain('"type":"openrouter:web_search"');
+    expect(fetchOptions?.body).toContain('"tool_choice":"required"');
+    expect(fetchOptions?.body).toContain('NIS2 identity authentication authorization IAM');
+  });
+
+  test('keeps the web-search tool available after local library tool activity in the same turn', async () => {
+    const response = await request(createApp())
+      .post('/api/chat/library')
+      .send({
+        toolPreferences: {
+          webSearch: false,
+        },
+        messages: [
+          {
+            id: '1',
+            role: 'user',
+            parts: [{ type: 'text', text: 'Verifica sul web se la mia ultima nota e accurata' }],
+          },
+          {
+            id: '2',
+            role: 'assistant',
+            parts: [
+              {
+                type: 'tool-getLessonDetails',
+                toolCallId: 'tool-1',
+                state: 'output-available',
+                input: {
+                  requests: [{ projectId: 'project-1', lessonIds: ['lesson-1'] }],
+                },
+                output: {
+                  lessons: [],
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    const forcedWebStep = await aiMocks.streamText.mock.calls[0][0].prepareStep({
+      steps: [],
+    });
+
+    expect(forcedWebStep).toMatchObject({
+      activeTools: expect.arrayContaining([
+        'searchWeb',
+        'listLibraryTree',
+        'getProjectOverviews',
+        'getProjectStructures',
+        'getLessonDetails',
+        'searchLibrary',
+      ]),
     });
   });
 });
