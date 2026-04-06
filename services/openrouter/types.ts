@@ -2,19 +2,19 @@ import type {
   FileData,
   LearningPlan,
   LearningSection,
-  Message,
   LessonImageRef,
+  Message,
+  OpenRouterModelSlot,
   PdfDocumentAssets,
-  PdfTextIndex,
-  PdfTextChunk,
   PdfImageAsset,
+  PdfTextChunk,
+  PdfTextIndex,
   PdfTextPage,
   QuizQuestion,
   SyllabusItem,
   UserProfile,
-  VoiceProfileId,
   VoiceName,
-  OpenRouterModelSlot,
+  VoiceProfileId,
 } from '../../types.ts';
 
 export interface JsonSchemaFormat {
@@ -71,12 +71,7 @@ export interface ChatMessage {
   annotations?: FileAnnotation[];
 }
 
-export type OpenRouterReasoningEffort =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high';
+export type OpenRouterReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
 
 export interface OpenRouterReasoningOptions {
   enabled?: boolean;

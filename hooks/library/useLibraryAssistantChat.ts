@@ -168,57 +168,56 @@ export const useLibraryAssistantChat = ({
     []
   );
 
-  const { addToolOutput, error, messages, sendMessage, status } =
-    useChat<LibraryAssistantMessage>({
-      id: 'home-library-assistant',
-      messages: [],
-      transport,
-      experimental_throttle: 96,
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-      onToolCall: async ({ toolCall }) => {
-        if (toolCall.dynamic) {
-          return;
-        }
+  const { addToolOutput, error, messages, sendMessage, status } = useChat<LibraryAssistantMessage>({
+    id: 'home-library-assistant',
+    messages: [],
+    transport,
+    experimental_throttle: 96,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    onToolCall: async ({ toolCall }) => {
+      if (toolCall.dynamic) {
+        return;
+      }
 
-        const toolName = toolCall.toolName as LibraryAssistantToolName;
-        if (
-          !LIBRARY_ASSISTANT_TOOL_NAMES.includes(
-            toolName as (typeof LIBRARY_ASSISTANT_TOOL_NAMES)[number]
-          )
-        ) {
-          return;
-        }
+      const toolName = toolCall.toolName as LibraryAssistantToolName;
+      if (
+        !LIBRARY_ASSISTANT_TOOL_NAMES.includes(
+          toolName as (typeof LIBRARY_ASSISTANT_TOOL_NAMES)[number]
+        )
+      ) {
+        return;
+      }
 
-        const result = await executeLibraryAssistantTool({
-          dataSource: {
-            attachedContextRefs,
-            folders,
-            loadProjectsById,
-            projects,
-            scopeSummary,
-            tree,
-          },
-          input: toolCall.input,
-          toolName,
-        });
+      const result = await executeLibraryAssistantTool({
+        dataSource: {
+          attachedContextRefs,
+          folders,
+          loadProjectsById,
+          projects,
+          scopeSummary,
+          tree,
+        },
+        input: toolCall.input,
+        toolName,
+      });
 
-        if (result.outputError) {
-          void addToolOutput({
-            tool: toolName,
-            toolCallId: toolCall.toolCallId,
-            state: 'output-error',
-            errorText: result.outputError,
-          });
-          return;
-        }
-
+      if (result.outputError) {
         void addToolOutput({
           tool: toolName,
           toolCallId: toolCall.toolCallId,
-          output: result.output || {},
+          state: 'output-error',
+          errorText: result.outputError,
         });
-      },
-    });
+        return;
+      }
+
+      void addToolOutput({
+        tool: toolName,
+        toolCallId: toolCall.toolCallId,
+        output: result.output || {},
+      });
+    },
+  });
 
   return {
     attachedContextRefs,
@@ -229,10 +228,7 @@ export const useLibraryAssistantChat = ({
       setAttachedContextRefs(currentRefs =>
         currentRefs.filter(
           currentReference =>
-            !(
-              currentReference.id === reference.id &&
-              currentReference.kind === reference.kind
-            )
+            !(currentReference.id === reference.id && currentReference.kind === reference.kind)
         )
       );
     },
@@ -244,17 +240,13 @@ export const useLibraryAssistantChat = ({
       setAttachedContextRefs(currentRefs => {
         const existingRef = currentRefs.find(
           currentReference =>
-            currentReference.id === reference.id &&
-            currentReference.kind === reference.kind
+            currentReference.id === reference.id && currentReference.kind === reference.kind
         );
 
         if (existingRef) {
           return currentRefs.filter(
             currentReference =>
-              !(
-                currentReference.id === reference.id &&
-                currentReference.kind === reference.kind
-              )
+              !(currentReference.id === reference.id && currentReference.kind === reference.kind)
           );
         }
 

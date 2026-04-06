@@ -21,7 +21,10 @@ const splitMarkdownByHeadings = (content: string): string[] => {
   };
 
   lines.forEach(line => {
-    if (HEADING_LINE_REGEX.test(line) && currentLines.some(currentLine => currentLine.trim().length > 0)) {
+    if (
+      HEADING_LINE_REGEX.test(line) &&
+      currentLines.some(currentLine => currentLine.trim().length > 0)
+    ) {
       flushCurrent();
     }
 

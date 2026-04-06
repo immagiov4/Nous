@@ -1,9 +1,9 @@
 import { BookOpen } from 'lucide-react';
+import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
+import type { WorkspaceReaderContentModel } from './types.ts';
 import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
 import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
-import type { WorkspaceReaderContentModel } from './types.ts';
-import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 
 export default function WorkspaceReaderContent({
   activeSectionAssetsById,
@@ -28,9 +28,7 @@ export default function WorkspaceReaderContent({
   const readingShellClassName = isFocusMode
     ? 'max-w-[72rem] px-4 pb-36 pt-8 sm:px-8 lg:px-12 xl:px-16'
     : 'max-w-[90rem] px-4 pb-36 pt-8 sm:px-8 lg:px-14 xl:px-20 2xl:px-24';
-  const readingColumnClassName = isFocusMode
-    ? 'mx-auto max-w-[76ch]'
-    : 'mx-auto max-w-[82ch]';
+  const readingColumnClassName = isFocusMode ? 'mx-auto max-w-[76ch]' : 'mx-auto max-w-[82ch]';
   const renderedSectionContent =
     sectionContent && sourcePageRangeLabel
       ? `${sectionContent.trim()}\n\n&nbsp;\n\n*Fonte originale: ${sourcePageRangeLabel}*`

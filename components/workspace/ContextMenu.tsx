@@ -1,27 +1,19 @@
+import { ArrowUp, BookPlus, Highlighter, LoaderCircle, NotebookPen, X } from 'lucide-react';
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
   type CSSProperties,
   type FormEvent,
   type MouseEvent,
   type PointerEvent,
   type RefObject,
   type TouchEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
-import {
-  ArrowUp,
-  BookPlus,
-  Highlighter,
-  LoaderCircle,
-  NotebookPen,
-  X,
-} from 'lucide-react';
-import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
-import type { ContextMenuPlacement, SelectionRect } from '../../types';
-import type { HorizontalViewportBounds } from '../../types';
+import type { ContextMenuPlacement, HorizontalViewportBounds, SelectionRect } from '../../types';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
+import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 
 interface ContextMenuProps {
   anchorX?: number;
@@ -293,9 +285,7 @@ const ContextMenu = ({
 
   const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight;
   const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth;
-  const desktopBoundaryLeft = horizontalBounds
-    ? clamp(horizontalBounds.left, 0, viewportWidth)
-    : 0;
+  const desktopBoundaryLeft = horizontalBounds ? clamp(horizontalBounds.left, 0, viewportWidth) : 0;
   const desktopBoundaryRight = horizontalBounds
     ? clamp(horizontalBounds.right, desktopBoundaryLeft, viewportWidth)
     : viewportWidth;
@@ -400,7 +390,7 @@ const ContextMenu = ({
         isNoteEditorOpen || isAnnotationMode
           ? 'mt-2 max-h-[25rem] translate-y-0 opacity-100'
           : 'max-h-0 translate-y-[-6px] opacity-0'
-        }`;
+      }`;
 
   const notePreviewClassName =
     'max-h-52 overflow-y-auto rounded-[1.4rem] border border-stone-200/80 bg-white px-4 py-3 text-sm leading-6 text-stone-800 dark:border-stone-400/95 dark:bg-stone-700/80 dark:text-stone-100';
@@ -420,7 +410,9 @@ const ContextMenu = ({
       <div className={isMobileSheet ? 'space-y-3 px-0 py-0' : 'space-y-3 px-4 py-3'}>
         <div className="space-y-1.5">
           <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-            {isAnnotationMode ? 'Nota associata al passaggio evidenziato' : 'Aggiungi una nota a questa selezione'}
+            {isAnnotationMode
+              ? 'Nota associata al passaggio evidenziato'
+              : 'Aggiungi una nota a questa selezione'}
           </p>
           <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
             "{noteSelectionPreview}"
@@ -582,7 +574,9 @@ const ContextMenu = ({
             <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
               Vuoi creare una nuova lezione da questa selezione?
             </p>
-            <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">"{lessonSelectionPreview}"</p>
+            <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
+              "{lessonSelectionPreview}"
+            </p>
             {lessonInstructionPreview ? (
               <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
                 Istruzioni: {lessonInstructionPreview}
@@ -689,7 +683,9 @@ const ContextMenu = ({
           <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
             Vuoi creare una nuova lezione da questa selezione?
           </p>
-          <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">"{lessonSelectionPreview}"</p>
+          <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
+            "{lessonSelectionPreview}"
+          </p>
           {lessonInstructionPreview ? (
             <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
               Istruzioni: {lessonInstructionPreview}
@@ -721,11 +717,7 @@ const ContextMenu = ({
     </>
   );
 
-  const renderAnnotationBody = () => (
-    <div className="space-y-2">
-      {renderNoteEditor()}
-    </div>
-  );
+  const renderAnnotationBody = () => <div className="space-y-2">{renderNoteEditor()}</div>;
 
   return (
     <div

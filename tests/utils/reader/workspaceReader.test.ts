@@ -147,12 +147,10 @@ test('buildSidebarGroups keeps document children in the same fallback module wit
 
   assert.equal(groups.length, 1);
   assert.equal(groups[0]?.title, 'Modulo Documento');
-  assert.deepEqual(groups[0]?.sections.map(section => section.id), [
-    'lesson-1',
-    'lesson-1-deep',
-    'lesson-1-deep-nested',
-    'lesson-2',
-  ]);
+  assert.deepEqual(
+    groups[0]?.sections.map(section => section.id),
+    ['lesson-1', 'lesson-1-deep', 'lesson-1-deep-nested', 'lesson-2']
+  );
   assert.deepEqual(groups[0]?.sectionDepthById, {
     'lesson-1': 0,
     'lesson-1-deep': 1,
@@ -247,11 +245,10 @@ test('buildSidebarGroups falls back safely when parent chains are invalid or cyc
   const groups = buildSidebarGroups(learningPlan, []);
 
   assert.equal(groups.length, 1);
-  assert.deepEqual(groups[0]?.sections.map(section => section.id), [
-    'lesson-a',
-    'lesson-b',
-    'lesson-c',
-  ]);
+  assert.deepEqual(
+    groups[0]?.sections.map(section => section.id),
+    ['lesson-a', 'lesson-b', 'lesson-c']
+  );
   assert.deepEqual(groups[0]?.sectionDepthById, {
     'lesson-a': 0,
     'lesson-b': 0,

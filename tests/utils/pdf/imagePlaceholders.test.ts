@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { LessonImageRef, PdfImageAsset } from '../../../types';
-import { replacePdfImagePlaceholders, restoreLegacyPdfImagePlaceholders, stripPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
+import {
+  replacePdfImagePlaceholders,
+  restoreLegacyPdfImagePlaceholders,
+  stripPdfImagePlaceholders,
+} from '../../../utils/pdf/imagePlaceholders.ts';
 
 const asset: PdfImageAsset = {
   id: 'pdf-img-001',
@@ -57,7 +61,10 @@ Intro
 
 Fine`);
 
-  assert.match(restored, /\{\{PDF_IMAGE:pdf-img-001\|alt=Schema di rete\|caption=Figura 1: Rete\}\}/);
+  assert.match(
+    restored,
+    /\{\{PDF_IMAGE:pdf-img-001\|alt=Schema di rete\|caption=Figura 1: Rete\}\}/
+  );
 });
 
 test('restores legacy standalone PDF images into placeholders', () => {

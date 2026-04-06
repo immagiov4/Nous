@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { buildProjectLocationHref, getProjectIdFromLocation } from '../../../utils/project/location.ts';
+import {
+  buildProjectLocationHref,
+  getProjectIdFromLocation,
+} from '../../../utils/project/location.ts';
 
 test('reads the current project id from the location search params', () => {
   assert.equal(getProjectIdFromLocation('?project=project-123'), 'project-123');

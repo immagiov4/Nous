@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
 import JSZip from 'jszip';
-import { AppState, type ProjectSnapshot } from '../../../types.ts';
+import { test } from 'vitest';
 import {
   createProjectArchiveBlob,
   isProjectArchiveFile,
   readProjectImportData,
 } from '../../../services/projects/projectArchive.ts';
 import { encodeBytesBase64 } from '../../../services/projects/projectSource.ts';
+import { AppState, type ProjectSnapshot } from '../../../types.ts';
 
 const buildPdfSnapshot = (): ProjectSnapshot => {
   const pdfBytes = new Uint8Array([
-    0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x46, 0x61, 0x6b, 0x65, 0x20, 0x50,
-    0x44, 0x46, 0x0a,
+    0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x46, 0x61, 0x6b, 0x65, 0x20, 0x50, 0x44,
+    0x46, 0x0a,
   ]);
 
   return {
@@ -54,7 +54,10 @@ test('createProjectArchiveBlob keeps pdf bytes outside the manifest and restores
 
   assert.equal(Boolean(manifestText), true);
   assert.equal(manifestText?.includes('"data"'), false);
-  assert.equal(manifestText?.includes(snapshot.source?.kind === 'pdf' ? snapshot.source.file.data : ''), false);
+  assert.equal(
+    manifestText?.includes(snapshot.source?.kind === 'pdf' ? snapshot.source.file.data : ''),
+    false
+  );
   assert.equal(await isProjectArchiveFile(archive), true);
 
   const imported = (await readProjectImportData(archive)) as ProjectSnapshot;

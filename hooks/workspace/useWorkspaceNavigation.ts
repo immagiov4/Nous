@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pushLuminaDebugTrace } from '../../services/core/debugTrace.ts';
 import { AppState } from '../../types.ts';
-import { buildProjectLocationHref, getProjectIdFromLocation } from '../../utils/project/location.ts';
+import {
+  buildProjectLocationHref,
+  getProjectIdFromLocation,
+} from '../../utils/project/location.ts';
 
 interface OpenProjectResult {
   outcome: string;

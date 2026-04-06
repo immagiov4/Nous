@@ -1,11 +1,12 @@
 export {
   createAssessmentChat,
-  createEmbeddedAssessmentChat,
   createAssessmentChatFromTextSource,
+  createEmbeddedAssessmentChat,
   createEmbeddedAssessmentChatFromTextSource,
-  createLearnAssessmentChat,
   createEmbeddedLearnAssessmentChat,
+  createLearnAssessmentChat,
 } from './assessment.ts';
+export { generateFullCurriculum, generateLearnLessonContent } from './curriculum.ts';
 export {
   buildLessonChunkContext,
   getPdfLessonMappingState,
@@ -19,6 +20,5 @@ export {
   generateLearningPlan,
   generateSectionContent,
 } from './planning.ts';
-export { generateFullCurriculum, generateLearnLessonContent } from './curriculum.ts';
-export { checkTTSStatus, generateSpeech, getTTSVoices } from './tts.ts';
 export { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_FLASH, MODEL_REASONING } from './shared.ts';
+export { checkTTSStatus, generateSpeech, getTTSVoices } from './tts.ts';

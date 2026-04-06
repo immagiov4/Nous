@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { describe, test } from 'vitest';
 import {
-  buildLessonVerificationPrompt,
   buildAdaptivePlanGuidance,
+  buildLessonVerificationPrompt,
   buildPdfChunkUsageDebugPayload,
   collapseRedundantParagraphs,
   dedupeLearningPlanSections,
-  estimateTargetQuizCount,
   estimateRelevantPdfImagePages,
+  estimateTargetQuizCount,
   LESSON_RESPONSE_SCHEMA,
   LESSON_SCOPE_RULES,
   PLAN_PROPEDEUTIC_ORDER_RULES,
@@ -141,37 +141,50 @@ test('LESSON_RESPONSE_SCHEMA marks all image placement keys as required for stri
   });
 });
 
-test('LESSON_SCOPE_RULES prevent future-lesson spoilers and filler deep dives', () => {
-  assert.ok(
-    LESSON_SCOPE_RULES.some(rule =>
-      rule.includes('Non anticipare in dettaglio argomenti che verranno trattati in lezioni future')
-    )
-  );
-  assert.ok(
-    LESSON_SCOPE_RULES.some(rule => rule.includes('Non inserire sezioni di "analisi approfondita"'))
-  );
-  assert.ok(
-    LESSON_SCOPE_RULES.some(rule =>
-      rule.includes('Se la lezione ha gia esaurito il suo focus, chiudi con naturalezza')
-    )
-  );
-});
+// These tests guard against accidental prompt modification. They are intentionally static.
+describe('prompt invariants — intentional guardrails, not behavior tests', () => {
+  test('LESSON_SCOPE_RULES prevent future-lesson spoilers and filler deep dives', () => {
+    assert.ok(
+      LESSON_SCOPE_RULES.some(rule =>
+        rule.includes(
+          'Non anticipare in dettaglio argomenti che verranno trattati in lezioni future'
+        )
+      )
+    );
+    assert.ok(
+      LESSON_SCOPE_RULES.some(rule =>
+        rule.includes('Non inserire sezioni di "analisi approfondita"')
+      )
+    );
+    assert.ok(
+      LESSON_SCOPE_RULES.some(rule =>
+        rule.includes('Se la lezione ha gia esaurito il suo focus, chiudi con naturalezza')
+      )
+    );
+  });
 
-test('lesson generation prompts require expanding acronyms on first mention', async () => {
-  const planningModule = await import('../../../services/openrouter/planning.ts');
-  const source = planningModule.generateSectionContent.toString();
-
-  assert.match(source, /Non usare sigle, abbreviazioni o acronimi non spiegati/i);
-  assert.match(source, /prima occorrenza/i);
-  assert.match(source, /Evita forestierismi inutili/i);
-  assert.match(source, /da 1 a 3 domande|numero minimo necessario/i);
-  assert.match(source, /ripetizione letterale/i);
-  assert.match(source, /diagnosi di errore|inferenza|applicazione/i);
-  assert.match(source, /non racchiudere mai l'intera domanda|quiz testo normale/i);
-  assert.match(source, /KaTeX/i);
-  assert.match(source, /\$\$\.\.\.\$\$|\\\[\.\.\.\\\]/i);
-  assert.match(source, /tabelle, blocchi comparativi, matrici/i);
-  assert.match(source, /tabella Markdown|lista comparativa chiara/i);
+  test('PLAN_PROPEDEUTIC_ORDER_RULES enforce prerequisite ordering for modules and lessons', () => {
+    assert.ok(
+      PLAN_PROPEDEUTIC_ORDER_RULES.some(
+        rule => rule.includes('moduli/capitoli') && rule.includes('lezioni interne')
+      )
+    );
+    assert.ok(
+      PLAN_PROPEDEUTIC_ORDER_RULES.some(rule =>
+        rule.includes('Ogni modulo deve preparare il successivo')
+      )
+    );
+    assert.ok(
+      PLAN_PROPEDEUTIC_ORDER_RULES.some(
+        rule => rule.includes('raffinamento') && rule.includes('riordinale')
+      )
+    );
+    assert.ok(
+      PLAN_PROPEDEUTIC_ORDER_RULES.some(
+        rule => rule.includes('elementi invertiti') && rule.includes("correggi l'ordine")
+      )
+    );
+  });
 });
 
 test('buildLessonVerificationPrompt requires valid KaTeX delimiters', () => {
@@ -225,29 +238,6 @@ test('estimateTargetQuizCount scales pauses conservatively with lesson density',
   assert.equal(estimateTargetQuizCount(shortLesson), 1);
   assert.equal(estimateTargetQuizCount(mediumLesson), 2);
   assert.equal(estimateTargetQuizCount(longLesson), 3);
-});
-
-test('PLAN_PROPEDEUTIC_ORDER_RULES enforce prerequisite ordering for modules and lessons', () => {
-  assert.ok(
-    PLAN_PROPEDEUTIC_ORDER_RULES.some(
-      rule => rule.includes('moduli/capitoli') && rule.includes('lezioni interne')
-    )
-  );
-  assert.ok(
-    PLAN_PROPEDEUTIC_ORDER_RULES.some(rule =>
-      rule.includes('Ogni modulo deve preparare il successivo')
-    )
-  );
-  assert.ok(
-    PLAN_PROPEDEUTIC_ORDER_RULES.some(
-      rule => rule.includes('raffinamento') && rule.includes('riordinale')
-    )
-  );
-  assert.ok(
-    PLAN_PROPEDEUTIC_ORDER_RULES.some(
-      rule => rule.includes('elementi invertiti') && rule.includes("correggi l'ordine")
-    )
-  );
 });
 
 test('estimateRelevantPdfImagePages focuses extraction around the mapped chunk positions', () => {

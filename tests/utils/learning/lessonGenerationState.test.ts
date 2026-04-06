@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
 import type { FileData, LearningPlan, SyllabusItem } from '../../../types';
+import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
 
 const pdfFile: FileData = {
   name: 'dispensa.pdf',

@@ -6,7 +6,7 @@ export function sendErrorResponse(
   response: Response,
   statusCode: number,
   error: unknown,
-  fallbackMessage: string,
+  fallbackMessage: string
 ): void {
   response.status(statusCode).json({
     success: false,

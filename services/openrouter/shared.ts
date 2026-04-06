@@ -1,14 +1,19 @@
-import type { FileData } from './types.ts';
-import { decodeTextBase64, detectStoredSourceFileKind, isPdfFileData } from '../projects/projectSource.ts';
+import {
+  decodeTextBase64,
+  detectStoredSourceFileKind,
+  isPdfFileData,
+} from '../projects/projectSource.ts';
 import { getErrorMessage, isRecord } from './retry.ts';
+import type { FileData } from './types.ts';
 
+export * from './client.ts';
 export * from './config.ts';
 export * from './json.ts';
-export * from './client.ts';
 export * from './retry.ts';
 export type * from './types.ts';
 
-export const fileToDataUrl = (file: FileData): string => `data:${file.mimeType};base64,${file.data}`;
+export const fileToDataUrl = (file: FileData): string =>
+  `data:${file.mimeType};base64,${file.data}`;
 
 export const isPdfFile = isPdfFileData;
 

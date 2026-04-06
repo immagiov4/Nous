@@ -16,9 +16,7 @@ describe('StreamingMarkdownRenderer', () => {
   test('keeps rendering markdown while batching intermediate streaming updates', () => {
     vi.useFakeTimers();
 
-    const { rerender } = render(
-      <StreamingMarkdownRenderer content="Ciao" isStreaming />
-    );
+    const { rerender } = render(<StreamingMarkdownRenderer content="Ciao" isStreaming />);
 
     expect(screen.getByTestId('markdown-renderer')).toHaveTextContent('Ciao');
 
@@ -36,9 +34,7 @@ describe('StreamingMarkdownRenderer', () => {
   test('flushes the final markdown immediately when streaming completes', () => {
     vi.useFakeTimers();
 
-    const { rerender } = render(
-      <StreamingMarkdownRenderer content="Bozza" isStreaming />
-    );
+    const { rerender } = render(<StreamingMarkdownRenderer content="Bozza" isStreaming />);
 
     rerender(<StreamingMarkdownRenderer content="Bozza finale" isStreaming />);
     expect(screen.getByTestId('markdown-renderer')).toHaveTextContent('Bozza');

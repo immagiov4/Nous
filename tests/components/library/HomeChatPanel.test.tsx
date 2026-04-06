@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-
 import type { UIMessage } from 'ai';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import HomeChatPanel from '../../../components/library/HomeChatPanel.tsx';
 import type {
   LibraryContextRef,
@@ -336,7 +335,9 @@ describe('HomeChatPanel', () => {
     const { container } = render(<HomeChatPanel {...props} />);
 
     expect(screen.getByText('Struttura corsi')).toBeInTheDocument();
-    expect(screen.getByText('Ora leggo i dettagli della lezione piu rilevante.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Ora leggo i dettagli della lezione piu rilevante.')
+    ).toBeInTheDocument();
 
     const renderedText = container.textContent || '';
     expect(renderedText.indexOf('Struttura corsi')).toBeLessThan(
@@ -393,18 +394,14 @@ describe('HomeChatPanel', () => {
 
     const { container } = render(<HomeChatPanel {...props} />);
 
-    expect(
-      screen.getByText(/Prima leggo la struttura del corso\./i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Prima leggo la struttura del corso\./i)).toBeInTheDocument();
     expect(
       screen.getByText(/Poi recupero i dettagli della lezione piu rilevante\./i)
     ).toBeInTheDocument();
 
     const assistantBubbles = screen.getAllByTestId('library-assistant-turn-bubble');
     expect(assistantBubbles).toHaveLength(1);
-    expect(assistantBubbles[0]?.textContent).toContain(
-      'Prima leggo la struttura del corso.'
-    );
+    expect(assistantBubbles[0]?.textContent).toContain('Prima leggo la struttura del corso.');
     expect(assistantBubbles[0]?.textContent).toContain(
       'Poi recupero i dettagli della lezione piu rilevante.'
     );

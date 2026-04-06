@@ -2,9 +2,9 @@ import type { SectionAnnotation } from '../../types.ts';
 import {
   getMarkdownMathRangeAt,
   getMarkdownProtectedRanges,
+  type MarkdownRange,
   normalizeMathSelectionArtifacts,
   projectMarkdownMathRange,
-  type MarkdownRange,
 } from '../markdown/codeRanges.ts';
 
 const MARK_CLOSE = '</mark>';
@@ -139,9 +139,7 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
     }
 
     if (atLineStart) {
-      const blockMarkerMatch = content
-        .slice(index)
-        .match(/^\s{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)\s+/u);
+      const blockMarkerMatch = content.slice(index).match(/^\s{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)\s+/u);
 
       if (blockMarkerMatch) {
         index += blockMarkerMatch[0].length;
@@ -156,10 +154,7 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
     if (mathRange) {
       const mathProjection = projectMarkdownMathRange(content, mathRange);
       mathProjection.text.split('').forEach((character, projectionIndex) => {
-        pushCharacter(
-          character,
-          mathProjection.sourceIndexes[projectionIndex] ?? mathRange.start
-        );
+        pushCharacter(character, mathProjection.sourceIndexes[projectionIndex] ?? mathRange.start);
       });
       atLineStart = false;
       index = mathRange.end;
@@ -327,10 +322,7 @@ const resolveExactMatch = (
         text.slice(Math.max(0, candidateIndex - 64), candidateIndex)
       );
       const afterSlice = normalizeWhitespace(
-        text.slice(
-          candidateIndex + candidate[0].length,
-          candidateIndex + candidate[0].length + 64
-        )
+        text.slice(candidateIndex + candidate[0].length, candidateIndex + candidate[0].length + 64)
       );
 
       const beforeOk =
@@ -755,13 +747,16 @@ const buildGroupsById = (
   annotations: SectionAnnotation[] | undefined,
   segments: ParsedMarkSegment[]
 ): ParsedAnnotationGroup[] => {
-  const annotationById = new Map((annotations || []).map(annotation => [annotation.id, annotation]));
+  const annotationById = new Map(
+    (annotations || []).map(annotation => [annotation.id, annotation])
+  );
   const now = new Date().toISOString();
   const groups = new Map<string, ParsedMarkSegment[]>();
 
   segments
-    .filter((segment): segment is ParsedMarkSegment & { annotationId: string } =>
-      typeof segment.annotationId === 'string' && segment.annotationId.length > 0
+    .filter(
+      (segment): segment is ParsedMarkSegment & { annotationId: string } =>
+        typeof segment.annotationId === 'string' && segment.annotationId.length > 0
     )
     .forEach(segment => {
       const currentSegments = groups.get(segment.annotationId) || [];
@@ -771,13 +766,12 @@ const buildGroupsById = (
 
   return Array.from(groups.entries())
     .map(([annotationId, groupedSegments]) => ({
-      annotation:
-        annotationById.get(annotationId) || {
-          id: annotationId,
-          note: '',
-          createdAt: now,
-          updatedAt: now,
-        },
+      annotation: annotationById.get(annotationId) || {
+        id: annotationId,
+        note: '',
+        createdAt: now,
+        updatedAt: now,
+      },
       segments: sortRanges(groupedSegments) as ParsedMarkSegment[],
     }))
     .sort((left, right) => left.segments[0].start - right.segments[0].start);
@@ -955,7 +949,8 @@ export const migrateSectionAnnotations = ({
     [...groupedAnnotations, ...migratedLegacyAnnotations].map(group => group.annotation)
   );
   const didChange =
-    nextContent !== content || JSON.stringify(nextAnnotations) !== JSON.stringify(annotations || []);
+    nextContent !== content ||
+    JSON.stringify(nextAnnotations) !== JSON.stringify(annotations || []);
 
   return {
     annotations: nextAnnotations,
@@ -989,7 +984,9 @@ export const applySectionAnnotation = ({
   const annotationGroups = buildGroupsById(annotations, parseMarkSegments(content));
   const absorbedGroups = annotationGroups.filter(group =>
     group.segments.some(existingSegment =>
-      selectedSegments.some(selectedSegment => annotationSegmentsOverlap(existingSegment, selectedSegment))
+      selectedSegments.some(selectedSegment =>
+        annotationSegmentsOverlap(existingSegment, selectedSegment)
+      )
     )
   );
 

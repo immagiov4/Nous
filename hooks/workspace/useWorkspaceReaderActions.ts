@@ -1,22 +1,22 @@
 import { useCallback } from 'react';
 import type {
+  SaveConversationNoteInput,
+  SaveConversationNoteResult,
+} from '../../components/workspace/shell/types.ts';
+import type {
   ContextMenuState,
   LearningPlan,
   LearningSection,
   PdfTextIndex,
   ProjectSource,
 } from '../../types.ts';
+import { buildContextSourceMaterial } from '../../utils/context/sourceMaterial.ts';
 import {
   applySectionAnnotation,
   findSectionAnnotationForSelection,
   removeSectionAnnotation,
   updateSectionAnnotationNote,
 } from '../../utils/learning/sectionAnnotations.ts';
-import { buildContextSourceMaterial } from '../../utils/context/sourceMaterial.ts';
-import type {
-  SaveConversationNoteInput,
-  SaveConversationNoteResult,
-} from '../../components/workspace/shell/types.ts';
 
 interface UseWorkspaceReaderActionsArgs {
   activeSectionId: string | null;
@@ -29,10 +29,10 @@ interface UseWorkspaceReaderActionsArgs {
   closeContextMenu: () => void;
   completeActiveSection: () => Promise<'journey-complete' | 'noop' | 'opened-next'>;
   contextMenu: ContextMenuState;
-  createLessonFromSelection: (args: {
-    instructions: string;
-    selectedText: string;
-  }) => Promise<{ errorMessage?: string; outcome: 'blocked-missing-source' | 'created' | 'failed' }>;
+  createLessonFromSelection: (args: { instructions: string; selectedText: string }) => Promise<{
+    errorMessage?: string;
+    outcome: 'blocked-missing-source' | 'created' | 'failed';
+  }>;
   documentIndex: PdfTextIndex | null;
   isMobileViewport: boolean;
   learningPlan: LearningPlan | null;
@@ -258,7 +258,7 @@ export const useWorkspaceReaderActions = ({
 
         if (!result) {
           notify(
-            'Non sono riuscito ad associare la nota a questa selezione. Prova a selezionare un frammento un po\' piu preciso.'
+            "Non sono riuscito ad associare la nota a questa selezione. Prova a selezionare un frammento un po' piu preciso."
           );
           return;
         }
@@ -394,8 +394,7 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error:
-            'Non sono riuscito a ritrovare il passaggio da annotare nella lezione corrente.',
+          error: 'Non sono riuscito a ritrovare il passaggio da annotare nella lezione corrente.',
         };
       }
 
@@ -467,8 +466,7 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error:
-            'Non ho trovato una nota esistente collegata a questo passaggio da aggiornare.',
+          error: 'Non ho trovato una nota esistente collegata a questo passaggio da aggiornare.',
         };
       }
 

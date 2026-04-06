@@ -123,9 +123,7 @@ export const buildLocalImageTextContext = (
   const beforeLines = sortedLines
     .filter(line => line.centerY < rect.top)
     .slice(-IMAGE_CONTEXT_LINE_COUNT);
-  const currentLines = sortedLines.filter(
-    line => line.bottom > rect.top && line.top < rect.bottom
-  );
+  const currentLines = sortedLines.filter(line => line.bottom > rect.top && line.top < rect.bottom);
   const afterLines = sortedLines
     .filter(line => line.centerY > rect.bottom)
     .slice(0, IMAGE_CONTEXT_LINE_COUNT);
@@ -243,13 +241,7 @@ const resolveJpegDimensions = (dataBuffer: Buffer): ImageDimensions | null => {
       return null;
     }
 
-    if (
-      marker >= 0xc0 &&
-      marker <= 0xcf &&
-      marker !== 0xc4 &&
-      marker !== 0xc8 &&
-      marker !== 0xcc
-    ) {
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
       if (offset + 6 >= dataBuffer.length) {
         return null;
       }
@@ -343,7 +335,10 @@ export const isPdfImageTooSmallForStandaloneFigure = (
     return false;
   }
 
-  return minDimension < INLINE_RENDERED_IMAGE_MIN_DIMENSION || renderedArea < INLINE_RENDERED_IMAGE_MIN_AREA;
+  return (
+    minDimension < INLINE_RENDERED_IMAGE_MIN_DIMENSION ||
+    renderedArea < INLINE_RENDERED_IMAGE_MIN_AREA
+  );
 };
 
 const resolveEmbeddedImage = (
@@ -359,12 +354,14 @@ const resolveEmbeddedImage = (
         return;
       }
 
-      const width = typeof (imgData as { width?: unknown }).width === 'number'
-        ? (imgData as { width: number }).width
-        : 0;
-      const height = typeof (imgData as { height?: unknown }).height === 'number'
-        ? (imgData as { height: number }).height
-        : 0;
+      const width =
+        typeof (imgData as { width?: unknown }).width === 'number'
+          ? (imgData as { width: number }).width
+          : 0;
+      const height =
+        typeof (imgData as { height?: unknown }).height === 'number'
+          ? (imgData as { height: number }).height
+          : 0;
 
       if (!width || !height) {
         reject(new Error(`Image object ${String(name)} has invalid dimensions`));
@@ -375,17 +372,15 @@ const resolveEmbeddedImage = (
     });
   });
 
-const extractPageTextLines = async (
-  page: {
-    getViewport: (params: { scale: number }) => {
-      convertToViewportPoint: (x: number, y: number) => [number, number];
-    };
-    getTextContent: (params: {
-      includeMarkedContent: boolean;
-      disableNormalization: boolean;
-    }) => Promise<{ items: unknown[] }>;
-  }
-): Promise<PositionedPdfTextLine[]> => {
+const extractPageTextLines = async (page: {
+  getViewport: (params: { scale: number }) => {
+    convertToViewportPoint: (x: number, y: number) => [number, number];
+  };
+  getTextContent: (params: {
+    includeMarkedContent: boolean;
+    disableNormalization: boolean;
+  }) => Promise<{ items: unknown[] }>;
+}): Promise<PositionedPdfTextLine[]> => {
   const viewport = page.getViewport({ scale: 1 });
   const textContent = await page.getTextContent({
     includeMarkedContent: false,
@@ -399,15 +394,13 @@ const extractPageTextLines = async (
     baselineY: number;
     lastX?: number;
   }> = [];
-  let currentLine:
-    | {
-        parts: string[];
-        top: number;
-        bottom: number;
-        baselineY: number;
-        lastX?: number;
-      }
-    | null = null;
+  let currentLine: {
+    parts: string[];
+    top: number;
+    bottom: number;
+    baselineY: number;
+    lastX?: number;
+  } | null = null;
 
   const flushCurrentLine = () => {
     if (!currentLine) {
@@ -450,9 +443,7 @@ const extractPageTextLines = async (
     const [x, y] = viewport.convertToViewportPoint(transform[4], transform[5]);
     const height = Math.max(
       1,
-      Math.abs(
-        typeof itemMetrics.height === 'number' ? itemMetrics.height : transform[3]
-      )
+      Math.abs(typeof itemMetrics.height === 'number' ? itemMetrics.height : transform[3])
     );
     const width = typeof itemMetrics.width === 'number' ? itemMetrics.width : 0;
     const top = Math.min(y, y - height);
@@ -520,7 +511,9 @@ const extractPageImagePlacements = async (
 
   for (let index = 0; index < opList.fnArray.length; index += 1) {
     const fn = opList.fnArray[index];
-    const args = Array.isArray(opList.argsArray[index]) ? (opList.argsArray[index] as unknown[]) : [];
+    const args = Array.isArray(opList.argsArray[index])
+      ? (opList.argsArray[index] as unknown[])
+      : [];
 
     if (fn === pdfjs.OPS.save) {
       transformStack.push([...transformMatrix]);
@@ -589,23 +582,29 @@ export const extractPdfImages = async (
       imageDataUrl: true,
       partial: sanitizedPartialPages,
     });
-    const pdfDocument = (parser as unknown as { doc?: { getPage: (pageNumber: number) => Promise<{
-      cleanup: () => void;
-      commonObjs: {
-        has: (name: unknown) => boolean;
-        get: (name: unknown, callback: (imgData: unknown) => void) => void;
-      };
-      objs: { get: (name: unknown, callback: (imgData: unknown) => void) => void };
-      getViewport: (params: { scale: number }) => {
-        transform: number[];
-        convertToViewportPoint: (x: number, y: number) => [number, number];
-      };
-      getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
-      getTextContent: (params: {
-        includeMarkedContent: boolean;
-        disableNormalization: boolean;
-      }) => Promise<{ items: unknown[] }>;
-    }> } }).doc;
+    const pdfDocument = (
+      parser as unknown as {
+        doc?: {
+          getPage: (pageNumber: number) => Promise<{
+            cleanup: () => void;
+            commonObjs: {
+              has: (name: unknown) => boolean;
+              get: (name: unknown, callback: (imgData: unknown) => void) => void;
+            };
+            objs: { get: (name: unknown, callback: (imgData: unknown) => void) => void };
+            getViewport: (params: { scale: number }) => {
+              transform: number[];
+              convertToViewportPoint: (x: number, y: number) => [number, number];
+            };
+            getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
+            getTextContent: (params: {
+              includeMarkedContent: boolean;
+              disableNormalization: boolean;
+            }) => Promise<{ items: unknown[] }>;
+          }>;
+        };
+      }
+    ).doc;
 
     for (const page of imageResult.pages) {
       const pageProxy = pdfDocument ? await pdfDocument.getPage(page.pageNumber) : null;

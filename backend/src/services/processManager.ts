@@ -1,8 +1,6 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-
-import type { ProcessState, ServerConfig } from '../types/index.js';
-
+import { type ChildProcess, spawn } from 'node:child_process';
 import { loadServerConfig } from '../config/serverConfig.js';
+import type { ProcessState, ServerConfig } from '../types/index.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { checkTtsHealth } from './ttsHealth.js';
 
@@ -11,7 +9,7 @@ class ProcessManager {
   private state: ProcessState = {
     isRunning: false,
     isReady: false,
-    restartAttempts: 0
+    restartAttempts: 0,
   };
   private config: ServerConfig;
   private healthCheckInterval: NodeJS.Timeout | null = null;
@@ -73,15 +71,11 @@ class ProcessManager {
     console.log(`[ProcessManager] TTS model: ${selectedModel}`);
 
     try {
-      this.process = spawn(
-        this.config.pythonExecutable,
-        ['-m', this.config.ttsServerModule],
-        {
-          cwd: this.config.ttsServerCwd,
-          env,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        },
-      );
+      this.process = spawn(this.config.pythonExecutable, ['-m', this.config.ttsServerModule], {
+        cwd: this.config.ttsServerCwd,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
 
       this.state.isRunning = true;
       this.state.pid = this.process.pid;
@@ -91,9 +85,11 @@ class ProcessManager {
         const output = data.toString();
         console.log(`[TTS stdout] ${output.trim()}`);
 
-        if (output.includes('Application startup complete') ||
-            output.includes('Uvicorn running') ||
-            output.includes('Running on')) {
+        if (
+          output.includes('Application startup complete') ||
+          output.includes('Uvicorn running') ||
+          output.includes('Running on')
+        ) {
           this.markReady();
         }
       });
@@ -102,8 +98,7 @@ class ProcessManager {
         const output = data.toString();
         console.error(`[TTS stderr] ${output.trim()}`);
 
-        if (output.includes('Application startup complete') ||
-            output.includes('Uvicorn running')) {
+        if (output.includes('Application startup complete') || output.includes('Uvicorn running')) {
           this.markReady();
         }
       });
@@ -113,7 +108,7 @@ class ProcessManager {
         this.handleExit(code);
       });
 
-      this.process.on('error', (err) => {
+      this.process.on('error', err => {
         console.error('[ProcessManager] Failed to start TTS server:', err);
         this.state.lastError = err.message;
         this.handleExit(1);
@@ -122,7 +117,10 @@ class ProcessManager {
       this.startupTimeout = setTimeout(() => {
         if (!this.state.isReady) {
           console.warn('[ProcessManager] Startup timeout reached');
-          if (this.config.restartOnCrash && this.state.restartAttempts < this.config.maxRestartAttempts) {
+          if (
+            this.config.restartOnCrash &&
+            this.state.restartAttempts < this.config.maxRestartAttempts
+          ) {
             this.restart();
           }
         }
@@ -152,7 +150,7 @@ class ProcessManager {
 
     this.startHealthCheck();
 
-    this.onReadyCallbacks.forEach((callback) => {
+    this.onReadyCallbacks.forEach(callback => {
       callback();
     });
   }
@@ -172,13 +170,15 @@ class ProcessManager {
       this.startupTimeout = null;
     }
 
-    this.onExitCallbacks.forEach((callback) => {
+    this.onExitCallbacks.forEach(callback => {
       callback(code);
     });
 
     if (this.config.restartOnCrash && code !== 0 && code !== null) {
       if (this.state.restartAttempts < this.config.maxRestartAttempts) {
-        console.log(`[ProcessManager] Scheduling restart (attempt ${this.state.restartAttempts + 1}/${this.config.maxRestartAttempts})`);
+        console.log(
+          `[ProcessManager] Scheduling restart (attempt ${this.state.restartAttempts + 1}/${this.config.maxRestartAttempts})`
+        );
         setTimeout(() => this.restart(), 5000);
       } else {
         console.error('[ProcessManager] Max restart attempts reached');
@@ -201,7 +201,7 @@ class ProcessManager {
 
     console.log('[ProcessManager] Stopping TTS server...');
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>(resolve => {
       if (!this.process) {
         resolve();
         return;

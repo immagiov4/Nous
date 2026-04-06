@@ -68,7 +68,9 @@ export const buildSidebarGroups = (
   learningPlan.sections.forEach(section => {
     const resolvedModuleId = resolveModuleId(section.id);
     const rootSectionId = hierarchyInfoById[section.id]?.rootSectionId || null;
-    const fallbackAnchorSection = rootSectionId ? sectionById.get(rootSectionId) || section : section;
+    const fallbackAnchorSection = rootSectionId
+      ? sectionById.get(rootSectionId) || section
+      : section;
     const fallbackTitle = getFallbackGroupTitle(fallbackAnchorSection);
     const fallbackGroupKey = `group:${fallbackTitle}`;
     const groupKey = resolvedModuleId || fallbackGroupKey || '__ungrouped__';
@@ -116,7 +118,10 @@ export const buildSidebarGroups = (
         {
           id: 'group-0',
           sectionDepthById: Object.fromEntries(
-            learningPlan.sections.map(section => [section.id, hierarchyInfoById[section.id]?.depth ?? 0])
+            learningPlan.sections.map(section => [
+              section.id,
+              hierarchyInfoById[section.id]?.depth ?? 0,
+            ])
           ),
           title: 'Percorso',
           sections: learningPlan.sections,

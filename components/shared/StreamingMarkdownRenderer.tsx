@@ -1,11 +1,4 @@
-import {
-  memo,
-  startTransition,
-  useDeferredValue,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { memo, startTransition, useDeferredValue, useEffect, useRef, useState } from 'react';
 
 import MarkdownRenderer, { type MarkdownRendererProps } from './MarkdownRenderer.tsx';
 
@@ -17,10 +10,7 @@ const STREAMING_MARKDOWN_MIN_UPDATE_MS = 96;
 const STREAMING_MARKDOWN_MAX_STALENESS_MS = 320;
 const STREAMING_MARKDOWN_MIN_BATCH_CHARS = 32;
 
-const hasStreamingBoundary = (
-  nextContent: string,
-  committedContent: string
-): boolean => {
+const hasStreamingBoundary = (nextContent: string, committedContent: string): boolean => {
   const appendedContent = nextContent.slice(committedContent.length);
 
   if (!appendedContent) {
@@ -90,8 +80,7 @@ const StreamingMarkdownRenderer = ({
 
     if (
       elapsedSinceLastCommit >= STREAMING_MARKDOWN_MAX_STALENESS_MS ||
-      (elapsedSinceLastCommit >= STREAMING_MARKDOWN_MIN_UPDATE_MS &&
-        reachedStreamingBoundary)
+      (elapsedSinceLastCommit >= STREAMING_MARKDOWN_MIN_UPDATE_MS && reachedStreamingBoundary)
     ) {
       commitContent(content);
       return;

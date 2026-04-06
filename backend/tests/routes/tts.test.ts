@@ -62,9 +62,7 @@ describe('POST /api/tts', () => {
       Object.assign(new Error('Connection failed'), { code: 'ECONNREFUSED' })
     );
 
-    const response = await request(createApp())
-      .post('/api/tts')
-      .send({ text: 'offline' });
+    const response = await request(createApp()).post('/api/tts').send({ text: 'offline' });
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual({

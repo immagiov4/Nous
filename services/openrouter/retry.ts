@@ -1,16 +1,8 @@
+import { getErrorMessage } from '../core/errorMessage.ts';
+
+export { getErrorMessage };
+
 export const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-export const getErrorMessage = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  return 'Unknown error';
-};
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;

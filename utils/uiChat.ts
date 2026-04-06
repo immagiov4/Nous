@@ -1,7 +1,11 @@
 import { isTextUIPart, isToolUIPart, type UIMessage } from 'ai';
 
 export const getUiMessageText = (message: UIMessage) => {
-  return message.parts.filter(isTextUIPart).map(part => part.text).join('').trim();
+  return message.parts
+    .filter(isTextUIPart)
+    .map(part => part.text)
+    .join('')
+    .trim();
 };
 
 type UiMessageRenderablePart<T extends UIMessage = UIMessage> =

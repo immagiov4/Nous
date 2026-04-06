@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Stop all Lumina Deep Reader services
- * 
+ *
  * Kills processes on ports 8000, 3001, 5173
  */
 
@@ -15,7 +15,7 @@ const colors = {
   green: '\x1b[32m',
   yellow: '\x1b[33m',
   red: '\x1b[31m',
-  cyan: '\x1b[36m'
+  cyan: '\x1b[36m',
 };
 
 function log(message, color = colors.reset) {
@@ -23,11 +23,9 @@ function log(message, color = colors.reset) {
 }
 
 function killPort(port) {
-  return new Promise((resolve) => {
-    const command = isWindows
-      ? `netstat -ano | findstr :${port}`
-      : `lsof -ti:${port}`;
-    
+  return new Promise(resolve => {
+    const command = isWindows ? `netstat -ano | findstr :${port}` : `lsof -ti:${port}`;
+
     exec(command, (error, stdout) => {
       if (error || !stdout.trim()) {
         log(`No process found on port ${port}`, colors.yellow);
@@ -45,10 +43,10 @@ function killPort(port) {
             pids.add(pid);
           }
         });
-        
+
         let killed = false;
         pids.forEach(pid => {
-          exec(`taskkill /F /PID ${pid}`, (err) => {
+          exec(`taskkill /F /PID ${pid}`, err => {
             if (!err) {
               log(`Killed process ${pid} on port ${port}`, colors.green);
               killed = true;
@@ -61,7 +59,7 @@ function killPort(port) {
         let killed = false;
         pids.forEach(pid => {
           if (pid) {
-            exec(`kill -9 ${pid}`, (err) => {
+            exec(`kill -9 ${pid}`, err => {
               if (!err) {
                 log(`Killed process ${pid} on port ${port}`, colors.green);
                 killed = true;
@@ -83,7 +81,7 @@ async function stopAll() {
   const ports = [
     { port: 8880, name: 'TTS Server' },
     { port: 3001, name: 'Backend' },
-    { port: 5173, name: 'Frontend' }
+    { port: 5173, name: 'Frontend' },
   ];
 
   for (const { port, name } of ports) {
@@ -96,7 +94,7 @@ async function stopAll() {
   console.log(`${'-'.repeat(50)}\n`);
 }
 
-stopAll().catch((err) => {
+stopAll().catch(err => {
   log(`Error: ${err.message}`, colors.red);
   process.exit(1);
 });

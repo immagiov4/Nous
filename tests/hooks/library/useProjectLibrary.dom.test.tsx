@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { AppState, type ProjectSnapshot, type SavedProjectMeta, type WorkspaceDomainState } from '../../../types.ts';
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
+import {
+  AppState,
+  type ProjectSnapshot,
+  type SavedProjectMeta,
+  type WorkspaceDomainState,
+} from '../../../types.ts';
 
 const repositoryMocks = vi.hoisted(() => ({
   createFolder: vi.fn(),
@@ -58,10 +63,7 @@ const buildMeta = (id: string, lastOpenedAt: string): SavedProjectMeta => ({
   syncState: 'local-only',
 });
 
-const buildSnapshot = (
-  id: string,
-  overrides: Partial<ProjectSnapshot> = {}
-): ProjectSnapshot => ({
+const buildSnapshot = (id: string, overrides: Partial<ProjectSnapshot> = {}): ProjectSnapshot => ({
   id,
   version: '1',
   sourceKind: 'document',
@@ -225,13 +227,9 @@ describe('useProjectLibrary', () => {
   });
 
   test('downloadProject uses a zip-based backup filename', async () => {
-    const objectUrlSpy = vi
-      .spyOn(URL, 'createObjectURL')
-      .mockReturnValue('blob:lumina-backup');
+    const objectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:lumina-backup');
     const appendChildSpy = vi.spyOn(document.body, 'appendChild');
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     repositoryMocks.loadProject.mockResolvedValue(buildSnapshot('project-export'));
 
@@ -255,29 +253,27 @@ describe('useProjectLibrary', () => {
   });
 
   test('createFolder refreshes library organization and rebuilds the tree', async () => {
-    repositoryMocks.listProjects.mockResolvedValue([buildMeta('course-1', '2026-04-02T10:00:00.000Z')]);
-    repositoryMocks.listFolders
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: 'folder-1',
-          name: 'Frontend',
-          parentFolderId: null,
-          createdAt: '2026-04-02T10:00:00.000Z',
-          updatedAt: '2026-04-02T10:00:00.000Z',
-          order: 1,
-        },
-      ]);
-    repositoryMocks.listPlacements
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          projectId: 'course-1',
-          folderId: 'folder-1',
-          order: 1,
-          updatedAt: '2026-04-02T10:00:00.000Z',
-        },
-      ]);
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('course-1', '2026-04-02T10:00:00.000Z'),
+    ]);
+    repositoryMocks.listFolders.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 'folder-1',
+        name: 'Frontend',
+        parentFolderId: null,
+        createdAt: '2026-04-02T10:00:00.000Z',
+        updatedAt: '2026-04-02T10:00:00.000Z',
+        order: 1,
+      },
+    ]);
+    repositoryMocks.listPlacements.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        projectId: 'course-1',
+        folderId: 'folder-1',
+        order: 1,
+        updatedAt: '2026-04-02T10:00:00.000Z',
+      },
+    ]);
 
     const { result } = renderHook(() =>
       useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
@@ -296,9 +292,7 @@ describe('useProjectLibrary', () => {
 
   test('does not synthesize a timeout error while library init is still pending', async () => {
     vi.useFakeTimers();
-    repositoryMocks.listProjects.mockImplementation(
-      () => new Promise(() => {})
-    );
+    repositoryMocks.listProjects.mockImplementation(() => new Promise(() => {}));
 
     const { result } = renderHook(() =>
       useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })

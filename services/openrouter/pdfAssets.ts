@@ -1,13 +1,13 @@
 import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } from '../../types.ts';
 import {
-  MODEL_PDF_IMAGE_CAPTION,
-  MODEL_FLASH,
   callOpenRouter,
+  type FileData,
   fileToDataUrl,
   getBackendUrl,
   isPdfFile,
+  MODEL_FLASH,
+  MODEL_PDF_IMAGE_CAPTION,
   retryWithBackoff,
-  type FileData,
 } from './shared.ts';
 
 const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();

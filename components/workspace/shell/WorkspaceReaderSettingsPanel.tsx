@@ -1,9 +1,9 @@
-import OpenRouterModelPanel from '../../shared/OpenRouterModelPanel.tsx';
 import type {
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
   OpenRouterModelSlot,
 } from '../../../types.ts';
+import OpenRouterModelPanel from '../../shared/OpenRouterModelPanel.tsx';
 
 interface WorkspaceReaderSettingsPanelProps {
   modelDefaults: OpenRouterModelDefaults;

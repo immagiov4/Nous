@@ -1,15 +1,15 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import { executeLibraryAssistantTool } from '../../../services/library/toolExecutor.ts';
-import { buildLibraryTree } from '../../../utils/library/tree.ts';
 import type {
+  LearningPlan,
   LibraryContextRef,
   LibraryFolder,
   LibraryPlacement,
-  LearningPlan,
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../../types.ts';
+import { buildLibraryTree } from '../../../utils/library/tree.ts';
 
 const folders: LibraryFolder[] = [
   {
@@ -317,9 +317,7 @@ describe('executeLibraryAssistantTool', () => {
 
     expect(result.outputError).toBeUndefined();
     expect(result.output).toMatchObject({
-      projects: [
-        expect.objectContaining({ id: 'project-3', title: 'Rust Systems' }),
-      ],
+      projects: [expect.objectContaining({ id: 'project-3', title: 'Rust Systems' })],
     });
   });
 

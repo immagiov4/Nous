@@ -134,9 +134,5 @@ export const insertSectionAfterSubtree = (
     insertIndex += 1;
   }
 
-  return [
-    ...sections.slice(0, insertIndex),
-    nextSection,
-    ...sections.slice(insertIndex),
-  ];
+  return [...sections.slice(0, insertIndex), nextSection, ...sections.slice(insertIndex)];
 };

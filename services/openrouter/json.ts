@@ -4,6 +4,7 @@ export const parseJson = <T>(text: string, fallback: T): T => {
   try {
     return JSON.parse(text) as T;
   } catch {
+    // intentional: fallback to default
     return fallback;
   }
 };
@@ -24,9 +25,7 @@ export const cleanJson = (text: string): string => {
   const lastBracket = clean.lastIndexOf(']');
   const lastBrace = clean.lastIndexOf('}');
   const end =
-    lastBracket !== -1 && (lastBrace === -1 || lastBracket > lastBrace)
-      ? lastBracket
-      : lastBrace;
+    lastBracket !== -1 && (lastBrace === -1 || lastBracket > lastBrace) ? lastBracket : lastBrace;
 
   if (end !== -1) {
     clean = clean.substring(0, end + 1);
@@ -49,7 +48,7 @@ export const repairJsonString = (text: string): string => {
 
     if (!inString) {
       repaired += current;
-      if ((current === '"' || current === '\'') && previous !== '\\') {
+      if ((current === '"' || current === "'") && previous !== '\\') {
         inString = true;
         stringDelimiter = current;
       }
@@ -72,8 +71,10 @@ export const repairJsonString = (text: string): string => {
     }
 
     if (current === '\\') {
-      const isUnicodeEscape = next === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(index + 2, index + 6));
-      const isValidEscape = ['"', '\\', '/', 'b', 'f', 'n', 'r', 't'].includes(next) || isUnicodeEscape;
+      const isUnicodeEscape =
+        next === 'u' && /^[0-9a-fA-F]{4}$/.test(text.slice(index + 2, index + 6));
+      const isValidEscape =
+        ['"', '\\', '/', 'b', 'f', 'n', 'r', 't'].includes(next) || isUnicodeEscape;
 
       if (!next || !isValidEscape) {
         repaired += '\\\\';
@@ -98,6 +99,7 @@ export const parseCleanJson = <T>(text: string): T => {
   try {
     return JSON.parse(cleaned) as T;
   } catch {
+    // intentional: fallback to default
     return JSON.parse(repairJsonString(cleaned)) as T;
   }
 };

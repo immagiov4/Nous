@@ -30,18 +30,16 @@ const SINGLE_LINE_CODE_LANGUAGES = new Map<string, string>([
 
 const FENCED_BLOCK_WITH_ORPHANED_CONTINUATION_REGEX =
   /((```|~~~)[^\n]*\n[\s\S]*?\n)(\2[^\n]*\n)((?:[ \t].*\n)+)/g;
-const MATH_DELIMITER_REGEX = /(\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
+const MATH_DELIMITER_REGEX =
+  /(\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
 const SINGLE_LINE_CODE_BLOCK_REGEX = /^([A-Za-z0-9+#.-]+)\s+(.+)$/;
 const CODE_LIKE_INLINE_REGEX =
   /(#include\b|std::|->|=>|::|[{}[\];]|<=|>=|==|!=|\b(?:while|for|if|else|return|const|let|var|int|float|double|bool|char|void|class|struct|template|auto)\b)/;
 const CODE_DECLARATION_LINE_REGEX =
   /^(#include\b.+|using\s+namespace\b.+|template\s*<.+|(?:const|let|var|int|float|double|bool|char|void|auto|std::\w+|\w+(?:::\w+)*)[\s<].*[;{,]|}\s*;?)$/;
-const CODE_CALL_OR_SIGNATURE_LINE_REGEX =
-  /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\(.+\)\s*[,;:]?\s*$/;
-const CODE_PARTIAL_SIGNATURE_START_REGEX =
-  /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\([^)]*[,}]?\s*$/;
-const CODE_PARTIAL_SIGNATURE_END_REGEX =
-  /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\)\s*:\s*$/;
+const CODE_CALL_OR_SIGNATURE_LINE_REGEX = /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\(.+\)\s*[,;:]?\s*$/;
+const CODE_PARTIAL_SIGNATURE_START_REGEX = /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\([^)]*[,}]?\s*$/;
+const CODE_PARTIAL_SIGNATURE_END_REGEX = /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\)\s*:\s*$/;
 const CODE_CONTROL_FLOW_LINE_REGEX =
   /^\s*[{}]\s*;?\s*$|^\s*}\s*else\b.*$|^\s*(?:if|else|for|while|switch|case|default|return|break|continue)\b.*$/;
 
@@ -150,9 +148,7 @@ const getCodeLanguageLabel = (line: string): string | null => {
   return SINGLE_LINE_CODE_LANGUAGES.get(trimmed) || null;
 };
 
-const parseInlineCodeLead = (
-  line: string
-): { code: string; language: string } | null => {
+const parseInlineCodeLead = (line: string): { code: string; language: string } | null => {
   const trimmed = line.trim();
   const match = trimmed.match(SINGLE_LINE_CODE_BLOCK_REGEX);
   if (!match) {
@@ -170,8 +166,7 @@ const parseInlineCodeLead = (
 
 const trimCodeLine = (line: string): string => line.replace(/\s+$/u, '');
 
-const stripInlineCodeSpans = (line: string): string =>
-  line.replace(/`[^`]+`/g, '');
+const stripInlineCodeSpans = (line: string): string => line.replace(/`[^`]+`/g, '');
 
 const countParenBalance = (line: string): number => {
   let depth = 0;
@@ -223,8 +218,7 @@ const escapeLatexTextContent = (value: string): string =>
     .replace(/(?<!\\)#/g, '\\#')
     .replace(/(?<!\\)&/g, '\\&');
 
-const WORD_LIKE_MATH_SCRIPT_LABEL_REGEX =
-  /^[A-Za-z][A-Za-z0-9-]{2,}(?:\s+[A-Za-z0-9-]+)*$/;
+const WORD_LIKE_MATH_SCRIPT_LABEL_REGEX = /^[A-Za-z][A-Za-z0-9-]{2,}(?:\s+[A-Za-z0-9-]+)*$/;
 
 const wrapWordLikeMathScriptLabel = (value: string): string | null => {
   const trimmedValue = value.trim();
@@ -246,7 +240,8 @@ const normalizeWordLikeMathScripts = (value: string): string => {
 
   return withBracedLabelsNormalized.replace(
     /(?<!\\)([_^])(?!\{)([A-Za-z][A-Za-z0-9-]{2,})\b/g,
-    (_match, operator: string, label: string) => `${operator}{\\text{${escapeLatexTextContent(label)}}}`
+    (_match, operator: string, label: string) =>
+      `${operator}{\\text{${escapeLatexTextContent(label)}}}`
   );
 };
 
@@ -351,7 +346,11 @@ const processMarkdownSegment = (segment: string): string => {
 
     const inlineCodeLead = parseInlineCodeLead(line);
     if (inlineCodeLead && index + 1 < lines.length) {
-      const { codeLines, lastIndex } = collectCodeContinuationLines(lines, index + 1, countParenBalance(inlineCodeLead.code));
+      const { codeLines, lastIndex } = collectCodeContinuationLines(
+        lines,
+        index + 1,
+        countParenBalance(inlineCodeLead.code)
+      );
       if (codeLines.length > 0) {
         output.push(
           ...normalizeCodeFenceSpacing([
@@ -491,9 +490,18 @@ const sanitizeMixedFencedCodeBlock = (
 const mergeOrphanedContinuationLinesIntoPreviousFence = (content: string): string =>
   content.replace(
     FENCED_BLOCK_WITH_ORPHANED_CONTINUATION_REGEX,
-    (match, codePrefix: string, _fenceToken: string, closingFenceLine: string, continuationBlock: string) => {
+    (
+      match,
+      codePrefix: string,
+      _fenceToken: string,
+      closingFenceLine: string,
+      continuationBlock: string
+    ) => {
       const continuationLines = continuationBlock.split('\n').filter(line => line.length > 0);
-      if (continuationLines.length === 0 || !continuationLines.every(isOrphanedCodeContinuationLine)) {
+      if (
+        continuationLines.length === 0 ||
+        !continuationLines.every(isOrphanedCodeContinuationLine)
+      ) {
         return match;
       }
 

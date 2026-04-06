@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-
 import type { UIMessage } from 'ai';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const useChatMock = vi.fn();
 
@@ -45,7 +44,9 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
   getBackendUrl: () => 'http://localhost:3001',
 }));
 
-const { useLibraryAssistantChat } = await import('../../../hooks/library/useLibraryAssistantChat.ts');
+const { useLibraryAssistantChat } = await import(
+  '../../../hooks/library/useLibraryAssistantChat.ts'
+);
 
 describe('useLibraryAssistantChat', () => {
   beforeEach(() => {
@@ -115,7 +116,8 @@ describe('useLibraryAssistantChat', () => {
       })
     );
 
-    const initialTransport = useChatMock.mock.calls[0]?.[0]?.transport as MockDefaultChatTransport<UIMessage>;
+    const initialTransport = useChatMock.mock.calls[0]?.[0]
+      ?.transport as MockDefaultChatTransport<UIMessage>;
     expect(initialTransport).toBeDefined();
 
     await act(async () => {
@@ -160,14 +162,15 @@ describe('useLibraryAssistantChat', () => {
         }),
       {
         initialProps: {
-          folders: [] as typeof folder[],
-          projects: [] as typeof project[],
+          folders: [] as (typeof folder)[],
+          projects: [] as (typeof project)[],
           tree: emptyTree,
         },
       }
     );
 
-    const initialTransport = useChatMock.mock.calls[0]?.[0]?.transport as MockDefaultChatTransport<UIMessage>;
+    const initialTransport = useChatMock.mock.calls[0]?.[0]
+      ?.transport as MockDefaultChatTransport<UIMessage>;
     expect(initialTransport).toBeDefined();
 
     rerender({
@@ -220,7 +223,8 @@ describe('useLibraryAssistantChat', () => {
       }
     );
 
-    const initialTransport = useChatMock.mock.calls[0]?.[0]?.transport as MockDefaultChatTransport<UIMessage>;
+    const initialTransport = useChatMock.mock.calls[0]?.[0]
+      ?.transport as MockDefaultChatTransport<UIMessage>;
     expect(initialTransport).toBeDefined();
 
     rerender({ preferredContextModel: 'openai/gpt-5.4-nano' });

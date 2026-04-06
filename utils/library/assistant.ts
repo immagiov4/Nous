@@ -39,7 +39,8 @@ const buildSnippet = (value: string, query: string, maxLength = 220) => {
 const countProjectNotes = (snapshot: ProjectSnapshot) =>
   snapshot.learningPlan?.sections.reduce(
     (total, section) =>
-      total + (section.annotations?.filter(annotation => annotation.note.trim().length > 0).length || 0),
+      total +
+      (section.annotations?.filter(annotation => annotation.note.trim().length > 0).length || 0),
     0
   ) || 0;
 
@@ -55,7 +56,9 @@ const countProjectCompletedLessons = (snapshot: ProjectSnapshot) =>
 const getSectionAnnotations = (section: LearningSection) =>
   (section.annotations || []).map(annotation => {
     const highlightedText =
-      section.content && annotation.id ? getSectionAnnotationText(section.content, annotation.id) : '';
+      section.content && annotation.id
+        ? getSectionAnnotationText(section.content, annotation.id)
+        : '';
 
     return {
       annotationId: annotation.id,
@@ -166,7 +169,8 @@ export const buildScopedLibraryTreePayload = ({
       kind: node.kind,
       name: node.folder.name,
       path: getFolderPathLabels(node.id, Object.values(tree.folderById)),
-      projectCount: node.descendantProjectIds.filter(projectId => allowedProjectIds.has(projectId)).length,
+      projectCount: node.descendantProjectIds.filter(projectId => allowedProjectIds.has(projectId))
+        .length,
     };
   };
 
@@ -234,16 +238,18 @@ export const buildProjectStructurePayload = ({
         snapshot?.learningPlan?.sections.map(section => {
           const annotations = section.annotations || [];
           const notesWithTimestamp = annotations.filter(a => a.note.trim().length > 0);
-          const latestNote = notesWithTimestamp.length > 0
-            ? notesWithTimestamp.reduce((best, a) =>
-                (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
-              )
-            : null;
-          const latestAnnotation = annotations.length > 0
-            ? annotations.reduce((best, a) =>
-                (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
-              )
-            : null;
+          const latestNote =
+            notesWithTimestamp.length > 0
+              ? notesWithTimestamp.reduce((best, a) =>
+                  (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
+                )
+              : null;
+          const latestAnnotation =
+            annotations.length > 0
+              ? annotations.reduce((best, a) =>
+                  (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
+                )
+              : null;
 
           return {
             highlightCount: annotations.length,
@@ -256,8 +262,10 @@ export const buildProjectStructurePayload = ({
             title: section.title,
             description: section.description,
             type: section.type,
-            latestNoteAt: latestNote ? (latestNote.updatedAt || latestNote.createdAt) : null,
-            latestAnnotationAt: latestAnnotation ? (latestAnnotation.updatedAt || latestAnnotation.createdAt) : null,
+            latestNoteAt: latestNote ? latestNote.updatedAt || latestNote.createdAt : null,
+            latestAnnotationAt: latestAnnotation
+              ? latestAnnotation.updatedAt || latestAnnotation.createdAt
+              : null,
           };
         }) || [],
       title: meta?.title || snapshot?.learningPlan?.title || 'Corso',
@@ -288,7 +296,9 @@ export const buildLessonDetailPayload = ({
           id: section.id,
           isCompleted: section.isCompleted,
           moduleTitle: section.moduleTitle || '',
-          noteCount: section.annotations?.filter(annotation => annotation.note.trim().length > 0).length || 0,
+          noteCount:
+            section.annotations?.filter(annotation => annotation.note.trim().length > 0).length ||
+            0,
           parentId: section.parentId || null,
           title: section.title,
           type: section.type,
@@ -354,7 +364,10 @@ export const searchLibraryContent = ({
           lessonTitle: section.title,
           projectId,
           projectTitle: meta.title,
-          snippet: buildSnippet(section.content || `${section.title}\n${section.description}`, query),
+          snippet: buildSnippet(
+            section.content || `${section.title}\n${section.description}`,
+            query
+          ),
         });
       }
 

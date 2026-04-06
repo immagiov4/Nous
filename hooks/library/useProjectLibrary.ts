@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
+import { IndexedDbProjectRepository } from '../../services/projects/indexedDbProjectRepository';
+import { buildPersistenceSignature } from '../../services/projects/persistenceSignature';
 import {
   createProjectArchiveBlob,
   getProjectArchiveExtension,
 } from '../../services/projects/projectArchive.ts';
-import { IndexedDbProjectRepository } from '../../services/projects/indexedDbProjectRepository';
-import { createProjectSnapshot } from '../../services/projects/projectSnapshot';
-import { buildPersistenceSignature } from '../../services/projects/persistenceSignature';
 import { ProjectStorageError } from '../../services/projects/projectRepository';
+import { createProjectSnapshot } from '../../services/projects/projectSnapshot';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
   LibraryFolder,
@@ -151,7 +151,8 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         void requestPersistentStorage();
         return meta;
       } catch (error) {
-        const message = error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+        const message =
+          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
         setStorageError(message);
         return null;
       }
@@ -288,24 +289,12 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     libraryTree,
     loadProjectsById: projectRepository.loadProjectsById.bind(projectRepository),
     loadStoredProject: projectRepository.loadProject.bind(projectRepository),
-    moveFolder: async (
-      folderId: string,
-      parentFolderId: string | null,
-      targetIndex?: number
-    ) => {
-      const nextFolder = await projectRepository.moveFolder(
-        folderId,
-        parentFolderId,
-        targetIndex
-      );
+    moveFolder: async (folderId: string, parentFolderId: string | null, targetIndex?: number) => {
+      const nextFolder = await projectRepository.moveFolder(folderId, parentFolderId, targetIndex);
       await refreshLibraryOrganization();
       return nextFolder;
     },
-    moveProjects: async (
-      projectIds: string[],
-      folderId: string | null,
-      targetIndex?: number
-    ) => {
+    moveProjects: async (projectIds: string[], folderId: string | null, targetIndex?: number) => {
       const nextPlacements = await projectRepository.moveProjects(
         projectIds,
         folderId,

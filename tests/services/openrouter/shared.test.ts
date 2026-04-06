@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { encodeBytesBase64, encodeTextBase64 } from '../../../services/projects/projectSource.ts';
 import { buildDocumentInputContent } from '../../../services/openrouter/shared.ts';
+import { encodeBytesBase64, encodeTextBase64 } from '../../../services/projects/projectSource.ts';
 
 test('buildDocumentInputContent serializes markdown and structured text files as plain text source', () => {
   const markdownContent = buildDocumentInputContent(

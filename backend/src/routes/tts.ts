@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { type Request, type Response, Router } from 'express';
 
 import { ttsClient } from '../services/ttsClient.js';
 import { isConnectionError } from '../utils/errors.js';
@@ -9,7 +9,7 @@ const router = Router();
 /**
  * POST /api/tts
  * Generate speech from text
- * 
+ *
  * Body: { text: string, voice?: string, speed?: number }
  * Returns: audio/wav binary data
  */
@@ -18,16 +18,16 @@ router.post('/', async (req: Request, res: Response) => {
     const { text, voice, speed } = req.body;
 
     if (!text || typeof text !== 'string') {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Text is required and must be a string' 
+      return res.status(400).json({
+        success: false,
+        error: 'Text is required and must be a string',
       });
     }
 
     if (text.length > 10000) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Text too long. Maximum 10000 characters per request.' 
+      return res.status(400).json({
+        success: false,
+        error: 'Text too long. Maximum 10000 characters per request.',
       });
     }
 
@@ -44,9 +44,9 @@ router.post('/', async (req: Request, res: Response) => {
     console.error('[TTS Route] Error:', error);
 
     if (isConnectionError(error)) {
-      return res.status(503).json({ 
-        success: false, 
-        error: 'TTS server is not available. Please ensure the TTS server is running.' 
+      return res.status(503).json({
+        success: false,
+        error: 'TTS server is not available. Please ensure the TTS server is running.',
       });
     }
 

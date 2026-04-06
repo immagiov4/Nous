@@ -1,16 +1,8 @@
-import {
-  ArrowLeft,
-  Moon,
-  RefreshCw,
-  Settings2,
-  SidebarOpen,
-  Sun,
-  X,
-} from 'lucide-react';
+import { ArrowLeft, Moon, RefreshCw, Settings2, SidebarOpen, Sun, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import MusicPlayer from '../MusicPlayer.tsx';
-import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
+import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
 export default function WorkspaceReaderHeader({
   activeSection,
@@ -196,7 +188,8 @@ export default function WorkspaceReaderHeader({
                   Rigenerare questa lezione?
                 </p>
                 <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                  Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.
+                  Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti
+                  perdere il contenuto attuale.
                 </p>
                 <div className="mt-4 flex items-center justify-end gap-2">
                   <button
@@ -255,7 +248,9 @@ export default function WorkspaceReaderHeader({
         </div>
       </div>
 
-      {isMobileViewport && loadingBadge ? <div className="w-full min-w-0">{loadingBadge}</div> : null}
+      {isMobileViewport && loadingBadge ? (
+        <div className="w-full min-w-0">{loadingBadge}</div>
+      ) : null}
 
       {isSettingsOpen ? (
         <WorkspaceReaderSettingsPanel

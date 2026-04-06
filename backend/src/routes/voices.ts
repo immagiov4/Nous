@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import { type Request, type Response, Router } from 'express';
 
 import { getVoiceDetails, listVoices } from '../services/voiceService.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';

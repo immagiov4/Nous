@@ -1,14 +1,5 @@
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useReaderChrome } from '../reader/useReaderChrome.ts';
-import { useReaderContext } from '../reader/useReaderContext.ts';
-import { useReaderSpeechBlocks } from '../reader/useReaderSpeech.ts';
-import { useTtsPlayer } from '../reader/useTtsPlayer.ts';
-import {
-  buildLessonAssetMap,
-  buildLessonImageRefMap,
-  buildSidebarGroups,
-} from '../../utils/reader/workspaceReader.ts';
 import type {
   LearningPlan,
   LearningSection,
@@ -19,6 +10,15 @@ import type {
   SyllabusItem,
   UiPreferences,
 } from '../../types.ts';
+import {
+  buildLessonAssetMap,
+  buildLessonImageRefMap,
+  buildSidebarGroups,
+} from '../../utils/reader/workspaceReader.ts';
+import { useReaderChrome } from '../reader/useReaderChrome.ts';
+import { useReaderContext } from '../reader/useReaderContext.ts';
+import { useReaderSpeechBlocks } from '../reader/useReaderSpeech.ts';
+import { useTtsPlayer } from '../reader/useTtsPlayer.ts';
 
 interface UseWorkspaceReaderRuntimeArgs {
   activeSection: LearningSection | null;
@@ -128,11 +128,7 @@ export const useWorkspaceReaderRuntime = ({
             : currentModels.preferredContextModel,
       }));
     },
-    [
-      readerChrome.setIsDarkMode,
-      ttsPlayer.handleSpeedChange,
-      ttsPlayer.handleVoiceChange,
-    ]
+    [readerChrome.setIsDarkMode, ttsPlayer.handleSpeedChange, ttsPlayer.handleVoiceChange]
   );
 
   const uiPreferences = useMemo<UiPreferences>(

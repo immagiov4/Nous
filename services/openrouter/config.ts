@@ -1,7 +1,7 @@
-import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from '../../constants.ts';
 import type { OpenRouterModelSlot } from '../../types.ts';
-import type { OpenRouterReasoningOptions } from './types.ts';
 import { readUiPreferences } from '../preferences/uiPreferencesStorage.ts';
+import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from './prompts.ts';
+import type { OpenRouterReasoningOptions } from './types.ts';
 
 export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -16,11 +16,6 @@ export const MODEL_PDF_IMAGE_CAPTION =
   process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
 
 export const HIGH_REASONING_CONFIG: OpenRouterReasoningOptions = {
-  effort: 'high',
-  exclude: true,
-};
-
-export const MAX_REASONING_CONFIG: OpenRouterReasoningOptions = {
   effort: 'high',
   exclude: true,
 };

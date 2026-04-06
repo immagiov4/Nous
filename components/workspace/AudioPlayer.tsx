@@ -1,5 +1,14 @@
+import {
+  ChevronRight,
+  FastForward,
+  Loader2,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Volume2,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { ChevronRight, FastForward, Loader2, Pause, Play, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 import type { VoiceProfileId } from '../../types';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 
@@ -133,7 +142,8 @@ const AudioPlayer = ({
           transform: isDockedState
             ? 'translateX(-86%) translateY(-50%)'
             : 'translateX(14px) translateY(-50%)',
-          transition: 'left 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          transition:
+            'left 0.5s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
         }
     : {};
 
@@ -208,11 +218,13 @@ const AudioPlayer = ({
         className={`
           relative overflow-hidden border pointer-events-auto transition-all duration-300
           ${containerStyle}
-          ${isVertical
-            ? isDockedState
-              ? 'flex w-7 flex-col gap-4 rounded-r-2xl rounded-l-none px-0 py-4'
-              : 'relative flex min-w-[100px] flex-col gap-4 rounded-2xl p-4'
-            : 'flex w-auto flex-col gap-2 rounded-2xl p-4'}
+          ${
+            isVertical
+              ? isDockedState
+                ? 'flex w-7 flex-col gap-4 rounded-r-2xl rounded-l-none px-0 py-4'
+                : 'relative flex min-w-[100px] flex-col gap-4 rounded-2xl p-4'
+              : 'flex w-auto flex-col gap-2 rounded-2xl p-4'
+          }
         `}
       >
         {!isVertical ? (
@@ -223,7 +235,7 @@ const AudioPlayer = ({
               min="0"
               max={duration || 100}
               value={currentTime}
-              onChange={(event) => onSeek(parseFloat(event.target.value))}
+              onChange={event => onSeek(parseFloat(event.target.value))}
               className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-orange-600 dark:bg-zinc-700 dark:accent-orange-500"
             />
             <span className="w-9">{formatTime(duration)}</span>
@@ -255,17 +267,27 @@ const AudioPlayer = ({
               disabled={!ttsConnected && !isPlaying}
               className={`
                 flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full shadow-md transition-all duration-200
-                ${isLoading
-                  ? 'cursor-pointer bg-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:bg-zinc-800 dark:hover:bg-red-900/10'
-                  : isPlaying
-                    ? 'bg-black text-white hover:scale-105 dark:bg-white dark:text-black'
-                    : isDockedState
-                      ? 'border border-current bg-transparent text-gray-500 dark:text-zinc-400'
-                      : !ttsConnected
-                        ? 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-zinc-700 dark:text-zinc-400'
-                        : 'bg-black pl-1 text-white hover:scale-105 dark:bg-white dark:text-black'}
+                ${
+                  isLoading
+                    ? 'cursor-pointer bg-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:bg-zinc-800 dark:hover:bg-red-900/10'
+                    : isPlaying
+                      ? 'bg-black text-white hover:scale-105 dark:bg-white dark:text-black'
+                      : isDockedState
+                        ? 'border border-current bg-transparent text-gray-500 dark:text-zinc-400'
+                        : !ttsConnected
+                          ? 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-zinc-700 dark:text-zinc-400'
+                          : 'bg-black pl-1 text-white hover:scale-105 dark:bg-white dark:text-black'
+                }
               `}
-              title={!ttsConnected && !isPlaying ? 'TTS non disponibile' : isLoading ? 'In caricamento' : isPlaying ? 'Pausa' : 'Play'}
+              title={
+                !ttsConnected && !isPlaying
+                  ? 'TTS non disponibile'
+                  : isLoading
+                    ? 'In caricamento'
+                    : isPlaying
+                      ? 'Pausa'
+                      : 'Play'
+              }
             >
               {isLoading ? (
                 <div className="relative">
@@ -288,19 +310,25 @@ const AudioPlayer = ({
             </button>
           </div>
 
-          <div className={`${isVertical ? 'h-px w-8' : 'h-8 w-px'} ${isDockedState ? 'bg-gray-300/20' : 'bg-gray-200 dark:bg-zinc-700'}`} />
+          <div
+            className={`${isVertical ? 'h-px w-8' : 'h-8 w-px'} ${isDockedState ? 'bg-gray-300/20' : 'bg-gray-200 dark:bg-zinc-700'}`}
+          />
 
           <div className={`flex items-center ${isVertical ? 'flex-col gap-4' : 'gap-8'}`}>
             <div className={`flex items-center gap-2 ${isVertical ? 'flex-col' : ''}`}>
               <Volume2 className={`h-4 w-4 ${iconColorClass}`} />
-                <select
+              <select
                 value={currentVoice}
-                onChange={(event) => onVoiceChange(event.target.value as VoiceProfileId)}
+                onChange={event => onVoiceChange(event.target.value as VoiceProfileId)}
                 className={`min-w-[70px] cursor-pointer appearance-none bg-transparent text-center text-xs font-bold uppercase tracking-wider focus:outline-none ${iconColorClass} ${iconHoverClass}`}
                 disabled={isLoading || isPlaying || !ttsConnected}
               >
-                {availableVoices.map((voice) => (
-                  <option key={voice.id} value={voice.id} className="dark:bg-zinc-800 dark:text-gray-100">
+                {availableVoices.map(voice => (
+                  <option
+                    key={voice.id}
+                    value={voice.id}
+                    className="dark:bg-zinc-800 dark:text-gray-100"
+                  >
                     {voice.label}
                   </option>
                 ))}
@@ -310,7 +338,7 @@ const AudioPlayer = ({
             <div className={`flex items-center gap-2 ${isVertical ? 'flex-col' : ''}`}>
               <FastForward className={`h-4 w-4 ${iconColorClass}`} />
               <div className={`flex ${isVertical ? 'flex-col gap-1' : 'gap-1'}`}>
-                {[1, 1.25, 1.5].map((rate) => (
+                {[1, 1.25, 1.5].map(rate => (
                   <button
                     type="button"
                     key={rate}

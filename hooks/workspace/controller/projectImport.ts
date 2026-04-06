@@ -1,4 +1,7 @@
-import { isProjectArchiveFile, readProjectImportData } from '../../../services/projects/projectArchive.ts';
+import {
+  isProjectArchiveFile,
+  readProjectImportData,
+} from '../../../services/projects/projectArchive.ts';
 import { prepareSnapshotForHydration } from '../../../services/workspace/controller/snapshotHydration.ts';
 import type { ProjectSnapshot } from '../../../types.ts';
 import type { WorkspaceControllerContext } from './types.ts';

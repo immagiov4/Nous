@@ -23,11 +23,13 @@ import {
 
 const CURRENT_PROJECT_VERSION = '4.1';
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
 
 const isString = (value: unknown): value is string => typeof value === 'string';
 
-const ensureString = (value: unknown, fallback = ''): string => (typeof value === 'string' ? value : fallback);
+const ensureString = (value: unknown, fallback = ''): string =>
+  typeof value === 'string' ? value : fallback;
 
 export const createProjectId = (): ProjectId => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -103,7 +105,9 @@ export const buildCoverLabel = (
     return 'Percorso AI';
   }
 
-  return snapshot.learningPlan?.sections.length ? `${snapshot.learningPlan.sections.length} lezioni` : 'Bozza locale';
+  return snapshot.learningPlan?.sections.length
+    ? `${snapshot.learningPlan.sections.length} lezioni`
+    : 'Bozza locale';
 };
 
 export const buildProjectMeta = (
@@ -112,9 +116,11 @@ export const buildProjectMeta = (
   options?: { imported?: boolean; touchedAt?: string }
 ): SavedProjectMeta => {
   const now = options?.touchedAt || new Date().toISOString();
-  const sourceKind = snapshot.sourceKind || inferProjectSourceKind(snapshot, options?.imported ?? false);
+  const sourceKind =
+    snapshot.sourceKind || inferProjectSourceKind(snapshot, options?.imported ?? false);
   const lessonCount = snapshot.learningPlan?.sections.length || 0;
-  const completedCount = snapshot.learningPlan?.sections.filter(section => section.isCompleted).length || 0;
+  const completedCount =
+    snapshot.learningPlan?.sections.filter(section => section.isCompleted).length || 0;
 
   return {
     id: snapshot.id,
@@ -138,7 +144,10 @@ export const createProjectSnapshot = (
   version: partial.version || CURRENT_PROJECT_VERSION,
   sourceKind:
     partial.sourceKind ||
-    inferProjectSourceKind({ source: partial.source || null, isLearnMode: partial.isLearnMode || false }),
+    inferProjectSourceKind({
+      source: partial.source || null,
+      isLearnMode: partial.isLearnMode || false,
+    }),
   state: partial.state || AppState.LIBRARY,
   source: partial.source || null,
   learningPlan: partial.learningPlan || null,
@@ -284,7 +293,9 @@ const parseDocumentIndex = (value: unknown): PdfTextIndex | null => {
       .map(chunk => ({
         id: ensureString(chunk.id),
         text: ensureString(chunk.text),
-        headingPath: Array.isArray(chunk.headingPath) ? chunk.headingPath.map(item => ensureString(item)).filter(Boolean) : [],
+        headingPath: Array.isArray(chunk.headingPath)
+          ? chunk.headingPath.map(item => ensureString(item)).filter(Boolean)
+          : [],
         sequence: typeof chunk.sequence === 'number' ? chunk.sequence : 0,
         startOffset: typeof chunk.startOffset === 'number' ? chunk.startOffset : 0,
         endOffset: typeof chunk.endOffset === 'number' ? chunk.endOffset : 0,
@@ -310,10 +321,14 @@ const parseUserProfile = (value: unknown): UserProfile | null => {
   };
 };
 
-const parseSyllabus = (value: unknown): SyllabusItem[] => (Array.isArray(value) ? (value as SyllabusItem[]) : []);
+const parseSyllabus = (value: unknown): SyllabusItem[] =>
+  Array.isArray(value) ? (value as SyllabusItem[]) : [];
 
 const parseExplicitSourceKind = (value: unknown): ProjectSourceKind | undefined =>
-  value === 'document' || value === 'codebase' || value === 'learn-mode' || value === 'imported-json'
+  value === 'document' ||
+  value === 'codebase' ||
+  value === 'learn-mode' ||
+  value === 'imported-json'
     ? value
     : undefined;
 
@@ -330,15 +345,21 @@ const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapsh
   const source = parseProjectSource(data.source);
   const legacyFile = parseFileData(data.file);
   const fallbackSource = source || (legacyFile ? createProjectSourceFromFile(legacyFile) : null);
-  const hasParentSections = learningPlan?.sections.some(section => Boolean(section.parentId)) || false;
-  const isLearnMode = typeof data.isLearnMode === 'boolean' ? data.isLearnMode : syllabus.length > 0 || hasParentSections;
+  const hasParentSections =
+    learningPlan?.sections.some(section => Boolean(section.parentId)) || false;
+  const isLearnMode =
+    typeof data.isLearnMode === 'boolean'
+      ? data.isLearnMode
+      : syllabus.length > 0 || hasParentSections;
   const explicitSourceKind = parseExplicitSourceKind(data.sourceKind);
 
   return createProjectSnapshot({
     id: isString(data.id) ? data.id : nextId,
     version: ensureString(data.version, CURRENT_PROJECT_VERSION),
     state: learningPlan ? AppState.READING : AppState.LIBRARY,
-    sourceKind: explicitSourceKind || inferProjectSourceKind({ source: fallbackSource, isLearnMode }, imported),
+    sourceKind:
+      explicitSourceKind ||
+      inferProjectSourceKind({ source: fallbackSource, isLearnMode }, imported),
     source: fallbackSource,
     learningPlan:
       learningPlan && !learningPlan.backgroundMusicUrl && isString(data.musicUrl)

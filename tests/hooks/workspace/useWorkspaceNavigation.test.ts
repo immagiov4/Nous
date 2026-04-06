@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { AppState } from '../../../types.ts';
 import { shouldOpenProjectFromLocation } from '../../../hooks/workspace/useWorkspaceNavigation.ts';
+import { AppState } from '../../../types.ts';
 
 test('does not reopen the current project while returning internally to the library', () => {
   assert.equal(

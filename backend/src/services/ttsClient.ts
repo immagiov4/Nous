@@ -1,10 +1,9 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import type { TTSRequest, VoiceProfile, VoiceProfilesConfig } from '../types/index.js';
+import { loadOptionalJsonFile } from '../config/jsonFile.js';
 
 import { getTTSServerUrl, loadServerConfig } from '../config/serverConfig.js';
-import { loadOptionalJsonFile } from '../config/jsonFile.js';
+import type { TTSRequest, VoiceProfile, VoiceProfilesConfig } from '../types/index.js';
 import { checkTtsHealth, checkTtsReadiness } from './ttsHealth.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,7 +20,10 @@ class TTSClient {
 
   private loadVoiceProfiles(): VoiceProfilesConfig {
     const profilesPath = join(__dirname, '..', 'config', 'voice-profiles.json');
-    const loadedProfiles = loadOptionalJsonFile<VoiceProfilesConfig>(profilesPath, 'voice-profiles.json');
+    const loadedProfiles = loadOptionalJsonFile<VoiceProfilesConfig>(
+      profilesPath,
+      'voice-profiles.json'
+    );
 
     if (loadedProfiles) {
       return loadedProfiles;
@@ -48,7 +50,9 @@ class TTSClient {
 
   getDefaultProfile(): VoiceProfile {
     const defaultId = this.voiceProfiles.defaultProfile;
-    return this.voiceProfiles.profiles.find(p => p.id === defaultId) || this.voiceProfiles.profiles[0];
+    return (
+      this.voiceProfiles.profiles.find(p => p.id === defaultId) || this.voiceProfiles.profiles[0]
+    );
   }
 
   getVoiceProfile(id: string): VoiceProfile | undefined {
@@ -61,11 +65,7 @@ class TTSClient {
     }
 
     const normalized = modelId.trim();
-    if (
-      normalized === 'qwen3-tts' ||
-      normalized === 'tts-1' ||
-      normalized === 'tts-1-hd'
-    ) {
+    if (normalized === 'qwen3-tts' || normalized === 'tts-1' || normalized === 'tts-1-hd') {
       return normalized;
     }
 
@@ -93,7 +93,8 @@ class TTSClient {
         parsed.error ||
         responseText
       );
-    } catch {
+    } catch (error) {
+      console.warn('[Lumina] Failed to parse TTS error response JSON', error);
       return responseText;
     }
   }
@@ -102,12 +103,14 @@ class TTSClient {
     const { text, voice, speed = 1.0 } = request;
     const config = loadServerConfig();
     const selectedProfile = voice
-      ? this.getVoiceProfile(voice) ?? this.getDefaultProfile()
+      ? (this.getVoiceProfile(voice) ?? this.getDefaultProfile())
       : this.getDefaultProfile();
     const temperature = selectedProfile.modelSettings.temperature;
     const voicePrompt = 'clone:Mario';
 
-    console.log(`[TTSClient] Generating speech for ${text.length} chars with voice: ${voice || 'default'} -> using speaker: ${voicePrompt}`);
+    console.log(
+      `[TTSClient] Generating speech for ${text.length} chars with voice: ${voice || 'default'} -> using speaker: ${voicePrompt}`
+    );
 
     const response = await fetch(`${this.serverUrl}/v1/audio/speech`, {
       method: 'POST',

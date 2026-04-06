@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { createRef } from 'react';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, test, vi } from 'vitest';
 
-import WorkspaceReaderContent from '../../../../components/workspace/shell/WorkspaceReaderContent.tsx';
+import { render, screen } from '@testing-library/react';
+import { createRef } from 'react';
+import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderContentModel } from '../../../../components/workspace/shell/types.ts';
+import WorkspaceReaderContent from '../../../../components/workspace/shell/WorkspaceReaderContent.tsx';
 
 const buildProps = (
   overrides: Partial<WorkspaceReaderContentModel> = {}

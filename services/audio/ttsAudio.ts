@@ -1,9 +1,6 @@
 const applyEdgeFade = (pcmData: ArrayBuffer, sampleRate: number): ArrayBuffer => {
   const samples = new Int16Array(pcmData.slice(0));
-  const fadeSamples = Math.min(
-    Math.floor(sampleRate * 0.008),
-    Math.floor(samples.length / 2)
-  );
+  const fadeSamples = Math.min(Math.floor(sampleRate * 0.008), Math.floor(samples.length / 2));
 
   if (fadeSamples < 2) {
     return samples.buffer;

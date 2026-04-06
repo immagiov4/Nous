@@ -1,7 +1,12 @@
 import JSZip from 'jszip';
-import type { CodebaseBundleSource, FileData, ProjectExportData, ProjectSnapshot } from '../../types.ts';
-import { decodeBase64Bytes, encodeBytesBase64 } from './projectSource.ts';
+import type {
+  CodebaseBundleSource,
+  FileData,
+  ProjectExportData,
+  ProjectSnapshot,
+} from '../../types.ts';
 import { exportProjectData } from './projectSnapshot.ts';
+import { decodeBase64Bytes, encodeBytesBase64 } from './projectSource.ts';
 
 const PROJECT_ARCHIVE_FORMAT = 'lumina-project-archive';
 const PROJECT_ARCHIVE_VERSION = 1;
@@ -10,8 +15,7 @@ const PROJECT_ARCHIVE_MANIFEST_PATH = 'project.json';
 const PROJECT_ARCHIVE_SOURCE_DIR = 'source';
 const INVALID_BACKUP_ARCHIVE_MESSAGE =
   "Questo ZIP non contiene un backup Lumina valido. Importa un file .lumina.zip esportato dall'app.";
-const INVALID_BACKUP_FILE_MESSAGE =
-  'Il file selezionato non e un backup Lumina valido.';
+const INVALID_BACKUP_FILE_MESSAGE = 'Il file selezionato non e un backup Lumina valido.';
 
 type ArchivedPdfFileMeta = Omit<FileData, 'data'>;
 
@@ -80,7 +84,10 @@ function assertProjectImportPayload(
 
 const buildArchiveManifest = (
   snapshot: ProjectSnapshot
-): { attachment?: { bytes: Uint8Array; entry: ProjectArchiveAttachment }; manifest: ProjectArchiveManifest } => {
+): {
+  attachment?: { bytes: Uint8Array; entry: ProjectArchiveAttachment };
+  manifest: ProjectArchiveManifest;
+} => {
   const project = exportProjectData(snapshot);
   const { file: _legacyFile, source: projectSource, ...projectRest } = project;
 
@@ -156,9 +163,7 @@ const loadProjectArchive = async (bytes: Uint8Array): Promise<LoadedProjectArchi
   return { manifest, zip };
 };
 
-const decodeArchiveManifest = async (
-  bytes: Uint8Array
-): Promise<ProjectExportData> => {
+const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportData> => {
   const { manifest, zip } = await loadProjectArchive(bytes);
 
   if (manifest.attachments?.sourceFile && manifest.project.source?.kind === 'pdf') {
@@ -206,13 +211,12 @@ export const isProjectArchiveFile = async (file: Blob): Promise<boolean> => {
     await loadProjectArchive(bytes);
     return true;
   } catch {
+    // intentional: fallback to default
     return false;
   }
 };
 
-export const createProjectArchiveBlob = async (
-  snapshot: ProjectSnapshot
-): Promise<Blob> => {
+export const createProjectArchiveBlob = async (snapshot: ProjectSnapshot): Promise<Blob> => {
   const zip = new JSZip();
   const { attachment, manifest } = buildArchiveManifest(snapshot);
 

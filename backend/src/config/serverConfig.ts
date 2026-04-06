@@ -36,7 +36,9 @@ export function loadServerConfig(): ServerConfig {
   return cachedConfig ?? defaultServerConfig;
 }
 
-export function buildTTSServerUrl(config: Pick<ServerConfig, 'ttsServerHost' | 'ttsServerPort'>): string {
+export function buildTTSServerUrl(
+  config: Pick<ServerConfig, 'ttsServerHost' | 'ttsServerPort'>
+): string {
   return `http://${config.ttsServerHost}:${config.ttsServerPort}`;
 }
 

@@ -1,12 +1,16 @@
 import type {
+  WorkspaceWorkflowId,
+  WorkspaceWorkflowState,
+} from '../../../services/workspace/workflow.ts';
+import type {
   AppState,
   FileData,
   HomeChatToolPreferences,
+  LearningPlan,
+  LearningSection,
   LibraryFolder,
   LibraryPlacement,
   LibraryTree,
-  LearningPlan,
-  LearningSection,
   Message,
   PdfDocumentAssets,
   PdfTextIndex,
@@ -18,10 +22,6 @@ import type {
   UserProfile,
   WorkspaceDomainState,
 } from '../../../types.ts';
-import type {
-  WorkspaceWorkflowId,
-  WorkspaceWorkflowState,
-} from '../../../services/workspace/workflow.ts';
 
 type OpenRouterServiceModule = typeof import('../../../services/openrouter/index.ts');
 
@@ -82,7 +82,9 @@ export interface WorkspaceProjectLibraryAdapter {
   deleteStoredProject: (projectId: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   downloadProject: (projectId?: string) => Promise<void>;
-  importProjectData: (data: unknown) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
+  importProjectData: (
+    data: unknown
+  ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   isLibraryLoading: boolean;
   libraryFolders: LibraryFolder[];
   libraryPlacements: LibraryPlacement[];
@@ -127,16 +129,8 @@ export interface WorkspaceControllerStateAdapter {
   setChatSession: (chatSession: WorkspaceChatSession | null) => void;
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
-  setWorkflowMessage: (
-    workflowId: WorkspaceWorkflowId,
-    requestId: number,
-    message: string
-  ) => void;
-  succeedWorkflow: (
-    workflowId: WorkspaceWorkflowId,
-    requestId: number,
-    message?: string
-  ) => void;
+  setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
+  succeedWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, message?: string) => void;
 }
 
 export interface CreateWorkspaceControllerArgs {
@@ -205,14 +199,20 @@ export interface WorkspaceControllerCommands {
   handleSourceUpload: (
     selectedFile: File,
     options?: { mode?: 'new-project' | 'reattach-source' }
-  ) => Promise<{ errorMessage?: string; outcome: 'imported' | 'started-assessment' | 'reattached' }>;
+  ) => Promise<{
+    errorMessage?: string;
+    outcome: 'imported' | 'started-assessment' | 'reattached';
+  }>;
   importProjectFile: (
     selectedFile: File
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'imported' }>;
   openProject: (
     projectId: string
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }>;
-  openSection: (section: LearningSection, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
+  openSection: (
+    section: LearningSection,
+    options?: OpenSectionOptions
+  ) => Promise<OpenSectionOutcome>;
   regenerateActiveSection: () => Promise<OpenSectionOutcome>;
   confirmPlanGeneration: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'planned' }>;
   startHomeChat: (args: {
@@ -227,7 +227,10 @@ export interface WorkspaceControllerCommands {
   submitAssessment: (
     input: string,
     toolPreferences?: HomeChatToolPreferences
-  ) => Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }>;
+  ) => Promise<{
+    errorMessage?: string;
+    outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
+  }>;
 }
 
 export interface UseWorkspaceControllerArgs {

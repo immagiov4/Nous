@@ -1,24 +1,20 @@
+import { HIGH_REASONING_CONFIG } from './config.ts';
+import { CURRICULUM_PROPEDEUTIC_ORDER_RULES } from './prompts.ts';
 import {
-  MODEL_FLASH,
-  MODEL_REASONING,
   callOpenRouter,
   cleanJson,
-  sanitizeTitle,
-  retryWithBackoff,
   type LearnLessonContext,
   type LessonBlueprint,
+  MODEL_FLASH,
+  MODEL_REASONING,
   type ModuleBlueprint,
+  retryWithBackoff,
   type SyllabusItem,
+  sanitizeTitle,
   type UserProfile,
 } from './shared.ts';
-import { HIGH_REASONING_CONFIG, MAX_REASONING_CONFIG } from './config.ts';
 
-export const CURRICULUM_PROPEDEUTIC_ORDER_RULES = [
-  "L'indice del corso deve essere in ordine strettamente propedeutico: non mettere mai prima gli argomenti che dipendono da concetti spiegati dopo.",
-  'I moduli devono procedere dalle fondamenta ai meccanismi centrali, poi alle applicazioni, e solo dopo ai casi avanzati.',
-  'Dentro ogni modulo, ordina le lezioni dal semplice al complesso e dal generale allo specifico.',
-  "Se una lezione richiede definizioni, lessico o prerequisiti, questi devono comparire prima nella sequenza del corso.",
-] as const;
+export { CURRICULUM_PROPEDEUTIC_ORDER_RULES };
 
 const runArchitect = async (profile: UserProfile): Promise<ModuleBlueprint[]> => {
   const prompt = `ROLE: Curriculum Architect & Researcher.
@@ -84,7 +80,7 @@ Return JSON: { "valid": true } or { "valid": false }`;
 
   const response = await callOpenRouter({
     model: MODEL_FLASH,
-    reasoning: MAX_REASONING_CONFIG,
+    reasoning: HIGH_REASONING_CONFIG,
     messages: [{ role: 'user', content: checkPrompt }],
     response_format: { type: 'json_object' },
   });

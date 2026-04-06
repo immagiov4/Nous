@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Lifecycle Manager for Lumina Deep Reader
- * 
+ *
  * This script manages the entire application lifecycle:
  * 1. Kills any existing processes on ports 8000, 3001, 5173
  * 2. Starts the backend (which spawns the TTS Python server)
@@ -9,7 +9,7 @@
  * 4. Handles graceful shutdown on CTRL+C
  */
 
-import { spawn, exec } from 'node:child_process';
+import { exec, spawn } from 'node:child_process';
 import { platform } from 'node:os';
 
 const isWindows = platform() === 'win32';
@@ -26,23 +26,23 @@ const colors = {
   yellow: '\x1b[33m',
   red: '\x1b[31m',
   cyan: '\x1b[36m',
-  magenta: '\x1b[35m'
+  magenta: '\x1b[35m',
 };
 
 function log(prefix, message, color = colors.reset) {
   const timestamp = new Date().toLocaleTimeString();
-  console.log(`${colors.cyan}[${timestamp}]${colors.reset} ${color}[${prefix}]${colors.reset} ${message}`);
+  console.log(
+    `${colors.cyan}[${timestamp}]${colors.reset} ${color}[${prefix}]${colors.reset} ${message}`
+  );
 }
 
 /**
  * Kill process on a specific port
  */
 function killPort(port) {
-  return new Promise((resolve) => {
-    const command = isWindows
-      ? `netstat -ano | findstr :${port}`
-      : `lsof -ti:${port}`;
-    
+  return new Promise(resolve => {
+    const command = isWindows ? `netstat -ano | findstr :${port}` : `lsof -ti:${port}`;
+
     exec(command, (error, stdout) => {
       if (error || !stdout.trim()) {
         resolve();
@@ -60,9 +60,9 @@ function killPort(port) {
             pids.add(pid);
           }
         });
-        
+
         pids.forEach(pid => {
-          exec(`taskkill /F /PID ${pid}`, (err) => {
+          exec(`taskkill /F /PID ${pid}`, err => {
             if (!err) {
               log('Kill', `Killed process ${pid} on port ${port}`, colors.yellow);
             }
@@ -74,7 +74,7 @@ function killPort(port) {
         const pids = stdout.trim().split('\n');
         pids.forEach(pid => {
           if (pid) {
-            exec(`kill -9 ${pid}`, (err) => {
+            exec(`kill -9 ${pid}`, err => {
               if (!err) {
                 log('Kill', `Killed process ${pid} on port ${port}`, colors.yellow);
               }
@@ -94,8 +94,8 @@ async function killAllPorts() {
   log('Lifecycle', 'Cleaning up existing processes...', colors.yellow);
   await Promise.all([
     // DON'T kill port 8880 - user may have TTS server running manually
-    killPort(3001),  // Backend
-    killPort(5173)   // Frontend
+    killPort(3001), // Backend
+    killPort(5173), // Frontend
   ]);
   // Wait a bit for processes to die
   await new Promise(r => setTimeout(r, 1000));
@@ -106,18 +106,18 @@ async function killAllPorts() {
  */
 function startBackend() {
   log('Backend', 'Starting Node.js backend...', colors.green);
-  
+
   const cmd = isWindows ? 'npm.cmd' : 'npm';
   backendProcess = spawn(cmd, ['run', 'dev:backend'], {
     stdio: 'inherit',
-    shell: true
+    shell: true,
   });
 
-  backendProcess.on('error', (err) => {
+  backendProcess.on('error', err => {
     log('Backend', `Failed to start: ${err.message}`, colors.red);
   });
 
-  backendProcess.on('exit', (code) => {
+  backendProcess.on('exit', code => {
     if (code !== 0 && code !== null) {
       log('Backend', `Exited with code ${code}`, colors.red);
     }
@@ -129,18 +129,18 @@ function startBackend() {
  */
 function startFrontend() {
   log('Frontend', 'Starting Vite dev server...', colors.green);
-  
+
   const cmd = isWindows ? 'npm.cmd' : 'npm';
   frontendProcess = spawn(cmd, ['run', 'dev:frontend'], {
     stdio: 'inherit',
-    shell: true
+    shell: true,
   });
 
-  frontendProcess.on('error', (err) => {
+  frontendProcess.on('error', err => {
     log('Frontend', `Failed to start: ${err.message}`, colors.red);
   });
 
-  frontendProcess.on('exit', (code) => {
+  frontendProcess.on('exit', code => {
     if (code !== 0 && code !== null) {
       log('Frontend', `Exited with code ${code}`, colors.red);
     }
@@ -155,7 +155,7 @@ async function shutdown() {
   log('Lifecycle', 'Shutting down...', colors.yellow);
 
   const killProcess = (proc, name) => {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       if (!proc) {
         resolve();
         return;
@@ -179,7 +179,7 @@ async function shutdown() {
 
   await Promise.all([
     killProcess(frontendProcess, 'Frontend'),
-    killProcess(backendProcess, 'Backend')
+    killProcess(backendProcess, 'Backend'),
   ]);
 
   // Kill any remaining processes on ports
@@ -194,7 +194,9 @@ async function shutdown() {
  */
 async function main() {
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`${colors.bright}${colors.magenta}  Lumina Deep Reader - Development Server${colors.reset}`);
+  console.log(
+    `${colors.bright}${colors.magenta}  Lumina Deep Reader - Development Server${colors.reset}`
+  );
   console.log(`${'='.repeat(60)}\n`);
 
   // Handle CTRL+C
@@ -206,22 +208,22 @@ async function main() {
 
   // Start services
   startBackend();
-  
+
   // Wait a bit for backend to start
   await new Promise(r => setTimeout(r, 2000));
-  
+
   startFrontend();
 
   log('Lifecycle', 'All services started!', colors.green);
-    log('Lifecycle', 'Press CTRL+C to stop all services', colors.yellow);
-    console.log(`\n${'-'.repeat(60)}`);
-    console.log(`${colors.cyan}  Frontend:  http://localhost:5173${colors.reset}`);
-    console.log(`${colors.cyan}  Backend:   http://localhost:3001${colors.reset}`);
-    console.log(`${colors.cyan}  TTS API:   http://localhost:8880${colors.reset}`);
-    console.log(`${'-'.repeat(60)}\n`);
-  }
+  log('Lifecycle', 'Press CTRL+C to stop all services', colors.yellow);
+  console.log(`\n${'-'.repeat(60)}`);
+  console.log(`${colors.cyan}  Frontend:  http://localhost:5173${colors.reset}`);
+  console.log(`${colors.cyan}  Backend:   http://localhost:3001${colors.reset}`);
+  console.log(`${colors.cyan}  TTS API:   http://localhost:8880${colors.reset}`);
+  console.log(`${'-'.repeat(60)}\n`);
+}
 
-main().catch((err) => {
+main().catch(err => {
   log('Lifecycle', `Fatal error: ${err.message}`, colors.red);
   process.exit(1);
 });

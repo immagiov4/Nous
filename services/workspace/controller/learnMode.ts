@@ -48,9 +48,7 @@ export const resolveLearnSectionContext = (
       break;
     }
 
-    currentSection = currentSection.parentId
-      ? sectionById.get(currentSection.parentId)
-      : undefined;
+    currentSection = currentSection.parentId ? sectionById.get(currentSection.parentId) : undefined;
   }
 
   return {

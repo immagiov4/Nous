@@ -1,5 +1,5 @@
-import { test } from 'vitest';
 import assert from 'node:assert/strict';
+import { test } from 'vitest';
 import { toggleHighlightInContent } from '../../../utils/context/highlightSelection.ts';
 
 test('highlights punctuation-only selection at the exact contextual occurrence', () => {
@@ -100,10 +100,12 @@ test('splits multi-paragraph highlights so each paragraph start stays marked', (
 });
 
 test('falls back to loose normalized matching for accented and punctuated prose', () => {
-  const content = 'I nomi devono essere in snake_case, e ogni file deve includere tutto cio da cui dipende.';
+  const content =
+    'I nomi devono essere in snake_case, e ogni file deve includere tutto cio da cui dipende.';
   const updated = toggleHighlightInContent({
     content,
-    selectedText: 'I nomi devono essere in snake_case, e ogni file deve includere tutto ciò da cui dipende.',
+    selectedText:
+      'I nomi devono essere in snake_case, e ogni file deve includere tutto ciò da cui dipende.',
   });
 
   assert.equal(
@@ -113,8 +115,7 @@ test('falls back to loose normalized matching for accented and punctuated prose'
 });
 
 test('highlights prose around inline math selections without injecting mark tags into KaTeX markdown', () => {
-  const content =
-    'Ridurre soprattutto $T_{\\text{cluster}}$ e $T_{\\text{update}}$ accelera.';
+  const content = 'Ridurre soprattutto $T_{\\text{cluster}}$ e $T_{\\text{update}}$ accelera.';
   const updated = toggleHighlightInContent({
     content,
     selectedText:

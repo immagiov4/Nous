@@ -298,7 +298,9 @@ test('generateSectionContent excludes unclear PDF images when the vision pass pr
     documentIndex
   );
 
-  const generationPrompt = String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || '');
+  const generationPrompt = String(
+    callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || ''
+  );
   assert.match(generationPrompt, /IMMAGINI CANDIDATE:\s*\[\]/);
   assert.equal(result.imageRefs.length, 0);
 });
@@ -317,7 +319,12 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
         quiz: [
           {
             question: '`Coordinate in spazio mondo (metri)`',
-            options: ['`Posizione assoluta`', 'Errore di `overflow`', '`Colore diffuso`', '`Texture`'],
+            options: [
+              '`Posizione assoluta`',
+              'Errore di `overflow`',
+              '`Colore diffuso`',
+              '`Texture`',
+            ],
             correctIndex: 0,
           },
         ],
@@ -331,7 +338,12 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
         quiz: [
           {
             question: '`Quale valore resta espresso in metri?`',
-            options: ['`Posizione assoluta`', 'Errore di `overflow`', '`Indice di shader`', '`UUID`'],
+            options: [
+              '`Posizione assoluta`',
+              'Errore di `overflow`',
+              '`Indice di shader`',
+              '`UUID`',
+            ],
             correctIndex: 0,
           },
         ],

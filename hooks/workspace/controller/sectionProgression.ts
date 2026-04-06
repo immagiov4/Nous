@@ -4,8 +4,8 @@ import { mergeDocumentAssetsForPlan } from '../../../services/workspace/controll
 import { resolveLearnSectionContext } from '../../../services/workspace/controller/learnMode.ts';
 import { selectIsBlocking } from '../../../services/workspace/workflow.ts';
 import { AppState, type LearningSection } from '../../../types.ts';
-import { insertSectionAfterSubtree } from '../../../utils/learning/sectionTree.ts';
 import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
+import { insertSectionAfterSubtree } from '../../../utils/learning/sectionTree.ts';
 import type {
   CompleteSectionOutcome,
   CreateLessonOutcome,
@@ -32,7 +32,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         : options.currentDocumentAssets;
     const sourceFile =
       options.currentSourceFile === undefined
-        ? domain.file ?? getProjectSourceFile(domain.source)
+        ? (domain.file ?? getProjectSourceFile(domain.source))
         : options.currentSourceFile;
     const isLearnMode =
       options.isLearnMode === undefined ? domain.isLearnMode : options.isLearnMode;
@@ -211,7 +211,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     selectedText: string;
   }): Promise<{ answer?: string; errorMessage?: string }> {
     const canAnswerFromLesson = Boolean(
-      domain.activeSection?.content || domain.sectionContent || args.contextBefore || args.contextAfter
+      domain.activeSection?.content ||
+        domain.sectionContent ||
+        args.contextBefore ||
+        args.contextAfter
     );
     const sourceFile = domain.file ?? getProjectSourceFile(domain.source);
 

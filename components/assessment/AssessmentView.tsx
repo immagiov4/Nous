@@ -1,5 +1,5 @@
-import { useState, type FormEvent, type RefObject } from 'react';
 import { ArrowLeft, BrainCircuit, Settings2, Sparkles } from 'lucide-react';
+import { type FormEvent, type RefObject, useState } from 'react';
 import { ASSESSMENT_MIN_TURNS } from '../../constants';
 import type {
   Message,

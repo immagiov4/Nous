@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const openRouterMocks = vi.hoisted(() => ({
@@ -14,7 +14,9 @@ vi.mock('../../../services/openrouter', () => ({
   getTTSVoices: openRouterMocks.getTTSVoices,
 }));
 
-const { splitContentIntoChunks, splitOversizedText, useTtsPlayer } = await import('../../../hooks/reader/useTtsPlayer.ts');
+const { splitContentIntoChunks, splitOversizedText, useTtsPlayer } = await import(
+  '../../../hooks/reader/useTtsPlayer.ts'
+);
 
 class FakeAudio {
   currentTime = 0;
@@ -72,11 +74,7 @@ describe('useTtsPlayer', () => {
   });
 
   test('splits oversized text and groups speech blocks predictably', () => {
-    expect(splitOversizedText('alfa beta gamma delta', 9)).toEqual([
-      'alfa beta',
-      'gamma',
-      'delta',
-    ]);
+    expect(splitOversizedText('alfa beta gamma delta', 9)).toEqual(['alfa beta', 'gamma', 'delta']);
 
     const chunks = splitContentIntoChunks('', [
       'Prima frase. Seconda frase con abbastanza testo da restare nello stesso blocco.',

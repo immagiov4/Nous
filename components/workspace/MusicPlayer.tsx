@@ -1,5 +1,5 @@
+import { AlertCircle, Headphones, Music, Pause, Play, RefreshCw, Volume2, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { Headphones, Music, Volume2, X, Play, Pause, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface MusicPlayerProps {
   isMobileViewport?: boolean;
@@ -159,7 +159,9 @@ const MusicPlayer = ({
         } else {
           if (p.getPlayerState() === 1) p.pauseVideo();
         }
-      } catch {}
+      } catch (error) {
+        console.warn('[Lumina] YouTube player play/pause failed', error);
+      }
     }
   }, [isPlaying]);
 
@@ -246,63 +248,63 @@ const MusicPlayer = ({
       </button>
 
       {isOpen && (
-          <div
-            className={`${panelClassName} overflow-hidden rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 shadow-[0_12px_30px_-8px_rgba(15,23,42,0.12),0_28px_60px_-22px_rgba(15,23,42,0.22)] dark:border-zinc-600/80 dark:bg-stone-700 dark:shadow-[0_16px_34px_-14px_rgba(0,0,0,0.35),0_30px_60px_-24px_rgba(0,0,0,0.38)]`}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-zinc-200">
-                <Music className="w-4 h-4" />
-                <span>Audio ambiente</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="cursor-pointer text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
-                title="Chiudi"
-              >
-                <X className="w-4 h-4" />
-              </button>
+        <div
+          className={`${panelClassName} overflow-hidden rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 shadow-[0_12px_30px_-8px_rgba(15,23,42,0.12),0_28px_60px_-22px_rgba(15,23,42,0.22)] dark:border-zinc-600/80 dark:bg-stone-700 dark:shadow-[0_16px_34px_-14px_rgba(0,0,0,0.35),0_30px_60px_-24px_rgba(0,0,0,0.38)]`}
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-zinc-200">
+              <Music className="w-4 h-4" />
+              <span>Audio ambiente</span>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="cursor-pointer text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
+              title="Chiudi"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-            <div className="space-y-4">
-              <div>
-                <label htmlFor={inputId} className="mb-1 block text-xs font-semibold text-gray-500">
-                  YouTube Link
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id={inputId}
-                    type="text"
-                    value={url}
-                    onChange={e => setUrl(e.target.value)}
-                    placeholder="incolla link YouTube..."
-                    className={`flex-1 rounded-[1.15rem] border bg-white px-3 py-2 text-xs text-gray-800 outline-none transition-colors focus:border-gray-400 dark:bg-stone-800 dark:text-gray-100 dark:focus:border-zinc-500 ${hasError ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200 dark:border-zinc-500/80'}`}
-                  />
-                  {hasError && (
-                    <button
-                      type="button"
-                      onClick={handleRetry}
-                      className="rounded-[1.15rem] bg-red-50 p-2 text-red-500 transition-colors hover:bg-red-100"
-                      title="Riprova a caricare"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor={inputId} className="mb-1 block text-xs font-semibold text-gray-500">
+                YouTube Link
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id={inputId}
+                  type="text"
+                  value={url}
+                  onChange={e => setUrl(e.target.value)}
+                  placeholder="incolla link YouTube..."
+                  className={`flex-1 rounded-[1.15rem] border bg-white px-3 py-2 text-xs text-gray-800 outline-none transition-colors focus:border-gray-400 dark:bg-stone-800 dark:text-gray-100 dark:focus:border-zinc-500 ${hasError ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200 dark:border-zinc-500/80'}`}
+                />
                 {hasError && (
-                  <div className="mt-2 flex items-start gap-2 rounded-[1.15rem] bg-red-50 p-2 text-[10px] font-medium leading-tight text-red-500 dark:bg-red-900/10">
-                    <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                    <span>Video limitato dal proprietario o da YouTube. Prova un altro link.</span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRetry}
+                    className="rounded-[1.15rem] bg-red-50 p-2 text-red-500 transition-colors hover:bg-red-100"
+                    title="Riprova a caricare"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
                 )}
               </div>
+              {hasError && (
+                <div className="mt-2 flex items-start gap-2 rounded-[1.15rem] bg-red-50 p-2 text-[10px] font-medium leading-tight text-red-500 dark:bg-red-900/10">
+                  <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                  <span>Video limitato dal proprietario o da YouTube. Prova un altro link.</span>
+                </div>
+              )}
+            </div>
 
-              <div className="flex items-center gap-4 rounded-[1.5rem] border border-gray-200 bg-white p-3 dark:border-zinc-500/80 dark:bg-stone-800">
-                <button
-                  type="button"
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  disabled={!videoId || hasError}
-                  className={`
+            <div className="flex items-center gap-4 rounded-[1.5rem] border border-gray-200 bg-white p-3 dark:border-zinc-500/80 dark:bg-stone-800">
+              <button
+                type="button"
+                onClick={() => setIsPlaying(!isPlaying)}
+                disabled={!videoId || hasError}
+                className={`
                                 flex h-10 w-10 items-center justify-center rounded-full transition-colors
                                 ${
                                   videoId && !hasError
@@ -310,49 +312,49 @@ const MusicPlayer = ({
                                     : 'bg-gray-200 dark:bg-zinc-700 text-gray-400 cursor-not-allowed'
                                 }
                             `}
-                >
-                  {isPlaying ? (
-                    <Pause className="w-4 h-4 fill-current" />
-                  ) : (
-                    <Play className="w-4 h-4 ml-0.5 fill-current" />
-                  )}
-                </button>
+              >
+                {isPlaying ? (
+                  <Pause className="w-4 h-4 fill-current" />
+                ) : (
+                  <Play className="w-4 h-4 ml-0.5 fill-current" />
+                )}
+              </button>
 
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center justify-between text-[10px] text-gray-500 font-medium">
-                    <div className="flex items-center gap-1">
-                      <Volume2 className="w-3 h-3" /> Mix
-                    </div>
-                    <span>{volume}%</span>
+              <div className="flex-1 space-y-1">
+                <div className="flex items-center justify-between text-[10px] text-gray-500 font-medium">
+                  <div className="flex items-center gap-1">
+                    <Volume2 className="w-3 h-3" /> Mix
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={volume}
-                    onChange={e => setVolume(Number(e.target.value))}
-                    className="h-1 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-700 dark:bg-zinc-700 dark:accent-zinc-300"
-                  />
+                  <span>{volume}%</span>
                 </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={volume}
+                  onChange={e => setVolume(Number(e.target.value))}
+                  className="h-1 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-700 dark:bg-zinc-700 dark:accent-zinc-300"
+                />
               </div>
+            </div>
 
-              <div className="border-t border-gray-200/80 pt-2 dark:border-zinc-700/80">
-                <p className="mb-2 text-[10px] text-gray-400">Preset Sicuri:</p>
-                <div className="flex flex-wrap gap-2">
-                  {presets.map(preset => (
-                    <button
-                      type="button"
-                      key={preset.url}
-                      onClick={() => setUrl(preset.url)}
-                      className="rounded-[1rem] border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-500/80 dark:bg-stone-800 dark:text-gray-300 dark:hover:border-zinc-400 dark:hover:text-white"
-                    >
-                      {preset.name}
-                    </button>
-                  ))}
-                </div>
+            <div className="border-t border-gray-200/80 pt-2 dark:border-zinc-700/80">
+              <p className="mb-2 text-[10px] text-gray-400">Preset Sicuri:</p>
+              <div className="flex flex-wrap gap-2">
+                {presets.map(preset => (
+                  <button
+                    type="button"
+                    key={preset.url}
+                    onClick={() => setUrl(preset.url)}
+                    className="rounded-[1rem] border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-500/80 dark:bg-stone-800 dark:text-gray-300 dark:hover:border-zinc-400 dark:hover:text-white"
+                  >
+                    {preset.name}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
+        </div>
       )}
 
       {/* Explicit Iframe Rendering for robustness */}

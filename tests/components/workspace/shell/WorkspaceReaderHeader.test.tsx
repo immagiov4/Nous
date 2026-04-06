@@ -2,8 +2,8 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
-import WorkspaceReaderHeader from '../../../../components/workspace/shell/WorkspaceReaderHeader.tsx';
 import type { WorkspaceReaderHeaderModel } from '../../../../components/workspace/shell/types.ts';
+import WorkspaceReaderHeader from '../../../../components/workspace/shell/WorkspaceReaderHeader.tsx';
 
 vi.mock('../../../../components/workspace/MusicPlayer.tsx', () => ({
   default: () => <div data-testid="music-player" />,
@@ -82,9 +82,7 @@ describe('WorkspaceReaderHeader', () => {
 
     render(<WorkspaceReaderHeader {...props} isMobileViewport />);
 
-    await user.click(
-      screen.getByRole('button', { name: /Rigenera la lezione corrente/i })
-    );
+    await user.click(screen.getByRole('button', { name: /Rigenera la lezione corrente/i }));
 
     const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione lezione/i });
     expect(dialog).toHaveClass('fixed');

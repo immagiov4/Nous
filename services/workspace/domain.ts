@@ -37,7 +37,11 @@ export type WorkspaceDomainAction =
   | { type: 'set-music-url'; musicUrl: string }
   | { type: 'update-active-section-content'; content: string }
   | { type: 'update-active-section-quiz'; quiz: QuizQuestion[] }
-  | { type: 'update-section'; sectionId: string; updater: (section: LearningSection) => LearningSection }
+  | {
+      type: 'update-section';
+      sectionId: string;
+      updater: (section: LearningSection) => LearningSection;
+    }
   | { type: 'insert-section-after'; parentSectionId: string; section: LearningSection };
 
 const updateLearningPlan = (
@@ -182,16 +186,12 @@ export const workspaceDomainReducer = (
   }
 };
 
-export const selectActiveSection = (
-  state: WorkspaceDomainState
-): LearningSection | null => {
+export const selectActiveSection = (state: WorkspaceDomainState): LearningSection | null => {
   if (!state.learningPlan || !state.activeSectionId) {
     return null;
   }
 
-  return (
-    state.learningPlan.sections.find(section => section.id === state.activeSectionId) ?? null
-  );
+  return state.learningPlan.sections.find(section => section.id === state.activeSectionId) ?? null;
 };
 
 export const selectMusicUrl = (state: WorkspaceDomainState): string =>

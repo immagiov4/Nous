@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import ContextMenu from '../../../components/workspace/ContextMenu.tsx';
 
 const buildProps = () => ({
@@ -170,7 +170,9 @@ describe('ContextMenu', () => {
 
     await user.click(screen.getByRole('button', { name: 'Modifica' }));
 
-    expect(screen.queryByRole('button', { name: /Rimuovi evidenziazione/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Rimuovi evidenziazione/i })
+    ).not.toBeInTheDocument();
     const textarea = screen.getByRole('textbox');
     expect(textarea).toHaveValue(props.annotationNote);
     await user.clear(textarea);

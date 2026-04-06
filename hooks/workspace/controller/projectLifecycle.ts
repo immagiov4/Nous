@@ -1,6 +1,9 @@
 import { pushLuminaDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
-import { createProjectId, createProjectSnapshot } from '../../../services/projects/projectSnapshot.ts';
+import {
+  createProjectId,
+  createProjectSnapshot,
+} from '../../../services/projects/projectSnapshot.ts';
 import {
   createProjectSourceFromFile,
   getProjectSourceFile,
@@ -27,7 +30,10 @@ import type {
 } from './types.ts';
 
 interface ProjectLifecycleDependencies {
-  openSection: (section: LearningSection, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
+  openSection: (
+    section: LearningSection,
+    options?: OpenSectionOptions
+  ) => Promise<OpenSectionOutcome>;
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
 }
 
@@ -217,8 +223,14 @@ export const createProjectLifecycleCommands = (
         projectId,
         requestId,
         sourceKind: snapshot.source?.kind || null,
-        sourceName: snapshot.source?.kind === 'pdf' ? snapshot.source.file.name : snapshot.source?.name || null,
-        textLength: snapshot.source?.kind === 'codebase-bundle' ? snapshot.source.aggregatedText.length : null,
+        sourceName:
+          snapshot.source?.kind === 'pdf'
+            ? snapshot.source.file.name
+            : snapshot.source?.name || null,
+        textLength:
+          snapshot.source?.kind === 'codebase-bundle'
+            ? snapshot.source.aggregatedText.length
+            : null,
       });
 
       let nextSnapshot = snapshot;
@@ -273,7 +285,11 @@ export const createProjectLifecycleCommands = (
         hasLearningPlan: Boolean(preparedSnapshot.learningPlan),
         projectId,
         requestId,
-        screen: preparedSnapshot.learningPlan ? 'reading' : preparedSnapshot.source ? 'assessment' : 'library',
+        screen: preparedSnapshot.learningPlan
+          ? 'reading'
+          : preparedSnapshot.source
+            ? 'assessment'
+            : 'library',
         sourceKind: preparedSnapshot.source?.kind || null,
       });
       state.succeedWorkflow('openProject', requestId);

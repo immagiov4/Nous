@@ -109,11 +109,7 @@ export const useWorkspaceControllerState = () => {
       },
       setOpeningProjectId,
       setScreenState,
-      setWorkflowMessage: (
-        workflowId: WorkspaceWorkflowId,
-        requestId: number,
-        message: string
-      ) => {
+      setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => {
         const currentState = workflowStateRef.current;
         if (currentState[workflowId].requestId !== requestId) {
           return;
@@ -129,11 +125,7 @@ export const useWorkspaceControllerState = () => {
         commitWorkflowState(nextState);
         pushLuminaDebugTrace('workflow:message', { message, requestId, workflowId });
       },
-      succeedWorkflow: (
-        workflowId: WorkspaceWorkflowId,
-        requestId: number,
-        message?: string
-      ) => {
+      succeedWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, message?: string) => {
         const currentState = workflowStateRef.current;
         if (currentState[workflowId].requestId !== requestId) {
           return;

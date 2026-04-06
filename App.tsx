@@ -1,11 +1,12 @@
-import { AppState } from './types';
+import { useEffect, useState } from 'react';
 import AssessmentView from './components/assessment/AssessmentView';
 import LibraryView from './components/library/LibraryView';
 import LoadingScreen from './components/shared/LoadingScreen';
-import WorkspaceReaderShell from './components/workspace/WorkspaceReaderShell.tsx';
 import type { WorkspaceReaderShellProps } from './components/workspace/shell/types.ts';
+import WorkspaceReaderShell from './components/workspace/WorkspaceReaderShell.tsx';
 import { useLibraryAssistantChat } from './hooks/library/useLibraryAssistantChat.ts';
 import { useProjectLibrary } from './hooks/library/useProjectLibrary.ts';
+import { useUiPreferencesPersistence } from './hooks/workspace/useUiPreferencesPersistence.ts';
 import { useWorkspaceAssessmentScreen } from './hooks/workspace/useWorkspaceAssessmentScreen.ts';
 import { useWorkspaceController } from './hooks/workspace/useWorkspaceController.ts';
 import { useWorkspaceDomain } from './hooks/workspace/useWorkspaceDomain.ts';
@@ -13,9 +14,8 @@ import { useWorkspaceFileActions } from './hooks/workspace/useWorkspaceFileActio
 import { useWorkspaceNavigation } from './hooks/workspace/useWorkspaceNavigation.ts';
 import { useWorkspaceReaderActions } from './hooks/workspace/useWorkspaceReaderActions.ts';
 import { useWorkspaceReaderRuntime } from './hooks/workspace/useWorkspaceReaderRuntime.ts';
-import { useUiPreferencesPersistence } from './hooks/workspace/useUiPreferencesPersistence.ts';
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from './services/openrouter/index.ts';
-import { useEffect, useState } from 'react';
+import { AppState } from './types';
 import type { HomeChatMode, HomeChatToolPreferences } from './types.ts';
 import { getLessonSourcePageLabel } from './utils/context/sourceMaterial.ts';
 
@@ -273,8 +273,7 @@ const App = () => {
       },
       onContentClick: readerRuntime.readerContext.handleContentClick,
       onContentContextMenu: readerRuntime.readerContext.handleContentContextMenu,
-      onContentPointerDownCapture:
-        readerRuntime.readerContext.handleContentPointerDownCapture,
+      onContentPointerDownCapture: readerRuntime.readerContext.handleContentPointerDownCapture,
       onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
       onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
       quiz,

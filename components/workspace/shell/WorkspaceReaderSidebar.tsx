@@ -1,4 +1,12 @@
-import { CheckCircle2, ChevronRight, Download, LibraryBig, Minus, SidebarClose, X } from 'lucide-react';
+import {
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  LibraryBig,
+  Minus,
+  SidebarClose,
+  X,
+} from 'lucide-react';
 import type { WorkspaceReaderSidebarModel } from './types.ts';
 
 const getSectionStatusLabel = ({

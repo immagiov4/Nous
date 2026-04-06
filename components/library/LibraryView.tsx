@@ -1,5 +1,6 @@
+import type { UIMessage } from 'ai';
 import { Download, Moon, Plus, Settings2, Sun } from 'lucide-react';
-import { useState, type ChangeEvent } from 'react';
+import { type ChangeEvent, useState } from 'react';
 import logoUrl from '@/assets/logo.png';
 import type {
   HomeChatMode,
@@ -11,10 +12,9 @@ import type {
   OpenRouterModelSlot,
   SavedProjectMeta,
 } from '../../types';
-import HomeChatPanel from './HomeChatPanel';
 import OpenRouterModelPanel from '../shared/OpenRouterModelPanel';
+import HomeChatPanel from './HomeChatPanel';
 import LibraryTreeView from './LibraryTreeView.tsx';
-import type { UIMessage } from 'ai';
 
 interface LibraryViewProps {
   assessmentComplete: boolean;

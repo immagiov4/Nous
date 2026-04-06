@@ -1,5 +1,5 @@
-import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import type { QuizQuestion } from '../../../types.ts';
+import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 
 interface WorkspaceReaderInlineQuestionProps {
   isDarkMode: boolean;

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { getPdfProjectHydrationState, needsPdfProjectHydration } from '../../../utils/pdf/projectHydration.ts';
 import type { FileData, LearningPlan, PdfTextIndex } from '../../../types';
+import {
+  getPdfProjectHydrationState,
+  needsPdfProjectHydration,
+} from '../../../utils/pdf/projectHydration.ts';
 
 const pdfFile: FileData = {
   name: 'dispensa.pdf',

@@ -1,5 +1,5 @@
-import { normalizeVoiceProfileId } from '../audio/voiceProfile.ts';
 import type { UiPreferences } from '../../types.ts';
+import { normalizeVoiceProfileId } from '../audio/voiceProfile.ts';
 
 export const UI_PREFERENCES_KEY = 'lumina-ui-preferences';
 
@@ -43,6 +43,7 @@ export const parseUiPreferences = (
 
     return Object.keys(nextPreferences).length > 0 ? nextPreferences : null;
   } catch {
+    // intentional: fallback to default
     return null;
   }
 };

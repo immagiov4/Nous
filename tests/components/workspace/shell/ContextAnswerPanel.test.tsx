@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
-import { StrictMode, createRef } from 'react';
+
 import { render, screen } from '@testing-library/react';
+import { createRef, StrictMode } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const defaultChatTransportInstances: Array<{ prepareSendMessagesRequest?: (args: unknown) => unknown }> = [];
+const defaultChatTransportInstances: Array<{
+  prepareSendMessagesRequest?: (args: unknown) => unknown;
+}> = [];
 const sendMessageMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
@@ -22,12 +25,15 @@ vi.mock('ai', () => ({
     }
   },
   isTextUIPart: (part: { type?: string }) => part?.type === 'text',
-  isToolUIPart: (part: { type?: string }) => typeof part?.type === 'string' && part.type.startsWith('tool-'),
+  isToolUIPart: (part: { type?: string }) =>
+    typeof part?.type === 'string' && part.type.startsWith('tool-'),
   lastAssistantMessageIsCompleteWithToolCalls: () => false,
 }));
 
 vi.mock('../../../../components/shared/MarkdownRenderer.tsx', () => ({
-  default: ({ content }: { content: string }) => <div data-testid="markdown-renderer">{content}</div>,
+  default: ({ content }: { content: string }) => (
+    <div data-testid="markdown-renderer">{content}</div>
+  ),
 }));
 
 vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
@@ -38,7 +44,9 @@ vi.mock('../../../../services/openrouter/config.ts', () => ({
   getBackendUrl: () => 'http://localhost:3001',
 }));
 
-const { default: ContextAnswerPanel } = await import('../../../../components/workspace/shell/ContextAnswerPanel.tsx');
+const { default: ContextAnswerPanel } = await import(
+  '../../../../components/workspace/shell/ContextAnswerPanel.tsx'
+);
 
 const buildProps = () => ({
   contextAnswer: {

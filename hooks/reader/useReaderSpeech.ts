@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type RefObject } from 'react';
+import { type RefObject, useCallback, useEffect, useMemo, useState } from 'react';
 import { buildReadableBlocks } from '../../utils/reader/readingText';
 
 interface UseReaderSpeechBlocksArgs {

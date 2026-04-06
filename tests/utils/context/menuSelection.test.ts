@@ -162,17 +162,23 @@ test('returns null when selection is empty or outside the content container', ()
     getRangeAt: () => range,
   } as unknown as Selection;
 
-  assert.equal(resolveContextMenuSelection({
-    container,
-    placement: 'desktop-floating',
-    selection: emptySelection,
-  }), null);
+  assert.equal(
+    resolveContextMenuSelection({
+      container,
+      placement: 'desktop-floating',
+      selection: emptySelection,
+    }),
+    null
+  );
 
-  assert.equal(resolveContextMenuSelection({
-    container,
-    placement: 'desktop-floating',
-    selection: outsideSelection,
-  }), null);
+  assert.equal(
+    resolveContextMenuSelection({
+      container,
+      placement: 'desktop-floating',
+      selection: outsideSelection,
+    }),
+    null
+  );
 });
 
 test('closes the mobile sheet when the native selection disappears', () => {

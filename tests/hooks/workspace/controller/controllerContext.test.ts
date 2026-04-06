@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { decodeTextBase64 } from '../../../../services/projects/projectSource.ts';
 import { readSourceFileData } from '../../../../hooks/workspace/controller/controllerContext.ts';
+import { decodeTextBase64 } from '../../../../services/projects/projectSource.ts';
 
 test('readSourceFileData accepts markdown uploads with missing mime type', async () => {
   const file = new File(['# Titolo\n\nContenuto'], 'notes.md');

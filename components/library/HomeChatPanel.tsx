@@ -1,4 +1,5 @@
 import { isToolUIPart, type UIMessage } from 'ai';
+import type { LucideIcon } from 'lucide-react';
 import {
   ArrowLeft,
   ArrowUp,
@@ -20,15 +21,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   HomeChatMode,
@@ -169,9 +162,7 @@ const groupLibraryAssistantTurns = (messages: UIMessage[]) => {
   return turns;
 };
 
-const getMergedLibraryAssistantText = (
-  messages: UIMessage[]
-): MergedAssistantText | null => {
+const getMergedLibraryAssistantText = (messages: UIMessage[]): MergedAssistantText | null => {
   const textParts = messages.flatMap(message =>
     getUiMessageRenderableParts(message).filter(part => part.kind === 'text')
   );
@@ -214,15 +205,19 @@ const getToolMeta = (part: UIMessage['parts'][number]) => {
       : part.type.startsWith('tool-')
         ? part.type.slice(5)
         : '';
-  return LIBRARY_TOOL_META[raw] || { icon: Search, label: raw.replace(/([A-Z])/g, ' $1').trim() || 'Tool' };
+  return (
+    LIBRARY_TOOL_META[raw] || {
+      icon: Search,
+      label: raw.replace(/([A-Z])/g, ' $1').trim() || 'Tool',
+    }
+  );
 };
 
 const getToolArgHint = (part: LibraryToolPart): string | null => {
   if (part.state === 'input-streaming') return null;
   const input = (part as { input?: Record<string, unknown> }).input;
   if (!input) return null;
-  const toolName =
-    'toolName' in part && typeof part.toolName === 'string' ? part.toolName : '';
+  const toolName = 'toolName' in part && typeof part.toolName === 'string' ? part.toolName : '';
   switch (toolName) {
     case 'getProjectStructures':
     case 'getProjectOverviews': {
@@ -299,8 +294,7 @@ export default function HomeChatPanel({
   const [isMobileViewport, setIsMobileViewport] = useState(readIsMobileViewport);
   const [toolMenuAlign, setToolMenuAlign] = useState<MenuAlign>('start');
   const [attachmentMenuAlign, setAttachmentMenuAlign] = useState<MenuAlign>('start');
-  const [attachmentSubmenuSide, setAttachmentSubmenuSide] =
-    useState<SubmenuSide>('right');
+  const [attachmentSubmenuSide, setAttachmentSubmenuSide] = useState<SubmenuSide>('right');
 
   const toolMenuButtonRef = useRef<HTMLButtonElement>(null);
   const attachmentButtonRef = useRef<HTMLButtonElement>(null);
@@ -324,15 +318,13 @@ export default function HomeChatPanel({
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
   const hasMessages = activeMessages.length > 0;
-  const isLoading =
-    homeChatMode === 'new-course' ? isNewCourseLoading : isLibraryModeLoading;
+  const isLoading = homeChatMode === 'new-course' ? isNewCourseLoading : isLibraryModeLoading;
 
   const isLibraryAwaitingFirstResponse =
     homeChatMode === 'library-query' &&
     isLoading &&
     !visibleLibraryMessages.some(message => message.role === 'assistant');
-  const hasLibraryComposerMeta =
-    libraryAttachedContextRefs.length > 0 || libraryWebSearch;
+  const hasLibraryComposerMeta = libraryAttachedContextRefs.length > 0 || libraryWebSearch;
 
   useEffect(() => {
     const nextExpandedIds = new Set<string>();
@@ -399,17 +391,14 @@ export default function HomeChatPanel({
     }
 
     const anchor =
-      activeSurface === 'tool-menu'
-        ? toolMenuButtonRef.current
-        : attachmentButtonRef.current;
+      activeSurface === 'tool-menu' ? toolMenuButtonRef.current : attachmentButtonRef.current;
 
     const anchorRect = anchor?.getBoundingClientRect();
     if (!anchorRect) {
       return;
     }
 
-    const align: MenuAlign =
-      anchorRect.left > window.innerWidth * 0.62 ? 'end' : 'start';
+    const align: MenuAlign = anchorRect.left > window.innerWidth * 0.62 ? 'end' : 'start';
 
     if (activeSurface === 'tool-menu') {
       setToolMenuAlign(align);
@@ -419,9 +408,7 @@ export default function HomeChatPanel({
     setAttachmentMenuAlign(align);
     const spaceOnRight = window.innerWidth - anchorRect.right;
     const spaceOnLeft = anchorRect.left;
-    setAttachmentSubmenuSide(
-      spaceOnRight >= 344 || spaceOnRight >= spaceOnLeft ? 'right' : 'left'
-    );
+    setAttachmentSubmenuSide(spaceOnRight >= 344 || spaceOnRight >= spaceOnLeft ? 'right' : 'left');
   }, [activeSurface]);
 
   useEffect(() => {
@@ -524,7 +511,10 @@ export default function HomeChatPanel({
 
     return (
       <div key={`folder-${node.id}`}>
-        <div className="flex items-start rounded-2xl transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/70" style={{ paddingLeft }}>
+        <div
+          className="flex items-start rounded-2xl transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/70"
+          style={{ paddingLeft }}
+        >
           <label className="flex shrink-0 cursor-pointer py-2 pl-0 pr-2">
             <input
               type="checkbox"
@@ -593,25 +583,22 @@ export default function HomeChatPanel({
 
     return (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-1.5 text-xs text-gray-600 dark:text-zinc-300">
-        {truncated && (
-          <span className="text-gray-400 dark:text-zinc-500">…</span>
-        )}
+        {truncated && <span className="text-gray-400 dark:text-zinc-500">…</span>}
         {visibleTools.map((p, i) => {
           const meta = getToolMeta(p);
           const hint = getToolArgHint(p as LibraryToolPart);
           const Icon = meta.icon;
           const needSep = i > 0 || truncated;
           return (
-            <span key={`${messageId}-${p.toolCallId}`} className="inline-flex items-center gap-x-1.5">
-              {needSep && (
-                <span className="text-gray-300 dark:text-zinc-600">&#8594;</span>
-              )}
+            <span
+              key={`${messageId}-${p.toolCallId}`}
+              className="inline-flex items-center gap-x-1.5"
+            >
+              {needSep && <span className="text-gray-300 dark:text-zinc-600">&#8594;</span>}
               <ToolChipFadeIn>
                 <Icon className="h-3.5 w-3.5 shrink-0" />
                 <span className="font-medium">{meta.label}</span>
-                {hint && (
-                  <span className="text-gray-400 dark:text-zinc-500">{hint}</span>
-                )}
+                {hint && <span className="text-gray-400 dark:text-zinc-500">{hint}</span>}
               </ToolChipFadeIn>
             </span>
           );
@@ -631,7 +618,8 @@ export default function HomeChatPanel({
             Cosa vorresti imparare?
           </p>
           <p className="mt-2 max-w-xl text-sm text-gray-500 dark:text-zinc-400">
-            Descrivi l obiettivo del corso oppure allega un materiale sorgente e dimmi dove vuoi arrivare.
+            Descrivi l obiettivo del corso oppure allega un materiale sorgente e dimmi dove vuoi
+            arrivare.
           </p>
         </div>
       );
@@ -727,12 +715,14 @@ export default function HomeChatPanel({
       aria-modal="true"
       tabIndex={-1}
       className="fixed inset-0 z-40 flex items-end bg-black/30 p-3 md:hidden"
-      onClick={event => { if (event.target === event.currentTarget) closeMenus(); }}
-      onKeyDown={event => { if (event.key === 'Escape') closeMenus(); }}
+      onClick={event => {
+        if (event.target === event.currentTarget) closeMenus();
+      }}
+      onKeyDown={event => {
+        if (event.key === 'Escape') closeMenus();
+      }}
     >
-      <div
-        className="w-full rounded-[1.8rem] border border-gray-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
-      >
+      <div className="w-full rounded-[1.8rem] border border-gray-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
@@ -804,10 +794,7 @@ export default function HomeChatPanel({
     <section className="rounded-[2rem] border border-gray-300/70 bg-white shadow-[0_30px_90px_-60px_rgba(24,24,27,0.45)] dark:border-zinc-600/50 dark:bg-stone-800">
       <div className="rounded-t-[2rem] border-b border-gray-100/90 bg-[#fbf8f3] px-4 py-4 dark:border-zinc-700/70 dark:bg-stone-900 sm:px-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div
-            data-testid="home-chat-mode-copy"
-            className="min-h-[6rem] sm:min-h-[4.5rem]"
-          >
+          <div data-testid="home-chat-mode-copy" className="min-h-[6rem] sm:min-h-[4.5rem]">
             <h2 className="font-serif text-2xl text-gray-900 dark:text-zinc-100">
               {homeChatMode === 'new-course'
                 ? 'Imposta un nuovo corso'
@@ -1060,9 +1047,7 @@ export default function HomeChatPanel({
                 );
                 setAttachmentStep('root');
               }}
-              disabled={
-                homeChatMode === 'new-course' ? assessmentMessages.length > 0 : false
-              }
+              disabled={homeChatMode === 'new-course' ? assessmentMessages.length > 0 : false}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-200/60 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300"
               title={
                 homeChatMode === 'new-course'
@@ -1163,7 +1148,8 @@ export default function HomeChatPanel({
                       Cerca sul web
                     </span>
                     <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                      Aggiunge grounding esterno quando servono confronti, suggerimenti di corsi o dati aggiornati.
+                      Aggiunge grounding esterno quando servono confronti, suggerimenti di corsi o
+                      dati aggiornati.
                     </span>
                   </span>
                 </button>
@@ -1178,20 +1164,20 @@ export default function HomeChatPanel({
             : null}
         </div>
 
-        {homeChatMode === 'library-query' &&
-        activeSurface === 'tool-menu' &&
-        isMobileViewport ? (
+        {homeChatMode === 'library-query' && activeSurface === 'tool-menu' && isMobileViewport ? (
           <div
             role="dialog"
             aria-modal="true"
             tabIndex={-1}
             className="fixed inset-0 z-40 flex items-end bg-black/30 p-3 md:hidden"
-            onClick={event => { if (event.target === event.currentTarget) closeMenus(); }}
-            onKeyDown={event => { if (event.key === 'Escape') closeMenus(); }}
+            onClick={event => {
+              if (event.target === event.currentTarget) closeMenus();
+            }}
+            onKeyDown={event => {
+              if (event.key === 'Escape') closeMenus();
+            }}
           >
-            <div
-              className="w-full rounded-[1.8rem] border border-gray-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
-            >
+            <div className="w-full rounded-[1.8rem] border border-gray-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
@@ -1230,7 +1216,8 @@ export default function HomeChatPanel({
                     Cerca sul web
                   </span>
                   <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                    Da usare insieme ai dati locali quando vuoi confronti o suggerimenti oltre la libreria.
+                    Da usare insieme ai dati locali quando vuoi confronti o suggerimenti oltre la
+                    libreria.
                   </span>
                 </span>
               </button>
@@ -1238,9 +1225,7 @@ export default function HomeChatPanel({
           </div>
         ) : null}
 
-        {homeChatMode === 'library-query' &&
-        activeSurface === 'attachment-menu' &&
-        isMobileViewport
+        {homeChatMode === 'library-query' && activeSurface === 'attachment-menu' && isMobileViewport
           ? renderMobileAttachmentSheet()
           : null}
       </div>

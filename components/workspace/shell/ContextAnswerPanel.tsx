@@ -1,22 +1,19 @@
+import { useChat } from '@ai-sdk/react';
 import {
   DefaultChatTransport,
   isToolUIPart,
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from 'ai';
-import { useChat } from '@ai-sdk/react';
 import { Check, Globe, LoaderCircle, NotebookPen, Plus, StickyNote, X } from 'lucide-react';
 import {
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
 } from 'react';
-
-import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.tsx';
-import ChatTextComposer from '../chat/ChatTextComposer.tsx';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
 import {
@@ -24,11 +21,13 @@ import {
   getUiMessageRenderableParts,
   getUiMessageText,
 } from '../../../utils/uiChat.ts';
+import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.tsx';
+import ChatTextComposer from '../chat/ChatTextComposer.tsx';
 import type {
-  ConversationSelectionAnchor,
-  ContextChatToolPreferences,
   ContextAnswerSize,
   ContextAnswerState,
+  ContextChatToolPreferences,
+  ConversationSelectionAnchor,
   SaveConversationNoteInput,
   SaveConversationNoteResult,
   SaveConversationNoteToolInput,
@@ -74,7 +73,9 @@ const isSaveConversationNoteResult = (value: unknown): value is SaveConversation
   return typeof candidate.saved === 'boolean' && typeof candidate.merged === 'boolean';
 };
 
-const isSaveConversationNoteToolInput = (value: unknown): value is SaveConversationNoteToolInput => {
+const isSaveConversationNoteToolInput = (
+  value: unknown
+): value is SaveConversationNoteToolInput => {
   if (!value || typeof value !== 'object') {
     return false;
   }
@@ -118,9 +119,7 @@ interface ContextAnswerPanelProps {
   isMobileViewport: boolean;
   onClose: () => void;
   preferredContextModel: string;
-  onSaveConversationNote: (
-    input: SaveConversationNoteInput
-  ) => Promise<SaveConversationNoteResult>;
+  onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
   onUpdateConversationNote: (
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
@@ -264,7 +263,7 @@ export default function ContextAnswerPanel({
           state: 'output-error',
           errorText:
             requestedTool === 'updateConversationNote'
-              ? "La richiesta di aggiornamento della nota e arrivata incompleta."
+              ? 'La richiesta di aggiornamento della nota e arrivata incompleta.'
               : 'La richiesta di salvataggio nota e arrivata incompleta.',
         });
         return;
@@ -458,10 +457,7 @@ export default function ContextAnswerPanel({
       );
     }
 
-    if (
-      part.type === 'tool-saveConversationNote' ||
-      part.type === 'tool-updateConversationNote'
-    ) {
+    if (part.type === 'tool-saveConversationNote' || part.type === 'tool-updateConversationNote') {
       const outputValue = isSaveConversationNoteResult(part.output) ? part.output : undefined;
       const isUpdateTool = part.type === 'tool-updateConversationNote';
 
@@ -573,7 +569,9 @@ export default function ContextAnswerPanel({
           })}
 
           {isLoading ? (
-            <div className="text-sm text-stone-400 dark:text-stone-500">Sto continuando a rispondere...</div>
+            <div className="text-sm text-stone-400 dark:text-stone-500">
+              Sto continuando a rispondere...
+            </div>
           ) : null}
 
           {error ? (
@@ -642,7 +640,8 @@ export default function ContextAnswerPanel({
                         Annota
                       </span>
                       <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                        Segnala con forza che vuoi trasformare il chiarimento in una nota o aggiornare quella gia collegata al passaggio.
+                        Segnala con forza che vuoi trasformare il chiarimento in una nota o
+                        aggiornare quella gia collegata al passaggio.
                       </span>
                     </span>
                   </button>
@@ -674,7 +673,8 @@ export default function ContextAnswerPanel({
                         Cerca sul web
                       </span>
                       <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                        Dai priorita a grounding e verifica con fonti esterne quando servono informazioni aggiornate o non presenti nel testo.
+                        Dai priorita a grounding e verifica con fonti esterne quando servono
+                        informazioni aggiornate o non presenti nel testo.
                       </span>
                     </span>
                   </button>

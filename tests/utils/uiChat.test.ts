@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
 import type { UIMessage } from 'ai';
+import { test } from 'vitest';
 
 import {
   dedupeUiMessagesById,
@@ -57,7 +57,10 @@ test('getUiMessageRenderableParts preserves text-tool-text order', () => {
 
   const renderableParts = getUiMessageRenderableParts(message);
 
-  assert.deepEqual(renderableParts.map(part => part.kind), ['text', 'tool', 'text']);
+  assert.deepEqual(
+    renderableParts.map(part => part.kind),
+    ['text', 'tool', 'text']
+  );
   assert.equal(renderableParts[0]?.kind, 'text');
   assert.equal(renderableParts[0]?.text, 'Prima.');
   assert.equal(renderableParts[1]?.kind, 'tool');

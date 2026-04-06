@@ -25,7 +25,9 @@ export const requestSpeechAudio = async (payload: GenerateSpeechPayload): Promis
   });
 
   if (!response.ok) {
-    const errorData = (await response.json().catch(() => ({ error: 'Unknown error' }))) as TtsErrorResponse;
+    const errorData = (await response
+      .json()
+      .catch(() => ({ error: 'Unknown error' }))) as TtsErrorResponse;
     throw new Error(`TTS API error: ${response.status} - ${errorData.error || 'Unknown error'}`);
   }
 

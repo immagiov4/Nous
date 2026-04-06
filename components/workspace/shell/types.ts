@@ -182,9 +182,7 @@ export interface WorkspaceReaderOverlaysModel {
   onDeleteAnnotation: () => void;
   onHighlight: () => void;
   preferredModels: OpenRouterModelPreferences;
-  onSaveConversationNote: (
-    input: SaveConversationNoteInput
-  ) => Promise<SaveConversationNoteResult>;
+  onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
   onUpdateConversationNote: (
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;

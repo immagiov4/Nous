@@ -10,10 +10,7 @@ declare global {
 
 const MAX_TRACE_ENTRIES = 200;
 
-export const pushLuminaDebugTrace = (
-  event: string,
-  payload?: Record<string, unknown>
-): void => {
+export const pushLuminaDebugTrace = (event: string, payload?: Record<string, unknown>): void => {
   const meta = import.meta as ImportMeta & { env?: { DEV?: boolean } };
   if (!meta.env?.DEV) {
     return;

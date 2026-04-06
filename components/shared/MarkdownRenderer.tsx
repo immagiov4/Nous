@@ -1,22 +1,22 @@
 import {
-  memo,
-  useMemo,
   type ComponentPropsWithoutRef,
   type CSSProperties,
   type HTMLAttributes,
   type MouseEvent,
+  memo,
   type ReactNode,
+  useMemo,
 } from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import type { LessonImageRef, PdfImageAsset, SectionAnnotation } from '../../types';
-import { parsePdfContentParts } from '../../utils/pdf/imagePlaceholders';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
+import { parsePdfContentParts } from '../../utils/pdf/imagePlaceholders';
 
 export interface MarkdownRendererProps {
   content: string;
@@ -77,7 +77,12 @@ const buildMarkdownComponents = (
   },
   a({ href, children }: { href?: string; children?: ReactNode }) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className="underline decoration-1 underline-offset-2 hover:opacity-80">
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-1 underline-offset-2 hover:opacity-80"
+      >
         {children}
       </a>
     );
@@ -89,8 +94,7 @@ const buildMarkdownComponents = (
     ...props
   }: ComponentPropsWithoutRef<'mark'> & { children?: ReactNode; node?: unknown }) {
     const annotationId = props['data-lumina-annotation-id'];
-    const hasAttachedNote =
-      typeof annotationId === 'string' && noteAnnotationIds.has(annotationId);
+    const hasAttachedNote = typeof annotationId === 'string' && noteAnnotationIds.has(annotationId);
 
     return (
       <mark
@@ -117,9 +121,7 @@ const buildMarkdownComponents = (
   table({ children }: { children?: ReactNode }) {
     return (
       <div className="my-6 overflow-x-auto rounded-2xl border border-gray-200/80 dark:border-zinc-700/80">
-        <table className="m-0 w-full border-collapse text-left text-sm">
-          {children}
-        </table>
+        <table className="m-0 w-full border-collapse text-left text-sm">{children}</table>
       </div>
     );
   },
@@ -140,11 +142,7 @@ const buildMarkdownComponents = (
     );
   },
   td({ children }: { children?: ReactNode }) {
-    return (
-      <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-        {children}
-      </td>
-    );
+    return <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{children}</td>;
   },
 });
 
@@ -197,13 +195,7 @@ const MarkdownRenderer = ({
     [contentParts]
   );
   const normalizedContentByPartKey = useMemo(
-    () =>
-      new Map(
-        tracedMarkdownParts.map(part => [
-          part.key,
-          part.normalizedContent,
-        ])
-      ),
+    () => new Map(tracedMarkdownParts.map(part => [part.key, part.normalizedContent])),
     [tracedMarkdownParts]
   );
 
@@ -211,6 +203,9 @@ const MarkdownRenderer = ({
     <article
       className={articleClassName(className)}
       onClick={onClick}
+      onKeyDown={
+        onClick ? e => e.key === 'Enter' && onClick(e as unknown as MouseEvent) : undefined
+      }
       onContextMenu={onContextMenu}
     >
       {contentParts.map(part =>

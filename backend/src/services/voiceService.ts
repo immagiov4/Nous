@@ -18,7 +18,7 @@ export function listVoices(): {
 
   return {
     defaultVoice: defaultProfile.id,
-    voices: profiles.map((profile) => ({
+    voices: profiles.map(profile => ({
       id: profile.id,
       language: profile.language,
       mode: profile.mode,

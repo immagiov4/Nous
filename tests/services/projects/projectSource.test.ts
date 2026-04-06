@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { decodeTextBase64Preview, encodeTextBase64 } from '../../../services/projects/projectSource.ts';
+import {
+  decodeTextBase64Preview,
+  encodeTextBase64,
+} from '../../../services/projects/projectSource.ts';
 
 test('decodeTextBase64Preview returns only the leading portion of a text payload', () => {
   const text = 'abcdefghijklmnopqrstuvwxyz';

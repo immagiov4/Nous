@@ -44,12 +44,9 @@ export const isBinaryFile = (uint8Array: Uint8Array): boolean => {
 };
 
 const shouldIgnorePath = (relativePath: string): boolean =>
-  relativePath
-    .split('/')
-    .some(part => IGNORED_DIRS.has(part) || part.startsWith('.'));
+  relativePath.split('/').some(part => IGNORED_DIRS.has(part) || part.startsWith('.'));
 
-const normalizeSourceText = (text: string): string =>
-  text.replace(/\r\n?/g, '\n').trim();
+const normalizeSourceText = (text: string): string => text.replace(/\r\n?/g, '\n').trim();
 
 const clipText = (text: string, maxChars: number): { text: string; truncated: boolean } => {
   if (text.length <= maxChars) {
@@ -162,6 +159,7 @@ export const createCodebaseBundleSourceFromZip = async (
         text,
       });
     } catch {
+      // intentional: fallback to default
       skippedBinaryCount += 1;
     }
   }

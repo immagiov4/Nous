@@ -1,11 +1,14 @@
 import { pushLuminaDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import {
+  createProjectId,
+  createProjectSnapshot,
+} from '../../../services/projects/projectSnapshot.ts';
+import {
   createProjectSourceFromFile,
   getProjectSourceFile,
   isZipFileData,
 } from '../../../services/projects/projectSource.ts';
-import { createProjectId, createProjectSnapshot } from '../../../services/projects/projectSnapshot.ts';
 import { buildLearningPlanFromSyllabus } from '../../../services/workspace/controller/learnMode.ts';
 import {
   AppState,
@@ -32,7 +35,7 @@ interface AssessmentPlanningDependencies {
 }
 
 const DEFAULT_ASSESSMENT_GREETING =
-  "Ciao! Sono il tuo Architect. Cosa vuoi imparare esattamente oggi, e qual è il tuo obiettivo finale?";
+  'Ciao! Sono il tuo Architect. Cosa vuoi imparare esattamente oggi, e qual è il tuo obiettivo finale?';
 const MIN_DOCUMENT_USER_TURNS_BEFORE_PLANNING = 2;
 const TARGET_DOCUMENT_USER_TURNS_BEFORE_AUTO_COMPLETE = 3;
 const LOCAL_ASSESSMENT_COMPLETE_MESSAGE =
@@ -71,7 +74,9 @@ const hasEnoughHighImpactAssessmentSignals = (messages: Message[]): boolean => {
     return false;
   }
 
-  const normalizedText = normalizeAssessmentText(userMessages.map(message => message.text).join('\n'));
+  const normalizedText = normalizeAssessmentText(
+    userMessages.map(message => message.text).join('\n')
+  );
 
   const hasGoalSignal = matchesAnyAssessmentPattern(normalizedText, [
     /\besame\b/,
@@ -120,20 +125,25 @@ const hasEnoughHighImpactAssessmentSignals = (messages: Message[]): boolean => {
     /\bpartendo dal perche\b/,
   ]);
 
-  const highImpactSignalCount = [hasGoalSignal, hasBackgroundSignal, hasPreferenceSignal].filter(Boolean)
-    .length;
+  const highImpactSignalCount = [hasGoalSignal, hasBackgroundSignal, hasPreferenceSignal].filter(
+    Boolean
+  ).length;
 
   return highImpactSignalCount >= 3;
 };
 
-const getSeededAssessmentQuestion = (
-  session: { getHistory?: () => Array<{ role: string; content?: unknown }> }
-): string | null => {
+const getSeededAssessmentQuestion = (session: {
+  getHistory?: () => Array<{ role: string; content?: unknown }>;
+}): string | null => {
   const history = session.getHistory?.() || [];
 
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const message = history[index];
-    if (message.role === 'assistant' && typeof message.content === 'string' && message.content.trim()) {
+    if (
+      message.role === 'assistant' &&
+      typeof message.content === 'string' &&
+      message.content.trim()
+    ) {
       return message.content;
     }
   }
@@ -203,9 +213,7 @@ export const createAssessmentPlanningCommands = (
           preview: seededQuestion.slice(0, 120),
           requestId,
         });
-        state.setAssessmentMessages([
-          { role: 'model', text: seededQuestion } satisfies Message,
-        ]);
+        state.setAssessmentMessages([{ role: 'model', text: seededQuestion } satisfies Message]);
         state.succeedWorkflow('assessment', requestId);
         return;
       }
@@ -219,9 +227,7 @@ export const createAssessmentPlanningCommands = (
         return;
       }
 
-      state.setAssessmentMessages([
-        { role: 'model', text: result.text || '' } satisfies Message,
-      ]);
+      state.setAssessmentMessages([{ role: 'model', text: result.text || '' } satisfies Message]);
       pushLuminaDebugTrace('assessment:first-message-generated', {
         preview: (result.text || '').slice(0, 120),
         requestId,
@@ -335,19 +341,19 @@ export const createAssessmentPlanningCommands = (
           throw new Error('Missing source file for plan generation');
         }
 
-        const plan = await openRouter.generateLearningPlan(sourceFile, args.history || [], status => {
-          state.setWorkflowMessage('generatePlan', requestId, status);
-        });
+        const plan = await openRouter.generateLearningPlan(
+          sourceFile,
+          args.history || [],
+          status => {
+            state.setWorkflowMessage('generatePlan', requestId, status);
+          }
+        );
 
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
           return;
         }
 
-        const prepared = await context.preparePdfLessonPlan(
-          sourceFile,
-          plan,
-          domain.documentIndex
-        );
+        const prepared = await context.preparePdfLessonPlan(sourceFile, plan, domain.documentIndex);
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
           return;
         }
@@ -400,7 +406,10 @@ export const createAssessmentPlanningCommands = (
     }
   }
 
-  async function startLearnJourney(): Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }> {
+  async function startLearnJourney(): Promise<{
+    errorMessage?: string;
+    outcome: 'failed' | 'started';
+  }> {
     try {
       const nextProjectId = createProjectId();
       projectLibrary.setProjectHydrated(false);
@@ -448,7 +457,9 @@ export const createAssessmentPlanningCommands = (
       projectLibrary.setCurrentProjectId(null);
       projectLibrary.setProjectHydrated(false);
 
-      let session: Awaited<ReturnType<typeof openRouter.createAssessmentChat>> | ReturnType<typeof openRouter.createEmbeddedLearnAssessmentChat>;
+      let session:
+        | Awaited<ReturnType<typeof openRouter.createAssessmentChat>>
+        | ReturnType<typeof openRouter.createEmbeddedLearnAssessmentChat>;
 
       if (args.selectedFile) {
         let nextSource = null;
@@ -480,14 +491,15 @@ export const createAssessmentPlanningCommands = (
         domain.setSource(nextSource);
         domain.setIsLearnMode(false);
 
-        session = nextSource.kind === 'codebase-bundle'
-          ? await openRouter.createEmbeddedAssessmentChatFromTextSource({
-              name: nextSource.name,
-              text: nextSource.aggregatedText,
-            })
-          : await openRouter.createEmbeddedAssessmentChat(nextFile, status => {
-              state.setWorkflowMessage('assessment', requestId, status);
-            });
+        session =
+          nextSource.kind === 'codebase-bundle'
+            ? await openRouter.createEmbeddedAssessmentChatFromTextSource({
+                name: nextSource.name,
+                text: nextSource.aggregatedText,
+              })
+            : await openRouter.createEmbeddedAssessmentChat(nextFile, status => {
+                state.setWorkflowMessage('assessment', requestId, status);
+              });
       } else {
         domain.setSource(null);
         domain.setIsLearnMode(true);
@@ -556,7 +568,10 @@ export const createAssessmentPlanningCommands = (
   async function submitAssessment(
     input: string,
     toolPreferences?: HomeChatToolPreferences
-  ): Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }> {
+  ): Promise<{
+    errorMessage?: string;
+    outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
+  }> {
     const trimmedInput = input.trim();
     const chatSession = state.getChatSession();
     if (!trimmedInput || !chatSession) {

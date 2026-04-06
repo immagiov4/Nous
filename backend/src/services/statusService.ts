@@ -1,6 +1,5 @@
-import type { ProcessState, ServerConfig } from '../types/index.js';
-
 import { loadServerConfig } from '../config/serverConfig.js';
+import type { ProcessState, ServerConfig } from '../types/index.js';
 import { processManager } from './processManager.js';
 import { checkTtsHealth } from './ttsHealth.js';
 

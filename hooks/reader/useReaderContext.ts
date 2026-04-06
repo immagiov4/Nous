@@ -1,29 +1,28 @@
 import {
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
 } from 'react';
-import type { ContextMenuPlacement, ContextMenuState } from '../../types.ts';
-import {
-  CONTEXT_ANSWER_DEFAULT_SIZE,
-  clampContextAnswerPanelSize,
-  type ContextAnswerSize,
-} from '../../utils/reader/chrome.ts';
 import type { ContextAnswerState } from '../../components/workspace/shell/types.ts';
 import { createProjectId } from '../../services/projects/projectSnapshot.ts';
+import type { ContextMenuPlacement, ContextMenuState, SectionAnnotation } from '../../types.ts';
 import {
-  createClosedContextMenuState,
   createAnnotationContextMenuState,
+  createClosedContextMenuState,
   resolveContextMenuSelection,
   resolveMobileContextMenuSyncAction,
 } from '../../utils/context/menuSelection';
-import type { SectionAnnotation } from '../../types.ts';
 import { getSectionAnnotationText } from '../../utils/learning/sectionAnnotations.ts';
+import {
+  CONTEXT_ANSWER_DEFAULT_SIZE,
+  type ContextAnswerSize,
+  clampContextAnswerPanelSize,
+} from '../../utils/reader/chrome.ts';
 
 const CONTEXT_MENU_MOBILE_DEBOUNCE_MS = 160;
 const SELECTION_MENU_REOPEN_SUPPRESSION_MS = 260;
@@ -333,7 +332,10 @@ export const useReaderContext = ({
       }
 
       const annotationElement = target.closest('mark[data-lumina-annotation-id]');
-      if (!(annotationElement instanceof HTMLElement) || !contentRef.current.contains(annotationElement)) {
+      if (
+        !(annotationElement instanceof HTMLElement) ||
+        !contentRef.current.contains(annotationElement)
+      ) {
         return;
       }
 
@@ -392,7 +394,14 @@ export const useReaderContext = ({
         })
       );
     },
-    [closeContextMenu, contentRef, contextMenu, isMobileViewport, sectionAnnotations, sectionContent]
+    [
+      closeContextMenu,
+      contentRef,
+      contextMenu,
+      isMobileViewport,
+      sectionAnnotations,
+      sectionContent,
+    ]
   );
 
   const handleContextAnswerResizeStart = useCallback(
@@ -439,84 +448,90 @@ export const useReaderContext = ({
     [applyContextAnswerResizePreview, clampContextAnswerSize]
   );
 
-  const handleContextAnswerResizeEnd = useCallback((event?: PointerEvent) => {
-    const resizeState = contextAnswerResizeRef.current;
-    if (!resizeState || (event && event.pointerId !== resizeState.pointerId)) {
-      return;
-    }
-
-    contextAnswerResizeRef.current = null;
-    const nextSize = clampContextAnswerSize(contextAnswerDraftSizeRef.current);
-    applyContextAnswerPanelSize(nextSize);
-    applyContextAnswerResizePreview(null);
-    if (contextAnswerPanelRef.current) {
-      contextAnswerPanelRef.current.style.removeProperty('will-change');
-      contextAnswerPanelRef.current.style.removeProperty('animation');
-      contextAnswerPanelRef.current.style.removeProperty('opacity');
-    }
-    setContextAnswerSize(currentSize =>
-      currentSize.width === nextSize.width && currentSize.height === nextSize.height
-        ? currentSize
-        : nextSize
-    );
-    resetContextAnswerResizeStyles();
-  }, [
-    applyContextAnswerPanelSize,
-    applyContextAnswerResizePreview,
-    clampContextAnswerSize,
-    resetContextAnswerResizeStyles,
-  ]);
-
-  const syncMobileContextMenu = useCallback((interactionTarget?: EventTarget | null) => {
-    if (!isMobileViewport) {
-      return;
-    }
-
-    if (contextMenu.visible && contextMenu.type === 'annotation') {
-      return;
-    }
-
-    clearSelectionMenuTimeout();
-    selectionMenuTimeoutRef.current = window.setTimeout(() => {
-      selectionMenuTimeoutRef.current = null;
-
-      const selection = window.getSelection();
-      const isInteractingWithinMenu =
-        interactionTarget instanceof Node &&
-        Boolean(contextMenuRef.current?.contains(interactionTarget));
-      const syncAction = resolveMobileContextMenuSyncAction({
-        hasSelection: Boolean(selection?.toString().trim() && selection.rangeCount > 0),
-        isInteractingWithinMenu,
-        isMenuFocused: Boolean(contextMenuRef.current?.contains(document.activeElement)),
-        isMenuVisible: contextMenu.visible,
-      });
-
-      if (selection && syncAction === 'open-from-selection') {
-        const selectionMenuOutcome = openContextMenuFromSelection(
-          selection,
-          'mobile-sheet',
-          undefined,
-          undefined,
-          { allowToggleClose: false }
-        );
-        if (selectionMenuOutcome === 'opened' || selectionMenuOutcome === 'closed') {
-          return;
-        }
-      }
-
-      if (syncAction === 'keep-existing-menu') {
+  const handleContextAnswerResizeEnd = useCallback(
+    (event?: PointerEvent) => {
+      const resizeState = contextAnswerResizeRef.current;
+      if (!resizeState || (event && event.pointerId !== resizeState.pointerId)) {
         return;
       }
 
-      closeContextMenu();
-    }, CONTEXT_MENU_MOBILE_DEBOUNCE_MS);
-  }, [
-    clearSelectionMenuTimeout,
-    closeContextMenu,
-    contextMenu.visible,
-    isMobileViewport,
-    openContextMenuFromSelection,
-  ]);
+      contextAnswerResizeRef.current = null;
+      const nextSize = clampContextAnswerSize(contextAnswerDraftSizeRef.current);
+      applyContextAnswerPanelSize(nextSize);
+      applyContextAnswerResizePreview(null);
+      if (contextAnswerPanelRef.current) {
+        contextAnswerPanelRef.current.style.removeProperty('will-change');
+        contextAnswerPanelRef.current.style.removeProperty('animation');
+        contextAnswerPanelRef.current.style.removeProperty('opacity');
+      }
+      setContextAnswerSize(currentSize =>
+        currentSize.width === nextSize.width && currentSize.height === nextSize.height
+          ? currentSize
+          : nextSize
+      );
+      resetContextAnswerResizeStyles();
+    },
+    [
+      applyContextAnswerPanelSize,
+      applyContextAnswerResizePreview,
+      clampContextAnswerSize,
+      resetContextAnswerResizeStyles,
+    ]
+  );
+
+  const syncMobileContextMenu = useCallback(
+    (interactionTarget?: EventTarget | null) => {
+      if (!isMobileViewport) {
+        return;
+      }
+
+      if (contextMenu.visible && contextMenu.type === 'annotation') {
+        return;
+      }
+
+      clearSelectionMenuTimeout();
+      selectionMenuTimeoutRef.current = window.setTimeout(() => {
+        selectionMenuTimeoutRef.current = null;
+
+        const selection = window.getSelection();
+        const isInteractingWithinMenu =
+          interactionTarget instanceof Node &&
+          Boolean(contextMenuRef.current?.contains(interactionTarget));
+        const syncAction = resolveMobileContextMenuSyncAction({
+          hasSelection: Boolean(selection?.toString().trim() && selection.rangeCount > 0),
+          isInteractingWithinMenu,
+          isMenuFocused: Boolean(contextMenuRef.current?.contains(document.activeElement)),
+          isMenuVisible: contextMenu.visible,
+        });
+
+        if (selection && syncAction === 'open-from-selection') {
+          const selectionMenuOutcome = openContextMenuFromSelection(
+            selection,
+            'mobile-sheet',
+            undefined,
+            undefined,
+            { allowToggleClose: false }
+          );
+          if (selectionMenuOutcome === 'opened' || selectionMenuOutcome === 'closed') {
+            return;
+          }
+        }
+
+        if (syncAction === 'keep-existing-menu') {
+          return;
+        }
+
+        closeContextMenu();
+      }, CONTEXT_MENU_MOBILE_DEBOUNCE_MS);
+    },
+    [
+      clearSelectionMenuTimeout,
+      closeContextMenu,
+      contextMenu.visible,
+      isMobileViewport,
+      openContextMenuFromSelection,
+    ]
+  );
 
   useEffect(() => {
     const handleResize = () => {

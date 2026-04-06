@@ -1,5 +1,5 @@
-import type { LearningSection, PdfTextChunk, PdfTextIndex, ProjectSource } from '../../types.ts';
 import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex.ts';
+import type { LearningSection, PdfTextChunk, PdfTextIndex, ProjectSource } from '../../types.ts';
 
 const MAX_CONTEXT_SOURCE_CHARS = 168_000;
 const MAX_PDF_SOURCE_CHUNKS = 6;
@@ -38,11 +38,9 @@ const buildPdfSourceMaterial = (
     });
 
   if (orderedSequences.size === 0) {
-    documentIndex.chunks
-      .slice(0, Math.min(2, documentIndex.chunks.length))
-      .forEach(chunk => {
-        orderedSequences.add(chunk.sequence);
-      });
+    documentIndex.chunks.slice(0, Math.min(2, documentIndex.chunks.length)).forEach(chunk => {
+      orderedSequences.add(chunk.sequence);
+    });
   }
 
   return Array.from(orderedSequences)
@@ -74,9 +72,7 @@ export const getLessonSourcePageLabel = ({
   const resolvedSpans = activeSection.primaryChunkIds
     .map(chunkId => indexById.get(chunkId))
     .filter((chunk): chunk is PdfTextChunk => Boolean(chunk))
-    .map(chunk =>
-      resolvePdfChunkPageSpan(documentIndex, chunk, documentIndex.pageCount)
-    )
+    .map(chunk => resolvePdfChunkPageSpan(documentIndex, chunk, documentIndex.pageCount))
     .filter(
       (
         span

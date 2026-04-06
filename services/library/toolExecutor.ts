@@ -9,10 +9,10 @@ import type {
 } from '../../types.ts';
 import {
   buildLessonDetailPayload,
+  buildLibraryScopeSummary,
   buildProjectOverviewPayload,
   buildProjectStructurePayload,
   buildScopedLibraryTreePayload,
-  buildLibraryScopeSummary,
   getOutOfScopeProjectIds,
   searchLibraryContent,
 } from '../../utils/library/assistant.ts';
@@ -25,8 +25,7 @@ export const LIBRARY_ASSISTANT_TOOL_NAMES = [
   'searchLibrary',
 ] as const;
 
-export type LibraryAssistantToolName =
-  (typeof LIBRARY_ASSISTANT_TOOL_NAMES)[number];
+export type LibraryAssistantToolName = (typeof LIBRARY_ASSISTANT_TOOL_NAMES)[number];
 
 interface LibraryAssistantDataSource {
   attachedContextRefs: LibraryContextRef[];
@@ -48,10 +47,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === 'string');
 
-const formatProjectList = (
-  projectIds: string[],
-  projects: SavedProjectMeta[]
-) => {
+const formatProjectList = (projectIds: string[], projects: SavedProjectMeta[]) => {
   const titleById = new Map(projects.map(project => [project.id, project.title]));
   const knownProjectTitles = projectIds.flatMap(projectId => {
     const title = titleById.get(projectId);
@@ -162,9 +158,7 @@ const executeListLibraryTree = async (
   dataSource: LibraryAssistantDataSource
 ): Promise<ExecutedLibraryToolResult> => {
   const includeProjects =
-    !isRecord(input) || typeof input.includeProjects !== 'boolean'
-      ? true
-      : input.includeProjects;
+    !isRecord(input) || typeof input.includeProjects !== 'boolean' ? true : input.includeProjects;
   const scopeSummary = resolveScopeSummary(dataSource);
 
   return {
@@ -206,10 +200,7 @@ const executeProjectOverviewTool = async (
   }
 
   const projectMetaById = new Map(dataSource.projects.map(project => [project.id, project]));
-  const snapshotsById = await loadSnapshotsById(
-    dataSource.loadProjectsById,
-    resolvedProjectIds
-  );
+  const snapshotsById = await loadSnapshotsById(dataSource.loadProjectsById, resolvedProjectIds);
 
   return {
     output: {
@@ -256,10 +247,7 @@ const executeProjectStructureTool = async (
   }
 
   const projectMetaById = new Map(dataSource.projects.map(project => [project.id, project]));
-  const snapshotsById = await loadSnapshotsById(
-    dataSource.loadProjectsById,
-    resolvedProjectIds
-  );
+  const snapshotsById = await loadSnapshotsById(dataSource.loadProjectsById, resolvedProjectIds);
 
   return {
     output: {
@@ -364,10 +352,7 @@ const executeSearchTool = async (
     };
   }
 
-  const snapshotsById = await loadSnapshotsById(
-    dataSource.loadProjectsById,
-    resolvedProjectIds
-  );
+  const snapshotsById = await loadSnapshotsById(dataSource.loadProjectsById, resolvedProjectIds);
   const projectMetaById = new Map(dataSource.projects.map(project => [project.id, project]));
 
   return {

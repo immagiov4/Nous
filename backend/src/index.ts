@@ -1,19 +1,20 @@
-import express from 'express';
 import cors from 'cors';
-
+import express from 'express';
+import chatRouter from './routes/chat.js';
+import pdfRouter from './routes/pdf.js';
+import statusRouter from './routes/status.js';
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
-import statusRouter from './routes/status.js';
-import pdfRouter from './routes/pdf.js';
-import chatRouter from './routes/chat.js';
 
 export const createApp = () => {
   const app = express();
 
-  app.use(cors({
-    origin: true,
-    credentials: true,
-  }));
+  app.use(
+    cors({
+      origin: true,
+      credentials: true,
+    })
+  );
   app.use(express.json({ limit: '50mb' }));
 
   app.use((req, _res, next) => {
@@ -35,13 +36,15 @@ export const createApp = () => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error('[Backend] Unhandled error:', err);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    });
-  });
+  app.use(
+    (err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      console.error('[Backend] Unhandled error:', err);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  );
 
   return app;
 };

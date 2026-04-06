@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AudioChunk, AudioState, VoiceProfileId } from '../../types';
-import * as OpenRouterService from '../../services/openrouter';
 import { createWavBlob } from '../../services/audio/ttsAudio';
+import * as OpenRouterService from '../../services/openrouter';
+import type { AudioChunk, AudioState, VoiceProfileId } from '../../types';
 import { prepareMarkdownForSpeech } from '../../utils/reader/readingText';
 
 const CHUNK_SIZE_APPROX = 580;
@@ -218,9 +218,9 @@ export const useTtsPlayer = ({
   sectionContent,
   speechBlocks,
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
-  const [availableVoices, setAvailableVoices] = useState<Array<{ id: VoiceProfileId; label: string; language: string }>>([
-    { id: 'mario', label: 'Mario', language: 'it-IT' },
-  ]);
+  const [availableVoices, setAvailableVoices] = useState<
+    Array<{ id: VoiceProfileId; label: string; language: string }>
+  >([{ id: 'mario', label: 'Mario', language: 'it-IT' }]);
   const [audioState, setAudioState] = useState<AudioState>({
     isPlaying: false,
     currentVoice: 'mario',
@@ -831,22 +831,28 @@ export const useTtsPlayer = ({
     startFromScratch,
   ]);
 
-  const handleVoiceChange = useCallback((voice: VoiceProfileId) => {
-    if (audioStateRef.current.currentVoice === voice) {
-      return;
-    }
+  const handleVoiceChange = useCallback(
+    (voice: VoiceProfileId) => {
+      if (audioStateRef.current.currentVoice === voice) {
+        return;
+      }
 
-    stopAudio(true);
-    setTrackedAudioState(previousState => ({ ...previousState, currentVoice: voice }));
-  }, [setTrackedAudioState, stopAudio]);
+      stopAudio(true);
+      setTrackedAudioState(previousState => ({ ...previousState, currentVoice: voice }));
+    },
+    [setTrackedAudioState, stopAudio]
+  );
 
-  const handleSpeedChange = useCallback((speed: number) => {
-    if (audioStateRef.current.playbackRate === speed) {
-      return;
-    }
+  const handleSpeedChange = useCallback(
+    (speed: number) => {
+      if (audioStateRef.current.playbackRate === speed) {
+        return;
+      }
 
-    setTrackedAudioState(previousState => ({ ...previousState, playbackRate: speed }));
-  }, [setTrackedAudioState]);
+      setTrackedAudioState(previousState => ({ ...previousState, playbackRate: speed }));
+    },
+    [setTrackedAudioState]
+  );
 
   const handleSeek = (time: number) => {
     const currentAudio = playbackRunRef.current.currentAudio;
@@ -924,10 +930,14 @@ export const useTtsPlayer = ({
           setAvailableVoices(voices);
           const defaultVoice = voices[0].id;
           if (!voices.some(voice => voice.id === audioStateRef.current.currentVoice)) {
-            setTrackedAudioState(previousState => ({ ...previousState, currentVoice: defaultVoice }));
+            setTrackedAudioState(previousState => ({
+              ...previousState,
+              currentVoice: defaultVoice,
+            }));
           }
         }
-      } catch {
+      } catch (error) {
+        console.warn('[Lumina] TTS status/voices refresh failed', error);
         setTtsConnected(false);
       }
     };

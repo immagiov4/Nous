@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { readUiPreferences, writeUiPreferences } from '../../services/preferences/uiPreferencesStorage.ts';
+import {
+  readUiPreferences,
+  writeUiPreferences,
+} from '../../services/preferences/uiPreferencesStorage.ts';
 import type { UiPreferences } from '../../types.ts';
 
 interface UseUiPreferencesPersistenceArgs {

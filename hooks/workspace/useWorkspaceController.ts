@@ -7,6 +7,7 @@ import { createWorkspaceController as createWorkspaceControllerImpl } from './co
 import { useWorkspaceControllerState } from './controller/state.ts';
 import type { UseWorkspaceControllerArgs } from './controller/types.ts';
 
+export { createWorkspaceController } from './controller/createWorkspaceController.ts';
 export type {
   CompleteSectionOutcome,
   CreateLessonOutcome,
@@ -19,7 +20,6 @@ export type {
   WorkspaceDomainControllerAdapter,
   WorkspaceProjectLibraryAdapter,
 } from './controller/types.ts';
-export { createWorkspaceController } from './controller/createWorkspaceController.ts';
 
 export const useWorkspaceController = ({
   domain,

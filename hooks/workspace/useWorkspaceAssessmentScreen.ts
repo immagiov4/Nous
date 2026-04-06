@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { AppState, type Message } from '../../types.ts';
 
 interface UseWorkspaceAssessmentScreenArgs {
@@ -6,9 +6,10 @@ interface UseWorkspaceAssessmentScreenArgs {
   notify: (message: string) => void;
   screenState: AppState;
   startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
-  submitAssessment: (
-    input: string
-  ) => Promise<{ errorMessage?: string; outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned' }>;
+  submitAssessment: (input: string) => Promise<{
+    errorMessage?: string;
+    outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
+  }>;
 }
 
 export const useWorkspaceAssessmentScreen = ({

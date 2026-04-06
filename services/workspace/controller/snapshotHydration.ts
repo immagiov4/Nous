@@ -1,8 +1,13 @@
-import { AppState, type LearningPlan, type LearningSection, type ProjectSnapshot } from '../../../types.ts';
-import { pushLuminaDebugTrace } from '../../core/debugTrace.ts';
-import { restoreLegacyPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
-import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
+import {
+  AppState,
+  type LearningPlan,
+  type LearningSection,
+  type ProjectSnapshot,
+} from '../../../types.ts';
 import { migrateSectionAnnotations } from '../../../utils/learning/sectionAnnotations.ts';
+import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
+import { restoreLegacyPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
+import { pushLuminaDebugTrace } from '../../core/debugTrace.ts';
 
 const HYDRATION_TRACE_PREVIEW_CHARS = 1600;
 

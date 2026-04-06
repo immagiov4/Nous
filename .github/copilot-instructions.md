@@ -201,7 +201,7 @@ npm run quality       # frontend/backend type checks + Biome lint
 
 ## Documentation
 
-- Keep `README.md`, `SETUP.md`, or other nearby docs aligned when the user-facing setup or architecture actually changes.
+- Keep `README.md`, `TTS_SETUP.md`, or other nearby docs aligned when the user-facing setup or architecture actually changes.
 - Write documentation as stable reference material, not change-log prose.
 - Keep comments concise and factual.
 

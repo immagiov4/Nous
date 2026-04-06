@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 import type {
   LibraryFolder,
   LibraryPlacement,
@@ -7,9 +7,14 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types';
-import { buildProjectMeta, exportProjectData, normalizeImportedProject, normalizeStoredProject } from './projectSnapshot';
-import { ProjectStorageError, type ProjectRepository } from './projectRepository';
 import { createLibraryFolderId } from '../../utils/library/tree.ts';
+import { type ProjectRepository, ProjectStorageError } from './projectRepository';
+import {
+  buildProjectMeta,
+  exportProjectData,
+  normalizeImportedProject,
+  normalizeStoredProject,
+} from './projectSnapshot';
 
 const DB_NAME = 'lumina-reader-projects';
 const DB_VERSION = 2;
@@ -49,14 +54,18 @@ const canOpenExistingDatabase = (error: unknown) =>
 
 const classifyStorageError = (error: unknown): ProjectStorageError => {
   if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-    return new ProjectStorageError('Lo spazio locale del browser e finito. Elimina alcuni progetti o esportali.', 'quota-exceeded');
+    return new ProjectStorageError(
+      'Lo spazio locale del browser e finito. Elimina alcuni progetti o esportali.',
+      'quota-exceeded'
+    );
   }
 
   if (error instanceof ProjectStorageError) {
     return error;
   }
 
-  const message = error instanceof Error ? error.message : 'Errore sconosciuto durante il salvataggio locale.';
+  const message =
+    error instanceof Error ? error.message : 'Errore sconosciuto durante il salvataggio locale.';
   return new ProjectStorageError(message, 'unknown');
 };
 
@@ -94,7 +103,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
           blocked() {
             rejectBlockedOpen?.(
               new ProjectStorageError(
-                "L aggiornamento della libreria locale e bloccato da un altra scheda di Lumina ancora aperta. Chiudi le altre schede e ricarica.",
+                'L aggiornamento della libreria locale e bloccato da un altra scheda di Lumina ancora aperta. Chiudi le altre schede e ricarica.',
                 'persistence-failed'
               )
             );
@@ -113,10 +122,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     }
   }
 
-  private hasStore(
-    db: IDBPDatabase<LuminaProjectDb>,
-    storeName: LuminaProjectStoreName
-  ) {
+  private hasStore(db: IDBPDatabase<LuminaProjectDb>, storeName: LuminaProjectStoreName) {
     return db.objectStoreNames.contains(storeName);
   }
 
@@ -179,8 +185,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       return metas
         .slice()
         .sort(
-          (left, right) =>
-            new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+          (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
         )
         .map((meta, index) => this.createPlacementRecord(meta.id, null, (index + 1) * 1024));
     }
@@ -192,15 +197,12 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     const orderedMetas = metas
       .slice()
       .sort(
-        (left, right) =>
-          new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+        (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
       );
 
     let nextOrder =
-      (Math.max(
-        0,
-        ...placements.filter(item => item.folderId === null).map(item => item.order)
-      ) || 0) + 1024;
+      (Math.max(0, ...placements.filter(item => item.folderId === null).map(item => item.order)) ||
+        0) + 1024;
     const createdPlacements: LibraryPlacement[] = [];
 
     for (const meta of orderedMetas) {
@@ -223,7 +225,11 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     db: IDBPDatabase<LuminaProjectDb>,
     placements: LibraryPlacement[]
   ) {
-    if (!this.hasStore(db, PLACEMENT_STORE) || placements.length === 0 || this.placementBackfillPromise) {
+    if (
+      !this.hasStore(db, PLACEMENT_STORE) ||
+      placements.length === 0 ||
+      this.placementBackfillPromise
+    ) {
       return;
     }
 
@@ -302,10 +308,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       .slice(0, boundedTargetIndex)
       .filter(item => movingIds.has(item.id)).length;
 
-    return Math.max(
-      0,
-      Math.min(filteredSiblingCount, boundedTargetIndex - removedBeforeTarget)
-    );
+    return Math.max(0, Math.min(filteredSiblingCount, boundedTargetIndex - removedBeforeTarget));
   }
 
   private async persistSiblingOrders(
@@ -467,7 +470,9 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   async listProjects(): Promise<SavedProjectMeta[]> {
     const db = await this.dbPromise;
     const items = await db.getAll(META_STORE);
-    return items.sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime());
+    return items.sort(
+      (a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime()
+    );
   }
 
   async loadProject(id: ProjectId): Promise<ProjectSnapshot | null> {
@@ -479,7 +484,9 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   async loadProjectsById(ids: ProjectId[]): Promise<ProjectSnapshot[]> {
     const db = await this.dbPromise;
     const snapshots = await Promise.all(ids.map(id => db.get(SNAPSHOT_STORE, id)));
-    return snapshots.filter((snapshot): snapshot is ProjectSnapshot => Boolean(snapshot)).map(normalizeStoredProject);
+    return snapshots
+      .filter((snapshot): snapshot is ProjectSnapshot => Boolean(snapshot))
+      .map(normalizeStoredProject);
   }
 
   async moveFolder(
@@ -569,11 +576,12 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     this.ensureStoreAvailable(db, PLACEMENT_STORE, 'Spostamento corsi');
     const placements = await this.ensureAllProjectPlacements(db);
     const updatedAt = new Date().toISOString();
-    const resolvedFolderId =
-      folderId && (await db.get(FOLDER_STORE, folderId)) ? folderId : null;
+    const resolvedFolderId = folderId && (await db.get(FOLDER_STORE, folderId)) ? folderId : null;
     const movingProjectIds = new Set(projectIds);
     const folders = await db.getAll(FOLDER_STORE);
-    const sourcePlacements = placements.filter(placement => movingProjectIds.has(placement.projectId));
+    const sourcePlacements = placements.filter(placement =>
+      movingProjectIds.has(placement.projectId)
+    );
     const updatedPlacements = placements.map(placement =>
       movingProjectIds.has(placement.projectId)
         ? {
@@ -620,12 +628,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
 
     for (const parentFolderId of touchedParentFolderIds) {
       if (parentFolderId === resolvedFolderId) {
-        await this.persistSiblingOrders(
-          db,
-          filteredDestinationItems,
-          parentFolderId,
-          updatedAt
-        );
+        await this.persistSiblingOrders(db, filteredDestinationItems, parentFolderId, updatedAt);
         continue;
       }
 
@@ -707,7 +710,9 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     await tx.done;
   }
 
-  async importProject(data: unknown): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
+  async importProject(
+    data: unknown
+  ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
     const snapshot = normalizeImportedProject(data);
     const meta = await this.saveProject(snapshot);
     return { meta, snapshot };

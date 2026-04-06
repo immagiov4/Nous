@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
-
-import WorkspaceReaderSidebar from '../../../../components/workspace/shell/WorkspaceReaderSidebar.tsx';
 import type { WorkspaceReaderSidebarModel } from '../../../../components/workspace/shell/types.ts';
+import WorkspaceReaderSidebar from '../../../../components/workspace/shell/WorkspaceReaderSidebar.tsx';
 
 const buildProps = (
   overrides: Partial<WorkspaceReaderSidebarModel> = {}

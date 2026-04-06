@@ -1,4 +1,8 @@
-import { DEFAULT_VOICE_OPTIONS, normalizeVoiceProfileId, type VoiceOption } from '../audio/voiceProfile.ts';
+import {
+  DEFAULT_VOICE_OPTIONS,
+  normalizeVoiceProfileId,
+  type VoiceOption,
+} from '../audio/voiceProfile.ts';
 import { getErrorMessage, normalizeTtsConnectionError, type VoiceProfileId } from './shared.ts';
 import { requestSpeechAudio, requestTtsStatus, requestTtsVoices } from './ttsClient.ts';
 
@@ -44,6 +48,7 @@ export const getTTSVoices = async (): Promise<VoiceOption[]> => {
       language: voice.language,
     }));
   } catch {
+    // intentional: fallback to default
     return DEFAULT_VOICE_OPTIONS;
   }
 };

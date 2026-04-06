@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import type { FileData, LearningPlan, PdfTextIndex } from '../../../types.ts';
 import { beforeEach, test, vi } from 'vitest';
+import type { FileData, LearningPlan, PdfTextIndex } from '../../../types.ts';
 
 const getPdfTextSessionMock = vi.fn();
 const callOpenRouterMock = vi.fn();
@@ -26,7 +26,9 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   };
 });
 
-const { buildPdfTextIndex, preparePdfLessonMappings } = await import('../../../services/openrouter/documentIndex.ts');
+const { buildPdfTextIndex, preparePdfLessonMappings } = await import(
+  '../../../services/openrouter/documentIndex.ts'
+);
 
 const buildChunkId = (index: number): string => `chunk-${String(index).padStart(3, '0')}`;
 

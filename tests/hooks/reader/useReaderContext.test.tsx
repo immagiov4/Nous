@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
+
 import assert from 'node:assert/strict';
+import { act, renderHook } from '@testing-library/react';
 import { test, vi } from 'vitest';
 import { useReaderContext } from '../../../hooks/reader/useReaderContext.ts';
 
@@ -67,13 +68,9 @@ test('mobile selection sync does not close an already-open selection menu for th
   assert.equal(result.current.contextMenu.placement, 'desktop-floating');
 
   act(() => {
-    result.current.openContextMenuFromSelection(
-      selection,
-      'mobile-sheet',
-      undefined,
-      undefined,
-      { allowToggleClose: false }
-    );
+    result.current.openContextMenuFromSelection(selection, 'mobile-sheet', undefined, undefined, {
+      allowToggleClose: false,
+    });
   });
 
   assert.equal(result.current.contextMenu.visible, true);

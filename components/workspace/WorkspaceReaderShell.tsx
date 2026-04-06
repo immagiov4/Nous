@@ -1,11 +1,11 @@
 import { useLayoutEffect } from 'react';
 import AudioPlayer from './AudioPlayer.tsx';
+import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
 import WorkspaceReaderContent from './shell/WorkspaceReaderContent.tsx';
 import WorkspaceReaderHeader from './shell/WorkspaceReaderHeader.tsx';
 import WorkspaceReaderOverlays from './shell/WorkspaceReaderOverlays.tsx';
 import WorkspaceReaderSidebar from './shell/WorkspaceReaderSidebar.tsx';
-import type { WorkspaceReaderShellProps } from './shell/types.ts';
 
 export default function WorkspaceReaderShell({
   audioPlayer,

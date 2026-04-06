@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test, vi } from 'vitest';
-import type { FileData } from '../../../types.ts';
 import { encodeTextBase64 } from '../../../services/projects/projectSource.ts';
+import type { FileData } from '../../../types.ts';
 
 const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async <T>(operation: () => Promise<T>) => await operation());

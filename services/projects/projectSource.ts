@@ -105,7 +105,10 @@ const inferTextMimeTypeFromName = (name: string): string => {
     return '';
   }
 
-  return TEXT_FILE_EXTENSION_TO_MIME.get(extension) || (LIKELY_TEXT_FILE_EXTENSIONS.has(extension) ? 'text/plain' : '');
+  return (
+    TEXT_FILE_EXTENSION_TO_MIME.get(extension) ||
+    (LIKELY_TEXT_FILE_EXTENSIONS.has(extension) ? 'text/plain' : '')
+  );
 };
 
 const isTextMimeType = (mimeType: string): boolean => {
@@ -192,11 +195,23 @@ export const isLikelyBinaryData = (bytes: Uint8Array): boolean => {
 
 export type SourceFileKind = 'pdf' | 'text' | 'zip' | 'unsupported';
 
-export const isPdfFileData = (file: Pick<FileData, 'name' | 'mimeType'> | null | undefined): boolean =>
-  Boolean(file && (normalizeMimeType(file.mimeType) === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')));
+export const isPdfFileData = (
+  file: Pick<FileData, 'name' | 'mimeType'> | null | undefined
+): boolean =>
+  Boolean(
+    file &&
+      (normalizeMimeType(file.mimeType) === 'application/pdf' ||
+        file.name.toLowerCase().endsWith('.pdf'))
+  );
 
-export const isZipFileData = (file: Pick<FileData, 'name' | 'mimeType'> | null | undefined): boolean =>
-  Boolean(file && (ZIP_MIME_TYPES.has(normalizeMimeType(file.mimeType)) || file.name.toLowerCase().endsWith('.zip')));
+export const isZipFileData = (
+  file: Pick<FileData, 'name' | 'mimeType'> | null | undefined
+): boolean =>
+  Boolean(
+    file &&
+      (ZIP_MIME_TYPES.has(normalizeMimeType(file.mimeType)) ||
+        file.name.toLowerCase().endsWith('.zip'))
+  );
 
 export const detectSourceFileKind = ({
   name,
@@ -213,7 +228,8 @@ export const detectSourceFileKind = ({
 
   const normalizedMimeType = normalizeMimeType(mimeType);
   const hasZipHint = ZIP_MIME_TYPES.has(normalizedMimeType) || name.toLowerCase().endsWith('.zip');
-  const hasTextHint = isTextMimeType(normalizedMimeType) || Boolean(inferTextMimeTypeFromName(name));
+  const hasTextHint =
+    isTextMimeType(normalizedMimeType) || Boolean(inferTextMimeTypeFromName(name));
 
   if (hasZipHint) {
     return hasTextHint && bytes && !isLikelyBinaryData(bytes) ? 'text' : 'zip';
@@ -234,6 +250,7 @@ export const detectStoredSourceFileKind = (file: FileData): SourceFileKind => {
       bytes: decodeBase64Bytes(file.data),
     });
   } catch {
+    // intentional: fallback to default
     return detectSourceFileKind({
       name: file.name,
       mimeType: file.mimeType,
@@ -329,7 +346,10 @@ export const getProjectSourceName = (source: ProjectSource | null | undefined): 
   return source.kind === 'pdf' ? source.file.name : source.name;
 };
 
-export const createLegacyCodebaseSource = (name: string, aggregatedText: string): CodebaseBundleSource => ({
+export const createLegacyCodebaseSource = (
+  name: string,
+  aggregatedText: string
+): CodebaseBundleSource => ({
   kind: 'codebase-bundle',
   name,
   aggregatedText,

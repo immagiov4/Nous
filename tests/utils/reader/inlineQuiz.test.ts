@@ -34,15 +34,7 @@ test('buildInlineQuizLayout distributes questions across heading-based lesson ch
 
 test('buildInlineQuizLayout falls back to paragraph grouping when headings are too sparse', () => {
   const layout = buildInlineQuizLayout(
-    [
-      'Paragrafo 1.',
-      '',
-      'Paragrafo 2.',
-      '',
-      'Paragrafo 3.',
-      '',
-      'Paragrafo 4.',
-    ].join('\n'),
+    ['Paragrafo 1.', '', 'Paragrafo 2.', '', 'Paragrafo 3.', '', 'Paragrafo 4.'].join('\n'),
     2
   );
 

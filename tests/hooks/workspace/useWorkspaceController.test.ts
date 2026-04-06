@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import {
+  createWorkspaceController,
+  type WorkspaceChatSession,
+  type WorkspaceDomainControllerAdapter,
+  type WorkspaceProjectLibraryAdapter,
+} from '../../../hooks/workspace/useWorkspaceController.ts';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
 import {
   createProjectSnapshot,
   normalizeImportedProject,
 } from '../../../services/projects/projectSnapshot.ts';
 import { createProjectSourceFromFile } from '../../../services/projects/projectSource.ts';
-import { getPdfProjectHydrationState } from '../../../utils/pdf/projectHydration.ts';
 import {
   createWorkspaceWorkflowState,
   invalidateWorkspaceWorkflows,
@@ -22,12 +27,7 @@ import {
   type SyllabusItem,
   type UserProfile,
 } from '../../../types.ts';
-import {
-  createWorkspaceController,
-  type WorkspaceChatSession,
-  type WorkspaceDomainControllerAdapter,
-  type WorkspaceProjectLibraryAdapter,
-} from '../../../hooks/workspace/useWorkspaceController.ts';
+import { getPdfProjectHydrationState } from '../../../utils/pdf/projectHydration.ts';
 
 const pdfFile: FileData = {
   name: 'dispensa.pdf',
@@ -457,7 +457,9 @@ const createStateAdapter = () => {
   };
 };
 
-const createOpenRouterMock = (overrides: Partial<typeof import('../../../services/openrouter/index.ts')> = {}) =>
+const createOpenRouterMock = (
+  overrides: Partial<typeof import('../../../services/openrouter/index.ts')> = {}
+) =>
   ({
     askContextualQuestion: async () => 'Risposta',
     createAssessmentChat: async () => ({

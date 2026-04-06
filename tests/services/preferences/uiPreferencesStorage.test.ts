@@ -3,8 +3,8 @@ import { test } from 'vitest';
 import {
   parseUiPreferences,
   readUiPreferences,
-  writeUiPreferences,
   UI_PREFERENCES_KEY,
+  writeUiPreferences,
 } from '../../../services/preferences/uiPreferencesStorage.ts';
 
 test('parseUiPreferences normalizes supported fields and ignores the rest', () => {

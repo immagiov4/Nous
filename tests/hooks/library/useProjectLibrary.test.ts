@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import { buildPersistenceSignature } from '../../../services/projects/persistenceSignature.ts';
+import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 
 test('buildPersistenceSignature only depends on persisted workspace domain state', () => {
   const state = createEmptyWorkspaceDomainState();

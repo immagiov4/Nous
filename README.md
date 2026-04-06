@@ -1,37 +1,48 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Lumina Reader
 
-# Run and deploy your AI Studio app
+AI-powered deep reading and learning platform. Upload documents (PDF, plain text, code archives) and Lumina generates personalized study plans, interactive lessons, and assessments using LLMs via OpenRouter.
 
-This contains everything you need to run your app locally.
+## Architecture
 
-View your app in AI Studio: https://ai.studio/apps/d985924c-2339-4e80-834f-9b7ea2500aa4
+- **Frontend** — React 19 + TypeScript + Vite (repo root: `App.tsx`, `components/`, `hooks/`, `services/`)
+- **Backend** — Express.js + TypeScript (`backend/src/`), primarily a TTS control plane and proxy
+- **TTS server** (optional) — Python FastAPI Qwen3-TTS service (`tts-server/`); see [TTS_SETUP.md](TTS_SETUP.md)
+
+## Prerequisites
+
+- Node.js 22+
+- npm
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+1. Install frontend dependencies:
+   ```bash
+   npm ci
+   ```
+2. Install backend dependencies:
+   ```bash
+   cd backend && npm ci && cd ..
+   ```
+3. Set the `OPENROUTER_API_KEY` in [.env.local](.env.local)
+4. Start the app:
+   ```bash
+   npm run dev
+   ```
 
+This launches the Vite frontend at `http://localhost:5173` and the Express backend at `http://localhost:3001`.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `OPENROUTER_API_KEY` in [.env.local](.env.local)
-3. Run the app:
-   `npm run dev`
+## Quality
+
+```bash
+npm run quality   # TypeScript type checks (frontend + backend) + Biome lint
+npm test          # Vitest test suite
+```
 
 ## Code Map
 
-If you are changing the app and do not know where to start, this is the fastest map:
-
-- `App.tsx`: top-level screen shell. It decides whether we are in library, assessment, planning, or reading mode.
-- `hooks/workspace/useWorkspaceController.ts`: public entry point for app workflows. The actual logic is split under `hooks/workspace/controller/`.
-- `hooks/workspace/controller/assessmentPlanning.ts`: assessment chat flow and plan generation.
-- `hooks/workspace/controller/projectLifecycle.ts`: open/import/delete projects and source attachment.
-- `hooks/workspace/controller/sectionProgression.ts`: lesson loading, regeneration, deep dives, contextual Q&A, completion.
-- `hooks/library/useProjectLibrary.ts`: project repository + autosave only.
-- `hooks/workspace/useUiPreferencesPersistence.ts`: local UI preferences such as theme, voice, teleprompter speed, playback rate.
-- `hooks/workspace/useWorkspaceReaderRuntime.ts`: reader-side runtime wiring for chrome, context menu, quiz UI, music, and TTS player.
-- `components/workspace/WorkspaceReaderShell.tsx` and `components/workspace/shell/`: reading UI composition and presentational pieces.
-- `services/workspace/controller/`: pure helpers for snapshot hydration, learn-mode planning, and PDF asset merging.
-- `services/openrouter/`: AI-facing integrations and prompt orchestration.
-- `backend/src/`: backend source of truth. `backend/dist/` is build output, not where you should edit code.
+- `App.tsx` — top-level screen shell (library, assessment, planning, reading modes)
+- `hooks/workspace/useWorkspaceController.ts` — public entry point for app workflows
+- `hooks/workspace/controller/` — assessment/planning flow, project lifecycle, section progression
+- `hooks/library/useProjectLibrary.ts` — IndexedDB-backed project repository + autosave
+- `services/openrouter/` — AI integrations and prompt orchestration
+- `backend/src/` — backend source; `backend/dist/` is build output

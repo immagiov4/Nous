@@ -6,7 +6,10 @@ import type {
   SelectionContextMenuState,
   SelectionRect,
 } from '../../types';
-import { normalizeMathSelectionArtifacts, projectMarkdownMathRange } from '../markdown/codeRanges.ts';
+import {
+  normalizeMathSelectionArtifacts,
+  projectMarkdownMathRange,
+} from '../markdown/codeRanges.ts';
 
 interface ResolveContextMenuSelectionArgs {
   container: HTMLElement;
@@ -59,7 +62,9 @@ const extractRangeText = (range: Range, fallbackText = ''): string => {
 
       if (texSource) {
         const projectedText = projectKatexAnnotationSource(texSource).trim();
-        katexNode.replaceWith(ownerDocument.createTextNode(projectedText ? ` ${projectedText} ` : ' '));
+        katexNode.replaceWith(
+          ownerDocument.createTextNode(projectedText ? ` ${projectedText} ` : ' ')
+        );
         return;
       }
 
@@ -74,11 +79,15 @@ const extractRangeText = (range: Range, fallbackText = ''): string => {
 
     return normalizeMathSelectionArtifacts(container.textContent || fallbackText || '');
   } catch {
+    // intentional: fallback to default
     return normalizeMathSelectionArtifacts(fallbackText || range.toString());
   }
 };
 
-export type MobileContextMenuSyncAction = 'open-from-selection' | 'keep-existing-menu' | 'close-menu';
+export type MobileContextMenuSyncAction =
+  | 'open-from-selection'
+  | 'keep-existing-menu'
+  | 'close-menu';
 
 const getNodeForContainmentCheck = (node: Node): Node => {
   return node.nodeType === 3 && node.parentNode ? node.parentNode : node;
@@ -97,8 +106,13 @@ const getSelectionContext = (
   afterRange.setStart(range.endContainer, range.endOffset);
 
   return {
-    contextBefore: extractRangeText(beforeRange, beforeRange.toString()).slice(-DEFAULT_CONTEXT_WINDOW),
-    contextAfter: extractRangeText(afterRange, afterRange.toString()).slice(0, DEFAULT_CONTEXT_WINDOW),
+    contextBefore: extractRangeText(beforeRange, beforeRange.toString()).slice(
+      -DEFAULT_CONTEXT_WINDOW
+    ),
+    contextAfter: extractRangeText(afterRange, afterRange.toString()).slice(
+      0,
+      DEFAULT_CONTEXT_WINDOW
+    ),
   };
 };
 
@@ -194,7 +208,7 @@ export const resolveContextMenuSelection = ({
   const selectionRect = getSelectionRect(range);
   const { contextBefore, contextAfter } = getSelectionContext(container, range);
   const containerRect = container.getBoundingClientRect?.();
-  const anchorX = fallbackAnchorX ?? selectionRect.left + (selectionRect.width / 2);
+  const anchorX = fallbackAnchorX ?? selectionRect.left + selectionRect.width / 2;
   const anchorY = fallbackAnchorY ?? selectionRect.top + selectionRect.height;
 
   return {

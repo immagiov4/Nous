@@ -3,5 +3,9 @@ export const getErrorMessage = (error: unknown): string => {
     return error.message;
   }
 
+  if (typeof error === 'string') {
+    return error;
+  }
+
   return 'Unknown error';
 };

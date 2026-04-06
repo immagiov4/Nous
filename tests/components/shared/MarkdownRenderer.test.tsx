@@ -33,11 +33,7 @@ describe('MarkdownRenderer', () => {
   });
 
   test('renders markdown tables with semantic cells', () => {
-    render(
-      <MarkdownRenderer
-        content={'| Colonna | Valore |\n| --- | --- |\n| Alfa | 1 |'}
-      />
-    );
+    render(<MarkdownRenderer content={'| Colonna | Valore |\n| --- | --- |\n| Alfa | 1 |'} />);
 
     expect(screen.getByRole('table')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Colonna' })).toBeInTheDocument();
@@ -110,12 +106,8 @@ describe('MarkdownRenderer', () => {
       />
     );
 
-    const noteMark = container.querySelector(
-      'mark[data-lumina-annotation-id="annotation-1"]'
-    );
-    const plainMark = container.querySelector(
-      'mark[data-lumina-annotation-id="annotation-2"]'
-    );
+    const noteMark = container.querySelector('mark[data-lumina-annotation-id="annotation-1"]');
+    const plainMark = container.querySelector('mark[data-lumina-annotation-id="annotation-2"]');
 
     expect(noteMark).toHaveAttribute('data-lumina-note-attached', 'true');
     expect(noteMark).toHaveStyle({

@@ -6,9 +6,9 @@ import {
 } from './config.ts';
 import type {
   ChatCompletionOptions,
-  TextContentPart,
   OpenRouterMessageContent,
   OpenRouterResponse,
+  TextContentPart,
 } from './types.ts';
 
 interface HttpError extends Error {

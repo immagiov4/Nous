@@ -134,10 +134,7 @@ export const getMarkdownMathRangeAt = (
   return null;
 };
 
-const getMarkdownMathInnerRange = (
-  content: string,
-  range: MarkdownRange
-): MarkdownRange => {
+const getMarkdownMathInnerRange = (content: string, range: MarkdownRange): MarkdownRange => {
   if (content.startsWith('$$', range.start)) {
     return { start: range.start + 2, end: Math.max(range.start + 2, range.end - 2) };
   }
@@ -226,10 +223,7 @@ const collapseAdjacentDuplicatedWordRuns = (value: string): string => {
   let nextValue = value;
 
   while (true) {
-    const collapsedValue = nextValue.replace(
-      /([A-Za-z][A-Za-z0-9]{2,})(?:\1){1,}/gu,
-      '$1'
-    );
+    const collapsedValue = nextValue.replace(/([A-Za-z][A-Za-z0-9]{2,})(?:\1){1,}/gu, '$1');
 
     if (collapsedValue === nextValue) {
       return collapsedValue;
@@ -241,9 +235,8 @@ const collapseAdjacentDuplicatedWordRuns = (value: string): string => {
 
 export const normalizeMathSelectionArtifacts = (value: string): string => {
   const strippedValue = value.replace(ZERO_WIDTH_CHARACTERS_REGEX, '');
-  const projectedValue = strippedValue.replace(
-    INLINE_MATH_LIKE_EXPRESSION_REGEX,
-    expression => projectInlineMathLikeExpression(expression)
+  const projectedValue = strippedValue.replace(INLINE_MATH_LIKE_EXPRESSION_REGEX, expression =>
+    projectInlineMathLikeExpression(expression)
   );
 
   if (projectedValue === strippedValue) {

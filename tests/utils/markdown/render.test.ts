@@ -7,10 +7,7 @@ test('normalizeMarkdownForRendering converts single-line cpp snippets into fence
 
   const output = normalizeMarkdownForRendering(input);
 
-  assert.equal(
-    output,
-    'Sintassi:\n\n```cpp\nwhile (i < 5) { std::cout << i; }\n```'
-  );
+  assert.equal(output, 'Sintassi:\n\n```cpp\nwhile (i < 5) { std::cout << i; }\n```');
 });
 
 test('normalizeMarkdownForRendering repairs language label plus multiline code into one fenced block', () => {
@@ -38,10 +35,7 @@ test('normalizeMarkdownForRendering wraps standalone C++ lines and preserves ang
 
   const output = normalizeMarkdownForRendering(input);
 
-  assert.equal(
-    output,
-    '```cpp\n#include <iostream>\nstd::vector<int> values;\n```'
-  );
+  assert.equal(output, '```cpp\n#include <iostream>\nstd::vector<int> values;\n```');
 });
 
 test('normalizeMarkdownForRendering keeps multiline constructor snippets together across blank lines', () => {
@@ -70,13 +64,13 @@ test('normalizeMarkdownForRendering keeps language-labeled multiline code togeth
 
 test('normalizeMarkdownForRendering stops the code block before following prose', () => {
   const input =
-    'ServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n\nQui l\'ownership della mappa e chiarissima.';
+    "ServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n\nQui l'ownership della mappa e chiarissima.";
 
   const output = normalizeMarkdownForRendering(input);
 
   assert.equal(
     output,
-    '```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n```\n\nQui l\'ownership della mappa e chiarissima.'
+    "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n```\n\nQui l'ownership della mappa e chiarissima."
   );
 });
 
@@ -96,11 +90,11 @@ test('normalizeMarkdownForRendering leaves existing fenced code blocks untouched
 
 test('normalizeMarkdownForRendering extracts trailing prose from existing fenced code blocks', () => {
   const input =
-    '```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n\nQui l\'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve.\n```';
+    "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve.\n```";
 
   assert.equal(
     normalizeMarkdownForRendering(input),
-    '```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n```\n\nQui l\'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve.'
+    "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\nServer *server, MetricsBackend *mb):\nEnvironment(server),\n\nm_map(std::move(map)),\n\nm_script(server->getScriptIface()),\n\nm_server(server)\n```\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve."
   );
 });
 
@@ -111,8 +105,7 @@ test('normalizeMarkdownForRendering strips accidental mark tags from inline code
 });
 
 test('normalizeMarkdownForRendering strips accidental mark tags with annotation attributes from inline code spans', () => {
-  const input =
-    'Classi: `<mark data-lumina-annotation-id="annotation-1">Server</mark>`.';
+  const input = 'Classi: `<mark data-lumina-annotation-id="annotation-1">Server</mark>`.';
 
   assert.equal(normalizeMarkdownForRendering(input), 'Classi: `Server`.');
 });
@@ -124,8 +117,7 @@ test('normalizeMarkdownForRendering strips accidental mark tags from fenced code
 });
 
 test('normalizeMarkdownForRendering strips accidental mark tags with annotation attributes from fenced code blocks', () => {
-  const input =
-    '```cpp\n<mark data-lumina-annotation-id="annotation-1">Server</mark> server;\n```';
+  const input = '```cpp\n<mark data-lumina-annotation-id="annotation-1">Server</mark> server;\n```';
 
   assert.equal(normalizeMarkdownForRendering(input), '```cpp\nServer server;\n```');
 });
@@ -141,8 +133,7 @@ test('normalizeMarkdownForRendering repairs common katex text-mode underscore er
 });
 
 test('normalizeMarkdownForRendering promotes bare word-like subscripts into text mode', () => {
-  const input =
-    'Qui il beneficio nasce dal ridurre $T_cluster$ e $T_update$.';
+  const input = 'Qui il beneficio nasce dal ridurre $T_cluster$ e $T_update$.';
 
   assert.equal(
     normalizeMarkdownForRendering(input),
@@ -161,30 +152,53 @@ test('normalizeMarkdownForRendering promotes braced word-like superscripts and s
 });
 
 test('normalizeMarkdownForRendering converts orphan bracket-delimited display math into KaTeX display blocks', () => {
-  const input = ['La formula e:', '', '[', 'f(\\omega) \\approx \\sum_i a_i Y_i(\\omega)', ']', '', 'Fine.'].join('\n');
+  const input = [
+    'La formula e:',
+    '',
+    '[',
+    'f(\\omega) \\approx \\sum_i a_i Y_i(\\omega)',
+    ']',
+    '',
+    'Fine.',
+  ].join('\n');
 
   assert.equal(
     normalizeMarkdownForRendering(input),
-    ['La formula e:', '', '$$', 'f(\\omega) \\approx \\sum_i a_i Y_i(\\omega)', '$$', 'Fine.'].join('\n')
+    ['La formula e:', '', '$$', 'f(\\omega) \\approx \\sum_i a_i Y_i(\\omega)', '$$', 'Fine.'].join(
+      '\n'
+    )
   );
 });
 
 test('normalizeMarkdownForRendering converts single-line bracket-delimited display math into KaTeX display blocks', () => {
-  const input = ['La formula e:', '', '[ AO(p) = \\frac{1}{2\\pi}\\int_{\\Omega^+} V_p(\\omega), d\\omega ]', '', 'Fine.'].join('\n');
+  const input = [
+    'La formula e:',
+    '',
+    '[ AO(p) = \\frac{1}{2\\pi}\\int_{\\Omega^+} V_p(\\omega), d\\omega ]',
+    '',
+    'Fine.',
+  ].join('\n');
 
   assert.equal(
     normalizeMarkdownForRendering(input),
-    ['La formula e:', '', '$$', 'AO(p) = \\frac{1}{2\\pi}\\int_{\\Omega^+} V_p(\\omega), d\\omega', '$$', 'Fine.'].join('\n')
+    [
+      'La formula e:',
+      '',
+      '$$',
+      'AO(p) = \\frac{1}{2\\pi}\\int_{\\Omega^+} V_p(\\omega), d\\omega',
+      '$$',
+      'Fine.',
+    ].join('\n')
   );
 });
 
 test('normalizeMarkdownForRendering does not swallow prose with backtick-wrapped C++ types into code blocks', () => {
   const input =
-    'cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\tServer *server, MetricsBackend *mb):\n\tEnvironment(server),\n\tm_server(server)\n\nQui l\'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.';
+    "cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\tServer *server, MetricsBackend *mb):\n\tEnvironment(server),\n\tm_server(server)\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.";
 
   assert.equal(
     normalizeMarkdownForRendering(input),
-    '```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\tServer *server, MetricsBackend *mb):\n\tEnvironment(server),\n\tm_server(server)\n```\n\nQui l\'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.'
+    "```cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\tServer *server, MetricsBackend *mb):\n\tEnvironment(server),\n\tm_server(server)\n```\n\nQui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`."
   );
 });
 
@@ -195,14 +209,15 @@ test('normalizeMarkdownForRendering keeps multi-line function call arguments tog
   const output = normalizeMarkdownForRendering(input);
 
   assert.ok(
-    output.includes('\tm_env(\n\t\tmake_irr<ClientMap>(this, engine, control, 666),\n\t\ttsrc, this\n\t),\n```'),
+    output.includes(
+      '\tm_env(\n\t\tmake_irr<ClientMap>(this, engine, control, 666),\n\t\ttsrc, this\n\t),\n```'
+    ),
     'tsrc, this and ), must remain inside the fenced block'
   );
 });
 
 test('normalizeMarkdownForRendering preserves angle brackets inside inline backtick code spans', () => {
-  const input =
-    'Il parametro `std::unique_ptr<ServerMap> map` comunica ownership esclusiva.';
+  const input = 'Il parametro `std::unique_ptr<ServerMap> map` comunica ownership esclusiva.';
 
   const output = normalizeMarkdownForRendering(input);
 
@@ -221,14 +236,14 @@ test('normalizeMarkdownForRendering splits prose back out of an existing fenced 
     '\tm_script(server->getScriptIface()),',
     '\tm_server(server)',
     '',
-    'Qui l\'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.',
+    "Qui l'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.",
     '```',
   ].join('\n');
 
   const output = normalizeMarkdownForRendering(input);
 
   assert.ok(
-    output.includes('\tm_server(server)\n```\n\nQui l\'ownership della mappa e chiarissima'),
+    output.includes("\tm_server(server)\n```\n\nQui l'ownership della mappa e chiarissima"),
     'prose should be moved outside the fenced code block'
   );
 });

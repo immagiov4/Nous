@@ -1,6 +1,5 @@
-import type { ServerConfig } from '../types/index.js';
-
 import { buildTTSServerUrl } from '../config/serverConfig.js';
+import type { ServerConfig } from '../types/index.js';
 import { getErrorMessage } from '../utils/errors.js';
 
 export interface ServiceHealthResult {
@@ -12,7 +11,7 @@ async function checkEndpoint(
   serverUrl: string,
   path: string,
   successMessage: string,
-  failurePrefix: string,
+  failurePrefix: string
 ): Promise<ServiceHealthResult> {
   try {
     const response = await fetch(`${serverUrl}${path}`, {
@@ -36,7 +35,9 @@ async function checkEndpoint(
   }
 }
 
-export async function checkTtsHealth(config: Pick<ServerConfig, 'ttsServerHost' | 'ttsServerPort'>): Promise<{
+export async function checkTtsHealth(
+  config: Pick<ServerConfig, 'ttsServerHost' | 'ttsServerPort'>
+): Promise<{
   healthy: boolean;
   message: string;
 }> {
@@ -44,7 +45,7 @@ export async function checkTtsHealth(config: Pick<ServerConfig, 'ttsServerHost' 
     buildTTSServerUrl(config),
     '/health',
     'TTS server is healthy',
-    'Health check failed',
+    'Health check failed'
   );
 
   return {
@@ -53,7 +54,9 @@ export async function checkTtsHealth(config: Pick<ServerConfig, 'ttsServerHost' 
   };
 }
 
-export async function checkTtsReadiness(config: Pick<ServerConfig, 'ttsServerHost' | 'ttsServerPort'>): Promise<{
+export async function checkTtsReadiness(
+  config: Pick<ServerConfig, 'ttsServerHost' | 'ttsServerPort'>
+): Promise<{
   message: string;
   ready: boolean;
 }> {
@@ -61,7 +64,7 @@ export async function checkTtsReadiness(config: Pick<ServerConfig, 'ttsServerHos
     buildTTSServerUrl(config),
     '/v1/models',
     'TTS server is ready',
-    'Ready check failed',
+    'Ready check failed'
   );
 
   return {

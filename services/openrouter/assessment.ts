@@ -1,15 +1,15 @@
-import {
-  isPdfFile,
-  MODEL_ASSESSMENT,
-  callOpenRouter,
-  parseFunctionCallProfile,
-  type ChatMessage,
-  type ChatSession,
-  type FileData,
-  type UserProfile,
-} from './shared.ts';
 import { decodeTextBase64Preview } from '../projects/projectSource.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
+import {
+  type ChatMessage,
+  type ChatSession,
+  callOpenRouter,
+  type FileData,
+  isPdfFile,
+  MODEL_ASSESSMENT,
+  parseFunctionCallProfile,
+  type UserProfile,
+} from './shared.ts';
 
 const MAX_ASSESSMENT_SOURCE_CHARS = 6000;
 const MAX_ASSESSMENT_SOURCE_PREVIEW_BYTES = 12_000;
@@ -333,6 +333,5 @@ Only return this JSON when you have enough information. Before that, just ask qu
 export const createLearnAssessmentChat = (language: string): ChatSession<UserProfile> =>
   createLearnAssessmentSession(language);
 
-export const createEmbeddedLearnAssessmentChat = (
-  language: string
-): ChatSession<UserProfile> => createLearnAssessmentSession(language, { seedOpeningExchange: false });
+export const createEmbeddedLearnAssessmentChat = (language: string): ChatSession<UserProfile> =>
+  createLearnAssessmentSession(language, { seedOpeningExchange: false });

@@ -11,7 +11,9 @@ export const mergeDocumentAssetsForPlan = (
   }
 
   const referencedAssetIds = new Set(
-    nextPlan.sections.flatMap(section => (section.imageRefs || []).map(imageRef => imageRef.assetId))
+    nextPlan.sections.flatMap(section =>
+      (section.imageRefs || []).map(imageRef => imageRef.assetId)
+    )
   );
   const availableAssets = new Map<string, PdfImageAsset>();
 

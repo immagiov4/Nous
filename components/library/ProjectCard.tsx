@@ -7,8 +7,8 @@ import {
   FolderInput,
   Loader2,
   MoreVertical,
-  TriangleAlert,
   Trash2,
+  TriangleAlert,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
@@ -43,7 +43,12 @@ const ProjectCard = ({
   style,
 }: ProjectCardProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const CoverIcon = project.sourceKind === 'codebase' ? FileArchive : project.sourceKind === 'learn-mode' ? BookCopy : FileText;
+  const CoverIcon =
+    project.sourceKind === 'codebase'
+      ? FileArchive
+      : project.sourceKind === 'learn-mode'
+        ? BookCopy
+        : FileText;
   const showSourceWarning = !project.hasSourceFile && project.sourceKind !== 'learn-mode';
 
   return (
@@ -82,9 +87,13 @@ const ProjectCard = ({
           ) : null}
         </div>
         <div className="flex w-full items-center gap-2 text-[11px] text-gray-500 sm:text-xs dark:text-zinc-500">
-          <span className="flex-shrink-0 font-semibold text-gray-700 dark:text-zinc-300">{project.lessonCount} lezioni</span>
+          <span className="flex-shrink-0 font-semibold text-gray-700 dark:text-zinc-300">
+            {project.lessonCount} lezioni
+          </span>
           <span className="flex-shrink-0 text-gray-400 dark:text-zinc-700">&middot;</span>
-          <span className="truncate" title={project.coverLabel}>{project.coverLabel}</span>
+          <span className="truncate" title={project.coverLabel}>
+            {project.coverLabel}
+          </span>
           <span className="flex-shrink-0 text-gray-400 dark:text-zinc-700">&middot;</span>
           <span className="hidden flex-shrink-0 items-center gap-1 sm:inline-flex">
             <Clock3 className="h-3 w-3" />
@@ -99,12 +108,17 @@ const ProjectCard = ({
           <div
             className="fixed inset-0 z-40"
             onClick={() => setMenuOpen(false)}
-            onKeyDown={e => { if (e.key === 'Escape') setMenuOpen(false); }}
+            onKeyDown={e => {
+              if (e.key === 'Escape') setMenuOpen(false);
+            }}
           />
         ) : null}
         <button
           type="button"
-          onClick={e => { e.stopPropagation(); setMenuOpen(v => !v); }}
+          onClick={e => {
+            e.stopPropagation();
+            setMenuOpen(v => !v);
+          }}
           className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-paper-dark dark:hover:text-zinc-200"
           title="Azioni"
         >
@@ -115,7 +129,10 @@ const ProjectCard = ({
             {onMove ? (
               <button
                 type="button"
-                onClick={() => { setMenuOpen(false); onMove(project.id); }}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onMove(project.id);
+                }}
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
               >
                 <FolderInput className="h-4 w-4 shrink-0" />
@@ -124,7 +141,10 @@ const ProjectCard = ({
             ) : null}
             <button
               type="button"
-              onClick={() => { setMenuOpen(false); onExport(project.id); }}
+              onClick={() => {
+                setMenuOpen(false);
+                onExport(project.id);
+              }}
               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
             >
               <Download className="h-4 w-4 shrink-0" />
@@ -133,7 +153,10 @@ const ProjectCard = ({
             <div className="border-t border-gray-100 dark:border-zinc-700" />
             <button
               type="button"
-              onClick={() => { setMenuOpen(false); onDelete(project.id); }}
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete(project.id);
+              }}
               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
             >
               <Trash2 className="h-4 w-4 shrink-0" />

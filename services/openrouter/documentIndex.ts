@@ -1,15 +1,21 @@
-import type { FileData, LearningPlan, PdfTextChunk, PdfTextIndex, PdfTextPage } from '../../types.ts';
+import type {
+  FileData,
+  LearningPlan,
+  PdfTextChunk,
+  PdfTextIndex,
+  PdfTextPage,
+} from '../../types.ts';
+import { getPdfProjectHydrationState } from '../../utils/pdf/projectHydration.ts';
 import { pushLuminaDebugTrace } from '../core/debugTrace.ts';
+import { HIGH_REASONING_CONFIG } from './config.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
-import { MAX_REASONING_CONFIG } from './config.ts';
 import {
-  MODEL_FLASH,
   callOpenRouter,
   isPdfFile,
+  MODEL_FLASH,
   parseCleanJson,
   retryWithBackoff,
 } from './shared.ts';
-import { getPdfProjectHydrationState } from '../../utils/pdf/projectHydration.ts';
 
 const TARGET_CHUNK_CHARS = 7000;
 const MIN_CHUNK_CHARS = 3500;
@@ -326,7 +332,10 @@ const logPdfPlanDebug = (label: string, payload: Record<string, unknown>) => {
   console.groupEnd();
 };
 
-const formatPageRange = (startPage: number | undefined, endPage: number | undefined): string | null => {
+const formatPageRange = (
+  startPage: number | undefined,
+  endPage: number | undefined
+): string | null => {
   if (!Number.isInteger(startPage) || !Number.isInteger(endPage)) {
     return null;
   }
@@ -791,7 +800,7 @@ const mapLessonsToChunkIds = async (
         () =>
           callOpenRouter({
             model: MODEL_FLASH,
-            reasoning: MAX_REASONING_CONFIG,
+            reasoning: HIGH_REASONING_CONFIG,
             messages: [{ role: 'user', content: prompt }],
             response_format: { type: 'json_object' },
             max_tokens: resolveMappingMaxTokens(lessonBatch.length),
@@ -902,12 +911,11 @@ const buildPdfPlanCoverageReport = (
         flags,
         pageRange: formatPageRange(startPage, endPage),
         pageRangeLength,
-        pageRangeSource:
-          chunkSpans.every(span => span.exact)
-            ? 'exact'
-            : chunkSpans.some(span => span.exact)
-              ? 'mixed'
-              : 'estimated',
+        pageRangeSource: chunkSpans.every(span => span.exact)
+          ? 'exact'
+          : chunkSpans.some(span => span.exact)
+            ? 'mixed'
+            : 'estimated',
       } satisfies PdfPlanLessonCoverage;
     });
 
@@ -923,12 +931,12 @@ const buildPdfPlanCoverageReport = (
     });
   });
 
-  const uncoveredSubstantivePages = substantivePages.filter(page => !coveredSubstantivePages.has(page));
+  const uncoveredSubstantivePages = substantivePages.filter(
+    page => !coveredSubstantivePages.has(page)
+  );
   const gaps = compressPagesToGaps(uncoveredSubstantivePages);
   const coverageRatio =
-    substantiveRange.pageCount > 0
-      ? coveredSubstantivePages.size / substantiveRange.pageCount
-      : 1;
+    substantiveRange.pageCount > 0 ? coveredSubstantivePages.size / substantiveRange.pageCount : 1;
 
   const missingLessons = lessonSpans.filter(lesson => lesson.flags.includes('missing-mapping'));
   const tooNarrowLessons = lessonSpans.filter(lesson => lesson.flags.includes('too-narrow'));
@@ -949,7 +957,10 @@ const buildPdfPlanCoverageReport = (
   if (gaps.length > 0) {
     const visibleGaps = gaps.slice(0, PDF_PLAN_MAX_REPORTED_GAPS);
     warnings.push(
-      `Sono presenti ${gaps.length} gap interni nella copertura del PDF; primi gap: ${visibleGaps.map(gap => formatPageRange(gap.startPage, gap.endPage)).filter(Boolean).join(', ')}.`
+      `Sono presenti ${gaps.length} gap interni nella copertura del PDF; primi gap: ${visibleGaps
+        .map(gap => formatPageRange(gap.startPage, gap.endPage))
+        .filter(Boolean)
+        .join(', ')}.`
     );
   }
 

@@ -8,7 +8,10 @@ test('buildCodebaseBundleSource sorts files deterministically and keeps stable a
     { path: 'src/alpha.ts', text: 'export const alpha = 1;' },
   ]);
 
-  assert.deepEqual(bundle.files.map(file => file.path), ['src/alpha.ts', 'src/zeta.ts']);
+  assert.deepEqual(
+    bundle.files.map(file => file.path),
+    ['src/alpha.ts', 'src/zeta.ts']
+  );
   assert.match(bundle.aggregatedText, /START OF FILE: src\/alpha\.ts/);
   assert.match(bundle.aggregatedText, /START OF FILE: src\/zeta\.ts/);
   assert.equal(bundle.stats.includedFileCount, 2);

@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { AppState, type ProjectSnapshot } from '../../../types.ts';
-import {
-  createProjectSourceFromFile,
-  decodeTextBase64,
-  encodeTextBase64,
-  getProjectSourceFile,
-} from '../../../services/projects/projectSource.ts';
 import {
   buildCoverLabel,
   exportProjectData,
   inferProjectSourceKind,
   normalizeImportedProject,
 } from '../../../services/projects/projectSnapshot.ts';
+import {
+  createProjectSourceFromFile,
+  decodeTextBase64,
+  encodeTextBase64,
+  getProjectSourceFile,
+} from '../../../services/projects/projectSource.ts';
+import { AppState, type ProjectSnapshot } from '../../../types.ts';
 
 test('createProjectSourceFromFile upgrades legacy zip payloads into structured codebase sources', () => {
   const source = createProjectSourceFromFile({

@@ -11,14 +11,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-  type FormEvent,
-} from 'react';
+import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { LibraryFolderNode, LibraryTree, LibraryTreeNode } from '../../types.ts';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
@@ -64,8 +57,7 @@ type FlattenedFolderNode = LibraryFolderNode & { depth: number };
 
 const ROOT_CREATE_KEY = '__root__';
 
-const isFolderNode = (node: LibraryTreeNode): node is LibraryFolderNode =>
-  node.kind === 'folder';
+const isFolderNode = (node: LibraryTreeNode): node is LibraryFolderNode => node.kind === 'folder';
 
 const isFlattenedFolderNode = (
   node: LibraryTreeNode & { depth: number }
@@ -88,9 +80,7 @@ const collectFolderDescendantIds = (folderNode: LibraryFolderNode): Set<string> 
 };
 
 const resolveDestinationFolders = (tree: LibraryTree) =>
-  flattenLibraryTreeNodes(tree.rootNodes, { includeProjects: false }).filter(
-    isFlattenedFolderNode
-  );
+  flattenLibraryTreeNodes(tree.rootNodes, { includeProjects: false }).filter(isFlattenedFolderNode);
 
 const clampIndex = (value: number, maxValue: number) =>
   Math.max(0, Math.min(maxValue, Math.trunc(value)));
@@ -113,9 +103,10 @@ const resolveDropTargetFromTouchPoint = (x: number, y: number): DropTarget | nul
   if (targetKind === 'project') {
     const position = relativeY < rect.height / 2 ? 'before' : 'after';
     return {
-      index: position === 'before'
-        ? clampIndex(siblingIndex, siblingCount)
-        : clampIndex(siblingIndex + 1, siblingCount),
+      index:
+        position === 'before'
+          ? clampIndex(siblingIndex, siblingCount)
+          : clampIndex(siblingIndex + 1, siblingCount),
       parentFolderId,
       position,
       targetId,
@@ -127,14 +118,32 @@ const resolveDropTargetFromTouchPoint = (x: number, y: number): DropTarget | nul
   const lowerThreshold = rect.height * 0.72;
 
   if (relativeY <= upperThreshold) {
-    return { index: clampIndex(siblingIndex, siblingCount), parentFolderId, position: 'before', targetId, targetKind: 'folder' };
+    return {
+      index: clampIndex(siblingIndex, siblingCount),
+      parentFolderId,
+      position: 'before',
+      targetId,
+      targetKind: 'folder',
+    };
   }
   if (relativeY >= lowerThreshold) {
-    return { index: clampIndex(siblingIndex + 1, siblingCount), parentFolderId, position: 'after', targetId, targetKind: 'folder' };
+    return {
+      index: clampIndex(siblingIndex + 1, siblingCount),
+      parentFolderId,
+      position: 'after',
+      targetId,
+      targetKind: 'folder',
+    };
   }
 
   const childrenCount = parseInt(el.getAttribute('data-drag-children-count') ?? '0', 10);
-  return { index: childrenCount, parentFolderId: targetId, position: 'inside', targetId, targetKind: 'folder' };
+  return {
+    index: childrenCount,
+    parentFolderId: targetId,
+    position: 'inside',
+    targetId,
+    targetKind: 'folder',
+  };
 };
 
 export default function LibraryTreeView({
@@ -197,7 +206,11 @@ export default function LibraryTreeView({
   const touchDropTargetRef = useRef<DropTarget | null>(null);
   const touchHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPointRef = useRef<{ x: number; y: number } | null>(null);
-  const liveRef = useRef({ draggedFolderDisabledIds: new Set<string>(), onMoveFolder, onMoveProjects });
+  const liveRef = useRef({
+    draggedFolderDisabledIds: new Set<string>(),
+    onMoveFolder,
+    onMoveProjects,
+  });
 
   const TOUCH_HOLD_MS = 300;
   const TOUCH_SLOP_PX = 8;
@@ -293,8 +306,7 @@ export default function LibraryTreeView({
     if (args.mode === 'create') {
       await onCreateFolder({
         name: trimmedName,
-        parentFolderId:
-          args.folderId === ROOT_CREATE_KEY ? null : (args.folderId ?? null),
+        parentFolderId: args.folderId === ROOT_CREATE_KEY ? null : (args.folderId ?? null),
       });
       if (args.folderId && args.folderId !== ROOT_CREATE_KEY) {
         setExpandedFolderIds(currentIds => new Set(currentIds).add(args.folderId as string));
@@ -383,7 +395,7 @@ export default function LibraryTreeView({
       className="mt-2 flex items-center gap-2 rounded-2xl border border-dashed border-gray-300 bg-white/85 px-3 py-2 dark:border-zinc-700/80 dark:bg-[#1b1614]"
     >
       <input
-        autoFocus
+        ref={el => el?.focus()}
         type="text"
         value={folderDraftName}
         onChange={event => setFolderDraftName(event.target.value)}
@@ -687,8 +699,8 @@ export default function LibraryTreeView({
             isMoveTargetDisabled
               ? 'border-gray-200 bg-gray-50/60 dark:border-zinc-700/80 dark:bg-[#161210]'
               : isDropInside(node.id)
-              ? 'border-amber-400 bg-amber-50/40 dark:border-amber-400/60 dark:bg-amber-500/5'
-              : 'border-gray-300 bg-white dark:border-zinc-700/80 dark:bg-[#1b1614]'
+                ? 'border-amber-400 bg-amber-50/40 dark:border-amber-400/60 dark:bg-amber-500/5'
+                : 'border-gray-300 bg-white dark:border-zinc-700/80 dark:bg-[#1b1614]'
           }`}
         >
           <button
@@ -920,8 +932,7 @@ export default function LibraryTreeView({
 
               {destinationFolders.map(folderNode => {
                 const isDisabled =
-                  moveTarget.kind === 'folder' &&
-                  moveTargetDisabledFolderIds.has(folderNode.id);
+                  moveTarget.kind === 'folder' && moveTargetDisabledFolderIds.has(folderNode.id);
 
                 return (
                   <button

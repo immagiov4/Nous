@@ -224,10 +224,7 @@ export const resolveScopedProjectIds = ({
   return allProjectIds.filter(projectId => scopedProjectIds.has(projectId));
 };
 
-export const getFolderPathLabels = (
-  folderId: string,
-  folders: LibraryFolder[]
-): string[] => {
+export const getFolderPathLabels = (folderId: string, folders: LibraryFolder[]): string[] => {
   const folderById = new Map(folders.map(folder => [folder.id, folder]));
   const pathLabels: string[] = [];
   const visited = new Set<string>();

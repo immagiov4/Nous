@@ -2,7 +2,8 @@ import type { LessonImageRef, PdfImageAsset } from '../../types';
 
 const PDF_IMAGE_PLACEHOLDER_REGEX =
   /\{\{PDF_IMAGE:([^|}]+)(?:\|alt=([^|}]*))?(?:\|caption=([^}]*))?\}\}/g;
-const LEGACY_PDF_FIGURE_REGEX = /<figure\b[\s\S]*?<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>[\s\S]*?<\/figure>/gi;
+const LEGACY_PDF_FIGURE_REGEX =
+  /<figure\b[\s\S]*?<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>[\s\S]*?<\/figure>/gi;
 const LEGACY_PDF_IMAGE_REGEX = /<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>/gi;
 
 const escapeHtml = (value: string): string =>
@@ -16,13 +17,12 @@ const escapeHtml = (value: string): string =>
 const decodeHtml = (value: string): string =>
   value
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, '\'')
+    .replace(/&#39;/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 
-const escapePlaceholderValue = (value: string): string =>
-  value.replace(/[|}]/g, ' ').trim();
+const escapePlaceholderValue = (value: string): string => value.replace(/[|}]/g, ' ').trim();
 
 const extractAttribute = (tag: string, attributeName: string): string | undefined => {
   const attributeRegex = new RegExp(`${attributeName}=(["'])([\\s\\S]*?)\\1`, 'i');
@@ -31,7 +31,9 @@ const extractAttribute = (tag: string, attributeName: string): string | undefine
 };
 
 const stripHtml = (value: string): string =>
-  decodeHtml(value.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  decodeHtml(value.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const buildPlaceholder = (assetId: string, alt?: string, caption?: string): string => {
   const normalizedAssetId = escapePlaceholderValue(assetId);
@@ -42,7 +44,12 @@ const buildPlaceholder = (assetId: string, alt?: string, caption?: string): stri
     : `{{PDF_IMAGE:${normalizedAssetId}|alt=${normalizedAlt}}}`;
 };
 
-const buildFigureHtml = (asset: PdfImageAsset, imageRef?: LessonImageRef, altFallback?: string, captionFallback?: string): string => {
+const buildFigureHtml = (
+  asset: PdfImageAsset,
+  imageRef?: LessonImageRef,
+  altFallback?: string,
+  captionFallback?: string
+): string => {
   const alt = escapeHtml(imageRef?.alt || altFallback || 'Figura dal PDF');
   const caption = imageRef?.caption || captionFallback || '';
 
@@ -64,14 +71,19 @@ export const replacePdfImagePlaceholders = (
       return '';
     }
 
-    return buildFigureHtml(asset, lessonImageRefsById[normalizedAssetId], String(alt || '').trim(), String(caption || '').trim());
+    return buildFigureHtml(
+      asset,
+      lessonImageRefsById[normalizedAssetId],
+      String(alt || '').trim(),
+      String(caption || '').trim()
+    );
   });
 
 export const stripPdfImagePlaceholders = (content: string): string =>
   content.replace(PDF_IMAGE_PLACEHOLDER_REGEX, ' ');
 
 export const restoreLegacyPdfImagePlaceholders = (content: string): string => {
-  const figuresRestored = content.replace(LEGACY_PDF_FIGURE_REGEX, (figureHtml) => {
+  const figuresRestored = content.replace(LEGACY_PDF_FIGURE_REGEX, figureHtml => {
     const imageTag = figureHtml.match(/<img\b[^>]*data-pdf-asset-id=(["'])[^"'<>]+\1[^>]*>/i)?.[0];
     const assetId = imageTag ? extractAttribute(imageTag, 'data-pdf-asset-id') : undefined;
     if (!assetId) {
@@ -84,7 +96,7 @@ export const restoreLegacyPdfImagePlaceholders = (content: string): string => {
     return `\n\n${buildPlaceholder(assetId, alt, caption)}\n\n`;
   });
 
-  return figuresRestored.replace(LEGACY_PDF_IMAGE_REGEX, (imageTag) => {
+  return figuresRestored.replace(LEGACY_PDF_IMAGE_REGEX, imageTag => {
     const assetId = extractAttribute(imageTag, 'data-pdf-asset-id');
     if (!assetId) {
       return imageTag;

@@ -37,9 +37,10 @@ export function normalizeError(error: unknown, fallbackMessage = 'Unknown error'
 
   if (errorLike) {
     const code = typeof errorLike.code === 'string' ? errorLike.code : undefined;
-    const message = typeof errorLike.message === 'string' && errorLike.message.length > 0
-      ? errorLike.message
-      : fallbackMessage;
+    const message =
+      typeof errorLike.message === 'string' && errorLike.message.length > 0
+        ? errorLike.message
+        : fallbackMessage;
 
     return {
       cause: errorLike.cause,

@@ -1,9 +1,9 @@
 import {
   getMarkdownMathRangeAt,
   getMarkdownProtectedRanges,
+  type MarkdownRange,
   normalizeMathSelectionArtifacts,
   projectMarkdownMathRange,
-  type MarkdownRange,
 } from '../markdown/codeRanges.ts';
 
 export interface HighlightSelectionOptions {
@@ -83,10 +83,7 @@ const buildVisibleProjection = (content: string): VisibleProjection => {
     if (mathRange) {
       const mathProjection = projectMarkdownMathRange(content, mathRange);
       mathProjection.text.split('').forEach((character, projectionIndex) => {
-        pushCharacter(
-          character,
-          mathProjection.sourceIndexes[projectionIndex] ?? mathRange.start
-        );
+        pushCharacter(character, mathProjection.sourceIndexes[projectionIndex] ?? mathRange.start);
       });
       atLineStart = false;
       index = mathRange.end;
@@ -532,11 +529,7 @@ export const toggleHighlightInContent = ({
     if (looseMatch) {
       const segments = buildMarkableSegments(
         content,
-        buildSourceSegments(
-          looseProjection,
-          looseMatch.index ?? 0,
-          looseMatch[0].length
-        ),
+        buildSourceSegments(looseProjection, looseMatch.index ?? 0, looseMatch[0].length),
         protectedRanges
       );
 

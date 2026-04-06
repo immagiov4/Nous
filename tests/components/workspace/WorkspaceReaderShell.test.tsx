@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { createRef } from 'react';
+
 import { render, screen } from '@testing-library/react';
+import { createRef } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderShellProps } from '../../../components/workspace/shell/types.ts';
 import WorkspaceReaderShell from '../../../components/workspace/WorkspaceReaderShell.tsx';

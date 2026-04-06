@@ -61,10 +61,7 @@ test('applySectionAnnotation stores a note and merges overlapping notes into the
     'Alpha <mark data-lumina-annotation-id="annotation-1">beta</mark> <mark data-lumina-annotation-id="annotation-1">gamma</mark> delta.'
   );
   assert.equal(merged.merged, true);
-  assert.equal(
-    merged.annotations[0]?.note,
-    `Nota grande${NOTE_MERGE_SEPARATOR}Nota piccola`
-  );
+  assert.equal(merged.annotations[0]?.note, `Nota grande${NOTE_MERGE_SEPARATOR}Nota piccola`);
 });
 
 test('updateSectionAnnotationNote can clear a note without removing the highlight', () => {

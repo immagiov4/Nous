@@ -67,7 +67,11 @@ describe('POST /api/chat/context', () => {
       toUIMessageStream: () => 'stream-token',
     });
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
-      ({ response }: { response: { status: (code: number) => { json: (body: unknown) => void } } }) => {
+      ({
+        response,
+      }: {
+        response: { status: (code: number) => { json: (body: unknown) => void } };
+      }) => {
         response.status(200).json({ success: true, streamed: true });
       }
     );
@@ -220,7 +224,9 @@ describe('POST /api/chat/context', () => {
     const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
     expect(fetchOptions?.body).toContain('"type":"openrouter:web_search"');
     expect(fetchOptions?.body).toContain('"tool_choice":"required"');
-    expect(fetchOptions?.body).toContain('NVIDIA forest real-time ray tracing alternatives foliage lighting');
+    expect(fetchOptions?.body).toContain(
+      'NVIDIA forest real-time ray tracing alternatives foliage lighting'
+    );
     expect(fetchOptions?.body).toContain('Puntatore');
   });
 
@@ -300,16 +306,18 @@ describe('POST /api/chat/library', () => {
       toUIMessageStream: () => 'stream-token',
     });
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
-      ({ response }: { response: { status: (code: number) => { json: (body: unknown) => void } } }) => {
+      ({
+        response,
+      }: {
+        response: { status: (code: number) => { json: (body: unknown) => void } };
+      }) => {
         response.status(200).json({ success: true, streamed: true });
       }
     );
   });
 
   test('validates that library chat messages are present', async () => {
-    const response = await request(createApp())
-      .post('/api/chat/library')
-      .send({});
+    const response = await request(createApp()).post('/api/chat/library').send({});
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
@@ -362,9 +370,7 @@ describe('POST /api/chat/library', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
       'Riferimenti allegati: folder:Frontend'
     );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Cerca sul web: attiva'
-    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Cerca sul web: attiva');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
       'Le istruzioni esplicite dell\'utente hanno precedenza sulla preferenza "Cerca sul web".'
     );
@@ -389,7 +395,8 @@ describe('POST /api/chat/library', () => {
       aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.required
     ).toBeUndefined();
     expect(
-      aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.properties.projectIds.description
+      aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.properties
+        .projectIds.description
     ).toContain('Se omessa, usa tutto lo scope corrente.');
     expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();

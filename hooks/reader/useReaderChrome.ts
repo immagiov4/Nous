@@ -1,7 +1,7 @@
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
-import { resolveExpandedModuleState, type ExpandedModuleState } from '../../utils/reader/chrome.ts';
+import { type ExpandedModuleState, resolveExpandedModuleState } from '../../utils/reader/chrome.ts';
 import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
 
 const SIDEBAR_WIDTH_PX = 384;

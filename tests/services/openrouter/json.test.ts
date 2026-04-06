@@ -10,7 +10,11 @@ Linea 2 con \\m escape rotto",
     "imagePlacements": []
   }`;
 
-  const parsed = parseCleanJson<{ contentMarkdown: string; quiz: unknown[]; imagePlacements: unknown[] }>(raw);
+  const parsed = parseCleanJson<{
+    contentMarkdown: string;
+    quiz: unknown[];
+    imagePlacements: unknown[];
+  }>(raw);
 
   assert.equal(parsed.contentMarkdown, 'Linea 1\nLinea 2 con \\m escape rotto');
   assert.deepEqual(parsed.quiz, []);

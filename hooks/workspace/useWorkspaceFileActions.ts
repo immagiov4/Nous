@@ -1,5 +1,5 @@
-import { useCallback, useId, useRef } from 'react';
 import type { ChangeEvent } from 'react';
+import { useCallback, useId, useRef } from 'react';
 import type { SavedProjectMeta } from '../../types.ts';
 
 type UploadMode = 'new-project' | 'reattach-source';

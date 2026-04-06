@@ -1,28 +1,13 @@
-import {
-  MODEL_CONTEXT,
-  MODEL_FLASH,
-  MODEL_REASONING,
-  buildDocumentInputContent,
-  buildAssessmentSummary,
-  callOpenRouter,
-  isPdfFile,
-  parseCleanJson,
-  plannerInstruction,
-  retryWithBackoff,
-  teacherInstruction,
-  type FileData,
-  type LessonImageRef,
-  type LearningPlan,
-  type LearningSection,
-  type Message,
-  type PdfDocumentAssets,
-  type PdfTextChunk,
-  type PdfTextIndex,
-  type QuizQuestion,
-  type UserProfile,
-} from './shared.ts';
-import { pushLuminaDebugTrace } from '../core/debugTrace.ts';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
+import { pushLuminaDebugTrace } from '../core/debugTrace.ts';
+import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
+import { HIGH_REASONING_CONFIG } from './config.ts';
+import {
+  askContextualQuestion,
+  buildPdfReasoningExtractionNotes,
+  buildReasoningContentForFile,
+  clipPdfSourceText,
+} from './contextChat.ts';
 import {
   buildLessonChunkContext,
   buildPdfPageTextLayout,
@@ -34,14 +19,34 @@ import {
   getPdfAssetSession,
   getPdfTextSession,
 } from './pdfAssets.ts';
-import { HIGH_REASONING_CONFIG, MAX_REASONING_CONFIG } from './config.ts';
-import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
+import { LESSON_SCOPE_RULES, PLAN_PROPEDEUTIC_ORDER_RULES } from './prompts.ts';
+import {
+  buildAssessmentSummary,
+  buildDocumentInputContent,
+  callOpenRouter,
+  type FileData,
+  isPdfFile,
+  type LearningPlan,
+  type LearningSection,
+  type LessonImageRef,
+  type Message,
+  MODEL_FLASH,
+  MODEL_REASONING,
+  type PdfDocumentAssets,
+  type PdfTextChunk,
+  type PdfTextIndex,
+  parseCleanJson,
+  plannerInstruction,
+  type QuizQuestion,
+  retryWithBackoff,
+  teacherInstruction,
+  type UserProfile,
+} from './shared.ts';
 
 const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
 const MAX_PLAN_SOURCE_CHARS = 180_000;
 const MAX_METADATA_SOURCE_CHARS = 32_000;
-const MAX_CONTEXTUAL_ANSWER_SOURCE_CHARS = 32_000;
 const MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS = 36_000;
 const MAX_LESSON_REPAIR_SOURCE_CHARS = 24_000;
 const PDF_ASSET_SESSION_TIMEOUT_MS = 20_000;
@@ -192,21 +197,7 @@ const traceLessonMarkdownStage = (
   });
 };
 
-export const LESSON_SCOPE_RULES = [
-  'Spiega solo il contenuto che appartiene davvero a questa lezione.',
-  'Non anticipare in dettaglio argomenti che verranno trattati in lezioni future: puoi nominarli al massimo come collegamento o prerequisito, senza definirli, spiegarli o svilupparli.',
-  'Non inserire sezioni di "analisi approfondita", "panoramica successiva" o simili se non aggiungono contenuto realmente necessario alla lezione corrente.',
-  'Se la lezione ha gia esaurito il suo focus, chiudi con naturalezza: non allungarla per forza.',
-] as const;
-
-export const PLAN_PROPEDEUTIC_ORDER_RULES = [
-  "L'indice finale deve essere in ordine strettamente propedeutico sia tra i moduli/capitoli sia tra le lezioni interne: prima prerequisiti e basi, poi concetti intermedi, poi argomenti avanzati, e solo alla fine la sintesi.",
-  "Non mettere mai una sezione, una tecnica o un'applicazione prima della sezione che introduce definizioni, lessico e prerequisiti necessari per capirla.",
-  'Ogni modulo deve preparare il successivo: prima fondamenta e modello mentale, poi meccanismi centrali, poi uso pratico, poi eccezioni, casi avanzati e ottimizzazioni.',
-  'Anche dentro ogni modulo, le lezioni devono seguire una progressione didattica naturale dal semplice al complesso e dal generale allo specifico.',
-  "Se durante il raffinamento spezzi una sezione in piu lezioni, riordinale sempre in base alle dipendenze didattiche prima di restituire l'indice finale.",
-  "Se trovi elementi invertiti, correggi l'ordine: non lasciare mai un argomento dopo qualcosa che lo presuppone gia compreso.",
-] as const;
+export { LESSON_SCOPE_RULES, PLAN_PROPEDEUTIC_ORDER_RULES };
 
 type PlanningSourceKind = 'pdf' | 'text' | 'other';
 export type PlanningSourceSizeTier = 'tiny' | 'small' | 'medium' | 'large';
@@ -369,8 +360,11 @@ const resolvePlanningSourceProfile = async (file: FileData): Promise<PlanningSou
   return resolvePlanningSourceProfileFromSeed({ kind: 'other' });
 };
 
-const formatPlanningCountRange = ({ max, min }: PlanningCountRange, singular: string, plural: string) =>
-  min === max ? `${min} ${min === 1 ? singular : plural}` : `${min}-${max} ${plural}`;
+const formatPlanningCountRange = (
+  { max, min }: PlanningCountRange,
+  singular: string,
+  plural: string
+) => (min === max ? `${min} ${min === 1 ? singular : plural}` : `${min}-${max} ${plural}`);
 
 const formatPlanningSourceStats = (profile: PlanningSourceProfile): string => {
   if (profile.kind === 'pdf' && typeof profile.pageCount === 'number') {
@@ -404,7 +398,7 @@ const buildPdfPlanCoverageGuidance = (profile: PlanningSourceProfile): string[] 
     );
   } else if (profile.sizeTier === 'medium') {
     guidance.push(
-      "- Mantieni una granularita coerente con la densita delle pagine: evita sia lezioni che comprimono blocchi troppo ampi sia lezioni microscopiche da poche pagine, salvo quando il testo cambia davvero argomento."
+      '- Mantieni una granularita coerente con la densita delle pagine: evita sia lezioni che comprimono blocchi troppo ampi sia lezioni microscopiche da poche pagine, salvo quando il testo cambia davvero argomento.'
     );
   }
 
@@ -443,9 +437,10 @@ const clampLessonQuizCount = (value: number): number =>
   Math.max(MIN_LESSON_QUIZ_QUESTIONS, Math.min(MAX_LESSON_QUIZ_QUESTIONS, value));
 
 const buildLessonResponseSchema = (exactQuizCount?: number) => {
-  const quizCount = typeof exactQuizCount === 'number' && Number.isInteger(exactQuizCount)
-    ? clampLessonQuizCount(exactQuizCount)
-    : undefined;
+  const quizCount =
+    typeof exactQuizCount === 'number' && Number.isInteger(exactQuizCount)
+      ? clampLessonQuizCount(exactQuizCount)
+      : undefined;
 
   return {
     name: 'lumina_lesson_response',
@@ -557,7 +552,8 @@ const isCompactPlanningSource = (profile?: Pick<PlanningSourceProfile, 'sizeTier
 
 const buildPlanSectionScopeText = (
   section: Pick<LearningSection, 'moduleTitle' | 'title' | 'description'>
-): string => [section.moduleTitle || '', section.title, section.description].filter(Boolean).join(' ');
+): string =>
+  [section.moduleTitle || '', section.title, section.description].filter(Boolean).join(' ');
 
 const computePlanKeywordOverlap = (leftText: string, rightText: string) => {
   const leftKeywords = Array.from(new Set(getSearchKeywords(leftText)));
@@ -627,10 +623,19 @@ const getPlanSectionSpecificityScore = (
   const summaryPenalty = section.type === 'summary' ? 18 : 0;
   const prerequisiteBonus = section.type === 'prerequisite' ? 6 : 0;
 
-  return keywordCount * 10 + section.description.trim().length + (section.moduleTitle ? 12 : 0) + prerequisiteBonus - summaryPenalty;
+  return (
+    keywordCount * 10 +
+    section.description.trim().length +
+    (section.moduleTitle ? 12 : 0) +
+    prerequisiteBonus -
+    summaryPenalty
+  );
 };
 
-const pickPreferredPlanSection = (left: LearningSection, right: LearningSection): LearningSection => {
+const pickPreferredPlanSection = (
+  left: LearningSection,
+  right: LearningSection
+): LearningSection => {
   if (left.type === 'summary' && right.type !== 'summary') {
     return { ...right, moduleTitle: right.moduleTitle || left.moduleTitle };
   }
@@ -667,7 +672,10 @@ export const dedupeLearningPlanSections = (
     });
 
     if (duplicateIndex >= 0) {
-      exactDeduped[duplicateIndex] = pickPreferredPlanSection(exactDeduped[duplicateIndex], section);
+      exactDeduped[duplicateIndex] = pickPreferredPlanSection(
+        exactDeduped[duplicateIndex],
+        section
+      );
       return;
     }
 
@@ -801,7 +809,8 @@ const buildImageContextSummary = (
     }))
     .sort((left, right) => right.score - left.score)[0]?.sentence;
 
-  const chosen = image.caption?.trim() || bestSentence || sentenceCandidates[0] || normalized || sectionTitle;
+  const chosen =
+    image.caption?.trim() || bestSentence || sentenceCandidates[0] || normalized || sectionTitle;
   const compact = chosen
     .replace(/^[:;,\-\s]+/, '')
     .replace(/[|}]/g, ' ')
@@ -1099,10 +1108,7 @@ const extractParagraphKeywords = (paragraph: string): string[] =>
       stripMarkdownForSimilarity(paragraph)
         .split(/\s+/)
         .map(normalizeSimilarityWord)
-        .filter(
-          word =>
-            word.length >= 4 && !PARAGRAPH_REPETITION_STOP_WORDS.has(word)
-        )
+        .filter(word => word.length >= 4 && !PARAGRAPH_REPETITION_STOP_WORDS.has(word))
     )
   );
 
@@ -1122,10 +1128,7 @@ interface ParagraphSimilarityMetrics {
   sharedKeywordCount: number;
 }
 
-const computeParagraphSimilarity = (
-  left: string,
-  right: string
-): ParagraphSimilarityMetrics => {
+const computeParagraphSimilarity = (left: string, right: string): ParagraphSimilarityMetrics => {
   const leftKeywords = extractParagraphKeywords(left);
   const rightKeywords = extractParagraphKeywords(right);
   const leftWords = extractParagraphWords(left);
@@ -1462,10 +1465,7 @@ const sanitizeQuizQuestion = (question: QuizQuestion): QuizQuestion => ({
   correctIndex: question.correctIndex,
 });
 
-const normalizeQuizLength = (
-  quiz: QuizQuestion[],
-  targetQuizCount: number
-): QuizQuestion[] =>
+const normalizeQuizLength = (quiz: QuizQuestion[], targetQuizCount: number): QuizQuestion[] =>
   quiz.slice(0, clampLessonQuizCount(targetQuizCount)).map(sanitizeQuizQuestion);
 
 const LESSON_CONCLUSION_HEADING_REGEX = /(^|\n)#{1,6}\s+Conclusione\b/i;
@@ -1588,7 +1588,7 @@ ${contentMarkdown}`;
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
-        reasoning: MAX_REASONING_CONFIG,
+        reasoning: HIGH_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },
           { role: 'user', content: repairPrompt },
@@ -1615,15 +1615,17 @@ const prettifyMarkdownSpacing = (contentMarkdown: string): string =>
 
 const parseQuizPayload = (value: unknown): QuizQuestion[] =>
   Array.isArray(value)
-    ? value.filter(
-        (item): item is QuizQuestion =>
-          typeof item === 'object' &&
-          item !== null &&
-          typeof (item as QuizQuestion).question === 'string' &&
-          Array.isArray((item as QuizQuestion).options) &&
-          (item as QuizQuestion).options.every(option => typeof option === 'string') &&
-          Number.isInteger((item as QuizQuestion).correctIndex)
-      ).map(sanitizeQuizQuestion)
+    ? value
+        .filter(
+          (item): item is QuizQuestion =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof (item as QuizQuestion).question === 'string' &&
+            Array.isArray((item as QuizQuestion).options) &&
+            (item as QuizQuestion).options.every(option => typeof option === 'string') &&
+            Number.isInteger((item as QuizQuestion).correctIndex)
+        )
+        .map(sanitizeQuizQuestion)
     : [];
 
 interface BuildLessonVerificationPromptInput {
@@ -1732,7 +1734,7 @@ const verifyLessonDraft = async ({
     () =>
       callOpenRouter({
         model: MODEL_FLASH,
-        reasoning: MAX_REASONING_CONFIG,
+        reasoning: HIGH_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },
           { role: 'user', content: verificationPrompt },
@@ -1811,40 +1813,6 @@ const normalizeLearningPlan = (
   };
 };
 
-const clipPdfSourceText = (text: string, maxChars: number): string => {
-  const normalized = text.replace(/\r\n?/g, '\n').trim();
-  if (normalized.length <= maxChars) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxChars).trim()}\n\n[ESTRATTO PDF TRONCATO PER LIMITI DI CONTESTO]`;
-};
-
-const buildPdfReasoningExtractionNotes = (
-  pdfSession:
-    | {
-        parser?: 'pdftotext' | 'pdf-parse';
-        pageCount?: number;
-      }
-    | null
-    | undefined
-): string => {
-  const notes = [
-    pdfSession?.parser === 'pdftotext'
-      ? '- Il testo e stato estratto con pdftotext in modalita layout-preserving: se trovi blocchi allineati, colonne o valori ripetuti per riga, trattali come possibili tabelle.'
-      : pdfSession?.parser === 'pdf-parse'
-        ? '- Il testo e stato estratto con pdf-parse: i blocchi tabellari possono risultare piu piatti o riordinati. Se noti pattern tabellari, trattali come tabelle solo quando il testo lo supporta chiaramente.'
-        : '- Il testo del PDF puo perdere parte del layout originario: non ignorare blocchi tabellari o confronti solo perche appaiono meno puliti del documento visivo.',
-    '- Considera come contenuto sostanziale anche tabelle, blocchi comparativi, matrici, didascalie, legende, assi e label testuali di grafici o schemi quando compaiono nel testo estratto.',
-  ];
-
-  if (typeof pdfSession?.pageCount === 'number' && pdfSession.pageCount > 0) {
-    notes.unshift(`- Il PDF contiene circa ${pdfSession.pageCount} pagine.`);
-  }
-
-  return notes.join('\n');
-};
-
 const formatEstimatedPageRange = (
   span: { startPage: number; endPage: number } | null | undefined
 ): string | null => {
@@ -1884,8 +1852,12 @@ export const buildPdfChunkUsageDebugPayload = (
       span: resolvePdfChunkPageSpan(documentIndex, chunk, pageCount, pageLayout),
     }))
     .filter(item => Boolean(item.chunk));
-  const pageStarts = contextChunkSpans.map(item => item.span?.startPage).filter(Number.isFinite) as number[];
-  const pageEnds = contextChunkSpans.map(item => item.span?.endPage).filter(Number.isFinite) as number[];
+  const pageStarts = contextChunkSpans
+    .map(item => item.span?.startPage)
+    .filter(Number.isFinite) as number[];
+  const pageEnds = contextChunkSpans
+    .map(item => item.span?.endPage)
+    .filter(Number.isFinite) as number[];
 
   return {
     sectionTitle,
@@ -1968,42 +1940,6 @@ export const estimateRelevantPdfImagePages = (
   });
 
   return Array.from(pages).sort((left, right) => left - right);
-};
-
-const buildReasoningContentForFile = async (
-  file: FileData,
-  prompt: string,
-  maxPdfChars: number
-) => {
-  if (!isPdfFile(file)) {
-    return buildDocumentInputContent(file, prompt);
-  }
-
-  try {
-    const pdfSession = await getPdfTextSession(file);
-    const extractedText = pdfSession?.extractedText?.trim() || '';
-
-    if (extractedText) {
-      return `Documento: ${file.name}
-
-${prompt}
-
-NOTE DI ESTRAZIONE PDF:
-${buildPdfReasoningExtractionNotes(pdfSession)}
-
-TESTO ESTRATTO DAL PDF:
-${clipPdfSourceText(extractedText, maxPdfChars)}`;
-    }
-  } catch (error) {
-    console.warn('[Lumina][Planning] PDF text extraction failed for reasoning prompt.', error);
-  }
-
-  return `Documento: ${file.name}
-
-${prompt}
-
-Nota importante: non e stato possibile estrarre il testo del PDF in modo affidabile.
-Non presumere dettagli non supportati e non affermare di aver letto il file se il contenuto non e presente nel prompt.`;
 };
 
 const runInitialLearningPlan = async (
@@ -2117,7 +2053,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
-    reasoning: MAX_REASONING_CONFIG,
+    reasoning: HIGH_REASONING_CONFIG,
     messages: [
       { role: 'system', content: plannerInstruction },
       {
@@ -2538,7 +2474,10 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       },
       candidateImages: candidateImagePayload,
     }).catch(error => {
-      console.warn('[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.', error);
+      console.warn(
+        '[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.',
+        error
+      );
       return {
         contentMarkdown: repairedContentMarkdown,
         quiz: draftQuiz,
@@ -2710,7 +2649,10 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     },
     candidateImages: [],
   }).catch(error => {
-    console.warn('[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.', error);
+    console.warn(
+      '[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.',
+      error
+    );
     return {
       contentMarkdown: repairedContentMarkdown.trim(),
       quiz: draftQuiz,
@@ -2733,73 +2675,4 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   };
 };
 
-interface AskContextualQuestionInput {
-  file?: FileData | null;
-  selection: string;
-  question: string;
-  lessonTitle?: string;
-  lessonDescription?: string;
-  lessonContent?: string;
-  contextBefore?: string;
-  contextAfter?: string;
-}
-
-export const askContextualQuestion = async ({
-  file,
-  selection,
-  question,
-  lessonTitle,
-  lessonDescription,
-  lessonContent,
-  contextBefore,
-  contextAfter,
-}: AskContextualQuestionInput): Promise<string> => {
-  const selectionContext = [contextBefore, selection, contextAfter].filter(Boolean).join(' ');
-  const basePrompt = `L'utente ha evidenziato questo testo:
-"${selection}"
-
-Contesto immediato della selezione:
-"${selectionContext || selection}"
-
-Domanda dell'utente:
-"${question}"`;
-
-  return retryWithBackoff(async () => {
-    const userPromptWithSource = `${basePrompt}
-
-Rispondi in modo conciso e utile basandoti sul documento caricato.
-Se la risposta e presente nella fonte originale, citala chiaramente.`;
-    const response = await callOpenRouter({
-      model: MODEL_CONTEXT,
-      modelSlot: 'context',
-      messages: file
-        ? [
-            {
-              role: 'user',
-              content: await buildReasoningContentForFile(
-                file,
-                userPromptWithSource,
-                MAX_CONTEXTUAL_ANSWER_SOURCE_CHARS
-              ),
-            },
-          ]
-        : [
-            {
-              role: 'user',
-              content: `${basePrompt}
-
-Titolo lezione corrente: "${lessonTitle || 'Lezione corrente'}"
-Descrizione lezione: "${lessonDescription || 'Nessuna descrizione disponibile'}"
-
-Contenuto della lezione corrente:
-${lessonContent || 'Nessun contenuto disponibile.'}
-
-La fonte originale non e allegata. Rispondi usando solo il contesto della lezione corrente.
-Se il dettaglio richiesto non e supportato dal testo disponibile, dichiaralo esplicitamente invece di inventare riferimenti.`,
-            },
-          ],
-    });
-
-    return response || 'Non ho potuto generare una risposta.';
-  });
-};
+export { askContextualQuestion } from './contextChat.ts';
