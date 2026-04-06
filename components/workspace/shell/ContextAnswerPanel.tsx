@@ -117,6 +117,7 @@ interface ContextAnswerPanelProps {
   isDarkMode: boolean;
   isMobileViewport: boolean;
   onClose: () => void;
+  preferredContextModel: string;
   onSaveConversationNote: (
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
@@ -137,6 +138,7 @@ export default function ContextAnswerPanel({
   isDarkMode,
   isMobileViewport,
   onClose,
+  preferredContextModel,
   onSaveConversationNote,
   onUpdateConversationNote,
 }: ContextAnswerPanelProps) {
@@ -179,6 +181,7 @@ export default function ContextAnswerPanel({
     sourceKind: contextAnswer.sourceKind,
     sourceMaterial: contextAnswer.sourceMaterial,
     sourceName: contextAnswer.sourceName,
+    preferredContextModel,
     toolPreferences,
   });
 
@@ -194,6 +197,7 @@ export default function ContextAnswerPanel({
     sourceKind: contextAnswer.sourceKind,
     sourceMaterial: contextAnswer.sourceMaterial,
     sourceName: contextAnswer.sourceName,
+    preferredContextModel,
     toolPreferences,
   };
 
@@ -214,6 +218,7 @@ export default function ContextAnswerPanel({
               lessonContent: currentRequestState.lessonContent,
               lessonDescription: currentRequestState.lessonDescription,
               lessonTitle: currentRequestState.lessonTitle,
+              modelOverride: currentRequestState.preferredContextModel.trim() || undefined,
               selectedText: currentRequestState.selectedText,
               sourceKind: currentRequestState.sourceKind,
               sourceMaterial: currentRequestState.sourceMaterial,

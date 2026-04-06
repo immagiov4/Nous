@@ -62,6 +62,7 @@ export const callOpenRouterRaw = async (
     body: JSON.stringify({
       model: selectedModel,
       messages: options.messages,
+      reasoning: options.reasoning,
       temperature: options.temperature ?? 0.7,
       max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
       response_format: options.response_format,

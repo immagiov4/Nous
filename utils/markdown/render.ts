@@ -266,12 +266,77 @@ const repairMathExpressionForKatex = (value: string): string =>
 const repairMathMarkdown = (segment: string): string =>
   segment.replace(MATH_DELIMITER_REGEX, expression => repairMathExpressionForKatex(expression));
 
+const LIKELY_DISPLAY_MATH_CONTENT_REGEX =
+  /(\\[A-Za-z]+|[_^=]|\\frac|\\sum|\\int|\\approx|\\cdot|\\omega|\\theta|\\alpha|\\beta|\\gamma|\\lambda)/;
+
+const normalizeBracketDelimitedDisplayMath = (
+  segment: string,
+  regex: RegExp,
+  formatter: (prefix: string, body: string) => string
+): string =>
+  segment.replace(regex, (match, prefix: string, body: string) => {
+    const trimmedBody = body.trim();
+    if (!trimmedBody || !LIKELY_DISPLAY_MATH_CONTENT_REGEX.test(trimmedBody)) {
+      return match;
+    }
+
+    return formatter(prefix, trimmedBody);
+  });
+
+const normalizeOrphanedBracketDisplayMath = (segment: string): string => {
+  const multilineNormalized = normalizeBracketDelimitedDisplayMath(
+    segment,
+    /(^|\n)\[\s*\n([\s\S]*?)\n\]\s*(?=\n|$)/g,
+    (prefix, body) => `${prefix}$$\n${body}\n$$`
+  );
+
+  return normalizeBracketDelimitedDisplayMath(
+    multilineNormalized,
+    /(^|\n)\[\s*([^\n\]]*?)\s*\]\s*(?=\n|$)/g,
+    (prefix, body) => `${prefix}$$\n${body}\n$$`
+  );
+};
+
+const getDisplayMathClosingDelimiter = (line: string): '$$' | '\\]' | null => {
+  const trimmed = line.trim();
+  if (trimmed === '$$') {
+    return '$$';
+  }
+
+  if (trimmed === '\\[') {
+    return '\\]';
+  }
+
+  return null;
+};
+
 const processMarkdownSegment = (segment: string): string => {
-  const lines = repairMathMarkdown(segment).replace(/\r/g, '').split('\n');
+  const lines = normalizeOrphanedBracketDisplayMath(repairMathMarkdown(segment))
+    .replace(/\r/g, '')
+    .split('\n');
   const output: string[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
+    const displayMathClosingDelimiter = getDisplayMathClosingDelimiter(line);
+    if (displayMathClosingDelimiter) {
+      const mathLines = [line];
+      let cursor = index + 1;
+
+      while (cursor < lines.length) {
+        const candidateLine = lines[cursor];
+        mathLines.push(candidateLine);
+        if (candidateLine.trim() === displayMathClosingDelimiter) {
+          break;
+        }
+        cursor += 1;
+      }
+
+      output.push(...mathLines);
+      index = cursor;
+      continue;
+    }
+
     const languageOnlyLine = getCodeLanguageLabel(line);
     if (languageOnlyLine && index + 1 < lines.length) {
       const { codeLines, lastIndex } = collectCodeContinuationLines(lines, index + 1);

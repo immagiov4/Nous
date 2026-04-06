@@ -19,6 +19,7 @@ export default function WorkspaceReaderOverlays({
   onCreateLesson,
   onDeleteAnnotation,
   onHighlight,
+  preferredModels,
   onSaveConversationNote,
   onUpdateConversationNote,
   onSaveNote,
@@ -36,6 +37,7 @@ export default function WorkspaceReaderOverlays({
             isDarkMode={isDarkMode}
             isMobileViewport={isMobileViewport}
             onClose={onCloseContextAnswer}
+            preferredContextModel={preferredModels.preferredContextModel}
             onSaveConversationNote={onSaveConversationNote}
             onUpdateConversationNote={onUpdateConversationNote}
           />

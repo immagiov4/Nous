@@ -148,11 +148,10 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     };
   }
 
-  private async getNextPlacementOrder(
-    db: IDBPDatabase<LuminaProjectDb>,
+  private resolveNextPlacementOrder(
+    placements: LibraryPlacement[],
     folderId: string | null
-  ): Promise<number> {
-    const placements = await db.getAll(PLACEMENT_STORE);
+  ): number {
     const siblingOrders = placements
       .filter(placement => placement.folderId === folderId)
       .map(placement => placement.order);
@@ -674,13 +673,15 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       await tx.objectStore(SNAPSHOT_STORE).put(snapshot);
       await tx.objectStore(META_STORE).put(nextMeta);
       if (this.hasStore(db, PLACEMENT_STORE)) {
-        const existingPlacement = await tx.objectStore(PLACEMENT_STORE).get(snapshot.id);
+        const placementStore = tx.objectStore(PLACEMENT_STORE);
+        const existingPlacement = await placementStore.get(snapshot.id);
         if (!existingPlacement) {
-          await tx.objectStore(PLACEMENT_STORE).put(
+          const placements = await placementStore.getAll();
+          await placementStore.put(
             this.createPlacementRecord(
               snapshot.id,
               null,
-              await this.getNextPlacementOrder(db, null)
+              this.resolveNextPlacementOrder(placements, null)
             )
           );
         }

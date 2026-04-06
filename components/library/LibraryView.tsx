@@ -145,6 +145,7 @@ const LibraryView = ({
               <button
                 type="button"
                 onClick={() => setIsModelPanelOpen(currentValue => !currentValue)}
+                onPointerDown={e => e.stopPropagation()}
                 className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-3.5 py-2.5 text-left text-gray-700 transition-colors hover:border-gray-400 hover:text-gray-900 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-200 dark:hover:border-zinc-400 dark:hover:text-white"
                 aria-label="Apri configurazione modelli AI"
               >

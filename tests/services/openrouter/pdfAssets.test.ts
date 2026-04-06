@@ -127,6 +127,14 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
   );
   assert.match(
     String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[0]?.content?.[1]?.text || ''),
+    /blurry, partial, cropped, or unreadable image/i
+  );
+  assert.match(
+    String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[0]?.content?.[1]?.text || ''),
+    /border\/frame\/wrapper, a section box, a separator, an icon, a badge/i
+  );
+  assert.match(
+    String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[0]?.content?.[1]?.text || ''),
     /PDF text context near the image/
   );
   assert.match(
@@ -146,6 +154,7 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
     new RegExp(`${previousPageTail}[\\s\\S]*${currentPageTail}[\\s\\S]*${nextPageTail}`)
   );
   assert.equal(callOpenRouterMock.mock.calls[2]?.[0]?.model, 'openai/gpt-5.4-nano');
+  assert.equal(session?.parser, 'pdf-parse');
   assert.equal(session?.images.length, 2);
   assert.equal(session?.images[0]?.id, 'pdf-img-001');
   assert.equal(
@@ -221,6 +230,7 @@ test('getPdfAssetSession captions every extracted image from the targeted pages 
   const session = await getPdfAssetSession(manyImagesPdfFile, { partialPages: [4] });
 
   assert.ok(session);
+  assert.equal(session?.parser, 'pdf-parse');
   assert.equal(session?.images.length, 13);
   assert.equal(callOpenRouterMock.mock.calls.length, 13);
   assert.equal(session?.images[12]?.id, 'pdf-img-013');

@@ -59,6 +59,7 @@ type LibraryAssistantMessage = UIMessage<unknown, Record<string, never>, Library
 interface UseLibraryAssistantChatArgs {
   folders: LibraryFolder[];
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
+  preferredContextModel: string;
   projects: SavedProjectMeta[];
   tree: LibraryTree;
 }
@@ -82,6 +83,7 @@ const resolveContextRefLabel = ({
 export const useLibraryAssistantChat = ({
   folders,
   loadProjectsById,
+  preferredContextModel,
   projects,
   tree,
 }: UseLibraryAssistantChatArgs) => {
@@ -126,12 +128,14 @@ export const useLibraryAssistantChat = ({
 
   const latestRequestStateRef = useRef({
     attachedContextRefs,
+    preferredContextModel,
     scopeSummary,
     toolPreferences,
   });
 
   latestRequestStateRef.current = {
     attachedContextRefs,
+    preferredContextModel,
     scopeSummary,
     toolPreferences,
   };
@@ -144,6 +148,7 @@ export const useLibraryAssistantChat = ({
         prepareSendMessagesRequest: ({ id, messages }) => {
           const {
             attachedContextRefs: currentAttachedContextRefs,
+            preferredContextModel: currentPreferredContextModel,
             scopeSummary: currentScopeSummary,
             toolPreferences: currentToolPreferences,
           } = latestRequestStateRef.current;
@@ -153,6 +158,7 @@ export const useLibraryAssistantChat = ({
               attachedContextRefs: currentAttachedContextRefs,
               id,
               messages,
+              modelOverride: currentPreferredContextModel.trim() || undefined,
               resolvedScopeSummary: currentScopeSummary,
               toolPreferences: currentToolPreferences,
             },

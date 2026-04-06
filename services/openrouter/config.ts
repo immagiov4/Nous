@@ -1,11 +1,12 @@
 import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from '../../constants.ts';
 import type { OpenRouterModelSlot } from '../../types.ts';
+import type { OpenRouterReasoningOptions } from './types.ts';
 import { readUiPreferences } from '../preferences/uiPreferencesStorage.ts';
 
 export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || '32000', 10);
-export const DEFAULT_CONTEXT_MODEL = 'minimax/minimax-m2.7';
+export const DEFAULT_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite-preview';
 
 export const MODEL_FLASH = process.env.MODEL_FLASH || 'openai/gpt-5.4-nano';
 export const MODEL_REASONING = process.env.MODEL_REASONING || 'openai/gpt-5.4-mini';
@@ -13,6 +14,16 @@ export const MODEL_ASSESSMENT = process.env.MODEL_ASSESSMENT || 'mistralai/mistr
 export const MODEL_CONTEXT = process.env.MODEL_CONTEXT || DEFAULT_CONTEXT_MODEL;
 export const MODEL_PDF_IMAGE_CAPTION =
   process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
+
+export const HIGH_REASONING_CONFIG: OpenRouterReasoningOptions = {
+  effort: 'high',
+  exclude: true,
+};
+
+export const MAX_REASONING_CONFIG: OpenRouterReasoningOptions = {
+  effort: 'high',
+  exclude: true,
+};
 
 export const resolveOpenRouterModel = (
   fallbackModel: string,

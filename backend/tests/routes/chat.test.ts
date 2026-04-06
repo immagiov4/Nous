@@ -223,6 +223,60 @@ describe('POST /api/chat/context', () => {
     expect(fetchOptions?.body).toContain('NVIDIA forest real-time ray tracing alternatives foliage lighting');
     expect(fetchOptions?.body).toContain('Puntatore');
   });
+
+  test('uses the UI-provided context model override when present', async () => {
+    openRouterMocks.chat.mockImplementation(model => model);
+
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        selectedText: 'Puntatore',
+        modelOverride: 'openai/gpt-5.4-mini',
+        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(openRouterMocks.chat).toHaveBeenCalledWith('openai/gpt-5.4-mini');
+    expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
+      model: 'openai/gpt-5.4-mini',
+    });
+  });
+
+  test('uses the UI-provided context model override for contextual web search when present', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              annotations: [],
+              content: 'Cross-check esterno eseguito.',
+            },
+          },
+        ],
+        usage: {
+          server_tool_use: {
+            web_search_requests: 1,
+          },
+        },
+      }),
+    });
+
+    await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        selectedText: 'Puntatore',
+        modelOverride: 'openai/gpt-5.4-nano',
+        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
+      });
+
+    await aiMocks.streamText.mock.calls[0][0].tools.searchWeb.execute({
+      query: 'pointer aliasing rules',
+    });
+
+    const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
+    expect(fetchOptions?.body).toContain('"model":"openai/gpt-5.4-nano"');
+  });
 });
 
 describe('POST /api/chat/library', () => {
@@ -300,6 +354,12 @@ describe('POST /api/chat/library', () => {
       '2 corsi nello scope allegato: Frontend.'
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'chiama `getProjectStructures` **in una singola chiamata** con un oggetto vuoto `{}`'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Non inventare mai placeholder o alias come `proj_1`, `proj_2` o simili.'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
       'Riferimenti allegati: folder:Frontend'
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
@@ -325,6 +385,12 @@ describe('POST /api/chat/library', () => {
       getLessonDetails: expect.any(Object),
       searchLibrary: expect.any(Object),
     });
+    expect(
+      aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.required
+    ).toBeUndefined();
+    expect(
+      aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.properties.projectIds.description
+    ).toContain('Se omessa, usa tutto lo scope corrente.');
     expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
     expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');
@@ -445,5 +511,57 @@ describe('POST /api/chat/library', () => {
         'searchLibrary',
       ]),
     });
+  });
+
+  test('uses the UI-provided context model override for library chat when present', async () => {
+    openRouterMocks.chat.mockImplementation(model => model);
+
+    const response = await request(createApp())
+      .post('/api/chat/library')
+      .send({
+        modelOverride: 'openai/gpt-5.4-mini',
+        messages: [{ id: '1', role: 'user', content: 'Riassumimi le note' }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(openRouterMocks.chat).toHaveBeenCalledWith('openai/gpt-5.4-mini');
+    expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
+      model: 'openai/gpt-5.4-mini',
+    });
+  });
+
+  test('uses the UI-provided context model override for library web search when present', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              annotations: [],
+              content: 'Cross-check esterno eseguito.',
+            },
+          },
+        ],
+        usage: {
+          server_tool_use: {
+            web_search_requests: 1,
+          },
+        },
+      }),
+    });
+
+    await request(createApp())
+      .post('/api/chat/library')
+      .send({
+        modelOverride: 'openai/gpt-5.4-nano',
+        messages: [{ id: '1', role: 'user', content: 'Riassumimi le note' }],
+      });
+
+    await aiMocks.streamText.mock.calls[0][0].tools.searchWeb.execute({
+      query: 'nis2 identity access management summary',
+    });
+
+    const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
+    expect(fetchOptions?.body).toContain('"model":"openai/gpt-5.4-nano"');
   });
 });

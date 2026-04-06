@@ -150,6 +150,11 @@ const buildProps = (): WorkspaceReaderShellProps => {
       onCreateLesson: vi.fn(),
       onDeleteAnnotation: vi.fn(),
       onHighlight: vi.fn(),
+      preferredModels: {
+        preferredAssessmentModel: '',
+        preferredContextModel: '',
+        preferredLessonModel: '',
+      },
       onSaveConversationNote: vi.fn(),
       onUpdateConversationNote: vi.fn(),
       onSaveNote: vi.fn(),

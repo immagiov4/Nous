@@ -6,6 +6,18 @@ const IMAGE_CONTEXT_LINE_COUNT = 5;
 const LINE_THRESHOLD = 4.6;
 const CELL_THRESHOLD = 7;
 const IMAGE_DIMENSION_THRESHOLD = 32;
+const STANDALONE_RENDERED_IMAGE_MIN_AREA = 10_000;
+const STANDALONE_RENDERED_IMAGE_MIN_MAX_DIMENSION = 140;
+const STANDALONE_RENDERED_IMAGE_MIN_SHORT_SIDE = 72;
+const STANDALONE_INTRINSIC_IMAGE_MIN_AREA = 24_000;
+const STANDALONE_INTRINSIC_IMAGE_MIN_MAX_DIMENSION = 220;
+const STANDALONE_INTRINSIC_IMAGE_MIN_SHORT_SIDE = 110;
+const INLINE_RENDERED_IMAGE_MIN_DIMENSION = 90;
+const INLINE_RENDERED_IMAGE_MIN_AREA = 14_000;
+const UPSCALED_IMAGE_RENDERED_MIN_SHORT_SIDE = 140;
+const UPSCALED_IMAGE_MIN_SHORT_SIDE_RATIO = 0.8;
+const UPSCALED_IMAGE_MIN_AREA_RATIO = 0.6;
+const UPSCALED_IMAGE_MAX_INTRINSIC_MAX_DIMENSION = 260;
 
 export interface ExtractedPdfImage {
   id: string;
@@ -14,9 +26,16 @@ export interface ExtractedPdfImage {
   sizeBytes: number;
   hash: string;
   pageNumber: number;
+  intrinsicWidth?: number;
+  intrinsicHeight?: number;
   textBefore?: string;
   textCurrent?: string;
   textAfter?: string;
+}
+
+interface ImageDimensions {
+  width: number;
+  height: number;
 }
 
 interface ImageRect {
@@ -34,7 +53,12 @@ interface PositionedPdfTextLine {
 }
 
 interface PageImagePlacement {
+  isInline: boolean;
+  intrinsicHeight: number;
+  intrinsicWidth: number;
   rect: ImageRect;
+  renderedHeight: number;
+  renderedWidth: number;
 }
 
 const PDF_DATA_URL_PREFIX = /^data:application\/pdf;base64,/i;
@@ -152,6 +176,174 @@ const computeImageRect = (transformMatrix: number[], viewportTransform: number[]
     right: Math.max(...points.map(point => point.x)),
     bottom: Math.max(...points.map(point => point.y)),
   };
+};
+
+const measureImageRect = (rect: ImageRect) => ({
+  renderedHeight: Math.max(0, Math.abs(rect.bottom - rect.top)),
+  renderedWidth: Math.max(0, Math.abs(rect.right - rect.left)),
+});
+
+const resolvePngDimensions = (dataBuffer: Buffer): ImageDimensions | null => {
+  if (dataBuffer.length < 24 || dataBuffer.toString('ascii', 1, 4) !== 'PNG') {
+    return null;
+  }
+
+  const width = dataBuffer.readUInt32BE(16);
+  const height = dataBuffer.readUInt32BE(20);
+  return width > 0 && height > 0 ? { width, height } : null;
+};
+
+const resolveGifDimensions = (dataBuffer: Buffer): ImageDimensions | null => {
+  if (dataBuffer.length < 10 || dataBuffer.toString('ascii', 0, 3) !== 'GIF') {
+    return null;
+  }
+
+  const width = dataBuffer.readUInt16LE(6);
+  const height = dataBuffer.readUInt16LE(8);
+  return width > 0 && height > 0 ? { width, height } : null;
+};
+
+const resolveJpegDimensions = (dataBuffer: Buffer): ImageDimensions | null => {
+  if (dataBuffer.length < 4 || dataBuffer[0] !== 0xff || dataBuffer[1] !== 0xd8) {
+    return null;
+  }
+
+  let offset = 2;
+  while (offset + 9 < dataBuffer.length) {
+    if (dataBuffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+
+    while (offset < dataBuffer.length && dataBuffer[offset] === 0xff) {
+      offset += 1;
+    }
+
+    if (offset >= dataBuffer.length) {
+      return null;
+    }
+
+    const marker = dataBuffer[offset];
+    offset += 1;
+
+    if (marker === 0xd8 || marker === 0xd9) {
+      continue;
+    }
+
+    if (marker === 0xda) {
+      return null;
+    }
+
+    if (offset + 1 >= dataBuffer.length) {
+      return null;
+    }
+
+    const segmentLength = dataBuffer.readUInt16BE(offset);
+    if (segmentLength < 2 || offset + segmentLength > dataBuffer.length) {
+      return null;
+    }
+
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      marker !== 0xc4 &&
+      marker !== 0xc8 &&
+      marker !== 0xcc
+    ) {
+      if (offset + 6 >= dataBuffer.length) {
+        return null;
+      }
+
+      const height = dataBuffer.readUInt16BE(offset + 3);
+      const width = dataBuffer.readUInt16BE(offset + 5);
+      return width > 0 && height > 0 ? { width, height } : null;
+    }
+
+    offset += segmentLength;
+  }
+
+  return null;
+};
+
+const resolveImageIntrinsicDimensions = (
+  dataBuffer: Buffer,
+  mimeType: string
+): ImageDimensions | null => {
+  if (mimeType === 'image/png') {
+    return resolvePngDimensions(dataBuffer);
+  }
+
+  if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+    return resolveJpegDimensions(dataBuffer);
+  }
+
+  if (mimeType === 'image/gif') {
+    return resolveGifDimensions(dataBuffer);
+  }
+
+  return null;
+};
+
+type StandaloneFigureCandidate = Pick<
+  PageImagePlacement,
+  'intrinsicHeight' | 'intrinsicWidth' | 'isInline'
+> &
+  Partial<Pick<PageImagePlacement, 'renderedHeight' | 'renderedWidth'>>;
+
+export const isPdfImageTooSmallForStandaloneFigure = (
+  placement: StandaloneFigureCandidate
+): boolean => {
+  const renderedHeight = Math.max(0, placement.renderedHeight ?? placement.intrinsicHeight);
+  const renderedWidth = Math.max(0, placement.renderedWidth ?? placement.intrinsicWidth);
+  const minDimension = Math.min(renderedWidth, renderedHeight);
+  const maxDimension = Math.max(renderedWidth, renderedHeight);
+  const renderedArea = renderedWidth * renderedHeight;
+  const intrinsicMinDimension = Math.min(placement.intrinsicWidth, placement.intrinsicHeight);
+  const intrinsicMaxDimension = Math.max(placement.intrinsicWidth, placement.intrinsicHeight);
+  const intrinsicArea = placement.intrinsicWidth * placement.intrinsicHeight;
+
+  if (
+    intrinsicMinDimension < STANDALONE_INTRINSIC_IMAGE_MIN_SHORT_SIDE &&
+    intrinsicMaxDimension < STANDALONE_INTRINSIC_IMAGE_MIN_MAX_DIMENSION
+  ) {
+    return true;
+  }
+
+  if (
+    intrinsicArea < STANDALONE_INTRINSIC_IMAGE_MIN_AREA &&
+    intrinsicMaxDimension < STANDALONE_INTRINSIC_IMAGE_MIN_MAX_DIMENSION
+  ) {
+    return true;
+  }
+
+  if (
+    minDimension < STANDALONE_RENDERED_IMAGE_MIN_SHORT_SIDE &&
+    maxDimension < STANDALONE_RENDERED_IMAGE_MIN_MAX_DIMENSION
+  ) {
+    return true;
+  }
+
+  if (
+    renderedArea < STANDALONE_RENDERED_IMAGE_MIN_AREA &&
+    maxDimension < STANDALONE_RENDERED_IMAGE_MIN_MAX_DIMENSION
+  ) {
+    return true;
+  }
+
+  if (
+    minDimension >= UPSCALED_IMAGE_RENDERED_MIN_SHORT_SIDE &&
+    intrinsicMaxDimension < UPSCALED_IMAGE_MAX_INTRINSIC_MAX_DIMENSION &&
+    intrinsicMinDimension < minDimension * UPSCALED_IMAGE_MIN_SHORT_SIDE_RATIO &&
+    intrinsicArea < renderedArea * UPSCALED_IMAGE_MIN_AREA_RATIO
+  ) {
+    return true;
+  }
+
+  if (!placement.isInline) {
+    return false;
+  }
+
+  return minDimension < INLINE_RENDERED_IMAGE_MIN_DIMENSION || renderedArea < INLINE_RENDERED_IMAGE_MIN_AREA;
 };
 
 const resolveEmbeddedImage = (
@@ -363,8 +555,16 @@ const extractPageImagePlacements = async (
       continue;
     }
 
+    const rect = computeImageRect(transformMatrix, viewport.transform);
+    const { renderedHeight, renderedWidth } = measureImageRect(rect);
+
     placements.push({
-      rect: computeImageRect(transformMatrix, viewport.transform),
+      isInline: fn === pdfjs.OPS.paintInlineImageXObject,
+      intrinsicHeight: height,
+      intrinsicWidth: width,
+      rect,
+      renderedHeight,
+      renderedWidth,
     });
   }
 
@@ -421,8 +621,32 @@ export const extractPdfImages = async (
           continue;
         }
 
+        const mimeType = getMimeTypeFromDataUrl(image.dataUrl);
         const dataBuffer = decodeImageDataUrl(image.dataUrl);
         if (dataBuffer.length < MIN_IMAGE_BYTES) {
+          continue;
+        }
+
+        const placement = pagePlacements[pageImageIndex];
+        const intrinsicDimensions =
+          resolveImageIntrinsicDimensions(dataBuffer, mimeType) ||
+          (placement
+            ? {
+                width: placement.intrinsicWidth,
+                height: placement.intrinsicHeight,
+              }
+            : null);
+
+        if (
+          intrinsicDimensions &&
+          isPdfImageTooSmallForStandaloneFigure({
+            isInline: placement?.isInline ?? false,
+            intrinsicHeight: intrinsicDimensions.height,
+            intrinsicWidth: intrinsicDimensions.width,
+            renderedHeight: placement?.renderedHeight,
+            renderedWidth: placement?.renderedWidth,
+          })
+        ) {
           continue;
         }
 
@@ -431,17 +655,19 @@ export const extractPdfImages = async (
           continue;
         }
 
-        const imageContext = pagePlacements[pageImageIndex]
-          ? buildLocalImageTextContext(pageLines, pagePlacements[pageImageIndex].rect)
+        const imageContext = placement
+          ? buildLocalImageTextContext(pageLines, placement.rect)
           : emptyImageTextContext;
 
         dedupedImages.set(hash, {
           id: `pdf-img-${String(dedupedImages.size + 1).padStart(3, '0')}`,
-          mimeType: getMimeTypeFromDataUrl(image.dataUrl),
+          mimeType,
           dataUrl: image.dataUrl,
           sizeBytes: dataBuffer.length,
           hash,
           pageNumber: page.pageNumber,
+          intrinsicWidth: intrinsicDimensions?.width,
+          intrinsicHeight: intrinsicDimensions?.height,
           textBefore: imageContext.textBefore,
           textCurrent: imageContext.textCurrent,
           textAfter: imageContext.textAfter,

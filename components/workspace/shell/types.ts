@@ -181,6 +181,7 @@ export interface WorkspaceReaderOverlaysModel {
   onCreateLesson: (instructions: string) => void;
   onDeleteAnnotation: () => void;
   onHighlight: () => void;
+  preferredModels: OpenRouterModelPreferences;
   onSaveConversationNote: (
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;

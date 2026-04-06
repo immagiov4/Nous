@@ -11,6 +11,7 @@ import {
   type SyllabusItem,
   type UserProfile,
 } from './shared.ts';
+import { HIGH_REASONING_CONFIG, MAX_REASONING_CONFIG } from './config.ts';
 
 export const CURRICULUM_PROPEDEUTIC_ORDER_RULES = [
   "L'indice del corso deve essere in ordine strettamente propedeutico: non mettere mai prima gli argomenti che dipendono da concetti spiegati dopo.",
@@ -56,6 +57,7 @@ Return JSON with this structure:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
+    reasoning: HIGH_REASONING_CONFIG,
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
   });
@@ -82,6 +84,7 @@ Return JSON: { "valid": true } or { "valid": false }`;
 
   const response = await callOpenRouter({
     model: MODEL_FLASH,
+    reasoning: MAX_REASONING_CONFIG,
     messages: [{ role: 'user', content: checkPrompt }],
     response_format: { type: 'json_object' },
   });
@@ -269,6 +272,7 @@ FORMAT: Markdown.`;
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
+        reasoning: HIGH_REASONING_CONFIG,
         messages: [{ role: 'user', content: prompt }],
       }),
     2,

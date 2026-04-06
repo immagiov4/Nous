@@ -160,6 +160,24 @@ test('normalizeMarkdownForRendering promotes braced word-like superscripts and s
   );
 });
 
+test('normalizeMarkdownForRendering converts orphan bracket-delimited display math into KaTeX display blocks', () => {
+  const input = ['La formula e:', '', '[', 'f(\\omega) \\approx \\sum_i a_i Y_i(\\omega)', ']', '', 'Fine.'].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    ['La formula e:', '', '$$', 'f(\\omega) \\approx \\sum_i a_i Y_i(\\omega)', '$$', 'Fine.'].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering converts single-line bracket-delimited display math into KaTeX display blocks', () => {
+  const input = ['La formula e:', '', '[ AO(p) = \\frac{1}{2\\pi}\\int_{\\Omega^+} V_p(\\omega), d\\omega ]', '', 'Fine.'].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    ['La formula e:', '', '$$', 'AO(p) = \\frac{1}{2\\pi}\\int_{\\Omega^+} V_p(\\omega), d\\omega', '$$', 'Fine.'].join('\n')
+  );
+});
+
 test('normalizeMarkdownForRendering does not swallow prose with backtick-wrapped C++ types into code blocks', () => {
   const input =
     'cpp\nServerEnvironment::ServerEnvironment(std::unique_ptr<ServerMap> map,\n\tServer *server, MetricsBackend *mb):\n\tEnvironment(server),\n\tm_server(server)\n\nQui l\'ownership della mappa e chiarissima: il `ServerEnvironment` la riceve e la conserva in un `std::unique_ptr`.';

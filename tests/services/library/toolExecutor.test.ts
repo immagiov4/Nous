@@ -214,6 +214,28 @@ describe('executeLibraryAssistantTool', () => {
     });
   });
 
+  test('defaults project structures to the whole current scope when projectIds are omitted', async () => {
+    const result = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs,
+        folders,
+        loadProjectsById,
+        projects,
+        tree,
+      },
+      input: {},
+      toolName: 'getProjectStructures',
+    });
+
+    expect(result.outputError).toBeUndefined();
+    expect(result.output).toMatchObject({
+      projects: [
+        expect.objectContaining({ id: 'project-1', title: 'TypeScript Base' }),
+        expect.objectContaining({ id: 'project-2', title: 'React Hooks' }),
+      ],
+    });
+  });
+
   test('returns lesson details with extracted highlight text and notes', async () => {
     const result = await executeLibraryAssistantTool({
       dataSource: {
@@ -318,7 +340,7 @@ describe('executeLibraryAssistantTool', () => {
 
     expect(result.outputError).toBeUndefined();
     expect(result.output).toMatchObject({
-      error: 'Corso non presente nella libreria corrente: project-999',
+      error: 'Il corso richiesto non e presente nella libreria corrente.',
     });
   });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildLocalImageTextContext } from '../../src/services/pdfImageExtractor.js';
+import {
+  buildLocalImageTextContext,
+  isPdfImageTooSmallForStandaloneFigure,
+} from '../../src/services/pdfImageExtractor.js';
 
 describe('buildLocalImageTextContext', () => {
   test('keeps only the nearest lines above and below the image rect', () => {
@@ -31,5 +34,71 @@ describe('buildLocalImageTextContext', () => {
     expect(context.textBefore).toBe('above-2\nabove-3\nabove-4\nabove-5\nabove-6');
     expect(context.textCurrent).toBe('inside-1\ninside-2');
     expect(context.textAfter).toBe('below-1\nbelow-2\nbelow-3\nbelow-4\nbelow-5');
+  });
+});
+
+describe('isPdfImageTooSmallForStandaloneFigure', () => {
+  test('rejects small inline images that would become oversized when rendered as standalone figures', () => {
+    expect(
+      isPdfImageTooSmallForStandaloneFigure({
+        isInline: true,
+        intrinsicHeight: 64,
+        intrinsicWidth: 88,
+        renderedHeight: 64,
+        renderedWidth: 88,
+      })
+    ).toBe(true);
+  });
+
+  test('rejects small non-inline icons too', () => {
+    expect(
+      isPdfImageTooSmallForStandaloneFigure({
+        isInline: false,
+        intrinsicHeight: 84,
+        intrinsicWidth: 96,
+        renderedHeight: 84,
+        renderedWidth: 96,
+      })
+    ).toBe(true);
+  });
+
+  test('rejects low-resolution images that are heavily upscaled in the PDF layout', () => {
+    expect(
+      isPdfImageTooSmallForStandaloneFigure({
+        isInline: false,
+        intrinsicHeight: 160,
+        intrinsicWidth: 220,
+        renderedHeight: 300,
+        renderedWidth: 420,
+      })
+    ).toBe(true);
+  });
+
+  test('keeps normal figures and larger inline images', () => {
+    expect(
+      isPdfImageTooSmallForStandaloneFigure({
+        isInline: true,
+        intrinsicHeight: 240,
+        intrinsicWidth: 320,
+        renderedHeight: 180,
+        renderedWidth: 220,
+      })
+    ).toBe(false);
+    expect(
+      isPdfImageTooSmallForStandaloneFigure({
+        isInline: false,
+        intrinsicHeight: 200,
+        intrinsicWidth: 300,
+        renderedHeight: 110,
+        renderedWidth: 180,
+      })
+    ).toBe(false);
+    expect(
+      isPdfImageTooSmallForStandaloneFigure({
+        isInline: false,
+        intrinsicHeight: 240,
+        intrinsicWidth: 360,
+      })
+    ).toBe(false);
   });
 });

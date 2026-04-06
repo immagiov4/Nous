@@ -71,11 +71,26 @@ export interface ChatMessage {
   annotations?: FileAnnotation[];
 }
 
+export type OpenRouterReasoningEffort =
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high';
+
+export interface OpenRouterReasoningOptions {
+  enabled?: boolean;
+  effort?: OpenRouterReasoningEffort;
+  max_tokens?: number;
+  exclude?: boolean;
+}
+
 export interface ChatCompletionOptions {
   model: string;
   modelSlot?: OpenRouterModelSlot;
   disableModelOverride?: boolean;
   messages: ChatMessage[];
+  reasoning?: OpenRouterReasoningOptions;
   temperature?: number;
   max_tokens?: number;
   response_format?: JsonSchemaFormat;

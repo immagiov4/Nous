@@ -53,7 +53,29 @@ const formatProjectList = (
   projects: SavedProjectMeta[]
 ) => {
   const titleById = new Map(projects.map(project => [project.id, project.title]));
-  return projectIds.map(projectId => titleById.get(projectId) || projectId).join(', ');
+  const knownProjectTitles = projectIds.flatMap(projectId => {
+    const title = titleById.get(projectId);
+    return title ? [title] : [];
+  });
+  const unknownProjectCount = projectIds.length - knownProjectTitles.length;
+
+  if (knownProjectTitles.length === 0) {
+    return unknownProjectCount > 0
+      ? unknownProjectCount === 1
+        ? '1 corso non riconosciuto'
+        : `${unknownProjectCount} corsi non riconosciuti`
+      : '';
+  }
+
+  if (unknownProjectCount === 0) {
+    return knownProjectTitles.join(', ');
+  }
+
+  return `${knownProjectTitles.join(', ')} e ${
+    unknownProjectCount === 1
+      ? '1 altro corso non riconosciuto'
+      : `${unknownProjectCount} altri corsi non riconosciuti`
+  }`;
 };
 
 const buildScopeViolationError = ({
@@ -66,9 +88,23 @@ const buildScopeViolationError = ({
   scopeSummary: LibraryScopeSummary;
 }) => {
   const projectList = formatProjectList(outOfScopeProjectIds, projects);
+  const isOnlyUnknownProjectList =
+    projectList === '1 corso non riconosciuto' || /^\d+ corsi non riconosciuti$/.test(projectList);
 
   if (scopeSummary.isWholeLibraryScope) {
+    if (!projectList || isOnlyUnknownProjectList) {
+      return outOfScopeProjectIds.length > 1
+        ? 'I corsi richiesti non sono presenti nella libreria corrente.'
+        : 'Il corso richiesto non e presente nella libreria corrente.';
+    }
+
     return `${outOfScopeProjectIds.length > 1 ? 'Corsi non presenti nella libreria corrente' : 'Corso non presente nella libreria corrente'}: ${projectList}`;
+  }
+
+  if (!projectList || isOnlyUnknownProjectList) {
+    return outOfScopeProjectIds.length > 1
+      ? 'I corsi richiesti non rientrano nello scope allegato.'
+      : 'Il corso richiesto non rientra nello scope allegato.';
   }
 
   return `Corsi fuori dallo scope allegato: ${projectList}`;
@@ -190,15 +226,20 @@ const executeProjectStructureTool = async (
   input: unknown,
   dataSource: LibraryAssistantDataSource
 ): Promise<ExecutedLibraryToolResult> => {
-  if (!isRecord(input) || !isStringArray(input.projectIds) || input.projectIds.length === 0) {
+  if (isRecord(input) && 'projectIds' in input && !isStringArray(input.projectIds)) {
     return {
-      outputError: 'La richiesta delle strutture corso richiede `projectIds` non vuoti.',
+      outputError:
+        'La richiesta delle strutture corso accetta `projectIds` solo come array di stringhe.',
     };
   }
 
   const scopeSummary = resolveScopeSummary(dataSource);
+  const requestedProjectIds =
+    isRecord(input) && isStringArray(input.projectIds) && input.projectIds.length > 0
+      ? input.projectIds
+      : undefined;
   const { outOfScopeProjectIds, resolvedProjectIds } = resolveRequestedProjectIds({
-    requestedProjectIds: input.projectIds,
+    requestedProjectIds,
     scopeProjectIds: scopeSummary.scopeProjectIds,
   });
 

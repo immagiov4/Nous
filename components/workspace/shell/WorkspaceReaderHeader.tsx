@@ -237,6 +237,7 @@ export default function WorkspaceReaderHeader({
           <button
             type="button"
             onClick={() => onSetSettingsOpen(!isSettingsOpen)}
+            onPointerDown={e => e.stopPropagation()}
             className="rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
             title="Apri impostazioni modello"
           >

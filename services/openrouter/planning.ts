@@ -34,6 +34,8 @@ import {
   getPdfAssetSession,
   getPdfTextSession,
 } from './pdfAssets.ts';
+import { HIGH_REASONING_CONFIG, MAX_REASONING_CONFIG } from './config.ts';
+import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
 
 const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
@@ -206,6 +208,234 @@ export const PLAN_PROPEDEUTIC_ORDER_RULES = [
   "Se trovi elementi invertiti, correggi l'ordine: non lasciare mai un argomento dopo qualcosa che lo presuppone gia compreso.",
 ] as const;
 
+type PlanningSourceKind = 'pdf' | 'text' | 'other';
+export type PlanningSourceSizeTier = 'tiny' | 'small' | 'medium' | 'large';
+
+interface PlanningCountRange {
+  min: number;
+  max: number;
+}
+
+export interface PlanningSourceProfile {
+  allowSingleLesson: boolean;
+  extractedCharacterCount?: number;
+  kind: PlanningSourceKind;
+  lessonCount: PlanningCountRange;
+  moduleCount: PlanningCountRange;
+  pageCount?: number;
+  sizeTier: PlanningSourceSizeTier;
+  summaryLessonOptional: boolean;
+}
+
+interface PlanningSourceProfileSeed {
+  extractedCharacterCount?: number;
+  kind: PlanningSourceKind;
+  pageCount?: number;
+}
+
+const resolvePdfSourceSizeTier = (pageCount?: number): PlanningSourceSizeTier => {
+  if (!pageCount || pageCount < 1) {
+    return 'medium';
+  }
+
+  if (pageCount <= 6) {
+    return 'tiny';
+  }
+
+  if (pageCount <= 16) {
+    return 'small';
+  }
+
+  if (pageCount <= 60) {
+    return 'medium';
+  }
+
+  return 'large';
+};
+
+const resolveTextSourceSizeTier = (characterCount?: number): PlanningSourceSizeTier => {
+  if (!characterCount || characterCount < 1) {
+    return 'medium';
+  }
+
+  if (characterCount <= 12_000) {
+    return 'tiny';
+  }
+
+  if (characterCount <= 40_000) {
+    return 'small';
+  }
+
+  if (characterCount <= 120_000) {
+    return 'medium';
+  }
+
+  return 'large';
+};
+
+const PDF_SUBSTANTIVE_PAGE_COVERAGE_RATIO = 0.9;
+const LARGE_PDF_SOFT_MIN_PAGES_PER_LESSON = 10;
+const LARGE_PDF_SOFT_MAX_PAGES_PER_LESSON = 30;
+
+export const resolvePlanningSourceProfileFromSeed = ({
+  extractedCharacterCount,
+  kind,
+  pageCount,
+}: PlanningSourceProfileSeed): PlanningSourceProfile => {
+  const sizeTier =
+    kind === 'pdf'
+      ? resolvePdfSourceSizeTier(pageCount)
+      : kind === 'text'
+        ? resolveTextSourceSizeTier(extractedCharacterCount)
+        : 'medium';
+
+  switch (sizeTier) {
+    case 'tiny':
+      return {
+        allowSingleLesson: true,
+        extractedCharacterCount,
+        kind,
+        lessonCount: { min: 1, max: 3 },
+        moduleCount: { min: 1, max: 2 },
+        pageCount,
+        sizeTier,
+        summaryLessonOptional: true,
+      };
+    case 'small':
+      return {
+        allowSingleLesson: true,
+        extractedCharacterCount,
+        kind,
+        lessonCount: { min: 2, max: 6 },
+        moduleCount: { min: 1, max: 3 },
+        pageCount,
+        sizeTier,
+        summaryLessonOptional: true,
+      };
+    case 'large':
+      return {
+        allowSingleLesson: false,
+        extractedCharacterCount,
+        kind,
+        lessonCount: { min: 10, max: 30 },
+        moduleCount: { min: 3, max: 6 },
+        pageCount,
+        sizeTier,
+        summaryLessonOptional: false,
+      };
+    default:
+      return {
+        allowSingleLesson: false,
+        extractedCharacterCount,
+        kind,
+        lessonCount: { min: 6, max: 12 },
+        moduleCount: { min: 2, max: 5 },
+        pageCount,
+        sizeTier: 'medium',
+        summaryLessonOptional: false,
+      };
+  }
+};
+
+const resolvePlanningSourceProfile = async (file: FileData): Promise<PlanningSourceProfile> => {
+  const sourceKind = detectStoredSourceFileKind(file);
+
+  if (sourceKind === 'pdf') {
+    try {
+      const pdfSession = await getPdfTextSession(file);
+      return resolvePlanningSourceProfileFromSeed({
+        extractedCharacterCount: pdfSession?.extractedText?.trim().length,
+        kind: 'pdf',
+        pageCount: pdfSession?.pageCount,
+      });
+    } catch (error) {
+      console.warn('[Lumina][Planning] Failed to profile PDF source size.', error);
+      return resolvePlanningSourceProfileFromSeed({ kind: 'pdf' });
+    }
+  }
+
+  if (sourceKind === 'text') {
+    try {
+      return resolvePlanningSourceProfileFromSeed({
+        extractedCharacterCount: decodeTextBase64(file.data).trim().length,
+        kind: 'text',
+      });
+    } catch (error) {
+      console.warn('[Lumina][Planning] Failed to profile text source size.', error);
+      return resolvePlanningSourceProfileFromSeed({ kind: 'text' });
+    }
+  }
+
+  return resolvePlanningSourceProfileFromSeed({ kind: 'other' });
+};
+
+const formatPlanningCountRange = ({ max, min }: PlanningCountRange, singular: string, plural: string) =>
+  min === max ? `${min} ${min === 1 ? singular : plural}` : `${min}-${max} ${plural}`;
+
+const formatPlanningSourceStats = (profile: PlanningSourceProfile): string => {
+  if (profile.kind === 'pdf' && typeof profile.pageCount === 'number') {
+    return `${profile.pageCount} pagine circa`;
+  }
+
+  if (profile.kind === 'text' && typeof profile.extractedCharacterCount === 'number') {
+    return `${profile.extractedCharacterCount.toLocaleString('it-IT')} caratteri circa`;
+  }
+
+  return 'dimensione non stimabile con precisione';
+};
+
+const estimatePdfSubstantivePageCount = (pageCount: number): number =>
+  Math.max(1, Math.round(pageCount * PDF_SUBSTANTIVE_PAGE_COVERAGE_RATIO));
+
+const buildPdfPlanCoverageGuidance = (profile: PlanningSourceProfile): string[] => {
+  if (profile.kind !== 'pdf' || typeof profile.pageCount !== 'number' || profile.pageCount < 1) {
+    return [];
+  }
+
+  const substantivePageCount = estimatePdfSubstantivePageCount(profile.pageCount);
+  const guidance = [
+    `- Per i PDF, fai in modo che l'indice copra quasi tutto il contenuto sostanziale del libro: come ordine di grandezza, circa ${substantivePageCount} pagine su ${profile.pageCount}, lasciando fuori solo front matter, appendici o indici se davvero non didattici.`,
+    "- Evita buchi di copertura: se nel mezzo del documento c'e un blocco consistente di pagine con contenuto tecnico nuovo, deve ricadere in qualche lezione o modulo.",
+  ];
+
+  if (profile.sizeTier === 'large') {
+    guidance.push(
+      `- Su PDF estesi usa come target morbido lezioni che coprano spesso circa ${LARGE_PDF_SOFT_MIN_PAGES_PER_LESSON}-${LARGE_PDF_SOFT_MAX_PAGES_PER_LESSON} pagine sostantive: evita sia macro-lezioni che comprimono 80-200 pagine in una sola volta, sia micro-lezioni da 1-3 pagine salvo casi davvero autonomi.`
+    );
+  } else if (profile.sizeTier === 'medium') {
+    guidance.push(
+      "- Mantieni una granularita coerente con la densita delle pagine: evita sia lezioni che comprimono blocchi troppo ampi sia lezioni microscopiche da poche pagine, salvo quando il testo cambia davvero argomento."
+    );
+  }
+
+  return guidance;
+};
+
+export const buildAdaptivePlanGuidance = (profile: PlanningSourceProfile): string => {
+  const sizeLabel =
+    profile.sizeTier === 'tiny'
+      ? 'molto compatta'
+      : profile.sizeTier === 'small'
+        ? 'compatta'
+        : profile.sizeTier === 'large'
+          ? 'estesa'
+          : 'intermedia';
+
+  return [
+    `- Calibra la granularita sull'effettiva dimensione della fonte: qui la fonte appare ${sizeLabel} (${formatPlanningSourceStats(profile)}).`,
+    `- Range indicativo: ${formatPlanningCountRange(profile.moduleCount, 'modulo', 'moduli')} e ${formatPlanningCountRange(profile.lessonCount, 'lezione', 'lezioni')} totali, ma solo se il materiale lo sostiene davvero.`,
+    ...buildPdfPlanCoverageGuidance(profile),
+    profile.allowSingleLesson
+      ? '- Se il materiale ruota attorno a un solo nucleo concettuale, una sola tesi forte o un unico flusso sperimentale, puoi restituire anche una sola lezione.'
+      : '- Suddividi il materiale in piu lezioni solo quando i confini concettuali sono davvero distinti e sostenuti dal testo.',
+    profile.summaryLessonOptional
+      ? "- La sintesi finale e opzionale: aggiungila solo se porta una ricapitolazione trasversale nuova, non se ripete l'ultima lezione."
+      : '- Mantieni al massimo una sola lezione finale di sintesi, chiaramente distinta dalle lezioni precedenti.',
+    '- Crea una nuova lezione solo se puo avere materiale sorgente distinto, uno scope autonomo e un obiettivo didattico non sovrapposto.',
+    '- Se due lezioni condividono quasi gli stessi concetti, esempi, risultati o passaggi del materiale, fondile invece di tenerle separate.',
+  ].join('\n');
+};
+
 const MIN_LESSON_QUIZ_QUESTIONS = 1;
 const MAX_LESSON_QUIZ_QUESTIONS = 3;
 
@@ -213,7 +443,7 @@ const clampLessonQuizCount = (value: number): number =>
   Math.max(MIN_LESSON_QUIZ_QUESTIONS, Math.min(MAX_LESSON_QUIZ_QUESTIONS, value));
 
 const buildLessonResponseSchema = (exactQuizCount?: number) => {
-  const quizCount = Number.isInteger(exactQuizCount)
+  const quizCount = typeof exactQuizCount === 'number' && Number.isInteger(exactQuizCount)
     ? clampLessonQuizCount(exactQuizCount)
     : undefined;
 
@@ -300,6 +530,11 @@ interface LearningPlanDraft {
   sections?: LearningPlanSectionDraft[];
 }
 
+const PLAN_SECTION_SCOPE_OVERLAP_THRESHOLD = 0.72;
+const PLAN_SECTION_TITLE_OVERLAP_THRESHOLD = 0.75;
+const PLAN_SECTION_FALLBACK_SCOPE_THRESHOLD = 0.5;
+const PLAN_SECTION_MIN_SHARED_KEYWORDS = 2;
+
 const logPdfLessonDebug = (label: string, payload: Record<string, unknown>) => {
   console.groupCollapsed(`[Lumina][PDF Lesson] ${label}`);
   Object.entries(payload).forEach(([key, value]) => {
@@ -316,6 +551,154 @@ const normalizeSearchText = (text: string): string =>
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+const isCompactPlanningSource = (profile?: Pick<PlanningSourceProfile, 'sizeTier'>): boolean =>
+  profile?.sizeTier === 'tiny' || profile?.sizeTier === 'small';
+
+const buildPlanSectionScopeText = (
+  section: Pick<LearningSection, 'moduleTitle' | 'title' | 'description'>
+): string => [section.moduleTitle || '', section.title, section.description].filter(Boolean).join(' ');
+
+const computePlanKeywordOverlap = (leftText: string, rightText: string) => {
+  const leftKeywords = Array.from(new Set(getSearchKeywords(leftText)));
+  const rightKeywordSet = new Set(getSearchKeywords(rightText));
+  const sharedKeywordCount = leftKeywords.filter(keyword => rightKeywordSet.has(keyword)).length;
+
+  return {
+    overlap: sharedKeywordCount / Math.max(1, Math.min(leftKeywords.length, rightKeywordSet.size)),
+    sharedKeywordCount,
+  };
+};
+
+const isPlanSectionNearDuplicate = (
+  left: Pick<LearningSection, 'moduleTitle' | 'title' | 'description'>,
+  right: Pick<LearningSection, 'moduleTitle' | 'title' | 'description'>
+): boolean => {
+  const normalizedLeftTitle = normalizeSearchText(left.title);
+  const normalizedRightTitle = normalizeSearchText(right.title);
+  if (!normalizedLeftTitle || !normalizedRightTitle) {
+    return false;
+  }
+
+  if (normalizedLeftTitle === normalizedRightTitle) {
+    return true;
+  }
+
+  const titleOverlap = computePlanKeywordOverlap(left.title, right.title);
+  const scopeOverlap = computePlanKeywordOverlap(
+    buildPlanSectionScopeText(left),
+    buildPlanSectionScopeText(right)
+  );
+  const normalizedLeftModule = normalizeSearchText(left.moduleTitle || '');
+  const normalizedRightModule = normalizeSearchText(right.moduleTitle || '');
+  const sameModule =
+    normalizedLeftModule.length > 0 && normalizedLeftModule === normalizedRightModule;
+  const titleContains =
+    normalizedLeftTitle.includes(normalizedRightTitle) ||
+    normalizedRightTitle.includes(normalizedLeftTitle);
+
+  if (
+    sameModule &&
+    titleContains &&
+    scopeOverlap.sharedKeywordCount >= PLAN_SECTION_MIN_SHARED_KEYWORDS &&
+    scopeOverlap.overlap >= PLAN_SECTION_FALLBACK_SCOPE_THRESHOLD
+  ) {
+    return true;
+  }
+
+  if (
+    sameModule &&
+    titleOverlap.overlap >= PLAN_SECTION_TITLE_OVERLAP_THRESHOLD &&
+    scopeOverlap.overlap >= PLAN_SECTION_FALLBACK_SCOPE_THRESHOLD
+  ) {
+    return true;
+  }
+
+  return (
+    scopeOverlap.sharedKeywordCount >= PLAN_SECTION_MIN_SHARED_KEYWORDS + 1 &&
+    scopeOverlap.overlap >= PLAN_SECTION_SCOPE_OVERLAP_THRESHOLD
+  );
+};
+
+const getPlanSectionSpecificityScore = (
+  section: Pick<LearningSection, 'moduleTitle' | 'title' | 'description' | 'type'>
+): number => {
+  const keywordCount = getSearchKeywords(buildPlanSectionScopeText(section)).length;
+  const summaryPenalty = section.type === 'summary' ? 18 : 0;
+  const prerequisiteBonus = section.type === 'prerequisite' ? 6 : 0;
+
+  return keywordCount * 10 + section.description.trim().length + (section.moduleTitle ? 12 : 0) + prerequisiteBonus - summaryPenalty;
+};
+
+const pickPreferredPlanSection = (left: LearningSection, right: LearningSection): LearningSection => {
+  if (left.type === 'summary' && right.type !== 'summary') {
+    return { ...right, moduleTitle: right.moduleTitle || left.moduleTitle };
+  }
+
+  if (right.type === 'summary' && left.type !== 'summary') {
+    return { ...left, moduleTitle: left.moduleTitle || right.moduleTitle };
+  }
+
+  const rightWins = getPlanSectionSpecificityScore(right) > getPlanSectionSpecificityScore(left);
+  const preferred = rightWins ? right : left;
+  const alternate = rightWins ? left : right;
+  return {
+    ...preferred,
+    moduleTitle: preferred.moduleTitle || alternate.moduleTitle,
+  };
+};
+
+export const dedupeLearningPlanSections = (
+  sections: LearningPlan['sections'],
+  sourceProfile?: Pick<PlanningSourceProfile, 'sizeTier'>
+): LearningPlan['sections'] => {
+  if (sections.length < 2) {
+    return sections;
+  }
+
+  const exactDeduped: LearningPlan['sections'] = [];
+
+  sections.forEach(section => {
+    const duplicateIndex = exactDeduped.findIndex(existing => {
+      const sameTitle = normalizeSearchText(existing.title) === normalizeSearchText(section.title);
+      const sameDescription =
+        normalizeSearchText(existing.description) === normalizeSearchText(section.description);
+      return sameTitle && sameDescription;
+    });
+
+    if (duplicateIndex >= 0) {
+      exactDeduped[duplicateIndex] = pickPreferredPlanSection(exactDeduped[duplicateIndex], section);
+      return;
+    }
+
+    exactDeduped.push(section);
+  });
+
+  if (!isCompactPlanningSource(sourceProfile)) {
+    return exactDeduped;
+  }
+
+  const compactDeduped: LearningPlan['sections'] = [];
+
+  exactDeduped.forEach(section => {
+    const previous = compactDeduped[compactDeduped.length - 1];
+    if (previous && isPlanSectionNearDuplicate(previous, section)) {
+      compactDeduped[compactDeduped.length - 1] = pickPreferredPlanSection(previous, section);
+      return;
+    }
+
+    compactDeduped.push(section);
+  });
+
+  if (compactDeduped.length === 2) {
+    const [firstSection, lastSection] = compactDeduped;
+    if (lastSection.type === 'summary' && isPlanSectionNearDuplicate(firstSection, lastSection)) {
+      return [firstSection];
+    }
+  }
+
+  return compactDeduped;
+};
 
 const getSearchKeywords = (text: string): string[] =>
   normalizeSearchText(text)
@@ -359,8 +742,13 @@ const selectCandidatePdfImages = (
   sectionDescription: string,
   targetedPages: number[] = []
 ) => {
+  const visuallyClearImages = images.filter(image => Boolean(image.caption?.trim()));
+  if (visuallyClearImages.length === 0) {
+    return [];
+  }
+
   const keywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
-  const scored = images
+  const scored = visuallyClearImages
     .map(image => {
       const haystack = normalizeSearchText(getPdfImageSearchText(image));
       const keywordScore = scoreKeywordHits(haystack, keywords);
@@ -379,7 +767,7 @@ const selectCandidatePdfImages = (
     return relevant;
   }
 
-  // With long-context models, prefer recall over premature local filtering.
+  // Use only figures that the vision pass considered clear enough to describe.
   return scored.map(item => item.image);
 };
 
@@ -1045,14 +1433,46 @@ export const estimateTargetQuizCount = (contentMarkdown: string): number => {
   return 1;
 };
 
+const WHOLE_QUIZ_CODE_FENCE_REGEX = /^\s*```(?:[a-z0-9_+-]+)?\s*\n([\s\S]*?)\n```\s*$/i;
+const WHOLE_QUIZ_INLINE_CODE_REGEX = /^\s*(`+)([\s\S]*?)\1\s*$/;
+
+const unwrapWholeQuizCodeFormatting = (value: string): string => {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return '';
+  }
+
+  const fencedMatch = trimmedValue.match(WHOLE_QUIZ_CODE_FENCE_REGEX);
+  if (fencedMatch) {
+    return fencedMatch[1].trim().replace(/\s*\n+\s*/g, ' ');
+  }
+
+  const inlineMatch = trimmedValue.match(WHOLE_QUIZ_INLINE_CODE_REGEX);
+  if (!inlineMatch) {
+    return trimmedValue;
+  }
+
+  const unwrapped = inlineMatch[2].trim();
+  return unwrapped ? unwrapped.replace(/\s*\n+\s*/g, ' ') : trimmedValue;
+};
+
+const sanitizeQuizQuestion = (question: QuizQuestion): QuizQuestion => ({
+  question: unwrapWholeQuizCodeFormatting(question.question),
+  options: question.options.map(option => unwrapWholeQuizCodeFormatting(option)),
+  correctIndex: question.correctIndex,
+});
+
 const normalizeQuizLength = (
   quiz: QuizQuestion[],
   targetQuizCount: number
-): QuizQuestion[] => quiz.slice(0, clampLessonQuizCount(targetQuizCount));
+): QuizQuestion[] =>
+  quiz.slice(0, clampLessonQuizCount(targetQuizCount)).map(sanitizeQuizQuestion);
 
 const LESSON_CONCLUSION_HEADING_REGEX = /(^|\n)#{1,6}\s+Conclusione\b/i;
 const LESSON_ABORTED_ENDING_REGEX =
   /(include|includono|comprende|comprendono|principali sono|si dividono in|origini includono)\s*:\s*$/i;
+const BROKEN_DISPLAY_MATH_BRACKET_REGEX = /(^|\n)\[\s*\n[\s\S]*?\n\]\s*(?=\n|$)/m;
+const BROKEN_KATEX_DELIMITER_REGEX = /(^|\n)(?:\[\s*$|\]\s*$)/m;
 
 const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
   const issues: string[] = [];
@@ -1104,6 +1524,15 @@ const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
     issues.push('Manca una conclusione esplicita.');
   }
 
+  if (
+    BROKEN_DISPLAY_MATH_BRACKET_REGEX.test(trimmed) ||
+    BROKEN_KATEX_DELIMITER_REGEX.test(trimmed)
+  ) {
+    issues.push(
+      'La formattazione KaTeX/LaTeX sembra malformata: correggi delimitatori e sintassi matematica per il rendering.'
+    );
+  }
+
   return issues;
 };
 
@@ -1146,7 +1575,8 @@ REGOLE:
 15. NON inserire markdown image syntax, tag <img> o riferimenti ad asset tecnici.
 16. Normalizza i blocchi di codice Markdown: usa solo fence standard del tipo \`\`\` oppure \`\`\`lang con il SOLO nome del linguaggio (es. \`\`\`cpp). Non aggiungere commenti, etichette o testo extra sulla stessa riga del fence.
 17. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, fallo con una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
-18. Restituisci SOLO markdown pulito, senza JSON e senza spiegazioni.
+18. Correggi e normalizza anche la formattazione KaTeX/LaTeX: formule inline solo come \`$...$\` oppure \`\\(...\\)\`; formule display solo come \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, e assicurati che parentesi, graffe e delimitatori siano bilanciati.
+19. Restituisci SOLO markdown pulito, senza JSON e senza spiegazioni.
 
 CONTESTO SORGENTE:
 ${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
@@ -1158,6 +1588,7 @@ ${contentMarkdown}`;
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
+        reasoning: MAX_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },
           { role: 'user', content: repairPrompt },
@@ -1190,8 +1621,9 @@ const parseQuizPayload = (value: unknown): QuizQuestion[] =>
           item !== null &&
           typeof (item as QuizQuestion).question === 'string' &&
           Array.isArray((item as QuizQuestion).options) &&
-          typeof (item as QuizQuestion).correctIndex === 'number'
-      )
+          (item as QuizQuestion).options.every(option => typeof option === 'string') &&
+          Number.isInteger((item as QuizQuestion).correctIndex)
+      ).map(sanitizeQuizQuestion)
     : [];
 
 interface BuildLessonVerificationPromptInput {
@@ -1208,9 +1640,6 @@ interface BuildLessonVerificationPromptInput {
     pageNumber?: number;
     visibleLabel: string;
     caption?: string;
-    sourceContextBefore: string;
-    sourceContextCurrent?: string;
-    sourceContextAfter: string;
     sourceOrder: number;
   }>;
 }
@@ -1242,16 +1671,19 @@ ${scopeRule}
 5. Le domande del \`quiz\` NON devono mai chiedere di ripetere alla lettera una definizione appena data o copiare una frase della lezione.
 6. Ogni domanda deve richiedere almeno una tra queste operazioni mentali: applicare un concetto a un caso, confrontare due casi, prevedere una conseguenza, riconoscere un errore, classificare un esempio, scegliere l'implicazione corretta.
 7. I distrattori devono essere plausibili: niente opzioni caricaturali o palesemente assurde.
-8. \`contentMarkdown\` non deve contenere quiz, markdown image syntax, tag <img>, assetId tecnici o riferimenti sbagliati alle immagini.
-9. I heading devono essere coerenti e ogni \`anchorHeading\` in \`imagePlacements\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`.
-10. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento.
-11. Verifica con particolare severita che descrizione, caption e immagine siano abbinate correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
-12. Se una figura e debole, ambigua, fuori tema o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
-13. Se trovi forestierismi inutili nel testo, sostituiscili con equivalenti italiani naturali, salvo casi in cui il termine straniero sia davvero lo standard tecnico necessario.
-14. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
-15. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
-16. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
-17. Nei dati immagine, \`caption\` e una descrizione sintetica generata; \`sourceContextCurrent\` e l'estratto reale della stessa pagina della figura; \`sourceContextBefore\` e \`sourceContextAfter\` sono gli estratti delle pagine adiacenti. Dai priorita a \`sourceContextCurrent\` per validare il tema effettivo della figura.
+8. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera domanda o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
+9. \`contentMarkdown\` non deve contenere quiz, markdown image syntax, tag <img>, assetId tecnici o riferimenti sbagliati alle immagini.
+10. I heading devono essere coerenti e ogni \`anchorHeading\` in \`imagePlacements\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`.
+11. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento.
+12. Verifica con particolare severita che descrizione, caption e immagine siano abbinate correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
+13. Ogni immagine selezionata deve anche essere visivamente chiara e autosufficiente: se appare sfocata, parziale, tagliata, poco leggibile, mostra solo un bordo, un wrapper, un riquadro, un badge, un'icona o un frammento non riconoscibile, rimuovila.
+14. Se una figura e debole, ambigua, fuori tema o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
+15. Se trovi forestierismi inutili nel testo, sostituiscili con equivalenti italiani naturali, salvo casi in cui il termine straniero sia davvero lo standard tecnico necessario.
+16. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
+17. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
+18. Verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
+19. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
+20. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti.
 
 ESTRATTI RILEVANTI DAL PDF / CONTESTO SORGENTE:
 ${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
@@ -1300,6 +1732,7 @@ const verifyLessonDraft = async ({
     () =>
       callOpenRouter({
         model: MODEL_FLASH,
+        reasoning: MAX_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },
           { role: 'user', content: verificationPrompt },
@@ -1343,28 +1776,38 @@ const verifyLessonDraft = async ({
   };
 };
 
-const normalizeLearningPlan = (plan: LearningPlanDraft): LearningPlan => {
+const normalizeLearningPlan = (
+  plan: LearningPlanDraft,
+  sourceProfile?: Pick<PlanningSourceProfile, 'sizeTier'>
+): LearningPlan => {
   const sections = Array.isArray(plan.sections) ? plan.sections : [];
+  const normalizedSections = sections
+    .map((section, index) => ({
+      id: `section-${index + 1}`,
+      moduleTitle: (section.moduleTitle || '').trim() || undefined,
+      title: (section.title || '').trim(),
+      description: (section.description || '').trim(),
+      type:
+        section.type === 'prerequisite' ||
+        section.type === 'core' ||
+        section.type === 'summary' ||
+        section.type === 'deep-dive'
+          ? section.type
+          : 'core',
+      isCompleted: false,
+    }))
+    .filter(section => section.title && section.description);
+  const dedupedSections = dedupeLearningPlanSections(normalizedSections, sourceProfile).map(
+    (section, index) => ({
+      ...section,
+      id: `section-${index + 1}`,
+    })
+  );
 
   return {
     title: (plan.title || 'Percorso di studio').trim(),
     summary: (plan.summary || '').trim(),
-    sections: sections
-      .map((section, index) => ({
-        id: `section-${index + 1}`,
-        moduleTitle: (section.moduleTitle || '').trim() || undefined,
-        title: (section.title || '').trim(),
-        description: (section.description || '').trim(),
-        type:
-          section.type === 'prerequisite' ||
-          section.type === 'core' ||
-          section.type === 'summary' ||
-          section.type === 'deep-dive'
-            ? section.type
-            : 'core',
-        isCompleted: false,
-      }))
-      .filter(section => section.title && section.description),
+    sections: dedupedSections,
   };
 };
 
@@ -1375,6 +1818,31 @@ const clipPdfSourceText = (text: string, maxChars: number): string => {
   }
 
   return `${normalized.slice(0, maxChars).trim()}\n\n[ESTRATTO PDF TRONCATO PER LIMITI DI CONTESTO]`;
+};
+
+const buildPdfReasoningExtractionNotes = (
+  pdfSession:
+    | {
+        parser?: 'pdftotext' | 'pdf-parse';
+        pageCount?: number;
+      }
+    | null
+    | undefined
+): string => {
+  const notes = [
+    pdfSession?.parser === 'pdftotext'
+      ? '- Il testo e stato estratto con pdftotext in modalita layout-preserving: se trovi blocchi allineati, colonne o valori ripetuti per riga, trattali come possibili tabelle.'
+      : pdfSession?.parser === 'pdf-parse'
+        ? '- Il testo e stato estratto con pdf-parse: i blocchi tabellari possono risultare piu piatti o riordinati. Se noti pattern tabellari, trattali come tabelle solo quando il testo lo supporta chiaramente.'
+        : '- Il testo del PDF puo perdere parte del layout originario: non ignorare blocchi tabellari o confronti solo perche appaiono meno puliti del documento visivo.',
+    '- Considera come contenuto sostanziale anche tabelle, blocchi comparativi, matrici, didascalie, legende, assi e label testuali di grafici o schemi quando compaiono nel testo estratto.',
+  ];
+
+  if (typeof pdfSession?.pageCount === 'number' && pdfSession.pageCount > 0) {
+    notes.unshift(`- Il PDF contiene circa ${pdfSession.pageCount} pagine.`);
+  }
+
+  return notes.join('\n');
 };
 
 const formatEstimatedPageRange = (
@@ -1474,7 +1942,9 @@ export const estimateRelevantPdfImagePages = (
   const pageLayout = buildPdfPageTextLayout(pdfPages);
   const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
   const anchorChunks =
-    (primaryChunkIds || []).map(chunkId => indexById.get(chunkId)).filter(Boolean) || [];
+    (primaryChunkIds || [])
+      .map(chunkId => indexById.get(chunkId))
+      .filter((chunk): chunk is PdfTextChunk => Boolean(chunk)) || [];
   const resolvedAnchorChunks =
     anchorChunks.length > 0
       ? anchorChunks
@@ -1518,6 +1988,9 @@ const buildReasoningContentForFile = async (
 
 ${prompt}
 
+NOTE DI ESTRAZIONE PDF:
+${buildPdfReasoningExtractionNotes(pdfSession)}
+
 TESTO ESTRATTO DAL PDF:
 ${clipPdfSourceText(extractedText, maxPdfChars)}`;
     }
@@ -1535,21 +2008,24 @@ Non presumere dettagli non supportati e non affermare di aver letto il file se i
 
 const runInitialLearningPlan = async (
   file: FileData,
-  assessmentSummary: string
+  assessmentSummary: string,
+  sourceProfile: PlanningSourceProfile
 ): Promise<LearningPlan> => {
+  const planGuidance = buildAdaptivePlanGuidance(sourceProfile);
   const prompt = `Analizza il documento allegato.
 Ecco il contesto dell'utente (Assessment):
 ${assessmentSummary}
 
-Crea un piano di studi dettagliato e NON troppo compresso.
-- Se l'utente e principiante, aggiungi capitoli 'prerequisite' corposi.
-- Raggruppa le sezioni in 3-6 moduli logici e assegna a ogni sezione un moduleTitle coerente.
-- Punta a 10-18 lezioni totali, non 5-7 macro-capitoli.
-- Ogni lezione deve coprire un solo concetto o sottosistema ben definito.
-- Dividi il paper in sezioni logiche ('core').
-- Aggiungi un capitolo finale di sintesi ('summary').
+Crea un piano di studi dettagliato e calibrato sulla reale quantita di materiale.
+- Se l'utente e principiante, aggiungi sezioni 'prerequisite' solo quando servono davvero a capire il testo.
+- Raggruppa le sezioni in moduli logici coerenti tramite moduleTitle, ma non inventare moduli se il materiale e troppo breve per sostenerli.
+${planGuidance}
+- Considera come materiale didattico anche tabelle, blocchi comparativi, grafici con label testuali, didascalie e schemi descritti nel testo: non ignorarli se contengono informazione sostanziale.
+- Ogni lezione deve coprire un solo concetto, passaggio sperimentale, meccanismo o sottosistema davvero distinto.
+- Ogni description deve spiegare COSA si imparera e delimitare chiaramente lo scope della lezione, cosi da evitare sovrapposizioni con altre lezioni.
+- Non creare lezioni separate per semplici parafrasi, esempi aggiuntivi, ripetizioni o ricapitolazioni dello stesso nucleo concettuale.
+- Prima di restituire l'indice, esegui una deduplica esplicita: se due lezioni condividono quasi lo stesso materiale sorgente o possono essere spiegate con la stessa lezione, fondile.
 - Assicurati che i titoli siano descrittivi.
-- La descrizione deve spiegare COSA si imparera in quella sezione.
 - Vincoli di ordine propedeutico:
 ${PLAN_PROPEDEUTIC_ORDER_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}
 
@@ -1573,6 +2049,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
+    reasoning: HIGH_REASONING_CONFIG,
     messages: [
       { role: 'system', content: plannerInstruction },
       {
@@ -1587,15 +2064,17 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     throw new Error('No plan generated');
   }
 
-  return normalizeLearningPlan(parseCleanJson<LearningPlanDraft>(response));
+  return normalizeLearningPlan(parseCleanJson<LearningPlanDraft>(response), sourceProfile);
 };
 
 const runRefinedLearningPlan = async (
   file: FileData,
   assessmentSummary: string,
-  draftPlan: LearningPlan
+  draftPlan: LearningPlan,
+  sourceProfile: PlanningSourceProfile
 ): Promise<LearningPlan> => {
-  const prompt = `Sei un curriculum refiner. Hai gia un primo indice, ma e ancora troppo compresso.
+  const planGuidance = buildAdaptivePlanGuidance(sourceProfile);
+  const prompt = `Sei un curriculum refiner. Hai gia un primo indice e devi renderlo preciso, non necessariamente piu lungo.
 
 CONTESTO UTENTE:
 ${assessmentSummary}
@@ -1604,14 +2083,16 @@ INDICE DA RAFFINARE:
 ${JSON.stringify(draftPlan, null, 2)}
 
 Compito:
-- Raffina questo indice in una versione PIU GRANULARE.
-- Mantieni 3-6 moduli logici coerenti tramite moduleTitle.
-- Porta il totale a circa 12-20 lezioni se il documento lo giustifica.
-- Spezza ogni sezione troppo ampia in lezioni piu specifiche.
+- Raffina questo indice fino al giusto livello di granularita rispetto al materiale sorgente.
+${planGuidance}
+- Se il materiale contiene tabelle, confronti strutturati o grafici descritti testualmente, assicurati che entrino esplicitamente nel percorso e non restino fuori dall'indice solo perche non sono prosa lineare.
+- Spezza una sezione solo se il materiale contiene davvero sotto-argomenti distinti, ciascuno con esempi, evidenze o passaggi propri.
+- Se due lezioni risultano vicine, sovrapposte o distinguibili solo per formulazione, fondile in una sola lezione piu netta.
+- Se il documento ruota attorno a una sola idea centrale o a un unico flusso sperimentale, puoi lasciare anche una sola lezione.
 - Ogni lezione deve avere un focus netto e insegnabile.
-- Evita titoli generici o riassuntivi quando il testo consente una divisione piu fine.
-- Mantieni un solo capitolo finale di sintesi.
-- Non creare lezioni duplicate.
+- Ogni description deve chiarire cosa appartiene a quella lezione e, quando serve a evitare overlap, cosa NON va sviluppato li.
+- Evita titoli generici o riassuntivi quando il testo consente una divisione piu fine, ma non frammentare un argomento unico in pseudo-sottolezioni ridondanti.
+- Non creare lezioni duplicate, sovrapposte o finali di sintesi che ripetano semplicemente l'ultima lezione.
 - Prima di restituire l'indice finale, controlla e correggi eventuali inversioni di prerequisiti tra moduli e tra lezioni nello stesso modulo.
 - Vincoli di ordine propedeutico:
 ${PLAN_PROPEDEUTIC_ORDER_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}
@@ -1636,6 +2117,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
+    reasoning: MAX_REASONING_CONFIG,
     messages: [
       { role: 'system', content: plannerInstruction },
       {
@@ -1650,7 +2132,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     throw new Error('No refined plan generated');
   }
 
-  return normalizeLearningPlan(parseCleanJson<LearningPlanDraft>(response));
+  return normalizeLearningPlan(parseCleanJson<LearningPlanDraft>(response), sourceProfile);
 };
 
 export const generateLearningPlan = async (
@@ -1659,12 +2141,18 @@ export const generateLearningPlan = async (
   onStatusUpdate?: (status: string) => void
 ): Promise<LearningPlan> => {
   const assessmentSummary = buildAssessmentSummary(assessmentHistory);
+  const sourceProfile = await resolvePlanningSourceProfile(file);
 
   return retryWithBackoff(async () => {
     onStatusUpdate?.('Bozza indice...');
-    const initialPlan = await runInitialLearningPlan(file, assessmentSummary);
+    const initialPlan = await runInitialLearningPlan(file, assessmentSummary, sourceProfile);
     onStatusUpdate?.(`Raffinamento indice... ${initialPlan.sections.length} lezioni iniziali`);
-    const refinedPlan = await runRefinedLearningPlan(file, assessmentSummary, initialPlan);
+    const refinedPlan = await runRefinedLearningPlan(
+      file,
+      assessmentSummary,
+      initialPlan,
+      sourceProfile
+    );
     onStatusUpdate?.(`Indice raffinato: ${refinedPlan.sections.length} lezioni`);
     return refinedPlan;
   });
@@ -1696,6 +2184,7 @@ Rispondi SOLO con un oggetto JSON:
     const userContent = await buildReasoningContentForFile(file, prompt, MAX_METADATA_SOURCE_CHARS);
     const response = await callOpenRouter({
       model: MODEL_REASONING,
+      reasoning: HIGH_REASONING_CONFIG,
       messages: [
         {
           role: 'user',
@@ -1755,6 +2244,7 @@ Rispondi SOLO con un oggetto JSON:
   return retryWithBackoff(async () => {
     const response = await callOpenRouter({
       model: MODEL_FLASH,
+      reasoning: HIGH_REASONING_CONFIG,
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
     });
@@ -1875,9 +2365,6 @@ export const generateSectionContent = async (
         pageNumber: image.pageNumber,
         caption: image.caption || '',
         sourceOrder: image.sourceOrder,
-        sourceContextBefore: image.textBefore,
-        sourceContextCurrent: image.textCurrent || '',
-        sourceContextAfter: image.textAfter,
       })),
     });
 
@@ -1890,9 +2377,6 @@ export const generateSectionContent = async (
       pageNumber: image.pageNumber,
       visibleLabel: buildVisibleImageLabel(image, sectionTitle, sectionDescription),
       caption: image.caption,
-      sourceContextBefore: image.textBefore,
-      sourceContextCurrent: image.textCurrent || '',
-      sourceContextAfter: image.textAfter,
       sourceOrder: image.sourceOrder,
     }));
     const visibleLabelByAssetId = new Map(
@@ -1911,7 +2395,7 @@ ${lessonSourceContext || pdfSession.extractedText.slice(0, 12000)}
 
 REGOLE FONDAMENTALI:
 1. Scrivi una lezione esaustiva in Markdown ricco, ma ad alta densita informativa: niente riempitivo, niente ripetizioni decorative, niente giri larghi per dire poco.
-2. Incorpora e spiega i contenuti del documento in modo discorsivo ma tecnico, con esempi concreti, formule (LaTeX $$...$$) e codice solo quando aiutano davvero la comprensione. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'il testo afferma'): la lezione deve funzionare come testo autonomo, senza presupporre che il lettore abbia il documento aperto. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X è Y'): le formulazioni per contrasto ('X non è soltanto Y') sono accettabili solo dopo che il concetto è già stato definito.
+2. Incorpora e spiega i contenuti del documento in modo discorsivo ma tecnico, con esempi concreti, formule (LaTeX $$...$$) e codice solo quando aiutano davvero la comprensione. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'il testo afferma'): la lezione deve funzionare come testo autonomo, senza presupporre che il lettore abbia il documento aperto. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X e Y'): le formulazioni per contrasto ('X non e soltanto Y') sono accettabili solo dopo che il concetto e gia stato definito. Tratta tabelle, blocchi comparativi, matrici, didascalie, legende e label testuali di grafici come parte del contenuto tecnico della lezione, non come rumore.
 3. Organizza il testo con heading chiari, ma usa solo le sezioni che servono davvero a questa lezione. Non creare heading riempitivi.
 4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione in Introduzione, Concetti Fondamentali e Analisi Approfondita con semplici parafrasi.
 5. Non ripetere il titolo della lezione dentro \`contentMarkdown\` e non duplicare heading identici o quasi identici.
@@ -1923,7 +2407,7 @@ REGOLE FONDAMENTALI:
 11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
 12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
 13. Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo. Se puoi spiegare bene in modo diretto, non usare alcuna analogia.
-14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate.
+14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
 15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
 16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
 17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.
@@ -1931,26 +2415,30 @@ REGOLE FONDAMENTALI:
 19. Puoi referenziare SOLO questi assetId. Se nessuna immagine e chiaramente pertinente, restituisci un array vuoto.
 20. Se usi un'immagine, \`anchorHeading\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`, senza i simboli #.
 21. Se il materiale parla chiaramente di anatomia, strutture o meccanica visivamente spiegabili e tra le candidate c'e una figura pertinente, preferisci includerne almeno una.
-22. ${continuityRule}
-23. Vincoli di focus della lezione:
+22. Usa solo immagini visivamente chiare, autosufficienti e distinguibili. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper di sezione, riquadri ornamentali o frammenti di figura.
+23. Non usare il contesto testuale per indovinare una figura poco chiara: se l'immagine non si capisce da sola, non usarla.
+24. ${continuityRule}
+25. Vincoli di focus della lezione:
 ${scopeRule}
-24. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
-25. \`quiz\` deve contenere da 1 a 3 domande con ESATTAMENTE 4 opzioni ciascuna.
-26. Usa il numero MINIMO necessario di pause attive: 1 se la lezione ha un solo snodo concettuale forte, 2 se ha piu passaggi da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
-27. Le domande del \`quiz\` NON devono mai limitarsi a chiedere la ripetizione letterale di una definizione, di una formula o di una frase appena letta.
-28. Ogni domanda deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso oppure previsione di un effetto/conseguenza.
-29. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
-30. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.
-31. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
-32. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.
-33. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "nella figura seguente".
-34. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
-35. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
-36. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\` oppure \`\`\`lang con solo il nome del linguaggio (es. \`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
-37. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
-38. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
-39. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
-40. Nei dati immagine, \`caption\` e una descrizione sintetica generata; \`sourceContextCurrent\` e l'estratto reale della stessa pagina della figura; \`sourceContextBefore\` e \`sourceContextAfter\` sono le pagine adiacenti e vanno usati solo come supporto per verificare il tema corretto della figura.
+26. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
+27. \`quiz\` deve contenere da 1 a 3 domande con ESATTAMENTE 4 opzioni ciascuna.
+28. Usa il numero MINIMO necessario di pause attive: 1 se la lezione ha un solo snodo concettuale forte, 2 se ha piu passaggi da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
+29. Le domande del \`quiz\` NON devono mai limitarsi a chiedere la ripetizione letterale di una definizione, di una formula o di una frase appena letta.
+30. Ogni domanda deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso oppure previsione di un effetto/conseguenza.
+31. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
+32. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera domanda o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
+33. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.
+34. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
+35. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.
+36. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "nella figura seguente".
+37. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
+38. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
+39. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\`\` oppure \`\`\`\`lang con solo il nome del linguaggio (es. \`\`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
+40. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
+41. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
+42. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
+43. Se inserisci formule, assicurati che il Markdown sia compatibile con KaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe isolate con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non aprire una formula con un delimitatore e chiuderla con un altro, e chiudi sempre correttamente graffe e delimitatori.
+44. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Usa solo \`caption\`, \`visibleLabel\` e il contesto della lezione per decidere se l'immagine e pertinente: non inventare dettagli non esplicitati dalla descrizione.
 
 IMMAGINI CANDIDATE:
 ${JSON.stringify(candidateImagePayload, null, 2)}
@@ -1969,6 +2457,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     const response = await retryWithBackoff(() =>
       callOpenRouter({
         model: MODEL_REASONING,
+        reasoning: HIGH_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },
           {
@@ -2124,8 +2613,8 @@ REGOLE FONDAMENTALI:
 2. **STRUTTURA DISCORSIVA**: Preferisci paragrafi completi, non una sequenza di punti telegrafici.
    La lezione deve leggersi come una spiegazione tecnica continua, non come una slide.
    Quando pero presenti 2 o piu elementi fratelli (tipi, gruppi, fasi, definizioni), usa una lista Markdown vera.
-3. **LEZIONE AUTOSUFFICIENTE**: La lezione deve funzionare come testo autonomo: il lettore non ha il documento originale aperto. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'la parte 3', 'il testo afferma'). Incorpora i contenuti rilevanti direttamente nella spiegazione. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X è Y'): le formulazioni per contrasto ('X non è soltanto Y') sono accettabili solo dopo che il concetto è stato già definito.
-4. **ESEMPI E ANALOGIE**: Usa esempi pratici quando aiutano davvero, preferibilmente tratti dal materiale sorgente. Usa analogie solo per concetti difficili o astratti, e comunque al massimo 1 analogia breve nell'intera lezione. Se puoi spiegare bene in modo diretto, non usare analogie.
+3. **LEZIONE AUTOSUFFICIENTE**: La lezione deve funzionare come testo autonomo: il lettore non ha il documento originale aperto. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'la parte 3', 'il testo afferma'). Incorpora i contenuti rilevanti direttamente nella spiegazione. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X e Y'): le formulazioni per contrasto ('X non e soltanto Y') sono accettabili solo dopo che il concetto e stato gia definito. Se il materiale sorgente contiene tabelle, blocchi comparativi, matrici, didascalie o label di grafici, trattali come contenuto sostanziale della lezione.
+4. **ESEMPI E ANALOGIE**: Usa esempi pratici quando aiutano davvero, preferibilmente tratti dal materiale sorgente. Usa analogie solo per concetti difficili o astratti, e comunque al massimo 1 analogia breve nell'intera lezione. Se puoi spiegare bene in modo diretto, non usare analogie. Se compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o con una lista comparativa chiara invece di perdere le relazioni tra righe e colonne.
 5. **LINGUAGGIO ACCESSIBILE**: Usa di default un lessico chiaro, accessibile e poco manualistico. Se puoi spiegare bene una cosa senza gergo superfluo, fallo.
 6. **TERMINI TECNICI CONTESTUALIZZATI**: Quando un termine tecnico e necessario, aggancialo subito al suo significato pratico o concettuale in parole comprensibili.
 7. **SIGLE SPIEGATE**: Non usare sigle, abbreviazioni o acronimi non spiegati. Alla prima occorrenza devi sempre scioglierli e chiarirli.
@@ -2148,13 +2637,14 @@ ${scopeRule}
 23. **QUIZ INTELLIGENTE**: Le domande del \`quiz\` non devono mai chiedere solo la ripetizione letterale di una definizione o di una frase appena letta.
 24. **QUIZ DI RAGIONAMENTO**: Ogni domanda deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso oppure previsione di una conseguenza.
 25. **DISTRATTORI PLAUSIBILI**: Le opzioni errate devono sembrare errori realistici, non risposte palesemente assurde.
-26. **NESSUN TESTO EXTRA**: Non aggiungere testo, commenti, markdown fences o spiegazioni fuori dal JSON.
-27. **IMMAGINI**: Per questa richiesta \`imagePlacements\` deve essere un array vuoto.
-28. **NO PSEUDO-LISTE**: Non scrivere blocchi con piu righe del tipo "Etichetta: ..." senza bullet. O fai una lista Markdown vera, oppure scrivi paragrafi completi.
-29. **CODE BLOCK PULITI**: Per i blocchi di codice usa solo fence Markdown standard del tipo \`\`\` oppure \`\`\`lang con il solo nome del linguaggio. Niente testo extra o commenti sulla riga del fence.
-30. **NO LABEL SPURIE**: Non scrivere righe isolate come \`cpp\`, \`ts\`, \`cpp // commento\` o simili prima di un code block. Se vuoi introdurre il codice, fallo in una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco.
-31. **NO IMMAGINI INLINE**: Non inserire markdown image syntax o tag HTML immagine dentro \`contentMarkdown\`.
-32. **NO QUIZ NEL TESTO**: Non aggiungere quiz, domande o sezioni di verifica dentro \`contentMarkdown\`; il quiz deve vivere solo nel campo \`quiz\`.
+26. **QUIZ TESTO NORMALE**: Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale. Non racchiudere MAI l'intera domanda o l'intera opzione in backticks, inline code o code fence; usa i backticks solo per un singolo termine o simbolo interno alla frase quando e davvero necessario.
+27. **NESSUN TESTO EXTRA**: Non aggiungere testo, commenti, markdown fences o spiegazioni fuori dal JSON.
+28. **IMMAGINI**: Per questa richiesta \`imagePlacements\` deve essere un array vuoto.
+29. **NO PSEUDO-LISTE**: Non scrivere blocchi con piu righe del tipo "Etichetta: ..." senza bullet. O fai una lista Markdown vera, oppure scrivi paragrafi completi.
+30. **CODE BLOCK PULITI**: Per i blocchi di codice usa solo fence Markdown standard del tipo \`\`\` oppure \`\`\`lang con il solo nome del linguaggio. Niente testo extra o commenti sulla riga del fence.
+31. **NO LABEL SPURIE**: Non scrivere righe isolate come \`cpp\`, \`ts\`, \`cpp // commento\` o simili prima di un code block. Se vuoi introdurre il codice, fallo in una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco.
+32. **NO IMMAGINI INLINE**: Non inserire markdown image syntax o tag HTML immagine dentro \`contentMarkdown\`.
+33. **NO QUIZ NEL TESTO**: Non aggiungere quiz, domande o sezioni di verifica dentro \`contentMarkdown\`; il quiz deve vivere solo nel campo \`quiz\`.
 
 Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
@@ -2173,6 +2663,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const response = await retryWithBackoff(() =>
     callOpenRouter({
       model: MODEL_REASONING,
+      reasoning: HIGH_REASONING_CONFIG,
       messages: [
         { role: 'system', content: teacherInstruction },
         {
@@ -2274,16 +2765,10 @@ Domanda dell'utente:
 "${question}"`;
 
   return retryWithBackoff(async () => {
-    const userContent = file
-      ? await buildReasoningContentForFile(
-          file,
-          `${basePrompt}
+    const userPromptWithSource = `${basePrompt}
 
 Rispondi in modo conciso e utile basandoti sul documento caricato.
-Se la risposta e presente nella fonte originale, citala chiaramente.`,
-          MAX_CONTEXTUAL_ANSWER_SOURCE_CHARS
-        )
-      : null;
+Se la risposta e presente nella fonte originale, citala chiaramente.`;
     const response = await callOpenRouter({
       model: MODEL_CONTEXT,
       modelSlot: 'context',
@@ -2291,7 +2776,11 @@ Se la risposta e presente nella fonte originale, citala chiaramente.`,
         ? [
             {
               role: 'user',
-              content: userContent,
+              content: await buildReasoningContentForFile(
+                file,
+                userPromptWithSource,
+                MAX_CONTEXTUAL_ANSWER_SOURCE_CHARS
+              ),
             },
           ]
         : [

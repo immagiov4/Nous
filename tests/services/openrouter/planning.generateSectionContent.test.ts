@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { beforeEach, test, vi } from 'vitest';
+import { test, vi } from 'vitest';
 import type { FileData, PdfTextIndex, QuizQuestion } from '../../../types.ts';
 
 const callOpenRouterMock = vi.fn();
@@ -120,6 +120,7 @@ test('generateSectionContent keeps all verified image placements instead of trun
         id: 'pdf-img-001',
         mimeType: 'image/png',
         dataUrl: 'data:image/png;base64,AAAA',
+        caption: 'Schema dei decal proiettati',
         textBefore: 'Schema dei decal proiettati',
         textAfter: 'overlay sul muro',
         sourceOrder: 1,
@@ -129,6 +130,7 @@ test('generateSectionContent keeps all verified image placements instead of trun
         id: 'pdf-img-002',
         mimeType: 'image/png',
         dataUrl: 'data:image/png;base64,BBBB',
+        caption: 'Figura sugli overlay di materiale',
         textBefore: 'Figura sugli overlay di materiale',
         textAfter: 'decal layering',
         sourceOrder: 2,
@@ -138,6 +140,7 @@ test('generateSectionContent keeps all verified image placements instead of trun
         id: 'pdf-img-003',
         mimeType: 'image/png',
         dataUrl: 'data:image/png;base64,CCCC',
+        caption: 'Diagramma di blending dei decal',
         textBefore: 'Diagramma di blending dei decal',
         textAfter: 'render target',
         sourceOrder: 3,
@@ -147,6 +150,7 @@ test('generateSectionContent keeps all verified image placements instead of trun
         id: 'pdf-img-004',
         mimeType: 'image/png',
         dataUrl: 'data:image/png;base64,DDDD',
+        caption: 'Overlay e mask per decal',
         textBefore: 'Overlay e mask per decal',
         textAfter: 'material response',
         sourceOrder: 4,
@@ -171,9 +175,29 @@ test('generateSectionContent keeps all verified image placements instead of trun
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.model, 'reasoning-model');
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.model, 'reasoning-model');
   assert.equal(callOpenRouterMock.mock.calls[2]?.[0]?.model, 'flash-model');
+  assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.reasoning, {
+    effort: 'high',
+    exclude: true,
+  });
+  assert.deepEqual(callOpenRouterMock.mock.calls[1]?.[0]?.reasoning, {
+    effort: 'high',
+    exclude: true,
+  });
+  assert.deepEqual(callOpenRouterMock.mock.calls[2]?.[0]?.reasoning, {
+    effort: 'high',
+    exclude: true,
+  });
   assert.match(
     String(callOpenRouterMock.mock.calls[2]?.[0]?.messages?.[1]?.content || ''),
     /descrizione, caption e immagine siano abbinate correttamente/i
+  );
+  assert.doesNotMatch(
+    String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || ''),
+    /sourceContext(Current|Before|After)/i
+  );
+  assert.doesNotMatch(
+    String(callOpenRouterMock.mock.calls[2]?.[0]?.messages?.[1]?.content || ''),
+    /sourceContext(Current|Before|After)/i
   );
   assert.equal(result.imageRefs.length, 4);
   assert.deepEqual(
@@ -182,4 +206,194 @@ test('generateSectionContent keeps all verified image placements instead of trun
   );
   assert.equal(result.quiz.length, 2);
   assert.match(result.content, /\{\{PDF_IMAGE:pdf-img-004/);
+});
+
+test('generateSectionContent excludes unclear PDF images when the vision pass produced no usable caption', async () => {
+  callOpenRouterMock.mockReset();
+  retryWithBackoffMock.mockClear();
+  getPdfTextSessionMock.mockReset();
+  getPdfAssetSessionMock.mockReset();
+  buildStoredPdfDocumentAssetsMock.mockClear();
+
+  const markdown = '## Caso concreto\n\nSpiegazione tecnica focalizzata sul confronto fragile.';
+  const repairedMarkdown = `${markdown}\n\n## Conclusione\n\nChiusura.`;
+  const quiz = buildQuiz();
+
+  callOpenRouterMock
+    .mockResolvedValueOnce(
+      JSON.stringify({
+        contentMarkdown: markdown,
+        quiz,
+        imagePlacements: [],
+      })
+    )
+    .mockResolvedValueOnce(repairedMarkdown)
+    .mockResolvedValueOnce(
+      JSON.stringify({
+        contentMarkdown: repairedMarkdown,
+        quiz,
+        imagePlacements: [],
+      })
+    );
+
+  const file: FileData = {
+    name: 'Great-Software.pdf',
+    mimeType: 'application/pdf',
+    data: 'unused',
+  };
+
+  const documentIndex: PdfTextIndex = {
+    kind: 'pdf-text-index',
+    parsedAt: '2026-04-03T00:00:00.000Z',
+    sourceHash: 'hash-1',
+    pageCount: 12,
+    chunks: [
+      {
+        id: 'chunk-001',
+        text: 'Affidabilita del confronto e qualita interna del software',
+        headingPath: ['Qualita del software'],
+        sequence: 0,
+        startOffset: 0,
+        endOffset: 200,
+        pageStart: 2,
+        pageEnd: 2,
+      },
+    ],
+  };
+
+  const pdfTextSession = {
+    images: [],
+    extractedText: 'Estratto PDF sulla qualita del software.',
+    pages: [{ pageNumber: 2, text: 'Page 2: confronto fragile e qualita interna.' }],
+    pageCount: 12,
+    parsedAt: '2026-04-03T00:00:00.000Z',
+    sourceHash: 'hash-1',
+  };
+
+  const pdfAssetSession = {
+    ...pdfTextSession,
+    images: [
+      {
+        id: 'pdf-img-001',
+        mimeType: 'image/png',
+        dataUrl: 'data:image/png;base64,AAAA',
+        textBefore: 'Elemento grafico vicino a un riquadro di sezione',
+        textCurrent: 'Dettaglio grafico parziale e poco leggibile',
+        textAfter: 'Il caso concreto mette in luce il problema',
+        sourceOrder: 1,
+        pageNumber: 2,
+      },
+    ],
+  };
+
+  getPdfTextSessionMock.mockResolvedValue(pdfTextSession);
+  getPdfAssetSessionMock.mockResolvedValue(pdfAssetSession);
+
+  const result = await generateSectionContent(
+    file,
+    'Confronti fragili',
+    'Perche un controllo fragile puo non riconoscere correttamente un elemento.',
+    'Contesto precedente',
+    ['chunk-001'],
+    documentIndex
+  );
+
+  const generationPrompt = String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || '');
+  assert.match(generationPrompt, /IMMAGINI CANDIDATE:\s*\[\]/);
+  assert.equal(result.imageRefs.length, 0);
+});
+
+test('generateSectionContent unwraps whole-question backticks but preserves inline code fragments', async () => {
+  callOpenRouterMock.mockReset();
+  retryWithBackoffMock.mockClear();
+  getPdfTextSessionMock.mockReset();
+  getPdfAssetSessionMock.mockReset();
+  buildStoredPdfDocumentAssetsMock.mockClear();
+
+  callOpenRouterMock
+    .mockResolvedValueOnce(
+      JSON.stringify({
+        contentMarkdown: '## Coordinate\n\nSpiegazione sintetica:',
+        quiz: [
+          {
+            question: '`Coordinate in spazio mondo (metri)`',
+            options: ['`Posizione assoluta`', 'Errore di `overflow`', '`Colore diffuso`', '`Texture`'],
+            correctIndex: 0,
+          },
+        ],
+        imagePlacements: [],
+      })
+    )
+    .mockResolvedValueOnce('## Coordinate\n\nSpiegazione sintetica.\n\n## Conclusione\n\nChiusura.')
+    .mockResolvedValueOnce(
+      JSON.stringify({
+        contentMarkdown: '## Coordinate\n\nSpiegazione sintetica.\n\n## Conclusione\n\nChiusura.',
+        quiz: [
+          {
+            question: '`Quale valore resta espresso in metri?`',
+            options: ['`Posizione assoluta`', 'Errore di `overflow`', '`Indice di shader`', '`UUID`'],
+            correctIndex: 0,
+          },
+        ],
+        imagePlacements: [],
+      })
+    );
+
+  const file: FileData = {
+    name: 'Coordinate-Spaces.pdf',
+    mimeType: 'application/pdf',
+    data: 'unused',
+  };
+
+  const documentIndex: PdfTextIndex = {
+    kind: 'pdf-text-index',
+    parsedAt: '2026-04-03T00:00:00.000Z',
+    sourceHash: 'hash-quiz-1',
+    pageCount: 4,
+    chunks: [
+      {
+        id: 'chunk-001',
+        text: 'Coordinate in spazio mondo e unita di misura.',
+        headingPath: ['Coordinate'],
+        sequence: 0,
+        startOffset: 0,
+        endOffset: 120,
+        pageStart: 1,
+        pageEnd: 1,
+      },
+    ],
+  };
+
+  const pdfTextSession = {
+    images: [],
+    extractedText: 'Coordinate in spazio mondo e unita di misura.',
+    pages: [{ pageNumber: 1, text: 'Coordinate in spazio mondo e unita di misura.' }],
+    pageCount: 4,
+    parsedAt: '2026-04-03T00:00:00.000Z',
+    sourceHash: 'hash-quiz-1',
+  };
+
+  getPdfTextSessionMock.mockResolvedValue(pdfTextSession);
+  getPdfAssetSessionMock.mockResolvedValue({
+    ...pdfTextSession,
+    images: [],
+  });
+
+  const result = await generateSectionContent(
+    file,
+    'Coordinate',
+    'Coordinate in spazio mondo e unita di misura.',
+    'Contesto precedente',
+    ['chunk-001'],
+    documentIndex
+  );
+
+  assert.equal(result.quiz.length, 1);
+  assert.equal(result.quiz[0]?.question, 'Quale valore resta espresso in metri?');
+  assert.deepEqual(result.quiz[0]?.options, [
+    'Posizione assoluta',
+    'Errore di `overflow`',
+    'Indice di shader',
+    'UUID',
+  ]);
 });

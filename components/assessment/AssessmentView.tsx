@@ -82,6 +82,7 @@ const AssessmentView = ({
               <button
                 type="button"
                 onClick={() => setIsModelPanelOpen(currentValue => !currentValue)}
+                onPointerDown={e => e.stopPropagation()}
                 className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-paper-surface dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
                 aria-label="Apri configurazione modelli AI"
               >

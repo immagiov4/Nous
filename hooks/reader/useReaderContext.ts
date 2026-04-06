@@ -362,6 +362,15 @@ export const useReaderContext = ({
       const annotationNote =
         sectionAnnotations?.find(annotation => annotation.id === annotationId)?.note || '';
 
+      if (
+        contextMenu.visible &&
+        contextMenu.type === 'annotation' &&
+        contextMenu.annotationId === annotationId
+      ) {
+        closeContextMenu();
+        return;
+      }
+
       setContextMenu(
         createAnnotationContextMenuState({
           annotationId,
@@ -383,7 +392,7 @@ export const useReaderContext = ({
         })
       );
     },
-    [contentRef, isMobileViewport, sectionAnnotations, sectionContent]
+    [closeContextMenu, contentRef, contextMenu, isMobileViewport, sectionAnnotations, sectionContent]
   );
 
   const handleContextAnswerResizeStart = useCallback(

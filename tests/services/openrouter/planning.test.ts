@@ -2,15 +2,124 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
   buildLessonVerificationPrompt,
+  buildAdaptivePlanGuidance,
   buildPdfChunkUsageDebugPayload,
   collapseRedundantParagraphs,
+  dedupeLearningPlanSections,
   estimateTargetQuizCount,
   estimateRelevantPdfImagePages,
   LESSON_RESPONSE_SCHEMA,
   LESSON_SCOPE_RULES,
   PLAN_PROPEDEUTIC_ORDER_RULES,
+  resolvePlanningSourceProfileFromSeed,
 } from '../../../services/openrouter/planning.ts';
 import type { PdfTextIndex } from '../../../types.ts';
+
+test('resolvePlanningSourceProfileFromSeed keeps short PDFs compact and allows a single lesson', () => {
+  const profile = resolvePlanningSourceProfileFromSeed({
+    kind: 'pdf',
+    pageCount: 5,
+  });
+
+  assert.equal(profile.sizeTier, 'tiny');
+  assert.equal(profile.allowSingleLesson, true);
+  assert.equal(profile.summaryLessonOptional, true);
+  assert.deepEqual(profile.moduleCount, { min: 1, max: 2 });
+  assert.deepEqual(profile.lessonCount, { min: 1, max: 3 });
+});
+
+test('buildAdaptivePlanGuidance tells the planner to merge overlaps on compact sources', () => {
+  const guidance = buildAdaptivePlanGuidance(
+    resolvePlanningSourceProfileFromSeed({
+      kind: 'pdf',
+      pageCount: 8,
+    })
+  );
+
+  assert.match(guidance, /anche una sola lezione/i);
+  assert.match(guidance, /sintesi finale e opzionale/i);
+  assert.match(guidance, /fondile invece di tenerle separate/i);
+});
+
+test('buildAdaptivePlanGuidance asks large PDFs to cover most substantive pages with soft page spans', () => {
+  const guidance = buildAdaptivePlanGuidance(
+    resolvePlanningSourceProfileFromSeed({
+      kind: 'pdf',
+      pageCount: 240,
+    })
+  );
+
+  assert.match(guidance, /copra quasi tutto il contenuto sostanziale del libro/i);
+  assert.match(guidance, /buchi di copertura/i);
+  assert.match(guidance, /10-30 pagine sostantive/i);
+});
+
+test('dedupeLearningPlanSections merges overlapping adjacent lessons for compact sources', () => {
+  const deduped = dedupeLearningPlanSections(
+    [
+      {
+        id: 'section-1',
+        moduleTitle: 'Fondamenti quantistici',
+        title: 'Effetto fotoelettrico',
+        description:
+          'Spiega il fenomeno fotoelettrico, la soglia di frequenza e il legame tra energia del fotone ed emissione elettronica.',
+        type: 'core',
+        isCompleted: false,
+      },
+      {
+        id: 'section-2',
+        moduleTitle: 'Fondamenti quantistici',
+        title: 'Fenomeno fotoelettrico',
+        description:
+          'Descrive lo stesso meccanismo di emissione elettronica, la soglia di frequenza e la relazione tra energia del fotone e elettroni emessi.',
+        type: 'core',
+        isCompleted: false,
+      },
+      {
+        id: 'section-3',
+        moduleTitle: 'Fondamenti quantistici',
+        title: 'Interpretazione di Einstein',
+        description:
+          'Collega il fenomeno all ipotesi dei quanti di luce e mostra perche il modello ondulatorio classico non basta.',
+        type: 'core',
+        isCompleted: false,
+      },
+    ],
+    { sizeTier: 'small' }
+  );
+
+  assert.equal(deduped.length, 2);
+  assert.match(deduped[0]?.title || '', /fotoelettric/i);
+  assert.equal(deduped[1]?.title, 'Interpretazione di Einstein');
+});
+
+test('dedupeLearningPlanSections stays conservative on larger sources', () => {
+  const deduped = dedupeLearningPlanSections(
+    [
+      {
+        id: 'section-1',
+        moduleTitle: 'Fondamenti quantistici',
+        title: 'Effetto fotoelettrico',
+        description:
+          'Spiega il fenomeno fotoelettrico, la soglia di frequenza e il legame tra energia del fotone ed emissione elettronica.',
+        type: 'core',
+        isCompleted: false,
+      },
+      {
+        id: 'section-2',
+        moduleTitle: 'Fondamenti quantistici',
+        title: 'Fenomeno fotoelettrico',
+        description:
+          'Descrive lo stesso meccanismo di emissione elettronica, la soglia di frequenza e la relazione tra energia del fotone e elettroni emessi.',
+        type: 'core',
+        isCompleted: false,
+      },
+    ],
+    { sizeTier: 'large' }
+  );
+
+  assert.equal(deduped.length, 2);
+});
 
 test('LESSON_RESPONSE_SCHEMA marks all image placement keys as required for strict json schema', () => {
   const imagePlacementSchema = (
@@ -58,6 +167,37 @@ test('lesson generation prompts require expanding acronyms on first mention', as
   assert.match(source, /da 1 a 3 domande|numero minimo necessario/i);
   assert.match(source, /ripetizione letterale/i);
   assert.match(source, /diagnosi di errore|inferenza|applicazione/i);
+  assert.match(source, /non racchiudere mai l'intera domanda|quiz testo normale/i);
+  assert.match(source, /KaTeX/i);
+  assert.match(source, /\$\$\.\.\.\$\$|\\\[\.\.\.\\\]/i);
+  assert.match(source, /tabelle, blocchi comparativi, matrici/i);
+  assert.match(source, /tabella Markdown|lista comparativa chiara/i);
+});
+
+test('buildLessonVerificationPrompt requires valid KaTeX delimiters', () => {
+  const prompt = buildLessonVerificationPrompt({
+    sectionTitle: 'Illuminazione sferica',
+    sectionDescription: 'Approssimazione con armoniche sferiche.',
+    previousContext: 'Lezione precedente',
+    sourceContext: 'Contesto',
+    continuityRule: 'Non anticipare la prossima lezione.',
+    scopeRule: '- Resta sul focus corrente.',
+    targetQuizCount: 2,
+    draft: {
+      contentMarkdown: '## Formula\n\n$$f(\\omega) = a_0$$',
+      quiz: [
+        { question: 'Q1', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
+        { question: 'Q2', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
+      ],
+      imagePlacements: [],
+    },
+    candidateImages: [],
+  });
+
+  assert.match(prompt, /KaTeX\/LaTeX/i);
+  assert.match(prompt, /righe orfane con solo/i);
+  assert.match(prompt, /non mischiare delimitatori diversi/i);
+  assert.match(prompt, /non racchiudere mai l'intera domanda|testo normale/i);
 });
 
 test('collapseRedundantParagraphs removes nearby paraphrases of the same concept', () => {
@@ -257,12 +397,12 @@ test('buildPdfChunkUsageDebugPayload reports exact prompt chunk ranges when page
   );
 
   assert.ok(payload);
-  assert.equal(payload?.['promptContextPageRange'], 'pag. 10-12');
-  assert.equal(payload?.['targetedImagePages'], 'pag. 10-14');
-  assert.deepEqual(payload?.['primaryChunkIds'], ['chunk-003']);
-  assert.equal(payload?.['pageMappingMode'], 'exact-from-page-text');
-  assert.deepEqual(payload?.['promptContextChunkIds'], ['chunk-002', 'chunk-003', 'chunk-004']);
-  assert.deepEqual(payload?.['primaryChunks'], [
+  assert.equal(payload?.promptContextPageRange, 'pag. 10-12');
+  assert.equal(payload?.targetedImagePages, 'pag. 10-14');
+  assert.deepEqual(payload?.primaryChunkIds, ['chunk-003']);
+  assert.equal(payload?.pageMappingMode, 'exact-from-page-text');
+  assert.deepEqual(payload?.promptContextChunkIds, ['chunk-002', 'chunk-003', 'chunk-004']);
+  assert.deepEqual(payload?.primaryChunks, [
     {
       id: 'chunk-003',
       sequence: 2,
@@ -306,9 +446,6 @@ test('buildLessonVerificationPrompt enforces final checks on image placement and
         pageNumber: 42,
         visibleLabel: 'Schema delle decal',
         caption: 'Figura sulle decal proiettate',
-        sourceContextBefore: 'Figure 7.12 Decal overlays on walls',
-        sourceContextCurrent: 'Projected decals are stamped onto surface fragments.',
-        sourceContextAfter: 'Material layering and projected textures',
         sourceOrder: 1,
       },
     ],
@@ -319,5 +456,7 @@ test('buildLessonVerificationPrompt enforces final checks on image placement and
   assert.match(prompt, /Ogni immagine selezionata deve essere nel punto giusto della lezione/i);
   assert.match(prompt, /descrizione, caption e immagine siano abbinate correttamente/i);
   assert.match(prompt, /Meglio meno immagini che immagini sbagliate/i);
-  assert.match(prompt, /sourceContextCurrent/i);
+  assert.doesNotMatch(prompt, /sourceContextCurrent/i);
+  assert.doesNotMatch(prompt, /sourceContextBefore/i);
+  assert.doesNotMatch(prompt, /sourceContextAfter/i);
 });

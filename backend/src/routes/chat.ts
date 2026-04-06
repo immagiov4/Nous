@@ -162,6 +162,7 @@ const extractWebSearchSources = (annotations?: OpenRouterWebSearchAnnotation[]) 
 const runOpenRouterWebSearch = async ({
   maxResults,
   messages,
+  model,
   query,
 }: {
   maxResults?: number;
@@ -169,6 +170,7 @@ const runOpenRouterWebSearch = async ({
     content: string;
     role: 'system' | 'user';
   }>;
+  model?: string;
   query: string;
 }): Promise<WebSearchToolResult> => {
   const normalizedQuery = query.trim();
@@ -189,7 +191,7 @@ const runOpenRouterWebSearch = async ({
       method: 'POST',
       headers: getOpenRouterHeaders(),
       body: JSON.stringify({
-        model: LIBRARY_WEB_SEARCH_EXECUTOR_MODEL,
+        model: model?.trim() || LIBRARY_WEB_SEARCH_EXECUTOR_MODEL,
         max_tokens: 1_200,
         messages,
         tool_choice: 'required',
@@ -252,11 +254,13 @@ const runOpenRouterWebSearch = async ({
 const runLibraryWebSearch = async ({
   attachedContextRefs,
   maxResults,
+  modelOverride,
   query,
   resolvedScopeSummary,
 }: {
   attachedContextRefs?: LibraryContextReference[];
   maxResults?: number;
+  modelOverride?: string;
   query: string;
   resolvedScopeSummary?: LibraryResolvedScopeSummary;
 }): Promise<WebSearchToolResult> => {
@@ -281,6 +285,7 @@ Restituisci in italiano:
         content: `Query da verificare:\n${normalizedQuery}\n\nRiepilogo scope libreria:\n${resolvedScopeSummary?.scopeSummary || 'Nessun riepilogo scope disponibile.'}\n\nContesti allegati:\n${formatLibraryAttachedRefs(attachedContextRefs)}\n\nEtichette contesto:\n${resolvedScopeSummary?.contextLabels?.join(', ') || 'nessun contesto allegato'}`,
       },
     ],
+    model: modelOverride,
     query: normalizedQuery,
   });
 };
@@ -292,6 +297,7 @@ const runContextWebSearch = async ({
   contextBefore,
   lessonTitle,
   maxResults,
+  modelOverride,
   query,
   selectedText,
   sourceKind,
@@ -303,6 +309,7 @@ const runContextWebSearch = async ({
   contextBefore?: string;
   lessonTitle?: string;
   maxResults?: number;
+  modelOverride?: string;
   query: string;
   selectedText: string;
   sourceKind?: string;
@@ -330,6 +337,7 @@ Restituisci in italiano:
         content: `Query da verificare:\n${normalizedQuery}\n\nSelezione evidenziata:\n${selectedText}\n\nContesto immediato:\n${selectionContext || selectedText}\n\nTitolo lezione:\n${lessonTitle || 'Lezione corrente'}\n\nPassaggio gia annotato:\n${attachedAnnotationText || 'nessun passaggio gia annotato'}\n\nNota gia associata:\n${attachedAnnotationNote || 'nessuna nota collegata'}\n\nMateriale sorgente:\n${sourceKind || 'non specificato'}${sourceName ? ` - ${sourceName}` : ''}`,
       },
     ],
+    model: modelOverride,
     query: normalizedQuery,
   });
 };
@@ -386,9 +394,9 @@ const libraryChatTools = {
   }),
   getProjectStructures: tool({
     description:
-      'Recupera struttura delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note/highlight. Utile per capire quali lezioni leggere poi con getLessonDetails.',
+      'Recupera struttura delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note/highlight. Se `projectIds` e omesso usa tutto lo scope corrente. Utile per capire quali lezioni leggere poi con getLessonDetails.',
     inputSchema: jsonSchema<{
-      projectIds: string[];
+      projectIds?: string[];
     }>({
       type: 'object',
       additionalProperties: false,
@@ -399,9 +407,10 @@ const libraryChatTools = {
           items: {
             type: 'string',
           },
+          description:
+            'Lista facoltativa di projectId reali gia ottenuti da tool locali. Se omessa, usa tutto lo scope corrente.',
         },
       },
-      required: ['projectIds'],
     }),
     outputSchema: genericLibraryToolOutputSchema,
   }),
@@ -477,9 +486,11 @@ const libraryChatTools = {
 
 const createLibrarySearchWebTool = ({
   attachedContextRefs,
+  modelOverride,
   resolvedScopeSummary,
 }: {
   attachedContextRefs?: LibraryContextReference[];
+  modelOverride?: string;
   resolvedScopeSummary?: LibraryResolvedScopeSummary;
 }) =>
   tool({
@@ -546,6 +557,7 @@ const createLibrarySearchWebTool = ({
       runLibraryWebSearch({
         attachedContextRefs,
         maxResults,
+        modelOverride,
         query,
         resolvedScopeSummary,
       }),
@@ -555,13 +567,16 @@ const libraryLocalToolNames = Object.keys(libraryChatTools) as Array<keyof typeo
 
 const buildLibraryToolSet = ({
   attachedContextRefs,
+  modelOverride,
   resolvedScopeSummary,
 }: {
   attachedContextRefs?: LibraryContextReference[];
+  modelOverride?: string;
   resolvedScopeSummary?: LibraryResolvedScopeSummary;
 }) => ({
   [LIBRARY_WEB_SEARCH_TOOL_NAME]: createLibrarySearchWebTool({
     attachedContextRefs,
+    modelOverride,
     resolvedScopeSummary,
   }),
   ...libraryChatTools,
@@ -579,6 +594,7 @@ const createContextSearchWebTool = ({
   contextAfter,
   contextBefore,
   lessonTitle,
+  modelOverride,
   selectedText,
   sourceKind,
   sourceName,
@@ -588,6 +604,7 @@ const createContextSearchWebTool = ({
   contextAfter?: string;
   contextBefore?: string;
   lessonTitle?: string;
+  modelOverride?: string;
   selectedText: string;
   sourceKind?: string;
   sourceName?: string;
@@ -660,6 +677,7 @@ const createContextSearchWebTool = ({
         contextBefore,
         lessonTitle,
         maxResults,
+        modelOverride,
         query,
         selectedText,
         sourceKind,
@@ -840,6 +858,7 @@ const buildContextToolSet = ({
   contextAfter,
   contextBefore,
   lessonTitle,
+  modelOverride,
   selectedText,
   sourceKind,
   sourceName,
@@ -849,6 +868,7 @@ const buildContextToolSet = ({
   contextAfter?: string;
   contextBefore?: string;
   lessonTitle?: string;
+  modelOverride?: string;
   selectedText: string;
   sourceKind?: string;
   sourceName?: string;
@@ -859,6 +879,7 @@ const buildContextToolSet = ({
     contextAfter,
     contextBefore,
     lessonTitle,
+    modelOverride,
     selectedText,
     sourceKind,
     sourceName,
@@ -1016,15 +1037,16 @@ Scope locale attuale:
 
 Quando l utente chiede qualcosa che richiede leggere note, highlight o contenuto delle lezioni, esegui SEMPRE questa sequenza senza fermarti a chiedere chiarimenti o conferme:
 
-1. Chiama \`getProjectStructures\` **in una singola chiamata**, passando TUTTI i projectIds nello scope come array. Non chiamarlo più volta in sequenza per corsi diversi.
-2. La risposta include per ogni lezione i campi \`hasContent\`, \`noteCount\`, \`latestNoteAt\` e \`latestAnnotationAt\`.
+1. Se devi scandire tutto lo scope corrente, chiama \`getProjectStructures\` **in una singola chiamata** con un oggetto vuoto \`{}\`: il tool usera automaticamente tutto lo scope locale consentito.
+2. Passa \`projectIds\` a \`getProjectStructures\` solo quando conosci gia gli identificatori reali perche sono comparsi in un output di tool locale. Se non li conosci ancora, chiama prima \`listLibraryTree\` o \`getProjectOverviews\` senza \`projectIds\`. Non inventare mai placeholder o alias come \`proj_1\`, \`proj_2\` o simili.
+3. La risposta include per ogni lezione i campi \`hasContent\`, \`noteCount\`, \`latestNoteAt\` e \`latestAnnotationAt\`.
    - **"Ultima lezione generata"** = l ultima lezione nell array con \`hasContent: true\` (indice di array, non ordine alfabetico).
    - **"Ultima lezione letta / aperta"** = la lezione il cui \`id\` corrisponde a \`activeSectionId\` del corso (campo esposto da \`getProjectStructures\`).
    - **"Ultima nota"** = la lezione con il \`latestNoteAt\` più recente (stringa ISO 8601 comparabile direttamente).
    - **"Ultima nota dell ultima lezione generata"** = leggi la lezione con l indice più alto che ha sia \`hasContent: true\` che \`noteCount > 0\`.
-3. Chiama \`getLessonDetails\` SOLO sulla o le lezioni candidate identificate al punto 2, **raggruppando tutte in una singola chiamata** usando il campo \`requests\` (array). Non leggere tutte le lezioni e non chiamarlo più volte in sequenza.
-4. Dentro \`getLessonDetails\`, ogni annotation ha \`createdAt\` e \`updatedAt\`. L ultima nota è quella con \`updatedAt\` (o \`createdAt\` se \`updatedAt\` è assente) più recente.
-5. Riporta il testo esatto della nota (campo \`note\`) e il testo evidenziato associato (campo \`highlightedText\`), senza parafrasare o inventare.
+4. Chiama \`getLessonDetails\` SOLO sulla o le lezioni candidate identificate al punto 3, **raggruppando tutte in una singola chiamata** usando il campo \`requests\` (array). Non leggere tutte le lezioni e non chiamarlo più volte in sequenza.
+5. Dentro \`getLessonDetails\`, ogni annotation ha \`createdAt\` e \`updatedAt\`. L ultima nota è quella con \`updatedAt\` (o \`createdAt\` se \`updatedAt\` è assente) più recente.
+6. Riporta il testo esatto della nota (campo \`note\`) e il testo evidenziato associato (campo \`highlightedText\`), senza parafrasare o inventare.
 
 **IMPORTANTE — questi nomi di campo sono istruzioni interne di esecuzione. Non citarli MAI nella risposta all utente.** Traduci sempre in linguaggio naturale: l utente non deve mai vedere activeSectionId, updatedAt, hasContent, latestNoteAt, annotationId o qualsiasi altro identificatore tecnico.
 
@@ -1059,11 +1081,13 @@ router.post('/library', async (req: Request, res: Response) => {
     const {
       attachedContextRefs,
       messages,
+      modelOverride,
       resolvedScopeSummary,
       toolPreferences,
     } = req.body as {
       attachedContextRefs?: LibraryContextReference[];
       messages?: UIMessage[];
+      modelOverride?: string;
       resolvedScopeSummary?: LibraryResolvedScopeSummary;
       toolPreferences?: LibraryChatToolPreferences;
     };
@@ -1079,9 +1103,11 @@ router.post('/library', async (req: Request, res: Response) => {
     const openrouter = createOpenRouter({
       apiKey: requireOpenRouterApiKey(),
     });
+    const selectedLibraryModel = modelOverride?.trim() || CONTEXT_CHAT_MODEL;
 
     const libraryTools = buildLibraryToolSet({
       attachedContextRefs,
+      modelOverride: modelOverride?.trim() || undefined,
       resolvedScopeSummary,
     });
 
@@ -1091,7 +1117,7 @@ router.post('/library', async (req: Request, res: Response) => {
     );
 
     const result = streamText({
-      model: openrouter.chat(CONTEXT_CHAT_MODEL),
+      model: openrouter.chat(selectedLibraryModel),
       system: buildLibrarySystemPrompt({
         attachedContextRefs,
         resolvedScopeSummary,
@@ -1124,6 +1150,7 @@ router.post('/context', async (req: Request, res: Response) => {
       lessonDescription,
       lessonTitle,
       messages,
+      modelOverride,
       selectedText,
       sourceKind,
       sourceMaterial,
@@ -1138,6 +1165,7 @@ router.post('/context', async (req: Request, res: Response) => {
       lessonDescription?: string;
       lessonTitle?: string;
       messages?: UIMessage[];
+      modelOverride?: string;
       selectedText?: string;
       sourceKind?: string;
       sourceMaterial?: string;
@@ -1164,6 +1192,7 @@ router.post('/context', async (req: Request, res: Response) => {
     const openrouter = createOpenRouter({
       apiKey: requireOpenRouterApiKey(),
     });
+    const selectedContextModel = modelOverride?.trim() || CONTEXT_CHAT_MODEL;
 
     const contextTools = buildContextToolSet({
       attachedAnnotationNote,
@@ -1171,6 +1200,7 @@ router.post('/context', async (req: Request, res: Response) => {
       contextAfter,
       contextBefore,
       lessonTitle,
+      modelOverride: modelOverride?.trim() || undefined,
       selectedText,
       sourceKind,
       sourceName,
@@ -1182,7 +1212,7 @@ router.post('/context', async (req: Request, res: Response) => {
     );
 
     const result = streamText({
-      model: openrouter.chat(CONTEXT_CHAT_MODEL),
+      model: openrouter.chat(selectedContextModel),
       system: buildContextSystemPrompt({
         attachedAnnotationNote,
         attachedAnnotationText,

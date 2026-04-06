@@ -5,9 +5,14 @@ import { beforeEach, test, vi } from 'vitest';
 const getPdfTextSessionMock = vi.fn();
 const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async (operation: () => Promise<string>) => await operation());
+const pushLuminaDebugTraceMock = vi.fn();
 
 vi.mock('../../../services/openrouter/pdfAssets.ts', () => ({
   getPdfTextSession: getPdfTextSessionMock,
+}));
+
+vi.mock('../../../services/core/debugTrace.ts', () => ({
+  pushLuminaDebugTrace: pushLuminaDebugTraceMock,
 }));
 
 vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
@@ -63,6 +68,7 @@ beforeEach(() => {
   getPdfTextSessionMock.mockReset();
   callOpenRouterMock.mockReset();
   retryWithBackoffMock.mockClear();
+  pushLuminaDebugTraceMock.mockReset();
 });
 
 test('preparePdfLessonMappings batches large mapping prompts and trims chunk content previews', async () => {
@@ -71,6 +77,8 @@ test('preparePdfLessonMappings batches large mapping prompts and trims chunk con
 
   getPdfTextSessionMock.mockResolvedValue({
     extractedText: 'cached text',
+    parser: 'pdftotext',
+    pageCount: 60,
     sourceHash: 'hash-1',
   });
 
@@ -101,7 +109,13 @@ test('preparePdfLessonMappings batches large mapping prompts and trims chunk con
     assert.ok(prompt.length < 180000);
     assert.ok(!prompt.includes('MIDDLE-SENTINEL-1'));
     assert.ok(prompt.includes('"textPreview"'));
+    assert.match(prompt, /ordine coerente con la sequenza del documento/i);
+    assert.match(prompt, /Evita di concentrare troppe lezioni sugli stessi primi chunk/i);
     assert.ok(typeof options.max_tokens === 'number' && options.max_tokens <= 2048);
+    assert.deepEqual(options.reasoning, {
+      effort: 'high',
+      exclude: true,
+    });
   });
 
   assert.deepEqual(result.learningPlan.sections[0]?.primaryChunkIds, [buildChunkId(11)]);
@@ -109,6 +123,14 @@ test('preparePdfLessonMappings batches large mapping prompts and trims chunk con
   assert.deepEqual(result.learningPlan.sections[8]?.primaryChunkIds, [buildChunkId(31)]);
   assert.deepEqual(result.learningPlan.sections[11]?.primaryChunkIds, [buildChunkId(34)]);
   assert.equal(retryWithBackoffMock.mock.calls.length, 2);
+  assert.ok(
+    pushLuminaDebugTraceMock.mock.calls.some(
+      ([event, payload]) =>
+        event === 'pdf-plan:coverage' &&
+        payload?.mappingSource === 'mapped' &&
+        typeof payload?.coverageRatio === 'number'
+    )
+  );
 });
 
 test('preparePdfLessonMappings preserves successful batches when a later batch fails', async () => {
@@ -118,6 +140,8 @@ test('preparePdfLessonMappings preserves successful batches when a later batch f
 
   getPdfTextSessionMock.mockResolvedValue({
     extractedText: 'cached text',
+    parser: 'pdftotext',
+    pageCount: 24,
     sourceHash: 'hash-1',
   });
 
@@ -150,6 +174,13 @@ test('preparePdfLessonMappings preserves successful batches when a later batch f
       String(call[0]).includes('Mapping batch failed for 2 lesson(s).')
     )
   );
+
+  const coverageWarningCall = pushLuminaDebugTraceMock.mock.calls.find(
+    ([event]) => event === 'pdf-plan:coverage-warning'
+  );
+  assert.ok(coverageWarningCall);
+  assert.match(String(coverageWarningCall?.[1]?.warnings?.[0] || ''), /Copertura/i);
+  assert.ok((coverageWarningCall?.[1]?.gapCount || 0) > 0);
 });
 
 test('buildPdfTextIndex stores exact chunk page spans when per-page text is available', () => {

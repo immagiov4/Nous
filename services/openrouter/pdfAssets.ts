@@ -12,6 +12,7 @@ import {
 
 const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
+const PDF_ASSET_CACHE_VERSION = 'resolution-filter-v2';
 const IMAGE_ID_PREFIX = 'pdf-img-';
 const MAX_BACKEND_EXTRACTED_IMAGES = 36;
 
@@ -22,6 +23,8 @@ interface BackendPdfImage {
   sizeBytes: number;
   hash: string;
   pageNumber: number;
+  intrinsicWidth?: number;
+  intrinsicHeight?: number;
   textBefore?: string;
   textCurrent?: string;
   textAfter?: string;
@@ -50,6 +53,7 @@ export interface PdfAssetSession {
   extractedText: string;
   pages: PdfTextPage[];
   pageCount?: number;
+  parser?: 'pdftotext' | 'pdf-parse';
   parsedAt: string;
   sourceHash?: string;
 }
@@ -78,7 +82,7 @@ const sanitizePartialPages = (partialPages?: number[]): number[] | undefined => 
 
 const getPdfCacheKey = (file: FileData, partialPages?: number[]): string => {
   const partialPageKey = sanitizePartialPages(partialPages)?.join(',') || 'all-pages';
-  return `${file.name}:${file.data.length}:${file.data.slice(0, 96)}:${partialPageKey}`;
+  return `${PDF_ASSET_CACHE_VERSION}:${file.name}:${file.data.length}:${file.data.slice(0, 96)}:${partialPageKey}`;
 };
 
 const normalizeCaptionResponse = (value: string): string => {
@@ -160,7 +164,8 @@ Rules:
 - Mention labels, geometric relations, arrows, regions, overlays, or compared elements if clearly visible.
 - Max 45 words.
 - No speculation.
-- If the image is decorative or not meaningful, answer exactly: DECORATIVE
+- Use nearby PDF text only to disambiguate a figure that is already visually recognizable. Do not use the PDF text to guess the content of a blurry, partial, cropped, or unreadable image.
+- If the image is decorative, partial, heavily cropped, blurry, mostly empty background, just a border/frame/wrapper, a section box, a separator, an icon, a badge, a ribbon, a logo, an ornament, or if the main subject is not clearly distinguishable, answer exactly: DECORATIVE
 ${
   sourceContext.promptContext
     ? `
@@ -224,6 +229,8 @@ const extractPdfImagesViaBackend = async (
     images: images.slice(0, 12).map(image => ({
       id: image.id,
       pageNumber: image.pageNumber,
+      intrinsicWidth: image.intrinsicWidth,
+      intrinsicHeight: image.intrinsicHeight,
       sizeBytes: image.sizeBytes,
       hash: image.hash,
     })),
@@ -300,6 +307,7 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
     extractedText,
     pages,
     pageCount: payload.pageCount,
+    parser: payload.parser,
     parsedAt: new Date().toISOString(),
     sourceHash: payload.sourceHash,
   };

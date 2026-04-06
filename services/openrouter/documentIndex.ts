@@ -1,5 +1,7 @@
 import type { FileData, LearningPlan, PdfTextChunk, PdfTextIndex, PdfTextPage } from '../../types.ts';
+import { pushLuminaDebugTrace } from '../core/debugTrace.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
+import { MAX_REASONING_CONFIG } from './config.ts';
 import {
   MODEL_FLASH,
   callOpenRouter,
@@ -22,6 +24,52 @@ const MAX_MAPPING_CHUNK_PREVIEW_CHARS = 480;
 const MAX_MAPPING_OUTPUT_TOKENS = 2048;
 const HEADING_MAX_WORDS = 14;
 const HEADING_MAX_CHARS = 120;
+const PDF_PLAN_COVERAGE_TARGET_RATIO = 0.9;
+const PDF_PLAN_COVERAGE_WARN_RATIO = 0.75;
+const PDF_PLAN_EDGE_EXCLUSION_RATIO = 0.05;
+const PDF_PLAN_MAX_EDGE_PAGES = 6;
+const PDF_PLAN_MIN_PAGES_FOR_EDGE_EXCLUSION = 18;
+const PDF_PLAN_MAX_REPORTED_GAPS = 8;
+const PDF_PLAN_FRAGMENTATION_SLACK_PAGES = 2;
+
+type PageRangeSource = 'exact' | 'estimated' | 'mixed' | 'missing';
+
+interface PdfPlanLessonCoverage {
+  lessonId: string;
+  title: string;
+  type: LearningPlan['sections'][number]['type'];
+  chunkCount: number;
+  chunkIds: string[];
+  coveredPageCount: number;
+  coveredPages: number[];
+  flags: string[];
+  pageRange: string | null;
+  pageRangeLength: number;
+  pageRangeSource: PageRangeSource;
+}
+
+interface PdfPlanPageGap {
+  endPage: number;
+  pageCount: number;
+  startPage: number;
+}
+
+interface PdfPlanCoverageReport {
+  coveredSubstantivePages: number;
+  coverageRatio: number;
+  gapCount: number;
+  gaps: PdfPlanPageGap[];
+  lessonCount: number;
+  lessonPageHeuristic: { max: number; min: number } | null;
+  lessonSpans: PdfPlanLessonCoverage[];
+  mappedLessonCount: number;
+  mappingSource: 'fallback' | 'mapped';
+  missingLessonCount: number;
+  pageCount: number;
+  parser: 'pdftotext' | 'pdf-parse' | 'unknown';
+  substantiveRange: { endPage: number; pageCount: number; startPage: number };
+  warnings: string[];
+}
 
 interface SectionBuffer {
   headingPath: string[];
@@ -269,6 +317,98 @@ const buildChunkText = (paragraphs: string[]): string => paragraphs.join('\n\n')
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
+
+const logPdfPlanDebug = (label: string, payload: Record<string, unknown>) => {
+  console.groupCollapsed(`[Lumina][PDF Plan] ${label}`);
+  Object.entries(payload).forEach(([key, value]) => {
+    console.info(key, value);
+  });
+  console.groupEnd();
+};
+
+const formatPageRange = (startPage: number | undefined, endPage: number | undefined): string | null => {
+  if (!Number.isInteger(startPage) || !Number.isInteger(endPage)) {
+    return null;
+  }
+
+  return startPage === endPage ? `pag. ${startPage}` : `pag. ${startPage}-${endPage}`;
+};
+
+const expandPageRange = (startPage: number, endPage: number): number[] =>
+  Array.from({ length: Math.max(0, endPage - startPage + 1) }, (_, index) => startPage + index);
+
+const compressPagesToGaps = (pages: number[]): PdfPlanPageGap[] => {
+  if (pages.length === 0) {
+    return [];
+  }
+
+  const sortedPages = [...pages].sort((left, right) => left - right);
+  const gaps: PdfPlanPageGap[] = [];
+  let rangeStart = sortedPages[0];
+  let previousPage = sortedPages[0];
+
+  for (let index = 1; index < sortedPages.length; index += 1) {
+    const page = sortedPages[index];
+    if (page === previousPage + 1) {
+      previousPage = page;
+      continue;
+    }
+
+    gaps.push({
+      startPage: rangeStart,
+      endPage: previousPage,
+      pageCount: previousPage - rangeStart + 1,
+    });
+    rangeStart = page;
+    previousPage = page;
+  }
+
+  gaps.push({
+    startPage: rangeStart,
+    endPage: previousPage,
+    pageCount: previousPage - rangeStart + 1,
+  });
+  return gaps;
+};
+
+const resolvePdfPlanSubstantiveRange = (pageCount: number) => {
+  if (pageCount < PDF_PLAN_MIN_PAGES_FOR_EDGE_EXCLUSION) {
+    return {
+      startPage: 1,
+      endPage: pageCount,
+      pageCount,
+    };
+  }
+
+  const edgePages = clamp(
+    Math.round(pageCount * PDF_PLAN_EDGE_EXCLUSION_RATIO),
+    1,
+    PDF_PLAN_MAX_EDGE_PAGES
+  );
+  const startPage = Math.min(pageCount, 1 + edgePages);
+  const endPage = Math.max(startPage, pageCount - edgePages);
+  return {
+    startPage,
+    endPage,
+    pageCount: endPage - startPage + 1,
+  };
+};
+
+const resolveSoftLessonPageBounds = (pageCount: number): { min: number; max: number } | null => {
+  if (pageCount >= 120) {
+    return { min: 10, max: 30 };
+  }
+
+  if (pageCount >= 61) {
+    return { min: 8, max: 24 };
+  }
+
+  if (pageCount >= 25) {
+    return { min: 4, max: 18 };
+  }
+
+  return null;
+};
 
 const buildCompactSnippet = (text: string, maxChars: number): string => {
   const normalized = normalizeWhitespace(text);
@@ -526,7 +666,11 @@ REGOLE:
 4. Se un concetto e chiaramente a cavallo tra due chunk, puoi selezionarli entrambi.
 5. Usa solo i chunk presenti nella lista.
 6. I chunk sono riassunti compatti: basati su headingPath, preview e lunghezza.
-7. Restituisci SOLO JSON valido.
+7. Le lezioni sono gia in ordine didattico: quando possibile, assegna chunk in un ordine coerente con la sequenza del documento.
+8. Evita di concentrare troppe lezioni sugli stessi primi chunk se il documento continua con contenuto nuovo rilevante.
+9. Se il documento e progressivo, le lezioni successive dovrebbero in genere puntare a chunk con sequence uguale o maggiore rispetto alle lezioni precedenti, salvo richiami indispensabili.
+10. Se una lezione rappresenta un blocco distinto del libro, preferisci chunk contigui della stessa zona invece di saltare avanti e indietro senza motivo.
+11. Restituisci SOLO JSON valido.
 
 LEZIONI:
 ${JSON.stringify(lessons, null, 2)}
@@ -647,6 +791,7 @@ const mapLessonsToChunkIds = async (
         () =>
           callOpenRouter({
             model: MODEL_FLASH,
+            reasoning: MAX_REASONING_CONFIG,
             messages: [{ role: 'user', content: prompt }],
             response_format: { type: 'json_object' },
             max_tokens: resolveMappingMaxTokens(lessonBatch.length),
@@ -673,6 +818,233 @@ const mapLessonsToChunkIds = async (
   }
 
   return mappings;
+};
+
+const buildPdfPlanCoverageReport = (
+  plan: LearningPlan,
+  documentIndex: PdfTextIndex,
+  pageCount: number,
+  pdfPages: PdfTextPage[] | undefined,
+  parser: 'pdftotext' | 'pdf-parse' | undefined,
+  mappingSource: 'fallback' | 'mapped'
+): PdfPlanCoverageReport => {
+  const pageLayout = buildPdfPageTextLayout(pdfPages);
+  const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
+  const lessonPageHeuristic = resolveSoftLessonPageBounds(pageCount);
+
+  const lessonSpans = plan.sections
+    .filter(section => section.type !== 'summary')
+    .map(section => {
+      const primaryChunks = (section.primaryChunkIds || [])
+        .map(chunkId => indexById.get(chunkId))
+        .filter((chunk): chunk is PdfTextChunk => Boolean(chunk));
+      const chunkSpans = primaryChunks
+        .map(chunk => resolvePdfChunkPageSpan(documentIndex, chunk, pageCount, pageLayout))
+        .filter(
+          (
+            span
+          ): span is {
+            startPage: number;
+            endPage: number;
+            exact: boolean;
+          } => Boolean(span)
+        );
+
+      if (chunkSpans.length === 0) {
+        return {
+          lessonId: section.id,
+          title: section.title,
+          type: section.type,
+          chunkCount: primaryChunks.length,
+          chunkIds: primaryChunks.map(chunk => chunk.id),
+          coveredPageCount: 0,
+          coveredPages: [],
+          flags: ['missing-mapping'],
+          pageRange: null,
+          pageRangeLength: 0,
+          pageRangeSource: 'missing' as const,
+        } satisfies PdfPlanLessonCoverage;
+      }
+
+      const coveredPages = Array.from(
+        new Set(chunkSpans.flatMap(span => expandPageRange(span.startPage, span.endPage)))
+      ).sort((left, right) => left - right);
+      const startPage = coveredPages[0];
+      const endPage = coveredPages[coveredPages.length - 1];
+      const pageRangeLength = endPage - startPage + 1;
+      const coveredPageCount = coveredPages.length;
+      const flags: string[] = [];
+
+      if (
+        lessonPageHeuristic &&
+        coveredPageCount > 0 &&
+        coveredPageCount < lessonPageHeuristic.min
+      ) {
+        flags.push('too-narrow');
+      }
+
+      if (lessonPageHeuristic && pageRangeLength > lessonPageHeuristic.max) {
+        flags.push('too-wide');
+      }
+
+      if (coveredPageCount + PDF_PLAN_FRAGMENTATION_SLACK_PAGES < pageRangeLength) {
+        flags.push('fragmented');
+      }
+
+      return {
+        lessonId: section.id,
+        title: section.title,
+        type: section.type,
+        chunkCount: primaryChunks.length,
+        chunkIds: primaryChunks.map(chunk => chunk.id),
+        coveredPageCount,
+        coveredPages,
+        flags,
+        pageRange: formatPageRange(startPage, endPage),
+        pageRangeLength,
+        pageRangeSource:
+          chunkSpans.every(span => span.exact)
+            ? 'exact'
+            : chunkSpans.some(span => span.exact)
+              ? 'mixed'
+              : 'estimated',
+      } satisfies PdfPlanLessonCoverage;
+    });
+
+  const substantiveRange = resolvePdfPlanSubstantiveRange(pageCount);
+  const substantivePages = expandPageRange(substantiveRange.startPage, substantiveRange.endPage);
+  const coveredSubstantivePages = new Set<number>();
+
+  lessonSpans.forEach(lesson => {
+    lesson.coveredPages.forEach(page => {
+      if (page >= substantiveRange.startPage && page <= substantiveRange.endPage) {
+        coveredSubstantivePages.add(page);
+      }
+    });
+  });
+
+  const uncoveredSubstantivePages = substantivePages.filter(page => !coveredSubstantivePages.has(page));
+  const gaps = compressPagesToGaps(uncoveredSubstantivePages);
+  const coverageRatio =
+    substantiveRange.pageCount > 0
+      ? coveredSubstantivePages.size / substantiveRange.pageCount
+      : 1;
+
+  const missingLessons = lessonSpans.filter(lesson => lesson.flags.includes('missing-mapping'));
+  const tooNarrowLessons = lessonSpans.filter(lesson => lesson.flags.includes('too-narrow'));
+  const tooWideLessons = lessonSpans.filter(lesson => lesson.flags.includes('too-wide'));
+  const fragmentedLessons = lessonSpans.filter(lesson => lesson.flags.includes('fragmented'));
+  const warnings: string[] = [];
+
+  if (coverageRatio < PDF_PLAN_COVERAGE_WARN_RATIO) {
+    warnings.push(
+      `Copertura sostanziale stimata bassa: ${(coverageRatio * 100).toFixed(1)}% delle pagine utili contro un target morbido del ${(PDF_PLAN_COVERAGE_TARGET_RATIO * 100).toFixed(0)}%.`
+    );
+  } else if (coverageRatio < PDF_PLAN_COVERAGE_TARGET_RATIO) {
+    warnings.push(
+      `Copertura sotto il target morbido: ${(coverageRatio * 100).toFixed(1)}% delle pagine utili coperte.`
+    );
+  }
+
+  if (gaps.length > 0) {
+    const visibleGaps = gaps.slice(0, PDF_PLAN_MAX_REPORTED_GAPS);
+    warnings.push(
+      `Sono presenti ${gaps.length} gap interni nella copertura del PDF; primi gap: ${visibleGaps.map(gap => formatPageRange(gap.startPage, gap.endPage)).filter(Boolean).join(', ')}.`
+    );
+  }
+
+  if (missingLessons.length > 0) {
+    warnings.push(
+      `${missingLessons.length} lezioni non hanno chunk primari risolti dopo il mapping.`
+    );
+  }
+
+  if (tooNarrowLessons.length > 0) {
+    warnings.push(
+      `${tooNarrowLessons.length} lezioni risultano molto strette rispetto all'euristica di pagine per lezione.`
+    );
+  }
+
+  if (tooWideLessons.length > 0) {
+    warnings.push(
+      `${tooWideLessons.length} lezioni risultano molto ampie rispetto all'euristica di pagine per lezione.`
+    );
+  }
+
+  if (fragmentedLessons.length > 0) {
+    warnings.push(
+      `${fragmentedLessons.length} lezioni mappano pagine troppo sparse o non contigue.`
+    );
+  }
+
+  return {
+    coveredSubstantivePages: coveredSubstantivePages.size,
+    coverageRatio: Number.parseFloat(coverageRatio.toFixed(4)),
+    gapCount: gaps.length,
+    gaps,
+    lessonCount: lessonSpans.length,
+    lessonPageHeuristic,
+    lessonSpans,
+    mappedLessonCount: lessonSpans.filter(lesson => lesson.pageRange).length,
+    mappingSource,
+    missingLessonCount: missingLessons.length,
+    pageCount,
+    parser: parser || 'unknown',
+    substantiveRange,
+    warnings,
+  };
+};
+
+const emitPdfPlanCoverageDiagnostics = (
+  fileName: string,
+  plan: LearningPlan,
+  documentIndex: PdfTextIndex,
+  pdfSession:
+    | {
+        pages?: PdfTextPage[];
+        pageCount?: number;
+        parser?: 'pdftotext' | 'pdf-parse';
+      }
+    | null
+    | undefined,
+  mappingSource: 'fallback' | 'mapped'
+): void => {
+  const pageCount = pdfSession?.pageCount || documentIndex.pageCount;
+  if (!pageCount || pageCount < 1) {
+    return;
+  }
+
+  const report = buildPdfPlanCoverageReport(
+    plan,
+    documentIndex,
+    pageCount,
+    pdfSession?.pages,
+    pdfSession?.parser,
+    mappingSource
+  );
+  const payload = {
+    fileName,
+    ...report,
+  };
+
+  logPdfPlanDebug('Coverage summary', payload);
+  pushLuminaDebugTrace('pdf-plan:coverage', payload);
+
+  if (report.warnings.length > 0) {
+    logPdfPlanDebug('Coverage warnings', {
+      fileName,
+      warningCount: report.warnings.length,
+      warnings: report.warnings,
+    });
+    pushLuminaDebugTrace('pdf-plan:coverage-warning', {
+      fileName,
+      warningCount: report.warnings.length,
+      warnings: report.warnings,
+      coverageRatio: report.coverageRatio,
+      gapCount: report.gapCount,
+      mappingSource: report.mappingSource,
+    });
+  }
 };
 
 const applyChunkMappings = (
@@ -717,8 +1089,10 @@ export const preparePdfLessonMappings = async (
     const fallbackChunkIds = documentIndex.chunks
       .slice(0, Math.min(2, documentIndex.chunks.length))
       .map(chunk => chunk.id);
+    const learningPlan = applyChunkMappings(plan, mappings, fallbackChunkIds);
+    emitPdfPlanCoverageDiagnostics(file.name, learningPlan, documentIndex, pdfSession, 'mapped');
     return {
-      learningPlan: applyChunkMappings(plan, mappings, fallbackChunkIds),
+      learningPlan,
       documentIndex,
     };
   } catch (error) {
@@ -726,8 +1100,10 @@ export const preparePdfLessonMappings = async (
       '[Lumina][DocumentIndex] Mapping failed, falling back to default chunk assignment.',
       error
     );
+    const learningPlan = buildMappingFallback(plan, documentIndex);
+    emitPdfPlanCoverageDiagnostics(file.name, learningPlan, documentIndex, pdfSession, 'fallback');
     return {
-      learningPlan: buildMappingFallback(plan, documentIndex),
+      learningPlan,
       documentIndex,
     };
   }

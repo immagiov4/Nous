@@ -109,6 +109,7 @@ describe('useLibraryAssistantChat', () => {
       useLibraryAssistantChat({
         folders: stableFolders,
         loadProjectsById,
+        preferredContextModel: 'openai/gpt-5.4-mini',
         projects: stableProjects,
         tree: loadedTree,
       })
@@ -137,6 +138,7 @@ describe('useLibraryAssistantChat', () => {
 
     expect(preparedRequest).toMatchObject({
       body: {
+        modelOverride: 'openai/gpt-5.4-mini',
         toolPreferences: expect.objectContaining({
           webSearch: true,
         }),
@@ -152,6 +154,7 @@ describe('useLibraryAssistantChat', () => {
         useLibraryAssistantChat({
           folders,
           loadProjectsById,
+          preferredContextModel: 'openai/gpt-5.4-mini',
           projects,
           tree,
         }),
@@ -192,6 +195,53 @@ describe('useLibraryAssistantChat', () => {
           scopeProjectIds: [project.id],
           scopeSummary: 'Intera libreria locale (1 corsi disponibili).',
         }),
+      },
+    });
+  });
+
+  test('uses the latest preferred context model after rerender on the initial transport instance', async () => {
+    const loadProjectsById = vi.fn(async () => []);
+    const stableFolders = [folder];
+    const stableProjects = [project];
+
+    const { rerender } = renderHook(
+      ({ preferredContextModel }) =>
+        useLibraryAssistantChat({
+          folders: stableFolders,
+          loadProjectsById,
+          preferredContextModel,
+          projects: stableProjects,
+          tree: loadedTree,
+        }),
+      {
+        initialProps: {
+          preferredContextModel: '',
+        },
+      }
+    );
+
+    const initialTransport = useChatMock.mock.calls[0]?.[0]?.transport as MockDefaultChatTransport<UIMessage>;
+    expect(initialTransport).toBeDefined();
+
+    rerender({ preferredContextModel: 'openai/gpt-5.4-nano' });
+
+    expect(useChatMock.mock.calls.at(-1)?.[0]?.transport).toBe(initialTransport);
+
+    const preparedRequest = await initialTransport.prepareSendMessagesRequest?.({
+      api: 'http://localhost:3001/api/chat/library',
+      body: {},
+      credentials: undefined,
+      headers: {},
+      id: 'chat-3',
+      messageId: undefined,
+      messages: [],
+      requestMetadata: undefined,
+      trigger: 'submit-message',
+    });
+
+    expect(preparedRequest).toMatchObject({
+      body: {
+        modelOverride: 'openai/gpt-5.4-nano',
       },
     });
   });

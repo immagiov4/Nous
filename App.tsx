@@ -55,6 +55,7 @@ const App = () => {
   const libraryAssistantChat = useLibraryAssistantChat({
     folders: projectLibrary.libraryFolders,
     loadProjectsById: projectLibrary.loadProjectsById,
+    preferredContextModel: readerRuntime.preferredModels.preferredContextModel,
     projects: projectLibrary.savedProjects,
     tree: projectLibrary.libraryTree,
   });
@@ -327,6 +328,7 @@ const App = () => {
       onCreateLesson: readerActions.handleCreateLesson,
       onDeleteAnnotation: readerActions.handleDeleteAnnotation,
       onHighlight: readerActions.handleHighlight,
+      preferredModels: readerRuntime.preferredModels,
       onSaveConversationNote: readerActions.handleSaveConversationNote,
       onUpdateConversationNote: readerActions.handleUpdateConversationNote,
       onSaveNote: readerActions.handleSaveNote,
