@@ -1,15 +1,41 @@
-import { buildTTSServerUrl, loadServerConfig } from './config/serverConfig.js';
+import {
+  buildBackendServerUrl,
+  buildTTSServerUrl,
+  getBackendServerConfig,
+  loadServerConfig,
+} from './config/serverConfig.js';
 import { createApp } from './index.js';
 import { processManager } from './services/processManager.js';
 
 const app = createApp();
 const config = loadServerConfig();
-const PORT = process.env.BACKEND_PORT || 3001;
+const backendConfig = getBackendServerConfig(config);
 
-const server = app.listen(PORT, () => {
-  console.log(`[Backend] Server running on http://localhost:${PORT}`);
-  console.log(`[Backend] TTS API available at http://localhost:${PORT}/api/tts`);
+const server = app.listen(backendConfig.backendPort, backendConfig.backendHost, () => {
+  const backendUrl = buildBackendServerUrl(backendConfig, { displayHost: true });
+  console.log(`[Backend] Server running on ${backendUrl}`);
+  console.log(`[Backend] TTS API available at ${backendUrl}/api/tts`);
   console.log(`[Backend] Expecting TTS server at ${buildTTSServerUrl(config)}`);
+});
+
+server.on('error', (error: NodeJS.ErrnoException) => {
+  const backendUrl = buildBackendServerUrl(backendConfig, { displayHost: true });
+  const reconfigureHint =
+    'Update "backendPort" in server.config.json or set BACKEND_PORT/VITE_BACKEND_PORT to an open port.';
+
+  if (error.code === 'EACCES') {
+    console.error(
+      `[Backend] Permission denied while binding ${backendUrl}. ${reconfigureHint}`
+    );
+    process.exit(1);
+  }
+
+  if (error.code === 'EADDRINUSE') {
+    console.error(`[Backend] ${backendUrl} is already in use. ${reconfigureHint}`);
+    process.exit(1);
+  }
+
+  throw error;
 });
 
 let isShuttingDown = false;

@@ -48,6 +48,13 @@ test('selectors derive active section content, quiz and music from the learning 
   assert.equal(selectMusicUrl(state), 'https://example.com/music');
 });
 
+test('empty workspace domain state starts without laboratory data', () => {
+  const state = createEmptyWorkspaceDomainState();
+
+  assert.equal(state.laboratory, null);
+  assert.equal(state.activeLaboratoryExerciseId, null);
+});
+
 test('needsSourceFile is derived instead of mutated manually', () => {
   assert.equal(selectNeedsSourceFile(buildState({ source: null, isLearnMode: false })), true);
   assert.equal(selectNeedsSourceFile(buildState({ source: null, isLearnMode: true })), false);

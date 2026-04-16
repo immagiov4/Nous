@@ -5,8 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <link rel="icon" type="image/png" href="/assets/logo.png" />
+    <link rel="icon" id="app-favicon" type="image/png" href="/assets/logo.png" />
     <title>Nous</title>
+    <script>
+      (() => {
+        const lightFaviconHref = '/assets/logo.png';
+        const darkFaviconHref = '/assets/logo_darkmode.png';
+        const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+        const updateFavicon = isDarkMode => {
+          const favicon = document.getElementById('app-favicon');
+
+          if (favicon instanceof HTMLLinkElement) {
+            favicon.href = isDarkMode ? darkFaviconHref : lightFaviconHref;
+          }
+        };
+
+        updateFavicon(colorSchemeQuery.matches);
+
+        if (typeof colorSchemeQuery.addEventListener === 'function') {
+          colorSchemeQuery.addEventListener('change', event => updateFavicon(event.matches));
+          return;
+        }
+
+        if (typeof colorSchemeQuery.addListener === 'function') {
+          colorSchemeQuery.addListener(event => updateFavicon(event.matches));
+        }
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {

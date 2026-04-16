@@ -7,12 +7,20 @@ import {
   GripVertical,
   MoreVertical,
   Pencil,
-  Plus,
   Trash2,
   X,
 } from 'lucide-react';
-import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type DragEvent,
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
+import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import type { LibraryFolderNode, LibraryTree, LibraryTreeNode } from '../../types.ts';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 import { flattenLibraryTreeNodes } from '../../utils/library/tree.ts';
@@ -162,7 +170,8 @@ export default function LibraryTreeView({
   const [createTargetId, setCreateTargetId] = useState<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [folderDraftName, setFolderDraftName] = useState('');
-  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
+  const { expandedFolderIds, setExpandedFolderIds, toggleFolderExpansion } =
+    usePersistedLibraryFolderExpansion(tree);
   const [draggedItem, setDraggedItem] = useState<DraggedLibraryItem | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const [moveTarget, setMoveTarget] = useState<DraggedLibraryItem | null>(null);
@@ -184,18 +193,6 @@ export default function LibraryTreeView({
   }, []);
 
   useEffect(() => {
-    setExpandedFolderIds(currentIds => {
-      const nextIds = new Set(currentIds);
-      Object.keys(tree.folderById).forEach(folderId => {
-        if (!currentIds.has(folderId)) {
-          nextIds.add(folderId);
-        }
-      });
-      return nextIds;
-    });
-  }, [tree.folderById]);
-
-  useEffect(() => {
     if (!createRootTrigger) return;
     setCreateTargetId(ROOT_CREATE_KEY);
     setEditingFolderId(null);
@@ -215,14 +212,14 @@ export default function LibraryTreeView({
   const TOUCH_HOLD_MS = 300;
   const TOUCH_SLOP_PX = 8;
 
-  const cancelTouchHold = () => {
+  const cancelTouchHold = useCallback(() => {
     if (touchHoldTimerRef.current !== null) {
       clearTimeout(touchHoldTimerRef.current);
       touchHoldTimerRef.current = null;
     }
     touchDragRef.current = null;
     touchStartPointRef.current = null;
-  };
+  }, []);
 
   useEffect(() => {
     const handleTouchMove = (e: TouchEvent) => {
@@ -289,7 +286,7 @@ export default function LibraryTreeView({
       document.removeEventListener('touchend', handleTouchEnd);
       document.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, []);
+  }, [cancelTouchHold]);
 
   const destinationFolders = useMemo(() => resolveDestinationFolders(tree), [tree]);
 
@@ -326,30 +323,33 @@ export default function LibraryTreeView({
     setFolderDraftName('');
   };
 
-  const resolveDisabledFolderIds = (item: DraggedLibraryItem | null) => {
-    if (item?.kind !== 'folder') {
-      return new Set<string>();
-    }
+  const resolveDisabledFolderIds = useCallback(
+    (item: DraggedLibraryItem | null) => {
+      if (item?.kind !== 'folder') {
+        return new Set<string>();
+      }
 
-    const targetNode = destinationFolders.find(folderNode => folderNode.id === item.id);
-    if (!targetNode) {
-      return new Set<string>();
-    }
+      const targetNode = destinationFolders.find(folderNode => folderNode.id === item.id);
+      if (!targetNode) {
+        return new Set<string>();
+      }
 
-    const disabledIds = collectFolderDescendantIds(targetNode);
-    disabledIds.add(targetNode.id);
-    return disabledIds;
-  };
+      const disabledIds = collectFolderDescendantIds(targetNode);
+      disabledIds.add(targetNode.id);
+      return disabledIds;
+    },
+    [destinationFolders]
+  );
 
   const draggedFolderDisabledIds = useMemo(
     () => resolveDisabledFolderIds(draggedItem),
-    [destinationFolders, draggedItem]
+    [draggedItem, resolveDisabledFolderIds]
   );
   liveRef.current = { draggedFolderDisabledIds, onMoveFolder, onMoveProjects };
 
   const moveTargetDisabledFolderIds = useMemo(
     () => resolveDisabledFolderIds(moveTarget),
-    [destinationFolders, moveTarget]
+    [moveTarget, resolveDisabledFolderIds]
   );
 
   const handleMoveDroppedItem = async (
@@ -539,11 +539,13 @@ export default function LibraryTreeView({
     siblingCount = 1
   ) => {
     const paddingLeft = depth * 28;
+    const formOffsetStyle = paddingLeft > 0 ? { marginLeft: paddingLeft } : undefined;
 
     if (!isFolderNode(node)) {
       return (
-        <div
+        <li
           key={node.id}
+          aria-label={`Corso ${node.project.title}`}
           data-drag-id={node.id}
           data-drag-kind="project"
           data-drag-parent-id={parentFolderId ?? ''}
@@ -620,7 +622,7 @@ export default function LibraryTreeView({
               <DropLine />
             </div>
           ) : null}
-        </div>
+        </li>
       );
     }
 
@@ -628,50 +630,10 @@ export default function LibraryTreeView({
     const isMoveTargetDisabled = moveTargetDisabledFolderIds.has(node.id);
 
     return (
-      <div
+      <li
         key={node.id}
-        data-drag-id={node.id}
-        data-drag-kind="folder"
-        data-drag-parent-id={parentFolderId ?? ''}
-        data-drag-sibling-index={siblingIndex}
-        data-drag-sibling-count={siblingCount}
-        data-drag-children-count={node.children.length}
+        aria-label={`Cartella ${node.folder.name}`}
         className={`relative mt-2 ${isDropBefore(node.id, 'folder') || isDropAfter(node.id, 'folder') ? 'z-10' : ''}`}
-        style={{ paddingLeft }}
-        onDragOver={event => {
-          if (isMobileViewport) {
-            return;
-          }
-
-          const nextDropTarget = resolveFolderDropTarget({
-            event,
-            node,
-            parentFolderId,
-            siblingCount,
-            siblingIndex,
-          });
-          if (isDropTargetBlocked(nextDropTarget)) {
-            return;
-          }
-
-          event.preventDefault();
-          event.stopPropagation();
-          setDropTarget(nextDropTarget);
-        }}
-        onDrop={event => {
-          const nextDropTarget = resolveFolderDropTarget({
-            event,
-            node,
-            parentFolderId,
-            siblingCount,
-            siblingIndex,
-          });
-          if (isDropTargetBlocked(nextDropTarget)) {
-            return;
-          }
-
-          void handleDrop(event, nextDropTarget);
-        }}
       >
         {isDropBefore(node.id, 'folder') ? (
           <div className="absolute -top-px right-0 z-20" style={{ left: paddingLeft }}>
@@ -679,7 +641,21 @@ export default function LibraryTreeView({
           </div>
         ) : null}
         <div
+          data-drag-id={node.id}
+          data-drag-kind="folder"
+          data-drag-parent-id={parentFolderId ?? ''}
+          data-drag-sibling-index={siblingIndex}
+          data-drag-sibling-count={siblingCount}
+          data-drag-children-count={node.children.length}
           draggable={!isMobileViewport}
+          className={`group flex items-center gap-2 rounded-2xl border px-3 py-3 transition-colors ${
+            isMoveTargetDisabled
+              ? 'border-gray-200 bg-gray-50/60 dark:border-zinc-700/80 dark:bg-[#161210]'
+              : isDropInside(node.id)
+                ? 'border-amber-400 bg-amber-50/40 dark:border-amber-400/60 dark:bg-amber-500/5'
+                : 'border-gray-300 bg-white dark:border-zinc-700/80 dark:bg-[#1b1614]'
+          }`}
+          style={{ paddingLeft }}
           onDragStart={() => setDraggedItem({ id: node.id, kind: 'folder' })}
           onDragEnd={() => {
             setDraggedItem(null);
@@ -695,27 +671,44 @@ export default function LibraryTreeView({
               touchDragRef.current = { itemId: node.id, itemKind: 'folder' };
             }, TOUCH_HOLD_MS);
           }}
-          className={`group flex items-center gap-2 rounded-2xl border px-3 py-3 transition-colors ${
-            isMoveTargetDisabled
-              ? 'border-gray-200 bg-gray-50/60 dark:border-zinc-700/80 dark:bg-[#161210]'
-              : isDropInside(node.id)
-                ? 'border-amber-400 bg-amber-50/40 dark:border-amber-400/60 dark:bg-amber-500/5'
-                : 'border-gray-300 bg-white dark:border-zinc-700/80 dark:bg-[#1b1614]'
-          }`}
+          onDragOver={event => {
+            if (isMobileViewport) {
+              return;
+            }
+
+            const nextDropTarget = resolveFolderDropTarget({
+              event,
+              node,
+              parentFolderId,
+              siblingCount,
+              siblingIndex,
+            });
+            if (isDropTargetBlocked(nextDropTarget)) {
+              return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            setDropTarget(nextDropTarget);
+          }}
+          onDrop={event => {
+            const nextDropTarget = resolveFolderDropTarget({
+              event,
+              node,
+              parentFolderId,
+              siblingCount,
+              siblingIndex,
+            });
+            if (isDropTargetBlocked(nextDropTarget)) {
+              return;
+            }
+
+            void handleDrop(event, nextDropTarget);
+          }}
         >
           <button
             type="button"
-            onClick={() =>
-              setExpandedFolderIds(currentIds => {
-                const nextIds = new Set(currentIds);
-                if (nextIds.has(node.id)) {
-                  nextIds.delete(node.id);
-                } else {
-                  nextIds.add(node.id);
-                }
-                return nextIds;
-              })
-            }
+            onClick={() => toggleFolderExpansion(node.id)}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
             title={isExpanded ? 'Chiudi cartella' : 'Apri cartella'}
           >
@@ -815,27 +808,31 @@ export default function LibraryTreeView({
           </div>
         </div>
 
-        {editingFolderId === node.id ? renderFolderForm(node.id, 'rename') : null}
-        {createTargetId === node.id ? renderFolderForm(node.id, 'create') : null}
+        {editingFolderId === node.id ? <div style={formOffsetStyle}>{renderFolderForm(node.id, 'rename')}</div> : null}
+        {createTargetId === node.id ? <div style={formOffsetStyle}>{renderFolderForm(node.id, 'create')}</div> : null}
 
-        {isExpanded
-          ? node.children.map((childNode, childIndex, children) =>
+        {isExpanded && node.children.length > 0 ? (
+          <ul className="space-y-3" aria-label={`Contenuto cartella ${node.folder.name}`}>
+            {node.children.map((childNode, childIndex, children) =>
               renderNode(childNode, depth + 1, node.id, childIndex, children.length)
-            )
-          : null}
+            )}
+          </ul>
+        ) : null}
         {isDropAfter(node.id, 'folder') ? (
           <div className="absolute -bottom-px right-0 z-20" style={{ left: paddingLeft }}>
             <DropLine />
           </div>
         ) : null}
-      </div>
+      </li>
     );
   };
 
   return (
     <div>
       {openFolderMenuId ? (
-        <div
+        <button
+          type="button"
+          aria-label="Chiudi menu cartella"
           className="fixed inset-0 z-40"
           onClick={() => setOpenFolderMenuId(null)}
           onKeyDown={e => {
@@ -846,7 +843,8 @@ export default function LibraryTreeView({
 
       {createTargetId === ROOT_CREATE_KEY ? renderFolderForm(ROOT_CREATE_KEY, 'create') : null}
 
-      <div
+      <ul
+        aria-label="Albero corsi"
         className={`space-y-3 rounded-[1.4rem] transition-colors ${
           dropTarget?.targetKind === 'root' ? 'bg-amber-50/50 dark:bg-amber-500/8' : ''
         }`}
@@ -891,11 +889,11 @@ export default function LibraryTreeView({
             )
           )
         ) : (
-          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50/70 px-4 py-8 text-sm text-gray-500 dark:border-zinc-700/80 dark:bg-[#1b1614] dark:text-zinc-400">
+          <li className="list-none rounded-2xl border border-dashed border-gray-300 bg-gray-50/70 px-4 py-8 text-sm text-gray-500 dark:border-zinc-700/80 dark:bg-[#1b1614] dark:text-zinc-400">
             Nessun corso salvato da organizzare.
-          </div>
+          </li>
         )}
-      </div>
+      </ul>
 
       {moveTarget ? (
         <div className="fixed inset-0 z-40 flex items-end bg-black/30 p-3 md:items-center md:justify-center">

@@ -32,6 +32,7 @@ const FENCED_BLOCK_WITH_ORPHANED_CONTINUATION_REGEX =
   /((```|~~~)[^\n]*\n[\s\S]*?\n)(\2[^\n]*\n)((?:[ \t].*\n)+)/g;
 const MATH_DELIMITER_REGEX =
   /(\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
+const BARE_PAREN_INLINE_MATH_REGEX = /\(([^()\n]*\\[A-Za-z]+[^()\n]*)\)/g;
 const SINGLE_LINE_CODE_BLOCK_REGEX = /^([A-Za-z0-9+#.-]+)\s+(.+)$/;
 const CODE_LIKE_INLINE_REGEX =
   /(#include\b|std::|->|=>|::|[{}[\];]|<=|>=|==|!=|\b(?:while|for|if|else|return|const|let|var|int|float|double|bool|char|void|class|struct|template|auto)\b)/;
@@ -261,6 +262,19 @@ const repairMathExpressionForKatex = (value: string): string =>
 const repairMathMarkdown = (segment: string): string =>
   segment.replace(MATH_DELIMITER_REGEX, expression => repairMathExpressionForKatex(expression));
 
+const normalizeBareParenInlineMath = (segment: string): string =>
+  segment
+    .split(MATH_DELIMITER_REGEX)
+    .map((part, i) =>
+      i % 2 === 1 ? part : part.replace(BARE_PAREN_INLINE_MATH_REGEX, (_, body) => `$${body}$`)
+    )
+    .join('');
+
+const normalizeBackslashDelimitedMath = (segment: string): string =>
+  segment
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_match, body: string) => `$$${body}$$`)
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_match, body: string) => `$${body}$`);
+
 const LIKELY_DISPLAY_MATH_CONTENT_REGEX =
   /(\\[A-Za-z]+|[_^=]|\\frac|\\sum|\\int|\\approx|\\cdot|\\omega|\\theta|\\alpha|\\beta|\\gamma|\\lambda)/;
 
@@ -306,7 +320,11 @@ const getDisplayMathClosingDelimiter = (line: string): '$$' | '\\]' | null => {
 };
 
 const processMarkdownSegment = (segment: string): string => {
-  const lines = normalizeOrphanedBracketDisplayMath(repairMathMarkdown(segment))
+  const lines = repairMathMarkdown(
+    normalizeBareParenInlineMath(
+      normalizeBackslashDelimitedMath(normalizeOrphanedBracketDisplayMath(segment))
+    )
+  )
     .replace(/\r/g, '')
     .split('\n');
   const output: string[] = [];

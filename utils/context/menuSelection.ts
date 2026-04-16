@@ -68,14 +68,22 @@ const extractRangeText = (range: Range, fallbackText = ''): string => {
         return;
       }
 
-      katexNode.querySelectorAll(KATEX_TEX_ANNOTATION_SELECTOR).forEach(node => node.remove());
+      katexNode.querySelectorAll(KATEX_TEX_ANNOTATION_SELECTOR).forEach(node => {
+        node.remove();
+      });
       if (katexNode.querySelector('.katex-mathml')) {
-        katexNode.querySelectorAll('.katex-html').forEach(node => node.remove());
+        katexNode.querySelectorAll('.katex-html').forEach(node => {
+          node.remove();
+        });
       }
     });
 
-    container.querySelectorAll(KATEX_TEX_ANNOTATION_SELECTOR).forEach(node => node.remove());
-    container.querySelectorAll('script, style').forEach(node => node.remove());
+    container.querySelectorAll(KATEX_TEX_ANNOTATION_SELECTOR).forEach(node => {
+      node.remove();
+    });
+    container.querySelectorAll('script, style').forEach(node => {
+      node.remove();
+    });
 
     return normalizeMathSelectionArtifacts(container.textContent || fallbackText || '');
   } catch {

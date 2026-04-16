@@ -1,8 +1,20 @@
 import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex.ts';
-import type { LearningSection, PdfTextChunk, PdfTextIndex, ProjectSource } from '../../types.ts';
+import type {
+  LaboratoryExercise,
+  LearningSection,
+  PdfTextChunk,
+  PdfTextIndex,
+  ProjectSource,
+} from '../../types.ts';
 
 const MAX_CONTEXT_SOURCE_CHARS = 168_000;
 const MAX_PDF_SOURCE_CHUNKS = 6;
+
+interface ResolvedPageSpan {
+  endPage: number;
+  exact: boolean;
+  startPage: number;
+}
 
 const clip = (value: string) => {
   if (value.length <= MAX_CONTEXT_SOURCE_CHARS) {
@@ -52,24 +64,63 @@ const buildPdfSourceMaterial = (
     .join('\n\n---\n\n');
 };
 
-const formatPageRangeLabel = (startPage: number, endPage: number, exact: boolean): string => {
-  const baseLabel = startPage === endPage ? `pag. ${startPage}` : `pag. ${startPage}-${endPage}`;
-  return exact ? baseLabel : `${baseLabel} (stima)`;
+const formatPageRangeSegment = (startPage: number, endPage: number): string =>
+  startPage === endPage ? `${startPage}` : `${startPage}-${endPage}`;
+
+const mergeResolvedPageSpans = (spans: ResolvedPageSpan[]): ResolvedPageSpan[] => {
+  if (spans.length === 0) {
+    return [];
+  }
+
+  const sortedSpans = [...spans].sort((left, right) => {
+    if (left.startPage !== right.startPage) {
+      return left.startPage - right.startPage;
+    }
+
+    return left.endPage - right.endPage;
+  });
+
+  return sortedSpans.reduce<ResolvedPageSpan[]>((mergedSpans, span) => {
+    const previousSpan = mergedSpans[mergedSpans.length - 1];
+
+    if (!previousSpan || span.startPage > previousSpan.endPage + 1) {
+      mergedSpans.push({ ...span });
+      return mergedSpans;
+    }
+
+    previousSpan.endPage = Math.max(previousSpan.endPage, span.endPage);
+    previousSpan.exact = previousSpan.exact && span.exact;
+    return mergedSpans;
+  }, []);
 };
 
-export const getLessonSourcePageLabel = ({
-  activeSection,
+const formatPageRangeLabel = (spans: ResolvedPageSpan[]): string | undefined => {
+  if (spans.length === 0) {
+    return undefined;
+  }
+
+  const mergedSpans = mergeResolvedPageSpans(spans);
+  const formattedSegments = mergedSpans.map(span => {
+    const segment = formatPageRangeSegment(span.startPage, span.endPage);
+    return span.exact ? segment : `${segment} (stima)`;
+  });
+
+  return `pag. ${formattedSegments.join(', ')}`;
+};
+
+const getSourcePageLabelFromChunkIds = ({
+  chunkIds,
   documentIndex,
 }: {
-  activeSection: LearningSection | null;
+  chunkIds?: string[];
   documentIndex: PdfTextIndex | null;
 }): string | undefined => {
-  if (!activeSection?.primaryChunkIds?.length || !documentIndex?.chunks.length) {
+  if (!chunkIds?.length || !documentIndex?.chunks.length) {
     return undefined;
   }
 
   const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
-  const resolvedSpans = activeSection.primaryChunkIds
+  const resolvedSpans = chunkIds
     .map(chunkId => indexById.get(chunkId))
     .filter((chunk): chunk is PdfTextChunk => Boolean(chunk))
     .map(chunk => resolvePdfChunkPageSpan(documentIndex, chunk, documentIndex.pageCount))
@@ -87,12 +138,32 @@ export const getLessonSourcePageLabel = ({
     return undefined;
   }
 
-  return formatPageRangeLabel(
-    Math.min(...resolvedSpans.map(span => span.startPage)),
-    Math.max(...resolvedSpans.map(span => span.endPage)),
-    resolvedSpans.every(span => span.exact)
-  );
+  return formatPageRangeLabel(resolvedSpans);
 };
+
+export const getLessonSourcePageLabel = ({
+  activeSection,
+  documentIndex,
+}: {
+  activeSection: LearningSection | null;
+  documentIndex: PdfTextIndex | null;
+}): string | undefined =>
+  getSourcePageLabelFromChunkIds({
+    chunkIds: activeSection?.primaryChunkIds,
+    documentIndex,
+  });
+
+export const getLaboratorySourcePageLabel = ({
+  activeExercise,
+  documentIndex,
+}: {
+  activeExercise: LaboratoryExercise | null;
+  documentIndex: PdfTextIndex | null;
+}): string | undefined =>
+  getSourcePageLabelFromChunkIds({
+    chunkIds: activeExercise?.sourceChunkIds,
+    documentIndex,
+  });
 
 export const buildContextSourceMaterial = ({
   activeSection,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import LibraryTreeView from '../../../components/library/LibraryTreeView.tsx';
 import type { LibraryTree, SavedProjectMeta } from '../../../types.ts';
@@ -129,6 +129,10 @@ const desktopTree: LibraryTree = {
 const originalMatchMedia = window.matchMedia;
 
 describe('LibraryTreeView', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   afterEach(() => {
     window.matchMedia = originalMatchMedia;
   });
@@ -231,5 +235,87 @@ describe('LibraryTreeView', () => {
     fireEvent(dropTarget as HTMLElement, dropEvent);
 
     expect(onMoveFolder).toHaveBeenCalledWith('folder-2', null, 0);
+  });
+
+  test('persists collapsed folders across remounts', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+
+    const { unmount } = render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        tree={tree}
+      />
+    );
+
+    await user.click(screen.getByTitle('Chiudi cartella'));
+    expect(screen.queryByText('Corso Mobile')).not.toBeInTheDocument();
+
+    unmount();
+
+    render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        tree={tree}
+      />
+    );
+
+    expect(screen.queryByText('Corso Mobile')).not.toBeInTheDocument();
+    expect(screen.getByTitle('Apri cartella')).toBeInTheDocument();
+  });
+
+  test('keeps folder child content outside the folder drag surface', () => {
+    render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        tree={tree}
+      />
+    );
+
+    const folderContent = screen.getByLabelText('Contenuto cartella Frontend');
+
+    expect(folderContent.closest('[draggable="true"]')).toBeNull();
+  });
+
+  test('uses the same vertical spacing inside expanded folders as the root list', () => {
+    render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        tree={tree}
+      />
+    );
+
+    expect(screen.getByLabelText('Contenuto cartella Frontend')).toHaveClass('space-y-3');
   });
 });

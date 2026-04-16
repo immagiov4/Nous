@@ -5,11 +5,13 @@ import {
   selectActiveSection,
   selectActiveSectionContent,
   selectActiveSectionQuiz,
+  selectGenerationNotes,
   selectMusicUrl,
   selectNeedsSourceFile,
   workspaceDomainReducer,
 } from '../../services/workspace/domain';
 import type {
+  LaboratoryState,
   LearningPlan,
   LearningSection,
   PdfDocumentAssets,
@@ -31,16 +33,19 @@ export const useWorkspaceDomain = () => {
   const source = domainState.source;
   const file = useMemo(() => (source?.kind === 'pdf' ? source.file : null), [source]);
   const learningPlan = domainState.learningPlan;
+  const laboratory = domainState.laboratory;
   const documentAssets = domainState.documentAssets;
   const documentIndex = domainState.documentIndex;
   const isLearnMode = domainState.isLearnMode;
   const userProfile = domainState.userProfile;
   const syllabus = domainState.syllabus;
   const activeSectionId = domainState.activeSectionId;
+  const activeLaboratoryExerciseId = domainState.activeLaboratoryExerciseId;
   const activeSection = useMemo(() => selectActiveSection(domainState), [domainState]);
   const sectionContent = useMemo(() => selectActiveSectionContent(domainState), [domainState]);
   const quiz = useMemo(() => selectActiveSectionQuiz(domainState), [domainState]);
   const musicUrl = useMemo(() => selectMusicUrl(domainState), [domainState]);
+  const generationNotes = useMemo(() => selectGenerationNotes(domainState), [domainState]);
   const needsSourceFile = useMemo(() => selectNeedsSourceFile(domainState), [domainState]);
 
   const hydrateSnapshot = useCallback((snapshot: ProjectSnapshot) => {
@@ -57,6 +62,10 @@ export const useWorkspaceDomain = () => {
 
   const setLearningPlan = useCallback((nextPlan: LearningPlan | null) => {
     dispatch({ type: 'set-learning-plan', learningPlan: nextPlan });
+  }, []);
+
+  const setLaboratory = useCallback((nextLaboratory: LaboratoryState | null) => {
+    dispatch({ type: 'set-laboratory', laboratory: nextLaboratory });
   }, []);
 
   const setDocumentAssets = useCallback((nextAssets: PdfDocumentAssets | null) => {
@@ -83,8 +92,19 @@ export const useWorkspaceDomain = () => {
     dispatch({ type: 'set-active-section', activeSectionId: nextSectionId });
   }, []);
 
+  const setActiveLaboratoryExerciseId = useCallback((nextExerciseId: string | null) => {
+    dispatch({
+      type: 'set-active-laboratory-exercise',
+      activeLaboratoryExerciseId: nextExerciseId,
+    });
+  }, []);
+
   const setMusicUrl = useCallback((nextMusicUrl: string) => {
     dispatch({ type: 'set-music-url', musicUrl: nextMusicUrl });
+  }, []);
+
+  const setGenerationNotes = useCallback((nextNotes: string) => {
+    dispatch({ type: 'set-generation-notes', generationNotes: nextNotes });
   }, []);
 
   const updateActiveSectionContent = useCallback((content: string) => {
@@ -118,13 +138,16 @@ export const useWorkspaceDomain = () => {
   return {
     activeSection,
     activeSectionId,
+    activeLaboratoryExerciseId,
     documentAssets,
     documentIndex,
     domainState,
     file,
+    generationNotes,
     hydrateSnapshot,
     insertSectionAfter,
     isLearnMode,
+    laboratory,
     learningPlan,
     musicUrl,
     needsSourceFile,
@@ -132,9 +155,12 @@ export const useWorkspaceDomain = () => {
     resetDomain,
     sectionContent,
     setActiveSectionId,
+    setActiveLaboratoryExerciseId,
     setDocumentAssets,
     setDocumentIndex,
+    setGenerationNotes,
     setIsLearnMode,
+    setLaboratory,
     setLearningPlan,
     setMusicUrl,
     setSource,

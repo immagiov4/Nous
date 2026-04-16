@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai';
 import { Download, Moon, Plus, Settings2, Sun } from 'lucide-react';
 import { type ChangeEvent, useState } from 'react';
 import logoUrl from '@/assets/logo.png';
+import logoDarkModeUrl from '@/assets/logo_darkmode.png';
 import type {
   HomeChatMode,
   LibraryContextRef,
@@ -90,7 +91,6 @@ const LibraryView = ({
   modelDefaults,
   planFileInputId,
   preferredModels,
-  projects,
   pendingHomeFileName,
   sourceFileInputId,
   storageError,
@@ -119,6 +119,7 @@ const LibraryView = ({
 }: LibraryViewProps) => {
   const [isModelPanelOpen, setIsModelPanelOpen] = useState(false);
   const [newFolderTrigger, setNewFolderTrigger] = useState(0);
+  const currentLogoUrl = isDarkMode ? logoDarkModeUrl : logoUrl;
 
   return (
     <div className="min-h-screen bg-paper-light px-4 py-5 transition-colors duration-300 dark:bg-paper-dark sm:px-6 lg:px-10">
@@ -133,10 +134,10 @@ const LibraryView = ({
 
       <div className="mx-auto max-w-7xl">
         <header className="mb-6 flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <img src={logoUrl} alt="Nous" className="h-10 w-10 object-contain" />
-            <h1 className="text-3xl font-serif tracking-[-0.02em] text-gray-900 dark:text-zinc-100 sm:text-4xl">
-              Nous
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <img src={currentLogoUrl} alt="Logo Nous" className="h-10 w-10 object-contain" />
+            <h1 className="-ml-1 text-3xl font-serif tracking-[-0.02em] text-gray-900 dark:text-zinc-100 sm:text-4xl">
+              ous
             </h1>
           </div>
 

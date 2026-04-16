@@ -161,12 +161,7 @@ export default function ContextAnswerPanel({
       contextBefore: contextAnswer.contextBefore,
       selectedText: contextAnswer.selectedText,
     };
-  }, [
-    contextAnswer.contextAfter,
-    contextAnswer.contextBefore,
-    contextAnswer.id,
-    contextAnswer.selectedText,
-  ]);
+  }, [contextAnswer.contextAfter, contextAnswer.contextBefore, contextAnswer.selectedText]);
 
   const latestRequestStateRef = useRef({
     attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
@@ -338,6 +333,10 @@ export default function ContextAnswerPanel({
   }, [isToolMenuOpen]);
 
   useEffect(() => {
+    if (!contextAnswer.id) {
+      return;
+    }
+
     hasSubmittedInitialQuestionRef.current = false;
     setIsToolMenuOpen(false);
     setToolPreferences({

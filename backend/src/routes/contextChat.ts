@@ -15,8 +15,6 @@ import { sendErrorResponse } from '../utils/httpResponses.js';
 
 import {
   buildContextSystemPrompt,
-  buildContextWebSearchMandate,
-  buildToolNarrationMandate,
   type ContextChatToolPreferences,
   isUiMessageArray,
   LIBRARY_WEB_SEARCH_TOOL_NAME,
@@ -188,11 +186,12 @@ const contextChatTools = {
         noteDraft: {
           type: 'string',
           description:
-            'Bozza della nota da salvare: chiara, riusabile e abbastanza sviluppata da restare utile quando verra riletta da sola.',
+            'Bozza della nota da salvare: chiara, riusabile e abbastanza sviluppata da restare utile quando verra riletta da sola. Deve aggiungere un chiarimento reale rispetto al testo, non limitarsi a ripeterlo o parafrasarlo.',
         },
         rationale: {
           type: 'string',
-          description: 'Spiegazione breve del motivo per cui vale la pena salvarla.',
+          description:
+            'Spiegazione breve del motivo per cui vale la pena salvarla, indicando quale dubbio scioglie o quale implicito rende esplicito.',
         },
         selectedTextDraft: {
           type: 'string',
@@ -237,7 +236,7 @@ const contextChatTools = {
         note: {
           type: 'string',
           description:
-            'Nota finale da salvare nella lezione: chiara, autosufficiente e non telegrafica.',
+            'Nota finale da salvare nella lezione: chiara, autosufficiente e non telegrafica. Deve concentrare il valore aggiunto emerso nel follow-up, non ripetere il contenuto gia evidente nel passaggio.',
         },
         selectedText: {
           type: 'string',
@@ -298,7 +297,7 @@ const contextChatTools = {
         note: {
           type: 'string',
           description:
-            'Nuova versione della nota da salvare sul passaggio esistente, riscritta in modo chiaro e autosufficiente.',
+            'Nuova versione della nota da salvare sul passaggio esistente, riscritta in modo chiaro e autosufficiente. Deve privilegiare la formulazione che chiarisce il dubbio reale o l implicito, non la semplice ripetizione del testo originale.',
         },
         selectedText: {
           type: 'string',

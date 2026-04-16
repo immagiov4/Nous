@@ -118,6 +118,28 @@ test('treats legacy fallback mappings as stale when most lessons point to the fi
   assert.equal(needsPdfProjectHydration(pdfFile, stalePlan, largeReadyIndex), true);
 });
 
+test('treats explicit fallback mapping markers as stale even when chunk ids vary across lessons', () => {
+  const stalePlan: LearningPlan = {
+    title: 'Percorso',
+    summary: '',
+    sections: Array.from({ length: 4 }, (_, index) => ({
+      id: `lesson-${index + 1}`,
+      title: `Lezione ${index + 1}`,
+      description: 'Intro',
+      isCompleted: false,
+      type: 'core' as const,
+      primaryChunkIds: [`chunk-00${index + 1}`],
+      primaryChunkMappingSource: 'fallback' as const,
+    })),
+  };
+
+  assert.equal(
+    getPdfProjectHydrationState(pdfFile, stalePlan, largeReadyIndex),
+    'missing-primary-chunk-mappings'
+  );
+  assert.equal(needsPdfProjectHydration(pdfFile, stalePlan, largeReadyIndex), true);
+});
+
 test('does not flag small documents that only have the first chunks available', () => {
   const smallDocPlan: LearningPlan = {
     title: 'Percorso',
@@ -134,4 +156,32 @@ test('does not flag small documents that only have the first chunks available', 
 
   assert.equal(getPdfProjectHydrationState(pdfFile, smallDocPlan, readyIndex), 'ready');
   assert.equal(needsPdfProjectHydration(pdfFile, smallDocPlan, readyIndex), false);
+});
+
+test('ignores unmapped summary sections when deciding if a pdf plan is hydrated', () => {
+  const planWithSummary: LearningPlan = {
+    title: 'Percorso',
+    summary: '',
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Lezione 1',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+        primaryChunkIds: ['chunk-001'],
+        primaryChunkMappingSource: 'mapped',
+      },
+      {
+        id: 'summary-1',
+        title: 'Riepilogo',
+        description: 'Sintesi',
+        isCompleted: false,
+        type: 'summary',
+      },
+    ],
+  };
+
+  assert.equal(getPdfProjectHydrationState(pdfFile, planWithSummary, readyIndex), 'ready');
+  assert.equal(needsPdfProjectHydration(pdfFile, planWithSummary, readyIndex), false);
 });

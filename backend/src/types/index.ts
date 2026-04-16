@@ -18,6 +18,8 @@ export interface VoiceProfilesConfig {
 }
 
 export interface ServerConfig {
+  backendHost: string;
+  backendPort: number;
   pythonExecutable: string;
   ttsServerModule: string;
   ttsServerCwd: string;

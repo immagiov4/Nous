@@ -1,3 +1,5 @@
+import serverConfig from '../../server.config.json';
+
 import type { OpenRouterModelSlot } from '../../types.ts';
 import { readUiPreferences } from '../preferences/uiPreferencesStorage.ts';
 import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from './prompts.ts';
@@ -40,8 +42,37 @@ export const resolveOpenRouterModel = (
   return preferredModel || fallbackModel;
 };
 
-export const DEFAULT_BACKEND_PORT = 3001;
-export const DEFAULT_BACKEND_URL = `http://localhost:${DEFAULT_BACKEND_PORT}`;
+const FALLBACK_BACKEND_HOST = '127.0.0.1';
+const FALLBACK_BACKEND_PORT = 3301;
+
+const normalizeHost = (value: unknown, fallback: string): string => {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || fallback;
+};
+
+const normalizePort = (value: unknown, fallback: number): number => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const isLoopbackHost = (host: string): boolean =>
+  host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+
+const isWildcardHost = (host: string): boolean => host === '0.0.0.0' || host === '::';
+
+export const DEFAULT_BACKEND_HOST = normalizeHost(
+  import.meta.env.VITE_BACKEND_HOST,
+  serverConfig.backendHost || FALLBACK_BACKEND_HOST
+);
+export const DEFAULT_BACKEND_PORT = normalizePort(
+  import.meta.env.VITE_BACKEND_PORT,
+  serverConfig.backendPort || FALLBACK_BACKEND_PORT
+);
+export const DEFAULT_BACKEND_URL = `http://${DEFAULT_BACKEND_HOST}:${DEFAULT_BACKEND_PORT}`;
 
 const getSameHostBackendUrl = (): string | null => {
   if (typeof window === 'undefined') {
@@ -50,6 +81,10 @@ const getSameHostBackendUrl = (): string | null => {
 
   const { hostname, protocol } = window.location;
   if (!hostname || protocol === 'file:') {
+    return null;
+  }
+
+  if (!isWildcardHost(DEFAULT_BACKEND_HOST) && !isLoopbackHost(DEFAULT_BACKEND_HOST)) {
     return null;
   }
 

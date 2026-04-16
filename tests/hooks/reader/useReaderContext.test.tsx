@@ -5,7 +5,7 @@ import { act, renderHook } from '@testing-library/react';
 import { test, vi } from 'vitest';
 import { useReaderContext } from '../../../hooks/reader/useReaderContext.ts';
 
-const buildSelection = (container: HTMLDivElement, textNode: Text, selectedText: string) => {
+const buildSelection = (_container: HTMLDivElement, textNode: Text, selectedText: string) => {
   const beforeRange = {
     selectNodeContents: () => {},
     setEnd: () => {},

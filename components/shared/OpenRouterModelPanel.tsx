@@ -6,8 +6,15 @@ import type {
   OpenRouterModelSlot,
 } from '../../types.ts';
 
+export interface CourseGenerationNotesBinding {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}
+
 interface OpenRouterModelPanelProps {
   className?: string;
+  courseNotes?: CourseGenerationNotesBinding;
   defaultModels: OpenRouterModelDefaults;
   onClose?: () => void;
   onModelChange: (slot: OpenRouterModelSlot, value: string) => void;
@@ -42,6 +49,7 @@ const modelFields: Array<{
 
 export default function OpenRouterModelPanel({
   className,
+  courseNotes,
   defaultModels,
   onClose,
   onModelChange,
@@ -108,6 +116,31 @@ export default function OpenRouterModelPanel({
           </label>
         ))}
       </div>
+
+      {courseNotes ? (
+        <div className="mt-5 border-t border-gray-200 pt-4 dark:border-zinc-500/40">
+          <label className="block">
+            <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
+              Note di personalizzazione del corso
+            </span>
+            <p className="mt-1.5 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+              Scrivi come vuoi che siano generate le lezioni di questo corso: tono, livello di
+              dettaglio, cose da evitare, cose da ripetere. Hanno priorita sullo stile di default
+              quando entrano in conflitto.
+            </p>
+            <textarea
+              value={courseNotes.value}
+              onChange={event => courseNotes.onChange(event.target.value)}
+              placeholder={
+                courseNotes.placeholder ||
+                'Es. Sono a disagio con la matematica. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico prima di andare avanti.'
+              }
+              rows={5}
+              className="mt-2 w-full resize-y rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm leading-6 text-gray-900 outline-none transition-colors focus:border-gray-400 dark:border-zinc-500/60 dark:bg-stone-800 dark:text-white dark:focus:border-zinc-400"
+            />
+          </label>
+        </div>
+      ) : null}
     </div>
   );
 }

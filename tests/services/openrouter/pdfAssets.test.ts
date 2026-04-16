@@ -12,7 +12,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
     MODEL_PDF_IMAGE_CAPTION: 'nvidia/nemotron-nano-12b-v2-vl',
     callOpenRouter: callOpenRouterMock,
     retryWithBackoff: retryWithBackoffMock,
-    getBackendUrl: () => 'http://localhost:3001',
+    getBackendUrl: () => 'http://localhost:3301',
     isPdfFile: (file: FileData) => file.mimeType === 'application/pdf',
   };
 });

@@ -105,7 +105,9 @@ const ProjectCard = ({
       {/* Actions */}
       <div className="relative flex-shrink-0">
         {menuOpen ? (
-          <div
+          <button
+            type="button"
+            aria-label="Chiudi menu progetto"
             className="fixed inset-0 z-40"
             onClick={() => setMenuOpen(false)}
             onKeyDown={e => {

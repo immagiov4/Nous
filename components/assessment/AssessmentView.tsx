@@ -53,6 +53,7 @@ const AssessmentView = ({
   const currentTurn = messages.filter(message => message.role === 'user').length + 1;
   const progress = Math.min(currentTurn / ASSESSMENT_MIN_TURNS, 1);
   const showTips = messages.length <= 1;
+  const messageKeyCounts = new Map<string, number>();
 
   return (
     <div className="flex min-h-screen flex-col bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark">
@@ -137,12 +138,16 @@ const AssessmentView = ({
             </div>
           ) : null}
 
-          {messages.map((message, index) => {
+          {messages.map(message => {
             const displayContent = message.text.replace('[ASSESSMENT_COMPLETE]', '');
+            const messageSignature = `${message.role}:${displayContent}`;
+            const occurrenceCount = (messageKeyCounts.get(messageSignature) ?? 0) + 1;
+
+            messageKeyCounts.set(messageSignature, occurrenceCount);
 
             return (
               <div
-                key={`${message.role}-${index}`}
+                key={`${messageSignature}:${occurrenceCount}`}
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div

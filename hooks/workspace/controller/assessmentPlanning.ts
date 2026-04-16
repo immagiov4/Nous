@@ -28,6 +28,10 @@ import type {
 } from './types.ts';
 
 interface AssessmentPlanningDependencies {
+  generateLaboratory: (options?: { force?: boolean; openFirstExercise?: boolean }) => Promise<{
+    errorMessage?: string;
+    outcome: 'failed' | 'generated' | 'noop';
+  }>;
   openSection: (
     section: import('../../../types.ts').LearningSection,
     options?: OpenSectionOptions
@@ -153,7 +157,7 @@ const getSeededAssessmentQuestion = (session: {
 
 export const createAssessmentPlanningCommands = (
   context: WorkspaceControllerContext,
-  { openSection }: AssessmentPlanningDependencies
+  { generateLaboratory }: AssessmentPlanningDependencies
 ) => {
   const { domain, openRouter, projectLibrary, sleep, state } = context;
 
@@ -324,15 +328,11 @@ export const createAssessmentPlanningCommands = (
               activeSectionId: firstSection.id,
             })
           );
-          await openSection(firstSection, {
-            allowWhileBlocking: true,
-            currentDocumentAssets: null,
-            currentDocumentIndex: null,
-            currentPlan: plan,
-            currentSourceFile: domain.file,
-            currentSyllabus: newSyllabus,
-            currentUserProfile: args.profile,
-            isLearnMode: true,
+          void generateLaboratory({ openFirstExercise: false }).catch(error => {
+            console.error(
+              '[Lumina][Laboratory] Background generation failed after learn planning.',
+              error
+            );
           });
         }
       } else {
@@ -385,15 +385,11 @@ export const createAssessmentPlanningCommands = (
               activeSectionId: firstSection.id,
             })
           );
-          await openSection(firstSection, {
-            allowWhileBlocking: true,
-            currentDocumentAssets: null,
-            currentDocumentIndex: prepared.documentIndex,
-            currentPlan: prepared.learningPlan,
-            currentSourceFile: sourceFile,
-            currentSyllabus: domain.syllabus,
-            currentUserProfile: domain.userProfile,
-            isLearnMode: domain.isLearnMode,
+          void generateLaboratory({ openFirstExercise: false }).catch(error => {
+            console.error(
+              '[Lumina][Laboratory] Background generation failed after document planning.',
+              error
+            );
           });
         }
       }

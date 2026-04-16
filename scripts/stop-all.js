@@ -2,13 +2,15 @@
 /**
  * Stop all Lumina Deep Reader services
  *
- * Kills processes on ports 8000, 3001, 5173
+ * Kills processes on the configured backend/TTS/frontend ports
  */
 
 import { exec } from 'node:child_process';
 import { platform } from 'node:os';
+import { getBackendRuntimeConfig } from './server-config.js';
 
 const isWindows = platform() === 'win32';
+const backendConfig = getBackendRuntimeConfig();
 
 const colors = {
   reset: '\x1b[0m',
@@ -80,7 +82,7 @@ async function stopAll() {
 
   const ports = [
     { port: 8880, name: 'TTS Server' },
-    { port: 3001, name: 'Backend' },
+    { port: backendConfig.backendPort, name: 'Backend' },
     { port: 5173, name: 'Frontend' },
   ];
 

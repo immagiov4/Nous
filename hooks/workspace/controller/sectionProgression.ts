@@ -56,9 +56,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     stopAudio(true);
     domain.setActiveSectionId(section.id);
+    domain.setActiveLaboratoryExerciseId(null);
 
     if (!forceRegenerate && section.content?.length) {
       void projectLibrary.saveCurrentProject({
+        activeLaboratoryExerciseId: null,
         activeSectionId: section.id,
         state: AppState.READING,
       });
@@ -66,6 +68,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     void projectLibrary.saveCurrentProject({
+      activeLaboratoryExerciseId: null,
       activeSectionId: section.id,
       state: AppState.READING,
     });
@@ -110,7 +113,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           currentSyllabus,
           status => {
             state.setWorkflowMessage('loadSection', requestId, status);
-          }
+          },
+          currentPlan.generationNotes
         );
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {
@@ -158,7 +162,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           currentDocumentIndex,
           status => {
             state.setWorkflowMessage('loadSection', requestId, status);
-          }
+          },
+          currentPlan.generationNotes
         );
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {
@@ -271,6 +276,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     const requestId = state.beginWorkflow('createLesson', 'Creazione approfondimento...');
+    const previousPlan = domain.learningPlan;
+    const previousDocumentIndex = domain.documentIndex;
+    const previousActiveSectionId = domain.activeSectionId;
 
     try {
       const sourceFile = domain.file ?? getProjectSourceFile(domain.source);
@@ -340,15 +348,33 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         updatedPlan.sections.find(currentSection => currentSection.id === newSection.id) ||
         newSection;
       state.succeedWorkflow('createLesson', requestId);
-      await openSection(mappedNewSection, {
-        allowWhileBlocking: true,
-        currentDocumentAssets: domain.documentAssets,
-        currentDocumentIndex: nextDocumentIndex,
-        currentPlan: updatedPlan,
-        currentSourceFile: sourceFile,
-        currentSyllabus: domain.syllabus,
-        currentUserProfile: domain.userProfile,
-        isLearnMode: domain.isLearnMode,
+      try {
+        await openSection(mappedNewSection, {
+          allowWhileBlocking: true,
+          currentDocumentAssets: domain.documentAssets,
+          currentDocumentIndex: nextDocumentIndex,
+          currentPlan: updatedPlan,
+          currentSourceFile: sourceFile,
+          currentSyllabus: domain.syllabus,
+          currentUserProfile: domain.userProfile,
+          isLearnMode: domain.isLearnMode,
+        });
+      } catch (error) {
+        domain.setLearningPlan(previousPlan);
+        domain.setDocumentIndex(previousDocumentIndex);
+        domain.setActiveSectionId(previousActiveSectionId);
+        await projectLibrary.saveCurrentProject({
+          activeSectionId: previousActiveSectionId,
+          documentIndex: previousDocumentIndex,
+          learningPlan: previousPlan,
+          state: AppState.READING,
+        });
+        throw error;
+      }
+
+      await projectLibrary.saveCurrentProject({
+        activeSectionId: mappedNewSection.id,
+        documentIndex: nextDocumentIndex,
       });
       return { outcome: 'created' };
     } catch (error) {

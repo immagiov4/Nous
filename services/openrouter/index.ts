@@ -14,6 +14,11 @@ export {
   preparePdfLessonMappings,
 } from './documentIndex.ts';
 export {
+  evaluateLaboratoryExercise,
+  generateLaboratory,
+  regenerateLaboratoryExercise,
+} from './laboratory.ts';
+export {
   askContextualQuestion,
   createLearnSubChapterMetadata,
   createSubChapterMetadata,

@@ -1,4 +1,5 @@
 import type {
+  LaboratoryState,
   LearningPlan,
   LearningSection,
   PdfDocumentAssets,
@@ -15,12 +16,14 @@ import { insertSectionAfterSubtree } from '../../utils/learning/sectionTree.ts';
 export const createEmptyWorkspaceDomainState = (): WorkspaceDomainState => ({
   source: null,
   learningPlan: null,
+  laboratory: null,
   documentAssets: null,
   documentIndex: null,
   isLearnMode: false,
   userProfile: null,
   syllabus: [],
   activeSectionId: null,
+  activeLaboratoryExerciseId: null,
 });
 
 export type WorkspaceDomainAction =
@@ -28,13 +31,16 @@ export type WorkspaceDomainAction =
   | { type: 'hydrate'; snapshot: ProjectSnapshot }
   | { type: 'set-source'; source: ProjectSource | null }
   | { type: 'set-learning-plan'; learningPlan: LearningPlan | null }
+  | { type: 'set-laboratory'; laboratory: LaboratoryState | null }
   | { type: 'set-document-assets'; documentAssets: PdfDocumentAssets | null }
   | { type: 'set-document-index'; documentIndex: PdfTextIndex | null }
   | { type: 'set-learn-mode'; isLearnMode: boolean }
   | { type: 'set-user-profile'; userProfile: UserProfile | null }
   | { type: 'set-syllabus'; syllabus: SyllabusItem[] }
   | { type: 'set-active-section'; activeSectionId: string | null }
+  | { type: 'set-active-laboratory-exercise'; activeLaboratoryExerciseId: string | null }
   | { type: 'set-music-url'; musicUrl: string }
+  | { type: 'set-generation-notes'; generationNotes: string }
   | { type: 'update-active-section-content'; content: string }
   | { type: 'update-active-section-quiz'; quiz: QuizQuestion[] }
   | {
@@ -81,12 +87,14 @@ export const workspaceDomainReducer = (
       return {
         source: action.snapshot.source,
         learningPlan: action.snapshot.learningPlan,
+        laboratory: action.snapshot.laboratory,
         documentAssets: action.snapshot.documentAssets ?? null,
         documentIndex: action.snapshot.documentIndex ?? null,
         isLearnMode: action.snapshot.isLearnMode,
         userProfile: action.snapshot.userProfile,
         syllabus: action.snapshot.syllabus,
         activeSectionId: action.snapshot.activeSectionId,
+        activeLaboratoryExerciseId: action.snapshot.activeLaboratoryExerciseId,
       };
 
     case 'set-source':
@@ -99,6 +107,12 @@ export const workspaceDomainReducer = (
       return {
         ...state,
         learningPlan: action.learningPlan,
+      };
+
+    case 'set-laboratory':
+      return {
+        ...state,
+        laboratory: action.laboratory,
       };
 
     case 'set-document-assets':
@@ -137,10 +151,22 @@ export const workspaceDomainReducer = (
         activeSectionId: action.activeSectionId,
       };
 
+    case 'set-active-laboratory-exercise':
+      return {
+        ...state,
+        activeLaboratoryExerciseId: action.activeLaboratoryExerciseId,
+      };
+
     case 'set-music-url':
       return updateLearningPlan(state, learningPlan => ({
         ...learningPlan,
         backgroundMusicUrl: action.musicUrl,
+      }));
+
+    case 'set-generation-notes':
+      return updateLearningPlan(state, learningPlan => ({
+        ...learningPlan,
+        generationNotes: action.generationNotes,
       }));
 
     case 'update-active-section-content':
@@ -196,6 +222,9 @@ export const selectActiveSection = (state: WorkspaceDomainState): LearningSectio
 
 export const selectMusicUrl = (state: WorkspaceDomainState): string =>
   state.learningPlan?.backgroundMusicUrl ?? '';
+
+export const selectGenerationNotes = (state: WorkspaceDomainState): string =>
+  state.learningPlan?.generationNotes ?? '';
 
 export const selectNeedsSourceFile = (state: WorkspaceDomainState): boolean =>
   !state.source && Boolean(state.learningPlan) && !state.isLearnMode;

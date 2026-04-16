@@ -41,7 +41,7 @@ vi.mock('ai', () => ({
 }));
 
 vi.mock('../../../services/openrouter/config.ts', () => ({
-  getBackendUrl: () => 'http://localhost:3001',
+  getBackendUrl: () => 'http://localhost:3301',
 }));
 
 const { useLibraryAssistantChat } = await import(
@@ -127,7 +127,7 @@ describe('useLibraryAssistantChat', () => {
     expect(useChatMock.mock.calls.at(-1)?.[0]?.transport).toBe(initialTransport);
 
     const preparedRequest = await initialTransport.prepareSendMessagesRequest?.({
-      api: 'http://localhost:3001/api/chat/library',
+      api: 'http://localhost:3301/api/chat/library',
       body: {},
       credentials: undefined,
       headers: {},
@@ -180,7 +180,7 @@ describe('useLibraryAssistantChat', () => {
     });
 
     const preparedRequest = await initialTransport.prepareSendMessagesRequest?.({
-      api: 'http://localhost:3001/api/chat/library',
+      api: 'http://localhost:3301/api/chat/library',
       body: {},
       credentials: undefined,
       headers: {},
@@ -232,7 +232,7 @@ describe('useLibraryAssistantChat', () => {
     expect(useChatMock.mock.calls.at(-1)?.[0]?.transport).toBe(initialTransport);
 
     const preparedRequest = await initialTransport.prepareSendMessagesRequest?.({
-      api: 'http://localhost:3001/api/chat/library',
+      api: 'http://localhost:3301/api/chat/library',
       body: {},
       credentials: undefined,
       headers: {},

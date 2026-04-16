@@ -22,13 +22,63 @@ export const cleanJson = (text: string): string => {
     clean = clean.substring(start);
   }
 
-  const lastBracket = clean.lastIndexOf(']');
-  const lastBrace = clean.lastIndexOf('}');
-  const end =
-    lastBracket !== -1 && (lastBrace === -1 || lastBracket > lastBrace) ? lastBracket : lastBrace;
+  let inString = false;
+  let stringDelimiter = '"';
+  let isEscaped = false;
+  const stack: string[] = [];
+  let lastCompleteRootEnd = -1;
 
-  if (end !== -1) {
-    clean = clean.substring(0, end + 1);
+  for (let index = 0; index < clean.length; index += 1) {
+    const current = clean[index];
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (current === '\\') {
+        isEscaped = true;
+        continue;
+      }
+
+      if (current === stringDelimiter) {
+        inString = false;
+        stringDelimiter = '"';
+      }
+
+      continue;
+    }
+
+    if (current === '"' || current === "'") {
+      inString = true;
+      stringDelimiter = current;
+      continue;
+    }
+
+    if (current === '{' || current === '[') {
+      stack.push(current);
+      continue;
+    }
+
+    if (current === '}' && stack.at(-1) === '{') {
+      stack.pop();
+      if (stack.length === 0) {
+        lastCompleteRootEnd = index;
+      }
+      continue;
+    }
+
+    if (current === ']' && stack.at(-1) === '[') {
+      stack.pop();
+      if (stack.length === 0) {
+        lastCompleteRootEnd = index;
+      }
+    }
+  }
+
+  if (lastCompleteRootEnd !== -1) {
+    clean = clean.substring(0, lastCompleteRootEnd + 1);
   }
 
   clean = clean.replace(/\\u(?![0-9a-fA-F]{4})/g, 'u');
@@ -93,14 +143,91 @@ export const repairJsonString = (text: string): string => {
   return repaired.replace(/,\s*([}\]])/g, '$1');
 };
 
+const closeOpenJsonStructures = (text: string): string => {
+  let completed = text;
+  const stack: string[] = [];
+  let inString = false;
+  let stringDelimiter = '"';
+  let isEscaped = false;
+
+  for (let index = 0; index < completed.length; index += 1) {
+    const current = completed[index];
+
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+
+      if (current === '\\') {
+        isEscaped = true;
+        continue;
+      }
+
+      if (current === stringDelimiter) {
+        inString = false;
+        stringDelimiter = '"';
+      }
+
+      continue;
+    }
+
+    if (current === '"' || current === "'") {
+      inString = true;
+      stringDelimiter = current;
+      continue;
+    }
+
+    if (current === '{' || current === '[') {
+      stack.push(current);
+      continue;
+    }
+
+    if (current === '}' && stack.at(-1) === '{') {
+      stack.pop();
+      continue;
+    }
+
+    if (current === ']' && stack.at(-1) === '[') {
+      stack.pop();
+    }
+  }
+
+  if (inString) {
+    completed += '"';
+  }
+
+  completed = completed.replace(/,\s*$/, '');
+
+  for (let index = stack.length - 1; index >= 0; index -= 1) {
+    completed += stack[index] === '{' ? '}' : ']';
+  }
+
+  return completed.replace(/,\s*([}\]])/g, '$1');
+};
+
+const buildJsonParseError = (): Error =>
+  new Error('Il modello ha restituito una risposta incompleta o non valida. Riprova a generare il contenuto.');
+
 export const parseCleanJson = <T>(text: string): T => {
   const cleaned = cleanJson(text);
 
   try {
     return JSON.parse(cleaned) as T;
   } catch {
-    // intentional: fallback to default
-    return JSON.parse(repairJsonString(cleaned)) as T;
+    const repaired = repairJsonString(cleaned);
+
+    try {
+      return JSON.parse(repaired) as T;
+    } catch {
+      const completed = closeOpenJsonStructures(repaired);
+
+      try {
+        return JSON.parse(completed) as T;
+      } catch {
+        throw buildJsonParseError();
+      }
+    }
   }
 };
 

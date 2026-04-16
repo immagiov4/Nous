@@ -27,6 +27,11 @@ const sameChunkIds = (left: string[] | undefined, right: string[]): boolean =>
   left.length === right.length &&
   left.every((chunkId, index) => chunkId === right[index]);
 
+const hasExplicitFallbackChunkMappings = (plan: LearningPlan): boolean =>
+  getHydrationRelevantSections(plan).some(
+    section => section.primaryChunkMappingSource === 'fallback'
+  );
+
 const hasSuspiciousFallbackChunkMappings = (
   plan: LearningPlan,
   documentIndex: PdfTextIndex
@@ -65,8 +70,14 @@ export const getPdfProjectHydrationState = (
   }
 
   if (
-    plan.sections.some(section => !section.primaryChunkIds || section.primaryChunkIds.length === 0)
+    getHydrationRelevantSections(plan).some(
+      section => !section.primaryChunkIds || section.primaryChunkIds.length === 0
+    )
   ) {
+    return 'missing-primary-chunk-mappings';
+  }
+
+  if (hasExplicitFallbackChunkMappings(plan)) {
     return 'missing-primary-chunk-mappings';
   }
 

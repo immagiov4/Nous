@@ -6,6 +6,7 @@ import type {
   AppState,
   FileData,
   HomeChatToolPreferences,
+  LaboratoryState,
   LearningPlan,
   LearningSection,
   LibraryFolder,
@@ -45,22 +46,28 @@ export interface WorkspaceChatSession {
 export interface WorkspaceDomainControllerAdapter {
   activeSection: LearningSection | null;
   activeSectionId: string | null;
+  activeLaboratoryExerciseId: string | null;
   documentAssets: PdfDocumentAssets | null;
   documentIndex: PdfTextIndex | null;
   domainState: WorkspaceDomainState;
   file: FileData | null;
+  generationNotes: string;
   hydrateSnapshot: (snapshot: ProjectSnapshot) => void;
   isLearnMode: boolean;
+  laboratory: LaboratoryState | null;
   learningPlan: LearningPlan | null;
   musicUrl: string;
   needsSourceFile: boolean;
   quiz: QuizQuestion[];
   resetDomain: () => void;
   sectionContent: string;
+  setActiveLaboratoryExerciseId: (exerciseId: string | null) => void;
   setActiveSectionId: (sectionId: string | null) => void;
   setDocumentAssets: (documentAssets: PdfDocumentAssets | null) => void;
   setDocumentIndex: (documentIndex: PdfTextIndex | null) => void;
+  setGenerationNotes: (notes: string) => void;
   setIsLearnMode: (isLearnMode: boolean) => void;
+  setLaboratory: (laboratory: LaboratoryState | null) => void;
   setLearningPlan: (learningPlan: LearningPlan | null) => void;
   setMusicUrl: (musicUrl: string) => void;
   setSource: (source: ProjectSource | null) => void;
@@ -111,7 +118,7 @@ export interface WorkspaceProjectLibraryAdapter {
   setCurrentProjectId: (projectId: string | null) => void;
   setProjectHydrated: (value: boolean) => void;
   storageError: string | null;
-  touchStoredProject: (projectId: string) => Promise<SavedProjectMeta | null>;
+  touchStoredProject: (projectId: string) => Promise<SavedProjectMeta | null | undefined>;
 }
 
 export interface WorkspaceControllerStateAdapter {
@@ -182,12 +189,21 @@ export interface WorkspaceControllerContext {
 }
 
 export interface WorkspaceControllerCommands {
+  addLaboratoryTextAttachment: (options?: {
+    content?: string;
+    mimeType?: string;
+    name?: string;
+  }) => Promise<{ attachmentId?: string; errorMessage?: string; outcome: 'added' | 'noop' }>;
   askContextQuestion: (args: {
     contextAfter?: string;
     contextBefore?: string;
     question: string;
     selectedText: string;
   }) => Promise<{ answer?: string; errorMessage?: string }>;
+  attachLaboratoryFiles: (files: File[] | FileList) => Promise<{
+    errorMessage?: string;
+    outcome: 'attached' | 'noop';
+  }>;
   completeActiveSection: () => Promise<CompleteSectionOutcome>;
   createLessonFromSelection: (args: {
     instructions: string;
@@ -195,6 +211,14 @@ export interface WorkspaceControllerCommands {
   }) => Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }>;
   deleteProject: (projectId: string) => Promise<void>;
   exportProject: (projectId?: string) => Promise<void>;
+  evaluateActiveLaboratoryExercise: () => Promise<{
+    errorMessage?: string;
+    outcome: 'evaluated' | 'failed' | 'noop';
+  }>;
+  generateLaboratory: (options?: { force?: boolean; openFirstExercise?: boolean }) => Promise<{
+    errorMessage?: string;
+    outcome: 'failed' | 'generated' | 'noop';
+  }>;
   goToLibrary: () => Promise<void>;
   handleSourceUpload: (
     selectedFile: File,
@@ -209,11 +233,20 @@ export interface WorkspaceControllerCommands {
   openProject: (
     projectId: string
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }>;
+  openLaboratoryExercise: (exerciseId: string) => Promise<'missing' | 'opened'>;
   openSection: (
     section: LearningSection,
     options?: OpenSectionOptions
   ) => Promise<OpenSectionOutcome>;
   regenerateActiveSection: () => Promise<OpenSectionOutcome>;
+  regenerateActiveLaboratoryExercise: () => Promise<{
+    errorMessage?: string;
+    outcome: 'failed' | 'noop' | 'regenerated';
+  }>;
+  removeLaboratoryAttachment: (attachmentId: string) => Promise<{
+    errorMessage?: string;
+    outcome: 'noop' | 'removed';
+  }>;
   confirmPlanGeneration: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'planned' }>;
   startHomeChat: (args: {
     input: string;
@@ -231,6 +264,14 @@ export interface WorkspaceControllerCommands {
     errorMessage?: string;
     outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
   }>;
+  updateLaboratoryAttachmentMetadata: (
+    attachmentId: string,
+    updates: { description?: string; name?: string }
+  ) => Promise<{ errorMessage?: string; outcome: 'noop' | 'updated' }>;
+  updateLaboratoryTextAttachment: (
+    attachmentId: string,
+    updates: { content: string; name?: string }
+  ) => Promise<{ errorMessage?: string; outcome: 'noop' | 'updated' }>;
 }
 
 export interface UseWorkspaceControllerArgs {

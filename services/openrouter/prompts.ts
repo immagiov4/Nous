@@ -87,3 +87,38 @@ export const CURRICULUM_PROPEDEUTIC_ORDER_RULES = [
   'Dentro ogni modulo, ordina le lezioni dal semplice al complesso e dal generale allo specifico.',
   'Se una lezione richiede definizioni, lessico o prerequisiti, questi devono comparire prima nella sequenza del corso.',
 ] as const;
+
+// ─── Per-course user generation notes ───────────────────────────────────────
+
+const MAX_GENERATION_NOTES_CHARS = 4000;
+
+/**
+ * Builds a prompt block that surfaces per-course user notes to the model.
+ * Returns an empty string if notes are missing or empty.
+ *
+ * The block has priority over the base stylistic defaults (tone, verbosity,
+ * concision, register, depth of repetition), but never over structural rules
+ * (JSON schema, markdown safety, scope containment, continuity, image rules,
+ * quiz rules, KaTeX rules).
+ */
+export const buildUserGenerationNotesBlock = (notes: string | undefined | null): string => {
+  const trimmed = typeof notes === 'string' ? notes.trim() : '';
+  if (!trimmed) {
+    return '';
+  }
+
+  const clipped =
+    trimmed.length > MAX_GENERATION_NOTES_CHARS
+      ? `${trimmed.slice(0, MAX_GENERATION_NOTES_CHARS)}\n[Note troncate per lunghezza]`
+      : trimmed;
+
+  return `
+NOTE DI PERSONALIZZAZIONE DEL CORSO (PRIORITA ALTA):
+"""
+${clipped}
+"""
+Queste note sono indicazioni esplicite dello studente su come deve essere scritta la lezione.
+Hanno priorita sulle preferenze stilistiche di default (tono, prolissita, densita, livello di ripetizione, uso di esempi o analogie, gergo tecnico, registro linguistico) quando entrano in conflitto.
+Non hanno pero il potere di annullare: lo schema JSON richiesto, i vincoli di focus e continuita della lezione, la pulizia del markdown, le regole di sicurezza sulle immagini, i vincoli sul quiz e la sintassi KaTeX/LaTeX. In caso di contraddizione con queste regole strutturali, ignora solo la parte in conflitto e applica il resto delle note.
+`;
+};

@@ -1,3 +1,4 @@
+import { getBackendServerUrl } from '../config/serverConfig.js';
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { getErrorMessage } from '../utils/errors.js';
 
@@ -91,7 +92,7 @@ export const formatLibraryAttachedRefs = (attachedContextRefs?: LibraryContextRe
 export const getOpenRouterHeaders = () => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${requireOpenRouterApiKey()}`,
-  'HTTP-Referer': 'http://localhost:3001',
+  'HTTP-Referer': getBackendServerUrl({ displayHost: true }),
   'X-OpenRouter-Title': 'Lumina Deep Reader',
 });
 
@@ -337,6 +338,10 @@ Regole:
 - Se l'utente ha appena sciolto un dubbio reale, ha corretto un fraintendimento o ha ottenuto una formulazione che sarebbe utile ritrovare rileggendo la lezione, proponi tu in modo proattivo \`requestAddToNotes\` al termine della risposta utile, anche se non te lo chiede esplicitamente.
 - Usa \`requestAddToNotes\` solo se la nota sarebbe utile rileggendo la lezione in futuro; non usarlo per dettagli banali o transitori.
 - La nota proposta deve essere pulita e utile, non il transcript della conversazione.
+- La nota non deve limitarsi a ripetere, riassumere o parafrasare cio che e gia chiaramente leggibile nel testo selezionato.
+- Salva soprattutto il valore aggiunto emerso nel follow-up: il punto che l'utente non aveva capito, il collegamento implicito, la distinzione che evita un fraintendimento, oppure il pezzo rimasto sottinteso nel testo originale.
+- Se l'utente ha chiesto di rifrasare o spiegare meglio, la nota deve usare la formulazione piu chiara emersa nel chiarimento, non una ripetizione quasi identica del passaggio di partenza.
+- Se non c'e un reale valore aggiunto rispetto al testo selezionato, non proporre e non salvare alcuna nota.
 - Quando proponi o salvi una nota, non essere telegrafico: in genere scrivi 2-4 frasi complete, abbastanza dense da poter essere capite anche rilette da sole.
 - Nella nota esplicita il concetto chiave, l'eventuale distinzione o correzione importante emersa, e perche conta per interpretare bene il passaggio.
 - Evita titoletti, bullet list e formule ellittiche da appunto minimo; meglio una breve spiegazione continua, concreta e autosufficiente.

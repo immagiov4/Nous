@@ -17,6 +17,7 @@ Tailored to this repository: React 19 + TypeScript + Vite frontend at the repo r
 
 - Before coding, read the closest implementation files to the change.
 - For frontend work, inspect `App.tsx`, the relevant files in `components/`, `hooks/`, `services/`, and `utils/` before introducing new patterns.
+- For frontend UI work, read `UI_STYLE_GUIDE.md` first and match its documented layout, palette, typography, radius, and button patterns before adding new styling.
 - For backend work, inspect `backend/src/routes/`, `backend/src/services/`, and `backend/src/config/` before editing behavior.
 - For TTS changes, determine whether the change belongs in frontend playback code, the Node backend proxy/process manager, or the Python server before modifying anything.
 - If the issue is a bug, identify the root cause pattern and search sibling modules for the same mistake.
@@ -93,6 +94,7 @@ npm run quality       # frontend/backend type checks + Biome lint
 ## UI and Styling Rules
 
 - Preserve the existing visual language already used in `App.tsx` and `components/`.
+- Treat `UI_STYLE_GUIDE.md` as the default UI reference for new frontend work and update it when a stable visual convention changes.
 - Use Tailwind utility classes for styling; avoid inline styles except where computed values or CSS custom properties are genuinely required.
 - Use `lucide-react` for icons.
 - Keep components focused and composable; if logic grows, extract a hook or utility instead of expanding an already large render block.

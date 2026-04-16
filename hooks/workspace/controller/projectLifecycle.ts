@@ -37,16 +37,39 @@ interface ProjectLifecycleDependencies {
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
 }
 
+const OPEN_PROJECT_PDF_HYDRATION_TIMEOUT_MS = 20_000;
+
 const REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE = [
   'openProject',
   'importProject',
   'assessment',
   'generatePlan',
+  'generateLaboratory',
+  'evaluateLaboratory',
   'loadSection',
   'contextQuestion',
   'createLesson',
   'completeSection',
 ] as const;
+
+const withTimeoutFallback = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> => {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>(resolve => {
+        timeoutHandle = setTimeout(() => {
+          resolve(null);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+};
 
 export const createProjectLifecycleCommands = (
   context: WorkspaceControllerContext,
@@ -253,22 +276,52 @@ export const createProjectLifecycleCommands = (
             : 'Allineamento lezioni con il PDF...'
         );
 
-        const prepared = await context.preparePdfLessonPlan(
-          snapshotFile,
-          snapshot.learningPlan as LearningPlan,
-          snapshot.documentIndex
-        );
+        let prepared:
+          | Awaited<ReturnType<typeof context.preparePdfLessonPlan>>
+          | null = null;
+
+        try {
+          prepared = await withTimeoutFallback(
+            context.preparePdfLessonPlan(
+              snapshotFile,
+              snapshot.learningPlan as LearningPlan,
+              snapshot.documentIndex
+            ),
+            OPEN_PROJECT_PDF_HYDRATION_TIMEOUT_MS
+          );
+        } catch (error) {
+          console.warn(
+            '[Lumina][OpenProject] PDF hydration failed, opening the stored snapshot without remapping.',
+            error
+          );
+          pushLuminaDebugTrace('open-project:pdf-prepare-failed', {
+            errorMessage: getErrorMessage(error),
+            projectId,
+            requestId,
+          });
+        }
         if (!state.isWorkflowCurrent('openProject', requestId)) {
           pushLuminaDebugTrace('open-project:stale-after-pdf-prepare', { projectId, requestId });
           return { outcome: 'stale' };
         }
 
-        nextSnapshot = createProjectSnapshot({
-          ...snapshot,
-          learningPlan: prepared.learningPlan,
-          documentIndex: prepared.documentIndex,
-        });
-        await projectLibrary.persistSnapshot(nextSnapshot);
+        if (!prepared) {
+          console.warn(
+            '[Lumina][OpenProject] PDF hydration timed out, opening the stored snapshot without remapping.'
+          );
+          pushLuminaDebugTrace('open-project:pdf-prepare-timeout', {
+            projectId,
+            requestId,
+            timeoutMs: OPEN_PROJECT_PDF_HYDRATION_TIMEOUT_MS,
+          });
+        } else {
+          nextSnapshot = createProjectSnapshot({
+            ...snapshot,
+            learningPlan: prepared.learningPlan,
+            documentIndex: prepared.documentIndex,
+          });
+          await projectLibrary.persistSnapshot(nextSnapshot);
+        }
       }
 
       if (!state.isWorkflowCurrent('openProject', requestId)) {
@@ -298,7 +351,7 @@ export const createProjectLifecycleCommands = (
       pushLuminaDebugTrace('open-project:settled-before-follow-up', { projectId, requestId });
       refreshLibraryMetadataInBackground(projectId, requestId);
 
-      if (!preparedSnapshot.learningPlan) {
+      if (!preparedSnapshot.learningPlan && !preparedSnapshot.laboratory) {
         if (preparedSnapshot.source?.kind === 'codebase-bundle') {
           pushLuminaDebugTrace('open-project:start-text-assessment', {
             projectId,
@@ -319,14 +372,14 @@ export const createProjectLifecycleCommands = (
           });
           await startAssessment({ file: preparedSnapshot.source.file });
         }
-      } else if (preparedSnapshot.learningPlan) {
+      } else if (preparedSnapshot.learningPlan && !preparedSnapshot.activeLaboratoryExerciseId) {
         const nextSnapshotFile = getProjectSourceFile(preparedSnapshot.source);
         const nextSection = resolvePlanSection(
           preparedSnapshot.learningPlan,
           preparedSnapshot.activeSectionId
         );
         if (nextSection && (!nextSection.content || nextSection.content.length === 0)) {
-          await openSection(nextSection, {
+          void openSection(nextSection, {
             allowWhileBlocking: true,
             currentDocumentAssets: preparedSnapshot.documentAssets ?? null,
             currentDocumentIndex: preparedSnapshot.documentIndex ?? null,
@@ -335,6 +388,13 @@ export const createProjectLifecycleCommands = (
             currentSyllabus: preparedSnapshot.syllabus,
             currentUserProfile: preparedSnapshot.userProfile,
             isLearnMode: preparedSnapshot.isLearnMode,
+          }).catch(error => {
+            pushLuminaDebugTrace('open-project:background-section-load-failed', {
+              errorMessage: getErrorMessage(error),
+              projectId,
+              requestId,
+              sectionId: nextSection.id,
+            });
           });
         }
       }

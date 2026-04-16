@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import {
   createWorkspaceController,
   type WorkspaceChatSession,
   type WorkspaceDomainControllerAdapter,
   type WorkspaceProjectLibraryAdapter,
 } from '../../../hooks/workspace/useWorkspaceController.ts';
+import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../../../services/laboratory/state.ts';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
 import {
   createProjectSnapshot,
@@ -19,6 +20,7 @@ import {
 import {
   AppState,
   type FileData,
+  type LaboratoryState,
   type LearningPlan,
   type Message,
   type PdfTextIndex,
@@ -124,42 +126,51 @@ const createDomainAdapter = (
   const domain: WorkspaceDomainControllerAdapter = {
     activeSection: null,
     activeSectionId: null,
+    activeLaboratoryExerciseId: null,
     documentAssets: null,
     documentIndex: null,
     domainState: {
       source: null,
       learningPlan: null,
+      laboratory: null,
       documentAssets: null,
       documentIndex: null,
       isLearnMode: false,
       userProfile: null,
       syllabus: [],
       activeSectionId: null,
+      activeLaboratoryExerciseId: null,
     },
     file: null,
+    generationNotes: '',
     hydrateSnapshot: snapshot => {
       domain.source = snapshot.source;
       domain.learningPlan = snapshot.learningPlan;
+      domain.laboratory = snapshot.laboratory;
       domain.documentAssets = snapshot.documentAssets ?? null;
       domain.documentIndex = snapshot.documentIndex ?? null;
       domain.isLearnMode = snapshot.isLearnMode;
       domain.userProfile = snapshot.userProfile;
       domain.syllabus = snapshot.syllabus;
       domain.activeSectionId = snapshot.activeSectionId;
+      domain.activeLaboratoryExerciseId = snapshot.activeLaboratoryExerciseId;
       domain.domainState = {
         source: snapshot.source,
         learningPlan: snapshot.learningPlan,
+        laboratory: snapshot.laboratory,
         documentAssets: snapshot.documentAssets ?? null,
         documentIndex: snapshot.documentIndex ?? null,
         isLearnMode: snapshot.isLearnMode,
         userProfile: snapshot.userProfile,
         syllabus: snapshot.syllabus,
         activeSectionId: snapshot.activeSectionId,
+        activeLaboratoryExerciseId: snapshot.activeLaboratoryExerciseId,
       };
       domain.file = snapshot.source?.kind === 'pdf' ? snapshot.source.file : null;
       syncDomainDerived(domain);
     },
     isLearnMode: false,
+    laboratory: null,
     learningPlan: null,
     musicUrl: '',
     needsSourceFile: false,
@@ -167,26 +178,34 @@ const createDomainAdapter = (
     resetDomain: () => {
       domain.source = null;
       domain.learningPlan = null;
+      domain.laboratory = null;
       domain.documentAssets = null;
       domain.documentIndex = null;
       domain.isLearnMode = false;
       domain.userProfile = null;
       domain.syllabus = [];
       domain.activeSectionId = null;
+      domain.activeLaboratoryExerciseId = null;
       domain.domainState = {
         source: null,
         learningPlan: null,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: null,
+        activeLaboratoryExerciseId: null,
       };
       domain.file = null;
       syncDomainDerived(domain);
     },
     sectionContent: '',
+    setActiveLaboratoryExerciseId: exerciseId => {
+      domain.activeLaboratoryExerciseId = exerciseId;
+      domain.domainState.activeLaboratoryExerciseId = exerciseId;
+    },
     setActiveSectionId: sectionId => {
       domain.activeSectionId = sectionId;
       domain.domainState.activeSectionId = sectionId;
@@ -200,10 +219,17 @@ const createDomainAdapter = (
       domain.documentIndex = documentIndex;
       domain.domainState.documentIndex = documentIndex;
     },
+    setGenerationNotes: notes => {
+      domain.generationNotes = notes;
+    },
     setIsLearnMode: isLearnMode => {
       domain.isLearnMode = isLearnMode;
       domain.domainState.isLearnMode = isLearnMode;
       syncDomainDerived(domain);
+    },
+    setLaboratory: laboratory => {
+      domain.laboratory = laboratory;
+      domain.domainState.laboratory = laboratory;
     },
     setLearningPlan: learningPlan => {
       domain.learningPlan = learningPlan;
@@ -506,6 +532,16 @@ const createOpenRouterMock = (
       type: 'deep-dive',
       parentId: 'lesson-1',
     }),
+    evaluateLaboratoryExercise: async () => ({
+      caveats: [],
+      confidenceScore: 74,
+      confidenceSummary: 'Buona copertura degli allegati disponibili.',
+      evaluatedAt: '2026-03-20T10:00:00.000Z',
+      improvements: ['Rendi piu esplicite le motivazioni'],
+      score: 81,
+      strengths: ['Consegna coerente con la traccia'],
+      summary: 'Buon lavoro pratico con alcuni margini di chiarimento.',
+    }),
     generateFullCurriculum: async (
       _profile: UserProfile,
       _onStatusUpdate: (message: string) => void,
@@ -530,6 +566,36 @@ const createOpenRouterMock = (
         ],
       },
     ],
+    generateLaboratory: async () =>
+      ({
+        exercises: [
+          {
+            attachments: [],
+            approachMarkdown: '## Metodo\n\nParti dai requisiti e verifica gli output.',
+            brief: 'Applica il percorso in una consegna pratica.',
+            evaluation: null,
+            exampleMarkdown:
+              '## Esempio guidato\n\nIn un caso analogo, inizia dai vincoli e annota la prima evidenza osservabile.',
+            generatedAt: '2026-03-20T10:00:00.000Z',
+            id: 'lab-1',
+            internalNotes: ['Cerca evidenze concrete.'],
+            instructionsMarkdown: '## Consegna\n\nCarica una soluzione.',
+            requirements: [
+              'Lavora sul caso assegnato senza ridefinire il contesto.',
+              'Mostra almeno una evidenza concreta.',
+              'Motiva la soluzione proposta.',
+            ],
+            title: 'Esercizio 1',
+            updatedAt: '2026-03-20T10:00:00.000Z',
+          },
+        ],
+        generatedAt: '2026-03-20T10:00:00.000Z',
+        schemaVersion: CURRENT_LABORATORY_SCHEMA_VERSION,
+        status: 'ready',
+        summary: 'Laboratorio generato.',
+        title: 'Laboratorio',
+        updatedAt: '2026-03-20T10:00:00.000Z',
+      }) satisfies LaboratoryState,
     generateLearningPlan: async () => buildPlan(),
     generateLearnLessonContent: async () => '# Lezione generata',
     generateSectionContent: async () => ({
@@ -546,6 +612,13 @@ const createOpenRouterMock = (
     ) => ({
       learningPlan: plan,
       documentIndex: existingIndex ?? createReadyIndex(),
+    }),
+    regenerateLaboratoryExercise: async exercise => ({
+      ...exercise,
+      attachments: [],
+      evaluation: null,
+      instructionsMarkdown: '## Traccia rigenerata\n\nNuova consegna.',
+      updatedAt: '2026-03-20T10:10:00.000Z',
     }),
     ...overrides,
   }) as unknown as typeof import('../../../services/openrouter/index.ts');
@@ -601,6 +674,23 @@ test('openProject starts document assessment when a stored project has a source 
   assert.equal(projectLibrary.adapter.currentProjectId, 'project-doc');
   assert.equal(state.runtime.screenState, AppState.ASSESSMENT);
   assert.equal(state.runtime.assessmentMessages[0]?.text, 'Domanda iniziale');
+});
+
+test('generateLaboratory can open the first laboratory exercise and clear the active lesson', async () => {
+  const { controller, domain } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      learningPlan: buildPlan(),
+      source: createProjectSourceFromFile(markdownFile),
+    },
+  });
+
+  const result = await controller.generateLaboratory({ openFirstExercise: true });
+
+  assert.equal(result.outcome, 'generated');
+  assert.equal(domain.activeSectionId, null);
+  assert.equal(domain.activeLaboratoryExerciseId, 'lab-1');
+  assert.equal(domain.laboratory?.status, 'ready');
 });
 
 test('openProject hydrates pdf mappings before applying a stored plan', async () => {
@@ -693,6 +783,170 @@ test('openProject remaps legacy fallback chunk assignments for old pdf projects'
     projectLibrary.persistedSnapshots[1]?.learningPlan?.sections[0]?.primaryChunkIds,
     ['chunk-003']
   );
+});
+
+test('openProject falls back to the stored snapshot when pdf hydration stalls', async () => {
+  vi.useFakeTimers();
+
+  try {
+    const snapshot = createProjectSnapshot({
+      id: 'project-pdf-timeout',
+      source: createProjectSourceFromFile(pdfFile),
+      learningPlan: buildPlan({
+        sections: [
+          {
+            id: 'lesson-1',
+            title: 'Lezione 1',
+            description: 'Intro',
+            isCompleted: false,
+            type: 'core',
+            content: '# Già pronta',
+          },
+        ],
+      }),
+      state: AppState.READING,
+    });
+
+    const { controller, domain, projectLibrary, state } = createControllerHarness({
+      openRouter: {
+        getPdfLessonMappingState: () => 'missing-document-index',
+        preparePdfLessonMappings: async () => await new Promise(() => {}),
+      },
+      loadedSnapshot: snapshot,
+    });
+
+    const resultPromise = controller.openProject('project-pdf-timeout');
+    await vi.advanceTimersByTimeAsync(20_001);
+    const result = await resultPromise;
+
+    assert.equal(result.outcome, 'opened');
+    assert.equal(state.runtime.workflowState.openProject.status, 'succeeded');
+    assert.equal(projectLibrary.persistedSnapshots.length, 1);
+    assert.equal(projectLibrary.persistedSnapshots[0]?.documentIndex, null);
+    assert.equal(domain.learningPlan?.sections[0]?.content, '# Già pronta');
+    assert.equal(domain.documentIndex, null);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('openProject keeps the stored snapshot when pdf hydration repair throws', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-pdf-error',
+    source: createProjectSourceFromFile(pdfFile),
+    learningPlan: buildPlan({
+      sections: [
+        {
+          id: 'lesson-1',
+          title: 'Lezione 1',
+          description: 'Intro',
+          isCompleted: false,
+          type: 'core',
+          content: '# Già pronta',
+        },
+      ],
+    }),
+    state: AppState.READING,
+  });
+
+  const { controller, domain, state } = createControllerHarness({
+    openRouter: {
+      getPdfLessonMappingState: () => 'missing-primary-chunk-mappings',
+      preparePdfLessonMappings: async () => {
+        throw new Error('repair failed');
+      },
+    },
+    loadedSnapshot: snapshot,
+  });
+
+  const result = await controller.openProject('project-pdf-error');
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(state.runtime.workflowState.openProject.status, 'succeeded');
+  assert.equal(domain.learningPlan?.sections[0]?.content, '# Già pronta');
+  assert.equal(domain.activeSectionId, 'lesson-1');
+});
+
+test('openProject resolves immediately while loading an empty stored section in background', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-empty-section',
+    source: createProjectSourceFromFile(pdfFile),
+    learningPlan: buildPlan({
+      sections: [
+        {
+          id: 'lesson-empty',
+          title: 'Lezione vuota',
+          description: 'Da generare',
+          isCompleted: false,
+          type: 'core',
+        },
+      ],
+    }),
+    documentIndex: createReadyIndex(),
+    state: AppState.READING,
+    activeSectionId: 'lesson-empty',
+  });
+
+  const { controller, domain } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: {
+      generateSectionContent: async () => await new Promise(() => {}),
+    },
+  });
+
+  const outcome = await Promise.race([
+    controller.openProject('project-empty-section').then(result => result.outcome),
+    new Promise(resolve => setTimeout(() => resolve('timeout'), 0)),
+  ]);
+
+  assert.equal(outcome, 'opened');
+  assert.equal(domain.activeSectionId, 'lesson-empty');
+});
+
+test('openProject persists a snapshot without legacy laboratory payloads after hydration cleanup', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-legacy-lab',
+    source: createProjectSourceFromFile(markdownFile),
+    learningPlan: buildPlan(),
+    laboratory: {
+      errorMessage: undefined,
+      exercises: [
+        {
+          attachments: [],
+          approachMarkdown: '',
+          brief: 'Breve traccia',
+          evaluation: null,
+          exampleMarkdown: '',
+          generatedAt: '2026-03-20T10:00:00.000Z',
+          id: 'legacy-lab-1',
+          internalNotes: [],
+          instructionsMarkdown: '## Traccia',
+          requirements: [],
+          title: 'Esercizio legacy',
+          updatedAt: '2026-03-20T10:00:00.000Z',
+        },
+      ],
+      generatedAt: '2026-03-20T10:00:00.000Z',
+      schemaVersion: CURRENT_LABORATORY_SCHEMA_VERSION - 1,
+      status: 'ready',
+      summary: 'Laboratorio legacy',
+      title: 'Laboratorio',
+      updatedAt: '2026-03-20T10:00:00.000Z',
+    },
+    state: AppState.READING,
+    activeLaboratoryExerciseId: 'legacy-lab-1',
+  });
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    loadedSnapshot: snapshot,
+  });
+
+  const result = await controller.openProject('project-legacy-lab');
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(domain.laboratory, null);
+  assert.equal(domain.activeLaboratoryExerciseId, null);
+  assert.equal(projectLibrary.persistedSnapshots.length, 1);
+  assert.equal(projectLibrary.persistedSnapshots[0]?.laboratory, null);
 });
 
 test('openProject skips pdf hydration checks for text document sources', async () => {
@@ -1005,12 +1259,14 @@ test('startLearnJourney resets the workspace and lands in learn assessment', asy
       domainState: {
         source: createProjectSourceFromFile(pdfFile),
         learningPlan: existingPlan,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: 'lesson-1',
+        activeLaboratoryExerciseId: null,
       },
     },
   });
@@ -1064,12 +1320,14 @@ test('submitAssessment in learn mode finalizes the profile and generates the fir
       domainState: {
         source: null,
         learningPlan: null,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: true,
         userProfile: null,
         syllabus: [],
         activeSectionId: null,
+        activeLaboratoryExerciseId: null,
       },
     },
     projectLibrary: {
@@ -1102,12 +1360,14 @@ test('submitAssessment forwards the Nuovo corso preference to the active chat se
       domainState: {
         source: null,
         learningPlan: null,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: true,
         userProfile: null,
         syllabus: [],
         activeSectionId: null,
+        activeLaboratoryExerciseId: null,
       },
     },
   });
@@ -1138,12 +1398,14 @@ test('submitAssessment in document mode generates the plan after the minimum num
       domainState: {
         source: createProjectSourceFromFile(pdfFile),
         learningPlan: null,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: null,
+        activeLaboratoryExerciseId: null,
       },
     },
     openRouter: {
@@ -1193,12 +1455,14 @@ test('submitAssessment in document mode can generate a plan for text-backed sour
       domainState: {
         source: markdownSource,
         learningPlan: null,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: null,
+        activeLaboratoryExerciseId: null,
       },
     },
     openRouter: {
@@ -1265,12 +1529,14 @@ test('openSection reuses cached lessons and only generates when content is missi
       domainState: {
         source: createProjectSourceFromFile(pdfFile),
         learningPlan: cachedPlan,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: null,
+        activeLaboratoryExerciseId: null,
       },
     },
     openRouter: {
@@ -1333,12 +1599,14 @@ test('openSection ignores user navigation while another blocking workflow is pen
       domainState: {
         source: createProjectSourceFromFile(pdfFile),
         learningPlan: uncachedPlan,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: null,
+        activeLaboratoryExerciseId: null,
       },
     },
   });
@@ -1386,12 +1654,14 @@ test('createLessonFromSelection inserts the deep dive after the parent subtree a
       domainState: {
         source: createProjectSourceFromFile(pdfFile),
         learningPlan: basePlan,
+        laboratory: null,
         documentAssets: null,
         documentIndex: createReadyIndex(),
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: 'lesson-1',
+        activeLaboratoryExerciseId: null,
       },
     },
   });
@@ -1452,12 +1722,14 @@ test('createLessonFromSelection nests a child of child before the next sibling b
       domainState: {
         source: createProjectSourceFromFile(pdfFile),
         learningPlan: basePlan,
+        laboratory: null,
         documentAssets: null,
         documentIndex: createReadyIndex(),
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: 'lesson-1-deep',
+        activeLaboratoryExerciseId: null,
       },
     },
     openRouter: {
@@ -1486,6 +1758,72 @@ test('createLessonFromSelection nests a child of child before the next sibling b
   assert.equal(domain.learningPlan?.sections[2]?.content, '# Lezione dal documento');
 });
 
+test('createLessonFromSelection rolls back the inserted lesson when generation fails', async () => {
+  const basePlan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Lezione 1',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+        content: '# Lezione 1',
+        quiz: [],
+      },
+      {
+        id: 'lesson-2',
+        title: 'Lezione 2',
+        description: 'Follow-up',
+        isCompleted: false,
+        type: 'core',
+        content: '# Lezione 2',
+        quiz: [],
+      },
+    ],
+  });
+
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      documentIndex: createReadyIndex(),
+      file: pdfFile,
+      learningPlan: basePlan,
+      source: createProjectSourceFromFile(pdfFile),
+      domainState: {
+        source: createProjectSourceFromFile(pdfFile),
+        learningPlan: basePlan,
+        laboratory: null,
+        documentAssets: null,
+        documentIndex: createReadyIndex(),
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: 'lesson-1',
+        activeLaboratoryExerciseId: null,
+      },
+    },
+    openRouter: {
+      generateSectionContent: async () => {
+        throw new Error('Risposta troncata');
+      },
+    },
+  });
+
+  const result = await controller.createLessonFromSelection({
+    instructions: 'Approfondisci',
+    selectedText: 'testo',
+  });
+
+  assert.equal(result.outcome, 'failed');
+  assert.equal(domain.activeSectionId, 'lesson-1');
+  assert.deepEqual(
+    domain.learningPlan?.sections.map(section => section.id),
+    ['lesson-1', 'lesson-2']
+  );
+  assert.equal(projectLibrary.savedOverrides.at(-1)?.activeSectionId, 'lesson-1');
+  assert.equal(state.runtime.workflowState.createLesson.status, 'failed');
+});
+
 test('completeActiveSection marks progress and opens the next lesson, then reports journey completion on the last one', async () => {
   const plan = buildPlan();
   const { controller, domain } = createControllerHarness({
@@ -1495,12 +1833,14 @@ test('completeActiveSection marks progress and opens the next lesson, then repor
       domainState: {
         source: null,
         learningPlan: plan,
+        laboratory: null,
         documentAssets: null,
         documentIndex: null,
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
         activeSectionId: 'lesson-1',
+        activeLaboratoryExerciseId: null,
       },
     },
   });

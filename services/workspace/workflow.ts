@@ -4,6 +4,8 @@ export const WORKSPACE_WORKFLOW_IDS = [
   'importProject',
   'assessment',
   'generatePlan',
+  'generateLaboratory',
+  'evaluateLaboratory',
   'loadSection',
   'contextQuestion',
   'createLesson',
@@ -86,6 +88,24 @@ export const selectBlockingMessage = (
     if (workflow.status === 'pending' && workflow.message) {
       return workflow.message;
     }
+  }
+
+  return undefined;
+};
+
+export const selectIsLaboratoryBusy = (workflowState: WorkspaceWorkflowState): boolean =>
+  workflowState.generateLaboratory.status === 'pending' ||
+  workflowState.evaluateLaboratory.status === 'pending';
+
+export const selectLaboratoryMessage = (
+  workflowState: WorkspaceWorkflowState
+): string | undefined => {
+  if (workflowState.evaluateLaboratory.status === 'pending') {
+    return workflowState.evaluateLaboratory.message;
+  }
+
+  if (workflowState.generateLaboratory.status === 'pending') {
+    return workflowState.generateLaboratory.message;
   }
 
   return undefined;

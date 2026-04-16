@@ -8,6 +8,10 @@ import { migrateSectionAnnotations } from '../../../utils/learning/sectionAnnota
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 import { restoreLegacyPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
 import { pushLuminaDebugTrace } from '../../core/debugTrace.ts';
+import {
+  normalizeLaboratoryStateForHydration,
+  resolveActiveLaboratoryExerciseId,
+} from '../../laboratory/state.ts';
 
 const HYDRATION_TRACE_PREVIEW_CHARS = 1600;
 
@@ -68,9 +72,9 @@ export const resolvePlanSection = (
   null;
 
 export const resolveScreenStateForSnapshot = (
-  snapshot: Pick<ProjectSnapshot, 'learningPlan' | 'source'>
+  snapshot: Pick<ProjectSnapshot, 'laboratory' | 'learningPlan' | 'source'>
 ): AppState => {
-  if (snapshot.learningPlan) {
+  if (snapshot.learningPlan || snapshot.laboratory) {
     return AppState.READING;
   }
 
@@ -83,7 +87,28 @@ export const resolveScreenStateForSnapshot = (
 
 export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   const normalizedLearningPlan = normalizeLearningPlanContent(snapshot.learningPlan);
-  const nextSection = resolvePlanSection(normalizedLearningPlan, snapshot.activeSectionId);
+  const normalizedLaboratory = normalizeLaboratoryStateForHydration(snapshot.laboratory);
+
+  if (snapshot.laboratory && !normalizedLaboratory) {
+    pushLuminaDebugTrace('snapshot-hydration:dropped-incompatible-laboratory', {
+      exerciseCount: snapshot.laboratory.exercises.length,
+      schemaVersion: snapshot.laboratory.schemaVersion,
+      status: snapshot.laboratory.status,
+    });
+  }
+
+  const resolvedLaboratoryExerciseId = resolveActiveLaboratoryExerciseId(
+    normalizedLaboratory,
+    snapshot.activeLaboratoryExerciseId
+  );
+  const explicitSection =
+    normalizedLearningPlan?.sections.find(section => section.id === snapshot.activeSectionId) ||
+    null;
+  const nextSection =
+    explicitSection ||
+    (resolvedLaboratoryExerciseId
+      ? null
+      : resolvePlanSection(normalizedLearningPlan, snapshot.activeSectionId));
 
   if (nextSection?.content) {
     pushLuminaDebugTrace('snapshot-hydration:active-section', {
@@ -96,6 +121,8 @@ export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectS
   return {
     ...snapshot,
     learningPlan: normalizedLearningPlan,
+    laboratory: normalizedLaboratory,
     activeSectionId: nextSection?.id || null,
+    activeLaboratoryExerciseId: resolvedLaboratoryExerciseId,
   };
 };

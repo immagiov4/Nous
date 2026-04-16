@@ -3,7 +3,7 @@
  * Lifecycle Manager for Lumina Deep Reader
  *
  * This script manages the entire application lifecycle:
- * 1. Kills any existing processes on ports 8000, 3001, 5173
+ * 1. Kills any existing processes on the configured backend/frontend ports
  * 2. Starts the backend (which spawns the TTS Python server)
  * 3. Starts the frontend Vite dev server
  * 4. Handles graceful shutdown on CTRL+C
@@ -11,8 +11,10 @@
 
 import { exec, spawn } from 'node:child_process';
 import { platform } from 'node:os';
+import { getBackendDisplayHost, getBackendRuntimeConfig } from './server-config.js';
 
 const isWindows = platform() === 'win32';
+const backendConfig = getBackendRuntimeConfig();
 
 // Process references
 let backendProcess = null;
@@ -94,7 +96,7 @@ async function killAllPorts() {
   log('Lifecycle', 'Cleaning up existing processes...', colors.yellow);
   await Promise.all([
     // DON'T kill port 8880 - user may have TTS server running manually
-    killPort(3001), // Backend
+    killPort(backendConfig.backendPort), // Backend
     killPort(5173), // Frontend
   ]);
   // Wait a bit for processes to die
@@ -218,7 +220,9 @@ async function main() {
   log('Lifecycle', 'Press CTRL+C to stop all services', colors.yellow);
   console.log(`\n${'-'.repeat(60)}`);
   console.log(`${colors.cyan}  Frontend:  http://localhost:5173${colors.reset}`);
-  console.log(`${colors.cyan}  Backend:   http://localhost:3001${colors.reset}`);
+  console.log(
+    `${colors.cyan}  Backend:   http://${getBackendDisplayHost(backendConfig.backendHost)}:${backendConfig.backendPort}${colors.reset}`
+  );
   console.log(`${colors.cyan}  TTS API:   http://localhost:8880${colors.reset}`);
   console.log(`${'-'.repeat(60)}\n`);
 }

@@ -6,6 +6,8 @@ import type {
 import type {
   AudioState,
   ContextMenuState,
+  LaboratoryExercise,
+  LaboratoryStateStatus,
   LearningSection,
   LessonImageRef,
   OpenRouterModelDefaults,
@@ -74,14 +76,21 @@ export interface WorkspaceReaderVoiceOption {
 }
 
 export interface WorkspaceReaderSidebarModel {
+  activeLaboratoryExerciseId: string | null;
   activeSectionId: string | null;
   expandedModuleId: string | null;
   isLoading: boolean;
   isMobileViewport: boolean;
+  laboratoryExercises: LaboratoryExercise[];
+  laboratoryStatus: LaboratoryStateStatus | null;
+  laboratoryTitle: string;
   learningPlanTitle: string;
   onBackToLibrary: () => void;
   onExportProject: () => void;
+  onGenerateLaboratory: () => void;
+  onRegenerateLaboratoryIndex?: () => void;
   onModuleToggle: (groupId: string) => void;
+  onSelectLaboratoryExercise: (exerciseId: string) => void;
   onSelectSection: (section: LearningSection) => void;
   onSetFocusMode: (value: boolean) => void;
   onSetIsMobileSidebarOpen: (value: boolean) => void;
@@ -98,15 +107,19 @@ export interface WorkspaceReaderBannersModel {
 }
 
 export interface WorkspaceReaderHeaderModel {
+  activeLaboratoryExercise: LaboratoryExercise | null;
   activeSection: LearningSection | null;
   activeSidebarGroup: SidebarGroup | null;
+  courseGenerationNotes: string;
   isDarkMode: boolean;
   isFocusMode: boolean;
   isLoading: boolean;
+  isLaboratoryView: boolean;
   isMobileSidebarOpen: boolean;
   isMobileViewport: boolean;
   isMusicPlaying: boolean;
   isSettingsOpen: boolean;
+  laboratoryTitle: string;
   learningPlanTitle: string;
   loadingStatus: string;
   modelDefaults: OpenRouterModelDefaults;
@@ -114,8 +127,10 @@ export interface WorkspaceReaderHeaderModel {
   musicVolume: number;
   onBackToLibrary: () => void;
   onOpenSidebar: () => void;
+  onRegenerateActiveLaboratoryExercise: () => void;
   onRegenerateActiveSection: () => void;
   onSetDarkMode: (value: boolean) => void;
+  onSetCourseGenerationNotes: (value: string) => void;
   onSetFocusMode: (value: boolean) => void;
   onSetIsMusicPlaying: (value: boolean) => void;
   onSetMusicUrl: (value: string) => void;
@@ -126,20 +141,43 @@ export interface WorkspaceReaderHeaderModel {
 }
 
 export interface WorkspaceReaderContentModel {
+  activeLaboratoryExercise: LaboratoryExercise | null;
   activeSectionAssetsById: Record<string, PdfImageAsset>;
   activeSectionImageRefsById: Record<string, LessonImageRef>;
   contentRef: RefObject<HTMLDivElement | null>;
   isDarkMode: boolean;
   isFocusMode: boolean;
   isLoading: boolean;
+  isLaboratoryEvaluating: boolean;
+  isLaboratoryGenerating: boolean;
+  isLaboratoryView: boolean;
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
+  laboratoryActivityMessage?: string;
+  laboratoryErrorMessage?: string;
+  laboratorySourcePageRangeLabel?: string;
+  laboratoryStatus: LaboratoryStateStatus | null;
+  laboratorySummary: string;
+  laboratoryTitle: string;
+  onAddLaboratoryTextAttachment: () => void;
+  onAttachLaboratoryFiles: (files: FileList | null) => void;
   onCompleteSection: () => void;
   onContentClick: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
+  onEvaluateActiveLaboratoryExercise: () => void;
+  onGenerateLaboratory: () => void;
+  onRemoveLaboratoryAttachment: (attachmentId: string) => void;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
   onSetIsQuizSubmitted: (value: boolean) => void;
+  onUpdateLaboratoryAttachmentMetadata: (
+    attachmentId: string,
+    updates: { description?: string; name?: string }
+  ) => void;
+  onUpdateLaboratoryTextAttachment: (
+    attachmentId: string,
+    updates: { content: string; name?: string }
+  ) => void;
   quiz: QuizQuestion[];
   quizAnswers: number[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;

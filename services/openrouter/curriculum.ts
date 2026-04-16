@@ -1,5 +1,5 @@
 import { HIGH_REASONING_CONFIG } from './config.ts';
-import { CURRICULUM_PROPEDEUTIC_ORDER_RULES } from './prompts.ts';
+import { buildUserGenerationNotesBlock, CURRICULUM_PROPEDEUTIC_ORDER_RULES } from './prompts.ts';
 import {
   callOpenRouter,
   cleanJson,
@@ -209,7 +209,8 @@ export const generateLearnLessonContent = async (
   contextPrompt: string | undefined,
   profile: UserProfile | null,
   syllabus: SyllabusItem[],
-  onStatusUpdate: (status: string) => void
+  onStatusUpdate: (status: string) => void,
+  generationNotes?: string
 ): Promise<string> => {
   const resolvedProfile = getProfileFallback(profile, lessonTitle, moduleTitle);
   const { pastContext, futureContext, currentLessonDescription } = getCurriculumContext(
@@ -224,9 +225,11 @@ export const generateLearnLessonContent = async (
 
   onStatusUpdate('Generating comprehensive lesson...');
 
+  const userNotesBlock = buildUserGenerationNotesBlock(generationNotes);
+
   const prompt = `ROLE: World-Class Technical Author & Professor with a gift for making difficult ideas feel clear.
 TONE: Direct, rigorous, accessible, narrative-driven.
-
+${userNotesBlock}
 LESSON: "${lessonTitle}" (Module: "${moduleTitle}")
 DESCRIPTION: "${currentLessonDescription}"
 

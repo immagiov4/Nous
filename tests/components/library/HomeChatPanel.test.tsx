@@ -392,7 +392,7 @@ describe('HomeChatPanel', () => {
       ],
     };
 
-    const { container } = render(<HomeChatPanel {...props} />);
+    render(<HomeChatPanel {...props} />);
 
     expect(screen.getByText(/Prima leggo la struttura del corso\./i)).toBeInTheDocument();
     expect(

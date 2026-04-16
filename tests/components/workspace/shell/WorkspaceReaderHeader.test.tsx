@@ -14,6 +14,7 @@ vi.mock('../../../../components/workspace/shell/WorkspaceReaderSettingsPanel.tsx
 }));
 
 const buildProps = (): WorkspaceReaderHeaderModel => ({
+  activeLaboratoryExercise: null,
   activeSection: {
     id: 'section-1',
     title: 'Lezione 1',
@@ -22,13 +23,16 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
     type: 'core',
   },
   activeSidebarGroup: null,
+  courseGenerationNotes: '',
   isDarkMode: false,
   isFocusMode: false,
   isLoading: false,
+  isLaboratoryView: false,
   isMobileSidebarOpen: false,
   isMobileViewport: false,
   isMusicPlaying: false,
   isSettingsOpen: false,
+  laboratoryTitle: 'Laboratorio',
   learningPlanTitle: 'Percorso',
   loadingStatus: '',
   modelDefaults: {
@@ -40,8 +44,10 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   musicVolume: 20,
   onBackToLibrary: vi.fn(),
   onOpenSidebar: vi.fn(),
+  onRegenerateActiveLaboratoryExercise: vi.fn(),
   onRegenerateActiveSection: vi.fn(),
   onSetDarkMode: vi.fn(),
+  onSetCourseGenerationNotes: vi.fn(),
   onSetFocusMode: vi.fn(),
   onSetIsMusicPlaying: vi.fn(),
   onSetMusicUrl: vi.fn(),
@@ -64,7 +70,7 @@ describe('WorkspaceReaderHeader', () => {
 
     await user.click(screen.getByRole('button', { name: /Rigenera/i }));
 
-    const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione lezione/i });
+    const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
     expect(dialog).toBeInTheDocument();
     expect(props.onRegenerateActiveSection).not.toHaveBeenCalled();
 
@@ -72,7 +78,7 @@ describe('WorkspaceReaderHeader', () => {
 
     expect(props.onRegenerateActiveSection).toHaveBeenCalledTimes(1);
     expect(
-      screen.queryByRole('dialog', { name: /Conferma rigenerazione lezione/i })
+      screen.queryByRole('dialog', { name: /Conferma rigenerazione contenuto/i })
     ).not.toBeInTheDocument();
   });
 
@@ -82,9 +88,9 @@ describe('WorkspaceReaderHeader', () => {
 
     render(<WorkspaceReaderHeader {...props} isMobileViewport />);
 
-    await user.click(screen.getByRole('button', { name: /Rigenera la lezione corrente/i }));
+    await user.click(screen.getByRole('button', { name: /Rigenera il/i }));
 
-    const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione lezione/i });
+    const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
     expect(dialog).toHaveClass('fixed');
     expect(dialog).toHaveClass('left-1/2');
     expect(dialog).toHaveClass('-translate-x-1/2');

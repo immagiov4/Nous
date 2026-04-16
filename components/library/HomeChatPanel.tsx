@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
+import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import type {
   HomeChatMode,
   LibraryContextRef,
@@ -288,7 +289,8 @@ export default function HomeChatPanel({
     'library-query': '',
     'new-course': '',
   });
-  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
+  const { expandedFolderIds, toggleFolderExpansion } =
+    usePersistedLibraryFolderExpansion(libraryTree);
   const [activeSurface, setActiveSurface] = useState<SurfaceState>(null);
   const [attachmentStep, setAttachmentStep] = useState<AttachmentStep>('root');
   const [isMobileViewport, setIsMobileViewport] = useState(readIsMobileViewport);
@@ -327,28 +329,6 @@ export default function HomeChatPanel({
   const hasLibraryComposerMeta = libraryAttachedContextRefs.length > 0 || libraryWebSearch;
 
   useEffect(() => {
-    const nextExpandedIds = new Set<string>();
-    Object.keys(libraryTree.folderById).forEach(folderId => {
-      nextExpandedIds.add(folderId);
-    });
-    setExpandedFolderIds(currentIds => {
-      if (currentIds.size === nextExpandedIds.size) {
-        let allIncluded = true;
-        nextExpandedIds.forEach(folderId => {
-          if (!currentIds.has(folderId)) {
-            allIncluded = false;
-          }
-        });
-        if (allIncluded) {
-          return currentIds;
-        }
-      }
-
-      return nextExpandedIds;
-    });
-  }, [libraryTree.folderById]);
-
-  useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
@@ -365,9 +345,16 @@ export default function HomeChatPanel({
   }, []);
 
   useEffect(() => {
+    const shouldResetAttachmentFlow =
+      homeChatMode === 'library-query' || homeChatMode === 'new-course';
+
+    if (!shouldResetAttachmentFlow) {
+      return;
+    }
+
     setActiveSurface(null);
     setAttachmentStep('root');
-  }, [homeChatMode, isMobileViewport]);
+  }, [homeChatMode]);
 
   useEffect(() => {
     const lastItem = activeMessages[activeMessages.length - 1] || null;
@@ -383,7 +370,7 @@ export default function HomeChatPanel({
       return;
     }
     inputRef.current?.focus();
-  }, [homeChatMode, isMobileViewport]);
+  }, [isMobileViewport]);
 
   useEffect(() => {
     if (!activeSurface) {
@@ -532,17 +519,7 @@ export default function HomeChatPanel({
           <button
             type="button"
             className="flex min-w-0 flex-1 items-start gap-3 py-2 pr-2 text-left"
-            onClick={() =>
-              setExpandedFolderIds(currentIds => {
-                const nextIds = new Set(currentIds);
-                if (nextIds.has(node.id)) {
-                  nextIds.delete(node.id);
-                } else {
-                  nextIds.add(node.id);
-                }
-                return nextIds;
-              })
-            }
+            onClick={() => toggleFolderExpansion(node.id)}
           >
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-zinc-100">

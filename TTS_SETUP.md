@@ -46,7 +46,7 @@ npm run dev
 
 This will start:
 - **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:3001
+- **Backend API**: http://localhost:3301
 - **TTS Server**: http://localhost:8000
 
 ## Architecture
@@ -57,7 +57,7 @@ npm run dev
     ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              scripts/start-all.js                            │
-│  1. Kill ports 8000, 3001, 5173                             │
+│  1. Kill ports 8000, 3301, 5173                             │
 │  2. Spawn: npm run dev:backend                               │
 │  3. Spawn: npm run dev:frontend                              │
 └─────────────────────────────────────────────────────────────┘
@@ -66,7 +66,7 @@ npm run dev
         ▼                       ▼
 ┌───────────────────┐   ┌───────────────────┐
 │  Backend Node.js  │   │  Frontend Vite    │
-│  localhost:3001   │   │  localhost:5173   │
+│  localhost:3301   │   │  localhost:5173   │
 └─────────┬─────────┘   └───────────────────┘
           │
           ▼ spawn
@@ -202,4 +202,4 @@ Edit `server.config.json` to customize:
 npm run stop
 ```
 
-This will kill all processes on ports 8000, 3001, and 5173.
+This will kill all processes on ports 8000, 3301, and 5173.

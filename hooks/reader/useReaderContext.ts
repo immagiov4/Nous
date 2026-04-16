@@ -527,6 +527,7 @@ export const useReaderContext = ({
     [
       clearSelectionMenuTimeout,
       closeContextMenu,
+      contextMenu.type,
       contextMenu.visible,
       isMobileViewport,
       openContextMenuFromSelection,

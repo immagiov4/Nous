@@ -1,6 +1,6 @@
 # Lumina Reader
 
-AI-powered deep reading and learning platform. Upload documents (PDF, plain text, code archives) and Lumina generates personalized study plans, interactive lessons, and assessments using LLMs via OpenRouter.
+AI-powered deep reading and learning platform. Upload documents (PDF, plain text, code archives) and Lumina generates personalized study plans, interactive lessons, assessments, and a separate laboratory phase with attachment-based practical exercises and AI feedback.
 
 ## Architecture
 
@@ -29,7 +29,7 @@ AI-powered deep reading and learning platform. Upload documents (PDF, plain text
    npm run dev
    ```
 
-This launches the Vite frontend at `http://localhost:5173` and the Express backend at `http://localhost:3001`.
+This launches the Vite frontend at `http://localhost:5173` and the Express backend at `http://localhost:3301`.
 
 ## Quality
 
@@ -43,6 +43,8 @@ npm test          # Vitest test suite
 - `App.tsx` — top-level screen shell (library, assessment, planning, reading modes)
 - `hooks/workspace/useWorkspaceController.ts` — public entry point for app workflows
 - `hooks/workspace/controller/` — assessment/planning flow, project lifecycle, section progression
+- `hooks/workspace/controller/laboratory.ts` — laboratory generation, exercise selection, attachment editing, evaluation
 - `hooks/library/useProjectLibrary.ts` — IndexedDB-backed project repository + autosave
+- `services/laboratory/` — generic laboratory attachment and state helpers
 - `services/openrouter/` — AI integrations and prompt orchestration
 - `backend/src/` — backend source; `backend/dist/` is build output

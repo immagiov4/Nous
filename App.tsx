@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import AssessmentView from './components/assessment/AssessmentView';
 import LibraryView from './components/library/LibraryView';
 import LoadingScreen from './components/shared/LoadingScreen';
 import type { WorkspaceReaderShellProps } from './components/workspace/shell/types.ts';
+import CourseGenerationNotesDialog from './components/workspace/CourseGenerationNotesDialog.tsx';
 import WorkspaceReaderShell from './components/workspace/WorkspaceReaderShell.tsx';
 import { useLibraryAssistantChat } from './hooks/library/useLibraryAssistantChat.ts';
 import { useProjectLibrary } from './hooks/library/useProjectLibrary.ts';
@@ -14,10 +15,15 @@ import { useWorkspaceFileActions } from './hooks/workspace/useWorkspaceFileActio
 import { useWorkspaceNavigation } from './hooks/workspace/useWorkspaceNavigation.ts';
 import { useWorkspaceReaderActions } from './hooks/workspace/useWorkspaceReaderActions.ts';
 import { useWorkspaceReaderRuntime } from './hooks/workspace/useWorkspaceReaderRuntime.ts';
+import { selectActiveLaboratoryExercise } from './services/laboratory/state.ts';
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from './services/openrouter/index.ts';
+import { selectIsLaboratoryBusy, selectLaboratoryMessage } from './services/workspace/workflow.ts';
 import { AppState } from './types';
 import type { HomeChatMode, HomeChatToolPreferences } from './types.ts';
-import { getLessonSourcePageLabel } from './utils/context/sourceMaterial.ts';
+import {
+  getLaboratorySourcePageLabel,
+  getLessonSourcePageLabel,
+} from './utils/context/sourceMaterial.ts';
 
 const notify = (message: string) => {
   window.alert(message);
@@ -69,37 +75,49 @@ const App = () => {
   const {
     activeSection,
     activeSectionId,
+    activeLaboratoryExerciseId,
+    addLaboratoryTextAttachment,
     assessmentMessages,
     askContextQuestion,
+    attachLaboratoryFiles,
     blockingMessage,
     completeActiveSection,
     confirmPlanGeneration,
     createLessonFromSelection,
     currentProjectId,
     deleteProject,
+    evaluateActiveLaboratoryExercise,
     exportProject,
+    generateLaboratory,
     goToLibrary,
     handleSourceUpload,
     importProjectFile,
     isBlocking,
     isContextBusy,
     isLibraryLoading,
+    laboratory,
     learningPlan,
     musicUrl,
     needsSourceFile,
     openingProjectId,
+    openLaboratoryExercise,
     openProject,
     openSection,
     quiz,
+    regenerateActiveLaboratoryExercise,
     regenerateActiveSection,
+    removeLaboratoryAttachment,
     savedProjects,
     screenState,
     startHomeChat,
     sectionContent,
+    setGenerationNotes,
     setMusicUrl,
     startLearnJourney,
     storageError,
     submitAssessment,
+    updateLaboratoryAttachmentMetadata,
+    updateLaboratoryTextAttachment,
     updateSection,
     workflowState,
   } = controller;
@@ -111,6 +129,53 @@ const App = () => {
     startLearnJourney,
     submitAssessment,
   });
+
+  const [isNotesDialogOpen, setIsNotesDialogOpen] = useState(false);
+  const notesDialogAckedPlanIdsRef = useRef<Set<string>>(new Set());
+  const autoOpenAttemptedSectionIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (screenState !== AppState.READING || !learningPlan || !activeSection || isBlocking) {
+      return;
+    }
+    if (activeSection.content) {
+      return;
+    }
+    if (autoOpenAttemptedSectionIdsRef.current.has(activeSection.id)) {
+      return;
+    }
+
+    const planHasGeneratedContent = learningPlan.sections.some(
+      section => Boolean(section.content)
+    );
+    const notes = learningPlan.generationNotes?.trim() || '';
+    const ackKey = currentProjectId || learningPlan.title;
+    const shouldShowDialog =
+      !planHasGeneratedContent &&
+      !notes &&
+      !notesDialogAckedPlanIdsRef.current.has(ackKey) &&
+      !isNotesDialogOpen;
+
+    if (shouldShowDialog) {
+      setIsNotesDialogOpen(true);
+      return;
+    }
+
+    autoOpenAttemptedSectionIdsRef.current.add(activeSection.id);
+    void openSection(activeSection);
+  }, [
+    activeSection,
+    currentProjectId,
+    isBlocking,
+    isNotesDialogOpen,
+    learningPlan,
+    openSection,
+    screenState,
+  ]);
+
+  useEffect(() => {
+    autoOpenAttemptedSectionIdsRef.current = new Set();
+  }, [currentProjectId]);
 
   const readerActions = useWorkspaceReaderActions({
     activeSectionId,
@@ -179,6 +244,11 @@ const App = () => {
 
   const isLoading = isBlocking;
   const isContextLoading = isContextBusy;
+  const isLaboratoryBusy = selectIsLaboratoryBusy(workflowState);
+  const isLaboratoryGenerating = workflowState.generateLaboratory.status === 'pending';
+  const isLaboratoryEvaluating = workflowState.evaluateLaboratory.status === 'pending';
+  const laboratoryActivityMessage =
+    selectLaboratoryMessage(workflowState) || 'Laboratorio in corso...';
   const isHomeChatLoading = workflowState.assessment.status === 'pending';
   const homeChatLoadingStatus = workflowState.assessment.message || 'Caricamento...';
   const loadingStatus = blockingMessage || 'Caricamento...';
@@ -186,6 +256,17 @@ const App = () => {
     activeSection,
     documentIndex: controller.documentIndex,
   });
+  const activeLaboratoryExercise = selectActiveLaboratoryExercise(
+    laboratory,
+    activeLaboratoryExerciseId
+  );
+  const activeLaboratorySourcePageRangeLabel = getLaboratorySourcePageLabel({
+    activeExercise: activeLaboratoryExercise,
+    documentIndex: controller.documentIndex,
+  });
+  const isLaboratoryView = !activeSectionId && Boolean(laboratory);
+  const headerIsLoading = isLoading || (isLaboratoryView && isLaboratoryBusy);
+  const headerLoadingStatus = isLoading ? loadingStatus : laboratoryActivityMessage;
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0] || null;
     setPendingHomeSourceFile(selectedFile);
@@ -266,16 +347,71 @@ const App = () => {
       isDarkMode: readerRuntime.readerChrome.isDarkMode,
       isFocusMode: readerRuntime.readerChrome.isFocusMode,
       isLoading,
+      isLaboratoryEvaluating,
+      isLaboratoryGenerating,
+      isLaboratoryView,
       isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
       isQuizSubmitted: readerRuntime.isQuizSubmitted,
+      activeLaboratoryExercise,
+      laboratoryActivityMessage,
+      laboratoryErrorMessage: laboratory?.errorMessage,
+      laboratorySourcePageRangeLabel: activeLaboratorySourcePageRangeLabel,
+      laboratoryStatus: laboratory?.status || null,
+      laboratorySummary: laboratory?.summary || '',
+      laboratoryTitle: laboratory?.title || 'Laboratorio',
+      onAddLaboratoryTextAttachment: () => {
+        void addLaboratoryTextAttachment().then(result => {
+          if (result.errorMessage) {
+            notify(result.errorMessage);
+          }
+        });
+      },
+      onAttachLaboratoryFiles: files => {
+        if (!files?.length) {
+          return;
+        }
+
+        void attachLaboratoryFiles(files).then(result => {
+          if (result.errorMessage) {
+            notify(result.errorMessage);
+          }
+        });
+      },
       onCompleteSection: () => {
         void readerActions.handleCompleteSection();
       },
       onContentClick: readerRuntime.readerContext.handleContentClick,
       onContentContextMenu: readerRuntime.readerContext.handleContentContextMenu,
       onContentPointerDownCapture: readerRuntime.readerContext.handleContentPointerDownCapture,
+      onEvaluateActiveLaboratoryExercise: () => {
+        void evaluateActiveLaboratoryExercise().then(result => {
+          if (result.errorMessage) {
+            notify(result.errorMessage);
+          }
+        });
+      },
+      onGenerateLaboratory: () => {
+        void generateLaboratory({ openFirstExercise: true }).then(result => {
+          if (result.errorMessage) {
+            notify(result.errorMessage);
+          }
+        });
+      },
+      onRemoveLaboratoryAttachment: attachmentId => {
+        void removeLaboratoryAttachment(attachmentId).then(result => {
+          if (result.errorMessage) {
+            notify(result.errorMessage);
+          }
+        });
+      },
       onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
       onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
+      onUpdateLaboratoryAttachmentMetadata: (attachmentId, updates) => {
+        void updateLaboratoryAttachmentMetadata(attachmentId, updates);
+      },
+      onUpdateLaboratoryTextAttachment: (attachmentId, updates) => {
+        void updateLaboratoryTextAttachment(attachmentId, updates);
+      },
       quiz,
       quizAnswers: readerRuntime.quizAnswers,
       scrollContainerRef: readerRuntime.scrollContainerRef,
@@ -284,24 +420,36 @@ const App = () => {
       sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
     },
     header: {
+      activeLaboratoryExercise,
       activeSection,
       activeSidebarGroup: readerRuntime.activeSidebarGroup,
+      courseGenerationNotes: learningPlan?.generationNotes ?? '',
       isDarkMode: readerRuntime.readerChrome.isDarkMode,
       isFocusMode: readerRuntime.readerChrome.isFocusMode,
-      isLoading,
+      isLoading: headerIsLoading,
+      isLaboratoryView,
       isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
       isMobileSidebarOpen: readerRuntime.readerChrome.isMobileSidebarOpen,
       isMusicPlaying: readerRuntime.isMusicPlaying,
       isSettingsOpen: readerRuntime.readerChrome.isSettingsOpen,
+      laboratoryTitle: laboratory?.title || 'Laboratorio',
       learningPlanTitle: learningPlan?.title || 'Percorso di Studio',
-      loadingStatus,
+      loadingStatus: headerLoadingStatus,
       modelDefaults: defaultModelConfig,
       musicUrl,
       musicVolume: readerRuntime.musicVolume,
       onBackToLibrary: handleBackToLibrary,
       onOpenSidebar: () => readerRuntime.readerChrome.setIsMobileSidebarOpen(v => !v),
+      onRegenerateActiveLaboratoryExercise: () => {
+        void regenerateActiveLaboratoryExercise().then(result => {
+          if (result.errorMessage) {
+            notify(result.errorMessage);
+          }
+        });
+      },
       onRegenerateActiveSection: readerActions.handleRegenerateActiveSection,
       onSetDarkMode: readerRuntime.readerChrome.setIsDarkMode,
+      onSetCourseGenerationNotes: setGenerationNotes,
       onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
       onSetIsMusicPlaying: readerRuntime.setIsMusicPlaying,
       onSetMusicUrl: setMusicUrl,
@@ -334,16 +482,43 @@ const App = () => {
     },
     shouldUseDesktopSidebar: readerRuntime.readerChrome.shouldUseDesktopSidebar,
     sidebar: {
+      activeLaboratoryExerciseId,
       activeSectionId,
       expandedModuleId: readerRuntime.readerChrome.expandedModuleId,
       isLoading,
       isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+      laboratoryExercises: laboratory?.exercises || [],
+      laboratoryStatus: laboratory?.status || null,
+      laboratoryTitle: laboratory?.title || 'Laboratorio',
       learningPlanTitle: learningPlan?.title || 'Percorso di Studio',
       onBackToLibrary: handleBackToLibrary,
       onExportProject: () => {
         void handleExportProject();
       },
+      onGenerateLaboratory: () => {
+        void generateLaboratory({ openFirstExercise: true }).then(result => {
+          if (result.errorMessage) {
+            notify(result.errorMessage);
+          }
+        });
+      },
+      onRegenerateLaboratoryIndex: () => {
+        void generateLaboratory({ force: true, openFirstExercise: !activeSectionId }).then(
+          result => {
+            if (result.errorMessage) {
+              notify(result.errorMessage);
+            }
+          }
+        );
+      },
       onModuleToggle: readerRuntime.readerChrome.handleModuleToggle,
+      onSelectLaboratoryExercise: exerciseId => {
+        void openLaboratoryExercise(exerciseId).then(outcome => {
+          if (outcome === 'missing') {
+            notify('Questo esercizio di laboratorio non e piu disponibile.');
+          }
+        });
+      },
       onSelectSection: readerActions.handleSelectSection,
       onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
       onSetIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
@@ -455,6 +630,21 @@ const App = () => {
     <>
       <input id={sourceFileInputId} type="file" className="hidden" onChange={handleFileUpload} />
       <WorkspaceReaderShell {...readerShellProps} />
+      {isNotesDialogOpen && learningPlan ? (
+        <CourseGenerationNotesDialog
+          courseTitle={learningPlan.title || 'Percorso di Studio'}
+          initialValue={learningPlan.generationNotes ?? ''}
+          onSaveAndContinue={notes => {
+            setGenerationNotes(notes);
+            notesDialogAckedPlanIdsRef.current.add(currentProjectId || learningPlan.title);
+            setIsNotesDialogOpen(false);
+          }}
+          onSkip={() => {
+            notesDialogAckedPlanIdsRef.current.add(currentProjectId || learningPlan.title);
+            setIsNotesDialogOpen(false);
+          }}
+        />
+      ) : null}
     </>
   );
 };

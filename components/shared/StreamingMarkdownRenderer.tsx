@@ -1,4 +1,12 @@
-import { memo, startTransition, useDeferredValue, useEffect, useRef, useState } from 'react';
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import MarkdownRenderer, { type MarkdownRendererProps } from './MarkdownRenderer.tsx';
 
@@ -37,25 +45,28 @@ const StreamingMarkdownRenderer = ({
   const lastCommitAtRef = useRef(Date.now());
   const flushTimeoutRef = useRef<number | null>(null);
 
-  const clearPendingFlush = () => {
+  const clearPendingFlush = useCallback(() => {
     if (flushTimeoutRef.current === null) {
       return;
     }
 
     window.clearTimeout(flushTimeoutRef.current);
     flushTimeoutRef.current = null;
-  };
+  }, []);
 
-  const commitContent = (nextContent: string) => {
-    clearPendingFlush();
-    latestContentRef.current = nextContent;
-    lastCommitAtRef.current = Date.now();
-    startTransition(() => {
-      setCommittedContent(currentContent =>
-        currentContent === nextContent ? currentContent : nextContent
-      );
-    });
-  };
+  const commitContent = useCallback(
+    (nextContent: string) => {
+      clearPendingFlush();
+      latestContentRef.current = nextContent;
+      lastCommitAtRef.current = Date.now();
+      startTransition(() => {
+        setCommittedContent(currentContent =>
+          currentContent === nextContent ? currentContent : nextContent
+        );
+      });
+    },
+    [clearPendingFlush]
+  );
 
   useEffect(() => {
     latestContentRef.current = content;
@@ -96,13 +107,13 @@ const StreamingMarkdownRenderer = ({
     }, nextFlushDelay);
 
     return clearPendingFlush;
-  }, [committedContent, content, isStreaming]);
+  }, [clearPendingFlush, commitContent, committedContent, content, isStreaming]);
 
   useEffect(
     () => () => {
       clearPendingFlush();
     },
-    []
+    [clearPendingFlush]
   );
 
   const deferredCommittedContent = useDeferredValue(committedContent);

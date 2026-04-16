@@ -41,7 +41,7 @@ vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
 }));
 
 vi.mock('../../../../services/openrouter/config.ts', () => ({
-  getBackendUrl: () => 'http://localhost:3001',
+  getBackendUrl: () => 'http://localhost:3301',
 }));
 
 const { default: ContextAnswerPanel } = await import(

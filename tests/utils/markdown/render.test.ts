@@ -269,3 +269,47 @@ test('normalizeMarkdownForRendering refences orphaned continuation lines after a
     'orphaned continuation lines should be merged back into the previous fenced code block'
   );
 });
+
+test('normalizeMarkdownForRendering converts bare-paren inline math containing LaTeX commands into dollar-delimited math', () => {
+  const input =
+    'Una matrice (A) applicata a (x) produce (y = Ax). Se (A \\in \\mathbb{R}^{m\\times n}) e (x \\in \\mathbb{R}^n), il risultato (Ax) appartiene a (\\mathbb{R}^m).';
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    'Una matrice (A) applicata a (x) produce (y = Ax). Se $A \\in \\mathbb{R}^{m\\times n}$ e $x \\in \\mathbb{R}^n$, il risultato (Ax) appartiene a $\\mathbb{R}^m$.'
+  );
+});
+
+test('normalizeMarkdownForRendering leaves bare-paren spans without LaTeX commands as plain text', () => {
+  const input = 'The result (see section A) and the note (this is important) stay as prose.';
+
+  assert.equal(normalizeMarkdownForRendering(input), input);
+});
+
+test('normalizeMarkdownForRendering does not double-convert content already inside dollar math spans', () => {
+  const input = 'Already math $A \\in \\mathbb{R}^n$ and bare paren (B \\in \\mathbb{R}^m) here.';
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    'Already math $A \\in \\mathbb{R}^n$ and bare paren $B \\in \\mathbb{R}^m$ here.'
+  );
+});
+
+test('normalizeMarkdownForRendering converts backslash-paren inline math delimiters into dollar-delimited math', () => {
+  const input =
+    'Se \\(A\\) ha \\(m\\) righe e \\(n\\) colonne, scriviamo \\(A \\in \\mathbb{R}^{m\\times n}\\).';
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    'Se $A$ ha $m$ righe e $n$ colonne, scriviamo $A \\in \\mathbb{R}^{m\\times n}$.'
+  );
+});
+
+test('normalizeMarkdownForRendering converts backslash-bracket display math into dollar display math', () => {
+  const input = 'La formula:\n\n\\[\ny = Ax\n\\]\n\nFine.';
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    'La formula:\n\n$$\ny = Ax\n$$\n\nFine.'
+  );
+});

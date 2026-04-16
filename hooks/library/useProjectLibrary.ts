@@ -117,6 +117,8 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         source: overrides?.source !== undefined ? overrides.source : domainState.source,
         learningPlan:
           overrides?.learningPlan !== undefined ? overrides.learningPlan : domainState.learningPlan,
+        laboratory:
+          overrides?.laboratory !== undefined ? overrides.laboratory : domainState.laboratory,
         documentAssets:
           overrides?.documentAssets !== undefined
             ? overrides.documentAssets
@@ -133,6 +135,10 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
           overrides?.activeSectionId !== undefined
             ? overrides.activeSectionId
             : domainState.activeSectionId,
+        activeLaboratoryExerciseId:
+          overrides?.activeLaboratoryExerciseId !== undefined
+            ? overrides.activeLaboratoryExerciseId
+            : domainState.activeLaboratoryExerciseId,
         createdAt: overrides?.createdAt || currentProjectMeta?.createdAt,
         updatedAt: overrides?.updatedAt || new Date().toISOString(),
         lastOpenedAt: overrides?.lastOpenedAt || currentProjectMeta?.lastOpenedAt,

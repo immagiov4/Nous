@@ -205,6 +205,7 @@ export interface LearningSection {
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
   contextPrompt?: string; // For Learn Mode
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
+  primaryChunkMappingSource?: 'fallback' | 'mapped';
   annotations?: SectionAnnotation[]; // Persistent text annotations/highlights for the section
 }
 
@@ -213,6 +214,59 @@ export interface LearningPlan {
   summary: string;
   sections: LearningSection[];
   backgroundMusicUrl?: string; // Optional field for YouTube background music
+  generationNotes?: string; // Per-course user notes that steer lesson generation style/tone
+}
+
+export type LaboratoryAttachmentKind = 'archive' | 'binary' | 'image' | 'text';
+export type LaboratoryStateStatus = 'failed' | 'idle' | 'pending' | 'ready';
+
+export interface LaboratoryAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  kind: LaboratoryAttachmentKind;
+  data: string; // Base64
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LaboratoryExerciseEvaluation {
+  caveats: string[];
+  confidenceScore: number;
+  confidenceSummary: string;
+  evaluatedAt: string;
+  improvements: string[];
+  score: number;
+  strengths: string[];
+  summary: string;
+}
+
+export interface LaboratoryExercise {
+  attachments: LaboratoryAttachment[];
+  approachMarkdown: string;
+  brief: string;
+  evaluation: LaboratoryExerciseEvaluation | null;
+  exampleMarkdown: string;
+  generatedAt: string;
+  id: string;
+  internalNotes: string[];
+  instructionsMarkdown: string;
+  requirements: string[];
+  sourceChunkIds?: string[];
+  title: string;
+  updatedAt: string;
+}
+
+export interface LaboratoryState {
+  errorMessage?: string;
+  exercises: LaboratoryExercise[];
+  generatedAt?: string;
+  schemaVersion: number;
+  status: LaboratoryStateStatus;
+  summary: string;
+  title: string;
+  updatedAt: string;
 }
 
 export interface SavedProjectMeta {
@@ -236,10 +290,12 @@ export interface ProjectSnapshot {
   state: AppState;
   source: ProjectSource | null;
   learningPlan: LearningPlan | null;
+  laboratory: LaboratoryState | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
   activeSectionId: string | null;
+  activeLaboratoryExerciseId: string | null;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
@@ -254,10 +310,12 @@ export interface ProjectExportData {
   file?: FileData | null; // Legacy import fallback for older exports
   source?: ProjectSource | null;
   learningPlan: LearningPlan | null;
+  laboratory?: LaboratoryState | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
   activeSectionId?: string | null;
+  activeLaboratoryExerciseId?: string | null;
   musicUrl?: string;
   sourceKind?: ProjectSourceKind;
   documentAssets?: PdfDocumentAssets | null;
@@ -362,10 +420,12 @@ export interface AudioState {
 export interface WorkspaceDomainState {
   source: ProjectSource | null;
   learningPlan: LearningPlan | null;
+  laboratory: LaboratoryState | null;
   documentAssets: PdfDocumentAssets | null;
   documentIndex: PdfTextIndex | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
   activeSectionId: string | null;
+  activeLaboratoryExerciseId: string | null;
 }

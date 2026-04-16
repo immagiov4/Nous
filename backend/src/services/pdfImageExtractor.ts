@@ -564,6 +564,59 @@ const extractPageImagePlacements = async (
   return placements;
 };
 
+interface PdfImagePage {
+  pageNumber: number;
+  images: { dataUrl?: string }[];
+}
+
+const fetchImagesForPages = async (
+  parser: PDFParse,
+  pages: number[] | undefined
+): Promise<PdfImagePage[]> => {
+  if (!pages || pages.length === 0) {
+    try {
+      const bulk = await parser.getImage({
+        imageThreshold: IMAGE_DIMENSION_THRESHOLD,
+        imageBuffer: false,
+        imageDataUrl: true,
+      });
+      return bulk.pages as PdfImagePage[];
+    } catch (error) {
+      console.warn(
+        '[Backend] Bulk PDF image extraction failed, falling back to per-page extraction.',
+        error
+      );
+      const doc = (parser as unknown as { doc?: { numPages?: number } }).doc;
+      const numPages = doc?.numPages ?? 0;
+      if (numPages <= 0) {
+        return [];
+      }
+      pages = Array.from({ length: numPages }, (_, index) => index + 1);
+    }
+  }
+
+  const collected: PdfImagePage[] = [];
+  for (const pageNumber of pages) {
+    try {
+      const pageResult = await parser.getImage({
+        imageThreshold: IMAGE_DIMENSION_THRESHOLD,
+        imageBuffer: false,
+        imageDataUrl: true,
+        partial: [pageNumber],
+      });
+      for (const page of pageResult.pages as PdfImagePage[]) {
+        collected.push(page);
+      }
+    } catch (error) {
+      console.warn(
+        `[Backend] Skipping PDF page ${pageNumber} during image extraction due to an error.`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+  return collected;
+};
+
 export const extractPdfImages = async (
   pdfDataUrl: string,
   limit = 36,
@@ -576,12 +629,7 @@ export const extractPdfImages = async (
   const sanitizedPartialPages = sanitizePartialPages(partialPages);
 
   try {
-    const imageResult = await parser.getImage({
-      imageThreshold: IMAGE_DIMENSION_THRESHOLD,
-      imageBuffer: false,
-      imageDataUrl: true,
-      partial: sanitizedPartialPages,
-    });
+    const imagePages = await fetchImagesForPages(parser, sanitizedPartialPages);
     const pdfDocument = (
       parser as unknown as {
         doc?: {
@@ -606,7 +654,7 @@ export const extractPdfImages = async (
       }
     ).doc;
 
-    for (const page of imageResult.pages) {
+    for (const page of imagePages) {
       const pageProxy = pdfDocument ? await pdfDocument.getPage(page.pageNumber) : null;
       const [pageLines, pagePlacements] = pageProxy
         ? await Promise.all([

@@ -4,6 +4,16 @@ import { describe, expect, test, vi } from 'vitest';
 import MarkdownRenderer from '../../../components/shared/MarkdownRenderer.tsx';
 
 describe('MarkdownRenderer', () => {
+  test('renders markdown lists as semantic lists with visible list styling classes', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'### Strategia\n- Primo controllo\n- Secondo controllo'} />
+    );
+
+    expect(container.querySelector('ul')).not.toBeNull();
+    expect(screen.getByText('Primo controllo').tagName.toLowerCase()).toBe('li');
+    expect(container.querySelector('article')).toHaveClass('[&_ul]:list-disc');
+  });
+
   test('renders code, inline code, links and context-menu handlers', () => {
     const onContextMenu = vi.fn();
     const onClick = vi.fn();

@@ -2,12 +2,7 @@ import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { pushLuminaDebugTrace } from '../core/debugTrace.ts';
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
 import { HIGH_REASONING_CONFIG } from './config.ts';
-import {
-  askContextualQuestion,
-  buildPdfReasoningExtractionNotes,
-  buildReasoningContentForFile,
-  clipPdfSourceText,
-} from './contextChat.ts';
+import { buildReasoningContentForFile, clipPdfSourceText } from './contextChat.ts';
 import {
   buildLessonChunkContext,
   buildPdfPageTextLayout,
@@ -19,10 +14,13 @@ import {
   getPdfAssetSession,
   getPdfTextSession,
 } from './pdfAssets.ts';
-import { LESSON_SCOPE_RULES, PLAN_PROPEDEUTIC_ORDER_RULES } from './prompts.ts';
+import {
+  buildUserGenerationNotesBlock,
+  LESSON_SCOPE_RULES,
+  PLAN_PROPEDEUTIC_ORDER_RULES,
+} from './prompts.ts';
 import {
   buildAssessmentSummary,
-  buildDocumentInputContent,
   callOpenRouter,
   type FileData,
   isPdfFile,
@@ -1540,17 +1538,20 @@ const repairLessonMarkdown = async (
   contentMarkdown: string,
   sectionTitle: string,
   sectionDescription: string,
-  sourceContext: string
+  sourceContext: string,
+  generationNotes?: string
 ): Promise<string> => {
   const issues = getLessonMarkdownIssues(contentMarkdown);
   if (issues.length === 0) {
     return contentMarkdown;
   }
 
+  const userNotesBlock = buildUserGenerationNotesBlock(generationNotes);
+
   const repairPrompt = `Sei un editor didattico di Lumina Reader.
 
 Devi REVISIONARE una lezione markdown gia generata.
-
+${userNotesBlock}
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
 
@@ -1644,6 +1645,7 @@ interface BuildLessonVerificationPromptInput {
     caption?: string;
     sourceOrder: number;
   }>;
+  generationNotes?: string;
 }
 
 export const buildLessonVerificationPrompt = ({
@@ -1656,10 +1658,11 @@ export const buildLessonVerificationPrompt = ({
   targetQuizCount,
   draft,
   candidateImages,
+  generationNotes,
 }: BuildLessonVerificationPromptInput): string => `Sei il verificatore finale di Lumina Reader.
 
 Ricevi una bozza quasi finale di lezione. Devi fare un controllo conclusivo e correggere SOLO cio che serve.
-
+${buildUserGenerationNotesBlock(generationNotes)}
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
 CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.
@@ -1717,6 +1720,7 @@ const verifyLessonDraft = async ({
   targetQuizCount,
   draft,
   candidateImages,
+  generationNotes,
 }: BuildLessonVerificationPromptInput): Promise<LessonVerificationDraft> => {
   const verificationPrompt = buildLessonVerificationPrompt({
     sectionTitle,
@@ -1728,6 +1732,7 @@ const verifyLessonDraft = async ({
     targetQuizCount,
     draft,
     candidateImages,
+    generationNotes,
   });
 
   const response = await retryWithBackoff(
@@ -1964,6 +1969,7 @@ ${planGuidance}
 - Assicurati che i titoli siano descrittivi.
 - Vincoli di ordine propedeutico:
 ${PLAN_PROPEDEUTIC_ORDER_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}
+- Ricorda che da questo indice verra derivata anche una fase laboratoriale: l ordine finale deve quindi sostenere esercizi pratici progressivi senza inversioni di prerequisiti.
 
 Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
@@ -2032,6 +2038,7 @@ ${planGuidance}
 - Prima di restituire l'indice finale, controlla e correggi eventuali inversioni di prerequisiti tra moduli e tra lezioni nello stesso modulo.
 - Vincoli di ordine propedeutico:
 ${PLAN_PROPEDEUTIC_ORDER_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}
+- Ricorda che da questo indice verra derivata anche una fase laboratoriale: l ordine finale deve quindi sostenere esercizi pratici progressivi senza inversioni di prerequisiti.
 
 Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
@@ -2213,7 +2220,8 @@ export const generateSectionContent = async (
   previousContext: string,
   primaryChunkIds?: string[],
   documentIndex?: PdfTextIndex | null,
-  onStatusUpdate?: (status: string) => void
+  onStatusUpdate?: (status: string) => void,
+  generationNotes?: string
 ): Promise<{
   content: string;
   quiz: QuizQuestion[];
@@ -2226,6 +2234,7 @@ export const generateSectionContent = async (
     ? "PRIMA LEZIONE: non citare lezioni precedenti, capitoli gia visti, 'come abbiamo accennato', 'come vedremo', o altre formule di continuita retroattiva."
     : 'Se fai riferimenti al percorso, fallo solo usando il contesto precedente fornito e senza inventare lezioni mai avvenute.';
   const scopeRule = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
+  const userNotesBlock = buildUserGenerationNotesBlock(generationNotes);
 
   let pdfSession: Awaited<ReturnType<typeof getPdfAssetSession>> = null;
   let pdfTextSession: Awaited<ReturnType<typeof getPdfTextSession>> = null;
@@ -2321,7 +2330,7 @@ export const generateSectionContent = async (
 
     const lessonSourceContext = buildLessonChunkContext(documentIndex, primaryChunkIds);
     const prompt = `Sei il Professor Lumina. Devi generare una LEZIONE COMPLETA E APPROFONDITA a partire da un PDF gia analizzato.
-
+${userNotesBlock}
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
 CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.
@@ -2417,7 +2426,8 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       sectionTitle,
       sectionDescription,
       lessonSourceContext ||
-        clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS)
+        clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS),
+      generationNotes
     ).catch(error => {
       console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
       return parsed.contentMarkdown || '';
@@ -2473,6 +2483,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         imagePlacements: draftImageRefs,
       },
       candidateImages: candidateImagePayload,
+      generationNotes,
     }).catch(error => {
       console.warn(
         '[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.',
@@ -2540,7 +2551,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   }
 
   const prompt = `Sei il Professor Lumina. Devi generare una LEZIONE COMPLETA E APPROFONDITA.
-
+${userNotesBlock}
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
 
@@ -2624,7 +2635,8 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     parsed.contentMarkdown || '',
     sectionTitle,
     sectionDescription,
-    sectionDescription
+    sectionDescription,
+    generationNotes
   ).catch(error => {
     console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
     return parsed.contentMarkdown || '';
@@ -2648,6 +2660,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       imagePlacements: [],
     },
     candidateImages: [],
+    generationNotes,
   }).catch(error => {
     console.warn(
       '[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.',

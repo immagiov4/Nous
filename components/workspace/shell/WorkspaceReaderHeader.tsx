@@ -5,8 +5,10 @@ import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
 export default function WorkspaceReaderHeader({
+  activeLaboratoryExercise,
   activeSection,
   activeSidebarGroup,
+  courseGenerationNotes,
   isDarkMode,
   isFocusMode,
   isLoading,
@@ -14,6 +16,7 @@ export default function WorkspaceReaderHeader({
   isMobileViewport,
   isMusicPlaying,
   isSettingsOpen,
+  laboratoryTitle,
   learningPlanTitle,
   loadingStatus,
   modelDefaults,
@@ -21,8 +24,10 @@ export default function WorkspaceReaderHeader({
   musicVolume,
   onBackToLibrary,
   onOpenSidebar,
+  onRegenerateActiveLaboratoryExercise,
   onRegenerateActiveSection,
   onSetDarkMode,
+  onSetCourseGenerationNotes,
   onSetFocusMode,
   onSetIsMusicPlaying,
   onSetMusicUrl,
@@ -33,6 +38,13 @@ export default function WorkspaceReaderHeader({
 }: WorkspaceReaderHeaderModel) {
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const regenerateConfirmRef = useRef<HTMLDivElement>(null);
+  const activeContentTitle =
+    activeLaboratoryExercise?.title || activeSection?.title || learningPlanTitle || 'Lezione';
+  const activeContentGroupTitle = activeLaboratoryExercise
+    ? laboratoryTitle || 'Laboratorio'
+    : activeSidebarGroup?.title || learningPlanTitle || 'Percorso';
+  const canRegenerate = Boolean(activeLaboratoryExercise || activeSection);
+  const regenerateSubjectLabel = activeLaboratoryExercise ? 'esercizio' : 'lezione';
 
   useEffect(() => {
     if (!isRegenerateConfirmOpen) {
@@ -55,13 +67,13 @@ export default function WorkspaceReaderHeader({
   }, [isRegenerateConfirmOpen]);
 
   useEffect(() => {
-    if (!activeSection || isLoading) {
+    if ((!activeSection && !activeLaboratoryExercise) || isLoading) {
       setIsRegenerateConfirmOpen(false);
     }
-  }, [activeSection, isLoading]);
+  }, [activeLaboratoryExercise, activeSection, isLoading]);
 
   const handleRegenerateIntent = () => {
-    if (!activeSection || isLoading) {
+    if (!canRegenerate || isLoading) {
       return;
     }
 
@@ -70,6 +82,11 @@ export default function WorkspaceReaderHeader({
 
   const handleConfirmRegenerate = () => {
     setIsRegenerateConfirmOpen(false);
+    if (activeLaboratoryExercise) {
+      onRegenerateActiveLaboratoryExercise();
+      return;
+    }
+
     onRegenerateActiveSection();
   };
   const visibleLoadingStatus = isMobileViewport ? loadingStatus : loadingStatus.toUpperCase();
@@ -128,10 +145,10 @@ export default function WorkspaceReaderHeader({
               </button>
               <div className="min-w-0 overflow-hidden">
                 <p className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
-                  {activeSidebarGroup?.title || learningPlanTitle || 'Percorso'}
+                  {activeContentGroupTitle}
                 </p>
                 <h2 className="truncate font-serif text-base text-gray-900 dark:text-white">
-                  {activeSection?.title || learningPlanTitle || 'Lezione'}
+                  {activeContentTitle}
                 </h2>
               </div>
             </>
@@ -158,18 +175,20 @@ export default function WorkspaceReaderHeader({
             <button
               type="button"
               onClick={handleRegenerateIntent}
-              disabled={!activeSection || isLoading}
+              disabled={!canRegenerate || isLoading}
               className={`inline-flex items-center justify-center rounded-full border transition-colors ${
                 isMobileViewport
                   ? 'h-10 w-10'
                   : 'gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em]'
               } ${
-                !activeSection || isLoading
+                !canRegenerate || isLoading
                   ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500'
                   : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
               }`}
               title={
-                activeSection ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
+                canRegenerate
+                  ? `Rigenera il ${regenerateSubjectLabel} corrente`
+                  : `Apri un ${regenerateSubjectLabel} per rigenerarlo`
               }
               aria-expanded={isRegenerateConfirmOpen}
               aria-haspopup="dialog"
@@ -181,15 +200,16 @@ export default function WorkspaceReaderHeader({
             {isRegenerateConfirmOpen ? (
               <div
                 role="dialog"
-                aria-label="Conferma rigenerazione lezione"
+                aria-label="Conferma rigenerazione contenuto"
                 className={`${regenerateDialogClassName} rounded-[1.6rem] border border-stone-200/90 bg-white px-4 py-4 text-stone-700 shadow-[0_18px_40px_-24px_rgba(46,34,16,0.32)] dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-200`}
               >
                 <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                  Rigenerare questa lezione?
+                  {`Rigenerare questo ${regenerateSubjectLabel}?`}
                 </p>
                 <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                  Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti
-                  perdere il contenuto attuale.
+                  {activeLaboratoryExercise
+                    ? 'La traccia verra riscritta e gli allegati correnti potrebbero non essere piu coerenti con la nuova consegna.'
+                    : 'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'}
                 </p>
                 <div className="mt-4 flex items-center justify-end gap-2">
                   <button
@@ -222,9 +242,7 @@ export default function WorkspaceReaderHeader({
           />
 
           {!isMobileViewport ? (
-            <>
-              <div className="mx-1 h-4 w-px bg-gray-300 dark:bg-zinc-600" />
-            </>
+            <div className="mx-1 h-4 w-px bg-gray-300 dark:bg-zinc-600" />
           ) : null}
 
           <button
@@ -254,6 +272,10 @@ export default function WorkspaceReaderHeader({
 
       {isSettingsOpen ? (
         <WorkspaceReaderSettingsPanel
+          courseNotes={{
+            value: courseGenerationNotes,
+            onChange: onSetCourseGenerationNotes,
+          }}
           modelDefaults={modelDefaults}
           preferredModels={preferredModels}
           onClose={() => onSetSettingsOpen(false)}
