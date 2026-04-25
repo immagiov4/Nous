@@ -223,7 +223,7 @@ ${compactText}`,
     };
   } catch (error) {
     console.warn(
-      '[Lumina][Assessment] PDF parsing failed, using generic assessment fallback.',
+      '[Nous][Assessment] PDF parsing failed, using generic assessment fallback.',
       error
     );
     onStatusUpdate?.('Lettura fallita: fallback calibrazione...');

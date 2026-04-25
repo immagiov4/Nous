@@ -1,5 +1,9 @@
+import {
+  ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE,
+  normalizeActivePauseExerciseType,
+} from '../../utils/learning/activePause.ts';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
-import { pushLuminaDebugTrace } from '../core/debugTrace.ts';
+import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
 import { HIGH_REASONING_CONFIG } from './config.ts';
 import { buildReasoningContentForFile, clipPdfSourceText } from './contextChat.ts';
@@ -189,7 +193,7 @@ const traceLessonMarkdownStage = (
   sectionTitle: string,
   content: string
 ) => {
-  pushLuminaDebugTrace(`lesson-markdown:${stage}`, {
+  pushNousDebugTrace(`lesson-markdown:${stage}`, {
     sectionTitle,
     ...summarizeLessonMarkdownForTrace(content),
   });
@@ -338,7 +342,7 @@ const resolvePlanningSourceProfile = async (file: FileData): Promise<PlanningSou
         pageCount: pdfSession?.pageCount,
       });
     } catch (error) {
-      console.warn('[Lumina][Planning] Failed to profile PDF source size.', error);
+      console.warn('[Nous][Planning] Failed to profile PDF source size.', error);
       return resolvePlanningSourceProfileFromSeed({ kind: 'pdf' });
     }
   }
@@ -350,7 +354,7 @@ const resolvePlanningSourceProfile = async (file: FileData): Promise<PlanningSou
         kind: 'text',
       });
     } catch (error) {
-      console.warn('[Lumina][Planning] Failed to profile text source size.', error);
+      console.warn('[Nous][Planning] Failed to profile text source size.', error);
       return resolvePlanningSourceProfileFromSeed({ kind: 'text' });
     }
   }
@@ -430,6 +434,10 @@ export const buildAdaptivePlanGuidance = (profile: PlanningSourceProfile): strin
 
 const MIN_LESSON_QUIZ_QUESTIONS = 1;
 const MAX_LESSON_QUIZ_QUESTIONS = 3;
+const LESSON_QUIZ_OPTION_COUNT = 4;
+const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
+  exercise => `- ${exercise.type}: ${exercise.instruction}`
+).join('\n');
 
 const clampLessonQuizCount = (value: number): number =>
   Math.max(MIN_LESSON_QUIZ_QUESTIONS, Math.min(MAX_LESSON_QUIZ_QUESTIONS, value));
@@ -441,7 +449,7 @@ const buildLessonResponseSchema = (exactQuizCount?: number) => {
       : undefined;
 
   return {
-    name: 'lumina_lesson_response',
+    name: 'nous_lesson_response',
     strict: true,
     schema: {
       type: 'object',
@@ -458,13 +466,17 @@ const buildLessonResponseSchema = (exactQuizCount?: number) => {
             type: 'object',
             additionalProperties: false,
             properties: {
+              exerciseType: {
+                type: 'string',
+                enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
+              },
               question: {
                 type: 'string',
               },
               options: {
                 type: 'array',
-                minItems: 4,
-                maxItems: 4,
+                minItems: LESSON_QUIZ_OPTION_COUNT,
+                maxItems: LESSON_QUIZ_OPTION_COUNT,
                 items: {
                   type: 'string',
                 },
@@ -472,10 +484,10 @@ const buildLessonResponseSchema = (exactQuizCount?: number) => {
               correctIndex: {
                 type: 'integer',
                 minimum: 0,
-                maximum: 3,
+                maximum: LESSON_QUIZ_OPTION_COUNT - 1,
               },
             },
-            required: ['question', 'options', 'correctIndex'],
+            required: ['exerciseType', 'question', 'options', 'correctIndex'],
           },
         },
         imagePlacements: {
@@ -529,7 +541,7 @@ const PLAN_SECTION_FALLBACK_SCOPE_THRESHOLD = 0.5;
 const PLAN_SECTION_MIN_SHARED_KEYWORDS = 2;
 
 const logPdfLessonDebug = (label: string, payload: Record<string, unknown>) => {
-  console.groupCollapsed(`[Lumina][PDF Lesson] ${label}`);
+  console.groupCollapsed(`[Nous][PDF Lesson] ${label}`);
   Object.entries(payload).forEach(([key, value]) => {
     console.info(key, value);
   });
@@ -1458,10 +1470,29 @@ const unwrapWholeQuizCodeFormatting = (value: string): string => {
 };
 
 const sanitizeQuizQuestion = (question: QuizQuestion): QuizQuestion => ({
+  exerciseType: normalizeActivePauseExerciseType(question.exerciseType),
   question: unwrapWholeQuizCodeFormatting(question.question),
   options: question.options.map(option => unwrapWholeQuizCodeFormatting(option)),
   correctIndex: question.correctIndex,
 });
+
+const isValidQuizQuestionPayload = (item: unknown): item is QuizQuestion => {
+  if (typeof item !== 'object' || item === null) {
+    return false;
+  }
+
+  const candidate = item as Partial<QuizQuestion>;
+  return (
+    typeof candidate.question === 'string' &&
+    Array.isArray(candidate.options) &&
+    candidate.options.length === LESSON_QUIZ_OPTION_COUNT &&
+    candidate.options.every(option => typeof option === 'string') &&
+    Number.isInteger(candidate.correctIndex) &&
+    typeof candidate.correctIndex === 'number' &&
+    candidate.correctIndex >= 0 &&
+    candidate.correctIndex < candidate.options.length
+  );
+};
 
 const normalizeQuizLength = (quiz: QuizQuestion[], targetQuizCount: number): QuizQuestion[] =>
   quiz.slice(0, clampLessonQuizCount(targetQuizCount)).map(sanitizeQuizQuestion);
@@ -1548,7 +1579,7 @@ const repairLessonMarkdown = async (
 
   const userNotesBlock = buildUserGenerationNotesBlock(generationNotes);
 
-  const repairPrompt = `Sei un editor didattico di Lumina Reader.
+  const repairPrompt = `Sei un editor didattico di Nous Reader.
 
 Devi REVISIONARE una lezione markdown gia generata.
 ${userNotesBlock}
@@ -1615,19 +1646,7 @@ const prettifyMarkdownSpacing = (contentMarkdown: string): string =>
   );
 
 const parseQuizPayload = (value: unknown): QuizQuestion[] =>
-  Array.isArray(value)
-    ? value
-        .filter(
-          (item): item is QuizQuestion =>
-            typeof item === 'object' &&
-            item !== null &&
-            typeof (item as QuizQuestion).question === 'string' &&
-            Array.isArray((item as QuizQuestion).options) &&
-            (item as QuizQuestion).options.every(option => typeof option === 'string') &&
-            Number.isInteger((item as QuizQuestion).correctIndex)
-        )
-        .map(sanitizeQuizQuestion)
-    : [];
+  Array.isArray(value) ? value.filter(isValidQuizQuestionPayload).map(sanitizeQuizQuestion) : [];
 
 interface BuildLessonVerificationPromptInput {
   sectionTitle: string;
@@ -1659,7 +1678,7 @@ export const buildLessonVerificationPrompt = ({
   draft,
   candidateImages,
   generationNotes,
-}: BuildLessonVerificationPromptInput): string => `Sei il verificatore finale di Lumina Reader.
+}: BuildLessonVerificationPromptInput): string => `Sei il verificatore finale di Nous Reader.
 
 Ricevi una bozza quasi finale di lezione. Devi fare un controllo conclusivo e correggere SOLO cio che serve.
 ${buildUserGenerationNotesBlock(generationNotes)}
@@ -1672,23 +1691,26 @@ OBIETTIVI DI VERIFICA:
 2. ${continuityRule}
 3. Devono valere tutti questi vincoli di focus:
 ${scopeRule}
-4. \`quiz\` deve contenere ESATTAMENTE ${clampLessonQuizCount(targetQuizCount)} domande con ESATTAMENTE 4 opzioni ciascuna.
-5. Le domande del \`quiz\` NON devono mai chiedere di ripetere alla lettera una definizione appena data o copiare una frase della lezione.
-6. Ogni domanda deve richiedere almeno una tra queste operazioni mentali: applicare un concetto a un caso, confrontare due casi, prevedere una conseguenza, riconoscere un errore, classificare un esempio, scegliere l'implicazione corretta.
-7. I distrattori devono essere plausibili: niente opzioni caricaturali o palesemente assurde.
-8. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera domanda o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
-9. \`contentMarkdown\` non deve contenere quiz, markdown image syntax, tag <img>, assetId tecnici o riferimenti sbagliati alle immagini.
-10. I heading devono essere coerenti e ogni \`anchorHeading\` in \`imagePlacements\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`.
-11. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento.
-12. Verifica con particolare severita che descrizione, caption e immagine siano abbinate correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
-13. Ogni immagine selezionata deve anche essere visivamente chiara e autosufficiente: se appare sfocata, parziale, tagliata, poco leggibile, mostra solo un bordo, un wrapper, un riquadro, un badge, un'icona o un frammento non riconoscibile, rimuovila.
-14. Se una figura e debole, ambigua, fuori tema o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
-15. Se trovi forestierismi inutili nel testo, sostituiscili con equivalenti italiani naturali, salvo casi in cui il termine straniero sia davvero lo standard tecnico necessario.
-16. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
-17. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
-18. Verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
-19. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
-20. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti.
+4. \`quiz\` deve contenere ESATTAMENTE ${clampLessonQuizCount(targetQuizCount)} pause attive con ESATTAMENTE 4 opzioni ciascuna.
+5. Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
+${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
+6. Non generare sempre domande: alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
+7. Le pause del \`quiz\` NON devono mai chiedere di ripetere alla lettera una definizione appena data o copiare una frase della lezione.
+8. Ogni pausa deve richiedere almeno una tra queste operazioni mentali: applicare un concetto a un caso, confrontare due casi, prevedere una conseguenza, riconoscere un errore, classificare un esempio, scegliere l'implicazione corretta.
+9. I distrattori devono essere plausibili: niente opzioni caricaturali o palesemente assurde.
+10. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
+11. \`contentMarkdown\` non deve contenere quiz, markdown image syntax, tag <img>, assetId tecnici o riferimenti sbagliati alle immagini.
+12. I heading devono essere coerenti e ogni \`anchorHeading\` in \`imagePlacements\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`.
+13. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento.
+14. Verifica con particolare severita che descrizione, caption e immagine siano abbinate correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
+15. Ogni immagine selezionata deve anche essere visivamente chiara e autosufficiente: se appare sfocata, parziale, tagliata, poco leggibile, mostra solo un bordo, un wrapper, un riquadro, un badge, un'icona o un frammento non riconoscibile, rimuovila.
+16. Se una figura e debole, ambigua, fuori tema o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
+17. Se trovi forestierismi inutili nel testo, sostituiscili con equivalenti italiani naturali, salvo casi in cui il termine straniero sia davvero lo standard tecnico necessario.
+18. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
+19. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
+20. Verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
+21. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
+22. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti.
 
 ESTRATTI RILEVANTI DAL PDF / CONTESTO SORGENTE:
 ${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
@@ -1703,7 +1725,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
   "contentMarkdown": "Lezione finale verificata in markdown",
   "quiz": [
-    { "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+    { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
   ],
   "imagePlacements": [
     { "assetId": "pdf-img-001", "alt": "Descrizione breve", "caption": "Caption opzionale", "anchorHeading": "Analisi Approfondita" }
@@ -2266,7 +2288,7 @@ export const generateSectionContent = async (
     } catch (error) {
       if (isSoftTimeoutError(error)) {
         console.warn(
-          '[Lumina][Lesson] PDF asset parsing timed out, continuing with text-only lesson generation for now.',
+          '[Nous][Lesson] PDF asset parsing timed out, continuing with text-only lesson generation for now.',
           error
         );
         onStatusUpdate?.('Salto immagini (PDF grande)...');
@@ -2329,7 +2351,7 @@ export const generateSectionContent = async (
     );
 
     const lessonSourceContext = buildLessonChunkContext(documentIndex, primaryChunkIds);
-    const prompt = `Sei il Professor Lumina. Devi generare una LEZIONE COMPLETA E APPROFONDITA a partire da un PDF gia analizzato.
+    const prompt = `Sei il Professor Nous. Devi generare una LEZIONE COMPLETA E APPROFONDITA a partire da un PDF gia analizzato.
 ${userNotesBlock}
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
@@ -2366,24 +2388,27 @@ REGOLE FONDAMENTALI:
 25. Vincoli di focus della lezione:
 ${scopeRule}
 26. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
-27. \`quiz\` deve contenere da 1 a 3 domande con ESATTAMENTE 4 opzioni ciascuna.
+27. \`quiz\` deve contenere da 1 a 3 pause attive con ESATTAMENTE 4 opzioni ciascuna.
 28. Usa il numero MINIMO necessario di pause attive: 1 se la lezione ha un solo snodo concettuale forte, 2 se ha piu passaggi da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
-29. Le domande del \`quiz\` NON devono mai limitarsi a chiedere la ripetizione letterale di una definizione, di una formula o di una frase appena letta.
-30. Ogni domanda deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso oppure previsione di un effetto/conseguenza.
-31. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
-32. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera domanda o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
-33. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.
-34. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
-35. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.
-36. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "nella figura seguente".
-37. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
-38. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
-39. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\`\` oppure \`\`\`\`lang con solo il nome del linguaggio (es. \`\`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
-40. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
-41. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
-42. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
-43. Se inserisci formule, assicurati che il Markdown sia compatibile con KaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe isolate con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non aprire una formula con un delimitatore e chiuderla con un altro, e chiudi sempre correttamente graffe e delimitatori.
-44. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Usa solo \`caption\`, \`visibleLabel\` e il contesto della lezione per decidere se l'immagine e pertinente: non inventare dettagli non esplicitati dalla descrizione.
+29. Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
+${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
+30. Non generare sempre domande: alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
+31. Le pause del \`quiz\` NON devono mai limitarsi a chiedere la ripetizione letterale di una definizione, di una formula o di una frase appena letta.
+32. Ogni pausa deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso, sequenziamento, micro-sintesi oppure previsione di un effetto/conseguenza.
+33. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
+34. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
+35. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.
+36. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
+37. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.
+38. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "nella figura seguente".
+39. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
+40. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
+41. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\`\` oppure \`\`\`\`lang con solo il nome del linguaggio (es. \`\`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
+42. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
+43. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
+44. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
+45. Se inserisci formule, assicurati che il Markdown sia compatibile con KaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe isolate con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non aprire una formula con un delimitatore e chiuderla con un altro, e chiudi sempre correttamente graffe e delimitatori.
+46. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Usa solo \`caption\`, \`visibleLabel\` e il contesto della lezione per decidere se l'immagine e pertinente: non inventare dettagli non esplicitati dalla descrizione.
 
 IMMAGINI CANDIDATE:
 ${JSON.stringify(candidateImagePayload, null, 2)}
@@ -2392,7 +2417,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
   "contentMarkdown": "Lezione completa in markdown",
   "quiz": [
-    { "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+    { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
   ],
   "imagePlacements": [
     { "assetId": "pdf-img-001", "alt": "Descrizione breve", "caption": "Caption opzionale", "anchorHeading": "Analisi Approfondita" }
@@ -2429,7 +2454,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS),
       generationNotes
     ).catch(error => {
-      console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
+      console.warn('[Nous][Lesson] Markdown repair failed, keeping original content.', error);
       return parsed.contentMarkdown || '';
     });
     traceLessonMarkdownStage('repaired', sectionTitle, repairedContentMarkdown || '');
@@ -2486,7 +2511,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       generationNotes,
     }).catch(error => {
       console.warn(
-        '[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.',
+        '[Nous][Lesson] Final lesson verification failed, keeping pre-verified draft.',
         error
       );
       return {
@@ -2550,7 +2575,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     };
   }
 
-  const prompt = `Sei il Professor Lumina. Devi generare una LEZIONE COMPLETA E APPROFONDITA.
+  const prompt = `Sei il Professor Nous. Devi generare una LEZIONE COMPLETA E APPROFONDITA.
 ${userNotesBlock}
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
@@ -2582,25 +2607,28 @@ REGOLE FONDAMENTALI:
 19. **FOCUS DELLA LEZIONE**:
 ${scopeRule}
 20. **OUTPUT OBBLIGATORIO**: La risposta finale deve essere SOLO un oggetto JSON valido.
-21. **SCHEMA QUIZ**: \`quiz\` deve contenere da 1 a 3 domande a risposta multipla con ESATTAMENTE 4 opzioni ciascuna.
+21. **SCHEMA PAUSE ATTIVE**: \`quiz\` deve contenere da 1 a 3 pause attive con ESATTAMENTE 4 opzioni ciascuna.
 22. **QUIZ PROPORZIONATO**: Usa il numero minimo necessario di pause attive: 1 se la lezione e compatta, 2 se ha piu snodi concettuali da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
-23. **QUIZ INTELLIGENTE**: Le domande del \`quiz\` non devono mai chiedere solo la ripetizione letterale di una definizione o di una frase appena letta.
-24. **QUIZ DI RAGIONAMENTO**: Ogni domanda deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso oppure previsione di una conseguenza.
-25. **DISTRATTORI PLAUSIBILI**: Le opzioni errate devono sembrare errori realistici, non risposte palesemente assurde.
-26. **QUIZ TESTO NORMALE**: Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale. Non racchiudere MAI l'intera domanda o l'intera opzione in backticks, inline code o code fence; usa i backticks solo per un singolo termine o simbolo interno alla frase quando e davvero necessario.
-27. **NESSUN TESTO EXTRA**: Non aggiungere testo, commenti, markdown fences o spiegazioni fuori dal JSON.
-28. **IMMAGINI**: Per questa richiesta \`imagePlacements\` deve essere un array vuoto.
-29. **NO PSEUDO-LISTE**: Non scrivere blocchi con piu righe del tipo "Etichetta: ..." senza bullet. O fai una lista Markdown vera, oppure scrivi paragrafi completi.
-30. **CODE BLOCK PULITI**: Per i blocchi di codice usa solo fence Markdown standard del tipo \`\`\` oppure \`\`\`lang con il solo nome del linguaggio. Niente testo extra o commenti sulla riga del fence.
-31. **NO LABEL SPURIE**: Non scrivere righe isolate come \`cpp\`, \`ts\`, \`cpp // commento\` o simili prima di un code block. Se vuoi introdurre il codice, fallo in una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco.
-32. **NO IMMAGINI INLINE**: Non inserire markdown image syntax o tag HTML immagine dentro \`contentMarkdown\`.
-33. **NO QUIZ NEL TESTO**: Non aggiungere quiz, domande o sezioni di verifica dentro \`contentMarkdown\`; il quiz deve vivere solo nel campo \`quiz\`.
+23. **TIPOLOGIE VARIATE**: Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
+${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
+24. **NON SOLO DOMANDE**: Non generare sempre domande. Alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
+25. **PAUSE INTELLIGENTI**: Le pause del \`quiz\` non devono mai chiedere solo la ripetizione letterale di una definizione o di una frase appena letta.
+26. **RAGIONAMENTO**: Ogni pausa deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso, sequenziamento, micro-sintesi oppure previsione di una conseguenza.
+27. **DISTRATTORI PLAUSIBILI**: Le opzioni errate devono sembrare errori realistici, non risposte palesemente assurde.
+28. **TESTO NORMALE**: Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale. Non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence; usa i backticks solo per un singolo termine o simbolo interno alla frase quando e davvero necessario.
+29. **NESSUN TESTO EXTRA**: Non aggiungere testo, commenti, markdown fences o spiegazioni fuori dal JSON.
+30. **IMMAGINI**: Per questa richiesta \`imagePlacements\` deve essere un array vuoto.
+31. **NO PSEUDO-LISTE**: Non scrivere blocchi con piu righe del tipo "Etichetta: ..." senza bullet. O fai una lista Markdown vera, oppure scrivi paragrafi completi.
+32. **CODE BLOCK PULITI**: Per i blocchi di codice usa solo fence Markdown standard del tipo \`\`\` oppure \`\`\`lang con il solo nome del linguaggio. Niente testo extra o commenti sulla riga del fence.
+33. **NO LABEL SPURIE**: Non scrivere righe isolate come \`cpp\`, \`ts\`, \`cpp // commento\` o simili prima di un code block. Se vuoi introdurre il codice, fallo in una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco.
+34. **NO IMMAGINI INLINE**: Non inserire markdown image syntax o tag HTML immagine dentro \`contentMarkdown\`.
+35. **NO QUIZ NEL TESTO**: Non aggiungere quiz, domande o sezioni di verifica dentro \`contentMarkdown\`; il quiz deve vivere solo nel campo \`quiz\`.
 
 Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
   "contentMarkdown": "Lezione completa in markdown",
   "quiz": [
-    { "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+    { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
   ],
   "imagePlacements": []
 }`;
@@ -2638,7 +2666,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     sectionDescription,
     generationNotes
   ).catch(error => {
-    console.warn('[Lumina][Lesson] Markdown repair failed, keeping original content.', error);
+    console.warn('[Nous][Lesson] Markdown repair failed, keeping original content.', error);
     return parsed.contentMarkdown || '';
   });
   traceLessonMarkdownStage('repaired', sectionTitle, repairedContentMarkdown || '');
@@ -2663,7 +2691,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     generationNotes,
   }).catch(error => {
     console.warn(
-      '[Lumina][Lesson] Final lesson verification failed, keeping pre-verified draft.',
+      '[Nous][Lesson] Final lesson verification failed, keeping pre-verified draft.',
       error
     );
     return {

@@ -166,11 +166,11 @@ describe('LibraryTreeView', () => {
     );
 
     expect(screen.getByText('Frontend')).toBeInTheDocument();
-    expect(addListener).toHaveBeenCalledTimes(1);
+    expect(addListener).toHaveBeenCalled();
 
     unmount();
 
-    expect(removeListener).toHaveBeenCalledTimes(1);
+    expect(removeListener).toHaveBeenCalledTimes(addListener.mock.calls.length);
   });
 
   test('drops a folder before a root project instead of always appending it below', () => {

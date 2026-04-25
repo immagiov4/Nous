@@ -1,5 +1,6 @@
 import { ChevronRight, GraduationCap } from 'lucide-react';
 import type { QuizQuestion } from '../../../types.ts';
+import { getActivePauseExerciseLabel } from '../../../utils/learning/activePause.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 
 interface WorkspaceReaderQuizProps {
@@ -66,6 +67,9 @@ export default function WorkspaceReaderQuiz({
             key={question.question}
             className="rounded-2xl border border-gray-100 bg-white p-8 shadow-sm transition-all hover:shadow-md dark:border-zinc-700/80 dark:bg-zinc-800"
           >
+            <div className="mb-4 text-xs font-semibold uppercase tracking-[0.16em] text-orange-700 dark:text-orange-300">
+              Pausa attiva {questionIndex + 1} - {getActivePauseExerciseLabel(question)}
+            </div>
             <div className="mb-6 font-serif text-lg font-medium text-gray-800 dark:text-gray-200">
               <MarkdownRenderer content={question.question} className="prose-lg max-w-none" />
             </div>

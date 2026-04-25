@@ -33,3 +33,14 @@ test('readCollapsedLibraryFolderIds and writeCollapsedLibraryFolderIds use the s
   assert.equal(storedValues.has(LIBRARY_COLLAPSED_FOLDER_IDS_KEY), true);
   assert.deepEqual(readCollapsedLibraryFolderIds(storage), ['folder-1', 'folder-2']);
 });
+
+test('readCollapsedLibraryFolderIds accepts the legacy Lumina storage key', () => {
+  const storedValues = new Map<string, string>([
+    ['lumina-library-collapsed-folder-ids', JSON.stringify(['folder-legacy'])],
+  ]);
+  const storage = {
+    getItem: (key: string) => storedValues.get(key) ?? null,
+  };
+
+  assert.deepEqual(readCollapsedLibraryFolderIds(storage), ['folder-legacy']);
+});

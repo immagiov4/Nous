@@ -5,14 +5,14 @@ import type { FileData, LearningPlan, PdfTextIndex } from '../../../types.ts';
 const getPdfTextSessionMock = vi.fn();
 const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async (operation: () => Promise<string>) => await operation());
-const pushLuminaDebugTraceMock = vi.fn();
+const pushNousDebugTraceMock = vi.fn();
 
 vi.mock('../../../services/openrouter/pdfAssets.ts', () => ({
   getPdfTextSession: getPdfTextSessionMock,
 }));
 
 vi.mock('../../../services/core/debugTrace.ts', () => ({
-  pushLuminaDebugTrace: pushLuminaDebugTraceMock,
+  pushNousDebugTrace: pushNousDebugTraceMock,
 }));
 
 vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
@@ -71,7 +71,7 @@ beforeEach(() => {
   getPdfTextSessionMock.mockReset();
   callOpenRouterMock.mockReset();
   retryWithBackoffMock.mockClear();
-  pushLuminaDebugTraceMock.mockReset();
+  pushNousDebugTraceMock.mockReset();
 });
 
 test('preparePdfLessonMappings batches large mapping prompts and trims chunk content previews', async () => {
@@ -125,7 +125,7 @@ test('preparePdfLessonMappings batches large mapping prompts and trims chunk con
   assert.deepEqual(result.learningPlan.sections[11]?.primaryChunkIds, [buildChunkId(34)]);
   assert.equal(retryWithBackoffMock.mock.calls.length, 2);
   assert.ok(
-    pushLuminaDebugTraceMock.mock.calls.some(
+    pushNousDebugTraceMock.mock.calls.some(
       ([event, payload]) =>
         event === 'pdf-plan:coverage' &&
         payload?.mappingSource === 'mapped' &&
@@ -174,7 +174,9 @@ test('preparePdfLessonMappings narrows large PDF mapping prompts to positional c
     assert.ok(prompt.length < 90000);
   });
 
-  const firstBatchPrompt = String(callOpenRouterMock.mock.calls[0]?.[0]?.messages[0]?.content ?? '');
+  const firstBatchPrompt = String(
+    callOpenRouterMock.mock.calls[0]?.[0]?.messages[0]?.content ?? ''
+  );
   const secondBatchPrompt = String(
     callOpenRouterMock.mock.calls[1]?.[0]?.messages[0]?.content ?? ''
   );
@@ -236,7 +238,7 @@ test('preparePdfLessonMappings deep-repairs unresolved lessons instead of persis
   assert.equal(callOpenRouterMock.mock.calls[2]?.[0]?.disableModelOverride, true);
   assert.ok((callOpenRouterMock.mock.calls[2]?.[0]?.max_tokens || 0) >= 1024);
 
-  const coverageWarningCall = pushLuminaDebugTraceMock.mock.calls.find(
+  const coverageWarningCall = pushNousDebugTraceMock.mock.calls.find(
     ([event]) => event === 'pdf-plan:coverage-warning'
   );
   assert.ok(coverageWarningCall);
@@ -286,7 +288,9 @@ test('preparePdfLessonMappings uses a narrower prompt window and larger token bu
   assert.ok(chunkDescriptorCount <= 32);
   assert.ok(chunkDescriptorCount < documentIndex.chunks.length);
   assert.equal(deepRepairRequest?.disableModelOverride, true);
-  assert.ok(typeof deepRepairRequest?.max_tokens === 'number' && deepRepairRequest.max_tokens >= 1024);
+  assert.ok(
+    typeof deepRepairRequest?.max_tokens === 'number' && deepRepairRequest.max_tokens >= 1024
+  );
 });
 
 test('preparePdfLessonMappings retries a strict single-lesson repair when the first repair reply is empty', async () => {
@@ -392,7 +396,7 @@ test('preparePdfLessonMappings falls back when deep repair still cannot produce 
   assert.ok(incompleteMappingWarning);
   assert.match(String(incompleteMappingWarning?.[1]?.rawResponsePreview || ''), /"mappings":\s*\[/);
   assert.ok(
-    pushLuminaDebugTraceMock.mock.calls.some(
+    pushNousDebugTraceMock.mock.calls.some(
       ([event, payload]) =>
         event === 'pdf-plan:mapping-fallback' &&
         payload?.failedSectionCount === 2 &&
@@ -444,9 +448,8 @@ test('preparePdfLessonMappings falls back when deep repair requests fail', async
     )
   );
   assert.ok(
-    pushLuminaDebugTraceMock.mock.calls.some(
-      ([event, payload]) =>
-        event === 'pdf-plan:deep-repair-failed' && payload?.sectionCount === 2
+    pushNousDebugTraceMock.mock.calls.some(
+      ([event, payload]) => event === 'pdf-plan:deep-repair-failed' && payload?.sectionCount === 2
     )
   );
 });

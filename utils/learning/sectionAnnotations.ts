@@ -9,9 +9,9 @@ import {
 
 const MARK_CLOSE = '</mark>';
 const MARK_OPEN_WITH_ID = (annotationId: string) =>
-  `<mark data-lumina-annotation-id="${annotationId}">`;
+  `<mark data-nous-annotation-id="${annotationId}">`;
 const MARK_OPEN_TAG_REGEX = /^<mark\b[^>]*>/iu;
-const ANNOTATION_ID_REGEX = /\bdata-lumina-annotation-id=(["'])([^"']+)\1/iu;
+const ANNOTATION_ID_REGEX = /\bdata-(?:nous|lumina)-annotation-id=(["'])([^"']+)\1/iu;
 const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
 const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
 const LEGACY_GROUP_GAP_TOKENS_REGEX =

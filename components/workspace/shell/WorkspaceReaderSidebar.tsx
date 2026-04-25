@@ -35,7 +35,7 @@ const getSectionStatusLabel = ({
   }
 
   if (hasGeneratedContent) {
-    return 'Lezione gia generata';
+    return 'Lezione già generata';
   }
 
   return 'Lezione non ancora generata';
@@ -88,7 +88,7 @@ const getLaboratoryExerciseStatusLabel = ({
     return 'Esercizio laboratorio attivo';
   }
 
-  return 'Esercizio laboratorio gia generato';
+  return 'Esercizio laboratorio già generato';
 };
 
 export default function WorkspaceReaderSidebar({
@@ -279,13 +279,9 @@ export default function WorkspaceReaderSidebar({
         </div>
 
         <div
-          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-4 py-5"
-          style={{
-            paddingBottom: isMobileViewport
-              ? 'max(1.25rem, env(safe-area-inset-bottom, 0px))'
-              : undefined,
-            WebkitOverflowScrolling: 'touch',
-          }}
+          className={`reader-sidebar-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-4 py-5 ${
+            isMobileViewport ? 'reader-sidebar-scroll-mobile' : ''
+          }`}
         >
           <div className="space-y-6">
             <div className="space-y-3">
@@ -478,7 +474,7 @@ export default function WorkspaceReaderSidebar({
             Rigenera intero laboratorio
           </button>
           <p className="px-3 pb-2 pt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-            Temporaneo per QA del laboratorio. Va rimosso quando non servira piu rigenerare l intero
+            Temporaneo per QA del laboratorio. Va rimosso quando non servirà più rigenerare l'intero
             indice separatamente dal corso.
           </p>
         </div>

@@ -13,6 +13,7 @@ import {
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 import type { SavedProjectMeta } from '../../types';
+import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 
 interface ProjectCardProps {
   className?: string;
@@ -57,8 +58,7 @@ const ProjectCard = ({
       style={style}
     >
       {/* Icon */}
-      <button
-        type="button"
+      <Pressable
         onClick={() => onOpen(project.id)}
         disabled={isOpening}
         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 sm:h-10 sm:w-10 sm:rounded-xl dark:bg-paper-dark dark:text-zinc-300 dark:hover:bg-zinc-700/50"
@@ -69,7 +69,7 @@ const ProjectCard = ({
         ) : (
           <CoverIcon className="h-4 w-4 sm:h-[1.125rem] sm:w-[1.125rem]" />
         )}
-      </button>
+      </Pressable>
 
       {/* Main info — clickable */}
       <button
@@ -115,8 +115,7 @@ const ProjectCard = ({
             }}
           />
         ) : null}
-        <button
-          type="button"
+        <Pressable
           onClick={e => {
             e.stopPropagation();
             setMenuOpen(v => !v);
@@ -125,47 +124,49 @@ const ProjectCard = ({
           title="Azioni"
         >
           <MoreVertical className="h-4 w-4" />
-        </button>
-        {menuOpen ? (
-          <div className="absolute right-0 top-9 z-50 min-w-[10rem] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
-            {onMove ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onMove(project.id);
-                }}
-                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
-              >
-                <FolderInput className="h-4 w-4 shrink-0" />
-                Sposta
-              </button>
-            ) : null}
+        </Pressable>
+        <MotionPopover
+          isOpen={menuOpen}
+          originX="top right"
+          className="absolute right-0 top-9 z-50 min-w-[10rem] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
+        >
+          {onMove ? (
             <button
               type="button"
               onClick={() => {
                 setMenuOpen(false);
-                onExport(project.id);
+                onMove(project.id);
               }}
               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
             >
-              <Download className="h-4 w-4 shrink-0" />
-              Esporta
+              <FolderInput className="h-4 w-4 shrink-0" />
+              Sposta
             </button>
-            <div className="border-t border-gray-100 dark:border-zinc-700" />
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete(project.id);
-              }}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-            >
-              <Trash2 className="h-4 w-4 shrink-0" />
-              Elimina
-            </button>
-          </div>
-        ) : null}
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              onExport(project.id);
+            }}
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            <Download className="h-4 w-4 shrink-0" />
+            Esporta
+          </button>
+          <div className="border-t border-gray-100 dark:border-zinc-700" />
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              onDelete(project.id);
+            }}
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+          >
+            <Trash2 className="h-4 w-4 shrink-0" />
+            Elimina
+          </button>
+        </MotionPopover>
       </div>
     </article>
   );

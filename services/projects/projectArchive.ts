@@ -8,14 +8,15 @@ import type {
 import { exportProjectData } from './projectSnapshot.ts';
 import { decodeBase64Bytes, encodeBytesBase64 } from './projectSource.ts';
 
-const PROJECT_ARCHIVE_FORMAT = 'lumina-project-archive';
+const PROJECT_ARCHIVE_FORMAT = 'nous-project-archive';
+const LEGACY_PROJECT_ARCHIVE_FORMAT = 'lumina-project-archive';
 const PROJECT_ARCHIVE_VERSION = 1;
 const PROJECT_ARCHIVE_MIME_TYPE = 'application/zip';
 const PROJECT_ARCHIVE_MANIFEST_PATH = 'project.json';
 const PROJECT_ARCHIVE_SOURCE_DIR = 'source';
 const INVALID_BACKUP_ARCHIVE_MESSAGE =
-  "Questo ZIP non contiene un backup Lumina valido. Importa un file .lumina.zip esportato dall'app.";
-const INVALID_BACKUP_FILE_MESSAGE = 'Il file selezionato non e un backup Lumina valido.';
+  "Questo ZIP non contiene un backup Nous valido. Importa un file .nous.zip esportato dall'app.";
+const INVALID_BACKUP_FILE_MESSAGE = 'Il file selezionato non e un backup Nous valido.';
 
 type ArchivedPdfFileMeta = Omit<FileData, 'data'>;
 
@@ -37,7 +38,7 @@ interface ProjectArchiveManifest {
   attachments?: {
     sourceFile?: ProjectArchiveAttachment;
   };
-  format: typeof PROJECT_ARCHIVE_FORMAT;
+  format: typeof PROJECT_ARCHIVE_FORMAT | typeof LEGACY_PROJECT_ARCHIVE_FORMAT;
   project: Omit<ProjectExportData, 'file' | 'source'> & {
     source?: ArchivedProjectSource | null;
   };
@@ -150,7 +151,10 @@ const loadProjectArchive = async (bytes: Uint8Array): Promise<LoadedProjectArchi
 
   const manifest = JSON.parse(await manifestEntry.async('string')) as ProjectArchiveManifest;
 
-  if (manifest.format !== PROJECT_ARCHIVE_FORMAT) {
+  if (
+    manifest.format !== PROJECT_ARCHIVE_FORMAT &&
+    manifest.format !== LEGACY_PROJECT_ARCHIVE_FORMAT
+  ) {
     throw new Error(INVALID_BACKUP_ARCHIVE_MESSAGE);
   }
 
@@ -254,4 +258,4 @@ export const readProjectImportData = async (file: Blob): Promise<unknown> => {
   return parsed;
 };
 
-export const getProjectArchiveExtension = () => '.lumina.zip';
+export const getProjectArchiveExtension = () => '.nous.zip';

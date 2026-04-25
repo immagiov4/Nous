@@ -1,4 +1,6 @@
-export const LIBRARY_COLLAPSED_FOLDER_IDS_KEY = 'lumina-library-collapsed-folder-ids';
+export const LIBRARY_COLLAPSED_FOLDER_IDS_KEY = 'nous-library-collapsed-folder-ids';
+
+const LEGACY_LIBRARY_COLLAPSED_FOLDER_IDS_KEY = 'lumina-library-collapsed-folder-ids';
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
@@ -28,7 +30,14 @@ export const readCollapsedLibraryFolderIds = (
   }
 
   try {
-    return parseCollapsedLibraryFolderIds(storage.getItem(LIBRARY_COLLAPSED_FOLDER_IDS_KEY));
+    const currentFolderIds = parseCollapsedLibraryFolderIds(
+      storage.getItem(LIBRARY_COLLAPSED_FOLDER_IDS_KEY)
+    );
+    if (currentFolderIds.length > 0) {
+      return currentFolderIds;
+    }
+
+    return parseCollapsedLibraryFolderIds(storage.getItem(LEGACY_LIBRARY_COLLAPSED_FOLDER_IDS_KEY));
   } catch {
     return [];
   }

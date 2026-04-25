@@ -85,6 +85,16 @@ export const useReaderContext = ({
   const suppressedSelectionMenuRef = useRef<{ key: string; until: number } | null>(null);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
   const contextAnswerDraftSizeRef = useRef<ContextAnswerSize>(CONTEXT_ANSWER_DEFAULT_SIZE);
+  // Mirror of contextMenu state consumed from callbacks that must keep a stable
+  // identity. Reading contextMenu directly from those callbacks would force
+  // them to list it in their deps, which in turn would invalidate every
+  // handler passed down to memoized descendants (notably MarkdownRenderer)
+  // each time the menu opens or closes, causing a full react-markdown
+  // reparse of the reader content right before the menu appears.
+  const contextMenuStateRef = useRef<ContextMenuState>(contextMenu);
+  useEffect(() => {
+    contextMenuStateRef.current = contextMenu;
+  }, [contextMenu]);
 
   const clearSelectionMenuTimeout = useCallback(() => {
     if (selectionMenuTimeoutRef.current === null) {
@@ -240,9 +250,9 @@ export const useReaderContext = ({
 
       if (
         options?.allowToggleClose !== false &&
-        contextMenu.visible &&
-        contextMenu.type === 'selection' &&
-        getSelectionMenuKey(contextMenu) === nextMenuKey
+        contextMenuStateRef.current.visible &&
+        contextMenuStateRef.current.type === 'selection' &&
+        getSelectionMenuKey(contextMenuStateRef.current) === nextMenuKey
       ) {
         suppressedSelectionMenuRef.current = {
           key: nextMenuKey,
@@ -269,7 +279,7 @@ export const useReaderContext = ({
 
       return 'opened';
     },
-    [closeContextMenu, contentRef, contextMenu]
+    [closeContextMenu, contentRef]
   );
 
   const handleContentContextMenu = useCallback(
@@ -331,7 +341,9 @@ export const useReaderContext = ({
         return;
       }
 
-      const annotationElement = target.closest('mark[data-lumina-annotation-id]');
+      const annotationElement = target.closest(
+        'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]'
+      );
       if (
         !(annotationElement instanceof HTMLElement) ||
         !contentRef.current.contains(annotationElement)
@@ -344,7 +356,9 @@ export const useReaderContext = ({
         return;
       }
 
-      const annotationId = annotationElement.getAttribute('data-lumina-annotation-id');
+      const annotationId =
+        annotationElement.getAttribute('data-nous-annotation-id') ||
+        annotationElement.getAttribute('data-lumina-annotation-id');
       if (!annotationId) {
         return;
       }
@@ -364,10 +378,11 @@ export const useReaderContext = ({
       const annotationNote =
         sectionAnnotations?.find(annotation => annotation.id === annotationId)?.note || '';
 
+      const currentMenu = contextMenuStateRef.current;
       if (
-        contextMenu.visible &&
-        contextMenu.type === 'annotation' &&
-        contextMenu.annotationId === annotationId
+        currentMenu.visible &&
+        currentMenu.type === 'annotation' &&
+        currentMenu.annotationId === annotationId
       ) {
         closeContextMenu();
         return;
@@ -394,14 +409,7 @@ export const useReaderContext = ({
         })
       );
     },
-    [
-      closeContextMenu,
-      contentRef,
-      contextMenu,
-      isMobileViewport,
-      sectionAnnotations,
-      sectionContent,
-    ]
+    [closeContextMenu, contentRef, isMobileViewport, sectionAnnotations, sectionContent]
   );
 
   const handleContextAnswerResizeStart = useCallback(
@@ -485,7 +493,8 @@ export const useReaderContext = ({
         return;
       }
 
-      if (contextMenu.visible && contextMenu.type === 'annotation') {
+      const currentMenu = contextMenuStateRef.current;
+      if (currentMenu.visible && currentMenu.type === 'annotation') {
         return;
       }
 
@@ -501,7 +510,7 @@ export const useReaderContext = ({
           hasSelection: Boolean(selection?.toString().trim() && selection.rangeCount > 0),
           isInteractingWithinMenu,
           isMenuFocused: Boolean(contextMenuRef.current?.contains(document.activeElement)),
-          isMenuVisible: contextMenu.visible,
+          isMenuVisible: contextMenuStateRef.current.visible,
         });
 
         if (selection && syncAction === 'open-from-selection') {
@@ -524,14 +533,7 @@ export const useReaderContext = ({
         closeContextMenu();
       }, CONTEXT_MENU_MOBILE_DEBOUNCE_MS);
     },
-    [
-      clearSelectionMenuTimeout,
-      closeContextMenu,
-      contextMenu.type,
-      contextMenu.visible,
-      isMobileViewport,
-      openContextMenuFromSelection,
-    ]
+    [clearSelectionMenuTimeout, closeContextMenu, isMobileViewport, openContextMenuFromSelection]
   );
 
   useEffect(() => {

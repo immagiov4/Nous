@@ -1,5 +1,5 @@
 {
-  "backendHost": "127.0.0.1",
+  "backendHost": "0.0.0.0",
   "backendPort": 3301,
   "pythonExecutable": "python",
   "ttsServerModule": "api.main",

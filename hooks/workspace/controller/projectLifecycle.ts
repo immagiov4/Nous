@@ -1,4 +1,4 @@
-import { pushLuminaDebugTrace } from '../../../services/core/debugTrace.ts';
+import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import {
   createProjectId,
@@ -21,7 +21,7 @@ import {
   type ProjectSource,
 } from '../../../types.ts';
 import { readSourceFileData } from './controllerContext.ts';
-import { importProjectBackupFile, isLuminaBackupArchive } from './projectImport.ts';
+import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
   OpenSectionOptions,
@@ -52,7 +52,10 @@ const REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE = [
   'completeSection',
 ] as const;
 
-const withTimeoutFallback = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> => {
+const withTimeoutFallback = async <T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T | null> => {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
   try {
@@ -82,9 +85,9 @@ export const createProjectLifecycleCommands = (
       try {
         await projectLibrary.touchStoredProject(projectId);
         await projectLibrary.refreshSavedProjects();
-        pushLuminaDebugTrace('open-project:library-refreshed', { projectId, requestId });
+        pushNousDebugTrace('open-project:library-refreshed', { projectId, requestId });
       } catch (error) {
-        pushLuminaDebugTrace('open-project:library-refresh-failed', {
+        pushNousDebugTrace('open-project:library-refresh-failed', {
           errorMessage: getErrorMessage(error),
           projectId,
           requestId,
@@ -98,7 +101,7 @@ export const createProjectLifecycleCommands = (
     options?: { mode?: 'new-project' | 'reattach-source' }
   ): Promise<{ errorMessage?: string; outcome: 'imported' | 'started-assessment' | 'reattached' }> {
     const requestId = state.beginWorkflow('attachSource', 'Caricamento...');
-    pushLuminaDebugTrace('attach-source:start', {
+    pushNousDebugTrace('attach-source:start', {
       mode: options?.mode || 'new-project',
       name: selectedFile.name,
       requestId,
@@ -111,18 +114,18 @@ export const createProjectLifecycleCommands = (
       let nextFile: FileData | null = null;
 
       if (isZipFileData({ name: selectedFile.name, mimeType: selectedFile.type })) {
-        const isBackupArchive = await isLuminaBackupArchive(selectedFile);
+        const isBackupArchive = await isNousBackupArchive(selectedFile);
 
         if (isBackupArchive) {
           if (options?.mode === 'reattach-source') {
             throw new Error(
-              'Questo ZIP e un backup Lumina completo. Usa Importa dalla libreria invece di Ricollega sorgente.'
+              'Questo ZIP e un backup Nous completo. Usa Importa dalla libreria invece di Ricollega sorgente.'
             );
           }
 
           state.setWorkflowMessage('attachSource', requestId, 'Importazione backup...');
           const importedSnapshot = await importProjectBackupFile(context, selectedFile);
-          pushLuminaDebugTrace('attach-source:backup-imported', {
+          pushNousDebugTrace('attach-source:backup-imported', {
             projectId: importedSnapshot.id,
             requestId,
             screen: importedSnapshot.learningPlan ? 'reading' : 'assessment',
@@ -144,7 +147,7 @@ export const createProjectLifecycleCommands = (
         throw new Error('Unable to prepare project source');
       }
 
-      pushLuminaDebugTrace('attach-source:prepared', {
+      pushNousDebugTrace('attach-source:prepared', {
         name: nextFile.name,
         normalizedMimeType: nextFile.mimeType,
         requestId,
@@ -178,7 +181,7 @@ export const createProjectLifecycleCommands = (
         })
       );
       state.succeedWorkflow('attachSource', requestId);
-      pushLuminaDebugTrace('attach-source:persisted', {
+      pushNousDebugTrace('attach-source:persisted', {
         projectId: nextProjectId,
         requestId,
         sourceKind: nextSource.kind,
@@ -226,22 +229,22 @@ export const createProjectLifecycleCommands = (
     const requestId = state.beginWorkflow('openProject', 'Apertura progetto...');
     let didSettleOpenWorkflow = false;
     state.setOpeningProjectId(projectId);
-    pushLuminaDebugTrace('open-project:start', { projectId, requestId });
+    pushNousDebugTrace('open-project:start', { projectId, requestId });
 
     try {
       const snapshot = await projectLibrary.loadStoredProject(projectId);
       if (!state.isWorkflowCurrent('openProject', requestId)) {
-        pushLuminaDebugTrace('open-project:stale-after-load', { projectId, requestId });
+        pushNousDebugTrace('open-project:stale-after-load', { projectId, requestId });
         return { outcome: 'stale' };
       }
 
       if (!snapshot) {
-        pushLuminaDebugTrace('open-project:missing-snapshot', { projectId, requestId });
+        pushNousDebugTrace('open-project:missing-snapshot', { projectId, requestId });
         state.succeedWorkflow('openProject', requestId);
         return { outcome: 'missing' };
       }
 
-      pushLuminaDebugTrace('open-project:snapshot-loaded', {
+      pushNousDebugTrace('open-project:snapshot-loaded', {
         hasLearningPlan: Boolean(snapshot.learningPlan),
         projectId,
         requestId,
@@ -276,9 +279,7 @@ export const createProjectLifecycleCommands = (
             : 'Allineamento lezioni con il PDF...'
         );
 
-        let prepared:
-          | Awaited<ReturnType<typeof context.preparePdfLessonPlan>>
-          | null = null;
+        let prepared: Awaited<ReturnType<typeof context.preparePdfLessonPlan>> | null = null;
 
         try {
           prepared = await withTimeoutFallback(
@@ -291,25 +292,25 @@ export const createProjectLifecycleCommands = (
           );
         } catch (error) {
           console.warn(
-            '[Lumina][OpenProject] PDF hydration failed, opening the stored snapshot without remapping.',
+            '[Nous][OpenProject] PDF hydration failed, opening the stored snapshot without remapping.',
             error
           );
-          pushLuminaDebugTrace('open-project:pdf-prepare-failed', {
+          pushNousDebugTrace('open-project:pdf-prepare-failed', {
             errorMessage: getErrorMessage(error),
             projectId,
             requestId,
           });
         }
         if (!state.isWorkflowCurrent('openProject', requestId)) {
-          pushLuminaDebugTrace('open-project:stale-after-pdf-prepare', { projectId, requestId });
+          pushNousDebugTrace('open-project:stale-after-pdf-prepare', { projectId, requestId });
           return { outcome: 'stale' };
         }
 
         if (!prepared) {
           console.warn(
-            '[Lumina][OpenProject] PDF hydration timed out, opening the stored snapshot without remapping.'
+            '[Nous][OpenProject] PDF hydration timed out, opening the stored snapshot without remapping.'
           );
-          pushLuminaDebugTrace('open-project:pdf-prepare-timeout', {
+          pushNousDebugTrace('open-project:pdf-prepare-timeout', {
             projectId,
             requestId,
             timeoutMs: OPEN_PROJECT_PDF_HYDRATION_TIMEOUT_MS,
@@ -325,7 +326,7 @@ export const createProjectLifecycleCommands = (
       }
 
       if (!state.isWorkflowCurrent('openProject', requestId)) {
-        pushLuminaDebugTrace('open-project:stale-before-hydration', { projectId, requestId });
+        pushNousDebugTrace('open-project:stale-before-hydration', { projectId, requestId });
         return { outcome: 'stale' };
       }
 
@@ -334,7 +335,7 @@ export const createProjectLifecycleCommands = (
         await projectLibrary.persistSnapshot(preparedSnapshot);
       }
       persistHydratedSnapshot(preparedSnapshot);
-      pushLuminaDebugTrace('open-project:hydrated-snapshot', {
+      pushNousDebugTrace('open-project:hydrated-snapshot', {
         hasLearningPlan: Boolean(preparedSnapshot.learningPlan),
         projectId,
         requestId,
@@ -348,12 +349,12 @@ export const createProjectLifecycleCommands = (
       state.succeedWorkflow('openProject', requestId);
       didSettleOpenWorkflow = true;
       state.setOpeningProjectId(null);
-      pushLuminaDebugTrace('open-project:settled-before-follow-up', { projectId, requestId });
+      pushNousDebugTrace('open-project:settled-before-follow-up', { projectId, requestId });
       refreshLibraryMetadataInBackground(projectId, requestId);
 
       if (!preparedSnapshot.learningPlan && !preparedSnapshot.laboratory) {
         if (preparedSnapshot.source?.kind === 'codebase-bundle') {
-          pushLuminaDebugTrace('open-project:start-text-assessment', {
+          pushNousDebugTrace('open-project:start-text-assessment', {
             projectId,
             requestId,
             textLength: preparedSnapshot.source.aggregatedText.length,
@@ -365,7 +366,7 @@ export const createProjectLifecycleCommands = (
             },
           });
         } else if (preparedSnapshot.source?.kind === 'pdf') {
-          pushLuminaDebugTrace('open-project:start-pdf-assessment', {
+          pushNousDebugTrace('open-project:start-pdf-assessment', {
             fileName: preparedSnapshot.source.file.name,
             projectId,
             requestId,
@@ -389,7 +390,7 @@ export const createProjectLifecycleCommands = (
             currentUserProfile: preparedSnapshot.userProfile,
             isLearnMode: preparedSnapshot.isLearnMode,
           }).catch(error => {
-            pushLuminaDebugTrace('open-project:background-section-load-failed', {
+            pushNousDebugTrace('open-project:background-section-load-failed', {
               errorMessage: getErrorMessage(error),
               projectId,
               requestId,
@@ -399,11 +400,11 @@ export const createProjectLifecycleCommands = (
         }
       }
 
-      pushLuminaDebugTrace('open-project:completed', { projectId, requestId });
+      pushNousDebugTrace('open-project:completed', { projectId, requestId });
       return { outcome: 'opened' };
     } catch (error) {
       const errorMessage = getErrorMessage(error);
-      pushLuminaDebugTrace('open-project:failed', {
+      pushNousDebugTrace('open-project:failed', {
         errorMessage,
         projectId,
         requestId,
@@ -415,7 +416,7 @@ export const createProjectLifecycleCommands = (
     } finally {
       if (state.isWorkflowCurrent('openProject', requestId)) {
         state.setOpeningProjectId(null);
-        pushLuminaDebugTrace('open-project:cleared-opening-id', { projectId, requestId });
+        pushNousDebugTrace('open-project:cleared-opening-id', { projectId, requestId });
       }
     }
   }

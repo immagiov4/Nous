@@ -1,4 +1,4 @@
-import { pushLuminaDebugTrace } from '../../../services/core/debugTrace.ts';
+import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import {
   createProjectId,
@@ -19,7 +19,7 @@ import {
   type UserProfile,
 } from '../../../types.ts';
 import { readSourceFileData } from './controllerContext.ts';
-import { importProjectBackupFile, isLuminaBackupArchive } from './projectImport.ts';
+import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
   OpenSectionOptions,
@@ -184,7 +184,7 @@ export const createAssessmentPlanningCommands = (
   async function startAssessment({ file, textSource }: AssessmentSourceInput): Promise<void> {
     const requestId = state.beginWorkflow('assessment', 'Avvio Valutazione...');
     state.setScreenState(AppState.ASSESSMENT);
-    pushLuminaDebugTrace('assessment:start', {
+    pushNousDebugTrace('assessment:start', {
       fileName: file?.name || null,
       hasFile: Boolean(file),
       hasTextSource: Boolean(textSource),
@@ -205,7 +205,7 @@ export const createAssessmentPlanningCommands = (
               throw new Error('Missing source input for assessment');
             })();
       if (!state.isWorkflowCurrent('assessment', requestId)) {
-        pushLuminaDebugTrace('assessment:stale-after-session', { requestId });
+        pushNousDebugTrace('assessment:stale-after-session', { requestId });
         return;
       }
 
@@ -213,7 +213,7 @@ export const createAssessmentPlanningCommands = (
       state.setWorkflowMessage('assessment', requestId, 'Avvio domande valutazione...');
       const seededQuestion = getSeededAssessmentQuestion(session);
       if (seededQuestion) {
-        pushLuminaDebugTrace('assessment:seeded-question', {
+        pushNousDebugTrace('assessment:seeded-question', {
           preview: seededQuestion.slice(0, 120),
           requestId,
         });
@@ -222,24 +222,24 @@ export const createAssessmentPlanningCommands = (
         return;
       }
 
-      pushLuminaDebugTrace('assessment:fallback-first-message', { requestId });
+      pushNousDebugTrace('assessment:fallback-first-message', { requestId });
       const result = await session.sendMessage({
         message: 'Inizia la valutazione con una prima domanda breve e concreta.',
       });
       if (!state.isWorkflowCurrent('assessment', requestId)) {
-        pushLuminaDebugTrace('assessment:stale-after-first-message', { requestId });
+        pushNousDebugTrace('assessment:stale-after-first-message', { requestId });
         return;
       }
 
       state.setAssessmentMessages([{ role: 'model', text: result.text || '' } satisfies Message]);
-      pushLuminaDebugTrace('assessment:first-message-generated', {
+      pushNousDebugTrace('assessment:first-message-generated', {
         preview: (result.text || '').slice(0, 120),
         requestId,
       });
       state.succeedWorkflow('assessment', requestId);
     } catch (error) {
       state.setScreenState(AppState.LIBRARY);
-      pushLuminaDebugTrace('assessment:failed', {
+      pushNousDebugTrace('assessment:failed', {
         errorMessage: getErrorMessage(error),
         requestId,
       });
@@ -330,7 +330,7 @@ export const createAssessmentPlanningCommands = (
           );
           void generateLaboratory({ openFirstExercise: false }).catch(error => {
             console.error(
-              '[Lumina][Laboratory] Background generation failed after learn planning.',
+              '[Nous][Laboratory] Background generation failed after learn planning.',
               error
             );
           });
@@ -387,7 +387,7 @@ export const createAssessmentPlanningCommands = (
           );
           void generateLaboratory({ openFirstExercise: false }).catch(error => {
             console.error(
-              '[Lumina][Laboratory] Background generation failed after document planning.',
+              '[Nous][Laboratory] Background generation failed after document planning.',
               error
             );
           });
@@ -462,7 +462,7 @@ export const createAssessmentPlanningCommands = (
         let nextFile: FileData | null = null;
 
         if (isZipFileData({ name: args.selectedFile.name, mimeType: args.selectedFile.type })) {
-          const isBackupArchive = await isLuminaBackupArchive(args.selectedFile);
+          const isBackupArchive = await isNousBackupArchive(args.selectedFile);
 
           if (isBackupArchive) {
             state.setWorkflowMessage('assessment', requestId, 'Importazione backup...');
@@ -609,7 +609,7 @@ export const createAssessmentPlanningCommands = (
 
       const userHistory: Message[] = [...previousMessages, userMessage];
       if (hasEnoughHighImpactAssessmentSignals(userHistory)) {
-        pushLuminaDebugTrace('assessment:local-complete-from-signals', {
+        pushNousDebugTrace('assessment:local-complete-from-signals', {
           requestId,
           userTurns: userHistory.filter(message => message.role === 'user').length,
         });

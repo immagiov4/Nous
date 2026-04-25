@@ -39,7 +39,7 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
-    await user.type(screen.getByPlaceholderText(/Chiedi a Lumina/i), '   Come funziona?   ');
+    await user.type(screen.getByPlaceholderText(/Chiedi a Nous/i), '   Come funziona?   ');
     await user.click(screen.getByRole('button', { name: /Invia domanda/i }));
 
     expect(props.onAsk).toHaveBeenCalledTimes(1);
@@ -61,7 +61,7 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
-    await user.type(screen.getByPlaceholderText(/Chiedi a Lumina/i), 'Domanda mobile');
+    await user.type(screen.getByPlaceholderText(/Chiedi a Nous/i), 'Domanda mobile');
     await user.click(screen.getByRole('button', { name: /Invia domanda/i }));
 
     expect(props.onClose).toHaveBeenCalledTimes(1);
@@ -76,7 +76,7 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
-    fireEvent.change(screen.getByPlaceholderText(/Chiedi a Lumina/i), {
+    fireEvent.change(screen.getByPlaceholderText(/Chiedi a Nous/i), {
       target: { value: 'Domanda con lock' },
     });
     const askButton = screen.getByRole('button', { name: /Invia domanda/i });
@@ -98,7 +98,7 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
-    await user.type(screen.getByPlaceholderText(/Chiedi a Lumina/i), 'Approfondisci il punto');
+    await user.type(screen.getByPlaceholderText(/Chiedi a Nous/i), 'Approfondisci il punto');
 
     const lessonButton = screen.getByTitle(/Crea una nuova lezione dedicata a questo punto/i);
     await user.click(lessonButton);

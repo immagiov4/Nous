@@ -34,5 +34,5 @@ export const importProjectBackupFile = async (
   return preparedSnapshot;
 };
 
-export const isLuminaBackupArchive = async (selectedFile: File): Promise<boolean> =>
+export const isNousBackupArchive = async (selectedFile: File): Promise<boolean> =>
   isProjectArchiveFile(selectedFile);

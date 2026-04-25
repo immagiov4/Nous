@@ -7,7 +7,7 @@ import {
 import { migrateSectionAnnotations } from '../../../utils/learning/sectionAnnotations.ts';
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 import { restoreLegacyPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
-import { pushLuminaDebugTrace } from '../../core/debugTrace.ts';
+import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import {
   normalizeLaboratoryStateForHydration,
   resolveActiveLaboratoryExerciseId,
@@ -90,7 +90,7 @@ export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectS
   const normalizedLaboratory = normalizeLaboratoryStateForHydration(snapshot.laboratory);
 
   if (snapshot.laboratory && !normalizedLaboratory) {
-    pushLuminaDebugTrace('snapshot-hydration:dropped-incompatible-laboratory', {
+    pushNousDebugTrace('snapshot-hydration:dropped-incompatible-laboratory', {
       exerciseCount: snapshot.laboratory.exercises.length,
       schemaVersion: snapshot.laboratory.schemaVersion,
       status: snapshot.laboratory.status,
@@ -111,7 +111,7 @@ export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectS
       : resolvePlanSection(normalizedLearningPlan, snapshot.activeSectionId));
 
   if (nextSection?.content) {
-    pushLuminaDebugTrace('snapshot-hydration:active-section', {
+    pushNousDebugTrace('snapshot-hydration:active-section', {
       sectionId: nextSection.id,
       sectionTitle: nextSection.title,
       ...summarizeHydratedContent(nextSection.content),

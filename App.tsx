@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import AssessmentView from './components/assessment/AssessmentView';
 import LibraryView from './components/library/LibraryView';
 import LoadingScreen from './components/shared/LoadingScreen';
-import type { WorkspaceReaderShellProps } from './components/workspace/shell/types.ts';
 import CourseGenerationNotesDialog from './components/workspace/CourseGenerationNotesDialog.tsx';
+import type { WorkspaceReaderShellProps } from './components/workspace/shell/types.ts';
 import WorkspaceReaderShell from './components/workspace/WorkspaceReaderShell.tsx';
 import { useLibraryAssistantChat } from './hooks/library/useLibraryAssistantChat.ts';
 import { useProjectLibrary } from './hooks/library/useProjectLibrary.ts';
@@ -133,6 +133,7 @@ const App = () => {
   const [isNotesDialogOpen, setIsNotesDialogOpen] = useState(false);
   const notesDialogAckedPlanIdsRef = useRef<Set<string>>(new Set());
   const autoOpenAttemptedSectionIdsRef = useRef<Set<string>>(new Set());
+  const previousAutoOpenProjectIdRef = useRef(currentProjectId);
 
   useEffect(() => {
     if (screenState !== AppState.READING || !learningPlan || !activeSection || isBlocking) {
@@ -145,9 +146,7 @@ const App = () => {
       return;
     }
 
-    const planHasGeneratedContent = learningPlan.sections.some(
-      section => Boolean(section.content)
-    );
+    const planHasGeneratedContent = learningPlan.sections.some(section => Boolean(section.content));
     const notes = learningPlan.generationNotes?.trim() || '';
     const ackKey = currentProjectId || learningPlan.title;
     const shouldShowDialog =
@@ -174,6 +173,11 @@ const App = () => {
   ]);
 
   useEffect(() => {
+    if (previousAutoOpenProjectIdRef.current === currentProjectId) {
+      return;
+    }
+
+    previousAutoOpenProjectIdRef.current = currentProjectId;
     autoOpenAttemptedSectionIdsRef.current = new Set();
   }, [currentProjectId]);
 

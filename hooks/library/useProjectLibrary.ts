@@ -210,7 +210,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       const archive = await createProjectArchiveBlob(exportData);
       downloadBlob(
         archive,
-        `lumina-backup-${new Date().toISOString().slice(0, 10)}${getProjectArchiveExtension()}`
+        `nous-backup-${new Date().toISOString().slice(0, 10)}${getProjectArchiveExtension()}`
       );
     },
     [buildSnapshotFromDomain, currentProjectId, downloadBlob]

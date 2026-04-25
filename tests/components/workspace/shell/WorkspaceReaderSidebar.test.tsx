@@ -123,7 +123,7 @@ describe('WorkspaceReaderSidebar', () => {
       />
     );
 
-    expect(screen.getByTitle('Esercizio laboratorio gia generato')).toBeInTheDocument();
+    expect(screen.getByTitle('Esercizio laboratorio già generato')).toBeInTheDocument();
   });
 
   test('renders the laboratory section after lesson sections', () => {
@@ -147,8 +147,6 @@ describe('WorkspaceReaderSidebar', () => {
     expect(sidebar?.style.maxHeight).toBe('100dvh');
     expect(scrollRegion?.className).toContain('min-h-0');
     expect(scrollRegion?.className).toContain('overflow-y-auto');
-    expect((scrollRegion as HTMLDivElement | null)?.style.paddingBottom).toBe(
-      'max(1.25rem, env(safe-area-inset-bottom, 0px))'
-    );
+    expect(scrollRegion?.className).toContain('reader-sidebar-scroll-mobile');
   });
 });

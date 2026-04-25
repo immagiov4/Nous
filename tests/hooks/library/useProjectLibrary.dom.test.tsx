@@ -229,7 +229,7 @@ describe('useProjectLibrary', () => {
   });
 
   test('downloadProject uses a zip-based backup filename', async () => {
-    const objectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:lumina-backup');
+    const objectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:nous-backup');
     const appendChildSpy = vi.spyOn(document.body, 'appendChild');
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
@@ -249,7 +249,7 @@ describe('useProjectLibrary', () => {
       ([node]) => node instanceof HTMLAnchorElement
     )?.[0] as HTMLAnchorElement | undefined;
 
-    expect(anchor?.download.endsWith('.lumina.zip')).toBe(true);
+    expect(anchor?.download.endsWith('.nous.zip')).toBe(true);
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(objectUrlSpy).toHaveBeenCalledTimes(1);
   });

@@ -1,5 +1,5 @@
 {
-  "name": "lumina---deep-reader",
+  "name": "nous-reader",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -30,6 +30,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "ai": "^6.0.137",
     "concurrently": "^9.2.1",
+    "framer-motion": "^12.38.0",
     "idb": "^8.0.3",
     "jszip": "3.10.1",
     "lucide-react": "^0.563.0",

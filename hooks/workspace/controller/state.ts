@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { pushLuminaDebugTrace } from '../../../services/core/debugTrace.ts';
+import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import {
   createWorkspaceWorkflowState,
   invalidateWorkspaceWorkflows,
@@ -57,7 +57,7 @@ export const useWorkspaceControllerState = () => {
           },
         };
         commitWorkflowState(nextState);
-        pushLuminaDebugTrace('workflow:begin', { message, requestId: nextRequestId, workflowId });
+        pushNousDebugTrace('workflow:begin', { message, requestId: nextRequestId, workflowId });
         return nextRequestId;
       },
       failWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, errorMessage: string) => {
@@ -76,7 +76,7 @@ export const useWorkspaceControllerState = () => {
           },
         };
         commitWorkflowState(nextState);
-        pushLuminaDebugTrace('workflow:fail', { errorMessage, requestId, workflowId });
+        pushNousDebugTrace('workflow:fail', { errorMessage, requestId, workflowId });
       },
       getAssessmentMessages: () => assessmentMessagesRef.current,
       getChatSession: () => chatSessionRef.current,
@@ -84,7 +84,7 @@ export const useWorkspaceControllerState = () => {
       invalidateWorkflows: workflowIds => {
         const nextState = invalidateWorkspaceWorkflows(workflowStateRef.current, workflowIds);
         commitWorkflowState(nextState);
-        pushLuminaDebugTrace('workflow:invalidate', { workflowIds });
+        pushNousDebugTrace('workflow:invalidate', { workflowIds });
       },
       isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) =>
         workflowStateRef.current[workflowId].requestId === requestId,
@@ -123,7 +123,7 @@ export const useWorkspaceControllerState = () => {
           },
         };
         commitWorkflowState(nextState);
-        pushLuminaDebugTrace('workflow:message', { message, requestId, workflowId });
+        pushNousDebugTrace('workflow:message', { message, requestId, workflowId });
       },
       succeedWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, message?: string) => {
         const currentState = workflowStateRef.current;
@@ -141,7 +141,7 @@ export const useWorkspaceControllerState = () => {
           },
         };
         commitWorkflowState(nextState);
-        pushLuminaDebugTrace('workflow:succeed', { message, requestId, workflowId });
+        pushNousDebugTrace('workflow:succeed', { message, requestId, workflowId });
       },
     } satisfies WorkspaceControllerStateAdapter,
     workflowState,

@@ -1,7 +1,9 @@
 import type { UiPreferences } from '../../types.ts';
 import { normalizeVoiceProfileId } from '../audio/voiceProfile.ts';
 
-export const UI_PREFERENCES_KEY = 'lumina-ui-preferences';
+export const UI_PREFERENCES_KEY = 'nous-ui-preferences';
+
+const LEGACY_UI_PREFERENCES_KEY = 'lumina-ui-preferences';
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
@@ -50,7 +52,9 @@ export const parseUiPreferences = (
 
 export const readUiPreferences = (
   storage: Pick<Storage, 'getItem'>
-): Partial<UiPreferences> | null => parseUiPreferences(storage.getItem(UI_PREFERENCES_KEY));
+): Partial<UiPreferences> | null =>
+  parseUiPreferences(storage.getItem(UI_PREFERENCES_KEY)) ??
+  parseUiPreferences(storage.getItem(LEGACY_UI_PREFERENCES_KEY));
 
 export const writeUiPreferences = (
   storage: Pick<Storage, 'setItem'>,

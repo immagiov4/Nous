@@ -163,7 +163,7 @@ function LaboratoryAttachmentCard({ attachment, onRemove, onUpdateMetadata }: At
             className="min-h-[7rem] w-full rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 text-sm leading-6 text-gray-800 outline-none transition-colors focus:border-gray-400 dark:border-zinc-700 dark:bg-zinc-950/80 dark:text-zinc-100 dark:focus:border-zinc-500"
             placeholder={
               attachment.kind === 'image'
-                ? 'Spiega cosa mostra l immagine, cosa vuoi far notare e come va interpretata.'
+                ? "Spiega cosa mostra l'immagine, cosa vuoi far notare e come va interpretata."
                 : 'Aggiungi contesto utile se il file non e autoesplicativo.'
             }
           />
@@ -172,8 +172,8 @@ function LaboratoryAttachmentCard({ attachment, onRemove, onUpdateMetadata }: At
         {!previewUrl ? (
           <div className="rounded-xl border border-dashed border-gray-200/80 bg-gray-50/60 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300">
             {attachment.kind === 'archive'
-              ? 'Archivio pronto per la valutazione. Se contiene file importanti, aggiungi una breve descrizione del contenuto o dell obiettivo.'
-              : 'Questo file verra usato come allegato di supporto. Aggiungi una descrizione se il contenuto non e immediatamente leggibile.'}
+              ? "Archivio pronto per la valutazione. Se contiene file importanti, aggiungi una breve descrizione del contenuto o dell'obiettivo."
+              : 'Questo file verrà usato come allegato di supporto. Aggiungi una descrizione se il contenuto non è immediatamente leggibile.'}
           </div>
         ) : null}
       </div>
@@ -205,10 +205,11 @@ export default function WorkspaceLaboratoryContent({
 }: WorkspaceLaboratoryContentProps) {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [isExampleOpen, setIsExampleOpen] = useState(false);
+  const previousActiveExerciseIdRef = useRef(activeExercise?.id ?? null);
   const canGenerateLaboratory = laboratoryStatus !== 'ready';
   const readyStateHint =
     laboratoryStatus === 'ready'
-      ? 'Apri una traccia del laboratorio dalla sidebar. Se vuoi rifarla, apri quella traccia e usa Rigenera nell header.'
+      ? "Apri una traccia del laboratorio dalla sidebar. Se vuoi rifarla, apri quella traccia e usa Rigenera nell'header."
       : null;
   const emptyStateMessage =
     laboratoryStatus === 'ready'
@@ -221,6 +222,12 @@ export default function WorkspaceLaboratoryContent({
         'Genera una fase pratica separata dal corso e apri il primo esercizio.';
 
   useEffect(() => {
+    const activeExerciseId = activeExercise?.id ?? null;
+    if (previousActiveExerciseIdRef.current === activeExerciseId) {
+      return;
+    }
+
+    previousActiveExerciseIdRef.current = activeExerciseId;
     setIsExampleOpen(false);
   }, [activeExercise?.id]);
 
@@ -327,11 +334,17 @@ export default function WorkspaceLaboratoryContent({
                   Esempio guidato o indizi
                 </p>
                 <p className="mt-1 text-sm text-gray-600 dark:text-zinc-300">
-                  {isExampleOpen ? 'Nascondi gli aiuti per lavorare in autonomia.' : 'Apri questa sezione solo se vuoi un aiuto iniziale.'}
+                  {isExampleOpen
+                    ? 'Nascondi gli aiuti per lavorare in autonomia.'
+                    : 'Apri questa sezione solo se vuoi un aiuto iniziale.'}
                 </p>
               </div>
               <span className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                {isExampleOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                {isExampleOpen ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
               </span>
             </button>
 

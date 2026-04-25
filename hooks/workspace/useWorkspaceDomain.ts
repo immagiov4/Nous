@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
-import { pushLuminaDebugTrace } from '../../services/core/debugTrace.ts';
+import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import {
   createEmptyWorkspaceDomainState,
   selectActiveSection,
@@ -127,7 +127,7 @@ export const useWorkspaceDomain = () => {
   }, []);
 
   useEffect(() => {
-    pushLuminaDebugTrace('domain/source-updated', {
+    pushNousDebugTrace('domain/source-updated', {
       hasLearningPlan: Boolean(domainState.learningPlan),
       sourceKind: source?.kind || null,
       sourceName: source?.kind === 'pdf' ? source.file.name : source?.name || null,

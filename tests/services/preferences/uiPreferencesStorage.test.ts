@@ -64,3 +64,25 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
     preferredContextModel: 'openai/gpt-5.4-nano',
   });
 });
+
+test('readUiPreferences accepts the legacy Lumina storage key', () => {
+  const storedValues = new Map<string, string>([
+    [
+      'lumina-ui-preferences',
+      JSON.stringify({
+        isDarkMode: true,
+        preferredVoice: 'mario',
+        playbackRate: 1.15,
+      }),
+    ],
+  ]);
+  const storage = {
+    getItem: (key: string) => storedValues.get(key) ?? null,
+  };
+
+  assert.deepEqual(readUiPreferences(storage), {
+    isDarkMode: true,
+    preferredVoice: 'mario',
+    playbackRate: 1.15,
+  });
+});

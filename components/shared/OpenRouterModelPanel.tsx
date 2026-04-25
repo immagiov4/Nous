@@ -1,10 +1,12 @@
+import { motion } from 'framer-motion';
 import { X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { type CSSProperties, useEffect, useRef } from 'react';
 import type {
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
   OpenRouterModelSlot,
 } from '../../types.ts';
+import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
 
 export interface CourseGenerationNotesBinding {
   value: string;
@@ -14,6 +16,7 @@ export interface CourseGenerationNotesBinding {
 
 interface OpenRouterModelPanelProps {
   className?: string;
+  style?: CSSProperties;
   courseNotes?: CourseGenerationNotesBinding;
   defaultModels: OpenRouterModelDefaults;
   onClose?: () => void;
@@ -49,6 +52,7 @@ const modelFields: Array<{
 
 export default function OpenRouterModelPanel({
   className,
+  style,
   courseNotes,
   defaultModels,
   onClose,
@@ -56,6 +60,7 @@ export default function OpenRouterModelPanel({
   preferredModels,
 }: OpenRouterModelPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const shouldAnimate = useShouldAnimate();
 
   useEffect(() => {
     if (!onClose) return;
@@ -69,78 +74,86 @@ export default function OpenRouterModelPanel({
   }, [onClose]);
 
   return (
-    <div
-      ref={containerRef}
-      className={`rounded-2xl border border-gray-200 bg-white p-4 shadow-lg dark:border-zinc-500/60 dark:bg-stone-700 ${className ?? ''}`}
-    >
-      <div className="flex items-center justify-between gap-4 border-b border-gray-200 pb-3 dark:border-zinc-500/40">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Modelli AI</h3>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => {
-              onModelChange('lesson', '');
-              onModelChange('assessment', '');
-              onModelChange('context', '');
-            }}
-            className="rounded-full border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-500/60 dark:text-zinc-300 dark:hover:border-zinc-400 dark:hover:text-white"
-          >
-            Reset
-          </button>
-          {onClose ? (
+    <div ref={containerRef} className={className} style={style}>
+      <motion.div
+        initial={shouldAnimate ? { opacity: 0, scale: 0.94 } : false}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{
+          opacity: { duration: 0.09, ease: [0.2, 0.85, 0.25, 1] },
+          scale: { type: 'spring', stiffness: 480, damping: 28, mass: 0.7 },
+        }}
+        style={{ transformOrigin: 'top right', willChange: 'transform, opacity' }}
+        className="model-panel-surface rounded-2xl p-4"
+      >
+        <div className="model-panel-divider flex items-center justify-between gap-4 border-b pb-3">
+          <h3 className="model-panel-title text-sm font-semibold">Modelli AI</h3>
+          <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={onClose}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-              title="Chiudi"
+              onClick={() => {
+                onModelChange('lesson', '');
+                onModelChange('assessment', '');
+                onModelChange('context', '');
+              }}
+              className="model-panel-reset rounded-full px-2.5 py-1 text-xs font-medium"
             >
-              <X className="h-4 w-4" />
+              Reset
             </button>
-          ) : null}
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="model-panel-close inline-flex h-7 w-7 items-center justify-center rounded-full"
+                title="Chiudi"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
         </div>
-      </div>
 
-      <div className="mt-3 space-y-3">
-        {modelFields.map(field => (
-          <label key={field.slot} className="block">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
-              {field.label}
-            </span>
-            <input
-              type="text"
-              value={preferredModels[field.value]}
-              onChange={event => onModelChange(field.slot, event.target.value)}
-              placeholder={defaultModels[field.placeholder]}
-              className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition-colors focus:border-gray-400 dark:border-zinc-500/60 dark:bg-stone-800 dark:text-white dark:focus:border-zinc-400"
-            />
-          </label>
-        ))}
-      </div>
-
-      {courseNotes ? (
-        <div className="mt-5 border-t border-gray-200 pt-4 dark:border-zinc-500/40">
-          <label className="block">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
-              Note di personalizzazione del corso
-            </span>
-            <p className="mt-1.5 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-              Scrivi come vuoi che siano generate le lezioni di questo corso: tono, livello di
-              dettaglio, cose da evitare, cose da ripetere. Hanno priorita sullo stile di default
-              quando entrano in conflitto.
-            </p>
-            <textarea
-              value={courseNotes.value}
-              onChange={event => courseNotes.onChange(event.target.value)}
-              placeholder={
-                courseNotes.placeholder ||
-                'Es. Sono a disagio con la matematica. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico prima di andare avanti.'
-              }
-              rows={5}
-              className="mt-2 w-full resize-y rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm leading-6 text-gray-900 outline-none transition-colors focus:border-gray-400 dark:border-zinc-500/60 dark:bg-stone-800 dark:text-white dark:focus:border-zinc-400"
-            />
-          </label>
+        <div className="mt-3 space-y-3">
+          {modelFields.map(field => (
+            <label key={field.slot} className="block">
+              <span className="model-panel-label block text-[11px] font-semibold uppercase tracking-[0.18em]">
+                {field.label}
+              </span>
+              <input
+                type="text"
+                value={preferredModels[field.value]}
+                onChange={event => onModelChange(field.slot, event.target.value)}
+                placeholder={defaultModels[field.placeholder]}
+                className="model-panel-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm"
+              />
+            </label>
+          ))}
         </div>
-      ) : null}
+
+        {courseNotes ? (
+          <div className="model-panel-divider mt-5 border-t pt-4">
+            <label className="block">
+              <span className="model-panel-label block text-[11px] font-semibold uppercase tracking-[0.18em]">
+                Note di personalizzazione del corso
+              </span>
+              <p className="model-panel-help mt-1.5 text-xs leading-5">
+                Scrivi come vuoi che siano generate le lezioni di questo corso: tono, livello di
+                dettaglio, cose da evitare, cose da ripetere. Hanno priorita sullo stile di default
+                quando entrano in conflitto.
+              </p>
+              <textarea
+                value={courseNotes.value}
+                onChange={event => courseNotes.onChange(event.target.value)}
+                placeholder={
+                  courseNotes.placeholder ||
+                  'Es. Sono a disagio con la matematica. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico prima di andare avanti.'
+                }
+                rows={5}
+                className="model-panel-input mt-2 w-full resize-y rounded-xl px-3 py-2.5 text-sm leading-6"
+              />
+            </label>
+          </div>
+        ) : null}
+      </motion.div>
     </div>
   );
 }

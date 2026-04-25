@@ -210,7 +210,9 @@ test('buildLessonVerificationPrompt requires valid KaTeX delimiters', () => {
   assert.match(prompt, /KaTeX\/LaTeX/i);
   assert.match(prompt, /righe orfane con solo/i);
   assert.match(prompt, /non mischiare delimitatori diversi/i);
-  assert.match(prompt, /non racchiudere mai l'intera domanda|testo normale/i);
+  assert.match(prompt, /non racchiudere mai l'intera consegna|testo normale/i);
+  assert.match(prompt, /exerciseType/i);
+  assert.match(prompt, /application-card/i);
 });
 
 test('collapseRedundantParagraphs removes nearby paraphrases of the same concept', () => {
@@ -442,7 +444,7 @@ test('buildLessonVerificationPrompt enforces final checks on image placement and
   });
 
   assert.match(prompt, /verificatore finale/i);
-  assert.match(prompt, /ESATTAMENTE 2 domande/i);
+  assert.match(prompt, /ESATTAMENTE 2 pause attive/i);
   assert.match(prompt, /Ogni immagine selezionata deve essere nel punto giusto della lezione/i);
   assert.match(prompt, /descrizione, caption e immagine siano abbinate correttamente/i);
   assert.match(prompt, /Meglio meno immagini che immagini sbagliate/i);

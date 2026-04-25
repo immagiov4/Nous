@@ -59,7 +59,7 @@ export interface PdfAssetSession {
 }
 
 const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
-  console.groupCollapsed(`[Lumina][PDF] ${label}`);
+  console.groupCollapsed(`[Nous][PDF] ${label}`);
   Object.entries(payload).forEach(([key, value]) => {
     console.info(key, value);
   });
@@ -375,10 +375,7 @@ export const getPdfAssetSession = async (
         filename: file.name,
       });
     } catch (error) {
-      console.warn(
-        '[Lumina][PDF] Backend extraction failed, using text-only parsed session.',
-        error
-      );
+      console.warn('[Nous][PDF] Backend extraction failed, using text-only parsed session.', error);
     }
 
     return parsedResult;

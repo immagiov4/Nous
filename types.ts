@@ -134,7 +134,21 @@ export interface LibraryScopeSummary {
   scopeSummary: string;
 }
 
+export const ACTIVE_PAUSE_EXERCISE_TYPES = [
+  'concept-check',
+  'application-card',
+  'prediction',
+  'error-diagnosis',
+  'classification',
+  'compare-contrast',
+  'sequence',
+  'micro-synthesis',
+] as const;
+
+export type ActivePauseExerciseType = (typeof ACTIVE_PAUSE_EXERCISE_TYPES)[number];
+
 export interface QuizQuestion {
+  exerciseType?: ActivePauseExerciseType;
   question: string;
   options: string[];
   correctIndex: number;

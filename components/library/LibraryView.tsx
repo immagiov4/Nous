@@ -13,6 +13,7 @@ import type {
   OpenRouterModelSlot,
   SavedProjectMeta,
 } from '../../types';
+import { Pressable } from '../../utils/motion/index.ts';
 import OpenRouterModelPanel from '../shared/OpenRouterModelPanel';
 import HomeChatPanel from './HomeChatPanel';
 import LibraryTreeView from './LibraryTreeView.tsx';
@@ -122,13 +123,13 @@ const LibraryView = ({
   const currentLogoUrl = isDarkMode ? logoDarkModeUrl : logoUrl;
 
   return (
-    <div className="min-h-screen bg-paper-light px-4 py-5 transition-colors duration-300 dark:bg-paper-dark sm:px-6 lg:px-10">
+    <div className="min-h-screen px-4 py-5 transition-colors duration-300 sm:px-6 lg:px-10">
       <input id={sourceFileInputId} type="file" className="hidden" onChange={onSourceFileUpload} />
       <input
         id={planFileInputId}
         type="file"
         className="hidden"
-        accept=".lumina.zip,.zip,.json,.lumina"
+        accept=".nous.zip,.lumina.zip,.zip,.json,.nous,.lumina"
         onChange={onPlanUpload}
       />
 
@@ -143,8 +144,7 @@ const LibraryView = ({
 
           <div className="flex shrink-0 items-center gap-2.5">
             <div className="relative">
-              <button
-                type="button"
+              <Pressable
                 onClick={() => setIsModelPanelOpen(currentValue => !currentValue)}
                 onPointerDown={e => e.stopPropagation()}
                 className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-3.5 py-2.5 text-left text-gray-700 transition-colors hover:border-gray-400 hover:text-gray-900 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-200 dark:hover:border-zinc-400 dark:hover:text-white"
@@ -152,11 +152,11 @@ const LibraryView = ({
               >
                 <Settings2 className="h-4 w-4 flex-shrink-0" />
                 <span className="hidden text-sm sm:inline">Modelli</span>
-              </button>
+              </Pressable>
 
               {isModelPanelOpen ? (
                 <OpenRouterModelPanel
-                  className="fixed left-4 right-4 top-[5.25rem] z-40 sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+0.75rem)] sm:w-[min(26rem,calc(100vw-2rem))]"
+                  className="model-panel-anchor"
                   defaultModels={modelDefaults}
                   preferredModels={preferredModels}
                   onClose={() => setIsModelPanelOpen(false)}
@@ -165,14 +165,13 @@ const LibraryView = ({
               ) : null}
             </div>
 
-            <button
-              type="button"
+            <Pressable
               onClick={onToggleDarkMode}
               className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-900 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-400 dark:hover:border-zinc-400 dark:hover:text-white"
               aria-label="Cambia tema"
             >
               {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </button>
+            </Pressable>
           </div>
         </header>
 
@@ -213,23 +212,21 @@ const LibraryView = ({
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
             <h2 className="text-2xl font-serif text-gray-900 dark:text-zinc-100">Libreria</h2>
             <div className="flex items-center gap-3">
-              <button
-                type="button"
+              <Pressable
                 onClick={onImportJsonClick}
                 className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-zinc-600/50 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
-                title="Importa backup Lumina (.lumina.zip o JSON legacy)"
+                title="Importa backup Nous (.nous.zip, formato legacy o JSON legacy)"
               >
                 <Download className="h-3.5 w-3.5" />
                 Importa
-              </button>
-              <button
-                type="button"
+              </Pressable>
+              <Pressable
                 onClick={() => setNewFolderTrigger(n => n + 1)}
                 className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-zinc-600 dark:bg-[#201917] dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
               >
                 <Plus className="h-3.5 w-3.5" />
                 Nuova cartella
-              </button>
+              </Pressable>
             </div>
           </div>
 

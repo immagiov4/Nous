@@ -244,7 +244,7 @@ const resolvePlanningSourceProfile = async (file: FileData): Promise<PlanningSou
         pageCount: pdfSession?.pageCount,
       });
     } catch (error) {
-      console.warn('[Lumina][Planning] Failed to profile PDF source size.', error);
+      console.warn('[Nous][Planning] Failed to profile PDF source size.', error);
       return resolvePlanningSourceProfileFromSeed({ kind: 'pdf' });
     }
   }
@@ -256,7 +256,7 @@ const resolvePlanningSourceProfile = async (file: FileData): Promise<PlanningSou
         kind: 'text',
       });
     } catch (error) {
-      console.warn('[Lumina][Planning] Failed to profile text source size.', error);
+      console.warn('[Nous][Planning] Failed to profile text source size.', error);
       return resolvePlanningSourceProfileFromSeed({ kind: 'text' });
     }
   }
@@ -609,7 +609,7 @@ TESTO ESTRATTO DAL PDF:
 ${clipPdfSourceText(extractedText, maxPdfChars)}`;
     }
   } catch (error) {
-    console.warn('[Lumina][Planning] PDF text extraction failed for reasoning prompt.', error);
+    console.warn('[Nous][Planning] PDF text extraction failed for reasoning prompt.', error);
   }
 
   return `Documento: ${file.name}

@@ -1,6 +1,6 @@
-# Lumina Reader
+# Nous Reader
 
-AI-powered deep reading and learning platform. Upload documents (PDF, plain text, code archives) and Lumina generates personalized study plans, interactive lessons, assessments, and a separate laboratory phase with attachment-based practical exercises and AI feedback.
+AI-powered deep reading and learning platform. Upload documents (PDF, plain text, code archives) and Nous generates personalized study plans, interactive lessons, assessments, and a separate laboratory phase with attachment-based practical exercises and AI feedback.
 
 ## Architecture
 

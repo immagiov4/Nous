@@ -84,7 +84,7 @@ test('prepareSnapshotForHydration migrates legacy highlight marks into persisten
   const prepared = prepareSnapshotForHydration(snapshot);
   const migratedSection = prepared.learningPlan?.sections[0];
 
-  assert.match(migratedSection?.content || '', /<mark data-lumina-annotation-id="annotation-/);
+  assert.match(migratedSection?.content || '', /<mark data-nous-annotation-id="annotation-/);
   assert.equal(migratedSection?.annotations?.length, 1);
   assert.equal(migratedSection?.annotations?.[0]?.note, '');
 });

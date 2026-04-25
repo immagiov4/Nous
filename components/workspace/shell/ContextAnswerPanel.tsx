@@ -640,7 +640,7 @@ export default function ContextAnswerPanel({
                       </span>
                       <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
                         Segnala con forza che vuoi trasformare il chiarimento in una nota o
-                        aggiornare quella gia collegata al passaggio.
+                        aggiornare quella già collegata al passaggio.
                       </span>
                     </span>
                   </button>

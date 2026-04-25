@@ -1,5 +1,5 @@
-import { getBackendServerUrl } from '../config/serverConfig.js';
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { getBackendServerUrl } from '../config/serverConfig.js';
 import { getErrorMessage } from '../utils/errors.js';
 
 export const MAX_CONTEXT_CHARS = 24_000;
@@ -93,7 +93,7 @@ export const getOpenRouterHeaders = () => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${requireOpenRouterApiKey()}`,
   'HTTP-Referer': getBackendServerUrl({ displayHost: true }),
-  'X-OpenRouter-Title': 'Lumina Deep Reader',
+  'X-OpenRouter-Title': 'Nous Reader',
 });
 
 export const extractWebSearchSources = (annotations?: OpenRouterWebSearchAnnotation[]) =>
@@ -282,7 +282,7 @@ ${attachedAnnotationNote || '[nessuna nota salvata finora]'}
 """`
     : 'NOTA GIA ASSOCIATA:\n[nessuna nota collegata a questa selezione]';
 
-  return `Sei Lumina, un assistente didattico integrato nel reader.
+  return `Sei Nous, un assistente didattico integrato nel reader.
 
 ${buildToolNarrationMandate()}
 

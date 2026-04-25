@@ -64,7 +64,7 @@ describe('useTtsPlayer', () => {
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       writable: true,
-      value: vi.fn(() => 'blob:lumina-audio'),
+      value: vi.fn(() => 'blob:nous-audio'),
     });
     Object.defineProperty(URL, 'revokeObjectURL', {
       configurable: true,

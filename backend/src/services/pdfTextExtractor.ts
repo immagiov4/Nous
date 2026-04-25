@@ -9,7 +9,7 @@ import { PDFParse } from 'pdf-parse';
 
 const execFileAsync = promisify(execFile);
 const PDF_DATA_URL_PREFIX = /^data:application\/pdf;base64,/i;
-const TMP_DIR_PREFIX = 'lumina-pdf-text-';
+const TMP_DIR_PREFIX = 'nous-pdf-text-';
 
 export interface ExtractedPdfTextPage {
   pageNumber: number;

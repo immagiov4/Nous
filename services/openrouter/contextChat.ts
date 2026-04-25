@@ -69,7 +69,7 @@ TESTO ESTRATTO DAL PDF:
 ${clipPdfSourceText(extractedText, maxPdfChars)}`;
     }
   } catch (error) {
-    console.warn('[Lumina][Planning] PDF text extraction failed for reasoning prompt.', error);
+    console.warn('[Nous][Planning] PDF text extraction failed for reasoning prompt.', error);
   }
 
   return `Documento: ${file.name}

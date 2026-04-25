@@ -23,7 +23,7 @@ const SNAPSHOT_STORE = 'project-snapshots';
 const FOLDER_STORE = 'library-folders';
 const PLACEMENT_STORE = 'library-placements';
 
-interface LuminaProjectDb extends DBSchema {
+interface NousProjectDb extends DBSchema {
   [FOLDER_STORE]: {
     key: string;
     value: LibraryFolder;
@@ -42,7 +42,7 @@ interface LuminaProjectDb extends DBSchema {
   };
 }
 
-type LuminaProjectStoreName =
+type NousProjectStoreName =
   | typeof META_STORE
   | typeof SNAPSHOT_STORE
   | typeof FOLDER_STORE
@@ -70,19 +70,19 @@ const classifyStorageError = (error: unknown): ProjectStorageError => {
 };
 
 export class IndexedDbProjectRepository implements ProjectRepository {
-  private dbPromise: Promise<IDBPDatabase<LuminaProjectDb>>;
+  private dbPromise: Promise<IDBPDatabase<NousProjectDb>>;
   private placementBackfillPromise: Promise<void> | null = null;
 
   constructor() {
     this.dbPromise = this.openDatabase();
   }
 
-  private async openDatabase(): Promise<IDBPDatabase<LuminaProjectDb>> {
+  private async openDatabase(): Promise<IDBPDatabase<NousProjectDb>> {
     let rejectBlockedOpen: ((reason?: unknown) => void) | null = null;
 
     try {
       return await Promise.race([
-        openDB<LuminaProjectDb>(DB_NAME, DB_VERSION, {
+        openDB<NousProjectDb>(DB_NAME, DB_VERSION, {
           upgrade(database) {
             if (!database.objectStoreNames.contains(META_STORE)) {
               database.createObjectStore(META_STORE, { keyPath: 'id' });
@@ -103,31 +103,31 @@ export class IndexedDbProjectRepository implements ProjectRepository {
           blocked() {
             rejectBlockedOpen?.(
               new ProjectStorageError(
-                'L aggiornamento della libreria locale e bloccato da un altra scheda di Lumina ancora aperta. Chiudi le altre schede e ricarica.',
+                'L aggiornamento della libreria locale e bloccato da un altra scheda di Nous ancora aperta. Chiudi le altre schede e ricarica.',
                 'persistence-failed'
               )
             );
           },
         }),
-        new Promise<IDBPDatabase<LuminaProjectDb>>((_, reject) => {
+        new Promise<IDBPDatabase<NousProjectDb>>((_, reject) => {
           rejectBlockedOpen = reject;
         }),
       ]);
     } catch (error) {
       if (canOpenExistingDatabase(error)) {
-        return openDB<LuminaProjectDb>(DB_NAME);
+        return openDB<NousProjectDb>(DB_NAME);
       }
 
       throw classifyStorageError(error);
     }
   }
 
-  private hasStore(db: IDBPDatabase<LuminaProjectDb>, storeName: LuminaProjectStoreName) {
+  private hasStore(db: IDBPDatabase<NousProjectDb>, storeName: NousProjectStoreName) {
     return db.objectStoreNames.contains(storeName);
   }
 
   private ensureStoreAvailable(
-    db: IDBPDatabase<LuminaProjectDb>,
+    db: IDBPDatabase<NousProjectDb>,
     storeName: typeof FOLDER_STORE | typeof PLACEMENT_STORE,
     featureLabel: string
   ) {
@@ -136,7 +136,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     }
 
     throw new ProjectStorageError(
-      `${featureLabel} non disponibile finche Firefox non completa l'aggiornamento della libreria locale. Chiudi eventuali altre schede di Lumina e ricarica.`,
+      `${featureLabel} non disponibile finche Firefox non completa l'aggiornamento della libreria locale. Chiudi eventuali altre schede di Nous e ricarica.`,
       'persistence-failed'
     );
   }
@@ -166,7 +166,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 
   private async getNextFolderOrder(
-    db: IDBPDatabase<LuminaProjectDb>,
+    db: IDBPDatabase<NousProjectDb>,
     parentFolderId: string | null
   ): Promise<number> {
     const folders = await db.getAll(FOLDER_STORE);
@@ -178,7 +178,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 
   private async ensureAllProjectPlacements(
-    db: IDBPDatabase<LuminaProjectDb>
+    db: IDBPDatabase<NousProjectDb>
   ): Promise<LibraryPlacement[]> {
     const metas = await db.getAll(META_STORE);
     if (!this.hasStore(db, PLACEMENT_STORE)) {
@@ -222,7 +222,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 
   private schedulePlacementBackfill(
-    db: IDBPDatabase<LuminaProjectDb>,
+    db: IDBPDatabase<NousProjectDb>,
     placements: LibraryPlacement[]
   ) {
     if (
@@ -312,7 +312,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 
   private async persistSiblingOrders(
-    db: IDBPDatabase<LuminaProjectDb>,
+    db: IDBPDatabase<NousProjectDb>,
     items: Array<
       | { id: string; kind: 'folder'; value: LibraryFolder }
       | { id: string; kind: 'project'; value: LibraryPlacement }
@@ -349,7 +349,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 
   private async getFolderDescendantIds(
-    db: IDBPDatabase<LuminaProjectDb>,
+    db: IDBPDatabase<NousProjectDb>,
     folderId: string
   ): Promise<Set<string>> {
     const folders = await db.getAll(FOLDER_STORE);
@@ -667,7 +667,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   async saveProject(snapshot: ProjectSnapshot): Promise<SavedProjectMeta> {
     try {
       const db = await this.dbPromise;
-      const transactionStores: LuminaProjectStoreName[] = this.hasStore(db, PLACEMENT_STORE)
+      const transactionStores: NousProjectStoreName[] = this.hasStore(db, PLACEMENT_STORE)
         ? [META_STORE, SNAPSHOT_STORE, PLACEMENT_STORE]
         : [META_STORE, SNAPSHOT_STORE];
       const tx = db.transaction(transactionStores, 'readwrite');
@@ -698,7 +698,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
 
   async deleteProject(id: ProjectId): Promise<void> {
     const db = await this.dbPromise;
-    const transactionStores: LuminaProjectStoreName[] = this.hasStore(db, PLACEMENT_STORE)
+    const transactionStores: NousProjectStoreName[] = this.hasStore(db, PLACEMENT_STORE)
       ? [META_STORE, SNAPSHOT_STORE, PLACEMENT_STORE]
       : [META_STORE, SNAPSHOT_STORE];
     const tx = db.transaction(transactionStores, 'readwrite');

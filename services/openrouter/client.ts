@@ -19,7 +19,7 @@ const getHeaders = () => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${OPENROUTER_API_KEY}`,
   'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
-  'X-Title': 'Lumina Deep Reader',
+  'X-Title': 'Nous Reader',
 });
 
 const extractTextContent = (content: OpenRouterMessageContent | undefined): string => {

@@ -6,7 +6,7 @@ import type {
   PdfTextPage,
 } from '../../types.ts';
 import { getPdfProjectHydrationState } from '../../utils/pdf/projectHydration.ts';
-import { pushLuminaDebugTrace } from '../core/debugTrace.ts';
+import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
 import {
   callOpenRouter,
@@ -353,7 +353,7 @@ const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 
 const logPdfPlanDebug = (label: string, payload: Record<string, unknown>) => {
-  console.groupCollapsed(`[Lumina][PDF Plan] ${label}`);
+  console.groupCollapsed(`[Nous][PDF Plan] ${label}`);
   Object.entries(payload).forEach(([key, value]) => {
     console.info(key, value);
   });
@@ -716,7 +716,7 @@ const buildSectionMappingBatches = (
 const buildChunkMappingPrompt = (
   lessons: LessonMappingDescriptor[],
   chunks: ChunkMappingDescriptor[]
-): string => `Sei un mapper semantico per Lumina Reader.
+): string => `Sei un mapper semantico per Nous Reader.
 
 Devi associare a ciascuna lezione i chunk del documento sorgente piu pertinenti.
 
@@ -1111,11 +1111,11 @@ const parseChunkMappingsOrThrow = (
     return parseChunkMappings(response || '{}', availableChunkIds);
   } catch (parseError) {
     console.warn(
-      `[Lumina][DocumentIndex] ${traceLabel} response could not be parsed as chunk mappings.`,
+      `[Nous][DocumentIndex] ${traceLabel} response could not be parsed as chunk mappings.`,
       parseFailurePayload,
       parseError
     );
-    pushLuminaDebugTrace('pdf-plan:mapping-parse-failed', {
+    pushNousDebugTrace('pdf-plan:mapping-parse-failed', {
       ...parseFailurePayload,
       errorMessage: parseError instanceof Error ? parseError.message : String(parseError),
     });
@@ -1179,7 +1179,7 @@ const mapLessonsToChunkIds = async (
     );
 
     logPdfPlanDebug('Mapping batch request', batchDebugPayload);
-    pushLuminaDebugTrace('pdf-plan:mapping-batch-start', batchDebugPayload);
+    pushNousDebugTrace('pdf-plan:mapping-batch-start', batchDebugPayload);
 
     try {
       let rawResponse = await requestChunkMappings({
@@ -1209,7 +1209,7 @@ const mapLessonsToChunkIds = async (
         };
 
         logPdfPlanDebug('Mapping batch retry request', retryPayload);
-        pushLuminaDebugTrace('pdf-plan:mapping-batch-retry-start', retryPayload);
+        pushNousDebugTrace('pdf-plan:mapping-batch-retry-start', retryPayload);
 
         try {
           const retryResponse = await requestChunkMappings({
@@ -1242,7 +1242,7 @@ const mapLessonsToChunkIds = async (
           );
 
           logPdfPlanDebug('Mapping batch retry result', retryDebugPayload);
-          pushLuminaDebugTrace('pdf-plan:mapping-batch-retry-result', retryDebugPayload);
+          pushNousDebugTrace('pdf-plan:mapping-batch-retry-result', retryDebugPayload);
 
           if (retryParsedMappings.acceptedMappingCount > parsedMappings.acceptedMappingCount) {
             rawResponse = retryResponse;
@@ -1251,7 +1251,7 @@ const mapLessonsToChunkIds = async (
           }
         } catch (retryError) {
           console.warn(
-            `[Lumina][DocumentIndex] ${traceLabel} strict retry failed for ${lessonBatch.length} lesson(s).`,
+            `[Nous][DocumentIndex] ${traceLabel} strict retry failed for ${lessonBatch.length} lesson(s).`,
             retryError
           );
         }
@@ -1271,11 +1271,11 @@ const mapLessonsToChunkIds = async (
       };
 
       logPdfPlanDebug('Mapping batch result', resultDebugPayload);
-      pushLuminaDebugTrace('pdf-plan:mapping-batch-result', resultDebugPayload);
+      pushNousDebugTrace('pdf-plan:mapping-batch-result', resultDebugPayload);
 
       if (isSuspiciousMapping) {
         console.warn(
-          `[Lumina][DocumentIndex] ${traceLabel} produced incomplete or rejected chunk mappings.`,
+          `[Nous][DocumentIndex] ${traceLabel} produced incomplete or rejected chunk mappings.`,
           resultDebugPayload
         );
       }
@@ -1292,7 +1292,7 @@ const mapLessonsToChunkIds = async (
     } catch (error) {
       firstBatchError ??= error;
       console.warn(
-        `[Lumina][DocumentIndex] ${traceLabel} batch failed for ${lessonBatch.length} lesson(s).`,
+        `[Nous][DocumentIndex] ${traceLabel} batch failed for ${lessonBatch.length} lesson(s).`,
         error
       );
     }
@@ -1596,7 +1596,7 @@ const emitPdfPlanCoverageDiagnostics = (
   };
 
   logPdfPlanDebug('Coverage summary', payload);
-  pushLuminaDebugTrace('pdf-plan:coverage', payload);
+  pushNousDebugTrace('pdf-plan:coverage', payload);
 
   if (report.warnings.length > 0) {
     logPdfPlanDebug('Coverage warnings', {
@@ -1604,7 +1604,7 @@ const emitPdfPlanCoverageDiagnostics = (
       warningCount: report.warnings.length,
       warnings: report.warnings,
     });
-    pushLuminaDebugTrace('pdf-plan:coverage-warning', {
+    pushNousDebugTrace('pdf-plan:coverage-warning', {
       fileName,
       warningCount: report.warnings.length,
       warnings: report.warnings,
@@ -1648,7 +1648,7 @@ export const preparePdfLessonMappings = async (
     });
   } catch (error) {
     console.warn(
-      '[Lumina][DocumentIndex] Fast mapping failed, escalating to deep PDF remapping.',
+      '[Nous][DocumentIndex] Fast mapping failed, escalating to deep PDF remapping.',
       error
     );
   }
@@ -1664,7 +1664,7 @@ export const preparePdfLessonMappings = async (
 
   if (sectionsNeedingRepair.length > 0) {
     lastDeepRepairTargetIds = sectionsNeedingRepair;
-    pushLuminaDebugTrace('pdf-plan:deep-repair-start', {
+    pushNousDebugTrace('pdf-plan:deep-repair-start', {
       fileName: file.name,
       sectionCount: sectionsNeedingRepair.length,
       sectionTitles: sectionsNeedingRepair.slice(0, 8).map(sectionId => {
@@ -1692,10 +1692,10 @@ export const preparePdfLessonMappings = async (
       );
     } catch (error) {
       console.warn(
-        '[Lumina][DocumentIndex] Deep PDF remapping failed, continuing with fallback mapping.',
+        '[Nous][DocumentIndex] Deep PDF remapping failed, continuing with fallback mapping.',
         error
       );
-      pushLuminaDebugTrace('pdf-plan:deep-repair-failed', {
+      pushNousDebugTrace('pdf-plan:deep-repair-failed', {
         errorMessage: error instanceof Error ? error.message : String(error),
         fileName: file.name,
         sectionCount: sectionsNeedingRepair.length,
@@ -1709,7 +1709,7 @@ export const preparePdfLessonMappings = async (
     lastDeepRepairTargetIds.length > 0 &&
     lastDeepRepairTargetIds.length !== targetSectionIds.length
   ) {
-    pushLuminaDebugTrace('pdf-plan:full-deep-repair-start', {
+    pushNousDebugTrace('pdf-plan:full-deep-repair-start', {
       fileName: file.name,
       sectionCount: targetSectionIds.length,
     });
@@ -1733,10 +1733,10 @@ export const preparePdfLessonMappings = async (
       );
     } catch (error) {
       console.warn(
-        '[Lumina][DocumentIndex] Full PDF remapping failed, continuing with fallback mapping.',
+        '[Nous][DocumentIndex] Full PDF remapping failed, continuing with fallback mapping.',
         error
       );
-      pushLuminaDebugTrace('pdf-plan:full-deep-repair-failed', {
+      pushNousDebugTrace('pdf-plan:full-deep-repair-failed', {
         errorMessage: error instanceof Error ? error.message : String(error),
         fileName: file.name,
         sectionCount: targetSectionIds.length,
@@ -1760,10 +1760,10 @@ export const preparePdfLessonMappings = async (
     );
 
     console.warn(
-      `[Lumina][DocumentIndex] Unable to recover PDF lesson mappings for ${sectionsNeedingRepair.length} section(s); continuing with fallback chunk assignments for ${fallbackSectionIds.length} section(s).`,
+      `[Nous][DocumentIndex] Unable to recover PDF lesson mappings for ${sectionsNeedingRepair.length} section(s); continuing with fallback chunk assignments for ${fallbackSectionIds.length} section(s).`,
       describeSectionTitles(plan, sectionsNeedingRepair)
     );
-    pushLuminaDebugTrace('pdf-plan:mapping-fallback', {
+    pushNousDebugTrace('pdf-plan:mapping-fallback', {
       fileName: file.name,
       failedSectionCount: sectionsNeedingRepair.length,
       fallbackSectionCount: fallbackSectionIds.length,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { pushLuminaDebugTrace } from '../../services/core/debugTrace.ts';
+import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import { AppState } from '../../types.ts';
 import {
   buildProjectLocationHref,
@@ -94,7 +94,7 @@ export const useWorkspaceNavigation = ({
   );
 
   const handleBackToLibrary = useCallback(() => {
-    pushLuminaDebugTrace('navigation:back-to-library', {
+    pushNousDebugTrace('navigation:back-to-library', {
       currentProjectId,
       screenState,
     });
@@ -106,7 +106,7 @@ export const useWorkspaceNavigation = ({
 
   const handleOpenProject = useCallback(
     async (projectId: string, options?: { source?: 'library' | 'route' }) => {
-      pushLuminaDebugTrace('navigation:open-project', {
+      pushNousDebugTrace('navigation:open-project', {
         currentProjectId,
         locationProjectId,
         openingProjectId,
@@ -119,7 +119,7 @@ export const useWorkspaceNavigation = ({
       }
 
       const result = await onOpenProject(projectId);
-      pushLuminaDebugTrace('navigation:open-project-result', {
+      pushNousDebugTrace('navigation:open-project-result', {
         errorMessage: result.errorMessage,
         outcome: result.outcome,
         projectId,

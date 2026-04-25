@@ -1,6 +1,6 @@
 declare global {
   interface Window {
-    __luminaDebugTrace?: Array<{
+    __nousDebugTrace?: Array<{
       event: string;
       payload?: Record<string, unknown>;
       timestamp: string;
@@ -10,7 +10,7 @@ declare global {
 
 const MAX_TRACE_ENTRIES = 200;
 
-export const pushLuminaDebugTrace = (event: string, payload?: Record<string, unknown>): void => {
+export const pushNousDebugTrace = (event: string, payload?: Record<string, unknown>): void => {
   const meta = import.meta as ImportMeta & { env?: { DEV?: boolean } };
   if (!meta.env?.DEV) {
     return;
@@ -23,13 +23,13 @@ export const pushLuminaDebugTrace = (event: string, payload?: Record<string, unk
   };
 
   if (typeof window !== 'undefined') {
-    const trace = window.__luminaDebugTrace || [];
+    const trace = window.__nousDebugTrace || [];
     trace.push(entry);
     if (trace.length > MAX_TRACE_ENTRIES) {
       trace.splice(0, trace.length - MAX_TRACE_ENTRIES);
     }
-    window.__luminaDebugTrace = trace;
+    window.__nousDebugTrace = trace;
   }
 
-  console.info(`[Lumina][Trace] ${event}`, payload || {});
+  console.info(`[Nous][Trace] ${event}`, payload || {});
 };

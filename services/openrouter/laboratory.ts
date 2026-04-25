@@ -133,8 +133,6 @@ const cleanLines = (values: unknown): string[] =>
     ? values.map(value => (typeof value === 'string' ? value.trim() : '')).filter(Boolean)
     : [];
 
-const cleanUniqueLines = (values: unknown): string[] => Array.from(new Set(cleanLines(values)));
-
 const clampPercentage = (value: unknown, fallback: number): number => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return fallback;

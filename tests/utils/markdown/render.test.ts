@@ -308,8 +308,5 @@ test('normalizeMarkdownForRendering converts backslash-paren inline math delimit
 test('normalizeMarkdownForRendering converts backslash-bracket display math into dollar display math', () => {
   const input = 'La formula:\n\n\\[\ny = Ax\n\\]\n\nFine.';
 
-  assert.equal(
-    normalizeMarkdownForRendering(input),
-    'La formula:\n\n$$\ny = Ax\n$$\n\nFine.'
-  );
+  assert.equal(normalizeMarkdownForRendering(input), 'La formula:\n\n$$\ny = Ax\n$$\n\nFine.');
 });

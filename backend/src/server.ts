@@ -24,9 +24,7 @@ server.on('error', (error: NodeJS.ErrnoException) => {
     'Update "backendPort" in server.config.json or set BACKEND_PORT/VITE_BACKEND_PORT to an open port.';
 
   if (error.code === 'EACCES') {
-    console.error(
-      `[Backend] Permission denied while binding ${backendUrl}. ${reconfigureHint}`
-    );
+    console.error(`[Backend] Permission denied while binding ${backendUrl}. ${reconfigureHint}`);
     process.exit(1);
   }
 

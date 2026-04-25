@@ -54,106 +54,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
-    <style>
-      :root {
-        --font-serif: 'Merriweather', serif;
-        --font-sans: 'Inter', sans-serif;
-        --bg-paper: #FDFBF7;
-        --bg-surface: #ffffff;
-        --ink-primary: #1F1F1F;
-        --ink-secondary: #4A4A4A;
-        --accent: #D97757;
-      }
-      
-      .dark {
-        --bg-paper: #252526;
-        --bg-surface: #2f3031;
-        --ink-primary: #e4e4e7; /* Zinc 200 */
-        --ink-secondary: #a1a1aa; /* Zinc 400 */
-        --accent: #fb923c; /* Orange 400 */
-      }
-
-      html, body {
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        max-width: 100%;
-        overflow-x: hidden;
-        overflow-y: auto;
-      }
-      
-      #root {
-        min-height: 100vh;
-        width: 100%;
-        max-width: 100%;
-      }
-      body {
-        background-color: var(--bg-paper);
-        color: var(--ink-primary);
-        font-family: var(--font-sans);
-        -webkit-font-smoothing: antialiased;
-        transition: background-color 0.3s ease, color 0.3s ease;
-      }
-      .font-serif { font-family: var(--font-serif); }
-      .font-mono { font-family: 'JetBrains Mono', monospace; }
-      
-      /* Custom Scrollbar */
-      ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #d4d4d8;
-        border-radius: 3px;
-      }
-      .dark ::-webkit-scrollbar-thumb {
-        background: #3f3f46;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #a1a1aa;
-      }
-
-      /* Markdown Styles */
-      .prose h1, .prose h2, .prose h3 {
-        font-family: var(--font-sans);
-        letter-spacing: -0.02em;
-        font-weight: 600;
-        margin-top: 1.2em; /* Reduced from 1.5em */
-        margin-bottom: 0.6em; /* Reduced from 0.8em */
-      }
-      .prose p {
-        margin-bottom: 0.75em; /* Significantly reduced from 1.25em to align linear audio progress with visual height */
-        line-height: 1.8;
-      }
-      .prose blockquote {
-        border-left: 3px solid var(--accent);
-        padding-left: 1rem;
-        font-style: italic;
-        color: var(--ink-secondary);
-      }
-      
-      /* Custom Highlight Style - Clean Flat Style */
-      mark {
-        background-color: #fde047; /* Yellow 300 - Bright */
-        color: #000;
-        padding: 0.1em 0.2em;
-        border-radius: 0.2em;
-        font-weight: 500;
-      }
-      .dark mark {
-        background-color: #fbbf24; /* Amber 400 */
-        color: #000;
-      }
-      #root {
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-      }
-    </style>
     <script>
       // Fix for "Cannot set property fetch of #<Window> which has only a getter"
       // This happens when libraries (like formdata-polyfill) try to overwrite window.fetch
@@ -195,7 +95,8 @@
     "rehype-katex": "https://esm.sh/rehype-katex@^7.0.1",
     "rehype-raw": "https://esm.sh/rehype-raw@^7.0.0",
     "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
-    "jszip": "https://esm.sh/jszip@3.10.1"
+    "jszip": "https://esm.sh/jszip@3.10.1",
+    "framer-motion": "https://esm.sh/framer-motion@^12.38.0?external=react,react-dom"
   }
 }
 </script>

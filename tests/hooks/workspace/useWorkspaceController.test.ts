@@ -1195,7 +1195,7 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
   assert.equal(state.runtime.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
-test('handleSourceUpload imports Lumina backup zips instead of treating them as codebase bundles', async () => {
+test('handleSourceUpload imports Nous backup zips instead of treating them as codebase bundles', async () => {
   const archivedSnapshot = createProjectSnapshot({
     id: 'backup-project',
     source: createProjectSourceFromFile(pdfFile),
@@ -1203,7 +1203,7 @@ test('handleSourceUpload imports Lumina backup zips instead of treating them as 
     state: AppState.READING,
   });
   const archive = await createProjectArchiveBlob(archivedSnapshot);
-  const archiveFile = new File([await archive.arrayBuffer()], 'lumina-backup.lumina.zip', {
+  const archiveFile = new File([await archive.arrayBuffer()], 'nous-backup.nous.zip', {
     type: 'application/zip',
   });
   const { controller, domain, projectLibrary, state } = createControllerHarness({

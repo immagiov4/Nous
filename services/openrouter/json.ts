@@ -207,7 +207,9 @@ const closeOpenJsonStructures = (text: string): string => {
 };
 
 const buildJsonParseError = (): Error =>
-  new Error('Il modello ha restituito una risposta incompleta o non valida. Riprova a generare il contenuto.');
+  new Error(
+    'Il modello ha restituito una risposta incompleta o non valida. Riprova a generare il contenuto.'
+  );
 
 export const parseCleanJson = <T>(text: string): T => {
   const cleaned = cleanJson(text);

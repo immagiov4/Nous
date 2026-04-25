@@ -88,7 +88,7 @@ describe('WorkspaceReaderHeader', () => {
 
     render(<WorkspaceReaderHeader {...props} isMobileViewport />);
 
-    await user.click(screen.getByRole('button', { name: /Rigenera il/i }));
+    await user.click(screen.getByRole('button', { name: /Rigenera la/i }));
 
     const dialog = screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i });
     expect(dialog).toHaveClass('fixed');

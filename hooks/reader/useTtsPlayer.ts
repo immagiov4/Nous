@@ -937,7 +937,7 @@ export const useTtsPlayer = ({
           }
         }
       } catch (error) {
-        console.warn('[Lumina] TTS status/voices refresh failed', error);
+        console.warn('[Nous] TTS status/voices refresh failed', error);
         setTtsConnected(false);
       }
     };

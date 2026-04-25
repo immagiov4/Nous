@@ -41,6 +41,7 @@ const buildProps = (
   onUpdateLaboratoryTextAttachment: vi.fn(),
   quiz: [
     {
+      exerciseType: 'prediction',
       question: 'Domanda finale?',
       options: ['A', 'B', 'C', 'D'],
       correctIndex: 0,
@@ -57,7 +58,7 @@ describe('WorkspaceReaderContent', () => {
   test('renders inline quiz cards inside the reading column in focus mode', () => {
     render(<WorkspaceReaderContent {...buildProps({ isFocusMode: true })} />);
 
-    expect(screen.getByText('Pausa attiva 1')).toBeInTheDocument();
+    expect(screen.getByText(/Pausa attiva 1 - Previsione/i)).toBeInTheDocument();
     expect(screen.queryByTestId('reader-quiz-column')).toBeNull();
     expect(screen.getByText('Completa e Prosegui')).toBeDisabled();
   });

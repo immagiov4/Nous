@@ -1,6 +1,6 @@
 # UI Style Guide
 
-This file documents the visual patterns already established in Lumina Reader.
+This file documents the visual patterns already established in Nous Reader.
 Use it as the default reference before changing or adding frontend UI.
 
 ## Purpose

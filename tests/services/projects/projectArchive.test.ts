@@ -77,7 +77,7 @@ test('isProjectArchiveFile rejects generic source zips and readProjectImportData
   assert.equal(await isProjectArchiveFile(genericZip), false);
   await assert.rejects(
     () => readProjectImportData(genericZip),
-    /Questo ZIP non contiene un backup Lumina valido\./
+    /Questo ZIP non contiene un backup Nous valido\./
   );
 });
 
@@ -106,13 +106,13 @@ test('readProjectImportData still supports legacy json exports', async () => {
   assert.deepEqual(await readProjectImportData(legacyBlob), legacyExport);
 });
 
-test('readProjectImportData rejects arbitrary json files that are not Lumina backups', async () => {
+test('readProjectImportData rejects arbitrary json files that are not Nous backups', async () => {
   const arbitraryJson = new Blob([JSON.stringify({ ok: true, items: [] })], {
     type: 'application/json',
   });
 
   await assert.rejects(
     () => readProjectImportData(arbitraryJson),
-    /Il file selezionato non e un backup Lumina valido\./
+    /Il file selezionato non e un backup Nous valido\./
   );
 });

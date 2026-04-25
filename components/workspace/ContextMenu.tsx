@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import { ArrowUp, BookPlus, Highlighter, LoaderCircle, NotebookPen, X } from 'lucide-react';
 import {
   type CSSProperties,
@@ -13,6 +14,7 @@ import {
 } from 'react';
 import type { ContextMenuPlacement, HorizontalViewportBounds, SelectionRect } from '../../types';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
+import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 
 interface ContextMenuProps {
@@ -342,7 +344,6 @@ const ContextMenu = ({
           ),
           left: desktopLeft,
           width: desktopMenuWidth,
-          transformOrigin: 'center bottom',
         }
       : {
           top: clamp(
@@ -355,7 +356,6 @@ const ContextMenu = ({
           ),
           left: desktopLeft,
           width: desktopMenuWidth,
-          transformOrigin: 'center top',
         };
 
   const highlightButtonClassName = isMobileSheet
@@ -518,7 +518,7 @@ const ContextMenu = ({
               type="text"
               value={input}
               onChange={event => setInput(event.target.value)}
-              placeholder="Chiedi a Lumina o aggiungi istruzioni"
+              placeholder="Chiedi a Nous o aggiungi istruzioni"
               className="h-10 w-full min-w-0 border-0 bg-transparent px-3.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
               disabled={isLoading}
             />
@@ -583,7 +583,7 @@ const ContextMenu = ({
               </p>
             ) : (
               <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-                Nessuna istruzione aggiuntiva: verra usata solo la selezione corrente.
+                Nessuna istruzione aggiuntiva: verrà usata solo la selezione corrente.
               </p>
             )}
             <div className="flex items-center justify-end gap-2 pt-1">
@@ -616,7 +616,7 @@ const ContextMenu = ({
           type="text"
           value={input}
           onChange={event => setInput(event.target.value)}
-          placeholder="Chiedi a Lumina o aggiungi istruzioni"
+          placeholder="Chiedi a Nous o aggiungi istruzioni"
           className="h-11 w-full rounded-full border border-stone-200/80 bg-stone-50/60 px-4 text-sm text-stone-800 transition-all placeholder:text-stone-400 focus:border-stone-300 focus:bg-white focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:border-stone-400/95 dark:bg-stone-700/70 dark:text-stone-100 dark:placeholder:text-stone-300 dark:focus:border-stone-400/95 dark:focus:bg-stone-700"
           disabled={isLoading}
         />
@@ -692,7 +692,7 @@ const ContextMenu = ({
             </p>
           ) : (
             <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-              Nessuna istruzione aggiuntiva: verra usata solo la selezione corrente.
+              Nessuna istruzione aggiuntiva: verrà usata solo la selezione corrente.
             </p>
           )}
           <div className="flex items-center justify-end gap-2 pt-1">
@@ -719,15 +719,54 @@ const ContextMenu = ({
 
   const renderAnnotationBody = () => <div className="space-y-2">{renderNoteEditor()}</div>;
 
+  const shouldAnimate = useShouldAnimate();
+
+  // Origin for the pop-in morph. On desktop we morph from the cursor's
+  // click point; on the mobile sheet we slide up from the bottom center.
+  const transformOrigin: string = isMobileSheet
+    ? 'bottom center'
+    : (() => {
+        const left = typeof menuStyle.left === 'number' ? menuStyle.left : Number.NaN;
+        const originX = Number.isFinite(left) && anchorX !== undefined ? anchorX - left : 0;
+        const originY =
+          'top' in menuStyle && typeof menuStyle.top === 'number'
+            ? 0
+            : 'bottom' in menuStyle
+              ? '100%'
+              : 0;
+        return `${originX}px ${typeof originY === 'number' ? `${originY}px` : originY}`;
+      })();
+
   return (
-    <div
+    <motion.div
       ref={containerRef}
       className={`fixed z-50 ${
         isMobileSheet
-          ? 'left-1/2 rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] -translate-x-1/2 slide-in-from-bottom-10 dark:border-stone-400/95 dark:bg-stone-700'
-          : 'opacity-100'
+          ? 'left-1/2 rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700'
+          : ''
       }`}
-      style={menuStyle}
+      style={{
+        ...menuStyle,
+        transformOrigin,
+        willChange: 'transform, opacity',
+        ...(isMobileSheet ? { x: '-50%' } : null),
+      }}
+      initial={
+        shouldAnimate
+          ? isMobileSheet
+            ? { opacity: 0, y: 12 }
+            : { opacity: 0, scale: 0.94 }
+          : false
+      }
+      animate={isMobileSheet ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 }}
+      transition={
+        isMobileSheet
+          ? { type: 'spring', stiffness: 560, damping: 30, mass: 0.65 }
+          : {
+              opacity: { duration: 0.09, ease: [0.2, 0.85, 0.25, 1] },
+              scale: { type: 'spring', stiffness: 480, damping: 28, mass: 0.7 },
+            }
+      }
       onPointerDown={handleContainerPointerDown}
     >
       {isAnnotationMode
@@ -735,7 +774,7 @@ const ContextMenu = ({
         : isMobileSheet
           ? renderSelectionMobile()
           : renderSelectionDesktop()}
-    </div>
+    </motion.div>
   );
 };
 

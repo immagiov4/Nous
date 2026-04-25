@@ -94,7 +94,7 @@ class TTSClient {
         responseText
       );
     } catch (error) {
-      console.warn('[Lumina] Failed to parse TTS error response JSON', error);
+      console.warn('[Nous] Failed to parse TTS error response JSON', error);
       return responseText;
     }
   }

@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import {
   ChevronDown,
   ChevronRight,
@@ -24,6 +25,7 @@ import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersi
 import type { LibraryFolderNode, LibraryTree, LibraryTreeNode } from '../../types.ts';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 import { flattenLibraryTreeNodes } from '../../utils/library/tree.ts';
+import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 import ProjectCard from './ProjectCard.tsx';
 
 interface LibraryTreeViewProps {
@@ -64,6 +66,7 @@ interface DropTarget {
 type FlattenedFolderNode = LibraryFolderNode & { depth: number };
 
 const ROOT_CREATE_KEY = '__root__';
+const FOLDER_COLLAPSE_DURATION_MS = 340;
 
 const isFolderNode = (node: LibraryTreeNode): node is LibraryFolderNode => node.kind === 'folder';
 
@@ -92,6 +95,44 @@ const resolveDestinationFolders = (tree: LibraryTree) =>
 
 const clampIndex = (value: number, maxValue: number) =>
   Math.max(0, Math.min(maxValue, Math.trunc(value)));
+
+const getVerticalScrollContainer = (element: HTMLElement | null): HTMLElement | Window => {
+  if (typeof window === 'undefined' || !element) {
+    return window;
+  }
+
+  let current: HTMLElement | null = element.parentElement;
+
+  while (current) {
+    const { overflowY } = window.getComputedStyle(current);
+    const isScrollable =
+      (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+      current.scrollHeight > current.clientHeight + 1;
+
+    if (isScrollable) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return window;
+};
+
+const getScrollOffsetTop = (scrollContainer: HTMLElement | Window) =>
+  'scrollY' in scrollContainer ? scrollContainer.scrollY : scrollContainer.scrollTop;
+
+const setScrollOffsetTop = (scrollContainer: HTMLElement | Window, nextY: number) => {
+  if ('scrollY' in scrollContainer) {
+    scrollContainer.scrollTo({ top: nextY, left: scrollContainer.scrollX, behavior: 'auto' });
+    return;
+  }
+
+  scrollContainer.scrollTop = nextY;
+};
+
+const getScrollViewportTop = (scrollContainer: HTMLElement | Window): number =>
+  'scrollY' in scrollContainer ? 0 : scrollContainer.getBoundingClientRect().top;
 
 const resolveDropTargetFromTouchPoint = (x: number, y: number): DropTarget | null => {
   const el = (document.elementFromPoint(x, y) as Element | null)?.closest('[data-drag-id]');
@@ -177,6 +218,8 @@ export default function LibraryTreeView({
   const [moveTarget, setMoveTarget] = useState<DraggedLibraryItem | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
+  const [folderMenuPlacement, setFolderMenuPlacement] = useState<'below' | 'above'>('below');
+  const collapseScrollFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
@@ -199,6 +242,14 @@ export default function LibraryTreeView({
     setFolderDraftName('');
   }, [createRootTrigger]);
 
+  useEffect(() => {
+    return () => {
+      if (collapseScrollFrameRef.current !== null) {
+        cancelAnimationFrame(collapseScrollFrameRef.current);
+      }
+    };
+  }, []);
+
   const touchDragRef = useRef<{ itemId: string; itemKind: 'folder' | 'project' } | null>(null);
   const touchDropTargetRef = useRef<DropTarget | null>(null);
   const touchHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -220,6 +271,68 @@ export default function LibraryTreeView({
     touchDragRef.current = null;
     touchStartPointRef.current = null;
   }, []);
+
+  const animateCollapseScrollCompensation = useCallback(
+    (scrollContainer: HTMLElement | Window, startY: number, endY: number) => {
+      if (typeof window === 'undefined' || endY >= startY) {
+        return;
+      }
+
+      if (collapseScrollFrameRef.current !== null) {
+        cancelAnimationFrame(collapseScrollFrameRef.current);
+      }
+
+      const easeOutCubic = (progress: number) => 1 - (1 - progress) ** 3;
+      const startedAt = window.performance.now();
+
+      const tick = (now: number) => {
+        const progress = Math.min(1, (now - startedAt) / FOLDER_COLLAPSE_DURATION_MS);
+        const eased = easeOutCubic(progress);
+        const nextY = startY + (endY - startY) * eased;
+
+        setScrollOffsetTop(scrollContainer, nextY);
+
+        if (progress < 1) {
+          collapseScrollFrameRef.current = window.requestAnimationFrame(tick);
+          return;
+        }
+
+        collapseScrollFrameRef.current = null;
+      };
+
+      collapseScrollFrameRef.current = window.requestAnimationFrame(tick);
+    },
+    []
+  );
+
+  const handleFolderExpansionToggle = useCallback(
+    (folderId: string, isExpanded: boolean) => {
+      if (isExpanded && typeof window !== 'undefined') {
+        const childrenContainer = document.querySelector<HTMLElement>(
+          `[data-folder-children-id="${folderId}"]`
+        );
+
+        if (childrenContainer) {
+          const collapseHeight = childrenContainer.getBoundingClientRect().height;
+          const scrollContainer = getVerticalScrollContainer(childrenContainer);
+          const hiddenAboveViewport = Math.max(
+            0,
+            getScrollViewportTop(scrollContainer) - childrenContainer.getBoundingClientRect().top
+          );
+          const compensatedHeight = Math.min(collapseHeight, hiddenAboveViewport);
+          const startScrollY = getScrollOffsetTop(scrollContainer);
+          const endScrollY = Math.max(0, startScrollY - compensatedHeight);
+
+          if (startScrollY > endScrollY + 1) {
+            animateCollapseScrollCompensation(scrollContainer, startScrollY, endScrollY);
+          }
+        }
+      }
+
+      toggleFolderExpansion(folderId);
+    },
+    [animateCollapseScrollCompensation, toggleFolderExpansion]
+  );
 
   useEffect(() => {
     const handleTouchMove = (e: TouchEvent) => {
@@ -538,8 +651,9 @@ export default function LibraryTreeView({
     siblingIndex = 0,
     siblingCount = 1
   ) => {
-    const paddingLeft = depth * 28;
-    const formOffsetStyle = paddingLeft > 0 ? { marginLeft: paddingLeft } : undefined;
+    const indentLeft = depth * 28;
+    const paddingLeft = indentLeft + 12;
+    const formOffsetStyle = indentLeft > 0 ? { marginLeft: indentLeft } : undefined;
 
     if (!isFolderNode(node)) {
       return (
@@ -640,6 +754,7 @@ export default function LibraryTreeView({
             <DropLine />
           </div>
         ) : null}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: folder rows need pointer drag/drop while nested controls keep button semantics. */}
         <div
           data-drag-id={node.id}
           data-drag-kind="folder"
@@ -708,7 +823,7 @@ export default function LibraryTreeView({
         >
           <button
             type="button"
-            onClick={() => toggleFolderExpansion(node.id)}
+            onClick={() => handleFolderExpansionToggle(node.id, isExpanded)}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
             title={isExpanded ? 'Chiudi cartella' : 'Apri cartella'}
           >
@@ -735,88 +850,119 @@ export default function LibraryTreeView({
           </div>
 
           <div className="relative z-50">
-            <button
-              type="button"
+            <Pressable
               onClick={e => {
                 e.stopPropagation();
-                setOpenFolderMenuId(openFolderMenuId === node.id ? null : node.id);
+                if (openFolderMenuId === node.id) {
+                  setOpenFolderMenuId(null);
+                  return;
+                }
+                const rect = e.currentTarget.getBoundingClientRect();
+                // Menu has 4 items + separator, ~230px worst case. Flip up if it
+                // would otherwise overflow the viewport bottom.
+                const estimatedMenuHeight = 230;
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const spaceAbove = rect.top;
+                const shouldFlipUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
+                setFolderMenuPlacement(shouldFlipUp ? 'above' : 'below');
+                setOpenFolderMenuId(node.id);
               }}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
               title="Azioni cartella"
             >
               <MoreVertical className="h-4 w-4" />
-            </button>
-            {openFolderMenuId === node.id ? (
-              <div className="absolute right-0 top-9 z-50 min-w-[11rem] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpenFolderMenuId(null);
-                    setCreateTargetId(node.id);
-                    setEditingFolderId(null);
-                    setFolderDraftName('');
-                  }}
-                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                  <FolderPlus className="h-4 w-4 shrink-0" />
-                  <span className="whitespace-nowrap">Nuova sottocartella</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpenFolderMenuId(null);
-                    setEditingFolderId(node.id);
-                    setCreateTargetId(null);
-                    setFolderDraftName(node.folder.name);
-                  }}
-                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                  <Pencil className="h-4 w-4 shrink-0" />
-                  Rinomina
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpenFolderMenuId(null);
-                    setMoveTarget({ id: node.id, kind: 'folder' });
-                  }}
-                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                  <GripVertical className="h-4 w-4 shrink-0" />
-                  Sposta
-                </button>
-                <div className="border-t border-gray-100 dark:border-zinc-700" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpenFolderMenuId(null);
-                    const shouldDelete = window.confirm(
-                      `Eliminare la cartella "${node.folder.name}"? I corsi e le sottocartelle verranno riportati al livello superiore.`
-                    );
-                    if (!shouldDelete) {
-                      return;
-                    }
-                    void onDeleteFolder(node.id);
-                  }}
-                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                >
-                  <Trash2 className="h-4 w-4 shrink-0" />
-                  Elimina
-                </button>
-              </div>
-            ) : null}
+            </Pressable>
+            <MotionPopover
+              isOpen={openFolderMenuId === node.id}
+              originX={folderMenuPlacement === 'above' ? 'bottom right' : 'top right'}
+              className={`absolute right-0 z-50 min-w-[11rem] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800 ${
+                folderMenuPlacement === 'above' ? 'bottom-9' : 'top-9'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenFolderMenuId(null);
+                  setCreateTargetId(node.id);
+                  setEditingFolderId(null);
+                  setFolderDraftName('');
+                }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              >
+                <FolderPlus className="h-4 w-4 shrink-0" />
+                <span className="whitespace-nowrap">Nuova sottocartella</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenFolderMenuId(null);
+                  setEditingFolderId(node.id);
+                  setCreateTargetId(null);
+                  setFolderDraftName(node.folder.name);
+                }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              >
+                <Pencil className="h-4 w-4 shrink-0" />
+                Rinomina
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenFolderMenuId(null);
+                  setMoveTarget({ id: node.id, kind: 'folder' });
+                }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              >
+                <GripVertical className="h-4 w-4 shrink-0" />
+                Sposta
+              </button>
+              <div className="border-t border-gray-100 dark:border-zinc-700" />
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenFolderMenuId(null);
+                  const shouldDelete = window.confirm(
+                    `Eliminare la cartella "${node.folder.name}"? I corsi e le sottocartelle verranno riportati al livello superiore.`
+                  );
+                  if (!shouldDelete) {
+                    return;
+                  }
+                  void onDeleteFolder(node.id);
+                }}
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+              >
+                <Trash2 className="h-4 w-4 shrink-0" />
+                Elimina
+              </button>
+            </MotionPopover>
           </div>
         </div>
 
-        {editingFolderId === node.id ? <div style={formOffsetStyle}>{renderFolderForm(node.id, 'rename')}</div> : null}
-        {createTargetId === node.id ? <div style={formOffsetStyle}>{renderFolderForm(node.id, 'create')}</div> : null}
+        {editingFolderId === node.id ? (
+          <div style={formOffsetStyle}>{renderFolderForm(node.id, 'rename')}</div>
+        ) : null}
+        {createTargetId === node.id ? (
+          <div style={formOffsetStyle}>{renderFolderForm(node.id, 'create')}</div>
+        ) : null}
 
         {isExpanded && node.children.length > 0 ? (
-          <ul className="space-y-3" aria-label={`Contenuto cartella ${node.folder.name}`}>
-            {node.children.map((childNode, childIndex, children) =>
-              renderNode(childNode, depth + 1, node.id, childIndex, children.length)
-            )}
-          </ul>
+          <motion.div
+            key={`folder-children-${node.id}`}
+            data-folder-children-id={node.id}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            transition={{
+              height: { duration: 0.34, ease: [0.32, 0.72, 0.2, 1] },
+              opacity: { duration: 0.22, ease: [0.32, 0.72, 0.2, 1] },
+            }}
+            style={{ overflow: 'hidden', overflowAnchor: 'none', willChange: 'height, opacity' }}
+          >
+            <ul className="space-y-3" aria-label={`Contenuto cartella ${node.folder.name}`}>
+              {node.children.map((childNode, childIndex, children) =>
+                renderNode(childNode, depth + 1, node.id, childIndex, children.length)
+              )}
+            </ul>
+          </motion.div>
         ) : null}
         {isDropAfter(node.id, 'folder') ? (
           <div className="absolute -bottom-px right-0 z-20" style={{ left: paddingLeft }}>

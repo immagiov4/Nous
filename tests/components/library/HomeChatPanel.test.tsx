@@ -177,7 +177,7 @@ describe('HomeChatPanel', () => {
     render(<HomeChatPanel {...props} />);
 
     await user.type(
-      screen.getByPlaceholderText(/Descrivi l obiettivo del corso o allega un file/i),
+      screen.getByPlaceholderText(/Descrivi l'obiettivo del corso o allega un file/i),
       'Vorrei costruire un corso completo'
     );
     await user.click(screen.getByRole('button', { name: /Inizia/i }));

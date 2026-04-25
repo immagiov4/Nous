@@ -84,12 +84,12 @@ describe('MarkdownRenderer', () => {
   test('preserves custom annotation attributes on rendered mark elements', () => {
     const { container } = render(
       <MarkdownRenderer
-        content={'Testo con <mark data-lumina-annotation-id="annotation-1">focus</mark>.'}
+        content={'Testo con <mark data-nous-annotation-id="annotation-1">focus</mark>.'}
       />
     );
 
     expect(
-      container.querySelector('mark[data-lumina-annotation-id="annotation-1"]')
+      container.querySelector('mark[data-nous-annotation-id="annotation-1"]')
     ).toHaveTextContent('focus');
   });
 
@@ -97,7 +97,7 @@ describe('MarkdownRenderer', () => {
     const { container } = render(
       <MarkdownRenderer
         content={
-          'Testo con <mark data-lumina-annotation-id="annotation-1">focus</mark> e <mark data-lumina-annotation-id="annotation-2">contesto</mark>.'
+          'Testo con <mark data-nous-annotation-id="annotation-1">focus</mark> e <mark data-nous-annotation-id="annotation-2">contesto</mark>.'
         }
         sectionAnnotations={[
           {
@@ -116,15 +116,15 @@ describe('MarkdownRenderer', () => {
       />
     );
 
-    const noteMark = container.querySelector('mark[data-lumina-annotation-id="annotation-1"]');
-    const plainMark = container.querySelector('mark[data-lumina-annotation-id="annotation-2"]');
+    const noteMark = container.querySelector('mark[data-nous-annotation-id="annotation-1"]');
+    const plainMark = container.querySelector('mark[data-nous-annotation-id="annotation-2"]');
 
-    expect(noteMark).toHaveAttribute('data-lumina-note-attached', 'true');
+    expect(noteMark).toHaveAttribute('data-nous-note-attached', 'true');
     expect(noteMark).toHaveStyle({
       borderWidth: '1.5px',
       borderStyle: 'dashed',
     });
-    expect(plainMark).not.toHaveAttribute('data-lumina-note-attached');
+    expect(plainMark).not.toHaveAttribute('data-nous-note-attached');
     expect(plainMark).not.toHaveStyle({
       borderStyle: 'dashed',
     });

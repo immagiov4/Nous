@@ -21,7 +21,7 @@ test('applySectionAnnotation creates a persistent highlight with a stable annota
   assert.ok(result);
   assert.equal(
     result.content,
-    'Alpha <mark data-lumina-annotation-id="annotation-1">beta</mark> gamma delta.'
+    'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma delta.'
   );
   assert.equal(result.annotationId, 'annotation-1');
   assert.deepEqual(result.annotations, [
@@ -58,7 +58,7 @@ test('applySectionAnnotation stores a note and merges overlapping notes into the
   assert.ok(merged);
   assert.equal(
     merged.content,
-    'Alpha <mark data-lumina-annotation-id="annotation-1">beta</mark> <mark data-lumina-annotation-id="annotation-1">gamma</mark> delta.'
+    'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> <mark data-nous-annotation-id="annotation-1">gamma</mark> delta.'
   );
   assert.equal(merged.merged, true);
   assert.equal(merged.annotations[0]?.note, `Nota grande${NOTE_MERGE_SEPARATOR}Nota piccola`);
@@ -121,7 +121,7 @@ test('applySectionAnnotation preserves inline math markdown while annotating the
   assert.ok(result);
   assert.equal(
     result.content,
-    '<mark data-lumina-annotation-id="annotation-math">Ridurre soprattutto</mark> $T_{\\text{cluster}}$ <mark data-lumina-annotation-id="annotation-math">e</mark> $T_{\\text{update}}$ <mark data-lumina-annotation-id="annotation-math">accelera.</mark>'
+    '<mark data-nous-annotation-id="annotation-math">Ridurre soprattutto</mark> $T_{\\text{cluster}}$ <mark data-nous-annotation-id="annotation-math">e</mark> $T_{\\text{update}}$ <mark data-nous-annotation-id="annotation-math">accelera.</mark>'
   );
   assert.equal(result.resolvedText, 'Ridurre soprattutto e accelera.');
 });
@@ -140,7 +140,7 @@ test('applySectionAnnotation can anchor a note across display math selected via 
   assert.ok(result);
   assert.equal(
     result.content,
-    '<mark data-lumina-annotation-id="annotation-display-math">Un modello analitico produce la soluzione:</mark>\n\n$$y(t)=\\frac{1}{2}gt^2+v_0t+y_0$$\n\n<mark data-lumina-annotation-id="annotation-display-math">ma il videogioco procede per passi.</mark>'
+    '<mark data-nous-annotation-id="annotation-display-math">Un modello analitico produce la soluzione:</mark>\n\n$$y(t)=\\frac{1}{2}gt^2+v_0t+y_0$$\n\n<mark data-nous-annotation-id="annotation-display-math">ma il videogioco procede per passi.</mark>'
   );
   assert.equal(
     result.resolvedText,
@@ -159,7 +159,7 @@ test('removeSectionAnnotation removes both metadata and markup', () => {
         updatedAt: '2026-04-02T10:00:00.000Z',
       },
     ],
-    content: 'Alpha <mark data-lumina-annotation-id="annotation-1">beta</mark> gamma.',
+    content: 'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma.',
   });
 
   assert.equal(removed.removed, true);
@@ -178,7 +178,7 @@ test('migrateSectionAnnotations converts legacy plain marks into persistent anno
   assert.equal(migrated.didChange, true);
   assert.equal(
     migrated.content,
-    'Alpha <mark data-lumina-annotation-id="annotation-legacy">beta</mark> <mark data-lumina-annotation-id="annotation-legacy">gamma</mark> delta.'
+    'Alpha <mark data-nous-annotation-id="annotation-legacy">beta</mark> <mark data-nous-annotation-id="annotation-legacy">gamma</mark> delta.'
   );
   assert.deepEqual(migrated.annotations, [
     {

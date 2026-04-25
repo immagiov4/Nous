@@ -1,5 +1,6 @@
 import { ArrowLeft, Moon, RefreshCw, Settings2, SidebarOpen, Sun, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { MotionPopover } from '../../../utils/motion/index.ts';
 import MusicPlayer from '../MusicPlayer.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
@@ -45,6 +46,9 @@ export default function WorkspaceReaderHeader({
     : activeSidebarGroup?.title || learningPlanTitle || 'Percorso';
   const canRegenerate = Boolean(activeLaboratoryExercise || activeSection);
   const regenerateSubjectLabel = activeLaboratoryExercise ? 'esercizio' : 'lezione';
+  const regenerateDefiniteArticle = activeLaboratoryExercise ? 'il' : 'la';
+  const regenerateIndefiniteArticle = activeLaboratoryExercise ? 'un' : 'una';
+  const regenerateDemonstrative = activeLaboratoryExercise ? 'questo' : 'questa';
 
   useEffect(() => {
     if (!isRegenerateConfirmOpen) {
@@ -187,8 +191,8 @@ export default function WorkspaceReaderHeader({
               }`}
               title={
                 canRegenerate
-                  ? `Rigenera il ${regenerateSubjectLabel} corrente`
-                  : `Apri un ${regenerateSubjectLabel} per rigenerarlo`
+                  ? `Rigenera ${regenerateDefiniteArticle} ${regenerateSubjectLabel} corrente`
+                  : `Apri ${regenerateIndefiniteArticle} ${regenerateSubjectLabel} per rigenerarlo`
               }
               aria-expanded={isRegenerateConfirmOpen}
               aria-haspopup="dialog"
@@ -197,38 +201,38 @@ export default function WorkspaceReaderHeader({
               {!isMobileViewport ? <span>Rigenera</span> : null}
             </button>
 
-            {isRegenerateConfirmOpen ? (
-              <div
-                role="dialog"
-                aria-label="Conferma rigenerazione contenuto"
-                className={`${regenerateDialogClassName} rounded-[1.6rem] border border-stone-200/90 bg-white px-4 py-4 text-stone-700 shadow-[0_18px_40px_-24px_rgba(46,34,16,0.32)] dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-200`}
-              >
-                <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                  {`Rigenerare questo ${regenerateSubjectLabel}?`}
-                </p>
-                <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                  {activeLaboratoryExercise
-                    ? 'La traccia verra riscritta e gli allegati correnti potrebbero non essere piu coerenti con la nuova consegna.'
-                    : 'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'}
-                </p>
-                <div className="mt-4 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsRegenerateConfirmOpen(false)}
-                    className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                  >
-                    Annulla
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleConfirmRegenerate}
-                    className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                  >
-                    Rigenera
-                  </button>
-                </div>
+            <MotionPopover
+              isOpen={isRegenerateConfirmOpen}
+              originX="top right"
+              role="dialog"
+              aria-label="Conferma rigenerazione contenuto"
+              className={`${regenerateDialogClassName} rounded-[1.6rem] border border-stone-200/90 bg-white px-4 py-4 text-stone-700 shadow-[0_18px_40px_-24px_rgba(46,34,16,0.32)] dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-200`}
+            >
+              <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+                {`Rigenerare ${regenerateDemonstrative} ${regenerateSubjectLabel}?`}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                {activeLaboratoryExercise
+                  ? 'La traccia verrà riscritta e gli allegati correnti potrebbero non essere più coerenti con la nuova consegna.'
+                  : 'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'}
+              </p>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRegenerateConfirmOpen(false)}
+                  className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmRegenerate}
+                  className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+                >
+                  Rigenera
+                </button>
               </div>
-            ) : null}
+            </MotionPopover>
           </div>
 
           <MusicPlayer

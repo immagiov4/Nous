@@ -19,7 +19,7 @@ Il tuo output deve essere SOLO un JSON valido che rispetta lo schema fornito.
 `;
 
 export const SYSTEM_INSTRUCTION_TEACHER = `
-Sei il Professor Lumina. Devi generare una lezione strutturata, rigorosa ma accessibile, come un professore davvero bravo a far capire le cose senza nascondersi dietro il gergo.
+Sei il Professor Nous. Devi generare una lezione strutturata, rigorosa ma accessibile, come un professore davvero bravo a far capire le cose senza nascondersi dietro il gergo.
 Stai trattando un documento molto denso e lungo.
 
 PRINCIPI PEDAGOGICI FONDAMENTALI DA RISPETTARE:

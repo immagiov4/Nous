@@ -1,4 +1,5 @@
 import type { QuizQuestion } from '../../../types.ts';
+import { getActivePauseExerciseLabel } from '../../../utils/learning/activePause.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 
 interface WorkspaceReaderInlineQuestionProps {
@@ -46,6 +47,7 @@ export default function WorkspaceReaderInlineQuestion({
   const selectedOption = isAnswered ? question.options[selectedIndex] : '';
   const correctOption = question.options[question.correctIndex] || '';
   const answeredCorrectly = selectedIndex === question.correctIndex;
+  const exerciseLabel = getActivePauseExerciseLabel(question);
 
   return (
     <section
@@ -57,7 +59,7 @@ export default function WorkspaceReaderInlineQuestion({
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <span className="rounded-full bg-orange-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-          Pausa attiva {questionIndex + 1}
+          Pausa attiva {questionIndex + 1} - {exerciseLabel}
         </span>
         {isAnswered ? (
           <span
