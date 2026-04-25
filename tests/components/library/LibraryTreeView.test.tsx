@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitForElementToBeRemoved } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import LibraryTreeView from '../../../components/library/LibraryTreeView.tsx';
@@ -240,7 +240,7 @@ describe('LibraryTreeView', () => {
   test('persists collapsed folders across remounts', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
 
-    const { unmount } = render(
+    const { container, unmount } = render(
       <LibraryTreeView
         openingProjectId={null}
         onCreateFolder={vi.fn(async () => {})}
@@ -256,7 +256,11 @@ describe('LibraryTreeView', () => {
     );
 
     await user.click(screen.getByTitle('Chiudi cartella'));
-    expect(screen.queryByText('Corso Mobile')).not.toBeInTheDocument();
+
+    const exitingFolderChildren = container.querySelector('[data-folder-children-id="folder-1"]');
+    expect(exitingFolderChildren).toHaveAttribute('aria-hidden', 'true');
+    expect(exitingFolderChildren).toHaveAttribute('inert');
+    await waitForElementToBeRemoved(() => screen.queryByText('Corso Mobile'));
 
     unmount();
 

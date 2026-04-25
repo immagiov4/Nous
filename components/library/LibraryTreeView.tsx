@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
 import {
   ChevronDown,
   ChevronRight,
@@ -14,6 +14,7 @@ import {
 import {
   type DragEvent,
   type FormEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -65,6 +66,12 @@ interface DropTarget {
 
 type FlattenedFolderNode = LibraryFolderNode & { depth: number };
 
+interface AnimatedFolderChildrenProps {
+  children: ReactNode;
+  folderId: string;
+  folderName: string;
+}
+
 const ROOT_CREATE_KEY = '__root__';
 const FOLDER_COLLAPSE_DURATION_MS = 340;
 
@@ -73,6 +80,35 @@ const isFolderNode = (node: LibraryTreeNode): node is LibraryFolderNode => node.
 const isFlattenedFolderNode = (
   node: LibraryTreeNode & { depth: number }
 ): node is FlattenedFolderNode => node.kind === 'folder';
+
+const AnimatedFolderChildren = ({
+  children,
+  folderId,
+  folderName,
+}: AnimatedFolderChildrenProps) => {
+  const isPresent = useIsPresent();
+
+  return (
+    <motion.div
+      data-folder-children-id={folderId}
+      data-folder-children-exiting={isPresent ? undefined : 'true'}
+      aria-hidden={isPresent ? undefined : true}
+      inert={isPresent ? undefined : true}
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{
+        height: { duration: 0.34, ease: [0.32, 0.72, 0.2, 1] },
+        opacity: { duration: 0.22, ease: [0.32, 0.72, 0.2, 1] },
+      }}
+      style={{ overflow: 'hidden', overflowAnchor: 'none', willChange: 'height, opacity' }}
+    >
+      <ul className="space-y-3" aria-label={`Contenuto cartella ${folderName}`}>
+        {children}
+      </ul>
+    </motion.div>
+  );
+};
 
 const collectFolderDescendantIds = (folderNode: LibraryFolderNode): Set<string> => {
   const descendantIds = new Set<string>();
@@ -945,25 +981,19 @@ export default function LibraryTreeView({
           <div style={formOffsetStyle}>{renderFolderForm(node.id, 'create')}</div>
         ) : null}
 
-        {isExpanded && node.children.length > 0 ? (
-          <motion.div
-            key={`folder-children-${node.id}`}
-            data-folder-children-id={node.id}
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            transition={{
-              height: { duration: 0.34, ease: [0.32, 0.72, 0.2, 1] },
-              opacity: { duration: 0.22, ease: [0.32, 0.72, 0.2, 1] },
-            }}
-            style={{ overflow: 'hidden', overflowAnchor: 'none', willChange: 'height, opacity' }}
-          >
-            <ul className="space-y-3" aria-label={`Contenuto cartella ${node.folder.name}`}>
+        <AnimatePresence initial={false}>
+          {isExpanded && node.children.length > 0 ? (
+            <AnimatedFolderChildren
+              key={`folder-children-${node.id}`}
+              folderId={node.id}
+              folderName={node.folder.name}
+            >
               {node.children.map((childNode, childIndex, children) =>
                 renderNode(childNode, depth + 1, node.id, childIndex, children.length)
               )}
-            </ul>
-          </motion.div>
-        ) : null}
+            </AnimatedFolderChildren>
+          ) : null}
+        </AnimatePresence>
         {isDropAfter(node.id, 'folder') ? (
           <div className="absolute -bottom-px right-0 z-20" style={{ left: paddingLeft }}>
             <DropLine />
