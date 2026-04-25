@@ -18,6 +18,7 @@ export {
   generateLaboratory,
   regenerateLaboratoryExercise,
 } from './laboratory.ts';
+export { validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,
   createLearnSubChapterMetadata,

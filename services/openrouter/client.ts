@@ -13,6 +13,7 @@ import type {
 
 interface HttpError extends Error {
   status?: number;
+  details?: string;
 }
 
 const getHeaders = () => ({
@@ -42,9 +43,14 @@ const extractTextContent = (content: OpenRouterMessageContent | undefined): stri
 const createHttpError = async (response: Response): Promise<HttpError> => {
   const details = await response.text();
   const error = new Error(
-    `OpenRouter API error: ${response.status} - ${details || response.statusText}`
+    'Il servizio AI non ha completato la richiesta. Riprova tra poco.'
   ) as HttpError;
   error.status = response.status;
+  error.details = details || response.statusText;
+  console.warn('[Nous] OpenRouter request failed', {
+    status: response.status,
+    details: error.details,
+  });
   return error;
 };
 

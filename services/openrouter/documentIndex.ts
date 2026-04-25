@@ -1576,10 +1576,10 @@ const emitPdfPlanCoverageDiagnostics = (
     | null
     | undefined,
   mappingSource: 'fallback' | 'mapped'
-): void => {
+): PdfPlanCoverageReport | null => {
   const pageCount = pdfSession?.pageCount || documentIndex.pageCount;
   if (!pageCount || pageCount < 1) {
-    return;
+    return null;
   }
 
   const report = buildPdfPlanCoverageReport(
@@ -1613,6 +1613,30 @@ const emitPdfPlanCoverageDiagnostics = (
       mappingSource: report.mappingSource,
     });
   }
+
+  return report;
+};
+
+const applyPdfMappingQuality = (
+  documentIndex: PdfTextIndex,
+  report: PdfPlanCoverageReport | null
+): PdfTextIndex => {
+  if (!report) {
+    return documentIndex;
+  }
+
+  return {
+    ...documentIndex,
+    mappingQuality: {
+      coverageRatio: report.coverageRatio,
+      gapCount: report.gapCount,
+      lessonCount: report.lessonCount,
+      mappedLessonCount: report.mappedLessonCount,
+      mappingSource: report.mappingSource,
+      updatedAt: new Date().toISOString(),
+    },
+    mappingWarnings: report.warnings,
+  };
 };
 
 export const preparePdfLessonMappings = async (
@@ -1778,17 +1802,29 @@ export const preparePdfLessonMappings = async (
       }),
     });
 
-    emitPdfPlanCoverageDiagnostics(file.name, learningPlan, documentIndex, pdfSession, 'fallback');
-    return {
+    const coverageReport = emitPdfPlanCoverageDiagnostics(
+      file.name,
       learningPlan,
       documentIndex,
+      pdfSession,
+      'fallback'
+    );
+    return {
+      learningPlan,
+      documentIndex: applyPdfMappingQuality(documentIndex, coverageReport),
     };
   }
 
-  emitPdfPlanCoverageDiagnostics(file.name, learningPlan, documentIndex, pdfSession, 'mapped');
-  return {
+  const coverageReport = emitPdfPlanCoverageDiagnostics(
+    file.name,
     learningPlan,
     documentIndex,
+    pdfSession,
+    'mapped'
+  );
+  return {
+    learningPlan,
+    documentIndex: applyPdfMappingQuality(documentIndex, coverageReport),
   };
 };
 

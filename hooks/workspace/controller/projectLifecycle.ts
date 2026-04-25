@@ -147,6 +147,11 @@ export const createProjectLifecycleCommands = (
         throw new Error('Unable to prepare project source');
       }
 
+      if (nextSource.kind === 'pdf') {
+        state.setWorkflowMessage('attachSource', requestId, 'Verifica testo PDF...');
+        await openRouter.validatePdfTextSource(nextFile);
+      }
+
       pushNousDebugTrace('attach-source:prepared', {
         name: nextFile.name,
         normalizedMimeType: nextFile.mimeType,

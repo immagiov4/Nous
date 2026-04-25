@@ -99,6 +99,7 @@ export interface WorkspaceReaderSidebarModel {
 }
 
 export interface WorkspaceReaderBannersModel {
+  pdfMappingWarning: string | null;
   needsSourceFile: boolean;
   onAttachSourceFile: () => void;
   onBackToLibrary: () => void;

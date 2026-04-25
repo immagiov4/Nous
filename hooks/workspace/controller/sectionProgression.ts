@@ -2,7 +2,10 @@ import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
 import { mergeDocumentAssetsForPlan } from '../../../services/workspace/controller/documentAssets.ts';
 import { resolveLearnSectionContext } from '../../../services/workspace/controller/learnMode.ts';
-import { selectIsBlocking } from '../../../services/workspace/workflow.ts';
+import {
+  selectIsBlocking,
+  type WorkspaceWorkflowId,
+} from '../../../services/workspace/workflow.ts';
 import { AppState, type LearningSection } from '../../../types.ts';
 import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
 import { insertSectionAfterSubtree } from '../../../utils/learning/sectionTree.ts';
@@ -13,6 +16,15 @@ import type {
   OpenSectionOutcome,
   WorkspaceControllerContext,
 } from './types.ts';
+
+const READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN: WorkspaceWorkflowId[] = [
+  'loadSection',
+  'contextQuestion',
+  'createLesson',
+  'completeSection',
+  'generateLaboratory',
+  'evaluateLaboratory',
+];
 
 export const createSectionCommands = (context: WorkspaceControllerContext) => {
   const { domain, openRouter, projectLibrary, state, stopAudio } = context;
@@ -426,6 +438,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
   async function goToLibrary(): Promise<void> {
     stopAudio(true);
+    state.invalidateWorkflows(READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN);
     state.resetRuntimeState();
     state.setScreenState(AppState.LIBRARY);
   }

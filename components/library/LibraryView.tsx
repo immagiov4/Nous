@@ -18,6 +18,9 @@ import OpenRouterModelPanel from '../shared/OpenRouterModelPanel';
 import HomeChatPanel from './HomeChatPanel';
 import LibraryTreeView from './LibraryTreeView.tsx';
 
+const SOURCE_FILE_ACCEPT =
+  '.pdf,.zip,.txt,.md,.markdown,.csv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.cs,.go,.rs,.rb,.php,.html,.css,text/*,application/pdf,application/zip,application/x-zip-compressed';
+
 interface LibraryViewProps {
   assessmentComplete: boolean;
   assessmentMessages: import('../../types').Message[];
@@ -124,7 +127,13 @@ const LibraryView = ({
 
   return (
     <div className="min-h-screen px-4 py-5 transition-colors duration-300 sm:px-6 lg:px-10">
-      <input id={sourceFileInputId} type="file" className="hidden" onChange={onSourceFileUpload} />
+      <input
+        id={sourceFileInputId}
+        type="file"
+        className="hidden"
+        accept={SOURCE_FILE_ACCEPT}
+        onChange={onSourceFileUpload}
+      />
       <input
         id={planFileInputId}
         type="file"

@@ -341,6 +341,11 @@ export const createAssessmentPlanningCommands = (
           throw new Error('Missing source file for plan generation');
         }
 
+        if (domain.source?.kind === 'pdf') {
+          state.setWorkflowMessage('generatePlan', requestId, 'Verifica testo PDF...');
+          await openRouter.validatePdfTextSource(sourceFile);
+        }
+
         const plan = await openRouter.generateLearningPlan(
           sourceFile,
           args.history || [],
@@ -482,6 +487,11 @@ export const createAssessmentPlanningCommands = (
 
         if (!nextSource || !nextFile) {
           throw new Error('Unable to prepare project source');
+        }
+
+        if (nextSource.kind === 'pdf') {
+          state.setWorkflowMessage('assessment', requestId, 'Verifica testo PDF...');
+          await openRouter.validatePdfTextSource(nextFile);
         }
 
         domain.setSource(nextSource);

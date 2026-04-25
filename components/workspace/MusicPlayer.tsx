@@ -47,6 +47,14 @@ declare global {
   }
 }
 
+const YOUTUBE_PLAYER_STATE = {
+  ENDED: 0,
+  PLAYING: 1,
+  PAUSED: 2,
+  BUFFERING: 3,
+} as const;
+const SOURCE_VIDEO_ID_LENGTH = 11;
+
 const MusicPlayer = ({
   isMobileViewport = false,
   url,
@@ -82,14 +90,31 @@ const MusicPlayer = ({
     }
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
     const match = url.match(regExp);
-    const id = match && match[2].length === 11 ? match[2] : null;
+    const id = match && match[2].length === SOURCE_VIDEO_ID_LENGTH ? match[2] : null;
 
-    if (id && id !== videoId) {
-      setVideoId(id);
-      // Reset player ref when video changes to force re-attachment
+    if (!id) {
+      if (playerRef.current) {
+        playerRef.current.destroy?.();
+        playerRef.current = null;
+      }
+      setVideoId(null);
+      setIsPlaying(false);
+      setHasError(true);
+      return;
+    }
+
+    if (id === videoId) {
+      return;
+    }
+
+    if (playerRef.current) {
+      playerRef.current.destroy?.();
       playerRef.current = null;
     }
-  }, [url, videoId]);
+
+    setVideoId(id);
+    setIsPlaying(false);
+  }, [setIsPlaying, url, videoId]);
 
   // Load YouTube API
   useEffect(() => {
@@ -120,12 +145,16 @@ const MusicPlayer = ({
               }
             },
             onStateChange: event => {
-              if (event.data === 1) {
-                // Playing
+              if (event.data === YOUTUBE_PLAYER_STATE.ENDED) {
+                event.target.playVideo();
+                return;
+              }
+
+              if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
                 setIsPlaying(true);
                 setHasError(false);
               }
-              if (event.data === 2) setIsPlaying(false); // Paused
+              if (event.data === YOUTUBE_PLAYER_STATE.PAUSED) setIsPlaying(false);
             },
             onError: event => {
               console.warn('YouTube Player Error:', event.data);
@@ -156,9 +185,13 @@ const MusicPlayer = ({
       try {
         if (isPlaying) {
           const state = p.getPlayerState();
-          if (state !== 1 && state !== 3) p.playVideo();
+          if (state !== YOUTUBE_PLAYER_STATE.PLAYING && state !== YOUTUBE_PLAYER_STATE.BUFFERING) {
+            p.playVideo();
+          }
         } else {
-          if (p.getPlayerState() === 1) p.pauseVideo();
+          if (p.getPlayerState() === YOUTUBE_PLAYER_STATE.PLAYING) {
+            p.pauseVideo();
+          }
         }
       } catch (error) {
         console.warn('[Nous] YouTube player play/pause failed', error);
@@ -212,6 +245,8 @@ const MusicPlayer = ({
       controls: '0',
       disablekb: '1',
       fs: '0',
+      loop: '1',
+      playlist: id,
       playsinline: '1',
       rel: '0',
       iv_load_policy: '3',
@@ -311,9 +346,7 @@ const MusicPlayer = ({
                   {hasError && (
                     <div className="mt-2 flex items-start gap-2 rounded-[1.15rem] bg-red-50 p-2 text-[10px] font-medium leading-tight text-red-500 dark:bg-red-900/10">
                       <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
-                      <span>
-                        Video limitato dal proprietario o da YouTube. Prova un altro link.
-                      </span>
+                      <span>Link non valido o video limitato da YouTube. Prova un altro link.</span>
                     </div>
                   )}
                 </div>

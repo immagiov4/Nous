@@ -15,6 +15,14 @@ const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const PDF_ASSET_CACHE_VERSION = 'resolution-filter-v2';
 const IMAGE_ID_PREFIX = 'pdf-img-';
 const MAX_BACKEND_EXTRACTED_IMAGES = 36;
+const PDF_TEXT_QUALITY = {
+  MIN_SHORT_DOCUMENT_CHARS: 240,
+  MIN_MULTI_PAGE_DOCUMENT_CHARS: 800,
+  SHORT_DOCUMENT_MAX_PAGES: 2,
+  MIN_AVERAGE_CHARS_PER_PAGE: 35,
+  MIN_TEXT_PAGE_RATIO: 0.1,
+  SUBSTANTIVE_PAGE_MIN_CHARS: 80,
+} as const;
 
 interface BackendPdfImage {
   id: string;
@@ -58,6 +66,32 @@ export interface PdfAssetSession {
   sourceHash?: string;
 }
 
+export interface PdfTextQualityReport {
+  averageCharsPerPage: number;
+  extractedCharacterCount: number;
+  pageCount: number;
+  status: 'low-text' | 'no-text' | 'ok';
+  substantivePageCount: number;
+  substantivePageRatio: number;
+}
+
+export class PdfTextQualityError extends Error {
+  readonly code = 'PDF_TEXT_QUALITY_INSUFFICIENT';
+  readonly report: PdfTextQualityReport;
+
+  constructor(fileName: string, report: PdfTextQualityReport) {
+    super(
+      `Questo PDF non contiene abbastanza testo selezionabile per generare un percorso affidabile. Se e un libro scannerizzato, serve una versione con OCR o testo estraibile.`
+    );
+    this.name = 'PdfTextQualityError';
+    this.report = report;
+    console.warn('[Nous][PDF] Insufficient text quality', {
+      fileName,
+      report,
+    });
+  }
+}
+
 const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
   console.groupCollapsed(`[Nous][PDF] ${label}`);
   Object.entries(payload).forEach(([key, value]) => {
@@ -78,6 +112,66 @@ const sanitizePartialPages = (partialPages?: number[]): number[] | undefined => 
   ).sort((left, right) => left - right);
 
   return cleaned.length > 0 ? cleaned : undefined;
+};
+
+const countNormalizedTextChars = (text: string): number => text.replace(/\s+/g, ' ').trim().length;
+
+export const assessPdfTextQuality = (session: PdfAssetSession): PdfTextQualityReport => {
+  const extractedCharacterCount = countNormalizedTextChars(session.extractedText);
+  const pageCount = Math.max(session.pageCount || session.pages.length || 1, 1);
+  const substantivePageCount = session.pages.filter(
+    page => countNormalizedTextChars(page.text) >= PDF_TEXT_QUALITY.SUBSTANTIVE_PAGE_MIN_CHARS
+  ).length;
+  const substantivePageRatio =
+    session.pages.length > 0 ? substantivePageCount / session.pages.length : 0;
+  const averageCharsPerPage = extractedCharacterCount / pageCount;
+  const minTotalChars =
+    pageCount <= PDF_TEXT_QUALITY.SHORT_DOCUMENT_MAX_PAGES
+      ? PDF_TEXT_QUALITY.MIN_SHORT_DOCUMENT_CHARS
+      : PDF_TEXT_QUALITY.MIN_MULTI_PAGE_DOCUMENT_CHARS;
+
+  const hasEnoughTotalText = extractedCharacterCount >= minTotalChars;
+  const hasEnoughTextDensity = averageCharsPerPage >= PDF_TEXT_QUALITY.MIN_AVERAGE_CHARS_PER_PAGE;
+  const hasEnoughPageCoverage =
+    session.pages.length === 0 ||
+    pageCount <= PDF_TEXT_QUALITY.SHORT_DOCUMENT_MAX_PAGES ||
+    substantivePageRatio >= PDF_TEXT_QUALITY.MIN_TEXT_PAGE_RATIO;
+
+  const status =
+    extractedCharacterCount === 0
+      ? 'no-text'
+      : hasEnoughTotalText && hasEnoughTextDensity && hasEnoughPageCoverage
+        ? 'ok'
+        : 'low-text';
+
+  return {
+    averageCharsPerPage: Number.parseFloat(averageCharsPerPage.toFixed(2)),
+    extractedCharacterCount,
+    pageCount,
+    status,
+    substantivePageCount,
+    substantivePageRatio: Number.parseFloat(substantivePageRatio.toFixed(4)),
+  };
+};
+
+export const validatePdfTextSource = async (
+  file: FileData
+): Promise<PdfTextQualityReport | null> => {
+  if (!isPdfFile(file)) {
+    return null;
+  }
+
+  const session = await getPdfTextSession(file);
+  if (!session) {
+    return null;
+  }
+
+  const report = assessPdfTextQuality(session);
+  if (report.status !== 'ok') {
+    throw new PdfTextQualityError(file.name, report);
+  }
+
+  return report;
 };
 
 const getPdfCacheKey = (file: FileData, partialPages?: number[]): string => {

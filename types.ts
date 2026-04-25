@@ -203,6 +203,15 @@ export interface PdfTextIndex {
   sourceHash?: string;
   documentTitle?: string;
   pageCount?: number;
+  mappingQuality?: {
+    coverageRatio?: number;
+    gapCount?: number;
+    lessonCount?: number;
+    mappedLessonCount?: number;
+    mappingSource: 'fallback' | 'mapped';
+    updatedAt: string;
+  };
+  mappingWarnings?: string[];
   chunks: PdfTextChunk[];
 }
 

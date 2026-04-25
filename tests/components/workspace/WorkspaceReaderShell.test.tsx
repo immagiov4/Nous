@@ -69,6 +69,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
       onAttachSourceFile: vi.fn(),
       onBackToLibrary: vi.fn(),
       onExportProject: vi.fn(),
+      pdfMappingWarning: null,
       storageError: null,
     },
     content: {

@@ -613,6 +613,14 @@ const createOpenRouterMock = (
       learningPlan: plan,
       documentIndex: existingIndex ?? createReadyIndex(),
     }),
+    validatePdfTextSource: async () => ({
+      averageCharsPerPage: 120,
+      extractedCharacterCount: 1200,
+      pageCount: 10,
+      status: 'ok' as const,
+      substantivePageCount: 10,
+      substantivePageRatio: 1,
+    }),
     regenerateLaboratoryExercise: async exercise => ({
       ...exercise,
       attachments: [],
