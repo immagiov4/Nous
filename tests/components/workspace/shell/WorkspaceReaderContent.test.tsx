@@ -60,7 +60,7 @@ describe('WorkspaceReaderContent', () => {
 
     expect(screen.getByText(/Pausa attiva 1 - Previsione/i)).toBeInTheDocument();
     expect(screen.queryByTestId('reader-quiz-column')).toBeNull();
-    expect(screen.getByText('Completa e Prosegui')).toBeDisabled();
+    expect(screen.getByText('Completa e Prosegui')).toHaveAttribute('aria-disabled', 'true');
   });
 
   test('keeps the source page range appended after the lesson body with inline questions active', () => {

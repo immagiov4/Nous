@@ -46,6 +46,7 @@ interface LibraryViewProps {
   sourceFileInputId: string;
   storageError: string | null;
   onClearPendingHomeFile: () => void;
+  onClearLibraryMessages: () => void;
   onConfirmGenerate: () => void;
   onCreateFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<unknown>;
   onDeleteProject: (projectId: string) => void;
@@ -104,6 +105,7 @@ const LibraryView = ({
   sourceFileInputId,
   storageError,
   onClearPendingHomeFile,
+  onClearLibraryMessages,
   onConfirmGenerate,
   onCreateFolder,
   onDeleteProject,
@@ -243,6 +245,7 @@ const LibraryView = ({
           newCourseLoadingStatus={newCourseLoadingStatus}
           pendingFileName={pendingHomeFileName}
           onClearPendingFile={onClearPendingHomeFile}
+          onClearLibraryMessages={onClearLibraryMessages}
           onConfirmGenerate={onConfirmGenerate}
           onHomeChatModeChange={onHomeChatModeChange}
           onLibraryMessageSend={onLibraryAssistantSend}

@@ -27,6 +27,15 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
   const getActiveExercise = () =>
     selectActiveLaboratoryExercise(domain.laboratory, domain.activeLaboratoryExerciseId);
 
+  const persistActiveLaboratory = async (laboratory: LaboratoryState, activeExerciseId: string) => {
+    await projectLibrary.saveCurrentProject({
+      activeLaboratoryExerciseId: activeExerciseId,
+      activeSectionId: null,
+      laboratory,
+      state: AppState.READING,
+    });
+  };
+
   const commitLaboratory = async (
     laboratory: LaboratoryState,
     options: {
@@ -263,6 +272,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
       })
     );
     domain.setLaboratory(nextLaboratory);
+    await persistActiveLaboratory(nextLaboratory, activeExercise.id);
     return { attachmentId: attachment.id, outcome: 'added' };
   }
 
@@ -289,6 +299,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
         })
       );
       domain.setLaboratory(nextLaboratory);
+      await persistActiveLaboratory(nextLaboratory, activeExercise.id);
       return { outcome: 'attached' };
     } catch (error) {
       return { errorMessage: getErrorMessage(error), outcome: 'noop' };
@@ -323,6 +334,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
       })
     );
     domain.setLaboratory(nextLaboratory);
+    await persistActiveLaboratory(nextLaboratory, activeExercise.id);
     return { outcome: 'updated' };
   }
 
@@ -359,6 +371,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
       })
     );
     domain.setLaboratory(nextLaboratory);
+    await persistActiveLaboratory(nextLaboratory, activeExercise.id);
     return { outcome: 'updated' };
   }
 
@@ -385,6 +398,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
       })
     );
     domain.setLaboratory(nextLaboratory);
+    await persistActiveLaboratory(nextLaboratory, activeExercise.id);
     return { outcome: 'removed' };
   }
 

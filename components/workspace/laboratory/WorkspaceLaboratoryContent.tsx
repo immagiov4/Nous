@@ -28,10 +28,13 @@ interface WorkspaceLaboratoryContentProps {
   isEvaluating: boolean;
   isGenerating: boolean;
   laboratoryErrorMessage?: string;
+  laboratoryEvaluatedCount?: number;
   sourcePageRangeLabel?: string;
+  laboratorySubmittedCount?: number;
   laboratoryStatus: LaboratoryStateStatus | null;
   laboratorySummary: string;
   laboratoryTitle: string;
+  laboratoryTotalExerciseCount?: number;
   onAddTextAttachment: () => void;
   onAttachFiles: (files: FileList | null) => void;
   onEvaluate: () => void;
@@ -191,10 +194,13 @@ export default function WorkspaceLaboratoryContent({
   isEvaluating,
   isGenerating,
   laboratoryErrorMessage,
+  laboratoryEvaluatedCount = 0,
   sourcePageRangeLabel,
+  laboratorySubmittedCount = 0,
   laboratoryStatus,
   laboratorySummary,
   laboratoryTitle,
+  laboratoryTotalExerciseCount = 0,
   onAddTextAttachment,
   onAttachFiles,
   onEvaluate,
@@ -207,6 +213,10 @@ export default function WorkspaceLaboratoryContent({
   const [isExampleOpen, setIsExampleOpen] = useState(false);
   const previousActiveExerciseIdRef = useRef(activeExercise?.id ?? null);
   const canGenerateLaboratory = laboratoryStatus !== 'ready';
+  const progressSummary =
+    laboratoryTotalExerciseCount > 0
+      ? `${laboratorySubmittedCount}/${laboratoryTotalExerciseCount} consegnati - ${laboratoryEvaluatedCount}/${laboratoryTotalExerciseCount} valutati`
+      : null;
   const readyStateHint =
     laboratoryStatus === 'ready'
       ? "Apri una traccia del laboratorio dalla sidebar. Se vuoi rifarla, apri quella traccia e usa Rigenera nell'header."
@@ -279,9 +289,16 @@ export default function WorkspaceLaboratoryContent({
     <div className="mx-auto max-w-[90rem] px-4 pb-36 pt-8 sm:px-8 lg:px-14 xl:px-20 2xl:px-24">
       <div className="mx-auto max-w-[82ch] space-y-8">
         <header>
-          <h2 className="font-serif text-3xl leading-tight text-gray-900 dark:text-gray-100">
-            {activeExercise.title}
-          </h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 className="font-serif text-3xl leading-tight text-gray-900 dark:text-gray-100">
+              {activeExercise.title}
+            </h2>
+            {progressSummary ? (
+              <span className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                {progressSummary}
+              </span>
+            ) : null}
+          </div>
           <p className="mt-3 text-base leading-7 text-gray-600 dark:text-zinc-300">
             {activeExercise.brief}
           </p>

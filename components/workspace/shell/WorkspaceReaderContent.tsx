@@ -1,10 +1,13 @@
-import { BookOpen } from 'lucide-react';
+import { BookOpen, MousePointerClick, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import WorkspaceLaboratoryContent from '../laboratory/WorkspaceLaboratoryContent.tsx';
 import type { WorkspaceReaderContentModel } from './types.ts';
 import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
 import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
+
+const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
 
 export default function WorkspaceReaderContent({
   activeLaboratoryExercise,
@@ -34,15 +37,19 @@ export default function WorkspaceReaderContent({
   sectionAnnotations,
   sectionContent,
   laboratoryActivityMessage,
+  laboratoryEvaluatedCount = 0,
   laboratoryErrorMessage,
   laboratorySourcePageRangeLabel,
+  laboratorySubmittedCount = 0,
   laboratoryStatus,
   laboratorySummary,
   laboratoryTitle,
+  laboratoryTotalExerciseCount = 0,
   sourcePageRangeLabel,
   onUpdateLaboratoryAttachmentMetadata,
   onUpdateLaboratoryTextAttachment,
 }: WorkspaceReaderContentModel) {
+  const [isContextHintVisible, setIsContextHintVisible] = useState(false);
   const readingShellClassName = isFocusMode
     ? 'max-w-[72rem] px-4 pb-36 pt-8 sm:px-8 lg:px-12 xl:px-16'
     : 'max-w-[90rem] px-4 pb-36 pt-8 sm:px-8 lg:px-14 xl:px-20 2xl:px-24';
@@ -54,6 +61,21 @@ export default function WorkspaceReaderContent({
   const inlineQuizLayout = buildInlineQuizLayout(renderedSectionContent || '', quiz.length);
   const unansweredQuestionCount = quizAnswers.filter(answer => answer < 0).length;
   const canCompleteSection = quiz.length === 0 || unansweredQuestionCount === 0;
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isLaboratoryView || !sectionContent) {
+      return;
+    }
+
+    setIsContextHintVisible(window.localStorage.getItem(CONTEXT_MENU_HINT_STORAGE_KEY) !== 'true');
+  }, [isLaboratoryView, sectionContent]);
+
+  const dismissContextHint = () => {
+    setIsContextHintVisible(false);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(CONTEXT_MENU_HINT_STORAGE_KEY, 'true');
+    }
+  };
 
   return (
     <div
@@ -68,11 +90,14 @@ export default function WorkspaceReaderContent({
           isDarkMode={isDarkMode}
           isEvaluating={isLaboratoryEvaluating}
           isGenerating={isLaboratoryGenerating}
+          laboratoryEvaluatedCount={laboratoryEvaluatedCount}
           laboratoryErrorMessage={laboratoryErrorMessage}
+          laboratorySubmittedCount={laboratorySubmittedCount}
           sourcePageRangeLabel={laboratorySourcePageRangeLabel}
           laboratoryStatus={laboratoryStatus}
           laboratorySummary={laboratorySummary}
           laboratoryTitle={laboratoryTitle}
+          laboratoryTotalExerciseCount={laboratoryTotalExerciseCount}
           onAddTextAttachment={onAddLaboratoryTextAttachment}
           onAttachFiles={onAttachLaboratoryFiles}
           onEvaluate={onEvaluateActiveLaboratoryExercise}
@@ -101,6 +126,23 @@ export default function WorkspaceReaderContent({
               </div>
             ) : sectionContent ? (
               <div className={`${readingColumnClassName} space-y-2`}>
+                {isContextHintVisible ? (
+                  <div className="mb-6 flex items-start gap-3 rounded-2xl border border-orange-200/80 bg-orange-50/80 px-4 py-3 text-sm leading-6 text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/25 dark:text-orange-100">
+                    <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                    <p className="min-w-0 flex-1">
+                      Seleziona un passaggio e fai click destro per chiedere spiegazioni, aggiungere
+                      una nota o creare una lezione di approfondimento.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={dismissContextHint}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-orange-600 transition-colors hover:bg-orange-100 hover:text-orange-800 dark:text-orange-200 dark:hover:bg-orange-900/40"
+                      aria-label="Nascondi suggerimento selezione testo"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : null}
                 {inlineQuizLayout.map(chunk => (
                   <div key={`${chunk.questionIndexes.join('-')}::${chunk.markdown.slice(0, 64)}`}>
                     <MarkdownRenderer

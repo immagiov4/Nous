@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface LoadingScreenProps {
   message: string;
@@ -6,6 +7,26 @@ interface LoadingScreenProps {
 }
 
 const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    setElapsedSeconds(0);
+    const intervalId = window.setInterval(() => {
+      setElapsedSeconds(seconds => seconds + 1);
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const waitingHint =
+    elapsedSeconds >= 120
+      ? 'Sto ancora lavorando: per corsi lunghi puo volerci qualche minuto.'
+      : elapsedSeconds >= 35
+        ? 'Operazione ancora in corso, non e un blocco.'
+        : null;
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-1000 bg-paper-light dark:bg-paper-dark transition-colors overflow-hidden relative">
       {/* Dynamic Background Glow */}
@@ -55,24 +76,31 @@ const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
           {message}
         </h2>
         {subMessage && (
-          <div className="flex items-center justify-center gap-3">
-            <div className="flex items-center gap-1 opacity-70">
-              <span
-                className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce"
-                style={{ animationDelay: '0ms' }}
-              />
-              <span
-                className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce"
-                style={{ animationDelay: '150ms' }}
-              />
-              <span
-                className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce"
-                style={{ animationDelay: '300ms' }}
-              />
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div className="flex items-center justify-center gap-3">
+              <div className="flex items-center gap-1 opacity-70">
+                <span
+                  className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce"
+                  style={{ animationDelay: '0ms' }}
+                />
+                <span
+                  className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce"
+                  style={{ animationDelay: '150ms' }}
+                />
+                <span
+                  className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce"
+                  style={{ animationDelay: '300ms' }}
+                />
+              </div>
+              <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300 max-w-md font-medium tracking-wide">
+                {subMessage}
+              </p>
             </div>
-            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300 max-w-md font-medium tracking-wide">
-              {subMessage}
-            </p>
+            {waitingHint ? (
+              <p className="max-w-md text-xs font-medium text-gray-500 dark:text-gray-400">
+                {waitingHint}
+              </p>
+            ) : null}
           </div>
         )}
       </div>

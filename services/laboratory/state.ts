@@ -33,7 +33,28 @@ export const isCompatibleLaboratoryState = (
 
 export const normalizeLaboratoryStateForHydration = (
   laboratory: LaboratoryState | null
-): LaboratoryState | null => (isCompatibleLaboratoryState(laboratory) ? laboratory : null);
+): LaboratoryState | null => {
+  if (!isCompatibleLaboratoryState(laboratory)) {
+    return null;
+  }
+
+  if (laboratory.status !== 'pending') {
+    return laboratory;
+  }
+
+  const now = getNow();
+  const hasGeneratedExercises = laboratory.exercises.length > 0;
+
+  return {
+    ...laboratory,
+    errorMessage: undefined,
+    status: hasGeneratedExercises ? 'ready' : 'idle',
+    summary: hasGeneratedExercises
+      ? laboratory.summary
+      : 'La generazione precedente e stata interrotta. Puoi avviare di nuovo il laboratorio.',
+    updatedAt: now,
+  };
+};
 
 export const resolveActiveLaboratoryExerciseId = (
   laboratory: LaboratoryState | null,

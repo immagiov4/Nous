@@ -168,62 +168,64 @@ export const useLibraryAssistantChat = ({
     []
   );
 
-  const { addToolOutput, error, messages, sendMessage, status } = useChat<LibraryAssistantMessage>({
-    id: 'home-library-assistant',
-    messages: [],
-    transport,
-    experimental_throttle: 96,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-    onToolCall: async ({ toolCall }) => {
-      if (toolCall.dynamic) {
-        return;
-      }
+  const { addToolOutput, error, messages, sendMessage, setMessages, status } =
+    useChat<LibraryAssistantMessage>({
+      id: 'home-library-assistant',
+      messages: [],
+      transport,
+      experimental_throttle: 96,
+      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+      onToolCall: async ({ toolCall }) => {
+        if (toolCall.dynamic) {
+          return;
+        }
 
-      const toolName = toolCall.toolName as LibraryAssistantToolName;
-      if (
-        !LIBRARY_ASSISTANT_TOOL_NAMES.includes(
-          toolName as (typeof LIBRARY_ASSISTANT_TOOL_NAMES)[number]
-        )
-      ) {
-        return;
-      }
+        const toolName = toolCall.toolName as LibraryAssistantToolName;
+        if (
+          !LIBRARY_ASSISTANT_TOOL_NAMES.includes(
+            toolName as (typeof LIBRARY_ASSISTANT_TOOL_NAMES)[number]
+          )
+        ) {
+          return;
+        }
 
-      const result = await executeLibraryAssistantTool({
-        dataSource: {
-          attachedContextRefs,
-          folders,
-          loadProjectsById,
-          projects,
-          scopeSummary,
-          tree,
-        },
-        input: toolCall.input,
-        toolName,
-      });
+        const result = await executeLibraryAssistantTool({
+          dataSource: {
+            attachedContextRefs,
+            folders,
+            loadProjectsById,
+            projects,
+            scopeSummary,
+            tree,
+          },
+          input: toolCall.input,
+          toolName,
+        });
 
-      if (result.outputError) {
+        if (result.outputError) {
+          void addToolOutput({
+            tool: toolName,
+            toolCallId: toolCall.toolCallId,
+            state: 'output-error',
+            errorText: result.outputError,
+          });
+          return;
+        }
+
         void addToolOutput({
           tool: toolName,
           toolCallId: toolCall.toolCallId,
-          state: 'output-error',
-          errorText: result.outputError,
+          output: result.output || {},
         });
-        return;
-      }
-
-      void addToolOutput({
-        tool: toolName,
-        toolCallId: toolCall.toolCallId,
-        output: result.output || {},
-      });
-    },
-  });
+      },
+    });
 
   return {
     attachedContextRefs,
     error,
     isLoading: status === 'submitted' || status === 'streaming',
     messages,
+    clearLibraryMessages: () => setMessages([]),
     removeAttachedContextRef: (reference: LibraryContextRef) => {
       setAttachedContextRefs(currentRefs =>
         currentRefs.filter(

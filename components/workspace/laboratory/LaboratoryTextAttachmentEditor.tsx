@@ -194,6 +194,9 @@ export default function LaboratoryTextAttachmentEditor({
           >
             {isPreviewOpen ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
+          <span className="ml-auto text-xs font-medium text-gray-500 dark:text-zinc-400">
+            Salvataggio automatico
+          </span>
         </div>
       </header>
 

@@ -20,6 +20,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
@@ -58,6 +59,7 @@ interface HomeChatPanelProps {
   newCourseLoadingStatus: string;
   pendingFileName: string | null;
   onClearPendingFile: () => void;
+  onClearLibraryMessages?: () => void;
   onConfirmGenerate: () => void;
   onHomeChatModeChange: (mode: HomeChatMode) => void;
   onLibraryMessageSend: (message: string) => void | Promise<void>;
@@ -277,6 +279,7 @@ export default function HomeChatPanel({
   newCourseLoadingStatus,
   pendingFileName,
   onClearPendingFile,
+  onClearLibraryMessages,
   onConfirmGenerate,
   onHomeChatModeChange,
   onLibraryMessageSend,
@@ -773,71 +776,90 @@ export default function HomeChatPanel({
       <div className="rounded-t-[2rem] border-b border-gray-200/55 px-5 py-4 dark:border-zinc-700/40 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div data-testid="home-chat-mode-copy" className="min-h-[6rem] sm:min-h-[4.5rem]">
-            <h2 className="font-serif text-2xl text-gray-900 dark:text-zinc-100">
-              {homeChatMode === 'new-course'
-                ? 'Imposta un nuovo corso'
-                : 'Consulta la tua libreria'}
-            </h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="font-serif text-2xl text-gray-900 dark:text-zinc-100">
+                {homeChatMode === 'new-course'
+                  ? 'Imposta un nuovo corso'
+                  : 'Consulta la tua libreria'}
+              </h2>
+            </div>
             <p className="mt-1.5 max-w-2xl text-sm leading-6 text-gray-600 dark:text-zinc-400">
               {homeChatMode === 'new-course'
-                ? 'Descrivi cosa vuoi imparare o allega una fonte.'
+                ? 'Bastano poche righe: obiettivo, livello di partenza, scadenza e materiale disponibile.'
                 : 'Interroga corsi, lezioni, note e highlight locali.'}
             </p>
           </div>
 
-          <div
-            className="relative inline-flex self-start rounded-full border border-gray-300/80 bg-white p-1 shadow-[0_1px_2px_rgba(24,24,27,0.04)] dark:border-white/10 dark:bg-stone-900/80"
-            role="tablist"
-            aria-label="Modalità home chat"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={homeChatMode === 'new-course'}
-              onClick={() => handleModeChange('new-course')}
-              className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
-                homeChatMode === 'new-course'
-                  ? 'text-white dark:text-stone-900'
-                  : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
-              }`}
+          <div className="flex self-start items-center gap-2">
+            {homeChatMode === 'library-query' &&
+            visibleLibraryMessages.length > 0 &&
+            onClearLibraryMessages ? (
+              <button
+                type="button"
+                onClick={onClearLibraryMessages}
+                disabled={isLoading}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-300/80 bg-white text-gray-500 shadow-[0_1px_2px_rgba(24,24,27,0.04)] transition-colors hover:border-gray-400 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-stone-900/80 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-100"
+                title="Pulisci questa chat"
+                aria-label="Pulisci questa chat"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            ) : null}
+
+            <div
+              className="relative inline-flex rounded-full border border-gray-300/80 bg-white p-1 shadow-[0_1px_2px_rgba(24,24,27,0.04)] dark:border-white/10 dark:bg-stone-900/80"
+              role="tablist"
+              aria-label="Modalità home chat"
             >
-              {homeChatMode === 'new-course' ? (
-                <motion.span
-                  layoutId="home-chat-mode-pill"
-                  className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
-                  transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }}
-                  aria-hidden="true"
-                />
-              ) : null}
-              <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
-                <BookPlus className="h-4 w-4" />
-                Nuovo corso
-              </span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={homeChatMode === 'library-query'}
-              onClick={() => handleModeChange('library-query')}
-              className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
-                homeChatMode === 'library-query'
-                  ? 'text-white dark:text-stone-900'
-                  : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
-              }`}
-            >
-              {homeChatMode === 'library-query' ? (
-                <motion.span
-                  layoutId="home-chat-mode-pill"
-                  className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
-                  transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }}
-                  aria-hidden="true"
-                />
-              ) : null}
-              <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
-                <Folder className="h-4 w-4" />
-                Consulta libreria
-              </span>
-            </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={homeChatMode === 'new-course'}
+                onClick={() => handleModeChange('new-course')}
+                className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
+                  homeChatMode === 'new-course'
+                    ? 'text-white dark:text-stone-900'
+                    : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+                }`}
+              >
+                {homeChatMode === 'new-course' ? (
+                  <motion.span
+                    layoutId="home-chat-mode-pill"
+                    className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
+                    transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }}
+                    aria-hidden="true"
+                  />
+                ) : null}
+                <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
+                  <BookPlus className="h-4 w-4" />
+                  Nuovo corso
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={homeChatMode === 'library-query'}
+                onClick={() => handleModeChange('library-query')}
+                className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
+                  homeChatMode === 'library-query'
+                    ? 'text-white dark:text-stone-900'
+                    : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+                }`}
+              >
+                {homeChatMode === 'library-query' ? (
+                  <motion.span
+                    layoutId="home-chat-mode-pill"
+                    className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
+                    transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }}
+                    aria-hidden="true"
+                  />
+                ) : null}
+                <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
+                  <Folder className="h-4 w-4" />
+                  Consulta libreria
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -987,7 +1009,7 @@ export default function HomeChatPanel({
 
         {homeChatMode === 'library-query' && hasLibraryComposerMeta ? (
           <div data-testid="library-chat-context-bar" className="mb-3 space-y-2">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {libraryAttachedContextRefs.map(reference => (
                 <span
                   key={`${reference.kind}-${reference.id}`}
@@ -1091,7 +1113,7 @@ export default function HomeChatPanel({
                 homeChatMode === 'new-course'
                   ? assessmentComplete
                     ? 'Aggiungi dettagli o requisiti...'
-                    : "Descrivi l'obiettivo del corso o allega un file..."
+                    : "Descrivi l'obiettivo del corso o allega un file: cosa prepari, livello attuale, scadenza..."
                   : 'Chiedi progressi, riassunti, note o confronti tra corsi...'
               }
               className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-zinc-100 dark:placeholder:text-zinc-500"
