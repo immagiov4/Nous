@@ -1,4 +1,4 @@
-# Lumina-Reader Constitution
+# Nous-Reader Constitution
 
 ## Core Principles
 

@@ -1,68 +1,44 @@
 # Nous Reader
 
-AI-powered deep reading and learning platform. Upload documents (PDF, plain text, code archives) and Nous generates personalized study plans, interactive lessons, assessments, and a separate laboratory phase with attachment-based practical exercises and AI feedback.
+Nous Reader turns uploaded documents into personalized study plans with lessons, quizzes, and laboratory exercises backed by AI feedback.
 
-## Architecture
+## Start Here
 
-- **Frontend** — React 19 + TypeScript + Vite (repo root: `App.tsx`, `components/`, `hooks/`, `services/`)
-- **Backend** — Express.js + TypeScript (`backend/src/`), primarily a TTS control plane and proxy
-- **TTS server** (optional) — Python FastAPI Qwen3-TTS service (`tts-server/`); see [TTS_SETUP.md](TTS_SETUP.md)
-
-## Prerequisites
-
-- Node.js 22+
-- npm
+- [Architecture guide](ARCHITECTURE.md)
+- [Optional local TTS server](TTS_SETUP.md)
+- [UI style guide](UI_STYLE_GUIDE.md)
 
 ## Run Locally
 
-1. Install frontend dependencies:
+1. Install the frontend dependencies:
    ```bash
    npm ci
    ```
-2. Install backend dependencies:
+2. Install the backend dependencies:
    ```bash
    cd backend && npm ci && cd ..
    ```
-3. Set the `OPENROUTER_API_KEY` in [.env.local](.env.local)
+3. Set `OPENROUTER_API_KEY` in [.env.local](.env.local)
 4. Start the app:
    ```bash
    npm run dev
    ```
 
-This launches the Vite frontend at `http://localhost:5173` and the Express backend at `http://localhost:3301`.
+This starts the Vite frontend on `http://localhost:5173` and the Express backend on `http://localhost:3301`.
 
-## LAN Project Sync
+## What Lives Where
 
-Projects are browser-local by default. To share the same project library across devices on your
-local network, run the frontend/backend on a host reachable from the LAN and set:
+- Frontend screens and composition root: `App.tsx`, `components/`, `hooks/`, `services/`, `utils/`
+- Shared data model: `types.ts`
+- Backend API server: `backend/src/`
+- Optional standalone Python TTS service: `tts-server/`
 
-```bash
-PROJECT_REPOSITORY_MODE=lan
-VITE_PROJECT_REPOSITORY_MODE=lan
-PROJECT_STORAGE_DRIVER=sqlite
-PROJECT_SQLITE_PATH=./data/lumina-projects.sqlite
-LOCAL_AUTH_BYPASS=true
-LOCAL_USER_ID=local-user
-```
+By default, projects are stored in browser IndexedDB. LAN sync uses the backend SQLite store when repository mode is set to `lan`.
 
-In this mode the Express backend stores projects in a local SQLite file and all LAN clients use the
-same built-in user. There is no device discovery in v1: open the app from the other device using the
-server machine IP/hostname, for example `http://192.168.1.10:5173`.
-
-## Quality
+## Useful Commands
 
 ```bash
-npm run quality   # TypeScript type checks (frontend + backend) + Biome lint
+npm run quality   # TypeScript type checks + Biome lint
 npm test          # Vitest test suite
+npm run dev:tts   # Optional standalone Qwen3-TTS server
 ```
-
-## Code Map
-
-- `App.tsx` — top-level screen shell (library, assessment, planning, reading modes)
-- `hooks/workspace/useWorkspaceController.ts` — public entry point for app workflows
-- `hooks/workspace/controller/` — assessment/planning flow, project lifecycle, section progression
-- `hooks/workspace/controller/laboratory.ts` — laboratory generation, exercise selection, attachment editing, evaluation
-- `hooks/library/useProjectLibrary.ts` — IndexedDB-backed project repository + autosave
-- `services/laboratory/` — generic laboratory attachment and state helpers
-- `services/openrouter/` — AI integrations and prompt orchestration
-- `backend/src/` — backend source; `backend/dist/` is build output

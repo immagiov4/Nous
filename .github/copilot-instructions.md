@@ -1,4 +1,4 @@
-# Copilot Instructions — Lumina Deep Reader
+# Copilot Instructions — Nous Reader
 
 Tailored to this repository: React 19 + TypeScript + Vite frontend at the repo root · Express.js + TypeScript backend in `backend/` · Python Qwen3-TTS server in `tts-server/` · IndexedDB persistence · Gemini-driven learning, assessment, and text-to-speech flows.
 

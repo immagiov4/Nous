@@ -1,52 +1,36 @@
-# OpenRouter OpenAI TTS Setup Guide
+# Optional Local TTS Server
 
-Nous Reader uses OpenRouter for text-to-speech billing and routes every reader speech request to OpenAI TTS through `POST /api/v1/audio/speech`.
+Nous Reader's default speech playback uses the backend `/api/tts` route, and that route generates speech through OpenRouter. The `tts-server/` folder is a separate FastAPI Qwen3-TTS service that you can run on its own if you want a local TTS runtime.
+
+## When To Use It
+
+- You want to run the standalone Qwen3-TTS API at `http://localhost:8880`
+- You want to inspect or develop the Python server in `tts-server/`
+- You want to compare the standalone local server against the app's default OpenRouter-backed TTS path
 
 ## Requirements
 
-- `OPENROUTER_API_KEY` in `backend/.env.local` or the project root `.env.local`
-- Node.js dependencies installed with `npm install`
+- Python 3.9 or newer
+- The Python dependencies listed in `tts-server/pyproject.toml`
 
-## Defaults
+## Start The Server
 
-| Setting | Default |
-| --- | --- |
-| TTS model | `openai/gpt-4o-mini-tts-2025-12-15` |
-| Voice ID | `coral` |
-| Output format | `mp3` |
+From the repo root:
 
-Optional environment overrides:
-
-```powershell
-$env:MODEL_TTS="openai/gpt-4o-mini-tts-2025-12-15"
-$env:TTS_VOICE="coral"
-npm run dev
+```bash
+npm run dev:tts
 ```
 
-## Supported Voices
+Or from inside `tts-server/`:
 
-The app exposes the OpenAI TTS built-in voices documented by OpenAI:
-
-`alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`, `nova`, `onyx`, `sage`, `shimmer`, `verse`, `marin`, and `cedar`.
-
-Unsupported or stale saved voice IDs are normalized back to `coral`.
-
-## API Flow
-
-```text
-Reader UI
-  -> backend POST /api/tts
-  -> OpenRouter POST /api/v1/audio/speech
-  -> OpenAI TTS model
-  -> audio/mpeg bytes
+```bash
+python -m api.main
 ```
 
-The backend also exposes:
+The standalone server defaults to port `8880`.
 
-- `GET /api/tts/models` - the single active OpenAI TTS model
-- `GET /api/voices` - the OpenAI voice list configured for the reader
-- `GET /api/status` - OpenRouter TTS readiness
+## Notes
 
-## Legacy Local TTS
-
-The old local Qwen/Python `tts-server` folder is kept in the repository as inactive legacy code. It is no longer started by the main TTS flow and is not required for OpenRouter TTS.
+- This service is separate from the main `npm run dev` flow.
+- The app does not need it for normal reading, planning, or library use.
+- For the full standalone server documentation, see `tts-server/README.md` and `tts-server/SETUP.md`.
