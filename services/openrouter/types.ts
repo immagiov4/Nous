@@ -85,6 +85,7 @@ export interface ChatCompletionOptions {
   modelSlot?: OpenRouterModelSlot;
   disableModelOverride?: boolean;
   messages: ChatMessage[];
+  onReasoningUpdate?: (reasoningText: string) => void;
   reasoning?: OpenRouterReasoningOptions;
   temperature?: number;
   max_tokens?: number;

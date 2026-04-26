@@ -8,7 +8,9 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
   resolveOpenRouterModel: (model: string) => model,
 }));
 
-const { callOpenRouterRaw } = await import('../../../services/openrouter/client.ts');
+const { callOpenRouter, callOpenRouterRaw } = await import(
+  '../../../services/openrouter/client.ts'
+);
 
 const fetchMock = vi.fn();
 
@@ -41,4 +43,91 @@ test('callOpenRouterRaw forwards reasoning settings to OpenRouter', async () => 
     effort: 'high',
     exclude: true,
   });
+});
+
+test('callOpenRouter streams reasoning chunks without paragraph-splitting duplicate fragments', async () => {
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      controller.enqueue(
+        encoder.encode(
+          [
+            'data: {"choices":[{"delta":{"reasoning":"I","reasoning_details":[{"type":"reasoning.text","text":"I"}]}}]}',
+            '',
+            `data: {"choices":[{"delta":{"reasoning":"'m considering","reasoning_details":[{"type":"reasoning.text","text":"'m considering"}]}}]}`,
+            '',
+            'data: {"choices":[{"delta":{"content":"{\\"ok\\":true}"}}]}',
+            '',
+            'data: [DONE]',
+            '',
+          ].join('\n')
+        )
+      );
+      controller.close();
+    },
+  });
+  const reasoningUpdates: string[] = [];
+
+  fetchMock.mockResolvedValue({
+    body: stream,
+    ok: true,
+  });
+
+  const response = await callOpenRouter({
+    model: 'openai/gpt-5.4-mini',
+    messages: [{ role: 'user', content: 'Test prompt' }],
+    onReasoningUpdate: reasoning => reasoningUpdates.push(reasoning),
+    reasoning: {
+      effort: 'high',
+      exclude: false,
+    },
+  });
+
+  const request = fetchMock.mock.calls[0]?.[1];
+  const body = JSON.parse(String(request?.body || '{}')) as { stream?: boolean };
+  assert.equal(body.stream, true);
+  assert.equal(response, '{"ok":true}');
+  assert.deepEqual(reasoningUpdates, ['I', "I'm considering"]);
+});
+
+test('callOpenRouter preserves paragraph breaks between distinct reasoning sections', async () => {
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      controller.enqueue(
+        encoder.encode(
+          [
+            'data: {"choices":[{"delta":{"reasoning":"Designing a quiz.","reasoning_details":[{"type":"reasoning.text","text":"I\'m planning a quiz."}]}}]}',
+            '',
+            'data: {"choices":[{"delta":{"reasoning":"Analyzing cost elements."}}]}',
+            '',
+            'data: [DONE]',
+            '',
+          ].join('\n')
+        )
+      );
+      controller.close();
+    },
+  });
+  const reasoningUpdates: string[] = [];
+
+  fetchMock.mockResolvedValue({
+    body: stream,
+    ok: true,
+  });
+
+  await callOpenRouter({
+    model: 'openai/gpt-5.4-mini',
+    messages: [{ role: 'user', content: 'Test prompt' }],
+    onReasoningUpdate: reasoning => reasoningUpdates.push(reasoning),
+    reasoning: {
+      effort: 'high',
+      exclude: false,
+    },
+  });
+
+  assert.deepEqual(reasoningUpdates, [
+    "Designing a quiz.\n\nI'm planning a quiz.",
+    "Designing a quiz.\n\nI'm planning a quiz.\n\nAnalyzing cost elements.",
+  ]);
 });

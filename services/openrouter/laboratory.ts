@@ -102,6 +102,7 @@ interface LaboratoryEvaluationDraft {
 interface GenerateLaboratoryArgs {
   documentIndex?: PdfTextIndex | null;
   learningPlan: LearningPlan;
+  onReasoning?: (reasoning: string) => void;
   onStatus?: (status: string) => void;
   source: ProjectSource | null;
   userProfile?: UserProfile | null;
@@ -111,6 +112,7 @@ interface EvaluateLaboratoryExerciseArgs {
   documentIndex?: PdfTextIndex | null;
   exercise: LaboratoryExercise;
   learningPlan: LearningPlan | null;
+  onReasoning?: (reasoning: string) => void;
   onStatus?: (status: string) => void;
   source: ProjectSource | null;
   userProfile?: UserProfile | null;
@@ -432,6 +434,7 @@ const callJsonModel = async <T>({
   content,
   model,
   modelSlot,
+  onReasoning,
   reasoning,
   system,
   temperature = 0.2,
@@ -439,6 +442,7 @@ const callJsonModel = async <T>({
   content: ChatMessageContent;
   model: string;
   modelSlot: 'assessment' | 'lesson';
+  onReasoning?: (reasoning: string) => void;
   reasoning?: OpenRouterReasoningOptions;
   system: string;
   temperature?: number;
@@ -452,6 +456,7 @@ const callJsonModel = async <T>({
         ],
         model,
         modelSlot,
+        onReasoningUpdate: onReasoning,
         reasoning,
         response_format: { type: 'json_object' },
         temperature,
@@ -561,6 +566,7 @@ const normalizeEvaluation = (
 export const generateLaboratory = async ({
   documentIndex,
   learningPlan,
+  onReasoning,
   onStatus,
   source,
   userProfile,
@@ -646,6 +652,7 @@ ${LAB_EXAMPLE_MARKDOWN_TEMPLATE}`;
     content,
     model: MODEL_REASONING,
     modelSlot: 'lesson',
+    onReasoning,
     reasoning: HIGH_REASONING_CONFIG,
     system,
     temperature: 0.3,
@@ -660,6 +667,7 @@ ${LAB_EXAMPLE_MARKDOWN_TEMPLATE}`;
     ),
     model: MODEL_FLASH,
     modelSlot: 'lesson',
+    onReasoning,
     system: `Sei il revisore QA di un laboratorio tecnico gia generato. Riceverai contesto completo e un draft JSON.
 
 Obiettivo:
@@ -724,6 +732,7 @@ export const regenerateLaboratoryExercise = async ({
   documentIndex,
   exercise,
   learningPlan,
+  onReasoning,
   onStatus,
   source,
   userProfile,
@@ -733,6 +742,7 @@ export const regenerateLaboratoryExercise = async ({
   const generatedLaboratory = await generateLaboratory({
     documentIndex,
     learningPlan,
+    onReasoning,
     onStatus,
     source,
     userProfile,
@@ -756,6 +766,7 @@ export const evaluateLaboratoryExercise = async ({
   documentIndex,
   exercise,
   learningPlan,
+  onReasoning,
   onStatus,
   source,
 }: EvaluateLaboratoryExerciseArgs): Promise<LaboratoryExerciseEvaluation> => {
@@ -789,8 +800,11 @@ Regole:
 - non parlare di rubriche, modalita o tassonomie interne
 - score e confidenceScore sono interi 0-100
 - summary e confidenceSummary devono essere in Italiano, brevi e chiari
-- strengths, improvements e caveats devono essere liste brevi e concrete
-- i caveats devono esplicitare i limiti della valutazione quando gli allegati sono incompleti, ambigui o non verificabili
+- strengths, improvements e caveats devono essere liste brevi, concrete e non ridondanti tra loro
+- strengths: solo elementi corretti o ben motivati
+- improvements: azioni pratiche che lo studente deve fare per completare o correggere la consegna
+- caveats: solo limiti della valutazione, incertezze o prove non verificabili; non ripetere mancanze gia trasformate in improvements
+- se non esiste un caveat distinto dagli improvements, restituisci caveats: []
 
 Rispondi SOLO in JSON con questa forma:
 {
@@ -808,6 +822,7 @@ Rispondi SOLO in JSON con questa forma:
     content: evaluationContent,
     model: MODEL_ASSESSMENT,
     modelSlot: 'assessment',
+    onReasoning,
     system: evaluatorSystem,
     temperature: 0.1,
   });
@@ -819,6 +834,7 @@ Regole:
 - mantieni il formato JSON identico
 - correggi il draft solo se trovi claims troppo forti, non provati o incoerenti con gli allegati
 - se l evidenza e fragile, abbassa la confidenza e aggiungi caveat
+- rimuovi duplicati concettuali tra improvements e caveats: le azioni da fare restano in improvements, i limiti di verifica restano in caveats
 - non aggiungere spiegazioni fuori dal JSON`;
 
   const verifiedDraft = await callJsonModel<LaboratoryEvaluationDraft>({
@@ -828,6 +844,7 @@ Regole:
     ),
     model: MODEL_ASSESSMENT,
     modelSlot: 'assessment',
+    onReasoning,
     system: verificationSystem,
     temperature: 0.1,
   });

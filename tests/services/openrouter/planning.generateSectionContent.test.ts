@@ -177,15 +177,15 @@ test('generateSectionContent keeps all verified image placements instead of trun
   assert.equal(callOpenRouterMock.mock.calls[2]?.[0]?.model, 'flash-model');
   assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.reasoning, {
     effort: 'high',
-    exclude: true,
+    exclude: false,
   });
   assert.deepEqual(callOpenRouterMock.mock.calls[1]?.[0]?.reasoning, {
     effort: 'high',
-    exclude: true,
+    exclude: false,
   });
   assert.deepEqual(callOpenRouterMock.mock.calls[2]?.[0]?.reasoning, {
     effort: 'high',
-    exclude: true,
+    exclude: false,
   });
   assert.match(
     String(callOpenRouterMock.mock.calls[2]?.[0]?.messages?.[1]?.content || ''),

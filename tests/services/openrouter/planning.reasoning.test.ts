@@ -70,10 +70,10 @@ test('generateLearningPlan uses high effort for both first draft and refinement'
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.reasoning, {
     effort: 'high',
-    exclude: true,
+    exclude: false,
   });
   assert.deepEqual(callOpenRouterMock.mock.calls[1]?.[0]?.reasoning, {
     effort: 'high',
-    exclude: true,
+    exclude: false,
   });
 });

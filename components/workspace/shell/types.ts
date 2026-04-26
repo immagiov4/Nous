@@ -146,6 +146,7 @@ export interface WorkspaceReaderHeaderModel {
 
 export interface WorkspaceReaderContentModel {
   activeLaboratoryExercise: LaboratoryExercise | null;
+  activeSectionTitle?: string | null;
   activeSectionAssetsById: Record<string, PdfImageAsset>;
   activeSectionImageRefsById: Record<string, LessonImageRef>;
   contentRef: RefObject<HTMLDivElement | null>;
@@ -158,6 +159,7 @@ export interface WorkspaceReaderContentModel {
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
   laboratoryActivityMessage?: string;
+  laboratoryReasoningText?: string;
   laboratoryEvaluatedCount?: number;
   laboratoryErrorMessage?: string;
   laboratorySourcePageRangeLabel?: string;
@@ -190,6 +192,7 @@ export interface WorkspaceReaderContentModel {
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sectionAnnotations?: SectionAnnotation[];
   sectionContent: string;
+  sectionReasoningText?: string;
   sourcePageRangeLabel?: string;
 }
 

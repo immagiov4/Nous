@@ -2,7 +2,6 @@ import {
   memo,
   startTransition,
   useCallback,
-  useDeferredValue,
   useEffect,
   useRef,
   useState,
@@ -14,9 +13,9 @@ interface StreamingMarkdownRendererProps extends MarkdownRendererProps {
   isStreaming?: boolean;
 }
 
-const STREAMING_MARKDOWN_MIN_UPDATE_MS = 96;
-const STREAMING_MARKDOWN_MAX_STALENESS_MS = 320;
-const STREAMING_MARKDOWN_MIN_BATCH_CHARS = 32;
+const STREAMING_MARKDOWN_MIN_UPDATE_MS = 48;
+const STREAMING_MARKDOWN_MAX_STALENESS_MS = 140;
+const STREAMING_MARKDOWN_MIN_BATCH_CHARS = 12;
 
 const hasStreamingBoundary = (nextContent: string, committedContent: string): boolean => {
   const appendedContent = nextContent.slice(committedContent.length);
@@ -116,10 +115,7 @@ const StreamingMarkdownRenderer = ({
     [clearPendingFlush]
   );
 
-  const deferredCommittedContent = useDeferredValue(committedContent);
-  const visibleContent = isStreaming ? deferredCommittedContent : committedContent;
-
-  return <MarkdownRenderer {...markdownProps} content={visibleContent} />;
+  return <MarkdownRenderer {...markdownProps} content={committedContent} />;
 };
 
 export default memo(StreamingMarkdownRenderer);

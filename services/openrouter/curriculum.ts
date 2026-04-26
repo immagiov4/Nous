@@ -16,7 +16,10 @@ import {
 
 export { CURRICULUM_PROPEDEUTIC_ORDER_RULES };
 
-const runArchitect = async (profile: UserProfile): Promise<ModuleBlueprint[]> => {
+const runArchitect = async (
+  profile: UserProfile,
+  onReasoningUpdate?: (reasoning: string) => void
+): Promise<ModuleBlueprint[]> => {
   const prompt = `ROLE: Curriculum Architect & Researcher.
 TOPIC: ${profile.topic || 'General Knowledge'} (${profile.experienceLevel || 'Intermediate'})
 CONTEXT: ${profile.context || 'General Learner'}
@@ -54,6 +57,7 @@ Return JSON with this structure:
   const response = await callOpenRouter({
     model: MODEL_REASONING,
     reasoning: HIGH_REASONING_CONFIG,
+    onReasoningUpdate,
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
   });
@@ -93,7 +97,8 @@ export const generateFullCurriculum = async (
   profile: UserProfile,
   onStatusUpdate: (msg: string) => void,
   onStructureUpdate: (items: SyllabusItem[]) => void,
-  onRevisionStart: () => void
+  onRevisionStart: () => void,
+  onReasoningUpdate?: (reasoning: string) => void
 ): Promise<SyllabusItem[]> => {
   let modulesRaw: ModuleBlueprint[] = [];
   let attempts = 0;
@@ -108,7 +113,7 @@ export const generateFullCurriculum = async (
     );
 
     try {
-      modulesRaw = await runArchitect(profile);
+      modulesRaw = await runArchitect(profile, onReasoningUpdate);
       validSkeleton = await runCritic(modulesRaw);
     } catch (error) {
       console.error('Architect failed', error);
@@ -210,7 +215,8 @@ export const generateLearnLessonContent = async (
   profile: UserProfile | null,
   syllabus: SyllabusItem[],
   onStatusUpdate: (status: string) => void,
-  generationNotes?: string
+  generationNotes?: string,
+  onReasoningUpdate?: (reasoning: string) => void
 ): Promise<string> => {
   const resolvedProfile = getProfileFallback(profile, lessonTitle, moduleTitle);
   const { pastContext, futureContext, currentLessonDescription } = getCurriculumContext(
@@ -272,6 +278,7 @@ FORMAT: Markdown.`;
       callOpenRouter({
         model: MODEL_REASONING,
         reasoning: HIGH_REASONING_CONFIG,
+        onReasoningUpdate,
         messages: [{ role: 'user', content: prompt }],
       }),
     2,

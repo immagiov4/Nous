@@ -157,7 +157,7 @@ const LibraryView = ({
         <header className="mb-6 flex items-start justify-between gap-4">
           <div className="flex items-center gap-1.5 sm:gap-2">
             <img src={currentLogoUrl} alt="Logo Nous" className="h-10 w-10 object-contain" />
-            <h1 className="-ml-1 text-3xl font-serif tracking-[-0.02em] text-gray-900 dark:text-zinc-100 sm:text-4xl">
+            <h1 className="-ml-1 text-2xl font-serif tracking-[-0.02em] text-gray-900 dark:text-zinc-100 sm:text-3xl">
               ous
             </h1>
           </div>

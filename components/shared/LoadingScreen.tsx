@@ -1,13 +1,50 @@
 import { Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
+import ThinkingStream from './ThinkingStream.tsx';
 
 interface LoadingScreenProps {
+  isDarkMode?: boolean;
   message: string;
+  reasoningText?: string;
   subMessage?: string;
 }
 
-const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
+const LoadingScreen = ({
+  isDarkMode = false,
+  message,
+  reasoningText,
+  subMessage,
+}: LoadingScreenProps) => {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const hasReasoningText = Boolean(reasoningText?.trim());
+
+  useLayoutEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const html = document.documentElement;
+    const body = document.body;
+    const previousHtmlOverflow = html.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    const previousHtmlOverscroll = html.style.overscrollBehavior;
+    const previousBodyOverscroll = body.style.overscrollBehavior;
+
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    html.style.overscrollBehavior = 'none';
+    body.style.overscrollBehavior = 'none';
+    window.scrollTo(0, 0);
+    html.scrollTop = 0;
+    body.scrollTop = 0;
+
+    return () => {
+      html.style.overflow = previousHtmlOverflow;
+      body.style.overflow = previousBodyOverflow;
+      html.style.overscrollBehavior = previousHtmlOverscroll;
+      body.style.overscrollBehavior = previousBodyOverscroll;
+    };
+  }, []);
 
   useEffect(() => {
     setElapsedSeconds(0);
@@ -28,7 +65,7 @@ const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
         : null;
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-1000 bg-paper-light dark:bg-paper-dark transition-colors overflow-hidden relative">
+    <div className="relative flex flex-1 flex-col items-center justify-start overflow-hidden bg-paper-light p-4 pt-[max(1rem,env(safe-area-inset-top))] text-center transition-colors animate-in fade-in duration-1000 sm:justify-center sm:p-8 dark:bg-paper-dark">
       {/* Dynamic Background Glow */}
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
         <div
@@ -42,7 +79,11 @@ const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
       </div>
 
       {/* Core Orbital Animation */}
-      <div className="relative mb-12 flex items-center justify-center w-40 h-40">
+      <div
+        className={`relative mb-6 mt-2 flex h-28 w-28 items-center justify-center sm:mb-12 sm:mt-0 sm:h-40 sm:w-40 ${
+          hasReasoningText ? 'opacity-35' : ''
+        }`}
+      >
         {/* Orbits */}
         <div className="absolute inset-0 border border-orange-200/50 dark:border-orange-500/30 rounded-full animate-[spin_8s_linear_infinite]" />
         <div className="absolute inset-4 border border-orange-300/30 dark:border-orange-400/20 rounded-full animate-[spin_12s_linear_infinite_reverse]" />
@@ -71,12 +112,12 @@ const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
       </div>
 
       {/* Typography */}
-      <div className="relative z-10 flex flex-col items-center">
-        <h2 className="text-2xl sm:text-3xl font-serif text-gray-800 dark:text-gray-100 mb-4 drop-shadow-sm">
+      <div className="relative z-10 flex w-full min-h-0 flex-1 flex-col items-stretch">
+        <h2 className="mb-3 text-lg font-serif text-gray-800 drop-shadow-sm sm:mb-4 sm:text-3xl dark:text-gray-100">
           {message}
         </h2>
         {subMessage && (
-          <div className="flex flex-col items-center justify-center gap-3">
+          <div className="hidden flex-col items-center justify-center gap-3 sm:flex">
             <div className="flex items-center justify-center gap-3">
               <div className="flex items-center gap-1 opacity-70">
                 <span
@@ -103,6 +144,11 @@ const LoadingScreen = ({ message, subMessage }: LoadingScreenProps) => {
             ) : null}
           </div>
         )}
+        <ThinkingStream
+          text={reasoningText}
+          isDarkMode={isDarkMode}
+          className="mt-4 min-h-[16rem] h-[72vh] max-h-[52rem] w-full max-w-3xl flex-1 self-center text-left sm:mt-6"
+        />
       </div>
     </div>
   );

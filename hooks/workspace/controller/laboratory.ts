@@ -124,6 +124,9 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
         onStatus: message => {
           state.setWorkflowMessage('generateLaboratory', requestId, message);
         },
+        onReasoning: reasoning => {
+          state.setWorkflowReasoning('generateLaboratory', requestId, reasoning);
+        },
         source: domain.source,
         userProfile: domain.userProfile,
       });
@@ -177,6 +180,9 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
         onStatus: message => {
           state.setWorkflowMessage('generateLaboratory', requestId, message);
         },
+        onReasoning: reasoning => {
+          state.setWorkflowReasoning('generateLaboratory', requestId, reasoning);
+        },
         source: domain.source,
         userProfile: domain.userProfile,
       });
@@ -217,6 +223,9 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
         learningPlan: domain.learningPlan,
         onStatus: message => {
           state.setWorkflowMessage('evaluateLaboratory', requestId, message);
+        },
+        onReasoning: reasoning => {
+          state.setWorkflowReasoning('evaluateLaboratory', requestId, reasoning);
         },
         source: domain.source,
         userProfile: domain.userProfile,

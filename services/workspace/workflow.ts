@@ -18,6 +18,7 @@ export type AsyncWorkflowStatus = 'idle' | 'pending' | 'succeeded' | 'failed';
 export interface WorkflowEntry {
   status: AsyncWorkflowStatus;
   message?: string;
+  reasoning?: string;
   error?: string;
   requestId: number;
 }
@@ -93,6 +94,29 @@ export const selectBlockingMessage = (
   return undefined;
 };
 
+export const selectBlockingReasoning = (
+  workflowState: WorkspaceWorkflowState
+): string | undefined => {
+  const prioritizedWorkflowIds: WorkspaceWorkflowId[] = [
+    'generatePlan',
+    'loadSection',
+    'assessment',
+    'openProject',
+    'attachSource',
+    'importProject',
+    'completeSection',
+  ];
+
+  for (const workflowId of prioritizedWorkflowIds) {
+    const workflow = workflowState[workflowId];
+    if (workflow.status === 'pending' && workflow.reasoning) {
+      return workflow.reasoning;
+    }
+  }
+
+  return undefined;
+};
+
 export const selectIsLaboratoryBusy = (workflowState: WorkspaceWorkflowState): boolean =>
   workflowState.generateLaboratory.status === 'pending' ||
   workflowState.evaluateLaboratory.status === 'pending';
@@ -106,6 +130,20 @@ export const selectLaboratoryMessage = (
 
   if (workflowState.generateLaboratory.status === 'pending') {
     return workflowState.generateLaboratory.message;
+  }
+
+  return undefined;
+};
+
+export const selectLaboratoryReasoning = (
+  workflowState: WorkspaceWorkflowState
+): string | undefined => {
+  if (workflowState.evaluateLaboratory.status === 'pending') {
+    return workflowState.evaluateLaboratory.reasoning;
+  }
+
+  if (workflowState.generateLaboratory.status === 'pending') {
+    return workflowState.generateLaboratory.reasoning;
   }
 
   return undefined;

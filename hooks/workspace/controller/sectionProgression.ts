@@ -126,7 +126,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           status => {
             state.setWorkflowMessage('loadSection', requestId, status);
           },
-          currentPlan.generationNotes
+          currentPlan.generationNotes,
+          reasoning => {
+            state.setWorkflowReasoning('loadSection', requestId, reasoning);
+          }
         );
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {
@@ -175,7 +178,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           status => {
             state.setWorkflowMessage('loadSection', requestId, status);
           },
-          currentPlan.generationNotes
+          currentPlan.generationNotes,
+          reasoning => {
+            state.setWorkflowReasoning('loadSection', requestId, reasoning);
+          }
         );
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {

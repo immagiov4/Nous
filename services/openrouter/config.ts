@@ -19,12 +19,12 @@ export const MODEL_PDF_IMAGE_CAPTION =
 
 export const HIGH_REASONING_CONFIG: OpenRouterReasoningOptions = {
   effort: 'high',
-  exclude: true,
+  exclude: false,
 };
 
 export const MEDIUM_REASONING_CONFIG: OpenRouterReasoningOptions = {
   effort: 'medium',
-  exclude: true,
+  exclude: false,
 };
 
 export const resolveOpenRouterModel = (

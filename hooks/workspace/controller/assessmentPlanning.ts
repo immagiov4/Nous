@@ -290,6 +290,9 @@ export const createAssessmentPlanningCommands = (
           },
           () => {
             state.setWorkflowMessage('generatePlan', requestId, 'Revisione finale...');
+          },
+          reasoning => {
+            state.setWorkflowReasoning('generatePlan', requestId, reasoning);
           }
         );
 
@@ -351,6 +354,9 @@ export const createAssessmentPlanningCommands = (
           args.history || [],
           status => {
             state.setWorkflowMessage('generatePlan', requestId, status);
+          },
+          reasoning => {
+            state.setWorkflowReasoning('generatePlan', requestId, reasoning);
           }
         );
 

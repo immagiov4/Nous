@@ -19,11 +19,13 @@ import type {
   LaboratoryStateStatus,
 } from '../../../types.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
+import ThinkingStream from '../../shared/ThinkingStream.tsx';
 import LaboratoryTextAttachmentEditor from './LaboratoryTextAttachmentEditor.tsx';
 
 interface WorkspaceLaboratoryContentProps {
   activeExercise: LaboratoryExercise | null;
   activityMessage?: string;
+  activityStreamText?: string;
   isDarkMode: boolean;
   isEvaluating: boolean;
   isGenerating: boolean;
@@ -187,9 +189,42 @@ function LaboratoryAttachmentCard({ attachment, onRemove, onUpdateMetadata }: At
 const evaluationBadgeClassName =
   'inline-flex items-center gap-2 rounded-full border border-emerald-200/80 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300';
 
+const evaluationSectionClassNameByTone = {
+  neutral:
+    'border-gray-200/70 bg-gray-50/70 text-gray-700 dark:border-zinc-700 dark:bg-zinc-950/50 dark:text-zinc-300',
+  warning:
+    'border-amber-200/70 bg-amber-50/70 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200',
+};
+
+function renderEvaluationSection({
+  items,
+  title,
+  tone = 'neutral',
+}: {
+  items: string[];
+  title: string;
+  tone?: keyof typeof evaluationSectionClassNameByTone;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={`rounded-xl border px-4 py-4 ${evaluationSectionClassNameByTone[tone]}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-75">{title}</p>
+      <ul className="mt-3 list-disc space-y-2 pl-5">
+        {items.map(item => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function WorkspaceLaboratoryContent({
   activeExercise,
   activityMessage,
+  activityStreamText,
   isDarkMode,
   isEvaluating,
   isGenerating,
@@ -258,6 +293,11 @@ export default function WorkspaceLaboratoryContent({
           <p className="mt-3 text-sm leading-7 text-gray-600 dark:text-zinc-300">
             {emptyStateMessage}
           </p>
+          <ThinkingStream
+            className="mx-auto mt-6 max-h-[18rem] max-w-2xl overflow-hidden text-left"
+            isDarkMode={isDarkMode}
+            text={activityStreamText}
+          />
           {readyStateHint ? (
             <p className="mt-3 text-sm leading-7 text-gray-500 dark:text-zinc-400">
               {readyStateHint}
@@ -432,6 +472,11 @@ export default function WorkspaceLaboratoryContent({
               {activityMessage}
             </div>
           ) : null}
+          <ThinkingStream
+            className="max-h-[18rem] overflow-hidden"
+            isDarkMode={isDarkMode}
+            text={activityStreamText}
+          />
 
           {activeExercise.attachments.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-200/80 bg-gray-50/80 px-5 py-8 text-center text-sm leading-7 text-gray-500 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
@@ -486,59 +531,21 @@ export default function WorkspaceLaboratoryContent({
                 </p>
               </div>
 
-              {activeExercise.evaluation.strengths.length > 0 ? (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-zinc-400">
-                    Punti forti
-                  </p>
-                  <ul className="mt-2 space-y-2">
-                    {activeExercise.evaluation.strengths.map(item => (
-                      <li
-                        key={item}
-                        className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-3 dark:border-zinc-700 dark:bg-zinc-950/60"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+              {renderEvaluationSection({
+                items: activeExercise.evaluation.strengths,
+                title: 'Punti forti',
+              })}
 
-              {activeExercise.evaluation.improvements.length > 0 ? (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-zinc-400">
-                    Miglioramenti
-                  </p>
-                  <ul className="mt-2 space-y-2">
-                    {activeExercise.evaluation.improvements.map(item => (
-                      <li
-                        key={item}
-                        className="rounded-xl border border-gray-200/70 bg-gray-50/80 px-3 py-3 dark:border-zinc-700 dark:bg-zinc-950/60"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+              {renderEvaluationSection({
+                items: activeExercise.evaluation.improvements,
+                title: 'Da migliorare',
+              })}
 
-              {activeExercise.evaluation.caveats.length > 0 ? (
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-zinc-400">
-                    Caveat
-                  </p>
-                  <ul className="mt-2 space-y-2">
-                    {activeExercise.evaluation.caveats.map(item => (
-                      <li
-                        key={item}
-                        className="rounded-xl border border-amber-200/70 bg-amber-50/70 px-3 py-3 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+              {renderEvaluationSection({
+                items: activeExercise.evaluation.caveats,
+                title: 'Limiti della valutazione',
+                tone: 'warning',
+              })}
             </div>
           ) : (
             <p className="text-sm text-gray-400 dark:text-zinc-500">

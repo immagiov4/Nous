@@ -466,6 +466,19 @@ const createStateAdapter = () => {
           },
         };
       },
+      setWorkflowReasoning: (workflowId, requestId, reasoning) => {
+        if (runtime.workflowState[workflowId].requestId !== requestId) {
+          return;
+        }
+
+        runtime.workflowState = {
+          ...runtime.workflowState,
+          [workflowId]: {
+            ...runtime.workflowState[workflowId],
+            reasoning,
+          },
+        };
+      },
       succeedWorkflow: (workflowId, requestId, message) => {
         if (runtime.workflowState[workflowId].requestId !== requestId) {
           return;

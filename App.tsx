@@ -18,7 +18,12 @@ import { useWorkspaceReaderRuntime } from './hooks/workspace/useWorkspaceReaderR
 import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from './services/audio/voiceProfile.ts';
 import { selectActiveLaboratoryExercise } from './services/laboratory/state.ts';
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from './services/openrouter/index.ts';
-import { selectIsLaboratoryBusy, selectLaboratoryMessage } from './services/workspace/workflow.ts';
+import {
+  selectBlockingReasoning,
+  selectIsLaboratoryBusy,
+  selectLaboratoryMessage,
+  selectLaboratoryReasoning,
+} from './services/workspace/workflow.ts';
 import { AppState } from './types';
 import type {
   HomeChatMode,
@@ -294,9 +299,11 @@ const App = () => {
   const isLaboratoryEvaluating = workflowState.evaluateLaboratory.status === 'pending';
   const laboratoryActivityMessage =
     selectLaboratoryMessage(workflowState) || 'Laboratorio in corso...';
+  const laboratoryReasoningText = selectLaboratoryReasoning(workflowState);
   const isHomeChatLoading = workflowState.assessment.status === 'pending';
   const homeChatLoadingStatus = workflowState.assessment.message || 'Caricamento...';
   const loadingStatus = blockingMessage || 'Caricamento...';
+  const loadingReasoningText = selectBlockingReasoning(workflowState);
   const activeSectionSourcePageRangeLabel = getLessonSourcePageLabel({
     activeSection,
     documentIndex: controller.documentIndex,
@@ -397,6 +404,7 @@ const App = () => {
       storageError,
     },
     content: {
+      activeSectionTitle: activeSection?.title || null,
       activeSectionAssetsById: readerRuntime.activeSectionAssetsById,
       activeSectionImageRefsById: readerRuntime.activeSectionImageRefsById,
       contentRef: readerRuntime.contentRef,
@@ -410,6 +418,7 @@ const App = () => {
       isQuizSubmitted: readerRuntime.isQuizSubmitted,
       activeLaboratoryExercise,
       laboratoryActivityMessage,
+      laboratoryReasoningText,
       laboratoryEvaluatedCount,
       laboratoryErrorMessage: laboratory?.errorMessage,
       laboratorySourcePageRangeLabel: activeLaboratorySourcePageRangeLabel,
@@ -476,6 +485,7 @@ const App = () => {
       scrollContainerRef: readerRuntime.scrollContainerRef,
       sectionAnnotations: activeSection?.annotations,
       sectionContent,
+      sectionReasoningText: workflowState.loadSection.reasoning,
       sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
     },
     header: {
@@ -678,6 +688,7 @@ const App = () => {
     return (
       <LoadingScreen
         message="Analisi Volume in Corso..."
+        isDarkMode={readerRuntime.readerChrome.isDarkMode}
         subMessage="Strutturazione semantica del piano di studi..."
       />
     );
@@ -687,6 +698,8 @@ const App = () => {
     return (
       <LoadingScreen
         message="Analisi Volume in Corso..."
+        isDarkMode={readerRuntime.readerChrome.isDarkMode}
+        reasoningText={loadingReasoningText}
         subMessage={loadingStatus || 'Costruzione piano...'}
       />
     );

@@ -1972,7 +1972,8 @@ export const estimateRelevantPdfImagePages = (
 const runInitialLearningPlan = async (
   file: FileData,
   assessmentSummary: string,
-  sourceProfile: PlanningSourceProfile
+  sourceProfile: PlanningSourceProfile,
+  onReasoningUpdate?: (reasoning: string) => void
 ): Promise<LearningPlan> => {
   const planGuidance = buildAdaptivePlanGuidance(sourceProfile);
   const prompt = `Analizza il documento allegato.
@@ -2014,6 +2015,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const response = await callOpenRouter({
     model: MODEL_REASONING,
     reasoning: HIGH_REASONING_CONFIG,
+    onReasoningUpdate,
     messages: [
       { role: 'system', content: plannerInstruction },
       {
@@ -2035,7 +2037,8 @@ const runRefinedLearningPlan = async (
   file: FileData,
   assessmentSummary: string,
   draftPlan: LearningPlan,
-  sourceProfile: PlanningSourceProfile
+  sourceProfile: PlanningSourceProfile,
+  onReasoningUpdate?: (reasoning: string) => void
 ): Promise<LearningPlan> => {
   const planGuidance = buildAdaptivePlanGuidance(sourceProfile);
   const prompt = `Sei un curriculum refiner. Hai gia un primo indice e devi renderlo preciso, non necessariamente piu lungo.
@@ -2083,6 +2086,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const response = await callOpenRouter({
     model: MODEL_REASONING,
     reasoning: HIGH_REASONING_CONFIG,
+    onReasoningUpdate,
     messages: [
       { role: 'system', content: plannerInstruction },
       {
@@ -2103,20 +2107,27 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 export const generateLearningPlan = async (
   file: FileData,
   assessmentHistory: Message[],
-  onStatusUpdate?: (status: string) => void
+  onStatusUpdate?: (status: string) => void,
+  onReasoningUpdate?: (reasoning: string) => void
 ): Promise<LearningPlan> => {
   const assessmentSummary = buildAssessmentSummary(assessmentHistory);
   const sourceProfile = await resolvePlanningSourceProfile(file);
 
   return retryWithBackoff(async () => {
     onStatusUpdate?.('Bozza indice...');
-    const initialPlan = await runInitialLearningPlan(file, assessmentSummary, sourceProfile);
+    const initialPlan = await runInitialLearningPlan(
+      file,
+      assessmentSummary,
+      sourceProfile,
+      onReasoningUpdate
+    );
     onStatusUpdate?.(`Raffinamento indice... ${initialPlan.sections.length} lezioni iniziali`);
     const refinedPlan = await runRefinedLearningPlan(
       file,
       assessmentSummary,
       initialPlan,
-      sourceProfile
+      sourceProfile,
+      onReasoningUpdate
     );
     onStatusUpdate?.(`Indice raffinato: ${refinedPlan.sections.length} lezioni`);
     return refinedPlan;
@@ -2243,7 +2254,8 @@ export const generateSectionContent = async (
   primaryChunkIds?: string[],
   documentIndex?: PdfTextIndex | null,
   onStatusUpdate?: (status: string) => void,
-  generationNotes?: string
+  generationNotes?: string,
+  onReasoningUpdate?: (reasoning: string) => void
 ): Promise<{
   content: string;
   quiz: QuizQuestion[];
@@ -2336,7 +2348,7 @@ export const generateSectionContent = async (
     });
 
     if (candidateImages.length === 0) {
-      onStatusUpdate?.('Analisi figure completata: proseguo senza immagini pertinenti');
+      onStatusUpdate?.('Figure: nessuna pertinente');
     }
 
     const candidateImagePayload = candidateImages.map(image => ({
@@ -2428,6 +2440,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       callOpenRouter({
         model: MODEL_REASONING,
         reasoning: HIGH_REASONING_CONFIG,
+        onReasoningUpdate,
         messages: [
           { role: 'system', content: teacherInstruction },
           {
@@ -2642,6 +2655,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     callOpenRouter({
       model: MODEL_REASONING,
       reasoning: HIGH_REASONING_CONFIG,
+      onReasoningUpdate,
       messages: [
         { role: 'system', content: teacherInstruction },
         {

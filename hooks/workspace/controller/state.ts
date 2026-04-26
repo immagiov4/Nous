@@ -52,6 +52,7 @@ export const useWorkspaceControllerState = () => {
           [workflowId]: {
             status: 'pending' as const,
             message,
+            reasoning: undefined,
             error: undefined,
             requestId: nextRequestId,
           },
@@ -73,6 +74,7 @@ export const useWorkspaceControllerState = () => {
             status: 'failed' as const,
             error: errorMessage,
             message: undefined,
+            reasoning: undefined,
           },
         };
         commitWorkflowState(nextState);
@@ -125,6 +127,25 @@ export const useWorkspaceControllerState = () => {
         commitWorkflowState(nextState);
         pushNousDebugTrace('workflow:message', { message, requestId, workflowId });
       },
+      setWorkflowReasoning: (
+        workflowId: WorkspaceWorkflowId,
+        requestId: number,
+        reasoning: string
+      ) => {
+        const currentState = workflowStateRef.current;
+        if (currentState[workflowId].requestId !== requestId) {
+          return;
+        }
+
+        const nextState = {
+          ...currentState,
+          [workflowId]: {
+            ...currentState[workflowId],
+            reasoning,
+          },
+        };
+        commitWorkflowState(nextState);
+      },
       succeedWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, message?: string) => {
         const currentState = workflowStateRef.current;
         if (currentState[workflowId].requestId !== requestId) {
@@ -138,6 +159,7 @@ export const useWorkspaceControllerState = () => {
             status: 'succeeded' as const,
             error: undefined,
             message,
+            reasoning: undefined,
           },
         };
         commitWorkflowState(nextState);

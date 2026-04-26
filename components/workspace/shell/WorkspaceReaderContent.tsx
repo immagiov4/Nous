@@ -1,7 +1,8 @@
-import { BookOpen, MousePointerClick, X } from 'lucide-react';
+import { BookOpen, LoaderCircle, MousePointerClick, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
+import ThinkingStream from '../../shared/ThinkingStream.tsx';
 import WorkspaceLaboratoryContent from '../laboratory/WorkspaceLaboratoryContent.tsx';
 import type { WorkspaceReaderContentModel } from './types.ts';
 import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
@@ -9,8 +10,48 @@ import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
 
+function LessonGenerationSkeleton({
+  isDarkMode,
+  isMobileViewport,
+  lessonTitle,
+  reasoningText,
+}: {
+  isDarkMode: boolean;
+  isMobileViewport: boolean;
+  lessonTitle?: string | null;
+  reasoningText?: string;
+}) {
+  const hasReasoningText = Boolean(reasoningText?.trim());
+
+  return (
+    <div className="mx-auto mt-8 max-w-3xl space-y-8" role="status" aria-live="polite">
+      <div className="flex items-center gap-3 text-sm font-semibold text-gray-500 dark:text-zinc-400">
+        <LoaderCircle className="h-4 w-4 animate-spin text-orange-600 dark:text-orange-300" />
+        <span>Generazione lezione...</span>
+        {lessonTitle && !isMobileViewport ? (
+          <span className="min-w-0 truncate text-gray-400 dark:text-zinc-500">{lessonTitle}</span>
+        ) : null}
+      </div>
+      <ThinkingStream
+        className="min-h-[16rem] h-[72vh] max-h-[48rem]"
+        isDarkMode={isDarkMode}
+        text={reasoningText}
+      />
+      <div className={`${hasReasoningText ? 'opacity-25' : ''} animate-pulse space-y-8`}>
+        <div className="mb-12 h-8 w-3/4 rounded bg-gray-200 dark:bg-zinc-800" />
+        <div className="space-y-3">
+          <div className="h-4 w-full rounded bg-gray-200 dark:bg-zinc-800" />
+          <div className="h-4 w-full rounded bg-gray-200 dark:bg-zinc-800" />
+          <div className="h-4 w-5/6 rounded bg-gray-200 dark:bg-zinc-800" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkspaceReaderContent({
   activeLaboratoryExercise,
+  activeSectionTitle,
   activeSectionAssetsById,
   activeSectionImageRefsById,
   contentRef,
@@ -21,6 +62,7 @@ export default function WorkspaceReaderContent({
   isLaboratoryGenerating,
   isLaboratoryView,
   isMobileViewport,
+  laboratoryReasoningText,
   onCompleteSection,
   onAddLaboratoryTextAttachment,
   onAttachLaboratoryFiles,
@@ -36,6 +78,7 @@ export default function WorkspaceReaderContent({
   scrollContainerRef,
   sectionAnnotations,
   sectionContent,
+  sectionReasoningText,
   laboratoryActivityMessage,
   laboratoryEvaluatedCount = 0,
   laboratoryErrorMessage,
@@ -61,6 +104,7 @@ export default function WorkspaceReaderContent({
   const inlineQuizLayout = buildInlineQuizLayout(renderedSectionContent || '', quiz.length);
   const unansweredQuestionCount = quizAnswers.filter(answer => answer < 0).length;
   const canCompleteSection = quiz.length === 0 || unansweredQuestionCount === 0;
+  const shouldShowLessonSkeleton = isLoading || Boolean(activeSectionTitle && !sectionContent);
 
   useEffect(() => {
     if (typeof window === 'undefined' || isLaboratoryView || !sectionContent) {
@@ -77,16 +121,21 @@ export default function WorkspaceReaderContent({
     }
   };
 
+  const scrollContainerClassName = shouldShowLessonSkeleton
+    ? 'relative flex-1 min-w-0 overflow-hidden overscroll-none'
+    : 'relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth';
+
   return (
     <div
       ref={scrollContainerRef}
-      className="relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth"
-      style={{ touchAction: 'pan-y' }}
+      className={scrollContainerClassName}
+      style={{ touchAction: shouldShowLessonSkeleton ? 'none' : 'pan-y' }}
     >
       {isLaboratoryView ? (
         <WorkspaceLaboratoryContent
           activeExercise={activeLaboratoryExercise}
           activityMessage={laboratoryActivityMessage}
+          activityStreamText={laboratoryReasoningText}
           isDarkMode={isDarkMode}
           isEvaluating={isLaboratoryEvaluating}
           isGenerating={isLaboratoryGenerating}
@@ -115,15 +164,13 @@ export default function WorkspaceReaderContent({
             className="mb-8 min-h-[50vh] min-w-0"
             onPointerDownCapture={onContentPointerDownCapture}
           >
-            {isLoading ? (
-              <div className="mx-auto mt-8 max-w-3xl animate-pulse space-y-8">
-                <div className="mb-12 h-8 w-3/4 rounded bg-gray-200 dark:bg-zinc-800" />
-                <div className="space-y-3">
-                  <div className="h-4 w-full rounded bg-gray-200 dark:bg-zinc-800" />
-                  <div className="h-4 w-full rounded bg-gray-200 dark:bg-zinc-800" />
-                  <div className="h-4 w-5/6 rounded bg-gray-200 dark:bg-zinc-800" />
-                </div>
-              </div>
+            {shouldShowLessonSkeleton ? (
+              <LessonGenerationSkeleton
+                isDarkMode={isDarkMode}
+                isMobileViewport={isMobileViewport}
+                lessonTitle={activeSectionTitle}
+                reasoningText={sectionReasoningText}
+              />
             ) : sectionContent ? (
               <div className={`${readingColumnClassName} space-y-2`}>
                 {isContextHintVisible ? (

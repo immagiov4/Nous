@@ -55,6 +55,21 @@ const buildProps = (
 });
 
 describe('WorkspaceReaderContent', () => {
+  test('shows a lesson generation skeleton when the selected lesson is not ready yet', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeSectionTitle: 'Divide et impera',
+          sectionContent: '',
+        })}
+      />
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Generazione lezione...');
+    expect(screen.getByText('Divide et impera')).toBeInTheDocument();
+    expect(screen.queryByText(/Seleziona una sezione/i)).toBeNull();
+  });
+
   test('renders inline quiz cards inside the reading column in focus mode', () => {
     render(<WorkspaceReaderContent {...buildProps({ isFocusMode: true })} />);
 
@@ -163,6 +178,46 @@ describe('WorkspaceReaderContent', () => {
     fireEvent.click(screen.getByRole('button', { name: /Esempio guidato o indizi/i }));
 
     expect(screen.getByText('Apri da qui solo se ti serve un aiuto.')).toBeInTheDocument();
+  });
+
+  test('renders laboratory evaluation items as grouped sections instead of per-item cards', () => {
+    const { container } = render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeLaboratoryExercise: {
+            attachments: [],
+            approachMarkdown: '## Metodo\n\nParti dai vincoli.',
+            brief: 'Consegna pratica.',
+            evaluation: {
+              caveats: ['La prova resta limitata agli allegati testuali'],
+              confidenceScore: 70,
+              confidenceSummary: 'Valutazione abbastanza supportata.',
+              evaluatedAt: '2026-03-20T10:05:00.000Z',
+              improvements: ['Motiva meglio la complessita', 'Aggiungi il tracciamento minimo'],
+              score: 74,
+              strengths: ['Risultato numerico corretto', 'Idea algoritmica coerente'],
+              summary: 'La consegna e parzialmente corretta.',
+            },
+            exampleMarkdown: '',
+            generatedAt: '2026-03-20T10:00:00.000Z',
+            id: 'lab-1',
+            internalNotes: [],
+            instructionsMarkdown: '## Consegna\n\nScrivi una soluzione.',
+            requirements: [],
+            sourceChunkIds: ['chunk-1'],
+            title: 'Esercizio 1',
+            updatedAt: '2026-03-20T10:00:00.000Z',
+          },
+          isLaboratoryView: true,
+          laboratoryStatus: 'ready',
+        })}
+      />
+    );
+
+    expect(screen.getByText('Punti forti')).toBeInTheDocument();
+    expect(screen.getByText('Da migliorare')).toBeInTheDocument();
+    expect(screen.getByText('Limiti della valutazione')).toBeInTheDocument();
+    expect(container.querySelectorAll('section li.rounded-xl')).toHaveLength(0);
   });
 
   test('does not offer full laboratory regeneration from the empty laboratory state', () => {
