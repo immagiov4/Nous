@@ -147,7 +147,7 @@ const LoadingScreen = ({
         <ThinkingStream
           text={reasoningText}
           isDarkMode={isDarkMode}
-          className="mt-4 min-h-[16rem] h-[72vh] max-h-[52rem] w-full max-w-3xl flex-1 self-center text-left sm:mt-6"
+          className="mt-4 min-h-[14rem] h-[58dvh] max-h-[36rem] w-full max-w-3xl flex-1 self-center text-left sm:mt-6 sm:h-[68vh] sm:max-h-[52rem]"
         />
       </div>
     </div>

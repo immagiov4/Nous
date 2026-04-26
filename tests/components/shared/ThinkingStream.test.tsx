@@ -35,7 +35,7 @@ describe('ThinkingStream', () => {
       <ThinkingStream isDarkMode={false} text="Prima riga" />
     );
 
-    const viewport = container.querySelector('.overflow-y-auto') as HTMLDivElement | null;
+    const viewport = container.querySelector('.overflow-hidden') as HTMLDivElement | null;
     expect(viewport).not.toBeNull();
     expect(requestAnimationFrameMock).toHaveBeenCalledTimes(1);
 

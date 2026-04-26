@@ -33,7 +33,7 @@ function LessonGenerationSkeleton({
         ) : null}
       </div>
       <ThinkingStream
-        className="min-h-[16rem] h-[72vh] max-h-[48rem]"
+        className="min-h-[14rem] h-[58dvh] max-h-[36rem] sm:h-[68vh] sm:max-h-[48rem]"
         isDarkMode={isDarkMode}
         text={reasoningText}
       />
