@@ -17,6 +17,7 @@ import type {
   ProjectSource,
   QuizQuestion,
   SectionAnnotation,
+  SettingsPanelSectionId,
   VoiceProfileId,
 } from '../../../types.ts';
 import type { SidebarGroup } from '../../../utils/reader/workspaceReader.ts';
@@ -138,7 +139,9 @@ export interface WorkspaceReaderHeaderModel {
   onSetMusicVolume: (value: number) => void;
   onSetPreferredOpenRouterModel: (slot: OpenRouterModelSlot, value: string) => void;
   onSetSettingsOpen: (value: boolean) => void;
+  onSetSettingsPanelExpandedSections: (value: SettingsPanelSectionId[]) => void;
   preferredModels: OpenRouterModelPreferences;
+  settingsPanelExpandedSections: SettingsPanelSectionId[];
 }
 
 export interface WorkspaceReaderContentModel {

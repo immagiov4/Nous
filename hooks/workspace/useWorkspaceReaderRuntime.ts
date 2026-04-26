@@ -7,6 +7,7 @@ import type {
   OpenRouterModelSlot,
   PdfDocumentAssets,
   QuizQuestion,
+  SettingsPanelSectionId,
   SyllabusItem,
   UiPreferences,
 } from '../../types.ts';
@@ -51,7 +52,12 @@ export const useWorkspaceReaderRuntime = ({
     preferredLessonModel: '',
     preferredAssessmentModel: '',
     preferredContextModel: '',
+    preferredTtsModel: '',
+    preferredTtsVoice: '',
   });
+  const [settingsPanelExpandedSections, setSettingsPanelExpandedSections] = useState<
+    SettingsPanelSectionId[]
+  >(['course-notes']);
   const previousQuizSectionIdRef = useRef(activeSectionId);
   const previousQuizSubmissionSectionIdRef = useRef(activeSectionId);
 
@@ -78,26 +84,35 @@ export const useWorkspaceReaderRuntime = ({
     speechBlocks,
   });
 
-  const setPreferredOpenRouterModel = useCallback((slot: OpenRouterModelSlot, value: string) => {
-    const trimmedValue = value.trim();
-    setPreferredModels(currentModels => {
-      const key =
-        slot === 'assessment'
-          ? 'preferredAssessmentModel'
-          : slot === 'context'
-            ? 'preferredContextModel'
-            : 'preferredLessonModel';
+  const setPreferredOpenRouterModel = useCallback(
+    (slot: OpenRouterModelSlot, value: string) => {
+      const trimmedValue = value.trim();
+      setPreferredModels(currentModels => {
+        const key =
+          slot === 'assessment'
+            ? 'preferredAssessmentModel'
+            : slot === 'context'
+              ? 'preferredContextModel'
+              : slot === 'tts'
+                ? 'preferredTtsModel'
+                : 'preferredLessonModel';
 
-      if (currentModels[key] === trimmedValue) {
-        return currentModels;
+        if (currentModels[key] === trimmedValue) {
+          return currentModels;
+        }
+
+        return {
+          ...currentModels,
+          [key]: trimmedValue,
+        };
+      });
+
+      if (slot === 'tts') {
+        ttsPlayer.handleModelChange(trimmedValue);
       }
-
-      return {
-        ...currentModels,
-        [key]: trimmedValue,
-      };
-    });
-  }, []);
+    },
+    [ttsPlayer.handleModelChange]
+  );
 
   const applyUiPreferences = useCallback(
     (preferences: Partial<UiPreferences>) => {
@@ -109,8 +124,20 @@ export const useWorkspaceReaderRuntime = ({
         ttsPlayer.handleVoiceChange(preferences.preferredVoice);
       }
 
+      if (preferences.preferredTtsVoice) {
+        ttsPlayer.handleVoiceChange(preferences.preferredTtsVoice);
+      }
+
+      if (preferences.preferredTtsModel) {
+        ttsPlayer.handleModelChange(preferences.preferredTtsModel);
+      }
+
       if (typeof preferences.playbackRate === 'number') {
         ttsPlayer.handleSpeedChange(preferences.playbackRate);
+      }
+
+      if (Array.isArray(preferences.settingsPanelExpandedSections)) {
+        setSettingsPanelExpandedSections(preferences.settingsPanelExpandedSections);
       }
 
       setPreferredModels(currentModels => ({
@@ -126,9 +153,22 @@ export const useWorkspaceReaderRuntime = ({
           typeof preferences.preferredContextModel === 'string'
             ? preferences.preferredContextModel
             : currentModels.preferredContextModel,
+        preferredTtsModel:
+          typeof preferences.preferredTtsModel === 'string'
+            ? preferences.preferredTtsModel
+            : currentModels.preferredTtsModel,
+        preferredTtsVoice:
+          typeof preferences.preferredTtsVoice === 'string'
+            ? preferences.preferredTtsVoice
+            : currentModels.preferredTtsVoice,
       }));
     },
-    [readerChrome.setIsDarkMode, ttsPlayer.handleSpeedChange, ttsPlayer.handleVoiceChange]
+    [
+      readerChrome.setIsDarkMode,
+      ttsPlayer.handleModelChange,
+      ttsPlayer.handleSpeedChange,
+      ttsPlayer.handleVoiceChange,
+    ]
   );
 
   const uiPreferences = useMemo<UiPreferences>(
@@ -139,15 +179,29 @@ export const useWorkspaceReaderRuntime = ({
       preferredLessonModel: preferredModels.preferredLessonModel,
       preferredAssessmentModel: preferredModels.preferredAssessmentModel,
       preferredContextModel: preferredModels.preferredContextModel,
+      preferredTtsModel: ttsPlayer.audioState.currentModel,
+      preferredTtsVoice: ttsPlayer.audioState.currentVoice,
+      settingsPanelExpandedSections,
     }),
     [
       preferredModels.preferredAssessmentModel,
       preferredModels.preferredContextModel,
       preferredModels.preferredLessonModel,
       readerChrome.isDarkMode,
+      settingsPanelExpandedSections,
+      ttsPlayer.audioState.currentModel,
       ttsPlayer.audioState.currentVoice,
       ttsPlayer.audioState.playbackRate,
     ]
+  );
+
+  const displayedPreferredModels = useMemo<OpenRouterModelPreferences>(
+    () => ({
+      ...preferredModels,
+      preferredTtsModel: ttsPlayer.audioState.currentModel,
+      preferredTtsVoice: ttsPlayer.audioState.currentVoice,
+    }),
+    [preferredModels, ttsPlayer.audioState.currentModel, ttsPlayer.audioState.currentVoice]
   );
 
   const activeSidebarGroup = useMemo(
@@ -228,8 +282,10 @@ export const useWorkspaceReaderRuntime = ({
     setIsMusicPlaying,
     setIsQuizSubmitted,
     setMusicVolume,
+    setSettingsPanelExpandedSections,
     setPreferredOpenRouterModel,
-    preferredModels,
+    settingsPanelExpandedSections,
+    preferredModels: displayedPreferredModels,
     sidebarGroups,
     ttsPlayer,
     uiPreferences,

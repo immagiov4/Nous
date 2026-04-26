@@ -114,3 +114,66 @@ test('desktop right pointer-down opens the selection menu immediately', () => {
   assert.equal(preventDefault.mock.calls.length, 1);
   selectionSpy.mockRestore();
 });
+
+test('clicking the same annotation mark toggles its menu closed', () => {
+  const container = document.createElement('div');
+  container.innerHTML = 'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma';
+  document.body.append(container);
+  const contentRef = { current: container };
+  const mark = container.querySelector('mark');
+  assert.ok(mark);
+  mark.getBoundingClientRect = () =>
+    ({
+      bottom: 120,
+      height: 20,
+      left: 40,
+      right: 82,
+      top: 100,
+      width: 42,
+      x: 40,
+      y: 100,
+      toJSON: () => ({}),
+    }) as DOMRect;
+  container.getBoundingClientRect = () =>
+    ({
+      bottom: 640,
+      height: 600,
+      left: 24,
+      right: 420,
+      top: 40,
+      width: 396,
+      x: 24,
+      y: 40,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+    isCollapsed: true,
+    rangeCount: 0,
+    toString: () => '',
+  } as unknown as Selection);
+
+  const { result } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef,
+      isMobileViewport: true,
+      sectionAnnotations: [{ id: 'annotation-1', note: 'Nota', createdAt: '', updatedAt: '' }],
+      sectionContent: 'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma',
+    })
+  );
+
+  act(() => {
+    result.current.handleContentClick({ target: mark } as never);
+  });
+
+  assert.equal(result.current.contextMenu.visible, true);
+  assert.equal(result.current.contextMenu.type, 'annotation');
+
+  act(() => {
+    result.current.handleContentClick({ target: mark } as never);
+  });
+
+  assert.equal(result.current.contextMenu.visible, false);
+  selectionSpy.mockRestore();
+});

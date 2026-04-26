@@ -1,21 +1,40 @@
 import { type Request, type Response, Router } from 'express';
 
-import { ttsClient } from '../services/ttsClient.js';
-import { isConnectionError } from '../utils/errors.js';
-import { sendErrorResponse } from '../utils/httpResponses.js';
+import { DEFAULT_TTS_MODEL, ttsClient } from '../services/ttsClient.js';
 
 const router = Router();
+
+/**
+ * GET /api/tts/models
+ * Get OpenRouter TTS-capable models
+ */
+router.get('/models', async (_req: Request, res: Response) => {
+  try {
+    const models = await ttsClient.listModels();
+    res.json({
+      success: true,
+      defaultModel: DEFAULT_TTS_MODEL,
+      models,
+    });
+  } catch (error) {
+    console.error('[TTS Models Route] Error:', error);
+    res.status(502).json({
+      success: false,
+      error: 'Failed to get TTS models',
+    });
+  }
+});
 
 /**
  * POST /api/tts
  * Generate speech from text
  *
- * Body: { text: string, voice?: string, speed?: number }
- * Returns: audio/wav binary data
+ * Body: { text: string, model?: string, voice?: string, speed?: number }
+ * Returns: audio binary data
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { text, voice, speed } = req.body;
+    const { text, model, voice, speed } = req.body;
 
     if (!text || typeof text !== 'string') {
       return res.status(400).json({
@@ -31,26 +50,25 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const audioBuffer = await ttsClient.generateSpeech({ text, voice, speed });
+    const generatedAudio = await ttsClient.generateSpeech({ text, model, voice, speed });
 
     res.set({
-      'Content-Type': 'audio/wav',
-      'Content-Length': audioBuffer.byteLength.toString(),
+      'Content-Type': generatedAudio.contentType,
+      'Content-Length': generatedAudio.audioBuffer.byteLength.toString(),
       'Cache-Control': 'public, max-age=3600',
     });
 
-    res.send(Buffer.from(audioBuffer));
-  } catch (error) {
-    console.error('[TTS Route] Error:', error);
-
-    if (isConnectionError(error)) {
-      return res.status(503).json({
-        success: false,
-        error: 'TTS server is not available. Please ensure the TTS server is running.',
-      });
+    if (generatedAudio.generationId) {
+      res.set('X-Generation-Id', generatedAudio.generationId);
     }
 
-    sendErrorResponse(res, 500, error, 'Failed to generate speech');
+    res.send(Buffer.from(generatedAudio.audioBuffer));
+  } catch (error) {
+    console.error('[TTS Route] Error:', error);
+    res.status(502).json({
+      success: false,
+      error: 'Failed to generate speech',
+    });
   }
 });
 

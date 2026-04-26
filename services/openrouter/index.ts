@@ -27,4 +27,4 @@ export {
   generateSectionContent,
 } from './planning.ts';
 export { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_FLASH, MODEL_REASONING } from './shared.ts';
-export { checkTTSStatus, generateSpeech, getTTSVoices } from './tts.ts';
+export { checkTTSStatus, generateSpeech, getTTSModels, getTTSVoices } from './tts.ts';

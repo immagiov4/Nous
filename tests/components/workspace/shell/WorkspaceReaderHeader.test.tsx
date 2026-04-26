@@ -39,6 +39,8 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
     assessmentModel: 'assessment-model',
     contextModel: 'context-model',
     lessonModel: 'lesson-model',
+    ttsModel: 'tts-model',
+    ttsVoice: 'coral',
   },
   musicUrl: '',
   musicVolume: 20,
@@ -54,11 +56,15 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   onSetMusicVolume: vi.fn(),
   onSetPreferredOpenRouterModel: vi.fn(),
   onSetSettingsOpen: vi.fn(),
+  onSetSettingsPanelExpandedSections: vi.fn(),
   preferredModels: {
     preferredAssessmentModel: '',
     preferredContextModel: '',
     preferredLessonModel: '',
+    preferredTtsModel: 'tts-model',
+    preferredTtsVoice: 'coral',
   },
+  settingsPanelExpandedSections: ['course-notes'],
 });
 
 describe('WorkspaceReaderHeader', () => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createWavBlob } from '../../services/audio/ttsAudio';
+import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../../services/audio/voiceProfile';
 import * as OpenRouterService from '../../services/openrouter';
-import type { AudioChunk, AudioState, VoiceProfileId } from '../../types';
+import type { AudioChunk, AudioState, TtsModelSummary, VoiceProfileId } from '../../types';
 import { prepareMarkdownForSpeech } from '../../utils/reader/readingText';
 
 const CHUNK_SIZE_APPROX = 580;
@@ -15,8 +15,10 @@ interface UseTtsPlayerParams {
 }
 
 interface UseTtsPlayerResult {
+  availableModels: TtsModelSummary[];
   availableVoices: Array<{ id: VoiceProfileId; label: string; language: string }>;
   audioState: AudioState;
+  handleModelChange: (model: string) => void;
   handleSeek: (time: number) => void;
   handleSkipChunk: (direction: 'prev' | 'next') => void;
   handleSpeedChange: (speed: number) => void;
@@ -220,10 +222,12 @@ export const useTtsPlayer = ({
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
   const [availableVoices, setAvailableVoices] = useState<
     Array<{ id: VoiceProfileId; label: string; language: string }>
-  >([{ id: 'mario', label: 'Mario', language: 'it-IT' }]);
+  >([{ id: DEFAULT_TTS_VOICE, label: DEFAULT_TTS_VOICE, language: 'it-IT' }]);
+  const [availableModels, setAvailableModels] = useState<TtsModelSummary[]>([]);
   const [audioState, setAudioState] = useState<AudioState>({
     isPlaying: false,
-    currentVoice: 'mario',
+    currentVoice: DEFAULT_TTS_VOICE,
+    currentModel: DEFAULT_TTS_MODEL,
     playbackRate: 1,
     chunks: [],
     currentChunkIndex: 0,
@@ -487,16 +491,22 @@ export const useTtsPlayer = ({
           }
 
           const requestedText = chunk.text;
-          const pcmBuffer = await OpenRouterService.generateSpeech(requestedText, requestedVoice);
-          const wavBlob = createWavBlob(pcmBuffer);
-          const url = URL.createObjectURL(wavBlob);
+          const requestedModel = audioStateRef.current.currentModel;
+          const speechAudio = await OpenRouterService.generateSpeech(
+            requestedText,
+            requestedVoice,
+            requestedModel
+          );
+          const audioBlob = new Blob([speechAudio.audioBuffer], { type: speechAudio.contentType });
+          const url = URL.createObjectURL(audioBlob);
           generatedObjectUrlsRef.current.add(url);
 
           const latestChunk = audioStateRef.current.chunks[index];
           if (
             !latestChunk ||
             latestChunk.text !== requestedText ||
-            audioStateRef.current.currentVoice !== requestedVoice
+            audioStateRef.current.currentVoice !== requestedVoice ||
+            audioStateRef.current.currentModel !== requestedModel
           ) {
             revokeTrackedUrl(url);
             delete chunkPromisesRef.current[index];
@@ -646,13 +656,29 @@ export const useTtsPlayer = ({
       let url = chunk.blobUrl;
       if (!url) {
         url = await generateChunkAudio(startIndex);
+        if (!url) {
+          const followingIndex = startIndex + 1;
+          if (
+            shouldPlayRef.current &&
+            requestId === playRequestIdRef.current &&
+            sessionId === playbackSessionRef.current &&
+            runId === playbackRunRef.current.runId &&
+            !playbackRunRef.current.cancelled &&
+            followingIndex < audioStateRef.current.chunks.length
+          ) {
+            void playAudioRef.current(followingIndex, 0);
+          } else if (followingIndex >= audioStateRef.current.chunks.length) {
+            handleChunkEnded(startIndex, requestId, sessionId, runId);
+          }
+          return;
+        }
+
         if (
           !shouldPlayRef.current ||
           requestId !== playRequestIdRef.current ||
           sessionId !== playbackSessionRef.current ||
           runId !== playbackRunRef.current.runId ||
-          playbackRunRef.current.cancelled ||
-          !url
+          playbackRunRef.current.cancelled
         ) {
           return;
         }
@@ -729,6 +755,7 @@ export const useTtsPlayer = ({
     [
       attachAudioLifecycle,
       generateChunkAudio,
+      handleChunkEnded,
       registerCurrentAudio,
       stopAndDisposeAudio,
       syncReactAudioStateFromRun,
@@ -833,12 +860,26 @@ export const useTtsPlayer = ({
 
   const handleVoiceChange = useCallback(
     (voice: VoiceProfileId) => {
-      if (audioStateRef.current.currentVoice === voice) {
+      const trimmedVoice = voice.trim() || DEFAULT_TTS_VOICE;
+      if (audioStateRef.current.currentVoice === trimmedVoice) {
         return;
       }
 
       stopAudio(true);
-      setTrackedAudioState(previousState => ({ ...previousState, currentVoice: voice }));
+      setTrackedAudioState(previousState => ({ ...previousState, currentVoice: trimmedVoice }));
+    },
+    [setTrackedAudioState, stopAudio]
+  );
+
+  const handleModelChange = useCallback(
+    (model: string) => {
+      const trimmedModel = model.trim() || DEFAULT_TTS_MODEL;
+      if (audioStateRef.current.currentModel === trimmedModel) {
+        return;
+      }
+
+      stopAudio(true);
+      setTrackedAudioState(previousState => ({ ...previousState, currentModel: trimmedModel }));
     },
     [setTrackedAudioState, stopAudio]
   );
@@ -919,6 +960,8 @@ export const useTtsPlayer = ({
   }, [audioState]);
 
   useEffect(() => {
+    let hasLoadedTtsModels = false;
+
     const refreshTtsState = async () => {
       try {
         const [status, voices] = await Promise.all([
@@ -933,6 +976,18 @@ export const useTtsPlayer = ({
             setTrackedAudioState(previousState => ({
               ...previousState,
               currentVoice: defaultVoice,
+            }));
+          }
+        }
+
+        if (!hasLoadedTtsModels) {
+          const modelCatalog = await OpenRouterService.getTTSModels();
+          hasLoadedTtsModels = true;
+          setAvailableModels(modelCatalog.models);
+          if (!audioStateRef.current.currentModel) {
+            setTrackedAudioState(previousState => ({
+              ...previousState,
+              currentModel: modelCatalog.defaultModel || DEFAULT_TTS_MODEL,
             }));
           }
         }
@@ -1135,8 +1190,10 @@ export const useTtsPlayer = ({
   );
 
   return {
+    availableModels,
     availableVoices,
     audioState,
+    handleModelChange,
     handleSeek,
     handleSkipChunk,
     handleSpeedChange,

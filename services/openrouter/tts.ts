@@ -1,20 +1,51 @@
 import {
+  DEFAULT_TTS_MODEL,
   DEFAULT_VOICE_OPTIONS,
   normalizeVoiceProfileId,
   type VoiceOption,
 } from '../audio/voiceProfile.ts';
 import { getErrorMessage, normalizeTtsConnectionError, type VoiceProfileId } from './shared.ts';
-import { requestSpeechAudio, requestTtsStatus, requestTtsVoices } from './ttsClient.ts';
+import {
+  requestSpeechAudio,
+  requestTtsModels,
+  requestTtsStatus,
+  requestTtsVoices,
+  type SpeechAudioResponse,
+} from './ttsClient.ts';
+import type { TtsModelSummary } from './types.ts';
 
-export const generateSpeech = async (text: string, voice: VoiceProfileId): Promise<ArrayBuffer> => {
+export const generateSpeech = async (
+  text: string,
+  voice: VoiceProfileId,
+  model = DEFAULT_TTS_MODEL
+): Promise<SpeechAudioResponse> => {
   try {
     return await requestSpeechAudio({
+      model,
       text,
       voice,
       speed: 1,
     });
   } catch (error) {
     throw normalizeTtsConnectionError(error);
+  }
+};
+
+export const getTTSModels = async (): Promise<{
+  defaultModel: string;
+  models: TtsModelSummary[];
+}> => {
+  try {
+    const payload = await requestTtsModels();
+    return {
+      defaultModel: payload.defaultModel || DEFAULT_TTS_MODEL,
+      models: payload.models || [],
+    };
+  } catch {
+    return {
+      defaultModel: DEFAULT_TTS_MODEL,
+      models: [],
+    };
   }
 };
 

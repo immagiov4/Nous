@@ -1,16 +1,148 @@
 {
   "profiles": [
     {
-      "id": "mario",
-      "name": "Mario",
+      "id": "coral",
+      "name": "Coral",
       "language": "it-IT",
-      "mode": "voice_design",
-      "voiceDesignPrompt": "clone:Mario",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "coral",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "alloy",
+      "name": "Alloy",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "alloy",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "ash",
+      "name": "Ash",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "ash",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "ballad",
+      "name": "Ballad",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "ballad",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "cedar",
+      "name": "Cedar",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "cedar",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "echo",
+      "name": "Echo",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "echo",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "fable",
+      "name": "Fable",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "fable",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "marin",
+      "name": "Marin",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "marin",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "nova",
+      "name": "Nova",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "nova",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "onyx",
+      "name": "Onyx",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "onyx",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "sage",
+      "name": "Sage",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "sage",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "shimmer",
+      "name": "Shimmer",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "shimmer",
+      "modelSettings": {
+        "temperature": 0.7,
+        "speed": 1.0
+      }
+    },
+    {
+      "id": "verse",
+      "name": "Verse",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "verse",
       "modelSettings": {
         "temperature": 0.7,
         "speed": 1.0
       }
     }
   ],
-  "defaultProfile": "mario"
+  "defaultProfile": "coral"
 }

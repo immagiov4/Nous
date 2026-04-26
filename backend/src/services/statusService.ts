@@ -1,7 +1,7 @@
 import { loadServerConfig } from '../config/serverConfig.js';
 import type { ProcessState, ServerConfig } from '../types/index.js';
 import { processManager } from './processManager.js';
-import { checkTtsHealth } from './ttsHealth.js';
+import { ttsClient } from './ttsClient.js';
 
 export interface StatusSnapshot {
   currentDevice: ServerConfig['device'];
@@ -26,15 +26,15 @@ function getUptime(processState: ProcessState): number {
 export async function getStatusSnapshot(): Promise<StatusSnapshot> {
   const processState = processManager.getState();
   const config = loadServerConfig();
-  const health = await checkTtsHealth(config);
+  const readiness = await ttsClient.checkReady();
 
   return {
     currentDevice: config.device,
-    healthMessage: health.message,
-    isReady: health.healthy,
-    isRunning: processState.isRunning || health.healthy,
+    healthMessage: readiness.message,
+    isReady: readiness.ready,
+    isRunning: readiness.ready,
     lastError: processState.lastError,
-    modelLoaded: health.healthy,
+    modelLoaded: readiness.ready,
     pid: processState.pid,
     restartAttempts: processState.restartAttempts,
     uptime: getUptime(processState),

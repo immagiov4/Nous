@@ -8,7 +8,7 @@ import {
   SkipForward,
   Volume2,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VoiceProfileId } from '../../types';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 
@@ -30,6 +30,8 @@ interface AudioPlayerProps {
   onSkipChunk: (direction: 'prev' | 'next') => void;
 }
 
+const MOBILE_DOCK_VISIBILITY_MS = 2600;
+
 const AudioPlayer = ({
   isPlaying,
   isLoading,
@@ -49,8 +51,10 @@ const AudioPlayer = ({
 }: AudioPlayerProps) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isTouchExpanded, setIsTouchExpanded] = useState(false);
+  const [isTouchDockVisible, setIsTouchDockVisible] = useState(true);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dockVisibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const formatTime = (value: number) => {
     if (!value || Number.isNaN(value)) {
@@ -93,6 +97,22 @@ const AudioPlayer = ({
     }, 2200);
   };
 
+  const showTouchDockBriefly = useCallback(() => {
+    if (!isCoarsePointer || !isVertical) {
+      return;
+    }
+
+    setIsTouchDockVisible(true);
+
+    if (dockVisibilityTimerRef.current) {
+      clearTimeout(dockVisibilityTimerRef.current);
+    }
+
+    dockVisibilityTimerRef.current = setTimeout(() => {
+      setIsTouchDockVisible(false);
+    }, MOBILE_DOCK_VISIBILITY_MS);
+  }, [isCoarsePointer, isVertical]);
+
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
       return;
@@ -113,16 +133,39 @@ const AudioPlayer = ({
     }
   }, [isCoarsePointer, isTouchExpanded]);
 
+  useEffect(() => {
+    if (!isCoarsePointer || !isVertical || typeof window === 'undefined') {
+      return;
+    }
+
+    showTouchDockBriefly();
+    window.addEventListener('pointerdown', showTouchDockBriefly, { passive: true });
+    window.addEventListener('scroll', showTouchDockBriefly, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener('pointerdown', showTouchDockBriefly);
+      window.removeEventListener('scroll', showTouchDockBriefly, true);
+      if (dockVisibilityTimerRef.current) {
+        clearTimeout(dockVisibilityTimerRef.current);
+      }
+    };
+  }, [isCoarsePointer, isVertical, showTouchDockBriefly]);
+
   useEffect(
     () => () => {
       if (exitTimerRef.current) {
         clearTimeout(exitTimerRef.current);
+      }
+      if (dockVisibilityTimerRef.current) {
+        clearTimeout(dockVisibilityTimerRef.current);
       }
     },
     []
   );
 
   const isDockedState = isVertical && !(isCoarsePointer ? isTouchExpanded : isHovered);
+  const displayedVoices = availableVoices.some(voice => voice.id === currentVoice)
+    ? availableVoices
+    : [{ id: currentVoice, label: currentVoice, language: 'custom' }, ...availableVoices];
 
   const positionClasses = isVertical
     ? isCoarsePointer
@@ -158,7 +201,7 @@ const AudioPlayer = ({
       ? 'text-gray-700 opacity-95 dark:text-zinc-200'
       : 'text-gray-600 opacity-20 dark:text-gray-400'
     : 'text-gray-900 dark:text-gray-100';
-  const iconHoverClass = 'hover:text-orange-600 dark:hover:text-orange-400';
+  const iconHoverClass = 'hover:text-gray-900 dark:hover:text-gray-100';
 
   return (
     <aside
@@ -167,6 +210,9 @@ const AudioPlayer = ({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onPointerDown={() => {
+        if (isCoarsePointer) {
+          showTouchDockBriefly();
+        }
         if (isCoarsePointer && !isDockedState) {
           scheduleTouchDock();
         }
@@ -182,9 +228,14 @@ const AudioPlayer = ({
             type="button"
             onClick={() => {
               setIsTouchExpanded(true);
+              setIsTouchDockVisible(true);
               scheduleTouchDock();
             }}
-            className="absolute top-1/2 -right-6 -translate-y-1/2 flex items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-lg shadow-black/10 dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-100"
+            className={`absolute top-1/2 -right-6 -translate-y-1/2 flex items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-lg shadow-black/10 transition-opacity dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-100 ${
+              isTouchDockVisible
+                ? 'pointer-events-auto opacity-100'
+                : 'pointer-events-none opacity-0'
+            }`}
             aria-label="Apri player TTS"
           >
             <ChevronRight className="h-4 w-4" />
@@ -236,7 +287,7 @@ const AudioPlayer = ({
               max={duration || 100}
               value={currentTime}
               onChange={event => onSeek(parseFloat(event.target.value))}
-              className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-orange-600 dark:bg-zinc-700 dark:accent-orange-500"
+              className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
             />
             <span className="w-9">{formatTime(duration)}</span>
           </div>
@@ -323,7 +374,7 @@ const AudioPlayer = ({
                 className={`min-w-[70px] cursor-pointer appearance-none bg-transparent text-center text-xs font-bold uppercase tracking-wider focus:outline-none ${iconColorClass} ${iconHoverClass}`}
                 disabled={isLoading || isPlaying || !ttsConnected}
               >
-                {availableVoices.map(voice => (
+                {displayedVoices.map(voice => (
                   <option
                     key={voice.id}
                     value={voice.id}

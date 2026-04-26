@@ -151,6 +151,26 @@ export interface TtsVoiceDescriptor {
   language: string;
 }
 
+export interface TtsModelSummary {
+  contextLength: number;
+  id: string;
+  name: string;
+  pricing: {
+    completion: string;
+    prompt: string;
+  };
+  supportedParameters: string[];
+  supportsVoiceCloning: boolean;
+  voiceHelpLabel?: string;
+  voiceHelpUrl?: string;
+}
+
+export interface TtsModelsResponse {
+  defaultModel: string;
+  models: TtsModelSummary[];
+  success: boolean;
+}
+
 export type {
   FileData,
   LearningPlan,

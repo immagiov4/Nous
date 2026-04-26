@@ -345,24 +345,30 @@ export interface ProjectExportData {
   documentIndex?: PdfTextIndex | null;
 }
 
-export type OpenRouterModelSlot = 'lesson' | 'assessment' | 'context';
+export type OpenRouterModelSlot = 'lesson' | 'assessment' | 'context' | 'tts';
+export type SettingsPanelSectionId = 'course-notes' | 'ai-models';
 
 export interface OpenRouterModelDefaults {
   lessonModel: string;
   assessmentModel: string;
   contextModel: string;
+  ttsModel: string;
+  ttsVoice: string;
 }
 
 export interface OpenRouterModelPreferences {
   preferredLessonModel: string;
   preferredAssessmentModel: string;
   preferredContextModel: string;
+  preferredTtsModel: string;
+  preferredTtsVoice: string;
 }
 
 export interface UiPreferences extends OpenRouterModelPreferences {
   isDarkMode: boolean;
   preferredVoice: VoiceProfileId;
   playbackRate: number;
+  settingsPanelExpandedSections: SettingsPanelSectionId[];
 }
 
 export interface SelectionRect {
@@ -410,8 +416,22 @@ export interface AnnotationContextMenuState extends BaseContextMenuState {
 
 export type ContextMenuState = SelectionContextMenuState | AnnotationContextMenuState;
 
-export type VoiceProfileId = 'mario';
+export type VoiceProfileId = string;
 export type VoiceName = VoiceProfileId;
+
+export interface TtsModelSummary {
+  contextLength: number;
+  id: string;
+  name: string;
+  pricing: {
+    completion: string;
+    prompt: string;
+  };
+  supportedParameters: string[];
+  supportsVoiceCloning: boolean;
+  voiceHelpLabel?: string;
+  voiceHelpUrl?: string;
+}
 
 // TTS Status interface
 export interface TTSStatus {
@@ -434,6 +454,7 @@ export interface AudioChunk {
 export interface AudioState {
   isPlaying: boolean;
   currentVoice: VoiceProfileId;
+  currentModel: string;
   playbackRate: number;
   chunks: AudioChunk[];
   currentChunkIndex: number;

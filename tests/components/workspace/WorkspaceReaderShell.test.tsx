@@ -48,11 +48,12 @@ const buildProps = (): WorkspaceReaderShellProps => {
         audioElement: null,
         chunks: [],
         currentChunkIndex: 0,
-        currentVoice: 'mario',
+        currentModel: 'openai/gpt-4o-mini-tts-2025-12-15',
+        currentVoice: 'coral',
         isPlaying: true,
         playbackRate: 1,
       },
-      availableVoices: [{ id: 'mario', label: 'Mario', language: 'it-IT' }],
+      availableVoices: [{ id: 'coral', label: 'coral', language: 'it-IT' }],
       currentTime: 12,
       duration: 45,
       onPlayPause: vi.fn(),
@@ -129,6 +130,8 @@ const buildProps = (): WorkspaceReaderShellProps => {
         assessmentModel: 'a',
         contextModel: 'c',
         lessonModel: 'l',
+        ttsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
+        ttsVoice: 'coral',
       },
       musicUrl: '',
       musicVolume: 0.3,
@@ -144,11 +147,15 @@ const buildProps = (): WorkspaceReaderShellProps => {
       onSetMusicVolume: vi.fn(),
       onSetPreferredOpenRouterModel: vi.fn(),
       onSetSettingsOpen: vi.fn(),
+      onSetSettingsPanelExpandedSections: vi.fn(),
       preferredModels: {
         preferredAssessmentModel: '',
         preferredContextModel: '',
         preferredLessonModel: '',
+        preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
+        preferredTtsVoice: 'coral',
       },
+      settingsPanelExpandedSections: ['course-notes'],
     },
     overlays: {
       contextAnswer: null,
@@ -178,6 +185,8 @@ const buildProps = (): WorkspaceReaderShellProps => {
         preferredAssessmentModel: '',
         preferredContextModel: '',
         preferredLessonModel: '',
+        preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
+        preferredTtsVoice: 'coral',
       },
       onSaveConversationNote: vi.fn(),
       onUpdateConversationNote: vi.fn(),
@@ -255,7 +264,7 @@ describe('WorkspaceReaderShell', () => {
     const props = buildProps();
     const { rerender } = render(<WorkspaceReaderShell {...props} />);
 
-    expect(screen.getByTestId('audio-player')).toHaveAttribute('data-voice', 'mario');
+    expect(screen.getByTestId('audio-player')).toHaveAttribute('data-voice', 'coral');
 
     rerender(
       <WorkspaceReaderShell

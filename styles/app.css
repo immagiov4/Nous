@@ -181,6 +181,15 @@ body {
   color: var(--ink-primary);
 }
 
+.model-panel-section-toggle {
+  color: var(--ink-primary);
+  transition: color var(--transition-fast);
+}
+
+.model-panel-section-toggle:hover {
+  color: var(--ink-secondary);
+}
+
 .dark .model-panel-close {
   color: rgba(113, 113, 122, 1);
 }
@@ -201,6 +210,27 @@ body {
 .model-panel-input:focus {
   outline: none;
   border-color: var(--border-strong);
+}
+
+.model-panel-model-row {
+  color: var(--ink-secondary);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.model-panel-model-row:hover {
+  background-color: rgba(243, 244, 246, 1);
+  color: var(--ink-primary);
+}
+
+.dark .model-panel-model-row:hover {
+  background-color: rgba(63, 63, 70, 0.8);
+}
+
+.model-panel-clone-unavailable {
+  border: 1px dashed var(--border-subtle);
+  color: var(--ink-secondary);
 }
 
 .reader-sidebar-scroll {

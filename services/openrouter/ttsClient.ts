@@ -1,10 +1,16 @@
 import { getBackendUrl } from './config.ts';
-import type { TtsStatusResponse, TtsVoiceDescriptor } from './types.ts';
+import type { TtsModelsResponse, TtsStatusResponse, TtsVoiceDescriptor } from './types.ts';
 
 interface GenerateSpeechPayload {
+  model: string;
   text: string;
   voice: string;
   speed: number;
+}
+
+export interface SpeechAudioResponse {
+  audioBuffer: ArrayBuffer;
+  contentType: string;
 }
 
 interface TtsErrorResponse {
@@ -15,7 +21,9 @@ interface TtsVoicesResponse {
   voices?: TtsVoiceDescriptor[];
 }
 
-export const requestSpeechAudio = async (payload: GenerateSpeechPayload): Promise<ArrayBuffer> => {
+export const requestSpeechAudio = async (
+  payload: GenerateSpeechPayload
+): Promise<SpeechAudioResponse> => {
   const response = await fetch(`${getBackendUrl()}/api/tts`, {
     method: 'POST',
     headers: {
@@ -31,7 +39,10 @@ export const requestSpeechAudio = async (payload: GenerateSpeechPayload): Promis
     throw new Error(`TTS API error: ${response.status} - ${errorData.error || 'Unknown error'}`);
   }
 
-  return response.arrayBuffer();
+  return {
+    audioBuffer: await response.arrayBuffer(),
+    contentType: response.headers.get('content-type') || 'audio/mpeg',
+  };
 };
 
 export const requestTtsStatus = async (): Promise<TtsStatusResponse> => {
@@ -59,4 +70,17 @@ export const requestTtsVoices = async (): Promise<TtsVoiceDescriptor[]> => {
 
   const data = (await response.json()) as TtsVoicesResponse;
   return data.voices || [];
+};
+
+export const requestTtsModels = async (): Promise<TtsModelsResponse> => {
+  const response = await fetch(`${getBackendUrl()}/api/tts/models`, {
+    method: 'GET',
+    signal: AbortSignal.timeout(5000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`TTS model discovery failed: ${response.status}`);
+  }
+
+  return (await response.json()) as TtsModelsResponse;
 };

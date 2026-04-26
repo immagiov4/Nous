@@ -22,6 +22,11 @@ export const HIGH_REASONING_CONFIG: OpenRouterReasoningOptions = {
   exclude: true,
 };
 
+export const MEDIUM_REASONING_CONFIG: OpenRouterReasoningOptions = {
+  effort: 'medium',
+  exclude: true,
+};
+
 export const resolveOpenRouterModel = (
   fallbackModel: string,
   slot: OpenRouterModelSlot = 'lesson',

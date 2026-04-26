@@ -17,17 +17,23 @@ test('parseUiPreferences normalizes supported fields and ignores the rest', () =
       preferredLessonModel: ' openai/gpt-5.4-mini ',
       preferredAssessmentModel: ' mistralai/mistral-small-2603 ',
       preferredContextModel: ' openai/gpt-5.4-nano ',
+      preferredTtsModel: ' openai/gpt-4o-mini-tts-2025-12-15 ',
+      preferredTtsVoice: ' cloned-voice-id ',
+      settingsPanelExpandedSections: ['course-notes', 'ai-models', 'unknown'],
       ignored: 'value',
     })
   );
 
   assert.deepEqual(preferences, {
     isDarkMode: true,
-    preferredVoice: 'mario',
+    preferredVoice: 'coral',
     playbackRate: 1.25,
     preferredLessonModel: 'openai/gpt-5.4-mini',
     preferredAssessmentModel: 'mistralai/mistral-small-2603',
     preferredContextModel: 'openai/gpt-5.4-nano',
+    preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
+    preferredTtsVoice: 'coral',
+    settingsPanelExpandedSections: ['course-notes', 'ai-models'],
   });
 });
 
@@ -52,16 +58,22 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
     preferredLessonModel: 'openai/gpt-5.4-mini',
     preferredAssessmentModel: 'mistralai/mistral-small-2603',
     preferredContextModel: 'openai/gpt-5.4-nano',
+    preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
+    preferredTtsVoice: 'coral',
+    settingsPanelExpandedSections: ['course-notes'],
   });
 
   assert.equal(storedValues.has(UI_PREFERENCES_KEY), true);
   assert.deepEqual(readUiPreferences(storage), {
     isDarkMode: false,
-    preferredVoice: 'mario',
+    preferredVoice: 'coral',
     playbackRate: 1,
     preferredLessonModel: 'openai/gpt-5.4-mini',
     preferredAssessmentModel: 'mistralai/mistral-small-2603',
     preferredContextModel: 'openai/gpt-5.4-nano',
+    preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
+    preferredTtsVoice: 'coral',
+    settingsPanelExpandedSections: ['course-notes'],
   });
 });
 
@@ -82,7 +94,8 @@ test('readUiPreferences accepts the legacy Lumina storage key', () => {
 
   assert.deepEqual(readUiPreferences(storage), {
     isDarkMode: true,
-    preferredVoice: 'mario',
+    preferredVoice: 'coral',
     playbackRate: 1.15,
+    preferredTtsVoice: 'coral',
   });
 });

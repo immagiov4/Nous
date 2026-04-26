@@ -35,7 +35,9 @@ export default function WorkspaceReaderHeader({
   onSetMusicVolume,
   onSetPreferredOpenRouterModel,
   onSetSettingsOpen,
+  onSetSettingsPanelExpandedSections,
   preferredModels,
+  settingsPanelExpandedSections,
 }: WorkspaceReaderHeaderModel) {
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const regenerateConfirmRef = useRef<HTMLDivElement>(null);
@@ -280,10 +282,12 @@ export default function WorkspaceReaderHeader({
             value: courseGenerationNotes,
             onChange: onSetCourseGenerationNotes,
           }}
+          expandedSections={settingsPanelExpandedSections}
           modelDefaults={modelDefaults}
           preferredModels={preferredModels}
           onClose={() => onSetSettingsOpen(false)}
           onModelChange={onSetPreferredOpenRouterModel}
+          onSectionToggle={onSetSettingsPanelExpandedSections}
         />
       ) : null}
     </header>

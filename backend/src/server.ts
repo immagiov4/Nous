@@ -1,11 +1,11 @@
 import {
   buildBackendServerUrl,
-  buildTTSServerUrl,
   getBackendServerConfig,
   loadServerConfig,
 } from './config/serverConfig.js';
 import { createApp } from './index.js';
 import { processManager } from './services/processManager.js';
+import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
 
 const app = createApp();
 const config = loadServerConfig();
@@ -15,7 +15,7 @@ const server = app.listen(backendConfig.backendPort, backendConfig.backendHost, 
   const backendUrl = buildBackendServerUrl(backendConfig, { displayHost: true });
   console.log(`[Backend] Server running on ${backendUrl}`);
   console.log(`[Backend] TTS API available at ${backendUrl}/api/tts`);
-  console.log(`[Backend] Expecting TTS server at ${buildTTSServerUrl(config)}`);
+  console.log(`[Backend] OpenRouter TTS default model: ${DEFAULT_TTS_MODEL}`);
 });
 
 server.on('error', (error: NodeJS.ErrnoException) => {

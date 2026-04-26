@@ -1,205 +1,52 @@
-# Qwen3-TTS Integration Setup Guide
+# OpenRouter OpenAI TTS Setup Guide
 
-This guide explains how to set up the local TTS (Text-to-Speech) system using Qwen3-TTS.
+Nous Reader uses OpenRouter for text-to-speech billing and routes every reader speech request to OpenAI TTS through `POST /api/v1/audio/speech`.
 
-## Prerequisites
+## Requirements
 
-- **Python 3.10+** with pip
-- **Node.js 18+** with npm
-- **4GB+ VRAM** (for GPU acceleration) or **8GB+ RAM** (for CPU)
+- `OPENROUTER_API_KEY` in `backend/.env.local` or the project root `.env.local`
+- Node.js dependencies installed with `npm install`
 
-## Quick Start
+## Defaults
 
-### 1. Install Backend Dependencies
+| Setting | Default |
+| --- | --- |
+| TTS model | `openai/gpt-4o-mini-tts-2025-12-15` |
+| Voice ID | `coral` |
+| Output format | `mp3` |
 
-```bash
-cd backend
-npm install
-cd ..
-```
+Optional environment overrides:
 
-### 2. Clone and Setup TTS Server
-
-```bash
-# Clone the Qwen3-TTS FastAPI server
-git clone https://github.com/groxaxo/Qwen3-TTS-Openai-Fastapi tts-server
-
-# Install Python dependencies
-cd tts-server
-pip install -e ".[api]"
-cd ..
-```
-
-### 3. Download the Model (~3GB)
-
-```bash
-npm run setup:tts
-```
-
-This will download the `Qwen3-TTS-12Hz-1.7B-VoiceDesign` model.
-
-### 4. Start Everything
-
-```bash
+```powershell
+$env:MODEL_TTS="openai/gpt-4o-mini-tts-2025-12-15"
+$env:TTS_VOICE="coral"
 npm run dev
 ```
 
-This will start:
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:3301
-- **TTS Server**: http://localhost:8000
+## Supported Voices
 
-## Architecture
+The app exposes the OpenAI TTS built-in voices documented by OpenAI:
 
-```
-npm run dev
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│              scripts/start-all.js                            │
-│  1. Kill ports 8000, 3301, 5173                             │
-│  2. Spawn: npm run dev:backend                               │
-│  3. Spawn: npm run dev:frontend                              │
-└─────────────────────────────────────────────────────────────┘
-                    │
-        ┌───────────┴───────────┐
-        ▼                       ▼
-┌───────────────────┐   ┌───────────────────┐
-│  Backend Node.js  │   │  Frontend Vite    │
-│  localhost:3301   │   │  localhost:5173   │
-└─────────┬─────────┘   └───────────────────┘
-          │
-          ▼ spawn
-┌─────────────────────────────────────────────────────────────┐
-│         Process Manager (backend/src/services/)              │
-│  python -m api.main                                          │
-│  env: TTS_MODEL_NAME, TTS_DEVICE, HF_HOME                    │
-└─────────┬───────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────┐
-│     Python FastAPI (groxaxo/Qwen3-TTS-Openai-Fastapi)        │
-│     localhost:8000/v1/audio/speech                           │
-│     Model: Qwen3-TTS-12Hz-1.7B-VoiceDesign                   │
-└─────────────────────────────────────────────────────────────┘
+`alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`, `nova`, `onyx`, `sage`, `shimmer`, `verse`, `marin`, and `cedar`.
+
+Unsupported or stale saved voice IDs are normalized back to `coral`.
+
+## API Flow
+
+```text
+Reader UI
+  -> backend POST /api/tts
+  -> OpenRouter POST /api/v1/audio/speech
+  -> OpenAI TTS model
+  -> audio/mpeg bytes
 ```
 
-## Voice Profiles
+The backend also exposes:
 
-Two Italian voices are pre-configured:
+- `GET /api/tts/models` - the single active OpenAI TTS model
+- `GET /api/voices` - the OpenAI voice list configured for the reader
+- `GET /api/status` - OpenRouter TTS readiness
 
-| Voice | Description |
-|-------|-------------|
-| **Marco** | Male, 40 years, warm and professional |
-| **Giulia** | Female, 30 years, clear and friendly |
+## Legacy Local TTS
 
-## Model Variants (1.7B vs 0.6B)
-
-The app now uses cloned voice flow (`clone:Mario`) and must run a **Base** model.
-
-- `Qwen/Qwen3-TTS-12Hz-1.7B-Base`: better quality, slower.
-- `Qwen/Qwen3-TTS-12Hz-0.6B-Base`: faster, lower quality.
-
-### Quick switch (PowerShell)
-
-Start with **0.6B**:
-
-```powershell
-$env:TTS_MODEL_NAME="Qwen/Qwen3-TTS-12Hz-0.6B-Base"
-npm run dev
-```
-
-Start with **1.7B**:
-
-```powershell
-$env:TTS_MODEL_NAME="Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-npm run dev
-```
-
-### If you run only the Python TTS server manually
-
-```powershell
-cd tts-server
-$env:TTS_BACKEND="official"
-$env:TTS_MODEL_NAME="Qwen/Qwen3-TTS-12Hz-0.6B-Base"  # or 1.7B-Base
-$env:FORCED_VOICE_PROFILE="Mario"
-python -m api.main
-```
-
-### Verify active model
-
-Check startup logs and confirm:
-
-- `Model: Qwen/Qwen3-TTS-12Hz-0.6B-Base` (or `1.7B-Base`)
-- Voice clone capability endpoint returns `supported: true`:
-
-```powershell
-Invoke-RestMethod http://localhost:8880/v1/audio/voice-clone/capabilities
-```
-
-## Configuration
-
-Edit `server.config.json` to customize:
-
-```json
-{
-  "pythonExecutable": "python",
-  "ttsServerPort": 8000,
-  "device": "auto",  // "cuda", "mps", "cpu", or "auto"
-  "startupTimeoutMs": 120000
-}
-```
-
-## Hardware Requirements
-
-| Device | Requirement | Latency |
-|--------|-------------|---------|
-| CUDA GPU | 4GB VRAM | ~200-500ms |
-| Apple Silicon | 4GB unified | ~300-800ms |
-| CPU only | 8GB RAM | ~5-15s |
-
-## Troubleshooting
-
-### TTS Server Won't Start
-
-1. Check Python version: `python --version` (needs 3.10+)
-2. Verify dependencies: `pip list | grep transformers`
-3. Check logs in terminal for errors
-
-### Model Download Fails
-
-1. Ensure you have enough disk space (~4GB)
-2. Check internet connection
-3. Try manual download:
-   ```bash
-   cd tts-server
-   python download_model.py
-   ```
-
-### Audio Quality Issues
-
-1. Ensure you're using the VoiceDesign model (not Base)
-2. Check the voice design prompt in `backend/src/config/voice-profiles.json`
-3. Adjust temperature in voice profile settings
-
-## API Endpoints
-
-### Backend (Node.js)
-
-- `POST /api/tts` - Generate speech
-- `GET /api/voices` - List available voices
-- `GET /api/status` - Check TTS server status
-
-### TTS Server (Python)
-
-- `POST /v1/audio/speech` - OpenAI-compatible TTS endpoint
-- `GET /v1/models` - List models
-- `GET /health` - Health check
-
-## Stopping Services
-
-```bash
-npm run stop
-```
-
-This will kill all processes on ports 8000, 3301, and 5173.
+The old local Qwen/Python `tts-server` folder is kept in the repository as inactive legacy code. It is no longer started by the main TTS flow and is not required for OpenRouter TTS.

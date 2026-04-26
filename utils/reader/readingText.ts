@@ -6,6 +6,8 @@ const collapseWhitespace = (text: string): string =>
     .trim();
 
 const BLOCK_PAUSE_WEIGHT = 200;
+const NON_SPEECH_SELECTOR =
+  'figure, figcaption, img, picture, svg, canvas, [data-nous-speech="ignore"]';
 
 const getReadingWeight = (text: string): number => {
   const baseLength = text.length;
@@ -30,6 +32,10 @@ export interface ReadableBlock extends ReadableSegment {
 export const prepareMarkdownForSpeech = (content: string): string => {
   const cleanedContent = content
     .replace(/\{\{PDF_IMAGE:[^}]+\}\}/g, ' ')
+    .replace(/<figure\b[\s\S]*?<\/figure>/gi, ' ')
+    .replace(/<picture\b[\s\S]*?<\/picture>/gi, ' ')
+    .replace(/<figcaption\b[\s\S]*?<\/figcaption>/gi, ' ')
+    .replace(/<img\b[^>]*>/gi, ' ')
     .replace(/<\/?mark\b[^>]*>/g, '')
     .replace(/<\/?span[^>]*>/g, '')
     .replace(/```[\s\S]*?```/g, '\n')
@@ -50,11 +56,13 @@ export const prepareMarkdownForSpeech = (content: string): string => {
 
 export const extractReadableElementText = (element: HTMLElement): string => {
   const clone = element.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll('pre, code, .katex, .katex-display, script, style').forEach(node => {
-    node.remove();
-  });
+  clone
+    .querySelectorAll(`pre, code, .katex, .katex-display, script, style, ${NON_SPEECH_SELECTOR}`)
+    .forEach(node => {
+      node.remove();
+    });
 
-  return collapseWhitespace(clone.innerText);
+  return collapseWhitespace(clone.innerText ?? clone.textContent ?? '');
 };
 
 export const buildReadableBlocks = (container: HTMLElement): ReadableBlock[] => {
@@ -64,6 +72,7 @@ export const buildReadableBlocks = (container: HTMLElement): ReadableBlock[] => 
 
   let totalWeight = 0;
   const weightedElements = Array.from(textElements)
+    .filter(node => !(node as HTMLElement).closest(NON_SPEECH_SELECTOR))
     .map(node => {
       const element = node as HTMLElement;
       const text = extractReadableElementText(element);

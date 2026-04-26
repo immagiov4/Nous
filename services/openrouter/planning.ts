@@ -5,7 +5,7 @@ import {
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
-import { HIGH_REASONING_CONFIG } from './config.ts';
+import { HIGH_REASONING_CONFIG, MEDIUM_REASONING_CONFIG } from './config.ts';
 import { buildReasoningContentForFile, clipPdfSourceText } from './contextChat.ts';
 import {
   buildLessonChunkContext,
@@ -1761,7 +1761,7 @@ const verifyLessonDraft = async ({
     () =>
       callOpenRouter({
         model: MODEL_FLASH,
-        reasoning: HIGH_REASONING_CONFIG,
+        reasoning: MEDIUM_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },
           { role: 'user', content: verificationPrompt },

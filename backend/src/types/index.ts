@@ -4,7 +4,7 @@ export interface VoiceProfile {
   id: string;
   name: string;
   language: string;
-  mode: 'voice_design';
+  mode: 'openrouter_voice' | 'voice_design';
   voiceDesignPrompt: string;
   modelSettings: {
     temperature: number;
@@ -36,8 +36,29 @@ export interface ServerConfig {
 
 export interface TTSRequest {
   text: string;
-  voice?: string; // Voice profile ID or voice design prompt
+  model?: string;
+  voice?: string;
   speed?: number;
+}
+
+export interface GeneratedSpeechAudio {
+  audioBuffer: ArrayBuffer;
+  contentType: string;
+  generationId?: string;
+}
+
+export interface TtsModelSummary {
+  contextLength: number;
+  id: string;
+  name: string;
+  pricing: {
+    completion: string;
+    prompt: string;
+  };
+  supportedParameters: string[];
+  supportsVoiceCloning: boolean;
+  voiceHelpLabel?: string;
+  voiceHelpUrl?: string;
 }
 
 export interface TTSResponse {

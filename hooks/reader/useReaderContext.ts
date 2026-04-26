@@ -26,6 +26,8 @@ import {
 
 const CONTEXT_MENU_MOBILE_DEBOUNCE_MS = 160;
 const SELECTION_MENU_REOPEN_SUPPRESSION_MS = 260;
+const ANNOTATION_MENU_OPEN_SUPPRESSION_MS = 700;
+const ANNOTATION_MARK_SELECTOR = 'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
 
 interface ContextAnswerResizeState {
   pointerId: number;
@@ -83,6 +85,7 @@ export const useReaderContext = ({
   const contextAnswerResizePreviewRef = useRef<HTMLDivElement>(null);
   const selectionMenuTimeoutRef = useRef<number | null>(null);
   const suppressedSelectionMenuRef = useRef<{ key: string; until: number } | null>(null);
+  const suppressOutsideCloseUntilRef = useRef(0);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
   const contextAnswerDraftSizeRef = useRef<ContextAnswerSize>(CONTEXT_ANSWER_DEFAULT_SIZE);
   // Mirror of contextMenu state consumed from callbacks that must keep a stable
@@ -171,6 +174,7 @@ export const useReaderContext = ({
   );
 
   const closeContextMenu = useCallback(() => {
+    contextMenuStateRef.current = createClosedContextMenuState();
     setContextMenu(currentMenu => {
       if (!currentMenu.visible) {
         return currentMenu;
@@ -341,9 +345,7 @@ export const useReaderContext = ({
         return;
       }
 
-      const annotationElement = target.closest(
-        'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]'
-      );
+      const annotationElement = target.closest(ANNOTATION_MARK_SELECTOR);
       if (
         !(annotationElement instanceof HTMLElement) ||
         !contentRef.current.contains(annotationElement)
@@ -388,26 +390,28 @@ export const useReaderContext = ({
         return;
       }
 
-      setContextMenu(
-        createAnnotationContextMenuState({
-          annotationId,
-          annotationNote,
-          anchorX: rect.left + rect.width / 2,
-          anchorY: rect.bottom,
-          horizontalBounds: {
-            left: contentRect.left,
-            right: contentRect.right,
-          },
-          placement: isMobileViewport ? 'mobile-sheet' : 'desktop-floating',
-          selectedText,
-          selectionRect: {
-            top: rect.top,
-            left: rect.left,
-            width: rect.width,
-            height: rect.height,
-          },
-        })
-      );
+      const nextMenu = createAnnotationContextMenuState({
+        annotationId,
+        annotationNote,
+        anchorX: rect.left + rect.width / 2,
+        anchorY: rect.bottom,
+        horizontalBounds: {
+          left: contentRect.left,
+          right: contentRect.right,
+        },
+        placement: isMobileViewport ? 'mobile-sheet' : 'desktop-floating',
+        selectedText,
+        selectionRect: {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        },
+      });
+
+      contextMenuStateRef.current = nextMenu;
+      suppressOutsideCloseUntilRef.current = Date.now() + ANNOTATION_MENU_OPEN_SUPPRESSION_MS;
+      setContextMenu(nextMenu);
     },
     [closeContextMenu, contentRef, isMobileViewport, sectionAnnotations, sectionContent]
   );
@@ -592,6 +596,19 @@ export const useReaderContext = ({
         return;
       }
 
+      if (Date.now() < suppressOutsideCloseUntilRef.current) {
+        return;
+      }
+
+      const contentElement = contentRef.current;
+      if (
+        target instanceof Element &&
+        target.closest(ANNOTATION_MARK_SELECTOR) &&
+        contentElement?.contains(target)
+      ) {
+        return;
+      }
+
       if (contextMenuRef.current?.contains(target)) {
         return;
       }
@@ -603,7 +620,7 @@ export const useReaderContext = ({
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
     };
-  }, [closeContextMenu, contextMenu.visible]);
+  }, [closeContextMenu, contentRef, contextMenu.visible]);
 
   useEffect(() => {
     if (!isMobileViewport) {
@@ -612,6 +629,17 @@ export const useReaderContext = ({
     }
 
     const handleSelectionEvent = (event?: Event) => {
+      const target = event?.target;
+      const contentElement = contentRef.current;
+      if (
+        target instanceof Element &&
+        target.closest(ANNOTATION_MARK_SELECTOR) &&
+        contentElement?.contains(target)
+      ) {
+        clearSelectionMenuTimeout();
+        return;
+      }
+
       syncMobileContextMenu(event?.target);
     };
 
@@ -625,7 +653,7 @@ export const useReaderContext = ({
 
       clearSelectionMenuTimeout();
     };
-  }, [clearSelectionMenuTimeout, isMobileViewport, syncMobileContextMenu]);
+  }, [clearSelectionMenuTimeout, contentRef, isMobileViewport, syncMobileContextMenu]);
 
   useEffect(() => {
     if (activeSectionId === null || activeSectionId.length > 0) {

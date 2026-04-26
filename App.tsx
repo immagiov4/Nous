@@ -15,6 +15,7 @@ import { useWorkspaceFileActions } from './hooks/workspace/useWorkspaceFileActio
 import { useWorkspaceNavigation } from './hooks/workspace/useWorkspaceNavigation.ts';
 import { useWorkspaceReaderActions } from './hooks/workspace/useWorkspaceReaderActions.ts';
 import { useWorkspaceReaderRuntime } from './hooks/workspace/useWorkspaceReaderRuntime.ts';
+import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from './services/audio/voiceProfile.ts';
 import { selectActiveLaboratoryExercise } from './services/laboratory/state.ts';
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from './services/openrouter/index.ts';
 import { selectIsLaboratoryBusy, selectLaboratoryMessage } from './services/workspace/workflow.ts';
@@ -39,6 +40,8 @@ const defaultModelConfig = {
   lessonModel: MODEL_REASONING,
   assessmentModel: MODEL_ASSESSMENT,
   contextModel: MODEL_CONTEXT,
+  ttsModel: DEFAULT_TTS_MODEL,
+  ttsVoice: DEFAULT_TTS_VOICE,
 };
 
 const resolvePdfMappingWarning = (
@@ -500,7 +503,9 @@ const App = () => {
       onSetMusicVolume: readerRuntime.setMusicVolume,
       onSetPreferredOpenRouterModel: readerRuntime.setPreferredOpenRouterModel,
       onSetSettingsOpen: readerRuntime.readerChrome.setIsSettingsOpen,
+      onSetSettingsPanelExpandedSections: readerRuntime.setSettingsPanelExpandedSections,
       preferredModels: readerRuntime.preferredModels,
+      settingsPanelExpandedSections: readerRuntime.settingsPanelExpandedSections,
     },
     overlays: {
       contextAnswer: readerRuntime.readerContext.contextAnswer,

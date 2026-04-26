@@ -223,6 +223,7 @@ const MarkdownRenderer = ({
           <figure
             key={part.key}
             className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85"
+            data-nous-speech="ignore"
           >
             <img
               src={part.asset.dataUrl}
