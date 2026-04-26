@@ -238,12 +238,10 @@ test('preparePdfLessonMappings deep-repairs unresolved lessons instead of persis
   assert.equal(callOpenRouterMock.mock.calls[2]?.[0]?.disableModelOverride, true);
   assert.ok((callOpenRouterMock.mock.calls[2]?.[0]?.max_tokens || 0) >= 1024);
 
-  const coverageWarningCall = pushNousDebugTraceMock.mock.calls.find(
-    ([event]) => event === 'pdf-plan:coverage-warning'
+  assert.equal(result.documentIndex?.mappingWarnings?.length, 0);
+  assert.ok(
+    !pushNousDebugTraceMock.mock.calls.some(([event]) => event === 'pdf-plan:coverage-warning')
   );
-  assert.ok(coverageWarningCall);
-  assert.match(String(coverageWarningCall?.[1]?.warnings?.[0] || ''), /Copertura/i);
-  assert.ok((coverageWarningCall?.[1]?.gapCount || 0) > 0);
 });
 
 test('preparePdfLessonMappings uses a narrower prompt window and larger token budget for single-lesson repairs', async () => {

@@ -43,13 +43,9 @@ const MAX_REPAIR_MAPPING_CHUNK_CANDIDATES = 32;
 const REPAIR_MAPPING_CHUNK_WINDOW_PADDING = 5;
 const HEADING_MAX_WORDS = 14;
 const HEADING_MAX_CHARS = 120;
-const PDF_PLAN_COVERAGE_TARGET_RATIO = 0.9;
-const PDF_PLAN_COVERAGE_WARN_RATIO = 0.75;
 const PDF_PLAN_EDGE_EXCLUSION_RATIO = 0.05;
 const PDF_PLAN_MAX_EDGE_PAGES = 6;
 const PDF_PLAN_MIN_PAGES_FOR_EDGE_EXCLUSION = 18;
-const PDF_PLAN_MAX_REPORTED_GAPS = 8;
-const PDF_PLAN_FRAGMENTATION_SLACK_PAGES = 2;
 
 type PageRangeSource = 'exact' | 'estimated' | 'mixed' | 'missing';
 
@@ -79,7 +75,6 @@ interface PdfPlanCoverageReport {
   gapCount: number;
   gaps: PdfPlanPageGap[];
   lessonCount: number;
-  lessonPageHeuristic: { max: number; min: number } | null;
   lessonSpans: PdfPlanLessonCoverage[];
   mappedLessonCount: number;
   mappingSource: 'fallback' | 'mapped';
@@ -429,22 +424,6 @@ const resolvePdfPlanSubstantiveRange = (pageCount: number) => {
     endPage,
     pageCount: endPage - startPage + 1,
   };
-};
-
-const resolveSoftLessonPageBounds = (pageCount: number): { min: number; max: number } | null => {
-  if (pageCount >= 120) {
-    return { min: 10, max: 30 };
-  }
-
-  if (pageCount >= 61) {
-    return { min: 8, max: 24 };
-  }
-
-  if (pageCount >= 25) {
-    return { min: 4, max: 18 };
-  }
-
-  return null;
 };
 
 const buildCompactSnippet = (text: string, maxChars: number): string => {
@@ -1396,7 +1375,6 @@ const buildPdfPlanCoverageReport = (
 ): PdfPlanCoverageReport => {
   const pageLayout = buildPdfPageTextLayout(pdfPages);
   const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
-  const lessonPageHeuristic = resolveSoftLessonPageBounds(pageCount);
 
   const lessonSpans = plan.sections
     .filter(section => section.type !== 'summary')
@@ -1441,22 +1419,6 @@ const buildPdfPlanCoverageReport = (
       const coveredPageCount = coveredPages.length;
       const flags: string[] = [];
 
-      if (
-        lessonPageHeuristic &&
-        coveredPageCount > 0 &&
-        coveredPageCount < lessonPageHeuristic.min
-      ) {
-        flags.push('too-narrow');
-      }
-
-      if (lessonPageHeuristic && pageRangeLength > lessonPageHeuristic.max) {
-        flags.push('too-wide');
-      }
-
-      if (coveredPageCount + PDF_PLAN_FRAGMENTATION_SLACK_PAGES < pageRangeLength) {
-        flags.push('fragmented');
-      }
-
       return {
         lessonId: section.id,
         title: section.title,
@@ -1496,52 +1458,11 @@ const buildPdfPlanCoverageReport = (
     substantiveRange.pageCount > 0 ? coveredSubstantivePages.size / substantiveRange.pageCount : 1;
 
   const missingLessons = lessonSpans.filter(lesson => lesson.flags.includes('missing-mapping'));
-  const tooNarrowLessons = lessonSpans.filter(lesson => lesson.flags.includes('too-narrow'));
-  const tooWideLessons = lessonSpans.filter(lesson => lesson.flags.includes('too-wide'));
-  const fragmentedLessons = lessonSpans.filter(lesson => lesson.flags.includes('fragmented'));
   const warnings: string[] = [];
-
-  if (coverageRatio < PDF_PLAN_COVERAGE_WARN_RATIO) {
-    warnings.push(
-      `Copertura sostanziale stimata bassa: ${(coverageRatio * 100).toFixed(1)}% delle pagine utili contro un target morbido del ${(PDF_PLAN_COVERAGE_TARGET_RATIO * 100).toFixed(0)}%.`
-    );
-  } else if (coverageRatio < PDF_PLAN_COVERAGE_TARGET_RATIO) {
-    warnings.push(
-      `Copertura sotto il target morbido: ${(coverageRatio * 100).toFixed(1)}% delle pagine utili coperte.`
-    );
-  }
-
-  if (gaps.length > 0) {
-    const visibleGaps = gaps.slice(0, PDF_PLAN_MAX_REPORTED_GAPS);
-    warnings.push(
-      `Sono presenti ${gaps.length} gap interni nella copertura del PDF; primi gap: ${visibleGaps
-        .map(gap => formatPageRange(gap.startPage, gap.endPage))
-        .filter(Boolean)
-        .join(', ')}.`
-    );
-  }
 
   if (missingLessons.length > 0) {
     warnings.push(
       `${missingLessons.length} lezioni non hanno chunk primari risolti dopo il mapping.`
-    );
-  }
-
-  if (tooNarrowLessons.length > 0) {
-    warnings.push(
-      `${tooNarrowLessons.length} lezioni risultano molto strette rispetto all'euristica di pagine per lezione.`
-    );
-  }
-
-  if (tooWideLessons.length > 0) {
-    warnings.push(
-      `${tooWideLessons.length} lezioni risultano molto ampie rispetto all'euristica di pagine per lezione.`
-    );
-  }
-
-  if (fragmentedLessons.length > 0) {
-    warnings.push(
-      `${fragmentedLessons.length} lezioni mappano pagine troppo sparse o non contigue.`
     );
   }
 
@@ -1551,7 +1472,6 @@ const buildPdfPlanCoverageReport = (
     gapCount: gaps.length,
     gaps,
     lessonCount: lessonSpans.length,
-    lessonPageHeuristic,
     lessonSpans,
     mappedLessonCount: lessonSpans.filter(lesson => lesson.pageRange).length,
     mappingSource,

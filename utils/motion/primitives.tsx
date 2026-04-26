@@ -5,7 +5,10 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  useEffect,
+  useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { SPRING_TAP, TAP_SCALE, VARIANTS_BACKDROP, VARIANTS_DIALOG } from './tokens.ts';
 import { useShouldAnimate } from './useShouldAnimate.ts';
 
@@ -32,9 +35,18 @@ export const MotionDialog = ({
   contentClassName,
   isOpen,
   onRequestClose,
-  zIndexClassName = 'z-[60]',
+  zIndexClassName = 'z-[100]',
 }: MotionDialogProps) => {
   const shouldAnimate = useShouldAnimate();
+  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    setPortalContainer(document.body);
+  }, []);
 
   const handleBackdropClick = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {
@@ -50,28 +62,31 @@ export const MotionDialog = ({
 
   return (
     <AnimatePresence>
-      {isOpen ? (
-        <motion.div
-          className={`fixed inset-0 ${zIndexClassName} flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm ${containerClassName || ''}`}
-          initial={shouldAnimate ? 'hidden' : false}
-          animate="visible"
-          exit="exit"
-          variants={VARIANTS_BACKDROP}
-          onClick={handleBackdropClick}
-          onKeyDown={handleBackdropKey}
-          role={onRequestClose ? 'presentation' : undefined}
-        >
-          <motion.div
-            className={contentClassName}
-            initial={shouldAnimate ? 'hidden' : false}
-            animate="visible"
-            exit="exit"
-            variants={VARIANTS_DIALOG}
-          >
-            {children}
-          </motion.div>
-        </motion.div>
-      ) : null}
+      {isOpen && portalContainer
+        ? createPortal(
+            <motion.div
+              className={`fixed inset-0 ${zIndexClassName} flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm ${containerClassName || ''}`}
+              initial={shouldAnimate ? 'hidden' : false}
+              animate="visible"
+              exit="exit"
+              variants={VARIANTS_BACKDROP}
+              onClick={handleBackdropClick}
+              onKeyDown={handleBackdropKey}
+              role={onRequestClose ? 'presentation' : undefined}
+            >
+              <motion.div
+                className={contentClassName}
+                initial={shouldAnimate ? 'hidden' : false}
+                animate="visible"
+                exit="exit"
+                variants={VARIANTS_DIALOG}
+              >
+                {children}
+              </motion.div>
+            </motion.div>,
+            portalContainer
+          )
+        : null}
     </AnimatePresence>
   );
 };
