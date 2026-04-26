@@ -10,12 +10,14 @@
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "ai": "^6.0.137",
+    "better-sqlite3": "^12.9.0",
     "cors": "^2.8.5",
     "dotenv": "^17.3.1",
     "express": "^4.21.2",
     "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.14.0",

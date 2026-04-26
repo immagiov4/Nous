@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
-import { IndexedDbProjectRepository } from '../../services/projects/indexedDbProjectRepository';
 import { buildPersistenceSignature } from '../../services/projects/persistenceSignature';
 import {
   createProjectArchiveBlob,
   getProjectArchiveExtension,
 } from '../../services/projects/projectArchive.ts';
 import { ProjectStorageError } from '../../services/projects/projectRepository';
+import {
+  createProjectRepository,
+  getProjectRepositoryMode,
+  type ProjectRepositoryMode,
+  setProjectRepositoryMode as persistProjectRepositoryMode,
+} from '../../services/projects/projectRepositoryFactory';
 import { createProjectSnapshot } from '../../services/projects/projectSnapshot';
+import {
+  transferFolderToLanRepository,
+  transferProjectToLanRepository,
+} from '../../services/projects/projectTransfer';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
   LibraryFolder,
@@ -19,8 +28,6 @@ import type {
 } from '../../types';
 import { buildLibraryTree } from '../../utils/library/tree.ts';
 
-const projectRepository = new IndexedDbProjectRepository();
-
 interface UseProjectLibraryArgs {
   domainState: WorkspaceDomainState;
 }
@@ -31,6 +38,9 @@ const sortProjects = (projects: SavedProjectMeta[]) =>
     .sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime());
 
 export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
+  const [projectRepositoryMode, setProjectRepositoryModeState] = useState<ProjectRepositoryMode>(
+    () => getProjectRepositoryMode()
+  );
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [libraryFolders, setLibraryFolders] = useState<LibraryFolder[]>([]);
   const [libraryPlacements, setLibraryPlacements] = useState<LibraryPlacement[]>([]);
@@ -42,6 +52,15 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const persistentStorageRequestedRef = useRef(false);
   const didLoadInitialStateRef = useRef(false);
   const lastPersistedSignatureRef = useRef<string>('');
+  const lastLoadedRepositoryModeRef = useRef<ProjectRepositoryMode | null>(null);
+
+  const projectRepository = useMemo(
+    () => createProjectRepository(projectRepositoryMode),
+    [projectRepositoryMode]
+  );
+  const lanProjectRepository = useMemo(() => createProjectRepository('lan'), []);
+  const projectRepositoryRef = useRef(projectRepository);
+  projectRepositoryRef.current = projectRepository;
 
   const currentProjectMeta = useMemo(
     () => savedProjects.find(project => project.id === currentProjectId) || null,
@@ -59,14 +78,14 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   );
 
   const refreshSavedProjects = useCallback(async () => {
-    const projects = await projectRepository.listProjects();
+    const projects = await projectRepositoryRef.current.listProjects();
     setSavedProjects(sortProjects(projects));
   }, []);
 
   const refreshLibraryOrganization = useCallback(async () => {
     const [folders, placements] = await Promise.all([
-      projectRepository.listFolders(),
-      projectRepository.listPlacements(),
+      projectRepositoryRef.current.listFolders(),
+      projectRepositoryRef.current.listPlacements(),
     ]);
     setLibraryFolders(folders);
     setLibraryPlacements(placements);
@@ -150,7 +169,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const persistSnapshot = useCallback(
     async (snapshot: ProjectSnapshot) => {
       try {
-        const meta = await projectRepository.saveProject(snapshot);
+        const meta = await projectRepositoryRef.current.saveProject(snapshot);
         syncProjectMeta(meta);
         setStorageError(null);
         lastPersistedSignatureRef.current = buildPersistenceSignature(snapshot);
@@ -201,7 +220,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       const exportData =
         targetProjectId === currentProjectId
           ? buildSnapshotFromDomain()
-          : await projectRepository.loadProject(targetProjectId);
+          : await projectRepositoryRef.current.loadProject(targetProjectId);
 
       if (!exportData) {
         return;
@@ -214,6 +233,98 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       );
     },
     [buildSnapshotFromDomain, currentProjectId, downloadBlob]
+  );
+
+  const shouldSwitchToLanForProject = useCallback(
+    (projectId: string) => currentProjectId === projectId,
+    [currentProjectId]
+  );
+
+  const shouldSwitchToLanForFolder = useCallback(
+    (folderId: string) => {
+      if (!currentProjectId) {
+        return false;
+      }
+
+      return Boolean(
+        libraryTree.descendantProjectIdsByFolderId[folderId]?.includes(currentProjectId)
+      );
+    },
+    [currentProjectId, libraryTree]
+  );
+
+  const transferProjectToLan = useCallback(
+    async (projectId: string) => {
+      if (projectRepositoryMode === 'lan') {
+        return;
+      }
+
+      try {
+        await transferProjectToLanRepository({
+          projectId,
+          sourceRepository: projectRepositoryRef.current,
+          targetRepository: lanProjectRepository,
+          tree: libraryTree,
+        });
+
+        if (shouldSwitchToLanForProject(projectId)) {
+          persistProjectRepositoryMode('lan');
+          setProjectRepositoryModeState('lan');
+          return;
+        }
+
+        await refreshLibraryState();
+        setStorageError(null);
+      } catch (error) {
+        const message =
+          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+        setStorageError(message);
+      }
+    },
+    [
+      lanProjectRepository,
+      libraryTree,
+      projectRepositoryMode,
+      refreshLibraryState,
+      shouldSwitchToLanForProject,
+    ]
+  );
+
+  const transferFolderToLan = useCallback(
+    async (folderId: string) => {
+      if (projectRepositoryMode === 'lan') {
+        return;
+      }
+
+      try {
+        await transferFolderToLanRepository({
+          folderId,
+          sourceRepository: projectRepositoryRef.current,
+          targetRepository: lanProjectRepository,
+          tree: libraryTree,
+        });
+
+        if (shouldSwitchToLanForFolder(folderId)) {
+          persistProjectRepositoryMode('lan');
+          setProjectRepositoryModeState('lan');
+          return;
+        }
+
+        await refreshLibraryState();
+        setStorageError(null);
+      } catch (error) {
+        const message =
+          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+        setStorageError(message);
+      }
+    },
+    [
+      lanProjectRepository,
+      libraryTree,
+      projectRepositoryMode,
+      refreshLibraryState,
+      shouldSwitchToLanForFolder,
+    ]
   );
 
   useEffect(() => {
@@ -230,12 +341,50 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       } catch (error) {
         setStorageError(getErrorMessage(error));
       } finally {
+        lastLoadedRepositoryModeRef.current = projectRepositoryMode;
         setIsLibraryLoading(false);
       }
     };
 
     void loadInitialState();
-  }, [refreshLibraryState]);
+  }, [projectRepositoryMode, refreshLibraryState]);
+
+  useEffect(() => {
+    if (lastLoadedRepositoryModeRef.current === null) {
+      return;
+    }
+
+    if (lastLoadedRepositoryModeRef.current === projectRepositoryMode) {
+      return;
+    }
+
+    let isActive = true;
+    setIsLibraryLoading(true);
+
+    const reloadLibraryState = async () => {
+      try {
+        await refreshLibraryState();
+        if (isActive) {
+          setStorageError(null);
+        }
+      } catch (error) {
+        if (isActive) {
+          setStorageError(getErrorMessage(error));
+        }
+      } finally {
+        if (isActive) {
+          setIsLibraryLoading(false);
+        }
+      }
+    };
+
+    void reloadLibraryState();
+    lastLoadedRepositoryModeRef.current = projectRepositoryMode;
+
+    return () => {
+      isActive = false;
+    };
+  }, [projectRepositoryMode, refreshLibraryState]);
 
   const currentPersistenceSignature = useMemo(
     () => buildPersistenceSignature(domainState),
@@ -269,22 +418,22 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
 
   return {
     createFolder: async (args: { name: string; parentFolderId?: string | null }) => {
-      const folder = await projectRepository.createFolder(args);
+      const folder = await projectRepositoryRef.current.createFolder(args);
       await refreshLibraryOrganization();
       return folder;
     },
     currentProjectId,
     deleteStoredProject: async (projectId: string) => {
-      await projectRepository.deleteProject(projectId);
+      await projectRepositoryRef.current.deleteProject(projectId);
       await refreshLibraryState();
     },
     deleteFolder: async (folderId: string) => {
-      await projectRepository.deleteFolder(folderId);
+      await projectRepositoryRef.current.deleteFolder(folderId);
       await refreshLibraryOrganization();
     },
     downloadProject,
     importProjectData: async (data: unknown) => {
-      const imported = await projectRepository.importProject(data);
+      const imported = await projectRepositoryRef.current.importProject(data);
       await refreshLibraryState();
       return imported;
     },
@@ -293,15 +442,19 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     libraryFolders,
     libraryPlacements,
     libraryTree,
-    loadProjectsById: projectRepository.loadProjectsById.bind(projectRepository),
-    loadStoredProject: projectRepository.loadProject.bind(projectRepository),
+    loadProjectsById: (ids: string[]) => projectRepositoryRef.current.loadProjectsById(ids),
+    loadStoredProject: (projectId: string) => projectRepositoryRef.current.loadProject(projectId),
     moveFolder: async (folderId: string, parentFolderId: string | null, targetIndex?: number) => {
-      const nextFolder = await projectRepository.moveFolder(folderId, parentFolderId, targetIndex);
+      const nextFolder = await projectRepositoryRef.current.moveFolder(
+        folderId,
+        parentFolderId,
+        targetIndex
+      );
       await refreshLibraryOrganization();
       return nextFolder;
     },
     moveProjects: async (projectIds: string[], folderId: string | null, targetIndex?: number) => {
-      const nextPlacements = await projectRepository.moveProjects(
+      const nextPlacements = await projectRepositoryRef.current.moveProjects(
         projectIds,
         folderId,
         targetIndex
@@ -314,7 +467,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     refreshLibraryState,
     refreshSavedProjects,
     renameFolder: async (folderId: string, name: string) => {
-      const nextFolder = await projectRepository.renameFolder(folderId, name);
+      const nextFolder = await projectRepositoryRef.current.renameFolder(folderId, name);
       await refreshLibraryOrganization();
       return nextFolder;
     },
@@ -327,7 +480,18 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         lastPersistedSignatureRef.current = currentPersistenceSignature;
       }
     },
+    projectRepositoryMode,
+    setProjectRepositoryMode: (mode: ProjectRepositoryMode) => {
+      if (mode === projectRepositoryMode) {
+        return;
+      }
+
+      persistProjectRepositoryMode(mode);
+      setProjectRepositoryModeState(mode);
+    },
     storageError,
-    touchStoredProject: projectRepository.touchProject.bind(projectRepository),
+    transferFolderToLan,
+    transferProjectToLan,
+    touchStoredProject: (projectId: string) => projectRepositoryRef.current.touchProject(projectId),
   };
 };

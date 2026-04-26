@@ -8,6 +8,7 @@ import {
   GripVertical,
   MoreVertical,
   Pencil,
+  Server,
   Trash2,
   X,
 } from 'lucide-react';
@@ -48,6 +49,9 @@ interface LibraryTreeViewProps {
   ) => Promise<unknown>;
   onOpenProject: (projectId: string) => void;
   onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
+  onTransferFolderToLan: (folderId: string) => Promise<unknown>;
+  onTransferProjectToLan: (projectId: string) => Promise<unknown>;
+  projectRepositoryMode: 'indexeddb' | 'lan';
   tree: LibraryTree;
 }
 
@@ -242,6 +246,9 @@ export default function LibraryTreeView({
   onMoveProjects,
   onOpenProject,
   onRenameFolder,
+  onTransferFolderToLan,
+  onTransferProjectToLan,
+  projectRepositoryMode,
   tree,
 }: LibraryTreeViewProps) {
   const [createTargetId, setCreateTargetId] = useState<string | null>(null);
@@ -765,6 +772,13 @@ export default function LibraryTreeView({
             onDelete={onDeleteProject}
             onExport={onExportProject}
             onMove={projectId => setMoveTarget({ id: projectId, kind: 'project' })}
+            onTransferToLan={
+              projectRepositoryMode === 'indexeddb'
+                ? projectId => {
+                    void onTransferProjectToLan(projectId);
+                  }
+                : undefined
+            }
             onOpen={onOpenProject}
           />
           {isDropAfter(node.id, 'project') ? (
@@ -894,9 +908,9 @@ export default function LibraryTreeView({
                   return;
                 }
                 const rect = e.currentTarget.getBoundingClientRect();
-                // Menu has 4 items + separator, ~230px worst case. Flip up if it
-                // would otherwise overflow the viewport bottom.
-                const estimatedMenuHeight = 230;
+                // Menu has 5 items + separator in local mode, ~272px worst case.
+                // Flip up if it would otherwise overflow the viewport bottom.
+                const estimatedMenuHeight = projectRepositoryMode === 'indexeddb' ? 272 : 230;
                 const spaceBelow = window.innerHeight - rect.bottom;
                 const spaceAbove = rect.top;
                 const shouldFlipUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
@@ -952,6 +966,19 @@ export default function LibraryTreeView({
                 <GripVertical className="h-4 w-4 shrink-0" />
                 Sposta
               </button>
+              {projectRepositoryMode === 'indexeddb' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenFolderMenuId(null);
+                    void onTransferFolderToLan(node.id);
+                  }}
+                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                >
+                  <Server className="h-4 w-4 shrink-0" />
+                  Porta in LAN
+                </button>
+              ) : null}
               <div className="border-t border-gray-100 dark:border-zinc-700" />
               <button
                 type="button"

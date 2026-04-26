@@ -1,8 +1,9 @@
 import type { UIMessage } from 'ai';
-import { Download, Moon, Plus, Settings2, Sun } from 'lucide-react';
+import { Download, HardDrive, Moon, Plus, Server, Settings2, Sun } from 'lucide-react';
 import { type ChangeEvent, useState } from 'react';
 import logoUrl from '@/assets/logo.png';
 import logoDarkModeUrl from '@/assets/logo_darkmode.png';
+import type { ProjectRepositoryMode } from '../../services/projects/projectRepositoryFactory';
 import type {
   HomeChatMode,
   LibraryContextRef,
@@ -64,16 +65,20 @@ interface LibraryViewProps {
     targetIndex?: number
   ) => Promise<unknown>;
   onSetPreferredOpenRouterModel: (slot: OpenRouterModelSlot, value: string) => void;
+  onSetProjectRepositoryMode: (mode: ProjectRepositoryMode) => void;
   onOpenProject: (projectId: string) => void;
   onPlanUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemoveLibraryContextRef: (reference: LibraryContextRef) => void;
   onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
+  onTransferFolderToLan: (folderId: string) => Promise<unknown>;
+  onTransferProjectToLan: (projectId: string) => Promise<unknown>;
   onSendAssessmentMessage: (message: string) => Promise<void>;
   onToggleDarkMode: () => void;
   onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
   onUploadSourceClick: () => void;
   onSourceFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onImportJsonClick: () => void;
+  projectRepositoryMode: ProjectRepositoryMode;
 }
 
 const LibraryView = ({
@@ -106,6 +111,7 @@ const LibraryView = ({
   onExportProject,
   onHomeChatModeChange,
   onSetPreferredOpenRouterModel,
+  onSetProjectRepositoryMode,
   onLibraryAssistantSend,
   onLibraryWebSearchChange,
   onMoveFolder,
@@ -114,12 +120,15 @@ const LibraryView = ({
   onPlanUpload,
   onRemoveLibraryContextRef,
   onRenameFolder,
+  onTransferFolderToLan,
+  onTransferProjectToLan,
   onSendAssessmentMessage,
   onToggleDarkMode,
   onToggleLibraryContextRef,
   onUploadSourceClick,
   onSourceFileUpload,
   onImportJsonClick,
+  projectRepositoryMode,
 }: LibraryViewProps) => {
   const [isModelPanelOpen, setIsModelPanelOpen] = useState(false);
   const [newFolderTrigger, setNewFolderTrigger] = useState(0);
@@ -152,6 +161,33 @@ const LibraryView = ({
           </div>
 
           <div className="flex shrink-0 items-center gap-2.5">
+            <Pressable
+              onClick={() =>
+                onSetProjectRepositoryMode(projectRepositoryMode === 'lan' ? 'indexeddb' : 'lan')
+              }
+              className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-2.5 text-left transition-colors ${
+                projectRepositoryMode === 'lan'
+                  ? 'border-cyan-300 bg-cyan-50 text-cyan-800 hover:border-cyan-400 dark:border-cyan-500/40 dark:bg-cyan-500/10 dark:text-cyan-200'
+                  : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:text-gray-900 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-200 dark:hover:border-zinc-400 dark:hover:text-white'
+              }`}
+              aria-label={
+                projectRepositoryMode === 'lan'
+                  ? 'Passa alla libreria locale'
+                  : 'Passa alla libreria LAN'
+              }
+              title={
+                projectRepositoryMode === 'lan' ? 'Archivio LAN attivo' : 'Archivio locale attivo'
+              }
+            >
+              {projectRepositoryMode === 'lan' ? (
+                <Server className="h-4 w-4 flex-shrink-0" />
+              ) : (
+                <HardDrive className="h-4 w-4 flex-shrink-0" />
+              )}
+              <span className="hidden text-sm sm:inline">
+                {projectRepositoryMode === 'lan' ? 'LAN' : 'Locale'}
+              </span>
+            </Pressable>
             <div className="relative">
               <Pressable
                 onClick={() => setIsModelPanelOpen(currentValue => !currentValue)}
@@ -257,6 +293,9 @@ const LibraryView = ({
               onMoveProjects={onMoveProjects}
               onOpenProject={onOpenProject}
               onRenameFolder={onRenameFolder}
+              onTransferFolderToLan={onTransferFolderToLan}
+              onTransferProjectToLan={onTransferProjectToLan}
+              projectRepositoryMode={projectRepositoryMode}
               tree={libraryTree}
             />
           ) : null}

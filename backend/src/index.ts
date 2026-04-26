@@ -2,6 +2,7 @@ import cors from 'cors';
 import express from 'express';
 import chatRouter from './routes/chat.js';
 import pdfRouter from './routes/pdf.js';
+import projectsRouter from './routes/projects.js';
 import statusRouter from './routes/status.js';
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
@@ -27,6 +28,7 @@ export const createApp = () => {
   app.use('/api/status', statusRouter);
   app.use('/api/pdf', pdfRouter);
   app.use('/api/chat', chatRouter);
+  app.use('/api/projects', projectsRouter);
 
   app.get('/', (_req, res) => {
     res.redirect('http://localhost:5173');

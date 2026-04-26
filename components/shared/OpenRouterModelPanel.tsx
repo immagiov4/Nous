@@ -106,7 +106,7 @@ export default function OpenRouterModelPanel({
         className="model-panel-surface rounded-2xl p-4"
       >
         <div className="model-panel-divider flex items-center justify-between gap-4 border-b pb-3">
-          <h3 className="model-panel-title text-sm font-semibold">Modelli AI</h3>
+          <h3 className="model-panel-title text-sm font-semibold">Impostazioni modelli</h3>
           <div className="flex items-center gap-1">
             <button
               type="button"

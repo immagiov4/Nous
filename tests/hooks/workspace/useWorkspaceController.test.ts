@@ -344,6 +344,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     loadStoredProject: async () => loadedSnapshot,
     moveFolder: async () => null,
     moveProjects: async () => [],
+    projectRepositoryMode: 'indexeddb',
     persistSnapshot: async snapshot => {
       persistedSnapshots.push(snapshot);
       return buildMeta(snapshot.id);
@@ -361,10 +362,12 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       adapter.currentProjectId = projectId;
     },
     setProjectHydrated: () => {},
+    setProjectRepositoryMode: () => {},
     storageError: null,
+    transferFolderToLan: async () => {},
+    transferProjectToLan: async () => {},
     touchStoredProject: async projectId => {
       touchedProjectIds.push(projectId);
-      return buildMeta(projectId);
     },
   };
 
@@ -1083,9 +1086,8 @@ test('openProject does not wait for library metadata refresh before continuing',
         refreshStarted = true;
         await refreshGate;
       },
-      touchStoredProject: async projectId => {
+      touchStoredProject: async _projectId => {
         await touchGate;
-        return buildMeta(projectId);
       },
     },
   });

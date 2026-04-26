@@ -31,6 +31,24 @@ AI-powered deep reading and learning platform. Upload documents (PDF, plain text
 
 This launches the Vite frontend at `http://localhost:5173` and the Express backend at `http://localhost:3301`.
 
+## LAN Project Sync
+
+Projects are browser-local by default. To share the same project library across devices on your
+local network, run the frontend/backend on a host reachable from the LAN and set:
+
+```bash
+PROJECT_REPOSITORY_MODE=lan
+VITE_PROJECT_REPOSITORY_MODE=lan
+PROJECT_STORAGE_DRIVER=sqlite
+PROJECT_SQLITE_PATH=./data/lumina-projects.sqlite
+LOCAL_AUTH_BYPASS=true
+LOCAL_USER_ID=local-user
+```
+
+In this mode the Express backend stores projects in a local SQLite file and all LAN clients use the
+same built-in user. There is no device discovery in v1: open the app from the other device using the
+server machine IP/hostname, for example `http://192.168.1.10:5173`.
+
 ## Quality
 
 ```bash

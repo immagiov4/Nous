@@ -7,11 +7,13 @@ import {
   FolderInput,
   Loader2,
   MoreVertical,
+  Server,
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { SavedProjectMeta } from '../../types';
 import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 
@@ -19,6 +21,7 @@ interface ProjectCardProps {
   className?: string;
   isOpening?: boolean;
   onMove?: (projectId: string) => void;
+  onTransferToLan?: (projectId: string) => void;
   project: SavedProjectMeta;
   onDelete: (projectId: string) => void;
   onExport: (projectId: string) => void;
@@ -33,6 +36,11 @@ const formatDate = (value: string): string =>
     year: 'numeric',
   }).format(new Date(value));
 
+const MENU_WIDTH = 176;
+const MENU_GAP = 8;
+const MENU_EDGE_PADDING = 12;
+const MENU_ESTIMATED_HEIGHT = 188;
+
 const ProjectCard = ({
   className,
   isOpening = false,
@@ -40,10 +48,14 @@ const ProjectCard = ({
   onExport,
   onMove,
   onOpen,
+  onTransferToLan,
   project,
   style,
 }: ProjectCardProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPlacement, setMenuPlacement] = useState<'above' | 'below'>('below');
+  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0 });
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const CoverIcon =
     project.sourceKind === 'codebase'
       ? FileArchive
@@ -51,6 +63,114 @@ const ProjectCard = ({
         ? BookCopy
         : FileText;
   const showSourceWarning = !project.hasSourceFile && project.sourceKind !== 'learn-mode';
+
+  const openMenu = () => {
+    const buttonRect = menuButtonRef.current?.getBoundingClientRect();
+    if (!buttonRect) {
+      setMenuPosition({ left: 0, top: 0 });
+      setMenuPlacement('below');
+      setMenuOpen(true);
+      return;
+    }
+
+    const spaceBelow = window.innerHeight - buttonRect.bottom;
+    const spaceAbove = buttonRect.top;
+    const shouldOpenAbove = spaceBelow < MENU_ESTIMATED_HEIGHT && spaceAbove > spaceBelow;
+    const nextLeft = Math.max(
+      MENU_EDGE_PADDING,
+      Math.min(window.innerWidth - MENU_WIDTH - MENU_EDGE_PADDING, buttonRect.right - MENU_WIDTH)
+    );
+
+    setMenuPlacement(shouldOpenAbove ? 'above' : 'below');
+    setMenuPosition({
+      left: nextLeft,
+      top: shouldOpenAbove
+        ? Math.max(MENU_EDGE_PADDING, buttonRect.top - MENU_ESTIMATED_HEIGHT - MENU_GAP)
+        : buttonRect.bottom + MENU_GAP,
+    });
+    setMenuOpen(true);
+  };
+
+  const renderMenu = () => {
+    if (!menuOpen) {
+      return null;
+    }
+
+    return createPortal(
+      <>
+        <button
+          type="button"
+          aria-label="Chiudi menu progetto"
+          className="fixed inset-0 z-40"
+          onClick={() => setMenuOpen(false)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') setMenuOpen(false);
+          }}
+        />
+        <MotionPopover
+          isOpen={menuOpen}
+          originX={menuPlacement === 'above' ? 'bottom right' : 'top right'}
+          className="fixed z-50 min-w-[10rem] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
+          style={{
+            left: `${menuPosition.left}px`,
+            top: `${menuPosition.top}px`,
+            width: `${MENU_WIDTH}px`,
+          }}
+        >
+          {onMove ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onMove(project.id);
+              }}
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            >
+              <FolderInput className="h-4 w-4 shrink-0" />
+              Sposta
+            </button>
+          ) : null}
+          {onTransferToLan ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onTransferToLan(project.id);
+              }}
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            >
+              <Server className="h-4 w-4 shrink-0" />
+              Porta in LAN
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              onExport(project.id);
+            }}
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          >
+            <Download className="h-4 w-4 shrink-0" />
+            Esporta
+          </button>
+          <div className="border-t border-gray-100 dark:border-zinc-700" />
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              onDelete(project.id);
+            }}
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+          >
+            <Trash2 className="h-4 w-4 shrink-0" />
+            Elimina
+          </button>
+        </MotionPopover>
+      </>,
+      document.body
+    );
+  };
 
   return (
     <article
@@ -104,69 +224,23 @@ const ProjectCard = ({
 
       {/* Actions */}
       <div className="relative flex-shrink-0">
-        {menuOpen ? (
-          <button
-            type="button"
-            aria-label="Chiudi menu progetto"
-            className="fixed inset-0 z-40"
-            onClick={() => setMenuOpen(false)}
-            onKeyDown={e => {
-              if (e.key === 'Escape') setMenuOpen(false);
-            }}
-          />
-        ) : null}
         <Pressable
+          ref={menuButtonRef}
           onClick={e => {
             e.stopPropagation();
-            setMenuOpen(v => !v);
+            if (menuOpen) {
+              setMenuOpen(false);
+              return;
+            }
+
+            openMenu();
           }}
           className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-paper-dark dark:hover:text-zinc-200"
           title="Azioni"
         >
           <MoreVertical className="h-4 w-4" />
         </Pressable>
-        <MotionPopover
-          isOpen={menuOpen}
-          originX="top right"
-          className="absolute right-0 top-9 z-50 min-w-[10rem] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
-        >
-          {onMove ? (
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onMove(project.id);
-              }}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
-            >
-              <FolderInput className="h-4 w-4 shrink-0" />
-              Sposta
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              setMenuOpen(false);
-              onExport(project.id);
-            }}
-            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
-          >
-            <Download className="h-4 w-4 shrink-0" />
-            Esporta
-          </button>
-          <div className="border-t border-gray-100 dark:border-zinc-700" />
-          <button
-            type="button"
-            onClick={() => {
-              setMenuOpen(false);
-              onDelete(project.id);
-            }}
-            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-          >
-            <Trash2 className="h-4 w-4 shrink-0" />
-            Elimina
-          </button>
-        </MotionPopover>
+        {renderMenu()}
       </div>
     </article>
   );

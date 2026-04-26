@@ -151,7 +151,11 @@ const App = () => {
     setGenerationNotes,
     setMusicUrl,
     startLearnJourney,
+    projectRepositoryMode,
+    setProjectRepositoryMode,
     storageError,
+    transferFolderToLan,
+    transferProjectToLan,
     submitAssessment,
     updateLaboratoryAttachmentMetadata,
     updateLaboratoryTextAttachment,
@@ -623,14 +627,18 @@ const App = () => {
         }}
         onRemoveLibraryContextRef={libraryAssistantChat.removeAttachedContextRef}
         onRenameFolder={projectLibrary.renameFolder}
+        onTransferFolderToLan={transferFolderToLan}
+        onTransferProjectToLan={transferProjectToLan}
         onSendAssessmentMessage={handleNewCourseMessage}
         onSetPreferredOpenRouterModel={readerRuntime.setPreferredOpenRouterModel}
+        onSetProjectRepositoryMode={setProjectRepositoryMode}
         onSourceFileUpload={handleHomeSourceFileUpload}
         onToggleDarkMode={() =>
           readerRuntime.readerChrome.setIsDarkMode(!readerRuntime.readerChrome.isDarkMode)
         }
         onToggleLibraryContextRef={libraryAssistantChat.toggleAttachedContextRef}
         onUploadSourceClick={handleUploadSourceClick}
+        projectRepositoryMode={projectRepositoryMode}
       />
     );
   }
