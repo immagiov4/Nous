@@ -1,6 +1,7 @@
 import {
   CheckCircle2,
   ChevronRight,
+  Copy,
   Download,
   FlaskConical,
   LibraryBig,
@@ -16,6 +17,8 @@ import type { WorkspaceReaderSidebarModel } from './types.ts';
 const LAB_CONTEXT_MENU_WIDTH = 272;
 const LAB_CONTEXT_MENU_HEIGHT = 132;
 const LAB_CONTEXT_MENU_VIEWPORT_PADDING = 12;
+const LESSON_CONTEXT_MENU_WIDTH = 272;
+const LESSON_CONTEXT_MENU_HEIGHT = 120;
 
 const getSectionStatusLabel = ({
   hasGeneratedContent,
@@ -118,27 +121,37 @@ export default function WorkspaceReaderSidebar({
     x: number;
     y: number;
   }>(null);
+  const [lessonContextMenu, setLessonContextMenu] = useState<null | {
+    copied: boolean;
+    section: WorkspaceReaderSidebarModel['sidebarGroups'][number]['sections'][number];
+    x: number;
+    y: number;
+  }>(null);
   const laboratoryContextMenuRef = useRef<HTMLDivElement>(null);
+  const lessonContextMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!laboratoryContextMenuPosition) {
+    if (!laboratoryContextMenuPosition && !lessonContextMenu) {
       return;
     }
 
     const handlePointerDown = (event: PointerEvent) => {
       if (
         !(event.target instanceof Node) ||
-        laboratoryContextMenuRef.current?.contains(event.target)
+        laboratoryContextMenuRef.current?.contains(event.target) ||
+        lessonContextMenuRef.current?.contains(event.target)
       ) {
         return;
       }
 
       setLaboratoryContextMenuPosition(null);
+      setLessonContextMenu(null);
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setLaboratoryContextMenuPosition(null);
+        setLessonContextMenu(null);
       }
     };
 
@@ -149,7 +162,7 @@ export default function WorkspaceReaderSidebar({
       window.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [laboratoryContextMenuPosition]);
+  }, [laboratoryContextMenuPosition, lessonContextMenu]);
 
   const canOpenLaboratoryContextMenu = Boolean(
     onRegenerateLaboratoryIndex && laboratoryStatus === 'ready'
@@ -166,6 +179,31 @@ export default function WorkspaceReaderSidebar({
   const handleRegenerateLaboratoryIndex = () => {
     setLaboratoryContextMenuPosition(null);
     onRegenerateLaboratoryIndex?.();
+  };
+
+  const handleLessonContextMenu = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    section: WorkspaceReaderSidebarModel['sidebarGroups'][number]['sections'][number]
+  ) => {
+    event.preventDefault();
+    setLaboratoryContextMenuPosition(null);
+    setLessonContextMenu({ copied: false, section, x: event.clientX, y: event.clientY });
+  };
+
+  const handleCopyLessonMarkdown = async () => {
+    const markdown = lessonContextMenu?.section.content?.trim();
+    if (!markdown) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setLessonContextMenu(currentValue =>
+        currentValue ? { ...currentValue, copied: true } : currentValue
+      );
+    } catch (error) {
+      console.error('[Nous][Debug] Failed to copy lesson markdown.', error);
+    }
   };
 
   const laboratoryContextMenuStyle = (() => {
@@ -189,6 +227,32 @@ export default function WorkspaceReaderSidebar({
         Math.min(
           laboratoryContextMenuPosition.y,
           viewportHeight - LAB_CONTEXT_MENU_HEIGHT - LAB_CONTEXT_MENU_VIEWPORT_PADDING
+        )
+      ),
+    };
+  })();
+
+  const lessonContextMenuStyle = (() => {
+    if (!lessonContextMenu) {
+      return undefined;
+    }
+
+    const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth;
+    const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight;
+
+    return {
+      left: Math.max(
+        LAB_CONTEXT_MENU_VIEWPORT_PADDING,
+        Math.min(
+          lessonContextMenu.x,
+          viewportWidth - LESSON_CONTEXT_MENU_WIDTH - LAB_CONTEXT_MENU_VIEWPORT_PADDING
+        )
+      ),
+      top: Math.max(
+        LAB_CONTEXT_MENU_VIEWPORT_PADDING,
+        Math.min(
+          lessonContextMenu.y,
+          viewportHeight - LESSON_CONTEXT_MENU_HEIGHT - LAB_CONTEXT_MENU_VIEWPORT_PADDING
         )
       ),
     };
@@ -327,6 +391,7 @@ export default function WorkspaceReaderSidebar({
                               type="button"
                               key={section.id}
                               onClick={() => onSelectSection(section)}
+                              onContextMenu={event => handleLessonContextMenu(event, section)}
                               disabled={isLoading}
                               style={{ paddingLeft: `${depth * 0.9}rem` }}
                               className={`flex w-full items-center gap-3 py-2 text-left transition-colors ${
@@ -476,6 +541,33 @@ export default function WorkspaceReaderSidebar({
           <p className="px-3 pb-2 pt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
             Temporaneo per QA del laboratorio. Va rimosso quando non servirà più rigenerare l'intero
             indice separatamente dal corso.
+          </p>
+        </div>
+      ) : null}
+
+      {/* TODO: Remove this temporary lesson markdown debug copy action after renderer QA is complete. */}
+      {lessonContextMenu ? (
+        <div
+          ref={lessonContextMenuRef}
+          role="menu"
+          aria-label="Azioni debug lezione"
+          className="fixed z-[90] w-[17rem] rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.28)] dark:border-zinc-600/80 dark:bg-stone-800"
+          style={lessonContextMenuStyle}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={handleCopyLessonMarkdown}
+            disabled={!lessonContextMenu.section.content?.trim()}
+            className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:text-zinc-100 dark:hover:bg-stone-700 ${
+              !lessonContextMenu.section.content?.trim() ? 'cursor-not-allowed opacity-60' : ''
+            }`}
+          >
+            <Copy className="h-4 w-4 shrink-0" />
+            {lessonContextMenu.copied ? 'Markdown copiato' : 'Copia markdown lezione'}
+          </button>
+          <p className="px-3 pb-2 pt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+            Debug temporaneo: copia il markdown salvato prima del rendering.
           </p>
         </div>
       ) : null}

@@ -135,6 +135,27 @@ interface PdfSectionContentPayload {
   imagePlacements?: SectionImagePlacement[];
 }
 
+const parseLessonContentPayload = (
+  response: string,
+  sectionTitle: string
+): PdfSectionContentPayload => {
+  const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
+  if (parsed.contentMarkdown?.trim()) {
+    return parsed;
+  }
+
+  console.warn('[Nous][Lesson] Lesson generation returned empty contentMarkdown — retrying.', {
+    sectionTitle,
+    responsePreview: (response || '').slice(0, 200),
+  });
+  const error = new Error(
+    'La generazione della lezione non ha restituito contenuti. Riprova tra poco.'
+  ) as Error & { status?: number; details?: string };
+  error.status = 0;
+  error.details = 'empty_lesson_content';
+  throw error;
+};
+
 interface LessonVerificationDraft {
   contentMarkdown: string;
   quiz: QuizQuestion[];
@@ -1502,6 +1523,8 @@ const LESSON_ABORTED_ENDING_REGEX =
   /(include|includono|comprende|comprendono|principali sono|si dividono in|origini includono)\s*:\s*$/i;
 const BROKEN_DISPLAY_MATH_BRACKET_REGEX = /(^|\n)\[\s*\n[\s\S]*?\n\]\s*(?=\n|$)/m;
 const BROKEN_KATEX_DELIMITER_REGEX = /(^|\n)(?:\[\s*$|\]\s*$)/m;
+const SPLIT_TEXT_PSEUDOCODE_FENCE_REGEX =
+  /```text\s*\n(?:IF|FOR|WHILE|RETURN|[A-Za-z_]\w*\(|\s*[A-Za-z_]\w*\s*=|\s*})[\s\S]*?\n```\s*\n+(?:\s*(?:IF|ELSE|FOR|WHILE|RETURN|[A-Za-z_]\w*\(|[A-Za-z_]\w*\s*=|})\b|\s+\S)[\s\S]{0,800}?```text\s*\n/gi;
 
 const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
   const issues: string[] = [];
@@ -1562,6 +1585,12 @@ const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
     );
   }
 
+  if (SPLIT_TEXT_PSEUDOCODE_FENCE_REGEX.test(trimmed)) {
+    issues.push(
+      'Gli esempi di pseudocodice sono spezzati in piu blocchi ```text con righe del corpo fuori dal blocco: unisci ogni esempio in un unico code block.'
+    );
+  }
+
   return issues;
 };
 
@@ -1606,9 +1635,10 @@ REGOLE:
 14. NON inserire quiz nel testo.
 15. NON inserire markdown image syntax, tag <img> o riferimenti ad asset tecnici.
 16. Normalizza i blocchi di codice Markdown: usa solo fence standard del tipo \`\`\` oppure \`\`\`lang con il SOLO nome del linguaggio (es. \`\`\`cpp). Non aggiungere commenti, etichette o testo extra sulla stessa riga del fence.
-17. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, fallo con una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
-18. Correggi e normalizza anche la formattazione KaTeX/LaTeX: formule inline solo come \`$...$\` oppure \`\\(...\\)\`; formule display solo come \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, e assicurati che parentesi, graffe e delimitatori siano bilanciati.
-19. Restituisci SOLO markdown pulito, senza JSON e senza spiegazioni.
+17. Per pseudocodice o codice multilinea, NON alternare blocchi \`\`\`text\` e righe fuori dal blocco: ogni esempio deve stare in UN SOLO code block, includendo firma, corpo, parentesi graffe e RETURN.
+18. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, fallo con una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
+19. Correggi e normalizza anche la formattazione KaTeX/LaTeX: formule inline solo come \`$...$\` oppure \`\\(...\\)\`; formule display solo come \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, e assicurati che parentesi, graffe e delimitatori siano bilanciati.
+20. Restituisci SOLO markdown pulito, senza JSON e senza spiegazioni.
 
 CONTESTO SORGENTE:
 ${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
@@ -1709,8 +1739,9 @@ ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 18. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
 19. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
 20. Verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
-21. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
-22. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti.
+21. Verifica con severita i blocchi di codice/pseudocodice Markdown: se un esempio e spezzato in piu blocchi \`\`\`text\` con righe del corpo fuori dal blocco, correggilo in UN SOLO code block che contenga firma, corpo, parentesi graffe e RETURN. Questo e un errore di formattazione, anche se il testo e semanticamente comprensibile.
+22. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
+23. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti.
 
 ESTRATTI RILEVANTI DAL PDF / CONTESTO SORGENTE:
 ${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}
@@ -1757,9 +1788,9 @@ const verifyLessonDraft = async ({
     generationNotes,
   });
 
-  const response = await retryWithBackoff(
-    () =>
-      callOpenRouter({
+  const parsed = await retryWithBackoff(
+    async () => {
+      const response = await callOpenRouter({
         model: MODEL_FLASH,
         reasoning: HIGH_REASONING_CONFIG,
         messages: [
@@ -1771,12 +1802,12 @@ const verifyLessonDraft = async ({
           type: 'json_schema',
           json_schema: buildLessonResponseSchema(targetQuizCount),
         },
-      }),
+      });
+      return parseCleanJson<PdfSectionContentPayload>(response || '{}');
+    },
     1,
     500
   );
-
-  const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
   const verifiedQuiz = parseQuizPayload(parsed.quiz);
   return {
     contentMarkdown:
@@ -2436,8 +2467,8 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   ]
 }`;
 
-    const response = await retryWithBackoff(() =>
-      callOpenRouter({
+    const parsed = await retryWithBackoff(async () => {
+      const response = await callOpenRouter({
         model: MODEL_REASONING,
         reasoning: HIGH_REASONING_CONFIG,
         onReasoningUpdate,
@@ -2453,10 +2484,11 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
           type: 'json_schema',
           json_schema: LESSON_RESPONSE_SCHEMA,
         },
-      })
-    );
+      });
 
-    const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
+      return parseLessonContentPayload(response, sectionTitle);
+    });
+
     traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
     const structuredQuiz = parseQuizPayload(parsed.quiz);
     const repairedContentMarkdown = await repairLessonMarkdown(
@@ -2651,8 +2683,8 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     prompt,
     MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS
   );
-  const response = await retryWithBackoff(() =>
-    callOpenRouter({
+  const parsed = await retryWithBackoff(async () => {
+    const response = await callOpenRouter({
       model: MODEL_REASONING,
       reasoning: HIGH_REASONING_CONFIG,
       onReasoningUpdate,
@@ -2668,9 +2700,9 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         type: 'json_schema',
         json_schema: LESSON_RESPONSE_SCHEMA,
       },
-    })
-  );
-  const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
+    });
+    return parseLessonContentPayload(response, sectionTitle);
+  });
   traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
   const structuredQuiz = parseQuizPayload(parsed.quiz);
   const repairedContentMarkdown = await repairLessonMarkdown(

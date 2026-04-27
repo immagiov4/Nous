@@ -206,10 +206,14 @@ const closeOpenJsonStructures = (text: string): string => {
   return completed.replace(/,\s*([}\]])/g, '$1');
 };
 
-const buildJsonParseError = (): Error =>
-  new Error(
+const buildJsonParseError = (): Error & { status?: number; details?: string } => {
+  const error = new Error(
     'Il modello ha restituito una risposta incompleta o non valida. Riprova a generare il contenuto.'
-  );
+  ) as Error & { status?: number; details?: string };
+  error.status = 0;
+  error.details = 'invalid_json_response';
+  return error;
+};
 
 export const parseCleanJson = <T>(text: string): T => {
   const cleaned = cleanJson(text);

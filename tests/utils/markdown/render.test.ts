@@ -270,6 +270,171 @@ test('normalizeMarkdownForRendering refences orphaned continuation lines after a
   );
 });
 
+test('normalizeMarkdownForRendering rejoins brace code blocks split around unindented body lines', () => {
+  const input = [
+    'Il ciclo:',
+    '',
+    '```text',
+    'FOR (i = valoreIniziale; condizioneDiContinuazione; aggiornamento) {',
+    '```',
+    '',
+    'blocco di istruzioni',
+    '',
+    '```text',
+    '}',
+    '```',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      'Il ciclo:',
+      '',
+      '```text',
+      'FOR (i = valoreIniziale; condizioneDiContinuazione; aggiornamento) {',
+      'blocco di istruzioni',
+      '}',
+      '```',
+    ].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering rejoins split brace blocks with assignment body lines', () => {
+  const input = [
+    'Per esempio',
+    '',
+    '```text',
+    'FOR (i = 1; i < n + 1; i = i + 1) {',
+    '```',
+    '',
+    'x = x + 1',
+    '',
+    '```text',
+    '}',
+    '```',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      'Per esempio',
+      '',
+      '```text',
+      'FOR (i = 1; i < n + 1; i = i + 1) {',
+      'x = x + 1',
+      '}',
+      '```',
+    ].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering extracts prose after a split closing brace fence', () => {
+  const input = [
+    'Il ciclo WHILE:',
+    '',
+    '```text',
+    'WHILE (condizione) {',
+    '```',
+    '',
+    'blocco di istruzioni',
+    '',
+    '```text',
+    '}',
+    '',
+    'Prima di ogni iterazione la condizione viene valutata: se e vera, il blocco viene eseguito.',
+    '```',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      'Il ciclo WHILE:',
+      '',
+      '```text',
+      'WHILE (condizione) {',
+      'blocco di istruzioni',
+      '}',
+      '```',
+      '',
+      'Prima di ogni iterazione la condizione viene valutata: se e vera, il blocco viene eseguito.',
+    ].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering merges model-split IF pseudocode into one block', () => {
+  const input = [
+    'La forma generale e:',
+    '',
+    '```text',
+    'IF (condizione) {',
+    '```',
+    ' istruzioni eseguite se la condizione e vera',
+    '} ELSE {',
+    ' istruzioni eseguite se la condizione e falsa',
+    '```text',
+    '}',
+    '```',
+    '',
+    'La condizione viene valutata.',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      'La forma generale e:',
+      '',
+      '```text',
+      'IF (condizione) {',
+      ' istruzioni eseguite se la condizione e vera',
+      '} ELSE {',
+      ' istruzioni eseguite se la condizione e falsa',
+      '}',
+      '```',
+      '',
+      'La condizione viene valutata.',
+    ].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering merges full model-split function pseudocode examples', () => {
+  const input = [
+    '### Somma degli elementi di un array',
+    '',
+    '```text',
+    'SommaArray(a, n)',
+    '```',
+    ' s = 0',
+    '```text',
+    ' FOR (i = 0; i < n; i = i + 1) {',
+    '```',
+    ' s = s + a[i]',
+    '```text',
+    ' }',
+    '```',
+    ' RETURN s',
+    '',
+    'La funzione prende un array `a` e il suo numero di elementi `n`.',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      '### Somma degli elementi di un array',
+      '',
+      '```text',
+      'SommaArray(a, n)',
+      ' s = 0',
+      ' FOR (i = 0; i < n; i = i + 1) {',
+      ' s = s + a[i]',
+      ' }',
+      ' RETURN s',
+      '```',
+      '',
+      'La funzione prende un array `a` e il suo numero di elementi `n`.',
+    ].join('\n')
+  );
+});
+
 test('normalizeMarkdownForRendering converts bare-paren inline math containing LaTeX commands into dollar-delimited math', () => {
   const input =
     'Una matrice (A) applicata a (x) produce (y = Ax). Se (A \\in \\mathbb{R}^{m\\times n}) e (x \\in \\mathbb{R}^n), il risultato (Ax) appartiene a (\\mathbb{R}^m).';

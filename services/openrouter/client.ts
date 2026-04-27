@@ -200,6 +200,30 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
   let bufferedSse = '';
   let content = '';
   let reasoning = '';
+  let receivedAnyDelta = false;
+  let streamError: HttpError | null = null;
+
+  const buildStreamError = (
+    payload: Record<string, unknown>,
+    rawDetails: string
+  ): HttpError => {
+    const errorRecord =
+      payload.error && typeof payload.error === 'object'
+        ? (payload.error as Record<string, unknown>)
+        : null;
+    const message =
+      (errorRecord && typeof errorRecord.message === 'string' && errorRecord.message) ||
+      (typeof payload.message === 'string' && payload.message) ||
+      'Il servizio AI ha interrotto la generazione. Riprova tra poco.';
+    const status =
+      (errorRecord && typeof errorRecord.code === 'number' && errorRecord.code) ||
+      (typeof payload.code === 'number' && payload.code) ||
+      0;
+    const error = new Error(message) as HttpError;
+    error.status = status;
+    error.details = rawDetails;
+    return error;
+  };
 
   const handleSseLine = (line: string) => {
     if (!line.startsWith('data:')) {
@@ -211,20 +235,43 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
       return;
     }
 
-    const parsed = JSON.parse(payload) as {
-      choices?: Array<{
-        delta?: {
-          content?: ChatMessageContent;
-          reasoning?: string;
-          reasoning_details?: unknown[];
-        };
-      }>;
-    };
-    const delta = parsed.choices?.[0]?.delta;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(payload) as Record<string, unknown>;
+    } catch (parseError) {
+      console.warn('[Nous] OpenRouter stream: skipping non-JSON SSE payload', {
+        payload: payload.slice(0, 200),
+        error: parseError,
+      });
+      return;
+    }
+
+    if (parsed.error) {
+      streamError = buildStreamError(parsed, payload);
+      console.warn('[Nous] OpenRouter stream returned error frame', {
+        status: streamError.status,
+        details: streamError.details,
+      });
+      return;
+    }
+
+    const choices = parsed.choices as
+      | Array<{
+          delta?: {
+            content?: ChatMessageContent;
+            reasoning?: string;
+            reasoning_details?: unknown[];
+          };
+          finish_reason?: string | null;
+        }>
+      | undefined;
+    const choice = choices?.[0];
+    const delta = choice?.delta;
     if (!delta) {
       return;
     }
 
+    receivedAnyDelta = true;
     content += extractDeltaContent(delta.content);
     const reasoningChunk = extractReasoningText(delta);
     if (!reasoningChunk) {
@@ -252,6 +299,20 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
   const remaining = `${bufferedSse}${decoder.decode()}`;
   for (const line of remaining.split(/\r?\n/)) {
     handleSseLine(line);
+  }
+
+  if (streamError) {
+    throw streamError;
+  }
+
+  if (!receivedAnyDelta && !content) {
+    const error = new Error(
+      'Il servizio AI non ha restituito alcun contenuto. Riprova tra poco.'
+    ) as HttpError;
+    error.status = 0;
+    error.details = 'empty_stream';
+    console.warn('[Nous] OpenRouter stream closed without any delta chunk');
+    throw error;
   }
 
   return content;

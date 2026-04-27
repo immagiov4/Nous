@@ -10,9 +10,19 @@ interface ThinkingStreamProps {
 // Constant scroll velocity in pixels per second. Slow & predictable so the
 // reader has time to glance at lines without chasing the latest token.
 const SCROLL_VELOCITY_PX_PER_SECOND = 28;
+const SCROLL_START_BUFFER_PX = 420;
+const SCROLL_STOP_BUFFER_PX = SCROLL_START_BUFFER_PX * 2;
 
 const normalizeReasoningText = (text: string): string =>
   text
+    // Some providers (DeepSeek/Qwen) emit literal "\n", "\t", "\r" inside
+    // reasoning chunks instead of real whitespace. Convert them back so the
+    // markdown renderer doesn't show "\n" tokens. Use lookbehind to avoid
+    // touching escaped backslashes ("\\n" stays as a literal backslash + n).
+    .replace(/(?<!\\)\\r\\n/g, '\n')
+    .replace(/(?<!\\)\\n/g, '\n')
+    .replace(/(?<!\\)\\r/g, '\n')
+    .replace(/(?<!\\)\\t/g, '  ')
     .replace(/([^\n])\s*(#{1,6}\s)/g, '$1\n\n$2')
     .replace(/([.!?])\s*(\*\*[^*\n][^*\n]{1,100}\*\*)(?=\s|$)/g, '$1\n\n$2')
     .replace(
@@ -29,10 +39,10 @@ export default function ThinkingStream({ className = '', isDarkMode, text }: Thi
   }, [text]);
   const hasContent = Boolean(visibleText);
 
-  // GPU-friendly constant-velocity scroll. Instead of mutating `scrollTop`
-  // (which triggers layout/paint each frame and stutters on Firefox mobile),
-  // we translate an inner track via `transform: translate3d(...)` so the
-  // browser can keep the animation on the compositor.
+  // GPU-friendly buffered scroll. We wait for enough generated content before
+  // moving, then consume that scrollable buffer at a fixed pace. If generation
+  // slows down, the stream pauses before it reaches the live token edge and
+  // resumes only after the buffer has refilled, avoiding tiny stop/start jolts.
   useEffect(() => {
     if (!hasContent) {
       return;
@@ -47,6 +57,7 @@ export default function ThinkingStream({ className = '', isDarkMode, text }: Thi
     let frameId: number | null = null;
     let lastTimestamp: number | null = null;
     let offsetY = 0;
+    let isScrolling = false;
 
     const step = (timestamp: number) => {
       if (lastTimestamp === null) {
@@ -59,7 +70,16 @@ export default function ThinkingStream({ className = '', isDarkMode, text }: Thi
       lastTimestamp = timestamp;
 
       const maxOffset = Math.max(track.scrollHeight - viewport.clientHeight, 0);
-      if (offsetY < maxOffset) {
+      const bufferedScrollPx = maxOffset - offsetY;
+      if (!isScrolling && bufferedScrollPx >= SCROLL_START_BUFFER_PX) {
+        isScrolling = true;
+      }
+
+      if (isScrolling && bufferedScrollPx <= SCROLL_STOP_BUFFER_PX) {
+        isScrolling = false;
+      }
+
+      if (isScrolling && offsetY < maxOffset) {
         offsetY = Math.min(offsetY + SCROLL_VELOCITY_PX_PER_SECOND * elapsedSeconds, maxOffset);
         track.style.transform = `translate3d(0, ${-offsetY}px, 0)`;
       }
@@ -86,8 +106,6 @@ export default function ThinkingStream({ className = '', isDarkMode, text }: Thi
       className={`relative flex min-h-0 w-full flex-col overflow-hidden py-2 ${className}`}
       aria-live="polite"
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-12 bg-gradient-to-b from-paper-light via-paper-light/88 to-transparent dark:from-paper-dark dark:via-paper-dark/82" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-20 bg-gradient-to-t from-paper-light via-paper-light/92 to-transparent dark:from-paper-dark dark:via-paper-dark/86" />
       <div
         ref={viewportRef}
         className="relative min-h-0 flex-1 overflow-hidden px-3"
