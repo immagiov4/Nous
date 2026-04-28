@@ -9,6 +9,7 @@ import type {
   LaboratoryExercise,
   LaboratoryStateStatus,
   LearningSection,
+  LessonGeneratedVisual,
   LessonImageRef,
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
@@ -148,6 +149,7 @@ export interface WorkspaceReaderContentModel {
   activeLaboratoryExercise: LaboratoryExercise | null;
   activeSectionTitle?: string | null;
   activeSectionAssetsById: Record<string, PdfImageAsset>;
+  activeSectionGeneratedVisualsById?: Record<string, LessonGeneratedVisual>;
   activeSectionImageRefsById: Record<string, LessonImageRef>;
   contentRef: RefObject<HTMLDivElement | null>;
   isDarkMode: boolean;

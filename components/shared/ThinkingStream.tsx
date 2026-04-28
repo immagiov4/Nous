@@ -9,9 +9,9 @@ interface ThinkingStreamProps {
 
 // Constant scroll velocity in pixels per second. Slow & predictable so the
 // reader has time to glance at lines without chasing the latest token.
-const SCROLL_VELOCITY_PX_PER_SECOND = 28;
-const SCROLL_START_BUFFER_PX = 420;
-const SCROLL_STOP_BUFFER_PX = SCROLL_START_BUFFER_PX * 2;
+const SCROLL_VELOCITY_PX_PER_SECOND = 42;
+const SCROLL_START_BUFFER_PX = 120;
+const SCROLL_STOP_BUFFER_PX = 28;
 
 const normalizeReasoningText = (text: string): string =>
   text

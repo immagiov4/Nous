@@ -14,7 +14,7 @@ import { buildLaboratoryAttachmentContext } from '../laboratory/attachments.ts';
 import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../laboratory/state.ts';
 import { createProjectId } from '../projects/projectSnapshot.ts';
 import {
-  HIGH_REASONING_CONFIG,
+  MEDIUM_REASONING_CONFIG,
   MODEL_ASSESSMENT,
   MODEL_FLASH,
   MODEL_PDF_IMAGE_CAPTION,
@@ -653,7 +653,7 @@ ${LAB_EXAMPLE_MARKDOWN_TEMPLATE}`;
     model: MODEL_REASONING,
     modelSlot: 'lesson',
     onReasoning,
-    reasoning: HIGH_REASONING_CONFIG,
+    reasoning: MEDIUM_REASONING_CONFIG,
     system,
     temperature: 0.3,
   });

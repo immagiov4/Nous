@@ -1,5 +1,5 @@
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
-import { HIGH_REASONING_CONFIG } from './config.ts';
+import { MEDIUM_REASONING_CONFIG } from './config.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
 import { PLAN_PROPEDEUTIC_ORDER_RULES } from './prompts.ts';
 import {
@@ -663,7 +663,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
-    reasoning: HIGH_REASONING_CONFIG,
+    reasoning: MEDIUM_REASONING_CONFIG,
     messages: [
       { role: 'system', content: plannerInstruction },
       {
@@ -731,7 +731,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
-    reasoning: HIGH_REASONING_CONFIG,
+    reasoning: MEDIUM_REASONING_CONFIG,
     messages: [
       { role: 'system', content: plannerInstruction },
       {

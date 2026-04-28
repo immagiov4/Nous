@@ -16,6 +16,8 @@ export const MODEL_ASSESSMENT = process.env.MODEL_ASSESSMENT || 'mistralai/mistr
 export const MODEL_CONTEXT = process.env.MODEL_CONTEXT || DEFAULT_CONTEXT_MODEL;
 export const MODEL_PDF_IMAGE_CAPTION =
   process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
+export const MODEL_VISUAL_PLANNER = process.env.MODEL_VISUAL_PLANNER || MODEL_REASONING;
+export const MODEL_VISUAL_RENDERER = process.env.MODEL_VISUAL_RENDERER || MODEL_REASONING;
 
 export const HIGH_REASONING_CONFIG: OpenRouterReasoningOptions = {
   effort: 'high',

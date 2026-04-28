@@ -32,6 +32,7 @@ export interface ReadableBlock extends ReadableSegment {
 export const prepareMarkdownForSpeech = (content: string): string => {
   const cleanedContent = content
     .replace(/\{\{PDF_IMAGE:[^}]+\}\}/g, ' ')
+    .replace(/\{\{VISUAL_EXAMPLE:[^}]+\}\}/g, ' ')
     .replace(/<figure\b[\s\S]*?<\/figure>/gi, ' ')
     .replace(/<picture\b[\s\S]*?<\/picture>/gi, ' ')
     .replace(/<figcaption\b[\s\S]*?<\/figcaption>/gi, ' ')

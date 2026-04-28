@@ -4,7 +4,7 @@ import { createLaboratoryTextAttachment } from '../../../services/laboratory/att
 import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../../../services/laboratory/state.ts';
 
 vi.mock('../../../services/openrouter/config.ts', () => ({
-  HIGH_REASONING_CONFIG: { effort: 'high', exclude: true },
+  MEDIUM_REASONING_CONFIG: { effort: 'medium', exclude: true },
   MAX_OUTPUT_TOKENS: 32000,
   MODEL_ASSESSMENT: 'mistralai/mistral-small-2603',
   MODEL_FLASH: 'openai/gpt-5.4-nano',

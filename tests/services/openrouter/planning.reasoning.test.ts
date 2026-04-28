@@ -23,7 +23,7 @@ beforeEach(() => {
   retryWithBackoffMock.mockClear();
 });
 
-test('generateLearningPlan uses high effort for both first draft and refinement', async () => {
+test('generateLearningPlan uses medium effort for both first draft and refinement', async () => {
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
@@ -69,11 +69,11 @@ test('generateLearningPlan uses high effort for both first draft and refinement'
   assert.equal(plan.sections.length, 1);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.reasoning, {
-    effort: 'high',
+    effort: 'medium',
     exclude: false,
   });
   assert.deepEqual(callOpenRouterMock.mock.calls[1]?.[0]?.reasoning, {
-    effort: 'high',
+    effort: 'medium',
     exclude: false,
   });
 });

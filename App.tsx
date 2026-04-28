@@ -1,3 +1,4 @@
+/* @refresh reset */
 import { useEffect, useRef, useState } from 'react';
 import AssessmentView from './components/assessment/AssessmentView';
 import LibraryView from './components/library/LibraryView';
@@ -406,6 +407,7 @@ const App = () => {
     content: {
       activeSectionTitle: activeSection?.title || null,
       activeSectionAssetsById: readerRuntime.activeSectionAssetsById,
+      activeSectionGeneratedVisualsById: readerRuntime.activeSectionGeneratedVisualsById,
       activeSectionImageRefsById: readerRuntime.activeSectionImageRefsById,
       contentRef: readerRuntime.contentRef,
       isDarkMode: readerRuntime.readerChrome.isDarkMode,

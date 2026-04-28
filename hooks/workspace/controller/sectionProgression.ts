@@ -140,7 +140,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           ...currentPlan,
           sections: currentPlan.sections.map(currentSection =>
             currentSection.id === section.id
-              ? { ...currentSection, content, quiz: [], imageRefs: [] }
+              ? { ...currentSection, content, quiz: [], imageRefs: [], generatedVisuals: [] }
               : currentSection
           ),
         };
@@ -166,6 +166,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         const {
           content,
           documentAssets: nextDocumentAssets,
+          generatedVisuals,
           imageRefs,
           quiz,
         } = await openRouter.generateSectionContent(
@@ -192,7 +193,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           ...currentPlan,
           sections: currentPlan.sections.map(currentSection =>
             currentSection.id === section.id
-              ? { ...currentSection, content, quiz, imageRefs }
+              ? { ...currentSection, content, quiz, imageRefs, generatedVisuals }
               : currentSection
           ),
         };

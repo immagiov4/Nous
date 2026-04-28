@@ -5,7 +5,7 @@ import {
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
-import { HIGH_REASONING_CONFIG } from './config.ts';
+import { MEDIUM_REASONING_CONFIG } from './config.ts';
 import { buildReasoningContentForFile, clipPdfSourceText } from './contextChat.ts';
 import {
   buildLessonChunkContext,
@@ -30,6 +30,7 @@ import {
   isPdfFile,
   type LearningPlan,
   type LearningSection,
+  type LessonGeneratedVisual,
   type LessonImageRef,
   type Message,
   MODEL_FLASH,
@@ -44,6 +45,7 @@ import {
   teacherInstruction,
   type UserProfile,
 } from './shared.ts';
+import { generateLessonVisualExample } from './visualExamples.ts';
 
 const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
@@ -946,6 +948,55 @@ const buildPdfImagePlaceholder = (imageRef: LessonImageRef): string => {
     : `${PDF_PLACEHOLDER_PREFIX}${imageRef.assetId}|alt=${alt}}}`;
 };
 
+const appendGeneratedVisualExample = async ({
+  contentMarkdown,
+  generationNotes,
+  hasPdfImages,
+  onStatusUpdate,
+  sectionDescription,
+  sectionTitle,
+}: {
+  contentMarkdown: string;
+  generationNotes?: string;
+  hasPdfImages: boolean;
+  onStatusUpdate?: (status: string) => void;
+  sectionDescription: string;
+  sectionTitle: string;
+}): Promise<{ content: string; generatedVisuals: LessonGeneratedVisual[] }> => {
+  if (hasPdfImages || !contentMarkdown.trim()) {
+    return { content: contentMarkdown, generatedVisuals: [] };
+  }
+
+  try {
+    onStatusUpdate?.('Generazione esempio visivo...');
+    const result = await generateLessonVisualExample({
+      generationNotes,
+      hasPdfImages,
+      lessonMarkdown: contentMarkdown,
+      sectionDescription,
+      sectionTitle,
+    });
+
+    if (!result) {
+      onStatusUpdate?.('Lezione generata senza esempi visivi aggiuntivi');
+      return { content: contentMarkdown, generatedVisuals: [] };
+    }
+
+    onStatusUpdate?.('Esempio visivo integrato');
+    return {
+      content: `${contentMarkdown.trim()}${result.contentSuffix}`,
+      generatedVisuals: [result.visual],
+    };
+  } catch (error) {
+    console.warn(
+      '[Nous][Lesson] Generated visual example failed, keeping text-only lesson.',
+      error
+    );
+    onStatusUpdate?.('Esempio visivo non disponibile');
+    return { content: contentMarkdown, generatedVisuals: [] };
+  }
+};
+
 const normalizeHeading = (text: string): string =>
   normalizeSearchText(text.replace(/^#+\s*/, '').replace(/[*_`]/g, ' '));
 
@@ -1650,7 +1701,7 @@ ${contentMarkdown}`;
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
-        reasoning: HIGH_REASONING_CONFIG,
+        reasoning: MEDIUM_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },
           { role: 'user', content: repairPrompt },
@@ -1792,7 +1843,7 @@ const verifyLessonDraft = async ({
     async () => {
       const response = await callOpenRouter({
         model: MODEL_FLASH,
-        reasoning: HIGH_REASONING_CONFIG,
+        reasoning: MEDIUM_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },
           { role: 'user', content: verificationPrompt },
@@ -2045,7 +2096,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
-    reasoning: HIGH_REASONING_CONFIG,
+    reasoning: MEDIUM_REASONING_CONFIG,
     onReasoningUpdate,
     messages: [
       { role: 'system', content: plannerInstruction },
@@ -2116,7 +2167,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
-    reasoning: HIGH_REASONING_CONFIG,
+    reasoning: MEDIUM_REASONING_CONFIG,
     onReasoningUpdate,
     messages: [
       { role: 'system', content: plannerInstruction },
@@ -2191,7 +2242,7 @@ Rispondi SOLO con un oggetto JSON:
     const userContent = await buildReasoningContentForFile(file, prompt, MAX_METADATA_SOURCE_CHARS);
     const response = await callOpenRouter({
       model: MODEL_REASONING,
-      reasoning: HIGH_REASONING_CONFIG,
+      reasoning: MEDIUM_REASONING_CONFIG,
       messages: [
         {
           role: 'user',
@@ -2251,7 +2302,7 @@ Rispondi SOLO con un oggetto JSON:
   return retryWithBackoff(async () => {
     const response = await callOpenRouter({
       model: MODEL_FLASH,
-      reasoning: HIGH_REASONING_CONFIG,
+      reasoning: MEDIUM_REASONING_CONFIG,
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
     });
@@ -2289,6 +2340,7 @@ export const generateSectionContent = async (
   onReasoningUpdate?: (reasoning: string) => void
 ): Promise<{
   content: string;
+  generatedVisuals: LessonGeneratedVisual[];
   quiz: QuizQuestion[];
   imageRefs: LessonImageRef[];
   documentAssets: PdfDocumentAssets | null;
@@ -2470,7 +2522,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     const parsed = await retryWithBackoff(async () => {
       const response = await callOpenRouter({
         model: MODEL_REASONING,
-        reasoning: HIGH_REASONING_CONFIG,
+        reasoning: MEDIUM_REASONING_CONFIG,
         onReasoningUpdate,
         messages: [
           { role: 'system', content: teacherInstruction },
@@ -2610,10 +2662,19 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       visibleLabelByAssetId
     );
     traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown || '');
-    const content = injectImagePlaceholders(cleanedContentMarkdown, imageRefs);
+    const contentWithPdfImages = injectImagePlaceholders(cleanedContentMarkdown, imageRefs);
+    const visualResult = await appendGeneratedVisualExample({
+      contentMarkdown: contentWithPdfImages,
+      generationNotes,
+      hasPdfImages: imageRefs.length > 0,
+      onStatusUpdate,
+      sectionDescription,
+      sectionTitle,
+    });
 
     return {
-      content,
+      content: visualResult.content,
+      generatedVisuals: visualResult.generatedVisuals,
       quiz: normalizeQuizLength(verifiedDraft.quiz, targetQuizCount),
       imageRefs,
       documentAssets: buildStoredPdfDocumentAssets(pdfSession, imageRefs),
@@ -2686,7 +2747,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const parsed = await retryWithBackoff(async () => {
     const response = await callOpenRouter({
       model: MODEL_REASONING,
-      reasoning: HIGH_REASONING_CONFIG,
+      reasoning: MEDIUM_REASONING_CONFIG,
       onReasoningUpdate,
       messages: [
         { role: 'system', content: teacherInstruction },
@@ -2753,9 +2814,18 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     verifiedDraft.quiz
   );
   traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown);
+  const visualResult = await appendGeneratedVisualExample({
+    contentMarkdown: cleanedContentMarkdown,
+    generationNotes,
+    hasPdfImages: false,
+    onStatusUpdate,
+    sectionDescription,
+    sectionTitle,
+  });
 
   return {
-    content: cleanedContentMarkdown,
+    content: visualResult.content,
+    generatedVisuals: visualResult.generatedVisuals,
     quiz: normalizeQuizLength(verifiedDraft.quiz, targetQuizCount),
     imageRefs: [],
     documentAssets: null,

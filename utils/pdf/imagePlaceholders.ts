@@ -1,7 +1,8 @@
-import type { LessonImageRef, PdfImageAsset } from '../../types';
+import type { LessonGeneratedVisual, LessonImageRef, PdfImageAsset } from '../../types';
 
 const PDF_IMAGE_PLACEHOLDER_REGEX =
   /\{\{PDF_IMAGE:([^|}]+)(?:\|alt=([^|}]*))?(?:\|caption=([^}]*))?\}\}/g;
+const VISUAL_EXAMPLE_PLACEHOLDER_REGEX = /\{\{VISUAL_EXAMPLE:([^|}]+)(?:\|title=([^}]*))?\}\}/g;
 const LEGACY_PDF_FIGURE_REGEX =
   /<figure\b[\s\S]*?<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>[\s\S]*?<\/figure>/gi;
 const LEGACY_PDF_IMAGE_REGEX = /<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[^>]*>/gi;
@@ -82,6 +83,12 @@ export const replacePdfImagePlaceholders = (
 export const stripPdfImagePlaceholders = (content: string): string =>
   content.replace(PDF_IMAGE_PLACEHOLDER_REGEX, ' ');
 
+export const stripVisualExamplePlaceholders = (content: string): string =>
+  content.replace(VISUAL_EXAMPLE_PLACEHOLDER_REGEX, ' ');
+
+export const stripLessonMediaPlaceholders = (content: string): string =>
+  stripVisualExamplePlaceholders(stripPdfImagePlaceholders(content));
+
 export const restoreLegacyPdfImagePlaceholders = (content: string): string => {
   const figuresRestored = content.replace(LEGACY_PDF_FIGURE_REGEX, figureHtml => {
     const imageTag = figureHtml.match(/<img\b[^>]*data-pdf-asset-id=(["'])[^"'<>]+\1[^>]*>/i)?.[0];
@@ -122,19 +129,75 @@ export interface ParsedPdfImagePart {
   caption?: string;
 }
 
-export type ParsedPdfContentPart = ParsedMarkdownPart | ParsedPdfImagePart;
+export interface ParsedGeneratedVisualPart {
+  key: string;
+  type: 'visual';
+  title: string;
+  visual: LessonGeneratedVisual;
+}
+
+export type ParsedPdfContentPart =
+  | ParsedMarkdownPart
+  | ParsedPdfImagePart
+  | ParsedGeneratedVisualPart;
+
+type PlaceholderMatch =
+  | {
+      assetId: string;
+      altFallback?: string;
+      captionFallback?: string;
+      fullMatch: string;
+      index: number;
+      type: 'image';
+    }
+  | {
+      fullMatch: string;
+      index: number;
+      titleFallback?: string;
+      type: 'visual';
+      visualId: string;
+    };
+
+const getPlaceholderMatches = (content: string): PlaceholderMatch[] => {
+  const matches: PlaceholderMatch[] = [];
+  PDF_IMAGE_PLACEHOLDER_REGEX.lastIndex = 0;
+  VISUAL_EXAMPLE_PLACEHOLDER_REGEX.lastIndex = 0;
+
+  for (const match of content.matchAll(PDF_IMAGE_PLACEHOLDER_REGEX)) {
+    matches.push({
+      type: 'image',
+      fullMatch: match[0],
+      assetId: match[1],
+      altFallback: match[2],
+      captionFallback: match[3],
+      index: match.index ?? 0,
+    });
+  }
+
+  for (const match of content.matchAll(VISUAL_EXAMPLE_PLACEHOLDER_REGEX)) {
+    matches.push({
+      type: 'visual',
+      fullMatch: match[0],
+      visualId: match[1],
+      titleFallback: match[2],
+      index: match.index ?? 0,
+    });
+  }
+
+  return matches.sort((left, right) => left.index - right.index);
+};
 
 export const parsePdfContentParts = (
   content: string,
   lessonAssetsById: Record<string, PdfImageAsset> = {},
-  lessonImageRefsById: Record<string, LessonImageRef> = {}
+  lessonImageRefsById: Record<string, LessonImageRef> = {},
+  generatedVisualsById: Record<string, LessonGeneratedVisual> = {}
 ): ParsedPdfContentPart[] => {
   const parts: ParsedPdfContentPart[] = [];
   let lastIndex = 0;
-  let match = PDF_IMAGE_PLACEHOLDER_REGEX.exec(content);
+  const placeholderMatches = getPlaceholderMatches(content);
 
-  while (match) {
-    const [fullMatch, assetId, altFallback, captionFallback] = match;
+  for (const match of placeholderMatches) {
     const matchIndex = match.index;
     if (matchIndex > lastIndex) {
       parts.push({
@@ -144,22 +207,34 @@ export const parsePdfContentParts = (
       });
     }
 
-    const normalizedAssetId = String(assetId || '').trim();
-    const asset = lessonAssetsById[normalizedAssetId];
-    if (asset) {
-      const imageRef = lessonImageRefsById[normalizedAssetId];
-      parts.push({
-        key: `img-${normalizedAssetId}-${matchIndex}`,
-        type: 'image',
-        asset,
-        imageRef,
-        alt: imageRef?.alt || String(altFallback || '').trim() || 'Figura dal PDF',
-        caption: imageRef?.caption || String(captionFallback || '').trim() || undefined,
-      });
+    if (match.type === 'image') {
+      const normalizedAssetId = String(match.assetId || '').trim();
+      const asset = lessonAssetsById[normalizedAssetId];
+      if (asset) {
+        const imageRef = lessonImageRefsById[normalizedAssetId];
+        parts.push({
+          key: `img-${normalizedAssetId}-${matchIndex}`,
+          type: 'image',
+          asset,
+          imageRef,
+          alt: imageRef?.alt || String(match.altFallback || '').trim() || 'Figura dal PDF',
+          caption: imageRef?.caption || String(match.captionFallback || '').trim() || undefined,
+        });
+      }
+    } else {
+      const normalizedVisualId = String(match.visualId || '').trim();
+      const visual = generatedVisualsById[normalizedVisualId];
+      if (visual) {
+        parts.push({
+          key: `visual-${normalizedVisualId}-${matchIndex}`,
+          type: 'visual',
+          title: String(match.titleFallback || '').trim() || visual.title,
+          visual,
+        });
+      }
     }
 
-    lastIndex = matchIndex + fullMatch.length;
-    match = PDF_IMAGE_PLACEHOLDER_REGEX.exec(content);
+    lastIndex = matchIndex + match.fullMatch.length;
   }
 
   if (lastIndex < content.length) {

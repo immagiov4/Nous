@@ -616,9 +616,10 @@ const createOpenRouterMock = (
     generateLearnLessonContent: async () => '# Lezione generata',
     generateSectionContent: async () => ({
       content: '# Lezione dal documento',
-      quiz: [],
-      imageRefs: [],
       documentAssets: null,
+      generatedVisuals: [],
+      imageRefs: [],
+      quiz: [],
     }),
     getPdfLessonMappingState: () => 'idle' as const,
     preparePdfLessonMappings: async (
@@ -1567,9 +1568,10 @@ test('openSection reuses cached lessons and only generates when content is missi
         generateSectionCalls += 1;
         return {
           content: '# Generata',
-          quiz: [],
-          imageRefs: [],
           documentAssets: null,
+          generatedVisuals: [],
+          imageRefs: [],
+          quiz: [],
         };
       },
     },

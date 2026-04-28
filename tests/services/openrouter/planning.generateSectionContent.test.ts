@@ -6,6 +6,7 @@ const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async (operation: () => Promise<string>) => await operation());
 const getPdfTextSessionMock = vi.fn();
 const getPdfAssetSessionMock = vi.fn();
+const generateLessonVisualExampleMock = vi.fn();
 const buildStoredPdfDocumentAssetsMock = vi.fn((session, imageRefs) => ({
   kind: 'pdf' as const,
   parsedAt: session.parsedAt,
@@ -20,6 +21,10 @@ vi.mock('../../../services/openrouter/pdfAssets.ts', () => ({
   getPdfTextSession: getPdfTextSessionMock,
   getPdfAssetSession: getPdfAssetSessionMock,
   buildStoredPdfDocumentAssets: buildStoredPdfDocumentAssetsMock,
+}));
+
+vi.mock('../../../services/openrouter/visualExamples.ts', () => ({
+  generateLessonVisualExample: generateLessonVisualExampleMock,
 }));
 
 vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
@@ -49,6 +54,7 @@ test('generateSectionContent keeps all verified image placements instead of trun
   retryWithBackoffMock.mockClear();
   getPdfTextSessionMock.mockReset();
   getPdfAssetSessionMock.mockReset();
+  generateLessonVisualExampleMock.mockReset();
   buildStoredPdfDocumentAssetsMock.mockClear();
 
   const bulkyMarkdown = `## Decal\n\n${'Spiegazione tecnica sui decal e sugli overlay. '.repeat(120)}`;
@@ -176,15 +182,15 @@ test('generateSectionContent keeps all verified image placements instead of trun
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.model, 'reasoning-model');
   assert.equal(callOpenRouterMock.mock.calls[2]?.[0]?.model, 'flash-model');
   assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.reasoning, {
-    effort: 'high',
+    effort: 'medium',
     exclude: false,
   });
   assert.deepEqual(callOpenRouterMock.mock.calls[1]?.[0]?.reasoning, {
-    effort: 'high',
+    effort: 'medium',
     exclude: false,
   });
   assert.deepEqual(callOpenRouterMock.mock.calls[2]?.[0]?.reasoning, {
-    effort: 'high',
+    effort: 'medium',
     exclude: false,
   });
   assert.match(
@@ -213,7 +219,9 @@ test('generateSectionContent excludes unclear PDF images when the vision pass pr
   retryWithBackoffMock.mockClear();
   getPdfTextSessionMock.mockReset();
   getPdfAssetSessionMock.mockReset();
+  generateLessonVisualExampleMock.mockReset();
   buildStoredPdfDocumentAssetsMock.mockClear();
+  generateLessonVisualExampleMock.mockResolvedValue(null);
 
   const markdown = '## Caso concreto\n\nSpiegazione tecnica focalizzata sul confronto fragile.';
   const repairedMarkdown = `${markdown}\n\n## Conclusione\n\nChiusura.`;
@@ -310,7 +318,9 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
   retryWithBackoffMock.mockClear();
   getPdfTextSessionMock.mockReset();
   getPdfAssetSessionMock.mockReset();
+  generateLessonVisualExampleMock.mockReset();
   buildStoredPdfDocumentAssetsMock.mockClear();
+  generateLessonVisualExampleMock.mockResolvedValue(null);
 
   callOpenRouterMock
     .mockResolvedValueOnce(

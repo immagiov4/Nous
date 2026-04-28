@@ -1,4 +1,4 @@
-import { HIGH_REASONING_CONFIG } from './config.ts';
+import { MEDIUM_REASONING_CONFIG } from './config.ts';
 import { buildUserGenerationNotesBlock, CURRICULUM_PROPEDEUTIC_ORDER_RULES } from './prompts.ts';
 import {
   callOpenRouter,
@@ -56,7 +56,7 @@ Return JSON with this structure:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
-    reasoning: HIGH_REASONING_CONFIG,
+    reasoning: MEDIUM_REASONING_CONFIG,
     onReasoningUpdate,
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
@@ -84,7 +84,7 @@ Return JSON: { "valid": true } or { "valid": false }`;
 
   const response = await callOpenRouter({
     model: MODEL_FLASH,
-    reasoning: HIGH_REASONING_CONFIG,
+    reasoning: MEDIUM_REASONING_CONFIG,
     messages: [{ role: 'user', content: checkPrompt }],
     response_format: { type: 'json_object' },
   });
@@ -277,7 +277,7 @@ FORMAT: Markdown.`;
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
-        reasoning: HIGH_REASONING_CONFIG,
+        reasoning: MEDIUM_REASONING_CONFIG,
         onReasoningUpdate,
         messages: [{ role: 'user', content: prompt }],
       }),

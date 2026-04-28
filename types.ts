@@ -161,6 +161,19 @@ export interface LessonImageRef {
   anchorHeading?: string;
 }
 
+export type LessonGeneratedVisualKind = 'svg' | 'html' | 'mermaid';
+
+export interface LessonGeneratedVisual {
+  id: string;
+  title: string;
+  kind: LessonGeneratedVisualKind;
+  code: string;
+  diagramType?: 'erDiagram' | 'classDiagram';
+  loadingMessages?: string[];
+  anchorHeading?: string;
+  createdAt: string;
+}
+
 export interface PdfTextPage {
   pageNumber: number;
   text: string;
@@ -226,6 +239,7 @@ export interface LearningSection {
   content?: string; // The generated full lesson content (persisted)
   quiz?: QuizQuestion[]; // The generated quiz (persisted)
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
+  generatedVisuals?: LessonGeneratedVisual[]; // Generated pedagogical visuals for missing examples
   contextPrompt?: string; // For Learn Mode
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
   primaryChunkMappingSource?: 'fallback' | 'mapped';

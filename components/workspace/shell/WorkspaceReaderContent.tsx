@@ -24,7 +24,7 @@ function LessonGenerationSkeleton({
   const hasReasoningText = Boolean(reasoningText?.trim());
 
   return (
-    <div className="mx-auto mt-8 max-w-3xl space-y-8" role="status" aria-live="polite">
+    <output className="mx-auto mt-8 block max-w-3xl space-y-8" aria-live="polite">
       <div className="flex items-center gap-3 text-sm font-semibold text-gray-500 dark:text-zinc-400">
         <LoaderCircle className="h-4 w-4 animate-spin text-orange-600 dark:text-orange-300" />
         <span>Generazione lezione...</span>
@@ -45,7 +45,7 @@ function LessonGenerationSkeleton({
           <div className="h-4 w-5/6 rounded bg-gray-200 dark:bg-zinc-800" />
         </div>
       </div>
-    </div>
+    </output>
   );
 }
 
@@ -53,6 +53,7 @@ export default function WorkspaceReaderContent({
   activeLaboratoryExercise,
   activeSectionTitle,
   activeSectionAssetsById,
+  activeSectionGeneratedVisualsById = {},
   activeSectionImageRefsById,
   contentRef,
   isDarkMode,
@@ -194,6 +195,7 @@ export default function WorkspaceReaderContent({
                   <div key={`${chunk.questionIndexes.join('-')}::${chunk.markdown.slice(0, 64)}`}>
                     <MarkdownRenderer
                       content={chunk.markdown}
+                      generatedVisualsById={activeSectionGeneratedVisualsById}
                       isDarkMode={isDarkMode}
                       lessonAssetsById={activeSectionAssetsById}
                       lessonImageRefsById={activeSectionImageRefsById}

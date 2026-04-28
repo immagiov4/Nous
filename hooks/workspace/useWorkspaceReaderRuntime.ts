@@ -218,6 +218,9 @@ export const useWorkspaceReaderRuntime = ({
     () => buildLessonImageRefMap(activeSection?.imageRefs),
     [activeSection?.imageRefs]
   );
+  const activeSectionGeneratedVisualsById = Object.fromEntries(
+    (activeSection?.generatedVisuals || []).map(visual => [visual.id, visual])
+  );
 
   useEffect(() => {
     if (previousQuizSubmissionSectionIdRef.current === activeSectionId) {
@@ -267,6 +270,7 @@ export const useWorkspaceReaderRuntime = ({
 
   return {
     activeSectionAssetsById,
+    activeSectionGeneratedVisualsById,
     activeSectionImageRefsById,
     activeSidebarGroup,
     applyUiPreferences,

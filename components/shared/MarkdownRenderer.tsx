@@ -15,9 +15,15 @@ import rehypeRaw from 'rehype-raw';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import type { LessonImageRef, PdfImageAsset, SectionAnnotation } from '../../types';
+import type {
+  LessonGeneratedVisual,
+  LessonImageRef,
+  PdfImageAsset,
+  SectionAnnotation,
+} from '../../types';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { parsePdfContentParts } from '../../utils/pdf/imagePlaceholders';
+import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
 
 export interface MarkdownRendererProps {
   content: string;
@@ -26,6 +32,7 @@ export interface MarkdownRendererProps {
   onClick?: (e: MouseEvent) => void;
   onContextMenu?: (e: MouseEvent) => void;
   lessonAssetsById?: Record<string, PdfImageAsset>;
+  generatedVisualsById?: Record<string, LessonGeneratedVisual>;
   lessonImageRefsById?: Record<string, LessonImageRef>;
   sectionAnnotations?: SectionAnnotation[];
 }
@@ -153,6 +160,7 @@ const MarkdownRenderer = ({
   isDarkMode = false,
   onClick,
   onContextMenu,
+  generatedVisualsById = {},
   lessonAssetsById = {},
   lessonImageRefsById = {},
   sectionAnnotations = [],
@@ -165,8 +173,9 @@ const MarkdownRenderer = ({
     [isDarkMode]
   );
   const contentParts = useMemo(
-    () => parsePdfContentParts(content, lessonAssetsById, lessonImageRefsById),
-    [content, lessonAssetsById, lessonImageRefsById]
+    () =>
+      parsePdfContentParts(content, lessonAssetsById, lessonImageRefsById, generatedVisualsById),
+    [content, generatedVisualsById, lessonAssetsById, lessonImageRefsById]
   );
   const noteAnnotationIds = useMemo(
     () =>
@@ -219,7 +228,7 @@ const MarkdownRenderer = ({
           >
             {normalizedContentByPartKey.get(part.key) || ''}
           </ReactMarkdown>
-        ) : (
+        ) : part.type === 'image' ? (
           <figure
             key={part.key}
             className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85"
@@ -238,6 +247,13 @@ const MarkdownRenderer = ({
               </figcaption>
             ) : null}
           </figure>
+        ) : (
+          <GeneratedVisualFrame
+            key={part.key}
+            isDarkMode={isDarkMode}
+            title={part.title}
+            visual={part.visual}
+          />
         )
       )}
     </article>
