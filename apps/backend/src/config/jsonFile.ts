@@ -11,7 +11,6 @@ export function loadOptionalJsonFile<T>(filePath: string, label: string): T | nu
     const fileContent = readFileSync(filePath, 'utf-8');
     return JSON.parse(fileContent) as T;
   } catch (error) {
-    console.warn(`[Config] Failed to parse ${label}: ${getErrorMessage(error)}`);
-    return null;
+    throw new Error(`[Config] ${label} non valido: ${getErrorMessage(error)}`);
   }
 }

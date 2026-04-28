@@ -1,17 +1,28 @@
 import { Router } from 'express';
 import { extractPdfImages } from '../services/pdfImageExtractor.js';
 import { extractPdfText } from '../services/pdfTextExtractor.js';
+import { isPdfDataUrl, PDF_DATA_URL_REQUIRED_MESSAGE } from '../utils/pdfDataUrl.js';
 
 const router = Router();
+const DEFAULT_PDF_IMAGE_LIMIT = 20;
+const MAX_PDF_IMAGE_LIMIT = 80;
+
+const readPdfImageLimit = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_PDF_IMAGE_LIMIT;
+  }
+
+  return Math.max(1, Math.min(MAX_PDF_IMAGE_LIMIT, Math.trunc(value)));
+};
 
 router.post('/extract-text', async (req, res) => {
   try {
     const fileData = typeof req.body?.fileData === 'string' ? req.body.fileData : '';
 
-    if (!fileData.startsWith('data:application/pdf;base64,')) {
+    if (!isPdfDataUrl(fileData)) {
       return res.status(400).json({
         success: false,
-        error: 'A PDF data URL is required.',
+        error: PDF_DATA_URL_REQUIRED_MESSAGE,
       });
     }
 
@@ -24,12 +35,15 @@ router.post('/extract-text', async (req, res) => {
       sourceHash: result.sourceHash,
       pageCount: result.pageCount,
       pages: result.pages,
+      parserFallbackReason: result.parserFallbackReason,
+      qualityWarning: result.qualityWarning,
+      usedFallbackParser: result.usedFallbackParser,
     });
   } catch (error) {
     console.error('[Backend] PDF text extraction failed:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to extract text from PDF.',
+      error: 'Estrazione del testo dal PDF non riuscita.',
     });
   }
 });
@@ -37,7 +51,7 @@ router.post('/extract-text', async (req, res) => {
 router.post('/extract-images', async (req, res) => {
   try {
     const fileData = typeof req.body?.fileData === 'string' ? req.body.fileData : '';
-    const limit = typeof req.body?.limit === 'number' ? req.body.limit : 20;
+    const limit = readPdfImageLimit(req.body?.limit);
     const partialPages = Array.isArray(req.body?.partialPages)
       ? req.body.partialPages.filter(
           (page: unknown): page is number =>
@@ -45,10 +59,10 @@ router.post('/extract-images', async (req, res) => {
         )
       : undefined;
 
-    if (!fileData.startsWith('data:application/pdf;base64,')) {
+    if (!isPdfDataUrl(fileData)) {
       return res.status(400).json({
         success: false,
-        error: 'A PDF data URL is required.',
+        error: PDF_DATA_URL_REQUIRED_MESSAGE,
       });
     }
 
@@ -62,7 +76,7 @@ router.post('/extract-images', async (req, res) => {
     console.error('[Backend] PDF image extraction failed:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to extract images from PDF.',
+      error: 'Estrazione delle immagini dal PDF non riuscita.',
     });
   }
 });

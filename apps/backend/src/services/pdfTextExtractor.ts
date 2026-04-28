@@ -7,9 +7,12 @@ import { promisify } from 'node:util';
 
 import { PDFParse } from 'pdf-parse';
 
+import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
+
 const execFileAsync = promisify(execFile);
-const PDF_DATA_URL_PREFIX = /^data:application\/pdf;base64,/i;
 const TMP_DIR_PREFIX = 'nous-pdf-text-';
+const PDF_TEXT_FALLBACK_WARNING =
+  'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.';
 
 export interface ExtractedPdfTextPage {
   pageNumber: number;
@@ -21,17 +24,11 @@ export interface ExtractedPdfText {
   pages: ExtractedPdfTextPage[];
   sourceHash: string;
   parser: 'pdftotext' | 'pdf-parse';
+  parserFallbackReason?: string;
   pageCount?: number;
+  qualityWarning?: string;
+  usedFallbackParser: boolean;
 }
-
-const decodePdfDataUrl = (pdfDataUrl: string): Buffer => {
-  if (!PDF_DATA_URL_PREFIX.test(pdfDataUrl)) {
-    throw new Error('A PDF data URL is required.');
-  }
-
-  const base64 = pdfDataUrl.replace(PDF_DATA_URL_PREFIX, '');
-  return Buffer.from(base64, 'base64');
-};
 
 const buildSourceHash = (buffer: Buffer): string =>
   crypto.createHash('sha1').update(buffer).digest('hex');
@@ -88,6 +85,8 @@ const extractWithPdfParse = async (
       pages,
       parser: 'pdf-parse',
       pageCount: infoResult?.total ?? textResult.total ?? pages.length,
+      qualityWarning: PDF_TEXT_FALLBACK_WARNING,
+      usedFallbackParser: true,
     };
   } finally {
     await parser.destroy().catch(() => undefined);
@@ -96,7 +95,7 @@ const extractWithPdfParse = async (
 
 const extractWithPdftotext = async (
   pdfBuffer: Buffer
-): Promise<Omit<ExtractedPdfText, 'sourceHash'> | null> => {
+): Promise<{ result: Omit<ExtractedPdfText, 'sourceHash'> | null; failureReason?: string }> => {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), TMP_DIR_PREFIX));
   const pdfPath = path.join(tmpDir, 'document.pdf');
 
@@ -125,22 +124,25 @@ const extractWithPdftotext = async (
     );
     const normalizedText = joinExtractedPages(pages);
     if (!normalizedText) {
-      return null;
+      return { result: null, failureReason: 'pdftotext_empty_output' };
     }
 
-    return {
+    const result: Omit<ExtractedPdfText, 'sourceHash'> = {
       text: normalizedText,
       pages,
       parser: 'pdftotext',
       pageCount: pages.length,
+      usedFallbackParser: false,
     };
+
+    return { result };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (!errorMessage.toLowerCase().includes('enoent')) {
       console.warn('[Backend] pdftotext failed, falling back to pdf-parse:', errorMessage);
     }
 
-    return null;
+    return { result: null, failureReason: errorMessage };
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -151,9 +153,9 @@ export const extractPdfText = async (pdfDataUrl: string): Promise<ExtractedPdfTe
   const sourceHash = buildSourceHash(pdfBuffer);
 
   const pdftotextResult = await extractWithPdftotext(pdfBuffer);
-  if (pdftotextResult) {
+  if (pdftotextResult.result) {
     return {
-      ...pdftotextResult,
+      ...pdftotextResult.result,
       sourceHash,
     };
   }
@@ -161,6 +163,7 @@ export const extractPdfText = async (pdfDataUrl: string): Promise<ExtractedPdfTe
   const fallbackResult = await extractWithPdfParse(pdfBuffer);
   return {
     ...fallbackResult,
+    parserFallbackReason: pdftotextResult.failureReason,
     sourceHash,
   };
 };

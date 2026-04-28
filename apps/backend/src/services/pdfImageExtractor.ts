@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
 
+import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
+
 const MIN_IMAGE_BYTES = 2_000;
 const IMAGE_CONTEXT_LINE_COUNT = 5;
 const LINE_THRESHOLD = 4.6;
@@ -61,7 +63,6 @@ interface PageImagePlacement {
   renderedWidth: number;
 }
 
-const PDF_DATA_URL_PREFIX = /^data:application\/pdf;base64,/i;
 const IMAGE_DATA_URL_PREFIX = /^data:([^;]+);base64,/i;
 
 const getMimeTypeFromDataUrl = (dataUrl: string): string => {
@@ -622,8 +623,7 @@ export const extractPdfImages = async (
   limit = 36,
   partialPages?: number[]
 ): Promise<ExtractedPdfImage[]> => {
-  const base64 = pdfDataUrl.replace(PDF_DATA_URL_PREFIX, '');
-  const pdfBuffer = Buffer.from(base64, 'base64');
+  const pdfBuffer = decodePdfDataUrl(pdfDataUrl);
   const parser = new PDFParse({ data: pdfBuffer });
   const dedupedImages = new Map<string, ExtractedPdfImage>();
   const sanitizedPartialPages = sanitizePartialPages(partialPages);

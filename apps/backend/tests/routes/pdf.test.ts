@@ -30,6 +30,9 @@ describe('POST /api/pdf', () => {
       parser: 'pdf-parse',
       sourceHash: 'hash-1',
       pageCount: 3,
+      usedFallbackParser: true,
+      qualityWarning:
+        'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.',
     });
     pdfServiceMocks.extractPdfImages.mockResolvedValue([
       { id: 'img-1', dataUrl: 'data:image/png;base64,ZmFrZQ==', pageNumber: 4 },
@@ -44,7 +47,7 @@ describe('POST /api/pdf', () => {
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
       success: false,
-      error: 'A PDF data URL is required.',
+      error: 'E richiesto un data URL PDF valido.',
     });
   });
 
@@ -66,6 +69,10 @@ describe('POST /api/pdf', () => {
       parser: 'pdf-parse',
       sourceHash: 'hash-1',
       pageCount: 3,
+      parserFallbackReason: undefined,
+      qualityWarning:
+        'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.',
+      usedFallbackParser: true,
     });
   });
 
