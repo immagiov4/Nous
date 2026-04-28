@@ -4,9 +4,10 @@ Nous Reader turns uploaded documents into personalized study plans with lessons,
 
 ## Start Here
 
-- [Architecture guide](ARCHITECTURE.md)
-- [Optional local TTS server](TTS_SETUP.md)
-- [UI style guide](UI_STYLE_GUIDE.md)
+- [AI instructions](AI_INSTRUCTIONS.md)
+- [Architecture guide](docs/ARCHITECTURE.md)
+- [Optional local TTS server](docs/TTS_SETUP.md)
+- [UI style guide](docs/UI_STYLE_GUIDE.md)
 
 ## Run Locally
 
@@ -16,7 +17,7 @@ Nous Reader turns uploaded documents into personalized study plans with lessons,
    ```
 2. Install the backend dependencies:
    ```bash
-   cd backend && npm ci && cd ..
+   cd apps/backend && npm ci && cd ../..
    ```
 3. Set `OPENROUTER_API_KEY` in [.env.local](.env.local)
 4. Start the app:
@@ -28,10 +29,11 @@ This starts the Vite frontend on `http://localhost:5173` and the Express backend
 
 ## What Lives Where
 
-- Frontend screens and composition root: `App.tsx`, `components/`, `hooks/`, `services/`, `utils/`
-- Shared data model: `types.ts`
-- Backend API server: `backend/src/`
-- Optional standalone Python TTS service: `tts-server/`
+- Frontend app: `apps/web/`
+- Backend API server: `apps/backend/src/`
+- Optional standalone Python TTS service: `services/tts-server/`
+- Tooling scripts: `tooling/scripts/`
+- Documentation: `docs/`
 
 By default, projects are stored in browser IndexedDB. LAN sync uses the backend SQLite store when repository mode is set to `lan`.
 

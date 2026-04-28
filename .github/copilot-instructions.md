@@ -1,6 +1,7 @@
 # Copilot Instructions — Nous Reader
 
-Tailored to this repository: React 19 + TypeScript + Vite frontend at the repo root · Express.js + TypeScript backend in `backend/` · Python Qwen3-TTS server in `tts-server/` · IndexedDB persistence · Gemini-driven learning, assessment, and text-to-speech flows.
+Canonical repository-wide AI guidance lives in [AI_INSTRUCTIONS.md](../AI_INSTRUCTIONS.md).
+Tailored to this repository: React 19 + TypeScript + Vite frontend in `apps/web/` · Express.js + TypeScript backend in `apps/backend/` · Python Qwen3-TTS server in `services/tts-server/` · IndexedDB persistence · Gemini-driven learning, assessment, and text-to-speech flows.
 
 ---
 
@@ -16,9 +17,9 @@ Tailored to this repository: React 19 + TypeScript + Vite frontend at the repo r
 ## Context-First Workflow
 
 - Before coding, read the closest implementation files to the change.
-- For frontend work, inspect `App.tsx`, the relevant files in `components/`, `hooks/`, `services/`, and `utils/` before introducing new patterns.
-- For frontend UI work, read `UI_STYLE_GUIDE.md` first and match its documented layout, palette, typography, radius, and button patterns before adding new styling.
-- For backend work, inspect `backend/src/routes/`, `backend/src/services/`, and `backend/src/config/` before editing behavior.
+- For frontend work, inspect `apps/web/App.tsx`, the relevant files in `apps/web/components/`, `apps/web/hooks/`, `apps/web/services/`, and `apps/web/utils/` before introducing new patterns.
+- For frontend UI work, read `docs/UI_STYLE_GUIDE.md` first and match its documented layout, palette, typography, radius, and button patterns before adding new styling.
+- For backend work, inspect `apps/backend/src/routes/`, `apps/backend/src/services/`, and `apps/backend/src/config/` before editing behavior.
 - For TTS changes, determine whether the change belongs in frontend playback code, the Node backend proxy/process manager, or the Python server before modifying anything.
 - If the issue is a bug, identify the root cause pattern and search sibling modules for the same mistake.
 - Use docs for orientation, but treat the implementation as the source of truth.
@@ -27,32 +28,32 @@ Tailored to this repository: React 19 + TypeScript + Vite frontend at the repo r
 
 ## Stack and Project Layout
 
-### Frontend — repository root
+### Frontend — `apps/web/`
 
-- The main application entry is `App.tsx`, not `src/App.tsx`.
-- Shared React components live in `components/`.
-- Custom hooks live in `hooks/`.
-- Frontend services live in `services/`.
-- Shared utilities live in `utils/`.
-- Shared frontend types live in `types.ts`; shared constants live in `constants.ts`.
-- The app is a stateful single-page interface managed directly from `App.tsx`; do not assume React Router is in use.
-- When adding visible functionality, wire it into the existing component tree from `App.tsx` instead of introducing a parallel page architecture.
+- The main application entry is `apps/web/App.tsx`, not `apps/web/src/App.tsx`.
+- Shared React components live in `apps/web/components/`.
+- Custom hooks live in `apps/web/hooks/`.
+- Frontend services live in `apps/web/services/`.
+- Shared utilities live in `apps/web/utils/`.
+- Shared frontend types live in `apps/web/types.ts`; shared constants live in `apps/web/constants.ts`.
+- The app is a stateful single-page interface managed directly from `apps/web/App.tsx`; do not assume React Router is in use.
+- When adding visible functionality, wire it into the existing component tree from `apps/web/App.tsx` instead of introducing a parallel page architecture.
 
-### Backend — `backend/src/`
+### Backend — `apps/backend/src/`
 
-- Express app bootstrap lives in `backend/src/index.ts`.
-- Route handlers live in `backend/src/routes/`.
-- Business logic and integration code live in `backend/src/services/`.
-- Runtime configuration lives in `backend/src/config/`.
-- Shared backend types live in `backend/src/types/`.
+- Express app bootstrap lives in `apps/backend/src/index.ts`.
+- Route handlers live in `apps/backend/src/routes/`.
+- Business logic and integration code live in `apps/backend/src/services/`.
+- Runtime configuration lives in `apps/backend/src/config/`.
+- Shared backend types live in `apps/backend/src/types/`.
 - The backend is primarily a control plane and proxy for TTS-related operations; keep UI-specific logic out of it.
 
-### Python TTS server — `tts-server/`
+### Python TTS server — `services/tts-server/`
 
-- `tts-server/` is an integrated Python service used by the backend and frontend TTS flow.
+- `services/tts-server/` is an integrated Python service used by the backend and frontend TTS flow.
 - Prefer the smallest possible change when editing Python files there.
 - Favor configuration or backend orchestration changes over deep Python changes unless the task clearly requires modifying the server internals.
-- Avoid broad cleanup or style-only edits in `tts-server/`; it contains upstream-style code and research artifacts.
+- Avoid broad cleanup or style-only edits in `services/tts-server/`; it contains upstream-style code and research artifacts.
 
 ### Dev Commands
 
@@ -70,17 +71,17 @@ npm run quality       # frontend/backend type checks + Biome lint
 
 ### Frontend application flow
 
-- `App.tsx` is the main state orchestrator for reading, assessment, learning-plan, focus-mode, and library flows.
-- `hooks/useProjectLibrary.ts` owns IndexedDB-backed project persistence and workspace hydration.
-- `hooks/useTtsPlayer.ts` owns text chunking, playback state, sync behavior, and client-side TTS playback orchestration.
-- `services/geminiService.ts` is the public frontend facade for Gemini capabilities; feature-specific implementations live under `services/gemini/`.
-- `services/projectSnapshot.ts` and repository services are the canonical path for persisted project data.
+- `apps/web/App.tsx` is the main state orchestrator for reading, assessment, learning-plan, focus-mode, and library flows.
+- `apps/web/hooks/library/useProjectLibrary.ts` owns IndexedDB-backed project persistence and workspace hydration.
+- `apps/web/hooks/reader/useTtsPlayer.ts` owns text chunking, playback state, sync behavior, and client-side TTS playback orchestration.
+- `apps/web/services/geminiService.ts` is the public frontend facade for Gemini capabilities; feature-specific implementations live under `apps/web/services/gemini/`.
+- `apps/web/services/projectSnapshot.ts` and repository services are the canonical path for persisted project data.
 
 ### Backend TTS flow
 
-- `backend/src/services/processManager.ts` manages the lifecycle of the Python TTS server.
-- `backend/src/routes/tts.ts`, `voices.ts`, and `status.ts` define the backend API surface consumed by the frontend.
-- `backend/src/services/ttsClient.ts`, `voiceService.ts`, and `statusService.ts` should stay the single source of truth for backend TTS integration logic.
+- `apps/backend/src/services/processManager.ts` manages the lifecycle of the Python TTS server.
+- `apps/backend/src/routes/tts.ts`, `voices.ts`, and `status.ts` define the backend API surface consumed by the frontend.
+- `apps/backend/src/services/ttsClient.ts`, `voiceService.ts`, and `statusService.ts` should stay the single source of truth for backend TTS integration logic.
 - If a change affects TTS availability or startup behavior, check both the Node process manager and the Python server contract.
 
 ### Persistence
@@ -93,19 +94,19 @@ npm run quality       # frontend/backend type checks + Biome lint
 
 ## UI and Styling Rules
 
-- Preserve the existing visual language already used in `App.tsx` and `components/`.
+- Preserve the existing visual language already used in `apps/web/App.tsx` and `apps/web/components/`.
 - Treat `UI_STYLE_GUIDE.md` as the default UI reference for new frontend work and update it when a stable visual convention changes.
 - Use Tailwind utility classes for styling; avoid inline styles except where computed values or CSS custom properties are genuinely required.
 - Use `lucide-react` for icons.
 - Keep components focused and composable; if logic grows, extract a hook or utility instead of expanding an already large render block.
-- Prefer extending the existing components in `components/` over introducing a new competing pattern.
+- Prefer extending the existing components in `apps/web/components/` over introducing a new competing pattern.
 
 ---
 
 ## AI and Content Rules
 
-- Keep Gemini-specific logic inside `services/gemini/` or the Gemini service facade.
-- Reuse exported service functions from `services/geminiService.ts` rather than calling low-level Gemini modules ad hoc from unrelated files.
+- Keep Gemini-specific logic inside `apps/web/services/gemini/` or the Gemini service facade.
+- Reuse exported service functions from `apps/web/services/geminiService.ts` rather than calling low-level Gemini modules ad hoc from unrelated files.
 - Keep prompt construction and response parsing close to the existing Gemini modules that already own that feature.
 - For markdown, lesson content, and speech preparation, reuse existing utilities before adding new text-processing logic.
 
@@ -117,7 +118,7 @@ npm run quality       # frontend/backend type checks + Biome lint
 
 - Prefer guard clauses and early returns over nested conditionals.
 - Extract focused helpers when a function starts mixing unrelated responsibilities.
-- Keep changes readable inside large orchestrator files like `App.tsx` and `useTtsPlayer.ts`.
+- Keep changes readable inside large orchestrator files like `apps/web/App.tsx` and `apps/web/hooks/reader/useTtsPlayer.ts`.
 
 ### No Magic Numbers or Strings
 
@@ -164,7 +165,7 @@ npm run quality       # frontend/backend type checks + Biome lint
 
 ## Frontend-Specific Rules
 
-- Keep `App.tsx` as the top-level orchestrator unless there is a clear need to extract self-contained logic.
+- Keep `apps/web/App.tsx` as the top-level orchestrator unless there is a clear need to extract self-contained logic.
 - Pages do not live under `src/pages/`; do not introduce that structure unless the project is explicitly being reorganized.
 - Use custom hooks for stateful logic that would otherwise bloat components.
 - Reuse `react-markdown`, `react-syntax-highlighter`, `remark-math`, and `rehype-katex` for rich content rendering instead of introducing overlapping libraries.
@@ -183,7 +184,7 @@ npm run quality       # frontend/backend type checks + Biome lint
 
 ## TTS Server Rules
 
-- Treat `tts-server/` as a specialized subsystem with heavier runtime and test cost.
+- Treat `services/tts-server/` as a specialized subsystem with heavier runtime and test cost.
 - Make targeted edits only in files directly related to the requested behavior.
 - Do not rewrite benchmarks, research notes, or auxiliary scripts unless the task is specifically about them.
 - If changing request or response behavior, verify compatibility with both the backend client and the frontend TTS hook.
@@ -196,7 +197,7 @@ npm run quality       # frontend/backend type checks + Biome lint
 - For backend-only TypeScript changes, at minimum run the backend build or type check path.
 - For frontend-only changes, ensure the Vite app still type-checks.
 - If startup or integration wiring changes, run `npm run dev` and confirm frontend and backend start without errors.
-- If you change Python TTS behavior, run the narrowest relevant verification in `tts-server/` rather than broad heavyweight benchmarks unless required.
+- If you change Python TTS behavior, run the narrowest relevant verification in `services/tts-server/` rather than broad heavyweight benchmarks unless required.
 - Do not fix unrelated failing tests unless they block the requested change.
 
 ---

@@ -25,7 +25,7 @@ jobs:
 
       - name: Install Backend Dependencies
         run: npm ci
-        working-directory: backend
+        working-directory: apps/backend
 
       - name: Run Quality Checks
         run: npm run quality
