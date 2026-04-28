@@ -30,7 +30,7 @@ interface AudioPlayerProps {
   onSkipChunk: (direction: 'prev' | 'next') => void;
 }
 
-const MOBILE_DOCK_VISIBILITY_MS = 2600;
+const MOBILE_DOCK_VISIBILITY_MS = 1300;
 
 const AudioPlayer = ({
   isPlaying,
