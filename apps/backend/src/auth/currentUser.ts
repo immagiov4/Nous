@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 
 const DEFAULT_LOCAL_USER_ID = 'local-user';
+export const LOCAL_AUTH_MODE = 'local-bypass' as const;
 
 export interface CurrentUser {
   id: string;
@@ -10,7 +11,8 @@ export interface RequestWithCurrentUser extends Request {
   currentUser: CurrentUser;
 }
 
-const isLocalAuthBypassEnabled = (): boolean => process.env.LOCAL_AUTH_BYPASS !== 'false';
+const isLocalAuthBypassEnabled = (): boolean =>
+  process.env.LOCAL_AUTH_BYPASS === 'true' || process.env.NODE_ENV === 'test';
 
 export const resolveCurrentUser = (req: Request, res: Response, next: NextFunction): void => {
   if (isLocalAuthBypassEnabled()) {
@@ -23,7 +25,7 @@ export const resolveCurrentUser = (req: Request, res: Response, next: NextFuncti
 
   res.status(401).json({
     success: false,
-    error: 'Authentication is not configured for this deployment.',
+    error: 'Autenticazione non configurata per questa installazione.',
   });
 };
 

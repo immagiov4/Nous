@@ -1,9 +1,4 @@
-import {
-  MAX_OUTPUT_TOKENS,
-  OPENROUTER_API_KEY,
-  OPENROUTER_BASE_URL,
-  resolveOpenRouterModel,
-} from './config.ts';
+import { getBackendUrl, MAX_OUTPUT_TOKENS, resolveOpenRouterModel } from './config.ts';
 import type {
   ChatCompletionOptions,
   ChatMessageContent,
@@ -17,11 +12,13 @@ interface HttpError extends Error {
   details?: string;
 }
 
+const OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH = '/api/openrouter/chat/completions';
+
+const getOpenRouterProxyUrl = (): string =>
+  `${getBackendUrl()}${OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH}`;
+
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-  'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
-  'X-Title': 'Nous Reader',
 });
 
 const extractTextContent = (content: OpenRouterMessageContent | undefined): string => {
@@ -143,7 +140,7 @@ export const callOpenRouterRaw = async (
     options.modelSlot,
     !options.disableModelOverride
   );
-  const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+  const response = await fetch(getOpenRouterProxyUrl(), {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({
@@ -171,7 +168,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     options.modelSlot,
     !options.disableModelOverride
   );
-  const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+  const response = await fetch(getOpenRouterProxyUrl(), {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({

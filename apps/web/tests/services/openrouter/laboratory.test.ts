@@ -4,14 +4,13 @@ import { createLaboratoryTextAttachment } from '../../../services/laboratory/att
 import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../../../services/laboratory/state.ts';
 
 vi.mock('../../../services/openrouter/config.ts', () => ({
-  MEDIUM_REASONING_CONFIG: { effort: 'medium', exclude: true },
+  getBackendUrl: () => 'https://backend.test',
   MAX_OUTPUT_TOKENS: 32000,
+  MEDIUM_REASONING_CONFIG: { effort: 'medium', exclude: true },
   MODEL_ASSESSMENT: 'mistralai/mistral-small-2603',
   MODEL_FLASH: 'openai/gpt-5.4-nano',
   MODEL_PDF_IMAGE_CAPTION: 'nvidia/nemotron-nano-12b-v2-vl',
   MODEL_REASONING: 'openai/gpt-5.4-mini',
-  OPENROUTER_API_KEY: 'test-key',
-  OPENROUTER_BASE_URL: 'https://openrouter.test',
   resolveOpenRouterModel: (model: string) => model,
 }));
 

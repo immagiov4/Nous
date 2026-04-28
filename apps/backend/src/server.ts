@@ -33,7 +33,8 @@ server.on('error', (error: NodeJS.ErrnoException) => {
     process.exit(1);
   }
 
-  throw error;
+  console.error('[Backend] Failed to start server:', error);
+  process.exit(1);
 });
 
 let isShuttingDown = false;

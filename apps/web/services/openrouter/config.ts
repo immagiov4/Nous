@@ -1,12 +1,8 @@
-import serverConfig from '../../../../server.config.json';
-
 import type { OpenRouterModelSlot } from '../../types.ts';
 import { readUiPreferences } from '../preferences/uiPreferencesStorage.ts';
 import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from './prompts.ts';
 import type { OpenRouterReasoningOptions } from './types.ts';
 
-export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || '32000', 10);
 export const DEFAULT_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite-preview';
 
@@ -73,11 +69,11 @@ const isWildcardHost = (host: string): boolean => host === '0.0.0.0' || host ===
 
 export const DEFAULT_BACKEND_HOST = normalizeHost(
   import.meta.env.VITE_BACKEND_HOST,
-  serverConfig.backendHost || FALLBACK_BACKEND_HOST
+  FALLBACK_BACKEND_HOST
 );
 export const DEFAULT_BACKEND_PORT = normalizePort(
   import.meta.env.VITE_BACKEND_PORT,
-  serverConfig.backendPort || FALLBACK_BACKEND_PORT
+  FALLBACK_BACKEND_PORT
 );
 export const DEFAULT_BACKEND_URL = `http://${DEFAULT_BACKEND_HOST}:${DEFAULT_BACKEND_PORT}`;
 

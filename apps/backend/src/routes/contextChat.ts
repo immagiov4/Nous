@@ -6,15 +6,16 @@ import {
   stepCountIs,
   streamText,
   tool,
-  type UIMessage,
 } from 'ai';
 import { type Request, type Response, Router } from 'express';
 
 import { CONTEXT_CHAT_MODEL, requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
+import { isRecord, readOptionalString } from '../utils/validation.js';
 
 import {
   buildContextSystemPrompt,
+  CHAT_TOOL_STEP_LIMIT,
   type ContextChatToolPreferences,
   isUiMessageArray,
   LIBRARY_WEB_SEARCH_TOOL_NAME,
@@ -380,10 +381,29 @@ const buildContextPrepareStep = () => {
   });
 };
 
+const readContextToolPreferences = (value: unknown): ContextChatToolPreferences | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    annotate: value.annotate === true,
+    webSearch: value.webSearch === true,
+  };
+};
+
 export const contextChatRouter = Router();
 
 contextChatRouter.post('/context', async (req: Request, res: Response) => {
   try {
+    if (!isRecord(req.body)) {
+      res.status(400).json({
+        success: false,
+        error: 'Corpo della richiesta non valido.',
+      });
+      return;
+    }
+
     const {
       attachedAnnotationNote,
       attachedAnnotationText,
@@ -392,31 +412,30 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       lessonContent,
       lessonDescription,
       lessonTitle,
-      messages,
-      modelOverride,
-      selectedText,
       sourceKind,
       sourceMaterial,
       sourceName,
       toolPreferences,
-    } = req.body as {
-      attachedAnnotationNote?: string;
-      attachedAnnotationText?: string;
-      contextAfter?: string;
-      contextBefore?: string;
-      lessonContent?: string;
-      lessonDescription?: string;
-      lessonTitle?: string;
-      messages?: UIMessage[];
-      modelOverride?: string;
-      selectedText?: string;
-      sourceKind?: string;
-      sourceMaterial?: string;
-      sourceName?: string;
-      toolPreferences?: ContextChatToolPreferences;
+    } = req.body;
+    const selectedText = readOptionalString(req.body.selectedText);
+    const messages = req.body.messages;
+    const modelOverride = readOptionalString(req.body.modelOverride);
+
+    const contextInput = {
+      attachedAnnotationNote: readOptionalString(attachedAnnotationNote),
+      attachedAnnotationText: readOptionalString(attachedAnnotationText),
+      contextAfter: readOptionalString(contextAfter),
+      contextBefore: readOptionalString(contextBefore),
+      lessonContent: readOptionalString(lessonContent),
+      lessonDescription: readOptionalString(lessonDescription),
+      lessonTitle: readOptionalString(lessonTitle),
+      sourceKind: readOptionalString(sourceKind),
+      sourceMaterial: readOptionalString(sourceMaterial),
+      sourceName: readOptionalString(sourceName),
+      toolPreferences: readContextToolPreferences(toolPreferences),
     };
 
-    if (!selectedText?.trim()) {
+    if (!selectedText) {
       res.status(400).json({
         success: false,
         error: 'Missing selectedText for contextual chat.',
@@ -435,18 +454,12 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const openrouter = createOpenRouter({
       apiKey: requireOpenRouterApiKey(),
     });
-    const selectedContextModel = modelOverride?.trim() || CONTEXT_CHAT_MODEL;
+    const selectedContextModel = modelOverride || CONTEXT_CHAT_MODEL;
 
     const contextTools = buildContextToolSet({
-      attachedAnnotationNote,
-      attachedAnnotationText,
-      contextAfter,
-      contextBefore,
-      lessonTitle,
-      modelOverride: modelOverride?.trim() || undefined,
+      modelOverride,
       selectedText,
-      sourceKind,
-      sourceName,
+      ...contextInput,
     });
 
     const modelMessages = await convertToModelMessages(
@@ -457,22 +470,12 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const result = streamText({
       model: openrouter.chat(selectedContextModel),
       system: buildContextSystemPrompt({
-        attachedAnnotationNote,
-        attachedAnnotationText,
-        contextAfter,
-        contextBefore,
-        lessonContent,
-        lessonDescription,
-        lessonTitle,
         selectedText,
-        sourceKind,
-        sourceMaterial,
-        sourceName,
-        toolPreferences,
+        ...contextInput,
       }),
       messages: modelMessages,
       tools: contextTools,
-      stopWhen: stepCountIs(6),
+      stopWhen: stepCountIs(CHAT_TOOL_STEP_LIMIT),
       prepareStep: buildContextPrepareStep(),
     });
 

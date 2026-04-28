@@ -1,13 +1,21 @@
 import { type Request, type Response, Router } from 'express';
 
-import { getCurrentUser, resolveCurrentUser } from '../auth/currentUser.js';
+import { getCurrentUser, LOCAL_AUTH_MODE, resolveCurrentUser } from '../auth/currentUser.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectSnapshot } from '../projects/types.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
+import {
+  isRecord,
+  readNullableString,
+  readOptionalString,
+  readStringArray,
+} from '../utils/validation.js';
 
 const router = Router();
 
 router.use(resolveCurrentUser);
+
+const PROJECT_SOURCE_KINDS = new Set(['document', 'codebase', 'learn-mode', 'imported-json']);
 
 const getTargetIndex = (value: unknown): number | undefined => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -20,6 +28,93 @@ const getTargetIndex = (value: unknown): number | undefined => {
 const getRouteParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value[0] || '' : value || '';
 
+const getBodyRecord = (body: unknown): Record<string, unknown> => {
+  if (!isRecord(body)) {
+    throw new Error('Corpo della richiesta non valido.');
+  }
+
+  return body;
+};
+
+const readProjectSourceKind = (value: unknown): ProjectSnapshot['sourceKind'] | undefined =>
+  typeof value === 'string' && PROJECT_SOURCE_KINDS.has(value)
+    ? (value as ProjectSnapshot['sourceKind'])
+    : undefined;
+
+const readLearningPlan = (value: unknown): ProjectSnapshot['learningPlan'] | undefined => {
+  if (value === null) {
+    return null;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  if (value.sections !== undefined && !Array.isArray(value.sections)) {
+    return undefined;
+  }
+
+  return value as ProjectSnapshot['learningPlan'];
+};
+
+const readLaboratory = (value: unknown): ProjectSnapshot['laboratory'] | undefined => {
+  if (value === null) {
+    return null;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  if (value.exercises !== undefined && !Array.isArray(value.exercises)) {
+    return undefined;
+  }
+
+  return value as ProjectSnapshot['laboratory'];
+};
+
+const readUserProfile = (value: unknown): ProjectSnapshot['userProfile'] | undefined => {
+  if (value === null) {
+    return null;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return value as ProjectSnapshot['userProfile'];
+};
+
+const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectSnapshot => {
+  const bodyRecord = getBodyRecord(body);
+  const snapshotRecord = bodyRecord.snapshot;
+
+  if (!isRecord(snapshotRecord)) {
+    throw new Error('Snapshot progetto mancante o non valida.');
+  }
+
+  return {
+    id: routeProjectId,
+    version: readOptionalString(snapshotRecord.version) || '4.1',
+    sourceKind: readProjectSourceKind(snapshotRecord.sourceKind),
+    state: readOptionalString(snapshotRecord.state),
+    source: snapshotRecord.source,
+    learningPlan: readLearningPlan(snapshotRecord.learningPlan),
+    laboratory: readLaboratory(snapshotRecord.laboratory),
+    isLearnMode:
+      typeof snapshotRecord.isLearnMode === 'boolean' ? snapshotRecord.isLearnMode : undefined,
+    userProfile: readUserProfile(snapshotRecord.userProfile),
+    syllabus: Array.isArray(snapshotRecord.syllabus) ? snapshotRecord.syllabus : undefined,
+    activeSectionId: readNullableString(snapshotRecord.activeSectionId),
+    activeLaboratoryExerciseId: readNullableString(snapshotRecord.activeLaboratoryExerciseId),
+    createdAt: readOptionalString(snapshotRecord.createdAt) || new Date().toISOString(),
+    updatedAt: readOptionalString(snapshotRecord.updatedAt) || new Date().toISOString(),
+    lastOpenedAt: readOptionalString(snapshotRecord.lastOpenedAt) || new Date().toISOString(),
+    documentAssets: snapshotRecord.documentAssets,
+    documentIndex: snapshotRecord.documentIndex,
+  };
+};
+
 router.get('/config', (req: Request, res: Response) => {
   try {
     const currentUser = getCurrentUser(req);
@@ -27,7 +122,7 @@ router.get('/config', (req: Request, res: Response) => {
       success: true,
       config: {
         ...getProjectStore().getConfig(),
-        authMode: 'local-bypass',
+        authMode: LOCAL_AUTH_MODE,
         userId: currentUser.id,
       },
     });
@@ -47,9 +142,7 @@ router.get('/projects', async (req: Request, res: Response) => {
 
 router.post('/projects/by-id', async (req: Request, res: Response) => {
   try {
-    const ids = Array.isArray(req.body?.ids)
-      ? req.body.ids.filter((id: unknown): id is string => typeof id === 'string')
-      : [];
+    const ids = readStringArray(getBodyRecord(req.body).ids);
     const projects = await getProjectStore().loadProjectsById(getCurrentUser(req).id, ids);
     res.json({ success: true, projects });
   } catch (error) {
@@ -71,7 +164,7 @@ router.get('/projects/:id', async (req: Request, res: Response) => {
 
 router.put('/projects/:id', async (req: Request, res: Response) => {
   try {
-    const snapshot = { ...req.body?.snapshot, id: getRouteParam(req.params.id) } as ProjectSnapshot;
+    const snapshot = requireProjectSnapshot(req.body, getRouteParam(req.params.id));
     const meta = await getProjectStore().saveProject(getCurrentUser(req).id, snapshot);
     res.json({ success: true, meta });
   } catch (error) {
@@ -111,7 +204,10 @@ router.post('/projects/:id/touch', async (req: Request, res: Response) => {
 
 router.post('/import', async (req: Request, res: Response) => {
   try {
-    const imported = await getProjectStore().importProject(getCurrentUser(req).id, req.body?.data);
+    const imported = await getProjectStore().importProject(
+      getCurrentUser(req).id,
+      getBodyRecord(req.body).data
+    );
     res.json({ success: true, ...imported });
   } catch (error) {
     sendErrorResponse(res, 400, error, 'Failed to import project');
@@ -129,12 +225,10 @@ router.get('/folders', async (req: Request, res: Response) => {
 
 router.post('/folders', async (req: Request, res: Response) => {
   try {
+    const body = getBodyRecord(req.body);
     const folder = await getProjectStore().createFolder(getCurrentUser(req).id, {
-      name: typeof req.body?.name === 'string' ? req.body.name : '',
-      parentFolderId:
-        typeof req.body?.parentFolderId === 'string' || req.body?.parentFolderId === null
-          ? req.body.parentFolderId
-          : null,
+      name: readOptionalString(body.name) || '',
+      parentFolderId: readNullableString(body.parentFolderId) ?? null,
     });
     res.json({ success: true, folder });
   } catch (error) {
@@ -144,10 +238,11 @@ router.post('/folders', async (req: Request, res: Response) => {
 
 router.patch('/folders/:id', async (req: Request, res: Response) => {
   try {
+    const body = getBodyRecord(req.body);
     const folder = await getProjectStore().renameFolder(
       getCurrentUser(req).id,
       getRouteParam(req.params.id),
-      typeof req.body?.name === 'string' ? req.body.name : ''
+      readOptionalString(body.name) || ''
     );
     res.json({ success: true, folder });
   } catch (error) {
@@ -166,15 +261,13 @@ router.delete('/folders/:id', async (req: Request, res: Response) => {
 
 router.post('/folders/:id/move', async (req: Request, res: Response) => {
   try {
-    const parentFolderId =
-      typeof req.body?.parentFolderId === 'string' || req.body?.parentFolderId === null
-        ? req.body.parentFolderId
-        : null;
+    const body = getBodyRecord(req.body);
+    const parentFolderId = readNullableString(body.parentFolderId) ?? null;
     const folder = await getProjectStore().moveFolder(
       getCurrentUser(req).id,
       getRouteParam(req.params.id),
       parentFolderId,
-      getTargetIndex(req.body?.targetIndex)
+      getTargetIndex(body.targetIndex)
     );
     res.json({ success: true, folder });
   } catch (error) {
@@ -193,18 +286,14 @@ router.get('/placements', async (req: Request, res: Response) => {
 
 router.post('/placements/move', async (req: Request, res: Response) => {
   try {
-    const projectIds = Array.isArray(req.body?.projectIds)
-      ? req.body.projectIds.filter((id: unknown): id is string => typeof id === 'string')
-      : [];
-    const folderId =
-      typeof req.body?.folderId === 'string' || req.body?.folderId === null
-        ? req.body.folderId
-        : null;
+    const body = getBodyRecord(req.body);
+    const projectIds = readStringArray(body.projectIds);
+    const folderId = readNullableString(body.folderId) ?? null;
     const placements = await getProjectStore().moveProjects(
       getCurrentUser(req).id,
       projectIds,
       folderId,
-      getTargetIndex(req.body?.targetIndex)
+      getTargetIndex(body.targetIndex)
     );
     res.json({ success: true, placements });
   } catch (error) {

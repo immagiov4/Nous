@@ -37,7 +37,6 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react(), fullReloadSensitiveHotUpdates()],
     define: {
-      'process.env.OPENROUTER_API_KEY': JSON.stringify(env.OPENROUTER_API_KEY),
       'process.env.MODEL_CONTEXT': JSON.stringify(env.MODEL_CONTEXT),
       'process.env.MODEL_FLASH': JSON.stringify(env.MODEL_FLASH),
       'process.env.MODEL_REASONING': JSON.stringify(env.MODEL_REASONING),

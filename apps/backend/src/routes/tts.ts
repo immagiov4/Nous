@@ -3,6 +3,7 @@ import { type Request, type Response, Router } from 'express';
 import { DEFAULT_TTS_MODEL, ttsClient } from '../services/ttsClient.js';
 
 const router = Router();
+const MAX_TTS_TEXT_CHARS = 10_000;
 
 /**
  * GET /api/tts/models
@@ -39,18 +40,25 @@ router.post('/', async (req: Request, res: Response) => {
     if (!text || typeof text !== 'string') {
       return res.status(400).json({
         success: false,
-        error: 'Text is required and must be a string',
+        error: 'Il testo e obbligatorio e deve essere una stringa.',
       });
     }
 
-    if (text.length > 10000) {
+    const normalizedText = text.replace(/\s+/g, ' ').trim();
+
+    if (normalizedText.length > MAX_TTS_TEXT_CHARS) {
       return res.status(400).json({
         success: false,
-        error: 'Text too long. Maximum 10000 characters per request.',
+        error: `Testo troppo lungo. Massimo ${MAX_TTS_TEXT_CHARS} caratteri per richiesta.`,
       });
     }
 
-    const generatedAudio = await ttsClient.generateSpeech({ text, model, voice, speed });
+    const generatedAudio = await ttsClient.generateSpeech({
+      text: normalizedText,
+      model,
+      voice,
+      speed,
+    });
 
     res.set({
       'Content-Type': generatedAudio.contentType,

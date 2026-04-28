@@ -1,9 +1,8 @@
+import { isRecord } from '../utils/validation.js';
 import type { ProjectSnapshot, ProjectSourceKind, SavedProjectMeta } from './types.js';
 
 const DEFAULT_PROJECT_VERSION = '4.1';
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
+export const PROJECT_SYNC_READY = 'sync-ready' as const;
 
 const createProjectId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -13,8 +12,14 @@ const createProjectId = (): string => {
   return `project-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 };
 
-const ensureString = (value: unknown, fallback = ''): string =>
-  typeof value === 'string' ? value : fallback;
+const ensureString = (value: unknown, fallback = ''): string => {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || fallback;
+};
 
 const inferProjectSourceKind = (snapshot: ProjectSnapshot, imported = false): ProjectSourceKind => {
   if (snapshot.sourceKind) {
@@ -142,7 +147,7 @@ export const buildProjectMeta = (
     completedCount: sections.filter(section => section.isCompleted).length,
     hasSourceFile: Boolean(snapshot.source),
     coverLabel: buildCoverLabel(snapshot, sourceKind),
-    syncState: 'sync-ready',
+    syncState: PROJECT_SYNC_READY,
   };
 };
 

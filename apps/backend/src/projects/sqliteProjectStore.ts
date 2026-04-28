@@ -4,7 +4,12 @@ import { fileURLToPath } from 'node:url';
 
 import Database from 'better-sqlite3';
 
-import { buildProjectMeta, exportProjectData, normalizeProjectSnapshot } from './projectMeta.js';
+import {
+  buildProjectMeta,
+  exportProjectData,
+  normalizeProjectSnapshot,
+  PROJECT_SYNC_READY,
+} from './projectMeta.js';
 import type {
   LibraryFolder,
   LibraryPlacement,
@@ -42,7 +47,7 @@ interface PlacementRow {
 
 const parseJson = <T>(value: string): T => JSON.parse(value) as T;
 
-const toTimestamp = (value: string | undefined): number => {
+const toEpochMillis = (value: string | undefined): number => {
   const timestamp = Date.parse(value || '');
   return Number.isFinite(timestamp) ? timestamp : 0;
 };
@@ -96,7 +101,7 @@ export class SqliteProjectStore implements ProjectStore {
 
   async listProjects(userId: string): Promise<SavedProjectMeta[]> {
     return this.readProjectMetas(userId).sort(
-      (left, right) => toTimestamp(right.lastOpenedAt) - toTimestamp(left.lastOpenedAt)
+      (left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt)
     );
   }
 
@@ -120,7 +125,7 @@ export class SqliteProjectStore implements ProjectStore {
 
     if (
       existingSnapshot &&
-      toTimestamp(existingSnapshot.updatedAt) > toTimestamp(snapshot.updatedAt)
+      toEpochMillis(existingSnapshot.updatedAt) > toEpochMillis(snapshot.updatedAt)
     ) {
       const meta = buildProjectMeta(existingSnapshot, existingMeta, {
         touchedAt: existingMeta?.updatedAt || existingSnapshot.updatedAt,
@@ -196,7 +201,7 @@ export class SqliteProjectStore implements ProjectStore {
       ...refreshedMeta,
       lastOpenedAt: touchedAt,
       updatedAt: touchedAt,
-      syncState: 'sync-ready',
+      syncState: PROJECT_SYNC_READY,
     });
   }
 
@@ -481,7 +486,7 @@ export class SqliteProjectStore implements ProjectStore {
 
   private readProjectMetas(userId: string): SavedProjectMeta[] {
     const rows = this.database
-      .prepare('select meta_json from projects where user_id = ?')
+      .prepare('select meta_json from projects where user_id = ? order by updated_at desc, id asc')
       .all(userId) as ProjectRow[];
 
     return rows.map(row => parseJson<SavedProjectMeta>(row.meta_json));
@@ -515,7 +520,9 @@ export class SqliteProjectStore implements ProjectStore {
 
   private readFolders(userId: string): LibraryFolder[] {
     const rows = this.database
-      .prepare('select folder_json from library_folders where user_id = ?')
+      .prepare(
+        'select folder_json from library_folders where user_id = ? order by parent_folder_id asc, order_index asc, id asc'
+      )
       .all(userId) as FolderRow[];
 
     return rows.map(row => parseJson<LibraryFolder>(row.folder_json));
@@ -553,7 +560,9 @@ export class SqliteProjectStore implements ProjectStore {
 
   private readPlacements(userId: string): LibraryPlacement[] {
     const rows = this.database
-      .prepare('select placement_json from library_placements where user_id = ?')
+      .prepare(
+        'select placement_json from library_placements where user_id = ? order by folder_id asc, order_index asc, project_id asc'
+      )
       .all(userId) as PlacementRow[];
 
     return rows.map(row => parseJson<LibraryPlacement>(row.placement_json));

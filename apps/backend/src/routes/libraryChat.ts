@@ -6,15 +6,16 @@ import {
   stepCountIs,
   streamText,
   tool,
-  type UIMessage,
 } from 'ai';
 import { type Request, type Response, Router } from 'express';
 
 import { CONTEXT_CHAT_MODEL, requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
+import { isRecord, readOptionalString, readStringArray } from '../utils/validation.js';
 
 import {
   buildLibrarySystemPrompt,
+  CHAT_TOOL_STEP_LIMIT,
   formatLibraryAttachedRefs,
   isUiMessageArray,
   LIBRARY_WEB_SEARCH_TOOL_NAME,
@@ -309,18 +310,72 @@ const buildLibraryPrepareStep = () => {
   });
 };
 
+const readLibraryContextReference = (value: unknown): LibraryContextReference | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  return {
+    id: readOptionalString(value.id),
+    kind: readOptionalString(value.kind),
+    label: readOptionalString(value.label),
+  };
+};
+
+const readLibraryContextReferences = (value: unknown): LibraryContextReference[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value
+    .map(readLibraryContextReference)
+    .filter((reference): reference is LibraryContextReference => Boolean(reference));
+};
+
+const readLibraryResolvedScopeSummary = (
+  value: unknown
+): LibraryResolvedScopeSummary | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    attachedFolderIds: readStringArray(value.attachedFolderIds),
+    attachedProjectIds: readStringArray(value.attachedProjectIds),
+    contextLabels: readStringArray(value.contextLabels),
+    isWholeLibraryScope: value.isWholeLibraryScope === true,
+    scopeProjectIds: readStringArray(value.scopeProjectIds),
+    scopeSummary: readOptionalString(value.scopeSummary),
+  };
+};
+
+const readLibraryToolPreferences = (value: unknown): LibraryChatToolPreferences | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return {
+    webSearch: value.webSearch === true,
+  };
+};
+
 export const libraryChatRouter = Router();
 
 libraryChatRouter.post('/library', async (req: Request, res: Response) => {
   try {
-    const { attachedContextRefs, messages, modelOverride, resolvedScopeSummary, toolPreferences } =
-      req.body as {
-        attachedContextRefs?: LibraryContextReference[];
-        messages?: UIMessage[];
-        modelOverride?: string;
-        resolvedScopeSummary?: LibraryResolvedScopeSummary;
-        toolPreferences?: LibraryChatToolPreferences;
-      };
+    if (!isRecord(req.body)) {
+      res.status(400).json({
+        success: false,
+        error: 'Corpo della richiesta non valido.',
+      });
+      return;
+    }
+
+    const messages = req.body.messages;
+    const attachedContextRefs = readLibraryContextReferences(req.body.attachedContextRefs);
+    const modelOverride = readOptionalString(req.body.modelOverride);
+    const resolvedScopeSummary = readLibraryResolvedScopeSummary(req.body.resolvedScopeSummary);
+    const toolPreferences = readLibraryToolPreferences(req.body.toolPreferences);
 
     if (!isUiMessageArray(messages) || messages.length === 0) {
       res.status(400).json({
@@ -333,11 +388,11 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
     const openrouter = createOpenRouter({
       apiKey: requireOpenRouterApiKey(),
     });
-    const selectedLibraryModel = modelOverride?.trim() || CONTEXT_CHAT_MODEL;
+    const selectedLibraryModel = modelOverride || CONTEXT_CHAT_MODEL;
 
     const libraryTools = buildLibraryToolSet({
       attachedContextRefs,
-      modelOverride: modelOverride?.trim() || undefined,
+      modelOverride,
       resolvedScopeSummary,
     });
 
@@ -355,7 +410,7 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
       }),
       messages: modelMessages,
       tools: libraryTools,
-      stopWhen: stepCountIs(6),
+      stopWhen: stepCountIs(CHAT_TOOL_STEP_LIMIT),
       prepareStep: buildLibraryPrepareStep(),
     });
 

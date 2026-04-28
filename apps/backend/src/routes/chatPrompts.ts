@@ -1,8 +1,12 @@
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { getBackendServerUrl } from '../config/serverConfig.js';
 import { getErrorMessage } from '../utils/errors.js';
+import { isRecord } from '../utils/validation.js';
 
 export const MAX_CONTEXT_CHARS = 24_000;
+export const MAX_WEB_SEARCH_RESULTS = 8;
+export const DEFAULT_WEB_SEARCH_RESULTS = 5;
+export const CHAT_TOOL_STEP_LIMIT = 6;
 
 export const LIBRARY_WEB_SEARCH_TOOL_NAME = 'searchWeb' as const;
 export const LIBRARY_WEB_SEARCH_EXECUTOR_MODEL =
@@ -76,7 +80,17 @@ export const clip = (value: string | undefined, maxChars = MAX_CONTEXT_CHARS) =>
 };
 
 export const isUiMessageArray = (value: unknown): value is import('ai').UIMessage[] => {
-  return Array.isArray(value);
+  return (
+    Array.isArray(value) &&
+    value.every(
+      message =>
+        isRecord(message) &&
+        typeof message.role === 'string' &&
+        (Array.isArray(message.parts) ||
+          typeof message.content === 'string' ||
+          Array.isArray(message.content))
+    )
+  );
 };
 
 export const formatLibraryAttachedRefs = (attachedContextRefs?: LibraryContextReference[]) =>
@@ -130,7 +144,10 @@ export const runOpenRouterWebSearch = async ({
   query: string;
 }): Promise<WebSearchToolResult> => {
   const normalizedQuery = query.trim();
-  const clampedMaxResults = Math.min(Math.max(Math.trunc(maxResults || 5), 1), 8);
+  const clampedMaxResults = Math.min(
+    Math.max(Math.trunc(maxResults || DEFAULT_WEB_SEARCH_RESULTS), 1),
+    MAX_WEB_SEARCH_RESULTS
+  );
 
   if (!normalizedQuery) {
     return {

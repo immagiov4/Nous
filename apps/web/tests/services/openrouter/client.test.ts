@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import { beforeEach, test, vi } from 'vitest';
 
 vi.mock('../../../services/openrouter/config.ts', () => ({
+  getBackendUrl: () => 'https://backend.test',
   MAX_OUTPUT_TOKENS: 32000,
-  OPENROUTER_API_KEY: 'test-key',
-  OPENROUTER_BASE_URL: 'https://openrouter.test',
   resolveOpenRouterModel: (model: string) => model,
 }));
 

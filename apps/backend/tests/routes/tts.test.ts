@@ -43,7 +43,7 @@ describe('POST /api/tts', () => {
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
       success: false,
-      error: 'Text is required and must be a string',
+      error: 'Il testo e obbligatorio e deve essere una stringa.',
     });
   });
 
@@ -55,7 +55,7 @@ describe('POST /api/tts', () => {
     expect(response.status).toBe(400);
     expect(response.body).toEqual({
       success: false,
-      error: 'Text too long. Maximum 10000 characters per request.',
+      error: 'Testo troppo lungo. Massimo 10000 caratteri per richiesta.',
     });
   });
 

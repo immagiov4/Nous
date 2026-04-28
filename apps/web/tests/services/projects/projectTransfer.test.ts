@@ -218,8 +218,14 @@ test('transferProjectToLanRepository keeps the local copy when LAN keeps a diffe
       }),
     /non ha salvato lo stesso corso/
   );
-  assert.equal((await source.loadProject('project-conflict'))?.learningPlan?.title, 'Corso corretto');
-  assert.equal((await target.loadProject('project-conflict'))?.learningPlan?.title, 'Corso diverso');
+  assert.equal(
+    (await source.loadProject('project-conflict'))?.learningPlan?.title,
+    'Corso corretto'
+  );
+  assert.equal(
+    (await target.loadProject('project-conflict'))?.learningPlan?.title,
+    'Corso diverso'
+  );
 });
 
 test('transferFolderToLanRepository copies the whole subtree and clears the source', async () => {
