@@ -55,6 +55,8 @@ export const buildSidebarGroups = (
 
   const groupedSections = new Map<string, LearningSection[]>();
   const fallbackGroupTitleByKey = new Map<string, string>();
+  // Sidebar group order is explicit: syllabus modules first, then fallback groups
+  // in their first appearance order while walking the learning plan.
   const groupOrder: string[] = syllabus.map(module => module.id);
 
   const getFallbackGroupTitle = (section: LearningSection): string =>
