@@ -310,21 +310,12 @@ export class SqliteProjectStore implements ProjectStore {
       placements,
       resolvedParentFolderId
     );
-    const filteredDestinationItems = destinationItems.filter(
-      item => !(item.kind === 'folder' && item.id === folderId)
-    );
-    const insertionIndex = this.resolveInsertionIndex(
+    const reorderedDestinationItems = this.insertMovedSiblingItems(
       destinationItems,
       new Set([folderId]),
       targetIndex,
-      filteredDestinationItems.length
+      [{ id: folderId, kind: 'folder', value: movedFolder }]
     );
-
-    filteredDestinationItems.splice(insertionIndex, 0, {
-      id: folderId,
-      kind: 'folder',
-      value: movedFolder,
-    });
 
     const transaction = this.database.transaction(() => {
       const sourceParentFolderId = folder.parentFolderId || null;
@@ -338,7 +329,7 @@ export class SqliteProjectStore implements ProjectStore {
       }
       this.persistSiblingOrders(
         userId,
-        filteredDestinationItems,
+        reorderedDestinationItems,
         resolvedParentFolderId,
         movedFolder.updatedAt
       );
@@ -381,21 +372,16 @@ export class SqliteProjectStore implements ProjectStore {
       updatedPlacements,
       resolvedFolderId
     );
-    const filteredDestinationItems = destinationItems.filter(
-      item => !(item.kind === 'project' && movingProjectIds.has(item.id))
-    );
-    const insertionIndex = this.resolveInsertionIndex(
-      destinationItems,
-      movingProjectIds,
-      targetIndex,
-      filteredDestinationItems.length
-    );
     const movedItems = projectIds
       .map(projectId => movedPlacementsById.get(projectId))
       .filter((placement): placement is LibraryPlacement => Boolean(placement))
       .map(placement => ({ id: placement.projectId, kind: 'project' as const, value: placement }));
-
-    filteredDestinationItems.splice(insertionIndex, 0, ...movedItems);
+    const reorderedDestinationItems = this.insertMovedSiblingItems(
+      destinationItems,
+      movingProjectIds,
+      targetIndex,
+      movedItems
+    );
 
     const transaction = this.database.transaction(() => {
       const touchedParentFolderIds = new Set<string | null>(
@@ -405,7 +391,7 @@ export class SqliteProjectStore implements ProjectStore {
 
       for (const parentFolderId of touchedParentFolderIds) {
         if (parentFolderId === resolvedFolderId) {
-          this.persistSiblingOrders(userId, filteredDestinationItems, parentFolderId, updatedAt);
+          this.persistSiblingOrders(userId, reorderedDestinationItems, parentFolderId, updatedAt);
           continue;
         }
 
@@ -665,6 +651,24 @@ export class SqliteProjectStore implements ProjectStore {
       .filter(item => movingIds.has(item.id)).length;
 
     return Math.max(0, Math.min(filteredSiblingCount, boundedTargetIndex - removedBeforeTarget));
+  }
+
+  private insertMovedSiblingItems(
+    destinationItems: LibraryItem[],
+    movingIds: Set<string>,
+    targetIndex: number | undefined,
+    movedItems: LibraryItem[]
+  ): LibraryItem[] {
+    const retainedItems = destinationItems.filter(item => !movingIds.has(item.id));
+    const insertionIndex = this.resolveInsertionIndex(
+      destinationItems,
+      movingIds,
+      targetIndex,
+      retainedItems.length
+    );
+
+    retainedItems.splice(insertionIndex, 0, ...movedItems);
+    return retainedItems;
   }
 
   private persistSiblingOrders(

@@ -1,9 +1,10 @@
+import { isRecord } from '../../utils/records.ts';
+import { getErrorMessage } from '../core/errorMessage.ts';
 import {
   decodeTextBase64,
   detectStoredSourceFileKind,
   isPdfFileData,
 } from '../projects/projectSource.ts';
-import { getErrorMessage, isRecord } from './retry.ts';
 import type { FileData } from './types.ts';
 
 export * from './client.ts';
@@ -11,6 +12,7 @@ export * from './config.ts';
 export * from './json.ts';
 export * from './retry.ts';
 export type * from './types.ts';
+export { getErrorMessage, isRecord };
 
 export const fileToDataUrl = (file: FileData): string =>
   `data:${file.mimeType};base64,${file.data}`;

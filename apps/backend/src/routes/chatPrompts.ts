@@ -304,7 +304,7 @@ export const runOpenRouterWebSearch = async ({
   }
 };
 
-export const buildContextWebSearchMandate = (toolPreferences?: ContextChatToolPreferences) =>
+const buildWebSearchMandate = (toolPreferences?: { webSearch?: boolean }) =>
   toolPreferences?.webSearch
     ? `PRIORITA WEB:
 - Le istruzioni esplicite dell'utente hanno precedenza sulla preferenza "Cerca sul web".
@@ -318,19 +318,11 @@ export const buildContextWebSearchMandate = (toolPreferences?: ContextChatToolPr
 - Se l'utente non lo chiede esplicitamente, la preferenza "Cerca sul web" non attiva non vieta il tool: e solo un segnale debole a non usarlo salvo reale bisogno.
 - Se \`searchWeb\` restituisce un errore tecnico, dillo apertamente come errore tecnico di ricerca web; non presentarlo come tool disattivato o non disponibile.`;
 
+export const buildContextWebSearchMandate = (toolPreferences?: ContextChatToolPreferences) =>
+  buildWebSearchMandate(toolPreferences);
+
 export const buildLibraryWebSearchMandate = (toolPreferences?: LibraryChatToolPreferences) =>
-  toolPreferences?.webSearch
-    ? `PRIORITA WEB:
-- Le istruzioni esplicite dell'utente hanno precedenza sulla preferenza "Cerca sul web".
-- Se l'utente chiede esplicitamente di cercare, verificare, confrontare o fare cross-check sul web, devi usare davvero il tool \`searchWeb\` almeno una volta in questo turno.
-- Se l'utente chiede esplicitamente di non usare il web, non usarlo anche se la preferenza e attiva.
-- Se l'utente non lo specifica, la preferenza "Cerca sul web" attiva rafforza l'uso di \`searchWeb\` quando fonti esterne, fatti recenti o verifica indipendente migliorano davvero la risposta.
-- Se \`searchWeb\` restituisce un errore tecnico, dillo apertamente come errore tecnico di ricerca web; non presentarlo come tool disattivato o non disponibile.`
-    : `PRIORITA WEB:
-- Le istruzioni esplicite dell'utente hanno precedenza sulla preferenza "Cerca sul web".
-- Se l'utente chiede esplicitamente di cercare, verificare, confrontare o fare cross-check sul web, devi usare davvero il tool \`searchWeb\` almeno una volta in questo turno.
-- Se l'utente non lo chiede esplicitamente, la preferenza "Cerca sul web" non attiva non vieta il tool: e solo un segnale debole a non usarlo salvo reale bisogno.
-- Se \`searchWeb\` restituisce un errore tecnico, dillo apertamente come errore tecnico di ricerca web; non presentarlo come tool disattivato o non disponibile.`;
+  buildWebSearchMandate(toolPreferences);
 
 export const buildToolNarrationMandate = () => `RENDERING DEI TOOL:
 - L interfaccia puo mostrare i tool separatamente dal testo e spesso sopra al messaggio dell assistente.
