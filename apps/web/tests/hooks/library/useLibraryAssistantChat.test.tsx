@@ -111,6 +111,7 @@ describe('useLibraryAssistantChat', () => {
         folders: stableFolders,
         loadProjectsById,
         preferredContextModel: 'openai/gpt-5.4-mini',
+        projectRepositoryMode: 'lan',
         projects: stableProjects,
         tree: loadedTree,
       })
@@ -157,6 +158,7 @@ describe('useLibraryAssistantChat', () => {
           folders,
           loadProjectsById,
           preferredContextModel: 'openai/gpt-5.4-mini',
+          projectRepositoryMode: 'lan',
           projects,
           tree,
         }),
@@ -196,7 +198,7 @@ describe('useLibraryAssistantChat', () => {
         resolvedScopeSummary: expect.objectContaining({
           isWholeLibraryScope: true,
           scopeProjectIds: [project.id],
-          scopeSummary: 'Intera libreria locale (1 corsi disponibili).',
+          scopeSummary: 'Intero archivio LAN (1 corsi disponibili).',
         }),
       },
     });
@@ -213,6 +215,7 @@ describe('useLibraryAssistantChat', () => {
           folders: stableFolders,
           loadProjectsById,
           preferredContextModel,
+          projectRepositoryMode: 'lan',
           projects: stableProjects,
           tree: loadedTree,
         }),

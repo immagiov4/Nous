@@ -1,3 +1,4 @@
+import type { ProjectRepositoryMode } from '../../services/projects/projectRepositoryFactory.ts';
 import type {
   LearningSection,
   LibraryContextRef,
@@ -85,14 +86,17 @@ const resolveProjectTitle = ({
 export const buildLibraryScopeSummary = ({
   attachedContextRefs,
   folders,
+  projectRepositoryMode,
   projects,
   tree,
 }: {
   attachedContextRefs: LibraryContextRef[];
   folders: LibraryFolder[];
+  projectRepositoryMode: ProjectRepositoryMode;
   projects: SavedProjectMeta[];
   tree: LibraryTree;
 }): LibraryScopeSummary => {
+  const repositoryLabel = projectRepositoryMode === 'lan' ? 'archivio LAN' : 'libreria locale';
   const allProjectIds = projects.map(project => project.id);
   const scopeProjectIds = resolveScopedProjectIds({
     attachedContextRefs,
@@ -122,7 +126,7 @@ export const buildLibraryScopeSummary = ({
     isWholeLibraryScope,
     scopeProjectIds,
     scopeSummary: isWholeLibraryScope
-      ? `Intera libreria locale (${projects.length} corsi disponibili).`
+      ? `Intero ${repositoryLabel} (${projects.length} corsi disponibili).`
       : `${scopeProjectIds.length} corsi nello scope allegato: ${contextLabels.join(', ') || 'nessun contesto'}.`,
   };
 };

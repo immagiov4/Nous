@@ -1,3 +1,5 @@
+import { jsonSchema, tool } from 'ai';
+
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { getBackendServerUrl } from '../config/serverConfig.js';
 import { getErrorMessage } from '../utils/errors.js';
@@ -6,6 +8,7 @@ import { isRecord } from '../utils/validation.js';
 export const MAX_CONTEXT_CHARS = 24_000;
 export const MAX_WEB_SEARCH_RESULTS = 8;
 export const DEFAULT_WEB_SEARCH_RESULTS = 5;
+const WEB_SEARCH_TOTAL_RESULT_MULTIPLIER = 2;
 export const CHAT_TOOL_STEP_LIMIT = 6;
 
 export const LIBRARY_WEB_SEARCH_TOOL_NAME = 'searchWeb' as const;
@@ -68,6 +71,83 @@ export interface WebSearchToolResult {
   summary: string;
   webSearchRequests: number;
 }
+
+interface CreateWebSearchToolOptions {
+  description: string;
+  execute: (input: { maxResults?: number; query: string }) => Promise<WebSearchToolResult>;
+  queryDescription: string;
+}
+
+const buildWebSearchToolInputSchema = (queryDescription: string) =>
+  jsonSchema<{
+    maxResults?: number;
+    query: string;
+  }>({
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      maxResults: {
+        type: 'integer',
+        minimum: 1,
+        maximum: MAX_WEB_SEARCH_RESULTS,
+        description: 'Numero massimo di risultati web da consultare.',
+      },
+      query: {
+        type: 'string',
+        description: queryDescription,
+      },
+    },
+    required: ['query'],
+  });
+
+const webSearchToolOutputSchema = jsonSchema<WebSearchToolResult>({
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    error: {
+      type: 'string',
+    },
+    query: {
+      type: 'string',
+    },
+    sources: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          title: {
+            type: 'string',
+          },
+          url: {
+            type: 'string',
+          },
+        },
+        required: ['url'],
+      },
+    },
+    summary: {
+      type: 'string',
+    },
+    webSearchRequests: {
+      type: 'integer',
+      minimum: 0,
+    },
+  },
+  required: ['query', 'sources', 'summary', 'webSearchRequests'],
+});
+
+export const createWebSearchTool = ({
+  description,
+  execute,
+  queryDescription,
+}: CreateWebSearchToolOptions) =>
+  tool({
+    description,
+    inputSchema: buildWebSearchToolInputSchema(queryDescription),
+    outputSchema: webSearchToolOutputSchema,
+    execute,
+  });
 
 export const clip = (value: string | undefined, maxChars = MAX_CONTEXT_CHARS) => {
   if (!value) {
@@ -174,7 +254,7 @@ export const runOpenRouterWebSearch = async ({
             parameters: {
               engine: 'auto',
               max_results: clampedMaxResults,
-              max_total_results: clampedMaxResults * 2,
+              max_total_results: clampedMaxResults * WEB_SEARCH_TOTAL_RESULT_MULTIPLIER,
             },
           },
         ],
@@ -387,29 +467,29 @@ export const buildLibrarySystemPrompt = ({
     resolvedScopeSummary?.contextLabels?.join(', ') || 'nessun allegato esplicito';
   const attachedRefsSummary = formatLibraryAttachedRefs(attachedContextRefs);
 
-  return `Sei Nous, l assistente della libreria corsi locale.
+  return `Sei Nous, l assistente della libreria corsi corrente.
 
 ${buildLibraryWebSearchMandate(toolPreferences)}
 
 ${buildToolNarrationMandate()}
 
 Obiettivo:
-- rispondere interrogando i corsi e le lezioni locali tramite i tool disponibili;
+- rispondere interrogando i corsi e le lezioni della libreria corrente tramite i tool disponibili;
 - usare i tool prima di affermare fatti specifici su progresso, contenuti, note, highlight o struttura dei corsi;
-- rispettare SEMPRE lo scope locale consentito.
+- rispettare SEMPRE lo scope corrente consentito.
 
-Scope locale attuale:
+Scope corrente attuale:
 - ${resolvedScopeSummary?.scopeSummary || 'Nessun riepilogo scope disponibile.'}
 - Riferimenti allegati: ${attachedRefsSummary}
 - Etichette contesto: ${contextLabels}
-- Se non ci sono riferimenti allegati espliciti, l intera libreria locale e gia nello scope. Non dire mai che manca uno scope e non chiedere di allegarne uno.
+- Se non ci sono riferimenti allegati espliciti, l intera libreria corrente e gia nello scope. Non dire mai che manca uno scope e non chiedere di allegarne uno.
 
 ## Piano di esecuzione autonoma
 
 Quando l utente chiede qualcosa che richiede leggere note, highlight o contenuto delle lezioni, esegui SEMPRE questa sequenza senza fermarti a chiedere chiarimenti o conferme:
 
-1. Se devi scandire tutto lo scope corrente, chiama \`getProjectStructures\` **in una singola chiamata** con un oggetto vuoto \`{}\`: il tool usera automaticamente tutto lo scope locale consentito.
-2. Passa \`projectIds\` a \`getProjectStructures\` solo quando conosci gia gli identificatori reali perche sono comparsi in un output di tool locale. Se non li conosci ancora, chiama prima \`listLibraryTree\` o \`getProjectOverviews\` senza \`projectIds\`. Non inventare mai placeholder o alias come \`proj_1\`, \`proj_2\` o simili.
+1. Se devi scandire tutto lo scope corrente, chiama \`getProjectStructures\` **in una singola chiamata** con un oggetto vuoto \`{}\`: il tool usera automaticamente tutto lo scope corrente consentito.
+2. Passa \`projectIds\` a \`getProjectStructures\` solo quando conosci gia gli identificatori reali perche sono comparsi in un output dei tool della libreria. Se non li conosci ancora, chiama prima \`listLibraryTree\` o \`getProjectOverviews\` senza \`projectIds\`. Non inventare mai placeholder o alias come \`proj_1\`, \`proj_2\` o simili.
 3. La risposta include per ogni lezione i campi \`hasContent\`, \`noteCount\`, \`latestNoteAt\` e \`latestAnnotationAt\`.
    - **"Ultima lezione generata"** = l ultima lezione nell array con \`hasContent: true\` (indice di array, non ordine alfabetico).
    - **"Ultima lezione letta / aperta"** = la lezione il cui \`id\` corrisponde a \`activeSectionId\` del corso (campo esposto da \`getProjectStructures\`).
@@ -430,7 +510,7 @@ Non chiedere all utente di scegliere tra approcci di recupero, né chiedere conf
 - Le istruzioni esplicite dell'utente hanno precedenza sulle preferenze dei tool.
 - Non fermarti a overview o conteggi quando l utente chiede il contenuto: leggi sempre le lezioni rilevanti con \`getLessonDetails\`.
 - Non chiedere all utente di scegliere tra approcci di recupero: esegui il piu diretto, poi riporta i dati.
-- Se l utente ha allegato corsi o cartelle, trattali come vincolo forte: non uscire dallo scope locale consentito.
+- Se l utente ha allegato corsi o cartelle, trattali come vincolo forte: non uscire dallo scope corrente consentito.
 - Se un tool restituisce un errore di scope, non aggirarlo inventando dati: con intera libreria attiva spiega che quel corso non e presente nella libreria corrente; con allegati espliciti spiega che e fuori dallo scope allegato.
 - Non mostrare mai identificatori tecnici interni come projectId, lessonId, sectionId, annotationId o simili, a meno che l utente non li chieda esplicitamente. Usa solo titoli, nomi e testi leggibili.
 - Le date vanno sempre presentate in formato leggibile in italiano (es. "4 aprile 2026", non ISO 8601).
@@ -440,7 +520,7 @@ Non chiedere all utente di scegliere tra approcci di recupero, né chiedere conf
 - Integra le informazioni in prosa naturale invece di usare etichette rigide tipo "Ultima sezione evidenziata:", "Ultima nota presa:", "Testo nota:". Racconta in modo fluente.
 - Usa markdown solo quando migliora davvero la leggibilita.
 - Rispondi in modo diretto e concreto. Niente frasi del tipo "se vuoi posso..." o domande finali non richieste.
-- Il web serve per grounding esterno, suggerimenti di nuovi corsi o confronto con argomenti mancanti; non sostituisce mai i tool locali per i dati della libreria.
+- Il web serve per grounding esterno, suggerimenti di nuovi corsi o confronto con argomenti mancanti; non sostituisce mai i tool della libreria per i dati della libreria.
 
 Preferenze attive:
 - Cerca sul web: ${toolPreferences?.webSearch ? 'attiva' : 'non attiva'}

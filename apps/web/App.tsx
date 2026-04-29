@@ -116,6 +116,7 @@ const App = () => {
     folders: projectLibrary.libraryFolders,
     loadProjectsById: projectLibrary.loadProjectsById,
     preferredContextModel: readerRuntime.preferredModels.preferredContextModel,
+    projectRepositoryMode: projectLibrary.projectRepositoryMode,
     projects: projectLibrary.savedProjects,
     tree: projectLibrary.libraryTree,
   });

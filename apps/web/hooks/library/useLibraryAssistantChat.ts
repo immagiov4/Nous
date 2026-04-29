@@ -12,6 +12,7 @@ import {
   type LibraryAssistantToolName,
 } from '../../services/library/toolExecutor.ts';
 import { getBackendUrl } from '../../services/openrouter/config.ts';
+import type { ProjectRepositoryMode } from '../../services/projects/projectRepositoryFactory.ts';
 import type {
   HomeChatToolPreferences,
   LibraryContextRef,
@@ -60,6 +61,7 @@ interface UseLibraryAssistantChatArgs {
   folders: LibraryFolder[];
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
   preferredContextModel: string;
+  projectRepositoryMode: ProjectRepositoryMode;
   projects: SavedProjectMeta[];
   tree: LibraryTree;
 }
@@ -84,6 +86,7 @@ export const useLibraryAssistantChat = ({
   folders,
   loadProjectsById,
   preferredContextModel,
+  projectRepositoryMode,
   projects,
   tree,
 }: UseLibraryAssistantChatArgs) => {
@@ -110,10 +113,11 @@ export const useLibraryAssistantChat = ({
       buildLibraryScopeSummary({
         attachedContextRefs,
         folders,
+        projectRepositoryMode,
         projects,
         tree,
       }),
-    [attachedContextRefs, folders, projects, tree]
+    [attachedContextRefs, folders, projectRepositoryMode, projects, tree]
   );
 
   const toolPreferences = useMemo<HomeChatToolPreferences>(
@@ -194,6 +198,7 @@ export const useLibraryAssistantChat = ({
             attachedContextRefs,
             folders,
             loadProjectsById,
+            projectRepositoryMode,
             projects,
             scopeSummary,
             tree,

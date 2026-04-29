@@ -17,6 +17,7 @@ import {
   buildContextSystemPrompt,
   CHAT_TOOL_STEP_LIMIT,
   type ContextChatToolPreferences,
+  createWebSearchTool,
   isUiMessageArray,
   LIBRARY_WEB_SEARCH_TOOL_NAME,
   runOpenRouterWebSearch,
@@ -96,66 +97,11 @@ const createContextSearchWebTool = ({
   sourceKind?: string;
   sourceName?: string;
 }) =>
-  tool({
+  createWebSearchTool({
     description:
       'Esegue un cross-check web esterno sul punto selezionato o sul follow-up corrente. Usalo per verificare accuratezza, confrontare soluzioni, recuperare best practice o informazioni aggiornate. Se l utente chiede esplicitamente una ricerca sul web devi chiamarlo davvero.',
-    inputSchema: jsonSchema<{
-      maxResults?: number;
-      query: string;
-    }>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        maxResults: {
-          type: 'integer',
-          minimum: 1,
-          maximum: 8,
-          description: 'Numero massimo di risultati web da consultare.',
-        },
-        query: {
-          type: 'string',
-          description:
-            'Query web precisa da usare per il cross-check esterno, formulata in modo specifico rispetto al follow-up.',
-        },
-      },
-      required: ['query'],
-    }),
-    outputSchema: jsonSchema<WebSearchToolResult>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        error: {
-          type: 'string',
-        },
-        query: {
-          type: 'string',
-        },
-        sources: {
-          type: 'array',
-          items: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              title: {
-                type: 'string',
-              },
-              url: {
-                type: 'string',
-              },
-            },
-            required: ['url'],
-          },
-        },
-        summary: {
-          type: 'string',
-        },
-        webSearchRequests: {
-          type: 'integer',
-          minimum: 0,
-        },
-      },
-      required: ['query', 'sources', 'summary', 'webSearchRequests'],
-    }),
+    queryDescription:
+      'Query web precisa da usare per il cross-check esterno, formulata in modo specifico rispetto al follow-up.',
     execute: async ({ maxResults, query }) =>
       runContextWebSearch({
         attachedAnnotationNote,

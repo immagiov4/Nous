@@ -17,6 +17,7 @@ import {
   searchLibraryContent,
 } from '../../utils/library/assistant.ts';
 import { isRecord } from '../../utils/records.ts';
+import type { ProjectRepositoryMode } from '../projects/projectRepositoryFactory.ts';
 
 export const LIBRARY_ASSISTANT_TOOL_NAMES = [
   'listLibraryTree',
@@ -25,6 +26,8 @@ export const LIBRARY_ASSISTANT_TOOL_NAMES = [
   'getLessonDetails',
   'searchLibrary',
 ] as const;
+const DEFAULT_LIBRARY_SEARCH_RESULTS = 8;
+const MAX_LIBRARY_SEARCH_RESULTS = 20;
 
 export type LibraryAssistantToolName = (typeof LIBRARY_ASSISTANT_TOOL_NAMES)[number];
 
@@ -32,6 +35,7 @@ interface LibraryAssistantDataSource {
   attachedContextRefs: LibraryContextRef[];
   folders: LibraryFolder[];
   loadProjectsById: (ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
+  projectRepositoryMode: ProjectRepositoryMode;
   projects: SavedProjectMeta[];
   scopeSummary?: LibraryScopeSummary;
   tree: LibraryTree;
@@ -107,13 +111,19 @@ const buildScopeViolationError = ({
 const resolveScopeSummary = (
   dataSource: Pick<
     LibraryAssistantDataSource,
-    'attachedContextRefs' | 'folders' | 'projects' | 'scopeSummary' | 'tree'
+    | 'attachedContextRefs'
+    | 'folders'
+    | 'projectRepositoryMode'
+    | 'projects'
+    | 'scopeSummary'
+    | 'tree'
   >
 ) =>
   dataSource.scopeSummary ||
   buildLibraryScopeSummary({
     attachedContextRefs: dataSource.attachedContextRefs,
     folders: dataSource.folders,
+    projectRepositoryMode: dataSource.projectRepositoryMode,
     projects: dataSource.projects,
     tree: dataSource.tree,
   });
@@ -358,8 +368,8 @@ const executeSearchTool = async (
       hits: searchLibraryContent({
         maxResults:
           typeof input.maxResults === 'number'
-            ? Math.max(1, Math.min(20, Math.trunc(input.maxResults)))
-            : 8,
+            ? Math.max(1, Math.min(MAX_LIBRARY_SEARCH_RESULTS, Math.trunc(input.maxResults)))
+            : DEFAULT_LIBRARY_SEARCH_RESULTS,
         projectMetaById,
         query: input.query,
         scopeProjectIds: resolvedProjectIds,

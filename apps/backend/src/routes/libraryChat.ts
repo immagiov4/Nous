@@ -16,6 +16,7 @@ import { isRecord, readOptionalString, readStringArray } from '../utils/validati
 import {
   buildLibrarySystemPrompt,
   CHAT_TOOL_STEP_LIMIT,
+  createWebSearchTool,
   formatLibraryAttachedRefs,
   isUiMessageArray,
   LIBRARY_WEB_SEARCH_TOOL_NAME,
@@ -215,66 +216,11 @@ const createLibrarySearchWebTool = ({
   modelOverride?: string;
   resolvedScopeSummary?: LibraryResolvedScopeSummary;
 }) =>
-  tool({
+  createWebSearchTool({
     description:
       'Esegue un cross-check web esterno con fonti aggiornate. Quando Cerca sul web e attiva devi chiamarlo prima della risposta finale. Usalo per verificare accuratezza, definizioni standard, best practice, fatti recenti o confronto esterno. Non usarlo per leggere dati interni della libreria, che vanno recuperati con i tool locali.',
-    inputSchema: jsonSchema<{
-      maxResults?: number;
-      query: string;
-    }>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        maxResults: {
-          type: 'integer',
-          minimum: 1,
-          maximum: 8,
-          description: 'Numero massimo di risultati web da consultare.',
-        },
-        query: {
-          type: 'string',
-          description:
-            'Query web precisa da usare per il cross-check esterno, formulata in modo specifico rispetto al punto da verificare.',
-        },
-      },
-      required: ['query'],
-    }),
-    outputSchema: jsonSchema<WebSearchToolResult>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        error: {
-          type: 'string',
-        },
-        query: {
-          type: 'string',
-        },
-        sources: {
-          type: 'array',
-          items: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              title: {
-                type: 'string',
-              },
-              url: {
-                type: 'string',
-              },
-            },
-            required: ['url'],
-          },
-        },
-        summary: {
-          type: 'string',
-        },
-        webSearchRequests: {
-          type: 'integer',
-          minimum: 0,
-        },
-      },
-      required: ['query', 'sources', 'summary', 'webSearchRequests'],
-    }),
+    queryDescription:
+      'Query web precisa da usare per il cross-check esterno, formulata in modo specifico rispetto al punto da verificare.',
     execute: async ({ maxResults, query }) =>
       runLibraryWebSearch({
         attachedContextRefs,

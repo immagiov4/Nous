@@ -46,7 +46,7 @@ class OpenRouterTtsError extends Error {
   }
 }
 
-const OPENAI_TTS_VOICES = new Set([
+const OPENAI_TTS_VOICE_IDS = [
   'alloy',
   'ash',
   'ballad',
@@ -60,7 +60,9 @@ const OPENAI_TTS_VOICES = new Set([
   'verse',
   'marin',
   'cedar',
-]);
+] as const;
+
+const OPENAI_TTS_VOICES = new Set<string>(OPENAI_TTS_VOICE_IDS);
 
 const VOICE_PROFILE_MODES = new Set(['openrouter_voice', 'voice_design']);
 
@@ -78,17 +80,25 @@ const OPENAI_TTS_MODEL_SUMMARY: TtsModelSummary = {
   voiceHelpUrl: 'https://developers.openai.com/api/docs/guides/text-to-speech#voice-options',
 };
 
+const formatVoiceName = (voiceId: string): string =>
+  voiceId.charAt(0).toUpperCase() + voiceId.slice(1);
+
+const createOpenAiVoiceProfile = (voiceId: string): VoiceProfile => ({
+  id: voiceId,
+  name: formatVoiceName(voiceId),
+  language: 'it-IT',
+  mode: 'openrouter_voice',
+  voiceDesignPrompt: voiceId,
+  modelSettings: { temperature: 0.7, speed: 1.0 },
+});
+
+const getDefaultVoiceProfileIds = (): string[] =>
+  OPENAI_TTS_VOICES.has(DEFAULT_TTS_VOICE)
+    ? [...OPENAI_TTS_VOICE_IDS]
+    : [DEFAULT_TTS_VOICE, ...OPENAI_TTS_VOICE_IDS];
+
 const createDefaultVoiceProfiles = (): VoiceProfilesConfig => ({
-  profiles: [
-    {
-      id: DEFAULT_TTS_VOICE,
-      name: DEFAULT_TTS_VOICE,
-      language: 'it-IT',
-      mode: 'openrouter_voice',
-      voiceDesignPrompt: DEFAULT_TTS_VOICE,
-      modelSettings: { temperature: 0.7, speed: 1.0 },
-    },
-  ],
+  profiles: getDefaultVoiceProfileIds().map(createOpenAiVoiceProfile),
   defaultProfile: DEFAULT_TTS_VOICE,
 });
 
