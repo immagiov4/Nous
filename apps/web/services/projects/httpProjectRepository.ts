@@ -9,6 +9,7 @@ import type {
 import { getBackendUrl } from '../openrouter/config.ts';
 import type { ProjectRepository } from './projectRepository';
 import { ProjectStorageError } from './projectRepository';
+import { PROJECT_SYNC_READY } from './projectSyncState.ts';
 
 interface ApiResponse {
   success: boolean;
@@ -81,7 +82,7 @@ export class HttpProjectRepository implements ProjectRepository {
     );
     return (response.projects || []).map(project => ({
       ...project,
-      syncState: 'sync-ready',
+      syncState: PROJECT_SYNC_READY,
     }));
   }
 
@@ -154,7 +155,7 @@ export class HttpProjectRepository implements ProjectRepository {
     );
     return {
       ...assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.'),
-      syncState: 'sync-ready',
+      syncState: PROJECT_SYNC_READY,
     };
   }
 
@@ -177,7 +178,7 @@ export class HttpProjectRepository implements ProjectRepository {
     return {
       meta: {
         ...assertValue(response.meta, 'Il progetto sincronizzato non e stato importato.'),
-        syncState: 'sync-ready',
+        syncState: PROJECT_SYNC_READY,
       },
       snapshot: assertValue(response.snapshot, 'Il progetto sincronizzato non e stato importato.'),
     };

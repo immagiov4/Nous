@@ -29,3 +29,4 @@ services/tts-server/**/*.egg-info/
 *.sln
 *.sw?
 .dyad/
+.kilo/

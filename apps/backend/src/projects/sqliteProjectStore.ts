@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +17,6 @@ import type {
 } from './types.js';
 
 const DEFAULT_SQLITE_PATH = './apps/backend/data/lumina-projects.sqlite';
-const LEGACY_SQLITE_PATH = './backend/data/lumina-projects.sqlite';
 const ORDER_STEP = 1024;
 
 type LibraryItem =
@@ -57,11 +56,6 @@ const repoRoot = resolve(__dirname, '..', '..', '..', '..');
 const resolveDatabasePath = (): string => {
   if (process.env.PROJECT_SQLITE_PATH) {
     return resolve(repoRoot, process.env.PROJECT_SQLITE_PATH);
-  }
-
-  const legacyPath = resolve(repoRoot, LEGACY_SQLITE_PATH);
-  if (existsSync(legacyPath)) {
-    return legacyPath;
   }
 
   return resolve(repoRoot, DEFAULT_SQLITE_PATH);

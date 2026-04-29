@@ -1,11 +1,10 @@
+import { isRecord } from '../../utils/records.ts';
 import { getErrorMessage } from '../core/errorMessage.ts';
 
 export { getErrorMessage };
+export { isRecord };
 
 export const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-export const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
 
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429]);
 const RETRYABLE_MODEL_OUTPUT_DETAILS = new Set([

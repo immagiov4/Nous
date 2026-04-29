@@ -16,6 +16,7 @@ import {
   getOutOfScopeProjectIds,
   searchLibraryContent,
 } from '../../utils/library/assistant.ts';
+import { isRecord } from '../../utils/records.ts';
 
 export const LIBRARY_ASSISTANT_TOOL_NAMES = [
   'listLibraryTree',
@@ -40,9 +41,6 @@ export interface ExecutedLibraryToolResult {
   output?: Record<string, unknown>;
   outputError?: string;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
 
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === 'string');

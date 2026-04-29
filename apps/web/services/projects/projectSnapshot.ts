@@ -19,6 +19,7 @@ import {
   type UserProfile,
 } from '../../types.ts';
 import { createEntityId } from '../../utils/ids.ts';
+import { isRecord } from '../../utils/records.ts';
 import {
   createProjectSourceFromFile,
   getProjectSourceName,
@@ -27,9 +28,6 @@ import {
 } from './projectSource.ts';
 
 const CURRENT_PROJECT_VERSION = '4.1';
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null;
 
 const isString = (value: unknown): value is string => typeof value === 'string';
 

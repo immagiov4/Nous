@@ -1,7 +1,7 @@
 # Copilot Instructions — Nous Reader
 
 Canonical repository-wide AI guidance lives in [AI_INSTRUCTIONS.md](../AI_INSTRUCTIONS.md).
-Tailored to this repository: React 19 + TypeScript + Vite frontend in `apps/web/` · Express.js + TypeScript backend in `apps/backend/` · Python Qwen3-TTS server in `services/tts-server/` · IndexedDB persistence · Gemini-driven learning, assessment, and text-to-speech flows.
+Tailored to this repository: React 19 + TypeScript + Vite frontend in `apps/web/` · Express.js + TypeScript backend in `apps/backend/` · Python Qwen3-TTS server in `services/tts-server/` · IndexedDB persistence · OpenRouter-driven learning, assessment, and text-to-speech flows.
 
 ---
 
@@ -74,8 +74,8 @@ npm run quality       # frontend/backend type checks + Biome lint
 - `apps/web/App.tsx` is the main state orchestrator for reading, assessment, learning-plan, focus-mode, and library flows.
 - `apps/web/hooks/library/useProjectLibrary.ts` owns IndexedDB-backed project persistence and workspace hydration.
 - `apps/web/hooks/reader/useTtsPlayer.ts` owns text chunking, playback state, sync behavior, and client-side TTS playback orchestration.
-- `apps/web/services/geminiService.ts` is the public frontend facade for Gemini capabilities; feature-specific implementations live under `apps/web/services/gemini/`.
-- `apps/web/services/projectSnapshot.ts` and repository services are the canonical path for persisted project data.
+- `apps/web/services/openrouter/` is the frontend AI layer: OpenRouter clients, prompt builders, model selection, TTS requests, lesson generation, assessment, planning, curriculum, laboratory, and PDF indexing.
+- `apps/web/services/projects/projectSnapshot.ts` and repository services are the canonical path for persisted project data.
 
 ### Backend TTS flow
 
@@ -105,9 +105,9 @@ npm run quality       # frontend/backend type checks + Biome lint
 
 ## AI and Content Rules
 
-- Keep Gemini-specific logic inside `apps/web/services/gemini/` or the Gemini service facade.
-- Reuse exported service functions from `apps/web/services/geminiService.ts` rather than calling low-level Gemini modules ad hoc from unrelated files.
-- Keep prompt construction and response parsing close to the existing Gemini modules that already own that feature.
+- Keep AI-specific logic inside `apps/web/services/openrouter/` or the OpenRouter service facade.
+- Reuse exported service functions from `apps/web/services/openrouter/index.ts` rather than calling low-level AI modules ad hoc from unrelated files.
+- Keep prompt construction and response parsing close to the existing OpenRouter modules that already own that feature.
 - For markdown, lesson content, and speech preparation, reuse existing utilities before adding new text-processing logic.
 
 ---
@@ -128,7 +128,7 @@ npm run quality       # frontend/backend type checks + Biome lint
 
 ### Single Source of Truth
 
-- Do not duplicate Gemini integration logic, project snapshot logic, or TTS connection logic.
+- Do not duplicate OpenRouter integration logic, project snapshot logic, or TTS connection logic.
 - If behavior already exists in a hook, service, or utility, extend it there instead of recreating it elsewhere.
 
 ### Fail Fast

@@ -158,12 +158,12 @@ If you add or change a field here, follow the TypeScript errors to the affected 
 
 ## Backend
 
-The backend lives in `backend/src/`, with `backend/dist/` used as build output only.
+The backend lives in `apps/backend/src/`, with `apps/backend/dist/` used as build output only.
 
 Main entry points:
 
-- `backend/src/server.ts` - reads config, starts the HTTP server, handles shutdown
-- `backend/src/index.ts` - builds the Express app and registers routes
+- `apps/backend/src/server.ts` - reads config, starts the HTTP server, handles shutdown
+- `apps/backend/src/index.ts` - builds the Express app and registers routes
 
 Main routes:
 
@@ -198,7 +198,7 @@ The optional Python service is useful when you want to experiment with the stand
 | Change sidebar click behavior | `hooks/workspace/useWorkspaceReaderActions.ts` |
 | Modify project persistence | `services/projects/` and `hooks/library/useProjectLibrary.ts` |
 | Change how screen transitions work | `hooks/workspace/useWorkspaceNavigation.ts` |
-| Adjust the library assistant | `hooks/library/useLibraryAssistantChat.ts` and `backend/src/routes/libraryChat.ts` |
+| Adjust the library assistant | `hooks/library/useLibraryAssistantChat.ts` and `apps/backend/src/routes/libraryChat.ts` |
 
 ## Architectural Rules
 
@@ -206,7 +206,7 @@ The optional Python service is useful when you want to experiment with the stand
 - Components should not call services directly when a hook can own the side effect.
 - The domain should not depend on the current screen or visual state.
 - Each hook should stay inside one responsibility area.
-- `backend/dist/` should not be edited directly.
+- `apps/backend/dist/` should not be edited directly.
 
 ## Tooling
 
