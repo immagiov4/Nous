@@ -1,4 +1,5 @@
 import { useLayoutEffect } from 'react';
+import { READER_SIDEBAR_WIDTH_PX } from '../../constants/layout.ts';
 import AudioPlayer from './AudioPlayer.tsx';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
@@ -70,7 +71,7 @@ export default function WorkspaceReaderShell({
 
       <div
         className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-x-hidden bg-paper-light transition-[margin] duration-300 dark:bg-paper-dark"
-        style={{ marginLeft: shouldUseDesktopSidebar ? 384 : 0 }}
+        style={{ marginLeft: shouldUseDesktopSidebar ? READER_SIDEBAR_WIDTH_PX : 0 }}
       >
         <WorkspaceReaderBanners {...banners} />
         <WorkspaceReaderHeader {...header} />

@@ -9,10 +9,10 @@ declare global {
 }
 
 const MAX_TRACE_ENTRIES = 200;
+const isDebugTraceEnabled = import.meta.env.DEV;
 
 export const pushNousDebugTrace = (event: string, payload?: Record<string, unknown>): void => {
-  const meta = import.meta as ImportMeta & { env?: { DEV?: boolean } };
-  if (!meta.env?.DEV) {
+  if (!isDebugTraceEnabled) {
     return;
   }
 

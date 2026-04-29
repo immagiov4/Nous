@@ -14,6 +14,12 @@ import {
 import type { CSSProperties } from 'react';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  LIBRARY_MENU_EDGE_PADDING_PX,
+  LIBRARY_MENU_GAP_PX,
+  LIBRARY_PROJECT_MENU_ESTIMATED_HEIGHT_PX,
+  LIBRARY_PROJECT_MENU_WIDTH_PX,
+} from '../../constants/layout.ts';
 import type { SavedProjectMeta } from '../../types';
 import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 
@@ -35,11 +41,6 @@ const formatDate = (value: string): string =>
     month: 'short',
     year: 'numeric',
   }).format(new Date(value));
-
-const MENU_WIDTH = 176;
-const MENU_GAP = 8;
-const MENU_EDGE_PADDING = 12;
-const MENU_ESTIMATED_HEIGHT = 188;
 
 const ProjectCard = ({
   className,
@@ -75,18 +76,25 @@ const ProjectCard = ({
 
     const spaceBelow = window.innerHeight - buttonRect.bottom;
     const spaceAbove = buttonRect.top;
-    const shouldOpenAbove = spaceBelow < MENU_ESTIMATED_HEIGHT && spaceAbove > spaceBelow;
+    const shouldOpenAbove =
+      spaceBelow < LIBRARY_PROJECT_MENU_ESTIMATED_HEIGHT_PX && spaceAbove > spaceBelow;
     const nextLeft = Math.max(
-      MENU_EDGE_PADDING,
-      Math.min(window.innerWidth - MENU_WIDTH - MENU_EDGE_PADDING, buttonRect.right - MENU_WIDTH)
+      LIBRARY_MENU_EDGE_PADDING_PX,
+      Math.min(
+        window.innerWidth - LIBRARY_PROJECT_MENU_WIDTH_PX - LIBRARY_MENU_EDGE_PADDING_PX,
+        buttonRect.right - LIBRARY_PROJECT_MENU_WIDTH_PX
+      )
     );
 
     setMenuPlacement(shouldOpenAbove ? 'above' : 'below');
     setMenuPosition({
       left: nextLeft,
       top: shouldOpenAbove
-        ? Math.max(MENU_EDGE_PADDING, buttonRect.top - MENU_ESTIMATED_HEIGHT - MENU_GAP)
-        : buttonRect.bottom + MENU_GAP,
+        ? Math.max(
+            LIBRARY_MENU_EDGE_PADDING_PX,
+            buttonRect.top - LIBRARY_PROJECT_MENU_ESTIMATED_HEIGHT_PX - LIBRARY_MENU_GAP_PX
+          )
+        : buttonRect.bottom + LIBRARY_MENU_GAP_PX,
     });
     setMenuOpen(true);
   };
@@ -114,7 +122,7 @@ const ProjectCard = ({
           style={{
             left: `${menuPosition.left}px`,
             top: `${menuPosition.top}px`,
-            width: `${MENU_WIDTH}px`,
+            width: `${LIBRARY_PROJECT_MENU_WIDTH_PX}px`,
           }}
         >
           {onMove ? (

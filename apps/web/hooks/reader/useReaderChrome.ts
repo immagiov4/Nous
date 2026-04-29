@@ -1,12 +1,14 @@
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  READER_MOBILE_LAYOUT_BREAKPOINT_PX,
+  READER_SIDEBAR_WIDTH_PX,
+} from '../../constants/layout.ts';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 import { type ExpandedModuleState, resolveExpandedModuleState } from '../../utils/reader/chrome.ts';
 import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
 
-const SIDEBAR_WIDTH_PX = 384;
-const MOBILE_LAYOUT_BREAKPOINT_PX = 1024;
-const MOBILE_LAYOUT_MEDIA_QUERY = `(max-width: ${MOBILE_LAYOUT_BREAKPOINT_PX - 1}px)`;
+const MOBILE_LAYOUT_MEDIA_QUERY = `(max-width: ${READER_MOBILE_LAYOUT_BREAKPOINT_PX - 1}px)`;
 
 interface UseReaderChromeArgs {
   activeSectionId: string | null;
@@ -26,7 +28,7 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
   const previousActiveSectionIdRef = useRef<string | null>(null);
   const shouldUseDesktopSidebar = !isMobileViewport && !isFocusMode;
   const shouldShowSidebar = isMobileViewport ? isMobileSidebarOpen : !isFocusMode;
-  const audioDockOffset = shouldUseDesktopSidebar ? SIDEBAR_WIDTH_PX : 0;
+  const audioDockOffset = shouldUseDesktopSidebar ? READER_SIDEBAR_WIDTH_PX : 0;
 
   const handleModuleToggle = useCallback((groupId: string) => {
     setExpandedModuleId(currentId => (currentId === groupId ? null : groupId));

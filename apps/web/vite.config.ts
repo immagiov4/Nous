@@ -28,6 +28,7 @@ const fullReloadSensitiveHotUpdates = (): Plugin => ({
 export default defineConfig(({ mode }) => {
   const repoRoot = path.resolve(__dirname, '..', '..');
   const env = loadEnv(mode, repoRoot, '');
+  const rootNodeModules = path.resolve(repoRoot, 'node_modules');
   return {
     root: __dirname,
     envDir: repoRoot,
@@ -44,8 +45,13 @@ export default defineConfig(({ mode }) => {
       'process.env.PROJECT_REPOSITORY_MODE': JSON.stringify(env.PROJECT_REPOSITORY_MODE),
     },
     resolve: {
+      dedupe: ['react', 'react-dom'],
       alias: {
         '@': path.resolve(__dirname, '.'),
+        react: path.resolve(rootNodeModules, 'react'),
+        'react-dom': path.resolve(rootNodeModules, 'react-dom'),
+        'react/jsx-dev-runtime': path.resolve(rootNodeModules, 'react/jsx-dev-runtime.js'),
+        'react/jsx-runtime': path.resolve(rootNodeModules, 'react/jsx-runtime.js'),
       },
     },
   };

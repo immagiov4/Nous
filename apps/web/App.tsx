@@ -30,7 +30,6 @@ import { AppState } from './types';
 import type {
   HomeChatMode,
   HomeChatToolPreferences,
-  LearningPlan,
   PdfTextIndex,
   ProjectSource,
 } from './types.ts';
@@ -57,10 +56,9 @@ const defaultModelConfig = {
 
 const resolvePdfMappingWarning = (
   source: ProjectSource | null,
-  learningPlan: LearningPlan | null,
   documentIndex: PdfTextIndex | null
 ): string | null => {
-  if (source?.kind !== 'pdf' || !learningPlan) {
+  if (source?.kind !== 'pdf') {
     return null;
   }
 
@@ -71,13 +69,6 @@ const resolvePdfMappingWarning = (
   const warnings = documentIndex.mappingWarnings?.filter(Boolean) || [];
   if (warnings.length > 0) {
     return `Mappatura PDF da controllare: ${warnings[0]}`;
-  }
-
-  const fallbackLessonCount = learningPlan.sections.filter(
-    section => section.primaryChunkMappingSource === 'fallback'
-  ).length;
-  if (fallbackLessonCount > 0) {
-    return `${fallbackLessonCount} lezioni usano una mappatura stimata del PDF. Il contenuto resta utilizzabile, ma alcune rigenerazioni potrebbero riferirsi a porzioni meno precise del documento.`;
   }
 
   return null;
@@ -440,11 +431,7 @@ const App = () => {
     activeExercise: activeLaboratoryExercise,
     documentIndex: controller.documentIndex,
   });
-  const pdfMappingWarning = resolvePdfMappingWarning(
-    domain.source,
-    learningPlan,
-    controller.documentIndex
-  );
+  const pdfMappingWarning = resolvePdfMappingWarning(domain.source, controller.documentIndex);
   const isLaboratoryView = !activeSectionId && Boolean(laboratory);
   const headerIsLoading = isLoading || (isLaboratoryView && isLaboratoryBusy);
   const headerLoadingStatus = isLoading ? loadingStatus : laboratoryActivityMessage;

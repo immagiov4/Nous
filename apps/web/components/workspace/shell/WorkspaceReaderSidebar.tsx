@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { READER_SIDEBAR_WIDTH_PX } from '../../../constants/layout.ts';
 import type { WorkspaceReaderSidebarModel } from './types.ts';
 
 const LAB_CONTEXT_MENU_WIDTH = 272;
@@ -290,7 +291,7 @@ export default function WorkspaceReaderSidebar({
           shouldShowSidebar ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{
-          width: isMobileViewport ? 'min(92vw, 24rem)' : 384,
+          width: isMobileViewport ? 'min(92vw, 24rem)' : READER_SIDEBAR_WIDTH_PX,
           height: '100dvh',
           maxHeight: '100dvh',
         }}

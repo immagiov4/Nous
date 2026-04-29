@@ -1,9 +1,23 @@
 import type { Message, UserProfile } from './types.ts';
 
+type JsonRepairStage = 'cleaned' | 'repaired' | 'completed';
+
+const logJsonRepairFailure = (stage: JsonRepairStage, error: unknown): void => {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  console.warn('[Nous] JSON parse repair stage failed', {
+    stage,
+    error,
+  });
+};
+
 export const parseJson = <T>(text: string, fallback: T): T => {
   try {
     return JSON.parse(text) as T;
-  } catch {
+  } catch (error) {
+    logJsonRepairFailure('cleaned', error);
     // intentional: fallback to default
     return fallback;
   }
@@ -220,17 +234,20 @@ export const parseCleanJson = <T>(text: string): T => {
 
   try {
     return JSON.parse(cleaned) as T;
-  } catch {
+  } catch (cleanedError) {
+    logJsonRepairFailure('cleaned', cleanedError);
     const repaired = repairJsonString(cleaned);
 
     try {
       return JSON.parse(repaired) as T;
-    } catch {
+    } catch (repairedError) {
+      logJsonRepairFailure('repaired', repairedError);
       const completed = closeOpenJsonStructures(repaired);
 
       try {
         return JSON.parse(completed) as T;
-      } catch {
+      } catch (completedError) {
+        logJsonRepairFailure('completed', completedError);
         throw buildJsonParseError();
       }
     }

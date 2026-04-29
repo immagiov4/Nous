@@ -22,7 +22,10 @@ import {
   useRef,
   useState,
 } from 'react';
-
+import {
+  LIBRARY_FOLDER_MENU_INDEXEDDB_ESTIMATED_HEIGHT_PX,
+  LIBRARY_FOLDER_MENU_LAN_ESTIMATED_HEIGHT_PX,
+} from '../../constants/layout.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import type { LibraryFolderNode, LibraryTree, LibraryTreeNode } from '../../types.ts';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
@@ -910,9 +913,10 @@ export default function LibraryTreeView({
                   return;
                 }
                 const rect = e.currentTarget.getBoundingClientRect();
-                // Menu has 5 items + separator in local mode, ~272px worst case.
-                // Flip up if it would otherwise overflow the viewport bottom.
-                const estimatedMenuHeight = projectRepositoryMode === 'indexeddb' ? 272 : 230;
+                const estimatedMenuHeight =
+                  projectRepositoryMode === 'indexeddb'
+                    ? LIBRARY_FOLDER_MENU_INDEXEDDB_ESTIMATED_HEIGHT_PX
+                    : LIBRARY_FOLDER_MENU_LAN_ESTIMATED_HEIGHT_PX;
                 const spaceBelow = window.innerHeight - rect.bottom;
                 const spaceAbove = rect.top;
                 const shouldFlipUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
