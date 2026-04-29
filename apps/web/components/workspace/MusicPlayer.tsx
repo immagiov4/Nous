@@ -68,6 +68,7 @@ const MusicPlayer = ({
   const [isReady, setIsReady] = useState(false);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [hasError, setHasError] = useState(false);
+  const [isPlayerReady, setIsPlayerReady] = useState(false);
   const inputId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const presets = [
@@ -85,6 +86,11 @@ const MusicPlayer = ({
   useEffect(() => {
     setHasError(false);
     if (!url) {
+      if (playerRef.current) {
+        playerRef.current.destroy?.();
+        playerRef.current = null;
+      }
+      setIsPlayerReady(false);
       setVideoId(null);
       return;
     }
@@ -97,6 +103,7 @@ const MusicPlayer = ({
         playerRef.current.destroy?.();
         playerRef.current = null;
       }
+      setIsPlayerReady(false);
       setVideoId(null);
       setIsPlaying(false);
       setHasError(true);
@@ -112,6 +119,7 @@ const MusicPlayer = ({
       playerRef.current = null;
     }
 
+    setIsPlayerReady(false);
     setVideoId(id);
     setIsPlaying(false);
   }, [setIsPlaying, url, videoId]);
@@ -139,6 +147,7 @@ const MusicPlayer = ({
         const newPlayer = new window.YT.Player(iframeRef.current, {
           events: {
             onReady: event => {
+              setIsPlayerReady(true);
               event.target.setVolume(volume);
               if (isPlaying) {
                 event.target.playVideo();
@@ -165,6 +174,7 @@ const MusicPlayer = ({
                 event.data === 150 ||
                 event.data === 153
               ) {
+                setIsPlayerReady(false);
                 setHasError(true);
                 setIsPlaying(false);
               }
@@ -181,7 +191,7 @@ const MusicPlayer = ({
   // Handle Play/Pause via API
   useEffect(() => {
     const p = playerRef.current;
-    if (p && typeof p.playVideo === 'function') {
+    if (isPlayerReady && p && typeof p.playVideo === 'function') {
       try {
         if (isPlaying) {
           const state = p.getPlayerState();
@@ -197,15 +207,15 @@ const MusicPlayer = ({
         console.warn('[Nous] YouTube player play/pause failed', error);
       }
     }
-  }, [isPlaying]);
+  }, [isPlayerReady, isPlaying]);
 
   // Handle Volume via API
   useEffect(() => {
     const p = playerRef.current;
-    if (p && typeof p.setVolume === 'function') {
+    if (isPlayerReady && p && typeof p.setVolume === 'function') {
       p.setVolume(volume);
     }
-  }, [volume]);
+  }, [isPlayerReady, volume]);
 
   // Close panel when clicking/tapping outside the container
   useEffect(() => {

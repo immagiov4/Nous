@@ -1,3 +1,5 @@
+import './config/env.js';
+
 import cors from 'cors';
 import express from 'express';
 import { getBackendServerConfig, loadServerConfig } from './config/serverConfig.js';
@@ -10,6 +12,41 @@ import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
 
 const DEFAULT_FRONTEND_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const DEV_FRONTEND_PORT = '5173';
+
+const isPrivateIpv4Host = (host: string): boolean => {
+  const parts = host.split('.').map(part => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+
+  const [first, second] = parts;
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+};
+
+const isPrivateNetworkCorsEnabled = (): boolean =>
+  process.env.CORS_ALLOW_PRIVATE_NETWORK === 'true';
+
+const isPrivateNetworkFrontendOrigin = (origin: string): boolean => {
+  if (!isPrivateNetworkCorsEnabled()) {
+    return false;
+  }
+
+  try {
+    const parsedOrigin = new URL(origin);
+    return (
+      (parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:') &&
+      parsedOrigin.port === DEV_FRONTEND_PORT &&
+      isPrivateIpv4Host(parsedOrigin.hostname)
+    );
+  } catch {
+    return false;
+  }
+};
 
 const parseAllowedOrigins = (): Set<string> => {
   const configuredOrigins = process.env.CORS_ALLOWED_ORIGINS?.split(',')
@@ -33,7 +70,12 @@ export const createApp = () => {
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin || allowedOrigins.has(origin) || backendOrigins.has(origin)) {
+        if (
+          !origin ||
+          allowedOrigins.has(origin) ||
+          backendOrigins.has(origin) ||
+          isPrivateNetworkFrontendOrigin(origin)
+        ) {
           callback(null, true);
           return;
         }

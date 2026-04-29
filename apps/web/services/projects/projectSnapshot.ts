@@ -18,6 +18,7 @@ import {
   type SyllabusItem,
   type UserProfile,
 } from '../../types.ts';
+import { createEntityId } from '../../utils/ids.ts';
 import {
   createProjectSourceFromFile,
   getProjectSourceName,
@@ -35,13 +36,7 @@ const isString = (value: unknown): value is string => typeof value === 'string';
 const ensureString = (value: unknown, fallback = ''): string =>
   typeof value === 'string' ? value : fallback;
 
-export const createProjectId = (): ProjectId => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  return `project-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
+export const createProjectId = (): ProjectId => createEntityId({ fallbackPrefix: 'project' });
 
 export const inferProjectSourceKind = (
   snapshot: Pick<ProjectSnapshot, 'source' | 'isLearnMode'>,

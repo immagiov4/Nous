@@ -9,6 +9,7 @@ import type {
   ProjectId,
   SavedProjectMeta,
 } from '../../types.ts';
+import { createEntityId } from '../ids.ts';
 
 const compareNumbers = (left: number, right: number) => left - right;
 
@@ -64,13 +65,8 @@ const sortTreeNodes = (nodes: LibraryTreeNode[]) =>
     return 0;
   });
 
-export const createLibraryFolderId = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `folder-${crypto.randomUUID()}`;
-  }
-
-  return `folder-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
+export const createLibraryFolderId = () =>
+  createEntityId({ fallbackPrefix: 'folder', uuidPrefix: 'folder' });
 
 export const buildLibraryTree = ({
   folders,

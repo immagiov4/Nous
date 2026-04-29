@@ -1,4 +1,5 @@
 import type { SectionAnnotation } from '../../types.ts';
+import { createEntityId } from '../ids.ts';
 import {
   getMarkdownMathRangeAt,
   getMarkdownProtectedRanges,
@@ -111,13 +112,8 @@ const normalizeLooseText = (value: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const createAnnotationId = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `annotation-${crypto.randomUUID()}`;
-  }
-
-  return `annotation-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
+const createAnnotationId = () =>
+  createEntityId({ fallbackPrefix: 'annotation', uuidPrefix: 'annotation' });
 
 const buildVisibleProjection = (content: string): VisibleProjection => {
   const characters: string[] = [];

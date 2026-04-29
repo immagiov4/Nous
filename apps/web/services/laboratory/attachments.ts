@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 import type { LaboratoryAttachment } from '../../types.ts';
+import { createEntityId } from '../../utils/ids.ts';
 import { isBinaryFile } from '../../utils/project/codebaseBundle.ts';
 import { clipText } from '../../utils/text/clipText.ts';
 import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
@@ -16,13 +17,7 @@ const MAX_ARCHIVE_CONTEXT_CHARS = 72_000;
 const MAX_ARCHIVE_TEXT_FILES = 12;
 const MAX_TEXT_ATTACHMENT_CHARS = 48_000;
 
-const createLaboratoryAttachmentId = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  return `lab-attachment-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
+const createLaboratoryAttachmentId = () => createEntityId({ fallbackPrefix: 'lab-attachment' });
 
 export const createLaboratoryTextAttachment = ({
   content,
