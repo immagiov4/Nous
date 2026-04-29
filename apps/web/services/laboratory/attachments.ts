@@ -1,6 +1,8 @@
 import JSZip from 'jszip';
 import type { LaboratoryAttachment } from '../../types.ts';
 import { isBinaryFile } from '../../utils/project/codebaseBundle.ts';
+import { clipText } from '../../utils/text/clipText.ts';
+import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
 import {
   decodeBase64Bytes,
   decodeTextBase64,
@@ -20,16 +22,6 @@ const createLaboratoryAttachmentId = () => {
   }
 
   return `lab-attachment-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
-
-const normalizeLineEndings = (value: string): string => value.replace(/\r\n?/g, '\n');
-
-const clip = (value: string, maxChars: number, suffix: string) => {
-  if (value.length <= maxChars) {
-    return value;
-  }
-
-  return `${value.slice(0, maxChars).trimEnd()}\n\n${suffix}`;
 };
 
 export const createLaboratoryTextAttachment = ({
@@ -129,7 +121,7 @@ const buildTextAttachmentContext = (attachment: LaboratoryAttachment): string =>
     return `FILE: ${attachment.name}\nTipo: ${attachment.mimeType}\nContenuto testuale vuoto o non leggibile.`;
   }
 
-  return `FILE: ${attachment.name}\nTipo: ${attachment.mimeType}\n\n${clip(text, MAX_TEXT_ATTACHMENT_CHARS, '[file testuale troncato]')}`;
+  return `FILE: ${attachment.name}\nTipo: ${attachment.mimeType}\n\n${clipText(text, MAX_TEXT_ATTACHMENT_CHARS, '[file testuale troncato]')}`;
 };
 
 const buildBinaryAttachmentContext = (attachment: LaboratoryAttachment): string => {
@@ -175,7 +167,7 @@ const buildArchiveAttachmentContext = async (attachment: LaboratoryAttachment): 
       }
 
       readableBlocks.push(
-        `--- START OF FILE: ${entry.name} ---\n${clip(decoded, 12_000, '[file archivio troncato]')}`
+        `--- START OF FILE: ${entry.name} ---\n${clipText(decoded, 12_000, '[file archivio troncato]')}`
       );
       includedTextFiles += 1;
     } catch {
@@ -198,7 +190,7 @@ const buildArchiveAttachmentContext = async (attachment: LaboratoryAttachment): 
     return header.join('\n');
   }
 
-  return clip(
+  return clipText(
     `${header.join('\n')}\n\n${readableBlocks.join('\n\n')}`,
     MAX_ARCHIVE_CONTEXT_CHARS,
     '[archivio troncato]'

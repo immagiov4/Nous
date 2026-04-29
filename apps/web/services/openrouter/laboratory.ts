@@ -10,6 +10,7 @@ import type {
   ProjectSource,
   UserProfile,
 } from '../../types.ts';
+import { clipText } from '../../utils/text/clipText.ts';
 import { buildLaboratoryAttachmentContext } from '../laboratory/attachments.ts';
 import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../laboratory/state.ts';
 import { createProjectId } from '../projects/projectSnapshot.ts';
@@ -122,14 +123,6 @@ interface RegenerateLaboratoryExerciseArgs extends GenerateLaboratoryArgs {
   exercise: LaboratoryExercise;
 }
 
-const clip = (value: string, maxChars: number, suffix: string) => {
-  if (value.length <= maxChars) {
-    return value;
-  }
-
-  return `${value.slice(0, maxChars).trimEnd()}\n\n${suffix}`;
-};
-
 const cleanLines = (values: unknown): string[] =>
   Array.isArray(values)
     ? values.map(value => (typeof value === 'string' ? value.trim() : '')).filter(Boolean)
@@ -159,7 +152,7 @@ const buildLearningPlanOutline = (learningPlan: LearningPlan): string => {
     }),
   ].filter(Boolean);
 
-  return clip(lines.join('\n'), MAX_LEARNING_PLAN_CHARS, '[piano troncato]');
+  return clipText(lines.join('\n'), MAX_LEARNING_PLAN_CHARS, '[piano troncato]');
 };
 
 const buildUserProfileSummary = (userProfile?: UserProfile | null): string => {
@@ -240,7 +233,7 @@ const buildPdfChunkSummary = (
   );
   const chunks = selectedChunks.length > 0 ? selectedChunks : fallbackChunks;
 
-  return clip(
+  return clipText(
     [
       selectedChunks.length > 0
         ? 'Estratto mirato ai chunk gia associati all esercizio.'
@@ -273,7 +266,7 @@ const buildSourceSummary = async ({
   }
 
   if (source.kind === 'codebase-bundle') {
-    return `Codebase: ${source.name}\n\n${clip(source.aggregatedText, MAX_CODEBASE_SOURCE_CHARS, '[codebase troncata]')}`;
+    return `Codebase: ${source.name}\n\n${clipText(source.aggregatedText, MAX_CODEBASE_SOURCE_CHARS, '[codebase troncata]')}`;
   }
 
   if (documentIndex?.chunks.length) {
