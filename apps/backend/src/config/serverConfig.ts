@@ -12,6 +12,8 @@ const __dirname = dirname(__filename);
 
 let cachedConfig: ServerConfig | null = null;
 
+// Backend config normalizes Node env values and server.config.json defaults.
+// The web config keeps its own copy because Vite resolves import.meta.env at build time.
 const normalizeHost = (value: unknown, fallback: string): string => {
   if (typeof value !== 'string') {
     return fallback;

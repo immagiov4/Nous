@@ -13,6 +13,7 @@ import type {
   PdfTextPage,
   QuizQuestion,
   SyllabusItem,
+  TtsModelSummary,
   UserProfile,
   VoiceName,
   VoiceProfileId,
@@ -153,20 +154,6 @@ export interface TtsVoiceDescriptor {
   language: string;
 }
 
-export interface TtsModelSummary {
-  contextLength: number;
-  id: string;
-  name: string;
-  pricing: {
-    completion: string;
-    prompt: string;
-  };
-  supportedParameters: string[];
-  supportsVoiceCloning: boolean;
-  voiceHelpLabel?: string;
-  voiceHelpUrl?: string;
-}
-
 export interface TtsModelsResponse {
   defaultModel: string;
   models: TtsModelSummary[];
@@ -187,6 +174,7 @@ export type {
   PdfTextPage,
   QuizQuestion,
   SyllabusItem,
+  TtsModelSummary,
   UserProfile,
   VoiceProfileId,
   VoiceName,

@@ -48,6 +48,8 @@ export const resolveOpenRouterModel = (
 const FALLBACK_BACKEND_HOST = '127.0.0.1';
 const FALLBACK_BACKEND_PORT = 3301;
 
+// Frontend config normalizes Vite build-time env values. Keep this local to
+// avoid coupling browser code to the backend's Node config loader.
 const normalizeHost = (value: unknown, fallback: string): string => {
   if (typeof value !== 'string') {
     return fallback;

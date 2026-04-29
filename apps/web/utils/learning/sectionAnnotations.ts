@@ -7,6 +7,7 @@ import {
   normalizeMathSelectionArtifacts,
   projectMarkdownMathRange,
 } from '../markdown/codeRanges.ts';
+import { timestampIso } from '../time.ts';
 
 const MARK_CLOSE = '</mark>';
 const MARK_OPEN_WITH_ID = (annotationId: string) =>
@@ -749,7 +750,7 @@ const buildGroupsById = (
   const annotationById = new Map(
     (annotations || []).map(annotation => [annotation.id, annotation])
   );
-  const now = new Date().toISOString();
+  const now = timestampIso();
   const groups = new Map<string, ParsedMarkSegment[]>();
 
   segments
@@ -891,7 +892,7 @@ export const migrateSectionAnnotations = ({
   annotations,
   content,
   createId = createAnnotationId,
-  now = new Date().toISOString(),
+  now = timestampIso(),
 }: {
   annotations?: SectionAnnotation[];
   content: string;
@@ -965,7 +966,7 @@ export const applySectionAnnotation = ({
   contextBefore,
   createId = createAnnotationId,
   note = '',
-  now = new Date().toISOString(),
+  now = timestampIso(),
   preferredAnnotationId,
   selectedText,
 }: ApplySectionAnnotationOptions): ApplySectionAnnotationResult | null => {
@@ -1047,7 +1048,7 @@ export const updateSectionAnnotationNote = ({
   annotationId,
   annotations,
   note,
-  now = new Date().toISOString(),
+  now = timestampIso(),
 }: {
   annotationId: string;
   annotations?: SectionAnnotation[];
