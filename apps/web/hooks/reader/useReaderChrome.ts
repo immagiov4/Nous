@@ -10,6 +10,11 @@ import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
 
 const MOBILE_LAYOUT_MEDIA_QUERY = `(max-width: ${READER_MOBILE_LAYOUT_BREAKPOINT_PX - 1}px)`;
 
+const keepCurrentWhenEqual =
+  <T>(nextValue: T) =>
+  (currentValue: T): T =>
+    Object.is(currentValue, nextValue) ? currentValue : nextValue;
+
 interface UseReaderChromeArgs {
   activeSectionId: string | null;
   sidebarGroups: SidebarGroup[];
@@ -49,22 +54,22 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
 
     const mediaQueryList = window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY);
     const handleMediaQueryChange = (event: MediaQueryListEvent) => {
-      setIsMobileViewport(event.matches);
+      setIsMobileViewport(keepCurrentWhenEqual(event.matches));
     };
 
-    setIsMobileViewport(mediaQueryList.matches);
+    setIsMobileViewport(keepCurrentWhenEqual(mediaQueryList.matches));
     return subscribeToMediaQuery(mediaQueryList, handleMediaQueryChange);
   }, []);
 
   useEffect(() => {
     if (!isMobileViewport) {
-      setIsMobileSidebarOpen(false);
+      setIsMobileSidebarOpen(keepCurrentWhenEqual(false));
     }
   }, [isMobileViewport]);
 
   useEffect(() => {
     if (isMobileViewport && activeSectionId) {
-      setIsMobileSidebarOpen(false);
+      setIsMobileSidebarOpen(keepCurrentWhenEqual(false));
     }
   }, [activeSectionId, isMobileViewport]);
 
