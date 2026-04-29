@@ -3,6 +3,8 @@ import type { ProcessState, ServerConfig } from '../types/index.js';
 import { processManager } from './processManager.js';
 import { ttsClient } from './ttsClient.js';
 
+const MILLISECONDS_PER_SECOND = 1_000;
+
 export interface StatusSnapshot {
   currentDevice: ServerConfig['device'];
   healthMessage: string;
@@ -20,7 +22,7 @@ function getUptime(processState: ProcessState): number {
     return 0;
   }
 
-  return Math.floor((Date.now() - processState.startTime) / 1000);
+  return Math.floor((Date.now() - processState.startTime) / MILLISECONDS_PER_SECOND);
 }
 
 export async function getStatusSnapshot(): Promise<StatusSnapshot> {

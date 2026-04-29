@@ -3,7 +3,12 @@ import { readUiPreferences } from '../preferences/uiPreferencesStorage.ts';
 import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from './prompts.ts';
 import type { OpenRouterReasoningOptions } from './types.ts';
 
-export const MAX_OUTPUT_TOKENS = parseInt(process.env.MAX_OUTPUT_TOKENS || '32000', 10);
+const DEFAULT_MAX_OUTPUT_TOKENS = 32_000;
+
+export const MAX_OUTPUT_TOKENS = Number.parseInt(
+  process.env.MAX_OUTPUT_TOKENS || String(DEFAULT_MAX_OUTPUT_TOKENS),
+  10
+);
 export const DEFAULT_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite-preview';
 
 export const MODEL_FLASH = process.env.MODEL_FLASH || 'openai/gpt-5.4-nano';

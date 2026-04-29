@@ -182,6 +182,7 @@ const parseOpenRouterError = async (response: Response): Promise<string> => {
     const payload = JSON.parse(responseText) as OpenRouterErrorPayload;
     return payload.error?.message || payload.message || responseText;
   } catch {
+    // OpenRouter error bodies are not guaranteed to be JSON.
     return responseText;
   }
 };

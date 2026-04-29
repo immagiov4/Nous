@@ -66,6 +66,9 @@ Restituisci in italiano:
   });
 };
 
+// Local library tools return different payloads, but every payload is still an
+// object. Keep the shared schema permissive and enforce input/scope safety in
+// the frontend tool executor where the concrete data is produced.
 const genericLibraryToolOutputSchema = jsonSchema<Record<string, unknown>>({
   type: 'object',
   additionalProperties: true,

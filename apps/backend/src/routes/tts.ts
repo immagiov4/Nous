@@ -4,6 +4,7 @@ import { DEFAULT_TTS_MODEL, ttsClient } from '../services/ttsClient.js';
 
 const router = Router();
 const MAX_TTS_TEXT_CHARS = 10_000;
+const TTS_AUDIO_CACHE_MAX_AGE_SECONDS = 3_600;
 
 /**
  * GET /api/tts/models
@@ -63,7 +64,7 @@ router.post('/', async (req: Request, res: Response) => {
     res.set({
       'Content-Type': generatedAudio.contentType,
       'Content-Length': generatedAudio.audioBuffer.byteLength.toString(),
-      'Cache-Control': 'public, max-age=3600',
+      'Cache-Control': `public, max-age=${TTS_AUDIO_CACHE_MAX_AGE_SECONDS}`,
     });
 
     if (generatedAudio.generationId) {
