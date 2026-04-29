@@ -21,7 +21,7 @@ router.get('/models', async (_req: Request, res: Response) => {
     console.error('[TTS Models Route] Error:', error);
     res.status(502).json({
       success: false,
-      error: 'Failed to get TTS models',
+      error: 'Impossibile recuperare i modelli TTS.',
     });
   }
 });
@@ -75,7 +75,7 @@ router.post('/', async (req: Request, res: Response) => {
     console.error('[TTS Route] Error:', error);
     res.status(502).json({
       success: false,
-      error: 'Failed to generate speech',
+      error: 'Generazione vocale non riuscita.',
     });
   }
 });

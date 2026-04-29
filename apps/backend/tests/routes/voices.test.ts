@@ -59,7 +59,7 @@ describe('GET /api/voices', () => {
     expect(response.status).toBe(404);
     expect(response.body).toEqual({
       success: false,
-      error: 'Voice profile not found',
+      error: 'Profilo vocale non trovato.',
     });
   });
 });

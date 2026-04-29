@@ -88,7 +88,7 @@ describe('POST /api/tts', () => {
     expect(response.status).toBe(502);
     expect(response.body).toEqual({
       success: false,
-      error: 'Failed to generate speech',
+      error: 'Generazione vocale non riuscita.',
     });
   });
 

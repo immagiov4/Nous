@@ -35,7 +35,7 @@ router.get('/:id', (req: Request, res: Response) => {
     if (!voiceDetails) {
       return res.status(404).json({
         success: false,
-        error: 'Voice profile not found',
+        error: 'Profilo vocale non trovato.',
       });
     }
 

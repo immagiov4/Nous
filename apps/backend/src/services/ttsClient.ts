@@ -9,6 +9,7 @@ import type {
   VoiceProfile,
   VoiceProfilesConfig,
 } from '../types/index.js';
+import { isRecord } from '../utils/validation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -61,6 +62,8 @@ const OPENAI_TTS_VOICES = new Set([
   'cedar',
 ]);
 
+const VOICE_PROFILE_MODES = new Set(['openrouter_voice', 'voice_design']);
+
 const OPENAI_TTS_MODEL_SUMMARY: TtsModelSummary = {
   contextLength: 0,
   id: DEFAULT_TTS_MODEL,
@@ -88,6 +91,58 @@ const createDefaultVoiceProfiles = (): VoiceProfilesConfig => ({
   ],
   defaultProfile: DEFAULT_TTS_VOICE,
 });
+
+const isVoiceProfile = (value: unknown): value is VoiceProfile => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const mode = typeof value.mode === 'string' ? value.mode : '';
+  const modelSettings = value.modelSettings;
+
+  return (
+    typeof value.id === 'string' &&
+    value.id.trim().length > 0 &&
+    typeof value.name === 'string' &&
+    value.name.trim().length > 0 &&
+    typeof value.language === 'string' &&
+    value.language.trim().length > 0 &&
+    VOICE_PROFILE_MODES.has(mode) &&
+    typeof value.voiceDesignPrompt === 'string' &&
+    value.voiceDesignPrompt.trim().length > 0 &&
+    isRecord(modelSettings) &&
+    typeof modelSettings.temperature === 'number' &&
+    typeof modelSettings.speed === 'number'
+  );
+};
+
+const normalizeVoiceProfilesConfig = (value: unknown): VoiceProfilesConfig => {
+  if (!isRecord(value) || !Array.isArray(value.profiles)) {
+    throw new Error('voice-profiles.json deve contenere un array "profiles".');
+  }
+
+  const profiles = value.profiles.filter(isVoiceProfile);
+  if (profiles.length === 0) {
+    throw new Error('voice-profiles.json non contiene profili vocali validi.');
+  }
+
+  const requestedDefaultProfile =
+    typeof value.defaultProfile === 'string' ? value.defaultProfile.trim() : '';
+  const defaultProfile = profiles.some(profile => profile.id === requestedDefaultProfile)
+    ? requestedDefaultProfile
+    : profiles[0].id;
+
+  if (defaultProfile !== requestedDefaultProfile) {
+    console.warn(
+      `[TTSClient] Profilo vocale predefinito "${requestedDefaultProfile}" non trovato; uso "${defaultProfile}".`
+    );
+  }
+
+  return {
+    profiles,
+    defaultProfile,
+  };
+};
 
 const getOpenRouterHeaders = () => ({
   Authorization: `Bearer ${requireOpenRouterApiKey()}`,
@@ -130,12 +185,11 @@ class TTSClient {
 
   private loadVoiceProfiles(): VoiceProfilesConfig {
     const profilesPath = join(__dirname, '..', 'config', 'voice-profiles.json');
-    const loadedProfiles = loadOptionalJsonFile<VoiceProfilesConfig>(
-      profilesPath,
-      'voice-profiles.json'
-    );
+    const loadedProfiles = loadOptionalJsonFile<unknown>(profilesPath, 'voice-profiles.json');
 
-    return loadedProfiles ?? createDefaultVoiceProfiles();
+    return loadedProfiles
+      ? normalizeVoiceProfilesConfig(loadedProfiles)
+      : createDefaultVoiceProfiles();
   }
 
   getVoiceProfiles(): VoiceProfile[] {
@@ -144,11 +198,12 @@ class TTSClient {
 
   getDefaultProfile(): VoiceProfile {
     const defaultId = this.voiceProfiles.defaultProfile;
-    return (
-      this.voiceProfiles.profiles.find(profile => profile.id === defaultId) ||
-      this.voiceProfiles.profiles[0] ||
-      createDefaultVoiceProfiles().profiles[0]
-    );
+    const defaultProfile = this.voiceProfiles.profiles.find(profile => profile.id === defaultId);
+    if (!defaultProfile) {
+      throw new Error(`Profilo vocale predefinito "${defaultId}" non disponibile.`);
+    }
+
+    return defaultProfile;
   }
 
   getVoiceProfile(id: string): VoiceProfile | undefined {
@@ -219,12 +274,12 @@ class TTSClient {
       await this.listModels();
       return {
         ready: true,
-        message: 'OpenRouter TTS is ready',
+        message: 'OpenRouter TTS pronto.',
       };
     } catch (error) {
       return {
         ready: false,
-        message: error instanceof Error ? error.message : 'OpenRouter TTS is not ready',
+        message: error instanceof Error ? error.message : 'OpenRouter TTS non pronto.',
       };
     }
   }
