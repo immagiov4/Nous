@@ -31,6 +31,13 @@ interface UseWorkspaceReaderRuntimeArgs {
   syllabus: SyllabusItem[];
 }
 
+const areSettingsSectionsEqual = (
+  currentSections: SettingsPanelSectionId[],
+  nextSections: SettingsPanelSectionId[]
+) =>
+  currentSections.length === nextSections.length &&
+  currentSections.every((sectionId, index) => sectionId === nextSections[index]);
+
 export const useWorkspaceReaderRuntime = ({
   activeSection,
   activeSectionId,
@@ -120,12 +127,9 @@ export const useWorkspaceReaderRuntime = ({
         readerChrome.setIsDarkMode(preferences.isDarkMode);
       }
 
-      if (preferences.preferredVoice) {
-        ttsPlayer.handleVoiceChange(preferences.preferredVoice);
-      }
-
-      if (preferences.preferredTtsVoice) {
-        ttsPlayer.handleVoiceChange(preferences.preferredTtsVoice);
+      const preferredVoice = preferences.preferredTtsVoice || preferences.preferredVoice;
+      if (preferredVoice) {
+        ttsPlayer.handleVoiceChange(preferredVoice);
       }
 
       if (preferences.preferredTtsModel) {
@@ -137,31 +141,43 @@ export const useWorkspaceReaderRuntime = ({
       }
 
       if (Array.isArray(preferences.settingsPanelExpandedSections)) {
-        setSettingsPanelExpandedSections(preferences.settingsPanelExpandedSections);
+        setSettingsPanelExpandedSections(currentSections =>
+          areSettingsSectionsEqual(currentSections, preferences.settingsPanelExpandedSections || [])
+            ? currentSections
+            : preferences.settingsPanelExpandedSections || []
+        );
       }
 
-      setPreferredModels(currentModels => ({
-        preferredLessonModel:
-          typeof preferences.preferredLessonModel === 'string'
-            ? preferences.preferredLessonModel
-            : currentModels.preferredLessonModel,
-        preferredAssessmentModel:
-          typeof preferences.preferredAssessmentModel === 'string'
-            ? preferences.preferredAssessmentModel
-            : currentModels.preferredAssessmentModel,
-        preferredContextModel:
-          typeof preferences.preferredContextModel === 'string'
-            ? preferences.preferredContextModel
-            : currentModels.preferredContextModel,
-        preferredTtsModel:
-          typeof preferences.preferredTtsModel === 'string'
-            ? preferences.preferredTtsModel
-            : currentModels.preferredTtsModel,
-        preferredTtsVoice:
-          typeof preferences.preferredTtsVoice === 'string'
-            ? preferences.preferredTtsVoice
-            : currentModels.preferredTtsVoice,
-      }));
+      setPreferredModels(currentModels => {
+        const nextModels = {
+          preferredLessonModel:
+            typeof preferences.preferredLessonModel === 'string'
+              ? preferences.preferredLessonModel
+              : currentModels.preferredLessonModel,
+          preferredAssessmentModel:
+            typeof preferences.preferredAssessmentModel === 'string'
+              ? preferences.preferredAssessmentModel
+              : currentModels.preferredAssessmentModel,
+          preferredContextModel:
+            typeof preferences.preferredContextModel === 'string'
+              ? preferences.preferredContextModel
+              : currentModels.preferredContextModel,
+          preferredTtsModel:
+            typeof preferences.preferredTtsModel === 'string'
+              ? preferences.preferredTtsModel
+              : currentModels.preferredTtsModel,
+          preferredTtsVoice:
+            typeof preferences.preferredTtsVoice === 'string'
+              ? preferences.preferredTtsVoice
+              : currentModels.preferredTtsVoice,
+        };
+
+        return Object.entries(nextModels).every(
+          ([key, value]) => currentModels[key as keyof OpenRouterModelPreferences] === value
+        )
+          ? currentModels
+          : nextModels;
+      });
     },
     [
       readerChrome.setIsDarkMode,
@@ -218,8 +234,12 @@ export const useWorkspaceReaderRuntime = ({
     () => buildLessonImageRefMap(activeSection?.imageRefs),
     [activeSection?.imageRefs]
   );
-  const activeSectionGeneratedVisualsById = Object.fromEntries(
-    (activeSection?.generatedVisuals || []).map(visual => [visual.id, visual])
+  const activeSectionGeneratedVisualsById = useMemo(
+    () =>
+      Object.fromEntries(
+        (activeSection?.generatedVisuals || []).map(visual => [visual.id, visual])
+      ),
+    [activeSection?.generatedVisuals]
   );
 
   useEffect(() => {

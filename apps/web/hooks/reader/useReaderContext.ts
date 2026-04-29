@@ -266,6 +266,7 @@ export const useReaderContext = ({
         return 'closed';
       }
 
+      contextMenuStateRef.current = nextMenu;
       setContextMenu(currentMenu => {
         if (
           currentMenu.visible &&

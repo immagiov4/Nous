@@ -1,5 +1,5 @@
 import { BookOpen, LoaderCircle, MousePointerClick, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
@@ -98,12 +98,21 @@ export default function WorkspaceReaderContent({
     ? 'max-w-[72rem] px-4 pb-36 pt-8 sm:px-8 lg:px-12 xl:px-16'
     : 'max-w-[90rem] px-4 pb-36 pt-8 sm:px-8 lg:px-14 xl:px-20 2xl:px-24';
   const readingColumnClassName = isFocusMode ? 'mx-auto max-w-[76ch]' : 'mx-auto max-w-[82ch]';
-  const renderedSectionContent =
-    sectionContent && sourcePageRangeLabel
-      ? `${sectionContent.trim()}\n\n&nbsp;\n\n*Fonte originale: ${sourcePageRangeLabel}*`
-      : sectionContent;
-  const inlineQuizLayout = buildInlineQuizLayout(renderedSectionContent || '', quiz.length);
-  const unansweredQuestionCount = quizAnswers.filter(answer => answer < 0).length;
+  const renderedSectionContent = useMemo(
+    () =>
+      sectionContent && sourcePageRangeLabel
+        ? `${sectionContent.trim()}\n\n&nbsp;\n\n*Fonte originale: ${sourcePageRangeLabel}*`
+        : sectionContent,
+    [sectionContent, sourcePageRangeLabel]
+  );
+  const inlineQuizLayout = useMemo(
+    () => buildInlineQuizLayout(renderedSectionContent || '', quiz.length),
+    [quiz.length, renderedSectionContent]
+  );
+  const unansweredQuestionCount = useMemo(
+    () => quizAnswers.filter(answer => answer < 0).length,
+    [quizAnswers]
+  );
   const canCompleteSection = quiz.length === 0 || unansweredQuestionCount === 0;
   const shouldShowLessonSkeleton = isLoading || Boolean(activeSectionTitle && !sectionContent);
 

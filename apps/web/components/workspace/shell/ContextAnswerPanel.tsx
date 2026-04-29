@@ -110,6 +110,22 @@ interface ContextChatTools {
 
 type ContextChatMessage = UIMessage<unknown, Record<string, never>, ContextChatTools>;
 
+interface ContextRequestState {
+  attachedAnnotationNote?: string;
+  attachedAnnotationText?: string;
+  contextAfter?: string;
+  contextBefore?: string;
+  lessonContent?: string;
+  lessonDescription?: string;
+  lessonTitle?: string;
+  preferredContextModel: string;
+  selectedText: string;
+  sourceKind?: ContextAnswerState['sourceKind'];
+  sourceMaterial?: string;
+  sourceName?: string;
+  toolPreferences: ContextChatToolPreferences;
+}
+
 interface ContextAnswerPanelProps {
   contextAnswer: ContextAnswerState;
   contextAnswerPanelRef: RefObject<HTMLDivElement | null>;
@@ -163,22 +179,7 @@ export default function ContextAnswerPanel({
     };
   }, [contextAnswer.contextAfter, contextAnswer.contextBefore, contextAnswer.selectedText]);
 
-  const latestRequestStateRef = useRef({
-    attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
-    attachedAnnotationText: contextAnswer.attachedAnnotationText,
-    contextAfter: contextAnswer.contextAfter,
-    contextBefore: contextAnswer.contextBefore,
-    lessonContent: contextAnswer.lessonContent,
-    lessonDescription: contextAnswer.lessonDescription,
-    lessonTitle: contextAnswer.lessonTitle,
-    selectedText: contextAnswer.selectedText,
-    sourceKind: contextAnswer.sourceKind,
-    sourceMaterial: contextAnswer.sourceMaterial,
-    sourceName: contextAnswer.sourceName,
-    preferredContextModel,
-    toolPreferences,
-  });
-
+  const latestRequestStateRef = useRef<ContextRequestState | null>(null);
   latestRequestStateRef.current = {
     attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
     attachedAnnotationText: contextAnswer.attachedAnnotationText,
@@ -202,6 +203,9 @@ export default function ContextAnswerPanel({
         // `useChat` keeps the initial transport instance, so request data must come from a ref.
         prepareSendMessagesRequest: ({ id, messages }) => {
           const currentRequestState = latestRequestStateRef.current;
+          if (!currentRequestState) {
+            throw new Error('Context request state is not initialized.');
+          }
 
           return {
             body: {
