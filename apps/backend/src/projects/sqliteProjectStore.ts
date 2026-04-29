@@ -4,12 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 import Database from 'better-sqlite3';
 
-import {
-  buildProjectMeta,
-  exportProjectData,
-  normalizeProjectSnapshot,
-  PROJECT_SYNC_READY,
-} from './projectMeta.js';
+import { createEntityId } from '../utils/ids.js';
+import { buildProjectMeta, normalizeProjectSnapshot, PROJECT_SYNC_READY } from './projectMeta.js';
 import type {
   LibraryFolder,
   LibraryPlacement,
@@ -52,13 +48,7 @@ const toEpochMillis = (value: string | undefined): number => {
   return Number.isFinite(timestamp) ? timestamp : 0;
 };
 
-const createFolderId = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  return `folder-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
+const createFolderId = (): string => createEntityId('folder');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -184,7 +174,7 @@ export class SqliteProjectStore implements ProjectStore {
 
   async exportProject(userId: string, id: ProjectId): Promise<ProjectExportData | null> {
     const snapshot = await this.loadProject(userId, id);
-    return snapshot ? exportProjectData(snapshot) : null;
+    return snapshot;
   }
 
   async touchProject(userId: string, id: ProjectId): Promise<void> {

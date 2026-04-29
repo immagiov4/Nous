@@ -1,16 +1,11 @@
+import { createEntityId } from '../utils/ids.js';
 import { isRecord } from '../utils/validation.js';
 import type { ProjectSnapshot, ProjectSourceKind, SavedProjectMeta } from './types.js';
 
 const DEFAULT_PROJECT_VERSION = '4.1';
 export const PROJECT_SYNC_READY = 'sync-ready' as const;
 
-const createProjectId = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  return `project-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-};
+const createProjectId = (): string => createEntityId('project');
 
 const ensureString = (value: unknown, fallback = ''): string => {
   if (typeof value !== 'string') {
@@ -150,7 +145,3 @@ export const buildProjectMeta = (
     syncState: PROJECT_SYNC_READY,
   };
 };
-
-export const exportProjectData = (snapshot: ProjectSnapshot): ProjectSnapshot => ({
-  ...snapshot,
-});
