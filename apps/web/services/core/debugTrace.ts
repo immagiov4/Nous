@@ -8,6 +8,8 @@ declare global {
   }
 }
 
+import { timestampIso } from '../../utils/time.ts';
+
 const MAX_TRACE_ENTRIES = 200;
 const isDebugTraceEnabled = import.meta.env.DEV;
 
@@ -19,7 +21,7 @@ export const pushNousDebugTrace = (event: string, payload?: Record<string, unkno
   const entry = {
     event,
     payload,
-    timestamp: new Date().toISOString(),
+    timestamp: timestampIso(),
   };
 
   if (typeof window !== 'undefined') {

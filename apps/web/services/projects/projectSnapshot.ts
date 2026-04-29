@@ -20,6 +20,7 @@ import {
 } from '../../types.ts';
 import { createEntityId } from '../../utils/ids.ts';
 import { isRecord } from '../../utils/records.ts';
+import { timestampIso } from '../../utils/time.ts';
 import {
   createProjectSourceFromFile,
   getProjectSourceName,
@@ -124,7 +125,7 @@ export const buildProjectMeta = (
   previousMeta?: SavedProjectMeta | null,
   options?: { imported?: boolean; touchedAt?: string }
 ): SavedProjectMeta => {
-  const now = options?.touchedAt || new Date().toISOString();
+  const now = options?.touchedAt || timestampIso();
   const sourceKind =
     snapshot.sourceKind || inferProjectSourceKind(snapshot, options?.imported ?? false);
   const lessonCount = snapshot.learningPlan?.sections.length || 0;
@@ -166,9 +167,9 @@ export const createProjectSnapshot = (
   syllabus: partial.syllabus || [],
   activeSectionId: partial.activeSectionId || null,
   activeLaboratoryExerciseId: partial.activeLaboratoryExerciseId || null,
-  createdAt: partial.createdAt || new Date().toISOString(),
-  updatedAt: partial.updatedAt || new Date().toISOString(),
-  lastOpenedAt: partial.lastOpenedAt || new Date().toISOString(),
+  createdAt: partial.createdAt || timestampIso(),
+  updatedAt: partial.updatedAt || timestampIso(),
+  lastOpenedAt: partial.lastOpenedAt || timestampIso(),
   documentAssets: partial.documentAssets ?? null,
   documentIndex: partial.documentIndex ?? null,
 });
@@ -281,7 +282,7 @@ const parseLaboratoryAttachment = (value: unknown): LaboratoryAttachment | null 
     return null;
   }
 
-  const now = new Date().toISOString();
+  const now = timestampIso();
 
   return {
     id,
@@ -300,7 +301,7 @@ const parseLaboratoryExerciseEvaluation = (value: unknown): LaboratoryExerciseEv
     return null;
   }
 
-  const now = new Date().toISOString();
+  const now = timestampIso();
 
   return {
     caveats: Array.isArray(value.caveats)
@@ -337,7 +338,7 @@ const parseLaboratoryExercise = (value: unknown): LaboratoryExercise | null => {
     return null;
   }
 
-  const now = new Date().toISOString();
+  const now = timestampIso();
 
   return {
     attachments: Array.isArray(value.attachments)
@@ -376,7 +377,7 @@ const parseLaboratory = (value: unknown): LaboratoryState | null => {
     return null;
   }
 
-  const now = new Date().toISOString();
+  const now = timestampIso();
 
   return {
     errorMessage: ensureString(value.errorMessage) || undefined,
@@ -404,7 +405,7 @@ const parseDocumentAssets = (value: unknown): PdfDocumentAssets | null => {
 
   return {
     kind: 'pdf',
-    parsedAt: ensureString(value.parsedAt, new Date().toISOString()),
+    parsedAt: ensureString(value.parsedAt, timestampIso()),
     imageCount: typeof value.imageCount === 'number' ? value.imageCount : value.usedImages.length,
     sourceHash: ensureString(value.sourceHash),
     usedImages: value.usedImages
@@ -431,7 +432,7 @@ const parseDocumentIndex = (value: unknown): PdfTextIndex | null => {
 
   return {
     kind: 'pdf-text-index',
-    parsedAt: ensureString(value.parsedAt, new Date().toISOString()),
+    parsedAt: ensureString(value.parsedAt, timestampIso()),
     sourceHash: ensureString(value.sourceHash),
     documentTitle: ensureString(value.documentTitle),
     pageCount: typeof value.pageCount === 'number' ? value.pageCount : undefined,
@@ -481,7 +482,7 @@ const parseExplicitSourceKind = (value: unknown): ProjectSourceKind | undefined 
 
 const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapshot => {
   const nextId = createProjectId();
-  const now = new Date().toISOString();
+  const now = timestampIso();
 
   if (!isRecord(data)) {
     return createProjectSnapshot({ id: nextId });

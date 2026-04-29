@@ -1,6 +1,8 @@
 import { getBackendUrl } from './config.ts';
 import type { TtsModelsResponse, TtsStatusResponse, TtsVoiceDescriptor } from './types.ts';
 
+const TTS_DISCOVERY_REQUEST_TIMEOUT_MS = 5_000;
+
 interface GenerateSpeechPayload {
   model: string;
   text: string;
@@ -48,7 +50,7 @@ export const requestSpeechAudio = async (
 export const requestTtsStatus = async (): Promise<TtsStatusResponse> => {
   const response = await fetch(`${getBackendUrl()}/api/status`, {
     method: 'GET',
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(TTS_DISCOVERY_REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -61,7 +63,7 @@ export const requestTtsStatus = async (): Promise<TtsStatusResponse> => {
 export const requestTtsVoices = async (): Promise<TtsVoiceDescriptor[]> => {
   const response = await fetch(`${getBackendUrl()}/api/voices`, {
     method: 'GET',
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(TTS_DISCOVERY_REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -75,7 +77,7 @@ export const requestTtsVoices = async (): Promise<TtsVoiceDescriptor[]> => {
 export const requestTtsModels = async (): Promise<TtsModelsResponse> => {
   const response = await fetch(`${getBackendUrl()}/api/tts/models`, {
     method: 'GET',
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(TTS_DISCOVERY_REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {

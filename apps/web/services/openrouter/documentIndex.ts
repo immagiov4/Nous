@@ -6,6 +6,8 @@ import type {
   PdfTextPage,
 } from '../../types.ts';
 import { getPdfProjectHydrationState } from '../../utils/pdf/projectHydration.ts';
+import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
+import { timestampIso } from '../../utils/time.ts';
 import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
 import {
@@ -130,8 +132,7 @@ interface ChunkMappingDescriptor {
 }
 
 const normalizeWhitespace = (text: string): string =>
-  text
-    .replace(/\r/g, '\n')
+  normalizeLineEndings(text)
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -542,7 +543,7 @@ export const buildPdfTextIndex = (
 
   return {
     kind: 'pdf-text-index',
-    parsedAt: new Date().toISOString(),
+    parsedAt: timestampIso(),
     sourceHash,
     documentTitle,
     pageCount: pageLayout?.pages.length,
@@ -1553,7 +1554,7 @@ const applyPdfMappingQuality = (
       lessonCount: report.lessonCount,
       mappedLessonCount: report.mappedLessonCount,
       mappingSource: report.mappingSource,
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestampIso(),
     },
     mappingWarnings: report.warnings,
   };

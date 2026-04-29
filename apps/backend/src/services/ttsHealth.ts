@@ -2,6 +2,8 @@ import { buildTTSServerUrl } from '../config/serverConfig.js';
 import type { ServerConfig } from '../types/index.js';
 import { getErrorMessage } from '../utils/errors.js';
 
+const HEALTH_REQUEST_TIMEOUT_MS = 5_000;
+
 export interface ServiceHealthResult {
   message: string;
   ok: boolean;
@@ -16,7 +18,7 @@ async function checkEndpoint(
   try {
     const response = await fetch(`${serverUrl}${path}`, {
       method: 'GET',
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(HEALTH_REQUEST_TIMEOUT_MS),
     });
 
     if (response.ok) {

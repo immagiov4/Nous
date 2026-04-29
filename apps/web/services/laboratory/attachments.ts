@@ -4,6 +4,7 @@ import { createEntityId } from '../../utils/ids.ts';
 import { isBinaryFile } from '../../utils/project/codebaseBundle.ts';
 import { clipText } from '../../utils/text/clipText.ts';
 import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
+import { timestampIso } from '../../utils/time.ts';
 import {
   decodeBase64Bytes,
   decodeTextBase64,
@@ -28,7 +29,7 @@ export const createLaboratoryTextAttachment = ({
   mimeType?: string;
   name: string;
 }): LaboratoryAttachment => {
-  const now = new Date().toISOString();
+  const now = timestampIso();
 
   return {
     id: createLaboratoryAttachmentId(),
@@ -51,7 +52,7 @@ export const updateLaboratoryTextAttachment = (
   kind: 'text',
   mimeType: attachment.mimeType || 'text/markdown',
   data: encodeTextBase64(content),
-  updatedAt: new Date().toISOString(),
+  updatedAt: timestampIso(),
 });
 
 export const readLaboratoryTextAttachment = (attachment: LaboratoryAttachment): string => {
@@ -93,7 +94,7 @@ export const createLaboratoryAttachmentFromFile = async (
     return 'binary' as const;
   })();
 
-  const now = new Date().toISOString();
+  const now = timestampIso();
 
   return {
     id: createLaboratoryAttachmentId(),

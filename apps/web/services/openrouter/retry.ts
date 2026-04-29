@@ -6,6 +6,9 @@ export { isRecord };
 
 export const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+const DEFAULT_RETRY_ATTEMPTS = 3;
+const INITIAL_RETRY_DELAY_MS = 1000;
+const RETRY_BACKOFF_MULTIPLIER = 2;
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429]);
 const RETRYABLE_MODEL_OUTPUT_DETAILS = new Set([
   'empty_stream',
@@ -56,8 +59,8 @@ const isRetryableOpenRouterError = (error: unknown): boolean => {
 
 export async function retryWithBackoff<T>(
   operation: () => Promise<T>,
-  retries = 3,
-  delay = 1000
+  retries = DEFAULT_RETRY_ATTEMPTS,
+  delay = INITIAL_RETRY_DELAY_MS
 ): Promise<T> {
   try {
     return await operation();
@@ -80,6 +83,6 @@ export async function retryWithBackoff<T>(
       )}"). Retrying in ${delay}ms... (${retries} left)`
     );
     await wait(delay);
-    return retryWithBackoff(operation, retries - 1, delay * 2);
+    return retryWithBackoff(operation, retries - 1, delay * RETRY_BACKOFF_MULTIPLIER);
   }
 }

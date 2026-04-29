@@ -8,6 +8,7 @@ import type {
   SavedProjectMeta,
 } from '../../types';
 import { createLibraryFolderId } from '../../utils/library/tree.ts';
+import { timestampIso } from '../../utils/time.ts';
 import { type ProjectRepository, ProjectStorageError } from './projectRepository';
 import {
   buildProjectMeta,
@@ -150,7 +151,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       projectId,
       folderId,
       order,
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestampIso(),
     };
   }
 
@@ -394,7 +395,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     const normalizedName = name.trim();
     const resolvedParentFolderId =
       parentFolderId && (await db.get(FOLDER_STORE, parentFolderId)) ? parentFolderId : null;
-    const now = new Date().toISOString();
+    const now = timestampIso();
     const nextFolder: LibraryFolder = {
       id: createLibraryFolderId(),
       name: normalizedName || 'Nuova cartella',
@@ -424,7 +425,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       tx.objectStore(PLACEMENT_STORE).getAll(),
     ]);
     const reparentFolderId = folder.parentFolderId || null;
-    const touchedAt = new Date().toISOString();
+    const touchedAt = timestampIso();
 
     await Promise.all(
       folders
@@ -519,7 +520,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     const movedFolder = {
       ...folder,
       parentFolderId: resolvedParentFolderId,
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestampIso(),
     };
     const folders = await db.getAll(FOLDER_STORE);
     const placements = await this.ensureAllProjectPlacements(db);
@@ -575,7 +576,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     this.ensureStoreAvailable(db, FOLDER_STORE, 'Spostamento corsi');
     this.ensureStoreAvailable(db, PLACEMENT_STORE, 'Spostamento corsi');
     const placements = await this.ensureAllProjectPlacements(db);
-    const updatedAt = new Date().toISOString();
+    const updatedAt = timestampIso();
     const resolvedFolderId = folderId && (await db.get(FOLDER_STORE, folderId)) ? folderId : null;
     const movingProjectIds = new Set(projectIds);
     const folders = await db.getAll(FOLDER_STORE);
@@ -658,7 +659,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     const renamedFolder = {
       ...folder,
       name: name.trim() || folder.name,
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestampIso(),
     };
     await db.put(FOLDER_STORE, renamedFolder);
     return renamedFolder;
@@ -730,7 +731,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       return;
     }
 
-    const touchedAt = new Date().toISOString();
+    const touchedAt = timestampIso();
     const snapshot = await db.get(SNAPSHOT_STORE, id);
     const refreshedMeta = snapshot
       ? buildProjectMeta(normalizeStoredProject(snapshot), meta, { touchedAt })

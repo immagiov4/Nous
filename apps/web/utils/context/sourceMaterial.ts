@@ -6,6 +6,7 @@ import type {
   PdfTextIndex,
   ProjectSource,
 } from '../../types.ts';
+import { clipText } from '../text/clipText.ts';
 
 const MAX_CONTEXT_SOURCE_CHARS = 168_000;
 const MAX_PDF_SOURCE_CHUNKS = 6;
@@ -16,13 +17,8 @@ interface ResolvedPageSpan {
   startPage: number;
 }
 
-const clip = (value: string) => {
-  if (value.length <= MAX_CONTEXT_SOURCE_CHARS) {
-    return value;
-  }
-
-  return `${value.slice(0, MAX_CONTEXT_SOURCE_CHARS).trimEnd()}\n\n[sorgente troncata nel client]`;
-};
+const clip = (value: string) =>
+  clipText(value, MAX_CONTEXT_SOURCE_CHARS, '[sorgente troncata nel client]');
 
 const formatChunk = (chunk: PdfTextChunk) => {
   const headingPath = chunk.headingPath.join(' > ').trim() || 'Nessuno';

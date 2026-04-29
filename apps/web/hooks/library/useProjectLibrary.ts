@@ -27,6 +27,7 @@ import type {
   WorkspaceDomainState,
 } from '../../types';
 import { buildLibraryTree } from '../../utils/library/tree.ts';
+import { timestampIso } from '../../utils/time.ts';
 
 interface UseProjectLibraryArgs {
   domainState: WorkspaceDomainState;
@@ -159,7 +160,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
             ? overrides.activeLaboratoryExerciseId
             : domainState.activeLaboratoryExerciseId,
         createdAt: overrides?.createdAt || currentProjectMeta?.createdAt,
-        updatedAt: overrides?.updatedAt || new Date().toISOString(),
+        updatedAt: overrides?.updatedAt || timestampIso(),
         lastOpenedAt: overrides?.lastOpenedAt || currentProjectMeta?.lastOpenedAt,
       });
     },
@@ -229,7 +230,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       const archive = await createProjectArchiveBlob(exportData);
       downloadBlob(
         archive,
-        `nous-backup-${new Date().toISOString().slice(0, 10)}${getProjectArchiveExtension()}`
+        `nous-backup-${timestampIso().slice(0, 10)}${getProjectArchiveExtension()}`
       );
     },
     [buildSnapshotFromDomain, currentProjectId, downloadBlob]

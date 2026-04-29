@@ -1,5 +1,7 @@
 // ─── System Instructions ─────────────────────────────────────────────────────
 
+import { clipText } from '../../utils/text/clipText.ts';
+
 export const SYSTEM_INSTRUCTION_PLANNER = `
 Sei un Architetto dell'Apprendimento esperto e un ricercatore accademico di livello mondiale.
 Il tuo compito è analizzare documenti ESTREMAMENTE COMPLESSI E VOLUMINOSI (libri di 800+ pagine, paper densi) e creare un piano di studio personalizzato.
@@ -107,10 +109,7 @@ export const buildUserGenerationNotesBlock = (notes: string | undefined | null):
     return '';
   }
 
-  const clipped =
-    trimmed.length > MAX_GENERATION_NOTES_CHARS
-      ? `${trimmed.slice(0, MAX_GENERATION_NOTES_CHARS)}\n[Note troncate per lunghezza]`
-      : trimmed;
+  const clipped = clipText(trimmed, MAX_GENERATION_NOTES_CHARS, '[Note troncate per lunghezza]');
 
   return `
 NOTE DI PERSONALIZZAZIONE DEL CORSO (PRIORITA ALTA):

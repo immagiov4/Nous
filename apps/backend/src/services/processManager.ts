@@ -4,6 +4,10 @@ import type { ProcessState, ServerConfig } from '../types/index.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { checkTtsHealth } from './ttsHealth.js';
 
+const FORCE_KILL_TIMEOUT_MS = 5_000;
+const RESTART_DELAY_MS = 5_000;
+const RESTART_SETTLE_DELAY_MS = 2_000;
+
 class ProcessManager {
   private process: ChildProcess | null = null;
   private state: ProcessState = {
@@ -177,7 +181,7 @@ class ProcessManager {
         console.log(
           `[ProcessManager] Scheduling restart (attempt ${this.state.restartAttempts + 1}/${this.config.maxRestartAttempts})`
         );
-        setTimeout(() => this.restart(), 5000);
+        setTimeout(() => this.restart(), RESTART_DELAY_MS);
       } else {
         console.error('[ProcessManager] Max restart attempts reached');
       }
@@ -188,7 +192,7 @@ class ProcessManager {
     console.log('[ProcessManager] Restarting TTS server...');
     this.state.restartAttempts++;
     await this.stop();
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, RESTART_SETTLE_DELAY_MS));
     await this.start();
   }
 
@@ -208,7 +212,7 @@ class ProcessManager {
       const timeout = setTimeout(() => {
         console.log('[ProcessManager] Force killing TTS server...');
         this.process?.kill('SIGKILL');
-      }, 5000);
+      }, FORCE_KILL_TIMEOUT_MS);
 
       this.process.on('exit', () => {
         clearTimeout(timeout);

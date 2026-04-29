@@ -4,6 +4,7 @@ import { getCurrentUser, LOCAL_AUTH_MODE, resolveCurrentUser } from '../auth/cur
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectSnapshot } from '../projects/types.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
+import { timestampIso } from '../utils/time.js';
 import {
   isRecord,
   readNullableString,
@@ -107,9 +108,9 @@ const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectS
     syllabus: Array.isArray(snapshotRecord.syllabus) ? snapshotRecord.syllabus : undefined,
     activeSectionId: readNullableString(snapshotRecord.activeSectionId),
     activeLaboratoryExerciseId: readNullableString(snapshotRecord.activeLaboratoryExerciseId),
-    createdAt: readOptionalString(snapshotRecord.createdAt) || new Date().toISOString(),
-    updatedAt: readOptionalString(snapshotRecord.updatedAt) || new Date().toISOString(),
-    lastOpenedAt: readOptionalString(snapshotRecord.lastOpenedAt) || new Date().toISOString(),
+    createdAt: readOptionalString(snapshotRecord.createdAt) || timestampIso(),
+    updatedAt: readOptionalString(snapshotRecord.updatedAt) || timestampIso(),
+    lastOpenedAt: readOptionalString(snapshotRecord.lastOpenedAt) || timestampIso(),
     documentAssets: snapshotRecord.documentAssets,
     documentIndex: snapshotRecord.documentIndex,
   };

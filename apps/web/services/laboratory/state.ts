@@ -1,8 +1,7 @@
 import type { LaboratoryExercise, LaboratoryState, LaboratoryStateStatus } from '../../types.ts';
+import { timestampIso } from '../../utils/time.ts';
 
 export const CURRENT_LABORATORY_SCHEMA_VERSION = 2;
-
-const getNow = () => new Date().toISOString();
 
 const hasNonEmptyText = (value: string): boolean => value.trim().length > 0;
 
@@ -42,7 +41,7 @@ export const normalizeLaboratoryStateForHydration = (
     return laboratory;
   }
 
-  const now = getNow();
+  const now = timestampIso();
   const hasGeneratedExercises = laboratory.exercises.length > 0;
 
   return {
@@ -88,7 +87,7 @@ export const updateLaboratoryExercise = (
   exerciseId: string,
   updater: (exercise: LaboratoryExercise) => LaboratoryExercise
 ): LaboratoryState => {
-  const now = getNow();
+  const now = timestampIso();
 
   return {
     ...laboratory,
@@ -108,7 +107,7 @@ export const replaceLaboratoryExercise = (
   laboratory: LaboratoryState,
   nextExercise: LaboratoryExercise
 ): LaboratoryState => {
-  const now = getNow();
+  const now = timestampIso();
 
   return {
     ...laboratory,
@@ -133,7 +132,7 @@ export const withLaboratoryStatus = (
     title?: string;
   } = {}
 ): LaboratoryState => {
-  const now = getNow();
+  const now = timestampIso();
 
   return {
     errorMessage: options.errorMessage,

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 
 import { createEntityId } from '../utils/ids.js';
+import { timestampIso } from '../utils/time.js';
 import { buildProjectMeta, normalizeProjectSnapshot, PROJECT_SYNC_READY } from './projectMeta.js';
 import type {
   LibraryFolder,
@@ -119,7 +120,7 @@ export class SqliteProjectStore implements ProjectStore {
     }
 
     const meta = buildProjectMeta(snapshot, existingMeta);
-    const now = new Date().toISOString();
+    const now = timestampIso();
 
     this.database
       .prepare(
@@ -177,7 +178,7 @@ export class SqliteProjectStore implements ProjectStore {
       return;
     }
 
-    const touchedAt = new Date().toISOString();
+    const touchedAt = timestampIso();
     const snapshot = this.readSnapshot(userId, id);
     const refreshedMeta = snapshot ? buildProjectMeta(snapshot, meta, { touchedAt }) : meta;
 
@@ -203,7 +204,7 @@ export class SqliteProjectStore implements ProjectStore {
     { name, parentFolderId = null }: { name: string; parentFolderId?: string | null }
   ): Promise<LibraryFolder> {
     const resolvedParentFolderId = this.resolveFolderId(userId, parentFolderId);
-    const now = new Date().toISOString();
+    const now = timestampIso();
     const folder: LibraryFolder = {
       id: createFolderId(),
       name: name.trim() || 'Nuova cartella',
@@ -224,7 +225,7 @@ export class SqliteProjectStore implements ProjectStore {
     }
 
     const reparentFolderId = folder.parentFolderId || null;
-    const touchedAt = new Date().toISOString();
+    const touchedAt = timestampIso();
     const transaction = this.database.transaction(() => {
       for (const childFolder of this.readFolders(userId)) {
         if (childFolder.parentFolderId === folderId) {
@@ -266,7 +267,7 @@ export class SqliteProjectStore implements ProjectStore {
     const renamedFolder = {
       ...folder,
       name: name.trim() || folder.name,
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestampIso(),
     };
     this.writeFolder(userId, renamedFolder);
     return renamedFolder;
@@ -298,7 +299,7 @@ export class SqliteProjectStore implements ProjectStore {
     const movedFolder = {
       ...folder,
       parentFolderId: resolvedParentFolderId,
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestampIso(),
     };
     const folders = this.readFolders(userId).map(currentFolder =>
       currentFolder.id === folderId ? movedFolder : currentFolder
@@ -354,7 +355,7 @@ export class SqliteProjectStore implements ProjectStore {
   ): Promise<LibraryPlacement[]> {
     this.ensureAllProjectPlacements(userId);
     const placements = this.readPlacements(userId);
-    const updatedAt = new Date().toISOString();
+    const updatedAt = timestampIso();
     const resolvedFolderId = this.resolveFolderId(userId, folderId);
     const movingProjectIds = new Set(projectIds);
     const folders = this.readFolders(userId);
@@ -491,7 +492,7 @@ export class SqliteProjectStore implements ProjectStore {
          set meta_json = ?, updated_at = ?, server_updated_at = ?, revision = revision + 1
          where user_id = ? and id = ?`
       )
-      .run(JSON.stringify(meta), meta.updatedAt, new Date().toISOString(), userId, meta.id);
+      .run(JSON.stringify(meta), meta.updatedAt, timestampIso(), userId, meta.id);
   }
 
   private readSnapshot(userId: string, id: ProjectId): ProjectSnapshot | null {
@@ -586,7 +587,7 @@ export class SqliteProjectStore implements ProjectStore {
       projectId,
       folderId: null,
       order: this.resolveNextPlacementOrder(userId, null),
-      updatedAt: new Date().toISOString(),
+      updatedAt: timestampIso(),
     });
   }
 

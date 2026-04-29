@@ -1,5 +1,6 @@
 import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } from '../../types.ts';
 import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
+import { timestampIso } from '../../utils/time.ts';
 import {
   callOpenRouter,
   type FileData,
@@ -403,7 +404,7 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
     pages,
     pageCount: payload.pageCount,
     parser: payload.parser,
-    parsedAt: new Date().toISOString(),
+    parsedAt: timestampIso(),
     sourceHash: payload.sourceHash,
   };
 };

@@ -232,6 +232,9 @@ const buildJsonParseError = (): Error & { status?: number; details?: string } =>
 export const parseCleanJson = <T>(text: string): T => {
   const cleaned = cleanJson(text);
 
+  // Model responses often fail in different ways: extra prose, invalid escapes,
+  // or truncated structures. Keep each repair stage separate so dev logs show
+  // which fallback actually recovered or failed the response.
   try {
     return JSON.parse(cleaned) as T;
   } catch (cleanedError) {

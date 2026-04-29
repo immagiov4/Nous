@@ -1,4 +1,5 @@
 import type { LessonGeneratedVisual } from '../../types.ts';
+import { timestampIso } from '../../utils/time.ts';
 import {
   callOpenRouter,
   MEDIUM_REASONING_CONFIG,
@@ -226,7 +227,7 @@ const normalizeSvgVisual = (
     kind: 'svg',
     code,
     loadingMessages: normalizeLoadingMessages(response.loading_messages),
-    createdAt: new Date().toISOString(),
+    createdAt: timestampIso(),
   };
 };
 
@@ -251,7 +252,7 @@ const normalizeHtmlVisual = (
     kind: 'html',
     code,
     loadingMessages: normalizeLoadingMessages(response.loading_messages),
-    createdAt: new Date().toISOString(),
+    createdAt: timestampIso(),
   };
 };
 
@@ -276,7 +277,7 @@ const normalizeMermaidVisual = (
     kind: 'mermaid',
     code,
     diagramType,
-    createdAt: new Date().toISOString(),
+    createdAt: timestampIso(),
   };
 };
 

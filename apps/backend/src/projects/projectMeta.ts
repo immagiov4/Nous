@@ -1,4 +1,5 @@
 import { createEntityId } from '../utils/ids.js';
+import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
 import type { ProjectSnapshot, ProjectSourceKind, SavedProjectMeta } from './types.js';
 
@@ -105,7 +106,7 @@ const buildCoverLabel = (snapshot: ProjectSnapshot, sourceKind: ProjectSourceKin
 };
 
 export const normalizeProjectSnapshot = (data: unknown, imported = false): ProjectSnapshot => {
-  const now = new Date().toISOString();
+  const now = timestampIso();
   const record = isRecord(data) ? data : {};
   const snapshot = {
     ...record,
@@ -127,7 +128,7 @@ export const buildProjectMeta = (
   previousMeta?: SavedProjectMeta | null,
   options?: { imported?: boolean; touchedAt?: string }
 ): SavedProjectMeta => {
-  const now = options?.touchedAt || new Date().toISOString();
+  const now = options?.touchedAt || timestampIso();
   const sourceKind = inferProjectSourceKind(snapshot, options?.imported ?? false);
   const sections = snapshot.learningPlan?.sections || [];
 

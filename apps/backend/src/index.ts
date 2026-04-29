@@ -10,6 +10,7 @@ import projectsRouter from './routes/projects.js';
 import statusRouter from './routes/status.js';
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
+import { timestampIso } from './utils/time.js';
 
 const DEFAULT_FRONTEND_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const DEV_FRONTEND_PORT = '5173';
@@ -105,7 +106,7 @@ export const createApp = () => {
   });
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', timestamp: timestampIso() });
   });
 
   app.use(

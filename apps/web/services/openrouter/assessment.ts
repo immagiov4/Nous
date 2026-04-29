@@ -1,3 +1,5 @@
+import { clipText } from '../../utils/text/clipText.ts';
+import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
 import { decodeTextBase64Preview } from '../projects/projectSource.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
 import {
@@ -49,7 +51,11 @@ const buildAssessmentExcerpt = (text: string): string => {
 
   const excerpt = picked.join('\n\n').trim();
   if (!excerpt) {
-    return text.slice(0, MAX_ASSESSMENT_SOURCE_CHARS).trim();
+    return clipText(
+      text.trim(),
+      MAX_ASSESSMENT_SOURCE_CHARS,
+      '[ESTRATTO ABBREVIATO PER VALUTAZIONE RAPIDA]'
+    );
   }
 
   return excerpt.length < text.length
@@ -58,9 +64,9 @@ const buildAssessmentExcerpt = (text: string): string => {
 };
 
 const buildAssessmentTextPreview = (file: FileData): string => {
-  const preview = decodeTextBase64Preview(file.data, MAX_ASSESSMENT_SOURCE_PREVIEW_BYTES)
-    .replace(/\r/g, '\n')
-    .trim();
+  const preview = normalizeLineEndings(
+    decodeTextBase64Preview(file.data, MAX_ASSESSMENT_SOURCE_PREVIEW_BYTES)
+  ).trim();
 
   return clipAssessmentTextPreview(preview);
 };
@@ -72,17 +78,13 @@ const clipAssessmentTextPreview = (text: string): string => {
     return '';
   }
 
-  if (preview.length <= MAX_ASSESSMENT_SOURCE_CHARS) {
-    return preview;
-  }
-
-  return `${preview.slice(0, MAX_ASSESSMENT_SOURCE_CHARS).trim()}\n\n[ANTEPRIMA ABBREVIATA DELLA SORGENTE]`;
+  return clipText(preview, MAX_ASSESSMENT_SOURCE_CHARS, '[ANTEPRIMA ABBREVIATA DELLA SORGENTE]');
 };
 
 const buildAssessmentDocumentContextFromTextSource = (
   source: TextAssessmentSource
 ): AssessmentDocumentContext => {
-  const preview = clipAssessmentTextPreview(source.text.replace(/\r/g, '\n'));
+  const preview = clipAssessmentTextPreview(normalizeLineEndings(source.text));
 
   return {
     content: preview

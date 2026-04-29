@@ -11,6 +11,7 @@ import type {
   UserProfile,
 } from '../../types.ts';
 import { clipText } from '../../utils/text/clipText.ts';
+import { timestampIso } from '../../utils/time.ts';
 import { buildLaboratoryAttachmentContext } from '../laboratory/attachments.ts';
 import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../laboratory/state.ts';
 import { createProjectId } from '../projects/projectSnapshot.ts';
@@ -465,7 +466,7 @@ const normalizeExercise = (
   draft: LaboratoryExerciseDraft,
   fallbackIndex: number
 ): LaboratoryExercise => {
-  const now = new Date().toISOString();
+  const now = timestampIso();
   const title = draft.title?.trim() || `Esercizio ${fallbackIndex + 1}`;
   const brief = draft.brief?.trim() || 'Svolgi una consegna pratica coerente con il percorso.';
   const instructionsMarkdown =
@@ -534,7 +535,7 @@ const normalizeEvaluation = (
   draft: LaboratoryEvaluationDraft,
   fallback?: Partial<LaboratoryEvaluationDraft>
 ): LaboratoryExerciseEvaluation => {
-  const now = new Date().toISOString();
+  const now = timestampIso();
   const merged = {
     ...fallback,
     ...draft,
@@ -708,7 +709,7 @@ Restituisci SOLO JSON con la stessa forma del draft, senza testo extra.`,
     throw new Error('La generazione del laboratorio non ha prodotto esercizi validi.');
   }
 
-  const now = new Date().toISOString();
+  const now = timestampIso();
   return {
     errorMessage: undefined,
     exercises,
@@ -751,7 +752,7 @@ export const regenerateLaboratoryExercise = async ({
     attachments: [],
     evaluation: null,
     id: exercise.id,
-    updatedAt: new Date().toISOString(),
+    updatedAt: timestampIso(),
   };
 };
 

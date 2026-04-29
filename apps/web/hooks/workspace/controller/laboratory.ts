@@ -11,6 +11,7 @@ import {
   withLaboratoryStatus,
 } from '../../../services/laboratory/state.ts';
 import { AppState, type LaboratoryState } from '../../../types.ts';
+import { timestampIso } from '../../../utils/time.ts';
 import type { WorkspaceControllerContext } from './types.ts';
 
 const resolveDefaultAttachmentName = (laboratory: LaboratoryState, countOffset = 1): string => {
@@ -372,7 +373,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
                 ...item,
                 description: updates.description,
                 name: updates.name || item.name,
-                updatedAt: new Date().toISOString(),
+                updatedAt: timestampIso(),
               }
             : item
         ),
