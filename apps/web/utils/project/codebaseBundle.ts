@@ -1,5 +1,7 @@
 import JSZip from 'jszip';
 import type { CodebaseBundleSource, CodebaseSourceFile } from '../../types';
+import { clipText as clipTextToLimit } from '../text/clipText.ts';
+import { normalizeLineEndings } from '../text/normalizeLineEndings.ts';
 
 const DEFAULT_MAX_TOTAL_CHARS = 220_000;
 const DEFAULT_MAX_FILE_CHARS = 24_000;
@@ -46,16 +48,12 @@ export const isBinaryFile = (uint8Array: Uint8Array): boolean => {
 const shouldIgnorePath = (relativePath: string): boolean =>
   relativePath.split('/').some(part => IGNORED_DIRS.has(part) || part.startsWith('.'));
 
-const normalizeSourceText = (text: string): string => text.replace(/\r\n?/g, '\n').trim();
+const normalizeSourceText = (text: string): string => normalizeLineEndings(text).trim();
 
 const clipText = (text: string, maxChars: number): { text: string; truncated: boolean } => {
-  if (text.length <= maxChars) {
-    return { text, truncated: false };
-  }
-
   return {
-    text: `${text.slice(0, maxChars).trimEnd()}\n\n[TRUNCATED FOR CONTEXT BUDGET]`,
-    truncated: true,
+    text: clipTextToLimit(text, maxChars, '[TRUNCATED FOR CONTEXT BUDGET]'),
+    truncated: text.length > maxChars,
   };
 };
 

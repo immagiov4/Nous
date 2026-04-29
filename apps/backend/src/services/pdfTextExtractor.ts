@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { PDFParse } from 'pdf-parse';
 
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
+import { normalizeLineEndings } from '../utils/text.js';
 
 const execFileAsync = promisify(execFile);
 const TMP_DIR_PREFIX = 'nous-pdf-text-';
@@ -34,8 +35,7 @@ const buildSourceHash = (buffer: Buffer): string =>
   crypto.createHash('sha1').update(buffer).digest('hex');
 
 const normalizeExtractedTextSegment = (text: string): string =>
-  text
-    .replace(/\r\n?/g, '\n')
+  normalizeLineEndings(text)
     .replace(/^\s*--\s*\d+\s+of\s+\d+\s*--\s*$/gim, '')
     .replace(/\f/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -111,7 +111,7 @@ const extractWithPdftotext = async (
       }
     );
 
-    const rawPages = stdout.replace(/\r\n?/g, '\n').split('\f');
+    const rawPages = normalizeLineEndings(stdout).split('\f');
     while (rawPages.length > 1 && rawPages[rawPages.length - 1]?.trim() === '') {
       rawPages.pop();
     }

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
 
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
+import { normalizeLineEndings } from '../utils/text.js';
 
 const MIN_IMAGE_BYTES = 2_000;
 const IMAGE_CONTEXT_LINE_COUNT = 5;
@@ -97,8 +98,7 @@ const emptyImageTextContext = Object.freeze({
 });
 
 const normalizeLineText = (value: string): string =>
-  value
-    .replace(/\r\n?/g, '\n')
+  normalizeLineEndings(value)
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

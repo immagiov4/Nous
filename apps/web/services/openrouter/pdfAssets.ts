@@ -1,4 +1,5 @@
 import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } from '../../types.ts';
+import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
 import {
   callOpenRouter,
   type FileData,
@@ -185,7 +186,7 @@ const normalizeCaptionResponse = (value: string): string => {
 };
 
 const normalizePageContextText = (pageText: string): string =>
-  pageText.replace(/\r\n?/g, '\n').trim();
+  normalizeLineEndings(pageText).trim();
 
 const buildImageSourceContext = (
   image: BackendPdfImage,

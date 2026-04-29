@@ -45,10 +45,8 @@ class ProcessManager {
       }
     } catch (_error) {
       console.log('[ProcessManager] No external TTS server found.');
-      console.log('[ProcessManager] To start TTS server, run: npm run dev:tts');
       this.state.isRunning = false;
       this.state.isReady = false;
-      return false;
     }
 
     console.log('[ProcessManager] Starting TTS server...');

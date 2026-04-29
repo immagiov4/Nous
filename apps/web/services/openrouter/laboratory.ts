@@ -21,7 +21,7 @@ import {
   MODEL_PDF_IMAGE_CAPTION,
   MODEL_REASONING,
 } from './config.ts';
-import { buildReasoningContentForFile } from './contextChat.ts';
+import { buildReasoningContentForFile } from './pdfReasoning.ts';
 import { callOpenRouter, fileToDataUrl, parseCleanJson, retryWithBackoff } from './shared.ts';
 import type { ChatMessageContent, OpenRouterReasoningOptions } from './types.ts';
 

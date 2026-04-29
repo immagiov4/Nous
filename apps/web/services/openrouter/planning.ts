@@ -3,10 +3,10 @@ import {
   normalizeActivePauseExerciseType,
 } from '../../utils/learning/activePause.ts';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
+import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
 import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
 import { MEDIUM_REASONING_CONFIG } from './config.ts';
-import { buildReasoningContentForFile, clipPdfSourceText } from './contextChat.ts';
 import {
   buildLessonChunkContext,
   buildPdfPageTextLayout,
@@ -18,6 +18,7 @@ import {
   getPdfAssetSession,
   getPdfTextSession,
 } from './pdfAssets.ts';
+import { buildReasoningContentForFile, clipPdfSourceText } from './pdfReasoning.ts';
 import {
   buildUserGenerationNotesBlock,
   LESSON_SCOPE_RULES,
@@ -1715,8 +1716,7 @@ ${contentMarkdown}`;
 
 const prettifyMarkdownSpacing = (contentMarkdown: string): string =>
   normalizePseudoLists(
-    contentMarkdown
-      .replace(/\r\n?/g, '\n')
+    normalizeLineEndings(contentMarkdown)
       .replace(/[ \t]+\n/g, '\n')
       // If a heading was accidentally kept inline, restore it as a block heading.
       .replace(/([^\n])\s+(#{1,6}\s+)/g, '$1\n\n$2')
