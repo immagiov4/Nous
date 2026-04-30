@@ -20,13 +20,14 @@
 - Split markdown rendering normalization into code heuristics, math normalization, fenced-code repair, and segment processing modules.
 - Extracted annotation text projection and selection resolution from `sectionAnnotations.ts`.
 - Extracted annotation mark parsing, range rewriting, and document-order sorting from `sectionAnnotations.ts`.
+- Consolidated planning source profiling, adaptive guidance, search keywords, and plan-section deduplication into a shared `planQuality.ts` module.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred
 
 - Reader/context-menu hot-path rewrites, unless a specific regression is being fixed.
 - Backend/frontend project metadata unification through a shared package, because that needs a larger packaging decision.
-- Full planning/planGeneration consolidation beyond already extracted PDF reasoning helpers.
+- Deeper `planning.ts` lesson-generation decomposition beyond the shared planning-quality rules.
 
 ## Validation
 
