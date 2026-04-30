@@ -13,6 +13,7 @@ test('resolveOpenRouterModel can bypass UI model preferences for fixed internal 
         JSON.stringify({
           preferredLessonModel: 'openai/gpt-5.4-mini',
           preferredContextModel: 'openai/gpt-5.4-nano',
+          preferredAssessmentModel: 'mistralai/mistral-small-2603',
         }),
     },
   });
@@ -24,5 +25,9 @@ test('resolveOpenRouterModel can bypass UI model preferences for fixed internal 
   assert.equal(
     resolveOpenRouterModel('nvidia/nemotron-nano-12b-v2-vl', 'lesson', false),
     'nvidia/nemotron-nano-12b-v2-vl'
+  );
+  assert.equal(
+    resolveOpenRouterModel('mistralai/mistral-small-2603', 'assessment'),
+    'openai/gpt-5.4-nano'
   );
 });

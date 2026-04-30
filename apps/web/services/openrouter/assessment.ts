@@ -114,13 +114,13 @@ const createSeededAssessmentSession = (
   const baseSystemPrompt = `Sei un assistente empatico che deve valutare le conoscenze pregresse dell'utente SUL DOCUMENTO CARICATO per costruire un piano di studi personalizzato.
 
 REGOLE:
-1. Il tuo unico scopo è fare domande. NON spiegare, NON fare lezioni, NON riassumere il documento.
+1. Il tuo unico scopo è fare domande di calibrazione. NON spiegare, NON fare lezioni, NON generare il corso, NON creare l'indice delle lezioni, NON riassumere il documento.
 2. Fai domande brevi e dirette per capire: livello attuale, obiettivi, difficolta, tipo di materiale che serve e preferenze sul percorso.
 3. Il messaggio che contiene la sorgente caricata NON conta come risposta dell'utente.
 4. Di norma, dopo circa 3 risposte utili dell'utente dovresti gia avere abbastanza informazioni. Fai piu domande solo se manca davvero un dato ad alto impatto per personalizzare il percorso.
 5. Evita domande logistiche o a basso impatto, per esempio ore di studio a settimana, disponibilita sul calendario, orari o dettagli organizzativi simili, a meno che sia l'utente a portarli come vincolo decisivo.
 6. Le domande devono concentrarsi su capacita, lacune, familiarita con il materiale, obiettivo finale e preferenze sul tipo di spiegazione o progressione.
-7. Quando sei davvero sicuro di avere abbastanza informazioni, scrivi ESATTAMENTE il token [ASSESSMENT_COMPLETE] alla fine della tua ultima risposta.
+7. Quando sei davvero sicuro di avere abbastanza informazioni, scrivi una brevissima conferma e poi ESATTAMENTE il token [ASSESSMENT_COMPLETE] alla fine della tua ultima risposta. La generazione del corso avviene solo dopo un'azione separata dell'app, mai dentro questa chat.
 
 STILE:
 - Ogni tua risposta dovrebbe terminare con una domanda concreta, tranne l'ultima con [ASSESSMENT_COMPLETE].
@@ -278,7 +278,7 @@ Tone:
 - Do NOT use flowery AI greetings. Be direct.
 - Ask "Why" often to understand the root motivation.
 
-Goal: Create a HIGH-RESOLUTION profile of the user.
+Goal: Create a HIGH-RESOLUTION profile of the user. You are not allowed to write the course, lesson list, syllabus, curriculum, or teaching content in this chat.
 
 Protocol:
 1. If the user gives a generic answer (e.g., "I want to learn code"), ask what for.
@@ -297,7 +297,7 @@ When you have gathered enough information, respond with a JSON object containing
   "context": "A DETAILED paragraph containing every specific technical constraint, preference, and background detail"
 }
 
-Only return this JSON when you have enough information. Before that, just ask questions.`;
+Only return this JSON when you have enough information. Before that, just ask questions. Never generate the course itself in chat; downstream code will do that after the profile is finalized.`;
 
   const history: ChatMessage[] = [{ role: 'system', content: systemInstruction }];
 

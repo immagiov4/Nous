@@ -97,7 +97,7 @@ export const useWorkspaceReaderRuntime = ({
       setPreferredModels(currentModels => {
         const key =
           slot === 'assessment'
-            ? 'preferredAssessmentModel'
+            ? 'preferredContextModel'
             : slot === 'context'
               ? 'preferredContextModel'
               : slot === 'tts'
@@ -156,7 +156,7 @@ export const useWorkspaceReaderRuntime = ({
               : currentModels.preferredLessonModel,
           preferredAssessmentModel:
             typeof preferences.preferredAssessmentModel === 'string'
-              ? preferences.preferredAssessmentModel
+              ? preferences.preferredAssessmentModel || preferences.preferredContextModel || ''
               : currentModels.preferredAssessmentModel,
           preferredContextModel:
             typeof preferences.preferredContextModel === 'string'

@@ -28,6 +28,10 @@
 - Raised PDF-only backend JSON capacity, returns 413 for oversized bodies, and clips truncated PDF prompt text to 80% of the caller budget.
 - Raised OpenRouter proxy JSON capacity, caps client-side proxy payloads at 80% of that budget, and skips oversized inline images before caption/evaluation calls.
 - Preserved concrete LAN backend errors such as 401/413 instead of always replacing them with the generic "backend unreachable" sync message.
+- Unified the initial interview model with the quick-questions model slot while keeping legacy assessment preferences readable.
+- Made "No, voglio aggiungere..." leave the generation confirmation state and pass an explicit interview-continuation signal to the model.
+- Tightened assessment prompts so interview chat cannot generate the course, syllabus, or lessons inline.
+- Refined the TTS player voice selector and replaced fixed speed buttons with a compact 0.05-step speed slider.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred

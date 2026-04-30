@@ -205,9 +205,13 @@ const App = () => {
 
   const handleNewCourseMessage = async (message: string) => {
     const toolPreferences: HomeChatToolPreferences = {
+      addingAssessmentDetails: assessmentComplete,
       mode: 'new-course',
       newCourse: true,
     };
+    if (assessmentComplete) {
+      setAssessmentComplete(false);
+    }
     const result = assessmentMessages.length
       ? await submitAssessment(message, toolPreferences)
       : await startHomeChat({
@@ -280,6 +284,7 @@ const App = () => {
           storageError={storageError}
           onClearPendingHomeFile={() => setPendingHomeSourceFile(null)}
           onClearLibraryMessages={libraryAssistantChat.clearLibraryMessages}
+          onContinueAssessment={() => setAssessmentComplete(false)}
           onConfirmGenerate={handleConfirmGenerate}
           onCreateFolder={projectLibrary.createFolder}
           onConfirmDeleteFolder={folderName =>

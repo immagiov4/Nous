@@ -40,14 +40,8 @@ const modelFields: Array<{
     value: 'preferredLessonModel',
   },
   {
-    slot: 'assessment',
-    label: 'Intervista iniziale',
-    placeholder: 'assessmentModel',
-    value: 'preferredAssessmentModel',
-  },
-  {
     slot: 'context',
-    label: 'Domande sul testo',
+    label: 'Domande rapide',
     placeholder: 'contextModel',
     value: 'preferredContextModel',
   },
@@ -112,7 +106,6 @@ export default function OpenRouterModelPanel({
               type="button"
               onClick={() => {
                 onModelChange('lesson', '');
-                onModelChange('assessment', '');
                 onModelChange('context', '');
               }}
               className="model-panel-reset rounded-full px-2.5 py-1 text-xs font-medium"

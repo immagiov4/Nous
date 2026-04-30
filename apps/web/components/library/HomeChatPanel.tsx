@@ -60,6 +60,7 @@ interface HomeChatPanelProps {
   pendingFileName: string | null;
   onClearPendingFile: () => void;
   onClearLibraryMessages?: () => void;
+  onContinueAssessment?: () => void;
   onConfirmGenerate: () => void;
   onHomeChatModeChange: (mode: HomeChatMode) => void;
   onLibraryMessageSend: (message: string) => void | Promise<void>;
@@ -280,6 +281,7 @@ export default function HomeChatPanel({
   pendingFileName,
   onClearPendingFile,
   onClearLibraryMessages,
+  onContinueAssessment,
   onConfirmGenerate,
   onHomeChatModeChange,
   onLibraryMessageSend,
@@ -971,7 +973,10 @@ export default function HomeChatPanel({
                 </button>
                 <button
                   type="button"
-                  onClick={() => inputRef.current?.focus()}
+                  onClick={() => {
+                    onContinueAssessment?.();
+                    inputRef.current?.focus();
+                  }}
                   className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 dark:border-zinc-600 dark:bg-stone-700 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-stone-600"
                 >
                   No, voglio aggiungere...

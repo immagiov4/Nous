@@ -58,6 +58,11 @@ const buildHomeChatMessageForModel = (
 L'utente sta usando questa conversazione per impostare o costruire un nuovo corso.
 Tratta quindi la richiesta come orientata alla definizione del percorso, dei materiali, dell'obiettivo finale e dei confini del corso, invece che come una semplice query generica.
 Non parlare esplicitamente di questa preferenza se non serve, ma tienila a mente mentre rispondi.
+  ${
+    toolPreferences.addingAssessmentDetails
+      ? "\nStato UI: l'utente ha premuto \"No, voglio aggiungere...\". Tratta il prossimo messaggio come integrazione dell'intervista: se chiarisce il dubbio, chiudi l'intervista con [ASSESSMENT_COMPLETE]; se manca ancora qualcosa, fai solo un'altra domanda. Non iniziare mai a scrivere il corso in chat."
+      : ''
+  }
 
 Messaggio utente:
 ${trimmedInput}`;

@@ -78,6 +78,7 @@ export interface LibraryContextRef {
 }
 
 export interface HomeChatToolPreferences {
+  addingAssessmentDetails?: boolean;
   attachedContextRefs?: LibraryContextRef[];
   mode: HomeChatMode;
   newCourse: boolean;

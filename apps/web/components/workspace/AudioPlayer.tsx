@@ -1,12 +1,10 @@
 import {
   ChevronRight,
-  FastForward,
   Loader2,
   Pause,
   Play,
   SkipBack,
   SkipForward,
-  Volume2,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VoiceProfileId } from '../../types';
@@ -53,6 +51,7 @@ const AudioPlayer = ({
   const [isTouchExpanded, setIsTouchExpanded] = useState(false);
   const [isTouchDockVisible, setIsTouchDockVisible] = useState(true);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  const [isSpeedPickerOpen, setIsSpeedPickerOpen] = useState(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dockVisibilityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -166,10 +165,11 @@ const AudioPlayer = ({
   const displayedVoices = availableVoices.some(voice => voice.id === currentVoice)
     ? availableVoices
     : [{ id: currentVoice, label: currentVoice, language: 'custom' }, ...availableVoices];
+  const normalizedPlaybackRate = Math.round(playbackRate * 20) / 20;
 
   const positionClasses = isVertical
     ? isCoarsePointer
-      ? 'fixed bottom-0 left-0 z-40 flex items-end'
+      ? 'fixed bottom-12 left-0 z-40 flex items-end'
       : 'fixed top-1/2 left-0 z-20 flex items-center'
     : 'fixed bottom-8 left-1/2 z-10 flex w-full max-w-xl -translate-x-1/2 flex-col items-center px-4';
 
@@ -267,7 +267,7 @@ const AudioPlayer = ({
 
       <div
         className={`
-          relative overflow-hidden border pointer-events-auto transition-all duration-300
+          relative overflow-visible border pointer-events-auto transition-all duration-300
           ${containerStyle}
           ${
             isVertical
@@ -294,16 +294,14 @@ const AudioPlayer = ({
         ) : null}
 
         <div
-          className={`flex items-center justify-center transition-[opacity,transform] duration-200 ${
-            isVertical ? 'flex-col gap-5' : 'flex-row gap-8'
-          } ${
+          className={`flex flex-col items-center justify-center gap-2.5 transition-[opacity,transform] duration-200 ${
             isDockedState
               ? 'pointer-events-none -translate-x-3 opacity-0'
               : 'translate-x-0 opacity-100'
           }`}
           aria-hidden={isDockedState}
         >
-          <div className={`flex items-center ${isVertical ? 'flex-col gap-4' : 'gap-4'}`}>
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => onSkipChunk('prev')}
@@ -317,7 +315,7 @@ const AudioPlayer = ({
               onClick={onPlayPause}
               disabled={!ttsConnected && !isPlaying}
               className={`
-                flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full shadow-md transition-all duration-200
+                flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full shadow-md transition-all duration-200
                 ${
                   isLoading
                     ? 'cursor-pointer bg-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:bg-zinc-800 dark:hover:bg-red-900/10'
@@ -361,55 +359,68 @@ const AudioPlayer = ({
             </button>
           </div>
 
-          <div
-            className={`${isVertical ? 'h-px w-8' : 'h-8 w-px'} ${isDockedState ? 'bg-gray-300/20' : 'bg-gray-200 dark:bg-zinc-700'}`}
-          />
-
-          <div className={`flex items-center ${isVertical ? 'flex-col gap-4' : 'gap-8'}`}>
-            <div className={`flex items-center gap-2 ${isVertical ? 'flex-col' : ''}`}>
-              <Volume2 className={`h-4 w-4 ${iconColorClass}`} />
+          <div className="flex items-center rounded-lg border border-gray-200/80 dark:border-zinc-700/80">
               <select
                 value={currentVoice}
                 onChange={event => onVoiceChange(event.target.value as VoiceProfileId)}
-                className={`min-w-[70px] cursor-pointer appearance-none bg-transparent text-center text-xs font-bold uppercase tracking-wider focus:outline-none ${iconColorClass} ${iconHoverClass}`}
-                disabled={isLoading || isPlaying || !ttsConnected}
+                className={`cursor-pointer appearance-none border-0 bg-transparent px-2 text-center text-xs font-medium text-gray-700 transition-colors hover:bg-black/5 focus:outline-none dark:text-zinc-200 dark:hover:bg-white/10 ${
+                  isDockedState ? 'opacity-60' : ''
+                }`}
+                disabled={isLoading || !ttsConnected}
               >
                 {displayedVoices.map(voice => (
                   <option
                     key={voice.id}
                     value={voice.id}
-                    className="dark:bg-zinc-800 dark:text-gray-100"
+                    className={`dark:bg-zinc-800 dark:text-gray-100 ${
+                      voice.id === currentVoice ? 'font-semibold' : 'font-normal'
+                    }`}
                   >
                     {voice.label}
                   </option>
                 ))}
               </select>
-            </div>
 
-            <div className={`flex items-center gap-2 ${isVertical ? 'flex-col' : ''}`}>
-              <FastForward className={`h-4 w-4 ${iconColorClass}`} />
-              <div className={`flex ${isVertical ? 'flex-col gap-1' : 'gap-1'}`}>
-                {[1, 1.25, 1.5].map(rate => (
-                  <button
-                    type="button"
-                    key={rate}
-                    onClick={() => onSpeedChange(rate)}
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
-                      playbackRate === rate
-                        ? isDockedState
-                          ? 'bg-gray-400/20 text-current'
-                          : 'bg-black text-white dark:bg-white dark:text-black'
-                        : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-zinc-800'
+              <div className="h-3.5 w-px self-stretch bg-gray-200 dark:bg-zinc-700" />
+
+              <div className="relative inline-flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setIsSpeedPickerOpen(current => !current)}
+                  className="cursor-pointer border-0 bg-transparent px-2 text-xs font-medium text-gray-500 transition-colors hover:bg-black/5 focus:outline-none dark:text-zinc-400 dark:hover:bg-white/10"
+                  aria-expanded={isSpeedPickerOpen}
+                >
+                  {normalizedPlaybackRate.toFixed(2).replace(/\.?0+$/, '')}x
+                </button>
+                {isSpeedPickerOpen ? (
+                  <div
+                    className={`absolute z-30 rounded-xl border border-gray-200 bg-white p-3 shadow-xl shadow-black/10 dark:border-zinc-700 dark:bg-zinc-900 ${
+                      isVertical
+                        ? 'left-[calc(100%+0.5rem)] top-1/2 w-40 -translate-y-1/2'
+                        : 'bottom-[calc(100%+0.5rem)] right-0 w-44'
                     }`}
                   >
-                    {rate}x
-                  </button>
-                ))}
+                    <div className="mb-2 flex items-center justify-between text-xs text-gray-500 dark:text-zinc-400">
+                      <span>Velocita</span>
+                      <span className="font-medium text-gray-800 dark:text-zinc-100">
+                        {normalizedPlaybackRate.toFixed(2).replace(/\.?0+$/, '')}x
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.8"
+                      max="1.6"
+                      step="0.05"
+                      value={normalizedPlaybackRate}
+                      onChange={event => onSpeedChange(Number.parseFloat(event.target.value))}
+                      className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-gray-200 accent-gray-900 dark:bg-zinc-700 dark:accent-zinc-100"
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
         </div>
-      </div>
     </aside>
   );
 };
