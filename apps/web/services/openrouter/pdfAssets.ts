@@ -1,6 +1,7 @@
 import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } from '../../types.ts';
 import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
 import { timestampIso } from '../../utils/time.ts';
+import { isOpenRouterDataUrlInlineSafe } from './payloadLimits.ts';
 import {
   callOpenRouter,
   type FileData,
@@ -117,6 +118,9 @@ const sanitizePartialPages = (partialPages?: number[]): number[] | undefined => 
 };
 
 const countNormalizedTextChars = (text: string): number => text.replace(/\s+/g, ' ').trim().length;
+
+const canCaptionBackendImage = (image: BackendPdfImage): boolean =>
+  isOpenRouterDataUrlInlineSafe(image.dataUrl);
 
 export const assessPdfTextQuality = (session: PdfAssetSession): PdfTextQualityReport => {
   const extractedCharacterCount = countNormalizedTextChars(session.extractedText);
@@ -332,14 +336,35 @@ const extractPdfImagesViaBackend = async (
     })),
   });
 
+  const captionableImages = images
+    .map((image, index) => ({ image, index }))
+    .filter(({ image }) => canCaptionBackendImage(image));
+  const skippedOversizedImageCount = images.length - captionableImages.length;
+  if (skippedOversizedImageCount > 0) {
+    logPdfAssetDebug('Skipped oversized backend images before captioning', {
+      filename: file.name,
+      skippedOversizedImageCount,
+      skippedImages: images
+        .filter(image => !canCaptionBackendImage(image))
+        .slice(0, 12)
+        .map(image => ({
+          id: image.id,
+          pageNumber: image.pageNumber,
+          sizeBytes: image.sizeBytes,
+          dataUrlChars: image.dataUrl.length,
+        })),
+    });
+  }
+
   const captionedImages = await Promise.all(
-    images.map((image, index) => captionBackendImage(image, index, pages))
+    captionableImages.map(({ image, index }) => captionBackendImage(image, index, pages))
   );
 
   logPdfAssetDebug('Backend image captions', {
     filename: file.name,
     captionModel: MODEL_PDF_IMAGE_CAPTION,
     captionedImageCount: captionedImages.length,
+    skippedOversizedImageCount,
     emptyCaptionCount: captionedImages.filter(image => !image.caption?.trim()).length,
     captionedImages: captionedImages.map(image => ({
       id: image.id,

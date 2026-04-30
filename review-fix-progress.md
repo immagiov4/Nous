@@ -26,6 +26,8 @@
 - Extracted lesson response schema, payload parsing, and final verification prompt/call from `planning.ts`.
 - Extracted PDF lesson chunk debug payloads and relevant image-page estimation from `planning.ts`.
 - Raised PDF-only backend JSON capacity, returns 413 for oversized bodies, and clips truncated PDF prompt text to 80% of the caller budget.
+- Raised OpenRouter proxy JSON capacity, caps client-side proxy payloads at 80% of that budget, and skips oversized inline images before caption/evaluation calls.
+- Preserved concrete LAN backend errors such as 401/413 instead of always replacing them with the generic "backend unreachable" sync message.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred

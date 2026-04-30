@@ -29,7 +29,22 @@ const PROJECT_SYNC_ERROR_MESSAGE =
 
 const createProjectSyncError = (error: unknown): ProjectStorageError => {
   console.warn('[Lumina] LAN project sync failed', error);
+  if (error instanceof ProjectStorageError) {
+    return error;
+  }
+
   return new ProjectStorageError(PROJECT_SYNC_ERROR_MESSAGE, 'persistence-failed');
+};
+
+const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> => {
+  try {
+    return (await response.json()) as ApiResponse & T;
+  } catch {
+    return {
+      success: false,
+      error: response.statusText || 'Risposta backend non valida.',
+    } as ApiResponse & T;
+  }
 };
 
 const assertValue = <T>(value: T | undefined, message: string): T => {
@@ -209,10 +224,13 @@ export class HttpProjectRepository implements ProjectRepository {
           ...init.headers,
         },
       });
-      const data = (await response.json()) as ApiResponse & T;
+      const data = await readApiResponse<T>(response);
 
       if (!response.ok || data.success === false) {
-        throw new Error(data.error || response.statusText);
+        throw new ProjectStorageError(
+          data.error || response.statusText || 'Richiesta LAN non riuscita.',
+          'persistence-failed'
+        );
       }
 
       return data;

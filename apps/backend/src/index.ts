@@ -15,6 +15,7 @@ import { timestampIso } from './utils/time.js';
 const DEFAULT_FRONTEND_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const DEV_FRONTEND_PORT = '5173';
 const DEFAULT_JSON_BODY_LIMIT = '50mb';
+const OPENROUTER_JSON_BODY_LIMIT = '80mb';
 const PDF_JSON_BODY_LIMIT = '160mb';
 
 const isPrivateIpv4Host = (host: string): boolean => {
@@ -88,6 +89,7 @@ export const createApp = () => {
       credentials: true,
     })
   );
+  app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));
   app.use('/api/pdf', express.json({ limit: PDF_JSON_BODY_LIMIT }));
   app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 

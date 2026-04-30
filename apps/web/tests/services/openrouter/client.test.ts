@@ -44,6 +44,25 @@ test('callOpenRouterRaw forwards reasoning settings to OpenRouter', async () => 
   });
 });
 
+test('callOpenRouterRaw surfaces proxy payload limit failures with a clear message', async () => {
+  fetchMock.mockResolvedValue({
+    ok: false,
+    status: 413,
+    statusText: 'Payload Too Large',
+    text: async () => '{"success":false,"error":"Il file e troppo grande per questa richiesta."}',
+  });
+
+  await assert.rejects(
+    () =>
+      callOpenRouterRaw({
+        model: 'openai/gpt-5.4-mini',
+        messages: [{ role: 'user', content: 'Test prompt' }],
+      }),
+    (error: unknown) =>
+      error instanceof Error && /richiesta al modello e troppo grande/i.test(error.message)
+  );
+});
+
 test('callOpenRouter streams reasoning chunks without paragraph-splitting duplicate fragments', async () => {
   const stream = new ReadableStream({
     start(controller) {

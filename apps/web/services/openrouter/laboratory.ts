@@ -22,6 +22,7 @@ import {
   MODEL_PDF_IMAGE_CAPTION,
   MODEL_REASONING,
 } from './config.ts';
+import { isOpenRouterBase64MediaInlineSafe } from './payloadLimits.ts';
 import { buildReasoningContentForFile } from './pdfReasoning.ts';
 import { callOpenRouter, fileToDataUrl, parseCleanJson, retryWithBackoff } from './shared.ts';
 import type { ChatMessageContent, OpenRouterReasoningOptions } from './types.ts';
@@ -304,7 +305,14 @@ const attachmentToFileData = (attachment: LaboratoryAttachment): FileData => ({
   data: attachment.data,
 });
 
+const canInlineImageAttachment = (attachment: LaboratoryAttachment): boolean =>
+  isOpenRouterBase64MediaInlineSafe(attachment.data, attachment.mimeType);
+
 const describeImageAttachment = async (attachment: LaboratoryAttachment): Promise<string> => {
+  if (!canInlineImageAttachment(attachment)) {
+    return 'Immagine non analizzata automaticamente: il file supera il limite tecnico per l invio sicuro al modello.';
+  }
+
   const imagePrompt = buildImageDescriptionPrompt(attachment);
   const imageContent = [
     {
@@ -411,12 +419,15 @@ const buildEvaluationUserContent = async ({
     return promptText;
   }
 
-  const imageParts = imageAttachments.slice(0, MAX_IMAGE_ATTACHMENTS_IN_PROMPT).map(attachment => ({
+  const inlineImageAttachments = imageAttachments
+    .filter(canInlineImageAttachment)
+    .slice(0, MAX_IMAGE_ATTACHMENTS_IN_PROMPT);
+  const imageParts = inlineImageAttachments.map(attachment => ({
     type: 'image_url' as const,
     image_url: { url: fileToDataUrl(attachmentToFileData(attachment)) },
   }));
 
-  const omittedImageCount = Math.max(0, imageAttachments.length - imageParts.length);
+  const omittedImageCount = Math.max(0, imageAttachments.length - inlineImageAttachments.length);
   const finalPromptText = omittedImageCount
     ? `${promptText}\n\nImmagini non allegate direttamente al modello per limiti di contesto: ${omittedImageCount}. Usa comunque le descrizioni testuali gia presenti sopra.`
     : promptText;

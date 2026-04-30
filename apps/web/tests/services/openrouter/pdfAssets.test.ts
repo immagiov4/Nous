@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test, vi } from 'vitest';
+import { OPENROUTER_INLINE_MEDIA_DATA_URL_LIMIT_CHARS } from '../../../services/openrouter/payloadLimits.ts';
 import type { FileData } from '../../../types.ts';
 
 const callOpenRouterMock = vi.fn();
@@ -235,4 +236,64 @@ test('getPdfAssetSession captions every extracted image from the targeted pages 
   assert.equal(callOpenRouterMock.mock.calls.length, 13);
   assert.equal(session?.images[12]?.id, 'pdf-img-013');
   assert.equal(session?.images[12]?.caption, 'Schema tecnico sintetico.');
+});
+
+test('getPdfAssetSession skips extracted images that would exceed the OpenRouter proxy budget', async () => {
+  const oversizedImagePdfFile: FileData = {
+    name: 'Huge_Figures.pdf',
+    mimeType: 'application/pdf',
+    data: 'aHVnZS1maWd1cmVz',
+  };
+  const oversizedDataUrl = `data:image/png;base64,${'A'.repeat(
+    OPENROUTER_INLINE_MEDIA_DATA_URL_LIMIT_CHARS
+  )}`;
+
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        parser: 'pdf-parse',
+        text: 'Testo estratto',
+        pages: [{ pageNumber: 8, text: 'Pagina 8 con una figura enorme e una piccola.' }],
+        pageCount: 8,
+        sourceHash: 'hash-huge',
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        images: [
+          {
+            id: 'pdf-img-huge',
+            mimeType: 'image/png',
+            dataUrl: oversizedDataUrl,
+            sizeBytes: 9_000_000,
+            hash: 'img-huge',
+            pageNumber: 8,
+          },
+          {
+            id: 'pdf-img-small',
+            mimeType: 'image/png',
+            dataUrl: 'data:image/png;base64,BBBB',
+            sizeBytes: 1400,
+            hash: 'img-small',
+            pageNumber: 8,
+          },
+        ],
+      }),
+    });
+  vi.stubGlobal('fetch', fetchMock);
+
+  callOpenRouterMock.mockResolvedValue('Grafico leggibile.');
+
+  const session = await getPdfAssetSession(oversizedImagePdfFile, { partialPages: [8] });
+
+  assert.ok(session);
+  assert.equal(callOpenRouterMock.mock.calls.length, 1);
+  assert.equal(session?.images.length, 1);
+  assert.equal(session?.images[0]?.id, 'pdf-img-small');
+  assert.equal(session?.images[0]?.caption, 'Grafico leggibile.');
 });

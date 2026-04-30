@@ -1,4 +1,9 @@
 import { getBackendUrl, MAX_OUTPUT_TOKENS, resolveOpenRouterModel } from './config.ts';
+import {
+  measureUtf8Bytes,
+  OPENROUTER_PAYLOAD_TOO_LARGE_MESSAGE,
+  OPENROUTER_SAFE_JSON_BODY_BYTES,
+} from './payloadLimits.ts';
 import type {
   ChatCompletionOptions,
   ChatMessageContent,
@@ -20,6 +25,29 @@ const getOpenRouterProxyUrl = (): string =>
 const getHeaders = () => ({
   'Content-Type': 'application/json',
 });
+
+const createPayloadTooLargeError = (details: string): HttpError => {
+  const error = new Error(OPENROUTER_PAYLOAD_TOO_LARGE_MESSAGE) as HttpError;
+  error.status = 413;
+  error.details = details;
+  console.warn('[Nous] OpenRouter payload skipped before proxy request', {
+    details,
+  });
+  return error;
+};
+
+const serializeRequestBody = (body: Record<string, unknown>): string => {
+  const serializedBody = JSON.stringify(body);
+  const payloadBytes = measureUtf8Bytes(serializedBody);
+
+  if (payloadBytes > OPENROUTER_SAFE_JSON_BODY_BYTES) {
+    throw createPayloadTooLargeError(
+      `payload_bytes=${payloadBytes};safe_limit_bytes=${OPENROUTER_SAFE_JSON_BODY_BYTES}`
+    );
+  }
+
+  return serializedBody;
+};
 
 const extractTextContent = (content: OpenRouterMessageContent | undefined): string => {
   if (typeof content === 'string') {
@@ -120,9 +148,11 @@ const appendReasoningChunk = (currentReasoning: string, nextChunk: string): stri
 
 const createHttpError = async (response: Response): Promise<HttpError> => {
   const details = await response.text();
-  const error = new Error(
-    'Il servizio AI non ha completato la richiesta. Riprova tra poco.'
-  ) as HttpError;
+  const message =
+    response.status === 413
+      ? OPENROUTER_PAYLOAD_TOO_LARGE_MESSAGE
+      : 'Il servizio AI non ha completato la richiesta. Riprova tra poco.';
+  const error = new Error(message) as HttpError;
   error.status = response.status;
   error.details = details || response.statusText;
   console.warn('[Nous] OpenRouter request failed', {
@@ -140,19 +170,20 @@ export const callOpenRouterRaw = async (
     options.modelSlot,
     !options.disableModelOverride
   );
+  const body = serializeRequestBody({
+    model: selectedModel,
+    messages: options.messages,
+    reasoning: options.reasoning,
+    temperature: options.temperature ?? 0.7,
+    max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
+    response_format: options.response_format,
+    tools: options.tools,
+    plugins: options.plugins,
+  });
   const response = await fetch(getOpenRouterProxyUrl(), {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({
-      model: selectedModel,
-      messages: options.messages,
-      reasoning: options.reasoning,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
-      response_format: options.response_format,
-      tools: options.tools,
-      plugins: options.plugins,
-    }),
+    body,
   });
 
   if (!response.ok) {
@@ -168,20 +199,21 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     options.modelSlot,
     !options.disableModelOverride
   );
+  const body = serializeRequestBody({
+    model: selectedModel,
+    messages: options.messages,
+    reasoning: options.reasoning,
+    stream: true,
+    temperature: options.temperature ?? 0.7,
+    max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
+    response_format: options.response_format,
+    tools: options.tools,
+    plugins: options.plugins,
+  });
   const response = await fetch(getOpenRouterProxyUrl(), {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({
-      model: selectedModel,
-      messages: options.messages,
-      reasoning: options.reasoning,
-      stream: true,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
-      response_format: options.response_format,
-      tools: options.tools,
-      plugins: options.plugins,
-    }),
+    body,
   });
 
   if (!response.ok) {
