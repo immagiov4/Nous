@@ -16,11 +16,11 @@
 - Removed the old local Python/Qwen TTS runtime path; TTS now goes through OpenRouter only.
 - Made malformed optional JSON config files fail clearly instead of silently falling back.
 - Added stable SQLite ordering for reads and shared sibling insertion logic for folder/project moves.
+- Split `App.tsx` composition helpers for model defaults, PDF mapping warnings, app dialogs, initial section auto-open, and reader shell props.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred
 
-- Large frontend structural refactors such as splitting `App.tsx`.
 - Reader/context-menu hot-path rewrites, unless a specific regression is being fixed.
 - Backend/frontend project metadata unification through a shared package, because that needs a larger packaging decision.
 - Full planning/planGeneration consolidation beyond already extracted PDF reasoning helpers.
