@@ -117,7 +117,7 @@ export const MotionPopover = ({
       animate={{ opacity: 1, scale: 1 }}
       transition={{
         opacity: { duration: 0.09, ease: [0.2, 0.85, 0.25, 1] },
-        scale: { type: 'spring', stiffness: 480, damping: 28, mass: 0.7 },
+        scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
       }}
       style={{
         transformOrigin: originX ?? 'top right',

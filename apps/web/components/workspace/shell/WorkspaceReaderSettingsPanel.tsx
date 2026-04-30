@@ -29,7 +29,7 @@ export default function WorkspaceReaderSettingsPanel({
 }: WorkspaceReaderSettingsPanelProps) {
   return (
     <OpenRouterModelPanel
-      className="absolute right-4 top-[calc(100%+0.75rem)] z-50 max-h-[calc(100dvh-6rem)] w-[min(26rem,calc(100vw-2rem))] overflow-y-auto"
+      className="absolute right-8 top-[calc(100%+0.75rem)] z-50 max-h-[calc(100dvh-6rem)] w-[min(26rem,calc(100vw-2rem))]"
       courseNotes={courseNotes}
       defaultModels={modelDefaults}
       expandedSections={expandedSections}

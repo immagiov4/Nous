@@ -25,12 +25,12 @@ export const MOTION_EASING = {
 
 /**
  * Soft pop — subtle bounce, used for dialogs.
+ * Uses a CSS tween instead of a spring: springs are poorly optimized on
+ * Firefox and cause visible jank when the main thread is busy.
  */
 export const SPRING_SOFT_POP: Transition = {
-  type: 'spring',
-  stiffness: 460,
-  damping: 30,
-  mass: 0.75,
+  duration: 0.14,
+  ease: MOTION_EASING.standard,
 };
 
 /**
@@ -38,20 +38,16 @@ export const SPRING_SOFT_POP: Transition = {
  * Barely perceptible overshoot, settles quickly.
  */
 export const SPRING_SNAPPY_POP: Transition = {
-  type: 'spring',
-  stiffness: 480,
-  damping: 28,
-  mass: 0.7,
+  duration: 0.12,
+  ease: MOTION_EASING.standard,
 };
 
 /**
  * Tap press — buttons/cards active feedback.
  */
 export const SPRING_TAP: Transition = {
-  type: 'spring',
-  stiffness: 900,
-  damping: 32,
-  mass: 0.4,
+  duration: 0.08,
+  ease: MOTION_EASING.standard,
 };
 
 /**

@@ -111,7 +111,7 @@ export default function WorkspaceReaderHeader({
     </div>
   ) : null;
   const regenerateDialogClassName = isMobileViewport
-    ? 'fixed left-1/2 top-[calc(env(safe-area-inset-top,0px)+5.5rem)] z-50 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2'
+    ? 'fixed left-1/2 top-1/2 z-50 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2rem))]';
 
   return (

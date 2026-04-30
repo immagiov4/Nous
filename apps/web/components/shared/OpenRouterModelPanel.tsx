@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { ChevronDown, X } from 'lucide-react';
 import { type CSSProperties, useEffect, useRef } from 'react';
 import type {
@@ -89,115 +88,111 @@ export default function OpenRouterModelPanel({
 
   return (
     <div ref={containerRef} className={className} style={style}>
-      <motion.div
-        initial={shouldAnimate ? { opacity: 0, scale: 0.94 } : false}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{
-          opacity: { duration: 0.09, ease: [0.2, 0.85, 0.25, 1] },
-          scale: { type: 'spring', stiffness: 480, damping: 28, mass: 0.7 },
-        }}
-        style={{ transformOrigin: 'top right', willChange: 'transform, opacity' }}
-        className="model-panel-surface rounded-2xl p-4"
+      <div
+        className={`model-panel-surface rounded-2xl p-4 origin-top-right ${shouldAnimate ? 'animate-[popIn_0.12s_ease]' : ''}`}
+        style={{ transformOrigin: 'top right', ...style }}
       >
-        <div className="model-panel-divider flex items-center justify-between gap-4 border-b pb-3">
-          <h3 className="model-panel-title text-sm font-semibold">Impostazioni modelli</h3>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => {
-                onModelChange('lesson', '');
-                onModelChange('context', '');
-              }}
-              className="model-panel-reset rounded-full px-2.5 py-1 text-xs font-medium"
-            >
-              Reset
-            </button>
-            {onClose ? (
+        <div className="max-h-[inherit] overflow-y-auto">
+          <div className="model-panel-divider flex items-center justify-between gap-4 border-b pb-3">
+            <h3 className="model-panel-title text-sm font-semibold">Impostazioni modelli</h3>
+            <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={onClose}
-                className="model-panel-close inline-flex h-7 w-7 items-center justify-center rounded-full"
-                title="Chiudi"
+                onClick={() => {
+                  onModelChange('lesson', '');
+                  onModelChange('context', '');
+                }}
+                className="model-panel-reset rounded-full px-2.5 py-1 text-xs font-medium"
               >
-                <X className="h-4 w-4" />
+                Reset
               </button>
-            ) : null}
+              {onClose ? (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="model-panel-close inline-flex h-7 w-7 items-center justify-center rounded-full"
+                  title="Chiudi"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
 
-        {courseNotes ? (
-          <div className="model-panel-divider mt-3 border-b pb-3">
+          {courseNotes ? (
+            <div className="model-panel-divider mt-3 border-b pb-3">
+              <button
+                type="button"
+                onClick={() => toggleSection('course-notes')}
+                className="model-panel-section-toggle flex w-full items-center justify-between gap-3 py-1 text-left"
+                aria-expanded={isCourseNotesExpanded}
+              >
+                <span className="model-panel-title text-sm font-semibold">
+                  Istruzioni personalizzate
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 transition-transform ${
+                    isCourseNotesExpanded ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {isCourseNotesExpanded ? (
+                <label className="mt-3 block">
+                  <p className="model-panel-help text-xs leading-5">
+                    Tono, livello, cose da evitare o ripetere.
+                  </p>
+                  <textarea
+                    value={courseNotes.value}
+                    onChange={event => courseNotes.onChange(event.target.value)}
+                    placeholder={
+                      courseNotes.placeholder ||
+                      'Es. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico.'
+                    }
+                    rows={5}
+                    className="model-panel-input mt-2 w-full resize-y rounded-xl px-3 py-2.5 text-sm leading-6"
+                  />
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className={courseNotes ? 'mt-3' : 'mt-3'}>
             <button
               type="button"
-              onClick={() => toggleSection('course-notes')}
+              onClick={() => toggleSection('ai-models')}
               className="model-panel-section-toggle flex w-full items-center justify-between gap-3 py-1 text-left"
-              aria-expanded={isCourseNotesExpanded}
+              aria-expanded={isModelsExpanded}
             >
-              <span className="model-panel-title text-sm font-semibold">
-                Istruzioni personalizzate
-              </span>
+              <span className="model-panel-title text-sm font-semibold">Modelli IA</span>
               <ChevronDown
                 className={`h-4 w-4 shrink-0 transition-transform ${
-                  isCourseNotesExpanded ? 'rotate-180' : ''
+                  isModelsExpanded ? 'rotate-180' : ''
                 }`}
               />
             </button>
 
-            {isCourseNotesExpanded ? (
-              <label className="mt-3 block">
-                <p className="model-panel-help text-xs leading-5">
-                  Tono, livello, cose da evitare o ripetere.
-                </p>
-                <textarea
-                  value={courseNotes.value}
-                  onChange={event => courseNotes.onChange(event.target.value)}
-                  placeholder={
-                    courseNotes.placeholder ||
-                    'Es. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico.'
-                  }
-                  rows={5}
-                  className="model-panel-input mt-2 w-full resize-y rounded-xl px-3 py-2.5 text-sm leading-6"
-                />
-              </label>
+            {isModelsExpanded ? (
+              <div className="mt-3 space-y-3">
+                {modelFields.map(field => (
+                  <label key={field.slot} className="block">
+                    <span className="model-panel-label block text-[11px] font-semibold uppercase tracking-[0.18em]">
+                      {field.label}
+                    </span>
+                    <input
+                      type="text"
+                      value={preferredModels[field.value]}
+                      onChange={event => onModelChange(field.slot, event.target.value)}
+                      placeholder={defaultModels[field.placeholder]}
+                      className="model-panel-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm"
+                    />
+                  </label>
+                ))}
+              </div>
             ) : null}
           </div>
-        ) : null}
-
-        <div className={courseNotes ? 'mt-3' : 'mt-3'}>
-          <button
-            type="button"
-            onClick={() => toggleSection('ai-models')}
-            className="model-panel-section-toggle flex w-full items-center justify-between gap-3 py-1 text-left"
-            aria-expanded={isModelsExpanded}
-          >
-            <span className="model-panel-title text-sm font-semibold">Modelli IA</span>
-            <ChevronDown
-              className={`h-4 w-4 shrink-0 transition-transform ${
-                isModelsExpanded ? 'rotate-180' : ''
-              }`}
-            />
-          </button>
-
-          {isModelsExpanded ? (
-            <div className="mt-3 space-y-3">
-              {modelFields.map(field => (
-                <label key={field.slot} className="block">
-                  <span className="model-panel-label block text-[11px] font-semibold uppercase tracking-[0.18em]">
-                    {field.label}
-                  </span>
-                  <input
-                    type="text"
-                    value={preferredModels[field.value]}
-                    onChange={event => onModelChange(field.slot, event.target.value)}
-                    placeholder={defaultModels[field.placeholder]}
-                    className="model-panel-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm"
-                  />
-                </label>
-              ))}
-            </div>
-          ) : null}
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }

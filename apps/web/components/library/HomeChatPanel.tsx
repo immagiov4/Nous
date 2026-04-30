@@ -828,7 +828,7 @@ export default function HomeChatPanel({
                   <motion.span
                     layoutId="home-chat-mode-pill"
                     className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
-                    transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }}
+                    transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
                     aria-hidden="true"
                   />
                 ) : null}
@@ -852,7 +852,7 @@ export default function HomeChatPanel({
                   <motion.span
                     layoutId="home-chat-mode-pill"
                     className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
-                    transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }}
+                    transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
                     aria-hidden="true"
                   />
                 ) : null}

@@ -247,6 +247,82 @@ export const useTtsPlayer = ({
   const ttsCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playbackRunRef = useRef<PlaybackRun>(createIdlePlaybackRun());
   const pausedTimeRef = useRef(0);
+  const activeSectionIdRef = useRef(activeSectionId);
+  const speechBlocksVersionRef = useRef(0);
+
+  // Reset playback state when the active section changes or speech blocks are
+  // rebuilt (e.g. after the DOM re-renders a chapter that contains images).
+  // Without this, stale chunks from the previous section can survive inside
+  // audioStateRef and the player may try to generate audio for text that no
+  // longer matches the visible content — causing a silent stall.
+  useEffect(() => {
+    const sectionChanged = activeSectionIdRef.current !== activeSectionId;
+    if (sectionChanged) {
+      activeSectionIdRef.current = activeSectionId;
+    }
+
+    // Bump a version counter whenever the speech-block array identity changes
+    // (useReaderSpeech returns a new array on every update).
+    speechBlocksVersionRef.current += 1;
+
+    if (!sectionChanged) {
+      return;
+    }
+
+    // Abort any in-flight playback and drop stale chunks so the next
+    // togglePlayPause() call will re-chunk from the fresh content.
+    // We manipulate refs directly here instead of calling abortCurrentRun()
+    // because this useEffect is declared before abortCurrentRun (a const
+    // defined via useCallback below) and would hit a TDZ error otherwise.
+    const run = playbackRunRef.current;
+    run.cancelled = true;
+    run.status = 'idle';
+    if (run.currentAudio) {
+      run.currentAudio.onended = null;
+      run.currentAudio.onerror = null;
+      run.currentAudio.pause();
+      run.currentAudio.src = '';
+      run.currentAudio.load();
+      run.currentAudio = null;
+    }
+    if (run.pendingAudio) {
+      run.pendingAudio.onended = null;
+      run.pendingAudio.onerror = null;
+      run.pendingAudio.pause();
+      run.pendingAudio.src = '';
+      run.pendingAudio.load();
+      run.pendingAudio = null;
+    }
+    if (run.crossfadeIntervalId !== null) {
+      window.clearInterval(run.crossfadeIntervalId);
+      run.crossfadeIntervalId = null;
+    }
+
+    shouldPlayRef.current = false;
+    playRequestIdRef.current += 1;
+    playbackSessionRef.current += 1;
+    chunkPromisesRef.current = {};
+    pausedTimeRef.current = 0;
+
+    // Use setAudioState directly instead of setTrackedAudioState (defined
+    // later via useCallback) to avoid a TDZ reference error.
+    setAudioState(previousState => ({
+      ...previousState,
+      chunks: [],
+      currentChunkIndex: 0,
+      audioElement: null,
+      isPlaying: false,
+    }));
+    audioStateRef.current = {
+      ...audioStateRef.current,
+      chunks: [],
+      currentChunkIndex: 0,
+      audioElement: null,
+      isPlaying: false,
+    };
+    setPlayerCurrentTime(0);
+    setPlayerDuration(0);
+  }, [activeSectionId]);
 
   const logPlayback = useCallback((event: string, details: Record<string, unknown> = {}) => {
     if (!DEBUG_TTS_PLAYER) {
@@ -474,6 +550,13 @@ export const useTtsPlayer = ({
       }
 
       const promise = (async () => {
+        const chunk = audioStateRef.current.chunks[index];
+        if (!chunk || !chunk.text.trim()) {
+          // Empty chunk (e.g. produced from an image-only section). Skip the
+          // TTS API call entirely and signal the caller to advance.
+          return null;
+        }
+
         setTrackedAudioState(previousState => {
           const nextChunks = [...previousState.chunks];
           if (nextChunks[index]) {
@@ -484,12 +567,7 @@ export const useTtsPlayer = ({
         });
 
         try {
-          const chunk = audioStateRef.current.chunks[index];
           const requestedVoice = audioStateRef.current.currentVoice;
-          if (!chunk) {
-            throw new Error('Chunk not found');
-          }
-
           const requestedText = chunk.text;
           const requestedModel = audioStateRef.current.currentModel;
           const speechAudio = await OpenRouterService.generateSpeech(

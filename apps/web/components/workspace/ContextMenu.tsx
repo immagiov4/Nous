@@ -761,10 +761,10 @@ const ContextMenu = ({
       animate={isMobileSheet ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 }}
       transition={
         isMobileSheet
-          ? { type: 'spring', stiffness: 560, damping: 30, mass: 0.65 }
+          ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }
           : {
-              opacity: { duration: 0.09, ease: [0.2, 0.85, 0.25, 1] },
-              scale: { type: 'spring', stiffness: 480, damping: 28, mass: 0.7 },
+              opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] },
+              scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
             }
       }
       onPointerDown={handleContainerPointerDown}

@@ -337,13 +337,13 @@ const UnifiedAudioPanel = ({
               exit={{ opacity: 0, scale: 0.96 }}
               transition={{
                 opacity: { duration: 0.09, ease: [0.2, 0.85, 0.25, 1] },
-                scale: { type: 'spring', stiffness: 480, damping: 28, mass: 0.7 },
+                scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
               }}
               style={{
                 transformOrigin: isMobileViewport ? 'top center' : 'top right',
                 willChange: 'transform, opacity',
               }}
-              className="overflow-visible rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 shadow-[0_12px_30px_-8px_rgba(15,23,42,0.12),0_28px_60px_-22px_rgba(15,23,42,0.22)] dark:border-zinc-600/80 dark:bg-stone-700 dark:shadow-[0_16px_34px_-14px_rgba(0,0,0,0.35),0_30px_60px_-24px_rgba(0,0,0,0.38)]"
+              className="panel-shadow overflow-visible rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 dark:border-zinc-600/80 dark:bg-stone-700"
             >
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700 dark:text-zinc-200">
@@ -387,7 +387,7 @@ const UnifiedAudioPanel = ({
                       <motion.span
                         layoutId="audio-tab-pill"
                         className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
-                        transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }}
+                        transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
                         aria-hidden="true"
                       />
                     ) : null}
@@ -408,7 +408,7 @@ const UnifiedAudioPanel = ({
                       <motion.span
                         layoutId="audio-tab-pill"
                         className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
-                        transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.8 }}
+                        transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
                         aria-hidden="true"
                       />
                     ) : null}
@@ -437,7 +437,7 @@ const UnifiedAudioPanel = ({
                       <select
                         value={tts.currentVoice}
                         onChange={event => tts.onVoiceChange(event.target.value as VoiceProfileId)}
-                        className="cursor-pointer appearance-none border-0 bg-transparent px-2 py-0.5 text-center text-xs font-medium text-gray-700 transition-colors hover:bg-black/5 focus:outline-none dark:text-zinc-200 dark:hover:bg-white/10"
+                        className="cursor-pointer appearance-none border-0 bg-transparent px-2 py-0.5 text-center text-xs font-semibold text-gray-700 transition-colors hover:bg-black/5 focus:outline-none dark:text-zinc-200 dark:hover:bg-white/10"
                         disabled={ttsDisabled}
                       >
                         {displayedVoices.map(voice => (

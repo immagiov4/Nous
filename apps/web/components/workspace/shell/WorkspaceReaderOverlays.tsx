@@ -1,8 +1,9 @@
+import { memo } from 'react';
 import ContextMenu from '../ContextMenu.tsx';
 import ContextAnswerPanel from './ContextAnswerPanel.tsx';
 import type { WorkspaceReaderOverlaysModel } from './types.ts';
 
-export default function WorkspaceReaderOverlays({
+function WorkspaceReaderOverlays({
   contextAnswer,
   contextAnswerPanelRef,
   contextAnswerResizePreviewRef,
@@ -68,3 +69,5 @@ export default function WorkspaceReaderOverlays({
     </>
   );
 }
+
+export default memo(WorkspaceReaderOverlays);

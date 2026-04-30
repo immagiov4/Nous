@@ -99,6 +99,16 @@ export const useReaderContext = ({
     contextMenuStateRef.current = contextMenu;
   }, [contextMenu]);
 
+  // Mirror of sectionContent so that handleContentClick can read the latest
+  // value without listing it as a useCallback dependency. sectionContent
+  // changes on every annotation toggle; keeping it out of the deps prevents
+  // the onClick prop on MarkdownRenderer from being recreated each time,
+  // which would defeat memo() and trigger a full react-markdown reparse.
+  const sectionContentRef = useRef(sectionContent);
+  useEffect(() => {
+    sectionContentRef.current = sectionContent;
+  }, [sectionContent]);
+
   const clearSelectionMenuTimeout = useCallback(() => {
     if (selectionMenuTimeoutRef.current === null) {
       return;
@@ -369,7 +379,7 @@ export const useReaderContext = ({
       const rect = annotationElement.getBoundingClientRect();
       const contentRect = contentRef.current.getBoundingClientRect();
       const selectedText =
-        getSectionAnnotationText(sectionContent, annotationId) ||
+        getSectionAnnotationText(sectionContentRef.current, annotationId) ||
         annotationElement.innerText.trim() ||
         annotationElement.textContent?.trim() ||
         '';
@@ -414,7 +424,7 @@ export const useReaderContext = ({
       suppressOutsideCloseUntilRef.current = Date.now() + ANNOTATION_MENU_OPEN_SUPPRESSION_MS;
       setContextMenu(nextMenu);
     },
-    [closeContextMenu, contentRef, isMobileViewport, sectionAnnotations, sectionContent]
+    [closeContextMenu, contentRef, isMobileViewport, sectionAnnotations]
   );
 
   const handleContextAnswerResizeStart = useCallback(

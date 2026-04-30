@@ -9,7 +9,7 @@
 
   --border-subtle: rgba(229, 231, 235, 1);
   --border-strong: rgba(209, 213, 219, 1);
-  --panel-shadow: 0 16px 38px -24px rgba(24, 24, 27, 0.28);
+  --panel-shadow: 0 12px 30px -8px rgba(15, 23, 42, 0.12), 0 28px 60px -22px rgba(15, 23, 42, 0.22);
   --transition-fast: 0.18s ease;
 }
 
@@ -21,7 +21,7 @@
   --accent: #fb923c;
   --border-subtle: rgba(113, 113, 122, 0.6);
   --border-strong: rgba(161, 161, 170, 0.78);
-  --panel-shadow: 0 16px 38px -22px rgba(0, 0, 0, 0.42);
+  --panel-shadow: 0 16px 34px -14px rgba(0, 0, 0, 0.35), 0 30px 60px -24px rgba(0, 0, 0, 0.38);
 }
 
 html,
@@ -131,6 +131,11 @@ body {
 .model-panel-surface {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
+  box-shadow: var(--panel-shadow);
+  scrollbar-gutter: stable;
+}
+
+.panel-shadow {
   box-shadow: var(--panel-shadow);
 }
 
@@ -307,4 +312,15 @@ mark {
 .dark mark {
   background-color: #fbbf24;
   color: #000;
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    scale: 0.94;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
 }
