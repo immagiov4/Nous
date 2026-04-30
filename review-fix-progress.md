@@ -11,7 +11,7 @@
 - Extracted shared PDF data URL validation/decoding for backend PDF routes and services.
 - Consolidated PDF reasoning helpers used by planning, generation, and context chat.
 - Consolidated backend web-search tool schemas and web-search mandate prompt text.
-- Named chat, retry, search, cache, status, and TTS timing/result limits.
+- Named chat, retry, search, cache, status, web-search token, and TTS timing/result limits.
 - Reduced duplicated TTS model/type/voice fallback definitions.
 - Made malformed optional JSON config files fail clearly instead of silently falling back.
 - Added stable SQLite ordering for reads and shared sibling insertion logic for folder/project moves.

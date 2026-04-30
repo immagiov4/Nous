@@ -9,6 +9,7 @@ export const MAX_CONTEXT_CHARS = 24_000;
 export const MAX_WEB_SEARCH_RESULTS = 8;
 export const DEFAULT_WEB_SEARCH_RESULTS = 5;
 const WEB_SEARCH_TOTAL_RESULT_MULTIPLIER = 2;
+const WEB_SEARCH_SUMMARY_MAX_TOKENS = 1_200;
 export const CHAT_TOOL_STEP_LIMIT = 6;
 
 export const LIBRARY_WEB_SEARCH_TOOL_NAME = 'searchWeb' as const;
@@ -245,7 +246,7 @@ export const runOpenRouterWebSearch = async ({
       headers: getOpenRouterHeaders(),
       body: JSON.stringify({
         model: model?.trim() || LIBRARY_WEB_SEARCH_EXECUTOR_MODEL,
-        max_tokens: 1_200,
+        max_tokens: WEB_SEARCH_SUMMARY_MAX_TOKENS,
         messages,
         tool_choice: 'required',
         tools: [
