@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderHeaderModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderHeader from '../../../../components/workspace/shell/WorkspaceReaderHeader.tsx';
 
-vi.mock('../../../../components/workspace/MusicPlayer.tsx', () => ({
+vi.mock('../../../../components/workspace/UnifiedAudioPanel.tsx', () => ({
   default: () => <div data-testid="music-player" />,
 }));
 
@@ -65,6 +65,22 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
     preferredTtsVoice: 'coral',
   },
   settingsPanelExpandedSections: ['course-notes'],
+  tts: {
+    availableVoices: [],
+    currentTime: 0,
+    currentVoice: 'coral' as const,
+    duration: 0,
+    isPlaying: false,
+    isLoading: false,
+    playbackRate: 1,
+    sectionContent: '',
+    ttsConnected: false,
+    onPlayPause: vi.fn(),
+    onSeek: vi.fn(),
+    onSkipChunk: vi.fn(),
+    onSpeedChange: vi.fn(),
+    onVoiceChange: vi.fn(),
+  },
 });
 
 describe('WorkspaceReaderHeader', () => {

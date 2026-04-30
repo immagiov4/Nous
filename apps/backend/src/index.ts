@@ -17,6 +17,7 @@ const DEV_FRONTEND_PORT = '5173';
 const DEFAULT_JSON_BODY_LIMIT = '50mb';
 const OPENROUTER_JSON_BODY_LIMIT = '80mb';
 const PDF_JSON_BODY_LIMIT = '160mb';
+const PROJECTS_JSON_BODY_LIMIT = '300mb';
 
 const isPrivateIpv4Host = (host: string): boolean => {
   const parts = host.split('.').map(part => Number.parseInt(part, 10));
@@ -91,6 +92,7 @@ export const createApp = () => {
   );
   app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));
   app.use('/api/pdf', express.json({ limit: PDF_JSON_BODY_LIMIT }));
+  app.use('/api/projects', express.json({ limit: PROJECTS_JSON_BODY_LIMIT }));
   app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 
   app.use((req, _res, next) => {

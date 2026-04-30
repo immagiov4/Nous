@@ -4,7 +4,6 @@ import type {
   RefObject,
 } from 'react';
 import type {
-  AudioState,
   ContextMenuState,
   LaboratoryExercise,
   LaboratoryStateStatus,
@@ -109,6 +108,23 @@ export interface WorkspaceReaderBannersModel {
   storageError: string | null;
 }
 
+export interface WorkspaceReaderTtsModel {
+  availableVoices: WorkspaceReaderVoiceOption[];
+  currentTime: number;
+  currentVoice: VoiceProfileId;
+  duration: number;
+  isPlaying: boolean;
+  isLoading: boolean;
+  playbackRate: number;
+  sectionContent: string;
+  ttsConnected: boolean;
+  onPlayPause: () => void;
+  onSeek: (time: number) => void;
+  onSkipChunk: (direction: 'prev' | 'next') => void;
+  onSpeedChange: (value: number) => void;
+  onVoiceChange: (voiceId: VoiceProfileId) => void;
+}
+
 export interface WorkspaceReaderHeaderModel {
   activeLaboratoryExercise: LaboratoryExercise | null;
   activeSection: LearningSection | null;
@@ -143,6 +159,7 @@ export interface WorkspaceReaderHeaderModel {
   onSetSettingsPanelExpandedSections: (value: SettingsPanelSectionId[]) => void;
   preferredModels: OpenRouterModelPreferences;
   settingsPanelExpandedSections: SettingsPanelSectionId[];
+  tts: WorkspaceReaderTtsModel;
 }
 
 export interface WorkspaceReaderContentModel {
@@ -198,22 +215,6 @@ export interface WorkspaceReaderContentModel {
   sourcePageRangeLabel?: string;
 }
 
-export interface WorkspaceReaderAudioPlayerModel {
-  audioDockOffset: number;
-  audioState: AudioState;
-  availableVoices: WorkspaceReaderVoiceOption[];
-  currentTime: number;
-  duration: number;
-  onPlayPause: () => void;
-  onSeek: (time: number) => void;
-  onSkipChunk: (direction: 'prev' | 'next') => void;
-  onSpeedChange: (value: number) => void;
-  onVoiceChange: (voiceId: VoiceProfileId) => void;
-  playerCurrentChunkIsLoading: boolean;
-  sectionContent: string;
-  ttsConnected: boolean;
-}
-
 export interface WorkspaceReaderOverlaysModel {
   contextAnswer: ContextAnswerState | null;
   contextAnswerPanelRef: RefObject<HTMLDivElement | null>;
@@ -240,7 +241,6 @@ export interface WorkspaceReaderOverlaysModel {
 }
 
 export interface WorkspaceReaderShellProps {
-  audioPlayer: WorkspaceReaderAudioPlayerModel;
   banners: WorkspaceReaderBannersModel;
   content: WorkspaceReaderContentModel;
   header: WorkspaceReaderHeaderModel;

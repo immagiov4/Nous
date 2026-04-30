@@ -1,9 +1,6 @@
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  READER_MOBILE_LAYOUT_BREAKPOINT_PX,
-  READER_SIDEBAR_WIDTH_PX,
-} from '../../constants/layout.ts';
+import { READER_MOBILE_LAYOUT_BREAKPOINT_PX } from '../../constants/layout.ts';
 import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 import { type ExpandedModuleState, resolveExpandedModuleState } from '../../utils/reader/chrome.ts';
 import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
@@ -33,7 +30,6 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
   const previousActiveSectionIdRef = useRef<string | null>(null);
   const shouldUseDesktopSidebar = !isMobileViewport && !isFocusMode;
   const shouldShowSidebar = isMobileViewport ? isMobileSidebarOpen : !isFocusMode;
-  const audioDockOffset = shouldUseDesktopSidebar ? READER_SIDEBAR_WIDTH_PX : 0;
 
   const handleModuleToggle = useCallback((groupId: string) => {
     setExpandedModuleId(currentId => (currentId === groupId ? null : groupId));
@@ -92,7 +88,6 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
 
   return useMemo(
     () => ({
-      audioDockOffset,
       expandedModuleId,
       handleModuleToggle,
       isDarkMode,
@@ -108,7 +103,6 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
       shouldUseDesktopSidebar,
     }),
     [
-      audioDockOffset,
       expandedModuleId,
       handleModuleToggle,
       isDarkMode,

@@ -1,7 +1,7 @@
 import { ArrowLeft, Moon, RefreshCw, Settings2, SidebarOpen, Sun, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { MotionPopover } from '../../../utils/motion/index.ts';
-import MusicPlayer from '../MusicPlayer.tsx';
+import MusicPlayer from '../UnifiedAudioPanel.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
@@ -38,6 +38,7 @@ export default function WorkspaceReaderHeader({
   onSetSettingsPanelExpandedSections,
   preferredModels,
   settingsPanelExpandedSections,
+  tts,
 }: WorkspaceReaderHeaderModel) {
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const regenerateConfirmRef = useRef<HTMLDivElement>(null);
@@ -239,12 +240,13 @@ export default function WorkspaceReaderHeader({
 
           <MusicPlayer
             isMobileViewport={isMobileViewport}
-            url={musicUrl}
-            setUrl={onSetMusicUrl}
-            isPlaying={isMusicPlaying}
-            setIsPlaying={onSetIsMusicPlaying}
-            volume={musicVolume}
-            setVolume={onSetMusicVolume}
+            musicUrl={musicUrl}
+            setMusicUrl={onSetMusicUrl}
+            isMusicPlaying={isMusicPlaying}
+            setIsMusicPlaying={onSetIsMusicPlaying}
+            musicVolume={musicVolume}
+            setMusicVolume={onSetMusicVolume}
+            tts={tts}
           />
 
           {!isMobileViewport ? (

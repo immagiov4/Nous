@@ -1,6 +1,5 @@
 import { useLayoutEffect } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../constants/layout.ts';
-import AudioPlayer from './AudioPlayer.tsx';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
 import WorkspaceReaderContent from './shell/WorkspaceReaderContent.tsx';
@@ -9,7 +8,6 @@ import WorkspaceReaderOverlays from './shell/WorkspaceReaderOverlays.tsx';
 import WorkspaceReaderSidebar from './shell/WorkspaceReaderSidebar.tsx';
 
 export default function WorkspaceReaderShell({
-  audioPlayer,
   banners,
   content,
   header,
@@ -78,26 +76,6 @@ export default function WorkspaceReaderShell({
         <WorkspaceReaderBanners {...banners} />
         <WorkspaceReaderHeader {...header} />
         <WorkspaceReaderContent {...content} />
-
-        {audioPlayer.sectionContent && audioPlayer.ttsConnected ? (
-          <AudioPlayer
-            availableVoices={audioPlayer.availableVoices}
-            isPlaying={audioPlayer.audioState.isPlaying}
-            isLoading={audioPlayer.playerCurrentChunkIsLoading}
-            currentVoice={audioPlayer.audioState.currentVoice}
-            playbackRate={audioPlayer.audioState.playbackRate}
-            isVertical
-            dockOffsetPx={audioPlayer.audioDockOffset}
-            currentTime={audioPlayer.currentTime}
-            duration={audioPlayer.duration}
-            onPlayPause={audioPlayer.onPlayPause}
-            onVoiceChange={audioPlayer.onVoiceChange}
-            onSpeedChange={audioPlayer.onSpeedChange}
-            onSeek={audioPlayer.onSeek}
-            onSkipChunk={audioPlayer.onSkipChunk}
-            ttsConnected={audioPlayer.ttsConnected}
-          />
-        ) : null}
 
         <WorkspaceReaderOverlays {...overlays} />
       </div>

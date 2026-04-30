@@ -112,21 +112,6 @@ export const buildReaderShellProps = ({
       ?.isLoading || false;
 
   return {
-    audioPlayer: {
-      audioDockOffset: readerRuntime.readerChrome.audioDockOffset,
-      audioState: readerRuntime.ttsPlayer.audioState,
-      availableVoices: readerRuntime.ttsPlayer.availableVoices,
-      currentTime: readerRuntime.ttsPlayer.playerCurrentTime,
-      duration: readerRuntime.ttsPlayer.playerDuration,
-      onPlayPause: readerRuntime.ttsPlayer.togglePlayPause,
-      onSeek: readerRuntime.ttsPlayer.handleSeek,
-      onSkipChunk: readerRuntime.ttsPlayer.handleSkipChunk,
-      onSpeedChange: readerRuntime.ttsPlayer.handleSpeedChange,
-      onVoiceChange: readerRuntime.ttsPlayer.handleVoiceChange,
-      playerCurrentChunkIsLoading,
-      sectionContent,
-      ttsConnected: readerRuntime.ttsPlayer.ttsConnected,
-    },
     banners: {
       needsSourceFile,
       onAttachSourceFile: handleAttachSourceFile,
@@ -243,6 +228,22 @@ export const buildReaderShellProps = ({
       onSetSettingsPanelExpandedSections: readerRuntime.setSettingsPanelExpandedSections,
       preferredModels: readerRuntime.preferredModels,
       settingsPanelExpandedSections: readerRuntime.settingsPanelExpandedSections,
+      tts: {
+        availableVoices: readerRuntime.ttsPlayer.availableVoices,
+        currentTime: readerRuntime.ttsPlayer.playerCurrentTime,
+        currentVoice: readerRuntime.ttsPlayer.audioState.currentVoice,
+        duration: readerRuntime.ttsPlayer.playerDuration,
+        isPlaying: readerRuntime.ttsPlayer.audioState.isPlaying,
+        isLoading: playerCurrentChunkIsLoading,
+        playbackRate: readerRuntime.ttsPlayer.audioState.playbackRate,
+        sectionContent,
+        ttsConnected: readerRuntime.ttsPlayer.ttsConnected,
+        onPlayPause: readerRuntime.ttsPlayer.togglePlayPause,
+        onSeek: readerRuntime.ttsPlayer.handleSeek,
+        onSkipChunk: readerRuntime.ttsPlayer.handleSkipChunk,
+        onSpeedChange: readerRuntime.ttsPlayer.handleSpeedChange,
+        onVoiceChange: readerRuntime.ttsPlayer.handleVoiceChange,
+      },
     },
     overlays: {
       contextAnswer: readerRuntime.readerContext.contextAnswer,

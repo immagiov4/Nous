@@ -42,29 +42,6 @@ const buildProps = (): WorkspaceReaderShellProps => {
   scrollContainerRef.current = { scrollTo } as unknown as HTMLDivElement;
 
   return {
-    audioPlayer: {
-      audioDockOffset: 18,
-      audioState: {
-        audioElement: null,
-        chunks: [],
-        currentChunkIndex: 0,
-        currentModel: 'openai/gpt-4o-mini-tts-2025-12-15',
-        currentVoice: 'coral',
-        isPlaying: true,
-        playbackRate: 1,
-      },
-      availableVoices: [{ id: 'coral', label: 'coral', language: 'it-IT' }],
-      currentTime: 12,
-      duration: 45,
-      onPlayPause: vi.fn(),
-      onSeek: vi.fn(),
-      onSkipChunk: vi.fn(),
-      onSpeedChange: vi.fn(),
-      onVoiceChange: vi.fn(),
-      playerCurrentChunkIsLoading: false,
-      sectionContent: '# Lezione',
-      ttsConnected: true,
-    },
     banners: {
       needsSourceFile: false,
       onAttachSourceFile: vi.fn(),
@@ -156,6 +133,22 @@ const buildProps = (): WorkspaceReaderShellProps => {
         preferredTtsVoice: 'coral',
       },
       settingsPanelExpandedSections: ['course-notes'],
+      tts: {
+        availableVoices: [],
+        currentTime: 0,
+        currentVoice: 'coral' as const,
+        duration: 0,
+        isPlaying: false,
+        isLoading: false,
+        playbackRate: 1,
+        sectionContent: '',
+        ttsConnected: false,
+        onPlayPause: vi.fn(),
+        onSeek: vi.fn(),
+        onSkipChunk: vi.fn(),
+        onSpeedChange: vi.fn(),
+        onVoiceChange: vi.fn(),
+      },
     },
     overlays: {
       contextAnswer: null,
@@ -258,22 +251,6 @@ describe('WorkspaceReaderShell', () => {
     expect(document.body.style.overflow).toBe('auto');
     expect(document.documentElement.style.overscrollBehavior).toBe('auto');
     expect(document.body.style.overscrollBehavior).toBe('auto');
-  });
-
-  test('renders the docked audio player only when speech content is available and connected', () => {
-    const props = buildProps();
-    const { rerender } = render(<WorkspaceReaderShell {...props} />);
-
-    expect(screen.getByTestId('audio-player')).toHaveAttribute('data-voice', 'coral');
-
-    rerender(
-      <WorkspaceReaderShell
-        {...props}
-        audioPlayer={{ ...props.audioPlayer, ttsConnected: false }}
-      />
-    );
-
-    expect(screen.queryByTestId('audio-player')).not.toBeInTheDocument();
   });
 
   test('applies desktop sidebar spacing to the main reading column', () => {
