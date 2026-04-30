@@ -2,13 +2,16 @@ import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
 import { buildDocumentInputContent, type FileData, isPdfFile } from './shared.ts';
 
+const TRUNCATED_PDF_SOURCE_BUDGET_RATIO = 0.8;
+
 export const clipPdfSourceText = (text: string, maxChars: number): string => {
   const normalized = normalizeLineEndings(text).trim();
   if (normalized.length <= maxChars) {
     return normalized;
   }
 
-  return `${normalized.slice(0, maxChars).trim()}\n\n[ESTRATTO PDF TRONCATO PER LIMITI DI CONTESTO]`;
+  const reservedSourceChars = Math.max(1, Math.floor(maxChars * TRUNCATED_PDF_SOURCE_BUDGET_RATIO));
+  return `${normalized.slice(0, reservedSourceChars).trim()}\n\n[ESTRATTO PDF TRONCATO PER LIMITI DI CONTESTO]`;
 };
 
 export const buildPdfReasoningExtractionNotes = (

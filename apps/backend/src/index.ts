@@ -14,6 +14,8 @@ import { timestampIso } from './utils/time.js';
 
 const DEFAULT_FRONTEND_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const DEV_FRONTEND_PORT = '5173';
+const DEFAULT_JSON_BODY_LIMIT = '50mb';
+const PDF_JSON_BODY_LIMIT = '160mb';
 
 const isPrivateIpv4Host = (host: string): boolean => {
   const parts = host.split('.').map(part => Number.parseInt(part, 10));
@@ -86,7 +88,8 @@ export const createApp = () => {
       credentials: true,
     })
   );
-  app.use(express.json({ limit: '50mb' }));
+  app.use('/api/pdf', express.json({ limit: PDF_JSON_BODY_LIMIT }));
+  app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 
   app.use((req, _res, next) => {
     console.log(`[Backend] ${req.method} ${req.path}`);
@@ -110,7 +113,24 @@ export const createApp = () => {
   });
 
   app.use(
-    (err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    (
+      err: Error & { status?: number; type?: string },
+      _req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction
+    ) => {
+      if (err.type === 'entity.too.large' || err.status === 413) {
+        console.warn('[Backend] Request payload too large:', {
+          status: err.status,
+          type: err.type,
+        });
+        res.status(413).json({
+          success: false,
+          error: 'Il file e troppo grande per questa richiesta.',
+        });
+        return;
+      }
+
       console.error('[Backend] Unhandled error:', err);
       res.status(500).json({
         success: false,

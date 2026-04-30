@@ -25,6 +25,7 @@
 - Extracted lesson Markdown cleanup, paragraph deduplication, quiz normalization, and Markdown repair from `planning.ts`.
 - Extracted lesson response schema, payload parsing, and final verification prompt/call from `planning.ts`.
 - Extracted PDF lesson chunk debug payloads and relevant image-page estimation from `planning.ts`.
+- Raised PDF-only backend JSON capacity, returns 413 for oversized bodies, and clips truncated PDF prompt text to 80% of the caller budget.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred
