@@ -19,6 +19,7 @@
 - Split `App.tsx` composition helpers for model defaults, PDF mapping warnings, app dialogs, initial section auto-open, and reader shell props.
 - Split markdown rendering normalization into code heuristics, math normalization, fenced-code repair, and segment processing modules.
 - Extracted annotation text projection and selection resolution from `sectionAnnotations.ts`.
+- Extracted annotation mark parsing, range rewriting, and document-order sorting from `sectionAnnotations.ts`.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred
