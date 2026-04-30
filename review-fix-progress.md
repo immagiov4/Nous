@@ -13,6 +13,7 @@
 - Consolidated backend web-search tool schemas and web-search mandate prompt text.
 - Named chat, retry, search, cache, status, web-search token, and TTS timing/result limits.
 - Reduced duplicated TTS model/type/voice fallback definitions.
+- Removed the old local Python/Qwen TTS runtime path; TTS now goes through OpenRouter only.
 - Made malformed optional JSON config files fail clearly instead of silently falling back.
 - Added stable SQLite ordering for reads and shared sibling insertion logic for folder/project moves.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.

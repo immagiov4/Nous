@@ -6,7 +6,6 @@ import {
   loadServerConfig,
 } from './config/serverConfig.js';
 import { createApp } from './index.js';
-import { processManager } from './services/processManager.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
 
 const app = createApp();
@@ -48,7 +47,6 @@ const shutdown = async (signal: 'SIGINT' | 'SIGTERM') => {
 
   isShuttingDown = true;
   console.log(`[Backend] ${signal} received, shutting down...`);
-  await processManager.stop();
   server.close(() => {
     process.exit(0);
   });

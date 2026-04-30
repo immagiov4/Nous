@@ -10,15 +10,12 @@ AI generation is centered in the frontend code under `services/openrouter/`, whi
 
 ## Runtime Pieces
 
-The application is made of three separate runtimes:
+The application is made of two separate runtimes:
 
 | Piece | Default port | Purpose |
 | --- | --- | --- |
 | Frontend | 5173 | React UI and most client-side orchestration |
 | Backend | 3301 | API server for chat, PDF, projects, and TTS |
-| Optional local TTS server | 8880 | Standalone Python/FastAPI Qwen3-TTS service |
-
-The backend and the optional Python TTS service are separate processes. The default app flow does not require the Python server to be running.
 
 ## Frontend Entry Point
 
@@ -178,12 +175,7 @@ The backend uses SQLite for project storage in LAN mode. The frontend chooses be
 
 ## TTS
 
-There are two TTS-related paths in the repository:
-
-1. The default app path: frontend audio playback calls the backend `/api/tts` route, and that route uses OpenRouter's `audio/speech` endpoint.
-2. The optional local service: `tts-server/` is a standalone Python/FastAPI Qwen3-TTS server that you can run separately.
-
-The optional Python service is useful when you want to experiment with the standalone Qwen3-TTS stack, but it is not part of the default `npm run dev` flow.
+Frontend audio playback calls the backend `/api/tts` route, and that route uses OpenRouter's `audio/speech` endpoint. There is no local TTS runtime in the app flow.
 
 ## Where To Make Changes
 
@@ -214,5 +206,4 @@ The optional Python service is useful when you want to experiment with the stand
 npm run dev       # Frontend + backend in watch mode
 npm run quality   # TypeScript type check + Biome lint
 npm test          # Vitest test suite
-npm run dev:tts   # Optional standalone Python TTS server
 ```

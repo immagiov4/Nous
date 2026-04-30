@@ -7,7 +7,7 @@ const router = Router();
 
 /**
  * GET /api/status
- * Get TTS server status
+ * Get OpenRouter TTS readiness.
  */
 router.get('/', async (_req: Request, res: Response) => {
   try {

@@ -15,8 +15,6 @@ data
 *.local
 .env.*.local
 nul
-services/tts-server/**/__pycache__/
-services/tts-server/**/*.egg-info/
 
 # Editor directories and files
 .vscode/*

@@ -7,8 +7,6 @@
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "vite --config apps/web/vite.config.ts",
     "dev:backend": "npm --prefix apps/backend run dev",
-    "dev:tts": "cd services/tts-server && python -m api.main",
-    "setup:tts": "cd services/tts-server && python download_model.py",
     "build": "vite build --config apps/web/vite.config.ts",
     "preview": "vite preview --config apps/web/vite.config.ts",
     "lint": "npm run lint:types",

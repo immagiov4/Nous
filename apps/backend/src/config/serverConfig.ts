@@ -60,12 +60,6 @@ export function loadServerConfig(): ServerConfig {
   return cachedConfig ?? defaultServerConfig;
 }
 
-export function buildTTSServerUrl(
-  config: Pick<ServerConfig, 'ttsServerHost' | 'ttsServerPort'>
-): string {
-  return `http://${config.ttsServerHost}:${config.ttsServerPort}`;
-}
-
 export function getBackendServerConfig(
   config: Pick<ServerConfig, 'backendHost' | 'backendPort'> = loadServerConfig()
 ): Pick<ServerConfig, 'backendHost' | 'backendPort'> {
@@ -85,8 +79,4 @@ export function buildBackendServerUrl(
 
 export function getBackendServerUrl(options: { displayHost?: boolean } = {}): string {
   return buildBackendServerUrl(getBackendServerConfig(loadServerConfig()), options);
-}
-
-export function getTTSServerUrl(): string {
-  return buildTTSServerUrl(loadServerConfig());
 }

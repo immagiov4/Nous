@@ -20,18 +20,6 @@ export interface VoiceProfilesConfig {
 export interface ServerConfig {
   backendHost: string;
   backendPort: number;
-  pythonExecutable: string;
-  ttsServerModule: string;
-  ttsServerCwd: string;
-  ttsServerPort: number;
-  ttsServerHost: string;
-  modelId: string;
-  modelCachePath: string;
-  device: 'auto' | 'cuda' | 'mps' | 'cpu';
-  startupTimeoutMs: number;
-  healthCheckIntervalMs: number;
-  restartOnCrash: boolean;
-  maxRestartAttempts: number;
 }
 
 export interface TTSRequest {
@@ -71,16 +59,5 @@ export interface TTSStatus {
   isRunning: boolean;
   isReady: boolean;
   modelLoaded: boolean;
-  currentDevice: string;
-  uptime: number;
-  lastError?: string;
-}
-
-export interface ProcessState {
-  isRunning: boolean;
-  isReady: boolean;
-  pid?: number;
-  startTime?: number;
-  restartAttempts: number;
   lastError?: string;
 }
