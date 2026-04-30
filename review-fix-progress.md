@@ -23,6 +23,7 @@
 - Consolidated planning source profiling, adaptive guidance, search keywords, and plan-section deduplication into a shared `planQuality.ts` module.
 - Extracted PDF lesson image selection, labels, placeholders, and generated visual fallback from `planning.ts`.
 - Extracted lesson Markdown cleanup, paragraph deduplication, quiz normalization, and Markdown repair from `planning.ts`.
+- Extracted lesson response schema, payload parsing, and final verification prompt/call from `planning.ts`.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred
