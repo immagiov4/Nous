@@ -1,0 +1,252 @@
+# General Programming Preferences and Development Guidelines
+
+IMPORTANT: these guidelines are your bible, read them all completely, do not infer, read them and check on them periodically. If the requested task is complicated and will run for long, read this file again to refresh your context and to prevent context compaction and context drift.
+
+## Quick Map
+Core Philosophy → Context Before Code → Simplicity → Naming → Single Source of Truth → Magic Numbers → Configuration Constants → Modularity & Helpers → Parameters → Error Handling → Comments → Code Style → Runtime Assumptions → Localization → UI Design → Event Handling → Data Ordering → Security → Testing → Bug Fixing → Change Discipline → Confirmation → Version Control → Performance → State & Side Effects → Dead Code → Tradeoffs → Output Style → Final Checklist
+
+## Core Philosophy
+
+Write code that is easy to understand, easy to change, and difficult to misuse.
+
+Prefer clear structure over cleverness, explicit intent over implicit behavior, and consistency over local convenience. The goal is not merely to make the code work, but to make future modifications safer and faster.
+
+Before changing code, first understand the surrounding codebase. Do not implement solutions in isolation. Existing architecture, naming conventions, utilities, constants, error handling patterns, and domain assumptions matter.
+
+## Context Before Code
+
+Before writing or modifying code, gather enough contextual awareness:
+
+1. Read nearby files and similar implementations.
+2. Identify existing helpers, constants, types, services, and utilities.
+3. Check how related functionality is already structured.
+4. Verify where the code is imported or called.
+5. Avoid recreating logic that already exists elsewhere.
+6. Prefer extending existing patterns over inventing a new local style.
+
+Do not start from a blank-slate design unless the existing structure is genuinely broken.
+
+## Simplicity and Cognitive Complexity
+
+Keep individual functions small enough to reason about. Functions should do one coherent thing. As a practical target, keep cognitive complexity below 15.
+
+Reduce complexity by:
+- Using guard clauses instead of deeply nested conditionals
+- Extracting real responsibilities into helpers
+- Replacing nested ternaries with named functions
+- Separating validation, transformation, side effects, and rendering logic
+- Avoiding large multipurpose functions
+
+A bad pattern is a single function that validates input, transforms data, handles permissions, updates state, logs errors, formats UI output, and triggers side effects. A better pattern is one coordinator function with specific helpers for each concern.
+
+Helpers must earn their existence. Do not create one-line pass-through wrappers that merely rename a direct assignment or call without adding semantic value. Three similar lines is better than a premature abstraction — do not design for hypothetical future requirements.
+
+## Naming
+
+Names should be semantically decodable at a glance. A reader should understand what a variable, function, type, or parameter represents without inspecting its full implementation.
+
+Prefer names that answer: what is this, why does it exist, what state or behavior does it represent, and is this input, output, configuration, derived state, or a side effect?
+
+Avoid names that are too generic (handle, process, data, item, value, manager, onRemove) unless context makes them obvious. Also avoid names tied to implementation details that may change. Do not repeat context already clear from the file, module, class, or object.
+
+Naming is part of code review — re-check names before finishing a change.
+
+## Single Source of Truth
+
+Do not duplicate constants, strings, formulas, validation rules, or business logic. If a value or rule appears in multiple places, centralize it.
+
+This applies to: error messages, validation limits, UI labels, colors, timing values, permission rules, status names, configuration defaults, and transformation logic. Duplicated values create hidden coupling. One change should update the whole system without hunting through the codebase.
+
+## No Magic Numbers or Magic Strings
+
+Avoid unexplained literals in logic. Domain-specific numbers and strings must always be named:
+- Bad: `wait(1000)`, `items.length > 100`, `status == "active"`, `width = 14.6`
+- Better: `wait(TIMING.RETRY_DELAY_MS)`, `items.length > VALIDATION.MAX_ITEMS`, `status == STATUS.ACTIVE`, `width = LAYOUT.CONTENT_WIDTH`
+
+Literals are acceptable only when their meaning is immediate and local (0, 1, simple loop indexes, trivial arithmetic). For coupled layout, timing, or configuration values, define source constants and derive the rest.
+
+## Configuration and Aesthetic Constants
+
+Visual, layout, timing, and behavioral constants should be centralized. Do not hardcode colors, sizes, durations, spacing, labels, thresholds, or limits directly inside UI or business logic.
+
+Use the project's existing palette, spacing scale, timing constants, and configuration objects. Prefer derived metrics when values depend on each other — define source constants and compute dependent ones. This makes changes safer and prevents subtle drift.
+
+## Modularity and Helpers
+
+Group related files by responsibility. When a feature grows, split it into a small local module structure instead of letting one file become a monolith.
+
+Good modularization separates real concerns: main component/controller, validation, formatting, persistence, rendering, and domain calculations. Bad modularization creates tiny files that cannot be understood alone.
+
+Split a file when it mixes unrelated responsibilities, functions become hard to test, helpers are reused across multiple places, or the same conceptual group keeps appearing repeatedly.
+
+Helpers should encode meaningful responsibility: clarifying a domain rule, isolating a reusable calculation, hiding repetitive but meaningful setup, or centralizing a pattern used in multiple places. A helper that wraps a single assignment without adding meaning should not exist. For recurring generic patterns, prefer a shared general helper over many one-off microhelpers.
+
+## Parameters and Configuration Objects
+
+When a function needs more than three or four parameters, use a configuration object or structured input type. This makes call sites clearer, reduces argument-order bugs, and allows future extension without breaking every caller.
+
+## Error Handling
+
+Error handling should be explicit, safe, and consistent.
+
+- Do not expose internal implementation details to users. Log technical details internally; show stable user-facing messages. Never show raw `error.message` values directly to users.
+- Use centralized error messages and error codes when appropriate.
+- Do not silently swallow errors unless the operation is genuinely optional and failure is expected.
+
+**Assertions vs defensive checks:** when a value should logically exist because execution flow guarantees it, prefer an assertion or explicit failure over a defensive fallback that masks broken state. Defensive checks are appropriate for public APIs, external input, async callbacks, optional integrations, and recoverable user-driven conditions — not merely to silence tooling or make code "feel safer".
+
+Bad: silently returning when `currentUser` is missing even though the caller already validated a user exists. Better: asserting that `currentUser` must exist after the authentication check. Silent failure makes bugs harder to detect and turns invalid states into mysterious behavior.
+
+## Comments and Documentation
+
+Comments should explain intent, tradeoffs, invariants, and non-obvious behavior. Well-named identifiers already explain *what* the code does — comments explain *why*.
+
+Do not comment obvious assignments or trivial getters. The test: if removing the comment wouldn't confuse a reader unfamiliar with the code, don't write it.
+- Bad: `// Get user` before `user = getUser()`
+- Good: `// This branch intentionally avoids caching because permissions may change during the session`
+
+Use short comments above substantial control-flow blocks when the purpose is non-obvious. Do not write comments referencing change history or the conversation — comments should be factual and impersonal.
+
+For public functions, modules, components, or complex helpers, include concise documentation: purpose, assumptions, parameters, return value, side effects, and examples where useful.
+
+## Code Style and Modern APIs
+
+Use modern, standard APIs when they improve clarity, safety, or portability:
+1. Use explicit radix when parsing numbers.
+2. Use sets or maps for frequent membership lookups.
+3. Use environment-neutral global access when applicable.
+4. Prefer built-in string/list operations over custom loops when clearer.
+5. Avoid deprecated APIs unless required by the runtime.
+
+Do not modernize blindly if the project runtime does not support the newer API. Always respect target runtime and compatibility constraints.
+
+## Runtime and Platform Assumptions
+
+Do not add compatibility layers unless the project explicitly supports multiple runtimes. If the environment is too old, failing clearly is better than silently degrading. Do not add defensive compatibility checks for APIs guaranteed by the project's stated requirements. When intentionally avoiding a standard API, add a short comment explaining why.
+
+## Localization and User-Facing Text
+
+Follow the project's localization and language conventions. Centralize strings where the project already does so. Do not mix languages in UI. Technical comments may use the language dominant in the codebase.
+
+## UI and Interaction Design
+
+UI code should minimize visual noise and avoid redundant feedback:
+- Do not show success messages for obvious actions unless confirmation is genuinely useful.
+- Centralize aesthetic decisions: colors, spacing, animation timings, layout dimensions.
+- Use consistent visual patterns across similar UI elements.
+- Do not fix layout bugs by randomly forcing sizes — understand the layout model and fix the underlying constraint.
+- When rendering dynamic lists from unordered data structures, sort before display for a stable UI.
+
+Before writing any UI component, identify the existing component patterns in the codebase. Extend what exists. Do not invent new visual patterns unless none exist.
+
+## Event Handling and Re-rendering
+
+Interactive elements should not cause state updates or redraws unless something meaningful changed. Before updating state, compare the new value with the current value.
+
+Bad: saving and redrawing every time an event fires, even when the value has not changed. Better: returning without update when the new value equals the current value.
+
+This matters especially in dense forms, scrollable panels, text fields, dropdowns, live previews, and any UI that receives frequent events. Avoid tying scroll position, hover state, or transient UI state to expensive full rebuilds.
+
+## Data Ordering and Stability
+
+Never rely on undefined iteration order when rendering UI, serializing output, generating files, or comparing results. If order matters, make it explicit: sort alphabetically, by date, by priority, by configured order, or by guaranteed insertion order. Stable output reduces visual jitter, test flakiness, and debugging confusion.
+
+## Security and Input Handling
+
+Treat external input as untrusted. Sanitize and validate before use in persistence, rendering, queries, or security-sensitive logic.
+
+Never expose internal errors, stack traces, paths, tokens, or configuration secrets to users. Permission checks must exist at the authoritative layer (backend/service). Frontend checks improve UX but are not enforcement. Prefer allowlists over blocklists for constrained input.
+
+## Testing and Validation
+
+After making changes, validate using the project's available tools: tests, linters, type checks, local scripts, or manual verification.
+
+For automated tests: test critical paths thoroughly, test utility modules more deeply, test integrations around real user flows, isolate time/randomness/network/external services, and clean up mocks and test state after each test.
+
+For manual-only projects, explain what must be verified and where. If validation reveals unrelated pre-existing failures, mention them clearly instead of hiding them.
+
+## Bug Fixing Methodology
+
+When fixing a bug, identify the root pattern, then search for similar occurrences:
+
+1. Determine the root cause.
+2. Search the same file for the same pattern.
+3. Search related modules.
+4. Search tests, examples, docs, and duplicated logic.
+5. Fix all relevant occurrences.
+6. Validate the broader pattern is gone.
+
+Do not close your eyes after one local fix.
+
+## Change Discipline
+
+Prefer minimal, direct changes that solve the real problem. Do not add features, refactor, or introduce abstractions beyond what the task requires. A bug fix does not need surrounding cleanup. When modifying existing code:
+1. Preserve current behavior unless the change requires otherwise.
+2. Avoid breaking public interfaces casually.
+3. Keep imports clean and remove dead code.
+4. Avoid unused variables.
+5. Keep naming consistent with surrounding style.
+6. Do not mix refactors with behavior changes unless necessary.
+
+If a change requires a larger refactor, explain why.
+
+## Confirmation Before Code Changes
+
+Before any action, evaluate its reversibility and blast radius. Local, reversible changes (editing files, running tests) can proceed freely. Hard-to-reverse or broadly impactful actions (deleting data, modifying shared state, destructive refactors) require explicit confirmation before proceeding.
+
+When acting as a coding assistant, do not modify code before explaining the issue and receiving approval, unless the user has explicitly asked for direct implementation.
+
+For exploratory questions ("what could we do about X?", "how should we approach this?") respond in 2-3 sentences: one recommendation, one main tradeoff. Present it as a direction the user can redirect, not a decided plan. Do not implement until the user explicitly confirms.
+
+For debugging tasks: show exact evidence (files, functions, lines), explain the faulty logic, propose one or more fix approaches, recommend the best option with tradeoffs, then wait for confirmation before editing.
+
+## Version Control Discipline
+
+Do not run state-changing version control commands without explicit approval. Never commit, push, rebase, reset, amend, stash, stage, or otherwise mutate repository state unless explicitly requested. Read-only commands are acceptable for context.
+
+## Performance Awareness
+
+Avoid unnecessary work in hot paths: repeated full re-renders, expensive loops inside frequent events, repeated parsing or formatting, linear searches on large collections, redundant network or database calls, rebuilding UI during scroll or typing.
+
+Use appropriate data structures. Cache or memoize only when cost and invalidation rules justify it. Do not prematurely optimize cold code, but do not ignore obvious hot-path waste.
+
+## State and Side Effects
+
+Keep state transitions explicit. Separate: calculating what should happen, validating whether it may happen, applying the mutation, notifying the user, and logging or recording metrics. Avoid hidden side effects inside functions that look like pure calculations. When state may change asynchronously, write code that acknowledges that possibility.
+
+## Dead Code and Cleanup
+
+Remove unused code quickly. Dead variables, unused helpers, duplicate blocks, stale comments, and abandoned branches increase maintenance cost. Trust the linter, but verify before deletion if the project uses dynamic imports, reflection, registration side effects, or framework conventions.
+
+## Documentation of Non-Obvious Tradeoffs
+
+When code intentionally does something surprising, document the tradeoff in a short, factual comment close to the relevant code. Examples: avoiding a standard API for performance or compatibility, using a custom implementation due to framework limitations, keeping a workaround for a known runtime bug, not validating a value because an earlier invariant guarantees it.
+
+## Preferred Output Style for Code Changes
+
+1. Provide complete, usable code rather than vague fragments when implementation is requested.
+2. Avoid placeholders unless explicitly requested.
+3. Preserve existing behavior.
+4. Explain assumptions only when they matter.
+5. Mention validation steps performed or still required.
+6. Identify pre-existing unrelated issues separately.
+
+Do not claim tests passed unless they were actually run.
+
+## Final Review Checklist
+
+Before considering a change complete, verify that:
+
+1. The solution follows existing project patterns.
+2. No duplicated constants, strings, or logic were introduced.
+3. Function complexity stayed reasonable.
+4. Names are clear and semantically accurate.
+5. No unnecessary defensive checks were added.
+6. No silent failure hides a real bug.
+7. User-facing text follows the project language/localization rules.
+8. UI updates happen only when meaningful state changes.
+9. Dynamic output order is stable where needed.
+10. No dead imports, variables, helpers, or comments remain.
+11. Relevant tests, checks, or manual validation steps were run or documented.
+12. No state-changing version control command was executed without approval.
+

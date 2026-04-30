@@ -37,10 +37,26 @@ Use it as the default reference before changing or adding frontend UI.
 
 - Floating panels can be more elevated than reading surfaces.
 - Use rounded outer containers, stronger shadows, and higher contrast borders.
-- Typical panel surface:
+- Popup-like neutral pills and badges should visually belong to these surfaces.
+- Only one popup/popover may be open at a time. Opening one must close any other.
+
+#### Tier 1 — Settings & Controls (lighter surface)
+
+- Short-lived panels the user opens, adjusts, and dismisses quickly.
+- Examples: model settings, audio panel.
+- Typical surface:
+  - Light: `border-gray-200 bg-white`
+  - Dark: `dark:border-zinc-600/80 dark:bg-[var(--bg-surface)]`
+- These use `var(--bg-surface)` in dark mode so they sit slightly above the page background without competing with deeper overlays.
+
+#### Tier 2 — Contextual Overlays (deeper surface)
+
+- Panels that appear in response to a user action on highlighted content or contextual triggers.
+- Examples: context menu, annotation note, regenerate confirmation.
+- Typical surface:
   - Light: `border-gray-200 bg-white`
   - Dark: `dark:border-zinc-600/80 dark:bg-stone-700` or `dark:bg-stone-800`
-- Popup-like neutral pills and badges should visually belong to these surfaces.
+- These use `stone` in dark mode for stronger contrast against the reading surface, signaling higher contextual importance.
 
 ## Color System
 

@@ -17,6 +17,8 @@ import type { WorkspaceReaderTtsModel, WorkspaceReaderVoiceOption } from './shel
 
 interface UnifiedAudioPanelProps {
   isMobileViewport?: boolean;
+  isOpen?: boolean;
+  onToggle?: (open: boolean) => void;
   musicUrl: string;
   setMusicUrl: (url: string) => void;
   isMusicPlaying: boolean;
@@ -73,6 +75,8 @@ type AudioTab = 'voce' | 'ambiente';
 
 const UnifiedAudioPanel = ({
   isMobileViewport = false,
+  isOpen: isOpenProp,
+  onToggle,
   musicUrl,
   setMusicUrl,
   isMusicPlaying,
@@ -81,7 +85,16 @@ const UnifiedAudioPanel = ({
   setMusicVolume,
   tts,
 }: UnifiedAudioPanelProps) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpenLocal, setIsOpenLocal] = useState(false);
+  const isOpen = isOpenProp ?? isOpenLocal;
+  const setIsOpen = onToggle
+    ? (value: boolean | ((prev: boolean) => boolean)) => {
+        const next = typeof value === 'function' ? value(isOpen) : value;
+        onToggle(next);
+      }
+    : setIsOpenLocal;
+  const setIsOpenRef = useRef(setIsOpen);
+  setIsOpenRef.current = setIsOpen;
   const [activeTab, setActiveTab] = useState<AudioTab>('voce');
 
   const [isYtReady, setIsYtReady] = useState(false);
@@ -284,7 +297,7 @@ const UnifiedAudioPanel = ({
     if (!isOpen) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
+        setIsOpenRef.current(false);
       }
     };
     document.addEventListener('pointerdown', handlePointerDown);
@@ -343,7 +356,7 @@ const UnifiedAudioPanel = ({
                 transformOrigin: isMobileViewport ? 'top center' : 'top right',
                 willChange: 'transform, opacity',
               }}
-              className="panel-shadow overflow-visible rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 dark:border-zinc-600/80 dark:bg-stone-700"
+              className="panel-shadow overflow-visible rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)]"
             >
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700 dark:text-zinc-200">
@@ -433,11 +446,11 @@ const UnifiedAudioPanel = ({
                   </div>
 
                   <div className="flex items-center justify-between gap-4">
-                    <div className="relative inline-flex items-center overflow-visible rounded-lg border border-gray-200/80 dark:border-zinc-700/80">
+                    <div className="relative inline-flex items-center overflow-visible rounded-xl border border-gray-300 bg-white/80 dark:border-zinc-600 dark:bg-zinc-800/80">
                       <select
                         value={tts.currentVoice}
                         onChange={event => tts.onVoiceChange(event.target.value as VoiceProfileId)}
-                        className="cursor-pointer appearance-none border-0 bg-transparent px-2 py-0.5 text-center text-xs font-semibold text-gray-700 transition-colors hover:bg-black/5 focus:outline-none dark:text-zinc-200 dark:hover:bg-white/10"
+                        className="cursor-pointer appearance-none border-0 bg-transparent px-3 py-1.5 text-center text-sm font-semibold text-gray-700 transition-colors hover:bg-black/5 focus:outline-none rounded-l-xl dark:text-zinc-200 dark:hover:bg-white/10"
                         disabled={ttsDisabled}
                       >
                         {displayedVoices.map(voice => (
@@ -453,13 +466,13 @@ const UnifiedAudioPanel = ({
                         ))}
                       </select>
 
-                      <div className="h-4 w-px bg-gray-200 dark:bg-zinc-700" />
+                      <div className="h-5 w-px bg-gray-300 dark:bg-zinc-600" />
 
                       <div className="inline-flex items-center">
                         <button
                           type="button"
                           onClick={() => setIsSpeedPickerOpen(current => !current)}
-                          className="flex cursor-pointer items-center border-0 bg-transparent px-2 py-0.5 text-xs font-medium text-gray-500 transition-colors hover:bg-black/5 focus:outline-none dark:text-zinc-400 dark:hover:bg-white/10"
+                          className="flex cursor-pointer items-center border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-r-xl dark:text-zinc-300 dark:hover:bg-white/10 dark:focus-visible:ring-zinc-500"
                           aria-expanded={isSpeedPickerOpen}
                         >
                           <span className="inline-block tabular-nums">

@@ -1,5 +1,5 @@
 import { ArrowLeft, Moon, RefreshCw, Settings2, SidebarOpen, Sun, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MotionPopover } from '../../../utils/motion/index.ts';
 import MusicPlayer from '../UnifiedAudioPanel.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
@@ -41,6 +41,7 @@ export default function WorkspaceReaderHeader({
   tts,
 }: WorkspaceReaderHeaderModel) {
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
+  const [isAudioOpen, setIsAudioOpen] = useState(false);
   const regenerateConfirmRef = useRef<HTMLDivElement>(null);
   const activeContentTitle =
     activeLaboratoryExercise?.title || activeSection?.title || learningPlanTitle || 'Lezione';
@@ -84,7 +85,12 @@ export default function WorkspaceReaderHeader({
       return;
     }
 
-    setIsRegenerateConfirmOpen(currentValue => !currentValue);
+    const next = !isRegenerateConfirmOpen;
+    setIsRegenerateConfirmOpen(next);
+    if (next) {
+      onSetSettingsOpen(false);
+      setIsAudioOpen(false);
+    }
   };
 
   const handleConfirmRegenerate = () => {
@@ -111,8 +117,16 @@ export default function WorkspaceReaderHeader({
     </div>
   ) : null;
   const regenerateDialogClassName = isMobileViewport
-    ? 'fixed left-1/2 top-1/2 z-50 w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2'
+    ? 'mx-auto w-[min(20rem,calc(100vw-2rem))]'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2rem))]';
+
+  const courseNotesBinding = useMemo(
+    () => ({
+      value: courseGenerationNotes,
+      onChange: onSetCourseGenerationNotes,
+    }),
+    [courseGenerationNotes, onSetCourseGenerationNotes]
+  );
 
   return (
     <header
@@ -204,42 +218,82 @@ export default function WorkspaceReaderHeader({
               {!isMobileViewport ? <span>Rigenera</span> : null}
             </button>
 
-            <MotionPopover
-              isOpen={isRegenerateConfirmOpen}
-              originX="top right"
-              role="dialog"
-              aria-label="Conferma rigenerazione contenuto"
-              className={`${regenerateDialogClassName} rounded-[1.6rem] border border-stone-200/90 bg-white px-4 py-4 text-stone-700 shadow-[0_18px_40px_-24px_rgba(46,34,16,0.32)] dark:border-zinc-600/80 dark:bg-zinc-900 dark:text-zinc-200`}
-            >
-              <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                {`Rigenerare ${regenerateDemonstrative} ${regenerateSubjectLabel}?`}
-              </p>
-              <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                {activeLaboratoryExercise
-                  ? 'La traccia verrà riscritta e gli allegati correnti potrebbero non essere più coerenti con la nuova consegna.'
-                  : 'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'}
-              </p>
-              <div className="mt-4 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsRegenerateConfirmOpen(false)}
-                  className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            {isMobileViewport && isRegenerateConfirmOpen ? (
+              <div className="fixed inset-0 z-50 flex items-start justify-center pt-24">
+                <div
+                  className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
                 >
-                  Annulla
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmRegenerate}
-                  className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                >
-                  Rigenera
-                </button>
+                  <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+                    {`Rigenerare ${regenerateDemonstrative} ${regenerateSubjectLabel}?`}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                    {activeLaboratoryExercise
+                      ? 'La traccia verrà riscritta e gli allegati correnti potrebbero non essere più coerenti con la nuova consegna.'
+                      : 'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'}
+                  </p>
+                  <div className="mt-4 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsRegenerateConfirmOpen(false)}
+                      className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmRegenerate}
+                      className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+                    >
+                      Rigenera
+                    </button>
+                  </div>
+                </div>
               </div>
-            </MotionPopover>
+            ) : null}
+
+            {!isMobileViewport ? (
+              <MotionPopover
+                isOpen={isRegenerateConfirmOpen}
+                originX="top right"
+                role="dialog"
+                aria-label="Conferma rigenerazione contenuto"
+                className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
+              >
+                <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+                  {`Rigenerare ${regenerateDemonstrative} ${regenerateSubjectLabel}?`}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                  {activeLaboratoryExercise
+                    ? 'La traccia verrà riscritta e gli allegati correnti potrebbero non essere più coerenti con la nuova consegna.'
+                    : 'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'}
+                </p>
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsRegenerateConfirmOpen(false)}
+                    className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmRegenerate}
+                    className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+                  >
+                    Rigenera
+                  </button>
+                </div>
+              </MotionPopover>
+            ) : null}
           </div>
 
           <MusicPlayer
             isMobileViewport={isMobileViewport}
+            isOpen={isAudioOpen}
+            onToggle={open => {
+              setIsAudioOpen(open);
+              if (open) onSetSettingsOpen(false);
+            }}
             musicUrl={musicUrl}
             setMusicUrl={onSetMusicUrl}
             isMusicPlaying={isMusicPlaying}
@@ -255,7 +309,10 @@ export default function WorkspaceReaderHeader({
 
           <button
             type="button"
-            onClick={() => onSetSettingsOpen(!isSettingsOpen)}
+            onClick={() => {
+              onSetSettingsOpen(!isSettingsOpen);
+              if (!isSettingsOpen) setIsAudioOpen(false);
+            }}
             onPointerDown={e => e.stopPropagation()}
             className="rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
             title="Apri impostazioni modello"
@@ -280,10 +337,7 @@ export default function WorkspaceReaderHeader({
 
       {isSettingsOpen ? (
         <WorkspaceReaderSettingsPanel
-          courseNotes={{
-            value: courseGenerationNotes,
-            onChange: onSetCourseGenerationNotes,
-          }}
+          courseNotes={courseNotesBinding}
           expandedSections={settingsPanelExpandedSections}
           modelDefaults={modelDefaults}
           preferredModels={preferredModels}

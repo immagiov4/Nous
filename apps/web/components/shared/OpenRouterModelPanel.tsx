@@ -1,5 +1,12 @@
 import { ChevronDown, X } from 'lucide-react';
-import { type CSSProperties, useEffect, useRef } from 'react';
+import {
+  type ChangeEvent,
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import type {
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
@@ -62,6 +69,24 @@ export default function OpenRouterModelPanel({
   const expandedSectionSet = new Set(expandedSections);
   const isCourseNotesExpanded = expandedSectionSet.has('course-notes');
   const isModelsExpanded = onSectionToggle ? expandedSectionSet.has('ai-models') : true;
+
+  const [localNotes, setLocalNotes] = useState(courseNotes?.value ?? '');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const courseNotesRef = useRef(courseNotes);
+  courseNotesRef.current = courseNotes;
+
+  useEffect(() => {
+    setLocalNotes(courseNotes?.value ?? '');
+  }, [courseNotes?.value]);
+
+  const handleNotesChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.target.value;
+    setLocalNotes(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      courseNotesRef.current?.onChange(value);
+    }, 300);
+  }, []);
 
   const toggleSection = (sectionId: SettingsPanelSectionId) => {
     if (!onSectionToggle) {
@@ -143,8 +168,8 @@ export default function OpenRouterModelPanel({
                     Tono, livello, cose da evitare o ripetere.
                   </p>
                   <textarea
-                    value={courseNotes.value}
-                    onChange={event => courseNotes.onChange(event.target.value)}
+                    value={localNotes}
+                    onChange={handleNotesChange}
                     placeholder={
                       courseNotes.placeholder ||
                       'Es. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico.'
