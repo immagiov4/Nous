@@ -21,6 +21,7 @@
 - Extracted annotation text projection and selection resolution from `sectionAnnotations.ts`.
 - Extracted annotation mark parsing, range rewriting, and document-order sorting from `sectionAnnotations.ts`.
 - Consolidated planning source profiling, adaptive guidance, search keywords, and plan-section deduplication into a shared `planQuality.ts` module.
+- Extracted PDF lesson image selection, labels, placeholders, and generated visual fallback from `planning.ts`.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred
