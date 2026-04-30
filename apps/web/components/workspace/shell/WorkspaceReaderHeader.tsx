@@ -219,7 +219,11 @@ export default function WorkspaceReaderHeader({
             </button>
 
             {isMobileViewport && isRegenerateConfirmOpen ? (
-              <div className="fixed inset-0 z-50 flex items-start justify-center pt-24">
+              <div
+                className="fixed bottom-0 left-1/2 top-0 z-50 flex w-full -translate-x-1/2 items-start justify-center pt-24"
+                role="dialog"
+                aria-label="Conferma rigenerazione contenuto"
+              >
                 <div
                   className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
                 >

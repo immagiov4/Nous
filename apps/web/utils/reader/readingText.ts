@@ -8,6 +8,10 @@ const collapseWhitespace = (text: string): string =>
 const BLOCK_PAUSE_WEIGHT = 200;
 const NON_SPEECH_SELECTOR =
   'figure, figcaption, img, picture, svg, canvas, [data-nous-speech="ignore"]';
+const READABLE_TEXT_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, li, blockquote';
+const PROSE_READABLE_TEXT_SELECTOR = READABLE_TEXT_SELECTOR.split(', ')
+  .map(selector => `.prose ${selector}`)
+  .join(', ');
 
 const getReadingWeight = (text: string): number => {
   const baseLength = text.length;
@@ -68,8 +72,11 @@ export const extractReadableElementText = (element: HTMLElement): string => {
 
 export const buildReadableBlocks = (container: HTMLElement): ReadableBlock[] => {
   const containerRect = container.getBoundingClientRect();
-  const proseContainer = container.querySelector('.prose') || container;
-  const textElements = proseContainer.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+  const proseTextElements = container.querySelectorAll(PROSE_READABLE_TEXT_SELECTOR);
+  const textElements =
+    proseTextElements.length > 0
+      ? proseTextElements
+      : container.querySelectorAll(READABLE_TEXT_SELECTOR);
 
   let totalWeight = 0;
   const weightedElements = Array.from(textElements)
