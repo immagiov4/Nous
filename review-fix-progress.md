@@ -17,6 +17,7 @@
 - Made malformed optional JSON config files fail clearly instead of silently falling back.
 - Added stable SQLite ordering for reads and shared sibling insertion logic for folder/project moves.
 - Split `App.tsx` composition helpers for model defaults, PDF mapping warnings, app dialogs, initial section auto-open, and reader shell props.
+- Split markdown rendering normalization into code heuristics, math normalization, fenced-code repair, and segment processing modules.
 - Kept debug tracing in place; only reduced avoidable overhead where already safe.
 
 ## Intentionally Deferred
