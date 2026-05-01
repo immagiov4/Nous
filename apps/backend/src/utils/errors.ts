@@ -18,7 +18,7 @@ function getNestedErrorLike(error: unknown): ErrorLike | null {
   return error as ErrorLike;
 }
 
-export function normalizeError(error: unknown, fallbackMessage = 'Unknown error'): NormalizedError {
+function normalizeError(error: unknown, fallbackMessage = 'Unknown error'): NormalizedError {
   if (error instanceof Error) {
     const errorLike = error as ErrorLike;
 
@@ -54,20 +54,4 @@ export function normalizeError(error: unknown, fallbackMessage = 'Unknown error'
 
 export function getErrorMessage(error: unknown, fallbackMessage = 'Unknown error'): string {
   return normalizeError(error, fallbackMessage).message;
-}
-
-export function isConnectionError(error: unknown): boolean {
-  const normalizedError = normalizeError(error, 'Connection failed');
-
-  if (normalizedError.code === 'ECONNREFUSED') {
-    return true;
-  }
-
-  if (normalizedError.message.includes('Connection failed')) {
-    return true;
-  }
-
-  const nestedCause = getNestedErrorLike(normalizedError.cause);
-
-  return nestedCause?.code === 'ECONNREFUSED';
 }

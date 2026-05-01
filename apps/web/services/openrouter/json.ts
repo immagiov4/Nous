@@ -13,7 +13,7 @@ const logJsonRepairFailure = (stage: JsonRepairStage, error: unknown): void => {
   });
 };
 
-export const parseJson = <T>(text: string, fallback: T): T => {
+const parseJson = <T>(text: string, fallback: T): T => {
   try {
     return JSON.parse(text) as T;
   } catch (error) {
@@ -100,7 +100,7 @@ export const cleanJson = (text: string): string => {
   return clean;
 };
 
-export const repairJsonString = (text: string): string => {
+const repairJsonString = (text: string): string => {
   let repaired = '';
   let inString = false;
   let stringDelimiter = '"';

@@ -5,15 +5,15 @@ import { getBackendServerUrl } from '../config/serverConfig.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { isRecord } from '../utils/validation.js';
 
-export const MAX_CONTEXT_CHARS = 24_000;
-export const MAX_WEB_SEARCH_RESULTS = 8;
-export const DEFAULT_WEB_SEARCH_RESULTS = 5;
+const MAX_CONTEXT_CHARS = 24_000;
+const MAX_WEB_SEARCH_RESULTS = 8;
+const DEFAULT_WEB_SEARCH_RESULTS = 5;
 const WEB_SEARCH_TOTAL_RESULT_MULTIPLIER = 2;
 const WEB_SEARCH_SUMMARY_MAX_TOKENS = 1_200;
 export const CHAT_TOOL_STEP_LIMIT = 6;
 
 export const LIBRARY_WEB_SEARCH_TOOL_NAME = 'searchWeb' as const;
-export const LIBRARY_WEB_SEARCH_EXECUTOR_MODEL =
+const LIBRARY_WEB_SEARCH_EXECUTOR_MODEL =
   process.env.MODEL_LIBRARY_WEB_SEARCH || process.env.MODEL_REASONING || 'openai/gpt-5.4-mini';
 
 export interface ContextChatToolPreferences {
@@ -40,7 +40,7 @@ export interface LibraryResolvedScopeSummary {
   scopeSummary?: string;
 }
 
-export interface OpenRouterWebSearchAnnotation {
+interface OpenRouterWebSearchAnnotation {
   type?: string;
   url_citation?: {
     title?: string;
@@ -48,7 +48,7 @@ export interface OpenRouterWebSearchAnnotation {
   };
 }
 
-export interface OpenRouterWebSearchResponse {
+interface OpenRouterWebSearchResponse {
   choices?: Array<{
     message?: {
       annotations?: OpenRouterWebSearchAnnotation[];
@@ -150,7 +150,7 @@ export const createWebSearchTool = ({
     execute,
   });
 
-export const clip = (value: string | undefined, maxChars = MAX_CONTEXT_CHARS) => {
+const clip = (value: string | undefined, maxChars = MAX_CONTEXT_CHARS) => {
   if (!value) {
     return '';
   }
@@ -184,14 +184,14 @@ export const formatLibraryAttachedRefs = (attachedContextRefs?: LibraryContextRe
         .join(', ')
     : 'nessun riferimento allegato';
 
-export const getOpenRouterHeaders = () => ({
+const getOpenRouterHeaders = () => ({
   'Content-Type': 'application/json',
   Authorization: `Bearer ${requireOpenRouterApiKey()}`,
   'HTTP-Referer': getBackendServerUrl({ displayHost: true }),
   'X-OpenRouter-Title': 'Nous Reader',
 });
 
-export const extractWebSearchSources = (annotations?: OpenRouterWebSearchAnnotation[]) =>
+const extractWebSearchSources = (annotations?: OpenRouterWebSearchAnnotation[]) =>
   (annotations || []).reduce<WebSearchToolResult['sources']>((sources, annotation) => {
     if (annotation.type !== 'url_citation') {
       return sources;
@@ -319,13 +319,13 @@ const buildWebSearchMandate = (toolPreferences?: { webSearch?: boolean }) =>
 - Se l'utente non lo chiede esplicitamente, la preferenza "Cerca sul web" non attiva non vieta il tool: e solo un segnale debole a non usarlo salvo reale bisogno.
 - Se \`searchWeb\` restituisce un errore tecnico, dillo apertamente come errore tecnico di ricerca web; non presentarlo come tool disattivato o non disponibile.`;
 
-export const buildContextWebSearchMandate = (toolPreferences?: ContextChatToolPreferences) =>
+const buildContextWebSearchMandate = (toolPreferences?: ContextChatToolPreferences) =>
   buildWebSearchMandate(toolPreferences);
 
-export const buildLibraryWebSearchMandate = (toolPreferences?: LibraryChatToolPreferences) =>
+const buildLibraryWebSearchMandate = (toolPreferences?: LibraryChatToolPreferences) =>
   buildWebSearchMandate(toolPreferences);
 
-export const buildToolNarrationMandate = () => `RENDERING DEI TOOL:
+const buildToolNarrationMandate = () => `RENDERING DEI TOOL:
 - L interfaccia puo mostrare i tool separatamente dal testo e spesso sopra al messaggio dell assistente.
 - Tratta quindi ogni tua risposta come un messaggio unico autosufficiente, anche se il turno viene spezzato da tool call, streaming o piu step consecutivi.
 - Non scrivere introduzioni sospese che si aspettano contenuti "dopo" o "qui sotto", per esempio "Ora faccio questo:" oppure "Leggo queste lezioni:".

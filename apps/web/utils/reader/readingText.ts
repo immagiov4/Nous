@@ -59,7 +59,7 @@ export const prepareMarkdownForSpeech = (content: string): string => {
   return collapseWhitespace(cleanedContent);
 };
 
-export const extractReadableElementText = (element: HTMLElement): string => {
+const extractReadableElementText = (element: HTMLElement): string => {
   const clone = element.cloneNode(true) as HTMLElement;
   clone
     .querySelectorAll(`pre, code, .katex, .katex-display, script, style, ${NON_SPEECH_SELECTOR}`)
@@ -127,7 +127,7 @@ export const buildReadableBlocks = (container: HTMLElement): ReadableBlock[] => 
   });
 };
 
-export const buildReadableSegments = (container: HTMLElement): ReadableSegment[] =>
+const buildReadableSegments = (container: HTMLElement): ReadableSegment[] =>
   buildReadableBlocks(container).map(({ startAudio, endAudio, top, bottom }) => ({
     startAudio,
     endAudio,

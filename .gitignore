@@ -28,3 +28,4 @@ nul
 *.sw?
 .dyad/
 .kilo/
+.fallow/

@@ -1,7 +1,7 @@
 const BYTES_PER_MIB = 1024 * 1024;
 const OPENROUTER_PROXY_BODY_LIMIT_RATIO = 0.8;
 
-export const OPENROUTER_PROXY_JSON_BODY_LIMIT_BYTES = 80 * BYTES_PER_MIB;
+const OPENROUTER_PROXY_JSON_BODY_LIMIT_BYTES = 80 * BYTES_PER_MIB;
 export const OPENROUTER_SAFE_JSON_BODY_BYTES = Math.floor(
   OPENROUTER_PROXY_JSON_BODY_LIMIT_BYTES * OPENROUTER_PROXY_BODY_LIMIT_RATIO
 );
@@ -12,7 +12,7 @@ export const OPENROUTER_PAYLOAD_TOO_LARGE_MESSAGE =
 
 export const measureUtf8Bytes = (value: string): number => new TextEncoder().encode(value).length;
 
-export const getDataUrlLengthForBase64 = (mimeType: string, base64Data: string): number =>
+const getDataUrlLengthForBase64 = (mimeType: string, base64Data: string): number =>
   `data:${mimeType};base64,`.length + base64Data.length;
 
 export const isOpenRouterBase64MediaInlineSafe = (base64Data: string, mimeType: string): boolean =>
