@@ -8,6 +8,15 @@ import type {
   SavedProjectMeta,
 } from '../../types';
 import { createLibraryFolderId } from '../../utils/library/tree.ts';
+import {
+  SIBLING_ORDER_STEP,
+  type SiblingItem,
+  buildOrderedSiblingItems,
+  resolveInsertionIndex,
+  resolveNextPlacementOrder,
+  resolveNextFolderOrder,
+  collectFolderDescendantIds,
+} from '../../utils/library/siblingOrdering.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { type ProjectRepository, ProjectStorageError } from './projectRepository';
 import {
@@ -159,11 +168,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     placements: LibraryPlacement[],
     folderId: string | null
   ): number {
-    const siblingOrders = placements
-      .filter(placement => placement.folderId === folderId)
-      .map(placement => placement.order);
-
-    return (Math.max(0, ...siblingOrders) || 0) + 1024;
+    return resolveNextPlacementOrder(placements, folderId);
   }
 
   private async getNextFolderOrder(
@@ -171,11 +176,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     parentFolderId: string | null
   ): Promise<number> {
     const folders = await db.getAll(FOLDER_STORE);
-    const siblingOrders = folders
-      .filter(folder => folder.parentFolderId === parentFolderId)
-      .map(folder => folder.order);
-
-    return (Math.max(0, ...siblingOrders) || 0) + 1024;
+    return resolveNextFolderOrder(folders, parentFolderId);
   }
 
   private async ensureAllProjectPlacements(
@@ -188,7 +189,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
         .sort(
           (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
         )
-        .map((meta, index) => this.createPlacementRecord(meta.id, null, (index + 1) * 1024));
+        .map((meta, index) => this.createPlacementRecord(meta.id, null, (index + 1) * SIBLING_ORDER_STEP));
     }
 
     const placements = await db.getAll(PLACEMENT_STORE);
@@ -203,7 +204,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
 
     let nextOrder =
       (Math.max(0, ...placements.filter(item => item.folderId === null).map(item => item.order)) ||
-        0) + 1024;
+        0) + SIBLING_ORDER_STEP;
     const createdPlacements: LibraryPlacement[] = [];
 
     for (const meta of orderedMetas) {
@@ -212,7 +213,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       }
 
       const nextPlacement = this.createPlacementRecord(meta.id, null, nextOrder);
-      nextOrder += 1024;
+      nextOrder += SIBLING_ORDER_STEP;
       createdPlacements.push(nextPlacement);
       placementByProjectId.set(nextPlacement.projectId, nextPlacement);
     }
@@ -259,36 +260,8 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     folders: LibraryFolder[],
     placements: LibraryPlacement[],
     parentFolderId: string | null
-  ): Array<
-    | { id: string; kind: 'folder'; value: LibraryFolder }
-    | { id: string; kind: 'project'; value: LibraryPlacement }
-  > {
-    return [
-      ...folders
-        .filter(folder => folder.parentFolderId === parentFolderId)
-        .map(folder => ({
-          id: folder.id,
-          kind: 'folder' as const,
-          value: folder,
-        })),
-      ...placements
-        .filter(placement => placement.folderId === parentFolderId)
-        .map(placement => ({
-          id: placement.projectId,
-          kind: 'project' as const,
-          value: placement,
-        })),
-    ].sort((left, right) => {
-      if (left.value.order !== right.value.order) {
-        return left.value.order - right.value.order;
-      }
-
-      if (left.kind !== right.kind) {
-        return left.kind === 'folder' ? -1 : 1;
-      }
-
-      return left.id.localeCompare(right.id, 'it', { sensitivity: 'base' });
-    });
+  ): SiblingItem[] {
+    return buildOrderedSiblingItems(folders, placements, parentFolderId);
   }
 
   private resolveInsertionIndex(
@@ -297,19 +270,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     targetIndex: number | undefined,
     filteredSiblingCount: number
   ) {
-    if (typeof targetIndex !== 'number' || Number.isNaN(targetIndex)) {
-      return filteredSiblingCount;
-    }
-
-    const boundedTargetIndex = Math.max(
-      0,
-      Math.min(filteredSiblingCount + movingIds.size, Math.trunc(targetIndex))
-    );
-    const removedBeforeTarget = originalSiblingItems
-      .slice(0, boundedTargetIndex)
-      .filter(item => movingIds.has(item.id)).length;
-
-    return Math.max(0, Math.min(filteredSiblingCount, boundedTargetIndex - removedBeforeTarget));
+    return resolveInsertionIndex(originalSiblingItems, movingIds, targetIndex, filteredSiblingCount);
   }
 
   private async persistSiblingOrders(
@@ -326,7 +287,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     const placementStore = tx.objectStore(PLACEMENT_STORE);
 
     for (const [index, item] of items.entries()) {
-      const nextOrder = (index + 1) * 1024;
+      const nextOrder = (index + 1) * SIBLING_ORDER_STEP;
 
       if (item.kind === 'folder') {
         await folderStore.put({
@@ -354,33 +315,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     folderId: string
   ): Promise<Set<string>> {
     const folders = await db.getAll(FOLDER_STORE);
-    const childFolderIdsByParent = new Map<string, string[]>();
-
-    folders.forEach(folder => {
-      const parentFolderId = folder.parentFolderId || '';
-      const currentChildIds = childFolderIdsByParent.get(parentFolderId) || [];
-      currentChildIds.push(folder.id);
-      childFolderIdsByParent.set(parentFolderId, currentChildIds);
-    });
-
-    const descendantIds = new Set<string>();
-    const queue = [folderId];
-
-    while (queue.length > 0) {
-      const currentFolderId = queue.shift();
-      if (!currentFolderId || descendantIds.has(currentFolderId)) {
-        continue;
-      }
-
-      descendantIds.add(currentFolderId);
-      (childFolderIdsByParent.get(currentFolderId) || []).forEach(childFolderId => {
-        if (!descendantIds.has(childFolderId)) {
-          queue.push(childFolderId);
-        }
-      });
-    }
-
-    return descendantIds;
+    return collectFolderDescendantIds(folders, folderId);
   }
 
   async createFolder({

@@ -7,6 +7,16 @@ import Database from 'better-sqlite3';
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
 import { buildProjectMeta, normalizeProjectSnapshot, PROJECT_SYNC_READY } from './projectMeta.js';
+import {
+  SIBLING_ORDER_STEP,
+  type SiblingItem,
+  buildOrderedSiblingItems,
+  resolveInsertionIndex,
+  insertMovedSiblingItems,
+  resolveNextFolderOrder,
+  resolveNextPlacementOrder,
+  collectFolderDescendantIds,
+} from './siblingOrdering.js';
 import type {
   LibraryFolder,
   LibraryPlacement,
@@ -18,11 +28,8 @@ import type {
 } from './types.js';
 
 const DEFAULT_SQLITE_PATH = './apps/backend/data/lumina-projects.sqlite';
-const ORDER_STEP = 1024;
 
-type LibraryItem =
-  | { id: string; kind: 'folder'; value: LibraryFolder }
-  | { id: string; kind: 'project'; value: LibraryPlacement };
+type LibraryItem = SiblingItem;
 
 interface ProjectRow {
   meta_json: string;
@@ -588,19 +595,11 @@ export class SqliteProjectStore implements ProjectStore {
   }
 
   private getNextFolderOrder(userId: string, parentFolderId: string | null): number {
-    const siblingOrders = this.readFolders(userId)
-      .filter(folder => folder.parentFolderId === parentFolderId)
-      .map(folder => folder.order);
-
-    return (Math.max(0, ...siblingOrders) || 0) + ORDER_STEP;
+    return resolveNextFolderOrder(this.readFolders(userId), parentFolderId);
   }
 
   private resolveNextPlacementOrder(userId: string, folderId: string | null): number {
-    const siblingOrders = this.readPlacements(userId)
-      .filter(placement => placement.folderId === folderId)
-      .map(placement => placement.order);
-
-    return (Math.max(0, ...siblingOrders) || 0) + ORDER_STEP;
+    return resolveNextPlacementOrder(this.readPlacements(userId), folderId);
   }
 
   private buildOrderedSiblingItems(
@@ -608,28 +607,7 @@ export class SqliteProjectStore implements ProjectStore {
     placements: LibraryPlacement[],
     parentFolderId: string | null
   ): LibraryItem[] {
-    return [
-      ...folders
-        .filter(folder => folder.parentFolderId === parentFolderId)
-        .map(folder => ({ id: folder.id, kind: 'folder' as const, value: folder })),
-      ...placements
-        .filter(placement => placement.folderId === parentFolderId)
-        .map(placement => ({
-          id: placement.projectId,
-          kind: 'project' as const,
-          value: placement,
-        })),
-    ].sort((left, right) => {
-      if (left.value.order !== right.value.order) {
-        return left.value.order - right.value.order;
-      }
-
-      if (left.kind !== right.kind) {
-        return left.kind === 'folder' ? -1 : 1;
-      }
-
-      return left.id.localeCompare(right.id, 'it', { sensitivity: 'base' });
-    });
+    return buildOrderedSiblingItems(folders, placements, parentFolderId);
   }
 
   private resolveInsertionIndex(
@@ -638,19 +616,7 @@ export class SqliteProjectStore implements ProjectStore {
     targetIndex: number | undefined,
     filteredSiblingCount: number
   ): number {
-    if (typeof targetIndex !== 'number' || Number.isNaN(targetIndex)) {
-      return filteredSiblingCount;
-    }
-
-    const boundedTargetIndex = Math.max(
-      0,
-      Math.min(filteredSiblingCount + movingIds.size, Math.trunc(targetIndex))
-    );
-    const removedBeforeTarget = originalSiblingItems
-      .slice(0, boundedTargetIndex)
-      .filter(item => movingIds.has(item.id)).length;
-
-    return Math.max(0, Math.min(filteredSiblingCount, boundedTargetIndex - removedBeforeTarget));
+    return resolveInsertionIndex(originalSiblingItems, movingIds, targetIndex, filteredSiblingCount);
   }
 
   private insertMovedSiblingItems(
@@ -659,16 +625,7 @@ export class SqliteProjectStore implements ProjectStore {
     targetIndex: number | undefined,
     movedItems: LibraryItem[]
   ): LibraryItem[] {
-    const retainedItems = destinationItems.filter(item => !movingIds.has(item.id));
-    const insertionIndex = this.resolveInsertionIndex(
-      destinationItems,
-      movingIds,
-      targetIndex,
-      retainedItems.length
-    );
-
-    retainedItems.splice(insertionIndex, 0, ...movedItems);
-    return retainedItems;
+    return insertMovedSiblingItems(destinationItems, movingIds, targetIndex, movedItems);
   }
 
   private persistSiblingOrders(
@@ -678,7 +635,7 @@ export class SqliteProjectStore implements ProjectStore {
     updatedAt: string
   ): void {
     for (const [index, item] of items.entries()) {
-      const nextOrder = (index + 1) * ORDER_STEP;
+      const nextOrder = (index + 1) * SIBLING_ORDER_STEP;
 
       if (item.kind === 'folder') {
         this.writeFolder(userId, {
@@ -700,32 +657,6 @@ export class SqliteProjectStore implements ProjectStore {
   }
 
   private getFolderDescendantIds(userId: string, folderId: string): Set<string> {
-    const childFolderIdsByParent = new Map<string, string[]>();
-
-    for (const folder of this.readFolders(userId)) {
-      const parentFolderId = folder.parentFolderId || '';
-      const childIds = childFolderIdsByParent.get(parentFolderId) || [];
-      childIds.push(folder.id);
-      childFolderIdsByParent.set(parentFolderId, childIds);
-    }
-
-    const descendantIds = new Set<string>();
-    const queue = [folderId];
-
-    while (queue.length > 0) {
-      const currentFolderId = queue.shift();
-      if (!currentFolderId || descendantIds.has(currentFolderId)) {
-        continue;
-      }
-
-      descendantIds.add(currentFolderId);
-      for (const childFolderId of childFolderIdsByParent.get(currentFolderId) || []) {
-        if (!descendantIds.has(childFolderId)) {
-          queue.push(childFolderId);
-        }
-      }
-    }
-
-    return descendantIds;
+    return collectFolderDescendantIds(this.readFolders(userId), folderId);
   }
 }
