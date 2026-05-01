@@ -195,7 +195,7 @@ test('generateSectionContent keeps all verified image placements instead of trun
   });
   assert.match(
     String(callOpenRouterMock.mock.calls[2]?.[0]?.messages?.[1]?.content || ''),
-    /descrizione, caption e immagine siano abbinate correttamente/i
+    /descrizione, caption, immagine e paragrafo vicino siano abbinati/i
   );
   assert.doesNotMatch(
     String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || ''),

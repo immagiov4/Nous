@@ -4,6 +4,7 @@ import { generateLessonVisualExample } from './visualExamples.ts';
 
 const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
+const VISUAL_PLACEHOLDER_PREFIX = '{{VISUAL_EXAMPLE:';
 
 export interface SectionImagePlacement {
   assetId: string;
@@ -250,7 +251,11 @@ export const appendGeneratedVisualExample = async ({
 
     onStatusUpdate?.('Esempio visivo integrato');
     return {
-      content: `${contentMarkdown.trim()}${result.contentSuffix}`,
+      content: insertGeneratedVisualExamplePlaceholder(
+        contentMarkdown,
+        result.contentSuffix,
+        result.anchorHeading
+      ),
       generatedVisuals: [result.visual],
     };
   } catch (error) {
@@ -266,6 +271,117 @@ export const appendGeneratedVisualExample = async ({
 const normalizeHeading = (text: string): string =>
   normalizeSearchText(text.replace(/^#+\s*/, '').replace(/[*_`]/g, ' '));
 
+const HEADING_LINE_REGEX = /^(#{1,6})\s+/;
+const FENCE_LINE_REGEX = /^(```|~~~)/;
+const LIST_ITEM_LINE_REGEX = /^([-*+]|\d+\.)\s+/;
+const TABLE_LINE_REGEX = /^\|.*\|$/;
+
+const findSectionEndIndex = (lines: string[], headingIndex: number): number => {
+  for (let index = headingIndex + 1; index < lines.length; index += 1) {
+    if (HEADING_LINE_REGEX.test(lines[index] || '')) {
+      return index;
+    }
+  }
+
+  return lines.length;
+};
+
+const findFirstReadableBlockEndIndex = (lines: string[], headingIndex: number): number => {
+  const sectionEndIndex = findSectionEndIndex(lines, headingIndex);
+
+  let blockStartIndex = -1;
+  for (let index = headingIndex + 1; index < sectionEndIndex; index += 1) {
+    const line = (lines[index] || '').trim();
+    if (
+      !line ||
+      line.startsWith(PDF_PLACEHOLDER_PREFIX) ||
+      line.startsWith(VISUAL_PLACEHOLDER_PREFIX)
+    ) {
+      continue;
+    }
+
+    blockStartIndex = index;
+    break;
+  }
+
+  if (blockStartIndex < 0) {
+    return headingIndex;
+  }
+
+  const firstLine = (lines[blockStartIndex] || '').trim();
+  if (FENCE_LINE_REGEX.test(firstLine)) {
+    for (let index = blockStartIndex + 1; index < sectionEndIndex; index += 1) {
+      if (FENCE_LINE_REGEX.test((lines[index] || '').trim())) {
+        return index;
+      }
+    }
+  }
+
+  const isBlockContinuation = TABLE_LINE_REGEX.test(firstLine)
+    ? (line: string): boolean => TABLE_LINE_REGEX.test(line.trim())
+    : LIST_ITEM_LINE_REGEX.test(firstLine)
+      ? (line: string): boolean => {
+          const trimmed = line.trim();
+          return LIST_ITEM_LINE_REGEX.test(trimmed) || (trimmed.length > 0 && /^\s+/.test(line));
+        }
+      : (line: string): boolean => {
+          const trimmed = line.trim();
+          return trimmed.length > 0 && !HEADING_LINE_REGEX.test(trimmed);
+        };
+
+  let blockEndIndex = blockStartIndex;
+  for (let index = blockStartIndex + 1; index < sectionEndIndex; index += 1) {
+    if (!isBlockContinuation(lines[index] || '')) {
+      break;
+    }
+
+    blockEndIndex = index;
+  }
+
+  return blockEndIndex;
+};
+
+export const insertGeneratedVisualExamplePlaceholder = (
+  contentMarkdown: string,
+  contentSuffix: string,
+  anchorHeading?: string
+): string => {
+  const placeholder = contentSuffix.trim();
+  const trimmedContent = contentMarkdown.trim();
+  if (!trimmedContent || !placeholder) {
+    return trimmedContent;
+  }
+
+  const lines = trimmedContent.split('\n');
+  const headingIndexes = lines
+    .map((line, index) => ({ line, index }))
+    .filter(item => HEADING_LINE_REGEX.test(item.line));
+
+  const headingIndexByName = new Map(
+    headingIndexes.map(item => [normalizeHeading(item.line), item.index])
+  );
+  const headingIndex = anchorHeading
+    ? headingIndexByName.get(normalizeHeading(anchorHeading))
+    : undefined;
+
+  if (headingIndex === undefined) {
+    return `${trimmedContent}\n\n${placeholder}`;
+  }
+
+  const insertAfterIndex = findFirstReadableBlockEndIndex(lines, headingIndex);
+  const baseInsertionIndex = Math.min(insertAfterIndex + 1, lines.length);
+  const insertionIndex =
+    (lines[baseInsertionIndex] || '').trim() === ''
+      ? Math.min(baseInsertionIndex + 1, lines.length)
+      : baseInsertionIndex;
+  lines.splice(insertionIndex, 0, '', placeholder, '');
+
+  return lines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
 export const injectImagePlaceholders = (
   contentMarkdown: string,
   imageRefs: LessonImageRef[]
@@ -277,32 +393,49 @@ export const injectImagePlaceholders = (
   const lines = contentMarkdown.trim().split('\n');
   const headingIndexes = lines
     .map((line, index) => ({ line, index }))
-    .filter(item => /^(#{1,6})\s+/.test(item.line));
+    .filter(item => HEADING_LINE_REGEX.test(item.line));
   const headingIndexByName = new Map(
     headingIndexes.map(item => [normalizeHeading(item.line), item.index])
   );
 
   let appendedCount = 0;
 
-  imageRefs.forEach((imageRef, position) => {
+  const placementTargets = imageRefs
+    .map((imageRef, position) => {
+      const headingIndex = imageRef.anchorHeading
+        ? headingIndexByName.get(normalizeHeading(imageRef.anchorHeading))
+        : undefined;
+      const fallbackIndex =
+        headingIndexes[position + 1]?.index ??
+        headingIndexes[position]?.index ??
+        headingIndexes[0]?.index ??
+        Math.max(lines.length - 1, 0);
+      const insertAfterIndex =
+        headingIndex === undefined
+          ? fallbackIndex
+          : findFirstReadableBlockEndIndex(lines, headingIndex);
+
+      return { imageRef, insertAfterIndex, position };
+    })
+    .sort(
+      (first, second) =>
+        first.insertAfterIndex - second.insertAfterIndex || first.position - second.position
+    );
+
+  placementTargets.forEach(({ imageRef, insertAfterIndex }) => {
     const placeholder = buildPdfImagePlaceholder(imageRef);
-    const headingIndex = imageRef.anchorHeading
-      ? headingIndexByName.get(normalizeHeading(imageRef.anchorHeading))
-      : undefined;
-    const fallbackIndex =
-      headingIndexes[position + 1]?.index ??
-      headingIndexes[position]?.index ??
-      headingIndexes[0]?.index ??
-      Math.max(lines.length - 1, 0);
-    const insertAfterIndex = headingIndex ?? fallbackIndex;
-    const insertionIndex = Math.min(insertAfterIndex + 1 + appendedCount * 3, lines.length);
+    const baseInsertionIndex = Math.min(insertAfterIndex + 1 + appendedCount * 3, lines.length);
+    const insertionIndex =
+      (lines[baseInsertionIndex] || '').trim() === ''
+        ? Math.min(baseInsertionIndex + 1, lines.length)
+        : baseInsertionIndex;
     lines.splice(insertionIndex, 0, '', placeholder, '');
     appendedCount += 1;
   });
 
   return lines
     .join('\n')
-    .replace(/\n{4,}/g, '\n\n\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 };
 

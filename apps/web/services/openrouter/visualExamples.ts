@@ -30,6 +30,8 @@ Regole:
 - Inferisci la lingua dal testo finale della lezione. La visuale deve usare la stessa lingua della lezione.
 - Preferisci una visuale quando mancano immagini del PDF e il concetto contiene relazioni, flussi, struttura o variabili.
 - Non generare visuali decorative. La visuale deve insegnare qualcosa che il testo da solo rende piu faticoso.
+- Se "Immagini PDF gia integrate" e "si", scegli "none": le immagini del PDF sono il materiale visivo primario e non vanno affiancate da visuali generate meno deterministiche.
+- Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
 - Se il concetto e complesso, setta split_into_multiple=true, ma per questa versione scegli comunque il primo sottoconcetto piu utile.
 - Usa Mermaid solo per ER e class diagram.
 - Rispondi SOLO con JSON:
@@ -37,6 +39,7 @@ Regole:
   "visual_type": "...",
   "concept": "una frase sul soggetto visuale",
   "pedagogical_goal": "build_intuition | show_process | show_structure | enable_exploration | show_data",
+  "anchor_heading": "heading esatto della lezione oppure null",
   "interaction_level": "none | low | high",
   "complexity": "simple | moderate | complex",
   "split_into_multiple": true | false,
@@ -124,6 +127,7 @@ type VisualType =
   | 'structural_svg';
 
 interface VisualPlan {
+  anchor_heading?: null | string;
   complexity?: 'simple' | 'moderate' | 'complex';
   concept?: string;
   interaction_level?: 'none' | 'low' | 'high';
@@ -211,6 +215,36 @@ const hasFullHtmlDocument = (code: string): boolean =>
 
 const buildVisualPlaceholder = (visual: LessonGeneratedVisual): string =>
   `{{VISUAL_EXAMPLE:${visual.id}|title=${visual.title.replace(/[|}]/g, ' ').trim()}}}`;
+
+const normalizeHeadingTitle = (value: string): string =>
+  value
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/[*_`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+const getMarkdownHeadingTitles = (markdown: string): string[] =>
+  markdown
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => /^#{1,6}\s+/.test(line))
+    .map(line => line.replace(/^#{1,6}\s+/, '').trim())
+    .filter(Boolean);
+
+const resolvePlannedAnchorHeading = (
+  plannedAnchorHeading: unknown,
+  availableHeadings: string[]
+): string | undefined => {
+  if (typeof plannedAnchorHeading !== 'string' || !plannedAnchorHeading.trim()) {
+    return undefined;
+  }
+
+  const headingByNormalized = new Map(
+    availableHeadings.map(heading => [normalizeHeadingTitle(heading), heading])
+  );
+  return headingByNormalized.get(normalizeHeadingTitle(plannedAnchorHeading));
+};
 
 const normalizeSvgVisual = (
   response: SvgVisualResponse,
@@ -328,13 +362,23 @@ Descrizione: "${sectionDescription}"
 Immagini PDF gia integrate: ${hasPdfImages ? 'si' : 'no'}
 Note corso: ${generationNotes?.trim() || 'nessuna'}
 Lingua target: inferiscila dal testo della lezione e mantienila in ogni testo visibile dell'esempio.
+Heading disponibili per il posizionamento:
+${
+  getMarkdownHeadingTitles(lessonMarkdown)
+    .map(heading => `- ${heading}`)
+    .join('\n') || '- nessun heading disponibile'
+}
 
 Testo lezione:
 ${lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 
 export const generateLessonVisualExample = async (
   input: GenerateLessonVisualExampleInput
-): Promise<{ contentSuffix: string; visual: LessonGeneratedVisual } | null> => {
+): Promise<{
+  anchorHeading?: string;
+  contentSuffix: string;
+  visual: LessonGeneratedVisual;
+} | null> => {
   const planResponse = await retryWithBackoff(
     () =>
       callOpenRouter({
@@ -399,6 +443,10 @@ ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`,
   }
 
   return {
+    anchorHeading: resolvePlannedAnchorHeading(
+      plan.anchor_heading,
+      getMarkdownHeadingTitles(input.lessonMarkdown)
+    ),
     visual,
     contentSuffix: `\n\n${buildVisualPlaceholder(visual)}`,
   };

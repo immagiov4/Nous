@@ -75,10 +75,6 @@ export default function OpenRouterModelPanel({
   const courseNotesRef = useRef(courseNotes);
   courseNotesRef.current = courseNotes;
 
-  useEffect(() => {
-    setLocalNotes(courseNotes?.value ?? '');
-  }, [courseNotes?.value]);
-
   const handleNotesChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
     const value = event.target.value;
     setLocalNotes(value);

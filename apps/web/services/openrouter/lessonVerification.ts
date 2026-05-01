@@ -189,17 +189,17 @@ ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 10. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
 11. \`contentMarkdown\` non deve contenere quiz, markdown image syntax, tag <img>, assetId tecnici o riferimenti sbagliati alle immagini.
 12. I heading devono essere coerenti e ogni \`anchorHeading\` in \`imagePlacements\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`.
-13. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento.
-14. Verifica con particolare severita che descrizione, caption e immagine siano abbinate correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
+13. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento. Deve avere un collegamento bidirezionale con il testo vicino: il paragrafo deve spiegare cio che la figura mostra, e la figura deve rappresentare cio che il paragrafo sta spiegando.
+14. Verifica con particolare severita che descrizione, caption, immagine e paragrafo vicino siano abbinati correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
 15. Ogni immagine selezionata deve anche essere visivamente chiara e autosufficiente: se appare sfocata, parziale, tagliata, poco leggibile, mostra solo un bordo, un wrapper, un riquadro, un badge, un'icona o un frammento non riconoscibile, rimuovila.
-16. Se una figura e debole, ambigua, fuori tema o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
+16. Se una figura e debole, ambigua, fuori tema, decorativa, non richiamata dal testo vicino o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
 17. Se trovi forestierismi inutili nel testo, sostituiscili con equivalenti italiani naturali, salvo casi in cui il termine straniero sia davvero lo standard tecnico necessario.
 18. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
 19. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
 20. Verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
 21. Verifica con severita i blocchi di codice/pseudocodice Markdown: se un esempio e spezzato in piu blocchi \`\`\`text\` con righe del corpo fuori dal blocco, correggilo in UN SOLO code block che contenga firma, corpo, parentesi graffe e RETURN. Questo e un errore di formattazione, anche se il testo e semanticamente comprensibile.
 22. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
-23. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti.
+23. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti. Se manca una frase vicina che aiuta il lettore a usare la figura, aggiungila con modifica minima oppure rimuovi l'immagine.
 
 ESTRATTI RILEVANTI DAL PDF / CONTESTO SORGENTE:
 ${sourceContext.slice(0, MAX_LESSON_REPAIR_SOURCE_CHARS)}

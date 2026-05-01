@@ -43,6 +43,36 @@ interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
   children?: ReactNode;
 }
 
+const EMPTY_GENERATED_VISUALS_BY_ID: Record<string, LessonGeneratedVisual> = {};
+const EMPTY_LESSON_ASSETS_BY_ID: Record<string, PdfImageAsset> = {};
+const EMPTY_LESSON_IMAGE_REFS_BY_ID: Record<string, LessonImageRef> = {};
+const EMPTY_SECTION_ANNOTATIONS: SectionAnnotation[] = [];
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
+const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex, rehypeRaw];
+const NORMALIZED_MARKDOWN_CACHE_LIMIT = 80;
+
+const normalizedMarkdownCache = new Map<string, string>();
+
+const getNormalizedMarkdownForRendering = (content: string): string => {
+  const cached = normalizedMarkdownCache.get(content);
+  if (cached !== undefined) {
+    normalizedMarkdownCache.delete(content);
+    normalizedMarkdownCache.set(content, cached);
+    return cached;
+  }
+
+  const normalized = normalizeMarkdownForRendering(content);
+  normalizedMarkdownCache.set(content, normalized);
+  if (normalizedMarkdownCache.size > NORMALIZED_MARKDOWN_CACHE_LIMIT) {
+    const oldestKey = normalizedMarkdownCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      normalizedMarkdownCache.delete(oldestKey);
+    }
+  }
+
+  return normalized;
+};
+
 const articleClassName = (className: string) =>
   `prose w-full min-w-0 max-w-none break-words [overflow-wrap:anywhere] marker:text-gray-500 dark:marker:text-zinc-400 [&_*]:max-w-full [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-2 [&_.katex-display]:overscroll-x-contain [&_.katex-display]:[-webkit-overflow-scrolling:touch] [&_.katex-display_.katex]:min-w-max max-sm:[&_.katex-display]:text-[0.94em] [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_li]:my-1 [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone [&_mark[data-nous-annotation-id]]:cursor-pointer [&_mark[data-lumina-annotation-id]]:cursor-pointer [&_strong_mark]:font-semibold [&_mark_strong]:font-semibold [&_em_mark]:italic [&_mark_em]:italic dark:[&_mark]:bg-amber-700/50 dark:[&_mark]:text-amber-50 ${className}`;
 
@@ -154,16 +184,63 @@ const buildMarkdownComponents = (
   },
 });
 
+type MarkdownComponents = ReturnType<typeof buildMarkdownComponents>;
+
+interface MarkdownPartProps {
+  components: MarkdownComponents;
+  content: string;
+}
+
+const MarkdownPart = memo(({ components, content }: MarkdownPartProps) => (
+  <ReactMarkdown
+    remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+    rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+    components={components}
+  >
+    {getNormalizedMarkdownForRendering(content)}
+  </ReactMarkdown>
+));
+
+MarkdownPart.displayName = 'MarkdownPart';
+
+interface PdfImageFigureProps {
+  alt: string;
+  asset: PdfImageAsset;
+  caption?: string;
+}
+
+const PdfImageFigure = memo(({ alt, asset, caption }: PdfImageFigureProps) => (
+  <figure
+    className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm [content-visibility:auto] [contain-intrinsic-size:auto_520px] dark:border-zinc-700/80 dark:bg-zinc-900/85"
+    data-nous-speech="ignore"
+  >
+    <img
+      src={asset.dataUrl}
+      alt={alt}
+      loading="lazy"
+      data-pdf-asset-id={asset.id}
+      className="m-0 block w-full bg-gray-50 dark:bg-zinc-950"
+    />
+    {caption ? (
+      <figcaption className="px-5 py-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
+        {caption}
+      </figcaption>
+    ) : null}
+  </figure>
+));
+
+PdfImageFigure.displayName = 'PdfImageFigure';
+
 const MarkdownRenderer = ({
   content,
   className = '',
   isDarkMode = false,
   onClick,
   onContextMenu,
-  generatedVisualsById = {},
-  lessonAssetsById = {},
-  lessonImageRefsById = {},
-  sectionAnnotations = [],
+  generatedVisualsById = EMPTY_GENERATED_VISUALS_BY_ID,
+  lessonAssetsById = EMPTY_LESSON_ASSETS_BY_ID,
+  lessonImageRefsById = EMPTY_LESSON_IMAGE_REFS_BY_ID,
+  sectionAnnotations = EMPTY_SECTION_ANNOTATIONS,
 }: MarkdownRendererProps) => {
   const syntaxTheme = useMemo(
     () =>
@@ -190,70 +267,34 @@ const MarkdownRenderer = ({
     () => buildMarkdownComponents(syntaxTheme, isDarkMode, noteAnnotationIds),
     [syntaxTheme, isDarkMode, noteAnnotationIds]
   );
-  const tracedMarkdownParts = useMemo(
+  const classNameValue = useMemo(() => articleClassName(className), [className]);
+  const handleKeyDown = useMemo(
     () =>
-      contentParts
-        .filter(part => part.type === 'markdown')
-        .map(part => {
-          const normalizedContent = normalizeMarkdownForRendering(part.content);
-          return {
-            key: part.key,
-            normalizedContent,
-            rawContent: part.content,
-          };
-        }),
-    [contentParts]
-  );
-  const normalizedContentByPartKey = useMemo(
-    () => new Map(tracedMarkdownParts.map(part => [part.key, part.normalizedContent])),
-    [tracedMarkdownParts]
+      onClick
+        ? (e: React.KeyboardEvent) => e.key === 'Enter' && onClick(e as unknown as MouseEvent)
+        : undefined,
+    [onClick]
   );
 
   return (
     <article
-      className={articleClassName(className)}
+      className={classNameValue}
       onClick={onClick}
-      onKeyDown={
-        onClick ? e => e.key === 'Enter' && onClick(e as unknown as MouseEvent) : undefined
-      }
+      onKeyDown={handleKeyDown}
       onContextMenu={onContextMenu}
     >
       {contentParts.map(part =>
         part.type === 'markdown' ? (
-          <ReactMarkdown
-            key={part.key}
-            remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
-            rehypePlugins={[rehypeKatex, rehypeRaw]}
-            components={markdownComponents}
-          >
-            {normalizedContentByPartKey.get(part.key) || ''}
-          </ReactMarkdown>
+          <MarkdownPart key={part.key} content={part.content} components={markdownComponents} />
         ) : part.type === 'image' ? (
-          <figure
-            key={part.key}
-            className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85"
-            data-nous-speech="ignore"
-          >
-            <img
-              src={part.asset.dataUrl}
-              alt={part.alt}
-              loading="lazy"
-              data-pdf-asset-id={part.asset.id}
-              className="m-0 block w-full bg-gray-50 dark:bg-zinc-950"
-            />
-            {part.caption ? (
-              <figcaption className="px-5 py-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
-                {part.caption}
-              </figcaption>
-            ) : null}
-          </figure>
+          <PdfImageFigure key={part.key} alt={part.alt} asset={part.asset} caption={part.caption} />
         ) : (
-          <GeneratedVisualFrame
+          <div
             key={part.key}
-            isDarkMode={isDarkMode}
-            title={part.title}
-            visual={part.visual}
-          />
+            className="[content-visibility:auto] [contain-intrinsic-size:auto_520px]"
+          >
+            <GeneratedVisualFrame isDarkMode={isDarkMode} title={part.title} visual={part.visual} />
+          </div>
         )
       )}
     </article>

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'vitest';
 import {
+  injectImagePlaceholders,
+  insertGeneratedVisualExamplePlaceholder,
+} from '../../../services/openrouter/lessonImages.ts';
+import {
   buildAdaptivePlanGuidance,
   buildLessonVerificationPrompt,
   buildPdfChunkUsageDebugPayload,
@@ -446,9 +450,60 @@ test('buildLessonVerificationPrompt enforces final checks on image placement and
   assert.match(prompt, /verificatore finale/i);
   assert.match(prompt, /ESATTAMENTE 2 pause attive/i);
   assert.match(prompt, /Ogni immagine selezionata deve essere nel punto giusto della lezione/i);
-  assert.match(prompt, /descrizione, caption e immagine siano abbinate correttamente/i);
+  assert.match(prompt, /descrizione, caption, immagine e paragrafo vicino siano abbinati/i);
+  assert.match(prompt, /collegamento bidirezionale con il testo vicino/i);
   assert.match(prompt, /Meglio meno immagini che immagini sbagliate/i);
   assert.doesNotMatch(prompt, /sourceContextCurrent/i);
   assert.doesNotMatch(prompt, /sourceContextBefore/i);
   assert.doesNotMatch(prompt, /sourceContextAfter/i);
+});
+
+test('injectImagePlaceholders places figures after the first local explanation block', () => {
+  const content = [
+    '## Compressione parallela',
+    '',
+    'Il paragrafo introduce cosa guardare nella figura: il segnale dry resta leggibile mentre il canale compresso aggiunge densita.',
+    '',
+    'Questo testo continua dopo la figura.',
+  ].join('\n');
+
+  const result = injectImagePlaceholders(content, [
+    {
+      assetId: 'pdf-img-001',
+      alt: 'Schema della compressione parallela',
+      caption: 'Percorso dry e compresso affiancati',
+      anchorHeading: 'Compressione parallela',
+    },
+  ]);
+
+  assert.match(
+    result,
+    /densita\.\n\n\{\{PDF_IMAGE:pdf-img-001\|alt=Schema della compressione parallela\|caption=Percorso dry e compresso affiancati\}\}\n\nQuesto testo continua/
+  );
+});
+
+test('insertGeneratedVisualExamplePlaceholder places generated visuals near their anchor heading', () => {
+  const content = [
+    '## Concetto principale',
+    '',
+    'Introduzione generale.',
+    '',
+    '## Grafico dei costi',
+    '',
+    'Questo paragrafo introduce il confronto quantitativo che il grafico rende piu leggibile.',
+    '',
+    'Il testo prosegue con le implicazioni.',
+  ].join('\n');
+
+  const result = insertGeneratedVisualExamplePlaceholder(
+    content,
+    '\n\n{{VISUAL_EXAMPLE:visual-001|title=grafico_dei_costi}}',
+    'Grafico dei costi'
+  );
+
+  assert.match(
+    result,
+    /piu leggibile\.\n\n\{\{VISUAL_EXAMPLE:visual-001\|title=grafico_dei_costi\}\}\n\nIl testo prosegue/
+  );
+  assert.doesNotMatch(result, /Il testo prosegue[\s\S]*VISUAL_EXAMPLE/);
 });
