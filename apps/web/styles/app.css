@@ -297,7 +297,54 @@ body {
 }
 
 /* ============================================================
-   6. PROSE — reader content typography
+   6. CUSTOM SCROLLBAR — utility class for scrollable panels
+   ============================================================ */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d8 transparent;
+}
+
+.dark .custom-scrollbar {
+  scrollbar-color: #3f3f46 transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 2px;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
+/* custom thin scrollbar for textareas (notes editor) */
+textarea::-webkit-scrollbar {
+  width: 4px;
+}
+
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+textarea::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 2px;
+}
+
+.dark textarea::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
+/* ============================================================
+   7. PROSE — reader content typography
    ============================================================ */
 .prose h1,
 .prose h2,

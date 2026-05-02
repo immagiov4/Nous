@@ -96,11 +96,6 @@ export const buildReaderShellProps = ({
     laboratory,
     activeLaboratoryExerciseId
   );
-  const laboratoryTotalExerciseCount = laboratory?.exercises.length || 0;
-  const laboratorySubmittedCount =
-    laboratory?.exercises.filter(exercise => exercise.attachments.length > 0).length || 0;
-  const laboratoryEvaluatedCount =
-    laboratory?.exercises.filter(exercise => Boolean(exercise.evaluation)).length || 0;
   const activeLaboratorySourcePageRangeLabel = getLaboratorySourcePageLabel({
     activeExercise: activeLaboratoryExercise,
     documentIndex,
@@ -143,14 +138,11 @@ export const buildReaderShellProps = ({
       activeLaboratoryExercise,
       laboratoryActivityMessage,
       laboratoryReasoningText,
-      laboratoryEvaluatedCount,
       laboratoryErrorMessage: laboratory?.errorMessage,
       laboratorySourcePageRangeLabel: activeLaboratorySourcePageRangeLabel,
-      laboratorySubmittedCount,
       laboratoryStatus: laboratory?.status || null,
       laboratorySummary: laboratory?.summary || '',
       laboratoryTitle: laboratory?.title || 'Laboratorio',
-      laboratoryTotalExerciseCount,
       onAddLaboratoryTextAttachment: () => {
         void addLaboratoryTextAttachment().then(result => notifyIfErrored(result, notify));
       },

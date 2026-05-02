@@ -81,14 +81,11 @@ export default function WorkspaceReaderContent({
   sectionContent,
   sectionReasoningText,
   laboratoryActivityMessage,
-  laboratoryEvaluatedCount = 0,
   laboratoryErrorMessage,
   laboratorySourcePageRangeLabel,
-  laboratorySubmittedCount = 0,
   laboratoryStatus,
   laboratorySummary,
   laboratoryTitle,
-  laboratoryTotalExerciseCount = 0,
   sourcePageRangeLabel,
   onUpdateLaboratoryAttachmentMetadata,
   onUpdateLaboratoryTextAttachment,
@@ -158,14 +155,11 @@ export default function WorkspaceReaderContent({
           isDarkMode={isDarkMode}
           isEvaluating={isLaboratoryEvaluating}
           isGenerating={isLaboratoryGenerating}
-          laboratoryEvaluatedCount={laboratoryEvaluatedCount}
           laboratoryErrorMessage={laboratoryErrorMessage}
-          laboratorySubmittedCount={laboratorySubmittedCount}
           sourcePageRangeLabel={laboratorySourcePageRangeLabel}
           laboratoryStatus={laboratoryStatus}
           laboratorySummary={laboratorySummary}
           laboratoryTitle={laboratoryTitle}
-          laboratoryTotalExerciseCount={laboratoryTotalExerciseCount}
           onAddTextAttachment={onAddLaboratoryTextAttachment}
           onAttachFiles={onAttachLaboratoryFiles}
           onEvaluate={onEvaluateActiveLaboratoryExercise}

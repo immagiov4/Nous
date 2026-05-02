@@ -180,14 +180,11 @@ export interface WorkspaceReaderContentModel {
   isQuizSubmitted: boolean;
   laboratoryActivityMessage?: string;
   laboratoryReasoningText?: string;
-  laboratoryEvaluatedCount?: number;
   laboratoryErrorMessage?: string;
   laboratorySourcePageRangeLabel?: string;
-  laboratorySubmittedCount?: number;
   laboratoryStatus: LaboratoryStateStatus | null;
   laboratorySummary: string;
   laboratoryTitle: string;
-  laboratoryTotalExerciseCount?: number;
   onAddLaboratoryTextAttachment: () => void;
   onAttachLaboratoryFiles: (files: FileList | null) => void;
   onCompleteSection: () => void;

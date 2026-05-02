@@ -579,6 +579,35 @@ export default function LibraryTreeView({
     </form>
   );
 
+  const renderFolderInlineRenameForm = (folderId: string) => (
+    <form
+      onSubmit={event => submitFolderForm(event, { folderId, mode: 'rename' })}
+      className="flex flex-1 items-center gap-2"
+    >
+      <input
+        ref={el => el?.focus()}
+        type="text"
+        value={folderDraftName}
+        onChange={event => setFolderDraftName(event.target.value)}
+        placeholder="Rinomina cartella..."
+        className="min-w-0 flex-1 rounded-xl border border-gray-300 bg-white/90 px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+      />
+      <button
+        type="submit"
+        className="rounded-full bg-stone-900 px-2.5 py-1.5 text-xs font-semibold text-white dark:bg-stone-100 dark:text-stone-900"
+      >
+        Salva
+      </button>
+      <button
+        type="button"
+        onClick={cancelFolderEditing}
+        className="rounded-full px-2 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+      >
+        Annulla
+      </button>
+    </form>
+  );
+
   const isDropTargetBlocked = (candidateTarget: DropTarget) => {
     if (draggedItem?.kind !== 'folder') {
       return false;
@@ -894,14 +923,18 @@ export default function LibraryTreeView({
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                {node.folder.name}
-              </p>
-              <span className="hidden sm:inline rounded-full border border-amber-200 bg-amber-50/80 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                {node.descendantProjectIds.length} corsi
-              </span>
-            </div>
+            {editingFolderId === node.id ? (
+              renderFolderInlineRenameForm(node.id)
+            ) : (
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                  {node.folder.name}
+                </p>
+                <span className="hidden sm:inline rounded-full border border-amber-200 bg-amber-50/80 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                  {node.descendantProjectIds.length} corsi
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="relative z-50">
@@ -1007,9 +1040,6 @@ export default function LibraryTreeView({
           </div>
         </div>
 
-        {editingFolderId === node.id ? (
-          <div style={formOffsetStyle}>{renderFolderForm(node.id, 'rename')}</div>
-        ) : null}
         {createTargetId === node.id ? (
           <div style={formOffsetStyle}>{renderFolderForm(node.id, 'create')}</div>
         ) : null}

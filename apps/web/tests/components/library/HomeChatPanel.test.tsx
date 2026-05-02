@@ -406,4 +406,46 @@ describe('HomeChatPanel', () => {
       'Poi recupero i dettagli della lezione piu rilevante.'
     );
   });
+
+  test('outside click closes the attachment menu', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    // Open attachment menu
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    // Click outside the menu (on the main section)
+    await user.click(document.body);
+
+    // Menu should be closed — no menu in document
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  test('click inside the attachment menu does not close it', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    // Open attachment menu
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+
+    // Click on an item inside the menu
+    await user.click(screen.getByText(/Scegli corsi o cartelle/i));
+
+    // Menu should still be open
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
 });

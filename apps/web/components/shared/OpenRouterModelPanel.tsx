@@ -113,7 +113,7 @@ export default function OpenRouterModelPanel({
         className={`model-panel-surface rounded-2xl p-4 origin-top-right ${shouldAnimate ? 'animate-[popIn_0.12s_ease]' : ''}`}
         style={{ transformOrigin: 'top right', ...style }}
       >
-        <div className="max-h-[inherit] overflow-y-auto">
+        <div className="max-h-[inherit] overflow-y-auto overflow-x-hidden">
           <div className="model-panel-divider flex items-center justify-between gap-4 border-b pb-3">
             <h3 className="model-panel-title text-sm font-semibold">Impostazioni modelli</h3>
             <div className="flex items-center gap-1">

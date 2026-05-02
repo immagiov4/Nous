@@ -165,6 +165,7 @@ export default function ContextAnswerPanel({
   });
   const hasSubmittedInitialQuestionRef = useRef(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectionAnchorRef = useRef<ConversationSelectionAnchor>({
     contextAfter: contextAnswer.contextAfter,
     contextBefore: contextAnswer.contextBefore,
@@ -352,6 +353,12 @@ export default function ContextAnswerPanel({
   const isLoading = status === 'submitted' || status === 'streaming';
   const hasActiveToolPreference = toolPreferences.annotate || toolPreferences.webSearch;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messages.length triggers scroll on new arrival
+  useEffect(() => {
+    if (!messagesContainerRef.current) return;
+    messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+  }, [messages.length]);
+
   const handleSubmit = () => {
     const trimmedInput = input.trim();
     if (!trimmedInput) {
@@ -537,7 +544,10 @@ export default function ContextAnswerPanel({
         </p>
       </div>
 
-      <div className="custom-scrollbar min-h-0 flex-1 overflow-auto pr-2">
+      <div
+        ref={messagesContainerRef}
+        className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-2"
+      >
         <div className="space-y-6 pb-5">
           {visibleMessages.map(message => {
             if (message.role === 'user') {
@@ -585,7 +595,9 @@ export default function ContextAnswerPanel({
         </div>
       </div>
 
-      <div className="mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60">
+      <div className="relative mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60">
+        {/* Fade-out gradient at the top of the composer area */}
+        <div className="pointer-events-none absolute -top-8 left-0 right-0 z-10 h-8 bg-gradient-to-b from-transparent to-white dark:to-zinc-800" />
         <ChatTextComposer
           value={input}
           onChange={setInput}

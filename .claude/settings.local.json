@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(graphify --help)",
+      "Bash(pip show *)",
+      "Bash(pip3 show *)",
+      "Bash(pipx list *)",
+      "Bash(where graphify *)",
+      "Bash(python -c \"import graphifyy; print\\(graphifyy.__file__\\)\")",
+      "Read(//c/Users/giovb/AppData/Roaming/Python/Python311/Scripts/**)",
+      "Bash(python -m graphifyy --help)",
+      "Bash(\"C:/Users/giovb/AppData/Roaming/Python/Python311/Scripts/graphify.exe\" --help)"
+    ]
+  }
+}
