@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 /* @refresh reset */
 import { useEffect, useState } from 'react';
 import { defaultModelConfig } from './app/modelDefaults.ts';
@@ -399,4 +400,5 @@ const App = () => {
   );
 };
 
+// fallow-ignore-next-line unused-export — Vite entry point component
 export default App;

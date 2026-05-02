@@ -49,14 +49,4 @@ export interface DriveSyncAdapter {
   pullProjects: () => Promise<ProjectSnapshot[]>;
 }
 
-export class NoopDriveSyncAdapter implements DriveSyncAdapter {
-  isConfigured(): boolean {
-    return false;
-  }
 
-  async syncProject(_snapshot: ProjectSnapshot): Promise<void> {}
-
-  async pullProjects(): Promise<ProjectSnapshot[]> {
-    return [];
-  }
-}

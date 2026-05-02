@@ -78,7 +78,7 @@ export interface PdfTextQualityReport {
   substantivePageRatio: number;
 }
 
-export class PdfTextQualityError extends Error {
+class PdfTextQualityError extends Error {
   readonly code = 'PDF_TEXT_QUALITY_INSUFFICIENT';
   readonly report: PdfTextQualityReport;
 
@@ -122,7 +122,7 @@ const countNormalizedTextChars = (text: string): number => text.replace(/\s+/g, 
 const canCaptionBackendImage = (image: BackendPdfImage): boolean =>
   isOpenRouterDataUrlInlineSafe(image.dataUrl);
 
-export const assessPdfTextQuality = (session: PdfAssetSession): PdfTextQualityReport => {
+const assessPdfTextQuality = (session: PdfAssetSession): PdfTextQualityReport => {
   const extractedCharacterCount = countNormalizedTextChars(session.extractedText);
   const pageCount = Math.max(session.pageCount || session.pages.length || 1, 1);
   const substantivePageCount = session.pages.filter(

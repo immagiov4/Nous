@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import { type RefObject, useCallback, useEffect, useMemo, useState } from 'react';
 import { buildReadableBlocks } from '../../utils/reader/readingText';
 
@@ -6,6 +7,7 @@ interface UseReaderSpeechBlocksArgs {
   sectionContent: string;
 }
 
+// fallow-ignore-next-line unused-export — used by useWorkspaceReaderRuntime.ts
 export const useReaderSpeechBlocks = ({
   contentRef,
   sectionContent,

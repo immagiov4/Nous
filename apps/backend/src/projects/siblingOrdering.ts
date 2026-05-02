@@ -88,7 +88,7 @@ export const insertMovedSiblingItems = (
 /**
  * Compute the next free order value for a new folder or placement.
  */
-export const resolveNextOrder = (
+const resolveNextOrder = (
   siblingOrders: number[],
   step = SIBLING_ORDER_STEP
 ): number =>

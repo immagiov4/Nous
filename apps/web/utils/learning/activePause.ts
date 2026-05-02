@@ -6,7 +6,7 @@ import {
 
 export const DEFAULT_ACTIVE_PAUSE_EXERCISE_TYPE: ActivePauseExerciseType = 'concept-check';
 
-export const ACTIVE_PAUSE_EXERCISE_LABELS: Record<ActivePauseExerciseType, string> = {
+const ACTIVE_PAUSE_EXERCISE_LABELS: Record<ActivePauseExerciseType, string> = {
   'application-card': 'Applicazione lampo',
   classification: 'Classificazione',
   'compare-contrast': 'Confronto',

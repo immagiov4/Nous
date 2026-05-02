@@ -14,7 +14,7 @@ export * from './config.ts';
 export * from './json.ts';
 export * from './retry.ts';
 export type * from './types.ts';
-export { getErrorMessage, isRecord };
+export { getErrorMessage };
 
 export const fileToDataUrl = (file: FileData): string =>
   `data:${file.mimeType};base64,${file.data}`;

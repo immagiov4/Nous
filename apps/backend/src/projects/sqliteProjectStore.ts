@@ -11,7 +11,6 @@ import {
   SIBLING_ORDER_STEP,
   type SiblingItem,
   buildOrderedSiblingItems,
-  resolveInsertionIndex,
   insertMovedSiblingItems,
   resolveNextFolderOrder,
   resolveNextPlacementOrder,
@@ -608,15 +607,6 @@ export class SqliteProjectStore implements ProjectStore {
     parentFolderId: string | null
   ): LibraryItem[] {
     return buildOrderedSiblingItems(folders, placements, parentFolderId);
-  }
-
-  private resolveInsertionIndex(
-    originalSiblingItems: Array<{ id: string }>,
-    movingIds: Set<string>,
-    targetIndex: number | undefined,
-    filteredSiblingCount: number
-  ): number {
-    return resolveInsertionIndex(originalSiblingItems, movingIds, targetIndex, filteredSiblingCount);
   }
 
   private insertMovedSiblingItems(

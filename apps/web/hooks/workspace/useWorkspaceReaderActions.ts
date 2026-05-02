@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import { useCallback } from 'react';
 import type {
   SaveConversationNoteInput,
@@ -74,6 +75,7 @@ const clearNativeSelection = () => {
   window.getSelection()?.removeAllRanges();
 };
 
+// fallow-ignore-next-line unused-export — used by App.tsx
 export const useWorkspaceReaderActions = ({
   activeSectionId,
   askContextQuestion: _askContextQuestion,

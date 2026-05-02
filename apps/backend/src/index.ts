@@ -146,4 +146,5 @@ export const createApp = () => {
   return app;
 };
 
+// fallow-ignore-next-line unused-export — imported as named export by server.ts and tests
 export default createApp;

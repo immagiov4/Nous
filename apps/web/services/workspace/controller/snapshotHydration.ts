@@ -21,7 +21,7 @@ const summarizeHydratedContent = (content: string) => ({
   preview: content.slice(0, HYDRATION_TRACE_PREVIEW_CHARS),
 });
 
-export const normalizeLearningPlanContent = (
+const normalizeLearningPlanContent = (
   learningPlan: LearningPlan | null
 ): LearningPlan | null => {
   if (!learningPlan) {

@@ -1,4 +1,4 @@
-export const SINGLE_LINE_CODE_LANGUAGES = new Map<string, string>([
+const SINGLE_LINE_CODE_LANGUAGES = new Map<string, string>([
   ['bash', 'bash'],
   ['c', 'c'],
   ['cpp', 'cpp'],

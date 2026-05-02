@@ -1,4 +1,4 @@
-export const WORKSPACE_WORKFLOW_IDS = [
+const WORKSPACE_WORKFLOW_IDS = [
   'openProject',
   'attachSource',
   'importProject',
@@ -25,7 +25,7 @@ export interface WorkflowEntry {
 
 export type WorkspaceWorkflowState = Record<WorkspaceWorkflowId, WorkflowEntry>;
 
-export const createIdleWorkflowEntry = (): WorkflowEntry => ({
+const createIdleWorkflowEntry = (): WorkflowEntry => ({
   status: 'idle',
   requestId: 0,
 });

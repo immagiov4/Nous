@@ -1,7 +1,9 @@
+// fallow-ignore-file unused-file
 import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../services/audio/voiceProfile.ts';
 import { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_REASONING } from '../services/openrouter/index.ts';
 import type { OpenRouterModelDefaults } from '../types.ts';
 
+// fallow-ignore-next-line unused-export — used by App.tsx
 export const defaultModelConfig: OpenRouterModelDefaults = {
   lessonModel: MODEL_REASONING,
   assessmentModel: MODEL_ASSESSMENT,

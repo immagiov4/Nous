@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
 import {
@@ -23,6 +24,7 @@ import type {
   UserProfile,
 } from '../../types';
 
+// fallow-ignore-next-line unused-export — used by App.tsx
 export const useWorkspaceDomain = () => {
   const [domainState, dispatch] = useReducer(
     workspaceDomainReducer,

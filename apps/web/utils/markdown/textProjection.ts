@@ -28,8 +28,8 @@ export interface LooseProjection {
   text: string;
 }
 
-export const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
-export const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
+const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
+const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
 
 export const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -38,7 +38,7 @@ export const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ')
 export const buildContextRegex = (value: string) =>
   escapeRegex(normalizeWhitespace(value)).replace(/\s+/g, '\\s+');
 
-export const normalizeLooseCharacter = (value: string): string =>
+const normalizeLooseCharacter = (value: string): string =>
   value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -311,7 +311,7 @@ export const buildSourceSegments = (
   return segments;
 };
 
-export const splitSegmentOnParagraphBreaks = (
+const splitSegmentOnParagraphBreaks = (
   content: string,
   segment: MarkdownRange
 ): MarkdownRange[] => {
@@ -347,7 +347,7 @@ export const trimSegmentWhitespace = (content: string, segment: MarkdownRange): 
   return start < end ? { start, end } : null;
 };
 
-export const excludeProtectedRanges = (
+const excludeProtectedRanges = (
   segment: MarkdownRange,
   protectedRanges: MarkdownRange[]
 ): MarkdownRange[] => {

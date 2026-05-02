@@ -1,7 +1,7 @@
 import { isRecord } from '../../utils/records.ts';
 import { getErrorMessage } from '../core/errorMessage.ts';
 
-export const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const DEFAULT_RETRY_ATTEMPTS = 3;
 const INITIAL_RETRY_DELAY_MS = 1000;

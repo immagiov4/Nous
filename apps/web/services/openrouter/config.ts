@@ -9,7 +9,7 @@ export const MAX_OUTPUT_TOKENS = Number.parseInt(
   process.env.MAX_OUTPUT_TOKENS || String(DEFAULT_MAX_OUTPUT_TOKENS),
   10
 );
-export const DEFAULT_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite-preview';
+const DEFAULT_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite-preview';
 
 export const MODEL_FLASH = process.env.MODEL_FLASH || 'openai/gpt-5.4-nano';
 export const MODEL_REASONING = process.env.MODEL_REASONING || 'openai/gpt-5.4-mini';
@@ -19,11 +19,6 @@ export const MODEL_PDF_IMAGE_CAPTION =
   process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
 export const MODEL_VISUAL_PLANNER = process.env.MODEL_VISUAL_PLANNER || MODEL_REASONING;
 export const MODEL_VISUAL_RENDERER = process.env.MODEL_VISUAL_RENDERER || MODEL_REASONING;
-
-export const HIGH_REASONING_CONFIG: OpenRouterReasoningOptions = {
-  effort: 'high',
-  exclude: false,
-};
 
 export const MEDIUM_REASONING_CONFIG: OpenRouterReasoningOptions = {
   effort: 'medium',
@@ -74,15 +69,15 @@ const isLoopbackHost = (host: string): boolean =>
 
 const isWildcardHost = (host: string): boolean => host === '0.0.0.0' || host === '::';
 
-export const DEFAULT_BACKEND_HOST = normalizeHost(
+const DEFAULT_BACKEND_HOST = normalizeHost(
   import.meta.env.VITE_BACKEND_HOST,
   FALLBACK_BACKEND_HOST
 );
-export const DEFAULT_BACKEND_PORT = normalizePort(
+const DEFAULT_BACKEND_PORT = normalizePort(
   import.meta.env.VITE_BACKEND_PORT,
   FALLBACK_BACKEND_PORT
 );
-export const DEFAULT_BACKEND_URL = `http://${DEFAULT_BACKEND_HOST}:${DEFAULT_BACKEND_PORT}`;
+const DEFAULT_BACKEND_URL = `http://${DEFAULT_BACKEND_HOST}:${DEFAULT_BACKEND_PORT}`;
 
 const getSameHostBackendUrl = (): string | null => {
   if (typeof window === 'undefined') {

@@ -1,6 +1,6 @@
 const ALLOWED_RAW_HTML_TAGS = new Set(['mark']);
 
-export const escapeHtml = (value: string): string =>
+const escapeHtml = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 export const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

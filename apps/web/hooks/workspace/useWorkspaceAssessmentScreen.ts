@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { AppState, type Message } from '../../types.ts';
 
@@ -12,6 +13,7 @@ interface UseWorkspaceAssessmentScreenArgs {
   }>;
 }
 
+// fallow-ignore-next-line unused-export — used by App.tsx
 export const useWorkspaceAssessmentScreen = ({
   assessmentMessages,
   notify,

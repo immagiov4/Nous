@@ -3,7 +3,7 @@ import { getMarkdownProtectedRanges, type MarkdownRange } from '../markdown/code
 import { timestampIso } from '../time.ts';
 import { normalizeWhitespace } from './sectionAnnotationProjection.ts';
 
-export const MARK_CLOSE = '</mark>';
+const MARK_CLOSE = '</mark>';
 export const MARK_OPEN_WITH_ID = (annotationId: string) =>
   `<mark data-nous-annotation-id="${annotationId}">`;
 

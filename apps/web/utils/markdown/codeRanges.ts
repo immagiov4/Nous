@@ -269,7 +269,7 @@ const mergeRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
   return mergedRanges;
 };
 
-export const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
+const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
   let index = 0;
 
@@ -300,7 +300,7 @@ export const getMarkdownCodeRanges = (content: string): MarkdownRange[] => {
   return mergeRanges(ranges);
 };
 
-export const getMarkdownMathRanges = (content: string): MarkdownRange[] => {
+const getMarkdownMathRanges = (content: string): MarkdownRange[] => {
   const ranges: MarkdownRange[] = [];
   let index = 0;
 

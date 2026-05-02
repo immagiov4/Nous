@@ -83,12 +83,6 @@ export const replacePdfImagePlaceholders = (
 export const stripPdfImagePlaceholders = (content: string): string =>
   content.replace(PDF_IMAGE_PLACEHOLDER_REGEX, ' ');
 
-export const stripVisualExamplePlaceholders = (content: string): string =>
-  content.replace(VISUAL_EXAMPLE_PLACEHOLDER_REGEX, ' ');
-
-export const stripLessonMediaPlaceholders = (content: string): string =>
-  stripVisualExamplePlaceholders(stripPdfImagePlaceholders(content));
-
 export const restoreLegacyPdfImagePlaceholders = (content: string): string => {
   const figuresRestored = content.replace(LEGACY_PDF_FIGURE_REGEX, figureHtml => {
     const imageTag = figureHtml.match(/<img\b[^>]*data-pdf-asset-id=(["'])[^"'<>]+\1[^>]*>/i)?.[0];

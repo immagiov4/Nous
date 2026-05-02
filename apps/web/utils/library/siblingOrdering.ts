@@ -67,7 +67,7 @@ export const resolveInsertionIndex = (
  * Insert moved items into the destination sibling list at the resolved index,
  * returning a new array.
  */
-export const insertMovedSiblingItems = (
+const insertMovedSiblingItems = (
   destinationItems: SiblingItem[],
   movingIds: Set<string>,
   targetIndex: number | undefined,
@@ -88,7 +88,7 @@ export const insertMovedSiblingItems = (
 /**
  * Compute the next free order value for a new folder or placement.
  */
-export const resolveNextOrder = (
+const resolveNextOrder = (
   siblingOrders: number[],
   step = SIBLING_ORDER_STEP
 ): number =>

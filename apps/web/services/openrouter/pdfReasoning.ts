@@ -14,7 +14,7 @@ export const clipPdfSourceText = (text: string, maxChars: number): string => {
   return `${normalized.slice(0, reservedSourceChars).trim()}\n\n[ESTRATTO PDF TRONCATO PER LIMITI DI CONTESTO]`;
 };
 
-export const buildPdfReasoningExtractionNotes = (
+const buildPdfReasoningExtractionNotes = (
   pdfSession:
     | {
         parser?: 'pdftotext' | 'pdf-parse';

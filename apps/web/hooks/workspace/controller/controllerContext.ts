@@ -1,5 +1,4 @@
 import * as OpenRouterService from '../../../services/openrouter/index.ts';
-import { readProjectImportData } from '../../../services/projects/projectArchive.ts';
 import {
   detectSourceFileKind,
   encodeBytesBase64,
@@ -18,8 +17,6 @@ const createSleep = (ms: number) =>
 const scheduleHydrationWithMicrotask = (callback: () => void) => {
   queueMicrotask(callback);
 };
-
-export const readImportFile = async (file: File): Promise<unknown> => readProjectImportData(file);
 
 export const readSourceFileData = async (file: File): Promise<FileData> => {
   const bytes = new Uint8Array(await file.arrayBuffer());

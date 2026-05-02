@@ -164,7 +164,7 @@ export const decodeTextBase64Preview = (value: string, maxBytes: number): string
   return new TextDecoder().decode(decodeBase64Bytes(previewBase64));
 };
 
-export const isLikelyBinaryData = (bytes: Uint8Array): boolean => {
+const isLikelyBinaryData = (bytes: Uint8Array): boolean => {
   const checkLength = Math.min(bytes.length, 1024);
   if (checkLength === 0) {
     return false;
@@ -284,9 +284,6 @@ export const normalizeSourceFileMimeType = (
   return normalizedMimeType;
 };
 
-export const isTextSourceFileData = (file: FileData | null | undefined): boolean =>
-  Boolean(file && detectStoredSourceFileKind(file) === 'text');
-
 const isCodebaseArchiveSource = (source: CodebaseBundleSource): boolean =>
   source.files.length > 0 || source.name.toLowerCase().endsWith('.zip');
 
@@ -345,19 +342,3 @@ export const getProjectSourceName = (source: ProjectSource | null | undefined): 
 
   return source.kind === 'pdf' ? source.file.name : source.name;
 };
-
-export const createLegacyCodebaseSource = (
-  name: string,
-  aggregatedText: string
-): CodebaseBundleSource => ({
-  kind: 'codebase-bundle',
-  name,
-  aggregatedText,
-  files: [],
-  stats: {
-    includedFileCount: 0,
-    skippedFileCount: 0,
-    truncatedFileCount: 0,
-    totalCharacterCount: aggregatedText.length,
-  },
-});

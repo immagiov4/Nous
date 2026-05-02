@@ -60,7 +60,7 @@ export const inferProjectSourceKind = (
   return imported ? 'imported-json' : 'document';
 };
 
-export const getProjectTitle = (
+const getProjectTitle = (
   snapshot: Pick<
     ProjectSnapshot,
     'learningPlan' | 'laboratory' | 'source' | 'userProfile' | 'isLearnMode'

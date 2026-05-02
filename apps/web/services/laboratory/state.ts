@@ -14,7 +14,7 @@ const isCompatibleLaboratoryExercise = (exercise: LaboratoryExercise): boolean =
   hasNonEmptyText(exercise.exampleMarkdown) &&
   hasRequirements(exercise.requirements);
 
-export const isCompatibleLaboratoryState = (
+const isCompatibleLaboratoryState = (
   laboratory: LaboratoryState | null
 ): laboratory is LaboratoryState => {
   if (!laboratory || laboratory.schemaVersion !== CURRENT_LABORATORY_SCHEMA_VERSION) {

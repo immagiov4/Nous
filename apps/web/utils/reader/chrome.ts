@@ -24,7 +24,7 @@ export const CONTEXT_ANSWER_DEFAULT_SIZE: ContextAnswerSize = {
 
 export const CONTEXT_ANSWER_MIN_WIDTH = 352;
 export const CONTEXT_ANSWER_MIN_HEIGHT = 256;
-export const CONTEXT_ANSWER_VIEWPORT_MARGIN = 32;
+const CONTEXT_ANSWER_VIEWPORT_MARGIN = 32;
 
 export const clampContextAnswerPanelSize = (
   size: ContextAnswerSize,

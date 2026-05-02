@@ -17,7 +17,7 @@ const __dirname = dirname(__filename);
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const DEFAULT_TTS_MODEL =
   process.env.MODEL_TTS || process.env.TTS_MODEL_NAME || 'openai/gpt-4o-mini-tts-2025-12-15';
-export const DEFAULT_TTS_VOICE = process.env.TTS_VOICE || 'coral';
+const DEFAULT_TTS_VOICE = process.env.TTS_VOICE || 'coral';
 const TTS_RESPONSE_FORMAT = 'mp3';
 const OPENROUTER_APP_REFERER = process.env.OPENROUTER_APP_REFERER || 'http://localhost:5173';
 const OPENROUTER_APP_TITLE = 'Nous Reader';

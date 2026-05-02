@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-file
 import type { WorkspaceReaderShellProps } from '../components/workspace/shell/types.ts';
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceReaderActions } from '../hooks/workspace/useWorkspaceReaderActions.ts';
@@ -40,6 +41,7 @@ const notifyIfErrored = (result: ErrorResult, notify: (message: string) => void)
   }
 };
 
+// fallow-ignore-next-line unused-export — used by App.tsx
 export const buildReaderShellProps = ({
   controller,
   handleAttachSourceFile,

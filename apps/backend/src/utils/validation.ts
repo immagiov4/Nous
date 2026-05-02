@@ -1,7 +1,7 @@
 export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-export const readString = (value: unknown): string | undefined =>
+const readString = (value: unknown): string | undefined =>
   typeof value === 'string' ? value : undefined;
 
 export const readOptionalString = (value: unknown): string | undefined => {
