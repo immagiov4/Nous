@@ -57,6 +57,10 @@ By default, projects are stored in browser IndexedDB. LAN sync uses the backend 
 ## Useful Commands
 
 ```bash
-npm run quality   # TypeScript type checks + Biome lint
-npm test          # Vitest test suite
+npm run quality       # TypeScript type checks + Biome lint
+npm run check:fallow  # Static dead-code & duplication analysis
+npm run gate          # Full gate: quality + fallow + tests
+npm run fix           # Auto-fix Biome lint, format, and import ordering
+npm run format        # Format all files (Biome)
+npm test              # Vitest test suite
 ```

@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-file
+// fallow-ignore-file unused-files
 import type { ChangeEvent } from 'react';
 import { useCallback, useId, useRef } from 'react';
 import type { SavedProjectMeta } from '../../types.ts';
@@ -24,7 +24,7 @@ const clickInputById = (inputId: string) => {
   input?.click();
 };
 
-// fallow-ignore-next-line unused-export — used by App.tsx
+// fallow-ignore-next-line unused-exports — used by App.tsx
 export const useWorkspaceFileActions = ({
   confirmProjectDelete,
   deleteProject,

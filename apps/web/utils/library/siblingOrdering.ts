@@ -66,10 +66,7 @@ export const resolveInsertionIndex = (
 /**
  * Compute the next free order value for a new folder or placement.
  */
-const resolveNextOrder = (
-  siblingOrders: number[],
-  step = SIBLING_ORDER_STEP
-): number =>
+const resolveNextOrder = (siblingOrders: number[], step = SIBLING_ORDER_STEP): number =>
   (Math.max(0, ...siblingOrders) || 0) + step;
 
 /**
@@ -96,9 +93,7 @@ export const resolveNextFolderOrder = (
   step = SIBLING_ORDER_STEP
 ): number =>
   resolveNextOrder(
-    folders
-      .filter(folder => folder.parentFolderId === parentFolderId)
-      .map(folder => folder.order),
+    folders.filter(folder => folder.parentFolderId === parentFolderId).map(folder => folder.order),
     step
   );
 

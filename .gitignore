@@ -30,3 +30,12 @@ nul
 .kilo/
 .fallow/
 .fallow-current.json
+
+# Allow fallow baselines (checked into VCS)
+!.fallow-baselines/
+.fallow/
+.fallow-current.json
+
+# Allow fallow baselines (checked into VCS)
+!.fallow-baselines/
+.fallow-health.json

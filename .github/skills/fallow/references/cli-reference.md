@@ -1272,7 +1272,7 @@ Set `FALLOW_FORMAT=json` and `FALLOW_QUIET=1` in your agent environment to avoid
     "stale_suppressions": 0
   },
   "unused_files": [{ "path": "src/old.ts" }],
-  "unused_exports": [{ "path": "src/utils.ts", "name": "unusedFn", "line": 42, "actions": [{"type": "remove-export", "auto_fixable": true, "description": "Remove the unused export from the public API"}, {"type": "suppress-line", "auto_fixable": false, "description": "Suppress with an inline comment above the line", "comment": "// fallow-ignore-next-line unused-export"}] }],
+  "unused_exports": [{ "path": "src/utils.ts", "name": "unusedFn", "line": 42, "actions": [{"type": "remove-export", "auto_fixable": true, "description": "Remove the unused export from the public API"}, {"type": "suppress-line", "auto_fixable": false, "description": "Suppress with an inline comment above the line", "comment": "// fallow-ignore-next-line unused-exports"}] }],
   "unused_types": [{ "path": "src/types.ts", "name": "OldType", "line": 10 }],
   "unused_dependencies": [{ "name": "lodash", "line": 5, "used_in_workspaces": ["packages/web"] }],
   "unused_dev_dependencies": [{ "name": "jest", "line": 8 }],
@@ -1323,7 +1323,7 @@ Example:
       "type": "suppress-line",
       "auto_fixable": false,
       "description": "Suppress with an inline comment above the line",
-      "comment": "// fallow-ignore-next-line unused-export"
+      "comment": "// fallow-ignore-next-line unused-exports"
     }
   ]
 }
@@ -1621,7 +1621,7 @@ preset = "bulletproof"
 | Comment | Effect |
 |---------|--------|
 | `// fallow-ignore-next-line` | Suppress any issue on the next line |
-| `// fallow-ignore-next-line unused-export` | Suppress specific issue type |
+| `// fallow-ignore-next-line unused-exports` | Suppress specific issue type |
 | `// fallow-ignore-file` | Suppress all issues in a file |
 | `// fallow-ignore-file unused-export` | Suppress specific issue type file-wide |
 

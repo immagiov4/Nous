@@ -127,7 +127,7 @@ export const buildReadableBlocks = (container: HTMLElement): ReadableBlock[] => 
   });
 };
 
-const buildReadableSegments = (container: HTMLElement): ReadableSegment[] =>
+const _buildReadableSegments = (container: HTMLElement): ReadableSegment[] =>
   buildReadableBlocks(container).map(({ startAudio, endAudio, top, bottom }) => ({
     startAudio,
     endAudio,

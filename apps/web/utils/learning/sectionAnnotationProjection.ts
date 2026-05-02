@@ -5,20 +5,17 @@ import {
 } from '../markdown/codeRanges.ts';
 
 import {
-  type VisibleProjection,
-  type LooseProjection,
-  escapeRegex,
-  normalizeWhitespace,
-  normalizeLooseText,
   buildContextRegex,
-  buildVisibleProjection,
   buildLooseProjection,
-  buildSourceLooseProjection,
-  resolveExactMatch,
-  buildSourceSegments,
   buildMarkableSegments,
-  trimSegmentWhitespace,
+  buildSourceLooseProjection,
+  buildSourceSegments,
+  buildVisibleProjection,
+  escapeRegex,
+  normalizeLooseText,
   overlapsProtectedRange,
+  resolveExactMatch,
+  trimSegmentWhitespace,
 } from '../markdown/textProjection.ts';
 
 export interface ResolveSelectedSegmentsOptions {

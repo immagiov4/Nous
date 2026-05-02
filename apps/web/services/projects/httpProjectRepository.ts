@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-class-member — interface implementation methods
+// fallow-ignore-file unused-class-members — interface implementation methods
 import type {
   LibraryFolder,
   LibraryPlacement,

@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-file
+// fallow-ignore-file unused-files
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, type LearningPlan, type LearningSection } from '../types.ts';
 
@@ -17,7 +17,7 @@ const getPlanAcknowledgementKey = ({
 }: Pick<UseInitialSectionAutoOpenArgs, 'currentProjectId' | 'learningPlan'>): string =>
   currentProjectId || learningPlan?.title || '';
 
-// fallow-ignore-next-line unused-export — used by App.tsx
+// fallow-ignore-next-line unused-exports — used by App.tsx
 export const useInitialSectionAutoOpen = ({
   activeSection,
   currentProjectId,

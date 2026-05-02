@@ -21,9 +21,7 @@ const summarizeHydratedContent = (content: string) => ({
   preview: content.slice(0, HYDRATION_TRACE_PREVIEW_CHARS),
 });
 
-const normalizeLearningPlanContent = (
-  learningPlan: LearningPlan | null
-): LearningPlan | null => {
+const normalizeLearningPlanContent = (learningPlan: LearningPlan | null): LearningPlan | null => {
   if (!learningPlan) {
     return null;
   }

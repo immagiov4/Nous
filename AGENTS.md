@@ -1,9 +1,56 @@
-# General Programming Preferences and Development Guidelines
+# Nous Reader — Agent Instructions
 
 IMPORTANT: these guidelines are your bible, read them all completely, do not infer, read them and check on them periodically. If the requested task is complicated and will run for long, read this file again to refresh your context and to prevent context compaction and context drift.
 
+## Project Shape
+
+- **Frontend**: `apps/web/` — React 19 + TypeScript + Vite, entry at `apps/web/App.tsx`
+- **Components**: `apps/web/components/`
+- **Hooks**: `apps/web/hooks/`
+- **Services**: `apps/web/services/` (OpenRouter, audio, projects, workspace)
+- **Utilities**: `apps/web/utils/`
+- **Shared types**: `apps/web/types.ts`
+- **Backend**: `apps/backend/src/` — Express.js + TypeScript
+- **TTS Server**: `services/tts-server/` — Python Qwen3-TTS
+- **Persistence**: IndexedDB (client-side), SQLite (backend LAN mode)
+- **Style guide**: `docs/UI_STYLE_GUIDE.md`
+
 ## Quick Map
 Core Philosophy → Context Before Code → Simplicity → Naming → Single Source of Truth → Magic Numbers → Configuration Constants → Modularity & Helpers → Parameters → Error Handling → Comments → Code Style → Runtime Assumptions → Localization → UI Design → Event Handling → Data Ordering → Security → Testing → Bug Fixing → Change Discipline → Confirmation → Version Control → Performance → State & Side Effects → Dead Code → Tradeoffs → Output Style → Final Checklist
+
+## Working Rules
+
+- Read the nearest implementation files before editing.
+- Prefer the existing architecture and helpers over inventing new patterns.
+- Keep changes narrow and aligned with the current module boundaries.
+- Do not introduce unrelated refactors in the same patch.
+- Remove dead code and duplicate logic introduced by the change.
+- Keep names specific and semantically clear.
+
+## Source Of Truth — Project Layer
+
+- Treat code and local templates as the source of truth when docs lag.
+- Reuse existing constants, hooks, and services before adding new ones.
+- Avoid duplicating model names, thresholds, prompt fragments, and style tokens.
+- Keep AI prompt construction close to the feature that owns it.
+- Centralize shared AI prompt constants and environment-specific rules.
+- If a feature changes AI behavior, update the shared instructions and entrypoint docs together.
+
+## Validation Commands
+
+```bash
+npm run quality       # TypeScript type checks + Biome lint
+npm run check:fallow  # Static dead-code & duplication analysis (info only)
+npm run gate          # Full gate: quality + fallow + tests
+npm run gate:ci       # CI gate: quality + fallow regression + tests
+npm run fix           # Auto-fix Biome lint, format, and import ordering
+npm run format        # Format all files (Biome)
+npm test              # Vitest test suite
+```
+
+Run the narrowest meaningful validation first. Before completing cleanup/refactor
+batches, run `npm run gate`. Use `npm run fix` to auto-fix lint and format issues.
+Do not claim validation passed unless it was actually run.
 
 ## Core Philosophy
 

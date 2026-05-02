@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-file
+// fallow-ignore-file unused-files
 import { Loader2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import ThinkingStream from './ThinkingStream.tsx';
@@ -155,5 +155,5 @@ const LoadingScreen = ({
   );
 };
 
-// fallow-ignore-next-line unused-export — imported by App.tsx as default
+// fallow-ignore-next-line unused-exports — imported by App.tsx as default
 export default LoadingScreen;

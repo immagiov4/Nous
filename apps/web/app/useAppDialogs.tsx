@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-file
+// fallow-ignore-file unused-files
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Pressable } from '../utils/motion/index.ts';
@@ -18,7 +18,7 @@ interface ConfirmationDialogRequest {
   title: string;
 }
 
-// fallow-ignore-next-line unused-export — used by App.tsx
+// fallow-ignore-next-line unused-exports — used by App.tsx
 export const useAppDialogs = () => {
   const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);

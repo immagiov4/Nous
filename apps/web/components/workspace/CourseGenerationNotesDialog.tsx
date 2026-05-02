@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-file
+// fallow-ignore-file unused-files
 import { useEffect, useRef, useState } from 'react';
 import { MotionDialog, Pressable } from '../../utils/motion/index.ts';
 
@@ -9,7 +9,7 @@ interface CourseGenerationNotesDialogProps {
   onSkip: () => void;
 }
 
-// fallow-ignore-next-line unused-export — imported by App.tsx as default
+// fallow-ignore-next-line unused-exports — imported by App.tsx as default
 export default function CourseGenerationNotesDialog({
   courseTitle,
   initialValue,

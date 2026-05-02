@@ -448,15 +448,6 @@ export interface TtsModelSummary {
   voiceHelpUrl?: string;
 }
 
-interface TTSStatus {
-  isRunning: boolean;
-  isReady: boolean;
-  modelLoaded: boolean;
-  currentDevice: string;
-  uptime: number;
-  lastError?: string;
-}
-
 export interface AudioChunk {
   text: string;
   index: number;

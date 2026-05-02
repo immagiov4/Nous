@@ -118,7 +118,7 @@ const mod = import(someVariable);
 If fallow falsely flags something due to dynamic patterns, use inline suppression:
 
 ```typescript
-// fallow-ignore-next-line unused-export
+// fallow-ignore-next-line unused-exports
 export const dynamicallyUsed = createHandler();
 ```
 
@@ -371,7 +371,7 @@ Fallow detects `// fallow-ignore` comments and `@expected-unused` JSDoc tags tha
 
 ```typescript
 // STALE: the export below is actually used now
-// fallow-ignore-next-line unused-export
+// fallow-ignore-next-line unused-exports
 export const helper = () => {};  // imported in app.ts
 ```
 

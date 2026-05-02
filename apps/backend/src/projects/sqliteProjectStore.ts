@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-class-member — interface implementation methods
+// fallow-ignore-file unused-class-members — interface implementation methods
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,13 +9,13 @@ import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
 import { buildProjectMeta, normalizeProjectSnapshot, PROJECT_SYNC_READY } from './projectMeta.js';
 import {
-  SIBLING_ORDER_STEP,
-  type SiblingItem,
   buildOrderedSiblingItems,
+  collectFolderDescendantIds,
   insertMovedSiblingItems,
   resolveNextFolderOrder,
   resolveNextPlacementOrder,
-  collectFolderDescendantIds,
+  SIBLING_ORDER_STEP,
+  type SiblingItem,
 } from './siblingOrdering.js';
 import type {
   LibraryFolder,

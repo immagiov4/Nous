@@ -559,7 +559,7 @@ Shows all files that import lodash.
 The export might be consumed through a pattern fallow can't resolve (fully dynamic import, reflection). Add a suppression:
 
 ```typescript
-// fallow-ignore-next-line unused-export
+// fallow-ignore-next-line unused-exports
 export const dynamicallyUsed = createHandler();
 ```
 
@@ -568,7 +568,7 @@ export const dynamicallyUsed = createHandler();
 The export is genuinely unused. Consider removing it or marking it as intentionally kept:
 
 ```typescript
-// fallow-ignore-next-line unused-export
+// fallow-ignore-next-line unused-exports
 export const publicApi = createWidget();  // Used by external consumers
 ```
 

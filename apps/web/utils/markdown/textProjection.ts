@@ -335,7 +335,10 @@ const splitSegmentOnParagraphBreaks = (
   return fragments;
 };
 
-export const trimSegmentWhitespace = (content: string, segment: MarkdownRange): MarkdownRange | null => {
+export const trimSegmentWhitespace = (
+  content: string,
+  segment: MarkdownRange
+): MarkdownRange | null => {
   const segmentText = content.slice(segment.start, segment.end);
   const leadingWhitespaceLength = segmentText.match(/^\s*/u)?.[0].length ?? 0;
   const trailingWhitespaceLength = segmentText.match(/\s*$/u)?.[0].length ?? 0;

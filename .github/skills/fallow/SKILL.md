@@ -348,7 +348,7 @@ Config fields:
 // fallow-ignore-next-line
 export const keepThis = 1;
 
-// fallow-ignore-next-line unused-export
+// fallow-ignore-next-line unused-exports
 export const keepThisToo = 2;
 
 // fallow-ignore-file

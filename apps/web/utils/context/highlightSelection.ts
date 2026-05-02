@@ -5,18 +5,16 @@ import {
 } from '../markdown/codeRanges.ts';
 
 import {
-  type VisibleProjection,
-  type LooseProjection,
+  buildContextRegex,
+  buildLooseProjection,
+  buildMarkableSegments,
+  buildSourceLooseProjection,
+  buildSourceSegments,
+  buildVisibleProjection,
   escapeRegex,
   normalizeLooseText,
-  buildContextRegex,
-  buildVisibleProjection,
-  buildLooseProjection,
-  buildSourceLooseProjection,
-  resolveExactMatch,
-  buildSourceSegments,
-  buildMarkableSegments,
   overlapsProtectedRange,
+  resolveExactMatch,
 } from '../markdown/textProjection.ts';
 
 export interface HighlightSelectionOptions {

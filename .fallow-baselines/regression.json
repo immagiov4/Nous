@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "fallow_version": "2.61.0",
+  "timestamp": "2026-05-02T01:54:47Z",
+  "git_sha": "bbcc63472527eaedd3d342f9d0fe1704b76d4151",
+  "check": {
+    "total_issues": 90,
+    "unused_files": 23,
+    "unused_exports": 23,
+    "unused_types": 5,
+    "unused_dependencies": 0,
+    "unused_dev_dependencies": 0,
+    "unused_optional_dependencies": 0,
+    "unused_enum_members": 0,
+    "unused_class_members": 35,
+    "unresolved_imports": 0,
+    "unlisted_dependencies": 3,
+    "duplicate_exports": 1,
+    "circular_dependencies": 0,
+    "type_only_dependencies": 0,
+    "test_only_dependencies": 0,
+    "boundary_violations": 0
+  }
+}

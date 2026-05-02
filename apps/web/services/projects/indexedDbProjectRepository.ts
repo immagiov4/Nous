@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-class-member — interface implementation methods
+// fallow-ignore-file unused-class-members — interface implementation methods
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 import type {
   LibraryFolder,
@@ -8,16 +8,16 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types';
-import { createLibraryFolderId } from '../../utils/library/tree.ts';
 import {
+  buildOrderedSiblingItems,
+  collectFolderDescendantIds,
+  resolveInsertionIndex,
+  resolveNextFolderOrder,
+  resolveNextPlacementOrder,
   SIBLING_ORDER_STEP,
   type SiblingItem,
-  buildOrderedSiblingItems,
-  resolveInsertionIndex,
-  resolveNextPlacementOrder,
-  resolveNextFolderOrder,
-  collectFolderDescendantIds,
 } from '../../utils/library/siblingOrdering.ts';
+import { createLibraryFolderId } from '../../utils/library/tree.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { type ProjectRepository, ProjectStorageError } from './projectRepository';
 import {
@@ -190,7 +190,9 @@ export class IndexedDbProjectRepository implements ProjectRepository {
         .sort(
           (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
         )
-        .map((meta, index) => this.createPlacementRecord(meta.id, null, (index + 1) * SIBLING_ORDER_STEP));
+        .map((meta, index) =>
+          this.createPlacementRecord(meta.id, null, (index + 1) * SIBLING_ORDER_STEP)
+        );
     }
 
     const placements = await db.getAll(PLACEMENT_STORE);
@@ -271,7 +273,12 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     targetIndex: number | undefined,
     filteredSiblingCount: number
   ) {
-    return resolveInsertionIndex(originalSiblingItems, movingIds, targetIndex, filteredSiblingCount);
+    return resolveInsertionIndex(
+      originalSiblingItems,
+      movingIds,
+      targetIndex,
+      filteredSiblingCount
+    );
   }
 
   private async persistSiblingOrders(

@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-file
+// fallow-ignore-file unused-files
 import { useEffect, useRef, useState } from 'react';
 import {
   readUiPreferences,
@@ -11,7 +11,7 @@ interface UseUiPreferencesPersistenceArgs {
   uiPreferences: UiPreferences;
 }
 
-// fallow-ignore-next-line unused-export — used by App.tsx
+// fallow-ignore-next-line unused-exports — used by App.tsx
 export const useUiPreferencesPersistence = ({
   applyUiPreferences,
   uiPreferences,

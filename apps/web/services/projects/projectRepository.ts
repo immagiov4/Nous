@@ -42,11 +42,3 @@ export interface ProjectRepository {
   exportProject: (id: ProjectId) => Promise<ProjectExportData | null>;
   touchProject: (id: ProjectId) => Promise<void>;
 }
-
-interface DriveSyncAdapter {
-  isConfigured: () => boolean;
-  syncProject: (snapshot: ProjectSnapshot) => Promise<void>;
-  pullProjects: () => Promise<ProjectSnapshot[]>;
-}
-
-

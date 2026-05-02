@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-file
+// fallow-ignore-file unused-files
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';

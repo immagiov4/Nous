@@ -1,6 +1,6 @@
 # Copilot Instructions — Nous Reader
 
-Canonical repository-wide AI guidance lives in [AI_INSTRUCTIONS.md](../AI_INSTRUCTIONS.md).
+Canonical repository-wide AI guidance lives in [AGENTS.md](../AGENTS.md).
 Tailored to this repository: React 19 + TypeScript + Vite frontend in `apps/web/` · Express.js + TypeScript backend in `apps/backend/` · Python Qwen3-TTS server in `services/tts-server/` · IndexedDB persistence · OpenRouter-driven learning, assessment, and text-to-speech flows.
 
 ---

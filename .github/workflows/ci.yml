@@ -27,8 +27,11 @@ jobs:
         run: npm ci
         working-directory: apps/backend
 
-      - name: Run Quality Checks
+      - name: Run Quality Checks (TypeScript + Biome)
         run: npm run quality
+
+      - name: Run Fallow Static Analysis (regression check)
+        run: npm run check:fallow:ci
 
       - name: Run Test Suite
         run: npm test
