@@ -225,3 +225,9 @@ npm run quality       # frontend/backend type checks + Biome lint
 3. Verify whether the change belongs in frontend code, backend code, or the Python TTS server.
 4. Trace existing usages before renaming or moving anything.
 5. Run the narrowest meaningful validation, and run `npm run quality` when the change touches TypeScript code paths.
+
+## graphify
+
+Before answering architecture or codebase questions, read `graphify-out/GRAPH_REPORT.md` if it exists.
+If `graphify-out/wiki/index.md` exists, navigate it for deep questions.
+Type `/graphify` in Copilot Chat to build or update the knowledge graph.

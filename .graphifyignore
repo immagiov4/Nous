@@ -12,8 +12,6 @@ dist
 dist-ssr
 apps/backend/dist/
 data
-*.local
-.env.*.local
 nul
 
 # Editor directories and files
@@ -30,10 +28,9 @@ nul
 .kilo/
 .fallow/
 .fallow-current.json
-graphify-out/
 
 # Allow fallow baselines (checked into VCS)
-!.fallow-baselines/
+.fallow-baselines/
 .fallow/
 .fallow-current.json
 .fallow-health.json

@@ -4,7 +4,7 @@ Nous Reader turns uploaded documents into personalized study plans with lessons,
 
 ## Start Here
 
-- [AI instructions](AI_INSTRUCTIONS.md)
+- [AI instructions](AGENTS.md)
 - [Architecture guide](docs/ARCHITECTURE.md)
 - [UI style guide](docs/UI_STYLE_GUIDE.md)
 
