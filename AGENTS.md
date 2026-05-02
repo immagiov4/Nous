@@ -2,18 +2,14 @@
 
 IMPORTANT: these guidelines are your bible, read them all completely, do not infer, read them and check on them periodically. If the requested task is complicated and will run for long, read this file again to refresh your context and to prevent context compaction and context drift.
 
-## Project Shape
+## graphify
 
-- **Frontend**: `apps/web/` — React 19 + TypeScript + Vite, entry at `apps/web/App.tsx`
-- **Components**: `apps/web/components/`
-- **Hooks**: `apps/web/hooks/`
-- **Services**: `apps/web/services/` (OpenRouter, audio, projects, workspace)
-- **Utilities**: `apps/web/utils/`
-- **Shared types**: `apps/web/types.ts`
-- **Backend**: `apps/backend/src/` — Express.js + TypeScript
-- **TTS Server**: `services/tts-server/` — Python Qwen3-TTS
-- **Persistence**: IndexedDB (client-side), SQLite (backend LAN mode)
-- **Style guide**: `docs/UI_STYLE_GUIDE.md`
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
 
 ## Quick Map
 Core Philosophy → Context Before Code → Simplicity → Naming → Single Source of Truth → Magic Numbers → Configuration Constants → Modularity & Helpers → Parameters → Error Handling → Comments → Code Style → Runtime Assumptions → Localization → UI Design → Event Handling → Data Ordering → Security → Testing → Bug Fixing → Change Discipline → Confirmation → Version Control → Performance → State & Side Effects → Dead Code → Tradeoffs → Output Style → Final Checklist
