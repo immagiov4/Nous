@@ -5,6 +5,7 @@ import {
   Download,
   FlaskConical,
   LibraryBig,
+  Loader2,
   Minus,
   SidebarClose,
   Sparkles,
@@ -25,11 +26,17 @@ const getSectionStatusLabel = ({
   hasGeneratedContent,
   isActive,
   isCompleted,
+  isGenerating,
 }: {
   hasGeneratedContent: boolean;
   isActive: boolean;
   isCompleted: boolean;
+  isGenerating: boolean;
 }) => {
+  if (isGenerating) {
+    return 'Generazione lezione in corso…';
+  }
+
   if (isCompleted) {
     return 'Lezione completata';
   }
@@ -49,11 +56,17 @@ const renderSectionStatus = ({
   hasGeneratedContent,
   isActive,
   isCompleted,
+  isGenerating,
 }: {
   hasGeneratedContent: boolean;
   isActive: boolean;
   isCompleted: boolean;
+  isGenerating: boolean;
 }) => {
+  if (isGenerating) {
+    return <Loader2 className="h-3.5 w-3.5 animate-spin text-orange-500" strokeWidth={2} />;
+  }
+
   if (isCompleted) {
     return <CheckCircle2 className="h-4 w-4 text-gray-600 dark:text-zinc-300" />;
   }
@@ -99,6 +112,7 @@ export default function WorkspaceReaderSidebar({
   activeLaboratoryExerciseId,
   activeSectionId,
   expandedModuleId,
+  generatingSectionId,
   isLoading,
   isMobileViewport,
   laboratoryExercises,
@@ -386,6 +400,12 @@ export default function WorkspaceReaderSidebar({
                           const isActive = activeSectionId === section.id;
                           const depth = group.sectionDepthById[section.id] ?? 0;
                           const hasGeneratedContent = Boolean(section.content?.trim());
+                          const isGenerating = generatingSectionId === section.id;
+                          // Disabled only when a different section is being
+                          // generated — otherwise all sections are clickable
+                          // (to start generation or navigate).
+                          const isDisabled =
+                            generatingSectionId !== null && !hasGeneratedContent && !isGenerating;
 
                           return (
                             <button
@@ -393,13 +413,13 @@ export default function WorkspaceReaderSidebar({
                               key={section.id}
                               onClick={() => onSelectSection(section)}
                               onContextMenu={event => handleLessonContextMenu(event, section)}
-                              disabled={isLoading}
+                              disabled={isDisabled}
                               style={{ paddingLeft: `${depth * 0.9}rem` }}
                               className={`flex w-full items-center gap-3 py-2 text-left transition-colors ${
                                 isActive
                                   ? 'text-gray-900 dark:text-gray-100'
                                   : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                              } ${isLoading ? 'cursor-not-allowed opacity-50' : ''}`}
+                              } ${isDisabled ? 'cursor-not-allowed opacity-40' : ''}`}
                             >
                               <div
                                 className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
@@ -407,12 +427,14 @@ export default function WorkspaceReaderSidebar({
                                   hasGeneratedContent,
                                   isActive,
                                   isCompleted: section.isCompleted,
+                                  isGenerating,
                                 })}
                               >
                                 {renderSectionStatus({
                                   hasGeneratedContent,
                                   isActive,
                                   isCompleted: section.isCompleted,
+                                  isGenerating,
                                 })}
                               </div>
                               <div className="min-w-0 flex-1">

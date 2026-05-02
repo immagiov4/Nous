@@ -68,7 +68,6 @@ export const selectIsBlocking = (workflowState: WorkspaceWorkflowState): boolean
   workflowState.importProject.status === 'pending' ||
   workflowState.assessment.status === 'pending' ||
   workflowState.generatePlan.status === 'pending' ||
-  workflowState.loadSection.status === 'pending' ||
   workflowState.completeSection.status === 'pending';
 
 export const selectBlockingMessage = (

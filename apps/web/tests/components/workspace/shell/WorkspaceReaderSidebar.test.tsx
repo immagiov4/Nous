@@ -10,6 +10,7 @@ const buildProps = (
   activeLaboratoryExerciseId: null,
   activeSectionId: 'section-1',
   expandedModuleId: 'module-1',
+  generatingSectionId: null,
   isLoading: false,
   isMobileViewport: false,
   laboratoryExercises: [],

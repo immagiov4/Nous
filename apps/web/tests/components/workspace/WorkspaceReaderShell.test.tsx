@@ -190,6 +190,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
       activeLaboratoryExerciseId: null,
       activeSectionId: null,
       expandedModuleId: null,
+      generatingSectionId: null,
       isLoading: false,
       isMobileViewport: false,
       laboratoryExercises: [],

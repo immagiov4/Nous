@@ -390,6 +390,7 @@ const createStateAdapter = () => {
   const runtime = {
     assessmentMessages: [] as Message[],
     chatSession: null as WorkspaceChatSession | null,
+    generatingSectionId: null as string | null,
     openingProjectId: null as string | null,
     screenState: AppState.LIBRARY,
     workflowState: createWorkspaceWorkflowState(),
@@ -446,6 +447,9 @@ const createStateAdapter = () => {
       },
       setChatSession: chatSession => {
         runtime.chatSession = chatSession;
+      },
+      setGeneratingSectionId: sectionId => {
+        runtime.generatingSectionId = sectionId;
       },
       setOpeningProjectId: projectId => {
         runtime.openingProjectId = projectId;

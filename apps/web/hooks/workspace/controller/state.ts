@@ -17,6 +17,7 @@ export const useWorkspaceControllerState = () => {
   const [workflowState, setWorkflowState] = useState<WorkspaceWorkflowState>(
     createWorkspaceWorkflowState
   );
+  const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
 
   const assessmentMessagesRef = useRef(assessmentMessages);
   const chatSessionRef = useRef(chatSession);
@@ -105,6 +106,9 @@ export const useWorkspaceControllerState = () => {
           return resolvedMessages;
         });
       },
+      setGeneratingSectionId: (sectionId: string | null) => {
+        setGeneratingSectionId(sectionId);
+      },
       setChatSession: nextChatSession => {
         chatSessionRef.current = nextChatSession;
         setChatSession(nextChatSession);
@@ -166,6 +170,7 @@ export const useWorkspaceControllerState = () => {
         pushNousDebugTrace('workflow:succeed', { message, requestId, workflowId });
       },
     } satisfies WorkspaceControllerStateAdapter,
+    generatingSectionId,
     workflowState,
   };
 };

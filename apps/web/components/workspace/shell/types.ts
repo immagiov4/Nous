@@ -80,6 +80,7 @@ export interface WorkspaceReaderSidebarModel {
   activeLaboratoryExerciseId: string | null;
   activeSectionId: string | null;
   expandedModuleId: string | null;
+  generatingSectionId: string | null;
   isLoading: boolean;
   isMobileViewport: boolean;
   laboratoryExercises: LaboratoryExercise[];

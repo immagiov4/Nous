@@ -58,18 +58,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'ignored-busy';
     }
 
-    if (!options.allowWhileBlocking && selectIsBlocking(state.getWorkflowState())) {
-      return 'ignored-busy';
-    }
-
-    if (!forceRegenerate && domain.activeSectionId === section.id && section.content?.length) {
-      return 'reused-cached';
-    }
-
     stopAudio(true);
     domain.setActiveSectionId(section.id);
     domain.setActiveLaboratoryExerciseId(null);
 
+    // Sections with content navigate immediately — even if another generation
+    // is running. The user can freely switch between ready lessons.
     if (!forceRegenerate && section.content?.length) {
       void projectLibrary.saveCurrentProject({
         activeLaboratoryExerciseId: null,
@@ -77,6 +71,17 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         state: AppState.READING,
       });
       return 'reused-cached';
+    }
+
+    // Guard: starting a NEW generation is blocked while any blocking workflow is
+    // active or another loadSection is already running (avoids accidental double-
+    // clicks and rate-limit contention). Only one generation at a time.
+    const isLoadingSection = state.getWorkflowState().loadSection.status === 'pending';
+    if (
+      !options.allowWhileBlocking &&
+      (selectIsBlocking(state.getWorkflowState()) || isLoadingSection)
+    ) {
+      return 'ignored-busy';
     }
 
     void projectLibrary.saveCurrentProject({
@@ -95,6 +100,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     if (lessonGenerationState === 'blocked-missing-source') {
       return 'blocked-missing-source';
     }
+
+    state.setGeneratingSectionId(section.id);
 
     const requestId = state.beginWorkflow(
       'loadSection',
@@ -213,9 +220,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       }
 
       state.succeedWorkflow('loadSection', requestId);
+      state.setGeneratingSectionId(null);
       return 'loaded';
     } catch (error) {
       state.failWorkflow('loadSection', requestId, getErrorMessage(error));
+      state.setGeneratingSectionId(null);
       throw error;
     }
   }
@@ -445,6 +454,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
   async function goToLibrary(): Promise<void> {
     stopAudio(true);
+    state.setGeneratingSectionId(null);
     state.invalidateWorkflows(READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN);
     state.resetRuntimeState();
     state.setScreenState(AppState.LIBRARY);

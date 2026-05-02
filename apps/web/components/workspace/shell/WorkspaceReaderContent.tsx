@@ -131,6 +131,15 @@ export default function WorkspaceReaderContent({
     }
   };
 
+  // Reset scroll when entering skeleton mode — the container uses
+  // overflow-hidden while generating, so a stale scroll offset would
+  // clip the thinking-stream header and spinner.
+  useEffect(() => {
+    if (shouldShowLessonSkeleton && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+    }
+  }, [shouldShowLessonSkeleton, scrollContainerRef]);
+
   const scrollContainerClassName = shouldShowLessonSkeleton
     ? 'relative flex-1 min-w-0 overflow-hidden overscroll-none'
     : 'relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth';

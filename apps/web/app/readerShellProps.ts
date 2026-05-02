@@ -106,6 +106,8 @@ export const buildReaderShellProps = ({
     documentIndex,
   });
   const isLaboratoryView = !activeSectionId && Boolean(laboratory);
+  const isActiveSectionLoading =
+    controller.generatingSectionId !== null && controller.generatingSectionId === activeSectionId;
   const loadingStatus = controller.blockingMessage || 'Caricamento...';
   const headerIsLoading = isBlocking || (isLaboratoryView && isLaboratoryBusy);
   const headerLoadingStatus = isBlocking ? loadingStatus : laboratoryActivityMessage;
@@ -132,7 +134,7 @@ export const buildReaderShellProps = ({
       contentRef: readerRuntime.contentRef,
       isDarkMode: readerRuntime.readerChrome.isDarkMode,
       isFocusMode: readerRuntime.readerChrome.isFocusMode,
-      isLoading: isBlocking,
+      isLoading: isActiveSectionLoading,
       isLaboratoryEvaluating,
       isLaboratoryGenerating,
       isLaboratoryView,
@@ -274,6 +276,7 @@ export const buildReaderShellProps = ({
       activeLaboratoryExerciseId,
       activeSectionId,
       expandedModuleId: readerRuntime.readerChrome.expandedModuleId,
+      generatingSectionId: controller.generatingSectionId ?? null,
       isLoading: isBlocking,
       isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
       laboratoryExercises: laboratory?.exercises || [],

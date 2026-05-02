@@ -141,6 +141,7 @@ export interface WorkspaceControllerStateAdapter {
   setChatSession: (chatSession: WorkspaceChatSession | null) => void;
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
+  setGeneratingSectionId: (sectionId: string | null) => void;
   setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
   setWorkflowReasoning: (
     workflowId: WorkspaceWorkflowId,
