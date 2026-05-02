@@ -1,6 +1,6 @@
 // ─── System Instructions ─────────────────────────────────────────────────────
 
-import { clipText } from '../../utils/text/clipText.ts';
+import { clipText } from '../../utils/text.ts';
 
 export const SYSTEM_INSTRUCTION_PLANNER = `
 Sei un Architetto dell'Apprendimento esperto e un ricercatore accademico di livello mondiale.

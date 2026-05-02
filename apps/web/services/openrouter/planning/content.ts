@@ -1,6 +1,6 @@
-import { pushNousDebugTrace } from '../core/debugTrace.ts';
-import { MEDIUM_REASONING_CONFIG } from './config.ts';
-import { buildLessonChunkContext } from './documentIndex.ts';
+import { pushNousDebugTrace } from '../../core/debugTrace.ts';
+import { MEDIUM_REASONING_CONFIG } from '../config.ts';
+import { buildLessonChunkContext } from '../documentIndex/index.ts';
 import {
   appendGeneratedVisualExample,
   buildFallbackImageRefs,
@@ -9,7 +9,7 @@ import {
   injectImagePlaceholders,
   normalizeImagePlacements,
   selectCandidatePdfImages,
-} from './lessonImages.ts';
+} from '../lessonImages.ts';
 import {
   estimateTargetQuizCount,
   MAX_LESSON_REPAIR_SOURCE_CHARS,
@@ -17,78 +17,42 @@ import {
   parseQuizPayload,
   repairLessonMarkdown,
   sanitizeLessonMarkdownContent,
-} from './lessonMarkdownQuality.ts';
+} from '../lessonMarkdownQuality/index.ts';
 import {
   ACTIVE_PAUSE_EXERCISE_TYPE_RULES,
   LESSON_RESPONSE_SCHEMA,
   type LessonVerificationDraft,
   parseLessonContentPayload,
   verifyLessonDraft,
-} from './lessonVerification.ts';
+} from '../lessonVerification.ts';
 import {
   buildStoredPdfDocumentAssets,
   getPdfAssetSession,
   getPdfTextSession,
-} from './pdfAssets.ts';
+} from '../pdfAssets.ts';
 import {
   buildPdfChunkUsageDebugPayload,
   estimateRelevantPdfImagePages,
-} from './pdfLessonContext.ts';
-import { buildReasoningContentForFile, clipPdfSourceText } from './pdfReasoning.ts';
+} from '../pdfLessonContext.ts';
+import { buildReasoningContentForFile, clipPdfSourceText } from '../pdfReasoning.ts';
+import { buildUserGenerationNotesBlock, LESSON_SCOPE_RULES } from '../prompts.ts';
 import {
-  buildAdaptivePlanGuidance,
-  dedupeLearningPlanSections,
-  type PlanningSourceProfile,
-  resolvePlanningSourceProfile,
-} from './planQuality.ts';
-import {
-  buildUserGenerationNotesBlock,
-  LESSON_SCOPE_RULES,
-  PLAN_PROPEDEUTIC_ORDER_RULES,
-} from './prompts.ts';
-import {
-  buildAssessmentSummary,
   callOpenRouter,
   type FileData,
   isPdfFile,
-  type LearningPlan,
-  type LearningSection,
   type LessonGeneratedVisual,
   type LessonImageRef,
-  type Message,
-  MODEL_FLASH,
   MODEL_REASONING,
   type PdfDocumentAssets,
   type PdfTextIndex,
-  parseCleanJson,
-  plannerInstruction,
   type QuizQuestion,
   retryWithBackoff,
   teacherInstruction,
-  type UserProfile,
-} from './shared.ts';
+} from '../shared.ts';
 
-export {
-  collapseRedundantParagraphs,
-  estimateTargetQuizCount,
-} from './lessonMarkdownQuality.ts';
-export { buildLessonVerificationPrompt, LESSON_RESPONSE_SCHEMA } from './lessonVerification.ts';
-export {
-  buildPdfChunkUsageDebugPayload,
-  estimateRelevantPdfImagePages,
-} from './pdfLessonContext.ts';
-// fallow-ignore-next-line unused-exports — type re-export used externally
-export type { PlanningSourceProfile, PlanningSourceSizeTier } from './planQuality.ts';
-export {
-  buildAdaptivePlanGuidance,
-  dedupeLearningPlanSections,
-  resolvePlanningSourceProfileFromSeed,
-} from './planQuality.ts';
-
-const MAX_PLAN_SOURCE_CHARS = 180_000;
-const MAX_METADATA_SOURCE_CHARS = 32_000;
 const MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS = 36_000;
 const PDF_ASSET_SESSION_TIMEOUT_MS = 20_000;
+const LESSON_MARKDOWN_TRACE_PREVIEW_CHARS = 1600;
 
 class SoftTimeoutError extends Error {
   timeoutMs: number;
@@ -99,8 +63,6 @@ class SoftTimeoutError extends Error {
     this.timeoutMs = timeoutMs;
   }
 }
-
-const LESSON_MARKDOWN_TRACE_PREVIEW_CHARS = 1600;
 
 const summarizeLessonMarkdownForTrace = (content: string) => ({
   hasCodeFence: /(^|\n)```/.test(content),
@@ -148,341 +110,12 @@ const traceLessonMarkdownStage = (
   });
 };
 
-export { LESSON_SCOPE_RULES, PLAN_PROPEDEUTIC_ORDER_RULES };
-
 const logPdfLessonDebug = (label: string, payload: Record<string, unknown>) => {
   console.groupCollapsed(`[Nous][PDF Lesson] ${label}`);
   Object.entries(payload).forEach(([key, value]) => {
     console.info(key, value);
   });
   console.groupEnd();
-};
-
-interface LearningPlanSectionDraft {
-  id?: string;
-  moduleTitle?: string;
-  title?: string;
-  description?: string;
-  type?: LearningSection['type'];
-  isCompleted?: boolean;
-}
-
-interface LearningPlanDraft {
-  title?: string;
-  summary?: string;
-  sections?: LearningPlanSectionDraft[];
-}
-
-const normalizeLearningPlan = (
-  plan: LearningPlanDraft,
-  sourceProfile?: Pick<PlanningSourceProfile, 'sizeTier'>
-): LearningPlan => {
-  const sections = Array.isArray(plan.sections) ? plan.sections : [];
-  const normalizedSections = sections
-    .map((section, index) => ({
-      id: `section-${index + 1}`,
-      moduleTitle: (section.moduleTitle || '').trim() || undefined,
-      title: (section.title || '').trim(),
-      description: (section.description || '').trim(),
-      type:
-        section.type === 'prerequisite' ||
-        section.type === 'core' ||
-        section.type === 'summary' ||
-        section.type === 'deep-dive'
-          ? section.type
-          : 'core',
-      isCompleted: false,
-    }))
-    .filter(section => section.title && section.description);
-  const dedupedSections = dedupeLearningPlanSections(normalizedSections, sourceProfile).map(
-    (section, index) => ({
-      ...section,
-      id: `section-${index + 1}`,
-    })
-  );
-
-  return {
-    title: (plan.title || 'Percorso di studio').trim(),
-    summary: (plan.summary || '').trim(),
-    sections: dedupedSections,
-  };
-};
-
-const runInitialLearningPlan = async (
-  file: FileData,
-  assessmentSummary: string,
-  sourceProfile: PlanningSourceProfile,
-  onReasoningUpdate?: (reasoning: string) => void
-): Promise<LearningPlan> => {
-  const planGuidance = buildAdaptivePlanGuidance(sourceProfile);
-  const prompt = `Analizza il documento allegato.
-Ecco il contesto dell'utente (Assessment):
-${assessmentSummary}
-
-Crea un piano di studi dettagliato e calibrato sulla reale quantita di materiale.
-- Se l'utente e principiante, aggiungi sezioni 'prerequisite' solo quando servono davvero a capire il testo.
-- Raggruppa le sezioni in moduli logici coerenti tramite moduleTitle, ma non inventare moduli se il materiale e troppo breve per sostenerli.
-${planGuidance}
-- Considera come materiale didattico anche tabelle, blocchi comparativi, grafici con label testuali, didascalie e schemi descritti nel testo: non ignorarli se contengono informazione sostanziale.
-- Ogni lezione deve coprire un solo concetto, passaggio sperimentale, meccanismo o sottosistema davvero distinto.
-- Ogni description deve spiegare COSA si imparera e delimitare chiaramente lo scope della lezione, cosi da evitare sovrapposizioni con altre lezioni.
-- Non creare lezioni separate per semplici parafrasi, esempi aggiuntivi, ripetizioni o ricapitolazioni dello stesso nucleo concettuale.
-- Prima di restituire l'indice, esegui una deduplica esplicita: se due lezioni condividono quasi lo stesso materiale sorgente o possono essere spiegate con la stessa lezione, fondile.
-- Assicurati che i titoli siano descrittivi.
-- Vincoli di ordine propedeutico:
-${PLAN_PROPEDEUTIC_ORDER_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}
-- Ricorda che da questo indice verra derivata anche una fase laboratoriale: l ordine finale deve quindi sostenere esercizi pratici progressivi senza inversioni di prerequisiti.
-
-Rispondi SOLO con un oggetto JSON valido con questa struttura:
-{
-  "title": "Titolo generale del percorso",
-  "summary": "Breve panoramica motivazionale",
-  "sections": [
-    {
-      "id": "unique-id",
-      "moduleTitle": "Titolo del modulo",
-      "title": "Titolo sezione",
-      "description": "Cosa si impara",
-      "type": "prerequisite|core|summary",
-      "isCompleted": false
-    }
-  ]
-}`;
-
-  const userContent = await buildReasoningContentForFile(file, prompt, MAX_PLAN_SOURCE_CHARS);
-
-  const response = await callOpenRouter({
-    model: MODEL_REASONING,
-    reasoning: MEDIUM_REASONING_CONFIG,
-    onReasoningUpdate,
-    messages: [
-      { role: 'system', content: plannerInstruction },
-      {
-        role: 'user',
-        content: userContent,
-      },
-    ],
-    response_format: { type: 'json_object' },
-  });
-
-  if (!response) {
-    throw new Error('No plan generated');
-  }
-
-  return normalizeLearningPlan(parseCleanJson<LearningPlanDraft>(response), sourceProfile);
-};
-
-const runRefinedLearningPlan = async (
-  file: FileData,
-  assessmentSummary: string,
-  draftPlan: LearningPlan,
-  sourceProfile: PlanningSourceProfile,
-  onReasoningUpdate?: (reasoning: string) => void
-): Promise<LearningPlan> => {
-  const planGuidance = buildAdaptivePlanGuidance(sourceProfile);
-  const prompt = `Sei un curriculum refiner. Hai gia un primo indice e devi renderlo preciso, non necessariamente piu lungo.
-
-CONTESTO UTENTE:
-${assessmentSummary}
-
-INDICE DA RAFFINARE:
-${JSON.stringify(draftPlan, null, 2)}
-
-Compito:
-- Raffina questo indice fino al giusto livello di granularita rispetto al materiale sorgente.
-${planGuidance}
-- Se il materiale contiene tabelle, confronti strutturati o grafici descritti testualmente, assicurati che entrino esplicitamente nel percorso e non restino fuori dall'indice solo perche non sono prosa lineare.
-- Spezza una sezione solo se il materiale contiene davvero sotto-argomenti distinti, ciascuno con esempi, evidenze o passaggi propri.
-- Se due lezioni risultano vicine, sovrapposte o distinguibili solo per formulazione, fondile in una sola lezione piu netta.
-- Se il documento ruota attorno a una sola idea centrale o a un unico flusso sperimentale, puoi lasciare anche una sola lezione.
-- Ogni lezione deve avere un focus netto e insegnabile.
-- Ogni description deve chiarire cosa appartiene a quella lezione e, quando serve a evitare overlap, cosa NON va sviluppato li.
-- Evita titoli generici o riassuntivi quando il testo consente una divisione piu fine, ma non frammentare un argomento unico in pseudo-sottolezioni ridondanti.
-- Non creare lezioni duplicate, sovrapposte o finali di sintesi che ripetano semplicemente l'ultima lezione.
-- Prima di restituire l'indice finale, controlla e correggi eventuali inversioni di prerequisiti tra moduli e tra lezioni nello stesso modulo.
-- Vincoli di ordine propedeutico:
-${PLAN_PROPEDEUTIC_ORDER_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}
-- Ricorda che da questo indice verra derivata anche una fase laboratoriale: l ordine finale deve quindi sostenere esercizi pratici progressivi senza inversioni di prerequisiti.
-
-Rispondi SOLO con un oggetto JSON valido con questa struttura:
-{
-  "title": "Titolo generale del percorso",
-  "summary": "Breve panoramica motivazionale",
-  "sections": [
-    {
-      "id": "unique-id",
-      "moduleTitle": "Titolo del modulo",
-      "title": "Titolo sezione",
-      "description": "Cosa si impara",
-      "type": "prerequisite|core|summary",
-      "isCompleted": false
-    }
-  ]
-}`;
-
-  const userContent = await buildReasoningContentForFile(file, prompt, MAX_PLAN_SOURCE_CHARS);
-
-  const response = await callOpenRouter({
-    model: MODEL_REASONING,
-    reasoning: MEDIUM_REASONING_CONFIG,
-    onReasoningUpdate,
-    messages: [
-      { role: 'system', content: plannerInstruction },
-      {
-        role: 'user',
-        content: userContent,
-      },
-    ],
-    response_format: { type: 'json_object' },
-  });
-
-  if (!response) {
-    throw new Error('No refined plan generated');
-  }
-
-  return normalizeLearningPlan(parseCleanJson<LearningPlanDraft>(response), sourceProfile);
-};
-
-export const generateLearningPlan = async (
-  file: FileData,
-  assessmentHistory: Message[],
-  onStatusUpdate?: (status: string) => void,
-  onReasoningUpdate?: (reasoning: string) => void
-): Promise<LearningPlan> => {
-  const assessmentSummary = buildAssessmentSummary(assessmentHistory);
-  const sourceProfile = await resolvePlanningSourceProfile(file);
-
-  return retryWithBackoff(async () => {
-    onStatusUpdate?.('Bozza indice...');
-    const initialPlan = await runInitialLearningPlan(
-      file,
-      assessmentSummary,
-      sourceProfile,
-      onReasoningUpdate
-    );
-    onStatusUpdate?.(`Raffinamento indice... ${initialPlan.sections.length} lezioni iniziali`);
-    const refinedPlan = await runRefinedLearningPlan(
-      file,
-      assessmentSummary,
-      initialPlan,
-      sourceProfile,
-      onReasoningUpdate
-    );
-    onStatusUpdate?.(`Indice raffinato: ${refinedPlan.sections.length} lezioni`);
-    return refinedPlan;
-  });
-};
-
-export const createSubChapterMetadata = async (
-  file: FileData,
-  parentSection: LearningSection,
-  selection: string,
-  userInstructions: string
-): Promise<LearningSection> => {
-  const prompt = `L'utente sta studiando il capitolo: "${parentSection.title}".
-Descrizione capitolo: "${parentSection.description}".
-
-L'utente ha evidenziato questo testo specifico: "${selection}".
-
-Istruzioni dell'utente per l'approfondimento: "${userInstructions || 'Approfondisci questo concetto in dettaglio'}".
-
-Il tuo compito e creare il METADATA per una nuova lezione (sotto-capitolo) dedicata esclusivamente a questo punto evidenziato.
-Questa lezione deve essere un "Deep Dive".
-
-Rispondi SOLO con un oggetto JSON:
-{
-  "title": "Titolo accattivante per la nuova lezione",
-  "description": "Cosa si imparera in questo approfondimento"
-}`;
-
-  return retryWithBackoff(async () => {
-    const userContent = await buildReasoningContentForFile(file, prompt, MAX_METADATA_SOURCE_CHARS);
-    const response = await callOpenRouter({
-      model: MODEL_REASONING,
-      reasoning: MEDIUM_REASONING_CONFIG,
-      messages: [
-        {
-          role: 'user',
-          content: userContent,
-        },
-      ],
-      response_format: { type: 'json_object' },
-    });
-
-    if (!response) {
-      throw new Error('Failed to generate sub-chapter metadata');
-    }
-
-    const json = parseCleanJson<{ title: string; description: string }>(response);
-    return {
-      id: crypto.randomUUID(),
-      title: json.title,
-      description: json.description,
-      isCompleted: false,
-      type: 'deep-dive',
-      parentId: parentSection.id,
-    };
-  });
-};
-
-export const createLearnSubChapterMetadata = async (
-  parentSection: LearningSection,
-  selection: string,
-  userInstructions: string,
-  moduleTitle: string,
-  profile: UserProfile | null
-): Promise<LearningSection> => {
-  const prompt = `Sei un curriculum architect esperto.
-
-CONTESTO PERCORSO: "${profile?.topic || moduleTitle || parentSection.title}"
-CONTESTO STUDENTE: "${profile?.context || 'Learner in a fileless AI-generated curriculum'}"
-MODULO: "${moduleTitle || 'Percorso'}"
-LEZIONE PADRE: "${parentSection.title}"
-DESCRIZIONE LEZIONE PADRE: "${parentSection.description}"
-
-TESTO EVIDENZIATO DALL'UTENTE:
-"${selection}"
-
-ISTRUZIONI EXTRA DELL'UTENTE:
-"${userInstructions || 'Approfondisci questo concetto in dettaglio'}"
-
-Il tuo compito e creare il METADATA per una nuova sottolezione deep dive.
-Questa sottolezione deve essere coerente con il percorso corrente ma non dipendere da un file sorgente.
-
-Rispondi SOLO con un oggetto JSON:
-{
-  "title": "Titolo specifico della nuova sottolezione",
-  "description": "Cosa si imparera in questo approfondimento",
-  "contextPrompt": "Prompt tecnico sintetico da usare poi per generare il contenuto della sottolezione"
-}`;
-
-  return retryWithBackoff(async () => {
-    const response = await callOpenRouter({
-      model: MODEL_FLASH,
-      reasoning: MEDIUM_REASONING_CONFIG,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-    });
-
-    if (!response) {
-      throw new Error('Failed to generate learn-mode sub-chapter metadata');
-    }
-
-    const json = parseCleanJson<{ title: string; description: string; contextPrompt?: string }>(
-      response
-    );
-    return {
-      id: crypto.randomUUID(),
-      title: json.title,
-      description: json.description,
-      isCompleted: false,
-      type: 'deep-dive',
-      parentId: parentSection.id,
-      contextPrompt:
-        json.contextPrompt ||
-        `${selection}\n\n${userInstructions || 'Approfondisci questo concetto in dettaglio'}`,
-    };
-  });
 };
 
 export const generateSectionContent = async (
@@ -988,5 +621,3 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     documentAssets: null,
   };
 };
-
-export { askContextualQuestion } from './contextChat.ts';

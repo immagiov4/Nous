@@ -1,5 +1,6 @@
 import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } from '../../types.ts';
-import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
+import { sanitizePartialPages } from '../../utils/pdf/sanitizePartialPages.ts';
+import { normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { isOpenRouterDataUrlInlineSafe } from './payloadLimits.ts';
 import {
@@ -101,20 +102,6 @@ const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
     console.info(key, value);
   });
   console.groupEnd();
-};
-
-const sanitizePartialPages = (partialPages?: number[]): number[] | undefined => {
-  if (!Array.isArray(partialPages) || partialPages.length === 0) {
-    return undefined;
-  }
-
-  const cleaned = Array.from(
-    new Set(
-      partialPages.filter(page => Number.isInteger(page) && page > 0).map(page => Math.trunc(page))
-    )
-  ).sort((left, right) => left - right);
-
-  return cleaned.length > 0 ? cleaned : undefined;
 };
 
 const countNormalizedTextChars = (text: string): number => text.replace(/\s+/g, ' ').trim().length;

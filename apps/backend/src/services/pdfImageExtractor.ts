@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
 
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
+import { sanitizePartialPages } from '../utils/sanitizePartialPages.js';
 import { normalizeLineEndings } from '../utils/text.js';
 
 const MIN_IMAGE_BYTES = 2_000;
@@ -75,20 +76,6 @@ const decodeImageDataUrl = (dataUrl: string): Buffer => {
   const match = IMAGE_DATA_URL_PREFIX.exec(dataUrl);
   const base64 = match ? dataUrl.slice(match[0].length) : '';
   return Buffer.from(base64, 'base64');
-};
-
-const sanitizePartialPages = (partialPages: number[] | undefined): number[] | undefined => {
-  if (!Array.isArray(partialPages) || partialPages.length === 0) {
-    return undefined;
-  }
-
-  const cleaned = Array.from(
-    new Set(
-      partialPages.filter(page => Number.isInteger(page) && page > 0).map(page => Math.trunc(page))
-    )
-  ).sort((left, right) => left - right);
-
-  return cleaned.length > 0 ? cleaned : undefined;
 };
 
 const emptyImageTextContext = Object.freeze({

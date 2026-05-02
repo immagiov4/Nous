@@ -2,8 +2,7 @@ import JSZip from 'jszip';
 import type { LaboratoryAttachment } from '../../types.ts';
 import { createEntityId } from '../../utils/ids.ts';
 import { isBinaryFile } from '../../utils/project/codebaseBundle.ts';
-import { clipText } from '../../utils/text/clipText.ts';
-import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
+import { clipText, normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
 import {
   decodeBase64Bytes,

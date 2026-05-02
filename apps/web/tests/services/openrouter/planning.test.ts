@@ -16,7 +16,7 @@ import {
   LESSON_SCOPE_RULES,
   PLAN_PROPEDEUTIC_ORDER_RULES,
   resolvePlanningSourceProfileFromSeed,
-} from '../../../services/openrouter/planning.ts';
+} from '../../../services/openrouter/planning/index.ts';
 import type { PdfTextIndex } from '../../../types.ts';
 
 test('resolvePlanningSourceProfileFromSeed keeps short PDFs compact and allows a single lesson', () => {

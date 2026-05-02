@@ -28,7 +28,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
 });
 
 const { buildPdfTextIndex, preparePdfLessonMappings } = await import(
-  '../../../services/openrouter/documentIndex.ts'
+  '../../../services/openrouter/documentIndex/index.ts'
 );
 
 const buildChunkId = (index: number): string => `chunk-${String(index).padStart(3, '0')}`;

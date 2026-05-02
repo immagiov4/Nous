@@ -16,7 +16,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   };
 });
 
-const { generateLearningPlan } = await import('../../../services/openrouter/planning.ts');
+const { generateLearningPlan } = await import('../../../services/openrouter/planning/index.ts');
 
 beforeEach(() => {
   callOpenRouterMock.mockReset();

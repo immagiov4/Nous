@@ -2,7 +2,7 @@
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { READER_MOBILE_LAYOUT_BREAKPOINT_PX } from '../../constants/layout.ts';
-import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
+import { subscribeToMediaQuery } from '../../utils/mediaQuery.ts';
 import { type ExpandedModuleState, resolveExpandedModuleState } from '../../utils/reader/chrome.ts';
 import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
 

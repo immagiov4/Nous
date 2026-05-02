@@ -1,4 +1,4 @@
-import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
+import { normalizeLineEndings } from '../../utils/text.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
 import { buildDocumentInputContent, type FileData, isPdfFile } from './shared.ts';
 

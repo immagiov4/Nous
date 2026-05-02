@@ -1,5 +1,5 @@
 import { isRecord } from '../../utils/records.ts';
-import { clipText } from '../../utils/text/clipText.ts';
+import { clipText } from '../../utils/text.ts';
 import { getErrorMessage } from '../core/errorMessage.ts';
 import {
   decodeTextBase64,

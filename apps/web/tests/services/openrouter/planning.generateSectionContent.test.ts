@@ -40,7 +40,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   };
 });
 
-const { generateSectionContent } = await import('../../../services/openrouter/planning.ts');
+const { generateSectionContent } = await import('../../../services/openrouter/planning/index.ts');
 
 const buildQuiz = (): QuizQuestion[] =>
   Array.from({ length: 5 }, (_, index) => ({

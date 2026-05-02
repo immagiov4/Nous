@@ -12,7 +12,7 @@ export {
   getPdfLessonMappingState,
   needsPdfLessonMappingMigration,
   preparePdfLessonMappings,
-} from './documentIndex.ts';
+} from './documentIndex/index.ts';
 export {
   evaluateLaboratoryExercise,
   generateLaboratory,
@@ -25,7 +25,7 @@ export {
   createSubChapterMetadata,
   generateLearningPlan,
   generateSectionContent,
-} from './planning.ts';
+} from './planning/index.ts';
 export { MODEL_ASSESSMENT, MODEL_CONTEXT, MODEL_FLASH, MODEL_REASONING } from './shared.ts';
 export { checkTTSStatus, generateSpeech, getTTSModels, getTTSVoices } from './tts.ts';
 export { generateLessonVisualExample } from './visualExamples.ts';

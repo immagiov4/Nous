@@ -28,8 +28,8 @@ import {
 } from '../../constants/layout.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import type { LibraryFolderNode, LibraryTree, LibraryTreeNode } from '../../types.ts';
-import { subscribeToMediaQuery } from '../../utils/dom/mediaQuery.ts';
 import { flattenLibraryTreeNodes } from '../../utils/library/tree.ts';
+import { subscribeToMediaQuery } from '../../utils/mediaQuery.ts';
 import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 import ProjectCard from './ProjectCard.tsx';
 

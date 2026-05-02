@@ -1,7 +1,6 @@
 import JSZip from 'jszip';
 import type { CodebaseBundleSource, CodebaseSourceFile } from '../../types';
-import { clipText as clipTextToLimit } from '../text/clipText.ts';
-import { normalizeLineEndings } from '../text/normalizeLineEndings.ts';
+import { clipText as clipTextToLimit, normalizeLineEndings } from '../text.ts';
 
 const DEFAULT_MAX_TOTAL_CHARS = 220_000;
 const DEFAULT_MAX_FILE_CHARS = 24_000;

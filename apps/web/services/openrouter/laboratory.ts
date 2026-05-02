@@ -10,7 +10,7 @@ import type {
   ProjectSource,
   UserProfile,
 } from '../../types.ts';
-import { clipText } from '../../utils/text/clipText.ts';
+import { clipText } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { buildLaboratoryAttachmentContext } from '../laboratory/attachments.ts';
 import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../laboratory/state.ts';

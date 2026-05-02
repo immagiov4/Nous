@@ -1,4 +1,4 @@
-import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex.ts';
+import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex/index.ts';
 import type {
   LaboratoryExercise,
   LearningSection,
@@ -6,7 +6,7 @@ import type {
   PdfTextIndex,
   ProjectSource,
 } from '../../types.ts';
-import { clipText } from '../text/clipText.ts';
+import { clipText } from '../text.ts';
 
 const MAX_CONTEXT_SOURCE_CHARS = 168_000;
 const MAX_PDF_SOURCE_CHUNKS = 6;

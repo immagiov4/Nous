@@ -38,11 +38,12 @@ Think of the frontend as a set of concentric layers.
 
 Important subfolders:
 
+- `services/laboratory/` - laboratory attachment handling and state management
 - `services/openrouter/` - OpenRouter clients, prompt builders, model selection, TTS requests, lesson generation, assessment, planning, curriculum, laboratory, PDF indexing
 - `services/audio/` - audio helpers and voice profile definitions
 - `services/library/` - library assistant tool execution
 - `services/projects/` - project repositories, snapshots, archives, transfer helpers, import/export
-- `services/workspace/` - domain reducer, persistence helpers, workflow selectors
+- `services/workspace/` - domain reducer, persistence helpers, workflow selectors, and pure controller logic (`controller/documentAssets.ts`, `controller/learnMode.ts`, `controller/snapshotHydration.ts`)
 - `services/preferences/` - UI preference persistence and library folder expansion storage
 - `services/core/` - shared utilities such as tracing and error normalization
 
@@ -74,6 +75,14 @@ Relevant controller modules:
 - `projectLifecycle.ts` - create, open, save, delete, export
 - `projectImport.ts` - import from JSON
 - `state.ts` - controller state model
+- `controllerContext.ts` - shared controller context and dependency wiring
+- `createWorkspaceController.ts` - factory for constructing the controller
+- `types.ts` - controller-specific type definitions
+
+A parallel controller layer lives at `services/workspace/controller/` for pure (non-hook) workspace logic:
+- `documentAssets.ts` - PDF asset coordination
+- `learnMode.ts` - learn mode state machine
+- `snapshotHydration.ts` - snapshot loading and hydration
 
 If you are adding a new user-visible operation, it usually belongs here.
 
@@ -162,14 +171,18 @@ Main entry points:
 - `apps/backend/src/server.ts` - reads config, starts the HTTP server, handles shutdown
 - `apps/backend/src/index.ts` - builds the Express app and registers routes
 
-Main routes:
+Main entries in `apps/backend/src/routes/`:
 
-- `/api/chat` - chat proxy routes for the library assistant and contextual chat
+- `/api/chat` - chat proxy routes (orchestrates contextChat, libraryChat)
+- `/api/chat/context` (via `contextChat.ts`) - contextual conversation with project-aware AI
+- `/api/chat/library` (via `libraryChat.ts`) - library assistant chat with tool execution
+- `/api/openrouter` (via `openRouterProxy.ts`) - raw OpenRouter proxy
 - `/api/pdf` - PDF text and image extraction
 - `/api/projects` - project repository API used by LAN sync mode
 - `/api/status` - OpenRouter TTS readiness snapshot
 - `/api/tts` - speech generation and model discovery
 - `/api/voices` - voice profiles
+- `chatPrompts.ts` - shared chat prompt construction utilities
 
 The backend uses SQLite for project storage in LAN mode. The frontend chooses between browser IndexedDB and backend HTTP storage through `services/projects/projectRepositoryFactory.ts`.
 

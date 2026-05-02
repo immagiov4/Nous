@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { subscribeToMediaQuery } from '../dom/mediaQuery.ts';
+import { subscribeToMediaQuery } from '../mediaQuery.ts';
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 

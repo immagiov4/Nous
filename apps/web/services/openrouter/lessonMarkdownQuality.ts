@@ -1,6 +1,6 @@
 import { normalizeActivePauseExerciseType } from '../../utils/learning/activePause.ts';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
-import { normalizeLineEndings } from '../../utils/text/normalizeLineEndings.ts';
+import { normalizeLineEndings } from '../../utils/text.ts';
 import { MEDIUM_REASONING_CONFIG } from './config.ts';
 import { getMarkdownHeadings, sanitizeAssetIdMentions } from './lessonImages.ts';
 import { buildUserGenerationNotesBlock } from './prompts.ts';

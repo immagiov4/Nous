@@ -9,7 +9,7 @@ import {
   MIN_LESSON_QUIZ_QUESTIONS,
   normalizeQuizLength,
   parseQuizPayload,
-} from './lessonMarkdownQuality.ts';
+} from './lessonMarkdownQuality/index.ts';
 import { buildUserGenerationNotesBlock } from './prompts.ts';
 import {
   callOpenRouter,

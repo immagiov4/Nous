@@ -2,7 +2,7 @@ import {
   buildPdfPageTextLayout,
   resolveLessonContextChunks,
   resolvePdfChunkPageSpan,
-} from './documentIndex.ts';
+} from './documentIndex/index.ts';
 import type { PdfTextChunk, PdfTextIndex } from './types.ts';
 
 const PDF_IMAGE_PAGE_RADIUS = 2;
