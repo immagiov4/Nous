@@ -1,4 +1,8 @@
 /* fallow-ignore-file unused-files */
+
+/* ============================================================
+   1. DESIGN TOKENS — CSS custom properties (light + dark)
+   ============================================================ */
 :root {
   --font-serif: "Merriweather", serif;
   --font-sans: "Inter", sans-serif;
@@ -25,6 +29,9 @@
   --panel-shadow: 0 16px 34px -14px rgba(0, 0, 0, 0.35), 0 30px 60px -24px rgba(0, 0, 0, 0.38);
 }
 
+/* ============================================================
+   2. BASE / RESET — html, body, #root, backgrounds, helpers
+   ============================================================ */
 html,
 body {
   height: 100%;
@@ -120,6 +127,9 @@ body {
   font-family: "JetBrains Mono", monospace;
 }
 
+/* ============================================================
+   3. MODEL PANEL — OpenRouter model selector panel
+   ============================================================ */
 .model-panel-anchor {
   position: fixed;
   left: 50%;
@@ -239,6 +249,9 @@ body {
   color: var(--ink-secondary);
 }
 
+/* ============================================================
+   4. READER SIDEBAR — scroll containers
+   ============================================================ */
 .reader-sidebar-scroll {
   -webkit-overflow-scrolling: touch;
 }
@@ -258,6 +271,9 @@ body {
   }
 }
 
+/* ============================================================
+   5. SCROLLBAR — global webkit scrollbar styling
+   ============================================================ */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -280,6 +296,9 @@ body {
   background: #a1a1aa;
 }
 
+/* ============================================================
+   6. PROSE — reader content typography
+   ============================================================ */
 .prose h1,
 .prose h2,
 .prose h3 {
