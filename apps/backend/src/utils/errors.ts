@@ -4,12 +4,6 @@ type ErrorLike = {
   message?: unknown;
 };
 
-export interface NormalizedError {
-  cause?: unknown;
-  code?: string;
-  message: string;
-}
-
 function getNestedErrorLike(error: unknown): ErrorLike | null {
   if (!error || typeof error !== 'object') {
     return null;
@@ -17,6 +11,12 @@ function getNestedErrorLike(error: unknown): ErrorLike | null {
 
   return error as ErrorLike;
 }
+
+type NormalizedError = {
+  cause?: unknown;
+  code?: string;
+  message: string;
+};
 
 function normalizeError(error: unknown, fallbackMessage = 'Unknown error'): NormalizedError {
   if (error instanceof Error) {

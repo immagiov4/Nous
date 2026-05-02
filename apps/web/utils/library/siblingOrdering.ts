@@ -64,28 +64,6 @@ export const resolveInsertionIndex = (
 };
 
 /**
- * Insert moved items into the destination sibling list at the resolved index,
- * returning a new array.
- */
-const insertMovedSiblingItems = (
-  destinationItems: SiblingItem[],
-  movingIds: Set<string>,
-  targetIndex: number | undefined,
-  movedItems: SiblingItem[]
-): SiblingItem[] => {
-  const retainedItems = destinationItems.filter(item => !movingIds.has(item.id));
-  const insertionIndex = resolveInsertionIndex(
-    destinationItems,
-    movingIds,
-    targetIndex,
-    retainedItems.length
-  );
-
-  retainedItems.splice(insertionIndex, 0, ...movedItems);
-  return retainedItems;
-};
-
-/**
  * Compute the next free order value for a new folder or placement.
  */
 const resolveNextOrder = (

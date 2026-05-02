@@ -48,16 +48,3 @@ export interface TtsModelSummary {
   voiceHelpLabel?: string;
   voiceHelpUrl?: string;
 }
-
-export interface TTSResponse {
-  success: boolean;
-  audioUrl?: string; // Base64 encoded audio or blob URL
-  error?: string;
-}
-
-export interface TTSStatus {
-  isRunning: boolean;
-  isReady: boolean;
-  modelLoaded: boolean;
-  lastError?: string;
-}

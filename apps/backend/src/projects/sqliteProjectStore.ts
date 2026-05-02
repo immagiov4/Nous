@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-class-member — interface implementation methods
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -52,12 +52,6 @@ Il tuo obiettivo è far capire profondamente la materia.
 
 // ─── Assessment ──────────────────────────────────────────────────────────────
 
-export const INITIAL_ASSESSMENT_QUESTIONS = [
-  'Qual è il tuo background principale in relazione a questo argomento?',
-  'Cosa speri di imparare principalmente da questo documento?',
-  'Quanto ti senti a tuo agio con la matematica o i tecnicismi presenti in questo campo?',
-];
-
 // Reduced threshold back to 3 as requested
 export const ASSESSMENT_MIN_TURNS = 3;
 

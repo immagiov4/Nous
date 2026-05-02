@@ -7,7 +7,7 @@ export interface CurrentUser {
   id: string;
 }
 
-export interface RequestWithCurrentUser extends Request {
+interface RequestWithCurrentUser extends Request {
   currentUser: CurrentUser;
 }
 

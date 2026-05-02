@@ -42,7 +42,7 @@ export const buildOrderedSiblingItems = (
  * Compute the stable insertion index when moving items to a new parent,
  * accounting for already-moved items that are temporarily removed from the list.
  */
-export const resolveInsertionIndex = (
+const resolveInsertionIndex = (
   originalSiblingItems: Array<{ id: string }>,
   movingIds: Set<string>,
   targetIndex: number | undefined,

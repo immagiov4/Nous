@@ -1,8 +1,6 @@
 import {
   getMarkdownMathRangeAt,
-  getMarkdownProtectedRanges,
   type MarkdownRange,
-  normalizeMathSelectionArtifacts,
   projectMarkdownMathRange,
 } from './codeRanges.ts';
 

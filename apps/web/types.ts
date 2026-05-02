@@ -448,8 +448,7 @@ export interface TtsModelSummary {
   voiceHelpUrl?: string;
 }
 
-// TTS Status interface
-export interface TTSStatus {
+interface TTSStatus {
   isRunning: boolean;
   isReady: boolean;
   modelLoaded: boolean;

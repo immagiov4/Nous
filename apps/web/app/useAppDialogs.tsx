@@ -12,7 +12,7 @@ interface ConfirmationRequest {
   title: string;
 }
 
-export interface ConfirmationDialogRequest {
+interface ConfirmationDialogRequest {
   confirmLabel: string;
   message: string;
   title: string;

@@ -9,14 +9,8 @@ import type { UseWorkspaceControllerArgs } from './controller/types.ts';
 
 export { createWorkspaceController } from './controller/createWorkspaceController.ts';
 export type {
-  CompleteSectionOutcome,
-  CreateLessonOutcome,
-  CreateWorkspaceControllerArgs,
-  OpenSectionOptions,
-  OpenSectionOutcome,
   UseWorkspaceControllerArgs,
   WorkspaceChatSession,
-  WorkspaceControllerCommands,
   WorkspaceDomainControllerAdapter,
   WorkspaceProjectLibraryAdapter,
 } from './controller/types.ts';
