@@ -212,7 +212,9 @@ export const workspaceDomainReducer = (
   }
 };
 
-export const selectActiveSection = (state: WorkspaceDomainState): LearningSection | null => {
+export const selectActiveSection = (
+  state: WorkspaceDomainState | Pick<WorkspaceDomainState, 'learningPlan' | 'activeSectionId'>
+): LearningSection | null => {
   if (!state.learningPlan || !state.activeSectionId) {
     return null;
   }
@@ -220,17 +222,24 @@ export const selectActiveSection = (state: WorkspaceDomainState): LearningSectio
   return state.learningPlan.sections.find(section => section.id === state.activeSectionId) ?? null;
 };
 
-export const selectMusicUrl = (state: WorkspaceDomainState): string =>
-  state.learningPlan?.backgroundMusicUrl ?? '';
+export const selectMusicUrl = (
+  state: WorkspaceDomainState | Pick<WorkspaceDomainState, 'learningPlan'>
+): string => state.learningPlan?.backgroundMusicUrl ?? '';
 
-export const selectGenerationNotes = (state: WorkspaceDomainState): string =>
-  state.learningPlan?.generationNotes ?? '';
+export const selectGenerationNotes = (
+  state: WorkspaceDomainState | Pick<WorkspaceDomainState, 'learningPlan'>
+): string => state.learningPlan?.generationNotes ?? '';
 
-export const selectNeedsSourceFile = (state: WorkspaceDomainState): boolean =>
-  !state.source && Boolean(state.learningPlan) && !state.isLearnMode;
+export const selectNeedsSourceFile = (
+  state:
+    | WorkspaceDomainState
+    | Pick<WorkspaceDomainState, 'source' | 'learningPlan' | 'isLearnMode'>
+): boolean => !state.source && Boolean(state.learningPlan) && !state.isLearnMode;
 
-export const selectActiveSectionContent = (state: WorkspaceDomainState): string =>
-  selectActiveSection(state)?.content ?? '';
+export const selectActiveSectionContent = (
+  state: WorkspaceDomainState | Pick<WorkspaceDomainState, 'learningPlan' | 'activeSectionId'>
+): string => selectActiveSection(state)?.content ?? '';
 
-export const selectActiveSectionQuiz = (state: WorkspaceDomainState): QuizQuestion[] =>
-  selectActiveSection(state)?.quiz ?? [];
+export const selectActiveSectionQuiz = (
+  state: WorkspaceDomainState | Pick<WorkspaceDomainState, 'learningPlan' | 'activeSectionId'>
+): QuizQuestion[] => selectActiveSection(state)?.quiz ?? [];

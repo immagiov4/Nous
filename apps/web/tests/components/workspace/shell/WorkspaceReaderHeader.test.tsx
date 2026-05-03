@@ -15,14 +15,10 @@ vi.mock('../../../../components/workspace/shell/WorkspaceReaderSettingsPanel.tsx
 
 const buildProps = (): WorkspaceReaderHeaderModel => ({
   activeLaboratoryExercise: null,
-  activeSection: {
-    id: 'section-1',
-    title: 'Lezione 1',
-    description: 'Descrizione',
-    isCompleted: false,
-    type: 'core',
-  },
+  activeSectionId: 'section-1',
+  activeSectionTitle: 'Lezione 1',
   activeSidebarGroup: null,
+  hasActiveSection: true,
   courseGenerationNotes: '',
   isDarkMode: false,
   isFocusMode: false,
@@ -31,6 +27,7 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   isMobileSidebarOpen: false,
   isMobileViewport: false,
   isMusicPlaying: false,
+  syncState: 'saved',
   isSettingsOpen: false,
   laboratoryTitle: 'Laboratorio',
   learningPlanTitle: 'Percorso',

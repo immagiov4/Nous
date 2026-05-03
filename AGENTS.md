@@ -4,7 +4,7 @@ IMPORTANT: these guidelines are your bible, read them all completely, do not inf
 
 ## graphify
 
-This project has a graphify knowledge graph at graphify-out/.
+This project has a graphify knowledge graph at graphify-out/. It also has an MCP to query it. Use it.
 
 Rules:
 - Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure

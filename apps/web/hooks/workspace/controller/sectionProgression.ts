@@ -65,7 +65,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     // Sections with content navigate immediately — even if another generation
     // is running. The user can freely switch between ready lessons.
     if (!forceRegenerate && section.content?.length) {
-      void projectLibrary.saveCurrentProject({
+      void projectLibrary.patchCurrentProject({
         activeLaboratoryExerciseId: null,
         activeSectionId: section.id,
         state: AppState.READING,
@@ -84,7 +84,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'ignored-busy';
     }
 
-    void projectLibrary.saveCurrentProject({
+    void projectLibrary.patchCurrentProject({
       activeLaboratoryExerciseId: null,
       activeSectionId: section.id,
       state: AppState.READING,
@@ -158,7 +158,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         );
         domain.setLearningPlan(updatedPlan);
         domain.setDocumentAssets(mergedDocumentAssets);
-        await projectLibrary.saveCurrentProject({
+        void projectLibrary.patchCurrentProject({
           learningPlan: updatedPlan,
           documentAssets: mergedDocumentAssets,
           activeSectionId: section.id,
@@ -211,7 +211,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         );
         domain.setLearningPlan(updatedPlan);
         domain.setDocumentAssets(mergedDocumentAssets);
-        await projectLibrary.saveCurrentProject({
+        void projectLibrary.patchCurrentProject({
           learningPlan: updatedPlan,
           documentAssets: mergedDocumentAssets,
           activeSectionId: section.id,
@@ -365,7 +365,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
       domain.setLearningPlan(updatedPlan);
       domain.setDocumentIndex(nextDocumentIndex);
-      await projectLibrary.saveCurrentProject({
+      void projectLibrary.patchCurrentProject({
         learningPlan: updatedPlan,
         documentIndex: nextDocumentIndex,
         activeSectionId: domain.activeSectionId,
@@ -391,6 +391,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         domain.setLearningPlan(previousPlan);
         domain.setDocumentIndex(previousDocumentIndex);
         domain.setActiveSectionId(previousActiveSectionId);
+        // Rollback save is critical for consistency — await is intentional.
         await projectLibrary.saveCurrentProject({
           activeSectionId: previousActiveSectionId,
           documentIndex: previousDocumentIndex,
@@ -400,7 +401,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         throw error;
       }
 
-      await projectLibrary.saveCurrentProject({
+      // Fire-and-forget: update active section after lesson open
+      void projectLibrary.patchCurrentProject({
         activeSectionId: mappedNewSection.id,
         documentIndex: nextDocumentIndex,
       });
@@ -427,7 +429,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       );
       const updatedPlan = { ...domain.learningPlan, sections: newSections };
       domain.setLearningPlan(updatedPlan);
-      await projectLibrary.saveCurrentProject({
+
+      // Optimistic: fire patch in background, don't await
+      void projectLibrary.patchCurrentProject({
         learningPlan: updatedPlan,
         activeSectionId: domain.activeSectionId,
         state: AppState.READING,

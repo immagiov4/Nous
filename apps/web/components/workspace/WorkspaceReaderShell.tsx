@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react';
+import { memo, useLayoutEffect } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../constants/layout.ts';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
@@ -7,7 +7,7 @@ import WorkspaceReaderHeader from './shell/WorkspaceReaderHeader.tsx';
 import WorkspaceReaderOverlays from './shell/WorkspaceReaderOverlays.tsx';
 import WorkspaceReaderSidebar from './shell/WorkspaceReaderSidebar.tsx';
 
-export default function WorkspaceReaderShell({
+const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   banners,
   content,
   header,
@@ -81,4 +81,6 @@ export default function WorkspaceReaderShell({
       </div>
     </div>
   );
-}
+});
+
+export default WorkspaceReaderShell;

@@ -17,6 +17,7 @@ import {
   transferFolderToLanRepository,
   transferProjectToLanRepository,
 } from '../../services/projects/projectTransfer';
+import { markSyncError, markSyncSaved, markSyncSaving } from '../../services/projects/syncState.ts';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
   LibraryFolder,
@@ -53,7 +54,10 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const persistentStorageRequestedRef = useRef(false);
   const didLoadInitialStateRef = useRef(false);
   const lastPersistedSignatureRef = useRef<string>('');
+  const pendingPatchCountRef = useRef<number>(0);
   const lastLoadedRepositoryModeRef = useRef<ProjectRepositoryMode | null>(null);
+  const domainStateRef = useRef<WorkspaceDomainState>(domainState);
+  domainStateRef.current = domainState;
 
   const projectRepository = useMemo(
     () => createProjectRepository(projectRepositoryMode),
@@ -180,6 +184,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         const message =
           error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
         setStorageError(message);
+        markSyncError();
         return null;
       }
     },
@@ -196,6 +201,95 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       return persistSnapshot(snapshot);
     },
     [buildSnapshotFromDomain, persistSnapshot]
+  );
+
+  /**
+   * patchCurrentProject — sends a granular PATCH instead of a full snapshot PUT.
+   * Use this for small targeted saves from controllers (section completion, active
+   * section change). Requires overrides — calling without overrides is an error.
+   * No sync indicator (background).
+   */
+  const patchCurrentProject = useCallback(
+    async (overrides: Partial<ProjectSnapshot>): Promise<SavedProjectMeta | null> => {
+      if (!currentProjectId) {
+        return null;
+      }
+
+      const patch: Record<string, unknown> = {};
+
+      if (overrides.activeSectionId !== undefined)
+        patch.activeSectionId = overrides.activeSectionId;
+      if (overrides.activeLaboratoryExerciseId !== undefined)
+        patch.activeLaboratoryExerciseId = overrides.activeLaboratoryExerciseId;
+      if (overrides.state !== undefined) patch.state = overrides.state;
+      if (overrides.isLearnMode !== undefined) patch.isLearnMode = overrides.isLearnMode;
+      if (overrides.source !== undefined) patch.source = overrides.source;
+      if (overrides.learningPlan !== undefined) patch.learningPlan = overrides.learningPlan;
+      if (overrides.laboratory !== undefined) patch.laboratory = overrides.laboratory;
+      if (overrides.userProfile !== undefined) patch.userProfile = overrides.userProfile;
+      if (overrides.syllabus !== undefined) patch.syllabus = overrides.syllabus;
+      if (overrides.documentAssets !== undefined) patch.documentAssets = overrides.documentAssets;
+      if (overrides.documentIndex !== undefined) patch.documentIndex = overrides.documentIndex;
+
+      patch.updatedAt = timestampIso();
+
+      try {
+        const meta = await projectRepositoryRef.current.patchProject(currentProjectId, patch);
+        syncProjectMeta(meta);
+        setStorageError(null);
+        lastPersistedSignatureRef.current = buildPersistenceSignature({
+          ...domainStateRef.current,
+          ...overrides,
+        });
+        void requestPersistentStorage();
+        return meta;
+      } catch (error) {
+        const message =
+          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+        setStorageError(message);
+        return null;
+      }
+    },
+    [currentProjectId, requestPersistentStorage, syncProjectMeta]
+  );
+
+  /**
+   * patchSectionAnnotations — sends ONLY the annotations (and optionally content) for one section.
+   * This is the most common hot path (highlight, note, delete annotation).
+   * Payload: ~1KB instead of ~100KB for the full learning plan.
+   *
+   * After a successful patch, updates the persistence signature so the debounced autosave
+   * is suppressed for this change.
+   */
+  const patchSectionAnnotations = useCallback(
+    async (sectionId: string, annotations: unknown, content?: string): Promise<void> => {
+      if (!currentProjectId) return;
+
+      const patch: Record<string, unknown> = {
+        section: { sectionId, annotations, content },
+        updatedAt: timestampIso(),
+      };
+
+      // Increment before the await so the autosave effect skips while the patch
+      // is in-flight. Decremented in finally regardless of success/failure.
+      pendingPatchCountRef.current++;
+      try {
+        markSyncSaving();
+        const meta = await projectRepositoryRef.current.patchProject(currentProjectId, patch);
+        syncProjectMeta(meta);
+        setStorageError(null);
+        lastPersistedSignatureRef.current = buildPersistenceSignature(domainStateRef.current);
+        markSyncSaved();
+      } catch (error) {
+        const message =
+          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+        setStorageError(message);
+        markSyncError();
+      } finally {
+        pendingPatchCountRef.current--;
+      }
+    },
+    [currentProjectId, syncProjectMeta]
   );
 
   const downloadBlob = useCallback((blob: Blob, filename: string) => {
@@ -392,6 +486,10 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     [domainState]
   );
 
+  // Autosave: full snapshot PUT — safety net for any domain change that wasn't
+  // already handled by an explicit patch. No sync indicator (background work).
+  // Hot paths (highlight, note) call patchSectionAnnotations first, which updates
+  // lastPersistedSignature — suppressing this fallback.
   useEffect(() => {
     if (!currentProjectId || !isProjectHydratedRef.current) {
       return;
@@ -401,13 +499,17 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       return;
     }
 
+    if (pendingPatchCountRef.current > 0) {
+      return;
+    }
+
     if (autosaveTimeoutRef.current) {
       window.clearTimeout(autosaveTimeoutRef.current);
     }
 
     autosaveTimeoutRef.current = window.setTimeout(() => {
       void saveCurrentProject();
-    }, 800);
+    }, 400);
 
     return () => {
       if (autosaveTimeoutRef.current) {
@@ -473,6 +575,8 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       return nextFolder;
     },
     saveCurrentProject,
+    patchCurrentProject,
+    patchSectionAnnotations,
     savedProjects,
     setCurrentProjectId,
     setProjectHydrated: (value: boolean) => {

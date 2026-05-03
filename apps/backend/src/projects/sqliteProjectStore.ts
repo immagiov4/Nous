@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
-import { buildProjectMeta, normalizeProjectSnapshot, PROJECT_SYNC_READY } from './projectMeta.js';
+import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
 import {
   buildOrderedSiblingItems,
   collectFolderDescendantIds,
@@ -22,9 +22,11 @@ import type {
   LibraryPlacement,
   ProjectExportData,
   ProjectId,
+  ProjectPatch,
   ProjectSnapshot,
   ProjectStore,
   SavedProjectMeta,
+  SectionPatch,
 } from './types.js';
 
 const DEFAULT_SQLITE_PATH = './apps/backend/data/lumina-projects.sqlite';
@@ -155,6 +157,160 @@ export class SqliteProjectStore implements ProjectStore {
     return meta;
   }
 
+  async patchProject(
+    userId: string,
+    id: ProjectId,
+    patch: ProjectPatch
+  ): Promise<SavedProjectMeta> {
+    const now = patch.updatedAt || timestampIso();
+
+    // Fast path: section-only patch (highlight, note, delete annotation).
+    // Modify the JSON directly in SQLite without loading/rewriting the full snapshot.
+    if (patch.section && !this.hasNonSectionPatches(patch)) {
+      return this.patchSectionOnly(userId, id, patch.section, now);
+    }
+
+    // General path: load snapshot, apply patches, save
+    const existing = this.readSnapshot(userId, id);
+    if (!existing) {
+      throw new Error(`Progetto ${id} non trovato per patch.`);
+    }
+
+    const snapshot = { ...existing };
+
+    // Apply top-level scalar patches
+    if (patch.activeSectionId !== undefined) snapshot.activeSectionId = patch.activeSectionId;
+    if (patch.activeLaboratoryExerciseId !== undefined)
+      snapshot.activeLaboratoryExerciseId = patch.activeLaboratoryExerciseId;
+    if (patch.state !== undefined) snapshot.state = patch.state;
+    if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode;
+    if (patch.source !== undefined) snapshot.source = patch.source as ProjectSnapshot['source'];
+
+    // Apply object patches (deep merge)
+    if (patch.learningPlan !== undefined) {
+      snapshot.learningPlan = patch.learningPlan as ProjectSnapshot['learningPlan'];
+    }
+    if (patch.laboratory !== undefined) {
+      snapshot.laboratory = patch.laboratory as ProjectSnapshot['laboratory'];
+    }
+    if (patch.userProfile !== undefined) {
+      snapshot.userProfile = patch.userProfile as ProjectSnapshot['userProfile'];
+    }
+    if (patch.syllabus !== undefined) {
+      snapshot.syllabus = patch.syllabus;
+    }
+    if (patch.documentAssets !== undefined) {
+      snapshot.documentAssets = patch.documentAssets;
+    }
+    if (patch.documentIndex !== undefined) {
+      snapshot.documentIndex = patch.documentIndex;
+    }
+
+    snapshot.updatedAt = now;
+    return this.saveProject(userId, snapshot);
+  }
+
+  /** Returns true if patch has fields other than `section`. */
+  private hasNonSectionPatches(patch: ProjectPatch): boolean {
+    return (
+      patch.activeSectionId !== undefined ||
+      patch.activeLaboratoryExerciseId !== undefined ||
+      patch.state !== undefined ||
+      patch.isLearnMode !== undefined ||
+      patch.source !== undefined ||
+      patch.learningPlan !== undefined ||
+      patch.laboratory !== undefined ||
+      patch.userProfile !== undefined ||
+      patch.syllabus !== undefined ||
+      patch.documentAssets !== undefined ||
+      patch.documentIndex !== undefined
+    );
+  }
+
+  /**
+   * Fast path for section-only PATCH.
+   * Loads the JSON, applies the section change in JS (fast), then writes
+   * ONLY the snapshot_json column via direct SQL — avoids the full saveProject
+   * overhead (meta upsert, revision bump, staleness check).
+   */
+  private patchSectionOnly(
+    userId: string,
+    id: ProjectId,
+    sectionPatch: SectionPatch,
+    now: string
+  ): SavedProjectMeta {
+    const existingMeta = this.readProjectMeta(userId, id);
+    if (!existingMeta) {
+      throw new Error(`Progetto ${id} non trovato per patch sezione.`);
+    }
+
+    // Extract only the learningPlan field — avoids parsing the full snapshot JSON
+    // which can be large (e.g. documentIndex for a 200-page PDF).
+    const row = this.database
+      .prepare(
+        `select json_extract(snapshot_json, '$.learningPlan') as learning_plan_json
+         from project_snapshots where user_id = ? and id = ?`
+      )
+      .get(userId, id) as { learning_plan_json: string } | undefined;
+
+    if (!row) {
+      throw new Error(`Snapshot ${id} non trovato per patch sezione.`);
+    }
+
+    const learningPlan = parseJson<ProjectSnapshot['learningPlan']>(row.learning_plan_json);
+    if (!learningPlan || !Array.isArray(learningPlan.sections)) {
+      throw new Error(`Learning plan non trovato in progetto ${id}.`);
+    }
+
+    const patchedLearningPlan = {
+      ...learningPlan,
+      sections: learningPlan.sections.map(section => {
+        const rawSection = section as Record<string, unknown>;
+        if (rawSection.id !== sectionPatch.sectionId) return section;
+        return {
+          ...rawSection,
+          ...(sectionPatch.annotations !== undefined
+            ? { annotations: sectionPatch.annotations }
+            : {}),
+          ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
+          ...(sectionPatch.isCompleted !== undefined
+            ? { isCompleted: sectionPatch.isCompleted }
+            : {}),
+          ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
+        } as (typeof learningPlan.sections)[number];
+      }),
+    };
+
+    // Write back only the learningPlan and updatedAt fields using json_set —
+    // documentIndex and other heavy fields are untouched in the stored JSON.
+    const serverNow = timestampIso();
+
+    // Single transaction: one commit for both UPDATEs → half the lock window.
+    const transaction = this.database.transaction(() => {
+      this.database
+        .prepare(
+          `update project_snapshots
+           set snapshot_json = json_set(snapshot_json, '$.learningPlan', json(?), '$.updatedAt', ?),
+               updated_at = ?, server_updated_at = ?
+           where user_id = ? and id = ?`
+        )
+        .run(JSON.stringify(patchedLearningPlan), now, now, serverNow, userId, id);
+
+      this.database
+        .prepare(
+          `update projects set updated_at = ?, server_updated_at = ?, revision = revision + 1
+           where user_id = ? and id = ?`
+        )
+        .run(now, serverNow, userId, id);
+    });
+    transaction();
+
+    return {
+      ...existingMeta,
+      updatedAt: now,
+    };
+  }
+
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
     this.database
       .prepare('delete from project_snapshots where user_id = ? and id = ?')
@@ -180,21 +336,61 @@ export class SqliteProjectStore implements ProjectStore {
   }
 
   async touchProject(userId: string, id: ProjectId): Promise<void> {
-    const meta = this.readProjectMeta(userId, id);
-    if (!meta) {
+    const existingMeta = this.readProjectMeta(userId, id);
+    if (!existingMeta) {
       return;
     }
 
     const touchedAt = timestampIso();
-    const snapshot = this.readSnapshot(userId, id);
-    const refreshedMeta = snapshot ? buildProjectMeta(snapshot, meta, { touchedAt }) : meta;
 
-    this.writeProjectMeta(userId, {
-      ...refreshedMeta,
-      lastOpenedAt: touchedAt,
-      updatedAt: touchedAt,
-      syncState: PROJECT_SYNC_READY,
-    });
+    // Extract only lessonCount and completedCount from snapshot_json via json_extract.
+    // Avoids parsing the full snapshot (~237KB) just to update lastOpenedAt.
+    const row = this.database
+      .prepare(
+        `select
+           json_extract(snapshot_json, '$.learningPlan.sections') as sections_json
+         from project_snapshots where user_id = ? and id = ?`
+      )
+      .get(userId, id) as { sections_json: string | null } | undefined;
+
+    let lessonCount = existingMeta.lessonCount;
+    let completedCount = existingMeta.completedCount;
+
+    if (row?.sections_json) {
+      try {
+        const sections = JSON.parse(row.sections_json) as Array<{ isCompleted?: boolean }>;
+        lessonCount = sections.length;
+        completedCount = sections.filter(s => s.isCompleted).length;
+      } catch {
+        // Fall back to existing meta on parse error
+      }
+    }
+
+    this.database
+      .prepare(
+        `update projects
+         set meta_json = json_set(
+           meta_json,
+           '$.lastOpenedAt', ?,
+           '$.updatedAt', ?,
+           '$.lessonCount', ?,
+           '$.completedCount', ?
+         ),
+         updated_at = ?,
+         server_updated_at = ?,
+         revision = revision + 1
+         where user_id = ? and id = ?`
+      )
+      .run(
+        touchedAt,
+        touchedAt,
+        lessonCount,
+        completedCount,
+        touchedAt,
+        timestampIso(),
+        userId,
+        id
+      );
   }
 
   async listFolders(userId: string): Promise<LibraryFolder[]> {

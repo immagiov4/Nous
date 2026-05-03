@@ -53,6 +53,11 @@ interface UseWorkspaceReaderActionsArgs {
     sourceName?: string;
   }) => void;
   openSection: (section: LearningSection) => Promise<unknown>;
+  patchSectionAnnotations: (
+    sectionId: string,
+    annotations: unknown,
+    content?: string
+  ) => Promise<void>;
   regenerateActiveSection: () => Promise<unknown>;
   sectionContent: string;
   setIsMobileSidebarOpen: (value: boolean) => void;
@@ -89,6 +94,7 @@ export const useWorkspaceReaderActions = ({
   notify,
   openContextAnswer,
   openSection,
+  patchSectionAnnotations,
   regenerateActiveSection,
   sectionContent,
   setIsMobileSidebarOpen,
@@ -225,6 +231,8 @@ export const useWorkspaceReaderActions = ({
       content: result.content,
       annotations: result.annotations,
     }));
+    // Fire a lightweight PATCH for the section annotations — suppresses autosave
+    void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
     closeContextMenu();
     clearNativeSelection();
   }, [
@@ -233,6 +241,7 @@ export const useWorkspaceReaderActions = ({
     contextMenu,
     getCurrentSection,
     notify,
+    patchSectionAnnotations,
     sectionContent,
     updateSection,
   ]);
@@ -270,6 +279,7 @@ export const useWorkspaceReaderActions = ({
           content: result.content,
           annotations: result.annotations,
         }));
+        void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
         closeContextMenu();
         clearNativeSelection();
         return;
@@ -290,6 +300,7 @@ export const useWorkspaceReaderActions = ({
         ...section,
         annotations: result.annotations,
       }));
+      void patchSectionAnnotations(activeSectionId, result.annotations);
       closeContextMenu();
     },
     [
@@ -298,6 +309,7 @@ export const useWorkspaceReaderActions = ({
       contextMenu,
       getCurrentSection,
       notify,
+      patchSectionAnnotations,
       sectionContent,
       updateSection,
     ]
@@ -329,6 +341,7 @@ export const useWorkspaceReaderActions = ({
       content: result.content,
       annotations: result.annotations,
     }));
+    void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
     closeContextMenu();
   }, [
     activeSectionId,
@@ -336,6 +349,7 @@ export const useWorkspaceReaderActions = ({
     contextMenu,
     getCurrentSection,
     notify,
+    patchSectionAnnotations,
     sectionContent,
     updateSection,
   ]);
@@ -405,6 +419,7 @@ export const useWorkspaceReaderActions = ({
         content: result.content,
         annotations: result.annotations,
       }));
+      void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
 
       return {
         saved: true,
@@ -413,7 +428,7 @@ export const useWorkspaceReaderActions = ({
         resolvedText: result.resolvedText,
       };
     },
-    [activeSectionId, getCurrentSection, sectionContent, updateSection]
+    [activeSectionId, getCurrentSection, patchSectionAnnotations, sectionContent, updateSection]
   );
 
   const handleUpdateConversationNote = useCallback(

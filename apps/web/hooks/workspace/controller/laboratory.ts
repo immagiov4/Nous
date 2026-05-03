@@ -29,7 +29,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
     selectActiveLaboratoryExercise(domain.laboratory, domain.activeLaboratoryExerciseId);
 
   const persistActiveLaboratory = async (laboratory: LaboratoryState, activeExerciseId: string) => {
-    await projectLibrary.saveCurrentProject({
+    void projectLibrary.patchCurrentProject({
       activeLaboratoryExerciseId: activeExerciseId,
       activeSectionId: null,
       laboratory,
@@ -64,7 +64,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
       return;
     }
 
-    await projectLibrary.saveCurrentProject({
+    void projectLibrary.patchCurrentProject({
       activeLaboratoryExerciseId: nextActiveExerciseId,
       activeSectionId: options.clearActiveSection ? null : domain.activeSectionId,
       laboratory,
@@ -80,7 +80,7 @@ export const createLaboratoryCommands = (context: WorkspaceControllerContext) =>
     stopAudio(true);
     domain.setActiveSectionId(null);
     domain.setActiveLaboratoryExerciseId(exerciseId);
-    await projectLibrary.saveCurrentProject({
+    void projectLibrary.patchCurrentProject({
       activeLaboratoryExerciseId: exerciseId,
       activeSectionId: null,
       state: AppState.READING,

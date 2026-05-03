@@ -43,12 +43,24 @@ export const useWorkspaceDomain = () => {
   const syllabus = domainState.syllabus;
   const activeSectionId = domainState.activeSectionId;
   const activeLaboratoryExerciseId = domainState.activeLaboratoryExerciseId;
-  const activeSection = useMemo(() => selectActiveSection(domainState), [domainState]);
-  const sectionContent = useMemo(() => selectActiveSectionContent(domainState), [domainState]);
-  const quiz = useMemo(() => selectActiveSectionQuiz(domainState), [domainState]);
-  const musicUrl = useMemo(() => selectMusicUrl(domainState), [domainState]);
-  const generationNotes = useMemo(() => selectGenerationNotes(domainState), [domainState]);
-  const needsSourceFile = useMemo(() => selectNeedsSourceFile(domainState), [domainState]);
+  const activeSection = useMemo(
+    () => selectActiveSection({ learningPlan, activeSectionId }),
+    [learningPlan, activeSectionId]
+  );
+  const sectionContent = useMemo(
+    () => selectActiveSectionContent({ learningPlan, activeSectionId }),
+    [learningPlan, activeSectionId]
+  );
+  const quiz = useMemo(
+    () => selectActiveSectionQuiz({ learningPlan, activeSectionId }),
+    [learningPlan, activeSectionId]
+  );
+  const musicUrl = useMemo(() => selectMusicUrl({ learningPlan }), [learningPlan]);
+  const generationNotes = useMemo(() => selectGenerationNotes({ learningPlan }), [learningPlan]);
+  const needsSourceFile = useMemo(
+    () => selectNeedsSourceFile({ source, learningPlan, isLearnMode }),
+    [source, learningPlan, isLearnMode]
+  );
 
   const hydrateSnapshot = useCallback((snapshot: ProjectSnapshot) => {
     dispatch({ type: 'hydrate', snapshot });
@@ -130,49 +142,89 @@ export const useWorkspaceDomain = () => {
 
   useEffect(() => {
     pushNousDebugTrace('domain/source-updated', {
-      hasLearningPlan: Boolean(domainState.learningPlan),
+      hasLearningPlan: Boolean(learningPlan),
       sourceKind: source?.kind || null,
       sourceName: source?.kind === 'pdf' ? source.file.name : source?.name || null,
       textLength: source?.kind === 'codebase-bundle' ? source.aggregatedText.length : null,
     });
-  }, [domainState.learningPlan, source]);
+  }, [learningPlan, source]);
 
-  return {
-    activeSection,
-    activeSectionId,
-    activeLaboratoryExerciseId,
-    documentAssets,
-    documentIndex,
-    domainState,
-    file,
-    generationNotes,
-    hydrateSnapshot,
-    insertSectionAfter,
-    isLearnMode,
-    laboratory,
-    learningPlan,
-    musicUrl,
-    needsSourceFile,
-    quiz,
-    resetDomain,
-    sectionContent,
-    setActiveSectionId,
-    setActiveLaboratoryExerciseId,
-    setDocumentAssets,
-    setDocumentIndex,
-    setGenerationNotes,
-    setIsLearnMode,
-    setLaboratory,
-    setLearningPlan,
-    setMusicUrl,
-    setSource,
-    setSyllabus,
-    setUserProfile,
-    source,
-    syllabus,
-    updateActiveSectionContent,
-    updateActiveSectionQuiz,
-    updateSection,
-    userProfile,
-  };
+  return useMemo(
+    () => ({
+      activeSection,
+      activeSectionId,
+      activeLaboratoryExerciseId,
+      documentAssets,
+      documentIndex,
+      domainState,
+      file,
+      generationNotes,
+      hydrateSnapshot,
+      insertSectionAfter,
+      isLearnMode,
+      laboratory,
+      learningPlan,
+      musicUrl,
+      needsSourceFile,
+      quiz,
+      resetDomain,
+      sectionContent,
+      setActiveSectionId,
+      setActiveLaboratoryExerciseId,
+      setDocumentAssets,
+      setDocumentIndex,
+      setGenerationNotes,
+      setIsLearnMode,
+      setLaboratory,
+      setLearningPlan,
+      setMusicUrl,
+      setSource,
+      setSyllabus,
+      setUserProfile,
+      source,
+      syllabus,
+      updateActiveSectionContent,
+      updateActiveSectionQuiz,
+      updateSection,
+      userProfile,
+    }),
+    [
+      activeSection,
+      activeSectionId,
+      activeLaboratoryExerciseId,
+      documentAssets,
+      documentIndex,
+      domainState,
+      file,
+      generationNotes,
+      hydrateSnapshot,
+      insertSectionAfter,
+      isLearnMode,
+      laboratory,
+      learningPlan,
+      musicUrl,
+      needsSourceFile,
+      quiz,
+      resetDomain,
+      sectionContent,
+      setActiveSectionId,
+      setActiveLaboratoryExerciseId,
+      setDocumentAssets,
+      setDocumentIndex,
+      setGenerationNotes,
+      setIsLearnMode,
+      setLaboratory,
+      setLearningPlan,
+      setMusicUrl,
+      setSource,
+      setSyllabus,
+      setUserProfile,
+      source,
+      syllabus,
+      updateActiveSectionContent,
+      updateActiveSectionQuiz,
+      updateSection,
+      userProfile,
+    ]
+  );
 };

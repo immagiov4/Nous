@@ -29,7 +29,7 @@ Le fasi marcate `[NEEDS-ANSWER]` non sono pronte per il modello piccolo finché 
 
 ---
 
-# FASE 0 — Quick wins UI (1 PR, ~mezza giornata)
+# FASE 0 — Quick wins UI (1 PR, ~mezza giornata) FATTO
 
 Bug visivi e di UX a basso rischio. Vanno tutti insieme perché toccano file diversi e non hanno dipendenze.
 

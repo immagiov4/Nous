@@ -2,8 +2,9 @@
 import { useEffect } from 'react';
 import { defaultModelConfig } from '../../app/modelDefaults.ts';
 import { resolvePdfMappingWarning } from '../../app/pdfMappingWarning.ts';
-import { buildReaderShellProps } from '../../app/readerShellProps.ts';
 import { useInitialSectionAutoOpen } from '../../app/useInitialSectionAutoOpen.ts';
+import { useReaderShellProps } from '../../app/useReaderShellProps.ts';
+import { useSyncIndicator } from '../../hooks/workspace/useSyncIndicator.ts';
 import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspaceFileActions.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
@@ -59,6 +60,7 @@ export const ReadingScreenContainer = ({
     notify,
     openContextAnswer: readerRuntime.readerContext.openContextAnswer,
     openSection,
+    patchSectionAnnotations: controller.patchSectionAnnotations,
     regenerateActiveSection: controller.regenerateActiveSection,
     sectionContent: controller.sectionContent,
     setIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
@@ -77,7 +79,9 @@ export const ReadingScreenContainer = ({
 
   const pdfMappingWarning = resolvePdfMappingWarning(controller.source, controller.documentIndex);
 
-  const readerShellProps = buildReaderShellProps({
+  const { syncState } = useSyncIndicator();
+
+  const readerShellProps = useReaderShellProps({
     controller,
     handleAttachSourceFile: fileActions.handleAttachSourceFile,
     handleBackToLibrary: navigation.handleBackToLibrary,
@@ -87,6 +91,7 @@ export const ReadingScreenContainer = ({
     pdfMappingWarning,
     readerActions,
     readerRuntime,
+    syncState,
   });
 
   // Close context menu when navigating away from reader (container unmounts)

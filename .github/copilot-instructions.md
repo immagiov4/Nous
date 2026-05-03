@@ -1,6 +1,6 @@
 # Copilot Instructions — Nous Reader
 
-Canonical repository-wide AI guidance lives in [AGENTS.md](../AGENTS.md).ALWAYS read it. 
+Canonical repository-wide AI guidance lives in [AGENTS.md](../AGENTS.md). ALWAYS read it. 
 
 ## graphify -> IMPORTANT
 

@@ -1,12 +1,22 @@
 // fallow-ignore-file unused-class-members — interface implementation methods
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 import type {
+  AppState,
+  LaboratoryState,
+  LearningPlan,
   LibraryFolder,
   LibraryPlacement,
+  PdfDocumentAssets,
+  PdfTextIndex,
   ProjectExportData,
   ProjectId,
   ProjectSnapshot,
+  ProjectSource,
+  QuizQuestion,
   SavedProjectMeta,
+  SectionAnnotation,
+  SyllabusItem,
+  UserProfile,
 } from '../../types';
 import {
   buildOrderedSiblingItems,
@@ -638,6 +648,64 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     } catch (error) {
       throw classifyStorageError(error);
     }
+  }
+
+  async patchProject(id: ProjectId, patch: Record<string, unknown>): Promise<SavedProjectMeta> {
+    const snapshot = await this.loadProject(id);
+    if (!snapshot) {
+      throw new ProjectStorageError(`Progetto ${id} non trovato per patch.`, 'persistence-failed');
+    }
+
+    // Apply patches
+    if (patch.activeSectionId !== undefined)
+      snapshot.activeSectionId = patch.activeSectionId as string | null;
+    if (patch.activeLaboratoryExerciseId !== undefined)
+      snapshot.activeLaboratoryExerciseId = patch.activeLaboratoryExerciseId as string | null;
+    if (patch.state !== undefined) snapshot.state = patch.state as AppState;
+    if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode as boolean;
+    if (patch.source !== undefined) snapshot.source = patch.source as ProjectSource | null;
+    if (patch.learningPlan !== undefined)
+      snapshot.learningPlan = patch.learningPlan as LearningPlan | null;
+    if (patch.laboratory !== undefined)
+      snapshot.laboratory = patch.laboratory as LaboratoryState | null;
+    if (patch.userProfile !== undefined)
+      snapshot.userProfile = patch.userProfile as UserProfile | null;
+    if (patch.syllabus !== undefined) snapshot.syllabus = patch.syllabus as SyllabusItem[];
+    if (patch.documentAssets !== undefined)
+      snapshot.documentAssets = patch.documentAssets as PdfDocumentAssets | null;
+    if (patch.documentIndex !== undefined)
+      snapshot.documentIndex = patch.documentIndex as PdfTextIndex | null;
+    if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt as string;
+
+    // Apply section patch
+    const sectionPatch = patch.section as Record<string, unknown> | undefined;
+    if (sectionPatch?.sectionId && snapshot.learningPlan?.sections) {
+      const sectionId = sectionPatch.sectionId as string;
+      snapshot.learningPlan = {
+        ...snapshot.learningPlan,
+        sections: snapshot.learningPlan.sections.map(s =>
+          s.id === sectionId
+            ? {
+                ...s,
+                ...(sectionPatch.annotations !== undefined
+                  ? { annotations: sectionPatch.annotations as SectionAnnotation[] }
+                  : {}),
+                ...(sectionPatch.content !== undefined
+                  ? { content: sectionPatch.content as string }
+                  : {}),
+                ...(sectionPatch.isCompleted !== undefined
+                  ? { isCompleted: sectionPatch.isCompleted as boolean }
+                  : {}),
+                ...(sectionPatch.quiz !== undefined
+                  ? { quiz: sectionPatch.quiz as QuizQuestion[] }
+                  : {}),
+              }
+            : s
+        ),
+      };
+    }
+
+    return this.saveProject(snapshot);
   }
 
   async deleteProject(id: ProjectId): Promise<void> {

@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../../constants/layout.ts';
 import type { WorkspaceReaderSidebarModel } from './types.ts';
 
@@ -108,7 +108,7 @@ const getLaboratoryExerciseStatusLabel = ({
   return 'Esercizio laboratorio già generato';
 };
 
-export default function WorkspaceReaderSidebar({
+const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
   activeLaboratoryExerciseId,
   activeSectionId,
   expandedModuleId,
@@ -596,4 +596,6 @@ export default function WorkspaceReaderSidebar({
       ) : null}
     </>
   );
-}
+});
+
+export default WorkspaceReaderSidebar;

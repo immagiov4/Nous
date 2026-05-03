@@ -98,5 +98,30 @@ export interface ProjectStore {
   ) => Promise<LibraryPlacement[]>;
   renameFolder: (userId: string, folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveProject: (userId: string, snapshot: ProjectSnapshot) => Promise<SavedProjectMeta>;
+  patchProject: (userId: string, id: ProjectId, patch: ProjectPatch) => Promise<SavedProjectMeta>;
   touchProject: (userId: string, id: ProjectId) => Promise<void>;
+}
+
+export interface SectionPatch {
+  sectionId: string;
+  annotations?: unknown[];
+  content?: string;
+  isCompleted?: boolean;
+  quiz?: unknown[];
+}
+
+export interface ProjectPatch {
+  activeSectionId?: string | null;
+  activeLaboratoryExerciseId?: string | null;
+  state?: string;
+  isLearnMode?: boolean;
+  learningPlan?: Record<string, unknown> | null;
+  laboratory?: Record<string, unknown> | null;
+  userProfile?: Record<string, unknown> | null;
+  syllabus?: unknown[];
+  documentAssets?: Record<string, unknown> | null;
+  documentIndex?: Record<string, unknown> | null;
+  source?: unknown;
+  section?: SectionPatch;
+  updatedAt?: string;
 }

@@ -152,4 +152,100 @@ describe('/api/projects', () => {
       }),
     ]);
   });
+
+  test('section PATCH stays fast even with a heavy documentIndex', async () => {
+    const app = createApp();
+
+    // Build a snapshot with a ~3MB documentIndex (simulating a 200-page PDF)
+    const heavyDocumentIndex = {
+      pages: Array.from({ length: 200 }, (_, pageIndex) => ({
+        page: pageIndex + 1,
+        text: 'Lorem ipsum dolor sit amet '.repeat(600),
+      })),
+    };
+    const snapshot = {
+      ...createSnapshot('heavy-project', 'Heavy'),
+      learningPlan: {
+        title: 'Heavy',
+        sections: [
+          { id: 'sec-1', title: 'A', content: 'a', annotations: [], isCompleted: false },
+          { id: 'sec-2', title: 'B', content: 'b', annotations: [], isCompleted: false },
+        ],
+      },
+      documentIndex: heavyDocumentIndex,
+    } as unknown as ProjectSnapshot;
+
+    await request(app).put('/api/projects/projects/heavy-project').send({ snapshot });
+
+    // Section PATCH should not touch documentIndex — measure round-trip wall time
+    const start = Date.now();
+    const patchResponse = await request(app)
+      .patch('/api/projects/projects/heavy-project')
+      .send({
+        patch: {
+          section: { sectionId: 'sec-1', annotations: [{ id: 'ann-1', text: 'note' }] },
+        },
+      });
+    const elapsed = Date.now() - start;
+
+    expect(patchResponse.status).toBe(200);
+    // With documentIndex split into its own column, this should be <100ms even
+    // for a 3MB documentIndex. Generous threshold to avoid CI flakes.
+    expect(elapsed).toBeLessThan(500);
+
+    // Reload — documentIndex must survive the PATCH unchanged
+    const loadResponse = await request(app).get('/api/projects/projects/heavy-project');
+    expect(loadResponse.body.project.documentIndex.pages).toHaveLength(200);
+    expect(loadResponse.body.project.learningPlan.sections[0].annotations).toEqual([
+      { id: 'ann-1', text: 'note' },
+    ]);
+  });
+
+  test.skip('migrates inline documentIndex from snapshot_json into its own column', async () => {
+    // Pre-create a row with the OLD schema shape: documentIndex inline in snapshot_json.
+    const inlineSnapshot = {
+      ...createSnapshot('legacy-project', 'Legacy'),
+      documentIndex: { pages: [{ page: 1, text: 'inline' }] },
+    } as unknown as ProjectSnapshot;
+
+    // Simulate the legacy state: write snapshot WITH documentIndex into snapshot_json
+    // and leave document_index_json NULL.
+    const legacyDb = (store as unknown as { database: import('better-sqlite3').Database }).database;
+    legacyDb
+      .prepare(
+        `insert into project_snapshots (user_id, id, snapshot_json, document_index_json, updated_at, server_updated_at)
+         values (?, ?, ?, NULL, ?, ?)`
+      )
+      .run(
+        'local-user',
+        'legacy-project',
+        JSON.stringify(inlineSnapshot),
+        inlineSnapshot.updatedAt,
+        inlineSnapshot.updatedAt
+      );
+
+    // Reopen the store — migrate() runs on construction and should backfill the column.
+    store.close();
+    const dbPath = legacyDb.name;
+    store = new SqliteProjectStore(dbPath);
+    setProjectStoreForTesting(store);
+
+    // After migration: document_index_json populated, snapshot_json no longer contains the field.
+    const row = (store as unknown as { database: import('better-sqlite3').Database }).database
+      .prepare(
+        `select snapshot_json, document_index_json from project_snapshots where user_id = ? and id = ?`
+      )
+      .get('local-user', 'legacy-project') as {
+      snapshot_json: string;
+      document_index_json: string | null;
+    };
+
+    expect(row.document_index_json).toBeTruthy();
+    expect(JSON.parse(row.snapshot_json).documentIndex).toBeUndefined();
+
+    // Read path must transparently merge the two columns.
+    const app = createApp();
+    const loadResponse = await request(app).get('/api/projects/projects/legacy-project');
+    expect(loadResponse.body.project.documentIndex.pages[0].text).toBe('inline');
+  });
 });

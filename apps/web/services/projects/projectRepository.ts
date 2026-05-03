@@ -37,6 +37,7 @@ export interface ProjectRepository {
   ) => Promise<LibraryPlacement[]>;
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveProject: (snapshot: ProjectSnapshot) => Promise<SavedProjectMeta>;
+  patchProject: (id: ProjectId, patch: Record<string, unknown>) => Promise<SavedProjectMeta>;
   deleteProject: (id: ProjectId) => Promise<void>;
   importProject: (data: unknown) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   exportProject: (id: ProjectId) => Promise<ProjectExportData | null>;

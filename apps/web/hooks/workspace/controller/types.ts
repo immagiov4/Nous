@@ -116,6 +116,12 @@ export interface WorkspaceProjectLibraryAdapter {
   refreshSavedProjects: () => Promise<void>;
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveCurrentProject: (overrides?: Partial<ProjectSnapshot>) => Promise<SavedProjectMeta | null>;
+  patchCurrentProject: (overrides?: Partial<ProjectSnapshot>) => Promise<SavedProjectMeta | null>;
+  patchSectionAnnotations: (
+    sectionId: string,
+    annotations: unknown,
+    content?: string
+  ) => Promise<void>;
   savedProjects: SavedProjectMeta[];
   setCurrentProjectId: (projectId: string | null) => void;
   setProjectHydrated: (value: boolean) => void;

@@ -7,6 +7,7 @@ import {
   transferProjectToLanRepository,
 } from '../../../services/projects/projectTransfer.ts';
 import type {
+  AppState,
   LibraryFolder,
   LibraryPlacement,
   ProjectExportData,
@@ -84,6 +85,15 @@ class InMemoryProjectRepository implements ProjectRepository {
   };
 
   renameFolder = async () => null;
+
+  patchProject = async (id: ProjectId, patch: Record<string, unknown>) => {
+    const snapshot = this.projects.get(id);
+    if (!snapshot) throw new Error(`Not found: ${id}`);
+    if (patch.activeSectionId !== undefined)
+      snapshot.activeSectionId = patch.activeSectionId as string | null;
+    if (patch.state !== undefined) snapshot.state = patch.state as AppState;
+    return this.saveProject(snapshot);
+  };
 
   saveProject = async (snapshot: ProjectSnapshot) => {
     this.projects.set(snapshot.id, snapshot);

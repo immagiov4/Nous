@@ -33,6 +33,7 @@ interface BuildReaderShellPropsArgs {
   pdfMappingWarning: string | null;
   readerActions: WorkspaceReaderActions;
   readerRuntime: WorkspaceReaderRuntime;
+  syncState: 'saved' | 'saving' | 'error';
 }
 
 const notifyIfErrored = (result: ErrorResult, notify: (message: string) => void) => {
@@ -52,6 +53,7 @@ export const buildReaderShellProps = ({
   pdfMappingWarning,
   readerActions,
   readerRuntime,
+  syncState,
 }: BuildReaderShellPropsArgs): WorkspaceReaderShellProps => {
   const {
     activeLaboratoryExerciseId,
@@ -190,8 +192,10 @@ export const buildReaderShellProps = ({
     },
     header: {
       activeLaboratoryExercise,
-      activeSection,
+      activeSectionId: activeSection?.id ?? null,
+      activeSectionTitle: activeSection?.title ?? null,
       activeSidebarGroup: readerRuntime.activeSidebarGroup,
+      hasActiveSection: Boolean(activeSection),
       courseGenerationNotes: learningPlan?.generationNotes ?? '',
       isDarkMode: readerRuntime.readerChrome.isDarkMode,
       isFocusMode: readerRuntime.readerChrome.isFocusMode,
@@ -224,6 +228,7 @@ export const buildReaderShellProps = ({
       onSetSettingsPanelExpandedSections: readerRuntime.setSettingsPanelExpandedSections,
       preferredModels: readerRuntime.preferredModels,
       settingsPanelExpandedSections: readerRuntime.settingsPanelExpandedSections,
+      syncState,
       tts: {
         availableVoices: readerRuntime.ttsPlayer.availableVoices,
         currentTime: readerRuntime.ttsPlayer.playerCurrentTime,

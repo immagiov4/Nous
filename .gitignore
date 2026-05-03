@@ -37,3 +37,5 @@ graphify-out/
 .fallow/
 .fallow-current.json
 .fallow-health.json
+
+.venv/

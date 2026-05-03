@@ -2,7 +2,7 @@ import { type Request, type Response, Router } from 'express';
 
 import { getCurrentUser, LOCAL_AUTH_MODE, resolveCurrentUser } from '../auth/currentUser.js';
 import { getProjectStore } from '../projects/projectStore.js';
-import type { ProjectSnapshot } from '../projects/types.js';
+import type { ProjectPatch, ProjectSnapshot, SectionPatch } from '../projects/types.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { timestampIso } from '../utils/time.js';
 import {
@@ -170,6 +170,65 @@ router.put('/projects/:id', async (req: Request, res: Response) => {
     res.json({ success: true, meta });
   } catch (error) {
     sendErrorResponse(res, 400, error, 'Failed to save project');
+  }
+});
+
+const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefined => {
+  const value = body.section;
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const sectionId = readNullableString(value.sectionId);
+  if (!sectionId) {
+    return undefined;
+  }
+
+  return {
+    sectionId,
+    annotations: Array.isArray(value.annotations) ? value.annotations : undefined,
+    content: readOptionalString(value.content),
+    isCompleted: typeof value.isCompleted === 'boolean' ? value.isCompleted : undefined,
+    quiz: Array.isArray(value.quiz) ? value.quiz : undefined,
+  };
+};
+
+const requireProjectPatch = (body: unknown, _routeProjectId: string): ProjectPatch => {
+  const bodyRecord = getBodyRecord(body);
+  const patchRecord = bodyRecord.patch;
+
+  if (!isRecord(patchRecord)) {
+    throw new Error('Patch progetto mancante o non valida.');
+  }
+
+  return {
+    activeSectionId: readNullableString(patchRecord.activeSectionId),
+    activeLaboratoryExerciseId: readNullableString(patchRecord.activeLaboratoryExerciseId),
+    state: readOptionalString(patchRecord.state),
+    isLearnMode: typeof patchRecord.isLearnMode === 'boolean' ? patchRecord.isLearnMode : undefined,
+    source: patchRecord.source,
+    learningPlan: patchRecord.learningPlan as Record<string, unknown> | null | undefined,
+    laboratory: patchRecord.laboratory as Record<string, unknown> | null | undefined,
+    userProfile: patchRecord.userProfile as Record<string, unknown> | null | undefined,
+    syllabus: Array.isArray(patchRecord.syllabus) ? patchRecord.syllabus : undefined,
+    documentAssets: patchRecord.documentAssets as Record<string, unknown> | null | undefined,
+    documentIndex: patchRecord.documentIndex as Record<string, unknown> | null | undefined,
+    section: readSectionPatch(patchRecord),
+    updatedAt: readOptionalString(patchRecord.updatedAt),
+  };
+};
+
+router.patch('/projects/:id', async (req: Request, res: Response) => {
+  try {
+    const patch = requireProjectPatch(req.body, getRouteParam(req.params.id));
+    const meta = await getProjectStore().patchProject(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id),
+      patch
+    );
+    res.json({ success: true, meta });
+  } catch (error) {
+    sendErrorResponse(res, 400, error, 'Failed to patch project');
   }
 });
 

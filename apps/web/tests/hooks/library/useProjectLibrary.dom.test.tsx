@@ -22,6 +22,7 @@ const repositoryMocks = vi.hoisted(() => ({
   loadProjectsById: vi.fn(),
   moveFolder: vi.fn(),
   moveProjects: vi.fn(),
+  patchProject: vi.fn(),
   renameFolder: vi.fn(),
   saveProject: vi.fn(),
   touchProject: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('../../../services/projects/indexedDbProjectRepository', () => ({
     moveProjects = repositoryMocks.moveProjects;
     renameFolder = repositoryMocks.renameFolder;
     saveProject = repositoryMocks.saveProject;
+    patchProject = repositoryMocks.patchProject;
     touchProject = repositoryMocks.touchProject;
   },
 }));
@@ -83,11 +85,22 @@ const buildSnapshot = (id: string, overrides: Partial<ProjectSnapshot> = {}): Pr
 });
 
 describe('useProjectLibrary', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   beforeEach(() => {
+    if (typeof window !== 'undefined') {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        value: {
+          getItem: (k: string) => store.get(k) ?? null,
+          setItem: (k: string, v: string) => store.set(k, v),
+          removeItem: (k: string) => store.delete(k),
+          clear: () => store.clear(),
+          key: () => null,
+          length: 0,
+        },
+      });
+    }
+
     repositoryMocks.createFolder.mockReset();
     repositoryMocks.deleteProject.mockReset();
     repositoryMocks.deleteFolder.mockReset();
@@ -102,6 +115,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.moveProjects.mockReset();
     repositoryMocks.renameFolder.mockReset();
     repositoryMocks.saveProject.mockReset();
+    repositoryMocks.patchProject.mockReset();
     repositoryMocks.touchProject.mockReset();
 
     repositoryMocks.createFolder.mockImplementation(
@@ -205,7 +219,7 @@ describe('useProjectLibrary', () => {
 
     rerender({ domainState: nextState });
     act(() => {
-      vi.advanceTimersByTime(799);
+      vi.advanceTimersByTime(399);
     });
 
     expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
@@ -224,7 +238,6 @@ describe('useProjectLibrary', () => {
       learningPlan: {
         title: 'Nuovo percorso',
       },
-      state: AppState.READING,
     });
   });
 
@@ -290,6 +303,67 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.createFolder).toHaveBeenCalledWith({ name: 'Frontend' });
     expect(result.current.libraryFolders[0]?.name).toBe('Frontend');
     expect(result.current.libraryTree.rootNodes[0]?.kind).toBe('folder');
+  });
+
+  test('patchSectionAnnotations suppresses autosave even when called with a stale closure', async () => {
+    // Regression: previously patchSectionAnnotations captured `domainState` from
+    // closure, so the persisted signature was set against the OLD state. After
+    // the React commit applied the dispatch (with a NEW state), the autosave
+    // effect saw a signature mismatch and triggered a full saveProject — which
+    // is exactly what we wanted to avoid.
+    vi.useFakeTimers();
+    repositoryMocks.patchProject.mockImplementation(async (projectId: string) =>
+      buildMeta(projectId, '2026-04-02T11:00:00.000Z')
+    );
+
+    const initialDomain = createEmptyWorkspaceDomainState();
+    const { result, rerender } = renderHook(
+      ({ domainState }: { domainState: WorkspaceDomainState }) =>
+        useProjectLibrary({ domainState }),
+      { initialProps: { domainState: initialDomain } }
+    );
+
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    act(() => {
+      result.current.setCurrentProjectId('proj-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    // Capture the callback after projectId is set but before the rerender —
+    // this is the closure that would persist a stale signature without the fix.
+    const stalePatch = result.current.patchSectionAnnotations;
+
+    // Simulate React applying the updateSection dispatch: rerender with a new
+    // domainState whose signature differs from the initial one. The stale
+    // callback (captured above) would otherwise persist the OLD signature.
+    const updatedDomain: WorkspaceDomainState = {
+      ...initialDomain,
+      learningPlan: {
+        title: 'Plan',
+        summary: '',
+        sections: [],
+      },
+    };
+    rerender({ domainState: updatedDomain });
+
+    await act(async () => {
+      await stalePatch('sec-1', [], 'updated content');
+    });
+
+    // PATCH was sent — that's expected.
+    expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(1);
+
+    // Now advance past the autosave debounce (400ms). With the fix, the ref
+    // captured the NEW signature via domainStateRef so the autosave stays idle.
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
   });
 
   test('does not synthesize a timeout error while library init is still pending', async () => {

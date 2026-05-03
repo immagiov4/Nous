@@ -41,6 +41,7 @@ export const useWorkspaceController = ({
     isContextBusy: selectIsContextBusy(controllerState.workflowState),
     isLibraryLoading: projectLibrary.isLibraryLoading,
     openingProjectId: controllerState.openingProjectId,
+    patchSectionAnnotations: projectLibrary.patchSectionAnnotations,
     projectRepositoryMode: projectLibrary.projectRepositoryMode,
     savedProjects: projectLibrary.savedProjects,
     screenState: controllerState.screenState,

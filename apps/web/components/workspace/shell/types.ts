@@ -128,8 +128,10 @@ export interface WorkspaceReaderTtsModel {
 
 export interface WorkspaceReaderHeaderModel {
   activeLaboratoryExercise: LaboratoryExercise | null;
-  activeSection: LearningSection | null;
+  activeSectionId: string | null;
+  activeSectionTitle: string | null;
   activeSidebarGroup: SidebarGroup | null;
+  hasActiveSection: boolean;
   courseGenerationNotes: string;
   isDarkMode: boolean;
   isFocusMode: boolean;
@@ -160,6 +162,7 @@ export interface WorkspaceReaderHeaderModel {
   onSetSettingsPanelExpandedSections: (value: SettingsPanelSectionId[]) => void;
   preferredModels: OpenRouterModelPreferences;
   settingsPanelExpandedSections: SettingsPanelSectionId[];
+  syncState: 'saved' | 'saving' | 'error';
   tts: WorkspaceReaderTtsModel;
 }
 

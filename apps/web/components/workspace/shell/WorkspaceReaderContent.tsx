@@ -1,5 +1,5 @@
 import { BookOpen, LoaderCircle, MousePointerClick, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
@@ -49,7 +49,7 @@ function LessonGenerationSkeleton({
   );
 }
 
-export default function WorkspaceReaderContent({
+const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   activeLaboratoryExercise,
   activeSectionTitle,
   activeSectionAssetsById,
@@ -265,4 +265,6 @@ export default function WorkspaceReaderContent({
       )}
     </div>
   );
-}
+});
+
+export default WorkspaceReaderContent;

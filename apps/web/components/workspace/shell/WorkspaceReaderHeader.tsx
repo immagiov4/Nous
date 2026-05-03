@@ -1,14 +1,16 @@
 import { ArrowLeft, Moon, RefreshCw, Settings2, SidebarOpen, Sun, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { MotionPopover } from '../../../utils/motion/index.ts';
 import MusicPlayer from '../UnifiedAudioPanel.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
-export default function WorkspaceReaderHeader({
+const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   activeLaboratoryExercise,
-  activeSection,
+  activeSectionId,
+  activeSectionTitle,
   activeSidebarGroup,
+  hasActiveSection,
   courseGenerationNotes,
   isDarkMode,
   isFocusMode,
@@ -38,17 +40,18 @@ export default function WorkspaceReaderHeader({
   onSetSettingsPanelExpandedSections,
   preferredModels,
   settingsPanelExpandedSections,
+  syncState,
   tts,
 }: WorkspaceReaderHeaderModel) {
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const regenerateConfirmRef = useRef<HTMLDivElement>(null);
   const activeContentTitle =
-    activeLaboratoryExercise?.title || activeSection?.title || learningPlanTitle || 'Lezione';
+    activeLaboratoryExercise?.title || activeSectionTitle || learningPlanTitle || 'Lezione';
   const activeContentGroupTitle = activeLaboratoryExercise
     ? laboratoryTitle || 'Laboratorio'
     : activeSidebarGroup?.title || learningPlanTitle || 'Percorso';
-  const canRegenerate = Boolean(activeLaboratoryExercise || activeSection);
+  const canRegenerate = Boolean(activeLaboratoryExercise || hasActiveSection);
   const regenerateSubjectLabel = activeLaboratoryExercise ? 'esercizio' : 'lezione';
   const regenerateDefiniteArticle = activeLaboratoryExercise ? 'il' : 'la';
   const regenerateIndefiniteArticle = activeLaboratoryExercise ? 'un' : 'una';
@@ -75,10 +78,10 @@ export default function WorkspaceReaderHeader({
   }, [isRegenerateConfirmOpen]);
 
   useEffect(() => {
-    if ((!activeSection && !activeLaboratoryExercise) || isLoading) {
+    if ((!hasActiveSection && !activeLaboratoryExercise) || isLoading) {
       setIsRegenerateConfirmOpen(false);
     }
-  }, [activeLaboratoryExercise, activeSection, isLoading]);
+  }, [activeLaboratoryExercise, hasActiveSection, isLoading]);
 
   const handleRegenerateIntent = () => {
     if (!canRegenerate || isLoading) {
@@ -115,7 +118,9 @@ export default function WorkspaceReaderHeader({
       <span className="h-2 w-2 rounded-full bg-orange-500" />
       <span className="truncate">{visibleLoadingStatus}</span>
     </div>
-  ) : null;
+  ) : (
+    <SyncBadge syncState={syncState} />
+  );
   const regenerateDialogClassName = isMobileViewport
     ? 'mx-auto w-[min(20rem,calc(100vw-2rem))]'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2rem))]';
@@ -351,5 +356,35 @@ export default function WorkspaceReaderHeader({
         />
       ) : null}
     </header>
+  );
+});
+
+export default WorkspaceReaderHeader;
+
+/** Small non-intrusive badge showing persistence sync state. */
+function SyncBadge({ syncState }: { syncState: 'saved' | 'saving' | 'error' }) {
+  if (syncState === 'saved') return null;
+
+  return (
+    <div
+      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+        syncState === 'saving'
+          ? 'bg-sky-50 text-sky-600 dark:bg-sky-900/20 dark:text-sky-400'
+          : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+      }`}
+      title={syncState === 'saving' ? 'Salvataggio in corso...' : 'Errore di salvataggio'}
+    >
+      {syncState === 'saving' ? (
+        <>
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+          <span>Salvataggio</span>
+        </>
+      ) : (
+        <>
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+          <span>Errore</span>
+        </>
+      )}
+    </div>
   );
 }

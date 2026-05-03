@@ -175,6 +175,20 @@ export class HttpProjectRepository implements ProjectRepository {
     };
   }
 
+  async patchProject(id: ProjectId, patch: Record<string, unknown>): Promise<SavedProjectMeta> {
+    const response = await this.request<{ meta?: SavedProjectMeta }>(
+      `/api/projects/projects/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ patch }),
+      }
+    );
+    return {
+      ...assertValue(response.meta, 'Il progetto sincronizzato non e stato aggiornato.'),
+      syncState: PROJECT_SYNC_READY,
+    };
+  }
+
   async deleteProject(id: ProjectId): Promise<void> {
     await this.request(`/api/projects/projects/${encodeURIComponent(id)}`, {
       method: 'DELETE',
