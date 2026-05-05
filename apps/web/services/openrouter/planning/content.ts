@@ -142,6 +142,84 @@ export const generateSectionContent = async (
     : 'Se fai riferimenti al percorso, fallo solo usando il contesto precedente fornito e senza inventare lezioni mai avvenute.';
   const scopeRule = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
   const userNotesBlock = buildUserGenerationNotesBlock(generationNotes);
+  const noRepetitionRule = isFirstLesson
+    ? ''
+    : `\n0. **SALTARE LE INTRODUZIONI GIA SVILUPPATE:** Le lezioni precedenti (${previousContext}) hanno gia coperto le basi, le definizioni fondative e la traiettoria storica generale del percorso. Questa lezione DEVE partire DIRETTAMENTE dall'argomento specifico indicato dal titolo e dalla descrizione. Non riesporre concetti, definizioni, classificazioni o linee temporali gia affrontati nelle lezioni precedenti — ogni lezione deve aggiungere contenuto informativo nuovo, non ripercorrere le fondamenta comuni.`;
+
+  const buildLessonPrompt = (options: {
+    sourcePrefix?: string;
+    sourceContext?: string;
+    imageRules?: string;
+    candidateImagesPayload?: string;
+    imagePlacementInstruction?: string;
+  }) => {
+    const {
+      sourcePrefix = '',
+      sourceContext = '',
+      imageRules = '',
+      candidateImagesPayload = '',
+      imagePlacementInstruction = '30. **IMMAGINI**: Per questa richiesta `imagePlacements` deve essere un array vuoto.',
+    } = options;
+
+    return `Sei il Professor Nous. Devi generare una LEZIONE COMPLETA E APPROFONDITA${sourcePrefix}.
+${userNotesBlock}
+TITOLO LEZIONE: "${sectionTitle}"
+DESCRIZIONE: "${sectionDescription}"
+CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.${noRepetitionRule}
+${sourceContext}
+REGOLE FONDAMENTALI:
+1. Scrivi una lezione esaustiva in Markdown ricco, ma ad alta densita informativa: niente riempitivo, niente ripetizioni decorative, niente giri larghi per dire poco.
+2. Incorpora e spiega i contenuti del documento in modo discorsivo ma tecnico, con esempi concreti, formule (LaTeX $$...$$) e codice solo quando aiutano davvero la comprensione. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'il testo afferma'): la lezione deve funzionare come testo autonomo, senza presupporre che il lettore abbia il documento aperto. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X e Y'): le formulazioni per contrasto ('X non e soltanto Y') sono accettabili solo dopo che il concetto e gia stato definito. Tratta tabelle, blocchi comparativi, matrici, didascalie, legende e label testuali di grafici come parte del contenuto tecnico della lezione, non come rumore.
+3. Organizza il testo con heading chiari, ma usa solo le sezioni che servono davvero a questa lezione. Non creare heading riempitivi.
+4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione in Introduzione, Concetti Fondamentali e Analisi Approfondita con semplici parafrasi.
+5. Non ripetere il titolo della lezione dentro \`contentMarkdown\` e non duplicare heading identici o quasi identici.
+6. Evita metadiscorso e enfasi ridondante: non usare continuamente formule come "questo e importante", "in pratica", "il punto centrale e", "qui si capisce", salvo rarissimi casi.
+7. Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta.
+8. Quando un termine tecnico e necessario, collegalo subito al suo significato pratico o concettuale in parole comprensibili.
+9. Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.
+10. Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
+11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
+12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
+13. Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo. Se puoi spiegare bene in modo diretto, non usare alcuna analogia.
+14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
+15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
+16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
+17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.${imageRules}
+24. ${continuityRule}
+25. Vincoli di focus della lezione:
+${scopeRule}
+26. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
+27. \`quiz\` deve contenere da 1 a 3 pause attive con ESATTAMENTE 4 opzioni ciascuna.
+28. Usa il numero MINIMO necessario di pause attive: 1 se la lezione ha un solo snodo concettuale forte, 2 se ha piu passaggi da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
+29. Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
+${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
+30. Non generare sempre domande: alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
+31. Le pause del \`quiz\` NON devono mai limitarsi a chiedere la ripetizione letterale di una definizione, di una formula o di una frase appena letta.
+32. Ogni pausa deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso, sequenziamento, micro-sintesi oppure previsione di un effetto/conseguenza.
+33. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
+34. **POSIZIONA OGNI PAUSA DOPO LE INFORMAZIONI NECESSARIE:** ogni pausa attiva deve arrivare DOPO che il contenuto necessario per rispondere e gia stato spiegato nel testo della lezione. In particolare, se la pausa e di tipo confronto (compare-contrast), non inserirla subito dopo il primo concetto: deve essere posizionata DOPO che ENTRAMBI i concetti / elementi da confrontare sono stati presentati e spiegati. Lo stesso vale per micro-sintesi, classificazione e previsione: il lettore deve avere tutti gli elementi per rispondere.
+35. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
+${imagePlacementInstruction}
+37. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
+38. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
+39. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
+40. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\`\` oppure \`\`\`\`lang con solo il nome del linguaggio (es. \`\`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
+41. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
+42. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
+43. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
+44. Se inserisci formule, assicurati che il Markdown sia compatibile con KaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe isolate con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non aprire una formula con un delimitatore e chiuderla con un altro, e chiudi sempre correttamente graffe e delimitatori.
+${candidateImagesPayload}
+Rispondi SOLO con un oggetto JSON valido con questa struttura:
+{
+  "contentMarkdown": "Lezione completa in markdown",
+  "quiz": [
+    { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+  ],
+  "imagePlacements": [
+    { "assetId": "pdf-img-001", "alt": "Descrizione breve", "caption": "Caption opzionale", "anchorHeading": "Analisi Approfondita" }
+  ]
+}`;
+  };
 
   let pdfSession: Awaited<ReturnType<typeof getPdfAssetSession>> = null;
   let pdfTextSession: Awaited<ReturnType<typeof getPdfTextSession>> = null;
@@ -236,78 +314,20 @@ export const generateSectionContent = async (
     );
 
     const lessonSourceContext = buildLessonChunkContext(documentIndex, primaryChunkIds);
-    const prompt = `Sei il Professor Nous. Devi generare una LEZIONE COMPLETA E APPROFONDITA a partire da un PDF gia analizzato.
-${userNotesBlock}
-TITOLO LEZIONE: "${sectionTitle}"
-DESCRIZIONE: "${sectionDescription}"
-CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.
-
-ESTRATTI RILEVANTI DAL PDF PER QUESTA LEZIONE:
-${lessonSourceContext || pdfSession.extractedText.slice(0, 12000)}
-
-REGOLE FONDAMENTALI:
-1. Scrivi una lezione esaustiva in Markdown ricco, ma ad alta densita informativa: niente riempitivo, niente ripetizioni decorative, niente giri larghi per dire poco.
-2. Incorpora e spiega i contenuti del documento in modo discorsivo ma tecnico, con esempi concreti, formule (LaTeX $$...$$) e codice solo quando aiutano davvero la comprensione. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'il testo afferma'): la lezione deve funzionare come testo autonomo, senza presupporre che il lettore abbia il documento aperto. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X e Y'): le formulazioni per contrasto ('X non e soltanto Y') sono accettabili solo dopo che il concetto e gia stato definito. Tratta tabelle, blocchi comparativi, matrici, didascalie, legende e label testuali di grafici come parte del contenuto tecnico della lezione, non come rumore.
-3. Organizza il testo con heading chiari, ma usa solo le sezioni che servono davvero a questa lezione. Non creare heading riempitivi.
-4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione in Introduzione, Concetti Fondamentali e Analisi Approfondita con semplici parafrasi.
-5. Non ripetere il titolo della lezione dentro \`contentMarkdown\` e non duplicare heading identici o quasi identici.
-6. Evita metadiscorso e enfasi ridondante: non usare continuamente formule come "questo e importante", "in pratica", "il punto centrale e", "qui si capisce", salvo rarissimi casi.
-7. Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta.
-8. Quando un termine tecnico e necessario, collegalo subito al suo significato pratico o concettuale in parole comprensibili.
-9. Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.
-10. Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
-11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
-12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
-13. Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo. Se puoi spiegare bene in modo diretto, non usare alcuna analogia.
-14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
-15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
-16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
-17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.
+    const imageRules = `
 18. Usa un numero di immagini proporzionato alla struttura della lezione. Ogni immagine deve servire una spiegazione vicina: non usarla come decorazione, intermezzo visivo o grafico generico se il testo non la interpreta esplicitamente.
 19. Puoi referenziare SOLO questi assetId. Se nessuna immagine e chiaramente pertinente, restituisci un array vuoto.
 20. Se usi un'immagine, \`anchorHeading\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`, senza i simboli #. Scegli il heading della sezione in cui il primo blocco di testo spiega proprio cio che l'immagine mostra; se il testo vicino non la usa, non inserirla li.
 21. Se il materiale parla chiaramente di anatomia, strutture o meccanica visivamente spiegabili e tra le candidate c'e una figura pertinente, preferisci includerne almeno una.
 22. Usa solo immagini visivamente chiare, autosufficienti e distinguibili. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper di sezione, riquadri ornamentali o frammenti di figura.
-23. Non usare il contesto testuale per indovinare una figura poco chiara: se l'immagine non si capisce da sola, non usarla.
-24. ${continuityRule}
-25. Vincoli di focus della lezione:
-${scopeRule}
-26. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
-27. \`quiz\` deve contenere da 1 a 3 pause attive con ESATTAMENTE 4 opzioni ciascuna.
-28. Usa il numero MINIMO necessario di pause attive: 1 se la lezione ha un solo snodo concettuale forte, 2 se ha piu passaggi da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
-29. Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
-${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
-30. Non generare sempre domande: alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
-31. Le pause del \`quiz\` NON devono mai limitarsi a chiedere la ripetizione letterale di una definizione, di una formula o di una frase appena letta.
-32. Ogni pausa deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso, sequenziamento, micro-sintesi oppure previsione di un effetto/conseguenza.
-33. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
-34. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
-35. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.
-36. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
-37. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.
-38. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "la figura mostra". Il paragrafo vicino deve dire al lettore che cosa guardare nell'immagine e perche e utile alla spiegazione.
-39. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
-40. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
-41. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\`\` oppure \`\`\`\`lang con solo il nome del linguaggio (es. \`\`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
-42. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
-43. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
-44. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
-45. Se inserisci formule, assicurati che il Markdown sia compatibile con KaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe isolate con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non aprire una formula con un delimitatore e chiuderla con un altro, e chiudi sempre correttamente graffe e delimitatori.
-46. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Usa solo \`caption\`, \`visibleLabel\` e il contesto della lezione per decidere se l'immagine e pertinente: non inventare dettagli non esplicitati dalla descrizione. La caption finale deve essere coerente con il paragrafo vicino, non una descrizione isolata.
-
-IMMAGINI CANDIDATE:
-${JSON.stringify(candidateImagePayload, null, 2)}
-
-Rispondi SOLO con un oggetto JSON valido con questa struttura:
-{
-  "contentMarkdown": "Lezione completa in markdown",
-  "quiz": [
-    { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
-  ],
-  "imagePlacements": [
-    { "assetId": "pdf-img-001", "alt": "Descrizione breve", "caption": "Caption opzionale", "anchorHeading": "Analisi Approfondita" }
-  ]
-}`;
+23. Non usare il contesto testuale per indovinare una figura poco chiara: se l'immagine non si capisce da sola, non usarla.`;
+    const prompt = buildLessonPrompt({
+      sourcePrefix: ' a partire da un PDF gia analizzato',
+      sourceContext: `\nESTRATTI RILEVANTI DAL PDF PER QUESTA LEZIONE:\n${lessonSourceContext || pdfSession.extractedText.slice(0, 12000)}\n`,
+      imageRules,
+      candidateImagesPayload: `45. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Usa solo \`caption\`, \`visibleLabel\` e il contesto della lezione per decidere se l'immagine e pertinente: non inventare dettagli non esplicitati dalla descrizione. La caption finale deve essere coerente con il paragrafo vicino, non una descrizione isolata.\n\nIMMAGINI CANDIDATE:\n${JSON.stringify(candidateImagePayload, null, 2)}`,
+      imagePlacementInstruction: `36. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.\n37. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.\n38. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "la figura mostra". Il paragrafo vicino deve dire al lettore che cosa guardare nell'immagine e perche e utile alla spiegazione.`,
+    });
 
     const parsed = await retryWithBackoff(async () => {
       const response = await callOpenRouter({
@@ -471,63 +491,11 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     };
   }
 
-  const prompt = `Sei il Professor Nous. Devi generare una LEZIONE COMPLETA E APPROFONDITA.
-${userNotesBlock}
-TITOLO LEZIONE: "${sectionTitle}"
-DESCRIZIONE: "${sectionDescription}"
-
-CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.
-
-REGOLE FONDAMENTALI:
-1. **PROFONDITA**: Questa lezione deve essere ESAUSTIVA, ma non ridondante. Non limitarti a una panoramica, ma non ripetere la stessa definizione o lo stesso concetto in piu sezioni con lievi parafrasi.
-   Spiega ogni concetto in dettaglio, ma con alta densita informativa: meno riempitivo, meno giri larghi, piu sostanza per frase.
-2. **STRUTTURA DISCORSIVA**: Preferisci paragrafi completi, non una sequenza di punti telegrafici.
-   La lezione deve leggersi come una spiegazione tecnica continua, non come una slide.
-   Quando pero presenti 2 o piu elementi fratelli (tipi, gruppi, fasi, definizioni), usa una lista Markdown vera.
-3. **LEZIONE AUTOSUFFICIENTE**: La lezione deve funzionare come testo autonomo: il lettore non ha il documento originale aperto. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'la parte 3', 'il testo afferma'). Incorpora i contenuti rilevanti direttamente nella spiegazione. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X e Y'): le formulazioni per contrasto ('X non e soltanto Y') sono accettabili solo dopo che il concetto e stato gia definito. Se il materiale sorgente contiene tabelle, blocchi comparativi, matrici, didascalie o label di grafici, trattali come contenuto sostanziale della lezione.
-4. **ESEMPI E ANALOGIE**: Usa esempi pratici quando aiutano davvero, preferibilmente tratti dal materiale sorgente. Usa analogie solo per concetti difficili o astratti, e comunque al massimo 1 analogia breve nell'intera lezione. Se puoi spiegare bene in modo diretto, non usare analogie. Se compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o con una lista comparativa chiara invece di perdere le relazioni tra righe e colonne.
-5. **LINGUAGGIO ACCESSIBILE**: Usa di default un lessico chiaro, accessibile e poco manualistico. Se puoi spiegare bene una cosa senza gergo superfluo, fallo.
-6. **TERMINI TECNICI CONTESTUALIZZATI**: Quando un termine tecnico e necessario, aggancialo subito al suo significato pratico o concettuale in parole comprensibili.
-7. **SIGLE SPIEGATE**: Non usare sigle, abbreviazioni o acronimi non spiegati. Alla prima occorrenza devi sempre scioglierli e chiarirli.
-8. **NO FORESTIERISMI INUTILI**: Evita forestierismi inutili. Se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
-9. **SEMPLIFICA L'ESPOSIZIONE, NON IL CONTENUTO**: Resta preciso e completo senza assumere un tono artificiosamente accademico.
-10. **STRUTTURA**: Usa heading chiari, ma solo se servono davvero. Non inserire automaticamente sezioni come "Analisi Approfondita" o "Applicazioni Pratiche" se il focus della lezione non lo richiede.
-11. **PROGRESSIONE**: Ogni sezione deve introdurre informazione nuova o un nuovo livello di dettaglio; evita riprese ridondanti di concetti gia spiegati poche righe sopra.
-12. **NO TITOLO DUPLICATO**: Non ripetere il titolo della lezione all'inizio di \`contentMarkdown\` e non duplicare heading identici.
-13. **STILE**: Mantieni un tono discorsivo ma sobrio. Evita metadiscorso e frasi-segnaposto come "questo e importante", "in pratica", "il punto centrale e" quando non aggiungono contenuto tecnico nuovo.
-14. **NO SAGGIO DIVULGATIVO**: Non aprire continuamente paragrafi con formule come "un modo utile per capirlo", "l'analogia migliore", "pensiamolo come", "in sostanza". Vai dritto alla spiegazione tecnica.
-15. **LUNGHEZZA**: E meglio essere comprensibili che prolissi. Completo non significa verboso.
-16. **PARAGRAFI CHE AVANZANO**: Ogni paragrafo deve introdurre un fatto, una distinzione, una conseguenza o un esempio nuovo. Niente mini-riassunti subito dopo aver spiegato una cosa.
-17. **NO PARAFRASI A CATENA**: Se il punto centrale della lezione e uno solo, spiegalo bene una volta e poi passa a implicazioni, esempi, limiti o applicazioni. Non ribadirlo in sezioni diverse con formulazioni quasi equivalenti.
-18. **CONTINUITA NARRATIVA**: ${continuityRule}
-19. **FOCUS DELLA LEZIONE**:
-${scopeRule}
-20. **OUTPUT OBBLIGATORIO**: La risposta finale deve essere SOLO un oggetto JSON valido.
-21. **SCHEMA PAUSE ATTIVE**: \`quiz\` deve contenere da 1 a 3 pause attive con ESATTAMENTE 4 opzioni ciascuna.
-22. **QUIZ PROPORZIONATO**: Usa il numero minimo necessario di pause attive: 1 se la lezione e compatta, 2 se ha piu snodi concettuali da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
-23. **TIPOLOGIE VARIATE**: Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
-${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
-24. **NON SOLO DOMANDE**: Non generare sempre domande. Alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
-25. **PAUSE INTELLIGENTI**: Le pause del \`quiz\` non devono mai chiedere solo la ripetizione letterale di una definizione o di una frase appena letta.
-26. **RAGIONAMENTO**: Ogni pausa deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso, sequenziamento, micro-sintesi oppure previsione di una conseguenza.
-27. **DISTRATTORI PLAUSIBILI**: Le opzioni errate devono sembrare errori realistici, non risposte palesemente assurde.
-28. **TESTO NORMALE**: Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale. Non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence; usa i backticks solo per un singolo termine o simbolo interno alla frase quando e davvero necessario.
-29. **NESSUN TESTO EXTRA**: Non aggiungere testo, commenti, markdown fences o spiegazioni fuori dal JSON.
-30. **IMMAGINI**: Per questa richiesta \`imagePlacements\` deve essere un array vuoto.
-31. **NO PSEUDO-LISTE**: Non scrivere blocchi con piu righe del tipo "Etichetta: ..." senza bullet. O fai una lista Markdown vera, oppure scrivi paragrafi completi.
-32. **CODE BLOCK PULITI**: Per i blocchi di codice usa solo fence Markdown standard del tipo \`\`\` oppure \`\`\`lang con il solo nome del linguaggio. Niente testo extra o commenti sulla riga del fence.
-33. **NO LABEL SPURIE**: Non scrivere righe isolate come \`cpp\`, \`ts\`, \`cpp // commento\` o simili prima di un code block. Se vuoi introdurre il codice, fallo in una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco.
-34. **NO IMMAGINI INLINE**: Non inserire markdown image syntax o tag HTML immagine dentro \`contentMarkdown\`.
-35. **NO QUIZ NEL TESTO**: Non aggiungere quiz, domande o sezioni di verifica dentro \`contentMarkdown\`; il quiz deve vivere solo nel campo \`quiz\`.
-
-Rispondi SOLO con un oggetto JSON valido con questa struttura:
-{
-  "contentMarkdown": "Lezione completa in markdown",
-  "quiz": [
-    { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
-  ],
-  "imagePlacements": []
-}`;
+  const prompt = buildLessonPrompt({
+    sourceContext: '',
+    imagePlacementInstruction:
+      '30. **IMMAGINI**: Per questa richiesta `imagePlacements` deve essere un array vuoto.',
+  });
 
   const userContent = await buildReasoningContentForFile(
     file,

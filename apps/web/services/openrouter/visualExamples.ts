@@ -34,6 +34,10 @@ Regole:
 - Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
 - Se il concetto e complesso, setta split_into_multiple=true, ma per questa versione scegli comunque il primo sottoconcetto piu utile.
 - Usa Mermaid solo per ER e class diagram.
+- **Scegli il tipo visuale in base allo spazio disponibile.** Preferisci tipi che richiedono pochi elementi grafici ma sono informativi. Se il concetto ha molti sotto-elementi, prediligi layout verticale o a griglia compatta, non una fila orizzontale di blocchi.
+- **Minimizza il numero di entita grafiche.** Ogni blocco, nodo o forma aggiunge complessita visiva. Chiediti se puoi eliminare elementi senza perdere informazione. Meglio 3 blocchi ben spaziati che 5 compressi.
+- **Non sovraccaricare ne in orizzontale ne in verticale.** Distribuisci gli elementi in modo bilanciato. Se la visuale richiede piu di 3 elementi con testo, usa griglie compatte o layout a colonne. Evita sia file orizzontali interminabili sia torri verticali senza fine.
+- **Stima la larghezza del testo.** Titoli di 1-2 parole sono ideali. Se il testo descrittivo e lungo, scegli un layout verticale che dia spazio sufficiente.
 - Rispondi SOLO con JSON:
 {
   "visual_type": "...",
@@ -71,7 +75,11 @@ Regole SVG obbligatorie:
 - Niente shadow, blur, glow, filter, emoji, HTML, commenti, icone dentro box.
 - Usa al massimo due rampe colore; c-gray come default, c-amber/c-red/c-green solo semanticamente.
 - Altezza viewBox = ultimo elemento + 40px.
-- Le frecce non devono attraversare box non collegati.`;
+- Le frecce non devono attraversare box non collegati.
+- **Gestione intelligente dello spazio:** non sovraffollare ne in orizzontale ne in verticale. Usa griglie bilanciate: se hai piu di 3 blocchi con testo, distribuiscili su righe e colonne in modo compatto ma leggibile, non tutti in fila orizzontale ne tutti in colonna verticale.
+- **Titoli compatti:** titoli di 1-3 parole. Se il titolo e lungo, riduci il font-size. Usa ellipsis o text-overflow se necessario.
+- **Spaziatura e aria:** lascia almeno 12-16px di padding interno nei box e 16-24px di margine tra elementi. La densita eccessiva rende il diagramma illeggibile.
+- **Adatta il testo alla viewBox:** se il testo sfora, riduci il font-size del contenuto prima di allargare i box. La viewBox e fissa a 680px di larghezza, devi lavorare dentro quella.`;
 
 const RENDERER_HTML_PROMPT = `SYSTEM:
 Sei un generatore esperto di widget HTML interattivi per Nous Reader.
@@ -96,7 +104,11 @@ Regole:
 - Numeri mostrati sempre arrotondati/formattati.
 - CDN consentiti solo: cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com, esm.sh.
 - Non creare pulsanti finti per link esterni o chat.
-- Interazione appropriata: calculator, stepper, comparison, state-machine, layered-view, simulation o chart.`;
+- Interazione appropriata: calculator, stepper, comparison, state-machine, layered-view, simulation o chart.
+- **Gestione dello spazio:** il container e width:100% ma non devi riempirlo tutto. Usa lo spazio in modo parsimonioso. Preferisci colonne verticali a righe orizzontali quando ci sono molti elementi.
+- **Aria tra sezioni:** aggiungi margin-bottom e padding generosi. Non accostare elementi senza spazio intermedio.
+- **Titoli compatti:** usa titoli brevi (1-3 parole). Il testo lungo va in descrizioni sotto il titolo, non nel titolo stesso.
+- **Non sovraccaricare:** se l'interazione richiede molti elementi di UI, scegli un design essenziale. Ogni input, label, bottone extra aumenta la densita visiva. Non accumulare troppi widget in verticale ne in orizzontale.`;
 
 const RENDERER_MERMAID_PROMPT = `SYSTEM:
 Sei un generatore di diagrammi Mermaid solo per database e classi.
@@ -114,6 +126,9 @@ Regole:
 - Usa classDiagram solo per strutture OOP.
 - Non usare flowchart, sequenceDiagram o altri tipi Mermaid.
 - Nessun markdown fence.
+- **Entita minime:** tieni il diagramma compatto. Non aggiungere campi o relazioni decorative. Mostra solo le entita essenziali per il concetto.
+- **Nomi brevi:** usa nomi di entita e campi brevi (1-3 parole). Se un nome naturale e lungo, accorcialo e usa un alias descrittivo.
+- **Spaziatura:** Mermaid gestisce il layout automaticamente, ma istruisci il diagramma per evitare sovraffollamento in qualsiasi direzione. Poche entita per riga e poche righe totali. Se servono molte entita, suddividi in piu diagrammi.
 - Etichetta relazioni chiaramente; annota tipi, PK/FK quando pertinenti.`;
 
 type VisualType =
