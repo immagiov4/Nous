@@ -366,14 +366,21 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           [newSection.id]
         );
         updatedPlan = prepared.learningPlan;
-        nextDocumentIndex = prepared.documentIndex;
+        // Se il mapping PDF fallisce/torna null, manteniamo l'indice esistente:
+        // un indice obsoleto è sempre meglio di nessun indice (i chunk delle altre
+        // sezioni continuano a funzionare).
+        nextDocumentIndex = prepared.documentIndex ?? domain.documentIndex;
       }
 
       domain.setLearningPlan(updatedPlan);
       domain.setDocumentIndex(nextDocumentIndex);
       void projectLibrary.patchCurrentProject({
         learningPlan: updatedPlan,
-        documentIndex: nextDocumentIndex,
+        // Includiamo documentIndex solo se è effettivamente cambiato e non-null,
+        // così l'autosave o un altro patch non lo azzerano per sbaglio.
+        ...(nextDocumentIndex != null && nextDocumentIndex !== domain.documentIndex
+          ? { documentIndex: nextDocumentIndex }
+          : {}),
         activeSectionId: domain.activeSectionId,
         state: AppState.READING,
       });

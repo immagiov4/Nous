@@ -11,7 +11,7 @@ export const resolvePdfMappingWarning = (
   }
 
   if (!documentIndex || documentIndex.chunks.length === 0) {
-    return 'Non riesco a collegare questo percorso al testo del PDF. Le nuove lezioni potrebbero essere meno precise: prova a ricollegare una versione del PDF con testo selezionabile.';
+    return null;
   }
 
   const warnings = documentIndex.mappingWarnings?.filter(Boolean) || [];

@@ -26,6 +26,8 @@ describe('GET /api/status', () => {
   });
 
   test('returns the current status snapshot', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
     const response = await request(createApp()).get('/api/status');
 
     expect(response.status).toBe(200);
@@ -38,9 +40,12 @@ describe('GET /api/status', () => {
         uptime: 42,
       }),
     });
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('GET /api/status'));
+    logSpy.mockRestore();
   });
 
   test('maps service errors to a 500 response', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     statusServiceMocks.getStatusSnapshot.mockRejectedValueOnce(new Error('status failed'));
 
     const response = await request(createApp()).get('/api/status');
@@ -50,5 +55,7 @@ describe('GET /api/status', () => {
       success: false,
       error: 'status failed',
     });
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('GET /api/status -> 500'));
+    logSpy.mockRestore();
   });
 });

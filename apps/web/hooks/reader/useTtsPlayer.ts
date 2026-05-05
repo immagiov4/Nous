@@ -1039,24 +1039,34 @@ export const useTtsPlayer = ({
 
   useEffect(() => {
     let hasLoadedTtsModels = false;
+    let hasLoadedTtsVoices = false;
+
+    const refreshTtsVoices = async () => {
+      if (hasLoadedTtsVoices) {
+        return;
+      }
+
+      const voices = await OpenRouterService.getTTSVoices();
+      hasLoadedTtsVoices = true;
+      if (voices.length === 0) {
+        return;
+      }
+
+      setAvailableVoices(voices);
+      const defaultVoice = voices[0].id;
+      if (!voices.some(voice => voice.id === audioStateRef.current.currentVoice)) {
+        setTrackedAudioState(previousState => ({
+          ...previousState,
+          currentVoice: defaultVoice,
+        }));
+      }
+    };
 
     const refreshTtsState = async () => {
       try {
-        const [status, voices] = await Promise.all([
-          OpenRouterService.checkTTSStatus(),
-          OpenRouterService.getTTSVoices(),
-        ]);
+        const status = await OpenRouterService.checkTTSStatus();
         setTtsConnected(status.isReady);
-        if (voices.length > 0) {
-          setAvailableVoices(voices);
-          const defaultVoice = voices[0].id;
-          if (!voices.some(voice => voice.id === audioStateRef.current.currentVoice)) {
-            setTrackedAudioState(previousState => ({
-              ...previousState,
-              currentVoice: defaultVoice,
-            }));
-          }
-        }
+        await refreshTtsVoices();
 
         if (!hasLoadedTtsModels) {
           const modelCatalog = await OpenRouterService.getTTSModels();

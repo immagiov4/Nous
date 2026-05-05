@@ -29,6 +29,8 @@ describe('GET /api/voices', () => {
   });
 
   test('returns the voice catalog payload', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
     const response = await request(createApp()).get('/api/voices');
 
     expect(response.status).toBe(200);
@@ -37,6 +39,8 @@ describe('GET /api/voices', () => {
       count: 1,
       voices: [{ id: 'mario', name: 'Mario', language: 'it-IT' }],
     });
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('GET /api/voices'));
+    logSpy.mockRestore();
   });
 
   test('returns a voice profile by id', async () => {

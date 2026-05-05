@@ -174,6 +174,19 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
 
   const persistSnapshot = useCallback(
     async (snapshot: ProjectSnapshot) => {
+      // Anti-data-loss guard: se è uno scrivimento di un progetto già esistente con
+      // sourceFile registrata in meta ma lo snapshot ha source nullo, evitiamo di
+      // sovrascrivere il PDF persistito. (Non blocca il primo salvataggio: se non c'è
+      // ancora una meta, non c'è nulla da proteggere.)
+      const matchingMeta = savedProjects.find(project => project.id === snapshot.id);
+      if (matchingMeta?.hasSourceFile && snapshot.source == null) {
+        console.warn(
+          '[Nous][persistSnapshot] Aborted: snapshot.source is null but stored meta reports a source. Refusing to overwrite stored source.',
+          { projectId: snapshot.id, sourceKind: matchingMeta.sourceKind }
+        );
+        return null;
+      }
+
       try {
         const meta = await projectRepositoryRef.current.saveProject(snapshot);
         syncProjectMeta(meta);
@@ -189,7 +202,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         return null;
       }
     },
-    [requestPersistentStorage, syncProjectMeta]
+    [requestPersistentStorage, savedProjects, syncProjectMeta]
   );
 
   const saveCurrentProject = useCallback(
@@ -199,9 +212,24 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         return null;
       }
 
+      // Anti-data-loss guard: se la meta dice che il progetto HA un source ma lo
+      // snapshot in memoria è null (e l'override non sta ricollegando esplicitamente),
+      // abortiamo. Meglio uno scrivimento mancato che un PUT che azzera il PDF in DB.
+      if (
+        currentProjectMeta?.hasSourceFile &&
+        snapshot.source == null &&
+        overrides?.source === undefined
+      ) {
+        console.warn(
+          '[Nous][saveCurrentProject] Aborted: snapshot.source is null but project meta reports a source. Refusing to overwrite stored source.',
+          { projectId: snapshot.id, sourceKind: currentProjectMeta.sourceKind }
+        );
+        return null;
+      }
+
       return persistSnapshot(snapshot);
     },
-    [buildSnapshotFromDomain, persistSnapshot]
+    [buildSnapshotFromDomain, currentProjectMeta, persistSnapshot]
   );
 
   /**
@@ -230,7 +258,19 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       if (overrides.userProfile !== undefined) patch.userProfile = overrides.userProfile;
       if (overrides.syllabus !== undefined) patch.syllabus = overrides.syllabus;
       if (overrides.documentAssets !== undefined) patch.documentAssets = overrides.documentAssets;
-      if (overrides.documentIndex !== undefined) patch.documentIndex = overrides.documentIndex;
+      if (overrides.documentIndex !== undefined) {
+        // Anti-data-loss guard: se chi chiama passa documentIndex:null ma in memoria
+        // ce n'è uno valido, è quasi sempre un mapping PDF fallito (vedi
+        // preparePdfLessonMappings) — non vogliamo sovrascrivere l'indice buono.
+        if (overrides.documentIndex === null && domainStateRef.current.documentIndex != null) {
+          console.warn(
+            '[Nous][patchCurrentProject] Skipping documentIndex:null patch because in-memory documentIndex is non-null.',
+            { projectId: currentProjectId }
+          );
+        } else {
+          patch.documentIndex = overrides.documentIndex;
+        }
+      }
 
       patch.updatedAt = timestampIso();
 

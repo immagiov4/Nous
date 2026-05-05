@@ -141,6 +141,35 @@ describe('useTtsPlayer', () => {
     expect(result.current.availableModels).toHaveLength(1);
   });
 
+  test('polls TTS status without repeatedly fetching static voice metadata', async () => {
+    vi.useFakeTimers();
+
+    try {
+      renderHook(() =>
+        useTtsPlayer({
+          activeSectionId: 'lesson-1',
+          sectionContent: 'Contenuto della lezione',
+          speechBlocks: [],
+        })
+      );
+
+      await vi.runOnlyPendingTimersAsync();
+      expect(openRouterMocks.getTTSVoices).toHaveBeenCalledTimes(1);
+      const statusCheckCountAfterInitialLoad = openRouterMocks.checkTTSStatus.mock.calls.length;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+
+      expect(openRouterMocks.checkTTSStatus.mock.calls.length).toBeGreaterThan(
+        statusCheckCountAfterInitialLoad
+      );
+      expect(openRouterMocks.getTTSVoices).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('creates audio chunks, starts playback and updates playback rate', async () => {
     const { result } = renderHook(() =>
       useTtsPlayer({

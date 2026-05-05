@@ -18,6 +18,18 @@ const DEFAULT_JSON_BODY_LIMIT = '50mb';
 const OPENROUTER_JSON_BODY_LIMIT = '80mb';
 const PDF_JSON_BODY_LIMIT = '160mb';
 const PROJECTS_JSON_BODY_LIMIT = '300mb';
+const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
+
+const shouldLogRequest = (method: string, path: string, statusCode: number): boolean => {
+  if (method === 'GET' && statusCode < 400 && QUIET_SUCCESS_GET_PATHS.has(path)) {
+    return false;
+  }
+
+  return true;
+};
+
+const getRequestLogPath = (req: express.Request): string =>
+  req.originalUrl.split('?')[0] || req.path;
 
 const isPrivateIpv4Host = (host: string): boolean => {
   const parts = host.split('.').map(part => Number.parseInt(part, 10));
@@ -95,8 +107,13 @@ export const createApp = () => {
   app.use('/api/projects', express.json({ limit: PROJECTS_JSON_BODY_LIMIT }));
   app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 
-  app.use((req, _res, next) => {
-    console.log(`[Backend] ${req.method} ${req.path}`);
+  app.use((req, res, next) => {
+    res.on('finish', () => {
+      const requestPath = getRequestLogPath(req);
+      if (shouldLogRequest(req.method, requestPath, res.statusCode)) {
+        console.log(`[Backend] ${req.method} ${requestPath} -> ${res.statusCode}`);
+      }
+    });
     next();
   });
 
