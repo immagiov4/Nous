@@ -133,6 +133,15 @@ const snapshots: ProjectSnapshot[] = [
         type: 'core',
         content: 'Le union types permettono varianti controllate.',
         annotations: [],
+        generatedVisuals: [
+          {
+            id: 'visual-union',
+            title: 'mappa_union_types',
+            kind: 'svg',
+            code: '<svg viewBox="0 0 680 120"></svg>',
+            createdAt: '2026-04-02T11:00:00.000Z',
+          },
+        ],
       },
     ],
   }),
@@ -148,6 +157,7 @@ const snapshots: ProjectSnapshot[] = [
         type: 'core',
         content: 'useEffect gestisce effetti collaterali.',
         annotations: [],
+        imageRefs: [{ assetId: 'pdf-img-react', alt: 'Ciclo useEffect' }],
       },
     ],
   }),
@@ -348,5 +358,153 @@ describe('executeLibraryAssistantTool', () => {
     expect(result.output).toMatchObject({
       error: 'Il corso richiesto non e presente nella libreria corrente.',
     });
+  });
+
+  test('returns artifact summaries and render payloads for scoped projects', async () => {
+    snapshots[1] = {
+      ...snapshots[1],
+      documentAssets: {
+        kind: 'pdf',
+        parsedAt: '2026-04-03T10:00:00.000Z',
+        imageCount: 1,
+        usedImages: [
+          {
+            id: 'pdf-img-react',
+            mimeType: 'image/png',
+            dataUrl: 'data:image/png;base64,react',
+            caption: 'Ciclo degli effetti React',
+            textBefore: 'render',
+            textCurrent: 'useEffect dopo il commit',
+            textAfter: 'cleanup',
+            sourceOrder: 1,
+          },
+        ],
+      },
+    };
+
+    const result = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs,
+        folders,
+        loadProjectsById,
+        projectRepositoryMode: 'lan',
+        projects,
+        tree,
+      },
+      input: {
+        renderMode: 'attachments',
+        projectIds: ['project-1', 'project-2'],
+      },
+      toolName: 'getLearningArtifacts',
+    });
+
+    expect(result.outputError).toBeUndefined();
+    expect(result.output).toMatchObject({
+      artifactCount: 2,
+      artifacts: [
+        expect.objectContaining({
+          kind: 'generated-visual',
+          lessonTitle: 'Union types',
+          title: 'mappa union types',
+        }),
+        expect.objectContaining({
+          kind: 'pdf-image',
+          lessonTitle: 'useEffect',
+          title: 'Ciclo useEffect',
+        }),
+      ],
+    });
+    expect(result.renderPayloads?.map(payload => payload.summary.id)).toEqual([
+      'project-1:lesson-2:generated-visual:visual-union',
+      'project-2:lesson-react-1:pdf-image:pdf-img-react',
+    ]);
+  });
+
+  test('filters learning artifacts by lesson id and query', async () => {
+    const result = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs: noAttachedContextRefs,
+        folders,
+        loadProjectsById,
+        projectRepositoryMode: 'lan',
+        projects,
+        tree,
+      },
+      input: {
+        renderMode: 'attachments',
+        query: 'union types',
+        requests: [
+          {
+            projectId: 'project-1',
+            lessonIds: ['lesson-2'],
+          },
+        ],
+      },
+      toolName: 'getLearningArtifacts',
+    });
+
+    expect(result.outputError).toBeUndefined();
+    expect(result.output).toMatchObject({
+      artifactCount: 1,
+      artifacts: [expect.objectContaining({ title: 'mappa union types' })],
+    });
+    expect(result.renderPayloads).toHaveLength(1);
+  });
+
+  test('keeps artifact recall metadata separate from chat rendering', async () => {
+    const recallResult = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs: noAttachedContextRefs,
+        folders,
+        loadProjectsById,
+        projectRepositoryMode: 'lan',
+        projects,
+        tree,
+      },
+      input: {
+        kinds: ['generated-visual'],
+        lessonQuery: 'Union',
+        projectIds: ['project-1'],
+      },
+      toolName: 'getLearningArtifacts',
+    });
+
+    expect(recallResult.outputError).toBeUndefined();
+    expect(recallResult.output).toMatchObject({
+      artifactCount: 1,
+      renderMode: 'metadata-only',
+      renderedArtifactCount: 0,
+      artifacts: [expect.objectContaining({ title: 'mappa union types' })],
+    });
+    expect(recallResult.renderPayloads).toBeUndefined();
+
+    const artifactId = (
+      recallResult.output as {
+        artifacts: Array<{ id: string }>;
+      }
+    ).artifacts[0].id;
+    const renderResult = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs: noAttachedContextRefs,
+        folders,
+        loadProjectsById,
+        projectRepositoryMode: 'lan',
+        projects,
+        tree,
+      },
+      input: {
+        artifactIds: [artifactId],
+        projectIds: ['project-1'],
+        renderMode: 'attachments',
+      },
+      toolName: 'getLearningArtifacts',
+    });
+
+    expect(renderResult.output).toMatchObject({
+      artifactCount: 1,
+      renderMode: 'attachments',
+      renderedArtifactCount: 1,
+    });
+    expect(renderResult.renderPayloads?.map(payload => payload.summary.id)).toEqual([artifactId]);
   });
 });

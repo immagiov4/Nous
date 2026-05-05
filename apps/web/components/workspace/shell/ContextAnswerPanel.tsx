@@ -14,13 +14,20 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
+import type { LearningArtifactRenderPayload } from '../../../types.ts';
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
+import {
+  filterLearningArtifactPayloads,
+  summarizeLearningArtifacts,
+} from '../../../utils/learning/artifacts.ts';
 import {
   dedupeUiMessagesById,
   getUiMessageRenderableParts,
   getUiMessageText,
 } from '../../../utils/uiChat.ts';
+import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.tsx';
 import ChatTextComposer from '../chat/ChatTextComposer.tsx';
 import type {
@@ -30,7 +37,6 @@ import type {
   ConversationSelectionAnchor,
   SaveConversationNoteInput,
   SaveConversationNoteResult,
-  SaveConversationNoteToolInput,
 } from './types.ts';
 
 interface RequestAddToNotesInput {
@@ -39,8 +45,22 @@ interface RequestAddToNotesInput {
   selectedTextDraft: string;
 }
 
+type RequestAddToNotesMode = 'new' | 'update' | 'none';
+
 interface RequestAddToNotesOutput {
   approved: boolean;
+  mode: RequestAddToNotesMode;
+  saved: boolean;
+  annotationId?: string;
+  error?: string;
+}
+
+interface CurrentLessonArtifactsToolInput {
+  artifactIds?: string[];
+  kinds?: LearningArtifactRenderPayload['summary']['kind'][];
+  maxResults?: number;
+  query?: string;
+  renderMode?: 'attachments' | 'metadata-only';
 }
 
 const isRequestAddToNotesInput = (value: unknown): value is RequestAddToNotesInput => {
@@ -64,20 +84,26 @@ const isRequestAddToNotesOutput = (value: unknown): value is RequestAddToNotesOu
   return typeof (value as Partial<RequestAddToNotesOutput>).approved === 'boolean';
 };
 
-const isSaveConversationNoteToolInput = (
-  value: unknown
-): value is SaveConversationNoteToolInput => {
+const readCurrentLessonArtifactsToolInput = (value: unknown): CurrentLessonArtifactsToolInput => {
   if (!value || typeof value !== 'object') {
-    return false;
+    return {};
   }
 
-  const candidate = value as Partial<SaveConversationNoteToolInput>;
-  return (
-    typeof candidate.note === 'string' &&
-    candidate.note.trim().length > 0 &&
-    typeof candidate.selectedText === 'string' &&
-    candidate.selectedText.trim().length > 0
-  );
+  const candidate = value as Partial<CurrentLessonArtifactsToolInput>;
+  return {
+    artifactIds: Array.isArray(candidate.artifactIds)
+      ? candidate.artifactIds.filter((item): item is string => typeof item === 'string')
+      : undefined,
+    kinds: Array.isArray(candidate.kinds)
+      ? candidate.kinds.filter(
+          (kind): kind is LearningArtifactRenderPayload['summary']['kind'] =>
+            kind === 'generated-visual' || kind === 'pdf-image' || kind === 'future-asset'
+        )
+      : undefined,
+    maxResults: typeof candidate.maxResults === 'number' ? candidate.maxResults : undefined,
+    query: typeof candidate.query === 'string' ? candidate.query : undefined,
+    renderMode: candidate.renderMode === 'attachments' ? 'attachments' : 'metadata-only',
+  };
 };
 
 interface ContextChatTools {
@@ -89,13 +115,9 @@ interface ContextChatTools {
     input: RequestAddToNotesInput;
     output: RequestAddToNotesOutput;
   };
-  saveConversationNote: {
-    input: SaveConversationNoteToolInput;
-    output: SaveConversationNoteResult;
-  };
-  updateConversationNote: {
-    input: SaveConversationNoteToolInput;
-    output: SaveConversationNoteResult;
+  getCurrentLessonArtifacts: {
+    input: unknown;
+    output: unknown;
   };
 }
 
@@ -124,6 +146,7 @@ interface ContextAnswerPanelProps {
   handleContextAnswerResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   isDarkMode: boolean;
   isMobileViewport: boolean;
+  currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   onClose: () => void;
   preferredContextModel: string;
   onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
@@ -148,6 +171,7 @@ export default function ContextAnswerPanel({
   handleContextAnswerResizeStart,
   isDarkMode,
   isMobileViewport,
+  currentLessonArtifactPayloads = [],
   onClose,
   preferredContextModel,
   onSaveConversationNote,
@@ -155,7 +179,7 @@ export default function ContextAnswerPanel({
 }: ContextAnswerPanelProps) {
   const [input, setInput] = useState('');
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
-  const [isChatScrolled, setIsChatScrolled] = useState(false);
+  const [, setIsChatScrolled] = useState(false);
   const [isChatNotAtBottom, setIsChatNotAtBottom] = useState(false);
   const handleChatScroll = () => {
     const el = messagesContainerRef.current;
@@ -169,6 +193,9 @@ export default function ContextAnswerPanel({
     annotate: false,
     webSearch: false,
   });
+  const [artifactPayloadsByToolCallId, setArtifactPayloadsByToolCallId] = useState<
+    Record<string, LearningArtifactRenderPayload[]>
+  >({});
   const hasSubmittedInitialQuestionRef = useRef(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -183,6 +210,11 @@ export default function ContextAnswerPanel({
   // after HARD_TIMEOUT.
   const stuckToolTimestampsRef = useRef<Map<string, number>>(new Map());
   const [expiredGraceTools, setExpiredGraceTools] = useState<Set<string>>(new Set());
+  const [processingNoteToolCallIds, setProcessingNoteToolCallIds] = useState<Set<string>>(
+    new Set()
+  );
+
+  const { keyboardOffset } = useMobileKeyboardOffset();
 
   useEffect(() => {
     selectionAnchorRef.current = {
@@ -251,65 +283,34 @@ export default function ContextAnswerPanel({
     experimental_throttle: 96,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     onToolCall: async ({ toolCall }) => {
-      if (
-        toolCall.dynamic ||
-        (toolCall.toolName !== 'saveConversationNote' &&
-          toolCall.toolName !== 'updateConversationNote')
-      ) {
+      if (toolCall.dynamic) {
         return;
       }
 
-      const requestedTool =
-        toolCall.toolName === 'updateConversationNote'
-          ? 'updateConversationNote'
-          : 'saveConversationNote';
-      const runNoteMutation =
-        requestedTool === 'updateConversationNote'
-          ? onUpdateConversationNote
-          : onSaveConversationNote;
-
-      if (!isSaveConversationNoteToolInput(toolCall.input)) {
-        void addToolOutput({
-          tool: requestedTool,
-          toolCallId: toolCall.toolCallId,
-          state: 'output-error',
-          errorText:
-            requestedTool === 'updateConversationNote'
-              ? 'La richiesta di aggiornamento della nota e arrivata incompleta.'
-              : 'La richiesta di salvataggio nota e arrivata incompleta.',
+      if (toolCall.toolName === 'getCurrentLessonArtifacts') {
+        const artifactInput = readCurrentLessonArtifactsToolInput(toolCall.input);
+        const matchingPayloads = filterLearningArtifactPayloads(currentLessonArtifactPayloads, {
+          artifactIds: artifactInput.artifactIds,
+          kinds: artifactInput.kinds,
+          maxResults: artifactInput.maxResults,
+          query: artifactInput.query,
         });
-        return;
+        const renderPayloads = artifactInput.renderMode === 'attachments' ? matchingPayloads : [];
+        setArtifactPayloadsByToolCallId(currentPayloads => ({
+          ...currentPayloads,
+          [toolCall.toolCallId]: renderPayloads,
+        }));
+        void addToolOutput({
+          tool: 'getCurrentLessonArtifacts',
+          toolCallId: toolCall.toolCallId,
+          output: {
+            artifactCount: matchingPayloads.length,
+            artifacts: summarizeLearningArtifacts(matchingPayloads),
+            renderMode: artifactInput.renderMode,
+            renderedArtifactCount: renderPayloads.length,
+          },
+        });
       }
-
-      let lastResult: SaveConversationNoteResult | null = null;
-
-      for (const candidate of buildConversationNoteSaveCandidates({
-        anchor: selectionAnchorRef.current,
-        toolInput: toolCall.input,
-      })) {
-        const result = await runNoteMutation(candidate);
-        if (result.saved) {
-          void addToolOutput({
-            tool: requestedTool,
-            toolCallId: toolCall.toolCallId,
-            output: result,
-          });
-          return;
-        }
-
-        lastResult = result;
-      }
-
-      void addToolOutput({
-        tool: requestedTool,
-        toolCallId: toolCall.toolCallId,
-        state: 'output-error',
-        errorText:
-          lastResult?.error ||
-          (requestedTool === 'updateConversationNote'
-            ? 'Non sono riuscito ad aggiornare la nota.'
-            : 'Non sono riuscito a salvare la nota.'),
-      });
     },
   });
 
@@ -356,13 +357,97 @@ export default function ContextAnswerPanel({
 
     hasSubmittedInitialQuestionRef.current = false;
     setIsToolMenuOpen(false);
+    setArtifactPayloadsByToolCallId({});
     setToolPreferences({
       annotate: false,
       webSearch: false,
     });
     stuckToolTimestampsRef.current.clear();
     setExpiredGraceTools(new Set());
+    setProcessingNoteToolCallIds(new Set());
   }, [contextAnswer.id]);
+
+  const handleRejectNoteRequest = (toolCallId: string) => {
+    void addToolOutput({
+      tool: 'requestAddToNotes',
+      toolCallId,
+      output: { approved: false, mode: 'none', saved: false },
+    });
+  };
+
+  const handleApproveNoteRequest = async (
+    toolCallId: string,
+    inputValue: RequestAddToNotesInput
+  ) => {
+    if (processingNoteToolCallIds.has(toolCallId)) {
+      return;
+    }
+
+    const currentState = latestRequestStateRef.current;
+    const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
+    const mode: 'new' | 'update' = hasExistingNote ? 'update' : 'new';
+    const runMutation = mode === 'update' ? onUpdateConversationNote : onSaveConversationNote;
+
+    setProcessingNoteToolCallIds(previous => {
+      const next = new Set(previous);
+      next.add(toolCallId);
+      return next;
+    });
+
+    try {
+      let lastResult: SaveConversationNoteResult | null = null;
+
+      const candidates = buildConversationNoteSaveCandidates({
+        anchor: selectionAnchorRef.current,
+        toolInput: {
+          note: inputValue.noteDraft,
+          selectedText: inputValue.selectedTextDraft,
+        },
+      });
+
+      for (const candidate of candidates) {
+        const result = await runMutation(candidate);
+        lastResult = result;
+        if (result.saved) {
+          void addToolOutput({
+            tool: 'requestAddToNotes',
+            toolCallId,
+            output: {
+              approved: true,
+              mode,
+              saved: true,
+              annotationId: result.annotationId,
+            },
+          });
+          return;
+        }
+      }
+
+      void addToolOutput({
+        tool: 'requestAddToNotes',
+        toolCallId,
+        output: {
+          approved: true,
+          mode,
+          saved: false,
+          error:
+            lastResult?.error ||
+            (mode === 'update'
+              ? 'Non sono riuscito ad aggiornare la nota.'
+              : 'Non sono riuscito a salvare la nota.'),
+        },
+      });
+    } finally {
+      setProcessingNoteToolCallIds(previous => {
+        if (!previous.has(toolCallId)) {
+          return previous;
+        }
+        const next = new Set(previous);
+        next.delete(toolCallId);
+        return next;
+      });
+    }
+  };
 
   // Detect stuck requestAddToNotes parts (input-available without valid input)
   // and schedule grace/hard fallback timers via a 1s polling interval.
@@ -440,7 +525,7 @@ export default function ContextAnswerPanel({
         addToolOutput({
           tool: 'requestAddToNotes',
           toolCallId: id,
-          output: { approved: false },
+          output: { approved: false, mode: 'none', saved: false },
         });
       }
 
@@ -499,12 +584,51 @@ export default function ContextAnswerPanel({
     if (part.type === 'tool-requestAddToNotes') {
       const inputValue = isRequestAddToNotesInput(part.input) ? part.input : null;
       const outputValue = isRequestAddToNotesOutput(part.output) ? part.output : undefined;
+      const isProcessing = processingNoteToolCallIds.has(part.toolCallId);
+      const hasExistingNote = Boolean(contextAnswer.attachedAnnotationNote?.trim());
+      const cardTitle = hasExistingNote
+        ? 'Vuoi aggiornare la nota collegata?'
+        : 'Vuoi aggiungerlo alle note?';
+      const approveLabel = hasExistingNote ? 'Aggiorna nota' : 'Aggiungi alle note';
+
+      const renderResultPill = () => {
+        if (!outputValue) {
+          return null;
+        }
+
+        if (!outputValue.approved) {
+          return (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
+              <Check className="h-3.5 w-3.5" />
+              <span>Richiesta rifiutata, la conversazione continua senza salvare.</span>
+            </div>
+          );
+        }
+
+        if (outputValue.saved) {
+          return (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
+              <Check className="h-3.5 w-3.5" />
+              <span>{outputValue.mode === 'update' ? 'Nota aggiornata.' : 'Nota salvata.'}</span>
+            </div>
+          );
+        }
+
+        return (
+          <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
+            {outputValue.error ||
+              (outputValue.mode === 'update'
+                ? 'Non sono riuscito ad aggiornare la nota.'
+                : 'Non sono riuscito a salvare la nota.')}
+          </div>
+        );
+      };
 
       return (
         <div key={`${messageId}-${part.toolCallId}`} className={toolCardClassName}>
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-stone-900 dark:text-stone-100">
             <StickyNote className="h-4 w-4" />
-            <span>Vuoi aggiungerlo alle note?</span>
+            <span>{cardTitle}</span>
           </div>
 
           <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
@@ -520,7 +644,7 @@ export default function ContextAnswerPanel({
                 "{inputValue.selectedTextDraft}"
               </p>
               <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-stone-400 dark:text-stone-500">
-                Nota proposta
+                {hasExistingNote ? 'Nuova versione della nota' : 'Nota proposta'}
               </p>
               <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700 dark:text-stone-200">
                 {inputValue.noteDraft}
@@ -529,34 +653,31 @@ export default function ContextAnswerPanel({
           ) : null}
 
           {part.state === 'input-available' && inputValue ? (
-            <div className="mt-3 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  void addToolOutput({
-                    tool: 'requestAddToNotes',
-                    toolCallId: part.toolCallId,
-                    output: { approved: false },
-                  })
-                }
-                className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
-              >
-                No grazie
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  void addToolOutput({
-                    tool: 'requestAddToNotes',
-                    toolCallId: part.toolCallId,
-                    output: { approved: true },
-                  })
-                }
-                className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-              >
-                Aggiungi alle note
-              </button>
-            </div>
+            isProcessing ? (
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                <span>
+                  {hasExistingNote ? 'Aggiornamento in corso...' : 'Salvataggio in corso...'}
+                </span>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleRejectNoteRequest(part.toolCallId)}
+                  className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
+                >
+                  No grazie
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleApproveNoteRequest(part.toolCallId, inputValue)}
+                  className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+                >
+                  {approveLabel}
+                </button>
+              </div>
+            )
           ) : part.state === 'input-available' && expiredGraceTools.has(part.toolCallId) ? (
             <div className="mt-3 space-y-2">
               <div className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
@@ -565,13 +686,7 @@ export default function ContextAnswerPanel({
               <div className="flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() =>
-                    void addToolOutput({
-                      tool: 'requestAddToNotes',
-                      toolCallId: part.toolCallId,
-                      output: { approved: false },
-                    })
-                  }
+                  onClick={() => handleRejectNoteRequest(part.toolCallId)}
                   className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
                 >
                   No grazie
@@ -584,14 +699,7 @@ export default function ContextAnswerPanel({
               <span>Sto caricando i dettagli della nota proposta...</span>
             </div>
           ) : part.state === 'output-available' ? (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
-              <Check className="h-3.5 w-3.5" />
-              <span>
-                {outputValue?.approved
-                  ? 'Nota salvata.'
-                  : 'Richiesta rifiutata, la conversazione continua senza salvare.'}
-              </span>
-            </div>
+            renderResultPill()
           ) : part.state === 'output-error' ? (
             <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
               {part.errorText}
@@ -601,8 +709,40 @@ export default function ContextAnswerPanel({
       );
     }
 
-    if (part.type === 'tool-saveConversationNote' || part.type === 'tool-updateConversationNote') {
-      return null;
+    if (part.type === 'tool-getCurrentLessonArtifacts') {
+      const shouldRenderAttachments =
+        part.output &&
+        typeof part.output === 'object' &&
+        (part.output as { renderMode?: unknown }).renderMode === 'attachments';
+      if (!shouldRenderAttachments) {
+        return null;
+      }
+
+      const outputArtifacts =
+        part.output &&
+        typeof part.output === 'object' &&
+        Array.isArray((part.output as { artifacts?: unknown }).artifacts)
+          ? (part.output as { artifacts: Array<{ id?: unknown }> }).artifacts || []
+          : [];
+      const outputArtifactIds = new Set(
+        outputArtifacts
+          .map(artifact => (typeof artifact.id === 'string' ? artifact.id : ''))
+          .filter(Boolean)
+      );
+      const artifactPayloads =
+        artifactPayloadsByToolCallId[part.toolCallId] ||
+        (outputArtifactIds.size > 0
+          ? currentLessonArtifactPayloads.filter(artifact =>
+              outputArtifactIds.has(artifact.summary.id)
+            )
+          : []);
+      return (
+        <ChatArtifactRenderer
+          key={`${messageId}-${part.toolCallId}`}
+          artifacts={artifactPayloads}
+          isDarkMode={isDarkMode}
+        />
+      );
     }
 
     return null;
@@ -612,9 +752,16 @@ export default function ContextAnswerPanel({
     <div
       ref={contextAnswerPanelRef}
       className={`fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] animate-in slide-in-from-bottom-10 duration-500 dark:border-zinc-700/60 dark:bg-zinc-800 ${
-        isMobileViewport ? 'inset-x-3 bottom-24 top-24' : 'top-6 right-8'
+        isMobileViewport ? 'inset-x-3 top-24' : 'top-6 right-8'
       }`}
-      style={isMobileViewport ? undefined : contextAnswerSize}
+      style={
+        isMobileViewport
+          ? {
+              bottom: `calc(6rem + ${keyboardOffset}px)`,
+              maxHeight: `calc(100dvh - 6rem - ${keyboardOffset}px)`,
+            }
+          : contextAnswerSize
+      }
     >
       <button
         type="button"
@@ -641,50 +788,50 @@ export default function ContextAnswerPanel({
         >
           <div className="space-y-6 pb-5">
             {visibleMessages.map(message => {
-            if (message.role === 'user') {
-              return (
-                <div key={message.id} className="pt-2">
-                  <div className="relative py-2 pl-4 font-serif text-base font-bold leading-[1.35] text-gray-900 dark:text-gray-100">
-                    <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-orange-500" />
-                    "{getUiMessageText(message)}"
+              if (message.role === 'user') {
+                return (
+                  <div key={message.id} className="pt-2">
+                    <div className="relative py-2 pl-4 font-serif text-base font-bold leading-[1.35] text-gray-900 dark:text-gray-100">
+                      <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-orange-500" />
+                      "{getUiMessageText(message)}"
+                    </div>
                   </div>
+                );
+              }
+
+              const renderableParts = getUiMessageRenderableParts(message);
+
+              return (
+                <div key={message.id} className="space-y-4">
+                  {renderableParts.map(part =>
+                    part.kind === 'text' ? (
+                      <StreamingMarkdownRenderer
+                        key={`${message.id}-${part.key}`}
+                        content={part.text}
+                        isStreaming={part.isStreaming}
+                        isDarkMode={isDarkMode}
+                        className="prose-sm prose-p:text-gray-600 dark:prose-p:text-gray-300"
+                      />
+                    ) : (
+                      renderToolPart(part.part, `${message.id}-${part.key}`)
+                    )
+                  )}
                 </div>
               );
-            }
+            })}
 
-            const renderableParts = getUiMessageRenderableParts(message);
-
-            return (
-              <div key={message.id} className="space-y-4">
-                {renderableParts.map(part =>
-                  part.kind === 'text' ? (
-                    <StreamingMarkdownRenderer
-                      key={`${message.id}-${part.key}`}
-                      content={part.text}
-                      isStreaming={part.isStreaming}
-                      isDarkMode={isDarkMode}
-                      className="prose-sm prose-p:text-gray-600 dark:prose-p:text-gray-300"
-                    />
-                  ) : (
-                    renderToolPart(part.part, `${message.id}-${part.key}`)
-                  )
-                )}
+            {isLoading ? (
+              <div className="text-sm text-stone-400 dark:text-stone-500">
+                Sto continuando a rispondere...
               </div>
-            );
-          })}
+            ) : null}
 
-          {isLoading ? (
-            <div className="text-sm text-stone-400 dark:text-stone-500">
-              Sto continuando a rispondere...
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-              {error.message}
-            </div>
-          ) : null}
-        </div>
+            {error ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+                {error.message}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 

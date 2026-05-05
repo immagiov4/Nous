@@ -15,6 +15,7 @@ import { getBackendUrl } from '../../services/openrouter/config.ts';
 import type { ProjectRepositoryMode } from '../../services/projects/projectRepositoryFactory.ts';
 import type {
   HomeChatToolPreferences,
+  LearningArtifactRenderPayload,
   LibraryContextRef,
   LibraryFolder,
   LibraryScopeSummary,
@@ -38,6 +39,10 @@ interface LibraryAssistantTools {
     output: unknown;
   };
   getProjectStructures: {
+    input: unknown;
+    output: unknown;
+  };
+  getLearningArtifacts: {
     input: unknown;
     output: unknown;
   };
@@ -91,6 +96,9 @@ export const useLibraryAssistantChat = ({
   tree,
 }: UseLibraryAssistantChatArgs) => {
   const [attachedContextRefs, setAttachedContextRefs] = useState<LibraryContextRef[]>([]);
+  const [artifactPayloadsByToolCallId, setArtifactPayloadsByToolCallId] = useState<
+    Record<string, LearningArtifactRenderPayload[]>
+  >({});
   const [webSearch, setWebSearch] = useState(false);
 
   useEffect(() => {
@@ -207,6 +215,13 @@ export const useLibraryAssistantChat = ({
           toolName,
         });
 
+        if (toolName === 'getLearningArtifacts') {
+          setArtifactPayloadsByToolCallId(currentPayloads => ({
+            ...currentPayloads,
+            [toolCall.toolCallId]: result.renderPayloads ?? [],
+          }));
+        }
+
         if (result.outputError) {
           void addToolOutput({
             tool: toolName,
@@ -227,10 +242,14 @@ export const useLibraryAssistantChat = ({
 
   return {
     attachedContextRefs,
+    artifactPayloadsByToolCallId,
     error,
     isLoading: status === 'submitted' || status === 'streaming',
     messages,
-    clearLibraryMessages: () => setMessages([]),
+    clearLibraryMessages: () => {
+      setArtifactPayloadsByToolCallId({});
+      setMessages([]);
+    },
     removeAttachedContextRef: (reference: LibraryContextRef) => {
       setAttachedContextRefs(currentRefs =>
         currentRefs.filter(

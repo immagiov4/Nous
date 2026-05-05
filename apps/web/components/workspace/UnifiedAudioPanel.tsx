@@ -19,6 +19,8 @@ interface UnifiedAudioPanelProps {
   isMobileViewport?: boolean;
   isOpen?: boolean;
   onToggle?: (open: boolean) => void;
+  initialTab?: AudioTab;
+  onTabChange?: (tab: AudioTab) => void;
   musicUrl: string;
   setMusicUrl: (url: string) => void;
   isMusicPlaying: boolean;
@@ -77,6 +79,8 @@ const UnifiedAudioPanel = ({
   isMobileViewport = false,
   isOpen: isOpenProp,
   onToggle,
+  initialTab = 'voce',
+  onTabChange,
   musicUrl,
   setMusicUrl,
   isMusicPlaying,
@@ -95,7 +99,7 @@ const UnifiedAudioPanel = ({
     : setIsOpenLocal;
   const setIsOpenRef = useRef(setIsOpen);
   setIsOpenRef.current = setIsOpen;
-  const [activeTab, setActiveTab] = useState<AudioTab>('voce');
+  const [activeTab, setActiveTab] = useState<AudioTab>(initialTab);
 
   const [isYtReady, setIsYtReady] = useState(false);
   const [videoId, setVideoId] = useState<string | null>(null);
@@ -385,6 +389,7 @@ const UnifiedAudioPanel = ({
                     onClick={() => {
                       if (!ttsDisabled) {
                         setActiveTab('voce');
+                        onTabChange?.('voce');
                       }
                     }}
                     disabled={ttsDisabled}
@@ -410,7 +415,10 @@ const UnifiedAudioPanel = ({
                     type="button"
                     role="tab"
                     aria-selected={activeTab === 'ambiente'}
-                    onClick={() => setActiveTab('ambiente')}
+                    onClick={() => {
+                      setActiveTab('ambiente');
+                      onTabChange?.('ambiente');
+                    }}
                     className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition-colors ${
                       activeTab === 'ambiente'
                         ? 'text-white dark:text-stone-900'

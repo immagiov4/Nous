@@ -2,6 +2,7 @@
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  AudioPanelTab,
   LearningPlan,
   LearningSection,
   OpenRouterModelPreferences,
@@ -67,6 +68,7 @@ export const useWorkspaceReaderRuntime = ({
   const [settingsPanelExpandedSections, setSettingsPanelExpandedSections] = useState<
     SettingsPanelSectionId[]
   >(['course-notes']);
+  const [lastAudioTab, setLastAudioTab] = useState<AudioPanelTab>('voce');
   const previousQuizSectionIdRef = useRef(activeSectionId);
   const previousQuizSubmissionSectionIdRef = useRef(activeSectionId);
 
@@ -142,6 +144,10 @@ export const useWorkspaceReaderRuntime = ({
         ttsPlayer.handleSpeedChange(preferences.playbackRate);
       }
 
+      if (preferences.lastAudioTab === 'voce' || preferences.lastAudioTab === 'ambiente') {
+        setLastAudioTab(preferences.lastAudioTab);
+      }
+
       if (Array.isArray(preferences.settingsPanelExpandedSections)) {
         setSettingsPanelExpandedSections(currentSections =>
           areSettingsSectionsEqual(currentSections, preferences.settingsPanelExpandedSections || [])
@@ -192,6 +198,7 @@ export const useWorkspaceReaderRuntime = ({
   const uiPreferences = useMemo<UiPreferences>(
     () => ({
       isDarkMode: readerChrome.isDarkMode,
+      lastAudioTab,
       preferredVoice: ttsPlayer.audioState.currentVoice,
       playbackRate: ttsPlayer.audioState.playbackRate,
       preferredLessonModel: preferredModels.preferredLessonModel,
@@ -202,6 +209,7 @@ export const useWorkspaceReaderRuntime = ({
       settingsPanelExpandedSections,
     }),
     [
+      lastAudioTab,
       preferredModels.preferredAssessmentModel,
       preferredModels.preferredContextModel,
       preferredModels.preferredLessonModel,
@@ -300,6 +308,7 @@ export const useWorkspaceReaderRuntime = ({
     handleSelectQuizAnswer,
     isMusicPlaying,
     isQuizSubmitted,
+    lastAudioTab,
     musicVolume,
     quizAnswers,
     readerChrome,
@@ -307,6 +316,7 @@ export const useWorkspaceReaderRuntime = ({
     scrollContainerRef,
     setIsMusicPlaying,
     setIsQuizSubmitted,
+    setLastAudioTab,
     setMusicVolume,
     setSettingsPanelExpandedSections,
     setPreferredOpenRouterModel,

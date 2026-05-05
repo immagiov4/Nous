@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import type { ContextMenuPlacement, HorizontalViewportBounds, SelectionRect } from '../../types';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
@@ -86,7 +87,9 @@ const ContextMenu = ({
   const highlightInteractionLockRef = useRef(false);
   const previousMenuKeyRef = useRef(`${type}:${selectedText}:${annotationNote}`);
   const notePreviewRef = useRef<HTMLDivElement>(null);
+  const stableTransformOriginRef = useRef<string | null>(null);
   const isMobileSheet = placement === 'mobile-sheet';
+  const { keyboardOffset } = useMobileKeyboardOffset();
   const isAnnotationMode = type === 'annotation';
   const hasSavedAnnotationNote = annotationNote.trim().length > 0;
   const trimmedInput = input.trim();
@@ -331,8 +334,8 @@ const ContextMenu = ({
     ? {
         width: 'min(92vw, 24rem)',
         maxWidth: CONTEXT_MENU_MOBILE_MAX_WIDTH,
-        maxHeight: 'min(78vh, calc(100vh - 1.5rem))',
-        bottom: 'max(1rem, env(safe-area-inset-bottom, 0px))',
+        maxHeight: `min(78vh, calc(100vh - 1.5rem - ${keyboardOffset}px))`,
+        bottom: `calc(max(1rem, env(safe-area-inset-bottom, 0px)) + ${keyboardOffset}px)`,
       }
     : shouldOpenAbove
       ? {
@@ -407,11 +410,7 @@ const ContextMenu = ({
 
   const renderRenderedNotePreview = () => (
     <div className="relative">
-      <div
-        ref={notePreviewRef}
-        onScroll={handleNotePreviewScroll}
-        className={notePreviewClassName}
-      >
+      <div ref={notePreviewRef} onScroll={handleNotePreviewScroll} className={notePreviewClassName}>
         <MarkdownRenderer
           content={normalizedNotePreview}
           isDarkMode={isDarkMode}
@@ -451,6 +450,13 @@ const ContextMenu = ({
             <textarea
               value={noteInput}
               onChange={event => setNoteInput(event.target.value)}
+              onFocus={event => {
+                if (!isMobileSheet) return;
+                const target = event.currentTarget;
+                window.setTimeout(() => {
+                  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }, 250);
+              }}
               placeholder={
                 isAnnotationMode
                   ? 'Scrivi, aggiorna o svuota la nota...'
@@ -487,6 +493,7 @@ const ContextMenu = ({
           {canDeleteAnnotationFromCurrentState ? (
             <button
               type="button"
+              aria-label="Rimuovi evidenziazione"
               onClick={handleDeleteAnnotationClick}
               disabled={isLoading}
               className="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600 dark:hover:text-stone-100"
@@ -643,6 +650,12 @@ const ContextMenu = ({
           type="text"
           value={input}
           onChange={event => setInput(event.target.value)}
+          onFocus={event => {
+            const target = event.currentTarget;
+            window.setTimeout(() => {
+              target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+            }, 250);
+          }}
           placeholder="Chiedi a Nous o aggiungi istruzioni"
           className="h-11 w-full rounded-full border border-stone-200/80 bg-stone-50/60 px-4 text-sm text-stone-800 transition-all placeholder:text-stone-400 focus:border-stone-300 focus:bg-white focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:border-stone-400/95 dark:bg-stone-700/70 dark:text-stone-100 dark:placeholder:text-stone-300 dark:focus:border-stone-400/95 dark:focus:bg-stone-700"
           disabled={isLoading}
@@ -748,21 +761,25 @@ const ContextMenu = ({
 
   const shouldAnimate = useShouldAnimate();
 
-  // Origin for the pop-in morph. On desktop we morph from the cursor's
-  // click point; on the mobile sheet we slide up from the bottom center.
-  const transformOrigin: string = isMobileSheet
-    ? 'bottom center'
-    : (() => {
-        const left = typeof menuStyle.left === 'number' ? menuStyle.left : Number.NaN;
-        const originX = Number.isFinite(left) && anchorX !== undefined ? anchorX - left : 0;
-        const originY =
-          'top' in menuStyle && typeof menuStyle.top === 'number'
-            ? 0
-            : 'bottom' in menuStyle
-              ? '100%'
-              : 0;
-        return `${originX}px ${typeof originY === 'number' ? `${originY}px` : originY}`;
-      })();
+  // Stabilize transformOrigin across re-renders so extended selections
+  // don't shift the animation pivot mid-gesture. Compute once on first
+  // render and freeze — avoiding dependency-hook lint noise.
+  if (!stableTransformOriginRef.current) {
+    if (isMobileSheet) {
+      stableTransformOriginRef.current = 'bottom center';
+    } else {
+      const left = typeof menuStyle.left === 'number' ? menuStyle.left : Number.NaN;
+      const originX = Number.isFinite(left) && anchorX !== undefined ? anchorX - left : 0;
+      const originY =
+        'top' in menuStyle && typeof menuStyle.top === 'number'
+          ? 0
+          : 'bottom' in menuStyle
+            ? '100%'
+            : 0;
+      stableTransformOriginRef.current = `${originX}px ${typeof originY === 'number' ? `${originY}px` : originY}`;
+    }
+  }
+  const transformOrigin = stableTransformOriginRef.current;
 
   return (
     <motion.div

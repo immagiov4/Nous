@@ -61,6 +61,7 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
     preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
     preferredTtsVoice: 'coral',
     settingsPanelExpandedSections: ['course-notes'],
+    lastAudioTab: 'voce',
   });
 
   assert.equal(storedValues.has(UI_PREFERENCES_KEY), true);

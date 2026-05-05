@@ -61,6 +61,8 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
     preferredTtsModel: 'tts-model',
     preferredTtsVoice: 'coral',
   },
+  lastAudioTab: 'voce',
+  onSetLastAudioTab: vi.fn(),
   settingsPanelExpandedSections: ['course-notes'],
   tts: {
     availableVoices: [],

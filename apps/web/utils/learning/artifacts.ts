@@ -1,0 +1,319 @@
+import type {
+  LearningArtifactRenderPayload,
+  LearningArtifactSummary,
+  LearningSection,
+  LessonGeneratedVisual,
+  LessonImageRef,
+  PdfDocumentAssets,
+  PdfImageAsset,
+  ProjectSnapshot,
+} from '../../types.ts';
+
+interface CollectLearningArtifactPayloadsInput {
+  projectTitle?: string;
+  snapshot: ProjectSnapshot;
+}
+
+interface FilterLearningArtifactPayloadsOptions {
+  artifactIds?: string[];
+  kinds?: LearningArtifactSummary['kind'][];
+  lessonIds?: string[];
+  lessonQuery?: string;
+  maxResults?: number;
+  projectIds?: string[];
+  query?: string;
+}
+
+const PDF_IMAGE_PLACEHOLDER_REGEX = /\{\{PDF_IMAGE:([^|}]+)(?:\|[^}]*)?\}\}/g;
+const VISUAL_EXAMPLE_PLACEHOLDER_REGEX = /\{\{VISUAL_EXAMPLE:([^|}]+)(?:\|[^}]*)?\}\}/g;
+const DEFAULT_MAX_ARTIFACT_RESULTS = 24;
+const GENERATED_VISUAL_FALLBACK_ORDER = 1_000_000;
+
+const normalizeSearchText = (value: string): string =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const formatGeneratedVisualTitle = (title: string): string =>
+  title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Esempio visuale';
+
+const buildArtifactId = ({
+  artifactId,
+  kind,
+  lessonId,
+  projectId,
+}: {
+  artifactId: string;
+  kind: LearningArtifactSummary['kind'];
+  lessonId: string;
+  projectId: string;
+}) => `${projectId}:${lessonId}:${kind}:${artifactId}`;
+
+const readPlaceholderOrder = (content: string) => {
+  const orderByKey = new Map<string, number>();
+  PDF_IMAGE_PLACEHOLDER_REGEX.lastIndex = 0;
+  VISUAL_EXAMPLE_PLACEHOLDER_REGEX.lastIndex = 0;
+
+  for (const match of content.matchAll(PDF_IMAGE_PLACEHOLDER_REGEX)) {
+    orderByKey.set(`pdf-image:${match[1]}`, match.index ?? Number.MAX_SAFE_INTEGER);
+  }
+
+  for (const match of content.matchAll(VISUAL_EXAMPLE_PLACEHOLDER_REGEX)) {
+    orderByKey.set(`generated-visual:${match[1]}`, match.index ?? Number.MAX_SAFE_INTEGER);
+  }
+
+  return orderByKey;
+};
+
+const getPdfImageTitle = (imageRef: LessonImageRef, asset: PdfImageAsset): string =>
+  imageRef.caption?.trim() ||
+  imageRef.alt?.trim() ||
+  asset.caption?.trim() ||
+  asset.textCurrent?.trim() ||
+  'Figura PDF';
+
+const getSectionSearchText = (lesson: LearningSection): string =>
+  [lesson.title, lesson.description, lesson.content].filter(Boolean).join(' ');
+
+const buildPdfImagePayload = ({
+  asset,
+  imageRef,
+  lesson,
+  projectId,
+  projectTitle,
+}: {
+  asset: PdfImageAsset;
+  imageRef: LessonImageRef;
+  lesson: LearningSection;
+  projectId: string;
+  projectTitle: string;
+}): LearningArtifactRenderPayload => ({
+  image: asset,
+  searchText: [
+    getSectionSearchText(lesson),
+    imageRef.alt,
+    imageRef.caption,
+    asset.caption,
+    asset.textBefore,
+    asset.textCurrent,
+    asset.textAfter,
+  ]
+    .filter(Boolean)
+    .join(' '),
+  summary: {
+    id: buildArtifactId({
+      artifactId: asset.id,
+      kind: 'pdf-image',
+      lessonId: lesson.id,
+      projectId,
+    }),
+    kind: 'pdf-image',
+    lessonId: lesson.id,
+    lessonTitle: lesson.title,
+    previewMode: 'thumbnail',
+    projectId,
+    projectTitle,
+    sourceLabel: asset.pageNumber ? `Pagina ${asset.pageNumber}` : undefined,
+    title: getPdfImageTitle(imageRef, asset),
+    description: asset.caption || imageRef.alt || lesson.description,
+  },
+});
+
+const getVisualPreviewMode = (
+  visual: LessonGeneratedVisual
+): LearningArtifactSummary['previewMode'] => (visual.kind === 'html' ? 'chip-only' : 'thumbnail');
+
+const buildGeneratedVisualPayload = ({
+  lesson,
+  projectId,
+  projectTitle,
+  visual,
+}: {
+  lesson: LearningSection;
+  projectId: string;
+  projectTitle: string;
+  visual: LessonGeneratedVisual;
+}): LearningArtifactRenderPayload => ({
+  searchText: [getSectionSearchText(lesson), visual.title, visual.anchorHeading]
+    .filter(Boolean)
+    .join(' '),
+  summary: {
+    createdAt: visual.createdAt,
+    id: buildArtifactId({
+      artifactId: visual.id,
+      kind: 'generated-visual',
+      lessonId: lesson.id,
+      projectId,
+    }),
+    kind: 'generated-visual',
+    lessonId: lesson.id,
+    lessonTitle: lesson.title,
+    previewMode: getVisualPreviewMode(visual),
+    projectId,
+    projectTitle,
+    sourceLabel: visual.kind === 'html' ? 'Interattivo' : 'Visuale',
+    title: formatGeneratedVisualTitle(visual.title),
+    description: lesson.description,
+  },
+  visual,
+});
+
+const buildImageAssetMap = (documentAssets: PdfDocumentAssets | null | undefined) =>
+  new Map((documentAssets?.usedImages || []).map(asset => [asset.id, asset]));
+
+const getArtifactSearchText = (artifact: LearningArtifactRenderPayload): string => {
+  const { summary } = artifact;
+  const baseText = [
+    artifact.searchText,
+    summary.title,
+    summary.description,
+    summary.lessonTitle,
+    summary.projectTitle,
+    summary.sourceLabel,
+  ];
+
+  if ('image' in artifact) {
+    baseText.push(
+      artifact.image.caption,
+      artifact.image.textBefore,
+      artifact.image.textCurrent,
+      artifact.image.textAfter
+    );
+  }
+
+  if ('visual' in artifact) {
+    baseText.push(artifact.visual.title, artifact.visual.anchorHeading);
+  }
+
+  return normalizeSearchText(baseText.filter(Boolean).join(' '));
+};
+
+export const collectLearningArtifactPayloads = ({
+  projectTitle,
+  snapshot,
+}: CollectLearningArtifactPayloadsInput): LearningArtifactRenderPayload[] => {
+  const learningPlan = snapshot.learningPlan;
+  if (!learningPlan) {
+    return [];
+  }
+
+  const resolvedProjectTitle = projectTitle?.trim() || learningPlan.title || 'Corso';
+  const imageAssetById = buildImageAssetMap(snapshot.documentAssets);
+
+  return learningPlan.sections.flatMap(section => {
+    const placeholderOrder = readPlaceholderOrder(section.content || '');
+    const imagePayloads = (section.imageRefs || []).flatMap(imageRef => {
+      const asset = imageAssetById.get(imageRef.assetId);
+      return asset
+        ? [
+            {
+              order:
+                placeholderOrder.get(`pdf-image:${asset.id}`) ?? Math.max(asset.sourceOrder, 0),
+              payload: buildPdfImagePayload({
+                asset,
+                imageRef,
+                lesson: section,
+                projectId: snapshot.id,
+                projectTitle: resolvedProjectTitle,
+              }),
+            },
+          ]
+        : [];
+    });
+
+    const visualPayloads = (section.generatedVisuals || []).map((visual, index) => ({
+      order:
+        placeholderOrder.get(`generated-visual:${visual.id}`) ??
+        GENERATED_VISUAL_FALLBACK_ORDER + index,
+      payload: buildGeneratedVisualPayload({
+        lesson: section,
+        projectId: snapshot.id,
+        projectTitle: resolvedProjectTitle,
+        visual,
+      }),
+    }));
+
+    return [...imagePayloads, ...visualPayloads]
+      .sort((left, right) => left.order - right.order)
+      .map(item => item.payload);
+  });
+};
+
+export const filterLearningArtifactPayloads = (
+  artifacts: LearningArtifactRenderPayload[],
+  options: FilterLearningArtifactPayloadsOptions = {}
+): LearningArtifactRenderPayload[] => {
+  const allowedProjectIds = options.projectIds?.length ? new Set(options.projectIds) : null;
+  const allowedLessonIds = options.lessonIds?.length ? new Set(options.lessonIds) : null;
+  const allowedArtifactIds = options.artifactIds?.length ? new Set(options.artifactIds) : null;
+  const allowedKinds = options.kinds?.length ? new Set(options.kinds) : null;
+  const normalizedQuery = normalizeSearchText(options.query || '');
+  const normalizedLessonQuery = normalizeSearchText(options.lessonQuery || '');
+  const maxResults =
+    typeof options.maxResults === 'number'
+      ? Math.max(1, Math.min(DEFAULT_MAX_ARTIFACT_RESULTS, Math.trunc(options.maxResults)))
+      : DEFAULT_MAX_ARTIFACT_RESULTS;
+
+  return artifacts
+    .filter(artifact => {
+      if (allowedProjectIds && !allowedProjectIds.has(artifact.summary.projectId)) {
+        return false;
+      }
+
+      if (allowedLessonIds && !allowedLessonIds.has(artifact.summary.lessonId)) {
+        return false;
+      }
+
+      if (allowedArtifactIds && !allowedArtifactIds.has(artifact.summary.id)) {
+        return false;
+      }
+
+      if (allowedKinds && !allowedKinds.has(artifact.summary.kind)) {
+        return false;
+      }
+
+      if (
+        normalizedLessonQuery &&
+        !normalizeSearchText(
+          [artifact.summary.lessonTitle, artifact.searchText].filter(Boolean).join(' ')
+        ).includes(normalizedLessonQuery)
+      ) {
+        return false;
+      }
+
+      return !normalizedQuery || getArtifactSearchText(artifact).includes(normalizedQuery);
+    })
+    .slice(0, maxResults);
+};
+
+export const summarizeLearningArtifacts = (
+  artifacts: LearningArtifactRenderPayload[]
+): LearningArtifactSummary[] => artifacts.map(artifact => artifact.summary);
+
+export const collectSectionLearningArtifactPayloads = ({
+  documentAssets,
+  projectId,
+  projectTitle,
+  section,
+}: {
+  documentAssets?: PdfDocumentAssets | null;
+  projectId: string;
+  projectTitle: string;
+  section: LearningSection;
+}): LearningArtifactRenderPayload[] =>
+  collectLearningArtifactPayloads({
+    projectTitle,
+    snapshot: {
+      id: projectId,
+      learningPlan: {
+        title: projectTitle,
+        summary: '',
+        sections: [section],
+      },
+      documentAssets: documentAssets ?? null,
+    } as ProjectSnapshot,
+  });

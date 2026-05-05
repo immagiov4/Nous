@@ -1,5 +1,5 @@
-// NOTE: jest-dom matchers are extended per-file via `import '@testing-library/jest-dom/vitest';`
-// because vitest setupFiles run before the environment is set up.
+import '@testing-library/jest-dom/vitest';
+
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 

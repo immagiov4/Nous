@@ -24,12 +24,12 @@ import {
   X,
 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
+import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import type {
   HomeChatMode,
+  LearningArtifactRenderPayload,
   LibraryContextRef,
-  LibraryScopeSummary,
   LibraryTree,
   LibraryTreeNode,
   Message,
@@ -39,6 +39,7 @@ import {
   getUiMessageRenderableParts,
   getUiMessageText,
 } from '../../utils/uiChat.ts';
+import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import StreamingMarkdownRenderer from '../shared/StreamingMarkdownRenderer.tsx';
 
@@ -51,9 +52,9 @@ interface HomeChatPanelProps {
   isLibraryModeLoading: boolean;
   isNewCourseLoading: boolean;
   libraryAttachedContextRefs: LibraryContextRef[];
+  libraryArtifactPayloadsByToolCallId?: Record<string, LearningArtifactRenderPayload[]>;
   libraryErrorMessage: string | null;
   libraryMessages: UIMessage[];
-  libraryScopeSummary: LibraryScopeSummary;
   libraryTree: LibraryTree;
   libraryWebSearch: boolean;
   newCourseLoadingStatus: string;
@@ -193,6 +194,7 @@ const getMergedLibraryAssistantText = (messages: UIMessage[]): MergedAssistantTe
 
 const LIBRARY_TOOL_META: Record<string, { icon: LucideIcon; label: string }> = {
   getLessonDetails: { icon: FileText, label: 'Dettagli lezioni' },
+  getLearningArtifacts: { icon: FileText, label: 'Artefatti lezioni' },
   getProjectOverviews: { icon: BookOpen, label: 'Panoramica corsi' },
   getProjectStructures: { icon: GitFork, label: 'Struttura corsi' },
   listLibraryTree: { icon: List, label: 'Indice libreria' },
@@ -272,9 +274,9 @@ export default function HomeChatPanel({
   isLibraryModeLoading,
   isNewCourseLoading,
   libraryAttachedContextRefs,
+  libraryArtifactPayloadsByToolCallId = {},
   libraryErrorMessage,
   libraryMessages,
-  libraryScopeSummary,
   libraryTree,
   libraryWebSearch,
   newCourseLoadingStatus,
@@ -309,6 +311,8 @@ export default function HomeChatPanel({
   const surfaceRootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const { viewportHeight, keyboardOffset } = useMobileKeyboardOffset();
 
   const assessmentMessageKeys = useMemo(
     () => buildAssessmentMessageKeys(assessmentMessages),
@@ -593,6 +597,19 @@ export default function HomeChatPanel({
     );
   };
 
+  const renderLibraryArtifactTools = (parts: UIMessage['parts']) => {
+    const artifactPayloads = parts
+      .filter(isToolUIPart)
+      .filter(part => part.type === 'tool-getLearningArtifacts')
+      .flatMap(part => libraryArtifactPayloadsByToolCallId[part.toolCallId] || []);
+
+    if (artifactPayloads.length === 0) {
+      return null;
+    }
+
+    return <ChatArtifactRenderer artifacts={artifactPayloads} isDarkMode={isDarkMode} />;
+  };
+
   const renderEmptyState = () => {
     if (homeChatMode === 'new-course') {
       return (
@@ -697,7 +714,7 @@ export default function HomeChatPanel({
       role="dialog"
       aria-modal="true"
       tabIndex={-1}
-      className="fixed inset-0 z-40 flex items-end bg-black/30 p-3 md:hidden"
+      className="fixed inset-0 z-[55] flex items-end bg-black/30 p-3 md:hidden"
       onClick={event => {
         if (event.target === event.currentTarget) closeMenus();
       }}
@@ -774,7 +791,14 @@ export default function HomeChatPanel({
   );
 
   return (
-    <section className="rounded-[2rem] bg-[rgba(246,244,240,0.9)] shadow-[inset_0_1px_3px_rgba(24,24,27,0.07),inset_0_0_0_1px_rgba(24,24,27,0.05)] dark:bg-[rgba(39,39,42,0.9)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]">
+    <section
+      className="rounded-[2rem] bg-[rgba(246,244,240,0.9)] shadow-[inset_0_1px_3px_rgba(24,24,27,0.07),inset_0_0_0_1px_rgba(24,24,27,0.05)] dark:bg-[rgba(39,39,42,0.9)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] max-[640px]:flex max-[640px]:flex-col"
+      style={
+        isMobileViewport && viewportHeight != null
+          ? { maxHeight: `${viewportHeight}px` }
+          : undefined
+      }
+    >
       <div className="rounded-t-[2rem] border-b border-gray-200/55 px-5 py-4 dark:border-zinc-700/40 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div data-testid="home-chat-mode-copy" className="min-h-[6rem] sm:min-h-[4.5rem]">
@@ -866,7 +890,7 @@ export default function HomeChatPanel({
         </div>
       </div>
 
-      <div className="h-[14rem] overflow-y-auto px-4 py-4 sm:h-[24rem] sm:px-5">
+      <div className="h-[14rem] overflow-y-auto px-4 py-4 min-[640px]:h-[24rem] sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1">
         <div className="space-y-4">
           {!hasMessages ? renderEmptyState() : null}
 
@@ -877,10 +901,10 @@ export default function HomeChatPanel({
                   className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    className={`max-w-[88%] text-sm leading-relaxed ${
                       message.role === 'user'
-                        ? 'rounded-br-md bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
-                        : 'rounded-bl-md border border-gray-200 bg-gray-50/80 text-gray-800 dark:border-zinc-600/50 dark:bg-stone-700 dark:text-zinc-100'
+                        ? 'rounded-2xl rounded-br-md bg-stone-900 px-4 py-3 text-white dark:bg-stone-100 dark:text-stone-900'
+                        : 'text-gray-800 dark:text-zinc-100'
                     }`}
                   >
                     <MarkdownRenderer
@@ -918,7 +942,7 @@ export default function HomeChatPanel({
                     {mergedAssistantText ? (
                       <div
                         data-testid="library-assistant-turn-bubble"
-                        className="max-w-[88%] rounded-2xl rounded-bl-md border border-gray-200 bg-gray-50/80 px-4 py-3 text-sm leading-relaxed text-gray-800 dark:border-zinc-600/50 dark:bg-stone-700 dark:text-zinc-100"
+                        className="max-w-[88%] text-sm leading-relaxed text-gray-800 dark:text-zinc-100"
                       >
                         <StreamingMarkdownRenderer
                           content={mergedAssistantText.text}
@@ -928,6 +952,7 @@ export default function HomeChatPanel({
                         />
                       </div>
                     ) : null}
+                    {renderLibraryArtifactTools(turn.parts)}
                   </div>
                 );
               })}
@@ -992,6 +1017,7 @@ export default function HomeChatPanel({
       <div
         ref={surfaceRootRef}
         className="border-t border-gray-100 px-4 pb-4 pt-3 dark:border-zinc-700/50 sm:px-5"
+        style={{ paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 12}px` : undefined }}
       >
         {homeChatMode === 'new-course' && pendingFileName ? (
           <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm text-gray-600 dark:border-zinc-600/50 dark:bg-stone-700 dark:text-zinc-300">
@@ -1044,12 +1070,6 @@ export default function HomeChatPanel({
                 </span>
               ) : null}
             </div>
-
-            {libraryAttachedContextRefs.length > 0 ? (
-              <p className="text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                {libraryScopeSummary.scopeSummary}
-              </p>
-            ) : null}
           </div>
         ) : null}
 
@@ -1114,6 +1134,13 @@ export default function HomeChatPanel({
               type="text"
               value={currentDraft}
               onChange={event => handleDraftChange(event.target.value)}
+              onFocus={() => {
+                if (isMobileViewport && inputRef.current) {
+                  window.requestAnimationFrame(() => {
+                    inputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  });
+                }
+              }}
               placeholder={
                 homeChatMode === 'new-course'
                   ? assessmentComplete
@@ -1194,7 +1221,7 @@ export default function HomeChatPanel({
             role="dialog"
             aria-modal="true"
             tabIndex={-1}
-            className="fixed inset-0 z-40 flex items-end bg-black/30 p-3 md:hidden"
+            className="fixed inset-0 z-[55] flex items-end bg-black/30 p-3 md:hidden"
             onClick={event => {
               if (event.target === event.currentTarget) closeMenus();
             }}

@@ -1,4 +1,4 @@
-import type { SettingsPanelSectionId, UiPreferences } from '../../types.ts';
+import type { AudioPanelTab, SettingsPanelSectionId, UiPreferences } from '../../types.ts';
 import {
   DEFAULT_TTS_MODEL,
   DEFAULT_TTS_VOICE,
@@ -44,6 +44,13 @@ export const parseUiPreferences = (
 
     if (typeof parsedPreferences.isDarkMode === 'boolean') {
       nextPreferences.isDarkMode = parsedPreferences.isDarkMode;
+    }
+
+    if (
+      parsedPreferences.lastAudioTab === 'voce' ||
+      parsedPreferences.lastAudioTab === 'ambiente'
+    ) {
+      nextPreferences.lastAudioTab = parsedPreferences.lastAudioTab as AudioPanelTab;
     }
 
     if (typeof parsedPreferences.preferredVoice === 'string') {

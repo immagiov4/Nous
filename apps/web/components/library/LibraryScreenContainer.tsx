@@ -122,9 +122,9 @@ export const LibraryScreenContainer = ({
       isLibraryQueryLoading={libraryAssistantChat.isLoading}
       isNewCourseLoading={controller.workflowState.assessment.status === 'pending'}
       libraryAttachedContextRefs={libraryAssistantChat.attachedContextRefs}
+      libraryArtifactPayloadsByToolCallId={libraryAssistantChat.artifactPayloadsByToolCallId}
       libraryErrorMessage={libraryAssistantChat.error?.message || null}
       libraryMessages={libraryAssistantChat.messages}
-      libraryScopeSummary={libraryAssistantChat.scopeSummary}
       libraryTree={projectLibrary.libraryTree}
       libraryWebSearch={libraryAssistantChat.webSearch}
       modelDefaults={defaultModelConfig}

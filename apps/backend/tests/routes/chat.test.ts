@@ -151,14 +151,14 @@ describe('POST /api/chat/context', () => {
       "Non fare domande all'utente, non chiedere chiarimenti e non proporre prossimi passi di tua iniziativa."
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      "L'unica eccezione consentita e una domanda strettamente strumentale all'uso dei tool di annotazione"
+      "L'unica eccezione consentita e una domanda strettamente strumentale all'uso del tool di annotazione"
     );
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
       searchWeb: expect.any(Object),
       requestAddToNotes: expect.any(Object),
-      saveConversationNote: expect.any(Object),
-      updateConversationNote: expect.any(Object),
     });
+    expect(aiMocks.streamText.mock.calls[0][0].tools.saveConversationNote).toBeUndefined();
+    expect(aiMocks.streamText.mock.calls[0][0].tools.updateConversationNote).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
     expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');
@@ -168,13 +168,10 @@ describe('POST /api/chat/context', () => {
     });
 
     expect(initialStep).toMatchObject({
-      activeTools: expect.arrayContaining([
-        'searchWeb',
-        'requestAddToNotes',
-        'saveConversationNote',
-        'updateConversationNote',
-      ]),
+      activeTools: expect.arrayContaining(['searchWeb', 'requestAddToNotes']),
     });
+    expect(initialStep.activeTools).not.toContain('saveConversationNote');
+    expect(initialStep.activeTools).not.toContain('updateConversationNote');
 
     fetchMock.mockResolvedValueOnce({
       ok: true,

@@ -119,9 +119,75 @@ const createContextSearchWebTool = ({
   });
 
 const contextChatTools = {
+  getCurrentLessonArtifacts: tool({
+    description:
+      'Recupera gli artefatti visuali gia disponibili nella lezione corrente: mappe/widget generati e immagini PDF collegate. Usalo quando l utente chiede di vedere grafici, mappe, immagini o artefatti esistenti nel follow-up.',
+    inputSchema: jsonSchema<{
+      artifactIds?: string[];
+      kinds?: Array<'future-asset' | 'generated-visual' | 'pdf-image'>;
+      maxResults?: number;
+      query?: string;
+      renderMode?: 'attachments' | 'metadata-only';
+    }>({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        artifactIds: {
+          type: 'array',
+          items: {
+            type: 'string',
+          },
+          description:
+            'Filtro esatto sugli id artefatto gia restituiti da una chiamata precedente. Usalo per renderizzare solo artefatti scelti.',
+        },
+        kinds: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['future-asset', 'generated-visual', 'pdf-image'],
+          },
+          description:
+            'Filtro per tipo di artefatto. Usa generated-visual per mappe/grafici/widget generati; usa pdf-image per immagini estratte dal PDF.',
+        },
+        maxResults: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 24,
+        },
+        query: {
+          type: 'string',
+          description:
+            'Filtro testuale facoltativo su titolo artefatto, titolo lezione, didascalia o contesto vicino.',
+        },
+        renderMode: {
+          type: 'string',
+          enum: ['attachments', 'metadata-only'],
+          description:
+            'Default metadata-only: restituisce solo metadati per scegliere. Usa attachments solo quando vuoi mostrare in chat gli artefatti filtrati.',
+        },
+      },
+    }),
+    outputSchema: jsonSchema<Record<string, unknown>>({
+      type: 'object',
+      additionalProperties: true,
+      properties: {
+        artifactCount: {
+          type: 'integer',
+          minimum: 0,
+        },
+        artifacts: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: true,
+          },
+        },
+      },
+    }),
+  }),
   requestAddToNotes: tool({
     description:
-      "Propone all'utente di salvare un chiarimento riusabile come nota di studio collegata al testo selezionato.",
+      "Unico tool per proporre il salvataggio di una nota di studio. La UI determina automaticamente se creare una nota nuova o aggiornare quella gia collegata al passaggio: tu non devi scegliere ne distinguere le due modalita. Il salvataggio reale avviene quando l'utente clicca sulla card di conferma; il tool ti restituisce l'esito.",
     inputSchema: jsonSchema<{
       noteDraft: string;
       rationale: string;
@@ -148,138 +214,38 @@ const contextChatTools = {
       },
       required: ['noteDraft', 'rationale', 'selectedTextDraft'],
     }),
-    outputSchema: jsonSchema<{ approved: boolean }>({
+    outputSchema: jsonSchema<{
+      approved: boolean;
+      mode: 'new' | 'update' | 'none';
+      saved: boolean;
+      annotationId?: string;
+      error?: string;
+    }>({
       type: 'object',
       additionalProperties: false,
       properties: {
         approved: {
           type: 'boolean',
-          description: "True se l'utente conferma il salvataggio della nota.",
+          description: "True se l'utente conferma il salvataggio o l'aggiornamento della nota.",
         },
-      },
-      required: ['approved'],
-    }),
-  }),
-  saveConversationNote: tool({
-    description:
-      'Salva una nota persistente nella lezione corrente usando il testo selezionato o una sua versione rifinita. Se esistono annotazioni sovrapposte, puo unirle.',
-    inputSchema: jsonSchema<{
-      contextAfter?: string;
-      contextBefore?: string;
-      note: string;
-      selectedText: string;
-    }>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        contextAfter: {
+        mode: {
           type: 'string',
-          description: 'Contesto facoltativo dopo il passaggio da annotare.',
-        },
-        contextBefore: {
-          type: 'string',
-          description: 'Contesto facoltativo prima del passaggio da annotare.',
-        },
-        note: {
-          type: 'string',
+          enum: ['new', 'update', 'none'],
           description:
-            'Nota finale da salvare nella lezione: chiara, autosufficiente e non telegrafica. Deve concentrare il valore aggiunto emerso nel follow-up, non ripetere il contenuto gia evidente nel passaggio.',
+            "Modalita effettiva applicata dalla UI: 'new' se la nota e stata creata, 'update' se aggiornata, 'none' se l'utente ha rifiutato.",
         },
-        selectedText: {
-          type: 'string',
-          description: 'Passaggio di testo finale da annotare nella lezione.',
+        saved: {
+          type: 'boolean',
+          description: 'True se il salvataggio o aggiornamento e stato effettivamente persistito.',
         },
-      },
-      required: ['note', 'selectedText'],
-    }),
-    outputSchema: jsonSchema<{
-      annotationId?: string;
-      error?: string;
-      merged: boolean;
-      resolvedText?: string;
-      saved: boolean;
-    }>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
         annotationId: {
           type: 'string',
         },
         error: {
           type: 'string',
         },
-        merged: {
-          type: 'boolean',
-        },
-        resolvedText: {
-          type: 'string',
-        },
-        saved: {
-          type: 'boolean',
-        },
       },
-      required: ['merged', 'saved'],
-    }),
-  }),
-  updateConversationNote: tool({
-    description:
-      'Aggiorna o riscrive una nota gia esistente associata al passaggio corrente, senza concatenarla alla formulazione precedente.',
-    inputSchema: jsonSchema<{
-      contextAfter?: string;
-      contextBefore?: string;
-      note: string;
-      selectedText: string;
-    }>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        contextAfter: {
-          type: 'string',
-          description: 'Contesto facoltativo dopo il passaggio da annotare.',
-        },
-        contextBefore: {
-          type: 'string',
-          description: 'Contesto facoltativo prima del passaggio da annotare.',
-        },
-        note: {
-          type: 'string',
-          description:
-            'Nuova versione della nota da salvare sul passaggio esistente, riscritta in modo chiaro e autosufficiente. Deve privilegiare la formulazione che chiarisce il dubbio reale o l implicito, non la semplice ripetizione del testo originale.',
-        },
-        selectedText: {
-          type: 'string',
-          description: 'Passaggio di testo finale la cui nota esistente deve essere aggiornata.',
-        },
-      },
-      required: ['note', 'selectedText'],
-    }),
-    outputSchema: jsonSchema<{
-      annotationId?: string;
-      error?: string;
-      merged: boolean;
-      resolvedText?: string;
-      saved: boolean;
-    }>({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        annotationId: {
-          type: 'string',
-        },
-        error: {
-          type: 'string',
-        },
-        merged: {
-          type: 'boolean',
-        },
-        resolvedText: {
-          type: 'string',
-        },
-        saved: {
-          type: 'boolean',
-        },
-      },
-      required: ['merged', 'saved'],
+      required: ['approved', 'mode', 'saved'],
     }),
   }),
 } as const;

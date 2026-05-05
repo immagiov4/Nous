@@ -1072,7 +1072,7 @@ export default function LibraryTreeView({
         <button
           type="button"
           aria-label="Chiudi menu cartella"
-          className="fixed inset-0 z-40"
+          className="fixed inset-0 z-[55]"
           onClick={() => setOpenFolderMenuId(null)}
           onKeyDown={e => {
             if (e.key === 'Escape') setOpenFolderMenuId(null);
@@ -1135,7 +1135,7 @@ export default function LibraryTreeView({
       </ul>
 
       {moveTarget ? (
-        <div className="fixed inset-0 z-40 flex items-end bg-black/30 p-3 md:items-center md:justify-center">
+        <div className="fixed inset-0 z-[55] flex items-end bg-black/30 p-3 md:items-center md:justify-center">
           <div className="w-full max-w-lg rounded-[1.8rem] border border-gray-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>

@@ -140,6 +140,96 @@ const libraryChatTools = {
     }),
     outputSchema: genericLibraryToolOutputSchema,
   }),
+  getLearningArtifacts: tool({
+    description:
+      'Recupera gli artefatti visuali richiamabili dei corsi nello scope corrente: mappe/widget generati e immagini del PDF collegate alle lezioni. Restituisce solo metadati testuali; la UI renderizza le anteprime separatamente.',
+    inputSchema: jsonSchema<{
+      artifactIds?: string[];
+      kinds?: Array<'future-asset' | 'generated-visual' | 'pdf-image'>;
+      lessonQuery?: string;
+      maxResults?: number;
+      projectIds?: string[];
+      query?: string;
+      renderMode?: 'attachments' | 'metadata-only';
+      requests?: Array<{
+        lessonIds?: string[];
+        projectId: string;
+      }>;
+    }>({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        artifactIds: {
+          type: 'array',
+          items: {
+            type: 'string',
+          },
+          description:
+            'Filtro esatto sugli id artefatto gia restituiti da una chiamata precedente. Usalo per renderizzare solo artefatti scelti.',
+        },
+        kinds: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['future-asset', 'generated-visual', 'pdf-image'],
+          },
+          description:
+            'Filtro per tipo di artefatto. Usa generated-visual per mappe/grafici/widget generati; usa pdf-image per immagini estratte dal PDF.',
+        },
+        lessonQuery: {
+          type: 'string',
+          description:
+            'Filtro testuale specifico sulla lezione di provenienza, utile quando l utente nomina una lezione o un corso/argomento da restringere prima del rendering.',
+        },
+        maxResults: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 24,
+        },
+        projectIds: {
+          type: 'array',
+          items: {
+            type: 'string',
+          },
+          description:
+            'Lista facoltativa di projectId reali gia ottenuti dai tool locali. Se omessa usa tutto lo scope corrente.',
+        },
+        query: {
+          type: 'string',
+          description:
+            'Filtro testuale facoltativo su titolo artefatto, titolo lezione, didascalia o contesto vicino.',
+        },
+        renderMode: {
+          type: 'string',
+          enum: ['attachments', 'metadata-only'],
+          description:
+            'Default metadata-only: restituisce solo metadati per scegliere. Usa attachments solo quando vuoi mostrare in chat gli artefatti filtrati.',
+        },
+        requests: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              lessonIds: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                },
+              },
+              projectId: {
+                type: 'string',
+              },
+            },
+            required: ['projectId'],
+          },
+          description:
+            'Richieste facoltative per limitare il recall a lezioni specifiche di corsi specifici.',
+        },
+      },
+    }),
+    outputSchema: genericLibraryToolOutputSchema,
+  }),
   getLessonDetails: tool({
     description:
       'Recupera una o piu lezioni complete con contenuto integrale, highlight estratti e testo delle note per corso e lessonIds specifici.',

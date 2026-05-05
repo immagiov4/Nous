@@ -135,6 +135,8 @@ const buildProps = (): WorkspaceReaderShellProps => {
         preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
         preferredTtsVoice: 'coral',
       },
+      lastAudioTab: 'voce',
+      onSetLastAudioTab: vi.fn(),
       settingsPanelExpandedSections: ['course-notes'],
       tts: {
         availableVoices: [],

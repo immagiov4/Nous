@@ -23,6 +23,7 @@ import {
   getLaboratorySourcePageLabel,
   getLessonSourcePageLabel,
 } from '../utils/context/sourceMaterial.ts';
+import { collectSectionLearningArtifactPayloads } from '../utils/learning/artifacts.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderRuntime = ReturnType<typeof useWorkspaceReaderRuntime>;
@@ -69,6 +70,8 @@ export const useReaderShellProps = ({
     aSectionId,
     addLabT,
     attLabF,
+    cProjId,
+    docAssets,
     dIdx,
     evLab,
     genLab,
@@ -98,6 +101,8 @@ export const useReaderShellProps = ({
       controller.activeSectionId,
       controller.addLaboratoryTextAttachment,
       controller.attachLaboratoryFiles,
+      controller.currentProjectId,
+      controller.documentAssets,
       controller.documentIndex,
       controller.evaluateActiveLaboratoryExercise,
       controller.generateLaboratory,
@@ -138,6 +143,18 @@ export const useReaderShellProps = ({
   const labSPL = useMemo(
     () => getLaboratorySourcePageLabel({ activeExercise: actLab, documentIndex: dIdx }),
     [actLab, dIdx]
+  );
+  const currentLessonArtifactPayloads = useMemo(
+    () =>
+      aSection
+        ? collectSectionLearningArtifactPayloads({
+            documentAssets: docAssets,
+            projectId: cProjId || 'current-project',
+            projectTitle: lp?.title || 'Corso',
+            section: aSection,
+          })
+        : [],
+    [aSection, cProjId, docAssets, lp?.title]
   );
 
   const isLV = !aSectionId && Boolean(lab);
@@ -359,7 +376,7 @@ export const useReaderShellProps = ({
       activeLaboratoryExercise: actLab,
       activeSectionId: aSection?.id ?? null,
       activeSectionTitle: aSection?.title ?? null,
-      hasActiveSection: Boolean(aSection),
+      hasActiveSection: Boolean(aSection?.id),
       activeSidebarGroup: readerRuntime.activeSidebarGroup,
       courseGenerationNotes: lp?.generationNotes ?? '',
       isDarkMode: rC.isDarkMode,
@@ -388,6 +405,8 @@ export const useReaderShellProps = ({
       onSetMusicVolume: readerRuntime.setMusicVolume,
       onSetPreferredOpenRouterModel: readerRuntime.setPreferredOpenRouterModel,
       onSetSettingsOpen: rC.setIsSettingsOpen,
+      lastAudioTab: readerRuntime.lastAudioTab,
+      onSetLastAudioTab: readerRuntime.setLastAudioTab,
       onSetSettingsPanelExpandedSections: readerRuntime.setSettingsPanelExpandedSections,
       preferredModels: readerRuntime.preferredModels,
       settingsPanelExpandedSections: readerRuntime.settingsPanelExpandedSections,
@@ -426,6 +445,8 @@ export const useReaderShellProps = ({
       readerRuntime.setMusicVolume,
       readerRuntime.setPreferredOpenRouterModel,
       rC.setIsSettingsOpen,
+      readerRuntime.lastAudioTab,
+      readerRuntime.setLastAudioTab,
       readerRuntime.setSettingsPanelExpandedSections,
       readerRuntime.preferredModels,
       readerRuntime.settingsPanelExpandedSections,
@@ -443,6 +464,7 @@ export const useReaderShellProps = ({
       contextAnswerSize: rX.contextAnswerSize,
       contextMenu: rX.contextMenu,
       contextMenuRef: rX.contextMenuRef,
+      currentLessonArtifactPayloads,
       handleContextAnswerResizeStart: rX.handleContextAnswerResizeStart,
       isContextLoading: isCB,
       isDarkMode: rC.isDarkMode,
@@ -465,6 +487,7 @@ export const useReaderShellProps = ({
       rX.contextAnswerSize,
       rX.contextMenu,
       rX.contextMenuRef,
+      currentLessonArtifactPayloads,
       rX.handleContextAnswerResizeStart,
       isCB,
       rC.isDarkMode,

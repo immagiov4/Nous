@@ -175,6 +175,45 @@ export interface LessonGeneratedVisual {
   createdAt: string;
 }
 
+export type LearningArtifactKind = 'future-asset' | 'generated-visual' | 'pdf-image';
+export type LearningArtifactPreviewMode = 'chip-only' | 'thumbnail';
+
+export interface LearningArtifactSummary {
+  createdAt?: string;
+  description?: string;
+  id: string;
+  kind: LearningArtifactKind;
+  lessonId: string;
+  lessonTitle: string;
+  previewMode: LearningArtifactPreviewMode;
+  projectId: ProjectId;
+  projectTitle: string;
+  sourceLabel?: string;
+  title: string;
+}
+
+export type LearningArtifactRenderPayload =
+  | {
+      image: PdfImageAsset;
+      searchText?: string;
+      summary: LearningArtifactSummary & {
+        kind: 'pdf-image';
+      };
+    }
+  | {
+      summary: LearningArtifactSummary & {
+        kind: 'generated-visual';
+      };
+      searchText?: string;
+      visual: LessonGeneratedVisual;
+    }
+  | {
+      searchText?: string;
+      summary: LearningArtifactSummary & {
+        kind: 'future-asset';
+      };
+    };
+
 export interface PdfTextPage {
   pageNumber: number;
   text: string;
@@ -379,8 +418,11 @@ export interface OpenRouterModelPreferences {
   preferredTtsVoice: string;
 }
 
+export type AudioPanelTab = 'voce' | 'ambiente';
+
 export interface UiPreferences extends OpenRouterModelPreferences {
   isDarkMode: boolean;
+  lastAudioTab: AudioPanelTab;
   preferredVoice: VoiceProfileId;
   playbackRate: number;
   settingsPanelExpandedSections: SettingsPanelSectionId[];

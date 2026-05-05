@@ -50,6 +50,26 @@ const { default: ContextAnswerPanel } = await import(
   '../../../../components/workspace/shell/ContextAnswerPanel.tsx'
 );
 
+const currentLessonArtifact = {
+  summary: {
+    id: 'project-1:lesson-1:generated-visual:visual-1',
+    kind: 'generated-visual',
+    lessonId: 'lesson-1',
+    lessonTitle: 'Titolo',
+    previewMode: 'thumbnail',
+    projectId: 'project-1',
+    projectTitle: 'Corso',
+    title: 'mappa concettuale',
+  },
+  visual: {
+    id: 'visual-1',
+    title: 'mappa_concettuale',
+    kind: 'svg',
+    code: '<svg viewBox="0 0 680 120"></svg>',
+    createdAt: '2026-05-01T10:00:00.000Z',
+  },
+} as const;
+
 const buildProps = () => ({
   contextAnswer: {
     id: 'context-1',
@@ -68,6 +88,7 @@ const buildProps = () => ({
   preferredContextModel: 'openai/gpt-5.4-mini',
   onSaveConversationNote: vi.fn(),
   onUpdateConversationNote: vi.fn(),
+  currentLessonArtifactPayloads: [currentLessonArtifact],
 });
 
 describe('ContextAnswerPanel', () => {
@@ -190,6 +211,40 @@ describe('ContextAnswerPanel', () => {
     expect(request.body?.modelOverride).toBe('openai/gpt-5.4-mini');
   });
 
+  test('renders current lesson artifact cards from tool results', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-artifacts',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-getCurrentLessonArtifacts',
+              toolCallId: 'tool-artifacts-1',
+              state: 'output-available',
+              input: {},
+              output: {
+                artifactCount: 1,
+                artifacts: [currentLessonArtifact.summary],
+                renderMode: 'attachments',
+                renderedArtifactCount: 1,
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.getByText('mappa concettuale')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Apri mappa concettuale/i })).toBeInTheDocument();
+  });
+
   test('uses the latest preferred context model after rerender on the initial transport instance', () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
@@ -287,7 +342,7 @@ describe('ContextAnswerPanel', () => {
     expect(addToolOutputMock).toHaveBeenCalledWith({
       tool: 'requestAddToNotes',
       toolCallId: 'tool-stuck-2',
-      output: { approved: false },
+      output: { approved: false, mode: 'none', saved: false },
     });
 
     vi.useRealTimers();

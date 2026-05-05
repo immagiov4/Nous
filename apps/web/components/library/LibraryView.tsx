@@ -7,8 +7,8 @@ import logoDarkModeUrl from '@/assets/logo_darkmode.png';
 import type { ProjectRepositoryMode } from '../../services/projects/projectRepositoryFactory';
 import type {
   HomeChatMode,
+  LearningArtifactRenderPayload,
   LibraryContextRef,
-  LibraryScopeSummary,
   LibraryTree,
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
@@ -33,9 +33,9 @@ interface LibraryViewProps {
   isLibraryQueryLoading: boolean;
   isNewCourseLoading: boolean;
   libraryAttachedContextRefs: LibraryContextRef[];
+  libraryArtifactPayloadsByToolCallId: Record<string, LearningArtifactRenderPayload[]>;
   libraryErrorMessage: string | null;
   libraryMessages: UIMessage[];
-  libraryScopeSummary: LibraryScopeSummary;
   libraryTree: LibraryTree;
   libraryWebSearch: boolean;
   newCourseLoadingStatus: string;
@@ -95,9 +95,9 @@ const LibraryView = ({
   isLibraryQueryLoading,
   isNewCourseLoading,
   libraryAttachedContextRefs,
+  libraryArtifactPayloadsByToolCallId,
   libraryErrorMessage,
   libraryMessages,
-  libraryScopeSummary,
   libraryTree,
   libraryWebSearch,
   newCourseLoadingStatus,
@@ -242,9 +242,9 @@ const LibraryView = ({
           isLibraryModeLoading={isLibraryQueryLoading}
           isNewCourseLoading={isNewCourseLoading}
           libraryAttachedContextRefs={libraryAttachedContextRefs}
+          libraryArtifactPayloadsByToolCallId={libraryArtifactPayloadsByToolCallId}
           libraryErrorMessage={libraryErrorMessage}
           libraryMessages={libraryMessages}
-          libraryScopeSummary={libraryScopeSummary}
           libraryTree={libraryTree}
           libraryWebSearch={libraryWebSearch}
           newCourseLoadingStatus={newCourseLoadingStatus}

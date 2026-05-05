@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
+
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import HomeChatPanel from '../../../components/library/HomeChatPanel.tsx';
 import type {
+  LearningArtifactRenderPayload,
   LibraryContextRef,
   LibraryFolder,
   LibraryPlacement,
@@ -95,6 +98,28 @@ const libraryMessages: UIMessage[] = [
   } as UIMessage,
 ];
 
+const artifactPayload: LearningArtifactRenderPayload = {
+  image: {
+    id: 'pdf-img-1',
+    mimeType: 'image/png',
+    dataUrl: 'data:image/png;base64,abc',
+    caption: 'Schema ER',
+    textBefore: '',
+    textAfter: '',
+    sourceOrder: 1,
+  },
+  summary: {
+    id: 'project-1:lesson-1:pdf-image:pdf-img-1',
+    kind: 'pdf-image',
+    lessonId: 'lesson-1',
+    lessonTitle: 'Modello relazionale',
+    previewMode: 'thumbnail',
+    projectId: 'project-1',
+    projectTitle: 'Corso TypeScript',
+    title: 'Schema ER',
+  },
+};
+
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
@@ -115,6 +140,7 @@ const buildProps = () => ({
   libraryAttachedContextRefs: [] as LibraryContextRef[],
   libraryErrorMessage: null,
   libraryMessages,
+  libraryArtifactPayloadsByToolCallId: {},
   libraryScopeSummary,
   libraryTree,
   libraryWebSearch: false,
@@ -342,6 +368,83 @@ describe('HomeChatPanel', () => {
     const renderedText = container.textContent || '';
     expect(renderedText.indexOf('Struttura corsi')).toBeLessThan(
       renderedText.indexOf('Ora leggo i dettagli della lezione piu rilevante.')
+    );
+  });
+
+  test('renders artifact cards from learning artifact tool results', () => {
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      libraryArtifactPayloadsByToolCallId: {
+        'tool-artifacts-1': [artifactPayload],
+      },
+      libraryMessages: [
+        {
+          id: 'assistant-artifacts',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-getLearningArtifacts',
+              toolCallId: 'tool-artifacts-1',
+              state: 'output-available',
+              input: {},
+              output: {
+                artifactCount: 1,
+                artifacts: [artifactPayload.summary],
+              },
+            },
+          ],
+        } as UIMessage,
+      ],
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    expect(screen.getByText('Schema ER')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Schema ER/i })).toBeInTheDocument();
+  });
+
+  test('renders artifact cards after the assistant text for the same turn', () => {
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      libraryArtifactPayloadsByToolCallId: {
+        'tool-artifacts-1': [artifactPayload],
+      },
+      libraryMessages: [
+        {
+          id: 'assistant-artifacts',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-getLearningArtifacts',
+              toolCallId: 'tool-artifacts-1',
+              state: 'output-available',
+              input: {
+                renderMode: 'attachments',
+              },
+              output: {
+                artifactCount: 1,
+                artifacts: [artifactPayload.summary],
+                renderMode: 'attachments',
+                renderedArtifactCount: 1,
+              },
+            },
+            {
+              type: 'text',
+              text: 'Ecco il grafico richiesto.',
+              state: 'done',
+            },
+          ],
+        } as UIMessage,
+      ],
+    };
+
+    const { container } = render(<HomeChatPanel {...props} />);
+
+    const renderedText = container.textContent || '';
+    expect(renderedText.indexOf('Ecco il grafico richiesto.')).toBeLessThan(
+      renderedText.indexOf('Schema ER')
     );
   });
 

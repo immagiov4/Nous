@@ -228,6 +228,8 @@ export const buildReaderShellProps = ({
       onSetSettingsPanelExpandedSections: readerRuntime.setSettingsPanelExpandedSections,
       preferredModels: readerRuntime.preferredModels,
       settingsPanelExpandedSections: readerRuntime.settingsPanelExpandedSections,
+      lastAudioTab: readerRuntime.lastAudioTab,
+      onSetLastAudioTab: readerRuntime.setLastAudioTab,
       syncState,
       tts: {
         availableVoices: readerRuntime.ttsPlayer.availableVoices,

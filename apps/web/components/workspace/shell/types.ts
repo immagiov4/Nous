@@ -4,9 +4,11 @@ import type {
   RefObject,
 } from 'react';
 import type {
+  AudioPanelTab,
   ContextMenuState,
   LaboratoryExercise,
   LaboratoryStateStatus,
+  LearningArtifactRenderPayload,
   LearningSection,
   LessonGeneratedVisual,
   LessonImageRef,
@@ -127,6 +129,8 @@ export interface WorkspaceReaderTtsModel {
 }
 
 export interface WorkspaceReaderHeaderModel {
+  lastAudioTab: AudioPanelTab;
+  onSetLastAudioTab: (tab: AudioPanelTab) => void;
   activeLaboratoryExercise: LaboratoryExercise | null;
   activeSectionId: string | null;
   activeSectionTitle: string | null;
@@ -227,6 +231,7 @@ export interface WorkspaceReaderOverlaysModel {
   isContextLoading: boolean;
   isDarkMode: boolean;
   isMobileViewport: boolean;
+  currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   onAskContextQuestion: (question: string) => void;
   onCloseContextAnswer: () => void;
   onCloseContextMenu: () => void;

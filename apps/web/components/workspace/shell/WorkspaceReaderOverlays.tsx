@@ -14,6 +14,7 @@ function WorkspaceReaderOverlays({
   isContextLoading,
   isDarkMode,
   isMobileViewport,
+  currentLessonArtifactPayloads,
   onAskContextQuestion,
   onCloseContextAnswer,
   onCloseContextMenu,
@@ -35,6 +36,7 @@ function WorkspaceReaderOverlays({
             contextAnswerPanelRef={contextAnswerPanelRef}
             contextAnswerSize={contextAnswerSize}
             handleContextAnswerResizeStart={handleContextAnswerResizeStart}
+            currentLessonArtifactPayloads={currentLessonArtifactPayloads}
             isDarkMode={isDarkMode}
             isMobileViewport={isMobileViewport}
             onClose={onCloseContextAnswer}

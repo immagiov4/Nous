@@ -1,4 +1,5 @@
 import type {
+  LearningArtifactRenderPayload,
   LibraryContextRef,
   LibraryFolder,
   LibraryScopeSummary,
@@ -7,6 +8,11 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types.ts';
+import {
+  collectLearningArtifactPayloads,
+  filterLearningArtifactPayloads,
+  summarizeLearningArtifacts,
+} from '../../utils/learning/artifacts.ts';
 import {
   buildLessonDetailPayload,
   buildLibraryScopeSummary,
@@ -23,6 +29,7 @@ export const LIBRARY_ASSISTANT_TOOL_NAMES = [
   'listLibraryTree',
   'getProjectOverviews',
   'getProjectStructures',
+  'getLearningArtifacts',
   'getLessonDetails',
   'searchLibrary',
 ] as const;
@@ -44,6 +51,7 @@ interface LibraryAssistantDataSource {
 export interface ExecutedLibraryToolResult {
   output?: Record<string, unknown>;
   outputError?: string;
+  renderPayloads?: LearningArtifactRenderPayload[];
 }
 
 const isStringArray = (value: unknown): value is string[] =>
@@ -330,6 +338,113 @@ const executeLessonDetailsTool = async (
   };
 };
 
+const readArtifactRequests = (
+  input: unknown
+): Array<{ lessonIds?: string[]; projectId: string }> =>
+  isRecord(input) && Array.isArray(input.requests)
+    ? input.requests
+        .filter(isRecord)
+        .map(request => ({
+          lessonIds: isStringArray(request.lessonIds) ? request.lessonIds : undefined,
+          projectId: typeof request.projectId === 'string' ? request.projectId : '',
+        }))
+        .filter(request => request.projectId)
+    : [];
+
+const readArtifactKinds = (input: unknown): LearningArtifactRenderPayload['summary']['kind'][] =>
+  isRecord(input) && Array.isArray(input.kinds)
+    ? input.kinds.filter(
+        (kind): kind is LearningArtifactRenderPayload['summary']['kind'] =>
+          kind === 'generated-visual' || kind === 'pdf-image' || kind === 'future-asset'
+      )
+    : [];
+
+const shouldRenderLearningArtifacts = (input: unknown): boolean =>
+  isRecord(input) && input.renderMode === 'attachments';
+
+const executeLearningArtifactsTool = async (
+  input: unknown,
+  dataSource: LibraryAssistantDataSource
+): Promise<ExecutedLibraryToolResult> => {
+  if (isRecord(input) && 'projectIds' in input && !isStringArray(input.projectIds)) {
+    return {
+      outputError: 'La richiesta degli artefatti accetta `projectIds` solo come array di stringhe.',
+    };
+  }
+
+  const scopeSummary = resolveScopeSummary(dataSource);
+  const requestedProjectIds =
+    isRecord(input) && isStringArray(input.projectIds) && input.projectIds.length > 0
+      ? input.projectIds
+      : undefined;
+  const artifactRequests = readArtifactRequests(input);
+  const requestProjectIds =
+    artifactRequests.length > 0
+      ? Array.from(new Set(artifactRequests.map(request => request.projectId)))
+      : requestedProjectIds;
+  const { outOfScopeProjectIds, resolvedProjectIds } = resolveRequestedProjectIds({
+    requestedProjectIds: requestProjectIds,
+    scopeProjectIds: scopeSummary.scopeProjectIds,
+  });
+
+  if (outOfScopeProjectIds.length > 0) {
+    return {
+      output: {
+        error: buildScopeViolationError({
+          outOfScopeProjectIds,
+          projects: dataSource.projects,
+          scopeSummary,
+        }),
+      },
+    };
+  }
+
+  const projectMetaById = new Map(dataSource.projects.map(project => [project.id, project]));
+  const snapshotsById = await loadSnapshotsById(dataSource.loadProjectsById, resolvedProjectIds);
+  const lessonIdsByProjectId = new Map(
+    artifactRequests.map(request => [request.projectId, request.lessonIds || []])
+  );
+  const projectArtifacts = resolvedProjectIds.flatMap(projectId => {
+    const snapshot = snapshotsById.get(projectId);
+    if (!snapshot) {
+      return [];
+    }
+
+    const lessonIds = lessonIdsByProjectId.get(projectId);
+    return filterLearningArtifactPayloads(
+      collectLearningArtifactPayloads({
+        projectTitle: projectMetaById.get(projectId)?.title,
+        snapshot,
+      }),
+      {
+        lessonIds: lessonIds && lessonIds.length > 0 ? lessonIds : undefined,
+      }
+    );
+  });
+  const filteredArtifacts = filterLearningArtifactPayloads(projectArtifacts, {
+    artifactIds:
+      isRecord(input) && isStringArray(input.artifactIds) ? input.artifactIds : undefined,
+    kinds: readArtifactKinds(input),
+    lessonQuery:
+      isRecord(input) && typeof input.lessonQuery === 'string' ? input.lessonQuery : undefined,
+    maxResults:
+      isRecord(input) && typeof input.maxResults === 'number' ? input.maxResults : undefined,
+    query: isRecord(input) && typeof input.query === 'string' ? input.query : undefined,
+  });
+  const renderPayloads = shouldRenderLearningArtifacts(input) ? filteredArtifacts : undefined;
+
+  return {
+    output: {
+      artifactCount: filteredArtifacts.length,
+      artifacts: summarizeLearningArtifacts(filteredArtifacts),
+      query: isRecord(input) && typeof input.query === 'string' ? input.query : undefined,
+      renderMode: renderPayloads ? 'attachments' : 'metadata-only',
+      renderedArtifactCount: renderPayloads?.length ?? 0,
+    },
+    renderPayloads,
+  };
+};
+
 const executeSearchTool = async (
   input: unknown,
   dataSource: LibraryAssistantDataSource
@@ -396,6 +511,8 @@ export const executeLibraryAssistantTool = async ({
       return executeProjectOverviewTool(input, dataSource);
     case 'getProjectStructures':
       return executeProjectStructureTool(input, dataSource);
+    case 'getLearningArtifacts':
+      return executeLearningArtifactsTool(input, dataSource);
     case 'getLessonDetails':
       return executeLessonDetailsTool(input, dataSource);
     case 'searchLibrary':

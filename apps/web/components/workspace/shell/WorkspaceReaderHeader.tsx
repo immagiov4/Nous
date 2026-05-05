@@ -7,7 +7,6 @@ import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
 const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   activeLaboratoryExercise,
-  activeSectionId,
   activeSectionTitle,
   activeSidebarGroup,
   hasActiveSection,
@@ -20,6 +19,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   isMusicPlaying,
   isSettingsOpen,
   laboratoryTitle,
+  lastAudioTab,
   learningPlanTitle,
   loadingStatus,
   modelDefaults,
@@ -33,6 +33,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   onSetCourseGenerationNotes,
   onSetFocusMode,
   onSetIsMusicPlaying,
+  onSetLastAudioTab,
   onSetMusicUrl,
   onSetMusicVolume,
   onSetPreferredOpenRouterModel,
@@ -303,6 +304,8 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               setIsAudioOpen(open);
               if (open) onSetSettingsOpen(false);
             }}
+            initialTab={lastAudioTab}
+            onTabChange={onSetLastAudioTab}
             musicUrl={musicUrl}
             setMusicUrl={onSetMusicUrl}
             isMusicPlaying={isMusicPlaying}
