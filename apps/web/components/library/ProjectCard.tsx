@@ -188,7 +188,7 @@ const ProjectCard = ({
       {/* Icon */}
       <Pressable
         onClick={() => onOpen(project.id)}
-        disabled={isOpening}
+        aria-busy={isOpening}
         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 sm:h-10 sm:w-10 sm:rounded-xl dark:bg-paper-dark dark:text-zinc-300 dark:hover:bg-zinc-700/50"
         title="Apri progetto"
       >
@@ -203,7 +203,7 @@ const ProjectCard = ({
       <button
         type="button"
         onClick={() => onOpen(project.id)}
-        disabled={isOpening}
+        aria-busy={isOpening}
         className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left"
       >
         <div className="flex w-full items-center gap-2">

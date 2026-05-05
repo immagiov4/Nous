@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, waitForElementToBeRemoved } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -345,5 +346,33 @@ describe('LibraryTreeView', () => {
     );
 
     expect(screen.getByLabelText('Contenuto cartella Frontend')).toHaveClass('space-y-3');
+  });
+
+  test('keeps an opening project clickable so a stale opening state can be retried', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    const onOpenProject = vi.fn();
+
+    render(
+      <LibraryTreeView
+        openingProjectId="project-1"
+        onCreateFolder={vi.fn(async () => {})}
+        onConfirmDeleteFolder={vi.fn(async () => true)}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={vi.fn(async () => {})}
+        onOpenProject={onOpenProject}
+        onRenameFolder={vi.fn(async () => {})}
+        onTransferFolderToLan={vi.fn(async () => {})}
+        onTransferProjectToLan={vi.fn(async () => {})}
+        projectRepositoryMode="indexeddb"
+        tree={tree}
+      />
+    );
+
+    await user.click(screen.getByText('Corso Mobile'));
+
+    expect(onOpenProject).toHaveBeenCalledWith('project-1');
   });
 });

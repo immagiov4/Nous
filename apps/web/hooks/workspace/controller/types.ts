@@ -141,6 +141,7 @@ export interface WorkspaceControllerStateAdapter {
   failWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, errorMessage: string) => void;
   getAssessmentMessages: () => Message[];
   getChatSession: () => WorkspaceChatSession | null;
+  getOpeningProjectId: () => string | null;
   getWorkflowState: () => WorkspaceWorkflowState;
   invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
   isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) => boolean;

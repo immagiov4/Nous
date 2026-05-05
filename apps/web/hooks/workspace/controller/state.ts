@@ -14,6 +14,7 @@ export const useWorkspaceControllerState = () => {
   const [assessmentMessages, setAssessmentMessages] = useState<Message[]>([]);
   const [chatSession, setChatSession] = useState<WorkspaceChatSession | null>(null);
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const openingProjectIdRef = useRef<string | null>(null);
   const [workflowState, setWorkflowState] = useState<WorkspaceWorkflowState>(
     createWorkspaceWorkflowState
   );
@@ -83,6 +84,7 @@ export const useWorkspaceControllerState = () => {
       },
       getAssessmentMessages: () => assessmentMessagesRef.current,
       getChatSession: () => chatSessionRef.current,
+      getOpeningProjectId: () => openingProjectIdRef.current,
       getWorkflowState: () => workflowStateRef.current,
       invalidateWorkflows: workflowIds => {
         const nextState = invalidateWorkspaceWorkflows(workflowStateRef.current, workflowIds);
@@ -96,6 +98,7 @@ export const useWorkspaceControllerState = () => {
         assessmentMessagesRef.current = [];
         setChatSession(null);
         chatSessionRef.current = null;
+        openingProjectIdRef.current = null;
         setOpeningProjectId(null);
       },
       setAssessmentMessages: nextMessages => {
@@ -113,7 +116,10 @@ export const useWorkspaceControllerState = () => {
         chatSessionRef.current = nextChatSession;
         setChatSession(nextChatSession);
       },
-      setOpeningProjectId,
+      setOpeningProjectId: (projectId: string | null) => {
+        openingProjectIdRef.current = projectId;
+        setOpeningProjectId(projectId);
+      },
       setScreenState,
       setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => {
         const currentState = workflowStateRef.current;

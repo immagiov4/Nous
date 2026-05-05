@@ -419,7 +419,14 @@ export const createProjectLifecycleCommands = (
       }
       return { outcome: 'failed', errorMessage };
     } finally {
-      if (state.isWorkflowCurrent('openProject', requestId)) {
+      // Azzeriamo openingProjectId anche quando il workflow è diventato stale
+      // (es. l'utente ha rinavigato, una fetch è andata in timeout senza rigettare):
+      // se non lo facciamo, shouldOpenProjectFromLocation continua a vedere
+      // openingProjectId === locationProjectId e blocca i tentativi successivi
+      // → spinner eterno senza fetch al backend.
+      // Lo facciamo solo se openingProjectId punta ancora a NOSTRO projectId, per
+      // non disturbare un openProject(altro) che sia partito nel frattempo.
+      if (state.getOpeningProjectId() === projectId) {
         state.setOpeningProjectId(null);
         pushNousDebugTrace('open-project:cleared-opening-id', { projectId, requestId });
       }

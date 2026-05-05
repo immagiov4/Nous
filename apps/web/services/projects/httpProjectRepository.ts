@@ -27,6 +27,7 @@ interface ApiResponse {
 
 const PROJECT_SYNC_ERROR_MESSAGE =
   'Sincronizzazione LAN non disponibile. Verifica che il backend sia acceso e raggiungibile.';
+const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 
 const createProjectSyncError = (error: unknown): ProjectStorageError => {
   console.warn('[Lumina] LAN project sync failed', error);
@@ -231,13 +232,21 @@ export class HttpProjectRepository implements ProjectRepository {
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const requestUrl = `${this.baseUrl}${path}`;
+    const timeoutController = new AbortController();
+    const timeoutId = globalThis.setTimeout(() => {
+      timeoutController.abort();
+    }, PROJECT_REQUEST_TIMEOUT_MS);
+
     try {
-      const response = await fetch(`${this.baseUrl}${path}`, {
+      const response = await fetch(requestUrl, {
         ...init,
+        cache: init.cache || 'no-store',
         headers: {
           'Content-Type': 'application/json',
           ...init.headers,
         },
+        signal: init.signal || timeoutController.signal,
       });
       const data = await readApiResponse<T>(response);
 
@@ -251,6 +260,8 @@ export class HttpProjectRepository implements ProjectRepository {
       return data;
     } catch (error) {
       throw createProjectSyncError(error);
+    } finally {
+      globalThis.clearTimeout(timeoutId);
     }
   }
 }

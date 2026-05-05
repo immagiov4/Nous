@@ -434,6 +434,7 @@ const createStateAdapter = () => {
       },
       getAssessmentMessages: () => runtime.assessmentMessages,
       getChatSession: () => runtime.chatSession,
+      getOpeningProjectId: () => runtime.openingProjectId,
       getWorkflowState: () => runtime.workflowState,
       invalidateWorkflows: workflowIds => {
         runtime.workflowState = invalidateWorkspaceWorkflows(runtime.workflowState, workflowIds);
