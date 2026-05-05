@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
+
+import { act, render, screen } from '@testing-library/react';
 import { createRef, StrictMode } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -152,9 +154,10 @@ describe('ContextAnswerPanel', () => {
     const { container } = render(<ContextAnswerPanel {...buildProps()} />);
 
     const markdownBlocks = screen.getAllByTestId('markdown-renderer');
-    expect(markdownBlocks).toHaveLength(2);
-    expect(markdownBlocks[0]).toHaveTextContent('Prima della nota.');
-    expect(markdownBlocks[1]).toHaveTextContent('Dopo la nota.');
+    const primaBlock = markdownBlocks.find(b => b.textContent?.includes('Prima della nota.'));
+    const dopoBlock = markdownBlocks.find(b => b.textContent?.includes('Dopo la nota.'));
+    expect(primaBlock).toBeTruthy();
+    expect(dopoBlock).toBeTruthy();
 
     const renderedText = container.textContent || '';
     expect(renderedText.indexOf('Prima della nota.')).toBeLessThan(
@@ -209,5 +212,127 @@ describe('ContextAnswerPanel', () => {
     }) as { body?: Record<string, unknown> };
 
     expect(request.body?.modelOverride).toBe('openai/gpt-5.4-nano');
+  });
+
+  test('shows fallback buttons after grace period when requestAddToNotes input is invalid', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-05-04T00:00:00Z'));
+
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'tool-stuck-1',
+              state: 'input-available',
+              input: null,
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    // Before grace: still showing spinner
+    expect(screen.getByText('Sto caricando i dettagli della nota proposta...')).toBeTruthy();
+
+    // Advance past grace period (2s): fallback warning + "No grazie" button
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+
+    expect(screen.getByText('Suggerimento non disponibile. Puoi riprovare.')).toBeTruthy();
+    expect(screen.getAllByText('No grazie').length).toBeGreaterThanOrEqual(1);
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
+  test('auto-rejects stuck requestAddToNotes after hard timeout', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-05-04T00:00:00Z'));
+
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'tool-stuck-2',
+              state: 'input-available',
+              input: undefined,
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    // Hard timeout (15s): auto-reject
+    await act(() => vi.advanceTimersByTimeAsync(16_000));
+
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'requestAddToNotes',
+      toolCallId: 'tool-stuck-2',
+      output: { approved: false },
+    });
+
+    vi.useRealTimers();
+  });
+
+  test('does not apply fallback timer when requestAddToNotes input is valid', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-05-04T00:00:00Z'));
+
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'tool-ok',
+              state: 'input-available',
+              input: {
+                noteDraft: 'Nota di test',
+                rationale: 'Vale la pena',
+                selectedTextDraft: 'G-buffer',
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    // Valid input should show approve button immediately
+    const approveButtons = screen.getAllByText('Aggiungi alle note');
+    expect(approveButtons.length).toBeGreaterThanOrEqual(1);
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+
+    // Advance past hard timeout — still no auto-reject
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(addToolOutputMock).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
   });
 });

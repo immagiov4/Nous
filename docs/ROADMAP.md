@@ -122,20 +122,11 @@ Probabilmente è una combinazione, ma il rimedio cambia: B1/B2 → patch granula
 Due bug che bloccano flussi reali. Vanno **prima** delle feature nuove.
 
 ## 2.a — Estrazione immagini PDF lenta (investigazione perf, non bug)
-**Riformulato 2026-05-02**: Giov non ha repro di rottura, sospetta solo che l'estrazione immagini sia inutilmente lenta. Niente regression test — è un'analisi di performance.
+**Riformulato 2026-05-14**: Aumentato `PDF_ASSET_SESSION_TIMEOUT_MS` da 20s a 60s in `apps/web/services/openrouter/planning/content.ts`. Se il timeout non è più un problema per il flusso di generazione lezioni, si può chiudere. Se l'estrazione è ancora troppo lenta, riaprire con profiling strumentato.
 
-- **Obiettivo**: capire perché l'estrazione immagini è "così pesante" e ridurla.
-- **File**: `apps/backend/src/services/pdfImageExtractor.ts` (modificato di recente), `apps/backend/src/utils/sanitizePartialPages.ts` (nuovo).
-- **Steps**:
-  1. Strumentare il pipeline con timing per pagina (parsing, decode, encode, write). Output in console + file `docs/PDF_EXTRACTION_PROFILE.md`.
-  2. Profilare con un PDF di ~50 pagine misto (testo + immagini): identificare il top time consumer.
-  3. Possibili rimedi (da scegliere in base al profilo, non in cieco):
-     - Parallelizzare per pagina con `Promise.all` se attualmente seriale.
-     - Saltare ri-encode se l'immagine è già in formato accettabile.
-     - Caching intra-sessione delle immagini già estratte.
-     - Sostituire libreria PDF se è il bottleneck (decisione *grossa*, fermarsi e chiedere a Giov).
-  4. Documentare numeri prima/dopo.
-- **Consolidamento con Fase 4**: questo lavoro tocca lo stesso pipeline che Fase 4 modifica (storage solo derivati). Considerare di **fonderle** in un unico PR se le modifiche sono adiacenti.
+- **File coinvolti**: `apps/web/services/openrouter/planning/content.ts` (const `PDF_ASSET_SESSION_TIMEOUT_MS` → `60_000`)
+- **Obiettivo originale**: capire perché l'estrazione immagini è "così pesante". / **Ridimensionato a**: dare più tempo all'estrazione prima di fare soft-timeout, riducendo i fallback prematuri a "solo testo".
+- **Prossimo passo (se serve)**: strumentare il pipeline backend con timing per pagina e profilare con PDF ~50 pagine.
 
 ## 2.b — "Sto caricando i dettagli della nota proposta..." infinito su highlight in tabella
 - **Sintomo**: highlight su tabella → loading infinito + log `Tool result is missing for tool call tool_requestAddToNotes_*`.
@@ -232,7 +223,7 @@ Riorganizza la generazione e presentazione del laboratorio. Più piccoli stage i
 ## Scope
 - **6.a** Capire e documentare come oggi si decide il numero di sessioni (cerca in `services/openrouter/laboratory.ts` + `services/laboratory/state.ts`).
 - **6.b** Migliorare prompt "errori da evitare": rendere i messaggi non-ambigui (Giov segnala domande linguisticamente ambigue).
-- **6.c** Esempio guidato come ultimo punto della sezione "non dare troppi aiuti".
+- **6.c** Migliorare prompt di guida esercizio per "non dare troppi aiuti" oltre il minimo indispendabile metodologico, tipo togliere errori comuni. Gli studenti devono anche sbagliare.
 - **6.d** Pause attive: domande non linguisticamente ambigue (controllo prompt).
 
 ## Steps
@@ -246,7 +237,6 @@ Riorganizza la generazione e presentazione del laboratorio. Più piccoli stage i
 
 ## Open questions
 - **6.A** Vuoi che il bundling resti automatico o configurabile dall'utente?
-- **6.B** Hai esempi concreti di "domanda ambigua" da inserire nei test come anti-pattern?
 
 ---
 
@@ -279,27 +269,11 @@ Stage di feature varie sul library/projects.
 **Feature nuova grossa.** Va isolata in un PR proprio.
 
 ## Scope
-- Creare uno "skill" tipo `generateMindMap` invocabile da Gemini in un follow-up.
+- Creare uno "skill" tipo `generateVisualExample` invocabile da Gemini in un follow-up.
 - L'output va in una "window di artefatto" (componente nuovo).
 - Usa il modello "lezioni" (Pro/lento), non quello veloce.
 - L'artefatto è salvabile come nota.
-
-## Steps
-1. Definire il formato dati della mind map (es. `{nodes, edges}` JSON).
-2. Aggiungere prompt + servizio `services/openrouter/mindMap.ts`.
-3. Esporre come tool nel chat (cercare il dispatcher dei tool esistenti, riusare il pattern).
-4. Componente `components/workspace/artifacts/MindMapArtifact.tsx` con renderer (consiglio: react-flow o reaflow).
-5. Salvataggio nelle note: il render serializzato + dati grezzi.
-
-## Test
-- Test del prompt (snapshot).
-- Test della serializzazione/deserializzazione mappa.
-- Test che l'artefatto si salvi e ricarichi correttamente nelle note.
-
-## Open questions
-- **8.A** Renderer scelto? (suggerisco `react-flow`, già maturo).
-- **8.B** L'artefatto deve essere editabile manualmente o solo read-only?
-- **8.C** Va dentro la nota come embed o come allegato linkato?
+- E' lo stesso sistema che usa generazione lezioni per generare esempi
 
 ---
 
@@ -324,19 +298,6 @@ Esercitazioni laboratorio sparse a fine capitolo / dopo N competenze, invece che
 
 ---
 
-# Bug/issue addizionali rilevati durante l'analisi (da confermare)
-
-Trovati guardando lo `git status` e i file recenti:
-
-- **A.** `apps/web/services/openrouter/documentIndex.ts` cancellato + nuova cartella `documentIndex/`. Verificare che la migrazione sia completa e che non ci siano import rotti.
-- **B.** `apps/web/utils/dom/mediaQuery.ts` cancellato + nuovo `apps/web/utils/mediaQuery.ts`. Stessa verifica.
-- **C.** `apps/web/utils/text/clipText.ts` e `normalizeLineEndings.ts` cancellati, sostituiti da `apps/web/utils/text.ts`. Verificare import.
-- **D.** Nuovi file `sanitizePartialPages.ts` (sia backend che web) — duplicazione? Vedere se possono essere accorpati in uno shared.
-
-Questi vanno chiusi (FASE 0.h) o messi in un PR di pulizia separato. Il modello piccolo deve fare `npm run quality` e `npm test` per assicurarsi che non ci siano import rotti dopo i rename.
-
----
-
 # Regole per il modello esecutore (DeepSeek o simile)
 
 Da incollare nel prompt quando assegni una fase:
@@ -344,7 +305,7 @@ Da incollare nel prompt quando assegni una fase:
 > Stai eseguendo una fase della roadmap di Lumina Reader. Regole:
 > 1. **Leggi `docs/ARCHITECTURE.md`** prima di iniziare. Per domande su come moduli si collegano, usa `graphify query "<domanda>"` invece di grep.
 > 2. **Non andare oltre lo scope della fase.** Se vedi cose da sistemare fuori scope, scrivile in un commento del PR, non implementarle.
-> 3. **Test obbligatori**: ogni fase che tocca logica deve includere test. Se non aggiungi test, il PR viene rifiutato. Esegui `npm test` e `npm run quality` prima di chiudere.
+> 3. **Test obbligatori**: ogni fase che tocca logica deve includere test. Se non aggiungi test, il PR viene rifiutato. Esegui `npm test` e `npm run gate` prima di chiudere.
 > 4. **Open questions**: se ci sono `[NEEDS-ANSWER]` o "Open questions" non risolte nel piano, **fermati e chiedi**. Non assumere.
 > 5. **Bug fix**: senza un test di regressione che fallisce *prima* del fix e passa *dopo*, il fix non è completo.
 > 6. **Performance**: niente refactor "preventivi". Misura prima, ottimizza dopo, ri-misura.

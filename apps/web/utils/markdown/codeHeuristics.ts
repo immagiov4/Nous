@@ -30,9 +30,9 @@ const CODE_LIKE_INLINE_REGEX =
   /(#include\b|std::|->|=>|::|[{}[\];]|<=|>=|==|!=|\b(?:while|for|if|else|return|const|let|var|int|float|double|bool|char|void|class|struct|template|auto)\b)/;
 const CODE_DECLARATION_LINE_REGEX =
   /^(#include\b.+|using\s+namespace\b.+|template\s*<.+|(?:const|let|var|int|float|double|bool|char|void|auto|std::\w+|\w+(?:::\w+)*)[\s<].*[;{,]|}\s*;?)$/;
-const CODE_CALL_OR_SIGNATURE_LINE_REGEX = /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\(.+\)\s*[,;:]?\s*$/;
-const CODE_PARTIAL_SIGNATURE_START_REGEX = /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\([^)]*[,}]?\s*$/;
-const CODE_PARTIAL_SIGNATURE_END_REGEX = /^\s*[\w:<>~*&,-][\w\s.:<>~*&,-]*\)\s*:\s*$/;
+const CODE_CALL_OR_SIGNATURE_LINE_REGEX = /^\s*[\w:<>~*&,-][\w.:<>~*&,-]*\(.+\)\s*[,;:]?\s*$/;
+const CODE_PARTIAL_SIGNATURE_START_REGEX = /^\s*[\w:<>~*&,-][\w.:<>~*&,-]*\([^)]*[,}]?\s*$/;
+const CODE_PARTIAL_SIGNATURE_END_REGEX = /^\s*[\w:<>~*&,-][\w.:<>~*&,-]*\)\s*:\s*$/;
 const CODE_CONTROL_FLOW_LINE_REGEX =
   /^\s*[{}]\s*;?\s*$|^\s*}\s*else\b.*$|^\s*(?:if|else|for|while|switch|case|default|return|break|continue)\b.*$/;
 const ORPHANED_CODE_CONTINUATION_LINE_REGEX =

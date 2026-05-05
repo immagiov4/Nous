@@ -51,7 +51,7 @@ import {
 } from '../shared.ts';
 
 const MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS = 36_000;
-const PDF_ASSET_SESSION_TIMEOUT_MS = 20_000;
+const PDF_ASSET_SESSION_TIMEOUT_MS = 60_000;
 const LESSON_MARKDOWN_TRACE_PREVIEW_CHARS = 1600;
 
 class SoftTimeoutError extends Error {

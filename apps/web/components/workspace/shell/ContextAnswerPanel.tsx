@@ -64,15 +64,6 @@ const isRequestAddToNotesOutput = (value: unknown): value is RequestAddToNotesOu
   return typeof (value as Partial<RequestAddToNotesOutput>).approved === 'boolean';
 };
 
-const isSaveConversationNoteResult = (value: unknown): value is SaveConversationNoteResult => {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const candidate = value as Partial<SaveConversationNoteResult>;
-  return typeof candidate.saved === 'boolean' && typeof candidate.merged === 'boolean';
-};
-
 const isSaveConversationNoteToolInput = (
   value: unknown
 ): value is SaveConversationNoteToolInput => {
@@ -145,6 +136,11 @@ const toolCardClassName =
   'rounded-[1.4rem] border border-stone-200/90 bg-[#fbf7ef] px-4 py-3 text-sm text-stone-700 shadow-[0_12px_28px_-22px_rgba(46,34,16,0.55)] dark:border-stone-400/95 dark:bg-stone-700/90 dark:text-stone-200';
 const autoSubmittedInitialQuestionIds = new Set<string>();
 
+// If a requestAddToNotes tool stays in input-available without valid input,
+// show fallback buttons after this many ms and auto-reject after HARD_TIMEOUT_MS.
+const STUCK_TOOL_GRACE_MS = 2_000;
+const STUCK_TOOL_HARD_TIMEOUT_MS = 15_000;
+
 export default function ContextAnswerPanel({
   contextAnswer,
   contextAnswerPanelRef,
@@ -171,6 +167,12 @@ export default function ContextAnswerPanel({
     contextBefore: contextAnswer.contextBefore,
     selectedText: contextAnswer.selectedText,
   });
+
+  // Tracks when each requestAddToNotes part entered input-available without
+  // valid input, so we can show fallback buttons after GRACE and auto-reject
+  // after HARD_TIMEOUT.
+  const stuckToolTimestampsRef = useRef<Map<string, number>>(new Map());
+  const [expiredGraceTools, setExpiredGraceTools] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     selectionAnchorRef.current = {
@@ -348,7 +350,108 @@ export default function ContextAnswerPanel({
       annotate: false,
       webSearch: false,
     });
+    stuckToolTimestampsRef.current.clear();
+    setExpiredGraceTools(new Set());
   }, [contextAnswer.id]);
+
+  // Detect stuck requestAddToNotes parts (input-available without valid input)
+  // and schedule grace/hard fallback timers via a 1s polling interval.
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      const stuckTimestamps = stuckToolTimestampsRef.current;
+      const now = Date.now();
+
+      // Track new stuck parts from current messages
+      for (const message of messages) {
+        if (message.role !== 'assistant') {
+          continue;
+        }
+        for (const part of message.parts ?? []) {
+          if (
+            !isToolUIPart(part) ||
+            part.type !== 'tool-requestAddToNotes' ||
+            part.state !== 'input-available' ||
+            isRequestAddToNotesInput(part.input)
+          ) {
+            continue;
+          }
+
+          if (!stuckTimestamps.has(part.toolCallId)) {
+            stuckTimestamps.set(part.toolCallId, now);
+          }
+        }
+      }
+
+      // Identify active stuck parts
+      const activeStuckIds = new Set<string>();
+      for (const message of messages) {
+        if (message.role !== 'assistant') {
+          continue;
+        }
+        for (const part of message.parts ?? []) {
+          if (
+            !isToolUIPart(part) ||
+            part.type !== 'tool-requestAddToNotes' ||
+            part.state !== 'input-available' ||
+            isRequestAddToNotesInput(part.input)
+          ) {
+            continue;
+          }
+          activeStuckIds.add(part.toolCallId);
+        }
+      }
+
+      // Clean up resolved parts
+      for (const id of stuckTimestamps.keys()) {
+        if (!activeStuckIds.has(id)) {
+          stuckTimestamps.delete(id);
+        }
+      }
+
+      if (activeStuckIds.size === 0) {
+        return;
+      }
+
+      const graceIds = new Set<string>();
+      const hardIds = new Set<string>();
+
+      for (const [id, timestamp] of stuckTimestamps) {
+        const elapsed = now - timestamp;
+        if (elapsed >= STUCK_TOOL_HARD_TIMEOUT_MS) {
+          hardIds.add(id);
+        } else if (elapsed >= STUCK_TOOL_GRACE_MS) {
+          graceIds.add(id);
+        }
+      }
+
+      // Hard timeout: auto-reject
+      for (const id of hardIds) {
+        stuckTimestamps.delete(id);
+        addToolOutput({
+          tool: 'requestAddToNotes',
+          toolCallId: id,
+          output: { approved: false },
+        });
+      }
+
+      // Grace period: show fallback buttons (avoid set identity no-op)
+      if (graceIds.size > 0) {
+        setExpiredGraceTools(prev => {
+          const changed = Array.from(graceIds).some(id => !prev.has(id));
+          if (!changed) {
+            return prev;
+          }
+          const next = new Set(prev);
+          for (const id of graceIds) {
+            next.add(id);
+          }
+          return next;
+        });
+      }
+    }, 1_000);
+
+    return () => clearInterval(intervalId);
+  }, [messages, addToolOutput]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
   const hasActiveToolPreference = toolPreferences.annotate || toolPreferences.webSearch;
@@ -444,6 +547,27 @@ export default function ContextAnswerPanel({
                 Aggiungi alle note
               </button>
             </div>
+          ) : part.state === 'input-available' && expiredGraceTools.has(part.toolCallId) ? (
+            <div className="mt-3 space-y-2">
+              <div className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                Suggerimento non disponibile. Puoi riprovare.
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    void addToolOutput({
+                      tool: 'requestAddToNotes',
+                      toolCallId: part.toolCallId,
+                      output: { approved: false },
+                    })
+                  }
+                  className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
+                >
+                  No grazie
+                </button>
+              </div>
+            </div>
           ) : part.state === 'input-available' ? (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
               <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -454,7 +578,7 @@ export default function ContextAnswerPanel({
               <Check className="h-3.5 w-3.5" />
               <span>
                 {outputValue?.approved
-                  ? 'Richiesta approvata, sto salvando la nota.'
+                  ? 'Nota salvata.'
                   : 'Richiesta rifiutata, la conversazione continua senza salvare.'}
               </span>
             </div>
@@ -468,52 +592,7 @@ export default function ContextAnswerPanel({
     }
 
     if (part.type === 'tool-saveConversationNote' || part.type === 'tool-updateConversationNote') {
-      const outputValue = isSaveConversationNoteResult(part.output) ? part.output : undefined;
-      const isUpdateTool = part.type === 'tool-updateConversationNote';
-
-      return (
-        <div key={`${messageId}-${part.toolCallId}`} className={toolCardClassName}>
-          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-stone-900 dark:text-stone-100">
-            <StickyNote className="h-4 w-4" />
-            <span>{isUpdateTool ? 'Aggiornamento nota' : 'Salvataggio nota'}</span>
-          </div>
-
-          {part.state === 'input-available' ? (
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              <span>
-                {isUpdateTool
-                  ? 'Sto aggiornando la nota del passaggio corrente...'
-                  : 'Sto aggiungendo la nota alla lezione corrente...'}
-              </span>
-            </div>
-          ) : null}
-
-          {part.state === 'output-available' ? (
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
-                <Check className="h-3.5 w-3.5" />
-                <span>
-                  {isUpdateTool
-                    ? 'Nota aggiornata.'
-                    : `Nota salvata${outputValue?.merged ? " con unione dell'evidenziazione esistente." : '.'}`}
-                </span>
-              </div>
-              {outputValue?.resolvedText ? (
-                <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-                  Passaggio annotato: "{outputValue.resolvedText}"
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {part.state === 'output-error' ? (
-            <div className="rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
-              {part.errorText}
-            </div>
-          ) : null}
-        </div>
-      );
+      return null;
     }
 
     return null;
@@ -553,7 +632,8 @@ export default function ContextAnswerPanel({
             if (message.role === 'user') {
               return (
                 <div key={message.id} className="pt-2">
-                  <div className="border-l-2 border-orange-500 pl-3 font-serif text-base font-bold leading-[1.35] text-gray-900 dark:text-gray-100">
+                  <div className="relative py-2 pl-4 font-serif text-base font-bold leading-[1.35] text-gray-900 dark:text-gray-100">
+                    <span className="absolute bottom-2 left-0 top-2 w-0.5 rounded-full bg-orange-500" />
                     "{getUiMessageText(message)}"
                   </div>
                 </div>
