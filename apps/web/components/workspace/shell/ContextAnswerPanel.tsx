@@ -601,7 +601,7 @@ export default function ContextAnswerPanel({
   return (
     <div
       ref={contextAnswerPanelRef}
-      className={`fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-orange-100 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] animate-in slide-in-from-bottom-10 duration-500 dark:border-orange-900/30 dark:bg-zinc-800 ${
+      className={`fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] animate-in slide-in-from-bottom-10 duration-500 dark:border-zinc-700/60 dark:bg-zinc-800 ${
         isMobileViewport ? 'inset-x-3 bottom-24 top-24' : 'top-6 right-8'
       }`}
       style={isMobileViewport ? undefined : contextAnswerSize}

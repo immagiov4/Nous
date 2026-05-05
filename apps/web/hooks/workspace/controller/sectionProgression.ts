@@ -143,23 +143,26 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           return 'ignored-busy';
         }
 
-        const updatedPlan = {
-          ...currentPlan,
-          sections: currentPlan.sections.map(currentSection =>
-            currentSection.id === section.id
-              ? { ...currentSection, content, quiz: [], imageRefs: [], generatedVisuals: [] }
-              : currentSection
-          ),
-        };
+        domain.updateSection(section.id, section => ({
+          ...section,
+          content,
+          quiz: [],
+          imageRefs: [],
+          generatedVisuals: [],
+        }));
         const mergedDocumentAssets = mergeDocumentAssetsForPlan(
-          updatedPlan,
+          domain.learningPlan ?? currentPlan,
           currentDocumentAssets,
           null
         );
-        domain.setLearningPlan(updatedPlan);
         domain.setDocumentAssets(mergedDocumentAssets);
+        void projectLibrary.patchSectionLessonContent(section.id, {
+          content,
+          generatedVisuals: [],
+          imageRefs: [],
+          quiz: [],
+        });
         void projectLibrary.patchCurrentProject({
-          learningPlan: updatedPlan,
           documentAssets: mergedDocumentAssets,
           activeSectionId: section.id,
           state: AppState.READING,
@@ -196,23 +199,26 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           return 'ignored-busy';
         }
 
-        const updatedPlan = {
-          ...currentPlan,
-          sections: currentPlan.sections.map(currentSection =>
-            currentSection.id === section.id
-              ? { ...currentSection, content, quiz, imageRefs, generatedVisuals }
-              : currentSection
-          ),
-        };
+        domain.updateSection(section.id, section => ({
+          ...section,
+          content,
+          quiz,
+          imageRefs,
+          generatedVisuals,
+        }));
         const mergedDocumentAssets = mergeDocumentAssetsForPlan(
-          updatedPlan,
+          domain.learningPlan ?? currentPlan,
           currentDocumentAssets,
           nextDocumentAssets
         );
-        domain.setLearningPlan(updatedPlan);
         domain.setDocumentAssets(mergedDocumentAssets);
+        void projectLibrary.patchSectionLessonContent(section.id, {
+          content,
+          generatedVisuals,
+          imageRefs,
+          quiz,
+        });
         void projectLibrary.patchCurrentProject({
-          learningPlan: updatedPlan,
           documentAssets: mergedDocumentAssets,
           activeSectionId: section.id,
           state: AppState.READING,

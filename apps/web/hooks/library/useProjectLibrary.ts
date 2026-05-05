@@ -20,6 +20,7 @@ import {
 import { markSyncError, markSyncSaved, markSyncSaving } from '../../services/projects/syncState.ts';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
+  LearningSection,
   LibraryFolder,
   LibraryPlacement,
   LibraryTree,
@@ -290,6 +291,33 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       }
     },
     [currentProjectId, syncProjectMeta]
+  );
+
+  const patchSectionLessonContent = useCallback(
+    async (
+      sectionId: string,
+      patchValue: Pick<LearningSection, 'content' | 'generatedVisuals' | 'imageRefs' | 'quiz'>
+    ): Promise<void> => {
+      if (!currentProjectId) return;
+
+      const patch: Record<string, unknown> = {
+        section: { sectionId, ...patchValue },
+        updatedAt: timestampIso(),
+      };
+
+      try {
+        const meta = await projectRepositoryRef.current.patchProject(currentProjectId, patch);
+        syncProjectMeta(meta);
+        setStorageError(null);
+        lastPersistedSignatureRef.current = buildPersistenceSignature(domainStateRef.current);
+        void requestPersistentStorage();
+      } catch (error) {
+        const message =
+          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+        setStorageError(message);
+      }
+    },
+    [currentProjectId, requestPersistentStorage, syncProjectMeta]
   );
 
   const downloadBlob = useCallback((blob: Blob, filename: string) => {
@@ -576,6 +604,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     },
     saveCurrentProject,
     patchCurrentProject,
+    patchSectionLessonContent,
     patchSectionAnnotations,
     savedProjects,
     setCurrentProjectId,

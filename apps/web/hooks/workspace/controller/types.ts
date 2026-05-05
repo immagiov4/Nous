@@ -122,6 +122,10 @@ export interface WorkspaceProjectLibraryAdapter {
     annotations: unknown,
     content?: string
   ) => Promise<void>;
+  patchSectionLessonContent: (
+    sectionId: string,
+    patch: Pick<LearningSection, 'content' | 'generatedVisuals' | 'imageRefs' | 'quiz'>
+  ) => Promise<void>;
   savedProjects: SavedProjectMeta[];
   setCurrentProjectId: (projectId: string | null) => void;
   setProjectHydrated: (value: boolean) => void;

@@ -273,6 +273,14 @@ export class SqliteProjectStore implements ProjectStore {
             ? { annotations: sectionPatch.annotations }
             : {}),
           ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
+          ...(sectionPatch.generatedVisuals !== undefined
+            ? { generatedVisuals: sectionPatch.generatedVisuals }
+            : {}),
+          ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
+          ...(sectionPatch.generatedVisuals !== undefined
+            ? { generatedVisuals: sectionPatch.generatedVisuals }
+            : {}),
+          ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
           ...(sectionPatch.isCompleted !== undefined
             ? { isCompleted: sectionPatch.isCompleted }
             : {}),

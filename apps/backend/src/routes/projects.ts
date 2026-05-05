@@ -188,6 +188,8 @@ const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefin
     sectionId,
     annotations: Array.isArray(value.annotations) ? value.annotations : undefined,
     content: readOptionalString(value.content),
+    generatedVisuals: Array.isArray(value.generatedVisuals) ? value.generatedVisuals : undefined,
+    imageRefs: Array.isArray(value.imageRefs) ? value.imageRefs : undefined,
     isCompleted: typeof value.isCompleted === 'boolean' ? value.isCompleted : undefined,
     quiz: Array.isArray(value.quiz) ? value.quiz : undefined,
   };

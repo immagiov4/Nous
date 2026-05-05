@@ -4,6 +4,7 @@ import type {
   AppState,
   LaboratoryState,
   LearningPlan,
+  LearningSection,
   LibraryFolder,
   LibraryPlacement,
   PdfDocumentAssets,
@@ -692,6 +693,15 @@ export class IndexedDbProjectRepository implements ProjectRepository {
                   : {}),
                 ...(sectionPatch.content !== undefined
                   ? { content: sectionPatch.content as string }
+                  : {}),
+                ...(sectionPatch.generatedVisuals !== undefined
+                  ? {
+                      generatedVisuals:
+                        sectionPatch.generatedVisuals as LearningSection['generatedVisuals'],
+                    }
+                  : {}),
+                ...(sectionPatch.imageRefs !== undefined
+                  ? { imageRefs: sectionPatch.imageRefs as LearningSection['imageRefs'] }
                   : {}),
                 ...(sectionPatch.isCompleted !== undefined
                   ? { isCompleted: sectionPatch.isCompleted as boolean }

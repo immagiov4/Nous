@@ -361,6 +361,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       savedOverrides.push(overridesArg);
       return adapter.currentProjectId ? buildMeta(adapter.currentProjectId) : null;
     },
+    patchSectionLessonContent: async () => {},
     patchSectionAnnotations: async () => {},
     savedProjects: [],
     setCurrentProjectId: projectId => {

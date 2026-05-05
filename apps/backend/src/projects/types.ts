@@ -106,6 +106,8 @@ export interface SectionPatch {
   sectionId: string;
   annotations?: unknown[];
   content?: string;
+  generatedVisuals?: unknown[];
+  imageRefs?: unknown[];
   isCompleted?: boolean;
   quiz?: unknown[];
 }
