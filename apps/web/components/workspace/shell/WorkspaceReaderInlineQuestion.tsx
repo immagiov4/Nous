@@ -33,7 +33,7 @@ const getQuizOptionClassName = ({
     return 'border-transparent bg-gray-50 opacity-60 dark:bg-zinc-800';
   }
 
-  return 'border-gray-100 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700';
+  return 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-gray-300 dark:hover:bg-zinc-700';
 };
 
 export default function WorkspaceReaderInlineQuestion({
@@ -114,7 +114,7 @@ export default function WorkspaceReaderInlineQuestion({
               type="button"
               key={`${question.question}-${option}`}
               onClick={() => onSelectQuizAnswer(questionIndex, optionIndex)}
-              className={`flex w-full items-baseline gap-2 rounded-xl border-2 p-4 text-left text-base transition-all ${getQuizOptionClassName(
+              className={`flex w-full items-baseline gap-2 rounded-xl border p-4 text-left text-base transition-all ${getQuizOptionClassName(
                 {
                   correctIndex: question.correctIndex,
                   isAnswered,

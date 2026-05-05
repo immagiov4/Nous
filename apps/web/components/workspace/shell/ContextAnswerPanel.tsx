@@ -155,6 +155,16 @@ export default function ContextAnswerPanel({
 }: ContextAnswerPanelProps) {
   const [input, setInput] = useState('');
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
+  const [isChatScrolled, setIsChatScrolled] = useState(false);
+  const [isChatNotAtBottom, setIsChatNotAtBottom] = useState(false);
+  const handleChatScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const scrolled = el.scrollTop > 0;
+    const notAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight > 1;
+    setIsChatScrolled(scrolled);
+    setIsChatNotAtBottom(notAtBottom);
+  };
   const [toolPreferences, setToolPreferences] = useState<ContextChatToolPreferences>({
     annotate: false,
     webSearch: false,
@@ -623,12 +633,14 @@ export default function ContextAnswerPanel({
         </p>
       </div>
 
-      <div
-        ref={messagesContainerRef}
-        className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-2"
-      >
-        <div className="space-y-6 pb-5">
-          {visibleMessages.map(message => {
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleChatScroll}
+          className="custom-scrollbar absolute inset-0 overflow-y-auto overflow-x-hidden pr-2"
+        >
+          <div className="space-y-6 pb-5">
+            {visibleMessages.map(message => {
             if (message.role === 'user') {
               return (
                 <div key={message.id} className="pt-2">
@@ -673,11 +685,14 @@ export default function ContextAnswerPanel({
             </div>
           ) : null}
         </div>
+        </div>
       </div>
 
       <div className="relative mt-5 shrink-0 border-t border-stone-100 pt-4 dark:border-zinc-700/60">
-        {/* Fade-out gradient at the top of the composer area */}
-        <div className="pointer-events-none absolute -top-8 left-0 right-0 z-10 h-8 bg-gradient-to-b from-transparent to-white dark:to-zinc-800" />
+        <div
+          className="pointer-events-none absolute -top-12 left-0 right-0 z-10 h-12 bg-gradient-to-b from-transparent to-white transition-opacity duration-200 dark:to-zinc-800"
+          style={{ opacity: isChatNotAtBottom ? 1 : 0 }}
+        />
         <ChatTextComposer
           value={input}
           onChange={setInput}

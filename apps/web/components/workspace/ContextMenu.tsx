@@ -81,9 +81,11 @@ const ContextMenu = ({
   const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(
     type === 'annotation' ? annotationNote.trim().length === 0 : false
   );
+  const [isNotePreviewScrolled, setIsNotePreviewScrolled] = useState(false);
   const askInteractionLockRef = useRef(false);
   const highlightInteractionLockRef = useRef(false);
   const previousMenuKeyRef = useRef(`${type}:${selectedText}:${annotationNote}`);
+  const notePreviewRef = useRef<HTMLDivElement>(null);
   const isMobileSheet = placement === 'mobile-sheet';
   const isAnnotationMode = type === 'annotation';
   const hasSavedAnnotationNote = annotationNote.trim().length > 0;
@@ -393,14 +395,35 @@ const ContextMenu = ({
       }`;
 
   const notePreviewClassName =
-    'max-h-52 overflow-y-auto rounded-[1.4rem] border border-stone-200/80 bg-white px-4 py-3 text-sm leading-6 text-stone-800 dark:border-stone-400/95 dark:bg-stone-700/80 dark:text-stone-100';
+    'custom-scrollbar max-h-52 overflow-y-auto px-4 py-3 text-sm leading-6 text-stone-800 dark:text-stone-100';
+
+  const handleNotePreviewScroll = () => {
+    const el = notePreviewRef.current;
+    if (!el) {
+      return;
+    }
+    setIsNotePreviewScrolled(el.scrollTop > 0);
+  };
 
   const renderRenderedNotePreview = () => (
-    <div className={notePreviewClassName}>
-      <MarkdownRenderer
-        content={normalizedNotePreview}
-        isDarkMode={isDarkMode}
-        className="prose-sm text-stone-800 [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 [&_table]:text-sm dark:text-stone-100"
+    <div className="relative">
+      <div
+        ref={notePreviewRef}
+        onScroll={handleNotePreviewScroll}
+        className={notePreviewClassName}
+      >
+        <MarkdownRenderer
+          content={normalizedNotePreview}
+          isDarkMode={isDarkMode}
+          className="prose-sm text-stone-800 [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 [&_table]:text-sm dark:text-stone-100 dark:[&_p]:text-stone-100 dark:[&_li]:text-stone-100 [&_strong]:dark:text-amber-50 [&_code]:dark:text-amber-50 [&_h1]:dark:text-amber-50 [&_h2]:dark:text-amber-50 [&_h3]:dark:text-amber-50 [&_a]:dark:text-orange-400 [&_a]:dark:decoration-orange-400/40"
+        />
+      </div>
+      <div
+        className="pointer-events-none absolute left-0 right-0 top-0 h-6 transition-opacity duration-200"
+        style={{
+          opacity: isNotePreviewScrolled ? 1 : 0,
+          background: `linear-gradient(to bottom, ${isDarkMode ? '#44403c' : '#fbf7ef'}, transparent)`,
+        }}
       />
     </div>
   );
@@ -408,32 +431,36 @@ const ContextMenu = ({
   const renderNoteEditor = () => (
     <div className={noteEditorClassName} aria-hidden={!isNoteEditorOpen && !isAnnotationMode}>
       <div className={isMobileSheet ? 'space-y-3 px-0 py-0' : 'space-y-3 px-4 py-3'}>
-        <div className="space-y-1.5">
-          <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-stone-900 text-center dark:text-stone-100">
             {isAnnotationMode
               ? 'Nota associata al passaggio evidenziato'
               : 'Aggiungi una nota a questa selezione'}
           </p>
-          <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-            "{noteSelectionPreview}"
-          </p>
+          {!isAnnotationMode ? (
+            <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
+              "{noteSelectionPreview}"
+            </p>
+          ) : null}
         </div>
 
         {isAnnotationPreviewMode ? (
           renderRenderedNotePreview()
         ) : (
-          <textarea
-            value={noteInput}
-            onChange={event => setNoteInput(event.target.value)}
-            placeholder={
-              isAnnotationMode
-                ? 'Scrivi, aggiorna o svuota la nota...'
-                : 'Scrivi la nota che vuoi lasciare su questo passaggio...'
-            }
-            rows={4}
-            className="w-full resize-none rounded-[1.4rem] border border-stone-200/80 bg-white px-4 py-3 text-sm leading-6 text-stone-800 outline-none transition-colors placeholder:text-stone-400 focus:border-stone-300 dark:border-stone-400/95 dark:bg-stone-700/80 dark:text-stone-100 dark:placeholder:text-stone-300 dark:focus:border-stone-400"
-            disabled={isLoading}
-          />
+          <div className="rounded-[1.4rem] border border-stone-200/80 p-1.5 transition-colors focus-within:border-stone-300 dark:border-stone-400/95 dark:focus-within:border-stone-400">
+            <textarea
+              value={noteInput}
+              onChange={event => setNoteInput(event.target.value)}
+              placeholder={
+                isAnnotationMode
+                  ? 'Scrivi, aggiorna o svuota la nota...'
+                  : 'Scrivi la nota che vuoi lasciare su questo passaggio...'
+              }
+              rows={8}
+              className="custom-scrollbar w-full resize-none rounded-[1.4rem] bg-transparent px-4 py-3 text-sm leading-6 text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-300"
+              disabled={isLoading}
+            />
+          </div>
         )}
 
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -465,7 +492,7 @@ const ContextMenu = ({
               className="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600 dark:hover:text-stone-100"
             >
               <X className="h-3.5 w-3.5" />
-              <span>Rimuovi evidenziazione</span>
+              <span>Rimuovi</span>
             </button>
           ) : null}
 
