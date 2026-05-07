@@ -1,7 +1,7 @@
 import './env.js';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-const DEFAULT_CONTEXT_CHAT_MODEL = 'google/gemini-3.1-flash-lite-preview';
+const DEFAULT_CONTEXT_CHAT_MODEL = 'google/gemini-3.1-flash-lite';
 export const CONTEXT_CHAT_MODEL = process.env.MODEL_CONTEXT || DEFAULT_CONTEXT_CHAT_MODEL;
 
 export const requireOpenRouterApiKey = () => {

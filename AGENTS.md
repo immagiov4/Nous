@@ -23,6 +23,22 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 - Remove dead code and duplicate logic introduced by the change.
 - Keep names specific and semantically clear.
 
+## Product Manifesto
+
+This project has a living product/design manifesto in GitHub issue #23:
+`Manifesto strategico e di design di Nous Reader`.
+
+Before making or prioritizing product, UX, AI-behavior, business-strategy, or
+major architecture decisions, read the manifesto and align the work with it.
+Treat it as the strategic north star for what Nous Reader is and is not:
+an ADHD-friendly, step-by-step learning environment for understanding whole
+subjects, not a generic chat app, file drive, or content-creation suite.
+
+The manifesto does not override code reality or explicit developer direction,
+but it should guide tradeoffs around learning flow, mobile usability,
+multimodality, pedagogical tone, Deep Research, pricing assumptions, and whether
+a feature is core or better left to external tools.
+
 ## Source Of Truth — Project Layer
 
 - Treat code and local templates as the source of truth when docs lag.
@@ -292,4 +308,3 @@ Before considering a change complete, verify that:
 10. No dead imports, variables, helpers, or comments remain.
 11. Relevant tests, checks, or manual validation steps were run or documented.
 12. No state-changing version control command was executed without approval.
-

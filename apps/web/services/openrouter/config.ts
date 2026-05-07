@@ -9,7 +9,7 @@ export const MAX_OUTPUT_TOKENS = Number.parseInt(
   process.env.MAX_OUTPUT_TOKENS || String(DEFAULT_MAX_OUTPUT_TOKENS),
   10
 );
-const DEFAULT_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite-preview';
+const DEFAULT_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite';
 
 export const MODEL_FLASH = process.env.MODEL_FLASH || 'openai/gpt-5.4-nano';
 export const MODEL_REASONING = process.env.MODEL_REASONING || 'openai/gpt-5.4-mini';
