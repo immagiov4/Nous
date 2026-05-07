@@ -5,7 +5,16 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from 'ai';
-import { Check, Globe, LoaderCircle, NotebookPen, Plus, StickyNote, X } from 'lucide-react';
+import {
+  Check,
+  Globe,
+  LoaderCircle,
+  NotebookPen,
+  Plus,
+  Sparkles,
+  StickyNote,
+  X,
+} from 'lucide-react';
 import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -15,8 +24,10 @@ import {
   useState,
 } from 'react';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
+import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
+import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
-import type { LearningArtifactRenderPayload } from '../../../types.ts';
+import type { LearningArtifactRenderPayload, LessonGeneratedVisual } from '../../../types.ts';
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
 import {
   filterLearningArtifactPayloads,
@@ -40,6 +51,7 @@ import type {
 } from './types.ts';
 
 interface RequestAddToNotesInput {
+  artifactIds?: string[];
   noteDraft: string;
   rationale: string;
   selectedTextDraft: string;
@@ -63,6 +75,10 @@ interface CurrentLessonArtifactsToolInput {
   renderMode?: 'attachments' | 'metadata-only';
 }
 
+interface GenerateCurrentLessonArtifactInput {
+  prompt: string;
+}
+
 const isRequestAddToNotesInput = (value: unknown): value is RequestAddToNotesInput => {
   if (!value || typeof value !== 'object') {
     return false;
@@ -72,7 +88,10 @@ const isRequestAddToNotesInput = (value: unknown): value is RequestAddToNotesInp
   return (
     typeof candidate.noteDraft === 'string' &&
     typeof candidate.rationale === 'string' &&
-    typeof candidate.selectedTextDraft === 'string'
+    typeof candidate.selectedTextDraft === 'string' &&
+    (candidate.artifactIds === undefined ||
+      (Array.isArray(candidate.artifactIds) &&
+        candidate.artifactIds.every(item => typeof item === 'string')))
   );
 };
 
@@ -106,6 +125,19 @@ const readCurrentLessonArtifactsToolInput = (value: unknown): CurrentLessonArtif
   };
 };
 
+const readGenerateCurrentLessonArtifactInput = (
+  value: unknown
+): GenerateCurrentLessonArtifactInput | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<GenerateCurrentLessonArtifactInput>;
+  return typeof candidate.prompt === 'string' && candidate.prompt.trim()
+    ? { prompt: candidate.prompt.trim() }
+    : null;
+};
+
 interface ContextChatTools {
   [key: string]: {
     input: unknown;
@@ -116,6 +148,10 @@ interface ContextChatTools {
     output: RequestAddToNotesOutput;
   };
   getCurrentLessonArtifacts: {
+    input: unknown;
+    output: unknown;
+  };
+  generateCurrentLessonArtifact: {
     input: unknown;
     output: unknown;
   };
@@ -153,6 +189,11 @@ interface ContextAnswerPanelProps {
   onUpdateConversationNote: (
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
+  /** Saves a generated visual artifact directly as a lesson-level annotation. */
+  onSaveArtifactToLesson?: (
+    visual: LessonGeneratedVisual,
+    artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
+  ) => Promise<void>;
 }
 
 const toolCardClassName =
@@ -176,6 +217,7 @@ export default function ContextAnswerPanel({
   preferredContextModel,
   onSaveConversationNote,
   onUpdateConversationNote,
+  onSaveArtifactToLesson,
 }: ContextAnswerPanelProps) {
   const [input, setInput] = useState('');
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
@@ -191,11 +233,18 @@ export default function ContextAnswerPanel({
   };
   const [toolPreferences, setToolPreferences] = useState<ContextChatToolPreferences>({
     annotate: false,
+    generateArtifacts: false,
     webSearch: false,
   });
   const [artifactPayloadsByToolCallId, setArtifactPayloadsByToolCallId] = useState<
     Record<string, LearningArtifactRenderPayload[]>
   >({});
+  const [generatedVisualsByArtifactId, setGeneratedVisualsByArtifactId] = useState<
+    Record<string, LessonGeneratedVisual>
+  >({});
+  const [generatingArtifactToolCallIds, setGeneratingArtifactToolCallIds] = useState<Set<string>>(
+    new Set()
+  );
   const hasSubmittedInitialQuestionRef = useRef(false);
   const toolMenuRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -209,6 +258,7 @@ export default function ContextAnswerPanel({
   // valid input, so we can show fallback buttons after GRACE and auto-reject
   // after HARD_TIMEOUT.
   const stuckToolTimestampsRef = useRef<Map<string, number>>(new Map());
+  const latestGeneratedArtifactIdRef = useRef<string | null>(null);
   const [expiredGraceTools, setExpiredGraceTools] = useState<Set<string>>(new Set());
   const [processingNoteToolCallIds, setProcessingNoteToolCallIds] = useState<Set<string>>(
     new Set()
@@ -311,8 +361,104 @@ export default function ContextAnswerPanel({
           },
         });
       }
+
+      if (toolCall.toolName === 'generateCurrentLessonArtifact') {
+        const artifactInput = readGenerateCurrentLessonArtifactInput(toolCall.input);
+        const currentState = latestRequestStateRef.current;
+
+        if (
+          !artifactInput ||
+          !contextAnswer.projectId ||
+          !contextAnswer.lessonId ||
+          !currentState?.lessonTitle
+        ) {
+          void addToolOutput({
+            tool: 'generateCurrentLessonArtifact',
+            toolCallId: toolCall.toolCallId,
+            output: {
+              artifact: null,
+              error: 'Non ho abbastanza contesto per generare un artefatto su questa lezione.',
+            },
+          });
+          return;
+        }
+
+        setGeneratingArtifactToolCallIds(prev => {
+          const next = new Set(prev);
+          next.add(toolCall.toolCallId);
+          return next;
+        });
+
+        let draft: GeneratedLessonArtifactDraft | null = null;
+        try {
+          draft = await generateLessonArtifactDraft({
+            contextAfter: currentState.contextAfter,
+            contextBefore: currentState.contextBefore,
+            generationNotes: undefined,
+            lesson: {
+              id: contextAnswer.lessonId,
+              title: currentState.lessonTitle,
+              description: currentState.lessonDescription || '',
+              isCompleted: false,
+              type: 'core',
+              content: currentState.lessonContent || '',
+            },
+            projectId: contextAnswer.projectId,
+            projectTitle: contextAnswer.projectTitle || 'Corso',
+            prompt: artifactInput.prompt,
+            selectedText: currentState.selectedText,
+          });
+        } finally {
+          setGeneratingArtifactToolCallIds(prev => {
+            if (!prev.has(toolCall.toolCallId)) return prev;
+            const next = new Set(prev);
+            next.delete(toolCall.toolCallId);
+            return next;
+          });
+        }
+
+        if (!draft) {
+          void addToolOutput({
+            tool: 'generateCurrentLessonArtifact',
+            toolCallId: toolCall.toolCallId,
+            output: {
+              artifact: null,
+              error:
+                'Non sono riuscito a generare un artefatto visuale utile per questa richiesta.',
+            },
+          });
+          return;
+        }
+
+        setGeneratedVisualsByArtifactId(currentVisuals => ({
+          ...currentVisuals,
+          [draft.artifactId]: draft.visual,
+        }));
+        latestGeneratedArtifactIdRef.current = draft.artifactId;
+        setArtifactPayloadsByToolCallId(currentPayloads => ({
+          ...currentPayloads,
+          [toolCall.toolCallId]: [draft.payload],
+        }));
+        void addToolOutput({
+          tool: 'generateCurrentLessonArtifact',
+          toolCallId: toolCall.toolCallId,
+          output: {
+            artifact: draft.payload.summary,
+            artifactId: draft.artifactId,
+            renderedArtifactCount: 1,
+          },
+        });
+      }
     },
   });
+
+  const artifactPayloadsById = useMemo(() => {
+    const payloads = [
+      ...currentLessonArtifactPayloads,
+      ...Object.values(artifactPayloadsByToolCallId).flat(),
+    ];
+    return new Map(payloads.map(payload => [payload.summary.id, payload]));
+  }, [artifactPayloadsByToolCallId, currentLessonArtifactPayloads]);
 
   useEffect(() => {
     const initialQuestion = contextAnswer.initialQuestion.trim();
@@ -358,8 +504,12 @@ export default function ContextAnswerPanel({
     hasSubmittedInitialQuestionRef.current = false;
     setIsToolMenuOpen(false);
     setArtifactPayloadsByToolCallId({});
+    setGeneratedVisualsByArtifactId({});
+    latestGeneratedArtifactIdRef.current = null;
+    setGeneratingArtifactToolCallIds(new Set());
     setToolPreferences({
       annotate: false,
+      generateArtifacts: false,
       webSearch: false,
     });
     stuckToolTimestampsRef.current.clear();
@@ -397,9 +547,31 @@ export default function ContextAnswerPanel({
     try {
       let lastResult: SaveConversationNoteResult | null = null;
 
+      const noteArtifactIds =
+        inputValue.artifactIds && inputValue.artifactIds.length > 0
+          ? inputValue.artifactIds
+          : latestGeneratedArtifactIdRef.current
+            ? [latestGeneratedArtifactIdRef.current]
+            : [];
       const candidates = buildConversationNoteSaveCandidates({
         anchor: selectionAnchorRef.current,
         toolInput: {
+          artifactRefs: noteArtifactIds.flatMap(artifactId => {
+            const payload = artifactPayloadsById.get(artifactId);
+            return payload
+              ? [
+                  {
+                    artifactId,
+                    kind: payload.summary.kind,
+                    title: payload.summary.title,
+                  },
+                ]
+              : [];
+          }),
+          generatedVisuals: noteArtifactIds.flatMap(artifactId => {
+            const visual = generatedVisualsByArtifactId[artifactId];
+            return visual ? [visual] : [];
+          }),
           note: inputValue.noteDraft,
           selectedText: inputValue.selectedTextDraft,
         },
@@ -446,6 +618,95 @@ export default function ContextAnswerPanel({
         next.delete(toolCallId);
         return next;
       });
+    }
+  };
+
+  const handleSaveGeneratedArtifact = async (artifactId: string): Promise<void> => {
+    const payload = artifactPayloadsById.get(artifactId);
+    if (!payload || !('visual' in payload)) return;
+
+    const visual = generatedVisualsByArtifactId[artifactId];
+    if (!visual) return;
+
+    const artifactRef = {
+      artifactId,
+      kind: 'generated-visual',
+      title: payload.summary.title,
+    } as const;
+    const currentState = latestRequestStateRef.current;
+    const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
+    const runMutation = hasExistingNote ? onUpdateConversationNote : onSaveConversationNote;
+    const candidates = buildConversationNoteSaveCandidates({
+      anchor: selectionAnchorRef.current,
+      toolInput: {
+        artifactRefs: [artifactRef],
+        generatedVisuals: [visual],
+        note: currentState?.attachedAnnotationNote || '',
+        selectedText: selectionAnchorRef.current.selectedText,
+      },
+    });
+
+    for (const candidate of candidates) {
+      const result = await runMutation(candidate);
+      if (result.saved) {
+        return;
+      }
+    }
+
+    if (onSaveArtifactToLesson) {
+      await onSaveArtifactToLesson(visual, artifactRef);
+    }
+  };
+
+  const handleRegenerateArtifact = (artifactId: string) => {
+    const payload = artifactPayloadsById.get(artifactId);
+    if (!payload) return;
+
+    // Remove the old artifact payload so the UI shows it as discarded,
+    // then re-trigger generation via a follow-up message.
+    setArtifactPayloadsByToolCallId(currentPayloads => {
+      const next = { ...currentPayloads };
+      for (const [key, payloads] of Object.entries(next)) {
+        next[key] = payloads.filter(p => p.summary.id !== artifactId);
+        if (next[key].length === 0) {
+          delete next[key];
+        }
+      }
+      return next;
+    });
+    setGeneratedVisualsByArtifactId(currentVisuals => {
+      const next = { ...currentVisuals };
+      delete next[artifactId];
+      return next;
+    });
+    if (latestGeneratedArtifactIdRef.current === artifactId) {
+      latestGeneratedArtifactIdRef.current = null;
+    }
+
+    // Send a follow-up message asking to regenerate
+    void sendMessage({
+      text: `Rigenera l'artefatto "${payload.summary.title}" con le stesse specifiche ma con un layout diverso.`,
+    });
+  };
+
+  const handleDiscardArtifact = (artifactId: string) => {
+    setArtifactPayloadsByToolCallId(currentPayloads => {
+      const next = { ...currentPayloads };
+      for (const [key, payloads] of Object.entries(next)) {
+        next[key] = payloads.filter(p => p.summary.id !== artifactId);
+        if (next[key].length === 0) {
+          delete next[key];
+        }
+      }
+      return next;
+    });
+    setGeneratedVisualsByArtifactId(currentVisuals => {
+      const next = { ...currentVisuals };
+      delete next[artifactId];
+      return next;
+    });
+    if (latestGeneratedArtifactIdRef.current === artifactId) {
+      latestGeneratedArtifactIdRef.current = null;
     }
   };
 
@@ -549,7 +810,8 @@ export default function ContextAnswerPanel({
   }, [messages, addToolOutput]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
-  const hasActiveToolPreference = toolPreferences.annotate || toolPreferences.webSearch;
+  const hasActiveToolPreference =
+    toolPreferences.annotate || toolPreferences.generateArtifacts || toolPreferences.webSearch;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages.length triggers scroll on new arrival
   useEffect(() => {
@@ -586,6 +848,11 @@ export default function ContextAnswerPanel({
       const outputValue = isRequestAddToNotesOutput(part.output) ? part.output : undefined;
       const isProcessing = processingNoteToolCallIds.has(part.toolCallId);
       const hasExistingNote = Boolean(contextAnswer.attachedAnnotationNote?.trim());
+      const noteArtifactPayloads =
+        inputValue?.artifactIds?.flatMap(artifactId => {
+          const payload = artifactPayloadsById.get(artifactId);
+          return payload ? [payload] : [];
+        }) || [];
       const cardTitle = hasExistingNote
         ? 'Vuoi aggiornare la nota collegata?'
         : 'Vuoi aggiungerlo alle note?';
@@ -649,6 +916,11 @@ export default function ContextAnswerPanel({
               <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700 dark:text-stone-200">
                 {inputValue.noteDraft}
               </p>
+              {noteArtifactPayloads.length > 0 ? (
+                <div className="pt-1">
+                  <ChatArtifactRenderer artifacts={noteArtifactPayloads} isDarkMode={isDarkMode} />
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -709,11 +981,15 @@ export default function ContextAnswerPanel({
       );
     }
 
-    if (part.type === 'tool-getCurrentLessonArtifacts') {
+    if (
+      part.type === 'tool-getCurrentLessonArtifacts' ||
+      part.type === 'tool-generateCurrentLessonArtifact'
+    ) {
       const shouldRenderAttachments =
-        part.output &&
-        typeof part.output === 'object' &&
-        (part.output as { renderMode?: unknown }).renderMode === 'attachments';
+        part.type === 'tool-generateCurrentLessonArtifact' ||
+        (part.output &&
+          typeof part.output === 'object' &&
+          (part.output as { renderMode?: unknown }).renderMode === 'attachments');
       if (!shouldRenderAttachments) {
         return null;
       }
@@ -729,6 +1005,7 @@ export default function ContextAnswerPanel({
           .map(artifact => (typeof artifact.id === 'string' ? artifact.id : ''))
           .filter(Boolean)
       );
+      const isGenerating = generatingArtifactToolCallIds.has(part.toolCallId);
       const artifactPayloads =
         artifactPayloadsByToolCallId[part.toolCallId] ||
         (outputArtifactIds.size > 0
@@ -736,11 +1013,26 @@ export default function ContextAnswerPanel({
               outputArtifactIds.has(artifact.summary.id)
             )
           : []);
+      // For generateCurrentLessonArtifact, treat any "tool waiting for output"
+      // state as loading too — the React batching after onToolCall can otherwise
+      // delay the skeleton until the slow draft call completes, leaving the user
+      // staring at an empty chat for several seconds.
+      const isAwaitingArtifactOutput =
+        part.type === 'tool-generateCurrentLessonArtifact' &&
+        (part.state === 'input-streaming' || part.state === 'input-available');
       return (
         <ChatArtifactRenderer
           key={`${messageId}-${part.toolCallId}`}
           artifacts={artifactPayloads}
           isDarkMode={isDarkMode}
+          isLoading={(isGenerating || isAwaitingArtifactOutput) && artifactPayloads.length === 0}
+          onDiscardArtifact={handleDiscardArtifact}
+          onRegenerateArtifact={handleRegenerateArtifact}
+          onSaveArtifact={
+            part.type === 'tool-generateCurrentLessonArtifact'
+              ? handleSaveGeneratedArtifact
+              : undefined
+          }
         />
       );
     }
@@ -935,6 +1227,39 @@ export default function ContextAnswerPanel({
                       </span>
                     </span>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setToolPreferences(currentPreferences => ({
+                        ...currentPreferences,
+                        generateArtifacts: !currentPreferences.generateArtifacts,
+                      }))
+                    }
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-stone-100/80 dark:hover:bg-stone-700/80"
+                    role="menuitemcheckbox"
+                    aria-checked={toolPreferences.generateArtifacts}
+                  >
+                    <span
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                        toolPreferences.generateArtifacts
+                          ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
+                          : 'border-stone-300 text-transparent dark:border-zinc-500'
+                      }`}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
+                        <Sparkles className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                        Genera artefatti visuali
+                      </span>
+                      <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                        Crea automaticamente mappe, grafici, diagrammi e widget per visualizzare i
+                        concetti del follow-up.
+                      </span>
+                    </span>
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -950,6 +1275,12 @@ export default function ContextAnswerPanel({
               <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
                 <NotebookPen className="h-3.5 w-3.5" />
                 Annota attivo
+              </span>
+            ) : null}
+            {toolPreferences.generateArtifacts ? (
+              <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
+                <Sparkles className="h-3.5 w-3.5" />
+                Artefatti visuali attivi
               </span>
             ) : null}
             {toolPreferences.webSearch ? (

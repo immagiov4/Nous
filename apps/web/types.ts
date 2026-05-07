@@ -80,6 +80,7 @@ export interface LibraryContextRef {
 export interface HomeChatToolPreferences {
   addingAssessmentDetails?: boolean;
   attachedContextRefs?: LibraryContextRef[];
+  generateArtifacts?: boolean;
   mode: HomeChatMode;
   newCourse: boolean;
   webSearch?: boolean;
@@ -442,7 +443,17 @@ export interface HorizontalViewportBounds {
 
 export type ContextMenuPlacement = 'desktop-floating' | 'mobile-sheet';
 
+export type SectionAnnotationAnchor = { kind: 'lesson' } | { kind: 'selection' };
+
+export interface SectionAnnotationArtifactRef {
+  artifactId: string;
+  kind: LearningArtifactKind;
+  title?: string;
+}
+
 export interface SectionAnnotation {
+  anchor?: SectionAnnotationAnchor;
+  artifactRefs?: SectionAnnotationArtifactRef[];
   id: string;
   note: string;
   createdAt: string;
@@ -468,6 +479,7 @@ export interface SelectionContextMenuState extends BaseContextMenuState {
 export interface AnnotationContextMenuState extends BaseContextMenuState {
   type: 'annotation';
   annotationId: string;
+  annotationArtifactRefs?: SectionAnnotationArtifactRef[];
   annotationNote: string;
 }
 

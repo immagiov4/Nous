@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import ContextMenu from '../../../components/workspace/ContextMenu.tsx';
+import type { LearningArtifactRenderPayload } from '../../../types.ts';
 
 const buildProps = () => ({
   anchorX: 240,
@@ -19,6 +20,26 @@ const buildProps = () => ({
   selectedText: 'Testo selezionato molto importante',
   type: 'selection' as const,
 });
+
+const annotationArtifact: LearningArtifactRenderPayload = {
+  summary: {
+    id: 'visual-draft-1',
+    kind: 'generated-visual',
+    lessonId: 'section-1',
+    lessonTitle: 'Lezione test',
+    previewMode: 'chip-only',
+    projectId: 'project-1',
+    projectTitle: 'Corso test',
+    title: 'Mappa salvata',
+  },
+  visual: {
+    code: '<div>Mappa salvata</div>',
+    createdAt: '2026-05-05T10:00:00.000Z',
+    id: 'visual-draft-1',
+    kind: 'html',
+    title: 'Mappa salvata',
+  },
+};
 
 describe('ContextMenu', () => {
   beforeEach(() => {
@@ -179,6 +200,56 @@ describe('ContextMenu', () => {
     await user.click(screen.getByRole('button', { name: 'Salva' }));
 
     expect(props.onSaveNote).toHaveBeenCalledWith('');
+  });
+
+  test('renders saved annotation artifacts in preview mode', () => {
+    const onDetachArtifactFromAnnotation = vi.fn();
+    const props = {
+      ...buildProps(),
+      annotationArtifactRefs: [
+        {
+          artifactId: 'visual-draft-1',
+          kind: 'generated-visual' as const,
+          title: 'Mappa salvata',
+        },
+      ],
+      annotationNote: '',
+      artifactPayloads: [annotationArtifact],
+      onDetachArtifactFromAnnotation,
+      type: 'annotation' as const,
+    };
+
+    render(<ContextMenu {...props} />);
+
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Modifica' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Apri Mappa salvata/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Rimuovi Mappa salvata dalla nota/i }));
+    expect(onDetachArtifactFromAnnotation).toHaveBeenCalledWith('visual-draft-1');
+    expect(screen.queryByRole('button', { name: /Apri Mappa salvata/i })).not.toBeInTheDocument();
+  });
+
+  test('can attach an existing artifact to an annotation note', () => {
+    const onAttachArtifactToAnnotation = vi.fn();
+    const props = {
+      ...buildProps(),
+      annotationNote: '',
+      artifactPayloads: [annotationArtifact],
+      onAttachArtifactToAnnotation,
+      type: 'annotation' as const,
+    };
+
+    render(<ContextMenu {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Allega dagli artefatti/i }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Allega Mappa salvata alla nota/i }));
+
+    expect(onAttachArtifactToAnnotation).toHaveBeenCalledWith({
+      artifactId: 'visual-draft-1',
+      kind: 'generated-visual',
+      title: 'Mappa salvata',
+    });
+    expect(screen.getByRole('button', { name: /Apri Mappa salvata/i })).toBeInTheDocument();
   });
 
   test('allows removing an annotation directly from preview mode', async () => {

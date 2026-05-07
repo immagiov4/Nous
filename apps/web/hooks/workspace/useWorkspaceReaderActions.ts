@@ -8,15 +8,20 @@ import type {
   ContextMenuState,
   LearningPlan,
   LearningSection,
+  LessonGeneratedVisual,
   PdfTextIndex,
   ProjectSource,
+  SectionAnnotationArtifactRef,
 } from '../../types.ts';
 import { buildContextSourceMaterial } from '../../utils/context/sourceMaterial.ts';
 import {
   applySectionAnnotation,
+  createLessonSectionAnnotation,
   findSectionAnnotationForSelection,
   removeSectionAnnotation,
+  removeSectionAnnotationArtifactRef,
   updateSectionAnnotationNote,
+  upsertSectionAnnotationArtifactRefs,
 } from '../../utils/learning/sectionAnnotations.ts';
 
 interface UseWorkspaceReaderActionsArgs {
@@ -46,7 +51,10 @@ interface UseWorkspaceReaderActionsArgs {
     initialQuestion: string;
     lessonContent?: string;
     lessonDescription?: string;
+    lessonId?: string;
     lessonTitle?: string;
+    projectId?: string;
+    projectTitle?: string;
     selectedText: string;
     sourceKind?: ProjectSource['kind'];
     sourceMaterial?: string;
@@ -56,8 +64,10 @@ interface UseWorkspaceReaderActionsArgs {
   patchSectionAnnotations: (
     sectionId: string,
     annotations: unknown,
-    content?: string
+    content?: string,
+    generatedVisuals?: LessonGeneratedVisual[]
   ) => Promise<void>;
+  projectId: string | null;
   regenerateActiveSection: () => Promise<unknown>;
   sectionContent: string;
   setIsMobileSidebarOpen: (value: boolean) => void;
@@ -80,6 +90,19 @@ const clearNativeSelection = () => {
   window.getSelection()?.removeAllRanges();
 };
 
+const mergeGeneratedVisuals = (
+  existingVisuals: LessonGeneratedVisual[] | undefined,
+  addedVisuals: LessonGeneratedVisual[] | undefined
+): LessonGeneratedVisual[] | undefined => {
+  const visualById = new Map((existingVisuals || []).map(visual => [visual.id, visual]));
+  (addedVisuals || []).forEach(visual => {
+    if (!visualById.has(visual.id)) {
+      visualById.set(visual.id, visual);
+    }
+  });
+  return visualById.size > 0 ? Array.from(visualById.values()) : undefined;
+};
+
 // fallow-ignore-next-line unused-exports — used by App.tsx
 export const useWorkspaceReaderActions = ({
   activeSectionId,
@@ -95,6 +118,7 @@ export const useWorkspaceReaderActions = ({
   openContextAnswer,
   openSection,
   patchSectionAnnotations,
+  projectId,
   regenerateActiveSection,
   sectionContent,
   setIsMobileSidebarOpen,
@@ -148,7 +172,10 @@ export const useWorkspaceReaderActions = ({
         attachedAnnotationText: attachedAnnotationMatch?.resolvedText,
         lessonContent: activeSection?.content || sectionContent,
         lessonDescription: activeSection?.description,
+        lessonId: activeSection?.id,
         lessonTitle: activeSection?.title,
+        projectId: projectId || undefined,
+        projectTitle: learningPlan?.title,
         selectedText: contextMenu.selectedText,
         sourceKind: sourceContext.sourceKind,
         sourceMaterial: sourceContext.sourceMaterial,
@@ -163,6 +190,8 @@ export const useWorkspaceReaderActions = ({
       getCurrentSection,
       isMobileViewport,
       openContextAnswer,
+      projectId,
+      learningPlan?.title,
       sectionContent,
       source,
     ]
@@ -354,9 +383,89 @@ export const useWorkspaceReaderActions = ({
     updateSection,
   ]);
 
+  const handleAttachArtifactToAnnotation = useCallback(
+    (artifactRef: SectionAnnotationArtifactRef) => {
+      if (!activeSectionId || contextMenu.type !== 'annotation') {
+        return;
+      }
+
+      const currentSection = getCurrentSection();
+      if (!currentSection) {
+        return;
+      }
+
+      const result = upsertSectionAnnotationArtifactRefs({
+        annotationId: contextMenu.annotationId,
+        annotations: currentSection.annotations,
+        artifactRefs: [artifactRef],
+      });
+
+      if (!result) {
+        notify('Non ho trovato questa annotazione. Riprova dopo aver ricaricato la sezione.');
+        return;
+      }
+
+      updateSection(activeSectionId, section => ({
+        ...section,
+        annotations: result.annotations,
+      }));
+      void patchSectionAnnotations(activeSectionId, result.annotations);
+    },
+    [
+      activeSectionId,
+      contextMenu,
+      getCurrentSection,
+      notify,
+      patchSectionAnnotations,
+      updateSection,
+    ]
+  );
+
+  const handleDetachArtifactFromAnnotation = useCallback(
+    (artifactId: string) => {
+      if (!activeSectionId || contextMenu.type !== 'annotation') {
+        return;
+      }
+
+      const currentSection = getCurrentSection();
+      if (!currentSection) {
+        return;
+      }
+
+      const result = removeSectionAnnotationArtifactRef({
+        annotationId: contextMenu.annotationId,
+        annotations: currentSection.annotations,
+        artifactId,
+      });
+
+      if (!result) {
+        notify(
+          'Non ho trovato questo allegato nella nota. Riprova dopo aver ricaricato la sezione.'
+        );
+        return;
+      }
+
+      updateSection(activeSectionId, section => ({
+        ...section,
+        annotations: result.annotations,
+      }));
+      void patchSectionAnnotations(activeSectionId, result.annotations);
+    },
+    [
+      activeSectionId,
+      contextMenu,
+      getCurrentSection,
+      notify,
+      patchSectionAnnotations,
+      updateSection,
+    ]
+  );
+
   const handleSaveConversationNote = useCallback(
     async ({
+      artifactRefs,
       fallbackSelection,
+      generatedVisuals,
       contextAfter,
       contextBefore,
       note,
@@ -386,6 +495,7 @@ export const useWorkspaceReaderActions = ({
       }) =>
         applySectionAnnotation({
           annotations: currentSection.annotations,
+          artifactRefs,
           content: currentSection.content || sectionContent,
           contextAfter: input.contextAfter,
           contextBefore: input.contextBefore,
@@ -414,12 +524,23 @@ export const useWorkspaceReaderActions = ({
         };
       }
 
+      const nextGeneratedVisuals = mergeGeneratedVisuals(
+        currentSection.generatedVisuals,
+        generatedVisuals
+      );
+
       updateSection(activeSectionId, section => ({
         ...section,
         content: result.content,
         annotations: result.annotations,
+        generatedVisuals: nextGeneratedVisuals,
       }));
-      void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
+      void patchSectionAnnotations(
+        activeSectionId,
+        result.annotations,
+        result.content,
+        nextGeneratedVisuals
+      );
 
       return {
         saved: true,
@@ -433,7 +554,9 @@ export const useWorkspaceReaderActions = ({
 
   const handleUpdateConversationNote = useCallback(
     async ({
+      artifactRefs,
       fallbackSelection,
+      generatedVisuals,
       contextAfter,
       contextBefore,
       note,
@@ -490,6 +613,7 @@ export const useWorkspaceReaderActions = ({
       const result = updateSectionAnnotationNote({
         annotationId: match.annotation.id,
         annotations: currentSection.annotations,
+        artifactRefs,
         note,
       });
 
@@ -501,10 +625,22 @@ export const useWorkspaceReaderActions = ({
         };
       }
 
+      const nextGeneratedVisuals = mergeGeneratedVisuals(
+        currentSection.generatedVisuals,
+        generatedVisuals
+      );
+
       updateSection(activeSectionId, section => ({
         ...section,
         annotations: result.annotations,
+        generatedVisuals: nextGeneratedVisuals,
       }));
+      void patchSectionAnnotations(
+        activeSectionId,
+        result.annotations,
+        undefined,
+        nextGeneratedVisuals
+      );
 
       return {
         saved: true,
@@ -513,7 +649,7 @@ export const useWorkspaceReaderActions = ({
         resolvedText: match.resolvedText,
       };
     },
-    [activeSectionId, getCurrentSection, sectionContent, updateSection]
+    [activeSectionId, getCurrentSection, patchSectionAnnotations, sectionContent, updateSection]
   );
 
   const handleCompleteSection = useCallback(async () => {
@@ -536,16 +672,58 @@ export const useWorkspaceReaderActions = ({
     [isMobileViewport, notify, openSection, setIsMobileSidebarOpen]
   );
 
+  const handleSaveArtifactToLesson = useCallback(
+    async (
+      visual: LessonGeneratedVisual,
+      artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
+    ): Promise<void> => {
+      if (!activeSectionId) return;
+
+      const currentSection = getCurrentSection();
+      if (!currentSection) return;
+
+      const nextGeneratedVisuals = mergeGeneratedVisuals(currentSection.generatedVisuals, [visual]);
+
+      const annotationResult = createLessonSectionAnnotation({
+        annotations: currentSection.annotations,
+        artifactRefs: [artifactRef],
+        note: '',
+      });
+
+      updateSection(activeSectionId, section => ({
+        ...section,
+        annotations: annotationResult.annotations,
+        generatedVisuals: nextGeneratedVisuals,
+      }));
+      try {
+        await patchSectionAnnotations(
+          activeSectionId,
+          annotationResult.annotations,
+          undefined,
+          nextGeneratedVisuals
+        );
+      } catch {
+        // PATCH failed — the optimistic local update is already applied, so the
+        // UI shows the artifact. The autosave fallback will retry persistence.
+        // The storage error is already surfaced by patchSectionAnnotations.
+      }
+    },
+    [activeSectionId, getCurrentSection, patchSectionAnnotations, updateSection]
+  );
+
   return {
+    handleAttachArtifactToAnnotation,
     handleCompleteSection,
     handleContextQuestion,
     handleCreateLesson,
     handleDeleteAnnotation,
+    handleDetachArtifactFromAnnotation,
     handleHighlight,
     handleRegenerateActiveSection,
     handleSaveConversationNote,
     handleUpdateConversationNote,
     handleSaveNote,
     handleSelectSection,
+    handleSaveArtifactToLesson,
   };
 };

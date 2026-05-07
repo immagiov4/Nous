@@ -127,7 +127,7 @@ const getVisualPreviewMode = (
   visual: LessonGeneratedVisual
 ): LearningArtifactSummary['previewMode'] => (visual.kind === 'html' ? 'chip-only' : 'thumbnail');
 
-const buildGeneratedVisualPayload = ({
+export const buildGeneratedVisualLearningArtifactPayload = ({
   lesson,
   projectId,
   projectTitle,
@@ -229,7 +229,7 @@ export const collectLearningArtifactPayloads = ({
       order:
         placeholderOrder.get(`generated-visual:${visual.id}`) ??
         GENERATED_VISUAL_FALLBACK_ORDER + index,
-      payload: buildGeneratedVisualPayload({
+      payload: buildGeneratedVisualLearningArtifactPayload({
         lesson: section,
         projectId: snapshot.id,
         projectTitle: resolvedProjectTitle,

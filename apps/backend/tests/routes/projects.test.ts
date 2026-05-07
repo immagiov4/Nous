@@ -43,7 +43,7 @@ describe('/api/projects', () => {
     setProjectStoreForTesting(store);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     store.close();
     setProjectStoreForTesting(null);
     if (previousLocalUserId === undefined) {
@@ -51,7 +51,19 @@ describe('/api/projects', () => {
     } else {
       process.env.LOCAL_USER_ID = previousLocalUserId;
     }
-    rmSync(tempDir, { recursive: true, force: true });
+    // bun:sqlite memory-maps WAL/SHM files; force a GC so Windows releases the locks.
+    if (typeof Bun !== 'undefined' && typeof Bun.gc === 'function') {
+      Bun.gc(true);
+    }
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        rmSync(tempDir, { recursive: true, force: true });
+        return;
+      } catch (error) {
+        if (attempt === 9) throw error;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
   });
 
   test('saves, lists, loads, exports, touches, and deletes projects', async () => {
@@ -210,7 +222,7 @@ describe('/api/projects', () => {
 
     // Simulate the legacy state: write snapshot WITH documentIndex into snapshot_json
     // and leave document_index_json NULL.
-    const legacyDb = (store as unknown as { database: import('better-sqlite3').Database }).database;
+    const legacyDb = (store as unknown as { database: import('bun:sqlite').Database }).database;
     legacyDb
       .prepare(
         `insert into project_snapshots (user_id, id, snapshot_json, document_index_json, updated_at, server_updated_at)
@@ -231,7 +243,7 @@ describe('/api/projects', () => {
     setProjectStoreForTesting(store);
 
     // After migration: document_index_json populated, snapshot_json no longer contains the field.
-    const row = (store as unknown as { database: import('better-sqlite3').Database }).database
+    const row = (store as unknown as { database: import('bun:sqlite').Database }).database
       .prepare(
         `select snapshot_json, document_index_json from project_snapshots where user_id = ? and id = ?`
       )

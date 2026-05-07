@@ -205,7 +205,10 @@ export const useReaderContext = ({
       initialQuestion,
       lessonContent,
       lessonDescription,
+      lessonId,
       lessonTitle,
+      projectId,
+      projectTitle,
       selectedText,
       sourceKind,
       sourceMaterial,
@@ -218,7 +221,10 @@ export const useReaderContext = ({
         initialQuestion,
         lessonContent,
         lessonDescription,
+        lessonId,
         lessonTitle,
+        projectId,
+        projectTitle,
         selectedText,
         sourceKind,
         sourceMaterial,
@@ -388,8 +394,8 @@ export const useReaderContext = ({
         return;
       }
 
-      const annotationNote =
-        sectionAnnotations?.find(annotation => annotation.id === annotationId)?.note || '';
+      const annotation = sectionAnnotations?.find(candidate => candidate.id === annotationId);
+      const annotationNote = annotation?.note || '';
 
       const currentMenu = contextMenuStateRef.current;
       if (
@@ -403,6 +409,7 @@ export const useReaderContext = ({
 
       const nextMenu = createAnnotationContextMenuState({
         annotationId,
+        annotationArtifactRefs: annotation?.artifactRefs,
         annotationNote,
         anchorX: rect.left + rect.width / 2,
         anchorY: rect.bottom,

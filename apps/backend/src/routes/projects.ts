@@ -165,8 +165,21 @@ router.get('/projects/:id', async (req: Request, res: Response) => {
 
 router.put('/projects/:id', async (req: Request, res: Response) => {
   try {
-    const snapshot = requireProjectSnapshot(req.body, getRouteParam(req.params.id));
-    const meta = await getProjectStore().saveProject(getCurrentUser(req).id, snapshot);
+    const userId = getCurrentUser(req).id;
+    const projectId = getRouteParam(req.params.id);
+    const snapshot = requireProjectSnapshot(req.body, projectId);
+    const bodyRecord = getBodyRecord(req.body);
+    // Client autosave strips the PDF base64 from `source.file.data` to avoid
+    // resending ~100 MB on every debounced save. When omitSource=true we
+    // preserve the source already on disk instead of overwriting with the
+    // stripped one.
+    if (bodyRecord.omitSource === true) {
+      const existing = await getProjectStore().loadProject(userId, projectId);
+      if (existing?.source) {
+        snapshot.source = existing.source;
+      }
+    }
+    const meta = await getProjectStore().saveProject(userId, snapshot);
     res.json({ success: true, meta });
   } catch (error) {
     sendErrorResponse(res, 400, error, 'Failed to save project');

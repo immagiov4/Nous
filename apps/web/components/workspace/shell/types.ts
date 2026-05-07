@@ -19,6 +19,7 @@ import type {
   ProjectSource,
   QuizQuestion,
   SectionAnnotation,
+  SectionAnnotationArtifactRef,
   SettingsPanelSectionId,
   VoiceProfileId,
 } from '../../../types.ts';
@@ -33,7 +34,10 @@ export interface ContextAnswerState {
   initialQuestion: string;
   lessonContent?: string;
   lessonDescription?: string;
+  lessonId?: string;
   lessonTitle?: string;
+  projectId?: string;
+  projectTitle?: string;
   selectedText: string;
   sourceKind?: ProjectSource['kind'];
   sourceMaterial?: string;
@@ -48,10 +52,13 @@ export interface ConversationSelectionAnchor {
 
 export interface ContextChatToolPreferences {
   annotate: boolean;
+  generateArtifacts: boolean;
   webSearch: boolean;
 }
 
 export interface SaveConversationNoteToolInput extends ConversationSelectionAnchor {
+  artifactRefs?: SectionAnnotationArtifactRef[];
+  generatedVisuals?: LessonGeneratedVisual[];
   note: string;
 }
 
@@ -176,6 +183,7 @@ export interface WorkspaceReaderContentModel {
   activeSectionAssetsById: Record<string, PdfImageAsset>;
   activeSectionGeneratedVisualsById?: Record<string, LessonGeneratedVisual>;
   activeSectionImageRefsById: Record<string, LessonImageRef>;
+  currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   contentRef: RefObject<HTMLDivElement | null>;
   isDarkMode: boolean;
   isFocusMode: boolean;
@@ -233,10 +241,12 @@ export interface WorkspaceReaderOverlaysModel {
   isMobileViewport: boolean;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   onAskContextQuestion: (question: string) => void;
+  onAttachArtifactToAnnotation: (artifactRef: SectionAnnotationArtifactRef) => void;
   onCloseContextAnswer: () => void;
   onCloseContextMenu: () => void;
   onCreateLesson: (instructions: string) => void;
   onDeleteAnnotation: () => void;
+  onDetachArtifactFromAnnotation: (artifactId: string) => void;
   onHighlight: () => void;
   preferredModels: OpenRouterModelPreferences;
   onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
@@ -244,6 +254,10 @@ export interface WorkspaceReaderOverlaysModel {
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
   onSaveNote: (note: string) => void;
+  onSaveArtifactToLesson?: (
+    visual: LessonGeneratedVisual,
+    artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
+  ) => Promise<void>;
 }
 
 export interface WorkspaceReaderShellProps {

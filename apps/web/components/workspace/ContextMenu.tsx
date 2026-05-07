@@ -1,5 +1,13 @@
 import { motion } from 'framer-motion';
-import { ArrowUp, BookPlus, Highlighter, LoaderCircle, NotebookPen, X } from 'lucide-react';
+import {
+  ArrowUp,
+  BookPlus,
+  Highlighter,
+  LoaderCircle,
+  NotebookPen,
+  Paperclip,
+  X,
+} from 'lucide-react';
 import {
   type CSSProperties,
   type FormEvent,
@@ -13,23 +21,34 @@ import {
   useState,
 } from 'react';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
-import type { ContextMenuPlacement, HorizontalViewportBounds, SelectionRect } from '../../types';
+import type {
+  ContextMenuPlacement,
+  HorizontalViewportBounds,
+  LearningArtifactRenderPayload,
+  SectionAnnotationArtifactRef,
+  SelectionRect,
+} from '../../types';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
+import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 
 interface ContextMenuProps {
   anchorX?: number;
   anchorY?: number;
+  annotationArtifactRefs?: SectionAnnotationArtifactRef[];
   annotationNote?: string;
+  artifactPayloads?: LearningArtifactRenderPayload[];
   containerRef?: RefObject<HTMLDivElement | null>;
   horizontalBounds?: HorizontalViewportBounds;
   isDarkMode?: boolean;
   isLoading: boolean;
+  onAttachArtifactToAnnotation?: (artifactRef: SectionAnnotationArtifactRef) => void;
   onAsk: (question: string) => void;
   onClose: () => void;
   onCreateLesson: (instructions: string) => void;
   onDeleteAnnotation: () => void;
+  onDetachArtifactFromAnnotation?: (artifactId: string) => void;
   onHighlight: () => void;
   onSaveNote: (note: string) => void;
   placement: ContextMenuPlacement;
@@ -60,15 +79,19 @@ const abbreviate = (value: string, maxLength: number) => {
 const ContextMenu = ({
   anchorX,
   anchorY,
+  annotationArtifactRefs = [],
   annotationNote = '',
+  artifactPayloads = [],
   containerRef,
   horizontalBounds,
   isDarkMode = false,
   isLoading,
+  onAttachArtifactToAnnotation,
   onAsk,
   onClose,
   onCreateLesson,
   onDeleteAnnotation,
+  onDetachArtifactFromAnnotation,
   onHighlight,
   onSaveNote,
   placement,
@@ -78,26 +101,64 @@ const ContextMenu = ({
 }: ContextMenuProps) => {
   const [input, setInput] = useState('');
   const [noteInput, setNoteInput] = useState(annotationNote);
+  const [localAnnotationArtifactRefs, setLocalAnnotationArtifactRefs] =
+    useState(annotationArtifactRefs);
   const [isLessonConfirmOpen, setIsLessonConfirmOpen] = useState(false);
+  const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
   const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(
-    type === 'annotation' ? annotationNote.trim().length === 0 : false
+    type === 'annotation'
+      ? annotationNote.trim().length === 0 && annotationArtifactRefs.length === 0
+      : false
   );
   const [isNotePreviewScrolled, setIsNotePreviewScrolled] = useState(false);
   const askInteractionLockRef = useRef(false);
   const highlightInteractionLockRef = useRef(false);
-  const previousMenuKeyRef = useRef(`${type}:${selectedText}:${annotationNote}`);
+  const previousMenuKeyRef = useRef(
+    `${type}:${selectedText}:${annotationNote}:${annotationArtifactRefs
+      .map(ref => ref.artifactId)
+      .join('|')}`
+  );
   const notePreviewRef = useRef<HTMLDivElement>(null);
   const stableTransformOriginRef = useRef<string | null>(null);
   const isMobileSheet = placement === 'mobile-sheet';
   const { keyboardOffset } = useMobileKeyboardOffset();
   const isAnnotationMode = type === 'annotation';
+  const activeAnnotationArtifactRefs = isAnnotationMode
+    ? localAnnotationArtifactRefs
+    : annotationArtifactRefs;
+  const annotationArtifactPayloads = useMemo(() => {
+    if (!activeAnnotationArtifactRefs.length || !artifactPayloads.length) {
+      return [];
+    }
+
+    const payloadsById = new Map(
+      artifactPayloads.map(payload => [payload.summary.id, payload] as const)
+    );
+    return activeAnnotationArtifactRefs.flatMap(ref => {
+      const payload = payloadsById.get(ref.artifactId);
+      return payload ? [payload] : [];
+    });
+  }, [activeAnnotationArtifactRefs, artifactPayloads]);
+  const attachableArtifactPayloads = useMemo(() => {
+    const attachedArtifactIds = new Set(activeAnnotationArtifactRefs.map(ref => ref.artifactId));
+    return artifactPayloads.filter(payload => {
+      if (attachedArtifactIds.has(payload.summary.id)) {
+        return false;
+      }
+      return payload.summary.kind !== 'generated-visual' || !('visual' in payload)
+        ? true
+        : payload.visual.id.startsWith('visual-draft-');
+    });
+  }, [activeAnnotationArtifactRefs, artifactPayloads]);
   const hasSavedAnnotationNote = annotationNote.trim().length > 0;
+  const hasSavedAnnotationContent = hasSavedAnnotationNote || annotationArtifactPayloads.length > 0;
   const trimmedInput = input.trim();
   const trimmedNote = noteInput.trim();
-  const isAnnotationPreviewMode = isAnnotationMode && hasSavedAnnotationNote && !isNoteEditorOpen;
+  const isAnnotationPreviewMode =
+    isAnnotationMode && hasSavedAnnotationContent && !isNoteEditorOpen;
   const isAnnotationEditingMode = isAnnotationMode && !isAnnotationPreviewMode;
   const canDeleteAnnotationFromCurrentState =
-    isAnnotationMode && (isAnnotationPreviewMode || !hasSavedAnnotationNote);
+    isAnnotationMode && (isAnnotationPreviewMode || !hasSavedAnnotationContent);
   const lessonSelectionPreview = abbreviate(selectedText, 120);
   const lessonInstructionPreview = trimmedInput ? abbreviate(trimmedInput, 120) : null;
   const noteSelectionPreview = abbreviate(selectedText, 180);
@@ -279,16 +340,24 @@ const ContextMenu = ({
   }, [onClose]);
 
   useEffect(() => {
-    const nextMenuKey = `${type}:${selectedText}:${annotationNote}`;
+    const nextMenuKey = `${type}:${selectedText}:${annotationNote}:${annotationArtifactRefs
+      .map(ref => ref.artifactId)
+      .join('|')}`;
     if (previousMenuKeyRef.current === nextMenuKey) {
       return;
     }
 
     previousMenuKeyRef.current = nextMenuKey;
     setIsLessonConfirmOpen(false);
+    setIsAttachmentPickerOpen(false);
+    setLocalAnnotationArtifactRefs(annotationArtifactRefs);
     setNoteInput(annotationNote);
-    setIsNoteEditorOpen(type === 'annotation' ? annotationNote.trim().length === 0 : false);
-  }, [annotationNote, selectedText, type]);
+    setIsNoteEditorOpen(
+      type === 'annotation'
+        ? annotationNote.trim().length === 0 && annotationArtifactRefs.length === 0
+        : false
+    );
+  }, [annotationArtifactRefs, annotationNote, selectedText, type]);
 
   const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight;
   const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth;
@@ -388,12 +457,12 @@ const ContextMenu = ({
   const noteEditorClassName = isMobileSheet
     ? `overflow-hidden text-stone-700 ${isAnnotationMode ? '' : 'transition-all duration-200'} dark:text-stone-300 ${
         isNoteEditorOpen || isAnnotationMode
-          ? `${isAnnotationMode ? 'mt-0 max-h-[25rem] translate-y-0 border-t-0 pt-0 opacity-100' : 'mt-3 max-h-[25rem] translate-y-0 border-t border-stone-200/80 pt-3 opacity-100 dark:border-stone-400/70'}`
+          ? `${isAnnotationMode ? 'mt-0 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 border-t-0 pt-0 opacity-100' : 'mt-3 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 border-t border-stone-200/80 pt-3 opacity-100 dark:border-stone-400/70'}`
           : 'max-h-0 translate-y-[-6px] border-t-0 pt-0 opacity-0'
       }`
     : `overflow-hidden rounded-[1.6rem] border border-stone-200/90 bg-[#fbf7ef] text-stone-700 shadow-[0_18px_40px_-30px_rgba(46,34,16,0.55)] ${isAnnotationMode ? '' : 'transition-all duration-200'} dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 ${
         isNoteEditorOpen || isAnnotationMode
-          ? 'mt-2 max-h-[25rem] translate-y-0 opacity-100'
+          ? 'mt-2 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 opacity-100'
           : 'max-h-0 translate-y-[-6px] opacity-0'
       }`;
 
@@ -408,14 +477,96 @@ const ContextMenu = ({
     setIsNotePreviewScrolled(el.scrollTop > 0);
   };
 
+  const handleAttachArtifact = (artifact: LearningArtifactRenderPayload) => {
+    const artifactRef: SectionAnnotationArtifactRef = {
+      artifactId: artifact.summary.id,
+      kind: artifact.summary.kind,
+      title: artifact.summary.title,
+    };
+    setLocalAnnotationArtifactRefs(currentRefs =>
+      currentRefs.some(ref => ref.artifactId === artifactRef.artifactId)
+        ? currentRefs
+        : [...currentRefs, artifactRef]
+    );
+    onAttachArtifactToAnnotation?.(artifactRef);
+    setIsAttachmentPickerOpen(false);
+  };
+
+  const handleDetachArtifact = (artifactId: string) => {
+    setLocalAnnotationArtifactRefs(currentRefs =>
+      currentRefs.filter(ref => ref.artifactId !== artifactId)
+    );
+    onDetachArtifactFromAnnotation?.(artifactId);
+  };
+
+  const renderAttachedAnnotationArtifacts = () => {
+    if (!isAnnotationMode) {
+      return null;
+    }
+
+    const hasAttachedArtifacts = annotationArtifactPayloads.length > 0;
+    if (!hasAttachedArtifacts) {
+      return null;
+    }
+
+    return (
+      <div className="grid gap-2 sm:grid-cols-2">
+        {annotationArtifactPayloads.map(artifact => (
+          <ChatArtifactRenderer
+            key={artifact.summary.id}
+            artifacts={[artifact]}
+            className="grid gap-2"
+            isDarkMode={isDarkMode}
+            onRemoveArtifact={() => handleDetachArtifact(artifact.summary.id)}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const renderAnnotationAttachmentPicker = () => {
+    if (!isAnnotationMode || !isAttachmentPickerOpen || attachableArtifactPayloads.length === 0) {
+      return null;
+    }
+
+    return (
+      <div
+        className="absolute bottom-[calc(100%+0.5rem)] right-0 z-30 w-[19rem] overflow-hidden rounded-[1.4rem] border border-stone-200 bg-white/95 p-2 shadow-[0_28px_80px_-40px_rgba(24,24,27,0.42)] backdrop-blur dark:border-stone-500 dark:bg-stone-800/95"
+        role="menu"
+      >
+        <div className="max-h-56 overflow-y-auto">
+          {attachableArtifactPayloads.map(artifact => (
+            <button
+              key={artifact.summary.id}
+              type="button"
+              onClick={() => handleAttachArtifact(artifact)}
+              className="flex w-full min-w-0 items-center gap-2 rounded-[1rem] px-3 py-2.5 text-left transition-colors hover:bg-orange-50/80 dark:hover:bg-stone-700/70"
+              title={artifact.summary.title}
+              aria-label={`Allega ${artifact.summary.title} alla nota`}
+              role="menuitem"
+            >
+              <Paperclip className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-stone-800 dark:text-stone-100">
+                {artifact.summary.title}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const renderRenderedNotePreview = () => (
     <div className="relative">
       <div ref={notePreviewRef} onScroll={handleNotePreviewScroll} className={notePreviewClassName}>
-        <MarkdownRenderer
-          content={normalizedNotePreview}
-          isDarkMode={isDarkMode}
-          className="prose-sm text-stone-800 [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 [&_table]:text-sm dark:text-stone-100 dark:[&_p]:text-stone-100 dark:[&_li]:text-stone-100 [&_strong]:dark:text-amber-50 [&_code]:dark:text-amber-50 [&_h1]:dark:text-amber-50 [&_h2]:dark:text-amber-50 [&_h3]:dark:text-amber-50 [&_a]:dark:text-orange-400 [&_a]:dark:decoration-orange-400/40"
-        />
+        {normalizedNotePreview.trim() ? (
+          <MarkdownRenderer
+            content={normalizedNotePreview}
+            isDarkMode={isDarkMode}
+            className="prose-sm text-stone-800 [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 [&_table]:text-sm dark:text-stone-100 dark:[&_p]:text-stone-100 dark:[&_li]:text-stone-100 [&_strong]:dark:text-amber-50 [&_code]:dark:text-amber-50 [&_h1]:dark:text-amber-50 [&_h2]:dark:text-amber-50 [&_h3]:dark:text-amber-50 [&_a]:dark:text-orange-400 [&_a]:dark:decoration-orange-400/40"
+          />
+        ) : null}
+        {renderAttachedAnnotationArtifacts()}
       </div>
       <div
         className="pointer-events-none absolute left-0 right-0 top-0 h-6 transition-opacity duration-200"
@@ -429,7 +580,13 @@ const ContextMenu = ({
 
   const renderNoteEditor = () => (
     <div className={noteEditorClassName} aria-hidden={!isNoteEditorOpen && !isAnnotationMode}>
-      <div className={isMobileSheet ? 'space-y-3 px-0 py-0' : 'space-y-3 px-4 py-3'}>
+      <div
+        className={
+          isMobileSheet
+            ? 'custom-scrollbar max-h-[min(34rem,calc(100dvh-2rem))] space-y-3 overflow-y-auto px-0 py-0'
+            : 'custom-scrollbar max-h-[min(34rem,calc(100dvh-2rem))] space-y-3 overflow-y-auto px-4 py-3'
+        }
+      >
         <div className="space-y-1">
           <p className="text-sm font-semibold text-stone-900 text-center dark:text-stone-100">
             {isAnnotationMode
@@ -469,7 +626,24 @@ const ContextMenu = ({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        {!isAnnotationPreviewMode ? renderAttachedAnnotationArtifacts() : null}
+
+        <div className="relative flex flex-wrap items-center justify-end gap-2">
+          {renderAnnotationAttachmentPicker()}
+
+          {isAnnotationEditingMode && attachableArtifactPayloads.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setIsAttachmentPickerOpen(currentValue => !currentValue)}
+              disabled={isLoading}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-200/60 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-stone-300 dark:hover:bg-stone-600/70 dark:hover:text-stone-100"
+              aria-label="Allega dagli artefatti"
+              title="Allega dagli artefatti"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+          ) : null}
+
           {!isAnnotationMode ? (
             <button
               type="button"

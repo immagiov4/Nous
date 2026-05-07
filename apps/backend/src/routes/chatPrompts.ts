@@ -18,10 +18,12 @@ const LIBRARY_WEB_SEARCH_EXECUTOR_MODEL =
 
 export interface ContextChatToolPreferences {
   annotate?: boolean;
+  generateArtifacts?: boolean;
   webSearch?: boolean;
 }
 
 export interface LibraryChatToolPreferences {
+  generateArtifacts?: boolean;
   webSearch?: boolean;
 }
 
@@ -330,7 +332,8 @@ const buildToolNarrationMandate = () => `RENDERING DEI TOOL:
 - Tratta quindi ogni tua risposta come un messaggio unico autosufficiente, anche se il turno viene spezzato da tool call, streaming o piu step consecutivi.
 - Non scrivere introduzioni sospese che si aspettano contenuti "dopo" o "qui sotto", per esempio "Ora faccio questo:" oppure "Leggo queste lezioni:".
 - Se vuoi segnalare l azione in corso, usa una frase breve e chiusa, senza due punti finali, per esempio "Sto verificando le note rilevanti.".
-- Non rimandare mai ai tool con riferimenti posizionali come "qui sotto", "sotto", "dopo" o simili.`;
+- Non rimandare mai ai tool con riferimenti posizionali come "qui sotto", "sotto", "dopo" o simili.
+- Non usare mai sintassi con doppie graffe (\`{{...}}\`) nei tuoi messaggi, ad esempio \`{{attachment ...}}\`, \`{{visual ...}}\`, \`{{PDF_IMAGE ...}}\` o simili. Questi placeholder non vengono interpretati dalla UI e appaiono come testo rotto all utente. Se un tool restituisce un contenuto visivo, la UI lo mostra gia nella scheda dell artefatto: non devi provare a includerlo, trascriverlo o citarlo ulteriormente nel testo.`;
 
 export const buildContextSystemPrompt = ({
   attachedAnnotationNote,
@@ -420,6 +423,7 @@ Regole:
 - Usa il backtick (\`...\`) SOLO per nomi di funzioni, variabili, classi, comandi e identificatori tecnici. Per citare frasi, titoli o brani usa le virgolette tipografiche ("..."), mai i backtick.
 - Rimani concreto e orientato alla spiegazione del punto selezionato.
 - Quando l utente chiede mappe, grafici, immagini, visual example o artefatti gia presenti nella lezione corrente, usa \`getCurrentLessonArtifacts\`. La prima chiamata deve essere normalmente con \`renderMode: "metadata-only"\`; usa \`renderMode: "attachments"\`, preferibilmente con \`artifactIds\`, solo quando devi mostrare in chat artefatti specifici gia scelti. Non trascrivere HTML, SVG o dati immagine: riassumi brevemente cosa hai trovato e lascia che la UI mostri schede solo per gli allegati richiesti. Se mostri un allegato, non introdurlo e non ripeterne il titolo nella risposta: la card rende gia visibili nome e anteprima.
+- Quando l utente chiede di creare sul momento una nuova mappa, grafico, diagramma, simulazione o esempio visuale, usa \`generateCurrentLessonArtifact\`. La generazione resta temporanea finche l utente non chiede di salvarla; se chiede di salvarla, chiama \`requestAddToNotes\` includendo l id dell artefatto in \`artifactIds\`. Non dire che e stata salvata finche non ricevi l output positivo del tool di note.
 - Rispondi direttamente alla domanda dell'utente e fermati li. Non aggiungere code conversazionali o inviti del tipo "se vuoi posso...", "posso anche...", "dimmi se vuoi..." o simili.
 - Non fare domande all'utente, non chiedere chiarimenti e non proporre prossimi passi di tua iniziativa. Se l'utente vuole un altro follow-up, lo chiedera lui.
 - L'unica eccezione consentita e una domanda strettamente strumentale all'uso del tool di annotazione, ovvero la conferma tramite \`requestAddToNotes\`.
@@ -442,9 +446,11 @@ Regole:
 - Se l'utente rifiuta, non insistere e continua normalmente.
 - Se la preferenza utente "Annota" e attiva, considera molto probabile che voglia salvare o aggiornare una nota utile su questo passaggio e dai forte priorita a \`requestAddToNotes\` quando il chiarimento lo giustifica.
 - Se la preferenza utente "Cerca sul web" e attiva, trattala come un rafforzamento solo quando l'utente non ha gia dato un'istruzione esplicita sul web.
+- Se la preferenza utente "Genera artefatti visuali" e attiva, considera molto probabile che l'utente voglia vedere una mappa, grafico, diagramma o widget insieme alla risposta testuale; usa \`generateCurrentLessonArtifact\` proattivamente quando il chiarimento della lezione lo giustifica, senza aspettare che l'utente lo chieda esplicitamente.
 
 Preferenze attive:
 - Annota: ${toolPreferences?.annotate ? 'attiva' : 'non attiva'}
+- Genera artefatti visuali: ${toolPreferences?.generateArtifacts ? 'attiva' : 'non attiva'}
 - Cerca sul web: ${toolPreferences?.webSearch ? 'attiva' : 'non attiva'}`;
 };
 
@@ -471,6 +477,7 @@ Obiettivo:
 - rispondere interrogando i corsi e le lezioni della libreria corrente tramite i tool disponibili;
 - usare i tool prima di affermare fatti specifici su progresso, contenuti, note, highlight o struttura dei corsi;
 - quando l utente chiede mappe, esempi visuali, grafici, immagini o artefatti gia generati, usare \`getLearningArtifacts\` invece di leggere solo il testo della lezione;
+- quando l utente chiede di creare sul momento una nuova mappa, grafico, diagramma, simulazione o esempio visuale, usa \`generateLearningArtifact\` solo dopo aver risolto univocamente \`projectId\` e \`lessonId\`; se poi chiede di salvarlo, usa \`requestSaveLearningArtifactNote\` con gli \`artifactIds\` generati;
 - rispettare SEMPRE lo scope corrente consentito.
 
 Scope corrente attuale:
@@ -517,8 +524,10 @@ Non chiedere all utente di scegliere tra approcci di recupero, né chiedere conf
 - Usa markdown solo quando migliora davvero la leggibilita.
 - Rispondi in modo diretto e concreto. Niente frasi del tipo "se vuoi posso..." o domande finali non richieste.
 - Il web serve per grounding esterno, suggerimenti di nuovi corsi o confronto con argomenti mancanti; non sostituisce mai i tool della libreria per i dati della libreria.
+- Se la preferenza utente "Genera artefatti visuali" e attiva, usa \`getLearningArtifacts\` e \`generateLearningArtifact\` piu proattivamente per arricchire la risposta con mappe, grafici, diagrammi o schemi visuali, anche se l utente non li chiede esplicitamente.
 
 Preferenze attive:
+- Genera artefatti visuali: ${toolPreferences?.generateArtifacts ? 'attiva' : 'non attiva'}
 - Cerca sul web: ${toolPreferences?.webSearch ? 'attiva' : 'non attiva'}
 - Scope intera libreria: ${resolvedScopeSummary?.isWholeLibraryScope ? 'si' : 'no'}`;
 };

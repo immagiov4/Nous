@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev": "concurrently \"bun run dev:frontend\" \"bun run dev:backend\"",
     "dev:frontend": "vite --config apps/web/vite.config.ts",
-    "dev:backend": "npm --prefix apps/backend run dev",
+    "dev:backend": "cd apps/backend && bun run dev",
     "build": "vite build --config apps/web/vite.config.ts",
     "preview": "vite preview --config apps/web/vite.config.ts",
     "lint": "npm run lint:types",
@@ -26,9 +26,9 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "fix": "biome check --write .",
-    "test": "vitest run --config apps/web/vitest.config.ts",
-    "test:watch": "vitest --config apps/web/vitest.config.ts",
-    "test:coverage": "vitest run --coverage --config apps/web/vitest.config.ts"
+    "test": "bun --bun vitest run --config apps/web/vitest.config.ts",
+    "test:watch": "bun --bun vitest --config apps/web/vitest.config.ts",
+    "test:coverage": "bun --bun vitest run --coverage --config apps/web/vitest.config.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",

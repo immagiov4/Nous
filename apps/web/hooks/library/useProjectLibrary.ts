@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
-import { buildPersistenceSignature } from '../../services/projects/persistenceSignature';
+import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
 import {
   createProjectArchiveBlob,
   getProjectArchiveExtension,
@@ -26,8 +26,10 @@ import type {
   LibraryTree,
   ProjectSnapshot,
   SavedProjectMeta,
+  SectionAnnotationArtifactRef,
   WorkspaceDomainState,
 } from '../../types';
+import { createLessonSectionAnnotation } from '../../utils/learning/sectionAnnotations.ts';
 import { buildLibraryTree } from '../../utils/library/tree.ts';
 import { timestampIso } from '../../utils/time.ts';
 
@@ -191,7 +193,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         const meta = await projectRepositoryRef.current.saveProject(snapshot);
         syncProjectMeta(meta);
         setStorageError(null);
-        lastPersistedSignatureRef.current = buildPersistenceSignature(snapshot);
+        lastPersistedSignatureRef.current = buildAutosaveSignature(snapshot);
         void requestPersistentStorage();
         return meta;
       } catch (error) {
@@ -278,7 +280,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         const meta = await projectRepositoryRef.current.patchProject(currentProjectId, patch);
         syncProjectMeta(meta);
         setStorageError(null);
-        lastPersistedSignatureRef.current = buildPersistenceSignature({
+        lastPersistedSignatureRef.current = buildAutosaveSignature({
           ...domainStateRef.current,
           ...overrides,
         });
@@ -303,11 +305,16 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
    * is suppressed for this change.
    */
   const patchSectionAnnotations = useCallback(
-    async (sectionId: string, annotations: unknown, content?: string): Promise<void> => {
+    async (
+      sectionId: string,
+      annotations: unknown,
+      content?: string,
+      generatedVisuals?: LearningSection['generatedVisuals']
+    ): Promise<void> => {
       if (!currentProjectId) return;
 
       const patch: Record<string, unknown> = {
-        section: { sectionId, annotations, content },
+        section: { sectionId, annotations, content, generatedVisuals },
         updatedAt: timestampIso(),
       };
 
@@ -319,7 +326,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         const meta = await projectRepositoryRef.current.patchProject(currentProjectId, patch);
         syncProjectMeta(meta);
         setStorageError(null);
-        lastPersistedSignatureRef.current = buildPersistenceSignature(domainStateRef.current);
+        lastPersistedSignatureRef.current = buildAutosaveSignature(domainStateRef.current);
         markSyncSaved();
       } catch (error) {
         const message =
@@ -349,7 +356,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         const meta = await projectRepositoryRef.current.patchProject(currentProjectId, patch);
         syncProjectMeta(meta);
         setStorageError(null);
-        lastPersistedSignatureRef.current = buildPersistenceSignature(domainStateRef.current);
+        lastPersistedSignatureRef.current = buildAutosaveSignature(domainStateRef.current);
         void requestPersistentStorage();
       } catch (error) {
         const message =
@@ -358,6 +365,55 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       }
     },
     [currentProjectId, requestPersistentStorage, syncProjectMeta]
+  );
+
+  const saveLessonArtifactNote = useCallback(
+    async ({
+      generatedVisuals,
+      lessonId,
+      note,
+      projectId,
+      artifactRefs,
+    }: {
+      artifactRefs?: SectionAnnotationArtifactRef[];
+      generatedVisuals?: LearningSection['generatedVisuals'];
+      lessonId: string;
+      note: string;
+      projectId: string;
+    }): Promise<{ annotationId?: string; error?: string; saved: boolean }> => {
+      const snapshot = await projectRepositoryRef.current.loadProject(projectId);
+      const learningPlan = snapshot?.learningPlan;
+      const section = learningPlan?.sections.find(candidate => candidate.id === lessonId);
+      if (!snapshot || !learningPlan || !section) {
+        return { saved: false, error: 'Non ho trovato la lezione target in questo corso.' };
+      }
+
+      const annotationResult = createLessonSectionAnnotation({
+        annotations: section.annotations,
+        artifactRefs,
+        note,
+      });
+      const visualById = new Map(
+        (section.generatedVisuals || []).map(visual => [visual.id, visual])
+      );
+      (generatedVisuals || []).forEach(visual => {
+        if (!visualById.has(visual.id)) {
+          visualById.set(visual.id, visual);
+        }
+      });
+
+      const meta = await projectRepositoryRef.current.patchProject(projectId, {
+        section: {
+          sectionId: lessonId,
+          annotations: annotationResult.annotations,
+          generatedVisuals: Array.from(visualById.values()),
+        },
+        updatedAt: timestampIso(),
+      });
+      syncProjectMeta(meta);
+      return { annotationId: annotationResult.annotationId, saved: true };
+    },
+    [syncProjectMeta]
   );
 
   const downloadBlob = useCallback((blob: Blob, filename: string) => {
@@ -550,7 +606,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   }, [projectRepositoryMode, refreshLibraryState]);
 
   const currentPersistenceSignature = useMemo(
-    () => buildPersistenceSignature(domainState),
+    () => buildAutosaveSignature(domainState),
     [domainState]
   );
 
@@ -643,6 +699,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       return nextFolder;
     },
     saveCurrentProject,
+    saveLessonArtifactNote,
     patchCurrentProject,
     patchSectionLessonContent,
     patchSectionAnnotations,

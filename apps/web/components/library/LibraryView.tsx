@@ -38,6 +38,7 @@ interface LibraryViewProps {
   libraryMessages: UIMessage[];
   libraryTree: LibraryTree;
   libraryWebSearch: boolean;
+  libraryGenerateArtifacts: boolean;
   newCourseLoadingStatus: string;
   modelDefaults: OpenRouterModelDefaults;
   planFileInputId: string;
@@ -57,7 +58,19 @@ interface LibraryViewProps {
   onExportProject: (projectId: string) => void;
   onHomeChatModeChange: (mode: HomeChatMode) => void;
   onLibraryAssistantSend: (message: string) => void | Promise<void>;
+  onLibraryArtifactNoteApprove: (
+    toolCallId: string,
+    input: {
+      artifactIds: string[];
+      lessonId: string;
+      noteDraft: string;
+      projectId: string;
+      rationale: string;
+    }
+  ) => Promise<void>;
+  onLibraryArtifactNoteReject: (toolCallId: string) => void;
   onLibraryWebSearchChange: (value: boolean) => void;
+  onLibraryGenerateArtifactsChange: (value: boolean) => void;
   onMoveFolder: (
     folderId: string,
     parentFolderId: string | null,
@@ -100,6 +113,7 @@ const LibraryView = ({
   libraryMessages,
   libraryTree,
   libraryWebSearch,
+  libraryGenerateArtifacts,
   newCourseLoadingStatus,
   modelDefaults,
   planFileInputId,
@@ -120,7 +134,10 @@ const LibraryView = ({
   onSetPreferredOpenRouterModel,
   onSetProjectRepositoryMode,
   onLibraryAssistantSend,
+  onLibraryArtifactNoteApprove,
+  onLibraryArtifactNoteReject,
   onLibraryWebSearchChange,
+  onLibraryGenerateArtifactsChange,
   onMoveFolder,
   onMoveProjects,
   onOpenProject,
@@ -247,6 +264,7 @@ const LibraryView = ({
           libraryMessages={libraryMessages}
           libraryTree={libraryTree}
           libraryWebSearch={libraryWebSearch}
+          libraryGenerateArtifacts={libraryGenerateArtifacts}
           newCourseLoadingStatus={newCourseLoadingStatus}
           pendingFileName={pendingHomeFileName}
           onClearPendingFile={onClearPendingHomeFile}
@@ -255,7 +273,10 @@ const LibraryView = ({
           onConfirmGenerate={onConfirmGenerate}
           onHomeChatModeChange={onHomeChatModeChange}
           onLibraryMessageSend={onLibraryAssistantSend}
+          onLibraryArtifactNoteApprove={onLibraryArtifactNoteApprove}
+          onLibraryArtifactNoteReject={onLibraryArtifactNoteReject}
           onLibraryWebSearchChange={onLibraryWebSearchChange}
+          onLibraryGenerateArtifactsChange={onLibraryGenerateArtifactsChange}
           onRemoveLibraryContextRef={onRemoveLibraryContextRef}
           onSendAssessmentMessage={onSendAssessmentMessage}
           onToggleLibraryContextRef={onToggleLibraryContextRef}

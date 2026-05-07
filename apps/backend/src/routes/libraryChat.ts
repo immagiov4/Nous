@@ -230,6 +230,77 @@ const libraryChatTools = {
     }),
     outputSchema: genericLibraryToolOutputSchema,
   }),
+  generateLearningArtifact: tool({
+    description:
+      'Genera un nuovo artefatto visuale temporaneo per una lezione precisa della libreria. Devi conoscere projectId e lessonId reali prima di chiamarlo: se sono ambigui usa prima getProjectStructures/getLessonDetails o chiedi chiarimento.',
+    inputSchema: jsonSchema<{
+      lessonId: string;
+      projectId: string;
+      prompt: string;
+    }>({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        lessonId: {
+          type: 'string',
+          description: 'Id reale della lezione target ottenuto dai tool della libreria.',
+        },
+        projectId: {
+          type: 'string',
+          description: 'Id reale del corso target ottenuto dai tool della libreria.',
+        },
+        prompt: {
+          type: 'string',
+          description:
+            'Richiesta visuale precisa da soddisfare, con concetto e tipo di artefatto desiderato se indicato.',
+        },
+      },
+      required: ['lessonId', 'projectId', 'prompt'],
+    }),
+    outputSchema: genericLibraryToolOutputSchema,
+  }),
+  requestSaveLearningArtifactNote: tool({
+    description:
+      'Propone il salvataggio in una nota di lezione di uno o piu artefatti gia generati o mostrati in home chat. Il salvataggio reale avviene solo quando l utente clicca sulla card di conferma.',
+    inputSchema: jsonSchema<{
+      artifactIds: string[];
+      lessonId: string;
+      noteDraft: string;
+      projectId: string;
+      rationale: string;
+    }>({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        artifactIds: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'string',
+          },
+          description: 'Id degli artefatti da allegare alla nota.',
+        },
+        lessonId: {
+          type: 'string',
+          description: 'Id reale della lezione in cui salvare la nota.',
+        },
+        noteDraft: {
+          type: 'string',
+          description: 'Nota autosufficiente da salvare a livello lezione.',
+        },
+        projectId: {
+          type: 'string',
+          description: 'Id reale del corso in cui salvare la nota.',
+        },
+        rationale: {
+          type: 'string',
+          description: 'Motivo breve mostrato nella card di conferma.',
+        },
+      },
+      required: ['artifactIds', 'lessonId', 'noteDraft', 'projectId', 'rationale'],
+    }),
+    outputSchema: genericLibraryToolOutputSchema,
+  }),
   getLessonDetails: tool({
     description:
       'Recupera una o piu lezioni complete con contenuto integrale, highlight estratti e testo delle note per corso e lessonIds specifici.',
@@ -394,6 +465,7 @@ const readLibraryToolPreferences = (value: unknown): LibraryChatToolPreferences 
   }
 
   return {
+    generateArtifacts: value.generateArtifacts === true,
     webSearch: value.webSearch === true,
   };
 };

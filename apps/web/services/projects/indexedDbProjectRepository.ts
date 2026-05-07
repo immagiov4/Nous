@@ -95,6 +95,32 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   private dbPromise: Promise<IDBPDatabase<NousProjectDb>>;
   private placementBackfillPromise: Promise<void> | null = null;
 
+  /**
+   * Per-project serialization queue.
+   * Ensures that load→patch→save sequences for the same project ID
+   * never interleave, preventing the second operation from loading a
+   * stale snapshot and silently overwriting the first.
+   */
+  private pendingProjectOps = new Map<ProjectId, Promise<unknown>>();
+
+  private async enqueueProjectOp<T>(projectId: ProjectId, fn: () => Promise<T>): Promise<T> {
+    const previous = this.pendingProjectOps.get(projectId) ?? Promise.resolve();
+    // Chain after previous operation — even if it failed, run this one.
+    const next = previous.then(
+      () => fn(),
+      () => fn()
+    );
+    // Store a "tail" promise that always resolves so the chain never stalls.
+    this.pendingProjectOps.set(
+      projectId,
+      next.then(
+        () => undefined,
+        () => undefined
+      )
+    );
+    return next;
+  }
+
   constructor() {
     this.dbPromise = this.openDatabase();
   }
@@ -620,102 +646,109 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 
   async saveProject(snapshot: ProjectSnapshot): Promise<SavedProjectMeta> {
-    try {
-      const db = await this.dbPromise;
-      const transactionStores: NousProjectStoreName[] = this.hasStore(db, PLACEMENT_STORE)
-        ? [META_STORE, SNAPSHOT_STORE, PLACEMENT_STORE]
-        : [META_STORE, SNAPSHOT_STORE];
-      const tx = db.transaction(transactionStores, 'readwrite');
-      const existingMeta = (await tx.objectStore(META_STORE).get(snapshot.id)) || null;
-      const nextMeta = buildProjectMeta(snapshot, existingMeta);
-      await tx.objectStore(SNAPSHOT_STORE).put(snapshot);
-      await tx.objectStore(META_STORE).put(nextMeta);
-      if (this.hasStore(db, PLACEMENT_STORE)) {
-        const placementStore = tx.objectStore(PLACEMENT_STORE);
-        const existingPlacement = await placementStore.get(snapshot.id);
-        if (!existingPlacement) {
-          const placements = await placementStore.getAll();
-          await placementStore.put(
-            this.createPlacementRecord(
-              snapshot.id,
-              null,
-              this.resolveNextPlacementOrder(placements, null)
-            )
-          );
+    return this.enqueueProjectOp(snapshot.id, async () => {
+      try {
+        const db = await this.dbPromise;
+        const transactionStores: NousProjectStoreName[] = this.hasStore(db, PLACEMENT_STORE)
+          ? [META_STORE, SNAPSHOT_STORE, PLACEMENT_STORE]
+          : [META_STORE, SNAPSHOT_STORE];
+        const tx = db.transaction(transactionStores, 'readwrite');
+        const existingMeta = (await tx.objectStore(META_STORE).get(snapshot.id)) || null;
+        const nextMeta = buildProjectMeta(snapshot, existingMeta);
+        await tx.objectStore(SNAPSHOT_STORE).put(snapshot);
+        await tx.objectStore(META_STORE).put(nextMeta);
+        if (this.hasStore(db, PLACEMENT_STORE)) {
+          const placementStore = tx.objectStore(PLACEMENT_STORE);
+          const existingPlacement = await placementStore.get(snapshot.id);
+          if (!existingPlacement) {
+            const placements = await placementStore.getAll();
+            await placementStore.put(
+              this.createPlacementRecord(
+                snapshot.id,
+                null,
+                this.resolveNextPlacementOrder(placements, null)
+              )
+            );
+          }
         }
+        await tx.done;
+        return nextMeta;
+      } catch (error) {
+        throw classifyStorageError(error);
       }
-      await tx.done;
-      return nextMeta;
-    } catch (error) {
-      throw classifyStorageError(error);
-    }
+    });
   }
 
   async patchProject(id: ProjectId, patch: Record<string, unknown>): Promise<SavedProjectMeta> {
-    const snapshot = await this.loadProject(id);
-    if (!snapshot) {
-      throw new ProjectStorageError(`Progetto ${id} non trovato per patch.`, 'persistence-failed');
-    }
+    return this.enqueueProjectOp(id, async () => {
+      const snapshot = await this.loadProject(id);
+      if (!snapshot) {
+        throw new ProjectStorageError(
+          `Progetto ${id} non trovato per patch.`,
+          'persistence-failed'
+        );
+      }
 
-    // Apply patches
-    if (patch.activeSectionId !== undefined)
-      snapshot.activeSectionId = patch.activeSectionId as string | null;
-    if (patch.activeLaboratoryExerciseId !== undefined)
-      snapshot.activeLaboratoryExerciseId = patch.activeLaboratoryExerciseId as string | null;
-    if (patch.state !== undefined) snapshot.state = patch.state as AppState;
-    if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode as boolean;
-    if (patch.source !== undefined) snapshot.source = patch.source as ProjectSource | null;
-    if (patch.learningPlan !== undefined)
-      snapshot.learningPlan = patch.learningPlan as LearningPlan | null;
-    if (patch.laboratory !== undefined)
-      snapshot.laboratory = patch.laboratory as LaboratoryState | null;
-    if (patch.userProfile !== undefined)
-      snapshot.userProfile = patch.userProfile as UserProfile | null;
-    if (patch.syllabus !== undefined) snapshot.syllabus = patch.syllabus as SyllabusItem[];
-    if (patch.documentAssets !== undefined)
-      snapshot.documentAssets = patch.documentAssets as PdfDocumentAssets | null;
-    if (patch.documentIndex !== undefined)
-      snapshot.documentIndex = patch.documentIndex as PdfTextIndex | null;
-    if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt as string;
+      // Apply patches
+      if (patch.activeSectionId !== undefined)
+        snapshot.activeSectionId = patch.activeSectionId as string | null;
+      if (patch.activeLaboratoryExerciseId !== undefined)
+        snapshot.activeLaboratoryExerciseId = patch.activeLaboratoryExerciseId as string | null;
+      if (patch.state !== undefined) snapshot.state = patch.state as AppState;
+      if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode as boolean;
+      if (patch.source !== undefined) snapshot.source = patch.source as ProjectSource | null;
+      if (patch.learningPlan !== undefined)
+        snapshot.learningPlan = patch.learningPlan as LearningPlan | null;
+      if (patch.laboratory !== undefined)
+        snapshot.laboratory = patch.laboratory as LaboratoryState | null;
+      if (patch.userProfile !== undefined)
+        snapshot.userProfile = patch.userProfile as UserProfile | null;
+      if (patch.syllabus !== undefined) snapshot.syllabus = patch.syllabus as SyllabusItem[];
+      if (patch.documentAssets !== undefined)
+        snapshot.documentAssets = patch.documentAssets as PdfDocumentAssets | null;
+      if (patch.documentIndex !== undefined)
+        snapshot.documentIndex = patch.documentIndex as PdfTextIndex | null;
+      if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt as string;
 
-    // Apply section patch
-    const sectionPatch = patch.section as Record<string, unknown> | undefined;
-    if (sectionPatch?.sectionId && snapshot.learningPlan?.sections) {
-      const sectionId = sectionPatch.sectionId as string;
-      snapshot.learningPlan = {
-        ...snapshot.learningPlan,
-        sections: snapshot.learningPlan.sections.map(s =>
-          s.id === sectionId
-            ? {
-                ...s,
-                ...(sectionPatch.annotations !== undefined
-                  ? { annotations: sectionPatch.annotations as SectionAnnotation[] }
-                  : {}),
-                ...(sectionPatch.content !== undefined
-                  ? { content: sectionPatch.content as string }
-                  : {}),
-                ...(sectionPatch.generatedVisuals !== undefined
-                  ? {
-                      generatedVisuals:
-                        sectionPatch.generatedVisuals as LearningSection['generatedVisuals'],
-                    }
-                  : {}),
-                ...(sectionPatch.imageRefs !== undefined
-                  ? { imageRefs: sectionPatch.imageRefs as LearningSection['imageRefs'] }
-                  : {}),
-                ...(sectionPatch.isCompleted !== undefined
-                  ? { isCompleted: sectionPatch.isCompleted as boolean }
-                  : {}),
-                ...(sectionPatch.quiz !== undefined
-                  ? { quiz: sectionPatch.quiz as QuizQuestion[] }
-                  : {}),
-              }
-            : s
-        ),
-      };
-    }
+      // Apply section patch
+      const sectionPatch = patch.section as Record<string, unknown> | undefined;
+      if (sectionPatch?.sectionId && snapshot.learningPlan?.sections) {
+        const sectionId = sectionPatch.sectionId as string;
+        snapshot.learningPlan = {
+          ...snapshot.learningPlan,
+          sections: snapshot.learningPlan.sections.map(s =>
+            s.id === sectionId
+              ? {
+                  ...s,
+                  ...(sectionPatch.annotations !== undefined
+                    ? { annotations: sectionPatch.annotations as SectionAnnotation[] }
+                    : {}),
+                  ...(sectionPatch.content !== undefined
+                    ? { content: sectionPatch.content as string }
+                    : {}),
+                  ...(sectionPatch.generatedVisuals !== undefined
+                    ? {
+                        generatedVisuals:
+                          sectionPatch.generatedVisuals as LearningSection['generatedVisuals'],
+                      }
+                    : {}),
+                  ...(sectionPatch.imageRefs !== undefined
+                    ? { imageRefs: sectionPatch.imageRefs as LearningSection['imageRefs'] }
+                    : {}),
+                  ...(sectionPatch.isCompleted !== undefined
+                    ? { isCompleted: sectionPatch.isCompleted as boolean }
+                    : {}),
+                  ...(sectionPatch.quiz !== undefined
+                    ? { quiz: sectionPatch.quiz as QuizQuestion[] }
+                    : {}),
+                }
+              : s
+          ),
+        };
+      }
 
-    return this.saveProject(snapshot);
+      return this.saveProject(snapshot);
+    });
   }
 
   async deleteProject(id: ProjectId): Promise<void> {

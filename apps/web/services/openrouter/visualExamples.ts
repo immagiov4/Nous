@@ -32,7 +32,9 @@ Regole:
 - Non generare visuali decorative. La visuale deve insegnare qualcosa che il testo da solo rende piu faticoso.
 - Se "Immagini PDF gia integrate" e "si", scegli "none": le immagini del PDF sono il materiale visivo primario e non vanno affiancate da visuali generate meno deterministiche.
 - Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
-- Se il concetto e complesso, setta split_into_multiple=true, ma per questa versione scegli comunque il primo sottoconcetto piu utile.
+- **Copertura completa di elementi co-presenti.** Se la lezione presenta un insieme di elementi equivalenti (es. un elenco di N regole, N principi, N caratteristiche, N passaggi, N tipologie), la visuale deve rappresentarli TUTTI in un unico grafico. Non e accettabile scegliere un solo sottoelemento e ignorare gli altri. L'unica eccezione e quando un elemento e oggettivamente molto piu complesso degli altri e necessita una visuale dedicata mentre gli altri sono banali e auto-esplicativi; in quel caso la scelta deve essere giustificata nel campo "reason".
+- **La visuale deve aggiungere valore informativo, non riassumere.** Se la visuale si limiterebbe a elencare visivamente cio che il testo dice gia chiaramente (es. un elenco puntato di concetti semplici gia ben descritti), scegli "none": la visuale deve insegnare qualcosa che il testo da solo rende piu faticoso da capire, non decorare ne parafrasare.
+- **Scala la complessita in base al numero di elementi.** Se ci sono molti elementi da rappresentare (es. 5+ regole), usa layout a griglia, non una fila orizzontale ne una torre verticale. Se gli elementi sono troppi per un unico grafico leggibile, valuta se una sintesi visuale ha senso o se e meglio "none".
 - Usa Mermaid solo per ER e class diagram.
 - **Scegli il tipo visuale in base allo spazio disponibile.** Preferisci tipi che richiedono pochi elementi grafici ma sono informativi. Se il concetto ha molti sotto-elementi, prediligi layout verticale o a griglia compatta, non una fila orizzontale di blocchi.
 - **Minimizza il numero di entita grafiche.** Ogni blocco, nodo o forma aggiunge complessita visiva. Chiediti se puoi eliminare elementi senza perdere informazione. Meglio 3 blocchi ben spaziati che 5 compressi.
@@ -46,8 +48,9 @@ Regole:
   "anchor_heading": "heading esatto della lezione oppure null",
   "interaction_level": "none | low | high",
   "complexity": "simple | moderate | complex",
-  "split_into_multiple": true | false,
-  "reason": "una frase"
+  "coverage": "all_elements | single_complex | complete_synthesis | none",
+  "coverage_rationale": "breve spiegazione: perche la visuale copre tutti gli elementi, perche ne rappresenta solo uno, o perche nessuna visuale",
+  "reason": "una frase sul valore pedagogico della scelta"
 }`;
 
 const RENDERER_SVG_PROMPT = `SYSTEM:
@@ -62,6 +65,7 @@ Output SOLO JSON:
 }
 
 Regole SVG obbligatorie:
+- **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", la visuale SVG deve rappresentare TUTTI gli elementi dell'insieme in un unico grafico. Non puoi sceglierne solo uno. Usa layout a griglia o a colonne per distribuirli bilanciatamente.
 - Tutto il testo visibile dentro l'SVG deve essere nella stessa lingua della lezione fornita. Non tradurre in inglese se la lezione non e in inglese.
 - svg_code deve essere un singolo elemento <svg>, senza wrapper, DOCTYPE o tag HTML.
 - viewBox sempre "0 0 680 H"; larghezza 680 obbligatoria. width="100%".
@@ -93,6 +97,7 @@ Output SOLO JSON:
 }
 
 Regole:
+- **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", il widget deve rappresentare TUTTI gli elementi dell'insieme, non solo uno. Usa schede, stepper, pannelli o layout a griglia per distribuirli.
 - Tutto il testo visibile nel widget deve essere nella stessa lingua della lezione fornita. Non tradurre in inglese se la lezione non e in inglese.
 - Nessun DOCTYPE, <html>, <head>, <body>.
 - Ordine immutabile: <style> prima, HTML in mezzo, <script> ultimo.
@@ -121,6 +126,7 @@ Output SOLO JSON:
 }
 
 Regole:
+- **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", il diagramma deve includere TUTTE le entita o classi dell'insieme, non un sottoinsieme.
 - Tutti i nomi visibili, campi e relazioni devono essere nella stessa lingua della lezione fornita quando non sono termini tecnici obbligati.
 - Usa erDiagram solo per modelli entita-relazione.
 - Usa classDiagram solo per strutture OOP.
@@ -145,6 +151,8 @@ interface VisualPlan {
   anchor_heading?: null | string;
   complexity?: 'simple' | 'moderate' | 'complex';
   concept?: string;
+  coverage?: 'all_elements' | 'single_complex' | 'complete_synthesis' | 'none';
+  coverage_rationale?: string;
   interaction_level?: 'none' | 'low' | 'high';
   pedagogical_goal?: string;
   reason?: string;

@@ -1,4 +1,23 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm test *)",
+      "Bash(bun run *)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/routes/projects.test.ts)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts)",
+      "Bash(node -e ' *)",
+      "Bash(graphify query *)",
+      "Bash(node --max-old-space-size=4096 -e ' *)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/components/workspace/)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/routes/projects.test.ts apps/web/tests/services/projects/httpProjectRepository.test.ts)",
+      "Bash(ls -la \"/c/Users/giovb/Desktop/Trace-20260507T030255.json\" 2>&1 | head -3)",
+      "Read(//c/Users/giovb/Desktop/**)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/hooks/library/useProjectLibrary.test.ts apps/web/tests/services/projects/projectTransfer.test.ts)",
+      "Bash(bunx vitest *)",
+      "Bash(git stash *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {

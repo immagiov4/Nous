@@ -106,6 +106,10 @@ const UnifiedAudioPanel = ({
   const [hasYtError, setHasYtError] = useState(false);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [isSpeedPickerOpen, setIsSpeedPickerOpen] = useState(false);
+  // Lazy-mount the YouTube iframe + API only after the user actually starts the music.
+  // Otherwise every project with a saved musicUrl loads the YT API and keeps a hidden
+  // iframe alive — that alone consumes ~30% of the tab's CPU on tracking/heartbeat loops.
+  const [hasUserActivatedPlayer, setHasUserActivatedPlayer] = useState(false);
 
   const inputId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -211,6 +215,15 @@ const UnifiedAudioPanel = ({
   }, [setIsMusicPlaying, musicUrl, videoId]);
 
   useEffect(() => {
+    if (isMusicPlaying) {
+      setHasUserActivatedPlayer(true);
+    }
+  }, [isMusicPlaying]);
+
+  useEffect(() => {
+    if (!hasUserActivatedPlayer) {
+      return;
+    }
     if (!window.YT) {
       if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
         const tag = document.createElement('script');
@@ -223,7 +236,15 @@ const UnifiedAudioPanel = ({
     } else {
       setIsYtReady(true);
     }
-  }, []);
+  }, [hasUserActivatedPlayer]);
+
+  useEffect(
+    () => () => {
+      playerRef.current?.destroy?.();
+      playerRef.current = null;
+    },
+    []
+  );
 
   useEffect(() => {
     if (isYtReady && videoId && iframeRef.current && !playerRef.current) {
@@ -674,7 +695,7 @@ const UnifiedAudioPanel = ({
       )}
 
       <div className="absolute w-[1px] h-[1px] opacity-0 pointer-events-none overflow-hidden bottom-0 right-0">
-        {videoId && (
+        {hasUserActivatedPlayer && videoId && (
           <iframe
             ref={iframeRef}
             id="nous-bg-player"

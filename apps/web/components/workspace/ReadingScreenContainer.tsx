@@ -61,6 +61,7 @@ export const ReadingScreenContainer = ({
     openContextAnswer: readerRuntime.readerContext.openContextAnswer,
     openSection,
     patchSectionAnnotations: controller.patchSectionAnnotations,
+    projectId: currentProjectId,
     regenerateActiveSection: controller.regenerateActiveSection,
     sectionContent: controller.sectionContent,
     setIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,

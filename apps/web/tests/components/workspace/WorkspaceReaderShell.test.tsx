@@ -174,10 +174,12 @@ const buildProps = (): WorkspaceReaderShellProps => {
       isDarkMode: false,
       isMobileViewport: false,
       onAskContextQuestion: vi.fn(),
+      onAttachArtifactToAnnotation: vi.fn(),
       onCloseContextAnswer: vi.fn(),
       onCloseContextMenu: vi.fn(),
       onCreateLesson: vi.fn(),
       onDeleteAnnotation: vi.fn(),
+      onDetachArtifactFromAnnotation: vi.fn(),
       onHighlight: vi.fn(),
       preferredModels: {
         preferredAssessmentModel: '',
@@ -189,6 +191,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
       onSaveConversationNote: vi.fn(),
       onUpdateConversationNote: vi.fn(),
       onSaveNote: vi.fn(),
+      onSaveArtifactToLesson: vi.fn(),
     },
     shouldUseDesktopSidebar: true,
     sidebar: {

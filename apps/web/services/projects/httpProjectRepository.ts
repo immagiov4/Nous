@@ -163,11 +163,25 @@ export class HttpProjectRepository implements ProjectRepository {
   }
 
   async saveProject(snapshot: ProjectSnapshot): Promise<SavedProjectMeta> {
+    // Strip the PDF base64 from the autosave payload — it doesn't change after
+    // import and would otherwise resend ~100 MB on every debounced save,
+    // OOM-crashing the browser tab. The backend preserves the existing source
+    // when omitSource=true.
+    const lightweightSnapshot =
+      snapshot.source && snapshot.source.kind === 'pdf' && snapshot.source.file
+        ? {
+            ...snapshot,
+            source: {
+              ...snapshot.source,
+              file: { ...snapshot.source.file, data: '' },
+            },
+          }
+        : snapshot;
     const response = await this.request<{ meta?: SavedProjectMeta }>(
       `/api/projects/projects/${encodeURIComponent(snapshot.id)}`,
       {
         method: 'PUT',
-        body: JSON.stringify({ snapshot }),
+        body: JSON.stringify({ snapshot: lightweightSnapshot, omitSource: true }),
       }
     );
     return {

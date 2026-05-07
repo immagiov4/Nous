@@ -67,10 +67,22 @@ describe('ChatArtifactRenderer', () => {
 
     const dialog = screen.getByRole('dialog', { name: /Schema ER/i });
     expect(dialog).toBeInTheDocument();
+    expect(dialog.parentElement).toHaveClass('z-[130]');
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
     expect(within(dialog).getByRole('img', { name: /Schema ER/i })).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
 
     expect(screen.queryByRole('dialog', { name: /Schema ER/i })).not.toBeInTheDocument();
+  });
+
+  test('renders visual overlays without the inline article spacing', async () => {
+    const user = userEvent.setup();
+    render(<ChatArtifactRenderer artifacts={[htmlArtifact]} isDarkMode={true} />);
+
+    await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
+
+    const dialog = screen.getByRole('dialog', { name: /simulatore chiusura/i });
+    expect(within(dialog).getByTitle('simulatore chiusura').closest('figure')).toHaveClass('my-0');
   });
 });

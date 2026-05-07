@@ -35,17 +35,17 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 ## Validation Commands
 
 ```bash
-npm run quality       # TypeScript type checks + Biome lint
-npm run check:fallow  # Static dead-code & duplication analysis (info only)
-npm run gate          # Full gate: quality + fallow + tests
-npm run gate:ci       # CI gate: quality + fallow regression + tests
-npm run fix           # Auto-fix Biome lint, format, and import ordering
-npm run format        # Format all files (Biome)
-npm test              # Vitest test suite
+bun run quality       # TypeScript type checks + Biome lint
+bun run check:fallow  # Static dead-code & duplication analysis (info only)
+bun run gate          # Full gate: quality + fallow + tests
+bun run gate:ci       # CI gate: quality + fallow regression + tests
+bun run fix           # Auto-fix Biome lint, format, and import ordering
+bun run format        # Format all files (Biome)
+bun run test          # Vitest test suite (runs under Bun runtime)
 ```
 
 Run the narrowest meaningful validation first. Before completing cleanup/refactor
-batches, run `npm run gate`. Use `npm run fix` to auto-fix lint and format issues.
+batches, run `bun run gate`. Use `bun run fix` to auto-fix lint and format issues.
 Do not claim validation passed unless it was actually run.
 
 ## Core Philosophy

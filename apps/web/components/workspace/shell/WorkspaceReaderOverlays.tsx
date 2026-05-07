@@ -16,15 +16,18 @@ function WorkspaceReaderOverlays({
   isMobileViewport,
   currentLessonArtifactPayloads,
   onAskContextQuestion,
+  onAttachArtifactToAnnotation,
   onCloseContextAnswer,
   onCloseContextMenu,
   onCreateLesson,
   onDeleteAnnotation,
+  onDetachArtifactFromAnnotation,
   onHighlight,
   preferredModels,
   onSaveConversationNote,
   onUpdateConversationNote,
   onSaveNote,
+  onSaveArtifactToLesson,
 }: WorkspaceReaderOverlaysModel) {
   return (
     <>
@@ -43,6 +46,7 @@ function WorkspaceReaderOverlays({
             preferredContextModel={preferredModels.preferredContextModel}
             onSaveConversationNote={onSaveConversationNote}
             onUpdateConversationNote={onUpdateConversationNote}
+            onSaveArtifactToLesson={onSaveArtifactToLesson}
           />
           {!isMobileViewport ? (
             <div
@@ -57,12 +61,15 @@ function WorkspaceReaderOverlays({
       {contextMenu.visible ? (
         <ContextMenu
           {...contextMenu}
+          artifactPayloads={currentLessonArtifactPayloads}
           containerRef={contextMenuRef}
           isDarkMode={isDarkMode}
           onClose={onCloseContextMenu}
+          onAttachArtifactToAnnotation={onAttachArtifactToAnnotation}
           onAsk={onAskContextQuestion}
           onCreateLesson={onCreateLesson}
           onDeleteAnnotation={onDeleteAnnotation}
+          onDetachArtifactFromAnnotation={onDetachArtifactFromAnnotation}
           onHighlight={onHighlight}
           isLoading={isContextLoading}
           onSaveNote={onSaveNote}

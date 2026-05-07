@@ -120,7 +120,8 @@ export interface WorkspaceProjectLibraryAdapter {
   patchSectionAnnotations: (
     sectionId: string,
     annotations: unknown,
-    content?: string
+    content?: string,
+    generatedVisuals?: LearningSection['generatedVisuals']
   ) => Promise<void>;
   patchSectionLessonContent: (
     sectionId: string,

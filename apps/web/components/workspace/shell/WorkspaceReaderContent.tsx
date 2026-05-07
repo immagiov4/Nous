@@ -1,6 +1,12 @@
 import { BookOpen, LoaderCircle, MousePointerClick, X } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
+import type {
+  LearningArtifactRenderPayload,
+  LessonGeneratedVisual,
+  SectionAnnotation,
+} from '../../../types.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
+import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
 import WorkspaceLaboratoryContent from '../laboratory/WorkspaceLaboratoryContent.tsx';
@@ -9,6 +15,86 @@ import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
 import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
+
+const createFallbackVisualArtifactPayload = ({
+  activeSectionTitle,
+  artifactId,
+  title,
+  visual,
+}: {
+  activeSectionTitle?: string | null;
+  artifactId: string;
+  title?: string;
+  visual: LessonGeneratedVisual;
+}): LearningArtifactRenderPayload => ({
+  searchText: '',
+  summary: {
+    createdAt: visual.createdAt,
+    id: artifactId,
+    kind: 'generated-visual',
+    lessonId: '',
+    lessonTitle: activeSectionTitle || '',
+    previewMode: visual.kind === 'html' ? 'chip-only' : 'thumbnail',
+    projectId: '',
+    projectTitle: '',
+    sourceLabel: visual.kind === 'html' ? 'Interattivo' : 'Visuale',
+    title: title || visual.title?.replace(/[_-]+/g, ' ').trim() || 'Esempio visuale',
+  },
+  visual,
+});
+
+const resolveAnnotationArtifactPayloads = ({
+  activeSectionGeneratedVisualsById,
+  activeSectionTitle,
+  annotation,
+  artifactPayloadById,
+}: {
+  activeSectionGeneratedVisualsById: WorkspaceReaderContentModel['activeSectionGeneratedVisualsById'];
+  activeSectionTitle?: string | null;
+  annotation: SectionAnnotation;
+  artifactPayloadById: Map<string, LearningArtifactRenderPayload>;
+}): LearningArtifactRenderPayload[] =>
+  (annotation.artifactRefs || []).flatMap(ref => {
+    const payload = artifactPayloadById.get(ref.artifactId);
+    if (payload) {
+      return [payload];
+    }
+
+    if (ref.kind !== 'generated-visual') {
+      return [];
+    }
+
+    const visualId = ref.artifactId.split(':').pop() || '';
+    const visual = activeSectionGeneratedVisualsById?.[visualId];
+    return visual
+      ? [
+          createFallbackVisualArtifactPayload({
+            activeSectionTitle,
+            artifactId: ref.artifactId,
+            title: ref.title,
+            visual,
+          }),
+        ]
+      : [];
+  });
+
+const dedupeArtifactPayloads = (
+  payloads: LearningArtifactRenderPayload[]
+): LearningArtifactRenderPayload[] => {
+  const seenIds = new Set<string>();
+  return payloads.filter(payload => {
+    if (seenIds.has(payload.summary.id)) {
+      return false;
+    }
+    seenIds.add(payload.summary.id);
+    return true;
+  });
+};
+
+const isSavedGeneratedVisualPayload = (payload: LearningArtifactRenderPayload) =>
+  payload.summary.kind === 'generated-visual' &&
+  'visual' in payload &&
+  payload.visual.id.startsWith('visual-draft-');
 
 function LessonGenerationSkeleton({
   isDarkMode,
@@ -56,6 +142,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   activeSectionGeneratedVisualsById = {},
   activeSectionImageRefsById,
   contentRef,
+  currentLessonArtifactPayloads = [],
   isDarkMode,
   isFocusMode,
   isLoading,
@@ -105,6 +192,54 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   const inlineQuizLayout = useMemo(
     () => buildInlineQuizLayout(renderedSectionContent || '', quiz.length),
     [quiz.length, renderedSectionContent]
+  );
+  const lessonAnnotations = useMemo(
+    () => (sectionAnnotations || []).filter(annotation => annotation.anchor?.kind === 'lesson'),
+    [sectionAnnotations]
+  );
+  const artifactPayloadById = useMemo(
+    () => new Map(currentLessonArtifactPayloads.map(payload => [payload.summary.id, payload])),
+    [currentLessonArtifactPayloads]
+  );
+  const lessonAnnotationArtifactIds = useMemo(
+    () =>
+      new Set(
+        lessonAnnotations.flatMap(annotation =>
+          resolveAnnotationArtifactPayloads({
+            activeSectionGeneratedVisualsById,
+            activeSectionTitle,
+            annotation,
+            artifactPayloadById,
+          }).map(payload => payload.summary.id)
+        )
+      ),
+    [activeSectionGeneratedVisualsById, activeSectionTitle, artifactPayloadById, lessonAnnotations]
+  );
+  const sectionArtifactPayloads = useMemo(
+    () =>
+      dedupeArtifactPayloads([
+        ...currentLessonArtifactPayloads
+          .filter(isSavedGeneratedVisualPayload)
+          .filter(payload => !lessonAnnotationArtifactIds.has(payload.summary.id)),
+        ...(sectionAnnotations || [])
+          .filter(annotation => annotation.anchor?.kind !== 'lesson')
+          .flatMap(annotation =>
+            resolveAnnotationArtifactPayloads({
+              activeSectionGeneratedVisualsById,
+              activeSectionTitle,
+              annotation,
+              artifactPayloadById,
+            })
+          ),
+      ]),
+    [
+      activeSectionGeneratedVisualsById,
+      activeSectionTitle,
+      artifactPayloadById,
+      currentLessonArtifactPayloads,
+      lessonAnnotationArtifactIds,
+      sectionAnnotations,
+    ]
   );
   const unansweredQuestionCount = useMemo(
     () => quizAnswers.filter(answer => answer < 0).length,
@@ -243,6 +378,61 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                     })}
                   </div>
                 ))}
+
+                {sectionArtifactPayloads.length > 0 ? (
+                  <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
+                    <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
+                      Artefatti
+                    </h2>
+                    <ChatArtifactRenderer
+                      artifacts={sectionArtifactPayloads}
+                      className="grid gap-2 sm:grid-cols-2"
+                      isDarkMode={isDarkMode}
+                    />
+                  </section>
+                ) : null}
+
+                {lessonAnnotations.length > 0 ? (
+                  <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
+                    <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
+                      Artefatti della lezione
+                    </h2>
+                    {lessonAnnotations.map(annotation => {
+                      const annotationArtifacts = resolveAnnotationArtifactPayloads({
+                        activeSectionGeneratedVisualsById,
+                        activeSectionTitle,
+                        annotation,
+                        artifactPayloadById,
+                      });
+                      const hasNoteText = annotation.note?.trim().length > 0;
+
+                      return (
+                        <article key={annotation.id}>
+                          {hasNoteText ? (
+                            <div className="rounded-[1.2rem] border border-stone-200/80 bg-white/80 px-4 py-4 shadow-[0_12px_34px_-30px_rgba(46,34,16,0.45)] dark:border-stone-700 dark:bg-stone-900/35">
+                              <MarkdownRenderer
+                                content={annotation.note}
+                                isDarkMode={isDarkMode}
+                                className={`prose-sm max-w-none leading-6 text-stone-800 dark:text-stone-100 ${
+                                  isDarkMode ? 'prose-invert' : ''
+                                }`}
+                              />
+                            </div>
+                          ) : null}
+                          {annotationArtifacts.length > 0 ? (
+                            <div className={hasNoteText ? 'mt-3' : ''}>
+                              <ChatArtifactRenderer
+                                artifacts={annotationArtifacts}
+                                className="grid gap-2 sm:grid-cols-2"
+                                isDarkMode={isDarkMode}
+                              />
+                            </div>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </section>
+                ) : null}
 
                 <WorkspaceReaderQuizFooter
                   canComplete={canCompleteSection}

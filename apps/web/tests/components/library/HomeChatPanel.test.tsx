@@ -144,12 +144,14 @@ const buildProps = () => ({
   libraryScopeSummary,
   libraryTree,
   libraryWebSearch: false,
+  libraryGenerateArtifacts: false,
   newCourseLoadingStatus: 'Caricamento...',
   onClearPendingFile: vi.fn(),
   onConfirmGenerate: vi.fn(),
   onHomeChatModeChange: vi.fn(),
   onLibraryMessageSend: vi.fn(async () => {}),
   onLibraryWebSearchChange: vi.fn(),
+  onLibraryGenerateArtifactsChange: vi.fn(),
   onRemoveLibraryContextRef: vi.fn(),
   onSendAssessmentMessage: vi.fn(async () => {}),
   onToggleLibraryContextRef: vi.fn(),
@@ -445,6 +447,56 @@ describe('HomeChatPanel', () => {
     const renderedText = container.textContent || '';
     expect(renderedText.indexOf('Ecco il grafico richiesto.')).toBeLessThan(
       renderedText.indexOf('Schema ER')
+    );
+  });
+
+  test('renders a confirmation card for saving generated artifacts into lesson notes', async () => {
+    const user = userEvent.setup();
+    const onLibraryArtifactNoteApprove = vi.fn(async () => {});
+    const onLibraryArtifactNoteReject = vi.fn();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      onLibraryArtifactNoteApprove,
+      onLibraryArtifactNoteReject,
+      libraryMessages: [
+        {
+          id: 'assistant-save-artifact',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestSaveLearningArtifactNote',
+              toolCallId: 'tool-save-artifact',
+              state: 'input-available',
+              input: {
+                artifactIds: ['project-1:lesson-1:generated-visual:visual-1'],
+                lessonId: 'lesson-1',
+                noteDraft: 'Questa mappa chiarisce il circuito comunicativo.',
+                projectId: 'project-1',
+                rationale: 'La mappa sara utile per ripassare la lezione.',
+              },
+            },
+          ],
+        } as UIMessage,
+      ],
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    expect(screen.getByText('Vuoi salvarlo nelle note della lezione?')).toBeInTheDocument();
+    expect(
+      screen.getByText('Questa mappa chiarisce il circuito comunicativo.')
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Salva nota' }));
+
+    expect(onLibraryArtifactNoteApprove).toHaveBeenCalledWith(
+      'tool-save-artifact',
+      expect.objectContaining({
+        artifactIds: ['project-1:lesson-1:generated-visual:visual-1'],
+        lessonId: 'lesson-1',
+        projectId: 'project-1',
+      })
     );
   });
 

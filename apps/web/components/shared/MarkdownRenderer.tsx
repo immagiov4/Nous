@@ -258,7 +258,10 @@ const MarkdownRenderer = ({
     () =>
       new Set(
         sectionAnnotations
-          .filter(annotation => annotation.note.trim().length > 0)
+          .filter(
+            annotation =>
+              annotation.note.trim().length > 0 || (annotation.artifactRefs?.length || 0) > 0
+          )
           .map(annotation => annotation.id)
       ),
     [sectionAnnotations]

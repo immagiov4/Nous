@@ -5,6 +5,7 @@ import { createRef } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderContentModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderContent from '../../../../components/workspace/shell/WorkspaceReaderContent.tsx';
+import type { LearningArtifactRenderPayload } from '../../../../types.ts';
 
 const buildProps = (
   overrides: Partial<WorkspaceReaderContentModel> = {}
@@ -53,6 +54,26 @@ const buildProps = (
   sectionContent: '# Lezione\n\nContenuto',
   ...overrides,
 });
+
+const savedSelectionArtifact: LearningArtifactRenderPayload = {
+  summary: {
+    id: 'project-1:section-1:generated-visual:visual-draft-1',
+    kind: 'generated-visual',
+    lessonId: 'section-1',
+    lessonTitle: 'Lezione test',
+    previewMode: 'chip-only',
+    projectId: 'project-1',
+    projectTitle: 'Corso test',
+    title: 'Flashcard interattive',
+  },
+  visual: {
+    code: '<div>Flashcard interattive</div>',
+    createdAt: '2026-05-06T10:00:00.000Z',
+    id: 'visual-draft-1',
+    kind: 'html',
+    title: 'Flashcard interattive',
+  },
+};
 
 describe('WorkspaceReaderContent', () => {
   test('shows a lesson generation skeleton when the selected lesson is not ready yet', () => {
@@ -106,6 +127,48 @@ describe('WorkspaceReaderContent', () => {
 
     expect(screen.getByText('Completa e Prosegui')).toBeEnabled();
     expect(screen.getByText('Corretta')).toBeInTheDocument();
+  });
+
+  test('renders artifacts saved on selection annotations in the lesson artifact section', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          currentLessonArtifactPayloads: [savedSelectionArtifact],
+          sectionAnnotations: [
+            {
+              artifactRefs: [
+                {
+                  artifactId: 'project-1:section-1:generated-visual:visual-draft-1',
+                  kind: 'generated-visual',
+                  title: 'Flashcard interattive',
+                },
+              ],
+              createdAt: '2026-05-06T10:00:00.000Z',
+              id: 'annotation-1',
+              note: '',
+              updatedAt: '2026-05-06T10:00:00.000Z',
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByRole('heading', { name: 'Artefatti' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Apri Flashcard interattive/i })).toBeInTheDocument();
+  });
+
+  test('keeps saved draft artifacts visible even when they are no longer attached to a note', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          currentLessonArtifactPayloads: [savedSelectionArtifact],
+          sectionAnnotations: [],
+        })}
+      />
+    );
+
+    expect(screen.getByRole('heading', { name: 'Artefatti' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Apri Flashcard interattive/i })).toBeInTheDocument();
   });
 
   test('renders the laboratory workspace when laboratory view is active', () => {

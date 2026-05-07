@@ -1,9 +1,9 @@
 // fallow-ignore-file unused-class-members — interface implementation methods
+
+import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import Database from 'better-sqlite3';
 
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
@@ -72,17 +72,22 @@ const resolveDatabasePath = (): string => {
 };
 
 export class SqliteProjectStore implements ProjectStore {
-  private database: Database.Database;
+  private database: Database;
 
   constructor(databasePath = resolveDatabasePath()) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.database = new Database(databasePath);
-    this.database.pragma('journal_mode = WAL');
-    this.database.pragma('foreign_keys = ON');
+    this.database.exec('PRAGMA journal_mode = WAL');
+    this.database.exec('PRAGMA foreign_keys = ON');
     this.migrate();
   }
 
   close(): void {
+    try {
+      this.database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch {
+      // ignore — checkpoint may fail if DB is read-only or already closing
+    }
     this.database.close();
   }
 

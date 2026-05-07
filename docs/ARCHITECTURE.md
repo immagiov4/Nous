@@ -216,7 +216,7 @@ Frontend audio playback calls the backend `/api/tts` route, and that route uses 
 ## Tooling
 
 ```bash
-npm run dev       # Frontend + backend in watch mode
-npm run quality   # TypeScript type check + Biome lint
-npm test          # Vitest test suite
+bun run dev       # Frontend + backend in watch mode
+bun run quality   # TypeScript type check + Biome lint
+bun run test      # Vitest test suite (runs under Bun runtime)
 ```

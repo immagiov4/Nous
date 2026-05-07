@@ -3,10 +3,23 @@ import type { LessonGeneratedVisual } from '../../types.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
 
 interface GeneratedVisualFrameProps {
+  className?: string;
   isDarkMode?: boolean;
   title: string;
   visual: LessonGeneratedVisual;
 }
+
+const GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE = `
+html, body {
+  background: transparent !important;
+}
+/* Strip background from the outermost AI-generated widget wrapper so it
+   blends with the transparent iframe instead of creating a visible lighter
+   rectangle. Nested containers (shell, card) keep their own backgrounds. */
+body > * {
+  background: transparent !important;
+}
+`;
 
 const RESIZE_SCRIPT = `
 const isDarkHost = document.documentElement.classList.contains('dark');
@@ -63,8 +76,20 @@ function parseHexColor(value) {
   return null;
 }
 function parseRgbColor(value) {
-  const match = normalizeColor(value).match(/^rgba?\\((\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)/);
+  const match = normalizeColor(value).match(
+    /^rgba?\\((\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)(?:[,/\\s]+([\\d.]+%?))?/
+  );
   if (!match) {
+    return null;
+  }
+
+  const alpha = match[4]?.endsWith('%')
+    ? Number.parseFloat(match[4]) / 100
+    : match[4]
+      ? Number.parseFloat(match[4])
+      : 1;
+
+  if (Number.isFinite(alpha) && alpha <= 0.05) {
     return null;
   }
 
@@ -77,15 +102,17 @@ function parseRgbColor(value) {
 function parseColor(value) {
   return parseHexColor(value) || parseRgbColor(value);
 }
+function getLuminance(rgb) {
+  const [r, g, b] = rgb;
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
 function isDarkReadableLightModeText(value) {
   const rgb = parseColor(value);
   if (!rgb) {
     return false;
   }
 
-  const [r, g, b] = rgb;
-  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  return luminance < 0.38;
+  return getLuminance(rgb) < 0.38;
 }
 function isPaleLightModeFill(value) {
   const color = normalizeColor(value);
@@ -99,9 +126,50 @@ function isPaleLightModeFill(value) {
   }
 
   const [r, g, b] = rgb;
-  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const luminance = getLuminance(rgb);
   const channelSpread = Math.max(r, g, b) - Math.min(r, g, b);
   return luminance > 0.82 && channelSpread < 34;
+}
+function isBrightLightModeSurface(value) {
+  const rgb = parseColor(value);
+  if (!rgb) {
+    return false;
+  }
+
+  return getLuminance(rgb) > 0.72;
+}
+function isLightText(value) {
+  const rgb = parseColor(value);
+  if (!rgb) {
+    return false;
+  }
+
+  return getLuminance(rgb) > 0.62;
+}
+function toDarkSurfaceColor(value) {
+  const rgb = parseColor(value);
+  if (!rgb) {
+    return 'var(--bg-surface)';
+  }
+
+  const [r, g, b] = rgb;
+  const channelSpread = Math.max(r, g, b) - Math.min(r, g, b);
+  if (channelSpread < 34) {
+    return 'var(--bg-surface)';
+  }
+
+  return 'rgb(' + Math.round(r * 0.26) + ', ' + Math.round(g * 0.26) + ', ' + Math.round(b * 0.26) + ')';
+}
+function readCssColor(element, property) {
+  const explicitValue = element.style.getPropertyValue(property);
+  if (explicitValue) {
+    return normalizeColor(explicitValue);
+  }
+
+  return normalizeColor(window.getComputedStyle(element).getPropertyValue(property));
+}
+function writeCssColor(element, property, value) {
+  element.style.setProperty(property, value, 'important');
 }
 
 function removeOuterSvgBackgrounds() {
@@ -158,6 +226,8 @@ function normalizeDarkSvgTheme() {
     const stroke = readPaint(element, 'stroke');
     if (isPaleLightModeFill(fill)) {
       writePaint(element, 'fill', 'var(--bg-surface)');
+    } else if (isBrightLightModeSurface(fill)) {
+      writePaint(element, 'fill', toDarkSurfaceColor(fill));
     }
     if (connectorStrokes.has(stroke) || isDarkReadableLightModeText(stroke)) {
       writePaint(element, 'stroke', 'var(--border-strong)');
@@ -169,31 +239,71 @@ function normalizeDarkSvgTheme() {
     const stroke = readPaint(element, 'stroke');
     if (isPaleLightModeFill(fill)) {
       writePaint(element, 'fill', 'var(--bg-paper)');
+    } else if (isBrightLightModeSurface(fill)) {
+      writePaint(element, 'fill', toDarkSurfaceColor(fill));
     }
     if (connectorStrokes.has(stroke) || isDarkReadableLightModeText(stroke)) {
       writePaint(element, 'stroke', 'var(--ink-secondary)');
     }
   });
 }
-function updateHeight() {
+function normalizeDarkHtmlTheme() {
+  if (!isDarkHost) {
+    return;
+  }
+
+  document.body
+    .querySelectorAll(':scope *:not(svg):not(svg *):not(script):not(style)')
+    .forEach(element => {
+      const backgroundColor = readCssColor(element, 'background-color');
+      const color = readCssColor(element, 'color');
+      const borderColor = readCssColor(element, 'border-color');
+      const hasBrightBackground = isBrightLightModeSurface(backgroundColor);
+
+      if (hasBrightBackground) {
+        writeCssColor(element, 'background-color', toDarkSurfaceColor(backgroundColor));
+      }
+
+      if (hasBrightBackground || isDarkReadableLightModeText(color) || isLightText(color)) {
+        writeCssColor(element, 'color', 'var(--ink-primary)');
+      }
+
+      if (isBrightLightModeSurface(borderColor) || isDarkReadableLightModeText(borderColor)) {
+        writeCssColor(element, 'border-color', 'var(--border-strong)');
+      }
+    });
+}
+function normalizeContent() {
   removeOuterSvgBackgrounds();
   normalizeDarkSvgTheme();
+  normalizeDarkHtmlTheme();
+}
+let lastReportedHeight = 0;
+function updateHeight() {
   const body = document.body;
   const childBottom = Array.from(body.children).reduce((bottom, child) => {
     const rect = child.getBoundingClientRect();
     return Math.max(bottom, rect.bottom);
   }, 0);
   const height = Math.ceil(Math.max(childBottom, body.scrollHeight, body.offsetHeight));
+  // Dedup: stop the resize-observer feedback loop where setting the parent
+  // iframe height triggers a body reflow that re-fires the observer.
+  if (Math.abs(height - lastReportedHeight) <= 1) return;
+  lastReportedHeight = height;
   window.parent.postMessage({ type: 'generated-visual-resize', height }, '*');
 }
-window.addEventListener('load', updateHeight);
+function normalizeAndMeasure() {
+  normalizeContent();
+  updateHeight();
+}
+window.addEventListener('load', normalizeAndMeasure);
 const resizeObserver = new ResizeObserver(updateHeight);
 resizeObserver.observe(document.body);
 document.querySelectorAll('svg, canvas, .mermaid').forEach(element => resizeObserver.observe(element));
 window.addEventListener('resize', updateHeight);
-setTimeout(updateHeight, 100);
-setTimeout(updateHeight, 500);
-setTimeout(updateHeight, 1500);
+setTimeout(normalizeAndMeasure, 100);
+setTimeout(normalizeAndMeasure, 500);
+setTimeout(normalizeAndMeasure, 1500);
 `;
 
 const buildMermaidHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): string => `
@@ -204,6 +314,7 @@ const buildMermaidHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): s
     <style>${GENERATED_VISUAL_HOST_STYLES}
       body { padding: 0; }
       .mermaid { display: flex; justify-content: center; }
+      ${GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   </head>
@@ -229,11 +340,17 @@ const buildVisualHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): st
   </head>
   <body>
     ${visual.code}
+    <style>${GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE}</style>
     <script>${RESIZE_SCRIPT}</script>
   </body>
 </html>`;
 
-const GeneratedVisualFrame = ({ isDarkMode = false, title, visual }: GeneratedVisualFrameProps) => {
+const GeneratedVisualFrame = ({
+  className = 'my-10',
+  isDarkMode = false,
+  title,
+  visual,
+}: GeneratedVisualFrameProps) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const hostDocument = useMemo(
     () =>
@@ -263,7 +380,7 @@ const GeneratedVisualFrame = ({ isDarkMode = false, title, visual }: GeneratedVi
   }, []);
 
   return (
-    <figure className="my-10 overflow-hidden bg-transparent" data-nous-speech="ignore">
+    <figure className={`${className} overflow-hidden bg-transparent`} data-nous-speech="ignore">
       <iframe
         key={`${visual.id}-${visual.kind}-${isDarkMode ? 'dark' : 'light'}`}
         ref={iframeRef}

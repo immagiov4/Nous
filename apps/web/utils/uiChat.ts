@@ -1,11 +1,16 @@
 import { isTextUIPart, isToolUIPart, type UIMessage } from 'ai';
 
+/** Strip internal placeholder syntax like {{attachment ...}} that leaks from some models. */
+const stripPlaceholders = (text: string): string => text.replace(/\{\{[^}]*\}\}/g, '').trim();
+
 export const getUiMessageText = (message: UIMessage) => {
-  return message.parts
-    .filter(isTextUIPart)
-    .map(part => part.text)
-    .join('')
-    .trim();
+  return stripPlaceholders(
+    message.parts
+      .filter(isTextUIPart)
+      .map(part => part.text)
+      .join('')
+      .trim()
+  );
 };
 
 type UiMessageRenderablePart<T extends UIMessage = UIMessage> =
@@ -30,7 +35,8 @@ export const getUiMessageRenderableParts = <T extends UIMessage>(
   let textBlockIndex = 0;
 
   const flushTextBuffer = () => {
-    if (!textBuffer.trim()) {
+    const cleaned = stripPlaceholders(textBuffer);
+    if (!cleaned) {
       textBuffer = '';
       isStreamingTextBlock = false;
       return;
@@ -40,7 +46,7 @@ export const getUiMessageRenderableParts = <T extends UIMessage>(
       kind: 'text',
       isStreaming: isStreamingTextBlock,
       key: `text-${textBlockIndex}`,
-      text: textBuffer,
+      text: cleaned,
     });
     textBlockIndex += 1;
     textBuffer = '';

@@ -119,6 +119,37 @@ const createContextSearchWebTool = ({
   });
 
 const contextChatTools = {
+  generateCurrentLessonArtifact: tool({
+    description:
+      'Genera un nuovo artefatto visuale temporaneo per la lezione corrente in base alla richiesta dell utente. Usalo per mappe concettuali, grafici, diagrammi o widget HTML interattivi richiesti sul momento. Dopo averlo mostrato, se l utente chiede di salvarlo chiama requestAddToNotes includendo artifactIds.',
+    inputSchema: jsonSchema<{
+      prompt: string;
+    }>({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        prompt: {
+          type: 'string',
+          description:
+            'Richiesta visuale precisa da soddisfare, includendo concetto, taglio didattico e tipo di artefatto desiderato se indicato.',
+        },
+      },
+      required: ['prompt'],
+    }),
+    outputSchema: jsonSchema<Record<string, unknown>>({
+      type: 'object',
+      additionalProperties: true,
+      properties: {
+        artifact: {
+          type: ['object', 'null'],
+          additionalProperties: true,
+        },
+        artifactId: {
+          type: 'string',
+        },
+      },
+    }),
+  }),
   getCurrentLessonArtifacts: tool({
     description:
       'Recupera gli artefatti visuali gia disponibili nella lezione corrente: mappe/widget generati e immagini PDF collegate. Usalo quando l utente chiede di vedere grafici, mappe, immagini o artefatti esistenti nel follow-up.',
@@ -189,6 +220,7 @@ const contextChatTools = {
     description:
       "Unico tool per proporre il salvataggio di una nota di studio. La UI determina automaticamente se creare una nota nuova o aggiornare quella gia collegata al passaggio: tu non devi scegliere ne distinguere le due modalita. Il salvataggio reale avviene quando l'utente clicca sulla card di conferma; il tool ti restituisce l'esito.",
     inputSchema: jsonSchema<{
+      artifactIds?: string[];
       noteDraft: string;
       rationale: string;
       selectedTextDraft: string;
@@ -196,6 +228,14 @@ const contextChatTools = {
       type: 'object',
       additionalProperties: false,
       properties: {
+        artifactIds: {
+          type: 'array',
+          items: {
+            type: 'string',
+          },
+          description:
+            'Id degli artefatti appena generati o recuperati che devono essere allegati alla nota, se l utente vuole salvarli.',
+        },
         noteDraft: {
           type: 'string',
           description:
@@ -300,6 +340,7 @@ const readContextToolPreferences = (value: unknown): ContextChatToolPreferences 
 
   return {
     annotate: value.annotate === true,
+    generateArtifacts: value.generateArtifacts === true,
     webSearch: value.webSearch === true,
   };
 };

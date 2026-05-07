@@ -305,7 +305,7 @@ Da incollare nel prompt quando assegni una fase:
 > Stai eseguendo una fase della roadmap di Lumina Reader. Regole:
 > 1. **Leggi `docs/ARCHITECTURE.md`** prima di iniziare. Per domande su come moduli si collegano, usa `graphify query "<domanda>"` invece di grep.
 > 2. **Non andare oltre lo scope della fase.** Se vedi cose da sistemare fuori scope, scrivile in un commento del PR, non implementarle.
-> 3. **Test obbligatori**: ogni fase che tocca logica deve includere test. Se non aggiungi test, il PR viene rifiutato. Esegui `npm test` e `npm run gate` prima di chiudere.
+> 3. **Test obbligatori**: ogni fase che tocca logica deve includere test. Se non aggiungi test, il PR viene rifiutato. Esegui `bun run test` e `bun run gate` prima di chiudere.
 > 4. **Open questions**: se ci sono `[NEEDS-ANSWER]` o "Open questions" non risolte nel piano, **fermati e chiedi**. Non assumere.
 > 5. **Bug fix**: senza un test di regressione che fallisce *prima* del fix e passa *dopo*, il fix non è completo.
 > 6. **Performance**: niente refactor "preventivi". Misura prima, ottimizza dopo, ri-misura.

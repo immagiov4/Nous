@@ -37,6 +37,8 @@ export const buildConversationNoteSaveCandidates = ({
 
   const primaryCandidate = {
     ...primarySelection,
+    ...(toolInput.artifactRefs ? { artifactRefs: toolInput.artifactRefs } : {}),
+    ...(toolInput.generatedVisuals ? { generatedVisuals: toolInput.generatedVisuals } : {}),
     note: normalizeRequiredText(toolInput.note),
     fallbackSelection: normalizedAnchor,
   } satisfies SaveConversationNoteInput;
@@ -49,6 +51,10 @@ export const buildConversationNoteSaveCandidates = ({
     primaryCandidate,
     {
       ...normalizedAnchor,
+      ...(primaryCandidate.artifactRefs ? { artifactRefs: primaryCandidate.artifactRefs } : {}),
+      ...(primaryCandidate.generatedVisuals
+        ? { generatedVisuals: primaryCandidate.generatedVisuals }
+        : {}),
       note: primaryCandidate.note,
       fallbackSelection: normalizedAnchor,
     } satisfies SaveConversationNoteInput,

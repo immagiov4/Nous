@@ -12,16 +12,16 @@ Nous Reader turns uploaded documents into personalized study plans with lessons,
 
 1. Install the frontend dependencies:
    ```bash
-   npm ci
+   bun install
    ```
 2. Install the backend dependencies:
    ```bash
-   cd apps/backend && npm ci && cd ../..
+   cd apps/backend && bun install && cd ../..
    ```
 3. Set `OPENROUTER_API_KEY` in [.env.local](.env.local)
 4. Start the app:
    ```bash
-   npm run dev
+   bun run dev
    ```
 
 This starts the Vite frontend on `http://localhost:5173` and the Express backend on `http://localhost:3301`.
@@ -57,10 +57,10 @@ By default, projects are stored in browser IndexedDB. LAN sync uses the backend 
 ## Useful Commands
 
 ```bash
-npm run quality       # TypeScript type checks + Biome lint
-npm run check:fallow  # Static dead-code & duplication analysis
-npm run gate          # Full gate: quality + fallow + tests
-npm run fix           # Auto-fix Biome lint, format, and import ordering
-npm run format        # Format all files (Biome)
-npm test              # Vitest test suite
+bun run quality       # TypeScript type checks + Biome lint
+bun run check:fallow  # Static dead-code & duplication analysis
+bun run gate          # Full gate: quality + fallow + tests
+bun run fix           # Auto-fix Biome lint, format, and import ordering
+bun run format        # Format all files (Biome)
+bun run test          # Vitest test suite (runs under Bun runtime)
 ```

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { LearningPlan, ProjectSnapshot } from '../../../types.ts';
 import {
+  buildGeneratedVisualLearningArtifactPayload,
   collectLearningArtifactPayloads,
   filterLearningArtifactPayloads,
 } from '../../../utils/learning/artifacts.ts';
@@ -53,6 +54,40 @@ const buildSnapshot = (learningPlan: LearningPlan): ProjectSnapshot => ({
 });
 
 describe('learning artifacts', () => {
+  test('buildGeneratedVisualLearningArtifactPayload creates a render payload for generated drafts', () => {
+    const payload = buildGeneratedVisualLearningArtifactPayload({
+      lesson: {
+        id: 'lesson-1',
+        title: 'Comunicazione di massa',
+        description: 'Modelli comunicativi',
+        isCompleted: false,
+        type: 'core',
+        content: 'Emittente, messaggio, ricevente e feedback.',
+      },
+      projectId: 'project-1',
+      projectTitle: 'Sociologia',
+      visual: {
+        id: 'visual-draft',
+        title: 'circuito_comunicativo',
+        kind: 'svg',
+        code: '<svg viewBox="0 0 680 120"></svg>',
+        createdAt: '2026-05-05T10:00:00.000Z',
+      },
+    });
+
+    expect(payload.summary).toMatchObject({
+      id: 'project-1:lesson-1:generated-visual:visual-draft',
+      kind: 'generated-visual',
+      lessonId: 'lesson-1',
+      previewMode: 'thumbnail',
+      projectId: 'project-1',
+      title: 'circuito comunicativo',
+    });
+    expect(payload).toMatchObject({
+      visual: expect.objectContaining({ id: 'visual-draft' }),
+    });
+  });
+
   test('normalizes generated visuals and PDF images into stable render payloads', () => {
     const snapshot = buildSnapshot({
       title: 'Basi di dati',

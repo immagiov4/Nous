@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
   applySectionAnnotation,
+  createLessonSectionAnnotation,
   findSectionAnnotationForSelection,
   migrateSectionAnnotations,
   NOTE_MERGE_SEPARATOR,
   removeSectionAnnotation,
+  removeSectionAnnotationArtifactRef,
   updateSectionAnnotationNote,
+  upsertSectionAnnotationArtifactRefs,
 } from '../../../utils/learning/sectionAnnotations.ts';
 
 test('applySectionAnnotation creates a persistent highlight with a stable annotation id', () => {
@@ -32,6 +35,154 @@ test('applySectionAnnotation creates a persistent highlight with a stable annota
       updatedAt: '2026-04-02T10:00:00.000Z',
     },
   ]);
+});
+
+test('createLessonSectionAnnotation stores a lesson-level note with artifact refs', () => {
+  const result = createLessonSectionAnnotation({
+    annotations: [],
+    artifactRefs: [
+      {
+        artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+        kind: 'generated-visual',
+        title: 'Mappa concettuale',
+      },
+    ],
+    createId: () => 'annotation-lesson',
+    note: 'Nota generale della lezione',
+    now: '2026-05-05T10:00:00.000Z',
+  });
+
+  assert.deepEqual(result.annotations, [
+    {
+      anchor: { kind: 'lesson' },
+      artifactRefs: [
+        {
+          artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+          kind: 'generated-visual',
+          title: 'Mappa concettuale',
+        },
+      ],
+      createdAt: '2026-05-05T10:00:00.000Z',
+      id: 'annotation-lesson',
+      note: 'Nota generale della lezione',
+      updatedAt: '2026-05-05T10:00:00.000Z',
+    },
+  ]);
+});
+
+test('upsertSectionAnnotationArtifactRefs merges artifact refs without duplicating them', () => {
+  const result = upsertSectionAnnotationArtifactRefs({
+    annotationId: 'annotation-1',
+    annotations: [
+      {
+        artifactRefs: [
+          {
+            artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+            kind: 'generated-visual',
+            title: 'Prima mappa',
+          },
+        ],
+        createdAt: '2026-05-05T10:00:00.000Z',
+        id: 'annotation-1',
+        note: 'Nota',
+        updatedAt: '2026-05-05T10:00:00.000Z',
+      },
+    ],
+    artifactRefs: [
+      {
+        artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+        kind: 'generated-visual',
+        title: 'Titolo aggiornato ignorato',
+      },
+      {
+        artifactId: 'project-1:lesson-1:generated-visual:visual-2',
+        kind: 'generated-visual',
+        title: 'Seconda mappa',
+      },
+    ],
+    now: '2026-05-05T11:00:00.000Z',
+  });
+
+  assert.ok(result);
+  assert.deepEqual(result.annotation.artifactRefs, [
+    {
+      artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+      kind: 'generated-visual',
+      title: 'Prima mappa',
+    },
+    {
+      artifactId: 'project-1:lesson-1:generated-visual:visual-2',
+      kind: 'generated-visual',
+      title: 'Seconda mappa',
+    },
+  ]);
+  assert.equal(result.annotation.updatedAt, '2026-05-05T11:00:00.000Z');
+});
+
+test('removeSectionAnnotationArtifactRef detaches one artifact without deleting the note', () => {
+  const result = removeSectionAnnotationArtifactRef({
+    annotationId: 'annotation-1',
+    annotations: [
+      {
+        artifactRefs: [
+          {
+            artifactId: 'visual-1',
+            kind: 'generated-visual',
+            title: 'Prima mappa',
+          },
+          {
+            artifactId: 'visual-2',
+            kind: 'generated-visual',
+            title: 'Seconda mappa',
+          },
+        ],
+        createdAt: '2026-05-05T10:00:00.000Z',
+        id: 'annotation-1',
+        note: 'Nota',
+        updatedAt: '2026-05-05T10:00:00.000Z',
+      },
+    ],
+    artifactId: 'visual-1',
+    now: '2026-05-05T11:00:00.000Z',
+  });
+
+  assert.ok(result);
+  assert.deepEqual(result.annotation.artifactRefs, [
+    {
+      artifactId: 'visual-2',
+      kind: 'generated-visual',
+      title: 'Seconda mappa',
+    },
+  ]);
+  assert.equal(result.annotation.note, 'Nota');
+  assert.equal(result.annotation.updatedAt, '2026-05-05T11:00:00.000Z');
+});
+
+test('removeSectionAnnotationArtifactRef removes artifactRefs when the last attachment is detached', () => {
+  const result = removeSectionAnnotationArtifactRef({
+    annotationId: 'annotation-1',
+    annotations: [
+      {
+        artifactRefs: [
+          {
+            artifactId: 'visual-1',
+            kind: 'generated-visual',
+            title: 'Prima mappa',
+          },
+        ],
+        createdAt: '2026-05-05T10:00:00.000Z',
+        id: 'annotation-1',
+        note: '',
+        updatedAt: '2026-05-05T10:00:00.000Z',
+      },
+    ],
+    artifactId: 'visual-1',
+    now: '2026-05-05T11:00:00.000Z',
+  });
+
+  assert.ok(result);
+  assert.equal(result.annotation.artifactRefs, undefined);
+  assert.equal(result.annotation.note, '');
 });
 
 test('applySectionAnnotation stores a note and merges overlapping notes into the larger selection', () => {

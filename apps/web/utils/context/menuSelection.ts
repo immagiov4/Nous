@@ -147,6 +147,7 @@ export const createAnnotationContextMenuState = ({
   anchorX,
   anchorY,
   annotationId,
+  annotationArtifactRefs,
   annotationNote,
   horizontalBounds,
   placement,
@@ -162,6 +163,7 @@ export const createAnnotationContextMenuState = ({
   horizontalBounds,
   selectionRect,
   annotationId,
+  annotationArtifactRefs,
   annotationNote,
 });
 

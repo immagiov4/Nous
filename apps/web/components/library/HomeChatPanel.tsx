@@ -57,6 +57,7 @@ interface HomeChatPanelProps {
   libraryMessages: UIMessage[];
   libraryTree: LibraryTree;
   libraryWebSearch: boolean;
+  libraryGenerateArtifacts: boolean;
   newCourseLoadingStatus: string;
   pendingFileName: string | null;
   onClearPendingFile: () => void;
@@ -65,7 +66,19 @@ interface HomeChatPanelProps {
   onConfirmGenerate: () => void;
   onHomeChatModeChange: (mode: HomeChatMode) => void;
   onLibraryMessageSend: (message: string) => void | Promise<void>;
+  onLibraryArtifactNoteApprove?: (
+    toolCallId: string,
+    input: {
+      artifactIds: string[];
+      lessonId: string;
+      noteDraft: string;
+      projectId: string;
+      rationale: string;
+    }
+  ) => Promise<void>;
+  onLibraryArtifactNoteReject?: (toolCallId: string) => void;
   onLibraryWebSearchChange: (value: boolean) => void;
+  onLibraryGenerateArtifactsChange: (value: boolean) => void;
   onRemoveLibraryContextRef: (reference: LibraryContextRef) => void;
   onSendAssessmentMessage: (message: string) => Promise<void>;
   onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
@@ -77,6 +90,31 @@ type AttachmentStep = 'root' | 'picker';
 type MenuAlign = 'start' | 'end';
 type SubmenuSide = 'left' | 'right';
 type LibraryToolPart = Extract<UIMessage['parts'][number], { type: `tool-${string}` }>;
+
+interface RequestSaveLearningArtifactNoteInput {
+  artifactIds: string[];
+  lessonId: string;
+  noteDraft: string;
+  projectId: string;
+  rationale: string;
+}
+
+const isRequestSaveLearningArtifactNoteInput = (
+  value: unknown
+): value is RequestSaveLearningArtifactNoteInput => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<RequestSaveLearningArtifactNoteInput>;
+  return (
+    Array.isArray(candidate.artifactIds) &&
+    candidate.artifactIds.every(item => typeof item === 'string') &&
+    typeof candidate.lessonId === 'string' &&
+    typeof candidate.noteDraft === 'string' &&
+    typeof candidate.projectId === 'string' &&
+    typeof candidate.rationale === 'string'
+  );
+};
 
 const readIsMobileViewport = () =>
   typeof window !== 'undefined' ? window.innerWidth < 768 : false;
@@ -195,9 +233,11 @@ const getMergedLibraryAssistantText = (messages: UIMessage[]): MergedAssistantTe
 const LIBRARY_TOOL_META: Record<string, { icon: LucideIcon; label: string }> = {
   getLessonDetails: { icon: FileText, label: 'Dettagli lezioni' },
   getLearningArtifacts: { icon: FileText, label: 'Artefatti lezioni' },
+  generateLearningArtifact: { icon: Sparkles, label: 'Genera artefatto' },
   getProjectOverviews: { icon: BookOpen, label: 'Panoramica corsi' },
   getProjectStructures: { icon: GitFork, label: 'Struttura corsi' },
   listLibraryTree: { icon: List, label: 'Indice libreria' },
+  requestSaveLearningArtifactNote: { icon: FileText, label: 'Salva nota' },
   searchLibrary: { icon: Search, label: 'Ricerca contenuti' },
   searchWeb: { icon: Globe, label: 'Ricerca web' },
 };
@@ -279,6 +319,7 @@ export default function HomeChatPanel({
   libraryMessages,
   libraryTree,
   libraryWebSearch,
+  libraryGenerateArtifacts,
   newCourseLoadingStatus,
   pendingFileName,
   onClearPendingFile,
@@ -287,7 +328,10 @@ export default function HomeChatPanel({
   onConfirmGenerate,
   onHomeChatModeChange,
   onLibraryMessageSend,
+  onLibraryArtifactNoteApprove = async () => {},
+  onLibraryArtifactNoteReject = () => {},
   onLibraryWebSearchChange,
+  onLibraryGenerateArtifactsChange,
   onRemoveLibraryContextRef,
   onSendAssessmentMessage,
   onToggleLibraryContextRef,
@@ -336,7 +380,8 @@ export default function HomeChatPanel({
     homeChatMode === 'library-query' &&
     isLoading &&
     !visibleLibraryMessages.some(message => message.role === 'assistant');
-  const hasLibraryComposerMeta = libraryAttachedContextRefs.length > 0 || libraryWebSearch;
+  const hasLibraryComposerMeta =
+    libraryAttachedContextRefs.length > 0 || libraryWebSearch || libraryGenerateArtifacts;
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -600,7 +645,10 @@ export default function HomeChatPanel({
   const renderLibraryArtifactTools = (parts: UIMessage['parts']) => {
     const artifactPayloads = parts
       .filter(isToolUIPart)
-      .filter(part => part.type === 'tool-getLearningArtifacts')
+      .filter(
+        part =>
+          part.type === 'tool-getLearningArtifacts' || part.type === 'tool-generateLearningArtifact'
+      )
       .flatMap(part => libraryArtifactPayloadsByToolCallId[part.toolCallId] || []);
 
     if (artifactPayloads.length === 0) {
@@ -608,6 +656,82 @@ export default function HomeChatPanel({
     }
 
     return <ChatArtifactRenderer artifacts={artifactPayloads} isDarkMode={isDarkMode} />;
+  };
+
+  const renderLearningArtifactNoteRequests = (parts: UIMessage['parts'], messageId: string) => {
+    const noteRequests = parts
+      .filter(isToolUIPart)
+      .filter(part => part.type === 'tool-requestSaveLearningArtifactNote');
+
+    if (noteRequests.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-2">
+        {noteRequests.map(part => {
+          const inputValue = isRequestSaveLearningArtifactNoteInput(part.input) ? part.input : null;
+          const outputValue =
+            part.output && typeof part.output === 'object'
+              ? (part.output as { approved?: boolean; error?: string; saved?: boolean })
+              : null;
+
+          return (
+            <div
+              key={`${messageId}-${part.toolCallId}`}
+              className="max-w-[88%] rounded-[1.2rem] border border-stone-200 bg-[#fbf7ef] px-4 py-3 text-sm text-stone-700 shadow-[0_12px_28px_-22px_rgba(46,34,16,0.55)] dark:border-stone-500/80 dark:bg-stone-800 dark:text-stone-200"
+            >
+              <div className="flex items-center gap-2 font-semibold text-stone-900 dark:text-stone-100">
+                <FileText className="h-4 w-4" />
+                <span>Vuoi salvarlo nelle note della lezione?</span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-stone-400">
+                {inputValue?.rationale || 'Preparo la nota di lezione con gli artefatti allegati.'}
+              </p>
+              {inputValue ? (
+                <p className="mt-3 whitespace-pre-wrap rounded-[0.9rem] bg-white/70 px-3 py-2 text-sm leading-6 text-stone-700 dark:bg-stone-900/40 dark:text-stone-200">
+                  {inputValue.noteDraft}
+                </p>
+              ) : null}
+              {part.state === 'input-available' && inputValue ? (
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onLibraryArtifactNoteReject(part.toolCallId)}
+                    className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-100"
+                  >
+                    No grazie
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onLibraryArtifactNoteApprove(part.toolCallId, inputValue);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-3 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Salva nota
+                  </button>
+                </div>
+              ) : outputValue?.saved ? (
+                <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-900/50 dark:text-stone-200">
+                  <Check className="h-3.5 w-3.5" />
+                  <span>Nota salvata.</span>
+                </div>
+              ) : outputValue?.approved === false ? (
+                <div className="mt-3 text-xs font-semibold text-stone-500 dark:text-stone-400">
+                  Richiesta rifiutata.
+                </div>
+              ) : outputValue?.error ? (
+                <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
+                  {outputValue.error}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   const renderEmptyState = () => {
@@ -953,6 +1077,7 @@ export default function HomeChatPanel({
                       </div>
                     ) : null}
                     {renderLibraryArtifactTools(turn.parts)}
+                    {renderLearningArtifactNoteRequests(turn.parts, turn.key)}
                   </div>
                 );
               })}
@@ -1069,6 +1194,12 @@ export default function HomeChatPanel({
                   Cerca sul web attiva
                 </span>
               ) : null}
+              {libraryGenerateArtifacts ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-stone-100/80 px-3 py-1.5 text-xs font-medium text-stone-700 dark:border-stone-500/40 dark:bg-stone-700/50 dark:text-stone-200">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Artefatti visuali attivi
+                </span>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -1117,7 +1248,7 @@ export default function HomeChatPanel({
                   )
                 }
                 className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
-                  libraryWebSearch
+                  libraryWebSearch || libraryGenerateArtifacts
                     ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:hover:bg-orange-500/25'
                     : 'text-gray-400 hover:bg-gray-200/60 hover:text-gray-600 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300'
                 }`}
@@ -1205,6 +1336,33 @@ export default function HomeChatPanel({
                     </span>
                   </span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => onLibraryGenerateArtifactsChange(!libraryGenerateArtifacts)}
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/80"
+                  role="menuitemcheckbox"
+                  aria-checked={libraryGenerateArtifacts}
+                >
+                  <span
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                      libraryGenerateArtifacts
+                        ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
+                        : 'border-gray-300 text-transparent dark:border-zinc-500'
+                    }`}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-zinc-100">
+                      <Sparkles className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                      Genera artefatti visuali
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                      Crea automaticamente mappe, grafici, diagrammi e widget per visualizzare i
+                      concetti trattati.
+                    </span>
+                  </span>
+                </button>
               </div>
             ) : null}
           </form>
@@ -1270,6 +1428,31 @@ export default function HomeChatPanel({
                   <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
                     Da usare insieme ai dati locali quando vuoi confronti o suggerimenti oltre la
                     libreria.
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onLibraryGenerateArtifactsChange(!libraryGenerateArtifacts)}
+                className="mt-3 flex w-full items-start gap-3 rounded-[1.2rem] border border-gray-200 px-4 py-4 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+              >
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                    libraryGenerateArtifacts
+                      ? 'border-orange-500 bg-orange-500 text-white dark:border-orange-400 dark:bg-orange-400 dark:text-stone-900'
+                      : 'border-gray-300 text-transparent dark:border-zinc-500'
+                  }`}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-zinc-100">
+                    <Sparkles className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                    Genera artefatti visuali
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
+                    Crea mappe, grafici e diagrammi per visualizzare i concetti insieme alle
+                    risposte.
                   </span>
                 </span>
               </button>

@@ -158,7 +158,21 @@ test('clicking the same annotation mark toggles its menu closed', () => {
       activeSectionId: 'section-1',
       contentRef,
       isMobileViewport: true,
-      sectionAnnotations: [{ id: 'annotation-1', note: 'Nota', createdAt: '', updatedAt: '' }],
+      sectionAnnotations: [
+        {
+          artifactRefs: [
+            {
+              artifactId: 'visual-draft-1',
+              kind: 'generated-visual',
+              title: 'Mappa salvata',
+            },
+          ],
+          id: 'annotation-1',
+          note: 'Nota',
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
       sectionContent: 'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma',
     })
   );
@@ -169,6 +183,12 @@ test('clicking the same annotation mark toggles its menu closed', () => {
 
   assert.equal(result.current.contextMenu.visible, true);
   assert.equal(result.current.contextMenu.type, 'annotation');
+  if (result.current.contextMenu.type === 'annotation') {
+    assert.equal(
+      result.current.contextMenu.annotationArtifactRefs?.[0]?.artifactId,
+      'visual-draft-1'
+    );
+  }
 
   act(() => {
     result.current.handleContentClick({ target: mark } as never);

@@ -46,6 +46,7 @@ const App = () => {
     preferredContextModel: readerRuntime.preferredModels.preferredContextModel,
     projectRepositoryMode: projectLibrary.projectRepositoryMode,
     projects: projectLibrary.savedProjects,
+    saveLessonArtifactNote: projectLibrary.saveLessonArtifactNote,
     tree: projectLibrary.libraryTree,
   });
 
