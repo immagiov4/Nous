@@ -130,7 +130,7 @@ export default function WorkspaceReaderInlineQuestion({
                 <MarkdownRenderer
                   content={option}
                   isDarkMode={isDarkMode}
-                  className="prose-sm max-w-none [&>p]:m-0"
+                  className="prose-sm max-w-none [&_p]:!my-0"
                 />
               </span>
             </button>
