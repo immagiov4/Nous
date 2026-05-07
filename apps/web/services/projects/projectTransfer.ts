@@ -5,6 +5,7 @@ import type {
   ProjectId,
   ProjectSnapshot,
 } from '../../types.ts';
+import { resolveAvailableFolderName } from '../../utils/library/folderNames.ts';
 import { buildPersistenceSignature } from './persistenceSignature.ts';
 import type { ProjectRepository } from './projectRepository.ts';
 import { ProjectStorageError } from './projectRepository.ts';
@@ -76,8 +77,9 @@ const getFolderTargetIdMap = async (
     tree,
     folderTargetIdBySourceId
   );
+  const targetFolders = await targetRepository.listFolders();
   const clonedFolder = await targetRepository.createFolder({
-    name: sourceFolder.name,
+    name: resolveAvailableFolderName(sourceFolder.name, targetFolders, targetParentId),
     parentFolderId: targetParentId,
   });
   folderTargetIdBySourceId.set(folderId, clonedFolder.id);
@@ -142,8 +144,9 @@ const copyFolderSubtreeToTargetRepository = async ({
   sourceRepository: ProjectRepository;
   targetRepository: ProjectRepository;
 }) => {
+  const targetFolders = await targetRepository.listFolders();
   const clonedFolder = await targetRepository.createFolder({
-    name: folderNode.folder.name,
+    name: resolveAvailableFolderName(folderNode.folder.name, targetFolders, parentTargetFolderId),
     parentFolderId: parentTargetFolderId,
   });
   folderTargetIdBySourceId.set(folderNode.id, clonedFolder.id);

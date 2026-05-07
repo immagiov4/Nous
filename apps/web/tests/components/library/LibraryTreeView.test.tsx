@@ -375,4 +375,70 @@ describe('LibraryTreeView', () => {
 
     expect(onOpenProject).toHaveBeenCalledWith('project-1');
   });
+
+  test('drops a nested project into the library root drop zone', () => {
+    const onMoveProjects = vi.fn(async () => []);
+
+    render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onConfirmDeleteFolder={vi.fn(async () => true)}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={onMoveProjects}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        onTransferFolderToLan={vi.fn(async () => {})}
+        onTransferProjectToLan={vi.fn(async () => {})}
+        projectRepositoryMode="indexeddb"
+        tree={tree}
+      />
+    );
+
+    const draggedProject = screen.getByText('Corso Mobile').closest('[draggable="true"]');
+    expect(draggedProject).toBeTruthy();
+
+    fireEvent.dragStart(draggedProject as HTMLElement);
+
+    const rootDropZone = screen.getByLabelText('Sposta nella radice libreria');
+    fireEvent.dragOver(rootDropZone);
+    fireEvent.drop(rootDropZone);
+
+    expect(onMoveProjects).toHaveBeenCalledWith(['project-1'], null, 1);
+  });
+
+  test('drops a nested project into the library root from empty library space', () => {
+    const onMoveProjects = vi.fn(async () => []);
+
+    const { container } = render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onConfirmDeleteFolder={vi.fn(async () => true)}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={onMoveProjects}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        onTransferFolderToLan={vi.fn(async () => {})}
+        onTransferProjectToLan={vi.fn(async () => {})}
+        projectRepositoryMode="indexeddb"
+        tree={tree}
+      />
+    );
+
+    const draggedProject = screen.getByText('Corso Mobile').closest('[draggable="true"]');
+    expect(draggedProject).toBeTruthy();
+
+    fireEvent.dragStart(draggedProject as HTMLElement);
+    fireEvent.dragOver(container.firstElementChild as HTMLElement);
+    fireEvent.drop(container.firstElementChild as HTMLElement);
+
+    expect(onMoveProjects).toHaveBeenCalledWith(['project-1'], null, 1);
+  });
 });

@@ -71,18 +71,31 @@ export default function OpenRouterModelPanel({
   const isModelsExpanded = onSectionToggle ? expandedSectionSet.has('ai-models') : true;
 
   const [localNotes, setLocalNotes] = useState(courseNotes?.value ?? '');
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const courseNotesRef = useRef(courseNotes);
+  const localNotesRef = useRef(localNotes);
+  const savedNotesRef = useRef(courseNotes?.value ?? '');
   courseNotesRef.current = courseNotes;
+  localNotesRef.current = localNotes;
 
   const handleNotesChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
-    const value = event.target.value;
-    setLocalNotes(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      courseNotesRef.current?.onChange(value);
-    }, 300);
+    setLocalNotes(event.target.value);
   }, []);
+
+  const saveNotesIfChanged = useCallback(() => {
+    const nextNotes = localNotesRef.current;
+    if (nextNotes === savedNotesRef.current) {
+      return;
+    }
+
+    savedNotesRef.current = nextNotes;
+    courseNotesRef.current?.onChange(nextNotes);
+  }, []);
+
+  useEffect(() => {
+    const nextNotes = courseNotes?.value ?? '';
+    savedNotesRef.current = nextNotes;
+    setLocalNotes(nextNotes);
+  }, [courseNotes?.value]);
 
   const toggleSection = (sectionId: SettingsPanelSectionId) => {
     if (!onSectionToggle) {
@@ -100,12 +113,15 @@ export default function OpenRouterModelPanel({
     if (!onClose) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        saveNotesIfChanged();
         onClose();
       }
     };
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [onClose]);
+  }, [onClose, saveNotesIfChanged]);
+
+  useEffect(() => () => saveNotesIfChanged(), [saveNotesIfChanged]);
 
   return (
     <div ref={containerRef} className={className} style={style}>
@@ -130,7 +146,10 @@ export default function OpenRouterModelPanel({
               {onClose ? (
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={() => {
+                    saveNotesIfChanged();
+                    onClose();
+                  }}
                   className="model-panel-close inline-flex h-7 w-7 items-center justify-center rounded-full"
                   title="Chiudi"
                 >
@@ -166,6 +185,7 @@ export default function OpenRouterModelPanel({
                   <textarea
                     value={localNotes}
                     onChange={handleNotesChange}
+                    onBlur={saveNotesIfChanged}
                     placeholder={
                       courseNotes.placeholder ||
                       'Es. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico.'

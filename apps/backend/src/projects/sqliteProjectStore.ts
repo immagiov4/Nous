@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
+import { resolveAvailableFolderName } from './folderNames.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
 import {
   buildOrderedSiblingItems,
@@ -420,10 +421,11 @@ export class SqliteProjectStore implements ProjectStore {
     { name, parentFolderId = null }: { name: string; parentFolderId?: string | null }
   ): Promise<LibraryFolder> {
     const resolvedParentFolderId = this.resolveFolderId(userId, parentFolderId);
+    const folders = this.readFolders(userId);
     const now = timestampIso();
     const folder: LibraryFolder = {
       id: createFolderId(),
-      name: name.trim() || 'Nuova cartella',
+      name: resolveAvailableFolderName(name, folders, resolvedParentFolderId),
       parentFolderId: resolvedParentFolderId,
       createdAt: now,
       updatedAt: now,
@@ -482,7 +484,12 @@ export class SqliteProjectStore implements ProjectStore {
 
     const renamedFolder = {
       ...folder,
-      name: name.trim() || folder.name,
+      name: resolveAvailableFolderName(
+        name.trim() || folder.name,
+        this.readFolders(userId),
+        folder.parentFolderId,
+        folder.id
+      ),
       updatedAt: timestampIso(),
     };
     this.writeFolder(userId, renamedFolder);

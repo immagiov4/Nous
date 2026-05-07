@@ -721,6 +721,17 @@ export default function LibraryTreeView({
     </div>
   );
 
+  const rootDropTarget: DropTarget = {
+    index: tree.rootNodes.length,
+    parentFolderId: null,
+    position: 'after',
+    targetId: 'root',
+    targetKind: 'root',
+  };
+
+  const isRootDragSurface = (eventTarget: EventTarget | null) =>
+    !(eventTarget as Element | null)?.closest('[data-drag-id]');
+
   const renderNode = (
     node: LibraryTreeNode,
     depth = 0,
@@ -1067,7 +1078,24 @@ export default function LibraryTreeView({
   };
 
   return (
-    <div>
+    // biome-ignore lint/a11y/noStaticElementInteractions: the tree container catches native drag/drop over empty library space; keyboard movement is handled by the explicit move dialog.
+    <div
+      onDragOver={event => {
+        if (isMobileViewport || !draggedItem || !isRootDragSurface(event.target)) {
+          return;
+        }
+
+        event.preventDefault();
+        setDropTarget(rootDropTarget);
+      }}
+      onDrop={event => {
+        if (isMobileViewport || !draggedItem || !isRootDragSurface(event.target)) {
+          return;
+        }
+
+        void handleDrop(event, rootDropTarget);
+      }}
+    >
       {openFolderMenuId ? (
         <button
           type="button"
@@ -1093,26 +1121,14 @@ export default function LibraryTreeView({
           }
 
           event.preventDefault();
-          setDropTarget({
-            index: tree.rootNodes.length,
-            parentFolderId: null,
-            position: 'after',
-            targetId: 'root',
-            targetKind: 'root',
-          });
+          setDropTarget(rootDropTarget);
         }}
         onDrop={event => {
           if (isMobileViewport || !(event.target === event.currentTarget)) {
             return;
           }
 
-          void handleDrop(event, {
-            index: tree.rootNodes.length,
-            parentFolderId: null,
-            position: 'after',
-            targetId: 'root',
-            targetKind: 'root',
-          });
+          void handleDrop(event, rootDropTarget);
         }}
       >
         {tree.rootNodes.length > 0 ? (
@@ -1132,6 +1148,36 @@ export default function LibraryTreeView({
             Nessun corso salvato da organizzare.
           </li>
         )}
+        {draggedItem ? (
+          <li
+            aria-label="Sposta nella radice libreria"
+            className={`list-none rounded-2xl border border-dashed px-4 py-3 transition-colors ${
+              dropTarget?.targetKind === 'root'
+                ? 'border-amber-400 bg-amber-50/70 dark:border-amber-400/60 dark:bg-amber-500/10'
+                : 'border-gray-300 bg-white/40 dark:border-zinc-700/80 dark:bg-[#1b1614]/50'
+            }`}
+            onDragOver={event => {
+              if (isMobileViewport) {
+                return;
+              }
+
+              event.preventDefault();
+              event.stopPropagation();
+              setDropTarget(rootDropTarget);
+            }}
+            onDrop={event => {
+              void handleDrop(event, rootDropTarget);
+            }}
+          >
+            {dropTarget?.targetKind === 'root' ? (
+              <DropLine />
+            ) : (
+              <span className="block text-center text-xs font-medium text-gray-500 dark:text-zinc-400">
+                Radice libreria
+              </span>
+            )}
+          </li>
+        ) : null}
       </ul>
 
       {moveTarget ? (

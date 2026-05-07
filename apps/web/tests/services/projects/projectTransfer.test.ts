@@ -196,6 +196,31 @@ test('transferProjectToLanRepository copies the project and removes the local co
   assert.equal(target.folders[0]?.name, 'Italiano');
 });
 
+test('transferProjectToLanRepository renames copied parent folders on LAN name collision', async () => {
+  const source = new InMemoryProjectRepository();
+  const target = new InMemoryProjectRepository();
+  const { meta, snapshot } = createProjectWithMeta('project-collision', 'Corso collisione');
+  const parentFolder = await source.createFolder({ name: 'Italiano' });
+  await target.createFolder({ name: 'Italiano' });
+  await source.saveProject(snapshot);
+  await source.moveProjects(['project-collision'], parentFolder.id);
+
+  const tree = buildLibraryTree({
+    folders: await source.listFolders(),
+    placements: await source.listPlacements(),
+    projects: await source.listProjects(),
+  });
+
+  await transferProjectToLanRepository({
+    projectId: meta.id,
+    sourceRepository: source,
+    targetRepository: target,
+    tree,
+  });
+
+  assert.equal(target.folders[1]?.name, 'Italiano (2)');
+});
+
 test('transferProjectToLanRepository keeps the local copy when LAN keeps a different snapshot', async () => {
   const source = new InMemoryProjectRepository();
   const target = new InMemoryProjectRepository();
