@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "bun run scripts/kill-dev-servers.ts",
     "dev": "concurrently \"bun run dev:frontend\" \"bun run dev:backend\"",
     "dev:frontend": "vite --config apps/web/vite.config.ts",
     "dev:backend": "cd apps/backend && bun run dev",
