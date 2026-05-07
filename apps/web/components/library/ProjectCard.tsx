@@ -54,8 +54,12 @@ const ProjectCard = ({
   style,
 }: ProjectCardProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPlacement, setMenuPlacement] = useState<'above' | 'below'>('below');
-  const [menuPosition, setMenuPosition] = useState({ left: 0, top: 0 });
+  const [menuPosition, setMenuPosition] = useState({
+    bottom: null as number | null,
+    left: 0,
+    maxHeight: LIBRARY_MENU_EDGE_PADDING_PX,
+    top: null as number | null,
+  });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const CoverIcon =
     project.sourceKind === 'codebase'
@@ -68,8 +72,7 @@ const ProjectCard = ({
   const openMenu = () => {
     const buttonRect = menuButtonRef.current?.getBoundingClientRect();
     if (!buttonRect) {
-      setMenuPosition({ left: 0, top: 0 });
-      setMenuPlacement('below');
+      setMenuPosition({ bottom: null, left: 0, maxHeight: window.innerHeight, top: 0 });
       setMenuOpen(true);
       return;
     }
@@ -78,6 +81,8 @@ const ProjectCard = ({
     const spaceAbove = buttonRect.top;
     const shouldOpenAbove =
       spaceBelow < LIBRARY_PROJECT_MENU_ESTIMATED_HEIGHT_PX && spaceAbove > spaceBelow;
+    const nextTop = buttonRect.bottom + LIBRARY_MENU_GAP_PX;
+    const nextBottom = window.innerHeight - buttonRect.top + LIBRARY_MENU_GAP_PX;
     const nextLeft = Math.max(
       LIBRARY_MENU_EDGE_PADDING_PX,
       Math.min(
@@ -85,16 +90,21 @@ const ProjectCard = ({
         buttonRect.right - LIBRARY_PROJECT_MENU_WIDTH_PX
       )
     );
+    const nextMaxHeight = shouldOpenAbove
+      ? Math.max(
+          LIBRARY_MENU_EDGE_PADDING_PX,
+          spaceAbove - LIBRARY_MENU_GAP_PX - LIBRARY_MENU_EDGE_PADDING_PX
+        )
+      : Math.max(
+          LIBRARY_MENU_EDGE_PADDING_PX,
+          window.innerHeight - nextTop - LIBRARY_MENU_EDGE_PADDING_PX
+        );
 
-    setMenuPlacement(shouldOpenAbove ? 'above' : 'below');
     setMenuPosition({
+      bottom: shouldOpenAbove ? nextBottom : null,
       left: nextLeft,
-      top: shouldOpenAbove
-        ? Math.max(
-            LIBRARY_MENU_EDGE_PADDING_PX,
-            buttonRect.top - LIBRARY_PROJECT_MENU_ESTIMATED_HEIGHT_PX - LIBRARY_MENU_GAP_PX
-          )
-        : buttonRect.bottom + LIBRARY_MENU_GAP_PX,
+      maxHeight: nextMaxHeight,
+      top: shouldOpenAbove ? null : nextTop,
     });
     setMenuOpen(true);
   };
@@ -117,11 +127,13 @@ const ProjectCard = ({
         />
         <MotionPopover
           isOpen={menuOpen}
-          originX={menuPlacement === 'above' ? 'bottom right' : 'top right'}
-          className="fixed z-50 min-w-[10rem] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
+          originX={menuPosition.bottom === null ? 'top right' : 'bottom right'}
+          className="fixed z-50 min-w-[10rem] overflow-x-hidden overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
           style={{
+            bottom: menuPosition.bottom === null ? undefined : `${menuPosition.bottom}px`,
             left: `${menuPosition.left}px`,
-            top: `${menuPosition.top}px`,
+            maxHeight: `${menuPosition.maxHeight}px`,
+            top: menuPosition.top === null ? undefined : `${menuPosition.top}px`,
             width: `${LIBRARY_PROJECT_MENU_WIDTH_PX}px`,
           }}
         >
