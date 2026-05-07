@@ -67,6 +67,7 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
   assert.equal(storedValues.has(UI_PREFERENCES_KEY), true);
   assert.deepEqual(readUiPreferences(storage), {
     isDarkMode: false,
+    lastAudioTab: 'voce',
     preferredVoice: 'coral',
     playbackRate: 1,
     preferredLessonModel: 'openai/gpt-5.4-mini',

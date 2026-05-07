@@ -121,14 +121,18 @@ const ArtifactOverlay = ({
   return (
     <div
       role="presentation"
-      onClick={onClose}
       className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 sm:p-6"
     >
+      <button
+        type="button"
+        aria-label="Chiudi anteprima artefatto"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default"
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={artifact.summary.title}
-        onClick={event => event.stopPropagation()}
         className="relative flex max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[1.6rem] border border-white/20 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
       >
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-stone-200/80 px-4 py-3 dark:border-zinc-700 sm:px-5">
@@ -272,42 +276,47 @@ const ChatArtifactRenderer = ({
           const Icon = getArtifactIcon(artifact);
           const hasPreview = artifact.summary.previewMode === 'thumbnail';
           return (
-            <button
+            <div
               key={artifact.summary.id}
-              type="button"
-              onClick={() => setOpenArtifactId(artifact.summary.id)}
-              className="group min-w-0 rounded-2xl border border-stone-200/90 bg-white/85 p-2.5 text-left shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/45 dark:border-zinc-700/80 dark:bg-stone-800/75 dark:hover:border-orange-500/40 dark:hover:bg-orange-500/10"
-              aria-label={`Apri ${artifact.summary.title}`}
+              className="group relative min-w-0 rounded-2xl border border-stone-200/90 bg-white/85 p-2.5 shadow-sm transition-colors hover:border-orange-200 hover:bg-orange-50/45 dark:border-zinc-700/80 dark:bg-stone-800/75 dark:hover:border-orange-500/40 dark:hover:bg-orange-500/10"
             >
-              <ArtifactPreview artifact={artifact} isDarkMode={isDarkMode} />
-              <span className={`${hasPreview ? 'mt-2' : ''} flex min-w-0 items-start gap-2`}>
-                <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200">
-                  <Icon className="h-3.5 w-3.5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-stone-900 dark:text-zinc-100">
-                    {artifact.summary.title}
+              <button
+                type="button"
+                onClick={() => setOpenArtifactId(artifact.summary.id)}
+                className="block w-full min-w-0 text-left"
+                aria-label={`Apri ${artifact.summary.title}`}
+              >
+                <ArtifactPreview artifact={artifact} isDarkMode={isDarkMode} />
+                <span
+                  className={`${hasPreview ? 'mt-2' : ''} flex min-w-0 items-start gap-2 ${
+                    onRemoveArtifact ? 'pr-7' : ''
+                  }`}
+                >
+                  <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200">
+                    <Icon className="h-3.5 w-3.5" />
                   </span>
-                  <span className="mt-0.5 block truncate text-xs text-stone-500 dark:text-zinc-400">
-                    {artifact.summary.lessonTitle} · {getArtifactKindLabel(artifact)}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-stone-900 dark:text-zinc-100">
+                      {artifact.summary.title}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-stone-500 dark:text-zinc-400">
+                      {artifact.summary.lessonTitle} · {getArtifactKindLabel(artifact)}
+                    </span>
                   </span>
                 </span>
-                {onRemoveArtifact ? (
-                  <button
-                    type="button"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onRemoveArtifact(artifact.summary.id);
-                    }}
-                    className="mt-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-stone-700 dark:hover:text-red-300"
-                    aria-label={`Rimuovi ${artifact.summary.title}`}
-                    title="Rimuovi dalla nota"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                ) : null}
-              </span>
-            </button>
+              </button>
+              {onRemoveArtifact ? (
+                <button
+                  type="button"
+                  onClick={() => onRemoveArtifact(artifact.summary.id)}
+                  className="absolute right-2.5 bottom-2.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-stone-700 dark:hover:text-red-300"
+                  aria-label={`Rimuovi ${artifact.summary.title} dalla nota`}
+                  title="Rimuovi dalla nota"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
           );
         })
       )}
