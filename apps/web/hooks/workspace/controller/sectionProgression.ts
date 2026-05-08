@@ -6,8 +6,9 @@ import {
   selectIsBlocking,
   type WorkspaceWorkflowId,
 } from '../../../services/workspace/workflow.ts';
-import { AppState, type LearningSection } from '../../../types.ts';
+import { AppState, type LessonNode } from '../../../types.ts';
 import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
+import { findPathNodeById, flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { insertSectionAfterSubtree } from '../../../utils/learning/sectionTree.ts';
 import type {
   CompleteSectionOutcome,
@@ -30,7 +31,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
   const { domain, openRouter, projectLibrary, state, stopAudio } = context;
 
   async function openSection(
-    section: LearningSection,
+    section: LessonNode,
     options: OpenSectionOptions = {}
   ): Promise<OpenSectionOutcome> {
     const currentPlan = options.currentPlan ?? domain.learningPlan;
@@ -68,13 +69,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     stopAudio(true);
     domain.setActiveSectionId(section.id);
-    domain.setActiveLaboratoryExerciseId(null);
 
     // Sections with content navigate immediately — even if another generation
     // is running. The user can freely switch between ready lessons.
     if (!forceRegenerate && section.content?.length) {
       void projectLibrary.patchCurrentProject({
-        activeLaboratoryExerciseId: null,
         activeSectionId: section.id,
         state: AppState.READING,
       });
@@ -93,7 +92,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     void projectLibrary.patchCurrentProject({
-      activeLaboratoryExerciseId: null,
       activeSectionId: section.id,
       state: AppState.READING,
     });
@@ -116,9 +114,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...'
     );
 
-    const completedTitles = currentPlan.sections
-      .filter(currentSection => currentSection.isCompleted)
-      .map(currentSection => currentSection.title)
+    const completedTitles = flattenLessons(currentPlan.modules)
+      .filter(currentLesson => currentLesson.isCompleted)
+      .map(currentLesson => currentLesson.title)
       .join(', ');
 
     try {
@@ -360,9 +358,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       };
     }
 
-    const parentSection = domain.learningPlan.sections.find(
-      currentSection => currentSection.id === domain.activeSectionId
+    const parentNode = findPathNodeById(
+      domain.learningPlan.modules,
+      domain.activeSectionId
     );
+    const parentSection = parentNode?.kind === 'lesson' ? parentNode : null;
     if (!parentSection) {
       return {
         outcome: 'failed',
@@ -381,7 +381,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       const canCreateWithoutFile =
         domain.isLearnMode ||
         domain.syllabus.length > 0 ||
-        domain.learningPlan.sections.some(currentSection => Boolean(currentSection.parentId));
+        flattenLessons(domain.learningPlan.modules).some(currentLesson =>
+          Boolean(currentLesson.parentId)
+        );
 
       const newSection = sourceFile
         ? await openRouter.createSubChapterMetadata(
@@ -406,13 +408,22 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         return { outcome: 'blocked-missing-source' };
       }
 
-      const newSections = insertSectionAfterSubtree(
-        domain.learningPlan.sections,
-        parentSection.id,
-        newSection
-      );
-
-      let updatedPlan = { ...domain.learningPlan, sections: newSections };
+      const newLesson: LessonNode = { kind: 'lesson', ...newSection };
+      const updatedModules = domain.learningPlan.modules.map(module => {
+        const containsAnchor = module.children.some(
+          child => child.kind === 'lesson' && child.id === parentSection.id
+        );
+        if (!containsAnchor) {
+          return module;
+        }
+        const lessons = module.children.filter(
+          (child): child is LessonNode => child.kind === 'lesson'
+        );
+        const exercises = module.children.filter(child => child.kind === 'exercise');
+        const reorderedLessons = insertSectionAfterSubtree(lessons, parentSection.id, newLesson);
+        return { ...module, children: [...reorderedLessons, ...exercises] };
+      });
+      let updatedPlan = { ...domain.learningPlan, modules: updatedModules };
       let nextDocumentIndex = domain.documentIndex;
 
       if (sourceFile) {
@@ -447,12 +458,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         state: AppState.READING,
       });
 
-      const mappedNewSection =
-        updatedPlan.sections.find(currentSection => currentSection.id === newSection.id) ||
-        newSection;
+      const mappedNewLesson =
+        flattenLessons(updatedPlan.modules).find(currentLesson => currentLesson.id === newLesson.id) ??
+        newLesson;
       state.succeedWorkflow('createLesson', requestId);
       try {
-        await openSection(mappedNewSection, {
+        await openSection(mappedNewLesson, {
           allowWhileBlocking: true,
           currentDocumentAssets: domain.documentAssets,
           currentDocumentIndex: nextDocumentIndex,
@@ -478,7 +489,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
       // Fire-and-forget: update active section after lesson open
       void projectLibrary.patchCurrentProject({
-        activeSectionId: mappedNewSection.id,
+        activeSectionId: mappedNewLesson.id,
         documentIndex: nextDocumentIndex,
       });
       return { outcome: 'created' };
@@ -497,12 +508,15 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const requestId = state.beginWorkflow('completeSection', 'Salvataggio progresso...');
 
     try {
-      const newSections = domain.learningPlan.sections.map(currentSection =>
-        currentSection.id === domain.activeSectionId
-          ? { ...currentSection, isCompleted: true }
-          : currentSection
-      );
-      const updatedPlan = { ...domain.learningPlan, sections: newSections };
+      const updatedModules = domain.learningPlan.modules.map(module => ({
+        ...module,
+        children: module.children.map(child =>
+          child.kind === 'lesson' && child.id === domain.activeSectionId
+            ? { ...child, isCompleted: true }
+            : child
+        ),
+      }));
+      const updatedPlan = { ...domain.learningPlan, modules: updatedModules };
       domain.setLearningPlan(updatedPlan);
 
       // Optimistic: fire patch in background, don't await
@@ -511,12 +525,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         activeSectionId: domain.activeSectionId,
         state: AppState.READING,
       });
-      const currentIndex = newSections.findIndex(
-        currentSection => currentSection.id === domain.activeSectionId
+      const lessons = flattenLessons(updatedPlan.modules);
+      const currentIndex = lessons.findIndex(
+        currentLesson => currentLesson.id === domain.activeSectionId
       );
-      if (currentIndex < newSections.length - 1) {
+      if (currentIndex >= 0 && currentIndex < lessons.length - 1) {
         state.succeedWorkflow('completeSection', requestId);
-        await openSection(newSections[currentIndex + 1], {
+        await openSection(lessons[currentIndex + 1], {
           allowWhileBlocking: true,
           currentPlan: updatedPlan,
         });

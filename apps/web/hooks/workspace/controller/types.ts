@@ -7,9 +7,8 @@ import type {
   AppState,
   FileData,
   HomeChatToolPreferences,
-  LaboratoryState,
   LearningPlan,
-  LearningSection,
+  LessonNode,
   LibraryFolder,
   LibraryPlacement,
   LibraryTree,
@@ -48,9 +47,8 @@ export interface WorkspaceChatSession {
 }
 
 export interface WorkspaceDomainControllerAdapter {
-  activeSection: LearningSection | null;
+  activeSection: LessonNode | null;
   activeSectionId: string | null;
-  activeLaboratoryExerciseId: string | null;
   documentAssets: PdfDocumentAssets | null;
   documentIndex: PdfTextIndex | null;
   domainState: WorkspaceDomainState;
@@ -58,7 +56,6 @@ export interface WorkspaceDomainControllerAdapter {
   generationNotes: string;
   hydrateSnapshot: (snapshot: ProjectSnapshot) => void;
   isLearnMode: boolean;
-  laboratory: LaboratoryState | null;
   learningPlan: LearningPlan | null;
   musicUrl: string;
   needsSourceFile: boolean;
@@ -67,13 +64,11 @@ export interface WorkspaceDomainControllerAdapter {
   researchDossiersBySectionId: ResearchDossiersBySectionId;
   resetDomain: () => void;
   sectionContent: string;
-  setActiveLaboratoryExerciseId: (exerciseId: string | null) => void;
   setActiveSectionId: (sectionId: string | null) => void;
   setDocumentAssets: (documentAssets: PdfDocumentAssets | null) => void;
   setDocumentIndex: (documentIndex: PdfTextIndex | null) => void;
   setGenerationNotes: (notes: string) => void;
   setIsLearnMode: (isLearnMode: boolean) => void;
-  setLaboratory: (laboratory: LaboratoryState | null) => void;
   setLearningPlan: (learningPlan: LearningPlan | null) => void;
   setMusicUrl: (musicUrl: string) => void;
   setResearchCoursePlan: (researchCoursePlan: ResearchCoursePlan | null) => void;
@@ -87,7 +82,7 @@ export interface WorkspaceDomainControllerAdapter {
   updateActiveSectionContent: (content: string) => void;
   updateSection: (
     sectionId: string,
-    updater: (section: LearningSection) => LearningSection
+    updater: (section: LessonNode) => LessonNode
   ) => void;
   userProfile: UserProfile | null;
 }
