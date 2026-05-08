@@ -1,6 +1,6 @@
 import type { ProjectRepositoryMode } from '../../services/projects/projectRepositoryFactory.ts';
 import type {
-  LearningSection,
+  LessonNode,
   LibraryContextRef,
   LibraryFolder,
   LibraryScopeSummary,
@@ -9,6 +9,7 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types.ts';
+import { flattenLessons } from '../learning/pathNodes.ts';
 import { getSectionAnnotationText } from '../learning/sectionAnnotations.ts';
 import { getFolderPathLabels, resolveScopedProjectIds } from './tree.ts';
 
@@ -38,23 +39,23 @@ const buildSnippet = (value: string, query: string, maxLength = 220) => {
 };
 
 const countProjectNotes = (snapshot: ProjectSnapshot) =>
-  snapshot.learningPlan?.sections.reduce(
-    (total, section) =>
+  flattenLessons(snapshot.learningPlan?.modules).reduce(
+    (total, lesson) =>
       total +
-      (section.annotations?.filter(annotation => annotation.note.trim().length > 0).length || 0),
+      (lesson.annotations?.filter(annotation => annotation.note.trim().length > 0).length || 0),
     0
-  ) || 0;
+  );
 
 const countProjectHighlights = (snapshot: ProjectSnapshot) =>
-  snapshot.learningPlan?.sections.reduce(
-    (total, section) => total + (section.annotations?.length || 0),
+  flattenLessons(snapshot.learningPlan?.modules).reduce(
+    (total, lesson) => total + (lesson.annotations?.length || 0),
     0
-  ) || 0;
+  );
 
 const countProjectCompletedLessons = (snapshot: ProjectSnapshot) =>
-  snapshot.learningPlan?.sections.filter(section => section.isCompleted).length || 0;
+  flattenLessons(snapshot.learningPlan?.modules).filter(lesson => lesson.isCompleted).length;
 
-const getSectionAnnotations = (section: LearningSection) =>
+const getSectionAnnotations = (section: LessonNode) =>
   (section.annotations || []).map(annotation => {
     const highlightedText =
       section.content && annotation.id
@@ -209,7 +210,7 @@ export const buildProjectOverviewPayload = ({
       coverLabel: meta?.coverLabel || '',
       highlightCount: snapshot ? countProjectHighlights(snapshot) : 0,
       id: projectId,
-      lessonCount: meta?.lessonCount || snapshot?.learningPlan?.sections.length || 0,
+      lessonCount: meta?.lessonCount || flattenLessons(snapshot?.learningPlan?.modules).length || 0,
       noteCount: snapshot ? countProjectNotes(snapshot) : 0,
       sourceKind: meta?.sourceKind || snapshot?.sourceKind || 'document',
       syncState: meta?.syncState || 'local-only',
@@ -239,7 +240,7 @@ export const buildProjectStructurePayload = ({
       highlightCount: snapshot ? countProjectHighlights(snapshot) : 0,
       activeSectionId: snapshot?.activeSectionId || null,
       sections:
-        snapshot?.learningPlan?.sections.map(section => {
+        flattenLessons(snapshot?.learningPlan?.modules).map(section => {
           const annotations = section.annotations || [];
           const notesWithTimestamp = annotations.filter(a => a.note.trim().length > 0);
           const latestNote =
@@ -287,7 +288,7 @@ export const buildLessonDetailPayload = ({
 }) =>
   requests.map(({ lessonIds, projectId }) => {
     const snapshot = snapshotsById.get(projectId);
-    const sections = snapshot?.learningPlan?.sections || [];
+    const sections = flattenLessons(snapshot?.learningPlan?.modules);
     const allowedSectionIds = new Set(lessonIds);
 
     return {
@@ -359,7 +360,7 @@ export const searchLibraryContent = ({
       });
     }
 
-    (snapshot.learningPlan?.sections || []).forEach(section => {
+    flattenLessons(snapshot.learningPlan?.modules).forEach(section => {
       const sectionBody = `${section.title}\n${section.description}\n${section.content || ''}`;
       if (normalizeSearchText(sectionBody).includes(normalizedQuery)) {
         hits.push({

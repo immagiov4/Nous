@@ -1,4 +1,5 @@
-import type { FileData, LearningPlan, PdfTextIndex } from '../../types';
+import type { FileData, LearningPlan, LessonNode, PdfTextIndex } from '../../types';
+import { flattenLessons } from '../learning/pathNodes.ts';
 
 export type PdfProjectHydrationState =
   | 'idle'
@@ -17,9 +18,10 @@ const isPdfFileData = (file: FileData | null): boolean => {
   return file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 };
 
-const getHydrationRelevantSections = (plan: LearningPlan) => {
-  const contentSections = plan.sections.filter(section => section.type !== 'summary');
-  return contentSections.length > 0 ? contentSections : plan.sections;
+const getHydrationRelevantSections = (plan: LearningPlan): LessonNode[] => {
+  const allLessons = flattenLessons(plan.modules);
+  const contentLessons = allLessons.filter(lesson => lesson.type !== 'summary');
+  return contentLessons.length > 0 ? contentLessons : allLessons;
 };
 
 const sameChunkIds = (left: string[] | undefined, right: string[]): boolean =>
@@ -61,7 +63,7 @@ export const getPdfProjectHydrationState = (
   plan: LearningPlan | null,
   documentIndex: PdfTextIndex | null | undefined
 ): PdfProjectHydrationState => {
-  if (!isPdfFileData(file) || !plan || plan.sections.length === 0) {
+  if (!isPdfFileData(file) || !plan || flattenLessons(plan.modules).length === 0) {
     return 'idle';
   }
 

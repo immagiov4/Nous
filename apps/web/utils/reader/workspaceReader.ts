@@ -1,6 +1,6 @@
 import type {
   LearningPlan,
-  LearningSection,
+  LessonNode,
   LessonImageRef,
   PdfDocumentAssets,
   PdfImageAsset,
@@ -12,123 +12,36 @@ export interface SidebarGroup {
   id: string;
   sectionDepthById: Record<string, number>;
   title: string;
-  sections: LearningSection[];
+  sections: LessonNode[];
 }
 
 export const buildSidebarGroups = (
   learningPlan: LearningPlan | null,
-  syllabus: SyllabusItem[]
+  _syllabus: SyllabusItem[]
 ): SidebarGroup[] => {
-  if (!learningPlan || learningPlan.sections.length === 0) {
+  if (!learningPlan || learningPlan.modules.length === 0) {
     return [];
   }
 
-  const sectionById = new Map(learningPlan.sections.map(section => [section.id, section]));
-  const hierarchyInfoById = buildSectionHierarchyInfoById(learningPlan.sections);
-  const moduleTitleById = new Map(syllabus.map(module => [module.id, module.title]));
-  const moduleIdBySectionId = new Map<string, string>();
-
-  syllabus.forEach(module => {
-    (module.children || []).forEach(lesson => {
-      moduleIdBySectionId.set(lesson.id, module.id);
-    });
-  });
-
-  const resolveModuleId = (sectionId: string): string | null => {
-    const visited = new Set<string>();
-    let currentId: string | undefined = sectionId;
-
-    while (currentId && !visited.has(currentId)) {
-      visited.add(currentId);
-
-      const directModuleId = moduleIdBySectionId.get(currentId);
-      if (directModuleId) {
-        return directModuleId;
-      }
-
-      const currentSection = sectionById.get(currentId);
-      currentId = currentSection?.parentId;
-    }
-
-    return null;
-  };
-
-  const groupedSections = new Map<string, LearningSection[]>();
-  const fallbackGroupTitleByKey = new Map<string, string>();
-  // Sidebar group order is explicit: syllabus modules first, then fallback groups
-  // in their first appearance order while walking the learning plan.
-  const groupOrder: string[] = syllabus.map(module => module.id);
-
-  const getFallbackGroupTitle = (section: LearningSection): string =>
-    section.moduleTitle?.trim() ||
-    (section.type === 'prerequisite'
-      ? 'Prerequisiti'
-      : section.type === 'summary'
-        ? 'Sintesi'
-        : 'Percorso');
-
-  learningPlan.sections.forEach(section => {
-    const resolvedModuleId = resolveModuleId(section.id);
-    const rootSectionId = hierarchyInfoById[section.id]?.rootSectionId || null;
-    const fallbackAnchorSection = rootSectionId
-      ? sectionById.get(rootSectionId) || section
-      : section;
-    const fallbackTitle = getFallbackGroupTitle(fallbackAnchorSection);
-    const fallbackGroupKey = `group:${fallbackTitle}`;
-    const groupKey = resolvedModuleId || fallbackGroupKey || '__ungrouped__';
-
-    if (!groupedSections.has(groupKey)) {
-      groupedSections.set(groupKey, []);
-      if (!groupOrder.includes(groupKey)) {
-        groupOrder.push(groupKey);
-      }
-    }
-
-    if (!resolvedModuleId && !fallbackGroupTitleByKey.has(groupKey)) {
-      fallbackGroupTitleByKey.set(groupKey, fallbackTitle);
-    }
-
-    groupedSections.get(groupKey)?.push(section);
-  });
-
-  const groups = groupOrder
-    .map((groupKey, index) => {
-      const sections = groupedSections.get(groupKey) || [];
-      if (sections.length === 0) {
+  return learningPlan.modules
+    .map((module, index): SidebarGroup | null => {
+      const lessons = module.children.filter(
+        (child): child is LessonNode => child.kind === 'lesson'
+      );
+      if (lessons.length === 0) {
         return null;
       }
-
-      const isUngrouped = groupKey === '__ungrouped__';
-
+      const hierarchyInfoById = buildSectionHierarchyInfoById(lessons);
       return {
-        id: isUngrouped ? `group-${index}` : groupKey,
+        id: module.id || `group-${index}`,
         sectionDepthById: Object.fromEntries(
-          sections.map(section => [section.id, hierarchyInfoById[section.id]?.depth ?? 0])
+          lessons.map(lesson => [lesson.id, hierarchyInfoById[lesson.id]?.depth ?? 0])
         ),
-        title:
-          moduleTitleById.get(groupKey) ||
-          fallbackGroupTitleByKey.get(groupKey) ||
-          (isUngrouped ? 'Percorso' : `Modulo ${index + 1}`),
-        sections,
+        title: module.title || `Modulo ${index + 1}`,
+        sections: lessons,
       };
     })
     .filter((group): group is SidebarGroup => Boolean(group));
-
-  return groups.length > 0
-    ? groups
-    : [
-        {
-          id: 'group-0',
-          sectionDepthById: Object.fromEntries(
-            learningPlan.sections.map(section => [
-              section.id,
-              hierarchyInfoById[section.id]?.depth ?? 0,
-            ])
-          ),
-          title: 'Percorso',
-          sections: learningPlan.sections,
-        },
-      ];
 };
 
 export const buildLessonImageRefMap = (
