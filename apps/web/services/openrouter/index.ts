@@ -13,11 +13,6 @@ export {
   needsPdfLessonMappingMigration,
   preparePdfLessonMappings,
 } from './documentIndex/index.ts';
-export {
-  evaluateLaboratoryExercise,
-  generateLaboratory,
-  regenerateLaboratoryExercise,
-} from './laboratory.ts';
 export { validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,

@@ -25,7 +25,11 @@
       "Bash(npx vitest *)",
       "WebFetch(domain:openrouter.ai)",
       "WebFetch(domain:docs.perplexity.ai)",
-      "Bash(bun install *)"
+      "Bash(bun install *)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/services/learning/groupSectionsIntoModules.test.ts)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/utils/learning/pathNodes.test.ts)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat\\(learning\\): add pathNodes helpers for walking modules *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\giovb\\.vscode\\extensions\\highagency.pencildev-0.6.49\\out\\data"

@@ -341,58 +341,6 @@ export interface LearningPlan {
   generationNotes?: string; // Per-course user notes that steer lesson generation style/tone
 }
 
-export type LaboratoryAttachmentKind = 'archive' | 'binary' | 'image' | 'text';
-export type LaboratoryStateStatus = 'failed' | 'idle' | 'pending' | 'ready';
-
-export interface LaboratoryAttachment {
-  id: string;
-  name: string;
-  mimeType: string;
-  kind: LaboratoryAttachmentKind;
-  data: string; // Base64
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface LaboratoryExerciseEvaluation {
-  caveats: string[];
-  confidenceScore: number;
-  confidenceSummary: string;
-  evaluatedAt: string;
-  improvements: string[];
-  score: number;
-  strengths: string[];
-  summary: string;
-}
-
-export interface LaboratoryExercise {
-  attachments: LaboratoryAttachment[];
-  approachMarkdown: string;
-  brief: string;
-  evaluation: LaboratoryExerciseEvaluation | null;
-  exampleMarkdown: string;
-  generatedAt: string;
-  id: string;
-  internalNotes: string[];
-  instructionsMarkdown: string;
-  requirements: string[];
-  sourceChunkIds?: string[];
-  title: string;
-  updatedAt: string;
-}
-
-export interface LaboratoryState {
-  errorMessage?: string;
-  exercises: LaboratoryExercise[];
-  generatedAt?: string;
-  schemaVersion: number;
-  status: LaboratoryStateStatus;
-  summary: string;
-  title: string;
-  updatedAt: string;
-}
-
 // === Application exercises (new path nodes) ===
 
 export type ExerciseAttachmentKind = 'archive' | 'text';
