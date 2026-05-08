@@ -96,10 +96,20 @@ export interface ChatCompletionOptions {
   plugins?: Record<string, unknown>[];
 }
 
+export interface OpenRouterToolCall {
+  id?: string;
+  type?: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
 export interface OpenRouterChoice {
   message?: {
     content?: OpenRouterMessageContent;
     annotations?: FileAnnotation[];
+    tool_calls?: OpenRouterToolCall[];
   };
 }
 

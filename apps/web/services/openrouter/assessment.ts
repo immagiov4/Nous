@@ -5,10 +5,10 @@ import {
   type ChatMessage,
   type ChatSession,
   callOpenRouter,
+  callOpenRouterRaw,
   type FileData,
   isPdfFile,
   MODEL_ASSESSMENT,
-  parseFunctionCallProfile,
   type UserProfile,
 } from './shared.ts';
 
@@ -263,13 +263,87 @@ export const createEmbeddedAssessmentChatFromTextSource = async (
     seedAssistant: false,
   });
 
+const FINALIZE_PROFILE_TOOL = {
+  type: 'function',
+  function: {
+    name: 'finalizeProfile',
+    description:
+      'Call this tool ONLY when you have gathered enough high-resolution information about the user to build a personalized study path. Do not call it before that. Never narrate the profile in chat — emit it through this tool.',
+    parameters: {
+      type: 'object',
+      required: ['topic', 'experienceLevel', 'learningStyle', 'goals', 'context'],
+      properties: {
+        topic: {
+          type: 'string',
+          description: 'The specific refined topic the user wants to learn.',
+        },
+        experienceLevel: {
+          type: 'string',
+          enum: ['Beginner', 'Intermediate', 'Expert'],
+          description: "User's current level on the topic.",
+        },
+        learningStyle: {
+          type: 'string',
+          enum: ['Visual', 'Theoretical', 'Practical', 'Auditory'],
+          description: 'Preferred learning style inferred from the conversation.',
+        },
+        goals: {
+          type: 'string',
+          description: 'Concrete goals the user expressed.',
+        },
+        context: {
+          type: 'string',
+          description:
+            'A DETAILED paragraph containing every specific technical constraint, preference, and background detail surfaced during the interview.',
+        },
+      },
+    },
+  },
+} as const satisfies Record<string, unknown>;
+
+const isFinalizeProfileArgs = (
+  value: Record<string, unknown>
+): value is {
+  topic: string;
+  experienceLevel: string;
+  learningStyle: string;
+  goals: string;
+  context: string;
+} =>
+  typeof value.topic === 'string' &&
+  typeof value.experienceLevel === 'string' &&
+  typeof value.learningStyle === 'string' &&
+  typeof value.goals === 'string' &&
+  typeof value.context === 'string';
+
+const extractAssistantText = (content: unknown): string => {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return '';
+  }
+
+  return content
+    .filter(
+      (part): part is { type: 'text'; text: string } =>
+        Boolean(part) &&
+        typeof part === 'object' &&
+        (part as { type?: unknown }).type === 'text' &&
+        typeof (part as { text?: unknown }).text === 'string'
+    )
+    .map(part => part.text)
+    .join('\n');
+};
+
 const createLearnAssessmentSession = (
   language: string,
   options?: { seedOpeningExchange?: boolean }
 ): ChatSession<UserProfile> => {
   const systemInstruction = `You are an Expert Curriculum Designer and Profiler.
 
-CRITICAL INSTRUCTION: You MUST speak in ${language}. 
+CRITICAL INSTRUCTION: You MUST speak in ${language}.
 If speaking Italian, use the informal "Tu" (not "Lei").
 
 Tone:
@@ -287,16 +361,10 @@ Protocol:
 5. Avoid low-impact logistical questions like hours per week, calendar availability, schedules, or classroom-style organization details unless the user explicitly frames them as critical constraints.
 6. Prioritize questions about actual skill level, prior exposure, target outcomes, frustrations, and preferred learning style or progression.
 
-When you have gathered enough information, respond with a JSON object containing the profile:
-{
-  "topic": "The specific refined topic",
-  "experienceLevel": "Beginner|Intermediate|Expert",
-  "learningStyle": "Visual|Theoretical|Practical|Auditory",
-  "goals": "Specific user goals identified",
-  "context": "A DETAILED paragraph containing every specific technical constraint, preference, and background detail"
-}
-
-Only return this JSON when you have enough information. Before that, just ask questions. Never generate the course itself in chat; downstream code will do that after the profile is finalized.`;
+How to finalize:
+- When (and ONLY when) you have enough information, call the tool "finalizeProfile" with the structured fields. Do NOT write JSON or the profile in chat — emit it strictly through the tool call.
+- Until you call the tool, your job is to ask one focused question per turn.
+- Never generate the course itself in chat; downstream code will do that after the profile is finalized.`;
 
   const history: ChatMessage[] = [{ role: 'system', content: systemInstruction }];
 
@@ -307,25 +375,80 @@ Only return this JSON when you have enough information. Before that, just ask qu
 
   return {
     sendMessage: async ({ message }) => {
+      console.info('[Nous][LearnAssessment] sendMessage', {
+        preview: message.slice(0, 120),
+      });
       history.push({ role: 'user', content: message });
 
-      const response = await callOpenRouter({
+      const raw = await callOpenRouterRaw({
         model: MODEL_ASSESSMENT,
         modelSlot: 'assessment',
         messages: history,
+        tools: [FINALIZE_PROFILE_TOOL as unknown as Record<string, unknown>],
       });
 
-      history.push({ role: 'assistant', content: response });
+      const choiceMessage = raw.choices?.[0]?.message;
+      const rawText = extractAssistantText(choiceMessage?.content);
+      const toolCall = choiceMessage?.tool_calls?.find(
+        call => call.function?.name === 'finalizeProfile'
+      );
 
-      const profile = parseFunctionCallProfile(response);
-      if (profile) {
-        return {
-          text: response,
-          functionCalls: [{ name: 'finalizeProfile', args: profile }],
-        };
+      console.info('[Nous][LearnAssessment] response', {
+        hasToolCall: Boolean(toolCall),
+        rawTextLength: rawText.length,
+        rawTextPreview: rawText.slice(0, 120),
+      });
+
+      if (toolCall) {
+        console.info('[Nous][LearnAssessment] tool call raw arguments', {
+          arguments: toolCall.function.arguments,
+        });
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          parsedArgs = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
+        } catch (error) {
+          console.warn('[Nous][LearnAssessment] Failed to parse finalizeProfile arguments', {
+            error,
+            arguments: toolCall.function.arguments,
+          });
+        }
+
+        if (isFinalizeProfileArgs(parsedArgs)) {
+          const profile: UserProfile = {
+            topic: parsedArgs.topic,
+            experienceLevel: parsedArgs.experienceLevel,
+            learningStyle: parsedArgs.learningStyle,
+            goals: parsedArgs.goals,
+            context: parsedArgs.context,
+            language,
+          };
+          history.push({
+            role: 'assistant',
+            content: rawText || 'Ho tutte le informazioni che mi servono. Costruisco il piano.',
+          });
+          return {
+            text: rawText,
+            functionCalls: [{ name: 'finalizeProfile', args: profile }],
+          };
+        }
+
+        console.warn('[Nous][LearnAssessment] finalizeProfile tool call missing required fields', {
+          parsedArgs,
+        });
       }
 
-      return { text: response };
+      if (!rawText) {
+        console.warn('[Nous][LearnAssessment] Empty assistant response from model', {
+          hasToolCall: Boolean(toolCall),
+          choice: raw.choices?.[0],
+        });
+      }
+
+      const text =
+        rawText ||
+        'Non sono sicuro di aver capito. Puoi darmi un dettaglio in piu su cosa vuoi imparare e perche?';
+      history.push({ role: 'assistant', content: text });
+      return { text };
     },
     getHistory: () => history,
   };

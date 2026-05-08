@@ -106,6 +106,13 @@ const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectS
       typeof snapshotRecord.isLearnMode === 'boolean' ? snapshotRecord.isLearnMode : undefined,
     userProfile: readUserProfile(snapshotRecord.userProfile),
     syllabus: Array.isArray(snapshotRecord.syllabus) ? snapshotRecord.syllabus : undefined,
+    researchCoursePlan:
+      snapshotRecord.researchCoursePlan === null || isRecord(snapshotRecord.researchCoursePlan)
+        ? snapshotRecord.researchCoursePlan
+        : undefined,
+    researchDossiersBySectionId: isRecord(snapshotRecord.researchDossiersBySectionId)
+      ? snapshotRecord.researchDossiersBySectionId
+      : undefined,
     activeSectionId: readNullableString(snapshotRecord.activeSectionId),
     activeLaboratoryExerciseId: readNullableString(snapshotRecord.activeLaboratoryExerciseId),
     createdAt: readOptionalString(snapshotRecord.createdAt) || timestampIso(),
@@ -226,6 +233,13 @@ const requireProjectPatch = (body: unknown, _routeProjectId: string): ProjectPat
     laboratory: patchRecord.laboratory as Record<string, unknown> | null | undefined,
     userProfile: patchRecord.userProfile as Record<string, unknown> | null | undefined,
     syllabus: Array.isArray(patchRecord.syllabus) ? patchRecord.syllabus : undefined,
+    researchCoursePlan:
+      patchRecord.researchCoursePlan === null || isRecord(patchRecord.researchCoursePlan)
+        ? (patchRecord.researchCoursePlan as Record<string, unknown> | null)
+        : undefined,
+    researchDossiersBySectionId: isRecord(patchRecord.researchDossiersBySectionId)
+      ? patchRecord.researchDossiersBySectionId
+      : undefined,
     documentAssets: patchRecord.documentAssets as Record<string, unknown> | null | undefined,
     documentIndex: patchRecord.documentIndex as Record<string, unknown> | null | undefined,
     section: readSectionPatch(patchRecord),

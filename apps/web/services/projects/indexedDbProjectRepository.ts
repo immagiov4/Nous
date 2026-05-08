@@ -704,6 +704,12 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       if (patch.userProfile !== undefined)
         snapshot.userProfile = patch.userProfile as UserProfile | null;
       if (patch.syllabus !== undefined) snapshot.syllabus = patch.syllabus as SyllabusItem[];
+      if (patch.researchCoursePlan !== undefined)
+        snapshot.researchCoursePlan =
+          patch.researchCoursePlan as ProjectSnapshot['researchCoursePlan'];
+      if (patch.researchDossiersBySectionId !== undefined)
+        snapshot.researchDossiersBySectionId =
+          patch.researchDossiersBySectionId as ProjectSnapshot['researchDossiersBySectionId'];
       if (patch.documentAssets !== undefined)
         snapshot.documentAssets = patch.documentAssets as PdfDocumentAssets | null;
       if (patch.documentIndex !== undefined)

@@ -7,6 +7,9 @@ import type {
   ProjectSnapshot,
   ProjectSource,
   QuizQuestion,
+  ResearchCoursePlan,
+  ResearchDossiersBySectionId,
+  ResearchLessonDossier,
   SyllabusItem,
   UserProfile,
   WorkspaceDomainState,
@@ -22,6 +25,8 @@ export const createEmptyWorkspaceDomainState = (): WorkspaceDomainState => ({
   isLearnMode: false,
   userProfile: null,
   syllabus: [],
+  researchCoursePlan: null,
+  researchDossiersBySectionId: {},
   activeSectionId: null,
   activeLaboratoryExerciseId: null,
 });
@@ -37,6 +42,12 @@ export type WorkspaceDomainAction =
   | { type: 'set-learn-mode'; isLearnMode: boolean }
   | { type: 'set-user-profile'; userProfile: UserProfile | null }
   | { type: 'set-syllabus'; syllabus: SyllabusItem[] }
+  | { type: 'set-research-course-plan'; researchCoursePlan: ResearchCoursePlan | null }
+  | { type: 'set-research-lesson-dossier'; dossier: ResearchLessonDossier }
+  | {
+      type: 'set-research-dossiers';
+      researchDossiersBySectionId: ResearchDossiersBySectionId;
+    }
   | { type: 'set-active-section'; activeSectionId: string | null }
   | { type: 'set-active-laboratory-exercise'; activeLaboratoryExerciseId: string | null }
   | { type: 'set-music-url'; musicUrl: string }
@@ -93,6 +104,8 @@ export const workspaceDomainReducer = (
         isLearnMode: action.snapshot.isLearnMode,
         userProfile: action.snapshot.userProfile,
         syllabus: action.snapshot.syllabus,
+        researchCoursePlan: action.snapshot.researchCoursePlan ?? null,
+        researchDossiersBySectionId: action.snapshot.researchDossiersBySectionId ?? {},
         activeSectionId: action.snapshot.activeSectionId,
         activeLaboratoryExerciseId: action.snapshot.activeLaboratoryExerciseId,
       };
@@ -143,6 +156,27 @@ export const workspaceDomainReducer = (
       return {
         ...state,
         syllabus: action.syllabus,
+      };
+
+    case 'set-research-course-plan':
+      return {
+        ...state,
+        researchCoursePlan: action.researchCoursePlan,
+      };
+
+    case 'set-research-lesson-dossier':
+      return {
+        ...state,
+        researchDossiersBySectionId: {
+          ...state.researchDossiersBySectionId,
+          [action.dossier.sectionId]: action.dossier,
+        },
+      };
+
+    case 'set-research-dossiers':
+      return {
+        ...state,
+        researchDossiersBySectionId: action.researchDossiersBySectionId,
       };
 
     case 'set-active-section':

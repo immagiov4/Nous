@@ -158,6 +158,14 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         userProfile:
           overrides?.userProfile !== undefined ? overrides.userProfile : domainState.userProfile,
         syllabus: overrides?.syllabus ?? domainState.syllabus,
+        researchCoursePlan:
+          overrides?.researchCoursePlan !== undefined
+            ? overrides.researchCoursePlan
+            : domainState.researchCoursePlan,
+        researchDossiersBySectionId:
+          overrides?.researchDossiersBySectionId !== undefined
+            ? overrides.researchDossiersBySectionId
+            : domainState.researchDossiersBySectionId,
         activeSectionId:
           overrides?.activeSectionId !== undefined
             ? overrides.activeSectionId
@@ -259,6 +267,10 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       if (overrides.laboratory !== undefined) patch.laboratory = overrides.laboratory;
       if (overrides.userProfile !== undefined) patch.userProfile = overrides.userProfile;
       if (overrides.syllabus !== undefined) patch.syllabus = overrides.syllabus;
+      if (overrides.researchCoursePlan !== undefined)
+        patch.researchCoursePlan = overrides.researchCoursePlan;
+      if (overrides.researchDossiersBySectionId !== undefined)
+        patch.researchDossiersBySectionId = overrides.researchDossiersBySectionId;
       if (overrides.documentAssets !== undefined) patch.documentAssets = overrides.documentAssets;
       if (overrides.documentIndex !== undefined) {
         // Anti-data-loss guard: se chi chiama passa documentIndex:null ma in memoria

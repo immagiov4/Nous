@@ -9,7 +9,6 @@ import {
   getProjectSourceFile,
   isZipFileData,
 } from '../../../services/projects/projectSource.ts';
-import { buildLearningPlanFromSyllabus } from '../../../services/workspace/controller/learnMode.ts';
 import {
   AppState,
   type FileData,
@@ -285,7 +284,7 @@ export const createAssessmentPlanningCommands = (
           throw new Error('Missing learn-mode profile');
         }
 
-        const newSyllabus = await openRouter.generateFullCurriculum(
+        const researchResult = await openRouter.generateResearchCoursePlan(
           args.profile,
           message => {
             state.setWorkflowMessage('generatePlan', requestId, message);
@@ -293,23 +292,27 @@ export const createAssessmentPlanningCommands = (
           items => {
             domain.setSyllabus(items as SyllabusItem[]);
           },
-          () => {
-            state.setWorkflowMessage('generatePlan', requestId, 'Revisione finale...');
-          },
           reasoning => {
             state.setWorkflowReasoning('generatePlan', requestId, reasoning);
           }
         );
+        const newSyllabus = researchResult.syllabus;
 
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
           return;
         }
 
-        const plan = buildLearningPlanFromSyllabus(args.profile, newSyllabus);
+        const plan = openRouter.buildLearningPlanFromResearchCourse(
+          args.profile,
+          researchResult.researchCoursePlan,
+          newSyllabus
+        );
         domain.setLearningPlan(plan);
         domain.setDocumentAssets(null);
         domain.setDocumentIndex(null);
         domain.setSyllabus(newSyllabus);
+        domain.setResearchCoursePlan(researchResult.researchCoursePlan);
+        domain.setResearchDossiers({});
         domain.setUserProfile(args.profile);
         domain.setIsLearnMode(true);
         state.setScreenState(AppState.READING);
@@ -333,6 +336,8 @@ export const createAssessmentPlanningCommands = (
               isLearnMode: true,
               userProfile: args.profile,
               syllabus: newSyllabus,
+              researchCoursePlan: researchResult.researchCoursePlan,
+              researchDossiersBySectionId: {},
               activeSectionId: firstSection.id,
             })
           );
@@ -472,6 +477,7 @@ export const createAssessmentPlanningCommands = (
       let session:
         | Awaited<ReturnType<typeof openRouter.createAssessmentChat>>
         | ReturnType<typeof openRouter.createEmbeddedLearnAssessmentChat>;
+      let learnMode = false;
 
       if (args.selectedFile) {
         let nextSource = null;
@@ -507,6 +513,7 @@ export const createAssessmentPlanningCommands = (
 
         domain.setSource(nextSource);
         domain.setIsLearnMode(false);
+        learnMode = false;
 
         session =
           nextSource.kind === 'codebase-bundle'
@@ -520,6 +527,7 @@ export const createAssessmentPlanningCommands = (
       } else {
         domain.setSource(null);
         domain.setIsLearnMode(true);
+        learnMode = true;
         session = openRouter.createEmbeddedLearnAssessmentChat('Italiano');
       }
 
@@ -530,7 +538,7 @@ export const createAssessmentPlanningCommands = (
         message: buildHomeChatMessageForModel(trimmedInput, args.toolPreferences),
       });
 
-      if (domain.isLearnMode) {
+      if (learnMode) {
         const call = response.functionCalls?.[0];
 
         if (call && call.name === 'finalizeProfile') {

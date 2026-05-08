@@ -165,6 +165,8 @@ export const createProjectSnapshot = (
   isLearnMode: partial.isLearnMode || false,
   userProfile: partial.userProfile || null,
   syllabus: partial.syllabus || [],
+  researchCoursePlan: partial.researchCoursePlan ?? null,
+  researchDossiersBySectionId: partial.researchDossiersBySectionId ?? {},
   activeSectionId: partial.activeSectionId || null,
   activeLaboratoryExerciseId: partial.activeLaboratoryExerciseId || null,
   createdAt: partial.createdAt || timestampIso(),
@@ -472,6 +474,78 @@ const parseUserProfile = (value: unknown): UserProfile | null => {
 const parseSyllabus = (value: unknown): SyllabusItem[] =>
   Array.isArray(value) ? (value as SyllabusItem[]) : [];
 
+const parseStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.map(item => ensureString(item)).filter(Boolean) : [];
+
+const parseResearchSourceReferences = (value: unknown) =>
+  Array.isArray(value)
+    ? value
+        .filter(isRecord)
+        .map(source => ({
+          title: ensureString(source.title),
+          url: ensureString(source.url) || undefined,
+          note: ensureString(source.note) || undefined,
+        }))
+        .filter(source => source.title || source.url)
+    : [];
+
+const parseResearchCoursePlan = (value: unknown): ProjectSnapshot['researchCoursePlan'] => {
+  if (!isRecord(value) || !Array.isArray(value.lessons)) {
+    return null;
+  }
+
+  const now = timestampIso();
+
+  return {
+    generatedAt: ensureString(value.generatedAt, now),
+    lessonCountReason: ensureString(value.lessonCountReason),
+    title: ensureString(value.title, 'Percorso di ricerca'),
+    summary: ensureString(value.summary),
+    lessons: value.lessons
+      .filter(isRecord)
+      .map(lesson => ({
+        id: ensureString(lesson.id),
+        title: ensureString(lesson.title),
+        description: ensureString(lesson.description),
+        moduleId: ensureString(lesson.moduleId),
+        moduleTitle: ensureString(lesson.moduleTitle),
+        prerequisites: parseStringArray(lesson.prerequisites),
+        keyConcepts: parseStringArray(lesson.keyConcepts),
+        guidingQuestions: parseStringArray(lesson.guidingQuestions),
+        miniLab: ensureString(lesson.miniLab),
+        simplificationRisks: parseStringArray(lesson.simplificationRisks),
+        sourceHints: parseResearchSourceReferences(lesson.sourceHints),
+      }))
+      .filter(lesson => lesson.id && lesson.title),
+  };
+};
+
+const parseResearchDossiers = (value: unknown): ProjectSnapshot['researchDossiersBySectionId'] => {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const now = timestampIso();
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]))
+      .map(([sectionId, dossier]) => [
+        sectionId,
+        {
+          sectionId: ensureString(dossier.sectionId, sectionId),
+          title: ensureString(dossier.title),
+          generatedAt: ensureString(dossier.generatedAt, now),
+          factualSummary: ensureString(dossier.factualSummary),
+          keyExamples: parseStringArray(dossier.keyExamples),
+          difficultSteps: parseStringArray(dossier.difficultSteps),
+          avoidOversimplifying: parseStringArray(dossier.avoidOversimplifying),
+          controversies: parseStringArray(dossier.controversies),
+          sources: parseResearchSourceReferences(dossier.sources),
+        },
+      ])
+  );
+};
+
 const parseExplicitSourceKind = (value: unknown): ProjectSourceKind | undefined =>
   value === 'document' ||
   value === 'codebase' ||
@@ -517,6 +591,8 @@ const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapsh
     isLearnMode,
     userProfile: parseUserProfile(data.userProfile),
     syllabus,
+    researchCoursePlan: parseResearchCoursePlan(data.researchCoursePlan),
+    researchDossiersBySectionId: parseResearchDossiers(data.researchDossiersBySectionId),
     activeSectionId: ensureString(data.activeSectionId) || null,
     activeLaboratoryExerciseId: ensureString(data.activeLaboratoryExerciseId) || null,
     createdAt: ensureString(data.createdAt, now),
@@ -543,6 +619,8 @@ export const exportProjectData = (snapshot: ProjectSnapshot): ProjectExportData 
   isLearnMode: snapshot.isLearnMode,
   userProfile: snapshot.userProfile,
   syllabus: snapshot.syllabus,
+  researchCoursePlan: snapshot.researchCoursePlan ?? null,
+  researchDossiersBySectionId: snapshot.researchDossiersBySectionId ?? {},
   activeSectionId: snapshot.activeSectionId,
   activeLaboratoryExerciseId: snapshot.activeLaboratoryExerciseId,
   musicUrl: snapshot.learningPlan?.backgroundMusicUrl || '',

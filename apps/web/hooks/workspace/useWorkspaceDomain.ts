@@ -20,6 +20,9 @@ import type {
   ProjectSnapshot,
   ProjectSource,
   QuizQuestion,
+  ResearchCoursePlan,
+  ResearchDossiersBySectionId,
+  ResearchLessonDossier,
   SyllabusItem,
   UserProfile,
 } from '../../types';
@@ -41,6 +44,8 @@ export const useWorkspaceDomain = () => {
   const isLearnMode = domainState.isLearnMode;
   const userProfile = domainState.userProfile;
   const syllabus = domainState.syllabus;
+  const researchCoursePlan = domainState.researchCoursePlan ?? null;
+  const researchDossiersBySectionId = domainState.researchDossiersBySectionId ?? {};
   const activeSectionId = domainState.activeSectionId;
   const activeLaboratoryExerciseId = domainState.activeLaboratoryExerciseId;
   const activeSection = useMemo(
@@ -100,6 +105,18 @@ export const useWorkspaceDomain = () => {
 
   const setSyllabus = useCallback((nextSyllabus: SyllabusItem[]) => {
     dispatch({ type: 'set-syllabus', syllabus: nextSyllabus });
+  }, []);
+
+  const setResearchCoursePlan = useCallback((nextPlan: ResearchCoursePlan | null) => {
+    dispatch({ type: 'set-research-course-plan', researchCoursePlan: nextPlan });
+  }, []);
+
+  const setResearchLessonDossier = useCallback((dossier: ResearchLessonDossier) => {
+    dispatch({ type: 'set-research-lesson-dossier', dossier });
+  }, []);
+
+  const setResearchDossiers = useCallback((nextDossiers: ResearchDossiersBySectionId) => {
+    dispatch({ type: 'set-research-dossiers', researchDossiersBySectionId: nextDossiers });
   }, []);
 
   const setActiveSectionId = useCallback((nextSectionId: string | null) => {
@@ -168,6 +185,8 @@ export const useWorkspaceDomain = () => {
       needsSourceFile,
       quiz,
       resetDomain,
+      researchCoursePlan,
+      researchDossiersBySectionId,
       sectionContent,
       setActiveSectionId,
       setActiveLaboratoryExerciseId,
@@ -178,6 +197,9 @@ export const useWorkspaceDomain = () => {
       setLaboratory,
       setLearningPlan,
       setMusicUrl,
+      setResearchCoursePlan,
+      setResearchDossiers,
+      setResearchLessonDossier,
       setSource,
       setSyllabus,
       setUserProfile,
@@ -206,6 +228,8 @@ export const useWorkspaceDomain = () => {
       needsSourceFile,
       quiz,
       resetDomain,
+      researchCoursePlan,
+      researchDossiersBySectionId,
       sectionContent,
       setActiveSectionId,
       setActiveLaboratoryExerciseId,
@@ -216,6 +240,9 @@ export const useWorkspaceDomain = () => {
       setLaboratory,
       setLearningPlan,
       setMusicUrl,
+      setResearchCoursePlan,
+      setResearchDossiers,
+      setResearchLessonDossier,
       setSource,
       setSyllabus,
       setUserProfile,

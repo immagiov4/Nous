@@ -46,3 +46,4 @@ test('parseCleanJson throws a friendly error when the payload is irrecoverable',
     /Il modello ha restituito una risposta incompleta o non valida\./
   );
 });
+

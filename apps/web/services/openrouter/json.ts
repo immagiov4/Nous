@@ -1,4 +1,4 @@
-import type { Message, UserProfile } from './types.ts';
+import type { Message } from './types.ts';
 
 type JsonRepairStage = 'cleaned' | 'repaired' | 'completed';
 
@@ -11,16 +11,6 @@ const logJsonRepairFailure = (stage: JsonRepairStage, error: unknown): void => {
     stage,
     error,
   });
-};
-
-const parseJson = <T>(text: string, fallback: T): T => {
-  try {
-    return JSON.parse(text) as T;
-  } catch (error) {
-    logJsonRepairFailure('cleaned', error);
-    // intentional: fallback to default
-    return fallback;
-  }
 };
 
 export const cleanJson = (text: string): string => {
@@ -269,32 +259,6 @@ export const sanitizeTitle = (title: string): string => {
 
   const words = clean.split(' ');
   return words.length > 10 ? `${words.slice(0, 10).join(' ')}...` : clean;
-};
-
-export const parseFunctionCallProfile = (response: string): UserProfile | null => {
-  const parsed = parseJson<Record<string, unknown> | null>(response, null);
-  if (!parsed) {
-    return null;
-  }
-
-  if (
-    typeof parsed.topic === 'string' &&
-    typeof parsed.experienceLevel === 'string' &&
-    typeof parsed.learningStyle === 'string' &&
-    typeof parsed.goals === 'string' &&
-    typeof parsed.context === 'string'
-  ) {
-    return {
-      topic: parsed.topic,
-      experienceLevel: parsed.experienceLevel,
-      learningStyle: parsed.learningStyle,
-      goals: parsed.goals,
-      context: parsed.context,
-      language: typeof parsed.language === 'string' ? parsed.language : 'Italiano',
-    };
-  }
-
-  return null;
 };
 
 export const buildAssessmentSummary = (assessmentHistory: Message[]): string =>

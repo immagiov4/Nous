@@ -19,6 +19,9 @@ import type {
   ProjectSnapshot,
   ProjectSource,
   QuizQuestion,
+  ResearchCoursePlan,
+  ResearchDossiersBySectionId,
+  ResearchLessonDossier,
   SavedProjectMeta,
   SyllabusItem,
   UserProfile,
@@ -60,6 +63,8 @@ export interface WorkspaceDomainControllerAdapter {
   musicUrl: string;
   needsSourceFile: boolean;
   quiz: QuizQuestion[];
+  researchCoursePlan: ResearchCoursePlan | null;
+  researchDossiersBySectionId: ResearchDossiersBySectionId;
   resetDomain: () => void;
   sectionContent: string;
   setActiveLaboratoryExerciseId: (exerciseId: string | null) => void;
@@ -71,6 +76,9 @@ export interface WorkspaceDomainControllerAdapter {
   setLaboratory: (laboratory: LaboratoryState | null) => void;
   setLearningPlan: (learningPlan: LearningPlan | null) => void;
   setMusicUrl: (musicUrl: string) => void;
+  setResearchCoursePlan: (researchCoursePlan: ResearchCoursePlan | null) => void;
+  setResearchDossiers: (dossiers: ResearchDossiersBySectionId) => void;
+  setResearchLessonDossier: (dossier: ResearchLessonDossier) => void;
   setSource: (source: ProjectSource | null) => void;
   setSyllabus: (syllabus: SyllabusItem[]) => void;
   setUserProfile: (userProfile: UserProfile | null) => void;
@@ -187,6 +195,8 @@ export interface OpenSectionOptions {
   currentDocumentAssets?: PdfDocumentAssets | null;
   currentDocumentIndex?: PdfTextIndex | null;
   currentPlan?: LearningPlan | null;
+  currentResearchCoursePlan?: ResearchCoursePlan | null;
+  currentResearchDossiersBySectionId?: ResearchDossiersBySectionId;
   currentSourceFile?: FileData | null;
   currentSyllabus?: SyllabusItem[];
   currentUserProfile?: UserProfile | null;

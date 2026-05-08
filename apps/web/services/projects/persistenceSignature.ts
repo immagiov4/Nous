@@ -28,6 +28,8 @@ type SignatureInput =
       | 'isLearnMode'
       | 'userProfile'
       | 'syllabus'
+      | 'researchCoursePlan'
+      | 'researchDossiersBySectionId'
       | 'activeSectionId'
       | 'activeLaboratoryExerciseId'
     >
@@ -43,6 +45,8 @@ export const buildPersistenceSignature = (snapshotLike: SignatureInput): string 
     isLearnMode: snapshotLike.isLearnMode,
     userProfile: buildSignaturePart(snapshotLike.userProfile),
     syllabus: buildSignaturePart(snapshotLike.syllabus),
+    researchCoursePlan: buildSignaturePart(snapshotLike.researchCoursePlan ?? null),
+    researchDossiersBySectionId: buildSignaturePart(snapshotLike.researchDossiersBySectionId ?? {}),
     activeSectionId: snapshotLike.activeSectionId,
     activeLaboratoryExerciseId: snapshotLike.activeLaboratoryExerciseId,
   });
@@ -79,6 +83,8 @@ export const buildAutosaveSignature = (snapshotLike: SignatureInput): string =>
     isLearnMode: snapshotLike.isLearnMode,
     userProfile: buildSignaturePart(snapshotLike.userProfile),
     syllabus: buildSignaturePart(snapshotLike.syllabus),
+    researchCoursePlan: buildSignaturePart(snapshotLike.researchCoursePlan ?? null),
+    researchDossiersBySectionId: buildSignaturePart(snapshotLike.researchDossiersBySectionId ?? {}),
     activeSectionId: snapshotLike.activeSectionId,
     activeLaboratoryExerciseId: snapshotLike.activeLaboratoryExerciseId,
   });

@@ -53,6 +53,8 @@ export interface ProjectSnapshot {
     topic?: string;
   } | null;
   syllabus?: unknown[];
+  researchCoursePlan?: unknown | null;
+  researchDossiersBySectionId?: Record<string, unknown>;
   activeSectionId?: string | null;
   activeLaboratoryExerciseId?: string | null;
   createdAt: string;
@@ -121,6 +123,8 @@ export interface ProjectPatch {
   laboratory?: Record<string, unknown> | null;
   userProfile?: Record<string, unknown> | null;
   syllabus?: unknown[];
+  researchCoursePlan?: Record<string, unknown> | null;
+  researchDossiersBySectionId?: Record<string, unknown>;
   documentAssets?: Record<string, unknown> | null;
   documentIndex?: Record<string, unknown> | null;
   source?: unknown;

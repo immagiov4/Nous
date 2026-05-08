@@ -205,6 +205,12 @@ export class SqliteProjectStore implements ProjectStore {
     if (patch.syllabus !== undefined) {
       snapshot.syllabus = patch.syllabus;
     }
+    if (patch.researchCoursePlan !== undefined) {
+      snapshot.researchCoursePlan = patch.researchCoursePlan;
+    }
+    if (patch.researchDossiersBySectionId !== undefined) {
+      snapshot.researchDossiersBySectionId = patch.researchDossiersBySectionId;
+    }
     if (patch.documentAssets !== undefined) {
       snapshot.documentAssets = patch.documentAssets;
     }
@@ -228,6 +234,8 @@ export class SqliteProjectStore implements ProjectStore {
       patch.laboratory !== undefined ||
       patch.userProfile !== undefined ||
       patch.syllabus !== undefined ||
+      patch.researchCoursePlan !== undefined ||
+      patch.researchDossiersBySectionId !== undefined ||
       patch.documentAssets !== undefined ||
       patch.documentIndex !== undefined
     );

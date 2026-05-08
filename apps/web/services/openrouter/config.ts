@@ -15,6 +15,9 @@ export const MODEL_FLASH = process.env.MODEL_FLASH || 'openai/gpt-5.4-nano';
 export const MODEL_REASONING = process.env.MODEL_REASONING || 'openai/gpt-5.4-mini';
 export const MODEL_CONTEXT = process.env.MODEL_CONTEXT || DEFAULT_CONTEXT_MODEL;
 export const MODEL_ASSESSMENT = process.env.MODEL_ASSESSMENT || MODEL_CONTEXT;
+export const MODEL_RESEARCH_PLANNER =
+  process.env.MODEL_RESEARCH_PLANNER || 'perplexity/sonar-pro-search';
+export const MODEL_RESEARCH_DOSSIER = process.env.MODEL_RESEARCH_DOSSIER || MODEL_RESEARCH_PLANNER;
 export const MODEL_PDF_IMAGE_CAPTION =
   process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
 export const MODEL_VISUAL_PLANNER = process.env.MODEL_VISUAL_PLANNER || MODEL_REASONING;

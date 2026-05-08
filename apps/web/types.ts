@@ -17,6 +17,49 @@ export interface SyllabusItem {
   children?: SyllabusItem[];
 }
 
+export interface ResearchSourceReference {
+  title: string;
+  url?: string;
+  note?: string;
+}
+
+export interface ResearchLessonPlan {
+  description: string;
+  guidingQuestions: string[];
+  id: string;
+  keyConcepts: string[];
+  miniLab: string;
+  moduleId: string;
+  moduleTitle: string;
+  prerequisites: string[];
+  simplificationRisks: string[];
+  sourceHints: ResearchSourceReference[];
+  title: string;
+}
+
+export interface ResearchCoursePlan {
+  generatedAt: string;
+  lessonCountReason: string;
+  lessons: ResearchLessonPlan[];
+  summary: string;
+  title: string;
+}
+
+export interface ResearchLessonDossier {
+  avoidOversimplifying: string[];
+  controversies: string[];
+  difficultSteps: string[];
+  factualSummary: string;
+  generatedAt: string;
+  keyExamples: string[];
+  recentDevelopments: string[];
+  sectionId: string;
+  sources: ResearchSourceReference[];
+  title: string;
+}
+
+export type ResearchDossiersBySectionId = Record<string, ResearchLessonDossier>;
+
 export interface FileData {
   name: string;
   mimeType: string;
@@ -372,6 +415,8 @@ export interface ProjectSnapshot {
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
+  researchCoursePlan?: ResearchCoursePlan | null;
+  researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId: string | null;
   activeLaboratoryExerciseId: string | null;
   createdAt: string;
@@ -392,6 +437,8 @@ export interface ProjectExportData {
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
+  researchCoursePlan?: ResearchCoursePlan | null;
+  researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId?: string | null;
   activeLaboratoryExerciseId?: string | null;
   musicUrl?: string;
@@ -529,6 +576,8 @@ export interface WorkspaceDomainState {
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
+  researchCoursePlan?: ResearchCoursePlan | null;
+  researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId: string | null;
   activeLaboratoryExerciseId: string | null;
 }

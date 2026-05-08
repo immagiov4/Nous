@@ -20,7 +20,11 @@
       "WebFetch(domain:github.com)",
       "Bash(Get-ChildItem -Path . -Filter \"*.pen\" -Recurse -ErrorAction SilentlyContinue)",
       "Bash(Select-Object -First 5 FullName)",
-      "PowerShell(Get-ChildItem -Path \"$env:USERPROFILE\" -Filter \"pencil-new.pen\" -Recurse -ErrorAction SilentlyContinue -Force -Depth 5 | Select-Object FullName | Format-List)"
+      "PowerShell(Get-ChildItem -Path \"$env:USERPROFILE\" -Filter \"pencil-new.pen\" -Recurse -ErrorAction SilentlyContinue -Force -Depth 5 | Select-Object FullName | Format-List)",
+      "Bash(npx tsc *)",
+      "Bash(npx vitest *)",
+      "WebFetch(domain:openrouter.ai)",
+      "WebFetch(domain:docs.perplexity.ai)"
     ],
     "additionalDirectories": [
       "C:\\Users\\giovb\\.vscode\\extensions\\highagency.pencildev-0.6.49\\out\\data"

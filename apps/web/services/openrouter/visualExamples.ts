@@ -34,6 +34,7 @@ Regole:
 - Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
 - **Copertura completa di elementi co-presenti.** Se la lezione presenta un insieme di elementi equivalenti (es. un elenco di N regole, N principi, N caratteristiche, N passaggi, N tipologie), la visuale deve rappresentarli TUTTI in un unico grafico. Non e accettabile scegliere un solo sottoelemento e ignorare gli altri. L'unica eccezione e quando un elemento e oggettivamente molto piu complesso degli altri e necessita una visuale dedicata mentre gli altri sono banali e auto-esplicativi; in quel caso la scelta deve essere giustificata nel campo "reason".
 - **La visuale deve aggiungere valore informativo, non riassumere.** Se la visuale si limiterebbe a elencare visivamente cio che il testo dice gia chiaramente (es. un elenco puntato di concetti semplici gia ben descritti), scegli "none": la visuale deve insegnare qualcosa che il testo da solo rende piu faticoso da capire, non decorare ne parafrasare.
+- **Niente narrazione, takeaway, "moral of the story", riepiloghi.** La visuale non e un'estensione del testo della lezione: e un grafico didattico. Non deve contenere paragrafi narrativi, sintesi finali, "cambio di paradigma", "concetto chiave", "punto fondamentale", "in una frase". Quei contenuti vanno nel testo della lezione, non nella visuale.
 - **Scala la complessita in base al numero di elementi.** Se ci sono molti elementi da rappresentare (es. 5+ regole), usa layout a griglia, non una fila orizzontale ne una torre verticale. Se gli elementi sono troppi per un unico grafico leggibile, valuta se una sintesi visuale ha senso o se e meglio "none".
 - Usa Mermaid solo per ER e class diagram.
 - **Scegli il tipo visuale in base allo spazio disponibile.** Preferisci tipi che richiedono pochi elementi grafici ma sono informativi. Se il concetto ha molti sotto-elementi, prediligi layout verticale o a griglia compatta, non una fila orizzontale di blocchi.
@@ -83,7 +84,9 @@ Regole SVG obbligatorie:
 - **Gestione intelligente dello spazio:** non sovraffollare ne in orizzontale ne in verticale. Usa griglie bilanciate: se hai piu di 3 blocchi con testo, distribuiscili su righe e colonne in modo compatto ma leggibile, non tutti in fila orizzontale ne tutti in colonna verticale.
 - **Titoli compatti:** titoli di 1-3 parole. Se il titolo e lungo, riduci il font-size. Usa ellipsis o text-overflow se necessario.
 - **Spaziatura e aria:** lascia almeno 12-16px di padding interno nei box e 16-24px di margine tra elementi. La densita eccessiva rende il diagramma illeggibile.
-- **Adatta il testo alla viewBox:** se il testo sfora, riduci il font-size del contenuto prima di allargare i box. La viewBox e fissa a 680px di larghezza, devi lavorare dentro quella.`;
+- **Adatta il testo alla viewBox:** se il testo sfora, riduci il font-size del contenuto prima di allargare i box. La viewBox e fissa a 680px di larghezza, devi lavorare dentro quella.
+- **Niente caption narrativa, niente box di sintesi, niente "takeaway".** Non aggiungere riquadri finali con titoli tipo "Cambio di paradigma", "Concetto chiave", "In sintesi", "In una frase", "Punto chiave", "Conclusione", o simili. Non scrivere paragrafi di prosa dentro l'SVG. Ogni <text> deve essere un'etichetta breve (1-6 parole) o una label di nodo, MAI una frase narrativa multi-riga che riassume la lezione. Se senti il bisogno di "spiegare" la visuale dentro l'SVG, la visuale e gia sbagliata: rifalla con etichette piu chiare.
+- **Vietate frasi complete di prosa.** Niente periodi che iniziano con "Il...", "La...", "Quando...", "Mentre...", "Perche...", "In Rust...", "Nei linguaggi...", o costruzioni soggetto-verbo-complemento estese. Le label sono nominali e telegrafiche, non discorsive.`;
 
 const RENDERER_HTML_PROMPT = `SYSTEM:
 Sei un generatore esperto di widget HTML interattivi per Nous Reader.
@@ -113,7 +116,8 @@ Regole:
 - **Gestione dello spazio:** il container e width:100% ma non devi riempirlo tutto. Usa lo spazio in modo parsimonioso. Preferisci colonne verticali a righe orizzontali quando ci sono molti elementi.
 - **Aria tra sezioni:** aggiungi margin-bottom e padding generosi. Non accostare elementi senza spazio intermedio.
 - **Titoli compatti:** usa titoli brevi (1-3 parole). Il testo lungo va in descrizioni sotto il titolo, non nel titolo stesso.
-- **Non sovraccaricare:** se l'interazione richiede molti elementi di UI, scegli un design essenziale. Ogni input, label, bottone extra aumenta la densita visiva. Non accumulare troppi widget in verticale ne in orizzontale.`;
+- **Non sovraccaricare:** se l'interazione richiede molti elementi di UI, scegli un design essenziale. Ogni input, label, bottone extra aumenta la densita visiva. Non accumulare troppi widget in verticale ne in orizzontale.
+- **Niente caption narrativa, niente box di sintesi, niente "takeaway".** Non aggiungere sezioni finali con titoli tipo "Cambio di paradigma", "Concetto chiave", "In sintesi", "In una frase", "Punto chiave", "Conclusione". Non scrivere paragrafi di prosa dentro il widget. Le label sono nominali e brevi (1-6 parole), non frasi discorsive che riassumono la lezione. Il widget insegna interagendo, non recitando un riepilogo.`;
 
 const RENDERER_MERMAID_PROMPT = `SYSTEM:
 Sei un generatore di diagrammi Mermaid solo per database e classi.

@@ -52,6 +52,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       options.currentSyllabus === undefined ? domain.syllabus : options.currentSyllabus;
     const currentUserProfile =
       options.currentUserProfile === undefined ? domain.userProfile : options.currentUserProfile;
+    const currentResearchCoursePlan =
+      options.currentResearchCoursePlan === undefined
+        ? domain.researchCoursePlan
+        : options.currentResearchCoursePlan;
+    const currentResearchDossiersBySectionId =
+      options.currentResearchDossiersBySectionId === undefined
+        ? domain.researchDossiersBySectionId
+        : options.currentResearchDossiersBySectionId;
     const forceRegenerate = options.forceRegenerate === true;
 
     if (!currentPlan) {
@@ -122,33 +130,86 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         const { anchorLessonContextPrompt, anchorLessonId, moduleId, moduleTitle } =
           resolveLearnSectionContext(section, currentPlan, currentSyllabus);
 
-        const content = await openRouter.generateLearnLessonContent(
-          section.title,
-          moduleTitle,
-          moduleId,
-          anchorLessonId,
-          section.contextPrompt || anchorLessonContextPrompt,
-          currentUserProfile,
-          currentSyllabus,
-          status => {
-            state.setWorkflowMessage('loadSection', requestId, status);
-          },
-          currentPlan.generationNotes,
-          reasoning => {
-            state.setWorkflowReasoning('loadSection', requestId, reasoning);
-          }
-        );
+        let nextResearchDossiersBySectionId = currentResearchDossiersBySectionId;
+        const cachedResearchDossier = currentResearchDossiersBySectionId[section.id];
+        const learnLessonResult = currentResearchCoursePlan
+          ? await (async () => {
+              const researchDossier =
+                cachedResearchDossier ||
+                (await openRouter.generateResearchLessonDossier({
+                  lesson: section,
+                  moduleTitle,
+                  profile: currentUserProfile,
+                  researchCoursePlan: currentResearchCoursePlan,
+                  onStatusUpdate: status => {
+                    state.setWorkflowMessage('loadSection', requestId, status);
+                  },
+                  onReasoningUpdate: reasoning => {
+                    state.setWorkflowReasoning('loadSection', requestId, reasoning);
+                  },
+                }));
+
+              if (!state.isWorkflowCurrent('loadSection', requestId)) {
+                return { content: '', generatedVisuals: [], quiz: [] };
+              }
+
+              if (!cachedResearchDossier) {
+                nextResearchDossiersBySectionId = {
+                  ...currentResearchDossiersBySectionId,
+                  [section.id]: researchDossier,
+                };
+                domain.setResearchLessonDossier(researchDossier);
+              }
+
+              return openRouter.generateResearchLessonContent({
+                lessonTitle: section.title,
+                moduleTitle,
+                contextPrompt: section.contextPrompt || anchorLessonContextPrompt,
+                profile: currentUserProfile,
+                syllabus: currentSyllabus,
+                researchDossier,
+                generationNotes: currentPlan.generationNotes,
+                onStatusUpdate: status => {
+                  state.setWorkflowMessage('loadSection', requestId, status);
+                },
+                onReasoningUpdate: reasoning => {
+                  state.setWorkflowReasoning('loadSection', requestId, reasoning);
+                },
+              });
+            })()
+          : {
+              content: await openRouter.generateLearnLessonContent(
+                section.title,
+                moduleTitle,
+                moduleId,
+                anchorLessonId,
+                section.contextPrompt || anchorLessonContextPrompt,
+                currentUserProfile,
+                currentSyllabus,
+                status => {
+                  state.setWorkflowMessage('loadSection', requestId, status);
+                },
+                currentPlan.generationNotes,
+                reasoning => {
+                  state.setWorkflowReasoning('loadSection', requestId, reasoning);
+                }
+              ),
+              generatedVisuals: [],
+              quiz: [],
+            };
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {
           return 'ignored-busy';
         }
 
+        const { content, generatedVisuals, quiz } = learnLessonResult;
+
         domain.updateSection(section.id, section => ({
           ...section,
           content,
-          quiz: [],
+          quiz,
           imageRefs: [],
-          generatedVisuals: [],
+          generatedVisuals,
         }));
         const mergedDocumentAssets = mergeDocumentAssetsForPlan(
           domain.learningPlan ?? currentPlan,
@@ -158,12 +219,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         domain.setDocumentAssets(mergedDocumentAssets);
         void projectLibrary.patchSectionLessonContent(section.id, {
           content,
-          generatedVisuals: [],
+          generatedVisuals,
           imageRefs: [],
-          quiz: [],
+          quiz,
         });
         void projectLibrary.patchCurrentProject({
           documentAssets: mergedDocumentAssets,
+          researchDossiersBySectionId: nextResearchDossiersBySectionId,
           activeSectionId: section.id,
           state: AppState.READING,
           isLearnMode: true,

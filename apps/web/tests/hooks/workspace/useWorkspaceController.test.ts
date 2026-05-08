@@ -22,9 +22,11 @@ import {
   type FileData,
   type LaboratoryState,
   type LearningPlan,
+  type LearningSection,
   type Message,
   type PdfTextIndex,
   type ProjectSnapshot,
+  type ResearchCoursePlan,
   type SavedProjectMeta,
   type SyllabusItem,
   type UserProfile,
@@ -138,6 +140,8 @@ const createDomainAdapter = (
       isLearnMode: false,
       userProfile: null,
       syllabus: [],
+      researchCoursePlan: null,
+      researchDossiersBySectionId: {},
       activeSectionId: null,
       activeLaboratoryExerciseId: null,
     },
@@ -152,6 +156,8 @@ const createDomainAdapter = (
       domain.isLearnMode = snapshot.isLearnMode;
       domain.userProfile = snapshot.userProfile;
       domain.syllabus = snapshot.syllabus;
+      domain.researchCoursePlan = snapshot.researchCoursePlan ?? null;
+      domain.researchDossiersBySectionId = snapshot.researchDossiersBySectionId ?? {};
       domain.activeSectionId = snapshot.activeSectionId;
       domain.activeLaboratoryExerciseId = snapshot.activeLaboratoryExerciseId;
       domain.domainState = {
@@ -163,6 +169,8 @@ const createDomainAdapter = (
         isLearnMode: snapshot.isLearnMode,
         userProfile: snapshot.userProfile,
         syllabus: snapshot.syllabus,
+        researchCoursePlan: snapshot.researchCoursePlan ?? null,
+        researchDossiersBySectionId: snapshot.researchDossiersBySectionId ?? {},
         activeSectionId: snapshot.activeSectionId,
         activeLaboratoryExerciseId: snapshot.activeLaboratoryExerciseId,
       };
@@ -175,6 +183,8 @@ const createDomainAdapter = (
     musicUrl: '',
     needsSourceFile: false,
     quiz: [],
+    researchCoursePlan: null,
+    researchDossiersBySectionId: {},
     resetDomain: () => {
       domain.source = null;
       domain.learningPlan = null;
@@ -184,6 +194,8 @@ const createDomainAdapter = (
       domain.isLearnMode = false;
       domain.userProfile = null;
       domain.syllabus = [];
+      domain.researchCoursePlan = null;
+      domain.researchDossiersBySectionId = {};
       domain.activeSectionId = null;
       domain.activeLaboratoryExerciseId = null;
       domain.domainState = {
@@ -195,6 +207,8 @@ const createDomainAdapter = (
         isLearnMode: false,
         userProfile: null,
         syllabus: [],
+        researchCoursePlan: null,
+        researchDossiersBySectionId: {},
         activeSectionId: null,
         activeLaboratoryExerciseId: null,
       };
@@ -238,6 +252,21 @@ const createDomainAdapter = (
     },
     setMusicUrl: musicUrl => {
       domain.musicUrl = musicUrl;
+    },
+    setResearchCoursePlan: researchCoursePlan => {
+      domain.researchCoursePlan = researchCoursePlan;
+      domain.domainState.researchCoursePlan = researchCoursePlan;
+    },
+    setResearchDossiers: researchDossiersBySectionId => {
+      domain.researchDossiersBySectionId = researchDossiersBySectionId;
+      domain.domainState.researchDossiersBySectionId = researchDossiersBySectionId;
+    },
+    setResearchLessonDossier: dossier => {
+      domain.researchDossiersBySectionId = {
+        ...domain.researchDossiersBySectionId,
+        [dossier.sectionId]: dossier,
+      };
+      domain.domainState.researchDossiersBySectionId = domain.researchDossiersBySectionId;
     },
     setSource: source => {
       domain.source = source;
@@ -292,6 +321,12 @@ const createDomainAdapter = (
   }
   if (overrides.learningPlan !== undefined || overrides.activeSectionId !== undefined) {
     syncDomainDerived(domain);
+  }
+  if (overrides.researchCoursePlan !== undefined) {
+    domain.domainState.researchCoursePlan = overrides.researchCoursePlan;
+  }
+  if (overrides.researchDossiersBySectionId !== undefined) {
+    domain.domainState.researchDossiersBySectionId = overrides.researchDossiersBySectionId;
   }
 
   return domain;
@@ -593,6 +628,75 @@ const createOpenRouterMock = (
         ],
       },
     ],
+    generateResearchCoursePlan: async (
+      profile: UserProfile,
+      _onStatusUpdate: (message: string) => void,
+      _onStructureUpdate: (items: SyllabusItem[]) => void
+    ) => {
+      const syllabus = [
+        {
+          id: 'mod-1',
+          title: 'Modulo 1',
+          description: 'Base',
+          type: 'module' as const,
+          status: 'ready' as const,
+          children: [
+            {
+              id: 'lesson-1',
+              title: 'Lezione 1',
+              description: 'Intro',
+              type: 'lesson' as const,
+              status: 'pending' as const,
+              contextPrompt: 'Spiega il concetto',
+            },
+          ],
+        },
+      ];
+
+      return {
+        researchCoursePlan: {
+          generatedAt: '2026-03-20T10:00:00.000Z',
+          lessonCountReason: 'Percorso breve per test.',
+          title: profile.topic,
+          summary: profile.context,
+          lessons: [
+            {
+              id: 'lesson-1',
+              title: 'Lezione 1',
+              description: 'Intro',
+              moduleId: 'mod-1',
+              moduleTitle: 'Modulo 1',
+              prerequisites: [],
+              keyConcepts: ['Concetto'],
+              guidingQuestions: ['Domanda?'],
+              miniLab: 'Prova',
+              simplificationRisks: [],
+              sourceHints: [{ title: 'Fonte base', url: 'https://example.com' }],
+            },
+          ],
+        },
+        syllabus,
+      };
+    },
+    buildLearningPlanFromResearchCourse: (
+      profile: UserProfile,
+      researchCoursePlan: ResearchCoursePlan,
+      syllabus: SyllabusItem[]
+    ) => ({
+      title: researchCoursePlan.title || profile.topic,
+      summary: researchCoursePlan.summary || profile.context,
+      sections: syllabus.flatMap(module =>
+        (module.children || []).map(lesson => ({
+          id: lesson.id,
+          title: lesson.title,
+          description: lesson.description,
+          isCompleted: false,
+          type: 'core' as const,
+          parentId: module.id,
+          contextPrompt: lesson.contextPrompt,
+        }))
+      ),
+    }),
     generateLaboratory: async () =>
       ({
         exercises: [
@@ -625,6 +729,22 @@ const createOpenRouterMock = (
       }) satisfies LaboratoryState,
     generateLearningPlan: async () => buildPlan(),
     generateLearnLessonContent: async () => '# Lezione generata',
+    generateResearchLessonDossier: async (args: { lesson: LearningSection }) => ({
+      sectionId: args.lesson.id,
+      title: args.lesson.title,
+      generatedAt: '2026-03-20T10:00:00.000Z',
+      factualSummary: 'Dossier',
+      keyExamples: ['Esempio'],
+      difficultSteps: ['Passaggio difficile'],
+      sources: [{ title: 'Fonte base', url: 'https://example.com' }],
+      avoidOversimplifying: ['Non banalizzare'],
+      controversies: [],
+    }),
+    generateResearchLessonContent: async () => ({
+      content: '# Lezione research',
+      generatedVisuals: [],
+      quiz: [],
+    }),
     generateSectionContent: async () => ({
       content: '# Lezione dal documento',
       documentAssets: null,
@@ -1613,6 +1733,122 @@ test('openSection reuses cached lessons and only generates when content is missi
   assert.equal(loadedOutcome, 'loaded');
   assert.equal(generateSectionCalls, 1);
   assert.equal(domain.learningPlan?.sections[0]?.content, '# Generata');
+});
+
+test('openSection generates and caches research dossiers for research-backed learn lessons', async () => {
+  const researchPlan: ResearchCoursePlan = {
+    generatedAt: '2026-03-20T10:00:00.000Z',
+    lessonCountReason: 'Percorso breve.',
+    title: 'Kotlin',
+    summary: 'Corso Kotlin',
+    lessons: [
+      {
+        id: 'lesson-1',
+        title: 'Lezione 1',
+        description: 'Intro',
+        moduleId: 'mod-1',
+        moduleTitle: 'Modulo 1',
+        prerequisites: [],
+        keyConcepts: ['Kotlin'],
+        guidingQuestions: ['Perche Kotlin?'],
+        miniLab: 'Hello world',
+        simplificationRisks: ['Non confondere JVM e linguaggio'],
+        sourceHints: [{ title: 'Kotlin docs', url: 'https://kotlinlang.org/docs/home.html' }],
+      },
+    ],
+  };
+  const syllabus: SyllabusItem[] = [
+    {
+      id: 'mod-1',
+      title: 'Modulo 1',
+      description: 'Base',
+      type: 'module',
+      status: 'ready',
+      children: [
+        {
+          id: 'lesson-1',
+          title: 'Lezione 1',
+          description: 'Intro',
+          type: 'lesson',
+          status: 'pending',
+          contextPrompt: 'Spiega Kotlin',
+        },
+      ],
+    },
+  ];
+  const plan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Lezione 1',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+        parentId: 'mod-1',
+        contextPrompt: 'Spiega Kotlin',
+      },
+    ],
+  });
+  let dossierCalls = 0;
+  let contentCalls = 0;
+  const { controller, domain } = createControllerHarness({
+    domain: {
+      isLearnMode: true,
+      learningPlan: plan,
+      researchCoursePlan: researchPlan,
+      researchDossiersBySectionId: {},
+      syllabus,
+      userProfile: {
+        topic: 'Kotlin',
+        experienceLevel: 'Base',
+        learningStyle: 'Pratico',
+        goals: 'Creare app Android',
+        context: 'Studente con basi Java',
+        language: 'Italiano',
+      },
+    },
+    projectLibrary: {
+      currentProjectId: 'research-project',
+    },
+    openRouter: {
+      generateResearchLessonDossier: async args => {
+        dossierCalls += 1;
+        return {
+          sectionId: args.lesson.id,
+          title: args.lesson.title,
+          generatedAt: '2026-03-20T10:00:00.000Z',
+          factualSummary: 'Dossier Kotlin',
+          keyExamples: ['Hello world'],
+          difficultSteps: ['JVM vs Kotlin'],
+          sources: [{ title: 'Kotlin docs', url: 'https://kotlinlang.org/docs/home.html' }],
+          avoidOversimplifying: ['Non dire che Kotlin e solo Java breve'],
+          controversies: [],
+        };
+      },
+      generateResearchLessonContent: async () => {
+        contentCalls += 1;
+        return { content: '# Lezione research', generatedVisuals: [], quiz: [] };
+      },
+      generateLearnLessonContent: async () => {
+        throw new Error('Should use research-backed generation');
+      },
+    },
+  });
+
+  const firstOutcome = await controller.openSection(plan.sections[0]);
+  assert.equal(firstOutcome, 'loaded');
+  assert.equal(dossierCalls, 1);
+  assert.equal(contentCalls, 1);
+  assert.equal(domain.researchDossiersBySectionId['lesson-1']?.factualSummary, 'Dossier Kotlin');
+  assert.equal(domain.learningPlan?.sections[0]?.content, '# Lezione research');
+
+  const secondOutcome = await controller.openSection(
+    domain.learningPlan?.sections[0] ?? plan.sections[0],
+    { forceRegenerate: true }
+  );
+  assert.equal(secondOutcome, 'loaded');
+  assert.equal(dossierCalls, 1);
+  assert.equal(contentCalls, 2);
 });
 
 test('openSection ignores user navigation while another blocking workflow is pending', async () => {
