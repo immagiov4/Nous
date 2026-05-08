@@ -1,4 +1,4 @@
-import type { LearningSection } from '../../types.ts';
+import type { LessonNode } from '../../types.ts';
 
 export interface SectionHierarchyInfo {
   depth: number;
@@ -12,19 +12,19 @@ const INVALID_HIERARCHY: SectionHierarchyInfo = {
   rootSectionId: null,
 };
 
-const buildSectionById = (sections: LearningSection[]) =>
+const buildSectionById = (sections: LessonNode[]) =>
   new Map(sections.map(section => [section.id, section]));
 
 const resolveVisualParentId = (
-  section: Pick<LearningSection, 'parentId'>,
-  sectionById: Map<string, LearningSection>
+  section: Pick<LessonNode, 'parentId'>,
+  sectionById: Map<string, LessonNode>
 ): string | null => {
   const parentId = section.parentId?.trim();
   return parentId && sectionById.has(parentId) ? parentId : null;
 };
 
 export const buildSectionHierarchyInfoById = (
-  sections: LearningSection[]
+  sections: LessonNode[]
 ): Record<string, SectionHierarchyInfo> => {
   const sectionById = buildSectionById(sections);
   const cache = new Map<string, SectionHierarchyInfo>();
@@ -77,7 +77,7 @@ export const buildSectionHierarchyInfoById = (
 const isVisualDescendantOf = (
   sectionId: string,
   ancestorId: string,
-  sectionById: Map<string, LearningSection>
+  sectionById: Map<string, LessonNode>
 ): boolean => {
   if (sectionId === ancestorId) {
     return false;
@@ -104,10 +104,10 @@ const isVisualDescendantOf = (
 };
 
 export const insertSectionAfterSubtree = (
-  sections: LearningSection[],
+  sections: LessonNode[],
   anchorSectionId: string,
-  nextSection: LearningSection
-): LearningSection[] => {
+  nextSection: LessonNode
+): LessonNode[] => {
   const anchorIndex = sections.findIndex(section => section.id === anchorSectionId);
   if (anchorIndex < 0) {
     return sections;

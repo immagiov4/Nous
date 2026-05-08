@@ -12,9 +12,8 @@ import {
   workspaceDomainReducer,
 } from '../../services/workspace/domain';
 import type {
-  LaboratoryState,
   LearningPlan,
-  LearningSection,
+  LessonNode,
   PdfDocumentAssets,
   PdfTextIndex,
   ProjectSnapshot,
@@ -38,7 +37,6 @@ export const useWorkspaceDomain = () => {
   const source = domainState.source;
   const file = useMemo(() => (source?.kind === 'pdf' ? source.file : null), [source]);
   const learningPlan = domainState.learningPlan;
-  const laboratory = domainState.laboratory;
   const documentAssets = domainState.documentAssets;
   const documentIndex = domainState.documentIndex;
   const isLearnMode = domainState.isLearnMode;
@@ -47,7 +45,6 @@ export const useWorkspaceDomain = () => {
   const researchCoursePlan = domainState.researchCoursePlan ?? null;
   const researchDossiersBySectionId = domainState.researchDossiersBySectionId ?? {};
   const activeSectionId = domainState.activeSectionId;
-  const activeLaboratoryExerciseId = domainState.activeLaboratoryExerciseId;
   const activeSection = useMemo(
     () => selectActiveSection({ learningPlan, activeSectionId }),
     [learningPlan, activeSectionId]
@@ -81,10 +78,6 @@ export const useWorkspaceDomain = () => {
 
   const setLearningPlan = useCallback((nextPlan: LearningPlan | null) => {
     dispatch({ type: 'set-learning-plan', learningPlan: nextPlan });
-  }, []);
-
-  const setLaboratory = useCallback((nextLaboratory: LaboratoryState | null) => {
-    dispatch({ type: 'set-laboratory', laboratory: nextLaboratory });
   }, []);
 
   const setDocumentAssets = useCallback((nextAssets: PdfDocumentAssets | null) => {
@@ -123,13 +116,6 @@ export const useWorkspaceDomain = () => {
     dispatch({ type: 'set-active-section', activeSectionId: nextSectionId });
   }, []);
 
-  const setActiveLaboratoryExerciseId = useCallback((nextExerciseId: string | null) => {
-    dispatch({
-      type: 'set-active-laboratory-exercise',
-      activeLaboratoryExerciseId: nextExerciseId,
-    });
-  }, []);
-
   const setMusicUrl = useCallback((nextMusicUrl: string) => {
     dispatch({ type: 'set-music-url', musicUrl: nextMusicUrl });
   }, []);
@@ -147,13 +133,13 @@ export const useWorkspaceDomain = () => {
   }, []);
 
   const updateSection = useCallback(
-    (sectionId: string, updater: (section: LearningSection) => LearningSection) => {
+    (sectionId: string, updater: (section: LessonNode) => LessonNode) => {
       dispatch({ type: 'update-section', sectionId, updater });
     },
     []
   );
 
-  const insertSectionAfter = useCallback((parentSectionId: string, section: LearningSection) => {
+  const insertSectionAfter = useCallback((parentSectionId: string, section: LessonNode) => {
     dispatch({ type: 'insert-section-after', parentSectionId, section });
   }, []);
 
@@ -170,7 +156,6 @@ export const useWorkspaceDomain = () => {
     () => ({
       activeSection,
       activeSectionId,
-      activeLaboratoryExerciseId,
       documentAssets,
       documentIndex,
       domainState,
@@ -179,7 +164,6 @@ export const useWorkspaceDomain = () => {
       hydrateSnapshot,
       insertSectionAfter,
       isLearnMode,
-      laboratory,
       learningPlan,
       musicUrl,
       needsSourceFile,
@@ -189,12 +173,10 @@ export const useWorkspaceDomain = () => {
       researchDossiersBySectionId,
       sectionContent,
       setActiveSectionId,
-      setActiveLaboratoryExerciseId,
       setDocumentAssets,
       setDocumentIndex,
       setGenerationNotes,
       setIsLearnMode,
-      setLaboratory,
       setLearningPlan,
       setMusicUrl,
       setResearchCoursePlan,
@@ -213,7 +195,6 @@ export const useWorkspaceDomain = () => {
     [
       activeSection,
       activeSectionId,
-      activeLaboratoryExerciseId,
       documentAssets,
       documentIndex,
       domainState,
@@ -222,7 +203,6 @@ export const useWorkspaceDomain = () => {
       hydrateSnapshot,
       insertSectionAfter,
       isLearnMode,
-      laboratory,
       learningPlan,
       musicUrl,
       needsSourceFile,
@@ -232,12 +212,10 @@ export const useWorkspaceDomain = () => {
       researchDossiersBySectionId,
       sectionContent,
       setActiveSectionId,
-      setActiveLaboratoryExerciseId,
       setDocumentAssets,
       setDocumentIndex,
       setGenerationNotes,
       setIsLearnMode,
-      setLaboratory,
       setLearningPlan,
       setMusicUrl,
       setResearchCoursePlan,

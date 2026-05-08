@@ -588,7 +588,6 @@ export interface AudioState {
 export interface WorkspaceDomainState {
   source: ProjectSource | null;
   learningPlan: LearningPlan | null;
-  laboratory: LaboratoryState | null;
   documentAssets: PdfDocumentAssets | null;
   documentIndex: PdfTextIndex | null;
   isLearnMode: boolean;
@@ -597,5 +596,4 @@ export interface WorkspaceDomainState {
   researchCoursePlan?: ResearchCoursePlan | null;
   researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId: string | null;
-  activeLaboratoryExerciseId: string | null;
 }
