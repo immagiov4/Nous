@@ -2,7 +2,6 @@
 import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 import type {
   AppState,
-  LaboratoryState,
   LearningPlan,
   LearningSection,
   LibraryFolder,
@@ -692,15 +691,11 @@ export class IndexedDbProjectRepository implements ProjectRepository {
       // Apply patches
       if (patch.activeSectionId !== undefined)
         snapshot.activeSectionId = patch.activeSectionId as string | null;
-      if (patch.activeLaboratoryExerciseId !== undefined)
-        snapshot.activeLaboratoryExerciseId = patch.activeLaboratoryExerciseId as string | null;
       if (patch.state !== undefined) snapshot.state = patch.state as AppState;
       if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode as boolean;
       if (patch.source !== undefined) snapshot.source = patch.source as ProjectSource | null;
       if (patch.learningPlan !== undefined)
         snapshot.learningPlan = patch.learningPlan as LearningPlan | null;
-      if (patch.laboratory !== undefined)
-        snapshot.laboratory = patch.laboratory as LaboratoryState | null;
       if (patch.userProfile !== undefined)
         snapshot.userProfile = patch.userProfile as UserProfile | null;
       if (patch.syllabus !== undefined) snapshot.syllabus = patch.syllabus as SyllabusItem[];
@@ -718,38 +713,42 @@ export class IndexedDbProjectRepository implements ProjectRepository {
 
       // Apply section patch
       const sectionPatch = patch.section as Record<string, unknown> | undefined;
-      if (sectionPatch?.sectionId && snapshot.learningPlan?.sections) {
+      if (sectionPatch?.sectionId && snapshot.learningPlan?.modules) {
         const sectionId = sectionPatch.sectionId as string;
         snapshot.learningPlan = {
           ...snapshot.learningPlan,
-          sections: snapshot.learningPlan.sections.map(s =>
-            s.id === sectionId
-              ? {
-                  ...s,
-                  ...(sectionPatch.annotations !== undefined
-                    ? { annotations: sectionPatch.annotations as SectionAnnotation[] }
-                    : {}),
-                  ...(sectionPatch.content !== undefined
-                    ? { content: sectionPatch.content as string }
-                    : {}),
-                  ...(sectionPatch.generatedVisuals !== undefined
-                    ? {
-                        generatedVisuals:
-                          sectionPatch.generatedVisuals as LearningSection['generatedVisuals'],
-                      }
-                    : {}),
-                  ...(sectionPatch.imageRefs !== undefined
-                    ? { imageRefs: sectionPatch.imageRefs as LearningSection['imageRefs'] }
-                    : {}),
-                  ...(sectionPatch.isCompleted !== undefined
-                    ? { isCompleted: sectionPatch.isCompleted as boolean }
-                    : {}),
-                  ...(sectionPatch.quiz !== undefined
-                    ? { quiz: sectionPatch.quiz as QuizQuestion[] }
-                    : {}),
-                }
-              : s
-          ),
+          modules: snapshot.learningPlan.modules.map(module => ({
+            ...module,
+            children: module.children.map(child => {
+              if (child.kind !== 'lesson' || child.id !== sectionId) {
+                return child;
+              }
+              return {
+                ...child,
+                ...(sectionPatch.annotations !== undefined
+                  ? { annotations: sectionPatch.annotations as SectionAnnotation[] }
+                  : {}),
+                ...(sectionPatch.content !== undefined
+                  ? { content: sectionPatch.content as string }
+                  : {}),
+                ...(sectionPatch.generatedVisuals !== undefined
+                  ? {
+                      generatedVisuals:
+                        sectionPatch.generatedVisuals as LearningSection['generatedVisuals'],
+                    }
+                  : {}),
+                ...(sectionPatch.imageRefs !== undefined
+                  ? { imageRefs: sectionPatch.imageRefs as LearningSection['imageRefs'] }
+                  : {}),
+                ...(sectionPatch.isCompleted !== undefined
+                  ? { isCompleted: sectionPatch.isCompleted as boolean }
+                  : {}),
+                ...(sectionPatch.quiz !== undefined
+                  ? { quiz: sectionPatch.quiz as QuizQuestion[] }
+                  : {}),
+              };
+            }),
+          })),
         };
       }
 
