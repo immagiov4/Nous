@@ -333,7 +333,10 @@ export interface LearningSection {
 export interface LearningPlan {
   title: string;
   summary: string;
-  sections: LearningSection[];
+  modules: LearningModule[];
+  applicationExercisePlanningStatus: ApplicationExercisePlanningStatus;
+  applicationExercisePlanningNotes?: string;
+  applicationExercisePlanningError?: ApplicationExercisePlanningError;
   backgroundMusicUrl?: string; // Optional field for YouTube background music
   generationNotes?: string; // Per-course user notes that steer lesson generation style/tone
 }
@@ -468,6 +471,8 @@ export interface SavedProjectMeta {
   lastOpenedAt: string;
   lessonCount: number;
   completedCount: number;
+  exerciseCount: number;
+  completedExercises: number;
   hasSourceFile: boolean;
   coverLabel: string;
   syncState: ProjectSyncState;
@@ -480,14 +485,12 @@ export interface ProjectSnapshot {
   state: AppState;
   source: ProjectSource | null;
   learningPlan: LearningPlan | null;
-  laboratory: LaboratoryState | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
   researchCoursePlan?: ResearchCoursePlan | null;
   researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId: string | null;
-  activeLaboratoryExerciseId: string | null;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
@@ -502,14 +505,12 @@ export interface ProjectExportData {
   file?: FileData | null; // Legacy import fallback for older exports
   source?: ProjectSource | null;
   learningPlan: LearningPlan | null;
-  laboratory?: LaboratoryState | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
   researchCoursePlan?: ResearchCoursePlan | null;
   researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId?: string | null;
-  activeLaboratoryExerciseId?: string | null;
   musicUrl?: string;
   sourceKind?: ProjectSourceKind;
   documentAssets?: PdfDocumentAssets | null;
