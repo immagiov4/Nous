@@ -24,13 +24,16 @@
       "Bash(npx tsc *)",
       "Bash(npx vitest *)",
       "WebFetch(domain:openrouter.ai)",
-      "WebFetch(domain:docs.perplexity.ai)"
+      "WebFetch(domain:docs.perplexity.ai)",
+      "Bash(bun install *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\giovb\\.vscode\\extensions\\highagency.pencildev-0.6.49\\out\\data"
     ]
   },
-  "enabledMcpjsonServers": ["graphify"],
+  "enabledMcpjsonServers": [
+    "graphify"
+  ],
   "hooks": {
     "PreToolUse": [
       {
