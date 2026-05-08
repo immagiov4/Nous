@@ -390,6 +390,75 @@ export interface LaboratoryState {
   updatedAt: string;
 }
 
+// === Application exercises (new path nodes) ===
+
+export type ExerciseAttachmentKind = 'archive' | 'text';
+
+export interface ExerciseAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  kind: ExerciseAttachmentKind;
+  data: string; // plain text for kind='text'; base64 for kind='archive'
+  description?: string;
+  truncated: boolean;
+  truncatedReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExerciseFeedback {
+  evaluatedAt: string;
+  score: number;
+  qualitativeLabel: string;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+  caveats: string[];
+  verifiedSources?: ResearchSourceReference[];
+}
+
+export interface ApplicationExerciseNode {
+  kind: 'exercise';
+  id: string;
+  title: string;
+  description: string;
+  assessedObjective: string;
+  brief?: string;
+  internalText?: string;
+  attachments: ExerciseAttachment[];
+  currentFeedback: ExerciseFeedback | null;
+  bestScore?: number;
+  completedAt?: string;
+  isCompleted: boolean;
+  feedbackStale: boolean;
+  groundingSources?: ResearchSourceReference[];
+  generatedAt?: string;
+  updatedAt: string;
+}
+
+export interface LessonNode extends Omit<LearningSection, 'moduleTitle'> {
+  kind: 'lesson';
+}
+
+export type PathNode = LessonNode | ApplicationExerciseNode;
+
+export interface LearningModule {
+  id: string;
+  title: string;
+  description?: string;
+  type?: 'prerequisite' | 'core' | 'summary' | 'deep-dive';
+  children: PathNode[];
+}
+
+export type ApplicationExercisePlanningStatus = 'not-run' | 'completed' | 'failed';
+
+export interface ApplicationExercisePlanningError {
+  message: string;
+  attempts: number;
+  lastAttemptAt: string;
+}
+
 export interface SavedProjectMeta {
   id: ProjectId;
   title: string;
