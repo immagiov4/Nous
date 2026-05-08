@@ -31,3 +31,24 @@ export const updateLessons = (
     ...m,
     children: m.children.map(c => (c.kind === 'lesson' ? updater(c) : c)),
   }));
+
+export interface LessonWithModuleContext {
+  lesson: LessonNode;
+  moduleTitle: string;
+  moduleId: string;
+}
+
+export const flattenLessonsWithModuleContext = (
+  modules: LearningModule[] | null | undefined
+): LessonWithModuleContext[] => {
+  if (!modules) return [];
+  const out: LessonWithModuleContext[] = [];
+  for (const module of modules) {
+    for (const child of module.children) {
+      if (child.kind === 'lesson') {
+        out.push({ lesson: child, moduleTitle: module.title, moduleId: module.id });
+      }
+    }
+  }
+  return out;
+};

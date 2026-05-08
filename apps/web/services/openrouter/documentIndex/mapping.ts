@@ -1,4 +1,16 @@
-import type { FileData, LearningPlan, PdfTextChunk, PdfTextIndex } from '../../../types.ts';
+import type {
+  FileData,
+  LearningPlan,
+  LessonNode,
+  PdfTextChunk,
+  PdfTextIndex,
+} from '../../../types.ts';
+import {
+  flattenLessons,
+  flattenLessonsWithModuleContext,
+  type LessonWithModuleContext,
+  updateLessons,
+} from '../../../utils/learning/pathNodes.ts';
 import { getPdfProjectHydrationState } from '../../../utils/pdf/projectHydration.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import { getPdfTextSession } from '../pdfAssets.ts';
@@ -84,18 +96,25 @@ interface ChunkMappingDescriptor {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-const getMappablePlanSections = (plan: LearningPlan): LearningPlan['sections'] =>
-  plan.sections.filter(section => section.type !== 'summary');
+const getMappablePlanSections = (plan: LearningPlan): LessonNode[] =>
+  flattenLessons(plan.modules).filter(lesson => lesson.type !== 'summary');
+
+const getMappableLessonsWithContext = (
+  plan: LearningPlan
+): LessonWithModuleContext[] =>
+  flattenLessonsWithModuleContext(plan.modules).filter(
+    entry => entry.lesson.type !== 'summary'
+  );
 
 const buildLessonDescriptor = (
-  section: LearningPlan['sections'][number],
+  entry: LessonWithModuleContext,
   documentOrder: number,
   totalLessons: number
 ): LessonMappingDescriptor => ({
-  lessonId: section.id,
-  title: section.title,
-  description: section.description,
-  moduleTitle: section.moduleTitle || '',
+  lessonId: entry.lesson.id,
+  title: entry.lesson.title,
+  description: entry.lesson.description,
+  moduleTitle: entry.moduleTitle || '',
   documentOrder,
   totalLessons,
 });
@@ -103,14 +122,16 @@ const buildLessonDescriptor = (
 const getTargetLessonDescriptorsForMapping = (
   plan: LearningPlan,
   sectionIds?: string[]
-): LessonMappingDescriptor[] =>
-  getMappablePlanSections(plan)
-    .map((section, documentOrder, sections) => ({
-      section,
-      descriptor: buildLessonDescriptor(section, documentOrder, sections.length),
+): LessonMappingDescriptor[] => {
+  const entries = getMappableLessonsWithContext(plan);
+  return entries
+    .map((entry, documentOrder) => ({
+      entry,
+      descriptor: buildLessonDescriptor(entry, documentOrder, entries.length),
     }))
-    .filter(({ section }) => !sectionIds || sectionIds.includes(section.id))
+    .filter(({ entry }) => !sectionIds || sectionIds.includes(entry.lesson.id))
     .map(({ descriptor }) => descriptor);
+};
 
 const buildChunkDescriptor = (
   chunk: PdfTextChunk,
@@ -414,8 +435,8 @@ const resolveMappingMaxTokens = (
 const getTargetSectionsForMapping = (
   plan: LearningPlan,
   sectionIds?: string[]
-): LearningPlan['sections'] =>
-  getMappablePlanSections(plan).filter(section => !sectionIds || sectionIds.includes(section.id));
+): LessonNode[] =>
+  getMappablePlanSections(plan).filter(lesson => !sectionIds || sectionIds.includes(lesson.id));
 
 const resolveFallbackCandidateChunks = (documentIndex: PdfTextIndex): PdfTextChunk[] => {
   if (documentIndex.chunks.length === 0) {
@@ -446,7 +467,7 @@ const buildFallbackChunkAssignments = (
   documentIndex: PdfTextIndex
 ): Map<string, string[]> => {
   const candidateChunks = resolveFallbackCandidateChunks(documentIndex);
-  const targetSections = plan.sections.filter(section => section.type !== 'summary');
+  const targetSections = flattenLessons(plan.modules).filter(lesson => lesson.type !== 'summary');
   const sectionCount = targetSections.length;
 
   if (candidateChunks.length === 0 || sectionCount === 0) {
@@ -758,14 +779,14 @@ const applyRecoveredChunkMappings = (
   mappings: Map<string, string[]>
 ): LearningPlan => ({
   ...plan,
-  sections: plan.sections.map(section =>
-    mappings.has(section.id)
+  modules: updateLessons(plan.modules, lesson =>
+    mappings.has(lesson.id)
       ? {
-          ...section,
-          primaryChunkIds: mappings.get(section.id),
+          ...lesson,
+          primaryChunkIds: mappings.get(lesson.id),
           primaryChunkMappingSource: 'mapped' as const,
         }
-      : section
+      : lesson
   ),
 });
 
@@ -778,18 +799,18 @@ const applyFallbackChunkMappings = (
 
   return {
     ...plan,
-    sections: plan.sections.map(section => {
-      if (!fallbackSectionIdSet.has(section.id)) {
-        return section;
+    modules: updateLessons(plan.modules, lesson => {
+      if (!fallbackSectionIdSet.has(lesson.id)) {
+        return lesson;
       }
 
-      const fallbackChunkIds = fallbackAssignments.get(section.id);
+      const fallbackChunkIds = fallbackAssignments.get(lesson.id);
       if (!fallbackChunkIds || fallbackChunkIds.length === 0) {
-        return section;
+        return lesson;
       }
 
       return {
-        ...section,
+        ...lesson,
         primaryChunkIds: [...fallbackChunkIds],
         primaryChunkMappingSource: 'fallback' as const,
       };
@@ -805,17 +826,17 @@ const resolveSectionsNeedingMappingRepair = (
   validateWholePlan: boolean
 ): string[] => {
   const targetSectionIdSet = new Set(targetSectionIds);
-  const targetedSections = plan.sections.filter(
-    section => targetSectionIdSet.has(section.id) && section.type !== 'summary'
+  const targetedSections = flattenLessons(plan.modules).filter(
+    lesson => targetSectionIdSet.has(lesson.id) && lesson.type !== 'summary'
   );
   const explicitlyBrokenSectionIds = targetedSections
     .filter(
-      section =>
-        !section.primaryChunkIds ||
-        section.primaryChunkIds.length === 0 ||
-        section.primaryChunkMappingSource === 'fallback'
+      lesson =>
+        !lesson.primaryChunkIds ||
+        lesson.primaryChunkIds.length === 0 ||
+        lesson.primaryChunkMappingSource === 'fallback'
     )
-    .map(section => section.id);
+    .map(lesson => lesson.id);
 
   if (explicitlyBrokenSectionIds.length > 0) {
     return explicitlyBrokenSectionIds;
@@ -828,11 +849,13 @@ const resolveSectionsNeedingMappingRepair = (
   return getPdfProjectHydrationState(file, plan, documentIndex) === 'ready' ? [] : targetSectionIds;
 };
 
-const describeSectionTitles = (plan: LearningPlan, sectionIds: string[]): string =>
-  sectionIds
+const describeSectionTitles = (plan: LearningPlan, sectionIds: string[]): string => {
+  const lessons = flattenLessons(plan.modules);
+  return sectionIds
     .slice(0, 4)
-    .map(sectionId => plan.sections.find(section => section.id === sectionId)?.title || sectionId)
+    .map(sectionId => lessons.find(lesson => lesson.id === sectionId)?.title || sectionId)
     .join(', ');
+};
 
 // ── Public exports ─────────────────────────────────────────────────────
 
@@ -889,8 +912,8 @@ export const preparePdfLessonMappings = async (
       fileName: file.name,
       sectionCount: sectionsNeedingRepair.length,
       sectionTitles: sectionsNeedingRepair.slice(0, 8).map(sectionId => {
-        const section = plan.sections.find(currentSection => currentSection.id === sectionId);
-        return section?.title || sectionId;
+        const lesson = flattenLessons(plan.modules).find(currentLesson => currentLesson.id === sectionId);
+        return lesson?.title || sectionId;
       }),
     });
 
@@ -990,12 +1013,12 @@ export const preparePdfLessonMappings = async (
       fallbackSectionCount: fallbackSectionIds.length,
       unresolvedSectionCount: unresolvedSectionIds.length,
       sectionTitles: sectionsNeedingRepair.slice(0, 8).map(sectionId => {
-        const section = plan.sections.find(currentSection => currentSection.id === sectionId);
-        return section?.title || sectionId;
+        const lesson = flattenLessons(plan.modules).find(currentLesson => currentLesson.id === sectionId);
+        return lesson?.title || sectionId;
       }),
       unresolvedSectionTitles: unresolvedSectionIds.slice(0, 8).map(sectionId => {
-        const section = plan.sections.find(currentSection => currentSection.id === sectionId);
-        return section?.title || sectionId;
+        const lesson = flattenLessons(plan.modules).find(currentLesson => currentLesson.id === sectionId);
+        return lesson?.title || sectionId;
       }),
     });
 
