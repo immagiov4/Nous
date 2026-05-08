@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "predev": "bun run scripts/kill-dev-servers.ts",
+    "gen:favicon": "bun run scripts/generate-favicon-png.ts",
     "dev": "concurrently \"bun run dev:frontend\" \"bun run dev:backend\"",
     "dev:frontend": "vite --config apps/web/vite.config.ts",
     "dev:backend": "cd apps/backend && bun run dev",
@@ -52,6 +53,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
+    "@resvg/resvg-js": "^2.6.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
