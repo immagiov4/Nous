@@ -2,10 +2,6 @@ import {
   AppState,
   type CodebaseBundleSource,
   type FileData,
-  type LaboratoryAttachment,
-  type LaboratoryExercise,
-  type LaboratoryExerciseEvaluation,
-  type LaboratoryState,
   type LearningPlan,
   type PdfDocumentAssets,
   type PdfTextIndex,
@@ -19,8 +15,10 @@ import {
   type UserProfile,
 } from '../../types.ts';
 import { createEntityId } from '../../utils/ids.ts';
+import { flattenLessons, flattenPathNodes } from '../../utils/learning/pathNodes.ts';
 import { isRecord } from '../../utils/records.ts';
 import { timestampIso } from '../../utils/time.ts';
+import { groupSectionsIntoModules } from '../learning/groupSectionsIntoModules.ts';
 import {
   createProjectSourceFromFile,
   getProjectSourceName,
@@ -61,19 +59,11 @@ export const inferProjectSourceKind = (
 };
 
 const getProjectTitle = (
-  snapshot: Pick<
-    ProjectSnapshot,
-    'learningPlan' | 'laboratory' | 'source' | 'userProfile' | 'isLearnMode'
-  >
+  snapshot: Pick<ProjectSnapshot, 'learningPlan' | 'source' | 'userProfile' | 'isLearnMode'>
 ): string => {
   const planTitle = snapshot.learningPlan?.title?.trim();
   if (planTitle) {
     return planTitle;
-  }
-
-  const laboratoryTitle = snapshot.laboratory?.title?.trim();
-  if (laboratoryTitle) {
-    return laboratoryTitle;
   }
 
   const userTopic = snapshot.userProfile?.topic?.trim();
@@ -90,7 +80,7 @@ const getProjectTitle = (
 };
 
 export const buildCoverLabel = (
-  snapshot: Pick<ProjectSnapshot, 'source' | 'learningPlan' | 'laboratory' | 'isLearnMode'>,
+  snapshot: Pick<ProjectSnapshot, 'source' | 'learningPlan' | 'isLearnMode'>,
   sourceKind: ProjectSourceKind
 ): string => {
   if (snapshot.source?.kind === 'pdf') {
@@ -111,13 +101,10 @@ export const buildCoverLabel = (
     return 'Percorso AI';
   }
 
-  if (snapshot.laboratory?.exercises.length) {
-    return `${snapshot.laboratory.exercises.length} esercizi`;
-  }
-
-  return snapshot.learningPlan?.sections.length
-    ? `${snapshot.learningPlan.sections.length} lezioni`
-    : 'Bozza locale';
+  const lessonCount = snapshot.learningPlan
+    ? flattenLessons(snapshot.learningPlan.modules).length
+    : 0;
+  return lessonCount > 0 ? `${lessonCount} lezioni` : 'Bozza locale';
 };
 
 export const buildProjectMeta = (
@@ -128,9 +115,10 @@ export const buildProjectMeta = (
   const now = options?.touchedAt || timestampIso();
   const sourceKind =
     snapshot.sourceKind || inferProjectSourceKind(snapshot, options?.imported ?? false);
-  const lessonCount = snapshot.learningPlan?.sections.length || 0;
-  const completedCount =
-    snapshot.learningPlan?.sections.filter(section => section.isCompleted).length || 0;
+  const lessons = snapshot.learningPlan ? flattenLessons(snapshot.learningPlan.modules) : [];
+  const exercises = snapshot.learningPlan
+    ? flattenPathNodes(snapshot.learningPlan.modules).filter(node => node.kind === 'exercise')
+    : [];
 
   return {
     id: snapshot.id,
@@ -139,8 +127,10 @@ export const buildProjectMeta = (
     createdAt: previousMeta?.createdAt || now,
     updatedAt: now,
     lastOpenedAt: previousMeta?.lastOpenedAt || now,
-    lessonCount,
-    completedCount,
+    lessonCount: lessons.length,
+    completedCount: lessons.filter(lesson => lesson.isCompleted).length,
+    exerciseCount: exercises.length,
+    completedExercises: exercises.filter(exercise => exercise.isCompleted).length,
     hasSourceFile: Boolean(snapshot.source),
     coverLabel: buildCoverLabel(snapshot, sourceKind),
     syncState: previousMeta?.syncState || 'local-only',
@@ -161,14 +151,12 @@ export const createProjectSnapshot = (
   state: partial.state || AppState.LIBRARY,
   source: partial.source || null,
   learningPlan: partial.learningPlan || null,
-  laboratory: partial.laboratory || null,
   isLearnMode: partial.isLearnMode || false,
   userProfile: partial.userProfile || null,
   syllabus: partial.syllabus || [],
   researchCoursePlan: partial.researchCoursePlan ?? null,
   researchDossiersBySectionId: partial.researchDossiersBySectionId ?? {},
   activeSectionId: partial.activeSectionId || null,
-  activeLaboratoryExerciseId: partial.activeLaboratoryExerciseId || null,
   createdAt: partial.createdAt || timestampIso(),
   updatedAt: partial.updatedAt || timestampIso(),
   lastOpenedAt: partial.lastOpenedAt || timestampIso(),
@@ -252,152 +240,37 @@ const parseLearningPlan = (value: unknown): LearningPlan | null => {
     return null;
   }
 
-  if (!Array.isArray(value.sections)) {
-    return null;
+  // Already in the new module-shaped form.
+  if (Array.isArray(value.modules)) {
+    return {
+      title: ensureString(value.title, 'Percorso'),
+      summary: ensureString(value.summary),
+      modules: value.modules as LearningPlan['modules'],
+      applicationExercisePlanningStatus:
+        (value.applicationExercisePlanningStatus as LearningPlan['applicationExercisePlanningStatus']) ??
+        'not-run',
+      applicationExercisePlanningNotes: ensureString(value.applicationExercisePlanningNotes) || undefined,
+      applicationExercisePlanningError:
+        (value.applicationExercisePlanningError as LearningPlan['applicationExercisePlanningError']) ??
+        undefined,
+      backgroundMusicUrl: ensureString(value.backgroundMusicUrl) || undefined,
+      generationNotes: ensureString(value.generationNotes) || undefined,
+    };
   }
 
-  return {
-    title: ensureString(value.title, 'Percorso'),
-    summary: ensureString(value.summary),
-    sections: value.sections as LearningPlan['sections'],
-    backgroundMusicUrl: ensureString(value.backgroundMusicUrl),
-    generationNotes: ensureString(value.generationNotes),
-  };
-};
-
-const parseLaboratoryAttachment = (value: unknown): LaboratoryAttachment | null => {
-  if (!isRecord(value)) {
-    return null;
+  // Legacy: sections-shaped plan. Group on the way in.
+  if (Array.isArray(value.sections)) {
+    return {
+      title: ensureString(value.title, 'Percorso'),
+      summary: ensureString(value.summary),
+      modules: groupSectionsIntoModules(value.sections as Parameters<typeof groupSectionsIntoModules>[0]),
+      applicationExercisePlanningStatus: 'not-run',
+      backgroundMusicUrl: ensureString(value.backgroundMusicUrl) || undefined,
+      generationNotes: ensureString(value.generationNotes) || undefined,
+    };
   }
 
-  const kind = ensureString(value.kind);
-  if (kind !== 'archive' && kind !== 'binary' && kind !== 'image' && kind !== 'text') {
-    return null;
-  }
-
-  const id = ensureString(value.id);
-  const name = ensureString(value.name);
-  const mimeType = ensureString(value.mimeType);
-  const data = ensureString(value.data);
-
-  if (!id || !name || !mimeType || !data) {
-    return null;
-  }
-
-  const now = timestampIso();
-
-  return {
-    id,
-    name,
-    mimeType,
-    kind,
-    data,
-    description: ensureString(value.description) || undefined,
-    createdAt: ensureString(value.createdAt, now),
-    updatedAt: ensureString(value.updatedAt, now),
-  };
-};
-
-const parseLaboratoryExerciseEvaluation = (value: unknown): LaboratoryExerciseEvaluation | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const now = timestampIso();
-
-  return {
-    caveats: Array.isArray(value.caveats)
-      ? value.caveats.map(item => ensureString(item)).filter(Boolean)
-      : [],
-    confidenceScore:
-      typeof value.confidenceScore === 'number'
-        ? Math.max(0, Math.min(100, value.confidenceScore))
-        : 0,
-    confidenceSummary: ensureString(value.confidenceSummary),
-    evaluatedAt: ensureString(value.evaluatedAt, now),
-    improvements: Array.isArray(value.improvements)
-      ? value.improvements.map(item => ensureString(item)).filter(Boolean)
-      : [],
-    score: typeof value.score === 'number' ? Math.max(0, Math.min(100, value.score)) : 0,
-    strengths: Array.isArray(value.strengths)
-      ? value.strengths.map(item => ensureString(item)).filter(Boolean)
-      : [],
-    summary: ensureString(value.summary),
-  };
-};
-
-const parseLaboratoryExercise = (value: unknown): LaboratoryExercise | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const id = ensureString(value.id);
-  const title = ensureString(value.title);
-  const brief = ensureString(value.brief);
-  const instructionsMarkdown = ensureString(value.instructionsMarkdown);
-
-  if (!id || !title || !brief || !instructionsMarkdown) {
-    return null;
-  }
-
-  const now = timestampIso();
-
-  return {
-    attachments: Array.isArray(value.attachments)
-      ? value.attachments
-          .map(parseLaboratoryAttachment)
-          .filter((attachment): attachment is LaboratoryAttachment => Boolean(attachment))
-      : [],
-    approachMarkdown: ensureString(value.approachMarkdown),
-    brief,
-    evaluation: parseLaboratoryExerciseEvaluation(value.evaluation),
-    exampleMarkdown: ensureString(value.exampleMarkdown),
-    generatedAt: ensureString(value.generatedAt, now),
-    id,
-    internalNotes: Array.isArray(value.internalNotes)
-      ? value.internalNotes.map(item => ensureString(item)).filter(Boolean)
-      : [],
-    instructionsMarkdown,
-    requirements: Array.isArray(value.requirements)
-      ? value.requirements.map(item => ensureString(item)).filter(Boolean)
-      : [],
-    sourceChunkIds: Array.isArray(value.sourceChunkIds)
-      ? value.sourceChunkIds.map(item => ensureString(item)).filter(Boolean)
-      : undefined,
-    title,
-    updatedAt: ensureString(value.updatedAt, now),
-  };
-};
-
-const parseLaboratory = (value: unknown): LaboratoryState | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const status = ensureString(value.status);
-  if (status !== 'failed' && status !== 'idle' && status !== 'pending' && status !== 'ready') {
-    return null;
-  }
-
-  const now = timestampIso();
-
-  return {
-    errorMessage: ensureString(value.errorMessage) || undefined,
-    exercises: Array.isArray(value.exercises)
-      ? value.exercises
-          .map(parseLaboratoryExercise)
-          .filter((exercise): exercise is LaboratoryExercise => Boolean(exercise))
-      : [],
-    generatedAt: ensureString(value.generatedAt) || undefined,
-    schemaVersion:
-      typeof value.schemaVersion === 'number' && Number.isFinite(value.schemaVersion)
-        ? Math.max(0, Math.trunc(value.schemaVersion))
-        : 0,
-    status,
-    summary: ensureString(value.summary),
-    title: ensureString(value.title, 'Laboratorio'),
-    updatedAt: ensureString(value.updatedAt, now),
-  };
+  return null;
 };
 
 const parseDocumentAssets = (value: unknown): PdfDocumentAssets | null => {
@@ -567,12 +440,13 @@ const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapsh
   const source = parseProjectSource(data.source);
   const legacyFile = parseFileData(data.file);
   const fallbackSource = source || (legacyFile ? createProjectSourceFromFile(legacyFile) : null);
-  const hasParentSections =
-    learningPlan?.sections.some(section => Boolean(section.parentId)) || false;
+  const hasParentLessons = learningPlan
+    ? flattenLessons(learningPlan.modules).some(lesson => Boolean(lesson.parentId))
+    : false;
   const isLearnMode =
     typeof data.isLearnMode === 'boolean'
       ? data.isLearnMode
-      : syllabus.length > 0 || hasParentSections;
+      : syllabus.length > 0 || hasParentLessons;
   const explicitSourceKind = parseExplicitSourceKind(data.sourceKind);
 
   return createProjectSnapshot({
@@ -587,14 +461,12 @@ const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapsh
       learningPlan && !learningPlan.backgroundMusicUrl && isString(data.musicUrl)
         ? { ...learningPlan, backgroundMusicUrl: ensureString(data.musicUrl) }
         : learningPlan,
-    laboratory: parseLaboratory(data.laboratory),
     isLearnMode,
     userProfile: parseUserProfile(data.userProfile),
     syllabus,
     researchCoursePlan: parseResearchCoursePlan(data.researchCoursePlan),
     researchDossiersBySectionId: parseResearchDossiers(data.researchDossiersBySectionId),
     activeSectionId: ensureString(data.activeSectionId) || null,
-    activeLaboratoryExerciseId: ensureString(data.activeLaboratoryExerciseId) || null,
     createdAt: ensureString(data.createdAt, now),
     updatedAt: ensureString(data.updatedAt, now),
     lastOpenedAt: ensureString(data.lastOpenedAt, now),
@@ -615,14 +487,12 @@ export const exportProjectData = (snapshot: ProjectSnapshot): ProjectExportData 
   state: snapshot.state,
   source: snapshot.source,
   learningPlan: snapshot.learningPlan,
-  laboratory: snapshot.laboratory,
   isLearnMode: snapshot.isLearnMode,
   userProfile: snapshot.userProfile,
   syllabus: snapshot.syllabus,
   researchCoursePlan: snapshot.researchCoursePlan ?? null,
   researchDossiersBySectionId: snapshot.researchDossiersBySectionId ?? {},
   activeSectionId: snapshot.activeSectionId,
-  activeLaboratoryExerciseId: snapshot.activeLaboratoryExerciseId,
   musicUrl: snapshot.learningPlan?.backgroundMusicUrl || '',
   sourceKind: snapshot.sourceKind,
   documentAssets: snapshot.documentAssets ?? null,
