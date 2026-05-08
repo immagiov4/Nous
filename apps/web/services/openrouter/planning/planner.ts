@@ -1,3 +1,4 @@
+import { groupSectionsIntoModules } from '../../learning/groupSectionsIntoModules.ts';
 import { MEDIUM_REASONING_CONFIG } from '../config.ts';
 import { buildReasoningContentForFile } from '../pdfReasoning.ts';
 import {
@@ -39,6 +40,28 @@ interface LearningPlanDraft {
   sections?: LearningPlanSectionDraft[];
 }
 
+// Flatten a LearningPlan back to a sections-shaped view for prompts that still
+// expect the legacy structure. Phase 2 will rewrite these prompts to reason
+// over modules natively.
+const planAsSectionsView = (
+  plan: LearningPlan
+): { title: string; summary: string; sections: LearningPlanSectionDraft[] } => ({
+  title: plan.title,
+  summary: plan.summary,
+  sections: plan.modules.flatMap(module =>
+    module.children
+      .filter(child => child.kind === 'lesson')
+      .map(child => ({
+        id: child.id,
+        moduleTitle: module.title,
+        title: child.kind === 'lesson' ? child.title : '',
+        description: child.kind === 'lesson' ? child.description : '',
+        type: child.kind === 'lesson' ? child.type : undefined,
+        isCompleted: child.kind === 'lesson' ? child.isCompleted : false,
+      }))
+  ),
+});
+
 // ── Normalization ──────────────────────────────────────────────────────
 
 const normalizeLearningPlan = (
@@ -72,7 +95,8 @@ const normalizeLearningPlan = (
   return {
     title: (plan.title || 'Percorso di studio').trim(),
     summary: (plan.summary || '').trim(),
-    sections: dedupedSections,
+    modules: groupSectionsIntoModules(dedupedSections),
+    applicationExercisePlanningStatus: 'not-run',
   };
 };
 
@@ -158,7 +182,7 @@ CONTESTO UTENTE:
 ${assessmentSummary}
 
 INDICE DA RAFFINARE:
-${JSON.stringify(draftPlan, null, 2)}
+${JSON.stringify(planAsSectionsView(draftPlan), null, 2)}
 
 Compito:
 - Raffina questo indice fino al giusto livello di granularita rispetto al materiale sorgente.
@@ -234,7 +258,11 @@ export const generateLearningPlan = async (
       sourceProfile,
       onReasoningUpdate
     );
-    onStatusUpdate?.(`Raffinamento indice... ${initialPlan.sections.length} lezioni iniziali`);
+    const initialLessonCount = initialPlan.modules.reduce(
+      (acc, m) => acc + m.children.filter(c => c.kind === 'lesson').length,
+      0
+    );
+    onStatusUpdate?.(`Raffinamento indice... ${initialLessonCount} lezioni iniziali`);
     const refinedPlan = await runRefinedLearningPlan(
       file,
       assessmentSummary,
@@ -242,7 +270,11 @@ export const generateLearningPlan = async (
       sourceProfile,
       onReasoningUpdate
     );
-    onStatusUpdate?.(`Indice raffinato: ${refinedPlan.sections.length} lezioni`);
+    const refinedLessonCount = refinedPlan.modules.reduce(
+      (acc, m) => acc + m.children.filter(c => c.kind === 'lesson').length,
+      0
+    );
+    onStatusUpdate?.(`Indice raffinato: ${refinedLessonCount} lezioni`);
     return refinedPlan;
   });
 };
