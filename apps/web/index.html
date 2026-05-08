@@ -5,34 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <link rel="icon" id="app-favicon" type="image/png" href="/assets/logo.png" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FDFBF7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#252526" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/assets/logo.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/nous-icon-paper-192.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/nous-icon-paper-192.png" />
     <title>Nous</title>
-    <script>
-      (() => {
-        const lightFaviconHref = '/assets/logo.png';
-        const darkFaviconHref = '/assets/logo_darkmode.png';
-        const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
-
-        const updateFavicon = isDarkMode => {
-          const favicon = document.getElementById('app-favicon');
-
-          if (favicon instanceof HTMLLinkElement) {
-            favicon.href = isDarkMode ? darkFaviconHref : lightFaviconHref;
-          }
-        };
-
-        updateFavicon(colorSchemeQuery.matches);
-
-        if (typeof colorSchemeQuery.addEventListener === 'function') {
-          colorSchemeQuery.addEventListener('change', event => updateFavicon(event.matches));
-          return;
-        }
-
-        if (typeof colorSchemeQuery.addListener === 'function') {
-          colorSchemeQuery.addListener(event => updateFavicon(event.matches));
-        }
-      })();
-    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {

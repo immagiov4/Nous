@@ -12,7 +12,8 @@
       "Bash(\"C:/Users/giovb/AppData/Roaming/Python/Python311/Scripts/graphify.exe\" --help)",
       "mcp__Claude_in_Chrome__tabs_context_mcp",
       "WebSearch",
-      "WebFetch(domain:bun.com)"
+      "WebFetch(domain:bun.com)",
+      "Bash(claude mcp *)"
     ]
   }
 }

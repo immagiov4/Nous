@@ -39,3 +39,4 @@ graphify-out/
 .fallow-health.json
 
 .venv/
+.temp/

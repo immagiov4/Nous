@@ -15,7 +15,15 @@
       "Read(//c/Users/giovb/Desktop/**)",
       "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/hooks/library/useProjectLibrary.test.ts apps/web/tests/services/projects/projectTransfer.test.ts)",
       "Bash(bunx vitest *)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "mcp__github__issue_read",
+      "WebFetch(domain:github.com)",
+      "Bash(Get-ChildItem -Path . -Filter \"*.pen\" -Recurse -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -First 5 FullName)",
+      "PowerShell(Get-ChildItem -Path \"$env:USERPROFILE\" -Filter \"pencil-new.pen\" -Recurse -ErrorAction SilentlyContinue -Force -Depth 5 | Select-Object FullName | Format-List)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\giovb\\.vscode\\extensions\\highagency.pencildev-0.6.49\\out\\data"
     ]
   },
   "hooks": {
