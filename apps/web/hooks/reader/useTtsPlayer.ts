@@ -239,7 +239,7 @@ export const useTtsPlayer = ({
 
   const audioStateRef = useRef(audioState);
   const shouldPlayRef = useRef(false);
-  const chunkPromisesRef = useRef<Record<number, Promise<string | null>>>({});
+  const chunkPromisesRef = useRef<Partial<Record<number, Promise<string | null>>>>({});
   const playbackSessionRef = useRef(0);
   const playbackRunIdRef = useRef(0);
   const playRequestIdRef = useRef(0);

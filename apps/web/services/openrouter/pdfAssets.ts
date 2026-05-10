@@ -14,7 +14,7 @@ import {
   retryWithBackoff,
 } from './shared.ts';
 
-const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
+const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession | null>>();
 const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const PDF_ASSET_CACHE_VERSION = 'resolution-filter-v2';
 const IMAGE_ID_PREFIX = 'pdf-img-';

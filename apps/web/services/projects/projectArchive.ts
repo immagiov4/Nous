@@ -241,7 +241,7 @@ export const createProjectArchiveBlob = async (snapshot: ProjectSnapshot): Promi
     },
   });
 
-  return new Blob([archiveBytes], { type: PROJECT_ARCHIVE_MIME_TYPE });
+  return new Blob([new Uint8Array(archiveBytes)], { type: PROJECT_ARCHIVE_MIME_TYPE });
 };
 
 export const readProjectImportData = async (file: Blob): Promise<unknown> => {

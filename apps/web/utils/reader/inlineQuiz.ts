@@ -87,9 +87,9 @@ export const buildInlineQuizLayout = (
     return [];
   }
 
-  const layout = contentChunks.map(markdown => ({
+  const layout: InlineQuizChunk[] = contentChunks.map(markdown => ({
     markdown,
-    questionIndexes: [],
+    questionIndexes: [] as number[],
   }));
 
   for (let questionIndex = 0; questionIndex < questionCount; questionIndex += 1) {

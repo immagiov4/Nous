@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
+import type { WorkspaceControllerStateAdapter } from '../../../hooks/workspace/controller/types.ts';
 import {
   createWorkspaceController,
   type WorkspaceChatSession,
@@ -20,6 +21,7 @@ import {
 import {
   AppState,
   type FileData,
+  type LaboratoryExercise,
   type LaboratoryState,
   type LearningPlan,
   type LearningSection,
@@ -433,114 +435,115 @@ const createStateAdapter = () => {
     chatSession: null as WorkspaceChatSession | null,
     generatingSectionId: null as string | null,
     openingProjectId: null as string | null,
-    screenState: AppState.LIBRARY,
+    screenState: AppState.LIBRARY as AppState,
     workflowState: createWorkspaceWorkflowState(),
   };
 
-  return {
-    adapter: {
-      beginWorkflow: (workflowId, message) => {
-        const nextRequestId = runtime.workflowState[workflowId].requestId + 1;
-        runtime.workflowState = {
-          ...runtime.workflowState,
-          [workflowId]: {
-            status: 'pending',
-            message,
-            error: undefined,
-            requestId: nextRequestId,
-          },
-        };
-        return nextRequestId;
-      },
-      failWorkflow: (workflowId, requestId, errorMessage) => {
-        if (runtime.workflowState[workflowId].requestId !== requestId) {
-          return;
-        }
-
-        runtime.workflowState = {
-          ...runtime.workflowState,
-          [workflowId]: {
-            ...runtime.workflowState[workflowId],
-            status: 'failed',
-            error: errorMessage,
-            message: undefined,
-          },
-        };
-      },
-      getAssessmentMessages: () => runtime.assessmentMessages,
-      getChatSession: () => runtime.chatSession,
-      getOpeningProjectId: () => runtime.openingProjectId,
-      getWorkflowState: () => runtime.workflowState,
-      invalidateWorkflows: workflowIds => {
-        runtime.workflowState = invalidateWorkspaceWorkflows(runtime.workflowState, workflowIds);
-      },
-      isWorkflowCurrent: (workflowId, requestId) =>
-        runtime.workflowState[workflowId].requestId === requestId,
-      resetRuntimeState: () => {
-        runtime.assessmentMessages = [];
-        runtime.chatSession = null;
-        runtime.openingProjectId = null;
-      },
-      setAssessmentMessages: nextMessages => {
-        runtime.assessmentMessages =
-          typeof nextMessages === 'function'
-            ? nextMessages(runtime.assessmentMessages)
-            : nextMessages;
-      },
-      setChatSession: chatSession => {
-        runtime.chatSession = chatSession;
-      },
-      setGeneratingSectionId: sectionId => {
-        runtime.generatingSectionId = sectionId;
-      },
-      setOpeningProjectId: projectId => {
-        runtime.openingProjectId = projectId;
-      },
-      setScreenState: screenState => {
-        runtime.screenState = screenState;
-      },
-      setWorkflowMessage: (workflowId, requestId, message) => {
-        if (runtime.workflowState[workflowId].requestId !== requestId) {
-          return;
-        }
-
-        runtime.workflowState = {
-          ...runtime.workflowState,
-          [workflowId]: {
-            ...runtime.workflowState[workflowId],
-            message,
-          },
-        };
-      },
-      setWorkflowReasoning: (workflowId, requestId, reasoning) => {
-        if (runtime.workflowState[workflowId].requestId !== requestId) {
-          return;
-        }
-
-        runtime.workflowState = {
-          ...runtime.workflowState,
-          [workflowId]: {
-            ...runtime.workflowState[workflowId],
-            reasoning,
-          },
-        };
-      },
-      succeedWorkflow: (workflowId, requestId, message) => {
-        if (runtime.workflowState[workflowId].requestId !== requestId) {
-          return;
-        }
-
-        runtime.workflowState = {
-          ...runtime.workflowState,
-          [workflowId]: {
-            ...runtime.workflowState[workflowId],
-            status: 'succeeded',
-            error: undefined,
-            message,
-          },
-        };
-      },
+  const adapter: WorkspaceControllerStateAdapter = {
+    beginWorkflow: (workflowId, message) => {
+      const nextRequestId = runtime.workflowState[workflowId].requestId + 1;
+      runtime.workflowState = {
+        ...runtime.workflowState,
+        [workflowId]: {
+          status: 'pending',
+          message,
+          error: undefined,
+          requestId: nextRequestId,
+        },
+      };
+      return nextRequestId;
     },
+    failWorkflow: (workflowId, requestId, errorMessage) => {
+      if (runtime.workflowState[workflowId].requestId !== requestId) {
+        return;
+      }
+
+      runtime.workflowState = {
+        ...runtime.workflowState,
+        [workflowId]: {
+          ...runtime.workflowState[workflowId],
+          status: 'failed',
+          error: errorMessage,
+          message: undefined,
+        },
+      };
+    },
+    getAssessmentMessages: () => runtime.assessmentMessages,
+    getChatSession: () => runtime.chatSession,
+    getOpeningProjectId: () => runtime.openingProjectId,
+    getWorkflowState: () => runtime.workflowState,
+    invalidateWorkflows: workflowIds => {
+      runtime.workflowState = invalidateWorkspaceWorkflows(runtime.workflowState, workflowIds);
+    },
+    isWorkflowCurrent: (workflowId, requestId) =>
+      runtime.workflowState[workflowId].requestId === requestId,
+    resetRuntimeState: () => {
+      runtime.assessmentMessages = [];
+      runtime.chatSession = null;
+      runtime.openingProjectId = null;
+    },
+    setAssessmentMessages: nextMessages => {
+      runtime.assessmentMessages =
+        typeof nextMessages === 'function'
+          ? nextMessages(runtime.assessmentMessages)
+          : nextMessages;
+    },
+    setChatSession: chatSession => {
+      runtime.chatSession = chatSession;
+    },
+    setGeneratingSectionId: sectionId => {
+      runtime.generatingSectionId = sectionId;
+    },
+    setOpeningProjectId: projectId => {
+      runtime.openingProjectId = projectId;
+    },
+    setScreenState: screenState => {
+      runtime.screenState = screenState;
+    },
+    setWorkflowMessage: (workflowId, requestId, message) => {
+      if (runtime.workflowState[workflowId].requestId !== requestId) {
+        return;
+      }
+
+      runtime.workflowState = {
+        ...runtime.workflowState,
+        [workflowId]: {
+          ...runtime.workflowState[workflowId],
+          message,
+        },
+      };
+    },
+    setWorkflowReasoning: (workflowId, requestId, reasoning) => {
+      if (runtime.workflowState[workflowId].requestId !== requestId) {
+        return;
+      }
+
+      runtime.workflowState = {
+        ...runtime.workflowState,
+        [workflowId]: {
+          ...runtime.workflowState[workflowId],
+          reasoning,
+        },
+      };
+    },
+    succeedWorkflow: (workflowId, requestId, message) => {
+      if (runtime.workflowState[workflowId].requestId !== requestId) {
+        return;
+      }
+
+      runtime.workflowState = {
+        ...runtime.workflowState,
+        [workflowId]: {
+          ...runtime.workflowState[workflowId],
+          status: 'succeeded',
+          error: undefined,
+          message,
+        },
+      };
+    },
+  };
+  return {
+    adapter,
     runtime,
   };
 };
@@ -769,7 +772,7 @@ const createOpenRouterMock = (
       substantivePageCount: 10,
       substantivePageRatio: 1,
     }),
-    regenerateLaboratoryExercise: async exercise => ({
+    regenerateLaboratoryExercise: async ({ exercise }: { exercise: LaboratoryExercise }) => ({
       ...exercise,
       attachments: [],
       evaluation: null,
@@ -1201,8 +1204,8 @@ test('openProject does not wait for library metadata refresh before continuing',
     state: AppState.ASSESSMENT,
   });
   let refreshStarted = false;
-  let releaseTouch: (() => void) | null = null;
-  let releaseRefresh: (() => void) | null = null;
+  let releaseTouch: (() => void) | undefined;
+  let releaseRefresh: (() => void) | undefined;
   let notifyAssessmentStarted: (() => void) | null = null;
 
   const touchGate = new Promise<void>(resolve => {
@@ -1602,7 +1605,7 @@ test('submitAssessment in document mode generates the plan after the minimum num
 
 test('submitAssessment in document mode can generate a plan for text-backed sources', async () => {
   const markdownSource = createProjectSourceFromFile(markdownFile);
-  let planFileArg: FileData | null = null;
+  let planFileArg: FileData | undefined;
   const { controller, domain, state } = createControllerHarness({
     domain: {
       file: null,
@@ -1823,6 +1826,7 @@ test('openSection generates and caches research dossiers for research-backed lea
           sources: [{ title: 'Kotlin docs', url: 'https://kotlinlang.org/docs/home.html' }],
           avoidOversimplifying: ['Non dire che Kotlin e solo Java breve'],
           controversies: [],
+          recentDevelopments: [],
         };
       },
       generateResearchLessonContent: async () => {

@@ -29,8 +29,8 @@ export interface MarkdownRendererProps {
   content: string;
   className?: string;
   isDarkMode?: boolean;
-  onClick?: (e: MouseEvent) => void;
-  onContextMenu?: (e: MouseEvent) => void;
+  onClick?: (e: MouseEvent<HTMLElement>) => void;
+  onContextMenu?: (e: MouseEvent<HTMLElement>) => void;
   lessonAssetsById?: Record<string, PdfImageAsset>;
   generatedVisualsById?: Record<string, LessonGeneratedVisual>;
   lessonImageRefsById?: Record<string, LessonImageRef>;
@@ -131,7 +131,9 @@ const buildMarkdownComponents = (
     className: _className,
     ...props
   }: ComponentPropsWithoutRef<'mark'> & { children?: ReactNode; node?: unknown }) {
-    const annotationId = props['data-nous-annotation-id'] || props['data-lumina-annotation-id'];
+    const annotationId =
+      (props as Record<string, unknown>)['data-nous-annotation-id'] ||
+      (props as Record<string, unknown>)['data-lumina-annotation-id'];
     const hasAttachedNote = typeof annotationId === 'string' && noteAnnotationIds.has(annotationId);
 
     return (
@@ -274,7 +276,8 @@ const MarkdownRenderer = ({
   const handleKeyDown = useMemo(
     () =>
       onClick
-        ? (e: React.KeyboardEvent) => e.key === 'Enter' && onClick(e as unknown as MouseEvent)
+        ? (e: React.KeyboardEvent) =>
+            e.key === 'Enter' && onClick(e as unknown as MouseEvent<HTMLElement>)
         : undefined,
     [onClick]
   );

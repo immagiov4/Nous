@@ -538,6 +538,7 @@ const parseResearchDossiers = (value: unknown): ProjectSnapshot['researchDossier
           factualSummary: ensureString(dossier.factualSummary),
           keyExamples: parseStringArray(dossier.keyExamples),
           difficultSteps: parseStringArray(dossier.difficultSteps),
+          recentDevelopments: parseStringArray(dossier.recentDevelopments),
           avoidOversimplifying: parseStringArray(dossier.avoidOversimplifying),
           controversies: parseStringArray(dossier.controversies),
           sources: parseResearchSourceReferences(dossier.sources),

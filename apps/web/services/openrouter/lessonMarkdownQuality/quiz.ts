@@ -107,6 +107,7 @@ const isValidQuizQuestionPayload = (item: unknown): item is QuizQuestion => {
     Array.isArray(candidate.options) &&
     candidate.options.length === LESSON_QUIZ_OPTION_COUNT &&
     candidate.options.every(option => typeof option === 'string') &&
+    typeof candidate.correctIndex === 'number' &&
     Number.isInteger(candidate.correctIndex) &&
     candidate.correctIndex >= 0 &&
     candidate.correctIndex < candidate.options.length

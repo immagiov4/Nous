@@ -247,7 +247,7 @@ const UnifiedAudioPanel = ({
   );
 
   useEffect(() => {
-    if (isYtReady && videoId && iframeRef.current && !playerRef.current) {
+    if (isYtReady && videoId && iframeRef.current && !playerRef.current && window.YT) {
       try {
         const newPlayer = new window.YT.Player(iframeRef.current, {
           events: {

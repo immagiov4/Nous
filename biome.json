@@ -12,6 +12,7 @@
       "!!**/node_modules",
       "!!**/.git",
       "!!**/.codex",
+      "!!**/.claude",
       "!!**/.specify",
       "!!**/services/tts-server/qwen_tts.egg-info",
       "!!**/services/tts-server/__pycache__",

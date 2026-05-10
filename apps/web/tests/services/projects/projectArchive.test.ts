@@ -70,7 +70,7 @@ test('createProjectArchiveBlob keeps pdf bytes outside the manifest and restores
 test('isProjectArchiveFile rejects generic source zips and readProjectImportData reports a backup-specific error', async () => {
   const zip = new JSZip();
   zip.file('src/index.ts', 'export const answer = 42;');
-  const genericZip = new Blob([await zip.generateAsync({ type: 'uint8array' })], {
+  const genericZip = new Blob([(await zip.generateAsync({ type: 'uint8array' })) as BlobPart], {
     type: 'application/zip',
   });
 

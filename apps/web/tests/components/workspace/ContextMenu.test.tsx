@@ -9,7 +9,7 @@ const buildProps = () => ({
   anchorX: 240,
   anchorY: 180,
   isLoading: false,
-  horizontalBounds: undefined,
+  horizontalBounds: undefined as { left: number; right: number } | undefined,
   onAsk: vi.fn(),
   onClose: vi.fn(),
   onCreateLesson: vi.fn(),

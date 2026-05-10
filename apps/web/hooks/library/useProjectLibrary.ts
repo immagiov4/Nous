@@ -249,8 +249,8 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
    * No sync indicator (background).
    */
   const patchCurrentProject = useCallback(
-    async (overrides: Partial<ProjectSnapshot>): Promise<SavedProjectMeta | null> => {
-      if (!currentProjectId) {
+    async (overrides?: Partial<ProjectSnapshot>): Promise<SavedProjectMeta | null> => {
+      if (!currentProjectId || !overrides) {
         return null;
       }
 
