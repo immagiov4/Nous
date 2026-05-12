@@ -1,37 +1,16 @@
 // fallow-ignore-file unused-files
-import { useCallback, useMemo } from 'react';
-import type {
-  WorkspaceReaderBannersModel,
-  WorkspaceReaderContentModel,
-  WorkspaceReaderHeaderModel,
-  WorkspaceReaderOverlaysModel,
-  WorkspaceReaderShellProps,
-  WorkspaceReaderSidebarModel,
-  WorkspaceReaderTtsModel,
-} from '../components/workspace/shell/types.ts';
+import { useMemo } from 'react';
+import type { WorkspaceReaderShellProps } from '../components/workspace/shell/types.ts';
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceReaderActions } from '../hooks/workspace/useWorkspaceReaderActions.ts';
 import type { useWorkspaceReaderRuntime } from '../hooks/workspace/useWorkspaceReaderRuntime.ts';
-import { selectActiveLaboratoryExercise } from '../services/laboratory/state.ts';
-import {
-  selectIsLaboratoryBusy,
-  selectLaboratoryMessage,
-  selectLaboratoryReasoning,
-} from '../services/workspace/workflow.ts';
 import type { OpenRouterModelDefaults } from '../types.ts';
-import {
-  getLaboratorySourcePageLabel,
-  getLessonSourcePageLabel,
-} from '../utils/context/sourceMaterial.ts';
+import { getLessonSourcePageLabel } from '../utils/context/sourceMaterial.ts';
 import { collectSectionLearningArtifactPayloads } from '../utils/learning/artifacts.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderRuntime = ReturnType<typeof useWorkspaceReaderRuntime>;
 type WorkspaceReaderActions = ReturnType<typeof useWorkspaceReaderActions>;
-
-interface ErrorResult {
-  errorMessage?: string;
-}
 
 interface UseReaderShellPropsArgs {
   controller: WorkspaceController;
@@ -46,10 +25,6 @@ interface UseReaderShellPropsArgs {
   syncState: 'saved' | 'saving' | 'error';
 }
 
-const notifyIfErrored = (r: ErrorResult, n: (m: string) => void) => {
-  if (r.errorMessage) n(r.errorMessage);
-};
-
 // fallow-ignore-next-line unused-exports — used by ReadingScreenContainer
 export const useReaderShellProps = ({
   controller,
@@ -57,518 +32,279 @@ export const useReaderShellProps = ({
   handleBackToLibrary,
   handleExportProject,
   modelDefaults,
-  notify,
   pdfMappingWarning,
   readerActions,
   readerRuntime,
   syncState,
 }: UseReaderShellPropsArgs): WorkspaceReaderShellProps => {
-  // ── Controller values ────────────────────────────────────────────────
-  const [
-    aLabExId,
-    aSection,
-    aSectionId,
-    addLabT,
-    attLabF,
-    cProjId,
-    docAssets,
-    dIdx,
-    evLab,
-    genLab,
-    isB,
-    isCB,
-    lab,
-    lp,
-    mus,
-    needS,
-    opLabEx,
-    quiz,
-    regLab,
-    remLab,
-    secC,
-    setGN,
-    setM,
-    storE,
-    updLabM,
-    updLabT,
-    wf,
-    genSId,
-    blkMsg,
-  ] = useMemo(
-    () => [
-      controller.activeLaboratoryExerciseId,
+  const activeSectionSourcePageRangeLabel = useMemo(
+    () =>
+      getLessonSourcePageLabel({
+        activeSection: controller.activeSection,
+        documentIndex: controller.documentIndex,
+      }),
+    [controller.activeSection, controller.documentIndex]
+  );
+  const currentLessonArtifactPayloads = useMemo(
+    () =>
+      controller.activeSection
+        ? collectSectionLearningArtifactPayloads({
+            documentAssets: controller.documentAssets,
+            projectId: controller.currentProjectId || 'current-project',
+            projectTitle: controller.learningPlan?.title || 'Corso',
+            section: controller.activeSection,
+          })
+        : [],
+    [
       controller.activeSection,
-      controller.activeSectionId,
-      controller.addLaboratoryTextAttachment,
-      controller.attachLaboratoryFiles,
       controller.currentProjectId,
       controller.documentAssets,
-      controller.documentIndex,
-      controller.evaluateActiveLaboratoryExercise,
-      controller.generateLaboratory,
+      controller.learningPlan?.title,
+    ]
+  );
+  const isActiveSectionLoading =
+    controller.generatingSectionId !== null &&
+    controller.generatingSectionId === controller.activeSectionId;
+  const loadingStatus = controller.blockingMessage || 'Caricamento...';
+  const playerCurrentChunkIsLoading =
+    readerRuntime.ttsPlayer.audioState.chunks[readerRuntime.ttsPlayer.audioState.currentChunkIndex]
+      ?.isLoading || false;
+
+  return useMemo(
+    () => ({
+      banners: {
+        needsSourceFile: controller.needsSourceFile,
+        onAttachSourceFile: handleAttachSourceFile,
+        onBackToLibrary: handleBackToLibrary,
+        onExportProject: () => {
+          void handleExportProject();
+        },
+        pdfMappingWarning,
+        storageError: controller.storageError,
+      },
+      content: {
+        activeSectionTitle: controller.activeSection?.title || null,
+        activeSectionAssetsById: readerRuntime.activeSectionAssetsById,
+        activeSectionGeneratedVisualsById: readerRuntime.activeSectionGeneratedVisualsById,
+        activeSectionImageRefsById: readerRuntime.activeSectionImageRefsById,
+        contentRef: readerRuntime.contentRef,
+        currentLessonArtifactPayloads,
+        isDarkMode: readerRuntime.readerChrome.isDarkMode,
+        isFocusMode: readerRuntime.readerChrome.isFocusMode,
+        isLoading: isActiveSectionLoading,
+        isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+        isQuizSubmitted: readerRuntime.isQuizSubmitted,
+        onCompleteSection: () => {
+          void readerActions.handleCompleteSection();
+        },
+        onContentClick: readerRuntime.readerContext.handleContentClick,
+        onContentContextMenu: readerRuntime.readerContext.handleContentContextMenu,
+        onContentPointerDownCapture: readerRuntime.readerContext.handleContentPointerDownCapture,
+        onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
+        onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
+        quiz: controller.quiz,
+        quizAnswers: readerRuntime.quizAnswers,
+        scrollContainerRef: readerRuntime.scrollContainerRef,
+        sectionAnnotations: controller.activeSection?.annotations,
+        sectionContent: controller.sectionContent,
+        sectionReasoningText: controller.workflowState.loadSection.reasoning,
+        sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
+      },
+      header: {
+        activeSectionId: controller.activeSection?.id ?? null,
+        activeSectionTitle: controller.activeSection?.title ?? null,
+        activeSidebarGroup: readerRuntime.activeSidebarGroup,
+        hasActiveSection: Boolean(controller.activeSection),
+        courseGenerationNotes: controller.learningPlan?.generationNotes ?? '',
+        isDarkMode: readerRuntime.readerChrome.isDarkMode,
+        isFocusMode: readerRuntime.readerChrome.isFocusMode,
+        isLoading: controller.isBlocking,
+        isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+        isMobileSidebarOpen: readerRuntime.readerChrome.isMobileSidebarOpen,
+        isMusicPlaying: readerRuntime.isMusicPlaying,
+        isSettingsOpen: readerRuntime.readerChrome.isSettingsOpen,
+        lastAudioTab: readerRuntime.lastAudioTab,
+        learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
+        loadingStatus,
+        modelDefaults,
+        musicUrl: controller.musicUrl,
+        musicVolume: readerRuntime.musicVolume,
+        onBackToLibrary: handleBackToLibrary,
+        onOpenSidebar: () => readerRuntime.readerChrome.setIsMobileSidebarOpen(v => !v),
+        onRegenerateActiveSection: readerActions.handleRegenerateActiveSection,
+        onSetCourseGenerationNotes: controller.setGenerationNotes,
+        onSetDarkMode: readerRuntime.readerChrome.setIsDarkMode,
+        onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
+        onSetIsMusicPlaying: readerRuntime.setIsMusicPlaying,
+        onSetLastAudioTab: readerRuntime.setLastAudioTab,
+        onSetMusicUrl: controller.setMusicUrl,
+        onSetMusicVolume: readerRuntime.setMusicVolume,
+        onSetPreferredOpenRouterModel: readerRuntime.setPreferredOpenRouterModel,
+        onSetSettingsOpen: readerRuntime.readerChrome.setIsSettingsOpen,
+        onSetSettingsPanelExpandedSections: readerRuntime.setSettingsPanelExpandedSections,
+        preferredModels: readerRuntime.preferredModels,
+        settingsPanelExpandedSections: readerRuntime.settingsPanelExpandedSections,
+        syncState,
+        tts: {
+          availableVoices: readerRuntime.ttsPlayer.availableVoices,
+          currentTime: readerRuntime.ttsPlayer.playerCurrentTime,
+          currentVoice: readerRuntime.ttsPlayer.audioState.currentVoice,
+          duration: readerRuntime.ttsPlayer.playerDuration,
+          isLoading: playerCurrentChunkIsLoading,
+          isPlaying: readerRuntime.ttsPlayer.audioState.isPlaying,
+          playbackRate: readerRuntime.ttsPlayer.audioState.playbackRate,
+          sectionContent: controller.sectionContent,
+          ttsConnected: readerRuntime.ttsPlayer.ttsConnected,
+          onPlayPause: readerRuntime.ttsPlayer.togglePlayPause,
+          onSeek: readerRuntime.ttsPlayer.handleSeek,
+          onSkipChunk: readerRuntime.ttsPlayer.handleSkipChunk,
+          onSpeedChange: readerRuntime.ttsPlayer.handleSpeedChange,
+          onVoiceChange: readerRuntime.ttsPlayer.handleVoiceChange,
+        },
+      },
+      overlays: {
+        contextAnswer: readerRuntime.readerContext.contextAnswer,
+        contextAnswerPanelRef: readerRuntime.readerContext.contextAnswerPanelRef,
+        contextAnswerResizePreviewRef: readerRuntime.readerContext.contextAnswerResizePreviewRef,
+        contextAnswerSize: readerRuntime.readerContext.contextAnswerSize,
+        contextMenu: readerRuntime.readerContext.contextMenu,
+        contextMenuRef: readerRuntime.readerContext.contextMenuRef,
+        currentLessonArtifactPayloads,
+        handleContextAnswerResizeStart: readerRuntime.readerContext.handleContextAnswerResizeStart,
+        isContextLoading: controller.isContextBusy,
+        isDarkMode: readerRuntime.readerChrome.isDarkMode,
+        isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+        onAskContextQuestion: readerActions.handleContextQuestion,
+        onAttachArtifactToAnnotation: readerActions.handleAttachArtifactToAnnotation,
+        onCloseContextAnswer: readerRuntime.readerContext.closeContextAnswer,
+        onCloseContextMenu: readerRuntime.readerContext.closeContextMenu,
+        onCreateLesson: readerActions.handleCreateLesson,
+        onDeleteAnnotation: readerActions.handleDeleteAnnotation,
+        onDetachArtifactFromAnnotation: readerActions.handleDetachArtifactFromAnnotation,
+        onHighlight: readerActions.handleHighlight,
+        onSaveArtifactToLesson: readerActions.handleSaveArtifactToLesson,
+        onSaveConversationNote: readerActions.handleSaveConversationNote,
+        onSaveNote: readerActions.handleSaveNote,
+        onUpdateConversationNote: readerActions.handleUpdateConversationNote,
+        preferredModels: readerRuntime.preferredModels,
+      },
+      shouldUseDesktopSidebar: readerRuntime.readerChrome.shouldUseDesktopSidebar,
+      sidebar: {
+        activeSectionId: controller.activeSectionId,
+        expandedModuleId: readerRuntime.readerChrome.expandedModuleId,
+        generatingSectionId: controller.generatingSectionId ?? null,
+        isLoading: controller.isBlocking,
+        isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+        learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
+        onBackToLibrary: handleBackToLibrary,
+        onExportProject: () => {
+          void handleExportProject();
+        },
+        onModuleToggle: readerRuntime.readerChrome.handleModuleToggle,
+        onSelectSection: readerActions.handleSelectSection,
+        onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
+        onSetIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
+        shouldShowSidebar: readerRuntime.readerChrome.shouldShowSidebar,
+        sidebarGroups: readerRuntime.sidebarGroups,
+      },
+    }),
+    [
+      activeSectionSourcePageRangeLabel,
+      controller.activeSection,
+      controller.activeSectionId,
+      controller.generatingSectionId,
       controller.isBlocking,
       controller.isContextBusy,
-      controller.laboratory,
       controller.learningPlan,
       controller.musicUrl,
       controller.needsSourceFile,
-      controller.openLaboratoryExercise,
       controller.quiz,
-      controller.regenerateActiveLaboratoryExercise,
-      controller.removeLaboratoryAttachment,
       controller.sectionContent,
       controller.setGenerationNotes,
       controller.setMusicUrl,
       controller.storageError,
-      controller.updateLaboratoryAttachmentMetadata,
-      controller.updateLaboratoryTextAttachment,
-      controller.workflowState,
-      controller.generatingSectionId,
-      controller.blockingMessage,
-    ],
-    [controller]
-  );
-
-  // ── Derived ──────────────────────────────────────────────────────────
-  const isLB = useMemo(() => selectIsLaboratoryBusy(wf), [wf]);
-  const isLG = wf.generateLaboratory.status === 'pending';
-  const isLE = wf.evaluateLaboratory.status === 'pending';
-  const labMsg = useMemo(() => selectLaboratoryMessage(wf) || 'Laboratorio in corso...', [wf]);
-  const labRsn = useMemo(() => selectLaboratoryReasoning(wf), [wf]);
-  const srcPL = useMemo(
-    () => getLessonSourcePageLabel({ activeSection: aSection, documentIndex: dIdx }),
-    [aSection, dIdx]
-  );
-  const actLab = useMemo(() => selectActiveLaboratoryExercise(lab, aLabExId), [lab, aLabExId]);
-  const labSPL = useMemo(
-    () => getLaboratorySourcePageLabel({ activeExercise: actLab, documentIndex: dIdx }),
-    [actLab, dIdx]
-  );
-  const currentLessonArtifactPayloads = useMemo(
-    () =>
-      aSection
-        ? collectSectionLearningArtifactPayloads({
-            documentAssets: docAssets,
-            projectId: cProjId || 'current-project',
-            projectTitle: lp?.title || 'Corso',
-            section: aSection,
-          })
-        : [],
-    [aSection, cProjId, docAssets, lp?.title]
-  );
-
-  const isLV = !aSectionId && Boolean(lab);
-  const isASL = genSId !== null && genSId === aSectionId;
-  const lSt = blkMsg || 'Caricamento...';
-  const hIL = isB || (isLV && isLB);
-  const hLS = isB ? lSt : labMsg;
-
-  // ── Runtime refs ─────────────────────────────────────────────────────
-  const rC = readerRuntime.readerChrome;
-  const tP = readerRuntime.ttsPlayer;
-  const rX = readerRuntime.readerContext;
-  const rA = readerActions;
-
-  const pCL = tP.audioState.chunks[tP.audioState.currentChunkIndex]?.isLoading || false;
-
-  // ── Stable callbacks ──────────────────────────────────────────────────
-  const onExp = useCallback(() => {
-    void handleExportProject();
-  }, [handleExportProject]);
-  const onALT = useCallback(() => {
-    void addLabT().then(r => notifyIfErrored(r, notify));
-  }, [addLabT, notify]);
-  const onAtF = useCallback(
-    (f: FileList | null) => {
-      if (!f?.length) return;
-      void attLabF(f).then(r => notifyIfErrored(r, notify));
-    },
-    [attLabF, notify]
-  );
-  const onCpl = useCallback(() => {
-    void rA.handleCompleteSection();
-  }, [rA.handleCompleteSection]);
-  const onEvL = useCallback(() => {
-    void evLab().then(r => notifyIfErrored(r, notify));
-  }, [evLab, notify]);
-  const onGnL = useCallback(() => {
-    void genLab({ openFirstExercise: true }).then(r => notifyIfErrored(r, notify));
-  }, [genLab, notify]);
-  const onRmL = useCallback(
-    (i: string) => {
-      void remLab(i).then(r => notifyIfErrored(r, notify));
-    },
-    [remLab, notify]
-  );
-  const onUpM = useCallback(
-    (i: string, u: { description?: string; name?: string }) => {
-      void updLabM(i, u);
-    },
-    [updLabM]
-  );
-  const onUpT = useCallback(
-    (i: string, u: { content: string; name?: string }) => {
-      void updLabT(i, u);
-    },
-    [updLabT]
-  );
-  const onRgL = useCallback(() => {
-    void regLab().then(r => notifyIfErrored(r, notify));
-  }, [regLab, notify]);
-  const onOpS = useCallback(() => {
-    rC.setIsMobileSidebarOpen(v => !v);
-  }, [rC.setIsMobileSidebarOpen]);
-  const onRgI = useCallback(() => {
-    void genLab({ force: true, openFirstExercise: !aSectionId }).then(r =>
-      notifyIfErrored(r, notify)
-    );
-  }, [genLab, aSectionId, notify]);
-  const onOLX = useCallback(
-    (i: string) => {
-      void opLabEx(i).then(o => {
-        if (o === 'missing') notify('Esercizio non disponibile.');
-      });
-    },
-    [opLabEx, notify]
-  );
-
-  // ── tts ──────────────────────────────────────────────────────────────
-  const tts = useMemo<WorkspaceReaderTtsModel>(
-    () => ({
-      availableVoices: tP.availableVoices,
-      currentTime: tP.playerCurrentTime,
-      currentVoice: tP.audioState.currentVoice,
-      duration: tP.playerDuration,
-      isPlaying: tP.audioState.isPlaying,
-      isLoading: pCL,
-      playbackRate: tP.audioState.playbackRate,
-      sectionContent: secC,
-      ttsConnected: tP.ttsConnected,
-      onPlayPause: tP.togglePlayPause,
-      onSeek: tP.handleSeek,
-      onSkipChunk: tP.handleSkipChunk,
-      onSpeedChange: tP.handleSpeedChange,
-      onVoiceChange: tP.handleVoiceChange,
-    }),
-    [
-      tP.availableVoices,
-      tP.playerCurrentTime,
-      tP.audioState.currentVoice,
-      tP.playerDuration,
-      tP.audioState.isPlaying,
-      pCL,
-      tP.audioState.playbackRate,
-      secC,
-      tP.ttsConnected,
-      tP.togglePlayPause,
-      tP.handleSeek,
-      tP.handleSkipChunk,
-      tP.handleSpeedChange,
-      tP.handleVoiceChange,
-    ]
-  );
-
-  // ── banners ───────────────────────────────────────────────────────────
-  const banners = useMemo<WorkspaceReaderBannersModel>(
-    () => ({
-      needsSourceFile: needS,
-      onAttachSourceFile: handleAttachSourceFile,
-      onBackToLibrary: handleBackToLibrary,
-      onExportProject: onExp,
+      controller.workflowState.loadSection.reasoning,
+      currentLessonArtifactPayloads,
+      handleAttachSourceFile,
+      handleBackToLibrary,
+      handleExportProject,
+      isActiveSectionLoading,
+      loadingStatus,
+      modelDefaults,
       pdfMappingWarning,
-      storageError: storE,
-    }),
-    [needS, handleAttachSourceFile, handleBackToLibrary, onExp, pdfMappingWarning, storE]
-  );
-
-  // ── content ───────────────────────────────────────────────────────────
-  const content = useMemo<WorkspaceReaderContentModel>(
-    () => ({
-      activeSectionTitle: aSection?.title || null,
-      activeSectionAssetsById: readerRuntime.activeSectionAssetsById,
-      activeSectionGeneratedVisualsById: readerRuntime.activeSectionGeneratedVisualsById,
-      activeSectionImageRefsById: readerRuntime.activeSectionImageRefsById,
-      contentRef: readerRuntime.contentRef,
-      isDarkMode: rC.isDarkMode,
-      isFocusMode: rC.isFocusMode,
-      isLoading: isASL,
-      isLaboratoryEvaluating: isLE,
-      isLaboratoryGenerating: isLG,
-      isLaboratoryView: isLV,
-      isMobileViewport: rC.isMobileViewport,
-      isQuizSubmitted: readerRuntime.isQuizSubmitted,
-      activeLaboratoryExercise: actLab,
-      laboratoryActivityMessage: labMsg,
-      laboratoryReasoningText: labRsn,
-      laboratoryErrorMessage: lab?.errorMessage,
-      laboratorySourcePageRangeLabel: labSPL,
-      laboratoryStatus: lab?.status || null,
-      laboratorySummary: lab?.summary || '',
-      laboratoryTitle: lab?.title || 'Laboratorio',
-      onAddLaboratoryTextAttachment: onALT,
-      onAttachLaboratoryFiles: onAtF,
-      onCompleteSection: onCpl,
-      onContentClick: rX.handleContentClick,
-      onContentContextMenu: rX.handleContentContextMenu,
-      onContentPointerDownCapture: rX.handleContentPointerDownCapture,
-      onEvaluateActiveLaboratoryExercise: onEvL,
-      onGenerateLaboratory: onGnL,
-      onRemoveLaboratoryAttachment: onRmL,
-      onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
-      onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
-      onUpdateLaboratoryAttachmentMetadata: onUpM,
-      onUpdateLaboratoryTextAttachment: onUpT,
-      quiz,
-      quizAnswers: readerRuntime.quizAnswers,
-      scrollContainerRef: readerRuntime.scrollContainerRef,
-      sectionAnnotations: aSection?.annotations,
-      sectionContent: secC,
-      currentLessonArtifactPayloads,
-      sectionReasoningText: wf.loadSection.reasoning,
-      sourcePageRangeLabel: srcPL,
-    }),
-    [
-      aSection,
-      currentLessonArtifactPayloads,
+      playerCurrentChunkIsLoading,
+      readerActions.handleAttachArtifactToAnnotation,
+      readerActions.handleCompleteSection,
+      readerActions.handleContextQuestion,
+      readerActions.handleCreateLesson,
+      readerActions.handleDeleteAnnotation,
+      readerActions.handleDetachArtifactFromAnnotation,
+      readerActions.handleHighlight,
+      readerActions.handleRegenerateActiveSection,
+      readerActions.handleSaveArtifactToLesson,
+      readerActions.handleSaveConversationNote,
+      readerActions.handleSaveNote,
+      readerActions.handleSelectSection,
+      readerActions.handleUpdateConversationNote,
       readerRuntime.activeSectionAssetsById,
       readerRuntime.activeSectionGeneratedVisualsById,
       readerRuntime.activeSectionImageRefsById,
-      readerRuntime.contentRef,
-      rC.isDarkMode,
-      rC.isFocusMode,
-      isASL,
-      isLE,
-      isLG,
-      isLV,
-      rC.isMobileViewport,
-      readerRuntime.isQuizSubmitted,
-      actLab,
-      labMsg,
-      labRsn,
-      lab?.errorMessage,
-      labSPL,
-      lab?.status,
-      lab?.summary,
-      lab?.title,
-      onALT,
-      onAtF,
-      onCpl,
-      rX.handleContentClick,
-      rX.handleContentContextMenu,
-      rX.handleContentPointerDownCapture,
-      onEvL,
-      onGnL,
-      onRmL,
-      readerRuntime.handleSelectQuizAnswer,
-      readerRuntime.setIsQuizSubmitted,
-      onUpM,
-      onUpT,
-      quiz,
-      readerRuntime.quizAnswers,
-      readerRuntime.scrollContainerRef,
-      secC,
-      wf.loadSection.reasoning,
-      srcPL,
-    ]
-  );
-
-  // ── header ────────────────────────────────────────────────────────────
-  const header = useMemo<WorkspaceReaderHeaderModel>(
-    () => ({
-      activeLaboratoryExercise: actLab,
-      activeSectionId: aSection?.id ?? null,
-      activeSectionTitle: aSection?.title ?? null,
-      hasActiveSection: Boolean(aSection?.id),
-      activeSidebarGroup: readerRuntime.activeSidebarGroup,
-      courseGenerationNotes: lp?.generationNotes ?? '',
-      isDarkMode: rC.isDarkMode,
-      isFocusMode: rC.isFocusMode,
-      isLoading: hIL,
-      isLaboratoryView: isLV,
-      isMobileViewport: rC.isMobileViewport,
-      isMobileSidebarOpen: rC.isMobileSidebarOpen,
-      isMusicPlaying: readerRuntime.isMusicPlaying,
-      isSettingsOpen: rC.isSettingsOpen,
-      laboratoryTitle: lab?.title || 'Laboratorio',
-      learningPlanTitle: lp?.title || 'Percorso di Studio',
-      loadingStatus: hLS,
-      modelDefaults,
-      musicUrl: mus,
-      musicVolume: readerRuntime.musicVolume,
-      onBackToLibrary: handleBackToLibrary,
-      onOpenSidebar: onOpS,
-      onRegenerateActiveLaboratoryExercise: onRgL,
-      onRegenerateActiveSection: rA.handleRegenerateActiveSection,
-      onSetDarkMode: rC.setIsDarkMode,
-      onSetCourseGenerationNotes: setGN,
-      onSetFocusMode: rC.setIsFocusMode,
-      onSetIsMusicPlaying: readerRuntime.setIsMusicPlaying,
-      onSetMusicUrl: setM,
-      onSetMusicVolume: readerRuntime.setMusicVolume,
-      onSetPreferredOpenRouterModel: readerRuntime.setPreferredOpenRouterModel,
-      onSetSettingsOpen: rC.setIsSettingsOpen,
-      lastAudioTab: readerRuntime.lastAudioTab,
-      onSetLastAudioTab: readerRuntime.setLastAudioTab,
-      onSetSettingsPanelExpandedSections: readerRuntime.setSettingsPanelExpandedSections,
-      preferredModels: readerRuntime.preferredModels,
-      settingsPanelExpandedSections: readerRuntime.settingsPanelExpandedSections,
-      syncState,
-      tts,
-    }),
-    [
-      actLab,
-      aSection?.id,
-      aSection?.title,
       readerRuntime.activeSidebarGroup,
-      lp?.generationNotes,
-      rC.isDarkMode,
-      rC.isFocusMode,
-      hIL,
-      isLV,
-      rC.isMobileViewport,
-      rC.isMobileSidebarOpen,
+      readerRuntime.contentRef,
+      readerRuntime.handleSelectQuizAnswer,
       readerRuntime.isMusicPlaying,
-      rC.isSettingsOpen,
-      lab?.title,
-      lp?.title,
-      hLS,
-      modelDefaults,
-      mus,
+      readerRuntime.isQuizSubmitted,
+      readerRuntime.lastAudioTab,
       readerRuntime.musicVolume,
-      handleBackToLibrary,
-      onOpS,
-      onRgL,
-      rA.handleRegenerateActiveSection,
-      rC.setIsDarkMode,
-      setGN,
-      rC.setIsFocusMode,
+      readerRuntime.preferredModels,
+      readerRuntime.quizAnswers,
+      readerRuntime.readerChrome.expandedModuleId,
+      readerRuntime.readerChrome.handleModuleToggle,
+      readerRuntime.readerChrome.isDarkMode,
+      readerRuntime.readerChrome.isFocusMode,
+      readerRuntime.readerChrome.isMobileSidebarOpen,
+      readerRuntime.readerChrome.isMobileViewport,
+      readerRuntime.readerChrome.isSettingsOpen,
+      readerRuntime.readerChrome.setIsDarkMode,
+      readerRuntime.readerChrome.setIsFocusMode,
+      readerRuntime.readerChrome.setIsMobileSidebarOpen,
+      readerRuntime.readerChrome.setIsSettingsOpen,
+      readerRuntime.readerChrome.shouldShowSidebar,
+      readerRuntime.readerChrome.shouldUseDesktopSidebar,
+      readerRuntime.readerContext.closeContextAnswer,
+      readerRuntime.readerContext.closeContextMenu,
+      readerRuntime.readerContext.contextAnswer,
+      readerRuntime.readerContext.contextAnswerPanelRef,
+      readerRuntime.readerContext.contextAnswerResizePreviewRef,
+      readerRuntime.readerContext.contextAnswerSize,
+      readerRuntime.readerContext.contextMenu,
+      readerRuntime.readerContext.contextMenuRef,
+      readerRuntime.readerContext.handleContentClick,
+      readerRuntime.readerContext.handleContentContextMenu,
+      readerRuntime.readerContext.handleContentPointerDownCapture,
+      readerRuntime.readerContext.handleContextAnswerResizeStart,
+      readerRuntime.scrollContainerRef,
       readerRuntime.setIsMusicPlaying,
-      setM,
+      readerRuntime.setIsQuizSubmitted,
+      readerRuntime.setLastAudioTab,
       readerRuntime.setMusicVolume,
       readerRuntime.setPreferredOpenRouterModel,
-      rC.setIsSettingsOpen,
-      readerRuntime.lastAudioTab,
-      readerRuntime.setLastAudioTab,
       readerRuntime.setSettingsPanelExpandedSections,
-      readerRuntime.preferredModels,
       readerRuntime.settingsPanelExpandedSections,
-      syncState,
-      tts,
-    ]
-  );
-
-  // ── overlays ──────────────────────────────────────────────────────────
-  const overlays = useMemo<WorkspaceReaderOverlaysModel>(
-    () => ({
-      contextAnswer: rX.contextAnswer,
-      contextAnswerPanelRef: rX.contextAnswerPanelRef,
-      contextAnswerResizePreviewRef: rX.contextAnswerResizePreviewRef,
-      contextAnswerSize: rX.contextAnswerSize,
-      contextMenu: rX.contextMenu,
-      contextMenuRef: rX.contextMenuRef,
-      currentLessonArtifactPayloads,
-      handleContextAnswerResizeStart: rX.handleContextAnswerResizeStart,
-      isContextLoading: isCB,
-      isDarkMode: rC.isDarkMode,
-      isMobileViewport: rC.isMobileViewport,
-      onAskContextQuestion: rA.handleContextQuestion,
-      onAttachArtifactToAnnotation: rA.handleAttachArtifactToAnnotation,
-      onCloseContextAnswer: rX.closeContextAnswer,
-      onCloseContextMenu: rX.closeContextMenu,
-      onCreateLesson: rA.handleCreateLesson,
-      onDeleteAnnotation: rA.handleDeleteAnnotation,
-      onDetachArtifactFromAnnotation: rA.handleDetachArtifactFromAnnotation,
-      onHighlight: rA.handleHighlight,
-      preferredModels: readerRuntime.preferredModels,
-      onSaveConversationNote: rA.handleSaveConversationNote,
-      onUpdateConversationNote: rA.handleUpdateConversationNote,
-      onSaveNote: rA.handleSaveNote,
-      onSaveArtifactToLesson: rA.handleSaveArtifactToLesson,
-    }),
-    [
-      rX.contextAnswer,
-      rX.contextAnswerPanelRef,
-      rX.contextAnswerResizePreviewRef,
-      rX.contextAnswerSize,
-      rX.contextMenu,
-      rX.contextMenuRef,
-      currentLessonArtifactPayloads,
-      rX.handleContextAnswerResizeStart,
-      isCB,
-      rC.isDarkMode,
-      rC.isMobileViewport,
-      rA.handleContextQuestion,
-      rA.handleAttachArtifactToAnnotation,
-      rX.closeContextAnswer,
-      rX.closeContextMenu,
-      rA.handleCreateLesson,
-      rA.handleDeleteAnnotation,
-      rA.handleDetachArtifactFromAnnotation,
-      rA.handleHighlight,
-      readerRuntime.preferredModels,
-      rA.handleSaveConversationNote,
-      rA.handleUpdateConversationNote,
-      rA.handleSaveNote,
-      rA.handleSaveArtifactToLesson,
-    ]
-  );
-
-  // ── sidebar ───────────────────────────────────────────────────────────
-  const sidebar = useMemo<WorkspaceReaderSidebarModel>(
-    () => ({
-      activeLaboratoryExerciseId: aLabExId,
-      activeSectionId: aSectionId,
-      expandedModuleId: rC.expandedModuleId,
-      generatingSectionId: genSId ?? null,
-      isLoading: isB,
-      isMobileViewport: rC.isMobileViewport,
-      laboratoryExercises: lab?.exercises || [],
-      laboratoryStatus: lab?.status || null,
-      laboratoryTitle: lab?.title || 'Laboratorio',
-      learningPlanTitle: lp?.title || 'Percorso di Studio',
-      onBackToLibrary: handleBackToLibrary,
-      onExportProject: onExp,
-      onGenerateLaboratory: onGnL,
-      onRegenerateLaboratoryIndex: onRgI,
-      onModuleToggle: rC.handleModuleToggle,
-      onSelectLaboratoryExercise: onOLX,
-      onSelectSection: rA.handleSelectSection,
-      onSetFocusMode: rC.setIsFocusMode,
-      onSetIsMobileSidebarOpen: rC.setIsMobileSidebarOpen,
-      shouldShowSidebar: rC.shouldShowSidebar,
-      sidebarGroups: readerRuntime.sidebarGroups,
-    }),
-    [
-      aLabExId,
-      aSectionId,
-      rC.expandedModuleId,
-      genSId,
-      isB,
-      rC.isMobileViewport,
-      lab?.exercises,
-      lab?.status,
-      lab?.title,
-      lp?.title,
-      handleBackToLibrary,
-      onExp,
-      onGnL,
-      onRgI,
-      rC.handleModuleToggle,
-      onOLX,
-      rA.handleSelectSection,
-      rC.setIsFocusMode,
-      rC.setIsMobileSidebarOpen,
-      rC.shouldShowSidebar,
       readerRuntime.sidebarGroups,
+      readerRuntime.ttsPlayer.audioState.currentVoice,
+      readerRuntime.ttsPlayer.audioState.isPlaying,
+      readerRuntime.ttsPlayer.audioState.playbackRate,
+      readerRuntime.ttsPlayer.availableVoices,
+      readerRuntime.ttsPlayer.handleSeek,
+      readerRuntime.ttsPlayer.handleSkipChunk,
+      readerRuntime.ttsPlayer.handleSpeedChange,
+      readerRuntime.ttsPlayer.handleVoiceChange,
+      readerRuntime.ttsPlayer.playerCurrentTime,
+      readerRuntime.ttsPlayer.playerDuration,
+      readerRuntime.ttsPlayer.togglePlayPause,
+      readerRuntime.ttsPlayer.ttsConnected,
+      syncState,
     ]
   );
-
-  return {
-    banners,
-    content,
-    header,
-    overlays,
-    shouldUseDesktopSidebar: rC.shouldUseDesktopSidebar,
-    sidebar,
-  };
 };

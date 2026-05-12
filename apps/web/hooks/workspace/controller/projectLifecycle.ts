@@ -11,13 +11,13 @@ import {
 } from '../../../services/projects/projectSource.ts';
 import {
   prepareSnapshotForHydration,
-  resolvePlanSection,
+  resolvePlanLesson,
 } from '../../../services/workspace/controller/snapshotHydration.ts';
 import {
   AppState,
   type FileData,
   type LearningPlan,
-  type LearningSection,
+  type LessonNode,
   type ProjectSource,
 } from '../../../types.ts';
 import { readSourceFileData } from './controllerContext.ts';
@@ -30,10 +30,7 @@ import type {
 } from './types.ts';
 
 interface ProjectLifecycleDependencies {
-  openSection: (
-    section: LearningSection,
-    options?: OpenSectionOptions
-  ) => Promise<OpenSectionOutcome>;
+  openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
 }
 
@@ -357,7 +354,7 @@ export const createProjectLifecycleCommands = (
       pushNousDebugTrace('open-project:settled-before-follow-up', { projectId, requestId });
       refreshLibraryMetadataInBackground(projectId, requestId);
 
-      if (!preparedSnapshot.learningPlan && !preparedSnapshot.laboratory) {
+      if (!preparedSnapshot.learningPlan) {
         if (preparedSnapshot.source?.kind === 'codebase-bundle') {
           pushNousDebugTrace('open-project:start-text-assessment', {
             projectId,
@@ -378,9 +375,9 @@ export const createProjectLifecycleCommands = (
           });
           await startAssessment({ file: preparedSnapshot.source.file });
         }
-      } else if (preparedSnapshot.learningPlan && !preparedSnapshot.activeLaboratoryExerciseId) {
+      } else if (preparedSnapshot.learningPlan) {
         const nextSnapshotFile = getProjectSourceFile(preparedSnapshot.source);
-        const nextSection = resolvePlanSection(
+        const nextSection = resolvePlanLesson(
           preparedSnapshot.learningPlan,
           preparedSnapshot.activeSectionId
         );

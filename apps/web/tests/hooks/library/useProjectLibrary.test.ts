@@ -3,18 +3,15 @@ import { test } from 'vitest';
 import { buildPersistenceSignature } from '../../../services/projects/persistenceSignature.ts';
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import type { WorkspaceDomainState } from '../../../types.ts';
+import { updateLessons } from '../../../utils/learning/pathNodes.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 test('buildPersistenceSignature only depends on persisted workspace domain state', () => {
   const state = createEmptyWorkspaceDomainState();
   const signatureA = buildPersistenceSignature(state);
   const signatureB = buildPersistenceSignature({
     ...state,
-    learningPlan: {
-      title: 'Percorso',
-      summary: '',
-      sections: [],
-      backgroundMusicUrl: '',
-    },
+    learningPlan: buildTestLearningPlan([], { backgroundMusicUrl: '' }),
   });
 
   assert.notEqual(signatureA, signatureB);
@@ -41,20 +38,17 @@ test('buildPersistenceSignature detects persisted changes in large referenced st
         },
       ],
     },
-    learningPlan: {
-      title: 'Percorso',
-      summary: 'Sintesi',
-      sections: [
-        {
+    learningPlan: buildTestLearningPlan(
+      [
+        buildTestLesson({
           id: 'section-1',
           title: 'Lezione',
           description: 'Descrizione',
-          isCompleted: false,
-          type: 'core',
           content: 'Contenuto',
-        },
+        }),
       ],
-    },
+      { summary: 'Sintesi' }
+    ),
   };
 
   const unchangedClone = { ...state };
@@ -63,7 +57,7 @@ test('buildPersistenceSignature detects persisted changes in large referenced st
     learningPlan: state.learningPlan
       ? {
           ...state.learningPlan,
-          sections: state.learningPlan.sections.map(section =>
+          modules: updateLessons(state.learningPlan.modules, section =>
             section.id === 'section-1' ? { ...section, content: 'Contenuto aggiornato' } : section
           ),
         }

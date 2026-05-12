@@ -5,6 +5,7 @@ import {
   collectLearningArtifactPayloads,
   filterLearningArtifactPayloads,
 } from '../../../utils/learning/artifacts.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 const buildSnapshot = (learningPlan: LearningPlan): ProjectSnapshot => ({
   id: 'project-1',
@@ -13,12 +14,10 @@ const buildSnapshot = (learningPlan: LearningPlan): ProjectSnapshot => ({
   state: 'READING',
   source: null,
   learningPlan,
-  laboratory: null,
   isLearnMode: false,
   userProfile: null,
   syllabus: [],
   activeSectionId: 'lesson-1',
-  activeLaboratoryExerciseId: null,
   createdAt: '2026-05-01T09:00:00.000Z',
   updatedAt: '2026-05-01T09:00:00.000Z',
   lastOpenedAt: '2026-05-01T09:00:00.000Z',
@@ -89,49 +88,50 @@ describe('learning artifacts', () => {
   });
 
   test('normalizes generated visuals and PDF images into stable render payloads', () => {
-    const snapshot = buildSnapshot({
-      title: 'Basi di dati',
-      summary: 'Database relazionali',
-      sections: [
+    const snapshot = buildSnapshot(
+      buildTestLearningPlan(
+        [
+          buildTestLesson({
+            id: 'lesson-1',
+            title: 'Modello relazionale',
+            description: 'Relazioni e vincoli',
+            isCompleted: true,
+            content:
+              'Intro\n\n{{PDF_IMAGE:pdf-img-1|alt=Schema ER|caption=Schema ER}}\n\n{{VISUAL_EXAMPLE:visual-1|title=mappa_relazioni}}',
+            imageRefs: [{ assetId: 'pdf-img-1', alt: 'Schema ER', caption: 'Schema ER' }],
+            generatedVisuals: [
+              {
+                id: 'visual-1',
+                title: 'mappa_relazioni',
+                kind: 'svg',
+                code: '<svg viewBox="0 0 680 120"></svg>',
+                createdAt: '2026-05-01T10:00:00.000Z',
+              },
+            ],
+          }),
+          buildTestLesson({
+            id: 'lesson-2',
+            title: 'Normalizzazione',
+            description: 'Dipendenze funzionali',
+            content: 'Seconda lezione',
+            imageRefs: [{ assetId: 'pdf-img-2', alt: 'Dipendenze funzionali' }],
+            generatedVisuals: [
+              {
+                id: 'visual-2',
+                title: 'simulatore_chiusura',
+                kind: 'html',
+                code: '<style></style><div>Simulazione</div><script></script>',
+                createdAt: '2026-05-01T11:00:00.000Z',
+              },
+            ],
+          }),
+        ],
         {
-          id: 'lesson-1',
-          title: 'Modello relazionale',
-          description: 'Relazioni e vincoli',
-          isCompleted: true,
-          type: 'core',
-          content:
-            'Intro\n\n{{PDF_IMAGE:pdf-img-1|alt=Schema ER|caption=Schema ER}}\n\n{{VISUAL_EXAMPLE:visual-1|title=mappa_relazioni}}',
-          imageRefs: [{ assetId: 'pdf-img-1', alt: 'Schema ER', caption: 'Schema ER' }],
-          generatedVisuals: [
-            {
-              id: 'visual-1',
-              title: 'mappa_relazioni',
-              kind: 'svg',
-              code: '<svg viewBox="0 0 680 120"></svg>',
-              createdAt: '2026-05-01T10:00:00.000Z',
-            },
-          ],
-        },
-        {
-          id: 'lesson-2',
-          title: 'Normalizzazione',
-          description: 'Dipendenze funzionali',
-          isCompleted: false,
-          type: 'core',
-          content: 'Seconda lezione',
-          imageRefs: [{ assetId: 'pdf-img-2', alt: 'Dipendenze funzionali' }],
-          generatedVisuals: [
-            {
-              id: 'visual-2',
-              title: 'simulatore_chiusura',
-              kind: 'html',
-              code: '<style></style><div>Simulazione</div><script></script>',
-              createdAt: '2026-05-01T11:00:00.000Z',
-            },
-          ],
-        },
-      ],
-    });
+          title: 'Basi di dati',
+          summary: 'Database relazionali',
+        }
+      )
+    );
 
     const artifacts = collectLearningArtifactPayloads({
       projectTitle: 'Basi di dati',
@@ -171,38 +171,39 @@ describe('learning artifacts', () => {
   });
 
   test('filters artifacts by lesson and searchable visual or image context', () => {
-    const snapshot = buildSnapshot({
-      title: 'Basi di dati',
-      summary: 'Database relazionali',
-      sections: [
+    const snapshot = buildSnapshot(
+      buildTestLearningPlan(
+        [
+          buildTestLesson({
+            id: 'lesson-1',
+            title: 'Modello relazionale',
+            description: 'Relazioni e vincoli',
+            isCompleted: true,
+            content: 'Lezione su entita e relazioni',
+            imageRefs: [{ assetId: 'pdf-img-1', alt: 'Schema ER', caption: 'Schema ER' }],
+          }),
+          buildTestLesson({
+            id: 'lesson-2',
+            title: 'Normalizzazione',
+            description: 'Dipendenze funzionali',
+            content: 'Lezione su chiavi candidate',
+            generatedVisuals: [
+              {
+                id: 'visual-2',
+                title: 'simulatore_chiusura',
+                kind: 'html',
+                code: '<style></style><div>Simulazione</div><script></script>',
+                createdAt: '2026-05-01T11:00:00.000Z',
+              },
+            ],
+          }),
+        ],
         {
-          id: 'lesson-1',
-          title: 'Modello relazionale',
-          description: 'Relazioni e vincoli',
-          isCompleted: true,
-          type: 'core',
-          content: 'Lezione su entita e relazioni',
-          imageRefs: [{ assetId: 'pdf-img-1', alt: 'Schema ER', caption: 'Schema ER' }],
-        },
-        {
-          id: 'lesson-2',
-          title: 'Normalizzazione',
-          description: 'Dipendenze funzionali',
-          isCompleted: false,
-          type: 'core',
-          content: 'Lezione su chiavi candidate',
-          generatedVisuals: [
-            {
-              id: 'visual-2',
-              title: 'simulatore_chiusura',
-              kind: 'html',
-              code: '<style></style><div>Simulazione</div><script></script>',
-              createdAt: '2026-05-01T11:00:00.000Z',
-            },
-          ],
-        },
-      ],
-    });
+          title: 'Basi di dati',
+          summary: 'Database relazionali',
+        }
+      )
+    );
 
     const artifacts = collectLearningArtifactPayloads({
       projectTitle: 'Basi di dati',

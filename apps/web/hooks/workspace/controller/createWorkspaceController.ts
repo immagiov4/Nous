@@ -1,6 +1,5 @@
 import { createAssessmentPlanningCommands } from './assessmentPlanning.ts';
 import { createWorkspaceControllerContext } from './controllerContext.ts';
-import { createLaboratoryCommands } from './laboratory.ts';
 import { createProjectLifecycleCommands } from './projectLifecycle.ts';
 import { createSectionCommands } from './sectionProgression.ts';
 import type { CreateWorkspaceControllerArgs, WorkspaceControllerCommands } from './types.ts';
@@ -10,9 +9,7 @@ export const createWorkspaceController = (
 ): WorkspaceControllerCommands => {
   const context = createWorkspaceControllerContext(args);
   const sectionCommands = createSectionCommands(context);
-  const laboratoryCommands = createLaboratoryCommands(context);
   const assessmentCommands = createAssessmentPlanningCommands(context, {
-    generateLaboratory: laboratoryCommands.generateLaboratory,
     openSection: sectionCommands.openSection,
   });
   const projectLifecycleCommands = createProjectLifecycleCommands(context, {
@@ -21,7 +18,6 @@ export const createWorkspaceController = (
   });
 
   return {
-    ...laboratoryCommands,
     ...sectionCommands,
     ...projectLifecycleCommands,
     confirmPlanGeneration: assessmentCommands.confirmPlanGeneration,

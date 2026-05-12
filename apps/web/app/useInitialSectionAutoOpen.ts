@@ -1,13 +1,14 @@
 // fallow-ignore-file unused-files
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, type LearningPlan, type LearningSection } from '../types.ts';
+import { AppState, type LearningPlan, type LessonNode } from '../types.ts';
+import { flattenLessons } from '../utils/learning/pathNodes.ts';
 
 interface UseInitialSectionAutoOpenArgs {
-  activeSection: LearningSection | null;
+  activeSection: LessonNode | null;
   currentProjectId: string | null;
   isBlocking: boolean;
   learningPlan: LearningPlan | null;
-  openSection: (section: LearningSection) => Promise<unknown>;
+  openSection: (section: LessonNode) => Promise<unknown>;
   screenState: AppState;
 }
 
@@ -50,7 +51,9 @@ export const useInitialSectionAutoOpen = ({
       return;
     }
 
-    const planHasGeneratedContent = learningPlan.sections.some(section => Boolean(section.content));
+    const planHasGeneratedContent = flattenLessons(learningPlan.modules).some(section =>
+      Boolean(section.content)
+    );
     const notes = learningPlan.generationNotes?.trim() || '';
     const ackKey = getPlanAcknowledgementKey({ currentProjectId, learningPlan });
     const shouldShowDialog =

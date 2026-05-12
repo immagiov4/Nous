@@ -26,6 +26,7 @@ import type {
   SavedProjectMeta,
   SectionAnnotationArtifactRef,
 } from '../../types.ts';
+import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import { buildLibraryScopeSummary } from '../../utils/library/assistant.ts';
 
 interface LibraryAssistantTools {
@@ -261,7 +262,7 @@ export const useLibraryAssistantChat = ({
           }
 
           const [snapshot] = await loadProjectsById([input.projectId]);
-          const lesson = snapshot?.learningPlan?.sections.find(
+          const lesson = flattenLessons(snapshot?.learningPlan?.modules).find(
             section => section.id === input.lessonId
           );
           if (!snapshot?.learningPlan || !lesson) {

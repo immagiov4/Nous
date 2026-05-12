@@ -1,6 +1,6 @@
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
-import type { FileData, LearningPlan, LearningSection } from './types.ts';
+import type { FileData, LearningSection } from './types.ts';
 
 const PDF_KEYWORD_STOP_WORDS = new Set([
   'about',
@@ -431,14 +431,14 @@ const pickPreferredPlanSection = (
 };
 
 export const dedupeLearningPlanSections = (
-  sections: LearningPlan['sections'],
+  sections: LearningSection[],
   sourceProfile?: Pick<PlanningSourceProfile, 'sizeTier'>
-): LearningPlan['sections'] => {
+): LearningSection[] => {
   if (sections.length < 2) {
     return sections;
   }
 
-  const exactDeduped: LearningPlan['sections'] = [];
+  const exactDeduped: LearningSection[] = [];
 
   sections.forEach(section => {
     const duplicateIndex = exactDeduped.findIndex(existing => {
@@ -463,7 +463,7 @@ export const dedupeLearningPlanSections = (
     return exactDeduped;
   }
 
-  const compactDeduped: LearningPlan['sections'] = [];
+  const compactDeduped: LearningSection[] = [];
 
   exactDeduped.forEach(section => {
     const previous = compactDeduped[compactDeduped.length - 1];

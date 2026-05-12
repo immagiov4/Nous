@@ -22,7 +22,6 @@ type SignatureInput =
       ProjectSnapshot,
       | 'source'
       | 'learningPlan'
-      | 'laboratory'
       | 'documentAssets'
       | 'documentIndex'
       | 'isLearnMode'
@@ -31,7 +30,6 @@ type SignatureInput =
       | 'researchCoursePlan'
       | 'researchDossiersBySectionId'
       | 'activeSectionId'
-      | 'activeLaboratoryExerciseId'
     >
   | WorkspaceDomainState;
 
@@ -39,7 +37,6 @@ export const buildPersistenceSignature = (snapshotLike: SignatureInput): string 
   JSON.stringify({
     source: buildSignaturePart(snapshotLike.source),
     learningPlan: buildSignaturePart(snapshotLike.learningPlan),
-    laboratory: buildSignaturePart(snapshotLike.laboratory ?? null),
     documentAssets: buildSignaturePart(snapshotLike.documentAssets ?? null),
     documentIndex: buildSignaturePart(snapshotLike.documentIndex ?? null),
     isLearnMode: snapshotLike.isLearnMode,
@@ -48,7 +45,6 @@ export const buildPersistenceSignature = (snapshotLike: SignatureInput): string 
     researchCoursePlan: buildSignaturePart(snapshotLike.researchCoursePlan ?? null),
     researchDossiersBySectionId: buildSignaturePart(snapshotLike.researchDossiersBySectionId ?? {}),
     activeSectionId: snapshotLike.activeSectionId,
-    activeLaboratoryExerciseId: snapshotLike.activeLaboratoryExerciseId,
   });
 
 // Reference-identity token used by the autosave-fast-path signature: avoids
@@ -77,7 +73,6 @@ export const buildAutosaveSignature = (snapshotLike: SignatureInput): string =>
   JSON.stringify({
     sourceRef: sourceIdentityToken(snapshotLike.source),
     learningPlan: buildSignaturePart(snapshotLike.learningPlan),
-    laboratory: buildSignaturePart(snapshotLike.laboratory ?? null),
     documentAssets: buildSignaturePart(snapshotLike.documentAssets ?? null),
     documentIndex: buildSignaturePart(snapshotLike.documentIndex ?? null),
     isLearnMode: snapshotLike.isLearnMode,
@@ -86,5 +81,4 @@ export const buildAutosaveSignature = (snapshotLike: SignatureInput): string =>
     researchCoursePlan: buildSignaturePart(snapshotLike.researchCoursePlan ?? null),
     researchDossiersBySectionId: buildSignaturePart(snapshotLike.researchDossiersBySectionId ?? {}),
     activeSectionId: snapshotLike.activeSectionId,
-    activeLaboratoryExerciseId: snapshotLike.activeLaboratoryExerciseId,
   });

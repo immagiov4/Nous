@@ -8,6 +8,7 @@ import {
 } from '../../../services/projects/projectArchive.ts';
 import { encodeBytesBase64 } from '../../../services/projects/projectSource.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
+import { buildTestLearningPlan } from '../../helpers/learningPlan.ts';
 
 const buildPdfSnapshot = (): ProjectSnapshot => {
   const pdfBytes = new Uint8Array([
@@ -28,18 +29,15 @@ const buildPdfSnapshot = (): ProjectSnapshot => {
         data: encodeBytesBase64(pdfBytes),
       },
     },
-    learningPlan: {
+    learningPlan: buildTestLearningPlan([], {
       title: 'Percorso',
       summary: 'Sintesi',
-      sections: [],
       backgroundMusicUrl: '',
-    },
-    laboratory: null,
+    }),
     isLearnMode: false,
     userProfile: null,
     syllabus: [],
     activeSectionId: null,
-    activeLaboratoryExerciseId: null,
     createdAt: '2026-04-03T00:00:00.000Z',
     updatedAt: '2026-04-03T00:00:00.000Z',
     lastOpenedAt: '2026-04-03T00:00:00.000Z',

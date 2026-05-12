@@ -7,13 +7,14 @@ import type {
 import type {
   ContextMenuState,
   LearningPlan,
-  LearningSection,
   LessonGeneratedVisual,
+  LessonNode,
   PdfTextIndex,
   ProjectSource,
   SectionAnnotationArtifactRef,
 } from '../../types.ts';
 import { buildContextSourceMaterial } from '../../utils/context/sourceMaterial.ts';
+import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import {
   applySectionAnnotation,
   createLessonSectionAnnotation,
@@ -60,7 +61,7 @@ interface UseWorkspaceReaderActionsArgs {
     sourceMaterial?: string;
     sourceName?: string;
   }) => void;
-  openSection: (section: LearningSection) => Promise<unknown>;
+  openSection: (section: LessonNode) => Promise<unknown>;
   patchSectionAnnotations: (
     sectionId: string,
     annotations: unknown,
@@ -72,10 +73,7 @@ interface UseWorkspaceReaderActionsArgs {
   sectionContent: string;
   setIsMobileSidebarOpen: (value: boolean) => void;
   source: ProjectSource | null;
-  updateSection: (
-    sectionId: string,
-    updater: (section: LearningSection) => LearningSection
-  ) => void;
+  updateSection: (sectionId: string, updater: (section: LessonNode) => LessonNode) => void;
 }
 
 const getErrorMessage = (error: unknown) => {
@@ -130,7 +128,9 @@ export const useWorkspaceReaderActions = ({
       return null;
     }
 
-    return learningPlan.sections.find(section => section.id === activeSectionId) || null;
+    return (
+      flattenLessons(learningPlan.modules).find(section => section.id === activeSectionId) || null
+    );
   }, [activeSectionId, learningPlan]);
 
   const handleContextQuestion = useCallback(
@@ -660,7 +660,7 @@ export const useWorkspaceReaderActions = ({
   }, [completeActiveSection, notify]);
 
   const handleSelectSection = useCallback(
-    (section: LearningSection) => {
+    (section: LessonNode) => {
       if (isMobileViewport) {
         setIsMobileSidebarOpen(false);
       }

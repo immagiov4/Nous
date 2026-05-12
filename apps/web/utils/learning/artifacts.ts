@@ -1,3 +1,4 @@
+import { groupSectionsIntoModules } from '../../services/learning/groupSectionsIntoModules.ts';
 import type {
   LearningArtifactRenderPayload,
   LearningArtifactSummary,
@@ -8,6 +9,7 @@ import type {
   PdfImageAsset,
   ProjectSnapshot,
 } from '../../types.ts';
+import { flattenLessons } from './pathNodes.ts';
 
 interface CollectLearningArtifactPayloadsInput {
   projectTitle?: string;
@@ -204,7 +206,7 @@ export const collectLearningArtifactPayloads = ({
   const resolvedProjectTitle = projectTitle?.trim() || learningPlan.title || 'Corso';
   const imageAssetById = buildImageAssetMap(snapshot.documentAssets);
 
-  return learningPlan.sections.flatMap(section => {
+  return flattenLessons(learningPlan.modules).flatMap(section => {
     const placeholderOrder = readPlaceholderOrder(section.content || '');
     const imagePayloads = (section.imageRefs || []).flatMap(imageRef => {
       const asset = imageAssetById.get(imageRef.assetId);
@@ -312,7 +314,8 @@ export const collectSectionLearningArtifactPayloads = ({
       learningPlan: {
         title: projectTitle,
         summary: '',
-        sections: [section],
+        modules: groupSectionsIntoModules([section]),
+        applicationExercisePlanningStatus: 'not-run',
       },
       documentAssets: documentAssets ?? null,
     } as ProjectSnapshot,

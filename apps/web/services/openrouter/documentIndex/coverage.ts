@@ -1,4 +1,11 @@
-import type { LearningPlan, PdfTextChunk, PdfTextIndex, PdfTextPage } from '../../../types.ts';
+import type {
+  LearningPlan,
+  LessonNode,
+  PdfTextChunk,
+  PdfTextIndex,
+  PdfTextPage,
+} from '../../../types.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { timestampIso } from '../../../utils/time.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import {
@@ -15,7 +22,7 @@ type PageRangeSource = 'exact' | 'estimated' | 'mixed' | 'missing';
 interface PdfPlanLessonCoverage {
   lessonId: string;
   title: string;
-  type: LearningPlan['sections'][number]['type'];
+  type: LessonNode['type'];
   chunkCount: number;
   chunkIds: string[];
   coveredPageCount: number;
@@ -59,10 +66,10 @@ const buildPdfPlanCoverageReport = (
   const pageLayout = buildPdfPageTextLayout(pdfPages);
   const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
 
-  const lessonSpans = plan.sections
-    .filter(section => section.type !== 'summary')
-    .map(section => {
-      const primaryChunks = (section.primaryChunkIds || [])
+  const lessonSpans = flattenLessons(plan.modules)
+    .filter(lesson => lesson.type !== 'summary')
+    .map(lesson => {
+      const primaryChunks = (lesson.primaryChunkIds || [])
         .map(chunkId => indexById.get(chunkId))
         .filter((chunk): chunk is PdfTextChunk => Boolean(chunk));
       const chunkSpans = primaryChunks
@@ -79,13 +86,13 @@ const buildPdfPlanCoverageReport = (
 
       if (chunkSpans.length === 0) {
         return {
-          lessonId: section.id,
-          title: section.title,
-          type: section.type,
+          lessonId: lesson.id,
+          title: lesson.title,
+          type: lesson.type,
           chunkCount: primaryChunks.length,
           chunkIds: primaryChunks.map(chunk => chunk.id),
           coveredPageCount: 0,
-          coveredPages: [],
+          coveredPages: [] as number[],
           flags: ['missing-mapping'],
           pageRange: null,
           pageRangeLength: 0,
@@ -93,7 +100,7 @@ const buildPdfPlanCoverageReport = (
         } satisfies PdfPlanLessonCoverage;
       }
 
-      const coveredPages = Array.from(
+      const coveredPages: number[] = Array.from(
         new Set(chunkSpans.flatMap(span => expandPageRange(span.startPage, span.endPage)))
       ).sort((left, right) => left - right);
       const startPage = coveredPages[0];
@@ -103,9 +110,9 @@ const buildPdfPlanCoverageReport = (
       const flags: string[] = [];
 
       return {
-        lessonId: section.id,
-        title: section.title,
-        type: section.type,
+        lessonId: lesson.id,
+        title: lesson.title,
+        type: lesson.type,
         chunkCount: primaryChunks.length,
         chunkIds: primaryChunks.map(chunk => chunk.id),
         coveredPageCount,
@@ -114,10 +121,10 @@ const buildPdfPlanCoverageReport = (
         pageRange: formatPageRange(startPage, endPage),
         pageRangeLength,
         pageRangeSource: chunkSpans.every(span => span.exact)
-          ? 'exact'
+          ? ('exact' as const)
           : chunkSpans.some(span => span.exact)
-            ? 'mixed'
-            : 'estimated',
+            ? ('mixed' as const)
+            : ('estimated' as const),
       } satisfies PdfPlanLessonCoverage;
     });
 

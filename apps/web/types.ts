@@ -333,61 +333,81 @@ export interface LearningSection {
 export interface LearningPlan {
   title: string;
   summary: string;
-  sections: LearningSection[];
+  modules: LearningModule[];
+  applicationExercisePlanningStatus: ApplicationExercisePlanningStatus;
+  applicationExercisePlanningNotes?: string;
+  applicationExercisePlanningError?: ApplicationExercisePlanningError;
   backgroundMusicUrl?: string; // Optional field for YouTube background music
   generationNotes?: string; // Per-course user notes that steer lesson generation style/tone
 }
 
-export type LaboratoryAttachmentKind = 'archive' | 'binary' | 'image' | 'text';
-export type LaboratoryStateStatus = 'failed' | 'idle' | 'pending' | 'ready';
+// === Application exercises (new path nodes) ===
 
-export interface LaboratoryAttachment {
+export type ExerciseAttachmentKind = 'archive' | 'text';
+
+export interface ExerciseAttachment {
   id: string;
   name: string;
   mimeType: string;
-  kind: LaboratoryAttachmentKind;
-  data: string; // Base64
+  kind: ExerciseAttachmentKind;
+  data: string; // plain text for kind='text'; base64 for kind='archive'
   description?: string;
+  truncated: boolean;
+  truncatedReason?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface LaboratoryExerciseEvaluation {
-  caveats: string[];
-  confidenceScore: number;
-  confidenceSummary: string;
+export interface ExerciseFeedback {
   evaluatedAt: string;
-  improvements: string[];
   score: number;
+  qualitativeLabel: string;
+  summary: string;
   strengths: string[];
-  summary: string;
+  improvements: string[];
+  caveats: string[];
+  verifiedSources?: ResearchSourceReference[];
 }
 
-export interface LaboratoryExercise {
-  attachments: LaboratoryAttachment[];
-  approachMarkdown: string;
-  brief: string;
-  evaluation: LaboratoryExerciseEvaluation | null;
-  exampleMarkdown: string;
-  generatedAt: string;
+export interface ApplicationExerciseNode {
+  kind: 'exercise';
   id: string;
-  internalNotes: string[];
-  instructionsMarkdown: string;
-  requirements: string[];
-  sourceChunkIds?: string[];
   title: string;
+  description: string;
+  assessedObjective: string;
+  brief?: string;
+  internalText?: string;
+  attachments: ExerciseAttachment[];
+  currentFeedback: ExerciseFeedback | null;
+  bestScore?: number;
+  completedAt?: string;
+  isCompleted: boolean;
+  feedbackStale: boolean;
+  groundingSources?: ResearchSourceReference[];
+  generatedAt?: string;
   updatedAt: string;
 }
 
-export interface LaboratoryState {
-  errorMessage?: string;
-  exercises: LaboratoryExercise[];
-  generatedAt?: string;
-  schemaVersion: number;
-  status: LaboratoryStateStatus;
-  summary: string;
+export interface LessonNode extends Omit<LearningSection, 'moduleTitle'> {
+  kind: 'lesson';
+}
+
+export type PathNode = LessonNode | ApplicationExerciseNode;
+
+export interface LearningModule {
+  id: string;
   title: string;
-  updatedAt: string;
+  description?: string;
+  type?: 'prerequisite' | 'core' | 'summary' | 'deep-dive';
+  children: PathNode[];
+}
+
+export type ApplicationExercisePlanningStatus = 'not-run' | 'completed' | 'failed';
+
+export interface ApplicationExercisePlanningError {
+  message: string;
+  attempts: number;
+  lastAttemptAt: string;
 }
 
 export interface SavedProjectMeta {
@@ -399,6 +419,8 @@ export interface SavedProjectMeta {
   lastOpenedAt: string;
   lessonCount: number;
   completedCount: number;
+  exerciseCount: number;
+  completedExercises: number;
   hasSourceFile: boolean;
   coverLabel: string;
   syncState: ProjectSyncState;
@@ -411,14 +433,12 @@ export interface ProjectSnapshot {
   state: AppState;
   source: ProjectSource | null;
   learningPlan: LearningPlan | null;
-  laboratory: LaboratoryState | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
   researchCoursePlan?: ResearchCoursePlan | null;
   researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId: string | null;
-  activeLaboratoryExerciseId: string | null;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
@@ -433,14 +453,12 @@ export interface ProjectExportData {
   file?: FileData | null; // Legacy import fallback for older exports
   source?: ProjectSource | null;
   learningPlan: LearningPlan | null;
-  laboratory?: LaboratoryState | null;
   isLearnMode: boolean;
   userProfile: UserProfile | null;
   syllabus: SyllabusItem[];
   researchCoursePlan?: ResearchCoursePlan | null;
   researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId?: string | null;
-  activeLaboratoryExerciseId?: string | null;
   musicUrl?: string;
   sourceKind?: ProjectSourceKind;
   documentAssets?: PdfDocumentAssets | null;
@@ -570,7 +588,6 @@ export interface AudioState {
 export interface WorkspaceDomainState {
   source: ProjectSource | null;
   learningPlan: LearningPlan | null;
-  laboratory: LaboratoryState | null;
   documentAssets: PdfDocumentAssets | null;
   documentIndex: PdfTextIndex | null;
   isLearnMode: boolean;
@@ -579,5 +596,4 @@ export interface WorkspaceDomainState {
   researchCoursePlan?: ResearchCoursePlan | null;
   researchDossiersBySectionId?: ResearchDossiersBySectionId;
   activeSectionId: string | null;
-  activeLaboratoryExerciseId: string | null;
 }

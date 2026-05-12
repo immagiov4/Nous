@@ -13,10 +13,12 @@ import {
   AppState,
   type FileData,
   type HomeChatToolPreferences,
+  type LessonNode,
   type Message,
   type SyllabusItem,
   type UserProfile,
 } from '../../../types.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { readSourceFileData } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
@@ -27,14 +29,7 @@ import type {
 } from './types.ts';
 
 interface AssessmentPlanningDependencies {
-  generateLaboratory: (options?: { force?: boolean; openFirstExercise?: boolean }) => Promise<{
-    errorMessage?: string;
-    outcome: 'failed' | 'generated' | 'noop';
-  }>;
-  openSection: (
-    section: import('../../../types.ts').LearningSection,
-    options?: OpenSectionOptions
-  ) => Promise<OpenSectionOutcome>;
+  openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
 }
 
 const DEFAULT_ASSESSMENT_GREETING =
@@ -161,7 +156,7 @@ const getSeededAssessmentQuestion = (session: {
 
 export const createAssessmentPlanningCommands = (
   context: WorkspaceControllerContext,
-  { generateLaboratory }: AssessmentPlanningDependencies
+  _: AssessmentPlanningDependencies
 ) => {
   const { domain, openRouter, projectLibrary, sleep, state } = context;
 
@@ -317,7 +312,7 @@ export const createAssessmentPlanningCommands = (
         domain.setIsLearnMode(true);
         state.setScreenState(AppState.READING);
 
-        const firstSection = plan.sections[0] || null;
+        const firstSection = flattenLessons(plan.modules)[0] || null;
         if (firstSection) {
           const projectId = projectLibrary.currentProjectId || createProjectId();
           if (!projectLibrary.currentProjectId) {
@@ -341,12 +336,6 @@ export const createAssessmentPlanningCommands = (
               activeSectionId: firstSection.id,
             })
           );
-          void generateLaboratory({ openFirstExercise: false }).catch(error => {
-            console.error(
-              '[Nous][Laboratory] Background generation failed after learn planning.',
-              error
-            );
-          });
         }
       } else {
         const sourceFile = domain.file ?? getProjectSourceFile(domain.source);
@@ -384,7 +373,7 @@ export const createAssessmentPlanningCommands = (
         domain.setDocumentIndex(prepared.documentIndex);
         state.setScreenState(AppState.READING);
 
-        const firstSection = prepared.learningPlan.sections[0] || null;
+        const firstSection = flattenLessons(prepared.learningPlan.modules)[0] || null;
         if (firstSection) {
           const projectId = projectLibrary.currentProjectId || createProjectId();
           if (!projectLibrary.currentProjectId) {
@@ -406,12 +395,6 @@ export const createAssessmentPlanningCommands = (
               activeSectionId: firstSection.id,
             })
           );
-          void generateLaboratory({ openFirstExercise: false }).catch(error => {
-            console.error(
-              '[Nous][Laboratory] Background generation failed after document planning.',
-              error
-            );
-          });
         }
       }
 

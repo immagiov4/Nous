@@ -6,7 +6,6 @@ import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
 const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
-  activeLaboratoryExercise,
   activeSectionTitle,
   activeSidebarGroup,
   hasActiveSection,
@@ -18,7 +17,6 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   isMobileViewport,
   isMusicPlaying,
   isSettingsOpen,
-  laboratoryTitle,
   lastAudioTab,
   learningPlanTitle,
   loadingStatus,
@@ -27,7 +25,6 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   musicVolume,
   onBackToLibrary,
   onOpenSidebar,
-  onRegenerateActiveLaboratoryExercise,
   onRegenerateActiveSection,
   onSetDarkMode,
   onSetCourseGenerationNotes,
@@ -47,16 +44,9 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const regenerateConfirmRef = useRef<HTMLDivElement>(null);
-  const activeContentTitle =
-    activeLaboratoryExercise?.title || activeSectionTitle || learningPlanTitle || 'Lezione';
-  const activeContentGroupTitle = activeLaboratoryExercise
-    ? laboratoryTitle || 'Laboratorio'
-    : activeSidebarGroup?.title || learningPlanTitle || 'Percorso';
-  const canRegenerate = Boolean(activeLaboratoryExercise || hasActiveSection);
-  const regenerateSubjectLabel = activeLaboratoryExercise ? 'esercizio' : 'lezione';
-  const regenerateDefiniteArticle = activeLaboratoryExercise ? 'il' : 'la';
-  const regenerateIndefiniteArticle = activeLaboratoryExercise ? 'un' : 'una';
-  const regenerateDemonstrative = activeLaboratoryExercise ? 'questo' : 'questa';
+  const activeContentTitle = activeSectionTitle || learningPlanTitle || 'Lezione';
+  const activeContentGroupTitle = activeSidebarGroup?.title || learningPlanTitle || 'Percorso';
+  const canRegenerate = hasActiveSection;
 
   useEffect(() => {
     if (!isRegenerateConfirmOpen) {
@@ -79,10 +69,10 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   }, [isRegenerateConfirmOpen]);
 
   useEffect(() => {
-    if ((!hasActiveSection && !activeLaboratoryExercise) || isLoading) {
+    if (!hasActiveSection || isLoading) {
       setIsRegenerateConfirmOpen(false);
     }
-  }, [activeLaboratoryExercise, hasActiveSection, isLoading]);
+  }, [hasActiveSection, isLoading]);
 
   const handleRegenerateIntent = () => {
     if (!canRegenerate || isLoading) {
@@ -99,11 +89,6 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
 
   const handleConfirmRegenerate = () => {
     setIsRegenerateConfirmOpen(false);
-    if (activeLaboratoryExercise) {
-      onRegenerateActiveLaboratoryExercise();
-      return;
-    }
-
     onRegenerateActiveSection();
   };
   const visibleLoadingStatus = isMobileViewport ? loadingStatus : loadingStatus.toUpperCase();
@@ -213,9 +198,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                   : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
               }`}
               title={
-                canRegenerate
-                  ? `Rigenera ${regenerateDefiniteArticle} ${regenerateSubjectLabel} corrente`
-                  : `Apri ${regenerateIndefiniteArticle} ${regenerateSubjectLabel} per rigenerarlo`
+                canRegenerate ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
               }
               aria-expanded={isRegenerateConfirmOpen}
               aria-haspopup="dialog"
@@ -234,12 +217,11 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                   className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
                 >
                   <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                    {`Rigenerare ${regenerateDemonstrative} ${regenerateSubjectLabel}?`}
+                    Rigenerare questa lezione?
                   </p>
                   <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                    {activeLaboratoryExercise
-                      ? 'La traccia verrà riscritta e gli allegati correnti potrebbero non essere più coerenti con la nuova consegna.'
-                      : 'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'}
+                    Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti
+                    perdere il contenuto attuale.
                   </p>
                   <div className="mt-4 flex items-center justify-end gap-2">
                     <button
@@ -270,12 +252,11 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                 className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
               >
                 <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                  {`Rigenerare ${regenerateDemonstrative} ${regenerateSubjectLabel}?`}
+                  Rigenerare questa lezione?
                 </p>
                 <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                  {activeLaboratoryExercise
-                    ? 'La traccia verrà riscritta e gli allegati correnti potrebbero non essere più coerenti con la nuova consegna.'
-                    : 'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'}
+                  Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti
+                  perdere il contenuto attuale.
                 </p>
                 <div className="mt-4 flex items-center justify-end gap-2">
                   <button

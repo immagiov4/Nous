@@ -11,6 +11,7 @@ import type {
   UserProfile,
 } from '../../types.ts';
 import { timestampIso } from '../../utils/time.ts';
+import { groupSectionsIntoModules } from '../learning/groupSectionsIntoModules.ts';
 import {
   MEDIUM_REASONING_CONFIG,
   MODEL_REASONING,
@@ -198,10 +199,8 @@ export const buildLearningPlanFromResearchCourse = (
   profile: UserProfile,
   researchCoursePlan: ResearchCoursePlan,
   syllabus: SyllabusItem[]
-): LearningPlan => ({
-  title: researchCoursePlan.title || profile.topic,
-  summary: researchCoursePlan.summary || profile.context,
-  sections: syllabus.flatMap(module =>
+): LearningPlan => {
+  const sections: LearningSection[] = syllabus.flatMap(module =>
     (module.children || []).map(lesson => ({
       id: lesson.id,
       title: lesson.title,
@@ -211,8 +210,15 @@ export const buildLearningPlanFromResearchCourse = (
       parentId: module.id,
       contextPrompt: lesson.contextPrompt,
     }))
-  ),
-});
+  );
+
+  return {
+    title: researchCoursePlan.title || profile.topic,
+    summary: researchCoursePlan.summary || profile.context,
+    modules: groupSectionsIntoModules(sections),
+    applicationExercisePlanningStatus: 'not-run',
+  };
+};
 
 const buildCoursePlanResearchPrompt = (profile: UserProfile): string => {
   const topic = profile.topic || 'General knowledge';

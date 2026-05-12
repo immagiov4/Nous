@@ -1,7 +1,7 @@
 import type {
-  LaboratoryState,
   LearningPlan,
-  LearningSection,
+  LessonNode,
+  PathNode,
   PdfDocumentAssets,
   PdfTextIndex,
   ProjectSnapshot,
@@ -14,12 +14,12 @@ import type {
   UserProfile,
   WorkspaceDomainState,
 } from '../../types';
+import { findPathNodeById } from '../../utils/learning/pathNodes.ts';
 import { insertSectionAfterSubtree } from '../../utils/learning/sectionTree.ts';
 
 export const createEmptyWorkspaceDomainState = (): WorkspaceDomainState => ({
   source: null,
   learningPlan: null,
-  laboratory: null,
   documentAssets: null,
   documentIndex: null,
   isLearnMode: false,
@@ -28,7 +28,6 @@ export const createEmptyWorkspaceDomainState = (): WorkspaceDomainState => ({
   researchCoursePlan: null,
   researchDossiersBySectionId: {},
   activeSectionId: null,
-  activeLaboratoryExerciseId: null,
 });
 
 export type WorkspaceDomainAction =
@@ -36,7 +35,6 @@ export type WorkspaceDomainAction =
   | { type: 'hydrate'; snapshot: ProjectSnapshot }
   | { type: 'set-source'; source: ProjectSource | null }
   | { type: 'set-learning-plan'; learningPlan: LearningPlan | null }
-  | { type: 'set-laboratory'; laboratory: LaboratoryState | null }
   | { type: 'set-document-assets'; documentAssets: PdfDocumentAssets | null }
   | { type: 'set-document-index'; documentIndex: PdfTextIndex | null }
   | { type: 'set-learn-mode'; isLearnMode: boolean }
@@ -49,7 +47,6 @@ export type WorkspaceDomainAction =
       researchDossiersBySectionId: ResearchDossiersBySectionId;
     }
   | { type: 'set-active-section'; activeSectionId: string | null }
-  | { type: 'set-active-laboratory-exercise'; activeLaboratoryExerciseId: string | null }
   | { type: 'set-music-url'; musicUrl: string }
   | { type: 'set-generation-notes'; generationNotes: string }
   | { type: 'update-active-section-content'; content: string }
@@ -57,9 +54,9 @@ export type WorkspaceDomainAction =
   | {
       type: 'update-section';
       sectionId: string;
-      updater: (section: LearningSection) => LearningSection;
+      updater: (section: LessonNode) => LessonNode;
     }
-  | { type: 'insert-section-after'; parentSectionId: string; section: LearningSection };
+  | { type: 'insert-section-after'; parentSectionId: string; section: LessonNode };
 
 const updateLearningPlan = (
   state: WorkspaceDomainState,
@@ -75,15 +72,44 @@ const updateLearningPlan = (
   };
 };
 
-const updateSectionInPlan = (
+const updateLessonInPlan = (
   learningPlan: LearningPlan,
   sectionId: string,
-  updater: (section: LearningSection) => LearningSection
+  updater: (lesson: LessonNode) => LessonNode
 ): LearningPlan => ({
   ...learningPlan,
-  sections: learningPlan.sections.map(section =>
-    section.id === sectionId ? updater(section) : section
-  ),
+  modules: learningPlan.modules.map(module => ({
+    ...module,
+    children: module.children.map(child =>
+      child.kind === 'lesson' && child.id === sectionId ? updater(child) : child
+    ),
+  })),
+});
+
+const insertLessonAfterAnchorInPlan = (
+  learningPlan: LearningPlan,
+  anchorSectionId: string,
+  newLesson: LessonNode
+): LearningPlan => ({
+  ...learningPlan,
+  modules: learningPlan.modules.map(module => {
+    const containsAnchor = module.children.some(
+      child => child.kind === 'lesson' && child.id === anchorSectionId
+    );
+    if (!containsAnchor) {
+      return module;
+    }
+    // Sub-chapter insertion only applies among lessons in this module.
+    const lessons = module.children.filter((child): child is LessonNode => child.kind === 'lesson');
+    const exercises = module.children.filter(
+      (child): child is PathNode => child.kind === 'exercise'
+    );
+    const reorderedLessons = insertSectionAfterSubtree(lessons, anchorSectionId, newLesson);
+    return {
+      ...module,
+      children: [...reorderedLessons, ...exercises],
+    };
+  }),
 });
 
 export const workspaceDomainReducer = (
@@ -98,7 +124,6 @@ export const workspaceDomainReducer = (
       return {
         source: action.snapshot.source,
         learningPlan: action.snapshot.learningPlan,
-        laboratory: action.snapshot.laboratory,
         documentAssets: action.snapshot.documentAssets ?? null,
         documentIndex: action.snapshot.documentIndex ?? null,
         isLearnMode: action.snapshot.isLearnMode,
@@ -107,7 +132,6 @@ export const workspaceDomainReducer = (
         researchCoursePlan: action.snapshot.researchCoursePlan ?? null,
         researchDossiersBySectionId: action.snapshot.researchDossiersBySectionId ?? {},
         activeSectionId: action.snapshot.activeSectionId,
-        activeLaboratoryExerciseId: action.snapshot.activeLaboratoryExerciseId,
       };
 
     case 'set-source':
@@ -120,12 +144,6 @@ export const workspaceDomainReducer = (
       return {
         ...state,
         learningPlan: action.learningPlan,
-      };
-
-    case 'set-laboratory':
-      return {
-        ...state,
-        laboratory: action.laboratory,
       };
 
     case 'set-document-assets':
@@ -185,12 +203,6 @@ export const workspaceDomainReducer = (
         activeSectionId: action.activeSectionId,
       };
 
-    case 'set-active-laboratory-exercise':
-      return {
-        ...state,
-        activeLaboratoryExerciseId: action.activeLaboratoryExerciseId,
-      };
-
     case 'set-music-url':
       return updateLearningPlan(state, learningPlan => ({
         ...learningPlan,
@@ -209,8 +221,8 @@ export const workspaceDomainReducer = (
       }
 
       return updateLearningPlan(state, learningPlan =>
-        updateSectionInPlan(learningPlan, state.activeSectionId as string, section => ({
-          ...section,
+        updateLessonInPlan(learningPlan, state.activeSectionId as string, lesson => ({
+          ...lesson,
           content: action.content,
         }))
       );
@@ -221,39 +233,32 @@ export const workspaceDomainReducer = (
       }
 
       return updateLearningPlan(state, learningPlan =>
-        updateSectionInPlan(learningPlan, state.activeSectionId as string, section => ({
-          ...section,
+        updateLessonInPlan(learningPlan, state.activeSectionId as string, lesson => ({
+          ...lesson,
           quiz: action.quiz,
         }))
       );
 
     case 'update-section':
       return updateLearningPlan(state, learningPlan =>
-        updateSectionInPlan(learningPlan, action.sectionId, action.updater)
+        updateLessonInPlan(learningPlan, action.sectionId, action.updater)
       );
 
     case 'insert-section-after':
-      return updateLearningPlan(state, learningPlan => {
-        return {
-          ...learningPlan,
-          sections: insertSectionAfterSubtree(
-            learningPlan.sections,
-            action.parentSectionId,
-            action.section
-          ),
-        };
-      });
+      return updateLearningPlan(state, learningPlan =>
+        insertLessonAfterAnchorInPlan(learningPlan, action.parentSectionId, action.section)
+      );
   }
 };
 
 export const selectActiveSection = (
   state: WorkspaceDomainState | Pick<WorkspaceDomainState, 'learningPlan' | 'activeSectionId'>
-): LearningSection | null => {
+): LessonNode | null => {
   if (!state.learningPlan || !state.activeSectionId) {
     return null;
   }
-
-  return state.learningPlan.sections.find(section => section.id === state.activeSectionId) ?? null;
+  const node = findPathNodeById(state.learningPlan.modules, state.activeSectionId);
+  return node?.kind === 'lesson' ? node : null;
 };
 
 export const selectMusicUrl = (

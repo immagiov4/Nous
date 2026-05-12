@@ -9,7 +9,13 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../../types.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { buildLibraryTree } from '../../../utils/library/tree.ts';
+import {
+  buildTestLearningPlan,
+  buildTestLesson,
+  buildTestProjectMeta,
+} from '../../helpers/learningPlan.ts';
 
 const folders: LibraryFolder[] = [
   {
@@ -23,45 +29,36 @@ const folders: LibraryFolder[] = [
 ];
 
 const projects: SavedProjectMeta[] = [
-  {
+  buildTestProjectMeta({
     id: 'project-1',
     title: 'TypeScript Base',
-    sourceKind: 'document',
     createdAt: '2026-04-02T10:00:00.000Z',
     updatedAt: '2026-04-02T10:00:00.000Z',
     lastOpenedAt: '2026-04-02T10:00:00.000Z',
     lessonCount: 2,
     completedCount: 1,
-    hasSourceFile: true,
     coverLabel: 'PDF',
-    syncState: 'local-only',
-  },
-  {
+  }),
+  buildTestProjectMeta({
     id: 'project-2',
     title: 'React Hooks',
-    sourceKind: 'document',
     createdAt: '2026-04-03T10:00:00.000Z',
     updatedAt: '2026-04-03T10:00:00.000Z',
     lastOpenedAt: '2026-04-03T10:00:00.000Z',
     lessonCount: 1,
     completedCount: 0,
-    hasSourceFile: true,
     coverLabel: 'PDF',
-    syncState: 'local-only',
-  },
-  {
+  }),
+  buildTestProjectMeta({
     id: 'project-3',
     title: 'Rust Systems',
-    sourceKind: 'document',
     createdAt: '2026-04-04T10:00:00.000Z',
     updatedAt: '2026-04-04T10:00:00.000Z',
     lastOpenedAt: '2026-04-04T10:00:00.000Z',
     lessonCount: 1,
     completedCount: 0,
-    hasSourceFile: true,
     coverLabel: 'PDF',
-    syncState: 'local-only',
-  },
+  }),
 ];
 
 const placements: LibraryPlacement[] = [
@@ -92,90 +89,96 @@ const buildSnapshot = (id: string, learningPlan: LearningPlan): ProjectSnapshot 
   state: 'READING',
   source: null,
   learningPlan,
-  laboratory: null,
   isLearnMode: false,
   userProfile: null,
   syllabus: [],
-  activeSectionId: learningPlan.sections[0]?.id || null,
-  activeLaboratoryExerciseId: null,
+  activeSectionId: flattenLessons(learningPlan.modules)[0]?.id || null,
   createdAt: '2026-04-02T10:00:00.000Z',
   updatedAt: '2026-04-02T10:00:00.000Z',
   lastOpenedAt: '2026-04-02T10:00:00.000Z',
 });
 
 const snapshots: ProjectSnapshot[] = [
-  buildSnapshot('project-1', {
-    title: 'TypeScript Base',
-    summary: 'Fondamenti del linguaggio',
-    sections: [
+  buildSnapshot(
+    'project-1',
+    buildTestLearningPlan(
+      [
+        buildTestLesson({
+          id: 'lesson-1',
+          title: 'Tipi primitivi',
+          description: 'String, number e boolean',
+          isCompleted: true,
+          content:
+            'Introduzione <mark data-lumina-annotation-id="annotation-1">tipi primitivi</mark> in TypeScript.',
+          annotations: [
+            {
+              id: 'annotation-1',
+              note: 'Questo passaggio mi interessa per chiarire le differenze con JavaScript.',
+              createdAt: '2026-04-02T10:00:00.000Z',
+              updatedAt: '2026-04-02T10:00:00.000Z',
+            },
+          ],
+        }),
+        buildTestLesson({
+          id: 'lesson-2',
+          title: 'Union types',
+          description: 'Comporre tipi multipli',
+          content: 'Le union types permettono varianti controllate.',
+          annotations: [],
+          generatedVisuals: [
+            {
+              id: 'visual-union',
+              title: 'mappa_union_types',
+              kind: 'svg',
+              code: '<svg viewBox="0 0 680 120"></svg>',
+              createdAt: '2026-04-02T11:00:00.000Z',
+            },
+          ],
+        }),
+      ],
       {
-        id: 'lesson-1',
-        title: 'Tipi primitivi',
-        description: 'String, number e boolean',
-        isCompleted: true,
-        type: 'core',
-        content:
-          'Introduzione <mark data-lumina-annotation-id="annotation-1">tipi primitivi</mark> in TypeScript.',
-        annotations: [
-          {
-            id: 'annotation-1',
-            note: 'Questo passaggio mi interessa per chiarire le differenze con JavaScript.',
-            createdAt: '2026-04-02T10:00:00.000Z',
-            updatedAt: '2026-04-02T10:00:00.000Z',
-          },
-        ],
-      },
+        title: 'TypeScript Base',
+        summary: 'Fondamenti del linguaggio',
+      }
+    )
+  ),
+  buildSnapshot(
+    'project-2',
+    buildTestLearningPlan(
+      [
+        buildTestLesson({
+          id: 'lesson-react-1',
+          title: 'useEffect',
+          description: 'Effetti e sincronizzazione',
+          content: 'useEffect gestisce effetti collaterali.',
+          annotations: [],
+          imageRefs: [{ assetId: 'pdf-img-react', alt: 'Ciclo useEffect' }],
+        }),
+      ],
       {
-        id: 'lesson-2',
-        title: 'Union types',
-        description: 'Comporre tipi multipli',
-        isCompleted: false,
-        type: 'core',
-        content: 'Le union types permettono varianti controllate.',
-        annotations: [],
-        generatedVisuals: [
-          {
-            id: 'visual-union',
-            title: 'mappa_union_types',
-            kind: 'svg',
-            code: '<svg viewBox="0 0 680 120"></svg>',
-            createdAt: '2026-04-02T11:00:00.000Z',
-          },
-        ],
-      },
-    ],
-  }),
-  buildSnapshot('project-2', {
-    title: 'React Hooks',
-    summary: 'State e side effects',
-    sections: [
+        title: 'React Hooks',
+        summary: 'State e side effects',
+      }
+    )
+  ),
+  buildSnapshot(
+    'project-3',
+    buildTestLearningPlan(
+      [
+        buildTestLesson({
+          id: 'lesson-rust-1',
+          title: 'Ownership',
+          description: 'Regole di possesso',
+          content: 'Ownership e borrowing governano la memoria.',
+          annotations: [],
+        }),
+      ],
       {
-        id: 'lesson-react-1',
-        title: 'useEffect',
-        description: 'Effetti e sincronizzazione',
-        isCompleted: false,
-        type: 'core',
-        content: 'useEffect gestisce effetti collaterali.',
-        annotations: [],
-        imageRefs: [{ assetId: 'pdf-img-react', alt: 'Ciclo useEffect' }],
-      },
-    ],
-  }),
-  buildSnapshot('project-3', {
-    title: 'Rust Systems',
-    summary: 'Ownership e borrowing',
-    sections: [
-      {
-        id: 'lesson-rust-1',
-        title: 'Ownership',
-        description: 'Regole di possesso',
-        isCompleted: false,
-        type: 'core',
-        content: 'Ownership e borrowing governano la memoria.',
-        annotations: [],
-      },
-    ],
-  }),
+        title: 'Rust Systems',
+        summary: 'Ownership e borrowing',
+      }
+    )
+  ),
 ];
 
 const tree = buildLibraryTree({

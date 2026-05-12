@@ -130,14 +130,16 @@ ${trimmedContent}`;
   const validatedQuiz = quizArray.filter((item): item is QuizQuestion => {
     if (!item || typeof item !== 'object') return false;
     const candidate = item as Partial<QuizQuestion>;
+    const correctIndex = candidate.correctIndex;
     return (
       typeof candidate.question === 'string' &&
       Array.isArray(candidate.options) &&
       candidate.options.length === LESSON_QUIZ_OPTION_COUNT &&
       candidate.options.every(option => typeof option === 'string') &&
-      typeof candidate.correctIndex === 'number' &&
-      candidate.correctIndex >= 0 &&
-      candidate.correctIndex < LESSON_QUIZ_OPTION_COUNT
+      Number.isInteger(correctIndex) &&
+      typeof correctIndex === 'number' &&
+      correctIndex >= 0 &&
+      correctIndex < LESSON_QUIZ_OPTION_COUNT
     );
   });
 

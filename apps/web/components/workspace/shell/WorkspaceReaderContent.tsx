@@ -9,7 +9,6 @@ import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
-import WorkspaceLaboratoryContent from '../laboratory/WorkspaceLaboratoryContent.tsx';
 import type { WorkspaceReaderContentModel } from './types.ts';
 import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
 import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
@@ -136,7 +135,6 @@ function LessonGenerationSkeleton({
 }
 
 const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
-  activeLaboratoryExercise,
   activeSectionTitle,
   activeSectionAssetsById,
   activeSectionGeneratedVisualsById = {},
@@ -146,20 +144,11 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   isDarkMode,
   isFocusMode,
   isLoading,
-  isLaboratoryEvaluating,
-  isLaboratoryGenerating,
-  isLaboratoryView,
   isMobileViewport,
-  laboratoryReasoningText,
   onCompleteSection,
-  onAddLaboratoryTextAttachment,
-  onAttachLaboratoryFiles,
   onContentClick,
   onContentContextMenu,
   onContentPointerDownCapture,
-  onEvaluateActiveLaboratoryExercise,
-  onGenerateLaboratory,
-  onRemoveLaboratoryAttachment,
   onSelectQuizAnswer,
   quiz,
   quizAnswers,
@@ -167,15 +156,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   sectionAnnotations,
   sectionContent,
   sectionReasoningText,
-  laboratoryActivityMessage,
-  laboratoryErrorMessage,
-  laboratorySourcePageRangeLabel,
-  laboratoryStatus,
-  laboratorySummary,
-  laboratoryTitle,
   sourcePageRangeLabel,
-  onUpdateLaboratoryAttachmentMetadata,
-  onUpdateLaboratoryTextAttachment,
 }: WorkspaceReaderContentModel) {
   const [isContextHintVisible, setIsContextHintVisible] = useState(false);
   const readingShellClassName = isFocusMode
@@ -249,12 +230,12 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   const shouldShowLessonSkeleton = isLoading || Boolean(activeSectionTitle && !sectionContent);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || isLaboratoryView || !sectionContent) {
+    if (typeof window === 'undefined' || !sectionContent) {
       return;
     }
 
     setIsContextHintVisible(window.localStorage.getItem(CONTEXT_MENU_HINT_STORAGE_KEY) !== 'true');
-  }, [isLaboratoryView, sectionContent]);
+  }, [sectionContent]);
 
   const dismissContextHint = () => {
     setIsContextHintVisible(false);
@@ -282,74 +263,52 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       className={scrollContainerClassName}
       style={{ touchAction: shouldShowLessonSkeleton ? 'none' : 'pan-y' }}
     >
-      {isLaboratoryView ? (
-        <WorkspaceLaboratoryContent
-          activeExercise={activeLaboratoryExercise}
-          activityMessage={laboratoryActivityMessage}
-          activityStreamText={laboratoryReasoningText}
-          isDarkMode={isDarkMode}
-          isEvaluating={isLaboratoryEvaluating}
-          isGenerating={isLaboratoryGenerating}
-          laboratoryErrorMessage={laboratoryErrorMessage}
-          sourcePageRangeLabel={laboratorySourcePageRangeLabel}
-          laboratoryStatus={laboratoryStatus}
-          laboratorySummary={laboratorySummary}
-          laboratoryTitle={laboratoryTitle}
-          onAddTextAttachment={onAddLaboratoryTextAttachment}
-          onAttachFiles={onAttachLaboratoryFiles}
-          onEvaluate={onEvaluateActiveLaboratoryExercise}
-          onGenerate={onGenerateLaboratory}
-          onRemoveAttachment={onRemoveLaboratoryAttachment}
-          onUpdateAttachmentMetadata={onUpdateLaboratoryAttachmentMetadata}
-          onUpdateTextAttachment={onUpdateLaboratoryTextAttachment}
-        />
-      ) : (
-        <div
-          className={`mx-auto w-full min-w-0 transition-all duration-500 ${readingShellClassName}`}
+      <div
+        className={`mx-auto w-full min-w-0 transition-all duration-500 ${readingShellClassName}`}
+      >
+        <section
+          ref={contentRef}
+          className="mb-8 min-h-[50vh] min-w-0"
+          onPointerDownCapture={onContentPointerDownCapture}
         >
-          <section
-            ref={contentRef}
-            className="mb-8 min-h-[50vh] min-w-0"
-            onPointerDownCapture={onContentPointerDownCapture}
-          >
-            {shouldShowLessonSkeleton ? (
-              <LessonGenerationSkeleton
-                isDarkMode={isDarkMode}
-                isMobileViewport={isMobileViewport}
-                lessonTitle={activeSectionTitle}
-                reasoningText={sectionReasoningText}
-              />
-            ) : sectionContent ? (
-              <div className={`${readingColumnClassName} space-y-2`}>
-                {isContextHintVisible ? (
-                  <div className="mb-6 flex items-start gap-3 rounded-2xl border border-orange-200/80 bg-orange-50/80 px-4 py-3 text-sm leading-6 text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/25 dark:text-orange-100">
-                    <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                    <p className="min-w-0 flex-1">
-                      Seleziona un passaggio e fai click destro per chiedere spiegazioni, aggiungere
-                      una nota o creare una lezione di approfondimento.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={dismissContextHint}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-orange-600 transition-colors hover:bg-orange-100 hover:text-orange-800 dark:text-orange-200 dark:hover:bg-orange-900/40"
-                      aria-label="Nascondi suggerimento selezione testo"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : null}
-                {inlineQuizLayout.map(chunk => (
-                  <div key={`${chunk.questionIndexes.join('-')}::${chunk.markdown.slice(0, 64)}`}>
-                    <MarkdownRenderer
-                      content={chunk.markdown}
-                      generatedVisualsById={activeSectionGeneratedVisualsById}
-                      isDarkMode={isDarkMode}
-                      lessonAssetsById={activeSectionAssetsById}
-                      lessonImageRefsById={activeSectionImageRefsById}
-                      onClick={onContentClick}
-                      onContextMenu={onContentContextMenu}
-                      sectionAnnotations={sectionAnnotations}
-                      className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
+          {shouldShowLessonSkeleton ? (
+            <LessonGenerationSkeleton
+              isDarkMode={isDarkMode}
+              isMobileViewport={isMobileViewport}
+              lessonTitle={activeSectionTitle}
+              reasoningText={sectionReasoningText}
+            />
+          ) : sectionContent ? (
+            <div className={`${readingColumnClassName} space-y-2`}>
+              {isContextHintVisible ? (
+                <div className="mb-6 flex items-start gap-3 rounded-2xl border border-orange-200/80 bg-orange-50/80 px-4 py-3 text-sm leading-6 text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/25 dark:text-orange-100">
+                  <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+                  <p className="min-w-0 flex-1">
+                    Seleziona un passaggio e fai click destro per chiedere spiegazioni, aggiungere
+                    una nota o creare una lezione di approfondimento.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={dismissContextHint}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-orange-600 transition-colors hover:bg-orange-100 hover:text-orange-800 dark:text-orange-200 dark:hover:bg-orange-900/40"
+                    aria-label="Nascondi suggerimento selezione testo"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : null}
+              {inlineQuizLayout.map(chunk => (
+                <div key={`${chunk.questionIndexes.join('-')}::${chunk.markdown.slice(0, 64)}`}>
+                  <MarkdownRenderer
+                    content={chunk.markdown}
+                    generatedVisualsById={activeSectionGeneratedVisualsById}
+                    isDarkMode={isDarkMode}
+                    lessonAssetsById={activeSectionAssetsById}
+                    lessonImageRefsById={activeSectionImageRefsById}
+                    onClick={onContentClick}
+                    onContextMenu={onContentContextMenu}
+                    sectionAnnotations={sectionAnnotations}
+                    className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
                       prose-p:text-gray-800 dark:prose-p:text-gray-200
                       prose-headings:font-serif prose-headings:font-normal
                       prose-headings:text-gray-900 dark:prose-headings:text-white
@@ -357,102 +316,101 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                       prose-strong:text-orange-800 dark:prose-strong:text-orange-400
                       ${isDarkMode ? 'prose-invert' : ''}
                     `}
-                    />
+                  />
 
-                    {chunk.questionIndexes.map(questionIndex => {
-                      const question = quiz[questionIndex];
-                      if (!question) {
-                        return null;
-                      }
+                  {chunk.questionIndexes.map(questionIndex => {
+                    const question = quiz[questionIndex];
+                    if (!question) {
+                      return null;
+                    }
 
-                      return (
-                        <WorkspaceReaderInlineQuestion
-                          key={`${question.question}-${questionIndex}`}
-                          isDarkMode={isDarkMode}
-                          onSelectQuizAnswer={onSelectQuizAnswer}
-                          question={question}
-                          questionIndex={questionIndex}
-                          selectedIndex={quizAnswers[questionIndex] ?? -1}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
+                    return (
+                      <WorkspaceReaderInlineQuestion
+                        key={`${question.question}-${questionIndex}`}
+                        isDarkMode={isDarkMode}
+                        onSelectQuizAnswer={onSelectQuizAnswer}
+                        question={question}
+                        questionIndex={questionIndex}
+                        selectedIndex={quizAnswers[questionIndex] ?? -1}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
 
-                {sectionArtifactPayloads.length > 0 ? (
-                  <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
-                    <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
-                      Artefatti
-                    </h2>
-                    <ChatArtifactRenderer
-                      artifacts={sectionArtifactPayloads}
-                      className="grid gap-2 sm:grid-cols-2"
-                      isDarkMode={isDarkMode}
-                    />
-                  </section>
-                ) : null}
+              {sectionArtifactPayloads.length > 0 ? (
+                <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
+                  <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
+                    Artefatti
+                  </h2>
+                  <ChatArtifactRenderer
+                    artifacts={sectionArtifactPayloads}
+                    className="grid gap-2 sm:grid-cols-2"
+                    isDarkMode={isDarkMode}
+                  />
+                </section>
+              ) : null}
 
-                {lessonAnnotations.length > 0 ? (
-                  <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
-                    <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
-                      Artefatti della lezione
-                    </h2>
-                    {lessonAnnotations.map(annotation => {
-                      const annotationArtifacts = resolveAnnotationArtifactPayloads({
-                        activeSectionGeneratedVisualsById,
-                        activeSectionTitle,
-                        annotation,
-                        artifactPayloadById,
-                      });
-                      const hasNoteText = annotation.note?.trim().length > 0;
+              {lessonAnnotations.length > 0 ? (
+                <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
+                  <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
+                    Artefatti della lezione
+                  </h2>
+                  {lessonAnnotations.map(annotation => {
+                    const annotationArtifacts = resolveAnnotationArtifactPayloads({
+                      activeSectionGeneratedVisualsById,
+                      activeSectionTitle,
+                      annotation,
+                      artifactPayloadById,
+                    });
+                    const hasNoteText = annotation.note?.trim().length > 0;
 
-                      return (
-                        <article key={annotation.id}>
-                          {hasNoteText ? (
-                            <div className="rounded-[1.2rem] border border-stone-200/80 bg-white/80 px-4 py-4 shadow-[0_12px_34px_-30px_rgba(46,34,16,0.45)] dark:border-stone-700 dark:bg-stone-900/35">
-                              <MarkdownRenderer
-                                content={annotation.note}
-                                isDarkMode={isDarkMode}
-                                className={`prose-sm max-w-none leading-6 text-stone-800 dark:text-stone-100 ${
-                                  isDarkMode ? 'prose-invert' : ''
-                                }`}
-                              />
-                            </div>
-                          ) : null}
-                          {annotationArtifacts.length > 0 ? (
-                            <div className={hasNoteText ? 'mt-3' : ''}>
-                              <ChatArtifactRenderer
-                                artifacts={annotationArtifacts}
-                                className="grid gap-2 sm:grid-cols-2"
-                                isDarkMode={isDarkMode}
-                              />
-                            </div>
-                          ) : null}
-                        </article>
-                      );
-                    })}
-                  </section>
-                ) : null}
+                    return (
+                      <article key={annotation.id}>
+                        {hasNoteText ? (
+                          <div className="rounded-[1.2rem] border border-stone-200/80 bg-white/80 px-4 py-4 shadow-[0_12px_34px_-30px_rgba(46,34,16,0.45)] dark:border-stone-700 dark:bg-stone-900/35">
+                            <MarkdownRenderer
+                              content={annotation.note}
+                              isDarkMode={isDarkMode}
+                              className={`prose-sm max-w-none leading-6 text-stone-800 dark:text-stone-100 ${
+                                isDarkMode ? 'prose-invert' : ''
+                              }`}
+                            />
+                          </div>
+                        ) : null}
+                        {annotationArtifacts.length > 0 ? (
+                          <div className={hasNoteText ? 'mt-3' : ''}>
+                            <ChatArtifactRenderer
+                              artifacts={annotationArtifacts}
+                              className="grid gap-2 sm:grid-cols-2"
+                              isDarkMode={isDarkMode}
+                            />
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </section>
+              ) : null}
 
-                <WorkspaceReaderQuizFooter
-                  canComplete={canCompleteSection}
-                  onCompleteSection={onCompleteSection}
-                  remainingQuestionCount={unansweredQuestionCount}
-                />
-              </div>
-            ) : (
-              <div className="mt-16 flex flex-col items-center text-center text-gray-400 sm:mt-20">
-                <BookOpen className="mb-4 h-16 w-16 opacity-20" />
-                <p>
-                  {isMobileViewport
-                    ? 'Apri il menu lezioni per scegliere cosa leggere.'
-                    : 'Seleziona una sezione dal piano di studi per iniziare.'}
-                </p>
-              </div>
-            )}
-          </section>
-        </div>
-      )}
+              <WorkspaceReaderQuizFooter
+                canComplete={canCompleteSection}
+                onCompleteSection={onCompleteSection}
+                remainingQuestionCount={unansweredQuestionCount}
+              />
+            </div>
+          ) : (
+            <div className="mt-16 flex flex-col items-center text-center text-gray-400 sm:mt-20">
+              <BookOpen className="mb-4 h-16 w-16 opacity-20" />
+              <p>
+                {isMobileViewport
+                  ? 'Apri il menu lezioni per scegliere cosa leggere.'
+                  : 'Seleziona una sezione dal piano di studi per iniziare.'}
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 });

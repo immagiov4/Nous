@@ -6,12 +6,10 @@ import type {
 import type {
   AudioPanelTab,
   ContextMenuState,
-  LaboratoryExercise,
-  LaboratoryStateStatus,
   LearningArtifactRenderPayload,
-  LearningSection,
   LessonGeneratedVisual,
   LessonImageRef,
+  LessonNode,
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
   OpenRouterModelSlot,
@@ -86,23 +84,16 @@ export interface WorkspaceReaderVoiceOption {
 }
 
 export interface WorkspaceReaderSidebarModel {
-  activeLaboratoryExerciseId: string | null;
   activeSectionId: string | null;
   expandedModuleId: string | null;
   generatingSectionId: string | null;
   isLoading: boolean;
   isMobileViewport: boolean;
-  laboratoryExercises: LaboratoryExercise[];
-  laboratoryStatus: LaboratoryStateStatus | null;
-  laboratoryTitle: string;
   learningPlanTitle: string;
   onBackToLibrary: () => void;
   onExportProject: () => void;
-  onGenerateLaboratory: () => void;
-  onRegenerateLaboratoryIndex?: () => void;
   onModuleToggle: (groupId: string) => void;
-  onSelectLaboratoryExercise: (exerciseId: string) => void;
-  onSelectSection: (section: LearningSection) => void;
+  onSelectSection: (section: LessonNode) => void;
   onSetFocusMode: (value: boolean) => void;
   onSetIsMobileSidebarOpen: (value: boolean) => void;
   shouldShowSidebar: boolean;
@@ -138,7 +129,6 @@ export interface WorkspaceReaderTtsModel {
 export interface WorkspaceReaderHeaderModel {
   lastAudioTab: AudioPanelTab;
   onSetLastAudioTab: (tab: AudioPanelTab) => void;
-  activeLaboratoryExercise: LaboratoryExercise | null;
   activeSectionId: string | null;
   activeSectionTitle: string | null;
   activeSidebarGroup: SidebarGroup | null;
@@ -147,12 +137,10 @@ export interface WorkspaceReaderHeaderModel {
   isDarkMode: boolean;
   isFocusMode: boolean;
   isLoading: boolean;
-  isLaboratoryView: boolean;
   isMobileSidebarOpen: boolean;
   isMobileViewport: boolean;
   isMusicPlaying: boolean;
   isSettingsOpen: boolean;
-  laboratoryTitle: string;
   learningPlanTitle: string;
   loadingStatus: string;
   modelDefaults: OpenRouterModelDefaults;
@@ -160,7 +148,6 @@ export interface WorkspaceReaderHeaderModel {
   musicVolume: number;
   onBackToLibrary: () => void;
   onOpenSidebar: () => void;
-  onRegenerateActiveLaboratoryExercise: () => void;
   onRegenerateActiveSection: () => void;
   onSetDarkMode: (value: boolean) => void;
   onSetCourseGenerationNotes: (value: string) => void;
@@ -178,7 +165,6 @@ export interface WorkspaceReaderHeaderModel {
 }
 
 export interface WorkspaceReaderContentModel {
-  activeLaboratoryExercise: LaboratoryExercise | null;
   activeSectionTitle?: string | null;
   activeSectionAssetsById: Record<string, PdfImageAsset>;
   activeSectionGeneratedVisualsById?: Record<string, LessonGeneratedVisual>;
@@ -188,37 +174,14 @@ export interface WorkspaceReaderContentModel {
   isDarkMode: boolean;
   isFocusMode: boolean;
   isLoading: boolean;
-  isLaboratoryEvaluating: boolean;
-  isLaboratoryGenerating: boolean;
-  isLaboratoryView: boolean;
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
-  laboratoryActivityMessage?: string;
-  laboratoryReasoningText?: string;
-  laboratoryErrorMessage?: string;
-  laboratorySourcePageRangeLabel?: string;
-  laboratoryStatus: LaboratoryStateStatus | null;
-  laboratorySummary: string;
-  laboratoryTitle: string;
-  onAddLaboratoryTextAttachment: () => void;
-  onAttachLaboratoryFiles: (files: FileList | null) => void;
   onCompleteSection: () => void;
   onContentClick: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
-  onEvaluateActiveLaboratoryExercise: () => void;
-  onGenerateLaboratory: () => void;
-  onRemoveLaboratoryAttachment: (attachmentId: string) => void;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
   onSetIsQuizSubmitted: (value: boolean) => void;
-  onUpdateLaboratoryAttachmentMetadata: (
-    attachmentId: string,
-    updates: { description?: string; name?: string }
-  ) => void;
-  onUpdateLaboratoryTextAttachment: (
-    attachmentId: string,
-    updates: { content: string; name?: string }
-  ) => void;
   quiz: QuizQuestion[];
   quizAnswers: number[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;

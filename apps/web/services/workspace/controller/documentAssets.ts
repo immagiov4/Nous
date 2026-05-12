@@ -1,4 +1,5 @@
 import type { LearningPlan, PdfDocumentAssets, PdfImageAsset } from '../../../types.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 
 export const mergeDocumentAssetsForPlan = (
   nextPlan: LearningPlan,
@@ -11,7 +12,7 @@ export const mergeDocumentAssetsForPlan = (
   }
 
   const referencedAssetIds = new Set(
-    nextPlan.sections.flatMap(section =>
+    flattenLessons(nextPlan.modules).flatMap(section =>
       (section.imageRefs || []).map(imageRef => imageRef.assetId)
     )
   );

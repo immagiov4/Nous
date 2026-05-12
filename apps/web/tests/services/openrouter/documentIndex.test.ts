@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test, vi } from 'vitest';
 import type { FileData, LearningPlan, PdfTextIndex } from '../../../types.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 const getPdfTextSessionMock = vi.fn();
 const callOpenRouterMock = vi.fn();
@@ -33,18 +35,23 @@ const { buildPdfTextIndex, preparePdfLessonMappings } = await import(
 
 const buildChunkId = (index: number): string => `chunk-${String(index).padStart(3, '0')}`;
 
-const buildPlan = (sectionCount: number): LearningPlan => ({
-  title: 'Game Engine Architecture',
-  summary: 'Large PDF mapping test',
-  sections: Array.from({ length: sectionCount }, (_, index) => ({
-    id: `section-${index + 1}`,
-    title: `Lesson ${index + 1}`,
-    description: `Detailed description for lesson ${index + 1}`,
-    isCompleted: false,
-    type: 'core' as const,
-    moduleTitle: `Module ${Math.floor(index / 4) + 1}`,
-  })),
-});
+const buildPlan = (sectionCount: number): LearningPlan =>
+  buildTestLearningPlan(
+    Array.from({ length: sectionCount }, (_, index) =>
+      buildTestLesson({
+        id: `section-${index + 1}`,
+        title: `Lesson ${index + 1}`,
+        description: `Detailed description for lesson ${index + 1}`,
+        moduleTitle: `Module ${Math.floor(index / 4) + 1}`,
+      })
+    ),
+    {
+      title: 'Game Engine Architecture',
+      summary: 'Large PDF mapping test',
+    }
+  );
+
+const getLessons = (plan: LearningPlan) => flattenLessons(plan.modules);
 
 const buildDocumentIndex = (chunkCount: number): PdfTextIndex => ({
   kind: 'pdf-text-index',
@@ -88,18 +95,22 @@ test('preparePdfLessonMappings batches large mapping prompts and trims chunk con
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(0, 8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 11)],
-        })),
+        mappings: getLessons(plan)
+          .slice(0, 8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 11)],
+          })),
       })
     )
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 31)],
-        })),
+        mappings: getLessons(plan)
+          .slice(8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 31)],
+          })),
       })
     );
 
@@ -119,10 +130,11 @@ test('preparePdfLessonMappings batches large mapping prompts and trims chunk con
     assert.equal(options.temperature, 0);
   });
 
-  assert.deepEqual(result.learningPlan.sections[0]?.primaryChunkIds, [buildChunkId(11)]);
-  assert.deepEqual(result.learningPlan.sections[7]?.primaryChunkIds, [buildChunkId(18)]);
-  assert.deepEqual(result.learningPlan.sections[8]?.primaryChunkIds, [buildChunkId(31)]);
-  assert.deepEqual(result.learningPlan.sections[11]?.primaryChunkIds, [buildChunkId(34)]);
+  const resultLessons = getLessons(result.learningPlan);
+  assert.deepEqual(resultLessons[0]?.primaryChunkIds, [buildChunkId(11)]);
+  assert.deepEqual(resultLessons[7]?.primaryChunkIds, [buildChunkId(18)]);
+  assert.deepEqual(resultLessons[8]?.primaryChunkIds, [buildChunkId(31)]);
+  assert.deepEqual(resultLessons[11]?.primaryChunkIds, [buildChunkId(34)]);
   assert.equal(retryWithBackoffMock.mock.calls.length, 2);
   assert.ok(
     pushNousDebugTraceMock.mock.calls.some(
@@ -148,18 +160,22 @@ test('preparePdfLessonMappings narrows large PDF mapping prompts to positional c
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(0, 8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 12)],
-        })),
+        mappings: getLessons(plan)
+          .slice(0, 8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 12)],
+          })),
       })
     )
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 260)],
-        })),
+        mappings: getLessons(plan)
+          .slice(8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 260)],
+          })),
       })
     );
 
@@ -201,32 +217,35 @@ test('preparePdfLessonMappings deep-repairs unresolved lessons instead of persis
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(0, 8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 9)],
-        })),
+        mappings: getLessons(plan)
+          .slice(0, 8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 9)],
+          })),
       })
     )
     .mockRejectedValueOnce(new Error('batch failed'))
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: [{ lessonId: plan.sections[8]?.id, chunkIds: [buildChunkId(17)] }],
+        mappings: [{ lessonId: getLessons(plan)[8]?.id, chunkIds: [buildChunkId(17)] }],
       })
     )
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: [{ lessonId: plan.sections[9]?.id, chunkIds: [buildChunkId(18)] }],
+        mappings: [{ lessonId: getLessons(plan)[9]?.id, chunkIds: [buildChunkId(18)] }],
       })
     );
 
   const result = await preparePdfLessonMappings(pdfFile, plan, documentIndex);
 
-  assert.deepEqual(result.learningPlan.sections[0]?.primaryChunkIds, [buildChunkId(9)]);
-  assert.deepEqual(result.learningPlan.sections[7]?.primaryChunkIds, [buildChunkId(16)]);
-  assert.deepEqual(result.learningPlan.sections[8]?.primaryChunkIds, [buildChunkId(17)]);
-  assert.deepEqual(result.learningPlan.sections[9]?.primaryChunkIds, [buildChunkId(18)]);
-  assert.equal(result.learningPlan.sections[0]?.primaryChunkMappingSource, 'mapped');
-  assert.equal(result.learningPlan.sections[8]?.primaryChunkMappingSource, 'mapped');
+  const resultLessons = getLessons(result.learningPlan);
+  assert.deepEqual(resultLessons[0]?.primaryChunkIds, [buildChunkId(9)]);
+  assert.deepEqual(resultLessons[7]?.primaryChunkIds, [buildChunkId(16)]);
+  assert.deepEqual(resultLessons[8]?.primaryChunkIds, [buildChunkId(17)]);
+  assert.deepEqual(resultLessons[9]?.primaryChunkIds, [buildChunkId(18)]);
+  assert.equal(resultLessons[0]?.primaryChunkMappingSource, 'mapped');
+  assert.equal(resultLessons[8]?.primaryChunkMappingSource, 'mapped');
   assert.equal(callOpenRouterMock.mock.calls.length, 4);
   assert.ok(
     warnSpy.mock.calls.some(call =>
@@ -258,21 +277,23 @@ test('preparePdfLessonMappings uses a narrower prompt window and larger token bu
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(0, 8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 9)],
-        })),
+        mappings: getLessons(plan)
+          .slice(0, 8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 9)],
+          })),
       })
     )
     .mockRejectedValueOnce(new Error('batch failed'))
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: [{ lessonId: plan.sections[8]?.id, chunkIds: [buildChunkId(45)] }],
+        mappings: [{ lessonId: getLessons(plan)[8]?.id, chunkIds: [buildChunkId(45)] }],
       })
     )
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: [{ lessonId: plan.sections[9]?.id, chunkIds: [buildChunkId(52)] }],
+        mappings: [{ lessonId: getLessons(plan)[9]?.id, chunkIds: [buildChunkId(52)] }],
       })
     );
 
@@ -305,29 +326,32 @@ test('preparePdfLessonMappings retries a strict single-lesson repair when the fi
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(0, 8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 9)],
-        })),
+        mappings: getLessons(plan)
+          .slice(0, 8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 9)],
+          })),
       })
     )
     .mockRejectedValueOnce(new Error('batch failed'))
     .mockResolvedValueOnce('')
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: [{ lessonId: plan.sections[8]?.id, chunkIds: [buildChunkId(17)] }],
+        mappings: [{ lessonId: getLessons(plan)[8]?.id, chunkIds: [buildChunkId(17)] }],
       })
     )
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: [{ lessonId: plan.sections[9]?.id, chunkIds: [buildChunkId(18)] }],
+        mappings: [{ lessonId: getLessons(plan)[9]?.id, chunkIds: [buildChunkId(18)] }],
       })
     );
 
   const result = await preparePdfLessonMappings(pdfFile, plan, documentIndex);
 
-  assert.deepEqual(result.learningPlan.sections[8]?.primaryChunkIds, [buildChunkId(17)]);
-  assert.deepEqual(result.learningPlan.sections[9]?.primaryChunkIds, [buildChunkId(18)]);
+  const resultLessons = getLessons(result.learningPlan);
+  assert.deepEqual(resultLessons[8]?.primaryChunkIds, [buildChunkId(17)]);
+  assert.deepEqual(resultLessons[9]?.primaryChunkIds, [buildChunkId(18)]);
   assert.equal(callOpenRouterMock.mock.calls.length, 5);
   assert.equal(callOpenRouterMock.mock.calls[3]?.[0]?.response_format, undefined);
   assert.match(
@@ -351,10 +375,12 @@ test('preparePdfLessonMappings falls back when deep repair still cannot produce 
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(0, 8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 9)],
-        })),
+        mappings: getLessons(plan)
+          .slice(0, 8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 9)],
+          })),
       })
     )
     .mockRejectedValueOnce(new Error('batch failed'))
@@ -365,18 +391,13 @@ test('preparePdfLessonMappings falls back when deep repair still cannot produce 
 
   const result = await preparePdfLessonMappings(pdfFile, plan, documentIndex);
 
-  assert.deepEqual(result.learningPlan.sections[0]?.primaryChunkIds, [buildChunkId(9)]);
-  assert.deepEqual(result.learningPlan.sections[7]?.primaryChunkIds, [buildChunkId(16)]);
-  assert.deepEqual(result.learningPlan.sections[8]?.primaryChunkIds, [
-    buildChunkId(21),
-    buildChunkId(22),
-  ]);
-  assert.deepEqual(result.learningPlan.sections[9]?.primaryChunkIds, [
-    buildChunkId(23),
-    buildChunkId(24),
-  ]);
-  assert.equal(result.learningPlan.sections[8]?.primaryChunkMappingSource, 'fallback');
-  assert.equal(result.learningPlan.sections[9]?.primaryChunkMappingSource, 'fallback');
+  const resultLessons = getLessons(result.learningPlan);
+  assert.deepEqual(resultLessons[0]?.primaryChunkIds, [buildChunkId(9)]);
+  assert.deepEqual(resultLessons[7]?.primaryChunkIds, [buildChunkId(16)]);
+  assert.deepEqual(resultLessons[8]?.primaryChunkIds, [buildChunkId(21), buildChunkId(22)]);
+  assert.deepEqual(resultLessons[9]?.primaryChunkIds, [buildChunkId(23), buildChunkId(24)]);
+  assert.equal(resultLessons[8]?.primaryChunkMappingSource, 'fallback');
+  assert.equal(resultLessons[9]?.primaryChunkMappingSource, 'fallback');
 
   assert.ok(
     warnSpy.mock.calls.some(call =>
@@ -418,10 +439,12 @@ test('preparePdfLessonMappings falls back when deep repair requests fail', async
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        mappings: plan.sections.slice(0, 8).map((section, index) => ({
-          lessonId: section.id,
-          chunkIds: [buildChunkId(index + 9)],
-        })),
+        mappings: getLessons(plan)
+          .slice(0, 8)
+          .map((section, index) => ({
+            lessonId: section.id,
+            chunkIds: [buildChunkId(index + 9)],
+          })),
       })
     )
     .mockRejectedValueOnce(new Error('batch failed'))
@@ -430,16 +453,11 @@ test('preparePdfLessonMappings falls back when deep repair requests fail', async
 
   const result = await preparePdfLessonMappings(pdfFile, plan, documentIndex);
 
-  assert.deepEqual(result.learningPlan.sections[8]?.primaryChunkIds, [
-    buildChunkId(21),
-    buildChunkId(22),
-  ]);
-  assert.deepEqual(result.learningPlan.sections[9]?.primaryChunkIds, [
-    buildChunkId(23),
-    buildChunkId(24),
-  ]);
-  assert.equal(result.learningPlan.sections[8]?.primaryChunkMappingSource, 'fallback');
-  assert.equal(result.learningPlan.sections[9]?.primaryChunkMappingSource, 'fallback');
+  const resultLessons = getLessons(result.learningPlan);
+  assert.deepEqual(resultLessons[8]?.primaryChunkIds, [buildChunkId(21), buildChunkId(22)]);
+  assert.deepEqual(resultLessons[9]?.primaryChunkIds, [buildChunkId(23), buildChunkId(24)]);
+  assert.equal(resultLessons[8]?.primaryChunkMappingSource, 'fallback');
+  assert.equal(resultLessons[9]?.primaryChunkMappingSource, 'fallback');
   assert.ok(
     warnSpy.mock.calls.some(call =>
       String(call[0]).includes('Deep PDF remapping failed, continuing with fallback mapping')

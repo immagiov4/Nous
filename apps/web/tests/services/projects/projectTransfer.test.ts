@@ -15,7 +15,9 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../../types.ts';
+import { flattenLessons, flattenPathNodes } from '../../../utils/learning/pathNodes.ts';
 import { buildLibraryTree } from '../../../utils/library/tree.ts';
+import { buildTestLearningPlan, buildTestProjectMeta } from '../../helpers/learningPlan.ts';
 
 class InMemoryProjectRepository implements ProjectRepository {
   private folderCounter = 0;
@@ -98,20 +100,29 @@ class InMemoryProjectRepository implements ProjectRepository {
   saveProject = async (snapshot: ProjectSnapshot) => {
     this.projects.set(snapshot.id, snapshot);
     const meta: SavedProjectMeta = {
-      id: snapshot.id,
-      title: snapshot.learningPlan?.title || snapshot.id,
-      sourceKind: snapshot.sourceKind,
-      createdAt: snapshot.createdAt,
-      updatedAt: snapshot.updatedAt,
-      lastOpenedAt: snapshot.lastOpenedAt,
-      lessonCount: snapshot.learningPlan?.sections.length || 0,
-      completedCount:
-        snapshot.learningPlan?.sections.filter(section => section.isCompleted).length || 0,
-      hasSourceFile: Boolean(snapshot.source),
-      coverLabel: snapshot.learningPlan?.sections.length
-        ? `${snapshot.learningPlan.sections.length} lezioni`
-        : 'Bozza locale',
-      syncState: 'local-only',
+      ...buildTestProjectMeta({
+        id: snapshot.id,
+        title: snapshot.learningPlan?.title || snapshot.id,
+        sourceKind: snapshot.sourceKind,
+        createdAt: snapshot.createdAt,
+        updatedAt: snapshot.updatedAt,
+        lastOpenedAt: snapshot.lastOpenedAt,
+        lessonCount: flattenLessons(snapshot.learningPlan?.modules).length,
+        completedCount: flattenLessons(snapshot.learningPlan?.modules).filter(
+          section => section.isCompleted
+        ).length,
+        exerciseCount: flattenPathNodes(snapshot.learningPlan?.modules).filter(
+          node => node.kind === 'exercise'
+        ).length,
+        completedExercises: flattenPathNodes(snapshot.learningPlan?.modules).filter(
+          node => node.kind === 'exercise' && node.isCompleted
+        ).length,
+        hasSourceFile: Boolean(snapshot.source),
+        coverLabel: flattenLessons(snapshot.learningPlan?.modules).length
+          ? `${flattenLessons(snapshot.learningPlan?.modules).length} lezioni`
+          : 'Bozza locale',
+        syncState: 'local-only',
+      }),
     };
     this.metas.set(snapshot.id, meta);
     if (!this.placements.some(placement => placement.projectId === snapshot.id)) {
@@ -144,12 +155,10 @@ const createProjectWithMeta = (id: string, title: string) => {
   const snapshot = createProjectSnapshot({
     id,
     learningPlan: {
-      title,
-      summary: '',
-      sections: [],
+      ...buildTestLearningPlan([], { title, summary: '' }),
     },
   });
-  const meta: SavedProjectMeta = {
+  const meta: SavedProjectMeta = buildTestProjectMeta({
     id,
     title,
     sourceKind: 'learn-mode',
@@ -160,8 +169,7 @@ const createProjectWithMeta = (id: string, title: string) => {
     completedCount: 0,
     hasSourceFile: false,
     coverLabel: 'Percorso AI',
-    syncState: 'local-only',
-  };
+  });
 
   return { meta, snapshot };
 };
@@ -228,9 +236,7 @@ test('transferProjectToLanRepository keeps the local copy when LAN keeps a diffe
   const conflictingSnapshot = createProjectSnapshot({
     id: 'project-conflict',
     learningPlan: {
-      title: 'Corso diverso',
-      summary: '',
-      sections: [],
+      ...buildTestLearningPlan([], { title: 'Corso diverso', summary: '' }),
     },
   });
   await source.saveProject(snapshot);

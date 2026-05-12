@@ -29,6 +29,7 @@ import type {
   SectionAnnotationArtifactRef,
   WorkspaceDomainState,
 } from '../../types';
+import { findPathNodeById } from '../../utils/learning/pathNodes.ts';
 import { createLessonSectionAnnotation } from '../../utils/learning/sectionAnnotations.ts';
 import { buildLibraryTree } from '../../utils/library/tree.ts';
 import { timestampIso } from '../../utils/time.ts';
@@ -144,8 +145,6 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         source: overrides?.source !== undefined ? overrides.source : domainState.source,
         learningPlan:
           overrides?.learningPlan !== undefined ? overrides.learningPlan : domainState.learningPlan,
-        laboratory:
-          overrides?.laboratory !== undefined ? overrides.laboratory : domainState.laboratory,
         documentAssets:
           overrides?.documentAssets !== undefined
             ? overrides.documentAssets
@@ -170,10 +169,6 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
           overrides?.activeSectionId !== undefined
             ? overrides.activeSectionId
             : domainState.activeSectionId,
-        activeLaboratoryExerciseId:
-          overrides?.activeLaboratoryExerciseId !== undefined
-            ? overrides.activeLaboratoryExerciseId
-            : domainState.activeLaboratoryExerciseId,
         createdAt: overrides?.createdAt || currentProjectMeta?.createdAt,
         updatedAt: overrides?.updatedAt || timestampIso(),
         lastOpenedAt: overrides?.lastOpenedAt || currentProjectMeta?.lastOpenedAt,
@@ -258,13 +253,10 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
 
       if (overrides.activeSectionId !== undefined)
         patch.activeSectionId = overrides.activeSectionId;
-      if (overrides.activeLaboratoryExerciseId !== undefined)
-        patch.activeLaboratoryExerciseId = overrides.activeLaboratoryExerciseId;
       if (overrides.state !== undefined) patch.state = overrides.state;
       if (overrides.isLearnMode !== undefined) patch.isLearnMode = overrides.isLearnMode;
       if (overrides.source !== undefined) patch.source = overrides.source;
       if (overrides.learningPlan !== undefined) patch.learningPlan = overrides.learningPlan;
-      if (overrides.laboratory !== undefined) patch.laboratory = overrides.laboratory;
       if (overrides.userProfile !== undefined) patch.userProfile = overrides.userProfile;
       if (overrides.syllabus !== undefined) patch.syllabus = overrides.syllabus;
       if (overrides.researchCoursePlan !== undefined)
@@ -395,7 +387,8 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     }): Promise<{ annotationId?: string; error?: string; saved: boolean }> => {
       const snapshot = await projectRepositoryRef.current.loadProject(projectId);
       const learningPlan = snapshot?.learningPlan;
-      const section = learningPlan?.sections.find(candidate => candidate.id === lessonId);
+      const sectionNode = learningPlan ? findPathNodeById(learningPlan.modules, lessonId) : null;
+      const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
       if (!snapshot || !learningPlan || !section) {
         return { saved: false, error: 'Non ho trovato la lezione target in questo corso.' };
       }

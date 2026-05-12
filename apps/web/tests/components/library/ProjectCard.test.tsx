@@ -16,6 +16,8 @@ const project: SavedProjectMeta = {
   lastOpenedAt: '2026-05-07T10:00:00.000Z',
   lessonCount: 28,
   completedCount: 0,
+  exerciseCount: 0,
+  completedExercises: 0,
   hasSourceFile: true,
   coverLabel: 'Game_Engine_Architecture-en.pdf',
   syncState: 'local-only',

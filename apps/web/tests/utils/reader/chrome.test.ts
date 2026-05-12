@@ -17,6 +17,7 @@ const sidebarGroups: SidebarGroup[] = [
     title: 'Modulo A',
     sections: [
       {
+        kind: 'lesson',
         id: 'lesson-a1',
         title: 'Intro',
         description: 'Base',
@@ -33,6 +34,7 @@ const sidebarGroups: SidebarGroup[] = [
     title: 'Modulo B',
     sections: [
       {
+        kind: 'lesson',
         id: 'lesson-b1',
         title: 'Approfondimento',
         description: 'Step 2',

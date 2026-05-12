@@ -9,18 +9,15 @@ import {
   workspaceDomainReducer,
 } from '../../../services/workspace/domain.ts';
 import type { LearningPlan, WorkspaceDomainState } from '../../../types';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
-const learningPlan: LearningPlan = {
-  title: 'Percorso',
-  summary: 'Sintesi',
-  backgroundMusicUrl: 'https://example.com/music',
-  sections: [
-    {
+const learningPlan: LearningPlan = buildTestLearningPlan(
+  [
+    buildTestLesson({
       id: 'lesson-1',
       title: 'Introduzione',
       description: 'Intro',
-      isCompleted: false,
-      type: 'core',
       content: 'Contenuto iniziale',
       quiz: [
         {
@@ -29,9 +26,45 @@ const learningPlan: LearningPlan = {
           correctIndex: 1,
         },
       ],
-    },
+    }),
   ],
-};
+  {
+    title: 'Percorso',
+    summary: 'Sintesi',
+    backgroundMusicUrl: 'https://example.com/music',
+  }
+);
+
+const lesson = flattenLessons(learningPlan.modules)[0];
+
+const nestedPlan: LearningPlan = buildTestLearningPlan(
+  [
+    buildTestLesson({
+      id: 'lesson-1',
+      title: 'Introduzione',
+      description: 'Intro',
+    }),
+    buildTestLesson({
+      id: 'lesson-1-deep',
+      title: 'Dettaglio',
+      description: 'Figlia',
+      type: 'deep-dive',
+      parentId: 'lesson-1',
+    }),
+    buildTestLesson({
+      id: 'lesson-2',
+      title: 'Seguito',
+      description: 'Next',
+    }),
+  ],
+  {
+    title: 'Percorso',
+    summary: 'Sintesi',
+  }
+);
+
+const getLessonIds = (plan: LearningPlan | null): string[] =>
+  flattenLessons(plan?.modules).map(section => section.id);
 
 const buildState = (overrides: Partial<WorkspaceDomainState> = {}): WorkspaceDomainState => ({
   ...createEmptyWorkspaceDomainState(),
@@ -44,15 +77,15 @@ test('selectors derive active section content, quiz and music from the learning 
   const state = buildState();
 
   assert.equal(selectActiveSectionContent(state), 'Contenuto iniziale');
-  assert.deepEqual(selectActiveSectionQuiz(state), learningPlan.sections[0].quiz);
+  assert.deepEqual(selectActiveSectionQuiz(state), lesson.quiz);
   assert.equal(selectMusicUrl(state), 'https://example.com/music');
 });
 
-test('empty workspace domain state starts without laboratory data', () => {
+test('empty workspace domain state starts without active learning data', () => {
   const state = createEmptyWorkspaceDomainState();
 
-  assert.equal(state.laboratory, null);
-  assert.equal(state.activeLaboratoryExerciseId, null);
+  assert.equal(state.learningPlan, null);
+  assert.equal(state.activeSectionId, null);
 });
 
 test('needsSourceFile is derived instead of mutated manually', () => {
@@ -81,7 +114,7 @@ test('reducer updates the active section content inside the persisted learning p
     content: 'Contenuto aggiornato',
   });
 
-  assert.equal(nextState.learningPlan?.sections[0].content, 'Contenuto aggiornato');
+  assert.equal(flattenLessons(nextState.learningPlan?.modules)[0].content, 'Contenuto aggiornato');
   assert.equal(selectActiveSectionContent(nextState), 'Contenuto aggiornato');
 });
 
@@ -92,38 +125,10 @@ test('reducer can mark a section as completed without extra duplicate state', ()
     updater: section => ({ ...section, isCompleted: true }),
   });
 
-  assert.equal(nextState.learningPlan?.sections[0].isCompleted, true);
+  assert.equal(flattenLessons(nextState.learningPlan?.modules)[0].isCompleted, true);
 });
 
 test('reducer inserts a new section after the full subtree of its parent', () => {
-  const nestedPlan: LearningPlan = {
-    ...learningPlan,
-    sections: [
-      {
-        id: 'lesson-1',
-        title: 'Introduzione',
-        description: 'Intro',
-        isCompleted: false,
-        type: 'core',
-      },
-      {
-        id: 'lesson-1-deep',
-        title: 'Dettaglio',
-        description: 'Figlia',
-        isCompleted: false,
-        type: 'deep-dive',
-        parentId: 'lesson-1',
-      },
-      {
-        id: 'lesson-2',
-        title: 'Seguito',
-        description: 'Next',
-        isCompleted: false,
-        type: 'core',
-      },
-    ],
-  };
-
   const nextState = workspaceDomainReducer(
     buildState({
       learningPlan: nestedPlan,
@@ -131,19 +136,20 @@ test('reducer inserts a new section after the full subtree of its parent', () =>
     {
       type: 'insert-section-after',
       parentSectionId: 'lesson-1',
-      section: {
+      section: buildTestLesson({
         id: 'lesson-1-deep-2',
         title: 'Nuovo dettaglio',
         description: 'Nuova figlia',
-        isCompleted: false,
         type: 'deep-dive',
         parentId: 'lesson-1',
-      },
+      }),
     }
   );
 
-  assert.deepEqual(
-    nextState.learningPlan?.sections.map(section => section.id),
-    ['lesson-1', 'lesson-1-deep', 'lesson-1-deep-2', 'lesson-2']
-  );
+  assert.deepEqual(getLessonIds(nextState.learningPlan ?? null), [
+    'lesson-1',
+    'lesson-1-deep',
+    'lesson-1-deep-2',
+    'lesson-2',
+  ]);
 });
