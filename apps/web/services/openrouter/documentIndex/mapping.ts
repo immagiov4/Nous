@@ -99,12 +99,8 @@ interface ChunkMappingDescriptor {
 const getMappablePlanSections = (plan: LearningPlan): LessonNode[] =>
   flattenLessons(plan.modules).filter(lesson => lesson.type !== 'summary');
 
-const getMappableLessonsWithContext = (
-  plan: LearningPlan
-): LessonWithModuleContext[] =>
-  flattenLessonsWithModuleContext(plan.modules).filter(
-    entry => entry.lesson.type !== 'summary'
-  );
+const getMappableLessonsWithContext = (plan: LearningPlan): LessonWithModuleContext[] =>
+  flattenLessonsWithModuleContext(plan.modules).filter(entry => entry.lesson.type !== 'summary');
 
 const buildLessonDescriptor = (
   entry: LessonWithModuleContext,
@@ -432,10 +428,7 @@ const resolveMappingMaxTokens = (
   return Math.min(MAX_MAPPING_OUTPUT_TOKENS, Math.max(minTokens, lessonCount * tokensPerLesson));
 };
 
-const getTargetSectionsForMapping = (
-  plan: LearningPlan,
-  sectionIds?: string[]
-): LessonNode[] =>
+const getTargetSectionsForMapping = (plan: LearningPlan, sectionIds?: string[]): LessonNode[] =>
   getMappablePlanSections(plan).filter(lesson => !sectionIds || sectionIds.includes(lesson.id));
 
 const resolveFallbackCandidateChunks = (documentIndex: PdfTextIndex): PdfTextChunk[] => {
@@ -912,7 +905,9 @@ export const preparePdfLessonMappings = async (
       fileName: file.name,
       sectionCount: sectionsNeedingRepair.length,
       sectionTitles: sectionsNeedingRepair.slice(0, 8).map(sectionId => {
-        const lesson = flattenLessons(plan.modules).find(currentLesson => currentLesson.id === sectionId);
+        const lesson = flattenLessons(plan.modules).find(
+          currentLesson => currentLesson.id === sectionId
+        );
         return lesson?.title || sectionId;
       }),
     });
@@ -1013,11 +1008,15 @@ export const preparePdfLessonMappings = async (
       fallbackSectionCount: fallbackSectionIds.length,
       unresolvedSectionCount: unresolvedSectionIds.length,
       sectionTitles: sectionsNeedingRepair.slice(0, 8).map(sectionId => {
-        const lesson = flattenLessons(plan.modules).find(currentLesson => currentLesson.id === sectionId);
+        const lesson = flattenLessons(plan.modules).find(
+          currentLesson => currentLesson.id === sectionId
+        );
         return lesson?.title || sectionId;
       }),
       unresolvedSectionTitles: unresolvedSectionIds.slice(0, 8).map(sectionId => {
-        const lesson = flattenLessons(plan.modules).find(currentLesson => currentLesson.id === sectionId);
+        const lesson = flattenLessons(plan.modules).find(
+          currentLesson => currentLesson.id === sectionId
+        );
         return lesson?.title || sectionId;
       }),
     });

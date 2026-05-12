@@ -358,10 +358,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       };
     }
 
-    const parentNode = findPathNodeById(
-      domain.learningPlan.modules,
-      domain.activeSectionId
-    );
+    const parentNode = findPathNodeById(domain.learningPlan.modules, domain.activeSectionId);
     const parentSection = parentNode?.kind === 'lesson' ? parentNode : null;
     if (!parentSection) {
       return {
@@ -459,8 +456,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       });
 
       const mappedNewLesson =
-        flattenLessons(updatedPlan.modules).find(currentLesson => currentLesson.id === newLesson.id) ??
-        newLesson;
+        flattenLessons(updatedPlan.modules).find(
+          currentLesson => currentLesson.id === newLesson.id
+        ) ?? newLesson;
       state.succeedWorkflow('createLesson', requestId);
       try {
         await openSection(mappedNewLesson, {

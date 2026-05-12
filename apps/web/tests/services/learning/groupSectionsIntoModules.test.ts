@@ -81,6 +81,6 @@ describe('groupSectionsIntoModules', () => {
     const result = groupSectionsIntoModules([section('a', { moduleTitle: 'M' })]);
     const child = result[0].children[0];
     expect(child.kind).toBe('lesson');
-    expect((child as Record<string, unknown>).moduleTitle).toBeUndefined();
+    expect((child as unknown as Record<string, unknown>).moduleTitle).toBeUndefined();
   });
 });

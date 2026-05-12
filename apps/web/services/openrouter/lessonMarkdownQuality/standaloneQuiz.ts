@@ -17,45 +17,46 @@ const ACTIVE_PAUSE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(
   exercise => `- ${exercise.type}: ${exercise.instruction}`
 ).join('\n');
 
-const buildStandaloneQuizSchema = (exactQuizCount: number) => ({
-  name: 'nous_lesson_quiz_only',
-  strict: true,
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      quiz: {
-        type: 'array',
-        minItems: exactQuizCount,
-        maxItems: exactQuizCount,
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            exerciseType: {
-              type: 'string',
-              enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
+const buildStandaloneQuizSchema = (exactQuizCount: number) =>
+  ({
+    name: 'nous_lesson_quiz_only',
+    strict: true,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        quiz: {
+          type: 'array',
+          minItems: exactQuizCount,
+          maxItems: exactQuizCount,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              exerciseType: {
+                type: 'string',
+                enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
+              },
+              question: { type: 'string' },
+              options: {
+                type: 'array',
+                minItems: LESSON_QUIZ_OPTION_COUNT,
+                maxItems: LESSON_QUIZ_OPTION_COUNT,
+                items: { type: 'string' },
+              },
+              correctIndex: {
+                type: 'integer',
+                minimum: 0,
+                maximum: LESSON_QUIZ_OPTION_COUNT - 1,
+              },
             },
-            question: { type: 'string' },
-            options: {
-              type: 'array',
-              minItems: LESSON_QUIZ_OPTION_COUNT,
-              maxItems: LESSON_QUIZ_OPTION_COUNT,
-              items: { type: 'string' },
-            },
-            correctIndex: {
-              type: 'integer',
-              minimum: 0,
-              maximum: LESSON_QUIZ_OPTION_COUNT - 1,
-            },
+            required: ['exerciseType', 'question', 'options', 'correctIndex'],
           },
-          required: ['exerciseType', 'question', 'options', 'correctIndex'],
         },
       },
+      required: ['quiz'],
     },
-    required: ['quiz'],
-  },
-}) as const;
+  }) as const;
 
 export const generateStandaloneLessonQuiz = async (args: {
   contentMarkdown: string;
@@ -129,14 +130,16 @@ ${trimmedContent}`;
   const validatedQuiz = quizArray.filter((item): item is QuizQuestion => {
     if (!item || typeof item !== 'object') return false;
     const candidate = item as Partial<QuizQuestion>;
+    const correctIndex = candidate.correctIndex;
     return (
       typeof candidate.question === 'string' &&
       Array.isArray(candidate.options) &&
       candidate.options.length === LESSON_QUIZ_OPTION_COUNT &&
       candidate.options.every(option => typeof option === 'string') &&
-      Number.isInteger(candidate.correctIndex) &&
-      candidate.correctIndex! >= 0 &&
-      candidate.correctIndex! < LESSON_QUIZ_OPTION_COUNT
+      Number.isInteger(correctIndex) &&
+      typeof correctIndex === 'number' &&
+      correctIndex >= 0 &&
+      correctIndex < LESSON_QUIZ_OPTION_COUNT
     );
   });
 

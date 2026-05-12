@@ -3,12 +3,10 @@ import {
   ChevronRight,
   Copy,
   Download,
-  FlaskConical,
   LibraryBig,
   Loader2,
   Minus,
   SidebarClose,
-  Sparkles,
   X,
 } from 'lucide-react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
@@ -16,8 +14,6 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../../constants/layout.ts';
 import type { WorkspaceReaderSidebarModel } from './types.ts';
 
-const LAB_CONTEXT_MENU_WIDTH = 272;
-const LAB_CONTEXT_MENU_HEIGHT = 132;
 const LAB_CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const LESSON_CONTEXT_MENU_WIDTH = 272;
 const LESSON_CONTEXT_MENU_HEIGHT = 120;
@@ -90,82 +86,45 @@ const renderSectionStatus = ({
   );
 };
 
-const getLaboratoryExerciseStatusLabel = ({
-  isActive,
-  isCompleted,
-}: {
-  isActive: boolean;
-  isCompleted: boolean;
-}) => {
-  if (isCompleted) {
-    return 'Esercizio laboratorio completato';
-  }
-
-  if (isActive) {
-    return 'Esercizio laboratorio attivo';
-  }
-
-  return 'Esercizio laboratorio già generato';
-};
-
 const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
-  activeLaboratoryExerciseId,
   activeSectionId,
   expandedModuleId,
   generatingSectionId,
   isLoading,
   isMobileViewport,
-  laboratoryExercises,
-  laboratoryStatus,
-  laboratoryTitle,
   learningPlanTitle,
   onBackToLibrary,
   onExportProject,
-  onGenerateLaboratory,
-  onRegenerateLaboratoryIndex,
   onModuleToggle,
-  onSelectLaboratoryExercise,
   onSelectSection,
   onSetFocusMode,
   onSetIsMobileSidebarOpen,
   shouldShowSidebar,
   sidebarGroups,
 }: WorkspaceReaderSidebarModel) {
-  const [isLaboratoryExpanded, setIsLaboratoryExpanded] = useState(true);
-  const [laboratoryContextMenuPosition, setLaboratoryContextMenuPosition] = useState<null | {
-    x: number;
-    y: number;
-  }>(null);
   const [lessonContextMenu, setLessonContextMenu] = useState<null | {
     copied: boolean;
     section: WorkspaceReaderSidebarModel['sidebarGroups'][number]['sections'][number];
     x: number;
     y: number;
   }>(null);
-  const laboratoryContextMenuRef = useRef<HTMLDivElement>(null);
   const lessonContextMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!laboratoryContextMenuPosition && !lessonContextMenu) {
+    if (!lessonContextMenu) {
       return;
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (
-        !(event.target instanceof Node) ||
-        laboratoryContextMenuRef.current?.contains(event.target) ||
-        lessonContextMenuRef.current?.contains(event.target)
-      ) {
+      if (!(event.target instanceof Node) || lessonContextMenuRef.current?.contains(event.target)) {
         return;
       }
 
-      setLaboratoryContextMenuPosition(null);
       setLessonContextMenu(null);
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setLaboratoryContextMenuPosition(null);
         setLessonContextMenu(null);
       }
     };
@@ -177,31 +136,13 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       window.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [laboratoryContextMenuPosition, lessonContextMenu]);
-
-  const canOpenLaboratoryContextMenu = Boolean(
-    onRegenerateLaboratoryIndex && laboratoryStatus === 'ready'
-  );
-  const handleLaboratoryContextMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (!canOpenLaboratoryContextMenu) {
-      return;
-    }
-
-    event.preventDefault();
-    setLaboratoryContextMenuPosition({ x: event.clientX, y: event.clientY });
-  };
-
-  const handleRegenerateLaboratoryIndex = () => {
-    setLaboratoryContextMenuPosition(null);
-    onRegenerateLaboratoryIndex?.();
-  };
+  }, [lessonContextMenu]);
 
   const handleLessonContextMenu = (
     event: ReactMouseEvent<HTMLButtonElement>,
     section: WorkspaceReaderSidebarModel['sidebarGroups'][number]['sections'][number]
   ) => {
     event.preventDefault();
-    setLaboratoryContextMenuPosition(null);
     setLessonContextMenu({ copied: false, section, x: event.clientX, y: event.clientY });
   };
 
@@ -220,32 +161,6 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       console.error('[Nous][Debug] Failed to copy lesson markdown.', error);
     }
   };
-
-  const laboratoryContextMenuStyle = (() => {
-    if (!laboratoryContextMenuPosition) {
-      return undefined;
-    }
-
-    const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth;
-    const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight;
-
-    return {
-      left: Math.max(
-        LAB_CONTEXT_MENU_VIEWPORT_PADDING,
-        Math.min(
-          laboratoryContextMenuPosition.x,
-          viewportWidth - LAB_CONTEXT_MENU_WIDTH - LAB_CONTEXT_MENU_VIEWPORT_PADDING
-        )
-      ),
-      top: Math.max(
-        LAB_CONTEXT_MENU_VIEWPORT_PADDING,
-        Math.min(
-          laboratoryContextMenuPosition.y,
-          viewportHeight - LAB_CONTEXT_MENU_HEIGHT - LAB_CONTEXT_MENU_VIEWPORT_PADDING
-        )
-      ),
-    };
-  })();
 
   const lessonContextMenuStyle = (() => {
     if (!lessonContextMenu) {
@@ -272,22 +187,6 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       ),
     };
   })();
-
-  const renderLaboratoryExerciseStatus = (
-    exercise: WorkspaceReaderSidebarModel['laboratoryExercises'][number]
-  ) => {
-    if (exercise.evaluation) {
-      return <CheckCircle2 className="h-4 w-4 text-gray-600 dark:text-zinc-300" />;
-    }
-
-    if (activeLaboratoryExerciseId === exercise.id) {
-      return <span className="h-2.5 w-2.5 rounded-full bg-gray-600 dark:bg-zinc-300" />;
-    }
-
-    return (
-      <span className="h-3 w-3 rounded-full border border-gray-500/80 dark:border-zinc-300/80" />
-    );
-  };
 
   return (
     <>
@@ -454,119 +353,9 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                 );
               })}
             </div>
-
-            <section className="border-t border-gray-200/70 pt-4 dark:border-zinc-700/80">
-              <button
-                type="button"
-                onClick={() => setIsLaboratoryExpanded(currentValue => !currentValue)}
-                onContextMenu={handleLaboratoryContextMenu}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
-                  isLaboratoryExpanded
-                    ? 'text-gray-900 dark:text-gray-100'
-                    : 'text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-zinc-800/70 dark:hover:text-gray-200'
-                }`}
-              >
-                <ChevronRight
-                  className={`h-4 w-4 flex-shrink-0 transition-transform duration-300 ${
-                    isLaboratoryExpanded ? 'rotate-90' : ''
-                  }`}
-                />
-                <FlaskConical className="h-4 w-4 flex-shrink-0" />
-                <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.18em]">
-                  {laboratoryTitle || 'Laboratorio'}
-                </span>
-                {laboratoryStatus === 'pending' ? (
-                  <Sparkles className="h-4 w-4 animate-pulse text-gray-600 dark:text-zinc-300" />
-                ) : null}
-              </button>
-
-              {isLaboratoryExpanded ? (
-                <div className="mt-2 ml-5 space-y-1 border-l border-gray-200 pl-4 dark:border-zinc-700/80">
-                  {laboratoryExercises.length > 0 ? (
-                    laboratoryExercises.map(exercise => {
-                      const isActive = activeLaboratoryExerciseId === exercise.id;
-                      return (
-                        <button
-                          type="button"
-                          key={exercise.id}
-                          onClick={() => onSelectLaboratoryExercise(exercise.id)}
-                          disabled={isLoading}
-                          className={`flex w-full items-center gap-3 py-2 text-left transition-colors ${
-                            isActive
-                              ? 'text-gray-900 dark:text-gray-100'
-                              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-                          } ${isLoading ? 'cursor-not-allowed opacity-50' : ''}`}
-                        >
-                          <div
-                            className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
-                            title={getLaboratoryExerciseStatusLabel({
-                              isActive,
-                              isCompleted: Boolean(exercise.evaluation),
-                            })}
-                          >
-                            {renderLaboratoryExerciseStatus(exercise)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div
-                              className={`truncate text-sm ${isActive ? 'font-medium' : 'font-normal'}`}
-                              title={exercise.title}
-                            >
-                              {exercise.title}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={onGenerateLaboratory}
-                      disabled={isLoading || laboratoryStatus === 'pending'}
-                      className={`flex w-full items-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600 ${
-                        isLoading || laboratoryStatus === 'pending'
-                          ? 'cursor-not-allowed opacity-60'
-                          : ''
-                      }`}
-                    >
-                      <Sparkles className="ml-3 h-3.5 w-3.5" />
-                      {laboratoryStatus === 'pending'
-                        ? 'Generazione in corso...'
-                        : 'Genera laboratorio'}
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </section>
           </div>
         </div>
       </aside>
-
-      {/* TODO: Remove this temporary full-laboratory regeneration entry point after manual QA no longer needs lab-wide reindexing. */}
-      {laboratoryContextMenuPosition && onRegenerateLaboratoryIndex ? (
-        <div
-          ref={laboratoryContextMenuRef}
-          role="menu"
-          aria-label="Azioni laboratorio"
-          className="fixed z-[90] w-[17rem] rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.28)] dark:border-zinc-600/80 dark:bg-stone-800"
-          style={laboratoryContextMenuStyle}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={handleRegenerateLaboratoryIndex}
-            disabled={isLoading || laboratoryStatus === 'pending'}
-            className={`flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-medium text-gray-800 transition-colors hover:bg-gray-100 dark:text-zinc-100 dark:hover:bg-stone-700 ${
-              isLoading || laboratoryStatus === 'pending' ? 'cursor-not-allowed opacity-60' : ''
-            }`}
-          >
-            Rigenera intero laboratorio
-          </button>
-          <p className="px-3 pb-2 pt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-            Temporaneo per QA del laboratorio. Va rimosso quando non servirà più rigenerare l'intero
-            indice separatamente dal corso.
-          </p>
-        </div>
-      ) : null}
 
       {/* TODO: Remove this temporary lesson markdown debug copy action after renderer QA is complete. */}
       {lessonContextMenu ? (

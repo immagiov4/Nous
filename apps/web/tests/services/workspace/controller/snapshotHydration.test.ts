@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../../../../services/laboratory/state.ts';
 import { prepareSnapshotForHydration } from '../../../../services/workspace/controller/snapshotHydration.ts';
 import { AppState, type ProjectSnapshot } from '../../../../types.ts';
+import { flattenLessons } from '../../../../utils/learning/pathNodes.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../../helpers/learningPlan.ts';
+
+const CURRENT_LEGACY_LABORATORY_SCHEMA_VERSION = 3;
 
 test('prepareSnapshotForHydration normalizes persisted lesson markdown code blocks', () => {
   const snapshot: ProjectSnapshot = {
@@ -11,27 +14,22 @@ test('prepareSnapshotForHydration normalizes persisted lesson markdown code bloc
     sourceKind: 'document',
     state: AppState.READING,
     source: null,
-    learningPlan: {
-      title: 'Percorso',
-      summary: 'Test',
-      sections: [
-        {
+    learningPlan: buildTestLearningPlan(
+      [
+        buildTestLesson({
           id: 'section-1',
           title: 'Ownership',
           description: 'Dettagli',
-          type: 'core',
-          isCompleted: false,
           content:
             'Esempio:\n\ncpp\nMapNode Map::getNode(v3s16 p, bool *is_valid_position)\n\nLa funzione restituisce un nodo.',
-        },
+        }),
       ],
-    },
-    laboratory: null,
+      { title: 'Percorso', summary: 'Test' }
+    ),
     isLearnMode: false,
     userProfile: null,
     syllabus: [],
     activeSectionId: 'section-1',
-    activeLaboratoryExerciseId: null,
     createdAt: '2026-03-23T10:00:00.000Z',
     updatedAt: '2026-03-23T10:00:00.000Z',
     lastOpenedAt: '2026-03-23T10:00:00.000Z',
@@ -42,7 +40,7 @@ test('prepareSnapshotForHydration normalizes persisted lesson markdown code bloc
   const prepared = prepareSnapshotForHydration(snapshot);
 
   assert.equal(
-    prepared.learningPlan?.sections[0]?.content,
+    flattenLessons(prepared.learningPlan?.modules)[0]?.content,
     'Esempio:\n\n```cpp\nMapNode Map::getNode(v3s16 p, bool *is_valid_position)\n```\n\nLa funzione restituisce un nodo.'
   );
 });
@@ -54,26 +52,21 @@ test('prepareSnapshotForHydration migrates legacy highlight marks into persisten
     sourceKind: 'document',
     state: AppState.READING,
     source: null,
-    learningPlan: {
-      title: 'Percorso',
-      summary: 'Test',
-      sections: [
-        {
+    learningPlan: buildTestLearningPlan(
+      [
+        buildTestLesson({
           id: 'section-1',
           title: 'Ownership',
           description: 'Dettagli',
-          type: 'core',
-          isCompleted: false,
           content: 'Testo con <mark>focus</mark> persistente.',
-        },
+        }),
       ],
-    },
-    laboratory: null,
+      { title: 'Percorso', summary: 'Test' }
+    ),
     isLearnMode: false,
     userProfile: null,
     syllabus: [],
     activeSectionId: 'section-1',
-    activeLaboratoryExerciseId: null,
     createdAt: '2026-03-23T10:00:00.000Z',
     updatedAt: '2026-03-23T10:00:00.000Z',
     lastOpenedAt: '2026-03-23T10:00:00.000Z',
@@ -82,7 +75,7 @@ test('prepareSnapshotForHydration migrates legacy highlight marks into persisten
   };
 
   const prepared = prepareSnapshotForHydration(snapshot);
-  const migratedSection = prepared.learningPlan?.sections[0];
+  const migratedSection = flattenLessons(prepared.learningPlan?.modules)[0];
 
   assert.match(migratedSection?.content || '', /<mark data-nous-annotation-id="annotation-/);
   assert.equal(migratedSection?.annotations?.length, 1);
@@ -90,7 +83,7 @@ test('prepareSnapshotForHydration migrates legacy highlight marks into persisten
 });
 
 test('prepareSnapshotForHydration drops legacy laboratory payloads that miss the guided support fields', () => {
-  const snapshot: ProjectSnapshot = {
+  const snapshot = {
     id: 'project-lab-legacy',
     version: '4.1',
     sourceKind: 'document',
@@ -129,7 +122,7 @@ test('prepareSnapshotForHydration drops legacy laboratory payloads that miss the
         },
       ],
       generatedAt: '2026-03-23T10:00:00.000Z',
-      schemaVersion: CURRENT_LABORATORY_SCHEMA_VERSION - 1,
+      schemaVersion: CURRENT_LEGACY_LABORATORY_SCHEMA_VERSION - 1,
       status: 'ready',
       summary: 'Laboratorio vecchio',
       title: 'Laboratorio',
@@ -145,17 +138,18 @@ test('prepareSnapshotForHydration drops legacy laboratory payloads that miss the
     lastOpenedAt: '2026-03-23T10:00:00.000Z',
     documentAssets: null,
     documentIndex: null,
-  };
+  } as unknown as ProjectSnapshot;
 
   const prepared = prepareSnapshotForHydration(snapshot);
 
-  assert.equal(prepared.laboratory, null);
-  assert.equal(prepared.activeLaboratoryExerciseId, null);
+  const preparedRecord = prepared as unknown as Record<string, unknown>;
+  assert.equal(preparedRecord.laboratory, undefined);
+  assert.equal(preparedRecord.activeLaboratoryExerciseId, undefined);
   assert.equal(prepared.activeSectionId, 'section-1');
 });
 
 test('prepareSnapshotForHydration resets abandoned pending laboratory generation', () => {
-  const snapshot: ProjectSnapshot = {
+  const snapshot = {
     id: 'project-lab-pending',
     version: '4.1',
     sourceKind: 'document',
@@ -179,7 +173,7 @@ test('prepareSnapshotForHydration resets abandoned pending laboratory generation
       errorMessage: undefined,
       exercises: [],
       generatedAt: undefined,
-      schemaVersion: CURRENT_LABORATORY_SCHEMA_VERSION,
+      schemaVersion: CURRENT_LEGACY_LABORATORY_SCHEMA_VERSION,
       status: 'pending',
       summary: '',
       title: 'Laboratorio',
@@ -195,12 +189,12 @@ test('prepareSnapshotForHydration resets abandoned pending laboratory generation
     lastOpenedAt: '2026-03-23T10:00:00.000Z',
     documentAssets: null,
     documentIndex: null,
-  };
+  } as unknown as ProjectSnapshot;
 
   const prepared = prepareSnapshotForHydration(snapshot);
 
-  assert.equal(prepared.laboratory?.status, 'idle');
-  assert.match(prepared.laboratory?.summary || '', /generazione precedente/i);
-  assert.equal(prepared.activeLaboratoryExerciseId, null);
+  const preparedRecord = prepared as unknown as Record<string, unknown>;
+  assert.equal(preparedRecord.laboratory, undefined);
+  assert.equal(preparedRecord.activeLaboratoryExerciseId, undefined);
   assert.equal(prepared.activeSectionId, 'section-1');
 });

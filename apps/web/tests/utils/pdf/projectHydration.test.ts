@@ -5,6 +5,7 @@ import {
   getPdfProjectHydrationState,
   needsPdfProjectHydration,
 } from '../../../utils/pdf/projectHydration.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 const pdfFile: FileData = {
   name: 'dispensa.pdf',
@@ -12,19 +13,13 @@ const pdfFile: FileData = {
   data: 'ZmFrZQ==',
 };
 
-const basePlan: LearningPlan = {
-  title: 'Percorso',
-  summary: '',
-  sections: [
-    {
-      id: 'lesson-1',
-      title: 'Lezione 1',
-      description: 'Intro',
-      isCompleted: false,
-      type: 'core',
-    },
-  ],
-};
+const basePlan: LearningPlan = buildTestLearningPlan([
+  buildTestLesson({
+    id: 'lesson-1',
+    title: 'Lezione 1',
+    description: 'Intro',
+  }),
+]);
 
 const readyIndex: PdfTextIndex = {
   kind: 'pdf-text-index',
@@ -87,9 +82,11 @@ test('requires chunk mappings when the document index exists but lessons are sti
 test('is ready only when the pdf plan already has a chunk index and primary mappings', () => {
   const mappedPlan: LearningPlan = {
     ...basePlan,
-    sections: basePlan.sections.map(section => ({
-      ...section,
-      primaryChunkIds: ['chunk-001'],
+    modules: basePlan.modules.map(module => ({
+      ...module,
+      children: module.children.map(node =>
+        node.kind === 'lesson' ? { ...node, primaryChunkIds: ['chunk-001'] } : node
+      ),
     })),
   };
 
@@ -98,18 +95,16 @@ test('is ready only when the pdf plan already has a chunk index and primary mapp
 });
 
 test('treats legacy fallback mappings as stale when most lessons point to the first two chunks', () => {
-  const stalePlan: LearningPlan = {
-    title: 'Percorso',
-    summary: '',
-    sections: Array.from({ length: 5 }, (_, index) => ({
-      id: `lesson-${index + 1}`,
-      title: `Lezione ${index + 1}`,
-      description: 'Intro',
-      isCompleted: false,
-      type: 'core' as const,
-      primaryChunkIds: ['chunk-001', 'chunk-002'],
-    })),
-  };
+  const stalePlan: LearningPlan = buildTestLearningPlan(
+    Array.from({ length: 5 }, (_, index) =>
+      buildTestLesson({
+        id: `lesson-${index + 1}`,
+        title: `Lezione ${index + 1}`,
+        description: 'Intro',
+        primaryChunkIds: ['chunk-001', 'chunk-002'],
+      })
+    )
+  );
 
   assert.equal(
     getPdfProjectHydrationState(pdfFile, stalePlan, largeReadyIndex),
@@ -119,19 +114,17 @@ test('treats legacy fallback mappings as stale when most lessons point to the fi
 });
 
 test('treats explicit fallback mapping markers as stale even when chunk ids vary across lessons', () => {
-  const stalePlan: LearningPlan = {
-    title: 'Percorso',
-    summary: '',
-    sections: Array.from({ length: 4 }, (_, index) => ({
-      id: `lesson-${index + 1}`,
-      title: `Lezione ${index + 1}`,
-      description: 'Intro',
-      isCompleted: false,
-      type: 'core' as const,
-      primaryChunkIds: [`chunk-00${index + 1}`],
-      primaryChunkMappingSource: 'fallback' as const,
-    })),
-  };
+  const stalePlan: LearningPlan = buildTestLearningPlan(
+    Array.from({ length: 4 }, (_, index) =>
+      buildTestLesson({
+        id: `lesson-${index + 1}`,
+        title: `Lezione ${index + 1}`,
+        description: 'Intro',
+        primaryChunkIds: [`chunk-00${index + 1}`],
+        primaryChunkMappingSource: 'fallback' as const,
+      })
+    )
+  );
 
   assert.equal(
     getPdfProjectHydrationState(pdfFile, stalePlan, largeReadyIndex),
@@ -141,46 +134,37 @@ test('treats explicit fallback mapping markers as stale even when chunk ids vary
 });
 
 test('does not flag small documents that only have the first chunks available', () => {
-  const smallDocPlan: LearningPlan = {
-    title: 'Percorso',
-    summary: '',
-    sections: Array.from({ length: 4 }, (_, index) => ({
-      id: `lesson-${index + 1}`,
-      title: `Lezione ${index + 1}`,
-      description: 'Intro',
-      isCompleted: false,
-      type: 'core' as const,
-      primaryChunkIds: ['chunk-001'],
-    })),
-  };
+  const smallDocPlan: LearningPlan = buildTestLearningPlan(
+    Array.from({ length: 4 }, (_, index) =>
+      buildTestLesson({
+        id: `lesson-${index + 1}`,
+        title: `Lezione ${index + 1}`,
+        description: 'Intro',
+        primaryChunkIds: ['chunk-001'],
+      })
+    )
+  );
 
   assert.equal(getPdfProjectHydrationState(pdfFile, smallDocPlan, readyIndex), 'ready');
   assert.equal(needsPdfProjectHydration(pdfFile, smallDocPlan, readyIndex), false);
 });
 
 test('ignores unmapped summary sections when deciding if a pdf plan is hydrated', () => {
-  const planWithSummary: LearningPlan = {
-    title: 'Percorso',
-    summary: '',
-    sections: [
-      {
-        id: 'lesson-1',
-        title: 'Lezione 1',
-        description: 'Intro',
-        isCompleted: false,
-        type: 'core',
-        primaryChunkIds: ['chunk-001'],
-        primaryChunkMappingSource: 'mapped',
-      },
-      {
-        id: 'summary-1',
-        title: 'Riepilogo',
-        description: 'Sintesi',
-        isCompleted: false,
-        type: 'summary',
-      },
-    ],
-  };
+  const planWithSummary: LearningPlan = buildTestLearningPlan([
+    buildTestLesson({
+      id: 'lesson-1',
+      title: 'Lezione 1',
+      description: 'Intro',
+      primaryChunkIds: ['chunk-001'],
+      primaryChunkMappingSource: 'mapped',
+    }),
+    buildTestLesson({
+      id: 'summary-1',
+      title: 'Riepilogo',
+      description: 'Sintesi',
+      type: 'summary',
+    }),
+  ]);
 
   assert.equal(getPdfProjectHydrationState(pdfFile, planWithSummary, readyIndex), 'ready');
   assert.equal(needsPdfProjectHydration(pdfFile, planWithSummary, readyIndex), false);

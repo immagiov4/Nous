@@ -1,11 +1,5 @@
 import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex/index.ts';
-import type {
-  LaboratoryExercise,
-  LearningSection,
-  PdfTextChunk,
-  PdfTextIndex,
-  ProjectSource,
-} from '../../types.ts';
+import type { LessonNode, PdfTextChunk, PdfTextIndex, ProjectSource } from '../../types.ts';
 import { clipText } from '../text.ts';
 
 const MAX_CONTEXT_SOURCE_CHARS = 168_000;
@@ -27,7 +21,7 @@ const formatChunk = (chunk: PdfTextChunk) => {
 
 const buildPdfSourceMaterial = (
   documentIndex: PdfTextIndex,
-  activeSection: LearningSection | null
+  activeSection: LessonNode | null
 ): string => {
   const indexById = new Map(documentIndex.chunks.map(chunk => [chunk.id, chunk]));
   const orderedSequences = new Set<number>();
@@ -141,23 +135,11 @@ export const getLessonSourcePageLabel = ({
   activeSection,
   documentIndex,
 }: {
-  activeSection: LearningSection | null;
+  activeSection: LessonNode | null;
   documentIndex: PdfTextIndex | null;
 }): string | undefined =>
   getSourcePageLabelFromChunkIds({
     chunkIds: activeSection?.primaryChunkIds,
-    documentIndex,
-  });
-
-export const getLaboratorySourcePageLabel = ({
-  activeExercise,
-  documentIndex,
-}: {
-  activeExercise: LaboratoryExercise | null;
-  documentIndex: PdfTextIndex | null;
-}): string | undefined =>
-  getSourcePageLabelFromChunkIds({
-    chunkIds: activeExercise?.sourceChunkIds,
     documentIndex,
   });
 
@@ -166,7 +148,7 @@ export const buildContextSourceMaterial = ({
   documentIndex,
   source,
 }: {
-  activeSection: LearningSection | null;
+  activeSection: LessonNode | null;
   documentIndex: PdfTextIndex | null;
   source: ProjectSource | null;
 }): {

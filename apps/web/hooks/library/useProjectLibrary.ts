@@ -387,9 +387,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     }): Promise<{ annotationId?: string; error?: string; saved: boolean }> => {
       const snapshot = await projectRepositoryRef.current.loadProject(projectId);
       const learningPlan = snapshot?.learningPlan;
-      const sectionNode = learningPlan
-        ? findPathNodeById(learningPlan.modules, lessonId)
-        : null;
+      const sectionNode = learningPlan ? findPathNodeById(learningPlan.modules, lessonId) : null;
       const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
       if (!snapshot || !learningPlan || !section) {
         return { saved: false, error: 'Non ho trovato la lezione target in questo corso.' };

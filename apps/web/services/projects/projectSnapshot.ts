@@ -249,7 +249,8 @@ const parseLearningPlan = (value: unknown): LearningPlan | null => {
       applicationExercisePlanningStatus:
         (value.applicationExercisePlanningStatus as LearningPlan['applicationExercisePlanningStatus']) ??
         'not-run',
-      applicationExercisePlanningNotes: ensureString(value.applicationExercisePlanningNotes) || undefined,
+      applicationExercisePlanningNotes:
+        ensureString(value.applicationExercisePlanningNotes) || undefined,
       applicationExercisePlanningError:
         (value.applicationExercisePlanningError as LearningPlan['applicationExercisePlanningError']) ??
         undefined,
@@ -263,7 +264,9 @@ const parseLearningPlan = (value: unknown): LearningPlan | null => {
     return {
       title: ensureString(value.title, 'Percorso'),
       summary: ensureString(value.summary),
-      modules: groupSectionsIntoModules(value.sections as Parameters<typeof groupSectionsIntoModules>[0]),
+      modules: groupSectionsIntoModules(
+        value.sections as Parameters<typeof groupSectionsIntoModules>[0]
+      ),
       applicationExercisePlanningStatus: 'not-run',
       backgroundMusicUrl: ensureString(value.backgroundMusicUrl) || undefined,
       generationNotes: ensureString(value.generationNotes) || undefined,
@@ -413,6 +416,7 @@ const parseResearchDossiers = (value: unknown): ProjectSnapshot['researchDossier
           difficultSteps: parseStringArray(dossier.difficultSteps),
           avoidOversimplifying: parseStringArray(dossier.avoidOversimplifying),
           controversies: parseStringArray(dossier.controversies),
+          recentDevelopments: parseStringArray(dossier.recentDevelopments),
           sources: parseResearchSourceReferences(dossier.sources),
         },
       ])

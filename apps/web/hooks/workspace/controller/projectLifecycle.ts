@@ -30,10 +30,7 @@ import type {
 } from './types.ts';
 
 interface ProjectLifecycleDependencies {
-  openSection: (
-    section: LessonNode,
-    options?: OpenSectionOptions
-  ) => Promise<OpenSectionOutcome>;
+  openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
 }
 

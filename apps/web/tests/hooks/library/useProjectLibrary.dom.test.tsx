@@ -8,6 +8,7 @@ import {
   type SavedProjectMeta,
   type WorkspaceDomainState,
 } from '../../../types.ts';
+import { buildTestLearningPlan } from '../../helpers/learningPlan.ts';
 
 const repositoryMocks = vi.hoisted(() => ({
   createFolder: vi.fn(),
@@ -60,6 +61,8 @@ const buildMeta = (id: string, lastOpenedAt: string): SavedProjectMeta => ({
   lastOpenedAt,
   lessonCount: 1,
   completedCount: 0,
+  exerciseCount: 0,
+  completedExercises: 0,
   hasSourceFile: true,
   coverLabel: 'PDF',
   syncState: 'local-only',
@@ -72,12 +75,10 @@ const buildSnapshot = (id: string, overrides: Partial<ProjectSnapshot> = {}): Pr
   state: AppState.READING,
   source: null,
   learningPlan: null,
-  laboratory: null,
   isLearnMode: false,
   userProfile: null,
   syllabus: [],
   activeSectionId: null,
-  activeLaboratoryExerciseId: null,
   createdAt: '2026-04-02T10:00:00.000Z',
   updatedAt: '2026-04-02T10:00:00.000Z',
   lastOpenedAt: '2026-04-02T10:00:00.000Z',
@@ -188,9 +189,10 @@ describe('useProjectLibrary', () => {
     const nextState: WorkspaceDomainState = {
       ...baseState,
       learningPlan: {
-        title: 'Nuovo percorso',
-        summary: 'Sintesi',
-        sections: [],
+        ...buildTestLearningPlan([], {
+          title: 'Nuovo percorso',
+          summary: 'Sintesi',
+        }),
       },
     };
 
@@ -342,9 +344,7 @@ describe('useProjectLibrary', () => {
     const updatedDomain: WorkspaceDomainState = {
       ...initialDomain,
       learningPlan: {
-        title: 'Plan',
-        summary: '',
-        sections: [],
+        ...buildTestLearningPlan([], { title: 'Plan' }),
       },
     };
     rerender({ domainState: updatedDomain });

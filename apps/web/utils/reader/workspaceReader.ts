@@ -1,7 +1,7 @@
 import type {
   LearningPlan,
-  LessonNode,
   LessonImageRef,
+  LessonNode,
   PdfDocumentAssets,
   PdfImageAsset,
   SyllabusItem,

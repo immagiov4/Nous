@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import type { LearningModule } from '../../../types.ts';
 import {
-  flattenPathNodes,
-  flattenLessons,
   findPathNodeById,
+  flattenLessons,
+  flattenPathNodes,
   updateLessons,
 } from '../../../utils/learning/pathNodes.ts';
-import type { LearningModule } from '../../../types.ts';
 
 const modules = (): LearningModule[] => [
   {

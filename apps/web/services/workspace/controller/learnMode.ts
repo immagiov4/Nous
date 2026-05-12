@@ -1,12 +1,12 @@
 import type { LearningPlan, LearningSection, SyllabusItem, UserProfile } from '../../../types.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
+import { groupSectionsIntoModules } from '../../learning/groupSectionsIntoModules.ts';
 
 export const buildLearningPlanFromSyllabus = (
   profile: UserProfile,
   syllabus: SyllabusItem[]
-): LearningPlan => ({
-  title: profile.topic,
-  summary: profile.context,
-  sections: syllabus.flatMap(module =>
+): LearningPlan => {
+  const sections: LearningSection[] = syllabus.flatMap(module =>
     (module.children || []).map(lesson => ({
       id: lesson.id,
       title: lesson.title,
@@ -16,8 +16,15 @@ export const buildLearningPlanFromSyllabus = (
       parentId: module.id,
       contextPrompt: lesson.contextPrompt,
     }))
-  ),
-});
+  );
+
+  return {
+    title: profile.topic,
+    summary: profile.context,
+    modules: groupSectionsIntoModules(sections),
+    applicationExercisePlanningStatus: 'not-run',
+  };
+};
 
 export const resolveLearnSectionContext = (
   section: LearningSection,
@@ -29,7 +36,7 @@ export const resolveLearnSectionContext = (
   moduleId: string;
   moduleTitle: string;
 } => {
-  const sectionById = new Map(learningPlan?.sections.map(item => [item.id, item]) || []);
+  const sectionById = new Map(flattenLessons(learningPlan?.modules).map(item => [item.id, item]));
   const moduleById = new Map(syllabus.map(module => [module.id, module]));
 
   let currentSection: LearningSection | undefined = section;

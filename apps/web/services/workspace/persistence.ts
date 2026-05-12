@@ -1,7 +1,7 @@
 import { AppState, type WorkspaceDomainState } from '../../types.ts';
 
 export const resolvePersistedAppState = (domainState: WorkspaceDomainState): AppState => {
-  if (domainState.learningPlan || domainState.laboratory) {
+  if (domainState.learningPlan) {
     return AppState.READING;
   }
 

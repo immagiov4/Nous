@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { CURRENT_LABORATORY_SCHEMA_VERSION } from '../../../services/laboratory/state.ts';
 import {
   buildCoverLabel,
   exportProjectData,
@@ -49,10 +48,7 @@ test('inferProjectSourceKind treats single text files as documents', () => {
 
   assert.equal(inferProjectSourceKind({ source, isLearnMode: false }), 'document');
   assert.equal(
-    buildCoverLabel(
-      { source, learningPlan: null, laboratory: null, isLearnMode: false },
-      'document'
-    ),
+    buildCoverLabel({ source, learningPlan: null, isLearnMode: false }, 'document'),
     'notes.md'
   );
 });
@@ -83,12 +79,10 @@ test('exportProjectData keeps the source only once for modern exports', () => {
       file: pdfFile,
     },
     learningPlan: null,
-    laboratory: null,
     isLearnMode: false,
     userProfile: null,
     syllabus: [],
     activeSectionId: null,
-    activeLaboratoryExerciseId: null,
     createdAt: '2026-04-03T00:00:00.000Z',
     updatedAt: '2026-04-03T00:00:00.000Z',
     lastOpenedAt: '2026-04-03T00:00:00.000Z',
@@ -122,133 +116,4 @@ test('normalizeImportedProject still supports legacy file-only exports', () => {
     kind: 'pdf',
     file: pdfFile,
   });
-});
-
-test('exportProjectData preserves laboratory data and the active laboratory exercise', () => {
-  const snapshot: ProjectSnapshot = {
-    id: 'project-lab',
-    version: '4.1',
-    sourceKind: 'document',
-    state: AppState.READING,
-    source: null,
-    learningPlan: null,
-    laboratory: {
-      exercises: [
-        {
-          attachments: [
-            {
-              id: 'attachment-1',
-              name: 'answer.md',
-              mimeType: 'text/markdown',
-              kind: 'text',
-              data: encodeTextBase64('# Risposta'),
-              createdAt: '2026-04-03T00:00:00.000Z',
-              updatedAt: '2026-04-03T00:00:00.000Z',
-            },
-          ],
-          approachMarkdown: '## Metodo\n\nParti dal runtime e annota i vincoli.',
-          brief: 'Scrivi una procedura.',
-          evaluation: {
-            caveats: ['Serve comunque verifica locale.'],
-            confidenceScore: 62,
-            confidenceSummary: 'La valutazione e indicativa su alcuni aspetti pratici.',
-            evaluatedAt: '2026-04-03T00:00:00.000Z',
-            improvements: ['Aggiungi evidenze di output.'],
-            score: 78,
-            strengths: ['Buona struttura.'],
-            summary: 'Elaborato nel complesso solido.',
-          },
-          exampleMarkdown:
-            '## Esempio guidato\n\nSu un servizio parallelo, verifica prima input, output e log osservabili.',
-          generatedAt: '2026-04-03T00:00:00.000Z',
-          id: 'exercise-1',
-          internalNotes: ['Richiede verifica manuale del runtime.'],
-          instructionsMarkdown: '## Traccia',
-          requirements: [
-            'Usa il caso assegnato senza cambiarlo.',
-            'Descrivi almeno una evidenza tecnica concreta.',
-            'Proponi una procedura verificabile.',
-          ],
-          title: 'Esercizio 1',
-          updatedAt: '2026-04-03T00:00:00.000Z',
-        },
-      ],
-      generatedAt: '2026-04-03T00:00:00.000Z',
-      schemaVersion: CURRENT_LABORATORY_SCHEMA_VERSION,
-      status: 'ready',
-      summary: 'Laboratorio finale',
-      title: 'Laboratorio',
-      updatedAt: '2026-04-03T00:00:00.000Z',
-    },
-    isLearnMode: false,
-    userProfile: null,
-    syllabus: [],
-    activeSectionId: null,
-    activeLaboratoryExerciseId: 'exercise-1',
-    createdAt: '2026-04-03T00:00:00.000Z',
-    updatedAt: '2026-04-03T00:00:00.000Z',
-    lastOpenedAt: '2026-04-03T00:00:00.000Z',
-    documentAssets: null,
-    documentIndex: null,
-  };
-
-  const exported = exportProjectData(snapshot);
-
-  assert.equal(exported.laboratory?.exercises.length, 1);
-  assert.equal(exported.activeLaboratoryExerciseId, 'exercise-1');
-  assert.equal(exported.laboratory?.exercises[0]?.attachments[0]?.name, 'answer.md');
-});
-
-test('normalizeImportedProject restores modern laboratory payloads', () => {
-  const imported = normalizeImportedProject({
-    version: '4.1',
-    learningPlan: null,
-    laboratory: {
-      exercises: [
-        {
-          attachments: [
-            {
-              id: 'attachment-1',
-              name: 'notes.md',
-              mimeType: 'text/markdown',
-              kind: 'text',
-              data: encodeTextBase64('# Note'),
-              createdAt: '2026-04-03T00:00:00.000Z',
-              updatedAt: '2026-04-03T00:00:00.000Z',
-            },
-          ],
-          approachMarkdown: '## Metodo\n\nParti dai requisiti e costruisci una checklist.',
-          brief: 'Breve traccia',
-          evaluation: null,
-          exampleMarkdown:
-            '## Esempio guidato\n\nSu un caso simile, elenca prima i vincoli e poi il primo artefatto da produrre.',
-          generatedAt: '2026-04-03T00:00:00.000Z',
-          id: 'exercise-1',
-          internalNotes: ['Nota interna'],
-          instructionsMarkdown: '## Traccia',
-          requirements: [
-            'Lavora sul contesto gia assegnato.',
-            'Produci un elaborato verificabile.',
-            'Motiva le scelte con evidenze.',
-          ],
-          title: 'Esercizio',
-          updatedAt: '2026-04-03T00:00:00.000Z',
-        },
-      ],
-      schemaVersion: CURRENT_LABORATORY_SCHEMA_VERSION,
-      status: 'ready',
-      summary: 'Laboratorio',
-      title: 'Laboratorio',
-      updatedAt: '2026-04-03T00:00:00.000Z',
-    },
-    isLearnMode: false,
-    userProfile: null,
-    syllabus: [],
-    activeLaboratoryExerciseId: 'exercise-1',
-  });
-
-  assert.equal(imported.laboratory?.exercises[0]?.attachments.length, 1);
-  assert.equal(imported.activeLaboratoryExerciseId, 'exercise-1');
-  assert.equal(imported.laboratory?.schemaVersion, CURRENT_LABORATORY_SCHEMA_VERSION);
-  assert.equal(imported.laboratory?.exercises[0]?.requirements.length, 3);
 });

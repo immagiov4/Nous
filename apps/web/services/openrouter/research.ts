@@ -10,9 +10,8 @@ import type {
   SyllabusItem,
   UserProfile,
 } from '../../types.ts';
-import { appendGeneratedVisualExample } from './lessonImages.ts';
-import { generateStandaloneLessonQuiz } from './lessonMarkdownQuality/index.ts';
 import { timestampIso } from '../../utils/time.ts';
+import { groupSectionsIntoModules } from '../learning/groupSectionsIntoModules.ts';
 import {
   MEDIUM_REASONING_CONFIG,
   MODEL_REASONING,
@@ -20,6 +19,8 @@ import {
   MODEL_RESEARCH_PLANNER,
   teacherInstruction,
 } from './config.ts';
+import { appendGeneratedVisualExample } from './lessonImages.ts';
+import { generateStandaloneLessonQuiz } from './lessonMarkdownQuality/index.ts';
 import { buildUserGenerationNotesBlock } from './prompts.ts';
 import { callOpenRouter, parseCleanJson, retryWithBackoff, sanitizeTitle } from './shared.ts';
 
@@ -198,10 +199,8 @@ export const buildLearningPlanFromResearchCourse = (
   profile: UserProfile,
   researchCoursePlan: ResearchCoursePlan,
   syllabus: SyllabusItem[]
-): LearningPlan => ({
-  title: researchCoursePlan.title || profile.topic,
-  summary: researchCoursePlan.summary || profile.context,
-  sections: syllabus.flatMap(module =>
+): LearningPlan => {
+  const sections: LearningSection[] = syllabus.flatMap(module =>
     (module.children || []).map(lesson => ({
       id: lesson.id,
       title: lesson.title,
@@ -211,15 +210,22 @@ export const buildLearningPlanFromResearchCourse = (
       parentId: module.id,
       contextPrompt: lesson.contextPrompt,
     }))
-  ),
-});
+  );
+
+  return {
+    title: researchCoursePlan.title || profile.topic,
+    summary: researchCoursePlan.summary || profile.context,
+    modules: groupSectionsIntoModules(sections),
+    applicationExercisePlanningStatus: 'not-run',
+  };
+};
 
 const buildCoursePlanResearchPrompt = (profile: UserProfile): string => {
   const topic = profile.topic || 'General knowledge';
   const language = profile.language || DEFAULT_RESEARCH_LANGUAGE;
   return `Ricerca approfondita sull'argomento: "${topic}".
 
-Per chi: livello ${profile.experienceLevel || 'intermedio'}, stile di apprendimento ${profile.learningStyle || 'pratico'}, obiettivo "${profile.goals || 'comprendere l\'argomento'}", background "${profile.context || 'studente generico'}".
+Per chi: livello ${profile.experienceLevel || 'intermedio'}, stile di apprendimento ${profile.learningStyle || 'pratico'}, obiettivo "${profile.goals || "comprendere l'argomento"}", background "${profile.context || 'studente generico'}".
 
 Cosa includere nel brief (in prosa, ${language}):
 - Mappa del campo: concetti fondamentali, idee intermedie, sottoargomenti avanzati.
@@ -235,7 +241,10 @@ Vincoli:
 - Lingua: ${language}.`;
 };
 
-const buildCoursePlanStructuringPrompt = (profile: UserProfile, researchBrief: string): string => `ROLE: Curriculum architect for Nous Reader.
+const buildCoursePlanStructuringPrompt = (
+  profile: UserProfile,
+  researchBrief: string
+): string => `ROLE: Curriculum architect for Nous Reader.
 
 You receive a research brief from a separate web-research model. Turn it into a structured course plan.
 
@@ -389,7 +398,11 @@ const buildLessonDossierResearchPrompt = (args: {
   const lessonGoal = args.lesson.description;
   const courseTitle = args.researchCoursePlan?.title || profile?.topic || '';
   const moduleTitle = args.moduleTitle || args.researchLesson?.moduleTitle || '';
-  const planContext = buildLessonPlanContextBlock(args.lesson, args.moduleTitle, args.researchLesson);
+  const planContext = buildLessonPlanContextBlock(
+    args.lesson,
+    args.moduleTitle,
+    args.researchLesson
+  );
   const sourceHints = buildSourceHintBlock(args.researchLesson);
   return `Ricerca approfondita su questa lezione specifica: "${lessonTitle}".
 
@@ -664,7 +677,10 @@ FORMATO: Markdown.`;
       language: profile.language,
     });
   } catch (error) {
-    console.warn('[Nous][ResearchLesson] Quiz generation failed, keeping lesson without quiz.', error);
+    console.warn(
+      '[Nous][ResearchLesson] Quiz generation failed, keeping lesson without quiz.',
+      error
+    );
   }
 
   return {

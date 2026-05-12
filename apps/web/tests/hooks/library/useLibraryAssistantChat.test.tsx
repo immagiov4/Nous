@@ -78,6 +78,8 @@ describe('useLibraryAssistantChat', () => {
     lastOpenedAt: '2026-04-01T10:00:00.000Z',
     lessonCount: 1,
     completedCount: 0,
+    exerciseCount: 0,
+    completedExercises: 0,
     hasSourceFile: true,
     coverLabel: 'PDF',
     syncState: 'local-only' as const,

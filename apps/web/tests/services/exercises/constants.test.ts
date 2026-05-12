@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  EXERCISE_PASS_THRESHOLD,
   EXERCISE_MAX_ENTRIES,
-  EXERCISE_MAX_TOTAL_CHARS,
   EXERCISE_MAX_ENTRY_CHARS,
+  EXERCISE_MAX_TOTAL_CHARS,
+  EXERCISE_PASS_THRESHOLD,
   EXERCISE_TEXT_EXTENSION_ALLOWLIST,
   EXERCISE_ZIP_IGNORE_DIRS,
 } from '../../../services/exercises/constants.ts';

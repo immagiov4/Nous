@@ -9,7 +9,7 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types.ts';
-import { flattenLessons } from '../learning/pathNodes.ts';
+import { flattenLessons, flattenLessonsWithModuleContext } from '../learning/pathNodes.ts';
 import { getSectionAnnotationText } from '../learning/sectionAnnotations.ts';
 import { getFolderPathLabels, resolveScopedProjectIds } from './tree.ts';
 
@@ -240,39 +240,41 @@ export const buildProjectStructurePayload = ({
       highlightCount: snapshot ? countProjectHighlights(snapshot) : 0,
       activeSectionId: snapshot?.activeSectionId || null,
       sections:
-        flattenLessons(snapshot?.learningPlan?.modules).map(section => {
-          const annotations = section.annotations || [];
-          const notesWithTimestamp = annotations.filter(a => a.note.trim().length > 0);
-          const latestNote =
-            notesWithTimestamp.length > 0
-              ? notesWithTimestamp.reduce((best, a) =>
-                  (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
-                )
-              : null;
-          const latestAnnotation =
-            annotations.length > 0
-              ? annotations.reduce((best, a) =>
-                  (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
-                )
-              : null;
+        flattenLessonsWithModuleContext(snapshot?.learningPlan?.modules).map(
+          ({ lesson, moduleTitle }) => {
+            const annotations = lesson.annotations || [];
+            const notesWithTimestamp = annotations.filter(a => a.note.trim().length > 0);
+            const latestNote =
+              notesWithTimestamp.length > 0
+                ? notesWithTimestamp.reduce((best, a) =>
+                    (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
+                  )
+                : null;
+            const latestAnnotation =
+              annotations.length > 0
+                ? annotations.reduce((best, a) =>
+                    (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
+                  )
+                : null;
 
-          return {
-            highlightCount: annotations.length,
-            hasContent: Boolean(section.content?.trim()),
-            id: section.id,
-            isCompleted: section.isCompleted,
-            moduleTitle: section.moduleTitle || '',
-            noteCount: notesWithTimestamp.length,
-            parentId: section.parentId || null,
-            title: section.title,
-            description: section.description,
-            type: section.type,
-            latestNoteAt: latestNote ? latestNote.updatedAt || latestNote.createdAt : null,
-            latestAnnotationAt: latestAnnotation
-              ? latestAnnotation.updatedAt || latestAnnotation.createdAt
-              : null,
-          };
-        }) || [],
+            return {
+              highlightCount: annotations.length,
+              hasContent: Boolean(lesson.content?.trim()),
+              id: lesson.id,
+              isCompleted: lesson.isCompleted,
+              moduleTitle: moduleTitle || '',
+              noteCount: notesWithTimestamp.length,
+              parentId: lesson.parentId || null,
+              title: lesson.title,
+              description: lesson.description,
+              type: lesson.type,
+              latestNoteAt: latestNote ? latestNote.updatedAt || latestNote.createdAt : null,
+              latestAnnotationAt: latestAnnotation
+                ? latestAnnotation.updatedAt || latestAnnotation.createdAt
+                : null,
+            };
+          }
+        ) || [],
       title: meta?.title || snapshot?.learningPlan?.title || 'Corso',
     };
   });
@@ -288,25 +290,24 @@ export const buildLessonDetailPayload = ({
 }) =>
   requests.map(({ lessonIds, projectId }) => {
     const snapshot = snapshotsById.get(projectId);
-    const sections = flattenLessons(snapshot?.learningPlan?.modules);
+    const lessonsWithModule = flattenLessonsWithModuleContext(snapshot?.learningPlan?.modules);
     const allowedSectionIds = new Set(lessonIds);
 
     return {
-      lessons: sections
-        .filter(section => allowedSectionIds.has(section.id))
-        .map(section => ({
-          annotations: getSectionAnnotations(section),
-          content: section.content || '',
-          description: section.description,
-          id: section.id,
-          isCompleted: section.isCompleted,
-          moduleTitle: section.moduleTitle || '',
+      lessons: lessonsWithModule
+        .filter(({ lesson }) => allowedSectionIds.has(lesson.id))
+        .map(({ lesson, moduleTitle }) => ({
+          annotations: getSectionAnnotations(lesson),
+          content: lesson.content || '',
+          description: lesson.description,
+          id: lesson.id,
+          isCompleted: lesson.isCompleted,
+          moduleTitle: moduleTitle || '',
           noteCount:
-            section.annotations?.filter(annotation => annotation.note.trim().length > 0).length ||
-            0,
-          parentId: section.parentId || null,
-          title: section.title,
-          type: section.type,
+            lesson.annotations?.filter(annotation => annotation.note.trim().length > 0).length || 0,
+          parentId: lesson.parentId || null,
+          title: lesson.title,
+          type: lesson.type,
         })),
       projectId,
       projectTitle: resolveProjectTitle({

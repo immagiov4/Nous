@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import type { LearningPlan, PdfDocumentAssets, SyllabusItem } from '../../../types.ts';
+import type { PdfDocumentAssets, SyllabusItem } from '../../../types.ts';
 import {
   buildLessonAssetMap,
   buildLessonImageRefMap,
   buildSidebarGroups,
 } from '../../../utils/reader/workspaceReader.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 test('buildSidebarGroups keeps syllabus ordering and nests child lessons under their module', () => {
   const syllabus: SyllabusItem[] = [
@@ -43,34 +44,34 @@ test('buildSidebarGroups keeps syllabus ordering and nests child lessons under t
     },
   ];
 
-  const learningPlan: LearningPlan = {
-    title: 'Percorso',
-    summary: 'Sintesi',
-    sections: [
-      {
+  const learningPlan = buildTestLearningPlan(
+    [
+      buildTestLesson({
         id: 'lesson-1',
+        moduleTitle: 'Fondamenti',
         title: 'Intro',
         description: 'Base',
-        isCompleted: false,
-        type: 'core',
-      },
-      {
+      }),
+      buildTestLesson({
         id: 'lesson-1-deep',
+        moduleTitle: 'Fondamenti',
         title: 'Dettaglio',
         description: 'Figlia',
-        isCompleted: false,
         type: 'deep-dive',
         parentId: 'lesson-1',
-      },
-      {
+      }),
+      buildTestLesson({
         id: 'lesson-2',
+        moduleTitle: 'Approfondimenti',
         title: 'Avanzata',
         description: 'Modulo 2',
-        isCompleted: false,
-        type: 'core',
-      },
+      }),
     ],
-  };
+    {
+      title: 'Percorso',
+      summary: 'Sintesi',
+    }
+  );
 
   const groups = buildSidebarGroups(learningPlan, syllabus);
 
@@ -83,7 +84,7 @@ test('buildSidebarGroups keeps syllabus ordering and nests child lessons under t
     })),
     [
       {
-        id: 'module-1',
+        id: 'm-0-fondamenti',
         sectionDepthById: {
           'lesson-1': 0,
           'lesson-1-deep': 1,
@@ -92,7 +93,7 @@ test('buildSidebarGroups keeps syllabus ordering and nests child lessons under t
         sectionIds: ['lesson-1', 'lesson-1-deep'],
       },
       {
-        id: 'module-2',
+        id: 'm-1-approfondimenti',
         sectionDepthById: {
           'lesson-2': 0,
         },
@@ -104,44 +105,42 @@ test('buildSidebarGroups keeps syllabus ordering and nests child lessons under t
 });
 
 test('buildSidebarGroups keeps document children in the same fallback module with nested depth', () => {
-  const learningPlan: LearningPlan = {
-    title: 'Percorso',
-    summary: 'Sintesi',
-    sections: [
-      {
+  const learningPlan = buildTestLearningPlan(
+    [
+      buildTestLesson({
         id: 'lesson-1',
         moduleTitle: 'Modulo Documento',
         title: 'Intro',
         description: 'Base',
-        isCompleted: false,
-        type: 'core',
-      },
-      {
+      }),
+      buildTestLesson({
         id: 'lesson-1-deep',
+        moduleTitle: 'Modulo Documento',
         title: 'Dettaglio',
         description: 'Figlia',
-        isCompleted: false,
         type: 'deep-dive',
         parentId: 'lesson-1',
-      },
-      {
+      }),
+      buildTestLesson({
         id: 'lesson-1-deep-nested',
+        moduleTitle: 'Modulo Documento',
         title: 'Dettaglio annidato',
         description: 'Nipote',
-        isCompleted: false,
         type: 'deep-dive',
         parentId: 'lesson-1-deep',
-      },
-      {
+      }),
+      buildTestLesson({
         id: 'lesson-2',
         moduleTitle: 'Modulo Documento',
         title: 'Seguito',
         description: 'Seconda',
-        isCompleted: false,
-        type: 'core',
-      },
+      }),
     ],
-  };
+    {
+      title: 'Percorso',
+      summary: 'Sintesi',
+    }
+  );
 
   const groups = buildSidebarGroups(learningPlan, []);
 
@@ -179,28 +178,27 @@ test('buildSidebarGroups keeps module-backed lessons at depth zero in learn mode
     },
   ];
 
-  const learningPlan: LearningPlan = {
-    title: 'Percorso',
-    summary: 'Sintesi',
-    sections: [
-      {
+  const learningPlan = buildTestLearningPlan(
+    [
+      buildTestLesson({
         id: 'lesson-1',
         title: 'Intro',
         description: 'Base',
-        isCompleted: false,
-        type: 'core',
         parentId: 'module-1',
-      },
-      {
+      }),
+      buildTestLesson({
         id: 'lesson-1-deep',
         title: 'Dettaglio',
         description: 'Figlia',
-        isCompleted: false,
         type: 'deep-dive',
         parentId: 'lesson-1',
-      },
+      }),
     ],
-  };
+    {
+      title: 'Percorso',
+      summary: 'Sintesi',
+    }
+  );
 
   const groups = buildSidebarGroups(learningPlan, syllabus);
 
@@ -212,35 +210,31 @@ test('buildSidebarGroups keeps module-backed lessons at depth zero in learn mode
 });
 
 test('buildSidebarGroups falls back safely when parent chains are invalid or cyclic', () => {
-  const learningPlan: LearningPlan = {
-    title: 'Percorso',
-    summary: 'Sintesi',
-    sections: [
-      {
+  const learningPlan = buildTestLearningPlan(
+    [
+      buildTestLesson({
         id: 'lesson-a',
         title: 'A',
         description: 'Primo',
-        isCompleted: false,
-        type: 'core',
         parentId: 'lesson-b',
-      },
-      {
+      }),
+      buildTestLesson({
         id: 'lesson-b',
         title: 'B',
         description: 'Secondo',
-        isCompleted: false,
-        type: 'core',
         parentId: 'lesson-a',
-      },
-      {
+      }),
+      buildTestLesson({
         id: 'lesson-c',
         title: 'C',
         description: 'Terzo',
-        isCompleted: false,
-        type: 'core',
-      },
+      }),
     ],
-  };
+    {
+      title: 'Percorso',
+      summary: 'Sintesi',
+    }
+  );
 
   const groups = buildSidebarGroups(learningPlan, []);
 

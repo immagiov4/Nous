@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { beforeEach, test, vi } from 'vitest';
 import { encodeTextBase64 } from '../../../services/projects/projectSource.ts';
 import type { FileData } from '../../../types.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 
 const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async <T>(operation: () => Promise<T>) => await operation());
@@ -66,7 +67,7 @@ test('generateLearningPlan uses medium effort for both first draft and refinemen
 
   const plan = await generateLearningPlan(file, []);
 
-  assert.equal(plan.sections.length, 1);
+  assert.equal(flattenLessons(plan.modules).length, 1);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.reasoning, {
     effort: 'medium',

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import type { FileData, LearningPlan, SyllabusItem } from '../../../types';
 import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 const pdfFile: FileData = {
   name: 'dispensa.pdf',
@@ -10,32 +11,20 @@ const pdfFile: FileData = {
 };
 
 const regularPlan: LearningPlan = {
-  title: 'Percorso',
-  summary: '',
-  sections: [
-    {
-      id: 'lesson-1',
-      title: 'Lezione 1',
-      description: 'Intro',
-      isCompleted: false,
-      type: 'core',
-    },
-  ],
+  ...buildTestLearningPlan([buildTestLesson()]),
 };
 
 const nestedPlan: LearningPlan = {
-  ...regularPlan,
-  sections: [
-    ...regularPlan.sections,
-    {
+  ...buildTestLearningPlan([
+    buildTestLesson(),
+    buildTestLesson({
       id: 'lesson-2',
       title: 'Approfondimento',
       description: 'Dettagli',
-      isCompleted: false,
       type: 'deep-dive',
       parentId: 'lesson-1',
-    },
-  ],
+    }),
+  ]),
 };
 
 const syllabus: SyllabusItem[] = [

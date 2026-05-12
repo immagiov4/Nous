@@ -1,9 +1,4 @@
-import type {
-  LearningModule,
-  LearningSection,
-  LessonNode,
-  PathNode,
-} from '../../types.ts';
+import type { LearningModule, LearningSection, LessonNode, PathNode } from '../../types.ts';
 
 const UNTITLED = 'Untitled module';
 

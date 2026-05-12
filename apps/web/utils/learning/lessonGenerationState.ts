@@ -1,4 +1,5 @@
 import type { FileData, LearningPlan, SyllabusItem } from '../../types';
+import { flattenLessons } from './pathNodes.ts';
 
 export type LessonGenerationState = 'blocked-missing-source' | 'learn-mode' | 'source-backed';
 
@@ -15,7 +16,9 @@ export const resolveLessonGenerationState = ({
   learningPlan,
   syllabus,
 }: ResolveLessonGenerationStateArgs): LessonGenerationState => {
-  const hasParentIds = Boolean(learningPlan?.sections.some(section => Boolean(section.parentId)));
+  const hasParentIds = Boolean(
+    flattenLessons(learningPlan?.modules).some(section => Boolean(section.parentId))
+  );
   const canGenerateInLearnMode = isLearnMode || syllabus.length > 0 || hasParentIds;
 
   if (!file && !canGenerateInLearnMode) {

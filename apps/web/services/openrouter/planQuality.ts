@@ -1,6 +1,6 @@
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
-import type { FileData, LearningPlan, LearningSection } from './types.ts';
+import type { FileData, LearningSection } from './types.ts';
 
 const PDF_KEYWORD_STOP_WORDS = new Set([
   'about',

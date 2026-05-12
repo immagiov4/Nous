@@ -5,8 +5,8 @@ import {
   type LessonNode,
   type ProjectSnapshot,
 } from '../../../types.ts';
+import { findPathNodeById, flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { migrateSectionAnnotations } from '../../../utils/learning/sectionAnnotations.ts';
-import { flattenLessons, findPathNodeById } from '../../../utils/learning/pathNodes.ts';
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 import { restoreLegacyPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';

@@ -101,8 +101,8 @@ const insertLessonAfterAnchorInPlan = (
     }
     // Sub-chapter insertion only applies among lessons in this module.
     const lessons = module.children.filter((child): child is LessonNode => child.kind === 'lesson');
-    const exercises = module.children.filter((child): child is PathNode =>
-      child.kind === 'exercise'
+    const exercises = module.children.filter(
+      (child): child is PathNode => child.kind === 'exercise'
     );
     const reorderedLessons = insertSectionAfterSubtree(lessons, anchorSectionId, newLesson);
     return {

@@ -14,7 +14,6 @@ vi.mock('../../../../components/workspace/shell/WorkspaceReaderSettingsPanel.tsx
 }));
 
 const buildProps = (): WorkspaceReaderHeaderModel => ({
-  activeLaboratoryExercise: null,
   activeSectionId: 'section-1',
   activeSectionTitle: 'Lezione 1',
   activeSidebarGroup: null,
@@ -23,13 +22,11 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   isDarkMode: false,
   isFocusMode: false,
   isLoading: false,
-  isLaboratoryView: false,
   isMobileSidebarOpen: false,
   isMobileViewport: false,
   isMusicPlaying: false,
   syncState: 'saved',
   isSettingsOpen: false,
-  laboratoryTitle: 'Laboratorio',
   learningPlanTitle: 'Percorso',
   loadingStatus: '',
   modelDefaults: {
@@ -43,7 +40,6 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   musicVolume: 20,
   onBackToLibrary: vi.fn(),
   onOpenSidebar: vi.fn(),
-  onRegenerateActiveLaboratoryExercise: vi.fn(),
   onRegenerateActiveSection: vi.fn(),
   onSetDarkMode: vi.fn(),
   onSetCourseGenerationNotes: vi.fn(),
