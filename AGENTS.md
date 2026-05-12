@@ -25,7 +25,7 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 
 ## Product Manifesto
 
-This project has a living product/design manifesto in GitHub issue #23:
+This project has a living product/design manifesto in GitHub discussion #33 (https://github.com/immagiov4/Lumina-Reader/discussions/33):
 `Manifesto strategico e di design di Nous Reader`.
 
 Before making or prioritizing product, UX, AI-behavior, business-strategy, or
