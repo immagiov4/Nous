@@ -170,7 +170,24 @@ describe('ContextMenu', () => {
     expect(props.onSaveNote).toHaveBeenCalledWith('Ricordati di rivedere questo concetto');
   });
 
-  test('renders annotation mode notes as formatted preview before entering edit mode', async () => {
+  test('does not show remove inside the note editor for a highlight without a saved note', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      annotationNote: '',
+      type: 'annotation' as const,
+    };
+
+    render(<ContextMenu {...props} />);
+
+    await user.click(screen.getByTitle(/Aggiungi o modifica una nota/i));
+
+    expect(screen.getByRole('button', { name: 'Annulla' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Salva' })).toBeInTheDocument();
+    expect(screen.queryByText('Rimuovi')).not.toBeInTheDocument();
+  });
+
+  test('opens annotation clicks as a selection toolbar before editing notes', async () => {
     const user = userEvent.setup();
     const props = {
       ...buildProps(),
@@ -181,20 +198,23 @@ describe('ContextMenu', () => {
 
     const { container } = render(<ContextMenu {...props} />);
 
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Modifica' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Salva' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Rimuovi evidenziazione/i })).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(/Scrivi, aggiorna o svuota la nota/i)
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Nota associata al passaggio/i).closest('[aria-hidden]')
+    ).not.toHaveClass('max-h-0');
+    expect(screen.getByPlaceholderText(/Chiedi a Nous/i)).toBeInTheDocument();
+    expect(screen.queryByTitle(/Aggiungi o modifica una nota/i)).not.toBeInTheDocument();
+    expect(screen.getByTitle('Rimuovi evidenziazione')).toBeInTheDocument();
     expect(container.querySelector('strong')?.textContent).toBe('chiave');
     expect(container.querySelector('.katex')).not.toBeNull();
     expect(screen.getByRole('table')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Modifica' }));
 
-    expect(
-      screen.queryByRole('button', { name: /Rimuovi evidenziazione/i })
-    ).not.toBeInTheDocument();
-    const textarea = screen.getByRole('textbox');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    const textarea = screen.getByPlaceholderText(/Scrivi, aggiorna o svuota la nota/i);
     expect(textarea).toHaveValue(props.annotationNote);
     await user.clear(textarea);
     await user.click(screen.getByRole('button', { name: 'Salva' }));
@@ -221,8 +241,6 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Modifica' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Apri Mappa salvata/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Rimuovi Mappa salvata dalla nota/i }));
     expect(onDetachArtifactFromAnnotation).toHaveBeenCalledWith('visual-draft-1');
@@ -241,6 +259,7 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
+    fireEvent.click(screen.getByTitle(/Aggiungi o modifica una nota/i));
     fireEvent.click(screen.getByRole('button', { name: /Allega dagli artefatti/i }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Allega Mappa salvata alla nota/i }));
 
@@ -262,7 +281,7 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
-    await user.click(screen.getByRole('button', { name: /Rimuovi evidenziazione/i }));
+    await user.click(screen.getByTitle('Rimuovi evidenziazione'));
     expect(props.onDeleteAnnotation).toHaveBeenCalledTimes(1);
   });
 
@@ -276,9 +295,24 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
-    expect(screen.getByPlaceholderText(/Scrivi, aggiorna o svuota la nota/i)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Rimuovi evidenziazione/i }));
+    await user.click(screen.getByTitle('Rimuovi evidenziazione'));
     expect(props.onDeleteAnnotation).toHaveBeenCalledTimes(1);
+  });
+
+  test('submits a question from an annotation toolbar', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      annotationNote: '',
+      type: 'annotation' as const,
+    };
+
+    render(<ContextMenu {...props} />);
+
+    await user.type(screen.getByPlaceholderText(/Chiedi a Nous/i), 'Fammi un esempio');
+    await user.click(screen.getByRole('button', { name: /Invia domanda/i }));
+
+    expect(props.onAsk).toHaveBeenCalledWith('Fammi un esempio');
   });
 
   test('keeps the desktop menu inside the reading column bounds', () => {

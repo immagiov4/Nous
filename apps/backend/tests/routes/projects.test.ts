@@ -35,6 +35,52 @@ const createSnapshot = (id: string, title: string, updatedAt = '2026-04-26T10:00
     lastOpenedAt: updatedAt,
   }) satisfies ProjectSnapshot;
 
+const createModuleSnapshot = (id: string, title: string, updatedAt = '2026-04-26T10:00:00.000Z') =>
+  ({
+    ...createSnapshot(id, title, updatedAt),
+    learningPlan: {
+      title,
+      summary: 'Corso organizzato a moduli',
+      modules: [
+        {
+          id: 'module-1',
+          title: 'Modulo 1',
+          children: [
+            {
+              id: 'lesson-1',
+              kind: 'lesson',
+              title: 'Prima lezione',
+              description: 'Introduzione',
+              isCompleted: true,
+              type: 'core',
+            },
+            {
+              id: 'exercise-1',
+              kind: 'exercise',
+              title: 'Esercizio applicativo',
+              status: 'available',
+            },
+          ],
+        },
+        {
+          id: 'module-2',
+          title: 'Modulo 2',
+          children: [
+            {
+              id: 'lesson-2',
+              kind: 'lesson',
+              title: 'Seconda lezione',
+              description: 'Approfondimento',
+              isCompleted: false,
+              type: 'core',
+            },
+          ],
+        },
+      ],
+      applicationExercisePlanningStatus: 'not-run',
+    },
+  }) satisfies ProjectSnapshot;
+
 describe('/api/projects', () => {
   beforeEach(() => {
     previousLocalUserId = process.env.LOCAL_USER_ID;
@@ -123,6 +169,108 @@ describe('/api/projects', () => {
 
     const loadResponse = await request(app).get('/api/projects/projects/project-1');
     expect(loadResponse.body.project.learningPlan.title).toBe('Versione nuova');
+  });
+
+  test('counts module-shaped lessons in LAN project metadata', async () => {
+    const app = createApp();
+    const snapshot = createModuleSnapshot('module-project', 'Corso modulare');
+
+    const saveResponse = await request(app).put('/api/projects/projects/module-project').send({
+      snapshot,
+    });
+
+    expect(saveResponse.status).toBe(200);
+    expect(saveResponse.body.meta).toMatchObject({
+      id: 'module-project',
+      title: 'Corso modulare',
+      lessonCount: 2,
+      completedCount: 1,
+      exerciseCount: 1,
+      completedExercises: 0,
+      coverLabel: '2 lezioni',
+    });
+
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects[0]).toMatchObject({
+      id: 'module-project',
+      lessonCount: 2,
+      completedCount: 1,
+      exerciseCount: 1,
+      completedExercises: 0,
+    });
+  });
+
+  test('repairs stale LAN metadata for module-shaped projects while listing', async () => {
+    const app = createApp();
+    const snapshot = createModuleSnapshot('stale-module-project', 'Corso con meta vecchi');
+
+    await request(app).put('/api/projects/projects/stale-module-project').send({ snapshot });
+
+    const database = (store as unknown as { database: import('bun:sqlite').Database }).database;
+    const staleMeta = {
+      id: 'stale-module-project',
+      title: 'Corso con meta vecchi',
+      sourceKind: 'document',
+      createdAt: snapshot.createdAt,
+      updatedAt: snapshot.updatedAt,
+      lastOpenedAt: snapshot.lastOpenedAt,
+      lessonCount: 0,
+      completedCount: 0,
+      exerciseCount: 0,
+      completedExercises: 0,
+      hasSourceFile: false,
+      coverLabel: 'Bozza sincronizzata',
+      syncState: 'sync-ready',
+    };
+    database
+      .prepare('update projects set meta_json = ? where user_id = ? and id = ?')
+      .run(JSON.stringify(staleMeta), 'local-user', 'stale-module-project');
+
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects[0]).toMatchObject({
+      id: 'stale-module-project',
+      lessonCount: 2,
+      completedCount: 1,
+      exerciseCount: 1,
+      completedExercises: 0,
+      coverLabel: '2 lezioni',
+    });
+  });
+
+  test('patches generated lesson content inside module-shaped LAN projects', async () => {
+    const app = createApp();
+    const snapshot = createModuleSnapshot('patch-module-project', 'Corso patch moduli');
+
+    await request(app).put('/api/projects/projects/patch-module-project').send({ snapshot });
+
+    const patchResponse = await request(app)
+      .patch('/api/projects/projects/patch-module-project')
+      .send({
+        patch: {
+          section: {
+            sectionId: 'lesson-2',
+            content: 'Contenuto generato e salvato',
+            isCompleted: true,
+          },
+        },
+      });
+
+    expect(patchResponse.status).toBe(200);
+    expect(patchResponse.body.meta).toMatchObject({
+      lessonCount: 2,
+      completedCount: 2,
+    });
+
+    const loadResponse = await request(app).get('/api/projects/projects/patch-module-project');
+    expect(loadResponse.body.project.learningPlan.modules[1].children[0]).toMatchObject({
+      id: 'lesson-2',
+      content: 'Contenuto generato e salvato',
+      isCompleted: true,
+    });
+    expect(loadResponse.body.project.learningPlan.modules[0].children[1]).toMatchObject({
+      id: 'exercise-1',
+      kind: 'exercise',
+    });
   });
 
   test('keeps users isolated through the auth user id', async () => {

@@ -1,5 +1,10 @@
 import { MEDIUM_REASONING_CONFIG } from './config.ts';
-import { buildUserGenerationNotesBlock, CURRICULUM_PROPEDEUTIC_ORDER_RULES } from './prompts.ts';
+import {
+  buildUserGenerationNotesBlock,
+  CURRICULUM_PROPEDEUTIC_ORDER_RULES,
+  LESSON_SCOPE_RULES,
+  LESSON_SHARED_WRITING_RULES,
+} from './prompts.ts';
 import {
   callOpenRouter,
   cleanJson,
@@ -228,6 +233,7 @@ export const generateLearnLessonContent = async (
   const continuityRule = isFirstLesson
     ? "This is the first lesson. Do not mention previous lessons, prior chapters, or phrases like 'as we already saw'."
     : 'Only refer to previous lessons if they are present in PAST TOPICS. Do not invent prior material.';
+  const scopeRule = LESSON_SCOPE_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
 
   onStatusUpdate('Generating comprehensive lesson...');
 
@@ -249,27 +255,17 @@ PAST TOPICS (already covered): ${pastContext || 'None - this is the first lesson
 FUTURE TOPICS (coming next): ${futureContext || 'End of curriculum'}
 
 CRITICAL WRITING RULES:
-1. Prefer accessible language by default: avoid unnecessary jargon and avoid sounding manualistic when a direct explanation works.
-2. When you introduce technical terminology, connect it immediately to a plain-language meaning.
-3. Do not use unexplained acronyms or abbreviations. On first mention, always expand them and make their meaning clear.
-4. Avoid unnecessary foreign words. If a natural, clear equivalent exists in the lesson language, prefer that.
-5. Simplify the exposition, not the substance: stay precise without dumbing the topic down.
-6. Explain the connection between distinct layers when relevant.
-7. Start with a paradox or a bold statement. Never say "Welcome".
-8. Do not use Mermaid diagrams.
-9. Use realistic, detailed examples.
-10. Write a comprehensive lesson, but keep it tightly scoped to the current lesson only.
-11. Structure:
-   - The Concept
-   - The Architecture
-   - The Implementation
-   - The Trap
-12. ${continuityRule}
-13. Do not explain future lessons in detail. You may mention them briefly as forward references, but do not define, unpack, or teach their content here.
-14. Do not add "deep-dive" sections just to make the lesson longer. If the current lesson's focus is complete, stop.
-15. Every section must serve the current lesson. If one of the suggested headings adds no value, adapt or omit it.
-16. When introducing a concept for the first time, start with a positive, self-contained definition ('X is Y, used for Z'). Contrasting definitions ('X is not just Y') are only acceptable after the concept has been positively established.
-17. The lesson must be completely self-contained. Do not reference 'the document', 'the text', 'section X', or any external source structure as if the reader has it open. If you attribute an idea to a standard or framework, name it ('X defines Y as...') rather than pointing to a section or page number.
+1. Scrivi una lezione esaustiva in Markdown ricco, ma ad alta densita informativa: niente riempitivo, niente ripetizioni decorative, niente giri larghi per dire poco.
+2. Non ripetere il titolo della lezione come primo heading.
+3. Organizza il testo con heading chiari, ma usa solo le sezioni che servono davvero a questa lezione. Non creare heading riempitivi.
+4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione con semplici parafrasi.
+5. Non usare diagrammi Mermaid.
+6. Il corpo deve essere soprattutto prosa discorsiva. I bullet sono ammessi solo per checklist operative brevi, comandi, passaggi diagnostici o confronti dove migliorano davvero la leggibilita.
+${LESSON_SHARED_WRITING_RULES}
+19. ${continuityRule}
+20. Do not explain future lessons in detail. You may mention them briefly as forward references, but do not define, unpack, or teach their content here.
+21. Vincoli di focus della lezione:
+${scopeRule}
 
 FORMAT: Markdown.`;
 

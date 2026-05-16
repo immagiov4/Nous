@@ -103,6 +103,16 @@ const isRequestAddToNotesOutput = (value: unknown): value is RequestAddToNotesOu
   return typeof (value as Partial<RequestAddToNotesOutput>).approved === 'boolean';
 };
 
+const hasPendingAddToNotesRequest = (messages: ContextChatMessage[]): boolean =>
+  messages.some(message =>
+    message.parts.some(
+      part =>
+        isToolUIPart(part) &&
+        part.type === 'tool-requestAddToNotes' &&
+        part.state === 'input-available'
+    )
+  );
+
 const readCurrentLessonArtifactsToolInput = (value: unknown): CurrentLessonArtifactsToolInput => {
   if (!value || typeof value !== 'object') {
     return {};
@@ -810,6 +820,8 @@ export default function ContextAnswerPanel({
   }, [messages, addToolOutput]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
+  const isWaitingForNoteDecision = hasPendingAddToNotesRequest(messages);
+  const isComposerDisabled = status === 'submitted' || isWaitingForNoteDecision;
   const hasActiveToolPreference =
     toolPreferences.annotate || toolPreferences.generateArtifacts || toolPreferences.webSearch;
 
@@ -820,6 +832,10 @@ export default function ContextAnswerPanel({
   }, [messages.length]);
 
   const handleSubmit = () => {
+    if (isComposerDisabled) {
+      return;
+    }
+
     const trimmedInput = input.trim();
     if (!trimmedInput) {
       return;
@@ -1136,8 +1152,12 @@ export default function ContextAnswerPanel({
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
-          placeholder="Chiedi un follow-up su questa risposta..."
-          disabled={status === 'submitted'}
+          placeholder={
+            isWaitingForNoteDecision
+              ? 'Accetta o rifiuta la nota proposta per continuare...'
+              : 'Chiedi un follow-up su questa risposta...'
+          }
+          disabled={isComposerDisabled}
           isLoading={isLoading}
           className="flex items-center gap-2"
           leadingContent={
@@ -1145,6 +1165,7 @@ export default function ContextAnswerPanel({
               <button
                 type="button"
                 onClick={() => setIsToolMenuOpen(currentValue => !currentValue)}
+                disabled={isComposerDisabled}
                 className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
                   hasActiveToolPreference
                     ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:hover:bg-orange-500/25'

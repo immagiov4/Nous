@@ -8,7 +8,8 @@ import {
 } from '../../../services/projects/projectArchive.ts';
 import { encodeBytesBase64 } from '../../../services/projects/projectSource.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
-import { buildTestLearningPlan } from '../../helpers/learningPlan.ts';
+import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 const buildPdfSnapshot = (): ProjectSnapshot => {
   const pdfBytes = new Uint8Array([
@@ -29,11 +30,20 @@ const buildPdfSnapshot = (): ProjectSnapshot => {
         data: encodeBytesBase64(pdfBytes),
       },
     },
-    learningPlan: buildTestLearningPlan([], {
-      title: 'Percorso',
-      summary: 'Sintesi',
-      backgroundMusicUrl: '',
-    }),
+    learningPlan: buildTestLearningPlan(
+      [
+        buildTestLesson({
+          id: 'lesson-1',
+          title: 'Prima lezione',
+          moduleTitle: 'Modulo',
+        }),
+      ],
+      {
+        title: 'Percorso',
+        summary: 'Sintesi',
+        backgroundMusicUrl: '',
+      }
+    ),
     isLearnMode: false,
     userProfile: null,
     syllabus: [],
@@ -63,6 +73,7 @@ test('createProjectArchiveBlob keeps pdf bytes outside the manifest and restores
   const imported = (await readProjectImportData(archive)) as ProjectSnapshot;
 
   assert.deepEqual(imported.source, snapshot.source);
+  assert.equal(flattenLessons(imported.learningPlan?.modules).length, 1);
 });
 
 test('isProjectArchiveFile rejects generic source zips and readProjectImportData reports a backup-specific error', async () => {

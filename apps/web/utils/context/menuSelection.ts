@@ -149,6 +149,8 @@ export const createAnnotationContextMenuState = ({
   annotationId,
   annotationArtifactRefs,
   annotationNote,
+  contextAfter,
+  contextBefore,
   horizontalBounds,
   placement,
   selectedText,
@@ -165,6 +167,8 @@ export const createAnnotationContextMenuState = ({
   annotationId,
   annotationArtifactRefs,
   annotationNote,
+  contextBefore,
+  contextAfter,
 });
 
 export const resolveMobileContextMenuSyncAction = ({

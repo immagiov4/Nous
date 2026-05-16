@@ -4,7 +4,9 @@ import type {
   WorkspaceWorkflowState,
 } from '../../../services/workspace/workflow.ts';
 import type {
+  ApplicationExerciseNode,
   AppState,
+  ExerciseAttachment,
   FileData,
   HomeChatToolPreferences,
   LearningPlan,
@@ -181,6 +183,7 @@ export type OpenSectionOutcome =
 
 export type CreateLessonOutcome = 'created' | 'blocked-missing-source' | 'failed';
 export type CompleteSectionOutcome = 'opened-next' | 'journey-complete' | 'noop';
+export type AdvanceSectionOutcome = 'opened-next' | 'journey-complete' | 'noop';
 
 export interface OpenSectionOptions {
   allowWhileBlocking?: boolean;
@@ -220,6 +223,7 @@ export interface WorkspaceControllerCommands {
     question: string;
     selectedText: string;
   }) => Promise<{ answer?: string; errorMessage?: string }>;
+  advanceActiveSection: () => Promise<AdvanceSectionOutcome>;
   completeActiveSection: () => Promise<CompleteSectionOutcome>;
   createLessonFromSelection: (args: {
     instructions: string;
@@ -241,7 +245,10 @@ export interface WorkspaceControllerCommands {
   openProject: (
     projectId: string
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }>;
+  attachExerciseFiles: (exerciseId: string, attachments: ExerciseAttachment[]) => Promise<void>;
+  openExercise: (exercise: ApplicationExerciseNode) => Promise<void>;
   openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
+  repairApplicationExercises: () => Promise<{ outcome: 'noop' | 'repaired' }>;
   regenerateActiveSection: () => Promise<OpenSectionOutcome>;
   confirmPlanGeneration: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'planned' }>;
   startHomeChat: (args: {
@@ -260,6 +267,10 @@ export interface WorkspaceControllerCommands {
     errorMessage?: string;
     outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
   }>;
+  updateApplicationExercise: (
+    exerciseId: string,
+    updater: (exercise: ApplicationExerciseNode) => ApplicationExerciseNode
+  ) => Promise<void>;
 }
 
 export interface UseWorkspaceControllerArgs {

@@ -14,9 +14,11 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   };
 });
 
-const { generateResearchCoursePlan, generateResearchLessonDossier } = await import(
-  '../../../services/openrouter/research.ts'
-);
+const {
+  buildLearningPlanFromResearchCourse,
+  generateResearchCoursePlan,
+  generateResearchLessonDossier,
+} = await import('../../../services/openrouter/research.ts');
 
 const profile: UserProfile = {
   topic: 'Kotlin Android',
@@ -71,6 +73,115 @@ test('generateResearchCoursePlan normalizes course shape and clamps oversized ou
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.disableModelOverride, true);
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_object');
+});
+
+test('buildLearningPlanFromResearchCourse preserves research syllabus modules', () => {
+  const plan = buildLearningPlanFromResearchCourse(
+    profile,
+    {
+      generatedAt: '2026-05-12T12:00:00.000Z',
+      lessonCountReason: 'Two distinct areas',
+      title: 'Kotlin Android',
+      summary: 'Corso pratico',
+      lessons: [],
+    },
+    [
+      {
+        id: 'mod-1',
+        title: 'Fondamenti',
+        description: 'Base',
+        type: 'module',
+        status: 'ready',
+        children: [
+          {
+            id: 'mod-1-lesson-1',
+            title: 'Sintassi Kotlin',
+            description: 'Capire la sintassi',
+            type: 'lesson',
+            status: 'pending',
+            contextPrompt: 'Spiega la sintassi Kotlin',
+          },
+        ],
+      },
+      {
+        id: 'mod-2',
+        title: 'Android operativo',
+        description: 'Pratica',
+        type: 'module',
+        status: 'ready',
+        children: [
+          {
+            id: 'mod-2-lesson-1',
+            title: 'Activity e lifecycle',
+            description: 'Capire il lifecycle',
+            type: 'lesson',
+            status: 'pending',
+            contextPrompt: 'Spiega il lifecycle Android',
+          },
+        ],
+      },
+    ]
+  );
+
+  assert.deepEqual(
+    plan.modules.map(module => module.title),
+    ['Fondamenti', 'Android operativo']
+  );
+  assert.deepEqual(
+    plan.modules.map(module => module.children.map(lesson => lesson.title)),
+    [['Sintassi Kotlin'], ['Activity e lifecycle']]
+  );
+});
+
+test('buildLearningPlanFromResearchCourse leaves application exercises to the placement pass', () => {
+  const plan = buildLearningPlanFromResearchCourse(
+    profile,
+    {
+      generatedAt: '2026-05-12T12:00:00.000Z',
+      lessonCountReason: 'Operational course',
+      title: 'Sistemistica PMI',
+      summary: 'Corso pratico',
+      lessons: [
+        {
+          id: 'mod-1-lesson-1',
+          title: 'Mappare host e servizi',
+          description: 'Capire cosa esiste in rete',
+          moduleId: 'mod-1',
+          moduleTitle: 'Fondamenti operativi',
+          prerequisites: [],
+          keyConcepts: ['inventario', 'servizi'],
+          guidingQuestions: [],
+          miniLab: 'Disegna una mappa minima con host, IP, servizi e dipendenze.',
+          simplificationRisks: [],
+          sourceHints: [],
+        },
+      ],
+    },
+    [
+      {
+        id: 'mod-1',
+        title: 'Fondamenti operativi',
+        description: 'Base',
+        type: 'module',
+        status: 'ready',
+        children: [
+          {
+            id: 'mod-1-lesson-1',
+            title: 'Mappare host e servizi',
+            description: 'Capire cosa esiste in rete',
+            type: 'lesson',
+            status: 'pending',
+            contextPrompt: 'Spiega inventario e servizi',
+          },
+        ],
+      },
+    ]
+  );
+
+  const module = plan.modules[0];
+  assert.equal(module?.children.length, 1);
+  assert.equal(module?.children[0]?.kind, 'lesson');
+  assert.equal(plan.applicationExercisePlanningStatus, 'not-run');
 });
 
 test('generateResearchLessonDossier keeps sources optional and attaches the section id', async () => {

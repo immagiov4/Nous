@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useAppDialogs } from './app/useAppDialogs.tsx';
 import { AssessmentScreenContainer } from './components/assessment/AssessmentScreenContainer.tsx';
+import StylePreviewLab from './components/dev/StylePreviewLab.tsx';
 import { LibraryScreenContainer } from './components/library/LibraryScreenContainer.tsx';
 import LoadingScreen from './components/shared/LoadingScreen';
 import { ReadingScreenContainer } from './components/workspace/ReadingScreenContainer.tsx';
@@ -104,10 +105,13 @@ const App = () => {
   const isLoading = isBlocking;
   const loadingStatus = controller.blockingMessage || 'Caricamento...';
   const loadingReasoningText = selectBlockingReasoning(workflowState);
+  const shouldShowStyleLab =
+    typeof window !== 'undefined' && window.location.hash.startsWith('#style-lab');
 
   return (
     <>
-      {screenState === AppState.LIBRARY && (
+      {shouldShowStyleLab ? <StylePreviewLab /> : null}
+      {!shouldShowStyleLab && screenState === AppState.LIBRARY && (
         <LibraryScreenContainer
           controller={controller}
           readerRuntime={readerRuntime}
@@ -119,7 +123,7 @@ const App = () => {
           requestConfirmation={requestConfirmation}
         />
       )}
-      {screenState === AppState.ASSESSMENT && (
+      {!shouldShowStyleLab && screenState === AppState.ASSESSMENT && (
         <AssessmentScreenContainer
           assessmentMessages={controller.assessmentMessages}
           isLoading={isLoading}
@@ -132,14 +136,16 @@ const App = () => {
           submitAssessment={controller.submitAssessment}
         />
       )}
-      {typeof window !== 'undefined' && window.location.hash === '#preview-loading' && (
-        <LoadingScreen
-          message="Analisi Volume in Corso..."
-          isDarkMode={readerRuntime.readerChrome.isDarkMode}
-          subMessage="Strutturazione semantica del piano di studi..."
-        />
-      )}
-      {screenState === AppState.PLANNING && (
+      {!shouldShowStyleLab &&
+        typeof window !== 'undefined' &&
+        window.location.hash === '#preview-loading' && (
+          <LoadingScreen
+            message="Analisi Volume in Corso..."
+            isDarkMode={readerRuntime.readerChrome.isDarkMode}
+            subMessage="Strutturazione semantica del piano di studi..."
+          />
+        )}
+      {!shouldShowStyleLab && screenState === AppState.PLANNING && (
         <LoadingScreen
           message="Analisi Volume in Corso..."
           isDarkMode={readerRuntime.readerChrome.isDarkMode}
@@ -147,7 +153,7 @@ const App = () => {
           subMessage={loadingStatus || 'Costruzione piano...'}
         />
       )}
-      {screenState === AppState.READING && (
+      {!shouldShowStyleLab && screenState === AppState.READING && (
         <ReadingScreenContainer
           controller={controller}
           readerRuntime={readerRuntime}
@@ -157,7 +163,7 @@ const App = () => {
           screenState={screenState}
         />
       )}
-      {appOverlays}
+      {!shouldShowStyleLab && appOverlays}
     </>
   );
 };

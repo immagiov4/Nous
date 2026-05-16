@@ -239,7 +239,7 @@ const contextChatTools = {
         noteDraft: {
           type: 'string',
           description:
-            'Bozza della nota da salvare: chiara, riusabile e abbastanza sviluppata da restare utile quando verra riletta da sola. Deve aggiungere un chiarimento reale rispetto al testo, non limitarsi a ripeterlo o parafrasarlo.',
+            'Bozza della nota da salvare: chiara, riusabile e abbastanza sviluppata da restare utile quando verra riletta da sola. Di default deve aggiungere un chiarimento reale rispetto al testo della pagina, non limitarsi a ripeterlo o parafrasarlo. Se pero l utente chiede esplicitamente di salvare parola per parola una formulazione emersa nel follow-up o nella risposta, riportala fedelmente.',
         },
         rationale: {
           type: 'string',
@@ -249,7 +249,7 @@ const contextChatTools = {
         selectedTextDraft: {
           type: 'string',
           description:
-            'Passaggio di testo rifinito da associare alla nota. Deve essere un chunk piu preciso della selezione originale quando serve.',
+            'Passaggio di testo da associare alla nota. Deve restare aderente al testo della lezione selezionato e puo essere rifinito solo per ancorarlo meglio; non usarlo per sostituire il passaggio con una tua riformulazione della risposta se non serve.',
         },
       },
       required: ['noteDraft', 'rationale', 'selectedTextDraft'],

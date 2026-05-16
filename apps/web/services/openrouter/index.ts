@@ -13,6 +13,8 @@ export {
   needsPdfLessonMappingMigration,
   preparePdfLessonMappings,
 } from './documentIndex/index.ts';
+export { generateApplicationExerciseBrief, getExercisePrerequisiteGaps } from './exerciseBrief.ts';
+export { generateApplicationExercisePlacements } from './exercisePlacement.ts';
 export { validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,

@@ -1,4 +1,10 @@
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
+import {
+  addExerciseAttachments,
+  markApplicationExercisePlanningFailed,
+  updateApplicationExerciseInPlan,
+  withGeneratedExerciseBrief,
+} from '../../../services/learning/applicationExercises.ts';
 import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
 import { mergeDocumentAssetsForPlan } from '../../../services/workspace/controller/documentAssets.ts';
 import { resolveLearnSectionContext } from '../../../services/workspace/controller/learnMode.ts';
@@ -6,11 +12,18 @@ import {
   selectIsBlocking,
   type WorkspaceWorkflowId,
 } from '../../../services/workspace/workflow.ts';
-import { AppState, type LessonNode } from '../../../types.ts';
+import {
+  type ApplicationExerciseNode,
+  AppState,
+  type ExerciseAttachment,
+  type LearningPlan,
+  type LessonNode,
+} from '../../../types.ts';
 import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
 import { findPathNodeById, flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { insertSectionAfterSubtree } from '../../../utils/learning/sectionTree.ts';
 import type {
+  AdvanceSectionOutcome,
   CompleteSectionOutcome,
   CreateLessonOutcome,
   OpenSectionOptions,
@@ -29,6 +42,171 @@ const READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN: WorkspaceWorkflowId[] = [
 
 export const createSectionCommands = (context: WorkspaceControllerContext) => {
   const { domain, openRouter, projectLibrary, state, stopAudio } = context;
+
+  const getNextLesson = (plan: LearningPlan | null): LessonNode | null => {
+    if (!plan || !domain.activeSectionId) {
+      return null;
+    }
+
+    const lessons = flattenLessons(plan.modules);
+    const currentIndex = lessons.findIndex(
+      currentLesson => currentLesson.id === domain.activeSectionId
+    );
+    if (currentIndex < 0 || currentIndex >= lessons.length - 1) {
+      return null;
+    }
+
+    return lessons[currentIndex + 1] || null;
+  };
+
+  async function openExercise(exercise: ApplicationExerciseNode): Promise<void> {
+    stopAudio(true);
+    domain.setActiveSectionId(exercise.id);
+    void projectLibrary.patchCurrentProject({
+      activeSectionId: exercise.id,
+      state: AppState.READING,
+    });
+
+    if (exercise.brief?.trim() || !domain.learningPlan) {
+      return;
+    }
+
+    const gaps = openRouter.getExercisePrerequisiteGaps(domain.learningPlan, exercise.id);
+    if (gaps.length > 0) {
+      return;
+    }
+
+    const isLoadingSection = state.getWorkflowState().loadSection.status === 'pending';
+    if (selectIsBlocking(state.getWorkflowState()) || isLoadingSection) {
+      return;
+    }
+
+    state.setGeneratingSectionId(exercise.id);
+    const requestId = state.beginWorkflow('loadSection', 'Controllo le lezioni precedenti...');
+
+    try {
+      const result = await openRouter.generateApplicationExerciseBrief({
+        documentIndex: domain.documentIndex,
+        exercise,
+        learningPlan: domain.learningPlan,
+        profile: domain.userProfile,
+        researchDossiersBySectionId: domain.researchDossiersBySectionId,
+        onStatusUpdate: status => {
+          state.setWorkflowMessage('loadSection', requestId, status);
+        },
+        onReasoningUpdate: reasoning => {
+          state.setWorkflowReasoning('loadSection', requestId, reasoning);
+        },
+      });
+
+      if (!state.isWorkflowCurrent('loadSection', requestId)) {
+        return;
+      }
+
+      const updatedPlan = updateApplicationExerciseInPlan(domain.learningPlan, exercise.id, node =>
+        withGeneratedExerciseBrief(node, {
+          brief: result.brief,
+          groundingSources: result.groundingSources,
+        })
+      );
+      domain.setLearningPlan(updatedPlan);
+      void projectLibrary.patchCurrentProject({
+        learningPlan: updatedPlan,
+        activeSectionId: exercise.id,
+        state: AppState.READING,
+      });
+      state.succeedWorkflow('loadSection', requestId);
+    } catch (error) {
+      state.failWorkflow('loadSection', requestId, getErrorMessage(error));
+      throw error;
+    } finally {
+      state.setGeneratingSectionId(null);
+    }
+  }
+
+  async function repairApplicationExercises(): Promise<{ outcome: 'noop' | 'repaired' }> {
+    if (!domain.learningPlan) {
+      return { outcome: 'noop' };
+    }
+
+    const requestId = state.beginWorkflow(
+      'generateLaboratory',
+      'Scelgo dove inserire gli esercizi...'
+    );
+
+    try {
+      const result = await openRouter.generateApplicationExercisePlacements({
+        courseIntent: domain.learningPlan.summary || domain.learningPlan.title,
+        learningPlan: domain.learningPlan,
+        profile: domain.userProfile,
+        researchCoursePlan: domain.researchCoursePlan,
+        researchDossiersBySectionId: domain.researchDossiersBySectionId,
+        onStatusUpdate: status => {
+          state.setWorkflowMessage('generateLaboratory', requestId, status);
+        },
+        onReasoningUpdate: reasoning => {
+          state.setWorkflowReasoning('generateLaboratory', requestId, reasoning);
+        },
+      });
+
+      if (!state.isWorkflowCurrent('generateLaboratory', requestId)) {
+        return { outcome: 'noop' };
+      }
+
+      domain.setLearningPlan(result.plan);
+      void projectLibrary.patchCurrentProject({
+        learningPlan: result.plan,
+        activeSectionId: domain.activeSectionId,
+        state: AppState.READING,
+      });
+      state.succeedWorkflow('generateLaboratory', requestId);
+      return { outcome: 'repaired' };
+    } catch (error) {
+      const attempts =
+        typeof (error as { attempts?: unknown }).attempts === 'number'
+          ? (error as { attempts: number }).attempts
+          : 1;
+      const failedPlan = markApplicationExercisePlanningFailed(
+        domain.learningPlan,
+        error instanceof Error ? error : new Error(getErrorMessage(error)),
+        attempts
+      );
+      domain.setLearningPlan(failedPlan);
+      void projectLibrary.patchCurrentProject({
+        learningPlan: failedPlan,
+        activeSectionId: domain.activeSectionId,
+        state: AppState.READING,
+      });
+      state.failWorkflow('generateLaboratory', requestId, getErrorMessage(error));
+      throw error;
+    }
+  }
+
+  async function updateApplicationExercise(
+    exerciseId: string,
+    updater: (exercise: ApplicationExerciseNode) => ApplicationExerciseNode
+  ): Promise<void> {
+    if (!domain.learningPlan) {
+      return;
+    }
+
+    const updatedPlan = updateApplicationExerciseInPlan(domain.learningPlan, exerciseId, updater);
+    domain.setLearningPlan(updatedPlan);
+    await projectLibrary.patchCurrentProject({
+      learningPlan: updatedPlan,
+      activeSectionId: domain.activeSectionId,
+      state: AppState.READING,
+    });
+  }
+
+  async function attachExerciseFiles(
+    exerciseId: string,
+    attachments: ExerciseAttachment[]
+  ): Promise<void> {
+    await updateApplicationExercise(exerciseId, exercise =>
+      addExerciseAttachments(exercise, attachments)
+    );
+  }
 
   async function openSection(
     section: LessonNode,
@@ -523,13 +701,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         activeSectionId: domain.activeSectionId,
         state: AppState.READING,
       });
-      const lessons = flattenLessons(updatedPlan.modules);
-      const currentIndex = lessons.findIndex(
-        currentLesson => currentLesson.id === domain.activeSectionId
-      );
-      if (currentIndex >= 0 && currentIndex < lessons.length - 1) {
+      const nextLesson = getNextLesson(updatedPlan);
+      if (nextLesson) {
         state.succeedWorkflow('completeSection', requestId);
-        await openSection(lessons[currentIndex + 1], {
+        await openSection(nextLesson, {
           allowWhileBlocking: true,
           currentPlan: updatedPlan,
         });
@@ -544,6 +719,23 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
   }
 
+  async function advanceActiveSection(): Promise<AdvanceSectionOutcome> {
+    if (!domain.learningPlan || !domain.activeSectionId) {
+      return 'noop';
+    }
+
+    const nextLesson = getNextLesson(domain.learningPlan);
+    if (!nextLesson) {
+      return 'journey-complete';
+    }
+
+    await openSection(nextLesson, {
+      allowWhileBlocking: true,
+      currentPlan: domain.learningPlan,
+    });
+    return 'opened-next';
+  }
+
   async function goToLibrary(): Promise<void> {
     stopAudio(true);
     state.setGeneratingSectionId(null);
@@ -553,11 +745,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
   }
 
   return {
+    advanceActiveSection,
     askContextQuestion,
     completeActiveSection,
     createLessonFromSelection,
     goToLibrary,
+    attachExerciseFiles,
+    openExercise,
     openSection,
+    repairApplicationExercises,
     regenerateActiveSection,
+    updateApplicationExercise,
   };
 };

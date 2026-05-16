@@ -546,6 +546,8 @@ export interface AnnotationContextMenuState extends BaseContextMenuState {
   annotationId: string;
   annotationArtifactRefs?: SectionAnnotationArtifactRef[];
   annotationNote: string;
+  contextBefore?: string;
+  contextAfter?: string;
 }
 
 export type ContextMenuState = SelectionContextMenuState | AnnotationContextMenuState;

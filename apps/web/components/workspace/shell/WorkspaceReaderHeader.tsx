@@ -123,7 +123,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
     <header
       className={`
         sticky top-0 relative z-50 flex flex-shrink-0 overflow-visible border-b border-gray-100 bg-white/80 backdrop-blur transition-opacity duration-500 ease-in-out dark:border-zinc-700/80 dark:bg-zinc-800/80
-        ${isMobileViewport ? 'min-h-[4.5rem] flex-col gap-3 px-4 py-3' : 'h-16 items-center justify-between px-8'}
+        ${isMobileViewport ? 'min-h-[4rem] flex-col gap-2.5 px-4 py-2.5' : 'h-16 items-center justify-between px-8'}
         opacity-100
       `}
     >

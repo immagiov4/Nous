@@ -55,6 +55,10 @@ const readLearningPlan = (value: unknown): ProjectSnapshot['learningPlan'] | und
     return undefined;
   }
 
+  if (value.modules !== undefined && !Array.isArray(value.modules)) {
+    return undefined;
+  }
+
   return value as ProjectSnapshot['learningPlan'];
 };
 

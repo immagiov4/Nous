@@ -153,6 +153,15 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
       "L'unica eccezione consentita e una domanda strettamente strumentale all'uso del tool di annotazione"
     );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Di default, la nota non deve limitarsi a ripetere, riassumere o parafrasare cio che e gia chiaramente leggibile nel testo selezionato nella pagina.'
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      "Se l'utente chiede di salvare parola per parola un testo emerso nella risposta o nel chiarimento, puoi e devi riportarlo fedelmente in `noteDraft`."
+    );
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
+      'Non dire mai che il tool di note non puo salvare testo verbatim o citazioni testuali: puo farlo.'
+    );
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
       searchWeb: expect.any(Object),
       requestAddToNotes: expect.any(Object),

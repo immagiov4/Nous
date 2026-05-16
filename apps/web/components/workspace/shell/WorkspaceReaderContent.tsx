@@ -1,6 +1,23 @@
-import { BookOpen, LoaderCircle, MousePointerClick, X } from 'lucide-react';
-import { memo, useEffect, useMemo, useState } from 'react';
+import {
+  Archive,
+  Bold,
+  BookOpen,
+  ClipboardCheck,
+  Code2,
+  Eye,
+  EyeOff,
+  FileText,
+  Heading2,
+  List,
+  LoaderCircle,
+  MousePointerClick,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ApplicationExerciseNode,
   LearningArtifactRenderPayload,
   LessonGeneratedVisual,
   SectionAnnotation,
@@ -134,34 +151,515 @@ function LessonGenerationSkeleton({
   );
 }
 
+const TOOLBAR_BUTTON_CLASS_NAME =
+  'inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200/80 bg-white text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white';
+
+const EXERCISE_OBJECTIVE_HEADING_REGEX = /^(?:#{1,6}\s*)?obiettivo(?:\s+operativo)?\s*:?$/i;
+const EXERCISE_BRIEF_SECTION_HEADING_REGEX =
+  /^(?:#{1,6}\s*)?(?:scenario|traccia|consegna|attivit[aà]|cosa consegnare|output|vincoli|criteri(?:\s+di\s+verifica)?)\s*:?$/i;
+
+const stripExerciseObjectiveSection = (brief: string): string => {
+  const visibleLines: string[] = [];
+  let isSkippingObjectiveSection = false;
+
+  for (const line of brief.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+
+    if (EXERCISE_OBJECTIVE_HEADING_REGEX.test(trimmedLine)) {
+      isSkippingObjectiveSection = true;
+      continue;
+    }
+
+    if (isSkippingObjectiveSection) {
+      if (!EXERCISE_BRIEF_SECTION_HEADING_REGEX.test(trimmedLine)) {
+        continue;
+      }
+      isSkippingObjectiveSection = false;
+    }
+
+    visibleLines.push(line);
+  }
+
+  return visibleLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+const applySelectionTransform = (
+  textarea: HTMLTextAreaElement,
+  currentValue: string,
+  transform: (
+    selectedText: string,
+    start: number,
+    end: number
+  ) => {
+    nextSelectionEnd: number;
+    nextSelectionStart: number;
+    nextText: string;
+  }
+) => {
+  const selectionStart = textarea.selectionStart;
+  const selectionEnd = textarea.selectionEnd;
+  const selectedText = currentValue.slice(selectionStart, selectionEnd);
+  return transform(selectedText, selectionStart, selectionEnd);
+};
+
+function ExerciseInternalTextEditor({
+  exercise,
+  internalText,
+  isDarkMode,
+  onChange,
+  onCommit,
+}: {
+  exercise: ApplicationExerciseNode;
+  internalText: string;
+  isDarkMode: boolean;
+  onChange: (value: string) => void;
+  onCommit: () => void;
+}) {
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (internalText === (exercise.internalText || '')) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(onCommit, 300);
+    return () => window.clearTimeout(timeoutId);
+  }, [exercise.internalText, internalText, onCommit]);
+
+  const withTextareaTransform = (
+    transform: (
+      selectedText: string,
+      start: number,
+      end: number
+    ) => {
+      nextSelectionEnd: number;
+      nextSelectionStart: number;
+      nextText: string;
+    }
+  ) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    const result = applySelectionTransform(textarea, internalText, transform);
+    onChange(result.nextText);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(result.nextSelectionStart, result.nextSelectionEnd);
+    });
+  };
+
+  return (
+    <article className="overflow-hidden rounded-xl border border-gray-200/80 bg-white/90 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85">
+      <header className="space-y-2 border-b border-gray-200/80 px-4 py-4 dark:border-zinc-700/80">
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
+            Risposta per {exercise.title}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={TOOLBAR_BUTTON_CLASS_NAME}
+            onClick={() =>
+              withTextareaTransform((selectedText, start, end) => {
+                const replacement = `## ${selectedText || 'Titolo sezione'}`;
+                const nextSelectionStart = start + replacement.length;
+                return {
+                  nextText: `${internalText.slice(0, start)}${replacement}${internalText.slice(end)}`,
+                  nextSelectionEnd: nextSelectionStart,
+                  nextSelectionStart,
+                };
+              })
+            }
+            title="Inserisci heading"
+          >
+            <Heading2 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={TOOLBAR_BUTTON_CLASS_NAME}
+            onClick={() =>
+              withTextareaTransform((selectedText, start, end) => {
+                const replacement = `**${selectedText || 'testo'}**`;
+                return {
+                  nextText: `${internalText.slice(0, start)}${replacement}${internalText.slice(end)}`,
+                  nextSelectionStart: start + 2,
+                  nextSelectionEnd: start + replacement.length - 2,
+                };
+              })
+            }
+            title="Grassetto"
+          >
+            <Bold className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={TOOLBAR_BUTTON_CLASS_NAME}
+            onClick={() =>
+              withTextareaTransform((selectedText, start, end) => {
+                const replacement = (selectedText || 'voce lista')
+                  .split(/\n/)
+                  .map(line => `- ${line}`)
+                  .join('\n');
+                return {
+                  nextText: `${internalText.slice(0, start)}${replacement}${internalText.slice(end)}`,
+                  nextSelectionStart: start,
+                  nextSelectionEnd: start + replacement.length,
+                };
+              })
+            }
+            title="Lista"
+          >
+            <List className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={TOOLBAR_BUTTON_CLASS_NAME}
+            onClick={() =>
+              withTextareaTransform((selectedText, start, end) => {
+                const replacement = `\n\`\`\`\n${selectedText || 'codice'}\n\`\`\`\n`;
+                return {
+                  nextText: `${internalText.slice(0, start)}${replacement}${internalText.slice(end)}`,
+                  nextSelectionStart: start + 5,
+                  nextSelectionEnd: start + replacement.length - 5,
+                };
+              })
+            }
+            title="Blocco codice"
+          >
+            <Code2 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={TOOLBAR_BUTTON_CLASS_NAME}
+            onClick={() => setIsPreviewOpen(currentValue => !currentValue)}
+            title={isPreviewOpen ? 'Chiudi anteprima' : 'Apri anteprima'}
+          >
+            {isPreviewOpen ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+          <span className="ml-auto text-xs font-medium text-gray-500 dark:text-zinc-400">
+            Salvataggio automatico
+          </span>
+        </div>
+      </header>
+
+      <div className="px-4 py-4">
+        {isPreviewOpen ? (
+          <div className="rounded-xl border border-gray-200/80 bg-gray-50/80 px-5 py-5 dark:border-zinc-700 dark:bg-zinc-950/70">
+            <MarkdownRenderer
+              content={internalText || '_Anteprima vuota_'}
+              isDarkMode={isDarkMode}
+              className={
+                isDarkMode ? 'prose-invert prose-sm sm:prose-base' : 'prose-sm sm:prose-base'
+              }
+            />
+          </div>
+        ) : (
+          <textarea
+            ref={textareaRef}
+            value={internalText}
+            onChange={event => onChange(event.target.value)}
+            onBlur={onCommit}
+            spellCheck={false}
+            className="min-h-[17rem] w-full rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-4 font-mono text-sm leading-6 text-gray-900 outline-none transition-colors focus:border-gray-400 dark:border-zinc-700 dark:bg-zinc-950/80 dark:text-zinc-100 dark:focus:border-zinc-500"
+            placeholder="Scrivi qui la tua consegna in Markdown o testo libero."
+          />
+        )}
+      </div>
+    </article>
+  );
+}
+
+function ExerciseAttachmentCard({
+  attachment,
+  onRemove,
+}: {
+  attachment: ApplicationExerciseNode['attachments'][number];
+  onRemove: (attachmentId: string) => void;
+}) {
+  const Icon = attachment.kind === 'archive' ? Archive : FileText;
+
+  return (
+    <article className="overflow-hidden rounded-xl border border-gray-200/80 bg-white/90 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85">
+      <header className="flex items-start justify-between gap-3 border-b border-gray-200/80 px-4 py-4 dark:border-zinc-700/80">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="mt-1 rounded-full border border-gray-200/80 bg-gray-50 p-2 text-gray-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+            <Icon className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-2">
+            <p className="truncate rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
+              {attachment.name}
+            </p>
+            <p className="text-xs uppercase tracking-[0.14em] text-gray-500 dark:text-zinc-400">
+              {attachment.mimeType || 'application/octet-stream'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onRemove(attachment.id)}
+          title="Rimuovi allegato"
+          className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </header>
+
+      <div className="space-y-3 px-4 py-4">
+        <div className="rounded-xl border border-dashed border-gray-200/80 bg-gray-50/60 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300">
+          {attachment.kind === 'archive'
+            ? attachment.description ||
+              'Archivio pronto per la valutazione. Il sistema leggerà solo file testuali supportati.'
+            : 'File testuale pronto per la valutazione.'}
+        </div>
+        {attachment.truncatedReason ? (
+          <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">
+            {attachment.truncatedReason}
+          </p>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function ApplicationExerciseViewer({
+  exercisePrerequisiteGaps,
+  exercise,
+  isDarkMode,
+  isLoading,
+  onAttachFiles,
+  onRemoveAttachment,
+  onUpdateInternalText,
+}: {
+  exercisePrerequisiteGaps: Array<{ id: string; title: string }>;
+  exercise: ApplicationExerciseNode;
+  isDarkMode: boolean;
+  isLoading: boolean;
+  onAttachFiles: (exerciseId: string, files: FileList | null) => void;
+  onRemoveAttachment: (exerciseId: string, attachmentId: string) => void;
+  onUpdateInternalText: (exerciseId: string, text: string) => void;
+}) {
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [internalText, setInternalText] = useState(exercise.internalText || '');
+  const brief = exercise.brief?.trim();
+  const visibleBrief = brief ? stripExerciseObjectiveSection(brief) : '';
+  const hasDeliverable = internalText.trim().length > 0 || exercise.attachments.length > 0;
+
+  useEffect(() => {
+    setInternalText(exercise.internalText || '');
+  }, [exercise.internalText]);
+
+  return (
+    <div className="mx-auto max-w-[90rem] px-0 pb-20 pt-0">
+      <article className="mx-auto max-w-[82ch] space-y-8">
+        <header>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+                <ClipboardCheck className="h-4 w-4" />
+                Esercizio applicativo
+              </div>
+              <h2 className="font-serif text-3xl leading-tight text-gray-900 dark:text-gray-100">
+                {exercise.title}
+              </h2>
+            </div>
+          </div>
+          <p className="mt-3 text-base leading-7 text-gray-600 dark:text-zinc-300">
+            {exercise.description}
+          </p>
+        </header>
+
+        {!brief && exercisePrerequisiteGaps.length > 0 ? (
+          <section className="rounded-xl border border-amber-200/80 bg-amber-50/85 px-5 py-5 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+            <h2 className="font-serif text-xl font-normal">Prima genera le lezioni precedenti</h2>
+            <p className="mt-2 text-sm leading-6">
+              La consegna del laboratorio usa le lezioni gia scritte. Mancano ancora:
+            </p>
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
+              {exercisePrerequisiteGaps.map(gap => (
+                <li key={gap.id}>{gap.title}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {!brief && exercisePrerequisiteGaps.length === 0 ? (
+          <section className="rounded-xl border border-gray-200/80 bg-white/90 px-5 py-8 text-center shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85">
+            {isLoading ? (
+              <div className="flex items-center justify-center gap-3 text-sm font-semibold text-gray-600 dark:text-zinc-300">
+                <LoaderCircle className="h-4 w-4 animate-spin text-orange-600 dark:text-orange-300" />
+                Generazione consegna...
+              </div>
+            ) : (
+              <div className="text-sm leading-6 text-gray-600 dark:text-zinc-300">
+                Questo laboratorio è pianificato. Aprilo di nuovo per generare la consegna.
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {brief ? (
+          <>
+            <section className="border-t border-gray-300 pt-6 dark:border-zinc-600">
+              <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+                Traccia
+              </p>
+              <MarkdownRenderer
+                content={visibleBrief}
+                isDarkMode={isDarkMode}
+                className={
+                  isDarkMode ? 'prose-invert prose-base sm:prose-lg' : 'prose-base sm:prose-lg'
+                }
+              />
+            </section>
+
+            <section className="space-y-4 border-t border-gray-300 pt-6 dark:border-zinc-600">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+                  Consegna
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => uploadInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-200/80 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-gray-700 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:text-white"
+                  >
+                    <Upload className="h-4 w-4" />
+                    Carica file
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!hasDeliverable}
+                    className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-gray-50 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+                  >
+                    {exercise.feedbackStale ? 'Aggiorna riscontro' : 'Richiedi riscontro'}
+                  </button>
+                </div>
+              </div>
+
+              <input
+                ref={uploadInputRef}
+                type="file"
+                multiple
+                accept=".md,.txt,.json,.yaml,.yml,.toml,.csv,.tsv,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.c,.cpp,.h,.css,.scss,.html,.zip"
+                className="hidden"
+                onChange={event => {
+                  onAttachFiles(exercise.id, event.target.files);
+                  event.target.value = '';
+                }}
+              />
+
+              <ExerciseInternalTextEditor
+                exercise={exercise}
+                internalText={internalText}
+                isDarkMode={isDarkMode}
+                onChange={setInternalText}
+                onCommit={() => {
+                  if (internalText !== (exercise.internalText || '')) {
+                    onUpdateInternalText(exercise.id, internalText);
+                  }
+                }}
+              />
+
+              {exercise.attachments.length === 0 && internalText.trim().length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-200/80 bg-gray-50/80 px-5 py-8 text-center text-sm leading-7 text-gray-500 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
+                  Scrivi una nota Markdown oppure carica file testuali o archivi ZIP. Tutto cio che
+                  produci qui resta una consegna persistente e verra usato nella valutazione.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {exercise.attachments.map(attachment => (
+                    <ExerciseAttachmentCard
+                      key={attachment.id}
+                      attachment={attachment}
+                      onRemove={attachmentId => onRemoveAttachment(exercise.id, attachmentId)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="border-t border-gray-300 pt-6 dark:border-zinc-600">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
+                  Correzione AI
+                </p>
+                {exercise.currentFeedback ? (
+                  <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200/80 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    Score {exercise.currentFeedback.score}/100
+                  </span>
+                ) : null}
+              </div>
+              {exercise.currentFeedback ? (
+                <div className="space-y-4 text-sm leading-6 text-gray-700 dark:text-zinc-300">
+                  <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/70 px-4 py-4 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+                    <p className="font-semibold text-emerald-900 dark:text-emerald-200">
+                      {exercise.currentFeedback.qualitativeLabel}
+                    </p>
+                    <p className="mt-2 text-emerald-800 dark:text-emerald-300">
+                      {exercise.currentFeedback.summary}
+                    </p>
+                  </div>
+                  {exercise.feedbackStale ? (
+                    <p className="text-sm text-amber-600 dark:text-amber-300">Riscontro datato.</p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 dark:text-zinc-500">
+                  Nessuna valutazione disponibile. Aggiungi una consegna e richiedi un riscontro.
+                </p>
+              )}
+            </section>
+          </>
+        ) : null}
+      </article>
+    </div>
+  );
+}
+
 const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
+  activeExercise,
+  exercisePrerequisiteGaps = [],
   activeSectionTitle,
   activeSectionAssetsById,
   activeSectionGeneratedVisualsById = {},
   activeSectionImageRefsById,
+  hasNextSection,
   contentRef,
   currentLessonArtifactPayloads = [],
   isDarkMode,
   isFocusMode,
   isLoading,
   isMobileViewport,
+  onAdvanceSection,
+  onAttachExerciseFiles,
   onCompleteSection,
   onContentClick,
   onContentContextMenu,
   onContentPointerDownCapture,
   onSelectQuizAnswer,
+  onRemoveExerciseAttachment,
   quiz,
   quizAnswers,
   scrollContainerRef,
   sectionAnnotations,
   sectionContent,
   sectionReasoningText,
+  onUpdateExerciseInternalText,
   sourcePageRangeLabel,
 }: WorkspaceReaderContentModel) {
   const [isContextHintVisible, setIsContextHintVisible] = useState(false);
   const readingShellClassName = isFocusMode
-    ? 'max-w-[72rem] px-4 pb-36 pt-8 sm:px-8 lg:px-12 xl:px-16'
-    : 'max-w-[90rem] px-4 pb-36 pt-8 sm:px-8 lg:px-14 xl:px-20 2xl:px-24';
+    ? 'max-w-[72rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-12 xl:px-16'
+    : 'max-w-[90rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
   const readingColumnClassName = isFocusMode ? 'mx-auto max-w-[76ch]' : 'mx-auto max-w-[82ch]';
   const renderedSectionContent = useMemo(
     () =>
@@ -227,7 +725,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     [quizAnswers]
   );
   const canCompleteSection = quiz.length === 0 || unansweredQuestionCount === 0;
-  const shouldShowLessonSkeleton = isLoading || Boolean(activeSectionTitle && !sectionContent);
+  const shouldShowLessonSkeleton =
+    !activeExercise && (isLoading || Boolean(activeSectionTitle && !sectionContent));
 
   useEffect(() => {
     if (typeof window === 'undefined' || !sectionContent) {
@@ -271,7 +770,17 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
           className="mb-8 min-h-[50vh] min-w-0"
           onPointerDownCapture={onContentPointerDownCapture}
         >
-          {shouldShowLessonSkeleton ? (
+          {activeExercise ? (
+            <ApplicationExerciseViewer
+              exercise={activeExercise}
+              exercisePrerequisiteGaps={exercisePrerequisiteGaps}
+              isDarkMode={isDarkMode}
+              isLoading={isLoading}
+              onAttachFiles={onAttachExerciseFiles}
+              onRemoveAttachment={onRemoveExerciseAttachment}
+              onUpdateInternalText={onUpdateExerciseInternalText}
+            />
+          ) : shouldShowLessonSkeleton ? (
             <LessonGenerationSkeleton
               isDarkMode={isDarkMode}
               isMobileViewport={isMobileViewport}
@@ -395,6 +904,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
 
               <WorkspaceReaderQuizFooter
                 canComplete={canCompleteSection}
+                hasNextSection={hasNextSection}
+                onAdvanceSection={onAdvanceSection}
                 onCompleteSection={onCompleteSection}
                 remainingQuestionCount={unansweredQuestionCount}
               />

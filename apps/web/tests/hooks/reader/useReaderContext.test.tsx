@@ -184,6 +184,7 @@ test('clicking the same annotation mark toggles its menu closed', () => {
   assert.equal(result.current.contextMenu.visible, true);
   assert.equal(result.current.contextMenu.type, 'annotation');
   if (result.current.contextMenu.type === 'annotation') {
+    assert.equal(result.current.contextMenu.annotationNote, 'Nota');
     assert.equal(
       result.current.contextMenu.annotationArtifactRefs?.[0]?.artifactId,
       'visual-draft-1'

@@ -334,6 +334,40 @@ body {
   background: #a1a1aa;
 }
 
+.home-chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(180, 125, 70, 0.72) transparent;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar {
+  width: 7px;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(180, 125, 70, 0.72);
+  border-radius: 999px;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 95, 39, 0.88);
+}
+
+.dark .home-chat-scrollbar {
+  scrollbar-color: rgba(201, 145, 92, 0.72) transparent;
+}
+
+.dark .home-chat-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(201, 145, 92, 0.72);
+}
+
+.dark .home-chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(230, 171, 110, 0.88);
+}
+
 /* custom thin scrollbar for textareas (notes editor) */
 textarea::-webkit-scrollbar {
   width: 5px;
@@ -383,6 +417,24 @@ textarea::-webkit-scrollbar-thumb:hover {
   padding-left: 1rem;
   font-style: italic;
   color: var(--ink-secondary);
+}
+
+.user-chat-bubble .prose > :first-child {
+  margin-top: 0;
+}
+
+.user-chat-bubble .prose > :last-child {
+  margin-bottom: 0;
+}
+
+.user-chat-bubble .prose p,
+.user-chat-bubble .prose ul,
+.user-chat-bubble .prose ol,
+.user-chat-bubble .prose pre,
+.user-chat-bubble .prose blockquote {
+  margin-top: 0;
+  margin-bottom: 0;
+  line-height: 1.35;
 }
 
 mark {

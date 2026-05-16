@@ -916,7 +916,7 @@ export default function HomeChatPanel({
 
   return (
     <section
-      className="rounded-[2rem] bg-[rgba(246,244,240,0.9)] shadow-[inset_0_1px_3px_rgba(24,24,27,0.07),inset_0_0_0_1px_rgba(24,24,27,0.05)] dark:bg-[rgba(39,39,42,0.9)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] max-[640px]:flex max-[640px]:flex-col"
+      className="rounded-[2rem] bg-[rgba(248,245,240,0.96)] shadow-[inset_0_1px_3px_rgba(24,24,27,0.05),inset_0_0_0_1px_rgba(88,64,32,0.04)] dark:bg-[rgba(46,40,36,0.94)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] max-[640px]:flex max-[640px]:flex-col"
       style={
         isMobileViewport && viewportHeight != null
           ? { maxHeight: `${viewportHeight}px` }
@@ -1014,8 +1014,8 @@ export default function HomeChatPanel({
         </div>
       </div>
 
-      <div className="h-[14rem] overflow-y-auto px-4 py-4 min-[640px]:h-[24rem] sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1">
-        <div className="space-y-4">
+      <div className="home-chat-scrollbar h-[14rem] overflow-y-auto px-4 py-4 min-[640px]:h-[24rem] sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1">
+        <div className="space-y-3.5">
           {!hasMessages ? renderEmptyState() : null}
 
           {homeChatMode === 'new-course'
@@ -1025,10 +1025,10 @@ export default function HomeChatPanel({
                   className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[88%] text-sm leading-relaxed ${
+                    className={`max-w-[88%] text-sm leading-6 ${
                       message.role === 'user'
-                        ? 'rounded-2xl rounded-br-md bg-stone-900 px-4 py-3 text-white dark:bg-stone-100 dark:text-stone-900'
-                        : 'text-gray-800 dark:text-zinc-100'
+                        ? 'user-chat-bubble rounded-2xl rounded-br-md bg-stone-900 px-4 py-3 text-white dark:bg-stone-100 dark:text-stone-900'
+                        : 'border-l border-stone-300/80 pl-3.5 text-gray-800 dark:border-stone-600/80 dark:text-zinc-100'
                     }`}
                   >
                     <MarkdownRenderer
@@ -1047,7 +1047,7 @@ export default function HomeChatPanel({
                 if (!isLibraryAssistantTurn(turn)) {
                   return (
                     <div key={turn.id} className="flex justify-end">
-                      <div className="max-w-[88%] rounded-2xl rounded-br-md bg-stone-900 px-4 py-3 text-sm leading-relaxed text-white dark:bg-stone-100 dark:text-stone-900">
+                      <div className="user-chat-bubble max-w-[88%] rounded-2xl rounded-br-md bg-stone-900 px-4 py-3 text-sm leading-6 text-white dark:bg-stone-100 dark:text-stone-900">
                         <MarkdownRenderer
                           content={getUiMessageText(turn)}
                           isDarkMode={isDarkMode}
@@ -1061,12 +1061,12 @@ export default function HomeChatPanel({
                 const mergedAssistantText = getMergedLibraryAssistantText(turn.messages);
 
                 return (
-                  <div key={turn.key} className="!mt-6 space-y-2">
+                  <div key={turn.key} className="!mt-5 space-y-2.5">
                     {renderLibraryToolStrip(turn.parts, turn.key)}
                     {mergedAssistantText ? (
                       <div
                         data-testid="library-assistant-turn-bubble"
-                        className="max-w-[88%] text-sm leading-relaxed text-gray-800 dark:text-zinc-100"
+                        className="max-w-[82ch] border-l border-stone-300/80 pl-3.5 text-sm leading-7 text-gray-800 dark:border-stone-600/80 dark:text-zinc-100"
                       >
                         <StreamingMarkdownRenderer
                           content={mergedAssistantText.text}
@@ -1093,7 +1093,7 @@ export default function HomeChatPanel({
 
           {isLibraryAwaitingFirstResponse ? (
             <div className="flex justify-start">
-              <div className="flex items-center gap-1.5 px-4 py-3 text-xs text-gray-400 dark:text-zinc-500">
+              <div className="flex items-center gap-1.5 border-l border-stone-300/80 pl-3.5 py-2 text-xs text-gray-400 dark:border-stone-600/80 dark:text-zinc-500">
                 <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-gray-400 dark:bg-zinc-500" />
                 <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-gray-400 [animation-delay:150ms] dark:bg-zinc-500" />
                 <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-gray-400 [animation-delay:300ms] dark:bg-zinc-500" />

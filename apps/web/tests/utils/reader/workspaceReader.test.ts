@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import type { PdfDocumentAssets, SyllabusItem } from '../../../types.ts';
+import type { ApplicationExerciseNode, PdfDocumentAssets, SyllabusItem } from '../../../types.ts';
 import {
   buildLessonAssetMap,
   buildLessonImageRefMap,
@@ -207,6 +207,47 @@ test('buildSidebarGroups keeps module-backed lessons at depth zero in learn mode
     'lesson-1': 0,
     'lesson-1-deep': 1,
   });
+});
+
+test('buildSidebarGroups keeps application exercises in module path order', () => {
+  const exercise: ApplicationExerciseNode = {
+    kind: 'exercise',
+    id: 'exercise-1',
+    title: 'Laboratorio pratico',
+    description: 'Applica il modulo',
+    assessedObjective: 'Dimostrare applicazione pratica',
+    attachments: [],
+    currentFeedback: null,
+    isCompleted: false,
+    feedbackStale: false,
+    updatedAt: '2026-05-12T12:00:00.000Z',
+  };
+  const learningPlan = buildTestLearningPlan(
+    [
+      buildTestLesson({
+        id: 'lesson-1',
+        moduleTitle: 'Modulo operativo',
+        title: 'Lezione',
+        description: 'Base',
+      }),
+    ],
+    {
+      title: 'Percorso',
+      summary: 'Sintesi',
+    }
+  );
+  learningPlan.modules[0]?.children.push(exercise);
+
+  const groups = buildSidebarGroups(learningPlan, []);
+
+  assert.deepEqual(
+    groups[0]?.sections.map(section => ({ id: section.id, kind: section.kind })),
+    [
+      { id: 'lesson-1', kind: 'lesson' },
+      { id: 'exercise-1', kind: 'exercise' },
+    ]
+  );
+  assert.equal(groups[0]?.sectionDepthById['exercise-1'], 0);
 });
 
 test('buildSidebarGroups falls back safely when parent chains are invalid or cyclic', () => {

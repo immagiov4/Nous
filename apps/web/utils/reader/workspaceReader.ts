@@ -2,6 +2,7 @@ import type {
   LearningPlan,
   LessonImageRef,
   LessonNode,
+  PathNode,
   PdfDocumentAssets,
   PdfImageAsset,
   SyllabusItem,
@@ -12,7 +13,7 @@ export interface SidebarGroup {
   id: string;
   sectionDepthById: Record<string, number>;
   title: string;
-  sections: LessonNode[];
+  sections: PathNode[];
 }
 
 export const buildSidebarGroups = (
@@ -28,17 +29,20 @@ export const buildSidebarGroups = (
       const lessons = module.children.filter(
         (child): child is LessonNode => child.kind === 'lesson'
       );
-      if (lessons.length === 0) {
+      if (module.children.length === 0) {
         return null;
       }
       const hierarchyInfoById = buildSectionHierarchyInfoById(lessons);
       return {
         id: module.id || `group-${index}`,
         sectionDepthById: Object.fromEntries(
-          lessons.map(lesson => [lesson.id, hierarchyInfoById[lesson.id]?.depth ?? 0])
+          module.children.map(child => [
+            child.id,
+            child.kind === 'lesson' ? (hierarchyInfoById[child.id]?.depth ?? 0) : 0,
+          ])
         ),
         title: module.title || `Modulo ${index + 1}`,
-        sections: lessons,
+        sections: module.children,
       };
     })
     .filter((group): group is SidebarGroup => Boolean(group));

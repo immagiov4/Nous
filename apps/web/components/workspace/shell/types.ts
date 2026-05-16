@@ -4,6 +4,7 @@ import type {
   RefObject,
 } from 'react';
 import type {
+  ApplicationExerciseNode,
   AudioPanelTab,
   ContextMenuState,
   LearningArtifactRenderPayload,
@@ -85,14 +86,19 @@ export interface WorkspaceReaderVoiceOption {
 
 export interface WorkspaceReaderSidebarModel {
   activeSectionId: string | null;
+  canRepairApplicationExercises: boolean;
   expandedModuleId: string | null;
   generatingSectionId: string | null;
+  isRepairingApplicationExercises: boolean;
   isLoading: boolean;
   isMobileViewport: boolean;
   learningPlanTitle: string;
+  repairApplicationExercisesLabel: string;
   onBackToLibrary: () => void;
   onExportProject: () => void;
   onModuleToggle: (groupId: string) => void;
+  onRepairApplicationExercises: () => void;
+  onSelectExercise: (exercise: ApplicationExerciseNode) => void;
   onSelectSection: (section: LessonNode) => void;
   onSetFocusMode: (value: boolean) => void;
   onSetIsMobileSidebarOpen: (value: boolean) => void;
@@ -165,10 +171,13 @@ export interface WorkspaceReaderHeaderModel {
 }
 
 export interface WorkspaceReaderContentModel {
+  activeExercise?: ApplicationExerciseNode | null;
+  exercisePrerequisiteGaps?: Array<{ id: string; title: string }>;
   activeSectionTitle?: string | null;
   activeSectionAssetsById: Record<string, PdfImageAsset>;
   activeSectionGeneratedVisualsById?: Record<string, LessonGeneratedVisual>;
   activeSectionImageRefsById: Record<string, LessonImageRef>;
+  hasNextSection: boolean;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   contentRef: RefObject<HTMLDivElement | null>;
   isDarkMode: boolean;
@@ -176,12 +185,16 @@ export interface WorkspaceReaderContentModel {
   isLoading: boolean;
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
+  onAdvanceSection: () => void;
   onCompleteSection: () => void;
+  onAttachExerciseFiles: (exerciseId: string, files: FileList | null) => void;
   onContentClick: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
+  onRemoveExerciseAttachment: (exerciseId: string, attachmentId: string) => void;
   onSetIsQuizSubmitted: (value: boolean) => void;
+  onUpdateExerciseInternalText: (exerciseId: string, text: string) => void;
   quiz: QuizQuestion[];
   quizAnswers: number[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;

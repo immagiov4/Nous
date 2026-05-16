@@ -1,6 +1,7 @@
 import {
   CheckCircle2,
   ChevronRight,
+  ClipboardCheck,
   Copy,
   Download,
   LibraryBig,
@@ -12,6 +13,7 @@ import {
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { memo, useEffect, useRef, useState } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../../constants/layout.ts';
+import type { ApplicationExerciseNode, LessonNode, PathNode } from '../../../types.ts';
 import type { WorkspaceReaderSidebarModel } from './types.ts';
 
 const LAB_CONTEXT_MENU_VIEWPORT_PADDING = 12;
@@ -46,6 +48,50 @@ const getSectionStatusLabel = ({
   }
 
   return 'Lezione non ancora generata';
+};
+
+const getExerciseStatusLabel = (exercise: ApplicationExerciseNode, isActive: boolean) => {
+  if (exercise.isCompleted) {
+    return exercise.bestScore !== undefined
+      ? `Esercizio completato: ${exercise.bestScore}/100`
+      : 'Esercizio completato';
+  }
+
+  if (exercise.feedbackStale) {
+    return 'Esercizio con feedback da aggiornare';
+  }
+
+  if (exercise.currentFeedback) {
+    return `${exercise.currentFeedback.qualitativeLabel}: ${exercise.currentFeedback.score}/100`;
+  }
+
+  if (isActive) {
+    return 'Esercizio applicativo attivo';
+  }
+
+  if (exercise.brief?.trim()) {
+    return 'Esercizio applicativo pronto';
+  }
+
+  return 'Esercizio applicativo pianificato';
+};
+
+const renderExerciseStatus = (exercise: ApplicationExerciseNode, isActive: boolean) => {
+  if (exercise.isCompleted) {
+    return <CheckCircle2 className="h-4 w-4 text-emerald-700 dark:text-emerald-300" />;
+  }
+
+  if (exercise.currentFeedback) {
+    return (
+      <span className="h-3 w-3 rounded-full border-2 border-orange-500 bg-orange-100 dark:bg-orange-950/60" />
+    );
+  }
+
+  if (isActive) {
+    return <span className="h-2.5 w-2.5 rounded-full bg-orange-600 dark:bg-orange-300" />;
+  }
+
+  return <ClipboardCheck className="h-3.5 w-3.5 text-orange-600/80 dark:text-orange-300/80" />;
 };
 
 const renderSectionStatus = ({
@@ -88,14 +134,19 @@ const renderSectionStatus = ({
 
 const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
   activeSectionId,
+  canRepairApplicationExercises,
   expandedModuleId,
   generatingSectionId,
+  isRepairingApplicationExercises,
   isLoading,
   isMobileViewport,
   learningPlanTitle,
+  repairApplicationExercisesLabel,
   onBackToLibrary,
   onExportProject,
   onModuleToggle,
+  onRepairApplicationExercises,
+  onSelectExercise,
   onSelectSection,
   onSetFocusMode,
   onSetIsMobileSidebarOpen,
@@ -104,7 +155,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
 }: WorkspaceReaderSidebarModel) {
   const [lessonContextMenu, setLessonContextMenu] = useState<null | {
     copied: boolean;
-    section: WorkspaceReaderSidebarModel['sidebarGroups'][number]['sections'][number];
+    section: LessonNode;
     x: number;
     y: number;
   }>(null);
@@ -140,7 +191,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
 
   const handleLessonContextMenu = (
     event: ReactMouseEvent<HTMLButtonElement>,
-    section: WorkspaceReaderSidebarModel['sidebarGroups'][number]['sections'][number]
+    section: LessonNode
   ) => {
     event.preventDefault();
     setLessonContextMenu({ copied: false, section, x: event.clientX, y: event.clientY });
@@ -254,10 +305,31 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
               <Download className="h-4 w-4" /> Esporta
             </button>
           </div>
+
+          {canRepairApplicationExercises || isRepairingApplicationExercises ? (
+            <button
+              type="button"
+              onClick={onRepairApplicationExercises}
+              disabled={isLoading || isRepairingApplicationExercises}
+              className={`flex w-full items-center justify-center gap-2 rounded-lg border border-orange-200 bg-orange-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-orange-800 transition-colors hover:bg-orange-100 dark:border-orange-900/50 dark:bg-orange-950/25 dark:text-orange-200 dark:hover:bg-orange-900/35 ${
+                isLoading || isRepairingApplicationExercises ? 'cursor-not-allowed opacity-50' : ''
+              }`}
+            >
+              {isRepairingApplicationExercises ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Pianificazione esercizi...
+                </>
+              ) : (
+                <>
+                  <ClipboardCheck className="h-4 w-4" /> {repairApplicationExercisesLabel}
+                </>
+              )}
+            </button>
+          ) : null}
         </div>
 
         <div
-          className={`reader-sidebar-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-4 py-5 ${
+          className={`reader-sidebar-scroll custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-4 py-5 ${
             isMobileViewport ? 'reader-sidebar-scroll-mobile' : ''
           }`}
         >
@@ -295,23 +367,42 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
 
                     {isExpanded ? (
                       <div className="mt-2 ml-5 space-y-1 border-l border-gray-200 pl-4 dark:border-zinc-700/80">
-                        {group.sections.map(section => {
+                        {group.sections.map((section: PathNode) => {
                           const isActive = activeSectionId === section.id;
                           const depth = group.sectionDepthById[section.id] ?? 0;
-                          const hasGeneratedContent = Boolean(section.content?.trim());
-                          const isGenerating = generatingSectionId === section.id;
+                          const hasGeneratedContent =
+                            section.kind === 'lesson' && Boolean(section.content?.trim());
+                          const isGenerating =
+                            section.kind === 'lesson' && generatingSectionId === section.id;
                           // Disabled only when a different section is being
                           // generated — otherwise all sections are clickable
                           // (to start generation or navigate).
                           const isDisabled =
                             generatingSectionId !== null && !hasGeneratedContent && !isGenerating;
+                          const statusLabel =
+                            section.kind === 'exercise'
+                              ? getExerciseStatusLabel(section, isActive)
+                              : getSectionStatusLabel({
+                                  hasGeneratedContent,
+                                  isActive,
+                                  isCompleted: section.isCompleted,
+                                  isGenerating,
+                                });
 
                           return (
                             <button
                               type="button"
                               key={section.id}
-                              onClick={() => onSelectSection(section)}
-                              onContextMenu={event => handleLessonContextMenu(event, section)}
+                              onClick={() =>
+                                section.kind === 'exercise'
+                                  ? onSelectExercise(section)
+                                  : onSelectSection(section)
+                              }
+                              onContextMenu={
+                                section.kind === 'lesson'
+                                  ? event => handleLessonContextMenu(event, section)
+                                  : undefined
+                              }
                               disabled={isDisabled}
                               style={{ paddingLeft: `${depth * 0.9}rem` }}
                               className={`flex w-full items-center gap-3 py-2 text-left transition-colors ${
@@ -322,19 +413,16 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                             >
                               <div
                                 className="flex h-4 w-4 flex-shrink-0 items-center justify-center"
-                                title={getSectionStatusLabel({
-                                  hasGeneratedContent,
-                                  isActive,
-                                  isCompleted: section.isCompleted,
-                                  isGenerating,
-                                })}
+                                title={statusLabel}
                               >
-                                {renderSectionStatus({
-                                  hasGeneratedContent,
-                                  isActive,
-                                  isCompleted: section.isCompleted,
-                                  isGenerating,
-                                })}
+                                {section.kind === 'exercise'
+                                  ? renderExerciseStatus(section, isActive)
+                                  : renderSectionStatus({
+                                      hasGeneratedContent,
+                                      isActive,
+                                      isCompleted: section.isCompleted,
+                                      isGenerating,
+                                    })}
                               </div>
                               <div className="min-w-0 flex-1">
                                 <div

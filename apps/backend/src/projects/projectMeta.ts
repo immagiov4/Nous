@@ -1,7 +1,12 @@
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
-import type { ProjectSnapshot, ProjectSourceKind, SavedProjectMeta } from './types.js';
+import type {
+  LearningPlanNodeSnapshot,
+  ProjectSnapshot,
+  ProjectSourceKind,
+  SavedProjectMeta,
+} from './types.js';
 
 const DEFAULT_PROJECT_VERSION = '4.1';
 export const PROJECT_SYNC_READY = 'sync-ready' as const;
@@ -74,6 +79,60 @@ const getProjectTitle = (snapshot: ProjectSnapshot): string => {
   return snapshot.isLearnMode ? 'Nuovo percorso AI' : 'Nuovo progetto';
 };
 
+export const getLearningPlanLessons = (
+  learningPlan: ProjectSnapshot['learningPlan']
+): LearningPlanNodeSnapshot[] => {
+  if (!learningPlan) {
+    return [];
+  }
+
+  if (Array.isArray(learningPlan.modules)) {
+    return learningPlan.modules.flatMap(module =>
+      Array.isArray(module.children)
+        ? module.children.filter(child => isRecord(child) && child.kind !== 'exercise')
+        : []
+    );
+  }
+
+  return Array.isArray(learningPlan.sections) ? learningPlan.sections : [];
+};
+
+export const getLearningPlanExercises = (
+  learningPlan: ProjectSnapshot['learningPlan']
+): LearningPlanNodeSnapshot[] => {
+  if (!learningPlan || !Array.isArray(learningPlan.modules)) {
+    return [];
+  }
+
+  return learningPlan.modules.flatMap(module =>
+    Array.isArray(module.children)
+      ? module.children.filter(child => isRecord(child) && child.kind === 'exercise')
+      : []
+  );
+};
+
+export const getLearningPlanLessonStats = (
+  learningPlan: ProjectSnapshot['learningPlan']
+): { completedCount: number; lessonCount: number } => {
+  const lessons = getLearningPlanLessons(learningPlan);
+
+  return {
+    lessonCount: lessons.length,
+    completedCount: lessons.filter(lesson => lesson.isCompleted).length,
+  };
+};
+
+export const getLearningPlanExerciseStats = (
+  learningPlan: ProjectSnapshot['learningPlan']
+): { completedExercises: number; exerciseCount: number } => {
+  const exercises = getLearningPlanExercises(learningPlan);
+
+  return {
+    exerciseCount: exercises.length,
+    completedExercises: exercises.filter(exercise => exercise.isCompleted).length,
+  };
+};
+
 const buildCoverLabel = (snapshot: ProjectSnapshot, sourceKind: ProjectSourceKind): string => {
   if (
     isRecord(snapshot.source) &&
@@ -101,7 +160,7 @@ const buildCoverLabel = (snapshot: ProjectSnapshot, sourceKind: ProjectSourceKin
     return `${exerciseCount} esercizi`;
   }
 
-  const lessonCount = snapshot.learningPlan?.sections?.length || 0;
+  const { lessonCount } = getLearningPlanLessonStats(snapshot.learningPlan);
   return lessonCount > 0 ? `${lessonCount} lezioni` : 'Bozza sincronizzata';
 };
 
@@ -130,7 +189,8 @@ export const buildProjectMeta = (
 ): SavedProjectMeta => {
   const now = options?.touchedAt || timestampIso();
   const sourceKind = inferProjectSourceKind(snapshot, options?.imported ?? false);
-  const sections = snapshot.learningPlan?.sections || [];
+  const { completedCount, lessonCount } = getLearningPlanLessonStats(snapshot.learningPlan);
+  const { completedExercises, exerciseCount } = getLearningPlanExerciseStats(snapshot.learningPlan);
 
   return {
     id: snapshot.id,
@@ -139,8 +199,10 @@ export const buildProjectMeta = (
     createdAt: previousMeta?.createdAt || snapshot.createdAt || now,
     updatedAt: snapshot.updatedAt || now,
     lastOpenedAt: previousMeta?.lastOpenedAt || snapshot.lastOpenedAt || now,
-    lessonCount: sections.length,
-    completedCount: sections.filter(section => section.isCompleted).length,
+    lessonCount,
+    completedCount,
+    exerciseCount,
+    completedExercises,
     hasSourceFile: Boolean(snapshot.source),
     coverLabel: buildCoverLabel(snapshot, sourceKind),
     syncState: PROJECT_SYNC_READY,

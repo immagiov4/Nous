@@ -124,6 +124,38 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     this.dbPromise = this.openDatabase();
   }
 
+  private async writeProjectSnapshot(snapshot: ProjectSnapshot): Promise<SavedProjectMeta> {
+    try {
+      const db = await this.dbPromise;
+      const transactionStores: NousProjectStoreName[] = this.hasStore(db, PLACEMENT_STORE)
+        ? [META_STORE, SNAPSHOT_STORE, PLACEMENT_STORE]
+        : [META_STORE, SNAPSHOT_STORE];
+      const tx = db.transaction(transactionStores, 'readwrite');
+      const existingMeta = (await tx.objectStore(META_STORE).get(snapshot.id)) || null;
+      const nextMeta = buildProjectMeta(snapshot, existingMeta);
+      await tx.objectStore(SNAPSHOT_STORE).put(snapshot);
+      await tx.objectStore(META_STORE).put(nextMeta);
+      if (this.hasStore(db, PLACEMENT_STORE)) {
+        const placementStore = tx.objectStore(PLACEMENT_STORE);
+        const existingPlacement = await placementStore.get(snapshot.id);
+        if (!existingPlacement) {
+          const placements = await placementStore.getAll();
+          await placementStore.put(
+            this.createPlacementRecord(
+              snapshot.id,
+              null,
+              this.resolveNextPlacementOrder(placements, null)
+            )
+          );
+        }
+      }
+      await tx.done;
+      return nextMeta;
+    } catch (error) {
+      throw classifyStorageError(error);
+    }
+  }
+
   private async openDatabase(): Promise<IDBPDatabase<NousProjectDb>> {
     let rejectBlockedOpen: ((reason?: unknown) => void) | null = null;
 
@@ -449,10 +481,50 @@ export class IndexedDbProjectRepository implements ProjectRepository {
 
   async listProjects(): Promise<SavedProjectMeta[]> {
     const db = await this.dbPromise;
-    const items = await db.getAll(META_STORE);
+    const items = await this.listProjectsWithRepairedMeta(db);
     return items.sort(
       (a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime()
     );
+  }
+
+  private async listProjectsWithRepairedMeta(
+    db: IDBPDatabase<NousProjectDb>
+  ): Promise<SavedProjectMeta[]> {
+    const items = await db.getAll(META_STORE);
+    const snapshots = await db.getAll(SNAPSHOT_STORE);
+    const snapshotById = new Map(snapshots.map(snapshot => [snapshot.id, snapshot]));
+    const repairedItems: SavedProjectMeta[] = [];
+    const tx = db.transaction(META_STORE, 'readwrite');
+    const metaStore = tx.objectStore(META_STORE);
+
+    for (const item of items) {
+      const snapshot = snapshotById.get(item.id);
+      if (!snapshot) {
+        repairedItems.push(item);
+        continue;
+      }
+
+      const repaired = buildProjectMeta(normalizeStoredProject(snapshot), item, {
+        touchedAt: item.updatedAt,
+      });
+      repairedItems.push(repaired);
+
+      if (
+        repaired.lessonCount !== item.lessonCount ||
+        repaired.completedCount !== item.completedCount ||
+        repaired.exerciseCount !== item.exerciseCount ||
+        repaired.completedExercises !== item.completedExercises ||
+        repaired.coverLabel !== item.coverLabel ||
+        repaired.title !== item.title ||
+        repaired.sourceKind !== item.sourceKind ||
+        repaired.hasSourceFile !== item.hasSourceFile
+      ) {
+        await metaStore.put(repaired);
+      }
+    }
+
+    await tx.done;
+    return repairedItems;
   }
 
   async loadProject(id: ProjectId): Promise<ProjectSnapshot | null> {
@@ -645,37 +717,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
   }
 
   async saveProject(snapshot: ProjectSnapshot): Promise<SavedProjectMeta> {
-    return this.enqueueProjectOp(snapshot.id, async () => {
-      try {
-        const db = await this.dbPromise;
-        const transactionStores: NousProjectStoreName[] = this.hasStore(db, PLACEMENT_STORE)
-          ? [META_STORE, SNAPSHOT_STORE, PLACEMENT_STORE]
-          : [META_STORE, SNAPSHOT_STORE];
-        const tx = db.transaction(transactionStores, 'readwrite');
-        const existingMeta = (await tx.objectStore(META_STORE).get(snapshot.id)) || null;
-        const nextMeta = buildProjectMeta(snapshot, existingMeta);
-        await tx.objectStore(SNAPSHOT_STORE).put(snapshot);
-        await tx.objectStore(META_STORE).put(nextMeta);
-        if (this.hasStore(db, PLACEMENT_STORE)) {
-          const placementStore = tx.objectStore(PLACEMENT_STORE);
-          const existingPlacement = await placementStore.get(snapshot.id);
-          if (!existingPlacement) {
-            const placements = await placementStore.getAll();
-            await placementStore.put(
-              this.createPlacementRecord(
-                snapshot.id,
-                null,
-                this.resolveNextPlacementOrder(placements, null)
-              )
-            );
-          }
-        }
-        await tx.done;
-        return nextMeta;
-      } catch (error) {
-        throw classifyStorageError(error);
-      }
-    });
+    return this.enqueueProjectOp(snapshot.id, () => this.writeProjectSnapshot(snapshot));
   }
 
   async patchProject(id: ProjectId, patch: Record<string, unknown>): Promise<SavedProjectMeta> {
@@ -752,7 +794,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
         };
       }
 
-      return this.saveProject(snapshot);
+      return this.writeProjectSnapshot(snapshot);
     });
   }
 

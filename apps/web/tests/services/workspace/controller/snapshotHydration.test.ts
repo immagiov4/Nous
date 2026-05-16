@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { prepareSnapshotForHydration } from '../../../../services/workspace/controller/snapshotHydration.ts';
 import { AppState, type ProjectSnapshot } from '../../../../types.ts';
-import { flattenLessons } from '../../../../utils/learning/pathNodes.ts';
+import { flattenLessons, flattenPathNodes } from '../../../../utils/learning/pathNodes.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../../helpers/learningPlan.ts';
 
 const CURRENT_LEGACY_LABORATORY_SCHEMA_VERSION = 3;
@@ -197,4 +197,236 @@ test('prepareSnapshotForHydration resets abandoned pending laboratory generation
   assert.equal(preparedRecord.laboratory, undefined);
   assert.equal(preparedRecord.activeLaboratoryExerciseId, undefined);
   assert.equal(prepared.activeSectionId, 'section-1');
+});
+
+test('prepareSnapshotForHydration does not auto-generate research mini-lab exercises', () => {
+  const snapshot: ProjectSnapshot = {
+    id: 'project-research-labs',
+    version: '4.1',
+    sourceKind: 'learn-mode',
+    state: AppState.READING,
+    source: null,
+    learningPlan: buildTestLearningPlan(
+      [
+        buildTestLesson({
+          id: 'mod-1-lesson-1',
+          title: 'Mappare host e servizi',
+          description: 'Capire cosa esiste in rete',
+          moduleTitle: 'M',
+        }),
+      ],
+      { title: 'Sistemistica PMI', summary: 'Corso pratico' }
+    ),
+    isLearnMode: true,
+    userProfile: null,
+    syllabus: [],
+    researchCoursePlan: {
+      generatedAt: '2026-05-12T12:00:00.000Z',
+      lessonCountReason: 'Operational course',
+      title: 'Sistemistica PMI',
+      summary: 'Corso pratico',
+      lessons: [
+        {
+          id: 'mod-1-lesson-1',
+          title: 'Mappare host e servizi',
+          description: 'Capire cosa esiste in rete',
+          moduleId: 'mod-1',
+          moduleTitle: 'Modulo test',
+          prerequisites: [],
+          keyConcepts: [],
+          guidingQuestions: [],
+          miniLab: 'Disegna una mappa minima con host, IP e servizi.',
+          simplificationRisks: [],
+          sourceHints: [],
+        },
+      ],
+    },
+    activeSectionId: 'mod-1-lesson-1',
+    createdAt: '2026-05-12T12:00:00.000Z',
+    updatedAt: '2026-05-12T12:00:00.000Z',
+    lastOpenedAt: '2026-05-12T12:00:00.000Z',
+    documentAssets: null,
+    documentIndex: null,
+  };
+
+  const prepared = prepareSnapshotForHydration(snapshot);
+  const nodes = flattenPathNodes(prepared.learningPlan?.modules);
+
+  assert.deepEqual(
+    nodes.map(node => node.title),
+    ['Mappare host e servizi']
+  );
+  assert.equal(prepared.learningPlan?.applicationExercisePlanningStatus, 'not-run');
+});
+
+test('prepareSnapshotForHydration repairs flattened learn-mode plans from syllabus modules', () => {
+  const snapshot: ProjectSnapshot = {
+    id: 'project-flattened-linux',
+    version: '4.1',
+    sourceKind: 'learn-mode',
+    state: AppState.READING,
+    source: null,
+    learningPlan: {
+      title: 'Linux',
+      summary: 'Architettura',
+      applicationExercisePlanningStatus: 'not-run',
+      modules: [
+        {
+          id: 'm-0-untitled-module',
+          title: 'Untitled module',
+          children: [
+            {
+              kind: 'lesson',
+              id: 'mod-1-lesson-1',
+              title: 'Unix philosophy',
+              description: 'Perche Linux e fatto cosi',
+              isCompleted: false,
+              type: 'core',
+              parentId: 'mod-1',
+              content: '# Filosofia',
+              contextPrompt: 'Parla della filosofia Unix',
+            },
+            {
+              kind: 'lesson',
+              id: 'mod-2-lesson-1',
+              title: 'Ring di privilegio',
+              description: 'Kernel e user space',
+              isCompleted: false,
+              type: 'core',
+              parentId: 'mod-2',
+              content: '# Ring',
+              contextPrompt: 'Parla dei ring di privilegio',
+            },
+          ],
+        },
+      ],
+    },
+    isLearnMode: true,
+    userProfile: null,
+    syllabus: [
+      {
+        id: 'mod-1',
+        title: 'Filosofia',
+        description: 'Base',
+        type: 'module',
+        status: 'ready',
+        children: [
+          {
+            id: 'mod-1-lesson-1',
+            title: 'Unix philosophy',
+            description: 'Perche Linux e fatto cosi',
+            type: 'lesson',
+            status: 'pending',
+            contextPrompt: 'Parla della filosofia Unix',
+          },
+        ],
+      },
+      {
+        id: 'mod-2',
+        title: 'Kernel',
+        description: 'Dettagli',
+        type: 'module',
+        status: 'ready',
+        children: [
+          {
+            id: 'mod-2-lesson-1',
+            title: 'Ring di privilegio',
+            description: 'Kernel e user space',
+            type: 'lesson',
+            status: 'pending',
+            contextPrompt: 'Parla dei ring di privilegio',
+          },
+        ],
+      },
+    ],
+    activeSectionId: 'mod-2-lesson-1',
+    createdAt: '2026-05-12T12:00:00.000Z',
+    updatedAt: '2026-05-12T12:00:00.000Z',
+    lastOpenedAt: '2026-05-12T12:00:00.000Z',
+    documentAssets: null,
+    documentIndex: null,
+  };
+
+  const prepared = prepareSnapshotForHydration(snapshot);
+
+  assert.deepEqual(
+    prepared.learningPlan?.modules.map(module => module.title),
+    ['Filosofia', 'Kernel']
+  );
+  assert.equal(flattenLessons(prepared.learningPlan?.modules)[0]?.content, '# Filosofia');
+  assert.equal(flattenLessons(prepared.learningPlan?.modules)[1]?.content, '# Ring');
+  assert.equal(prepared.activeSectionId, 'mod-2-lesson-1');
+});
+
+test('prepareSnapshotForHydration removes temporary mini-lab lessons without inventing exercises', () => {
+  const snapshot: ProjectSnapshot = {
+    id: 'project-research-lab-cleanup',
+    version: '1',
+    sourceKind: 'learn-mode',
+    state: AppState.READING,
+    source: null,
+    learningPlan: {
+      title: 'Sistemistica PMI',
+      summary: 'Corso pratico',
+      modules: [
+        {
+          id: 'mod-1',
+          title: 'Modulo test',
+          children: [
+            buildTestLesson({
+              id: 'mod-1-lesson-1',
+              title: 'Mappare host e servizi',
+              description: 'Capire cosa esiste in rete',
+            }),
+            buildTestLesson({
+              id: 'mod-1-lab',
+              title: 'Laboratorio pratico: Modulo test',
+              description: 'Applicare in pratica il modulo "Modulo test".',
+              contextPrompt: 'Attivita suggerite:\n- Disegna una mappa minima.',
+            }),
+          ],
+        },
+      ],
+      applicationExercisePlanningStatus: 'not-run',
+    },
+    isLearnMode: true,
+    userProfile: null,
+    syllabus: [],
+    researchCoursePlan: {
+      generatedAt: '2026-05-12T12:00:00.000Z',
+      lessonCountReason: 'Operational course',
+      title: 'Sistemistica PMI',
+      summary: 'Corso pratico',
+      lessons: [
+        {
+          id: 'mod-1-lesson-1',
+          title: 'Mappare host e servizi',
+          description: 'Capire cosa esiste in rete',
+          moduleId: 'mod-1',
+          moduleTitle: 'Modulo test',
+          prerequisites: [],
+          keyConcepts: [],
+          guidingQuestions: [],
+          miniLab: 'Disegna una mappa minima con host, IP e servizi.',
+          simplificationRisks: [],
+          sourceHints: [],
+        },
+      ],
+    },
+    activeSectionId: 'mod-1-lesson-1',
+    createdAt: '2026-05-12T12:00:00.000Z',
+    updatedAt: '2026-05-12T12:00:00.000Z',
+    lastOpenedAt: '2026-05-12T12:00:00.000Z',
+    documentAssets: null,
+    documentIndex: null,
+  };
+
+  const prepared = prepareSnapshotForHydration(snapshot);
+  const nodes = flattenPathNodes(prepared.learningPlan?.modules);
+
+  assert.deepEqual(
+    nodes.map(node => ({ kind: node.kind, title: node.title })),
+    [{ kind: 'lesson', title: 'Mappare host e servizi' }]
+  );
+  assert.equal(prepared.learningPlan?.applicationExercisePlanningStatus, 'not-run');
 });

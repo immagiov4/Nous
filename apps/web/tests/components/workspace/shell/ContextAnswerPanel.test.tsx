@@ -12,6 +12,12 @@ const defaultChatTransportInstances: Array<{
 const sendMessageMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
+const chatTextComposerProps: Array<{
+  disabled?: boolean;
+  onSubmit: () => void;
+  placeholder: string;
+  value: string;
+}> = [];
 
 vi.mock('@ai-sdk/react', () => ({
   useChat: useChatMock,
@@ -39,7 +45,24 @@ vi.mock('../../../../components/shared/MarkdownRenderer.tsx', () => ({
 }));
 
 vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
-  default: () => <div data-testid="chat-text-composer" />,
+  default: (props: {
+    disabled?: boolean;
+    onSubmit: () => void;
+    placeholder: string;
+    value: string;
+  }) => {
+    chatTextComposerProps.push(props);
+    return (
+      <button
+        type="button"
+        data-testid="chat-text-composer"
+        disabled={props.disabled}
+        onClick={props.onSubmit}
+      >
+        {props.placeholder}
+      </button>
+    );
+  },
 }));
 
 vi.mock('../../../../services/openrouter/config.ts', () => ({
@@ -97,6 +120,7 @@ describe('ContextAnswerPanel', () => {
     sendMessageMock.mockReset();
     addToolOutputMock.mockReset();
     useChatMock.mockReset();
+    chatTextComposerProps.length = 0;
   });
 
   test('auto-submits the initial question only once under StrictMode', () => {
@@ -187,6 +211,39 @@ describe('ContextAnswerPanel', () => {
     expect(renderedText.indexOf('Vuoi aggiungerlo alle note?')).toBeLessThan(
       renderedText.indexOf('Dopo la nota.')
     );
+  });
+
+  test('blocks the follow-up composer while requestAddToNotes awaits a decision', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-requestAddToNotes',
+              toolCallId: 'tool-1',
+              state: 'input-available',
+              input: {
+                noteDraft: 'Nota finale',
+                rationale: 'Vale la pena salvarla.',
+                selectedTextDraft: 'G-buffer',
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.getByTestId('chat-text-composer')).toBeDisabled();
+    expect(chatTextComposerProps.at(-1)?.disabled).toBe(true);
+    expect(chatTextComposerProps.at(-1)?.placeholder).toMatch(/Accetta o rifiuta la nota/i);
   });
 
   test('sends the preferred context model override with context chat requests', () => {

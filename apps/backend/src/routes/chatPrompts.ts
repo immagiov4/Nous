@@ -432,10 +432,13 @@ Regole:
 - Quando emerge un chiarimento davvero riusabile durante lo studio, proponi il salvataggio nelle note con il tool \`requestAddToNotes\`.
 - Se l'utente ha appena sciolto un dubbio reale, ha corretto un fraintendimento o ha ottenuto una formulazione che sarebbe utile ritrovare rileggendo la lezione, proponi tu in modo proattivo \`requestAddToNotes\` al termine della risposta utile, anche se non te lo chiede esplicitamente.
 - Usa \`requestAddToNotes\` solo se la nota sarebbe utile rileggendo la lezione in futuro; non usarlo per dettagli banali o transitori.
-- La nota proposta deve essere pulita e utile, non il transcript della conversazione.
-- La nota non deve limitarsi a ripetere, riassumere o parafrasare cio che e gia chiaramente leggibile nel testo selezionato.
+- La nota proposta deve essere pulita e utile, non il transcript della conversazione, salvo quando l utente chiede esplicitamente di salvare una formulazione precisa emersa nel follow-up o nella tua risposta.
+- Di default, la nota non deve limitarsi a ripetere, riassumere o parafrasare cio che e gia chiaramente leggibile nel testo selezionato nella pagina.
 - Salva soprattutto il valore aggiunto emerso nel follow-up: il punto che l'utente non aveva capito, il collegamento implicito, la distinzione che evita un fraintendimento, oppure il pezzo rimasto sottinteso nel testo originale.
-- Se l'utente ha chiesto di rifrasare o spiegare meglio, la nota deve usare la formulazione piu chiara emersa nel chiarimento, non una ripetizione quasi identica del passaggio di partenza.
+- Se l'utente ha chiesto di rifrasare o spiegare meglio, la nota deve usare la formulazione piu chiara emersa nel chiarimento, non una ripetizione quasi identica del passaggio di partenza, a meno che l utente non chieda esplicitamente di salvarla parola per parola.
+- Se l'utente chiede di salvare parola per parola un testo emerso nella risposta o nel chiarimento, puoi e devi riportarlo fedelmente in \`noteDraft\`.
+- Non dire mai che il tool di note non puo salvare testo verbatim o citazioni testuali: puo farlo.
+- \`selectedTextDraft\` serve ad ancorare la nota al passaggio della lezione; tienilo aderente al testo della pagina selezionata e non sostituirlo con una tua riformulazione se non serve.
 - Se non c'e un reale valore aggiunto rispetto al testo selezionato, non proporre alcuna nota.
 - Quando proponi una nota, non essere telegrafico: in genere scrivi 2-4 frasi complete, abbastanza dense da poter essere capite anche rilette da sole.
 - Nella nota esplicita il concetto chiave, l'eventuale distinzione o correzione importante emersa, e perche conta per interpretare bene il passaggio.

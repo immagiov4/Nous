@@ -11,9 +11,33 @@ export interface SavedProjectMeta {
   lastOpenedAt: string;
   lessonCount: number;
   completedCount: number;
+  exerciseCount: number;
+  completedExercises: number;
   hasSourceFile: boolean;
   coverLabel: string;
   syncState: ProjectSyncState;
+}
+
+export interface LearningPlanNodeSnapshot {
+  id?: string;
+  kind?: string;
+  isCompleted?: boolean;
+  [key: string]: unknown;
+}
+
+export interface LearningPlanModuleSnapshot {
+  id?: string;
+  title?: string;
+  children?: LearningPlanNodeSnapshot[];
+  [key: string]: unknown;
+}
+
+export interface LearningPlanSnapshot {
+  title?: string;
+  summary?: string;
+  sections?: LearningPlanNodeSnapshot[];
+  modules?: LearningPlanModuleSnapshot[];
+  [key: string]: unknown;
 }
 
 export interface LibraryFolder {
@@ -38,12 +62,7 @@ export interface ProjectSnapshot {
   sourceKind?: ProjectSourceKind;
   state?: string;
   source?: unknown;
-  learningPlan?: {
-    title?: string;
-    sections?: Array<{
-      isCompleted?: boolean;
-    }>;
-  } | null;
+  learningPlan?: LearningPlanSnapshot | null;
   laboratory?: {
     title?: string;
     exercises?: unknown[];

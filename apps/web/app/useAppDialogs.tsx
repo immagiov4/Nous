@@ -4,6 +4,12 @@ import { createPortal } from 'react-dom';
 import { Pressable } from '../utils/motion/index.ts';
 
 const NOTIFICATION_AUTO_DISMISS_MS = 5_200;
+type NotificationKind = 'error' | 'success';
+
+interface NotificationState {
+  kind: NotificationKind;
+  message: string;
+}
 
 interface ConfirmationRequest {
   confirmLabel: string;
@@ -21,11 +27,11 @@ interface ConfirmationDialogRequest {
 // fallow-ignore-next-line unused-exports — used by App.tsx
 export const useAppDialogs = () => {
   const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
-  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [notification, setNotification] = useState<NotificationState | null>(null);
   const pendingConfirmationResolveRef = useRef<((confirmed: boolean) => void) | null>(null);
 
-  const notify = useCallback((message: string) => {
-    setNotificationMessage(message);
+  const notify = useCallback((message: string, kind: NotificationKind = 'error') => {
+    setNotification({ kind, message });
   }, []);
 
   const requestConfirmation = useCallback(
@@ -39,18 +45,18 @@ export const useAppDialogs = () => {
   );
 
   useEffect(() => {
-    if (!notificationMessage) {
+    if (!notification) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      setNotificationMessage(null);
+      setNotification(null);
     }, NOTIFICATION_AUTO_DISMISS_MS);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [notificationMessage]);
+  }, [notification]);
 
   useEffect(
     () => () => {
@@ -113,15 +119,30 @@ export const useAppDialogs = () => {
         )
       : null;
 
+  const notificationPalette =
+    notification?.kind === 'success'
+      ? {
+          closeButton:
+            '-mr-1 rounded-full px-2 text-emerald-700 transition-colors hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-900/60',
+          container:
+            'fixed bottom-5 left-1/2 z-[120] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 shadow-2xl dark:border-emerald-900/70 dark:bg-emerald-950 dark:text-emerald-200',
+        }
+      : {
+          closeButton:
+            '-mr-1 rounded-full px-2 text-red-700 transition-colors hover:bg-red-100 dark:text-red-200 dark:hover:bg-red-900/60',
+          container:
+            'fixed bottom-5 left-1/2 z-[120] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-2xl dark:border-red-900/70 dark:bg-red-950 dark:text-red-200',
+        };
+
   const appOverlays = (
     <>
-      {notificationMessage ? (
-        <div className="fixed bottom-5 left-1/2 z-[120] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-2xl dark:border-red-900/70 dark:bg-red-950 dark:text-red-200">
+      {notification ? (
+        <div className={notificationPalette.container}>
           <div className="flex items-start justify-between gap-3">
-            <span>{notificationMessage}</span>
+            <span>{notification.message}</span>
             <Pressable
-              onClick={() => setNotificationMessage(null)}
-              className="-mr-1 rounded-full px-2 text-red-700 transition-colors hover:bg-red-100 dark:text-red-200 dark:hover:bg-red-900/60"
+              onClick={() => setNotification(null)}
+              className={notificationPalette.closeButton}
               title="Chiudi"
             >
               Chiudi

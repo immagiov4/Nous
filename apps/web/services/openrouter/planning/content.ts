@@ -35,7 +35,11 @@ import {
   estimateRelevantPdfImagePages,
 } from '../pdfLessonContext.ts';
 import { buildReasoningContentForFile, clipPdfSourceText } from '../pdfReasoning.ts';
-import { buildUserGenerationNotesBlock, LESSON_SCOPE_RULES } from '../prompts.ts';
+import {
+  buildUserGenerationNotesBlock,
+  LESSON_SCOPE_RULES,
+  LESSON_SHARED_WRITING_RULES,
+} from '../prompts.ts';
 import {
   callOpenRouter,
   type FileData,
@@ -174,17 +178,7 @@ REGOLE FONDAMENTALI:
 4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione in Introduzione, Concetti Fondamentali e Analisi Approfondita con semplici parafrasi.
 5. Non ripetere il titolo della lezione dentro \`contentMarkdown\` e non duplicare heading identici o quasi identici.
 6. Evita metadiscorso e enfasi ridondante: non usare continuamente formule come "questo e importante", "in pratica", "il punto centrale e", "qui si capisce", salvo rarissimi casi.
-7. Usa di default un lessico chiaro e accessibile: evita gergo e formulazioni troppo manualistiche quando una spiegazione diretta basta.
-8. Quando un termine tecnico e necessario, collegalo subito al suo significato pratico o concettuale in parole comprensibili.
-9. Non usare sigle, abbreviazioni o acronimi non spiegati: alla prima occorrenza devi sempre scioglierli e chiarirli.
-10. Evita forestierismi inutili: se esiste un equivalente italiano naturale e chiaro, preferiscilo; tieni il termine straniero solo quando e davvero quello tecnico necessario.
-11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
-12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
-13. Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo. Se puoi spiegare bene in modo diretto, non usare alcuna analogia.
-14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
-15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
-16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
-17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.${imageRules}
+${LESSON_SHARED_WRITING_RULES}${imageRules}
 24. ${continuityRule}
 25. Vincoli di focus della lezione:
 ${scopeRule}

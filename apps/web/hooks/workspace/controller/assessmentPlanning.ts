@@ -1,5 +1,6 @@
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
+import { markApplicationExercisePlanningFailed } from '../../../services/learning/applicationExercises.ts';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -13,8 +14,10 @@ import {
   AppState,
   type FileData,
   type HomeChatToolPreferences,
+  type LearningPlan,
   type LessonNode,
   type Message,
+  type ResearchCoursePlan,
   type SyllabusItem,
   type UserProfile,
 } from '../../../types.ts';
@@ -160,6 +163,41 @@ export const createAssessmentPlanningCommands = (
 ) => {
   const { domain, openRouter, projectLibrary, sleep, state } = context;
 
+  const readAttemptCount = (error: unknown): number =>
+    typeof (error as { attempts?: unknown }).attempts === 'number'
+      ? (error as { attempts: number }).attempts
+      : 1;
+
+  const planApplicationExercises = async (args: {
+    courseIntent?: string;
+    plan: LearningPlan;
+    profile: UserProfile | null;
+    requestId: number;
+    researchCoursePlan?: ResearchCoursePlan | null;
+  }) => {
+    try {
+      const result = await openRouter.generateApplicationExercisePlacements({
+        courseIntent: args.courseIntent || args.plan.summary || args.plan.title,
+        learningPlan: args.plan,
+        profile: args.profile,
+        researchCoursePlan: args.researchCoursePlan,
+        onStatusUpdate: message => {
+          state.setWorkflowMessage('generatePlan', args.requestId, message);
+        },
+        onReasoningUpdate: reasoning => {
+          state.setWorkflowReasoning('generatePlan', args.requestId, reasoning);
+        },
+      });
+      return result.plan;
+    } catch (error) {
+      return markApplicationExercisePlanningFailed(
+        args.plan,
+        error instanceof Error ? error : new Error(getErrorMessage(error)),
+        readAttemptCount(error)
+      );
+    }
+  };
+
   const finalizeLearnProfile = async (profile: UserProfile) => {
     domain.setUserProfile(profile);
 
@@ -297,11 +335,20 @@ export const createAssessmentPlanningCommands = (
           return;
         }
 
-        const plan = openRouter.buildLearningPlanFromResearchCourse(
+        const basePlan = openRouter.buildLearningPlanFromResearchCourse(
           args.profile,
           researchResult.researchCoursePlan,
           newSyllabus
         );
+        const plan = await planApplicationExercises({
+          plan: basePlan,
+          profile: args.profile,
+          requestId,
+          researchCoursePlan: researchResult.researchCoursePlan,
+        });
+        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
+          return;
+        }
         domain.setLearningPlan(plan);
         domain.setDocumentAssets(null);
         domain.setDocumentIndex(null);
@@ -368,12 +415,22 @@ export const createAssessmentPlanningCommands = (
           return;
         }
 
-        domain.setLearningPlan(prepared.learningPlan);
+        const plannedWithExercises = await planApplicationExercises({
+          courseIntent: args.history?.map(message => message.text).join('\n'),
+          plan: prepared.learningPlan,
+          profile: domain.userProfile,
+          requestId,
+        });
+        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
+          return;
+        }
+
+        domain.setLearningPlan(plannedWithExercises);
         domain.setDocumentAssets(null);
         domain.setDocumentIndex(prepared.documentIndex);
         state.setScreenState(AppState.READING);
 
-        const firstSection = flattenLessons(prepared.learningPlan.modules)[0] || null;
+        const firstSection = flattenLessons(plannedWithExercises.modules)[0] || null;
         if (firstSection) {
           const projectId = projectLibrary.currentProjectId || createProjectId();
           if (!projectLibrary.currentProjectId) {
@@ -386,7 +443,7 @@ export const createAssessmentPlanningCommands = (
               id: projectId,
               state: AppState.READING,
               source: domain.source,
-              learningPlan: prepared.learningPlan,
+              learningPlan: plannedWithExercises,
               documentAssets: null,
               documentIndex: prepared.documentIndex,
               isLearnMode: domain.isLearnMode,

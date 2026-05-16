@@ -7,8 +7,14 @@ import { fileURLToPath } from 'node:url';
 
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
+import { isRecord } from '../utils/validation.js';
 import { resolveAvailableFolderName } from './folderNames.js';
-import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
+import {
+  buildProjectMeta,
+  getLearningPlanExerciseStats,
+  getLearningPlanLessonStats,
+  normalizeProjectSnapshot,
+} from './projectMeta.js';
 import {
   buildOrderedSiblingItems,
   collectFolderDescendantIds,
@@ -19,6 +25,8 @@ import {
   type SiblingItem,
 } from './siblingOrdering.js';
 import type {
+  LearningPlanNodeSnapshot,
+  LearningPlanSnapshot,
   LibraryFolder,
   LibraryPlacement,
   ProjectExportData,
@@ -60,6 +68,88 @@ const toEpochMillis = (value: string | undefined): number => {
 
 const createFolderId = (): string => createEntityId('folder');
 
+const LEARNING_PLAN_NOT_FOUND_ERROR = 'Learning plan non trovato';
+
+const hasMetaDrift = (left: SavedProjectMeta, right: SavedProjectMeta): boolean =>
+  left.title !== right.title ||
+  left.sourceKind !== right.sourceKind ||
+  left.lessonCount !== right.lessonCount ||
+  left.completedCount !== right.completedCount ||
+  left.exerciseCount !== right.exerciseCount ||
+  left.completedExercises !== right.completedExercises ||
+  left.hasSourceFile !== right.hasSourceFile ||
+  left.coverLabel !== right.coverLabel ||
+  left.syncState !== right.syncState;
+
+const shouldRepairProjectMeta = (meta: SavedProjectMeta): boolean =>
+  meta.lessonCount === 0 ||
+  meta.coverLabel === 'Bozza sincronizzata' ||
+  typeof meta.exerciseCount !== 'number' ||
+  typeof meta.completedExercises !== 'number';
+
+const applySectionPatchToNode = (
+  node: LearningPlanNodeSnapshot,
+  sectionPatch: SectionPatch
+): LearningPlanNodeSnapshot => ({
+  ...node,
+  ...(sectionPatch.annotations !== undefined ? { annotations: sectionPatch.annotations } : {}),
+  ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
+  ...(sectionPatch.generatedVisuals !== undefined
+    ? { generatedVisuals: sectionPatch.generatedVisuals }
+    : {}),
+  ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
+  ...(sectionPatch.isCompleted !== undefined ? { isCompleted: sectionPatch.isCompleted } : {}),
+  ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
+});
+
+const patchLearningPlanSection = (
+  learningPlan: LearningPlanSnapshot | null | undefined,
+  sectionPatch: SectionPatch
+): LearningPlanSnapshot => {
+  if (!learningPlan) {
+    throw new Error(LEARNING_PLAN_NOT_FOUND_ERROR);
+  }
+
+  if (Array.isArray(learningPlan.modules)) {
+    return {
+      ...learningPlan,
+      modules: learningPlan.modules.map(module => {
+        if (!Array.isArray(module.children)) {
+          return module;
+        }
+
+        return {
+          ...module,
+          children: module.children.map(child => {
+            if (
+              !isRecord(child) ||
+              child.id !== sectionPatch.sectionId ||
+              child.kind === 'exercise'
+            ) {
+              return child;
+            }
+
+            return applySectionPatchToNode(child, sectionPatch);
+          }),
+        };
+      }),
+    };
+  }
+
+  if (Array.isArray(learningPlan.sections)) {
+    return {
+      ...learningPlan,
+      sections: learningPlan.sections.map(section =>
+        section.id === sectionPatch.sectionId
+          ? applySectionPatchToNode(section, sectionPatch)
+          : section
+      ),
+    };
+  }
+
+  throw new Error(LEARNING_PLAN_NOT_FOUND_ERROR);
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, '..', '..', '..', '..');
@@ -100,9 +190,9 @@ export class SqliteProjectStore implements ProjectStore {
   }
 
   async listProjects(userId: string): Promise<SavedProjectMeta[]> {
-    return this.readProjectMetas(userId).sort(
-      (left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt)
-    );
+    return this.readProjectMetas(userId)
+      .map(meta => (shouldRepairProjectMeta(meta) ? this.repairProjectMeta(userId, meta) : meta))
+      .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
   }
 
   async loadProject(userId: string, id: ProjectId): Promise<ProjectSnapshot | null> {
@@ -265,42 +355,30 @@ export class SqliteProjectStore implements ProjectStore {
         `select json_extract(snapshot_json, '$.learningPlan') as learning_plan_json
          from project_snapshots where user_id = ? and id = ?`
       )
-      .get(userId, id) as { learning_plan_json: string } | undefined;
+      .get(userId, id) as { learning_plan_json: string | null } | undefined;
 
     if (!row) {
       throw new Error(`Snapshot ${id} non trovato per patch sezione.`);
     }
-
-    const learningPlan = parseJson<ProjectSnapshot['learningPlan']>(row.learning_plan_json);
-    if (!learningPlan || !Array.isArray(learningPlan.sections)) {
+    if (!row.learning_plan_json) {
       throw new Error(`Learning plan non trovato in progetto ${id}.`);
     }
 
-    const patchedLearningPlan = {
-      ...learningPlan,
-      sections: learningPlan.sections.map(section => {
-        const rawSection = section as Record<string, unknown>;
-        if (rawSection.id !== sectionPatch.sectionId) return section;
-        return {
-          ...rawSection,
-          ...(sectionPatch.annotations !== undefined
-            ? { annotations: sectionPatch.annotations }
-            : {}),
-          ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
-          ...(sectionPatch.generatedVisuals !== undefined
-            ? { generatedVisuals: sectionPatch.generatedVisuals }
-            : {}),
-          ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
-          ...(sectionPatch.generatedVisuals !== undefined
-            ? { generatedVisuals: sectionPatch.generatedVisuals }
-            : {}),
-          ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
-          ...(sectionPatch.isCompleted !== undefined
-            ? { isCompleted: sectionPatch.isCompleted }
-            : {}),
-          ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
-        } as (typeof learningPlan.sections)[number];
-      }),
+    const learningPlan = parseJson<ProjectSnapshot['learningPlan']>(row.learning_plan_json);
+    const patchedLearningPlan = patchLearningPlanSection(learningPlan, sectionPatch);
+    const { completedCount, lessonCount } = getLearningPlanLessonStats(patchedLearningPlan);
+    const { completedExercises, exerciseCount } = getLearningPlanExerciseStats(patchedLearningPlan);
+    const nextMeta: SavedProjectMeta = {
+      ...existingMeta,
+      updatedAt: now,
+      lessonCount,
+      completedCount,
+      exerciseCount,
+      completedExercises,
+      coverLabel:
+        existingMeta.coverLabel === 'Bozza sincronizzata' && lessonCount > 0
+          ? `${lessonCount} lezioni`
+          : existingMeta.coverLabel,
     };
 
     // Write back only the learningPlan and updatedAt fields using json_set —
@@ -320,17 +398,15 @@ export class SqliteProjectStore implements ProjectStore {
 
       this.database
         .prepare(
-          `update projects set updated_at = ?, server_updated_at = ?, revision = revision + 1
+          `update projects
+           set meta_json = ?, updated_at = ?, server_updated_at = ?, revision = revision + 1
            where user_id = ? and id = ?`
         )
-        .run(now, serverNow, userId, id);
+        .run(JSON.stringify(nextMeta), now, serverNow, userId, id);
     });
     transaction();
 
-    return {
-      ...existingMeta,
-      updatedAt: now,
-    };
+    return nextMeta;
   }
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
@@ -370,23 +446,37 @@ export class SqliteProjectStore implements ProjectStore {
     const row = this.database
       .prepare(
         `select
-           json_extract(snapshot_json, '$.learningPlan.sections') as sections_json
+           json_extract(snapshot_json, '$.learningPlan') as learning_plan_json
          from project_snapshots where user_id = ? and id = ?`
       )
-      .get(userId, id) as { sections_json: string | null } | undefined;
+      .get(userId, id) as { learning_plan_json: string | null } | undefined;
 
     let lessonCount = existingMeta.lessonCount;
     let completedCount = existingMeta.completedCount;
+    let exerciseCount = existingMeta.exerciseCount;
+    let completedExercises = existingMeta.completedExercises;
 
-    if (row?.sections_json) {
+    if (row?.learning_plan_json) {
       try {
-        const sections = JSON.parse(row.sections_json) as Array<{ isCompleted?: boolean }>;
-        lessonCount = sections.length;
-        completedCount = sections.filter(s => s.isCompleted).length;
+        const stats = getLearningPlanLessonStats(
+          JSON.parse(row.learning_plan_json) as ProjectSnapshot['learningPlan']
+        );
+        lessonCount = stats.lessonCount;
+        completedCount = stats.completedCount;
+        const exerciseStats = getLearningPlanExerciseStats(
+          JSON.parse(row.learning_plan_json) as ProjectSnapshot['learningPlan']
+        );
+        exerciseCount = exerciseStats.exerciseCount;
+        completedExercises = exerciseStats.completedExercises;
       } catch {
         // Fall back to existing meta on parse error
       }
     }
+
+    const coverLabel =
+      existingMeta.coverLabel === 'Bozza sincronizzata' && lessonCount > 0
+        ? `${lessonCount} lezioni`
+        : existingMeta.coverLabel;
 
     this.database
       .prepare(
@@ -396,7 +486,10 @@ export class SqliteProjectStore implements ProjectStore {
            '$.lastOpenedAt', ?,
            '$.updatedAt', ?,
            '$.lessonCount', ?,
-           '$.completedCount', ?
+           '$.completedCount', ?,
+           '$.exerciseCount', ?,
+           '$.completedExercises', ?,
+           '$.coverLabel', ?
          ),
          updated_at = ?,
          server_updated_at = ?,
@@ -408,6 +501,9 @@ export class SqliteProjectStore implements ProjectStore {
         touchedAt,
         lessonCount,
         completedCount,
+        exerciseCount,
+        completedExercises,
+        coverLabel,
         touchedAt,
         timestampIso(),
         userId,
@@ -700,6 +796,21 @@ export class SqliteProjectStore implements ProjectStore {
       .get(userId, id) as ProjectRow | undefined;
 
     return row ? parseJson<SavedProjectMeta>(row.meta_json) : null;
+  }
+
+  private repairProjectMeta(userId: string, meta: SavedProjectMeta): SavedProjectMeta {
+    const snapshot = this.readSnapshot(userId, meta.id);
+    if (!snapshot) {
+      return meta;
+    }
+
+    const repairedMeta = buildProjectMeta(snapshot, meta, { touchedAt: meta.updatedAt });
+    if (!hasMetaDrift(meta, repairedMeta)) {
+      return meta;
+    }
+
+    this.writeProjectMeta(userId, repairedMeta);
+    return repairedMeta;
   }
 
   private writeProjectMeta(userId: string, meta: SavedProjectMeta): void {

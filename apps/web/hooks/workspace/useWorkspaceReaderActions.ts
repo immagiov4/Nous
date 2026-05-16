@@ -5,6 +5,7 @@ import type {
   SaveConversationNoteResult,
 } from '../../components/workspace/shell/types.ts';
 import type {
+  ApplicationExerciseNode,
   ContextMenuState,
   LearningPlan,
   LessonGeneratedVisual,
@@ -19,6 +20,7 @@ import {
   applySectionAnnotation,
   createLessonSectionAnnotation,
   findSectionAnnotationForSelection,
+  getSectionAnnotationText,
   removeSectionAnnotation,
   removeSectionAnnotationArtifactRef,
   updateSectionAnnotationNote,
@@ -27,6 +29,7 @@ import {
 
 interface UseWorkspaceReaderActionsArgs {
   activeSectionId: string | null;
+  advanceActiveSection: () => Promise<'journey-complete' | 'noop' | 'opened-next'>;
   askContextQuestion: (args: {
     contextAfter?: string;
     contextBefore?: string;
@@ -61,6 +64,7 @@ interface UseWorkspaceReaderActionsArgs {
     sourceMaterial?: string;
     sourceName?: string;
   }) => void;
+  openExercise: (exercise: ApplicationExerciseNode) => Promise<unknown>;
   openSection: (section: LessonNode) => Promise<unknown>;
   patchSectionAnnotations: (
     sectionId: string,
@@ -104,6 +108,7 @@ const mergeGeneratedVisuals = (
 // fallow-ignore-next-line unused-exports — used by App.tsx
 export const useWorkspaceReaderActions = ({
   activeSectionId,
+  advanceActiveSection,
   askContextQuestion: _askContextQuestion,
   closeContextMenu,
   completeActiveSection,
@@ -114,6 +119,7 @@ export const useWorkspaceReaderActions = ({
   learningPlan,
   notify,
   openContextAnswer,
+  openExercise,
   openSection,
   patchSectionAnnotations,
   projectId,
@@ -135,7 +141,7 @@ export const useWorkspaceReaderActions = ({
 
   const handleContextQuestion = useCallback(
     (question: string) => {
-      if (contextMenu.type !== 'selection') {
+      if (!contextMenu.selectedText) {
         return;
       }
 
@@ -146,7 +152,7 @@ export const useWorkspaceReaderActions = ({
         source,
       });
       const attachedAnnotationMatch =
-        activeSection && contextMenu.selectedText
+        activeSection && contextMenu.type === 'selection'
           ? findSectionAnnotationForSelection({
               annotations: activeSection.annotations,
               content: activeSection.content || sectionContent,
@@ -154,6 +160,12 @@ export const useWorkspaceReaderActions = ({
               contextBefore: contextMenu.contextBefore,
               selectedText: contextMenu.selectedText,
             })
+          : null;
+      const clickedAnnotation =
+        activeSection && contextMenu.type === 'annotation'
+          ? (activeSection.annotations || []).find(
+              annotation => annotation.id === contextMenu.annotationId
+            )
           : null;
 
       if (isMobileViewport && document.activeElement instanceof HTMLElement) {
@@ -168,8 +180,15 @@ export const useWorkspaceReaderActions = ({
         contextAfter: contextMenu.contextAfter,
         contextBefore: contextMenu.contextBefore,
         initialQuestion: question,
-        attachedAnnotationNote: attachedAnnotationMatch?.annotation.note || undefined,
-        attachedAnnotationText: attachedAnnotationMatch?.resolvedText,
+        attachedAnnotationNote:
+          clickedAnnotation?.note || attachedAnnotationMatch?.annotation.note || undefined,
+        attachedAnnotationText:
+          clickedAnnotation && activeSection
+            ? getSectionAnnotationText(
+                activeSection.content || sectionContent,
+                clickedAnnotation.id
+              )
+            : attachedAnnotationMatch?.resolvedText,
         lessonContent: activeSection?.content || sectionContent,
         lessonDescription: activeSection?.description,
         lessonId: activeSection?.id,
@@ -199,7 +218,7 @@ export const useWorkspaceReaderActions = ({
 
   const handleCreateLesson = useCallback(
     async (instructions: string) => {
-      if (contextMenu.type !== 'selection') {
+      if (!contextMenu.selectedText) {
         return;
       }
 
@@ -659,6 +678,13 @@ export const useWorkspaceReaderActions = ({
     }
   }, [completeActiveSection, notify]);
 
+  const handleAdvanceSection = useCallback(async () => {
+    const result = await advanceActiveSection();
+    if (result === 'journey-complete') {
+      notify("Hai gia raggiunto l'ultima lezione disponibile.");
+    }
+  }, [advanceActiveSection, notify]);
+
   const handleSelectSection = useCallback(
     (section: LessonNode) => {
       if (isMobileViewport) {
@@ -670,6 +696,19 @@ export const useWorkspaceReaderActions = ({
       });
     },
     [isMobileViewport, notify, openSection, setIsMobileSidebarOpen]
+  );
+
+  const handleSelectExercise = useCallback(
+    (exercise: ApplicationExerciseNode) => {
+      if (isMobileViewport) {
+        setIsMobileSidebarOpen(false);
+      }
+
+      void openExercise(exercise).catch(error => {
+        notify(getErrorMessage(error));
+      });
+    },
+    [isMobileViewport, notify, openExercise, setIsMobileSidebarOpen]
   );
 
   const handleSaveArtifactToLesson = useCallback(
@@ -712,6 +751,7 @@ export const useWorkspaceReaderActions = ({
   );
 
   return {
+    handleAdvanceSection,
     handleAttachArtifactToAnnotation,
     handleCompleteSection,
     handleContextQuestion,
@@ -723,6 +763,7 @@ export const useWorkspaceReaderActions = ({
     handleSaveConversationNote,
     handleUpdateConversationNote,
     handleSaveNote,
+    handleSelectExercise,
     handleSelectSection,
     handleSaveArtifactToLesson,
   };

@@ -49,6 +49,7 @@ export const ReadingScreenContainer = ({
 
   const readerActions = useWorkspaceReaderActions({
     activeSectionId,
+    advanceActiveSection: controller.advanceActiveSection,
     askContextQuestion: controller.askContextQuestion,
     closeContextMenu: readerRuntime.readerContext.closeContextMenu,
     completeActiveSection: controller.completeActiveSection,
@@ -59,6 +60,7 @@ export const ReadingScreenContainer = ({
     learningPlan,
     notify,
     openContextAnswer: readerRuntime.readerContext.openContextAnswer,
+    openExercise: controller.openExercise,
     openSection,
     patchSectionAnnotations: controller.patchSectionAnnotations,
     projectId: currentProjectId,

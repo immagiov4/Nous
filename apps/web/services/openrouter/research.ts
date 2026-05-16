@@ -208,6 +208,7 @@ export const buildLearningPlanFromResearchCourse = (
       isCompleted: false,
       type: 'core' as const,
       parentId: module.id,
+      moduleTitle: module.title,
       contextPrompt: lesson.contextPrompt,
     }))
   );

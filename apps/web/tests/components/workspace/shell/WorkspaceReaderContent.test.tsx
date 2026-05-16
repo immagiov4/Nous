@@ -13,17 +13,22 @@ const buildProps = (
   activeSectionAssetsById: {},
   activeSectionImageRefsById: {},
   contentRef: createRef<HTMLDivElement>(),
+  hasNextSection: false,
   isDarkMode: false,
   isFocusMode: false,
   isLoading: false,
   isMobileViewport: false,
   isQuizSubmitted: false,
+  onAdvanceSection: vi.fn(),
   onCompleteSection: vi.fn(),
+  onAttachExerciseFiles: vi.fn(),
   onContentClick: vi.fn(),
   onContentContextMenu: vi.fn(),
   onContentPointerDownCapture: vi.fn(),
   onSelectQuizAnswer: vi.fn(),
+  onRemoveExerciseAttachment: vi.fn(),
   onSetIsQuizSubmitted: vi.fn(),
+  onUpdateExerciseInternalText: vi.fn(),
   quiz: [
     {
       exerciseType: 'prediction',
@@ -80,7 +85,7 @@ describe('WorkspaceReaderContent', () => {
 
     expect(screen.getByText(/Pausa attiva 1 - Previsione/i)).toBeInTheDocument();
     expect(screen.queryByTestId('reader-quiz-column')).toBeNull();
-    expect(screen.getByText('Completa e Prosegui')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByText('Prosegui')).toHaveAttribute('aria-disabled', 'true');
   });
 
   test('keeps the source page range appended after the lesson body with inline questions active', () => {
@@ -111,6 +116,23 @@ describe('WorkspaceReaderContent', () => {
 
     expect(screen.getByText('Completa e Prosegui')).toBeEnabled();
     expect(screen.getByText('Corretta')).toBeInTheDocument();
+  });
+
+  test('allows advancing without completion when a later lesson exists', () => {
+    const onAdvanceSection = vi.fn();
+
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          hasNextSection: true,
+          onAdvanceSection,
+        })}
+      />
+    );
+
+    screen.getByText('Prosegui').click();
+
+    expect(onAdvanceSection).toHaveBeenCalledTimes(1);
   });
 
   test('renders artifacts saved on selection annotations in the lesson artifact section', () => {
@@ -153,5 +175,68 @@ describe('WorkspaceReaderContent', () => {
 
     expect(screen.getByRole('heading', { name: 'Artefatti' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Apri Flashcard interattive/i })).toBeInTheDocument();
+  });
+
+  test('renders the selected application exercise brief instead of a lesson skeleton', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeExercise: {
+            kind: 'exercise',
+            id: 'exercise-1',
+            title: 'Laboratorio pratico: Modulo operativo',
+            description: 'Applica il modulo in un caso realistico.',
+            assessedObjective: 'Dimostrare di saper mappare host, servizi e flussi.',
+            brief: 'Disegna una mappa minima con host, IP, servizi e dipendenze.',
+            attachments: [],
+            currentFeedback: null,
+            isCompleted: false,
+            feedbackStale: false,
+            updatedAt: '2026-05-12T12:00:00.000Z',
+          },
+          activeSectionTitle: null,
+          quiz: [],
+          quizAnswers: [],
+          sectionContent: '',
+        })}
+      />
+    );
+
+    expect(
+      screen.getByRole('heading', { name: 'Laboratorio pratico: Modulo operativo' })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Disegna una mappa minima/i)).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  test('hides legacy objective sections from application exercise briefs', () => {
+    const { container } = render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeExercise: {
+            kind: 'exercise',
+            id: 'exercise-1',
+            title: 'Laboratorio pratico: Modulo operativo',
+            description: 'Applica il modulo in un caso realistico.',
+            assessedObjective: 'Dimostrare di saper mappare host, servizi e flussi.',
+            brief:
+              'Laboratorio pratico\n\nObiettivo operativo\n\nDimostrare di saper applicare il modulo.\n\nConsegna\n\nDisegna una mappa minima.',
+            attachments: [],
+            currentFeedback: null,
+            isCompleted: false,
+            feedbackStale: false,
+            updatedAt: '2026-05-12T12:00:00.000Z',
+          },
+          activeSectionTitle: null,
+          quiz: [],
+          quizAnswers: [],
+          sectionContent: '',
+        })}
+      />
+    );
+
+    expect(container).not.toHaveTextContent(/Obiettivo operativo/i);
+    expect(container).not.toHaveTextContent(/Dimostrare di saper applicare/i);
+    expect(screen.getByText(/Disegna una mappa minima/i)).toBeInTheDocument();
   });
 });

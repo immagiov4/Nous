@@ -3,8 +3,13 @@ import type { WorkspaceReaderShellProps } from '../components/workspace/shell/ty
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceReaderActions } from '../hooks/workspace/useWorkspaceReaderActions.ts';
 import type { useWorkspaceReaderRuntime } from '../hooks/workspace/useWorkspaceReaderRuntime.ts';
+import {
+  getApplicationExerciseRepairLabel,
+  planNeedsApplicationExerciseRepair,
+} from '../services/learning/applicationExercises.ts';
 import type { OpenRouterModelDefaults } from '../types.ts';
 import { getLessonSourcePageLabel } from '../utils/context/sourceMaterial.ts';
+import { findPathNodeById, flattenLessons } from '../utils/learning/pathNodes.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderRuntime = ReturnType<typeof useWorkspaceReaderRuntime>;
@@ -16,7 +21,7 @@ interface BuildReaderShellPropsArgs {
   handleBackToLibrary: () => void;
   handleExportProject: (projectId?: string) => Promise<void>;
   modelDefaults: OpenRouterModelDefaults;
-  notify: (message: string) => void;
+  notify: (message: string, kind?: 'error' | 'success') => void;
   pdfMappingWarning: string | null;
   readerActions: WorkspaceReaderActions;
   readerRuntime: WorkspaceReaderRuntime;
@@ -30,6 +35,7 @@ export const buildReaderShellProps = ({
   handleBackToLibrary,
   handleExportProject,
   modelDefaults,
+  notify,
   pdfMappingWarning,
   readerActions,
   readerRuntime,
@@ -39,9 +45,25 @@ export const buildReaderShellProps = ({
     activeSection: controller.activeSection,
     documentIndex: controller.documentIndex,
   });
+  const activePathNode = findPathNodeById(
+    controller.learningPlan?.modules,
+    controller.activeSectionId
+  );
+  const activeExercise = activePathNode?.kind === 'exercise' ? activePathNode : null;
+  const hasNextSection = (() => {
+    if (!controller.learningPlan || !controller.activeSectionId) {
+      return false;
+    }
+
+    const lessons = flattenLessons(controller.learningPlan.modules);
+    const currentIndex = lessons.findIndex(lesson => lesson.id === controller.activeSectionId);
+    return currentIndex >= 0 && currentIndex < lessons.length - 1;
+  })();
   const isActiveSectionLoading =
     controller.generatingSectionId !== null &&
     controller.generatingSectionId === controller.activeSectionId;
+  const isRepairingApplicationExercises =
+    controller.workflowState.generateLaboratory.status === 'pending';
   const loadingStatus = controller.blockingMessage || 'Caricamento...';
   const playerCurrentChunkIsLoading =
     readerRuntime.ttsPlayer.audioState.chunks[readerRuntime.ttsPlayer.audioState.currentChunkIndex]
@@ -59,36 +81,45 @@ export const buildReaderShellProps = ({
       storageError: controller.storageError,
     },
     content: {
+      activeExercise,
+      exercisePrerequisiteGaps: [],
       activeSectionTitle: controller.activeSection?.title || null,
       activeSectionAssetsById: readerRuntime.activeSectionAssetsById,
       activeSectionGeneratedVisualsById: readerRuntime.activeSectionGeneratedVisualsById,
       activeSectionImageRefsById: readerRuntime.activeSectionImageRefsById,
       contentRef: readerRuntime.contentRef,
       currentLessonArtifactPayloads: undefined,
+      hasNextSection,
       isDarkMode: readerRuntime.readerChrome.isDarkMode,
       isFocusMode: readerRuntime.readerChrome.isFocusMode,
       isLoading: isActiveSectionLoading,
       isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
       isQuizSubmitted: readerRuntime.isQuizSubmitted,
+      onAdvanceSection: () => {
+        void readerActions.handleAdvanceSection();
+      },
       onCompleteSection: () => {
         void readerActions.handleCompleteSection();
       },
+      onAttachExerciseFiles: () => {},
       onContentClick: readerRuntime.readerContext.handleContentClick,
       onContentContextMenu: readerRuntime.readerContext.handleContentContextMenu,
       onContentPointerDownCapture: readerRuntime.readerContext.handleContentPointerDownCapture,
       onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
+      onRemoveExerciseAttachment: () => {},
       onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
-      quiz: controller.quiz,
-      quizAnswers: readerRuntime.quizAnswers,
+      onUpdateExerciseInternalText: () => {},
+      quiz: activeExercise ? [] : controller.quiz,
+      quizAnswers: activeExercise ? [] : readerRuntime.quizAnswers,
       scrollContainerRef: readerRuntime.scrollContainerRef,
       sectionAnnotations: controller.activeSection?.annotations,
-      sectionContent: controller.sectionContent,
+      sectionContent: activeExercise ? '' : controller.sectionContent,
       sectionReasoningText: controller.workflowState.loadSection.reasoning,
       sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
     },
     header: {
-      activeSectionId: controller.activeSection?.id ?? null,
-      activeSectionTitle: controller.activeSection?.title ?? null,
+      activeSectionId: activePathNode?.id ?? null,
+      activeSectionTitle: activePathNode?.title ?? null,
       activeSidebarGroup: readerRuntime.activeSidebarGroup,
       hasActiveSection: Boolean(controller.activeSection),
       courseGenerationNotes: controller.learningPlan?.generationNotes ?? '',
@@ -167,16 +198,36 @@ export const buildReaderShellProps = ({
     shouldUseDesktopSidebar: readerRuntime.readerChrome.shouldUseDesktopSidebar,
     sidebar: {
       activeSectionId: controller.activeSectionId,
+      canRepairApplicationExercises: planNeedsApplicationExerciseRepair(controller.learningPlan),
       expandedModuleId: readerRuntime.readerChrome.expandedModuleId,
       generatingSectionId: controller.generatingSectionId ?? null,
+      isRepairingApplicationExercises,
       isLoading: controller.isBlocking,
       isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
       learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
+      repairApplicationExercisesLabel: getApplicationExerciseRepairLabel(controller.learningPlan),
       onBackToLibrary: handleBackToLibrary,
       onExportProject: () => {
         void handleExportProject();
       },
       onModuleToggle: readerRuntime.readerChrome.handleModuleToggle,
+      onRepairApplicationExercises: () => {
+        void controller
+          .repairApplicationExercises()
+          .then(result => {
+            if (result.outcome === 'repaired') {
+              notify('Pianificazione esercizi completata.', 'success');
+            }
+          })
+          .catch(error => {
+            notify(
+              error instanceof Error
+                ? error.message
+                : 'Non sono riuscito a pianificare gli esercizi.'
+            );
+          });
+      },
+      onSelectExercise: readerActions.handleSelectExercise,
       onSelectSection: readerActions.handleSelectSection,
       onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
       onSetIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,

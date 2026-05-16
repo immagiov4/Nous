@@ -1,12 +1,20 @@
 // fallow-ignore-file unused-files
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import type { WorkspaceReaderShellProps } from '../components/workspace/shell/types.ts';
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceReaderActions } from '../hooks/workspace/useWorkspaceReaderActions.ts';
 import type { useWorkspaceReaderRuntime } from '../hooks/workspace/useWorkspaceReaderRuntime.ts';
-import type { OpenRouterModelDefaults } from '../types.ts';
+import { createExerciseAttachmentFromFile } from '../services/exercises/deliverables.ts';
+import {
+  getApplicationExerciseRepairLabel,
+  planNeedsApplicationExerciseRepair,
+  withUpdatedExerciseDeliverable,
+} from '../services/learning/applicationExercises.ts';
+import { getExercisePrerequisiteGaps } from '../services/openrouter/exerciseBrief.ts';
+import type { ExerciseAttachment, OpenRouterModelDefaults } from '../types.ts';
 import { getLessonSourcePageLabel } from '../utils/context/sourceMaterial.ts';
 import { collectSectionLearningArtifactPayloads } from '../utils/learning/artifacts.ts';
+import { findPathNodeById, flattenLessons } from '../utils/learning/pathNodes.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderRuntime = ReturnType<typeof useWorkspaceReaderRuntime>;
@@ -18,7 +26,7 @@ interface UseReaderShellPropsArgs {
   handleBackToLibrary: () => void;
   handleExportProject: (projectId?: string) => Promise<void>;
   modelDefaults: OpenRouterModelDefaults;
-  notify: (message: string) => void;
+  notify: (message: string, kind?: 'error' | 'success') => void;
   pdfMappingWarning: string | null;
   readerActions: WorkspaceReaderActions;
   readerRuntime: WorkspaceReaderRuntime;
@@ -32,6 +40,7 @@ export const useReaderShellProps = ({
   handleBackToLibrary,
   handleExportProject,
   modelDefaults,
+  notify,
   pdfMappingWarning,
   readerActions,
   readerRuntime,
@@ -44,6 +53,25 @@ export const useReaderShellProps = ({
         documentIndex: controller.documentIndex,
       }),
     [controller.activeSection, controller.documentIndex]
+  );
+  const activePathNode = useMemo(
+    () => findPathNodeById(controller.learningPlan?.modules, controller.activeSectionId),
+    [controller.activeSectionId, controller.learningPlan?.modules]
+  );
+  const activeExercise = activePathNode?.kind === 'exercise' ? activePathNode : null;
+  const hasNextSection = useMemo(() => {
+    if (!controller.learningPlan || !controller.activeSectionId) {
+      return false;
+    }
+
+    const lessons = flattenLessons(controller.learningPlan.modules);
+    const currentIndex = lessons.findIndex(lesson => lesson.id === controller.activeSectionId);
+    return currentIndex >= 0 && currentIndex < lessons.length - 1;
+  }, [controller.activeSectionId, controller.learningPlan]);
+  const exercisePrerequisiteGaps = useMemo(
+    () =>
+      activeExercise ? getExercisePrerequisiteGaps(controller.learningPlan, activeExercise.id) : [],
+    [activeExercise, controller.learningPlan]
   );
   const currentLessonArtifactPayloads = useMemo(
     () =>
@@ -65,10 +93,72 @@ export const useReaderShellProps = ({
   const isActiveSectionLoading =
     controller.generatingSectionId !== null &&
     controller.generatingSectionId === controller.activeSectionId;
+  const isRepairingApplicationExercises =
+    controller.workflowState.generateLaboratory.status === 'pending';
   const loadingStatus = controller.blockingMessage || 'Caricamento...';
   const playerCurrentChunkIsLoading =
     readerRuntime.ttsPlayer.audioState.chunks[readerRuntime.ttsPlayer.audioState.currentChunkIndex]
       ?.isLoading || false;
+  const handleRepairApplicationExercises = useCallback(() => {
+    void controller
+      .repairApplicationExercises()
+      .then(result => {
+        if (result.outcome === 'repaired') {
+          notify('Pianificazione esercizi completata.', 'success');
+        }
+      })
+      .catch(error => {
+        notify(
+          error instanceof Error ? error.message : 'Non sono riuscito a pianificare gli esercizi.'
+        );
+      });
+  }, [controller.repairApplicationExercises, notify]);
+  const handleUpdateExerciseInternalText = useCallback(
+    (exerciseId: string, text: string) => {
+      void controller
+        .updateApplicationExercise(exerciseId, exercise =>
+          withUpdatedExerciseDeliverable(exercise, { internalText: text })
+        )
+        .catch(error => {
+          notify(
+            error instanceof Error ? error.message : 'Non sono riuscito a salvare la consegna.'
+          );
+        });
+    },
+    [controller.updateApplicationExercise, notify]
+  );
+  const handleRemoveExerciseAttachment = useCallback(
+    (exerciseId: string, attachmentId: string) => {
+      void controller
+        .updateApplicationExercise(exerciseId, exercise =>
+          withUpdatedExerciseDeliverable(exercise, {
+            attachments: exercise.attachments.filter(attachment => attachment.id !== attachmentId),
+          })
+        )
+        .catch(error => {
+          notify(error instanceof Error ? error.message : 'Non sono riuscito a rimuovere il file.');
+        });
+    },
+    [controller.updateApplicationExercise, notify]
+  );
+  const handleAttachExerciseFiles = useCallback(
+    (exerciseId: string, files: FileList | null) => {
+      if (!files?.length) {
+        return;
+      }
+
+      void (async () => {
+        const attachments: ExerciseAttachment[] = [];
+        for (const file of Array.from(files)) {
+          attachments.push(await createExerciseAttachmentFromFile(file));
+        }
+        await controller.attachExerciseFiles(exerciseId, attachments);
+      })().catch(error => {
+        notify(error instanceof Error ? error.message : 'Non sono riuscito ad allegare il file.');
+      });
+    },
+    [controller.attachExerciseFiles, notify]
+  );
 
   return useMemo(
     () => ({
@@ -83,36 +173,45 @@ export const useReaderShellProps = ({
         storageError: controller.storageError,
       },
       content: {
+        activeExercise,
+        exercisePrerequisiteGaps,
         activeSectionTitle: controller.activeSection?.title || null,
         activeSectionAssetsById: readerRuntime.activeSectionAssetsById,
         activeSectionGeneratedVisualsById: readerRuntime.activeSectionGeneratedVisualsById,
         activeSectionImageRefsById: readerRuntime.activeSectionImageRefsById,
         contentRef: readerRuntime.contentRef,
         currentLessonArtifactPayloads,
+        hasNextSection,
         isDarkMode: readerRuntime.readerChrome.isDarkMode,
         isFocusMode: readerRuntime.readerChrome.isFocusMode,
         isLoading: isActiveSectionLoading,
         isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
         isQuizSubmitted: readerRuntime.isQuizSubmitted,
+        onAdvanceSection: () => {
+          void readerActions.handleAdvanceSection();
+        },
         onCompleteSection: () => {
           void readerActions.handleCompleteSection();
         },
+        onAttachExerciseFiles: handleAttachExerciseFiles,
         onContentClick: readerRuntime.readerContext.handleContentClick,
         onContentContextMenu: readerRuntime.readerContext.handleContentContextMenu,
         onContentPointerDownCapture: readerRuntime.readerContext.handleContentPointerDownCapture,
         onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
+        onRemoveExerciseAttachment: handleRemoveExerciseAttachment,
         onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
-        quiz: controller.quiz,
-        quizAnswers: readerRuntime.quizAnswers,
+        onUpdateExerciseInternalText: handleUpdateExerciseInternalText,
+        quiz: activeExercise ? [] : controller.quiz,
+        quizAnswers: activeExercise ? [] : readerRuntime.quizAnswers,
         scrollContainerRef: readerRuntime.scrollContainerRef,
         sectionAnnotations: controller.activeSection?.annotations,
-        sectionContent: controller.sectionContent,
+        sectionContent: activeExercise ? '' : controller.sectionContent,
         sectionReasoningText: controller.workflowState.loadSection.reasoning,
         sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
       },
       header: {
-        activeSectionId: controller.activeSection?.id ?? null,
-        activeSectionTitle: controller.activeSection?.title ?? null,
+        activeSectionId: activePathNode?.id ?? null,
+        activeSectionTitle: activePathNode?.title ?? null,
         activeSidebarGroup: readerRuntime.activeSidebarGroup,
         hasActiveSection: Boolean(controller.activeSection),
         courseGenerationNotes: controller.learningPlan?.generationNotes ?? '',
@@ -191,16 +290,21 @@ export const useReaderShellProps = ({
       shouldUseDesktopSidebar: readerRuntime.readerChrome.shouldUseDesktopSidebar,
       sidebar: {
         activeSectionId: controller.activeSectionId,
+        canRepairApplicationExercises: planNeedsApplicationExerciseRepair(controller.learningPlan),
         expandedModuleId: readerRuntime.readerChrome.expandedModuleId,
         generatingSectionId: controller.generatingSectionId ?? null,
+        isRepairingApplicationExercises,
         isLoading: controller.isBlocking,
         isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
         learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
+        repairApplicationExercisesLabel: getApplicationExerciseRepairLabel(controller.learningPlan),
         onBackToLibrary: handleBackToLibrary,
         onExportProject: () => {
           void handleExportProject();
         },
         onModuleToggle: readerRuntime.readerChrome.handleModuleToggle,
+        onRepairApplicationExercises: handleRepairApplicationExercises,
+        onSelectExercise: readerActions.handleSelectExercise,
         onSelectSection: readerActions.handleSelectSection,
         onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
         onSetIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
@@ -210,6 +314,9 @@ export const useReaderShellProps = ({
     }),
     [
       activeSectionSourcePageRangeLabel,
+      activeExercise,
+      activePathNode,
+      exercisePrerequisiteGaps,
       controller.activeSection,
       controller.activeSectionId,
       controller.generatingSectionId,
@@ -228,12 +335,19 @@ export const useReaderShellProps = ({
       handleAttachSourceFile,
       handleBackToLibrary,
       handleExportProject,
+      handleRepairApplicationExercises,
+      handleAttachExerciseFiles,
+      handleRemoveExerciseAttachment,
+      handleUpdateExerciseInternalText,
+      hasNextSection,
       isActiveSectionLoading,
+      isRepairingApplicationExercises,
       loadingStatus,
       modelDefaults,
       pdfMappingWarning,
       playerCurrentChunkIsLoading,
       readerActions.handleAttachArtifactToAnnotation,
+      readerActions.handleAdvanceSection,
       readerActions.handleCompleteSection,
       readerActions.handleContextQuestion,
       readerActions.handleCreateLesson,
@@ -244,6 +358,7 @@ export const useReaderShellProps = ({
       readerActions.handleSaveArtifactToLesson,
       readerActions.handleSaveConversationNote,
       readerActions.handleSaveNote,
+      readerActions.handleSelectExercise,
       readerActions.handleSelectSection,
       readerActions.handleUpdateConversationNote,
       readerRuntime.activeSectionAssetsById,

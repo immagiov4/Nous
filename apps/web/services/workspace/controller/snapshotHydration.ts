@@ -4,15 +4,22 @@ import {
   type LearningSection,
   type LessonNode,
   type ProjectSnapshot,
+  type SyllabusItem,
 } from '../../../types.ts';
-import { findPathNodeById, flattenLessons } from '../../../utils/learning/pathNodes.ts';
+import {
+  findPathNodeById,
+  flattenLessons,
+  flattenPathNodes,
+} from '../../../utils/learning/pathNodes.ts';
 import { migrateSectionAnnotations } from '../../../utils/learning/sectionAnnotations.ts';
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 import { restoreLegacyPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import { groupSectionsIntoModules } from '../../learning/groupSectionsIntoModules.ts';
+import { removeTemporaryMiniLabLessons } from '../../learning/temporaryLabLessons.ts';
 
 const HYDRATION_TRACE_PREVIEW_CHARS = 1600;
+const UNTITLED_MODULE_TITLE = 'Untitled module';
 
 const summarizeHydratedContent = (content: string) => ({
   hasCodeFence: /(^|\n)```/.test(content),
@@ -50,6 +57,65 @@ const migrateLegacyPlanShape = (raw: unknown): LearningPlan | null => {
     };
   }
   return null;
+};
+
+const buildSectionsFromSyllabus = (syllabus: SyllabusItem[]): LearningSection[] =>
+  syllabus.flatMap(module =>
+    (module.children || []).map(lesson => ({
+      id: lesson.id,
+      title: lesson.title,
+      description: lesson.description,
+      isCompleted: false,
+      type: 'core' as const,
+      parentId: module.id,
+      moduleTitle: module.title,
+      contextPrompt: lesson.contextPrompt,
+    }))
+  );
+
+const repairFlattenedLearnModePlan = (
+  plan: LearningPlan | null,
+  snapshot: Pick<ProjectSnapshot, 'isLearnMode' | 'syllabus'>
+): LearningPlan | null => {
+  if (!plan || !snapshot.isLearnMode || snapshot.syllabus.length < 2) {
+    return plan;
+  }
+
+  if (plan.modules.length !== 1 || plan.modules[0]?.title !== UNTITLED_MODULE_TITLE) {
+    return plan;
+  }
+
+  if (flattenPathNodes(plan.modules).some(node => node.kind === 'exercise')) {
+    return plan;
+  }
+
+  const expectedSections = buildSectionsFromSyllabus(snapshot.syllabus);
+  const currentLessons = flattenLessons(plan.modules);
+  if (expectedSections.length === 0 || currentLessons.length !== expectedSections.length) {
+    return plan;
+  }
+
+  const currentLessonsById = new Map(currentLessons.map(lesson => [lesson.id, lesson]));
+  if (expectedSections.some(section => !currentLessonsById.has(section.id))) {
+    return plan;
+  }
+
+  const repairedModules = groupSectionsIntoModules(expectedSections).map(module => ({
+    ...module,
+    children: module.children.map(child =>
+      child.kind === 'lesson' ? currentLessonsById.get(child.id) || child : child
+    ),
+  }));
+
+  pushNousDebugTrace('snapshot-hydration:repaired-flattened-learn-plan', {
+    moduleCount: repairedModules.length,
+    syllabusModuleCount: snapshot.syllabus.length,
+  });
+
+  return {
+    ...plan,
+    modules: repairedModules,
+  };
 };
 
 const normalizeLessonContent = (lesson: LessonNode): LessonNode => {
@@ -110,7 +176,9 @@ export const resolveScreenStateForSnapshot = (
 
 export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectSnapshot => {
   const migratedPlan = migrateLegacyPlanShape(snapshot.learningPlan as unknown);
-  const normalizedPlan = normalizeLearningPlanContent(migratedPlan);
+  const cleanedPlan = migratedPlan ? removeTemporaryMiniLabLessons(migratedPlan) : null;
+  const repairedPlan = repairFlattenedLearnModePlan(cleanedPlan, snapshot);
+  const normalizedPlan = normalizeLearningPlanContent(repairedPlan);
 
   const legacy = snapshot as unknown as Record<string, unknown>;
   if (legacy.laboratory) {

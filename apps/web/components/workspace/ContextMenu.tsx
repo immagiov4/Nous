@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import {
   ArrowUp,
   BookPlus,
+  Eraser,
   Highlighter,
   LoaderCircle,
   NotebookPen,
@@ -60,6 +61,7 @@ interface ContextMenuProps {
 const CONTEXT_MENU_DESKTOP_MAX_WIDTH = 460;
 const CONTEXT_MENU_DESKTOP_MIN_WIDTH = 320;
 const CONTEXT_MENU_DESKTOP_SAFE_HEIGHT = 120;
+const CONTEXT_MENU_DESKTOP_NOTE_SAFE_HEIGHT = 420;
 const CONTEXT_MENU_MOBILE_MAX_WIDTH = 384;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 
@@ -105,11 +107,7 @@ const ContextMenu = ({
     useState(annotationArtifactRefs);
   const [isLessonConfirmOpen, setIsLessonConfirmOpen] = useState(false);
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
-  const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(
-    type === 'annotation'
-      ? annotationNote.trim().length === 0 && annotationArtifactRefs.length === 0
-      : false
-  );
+  const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(false);
   const [isNotePreviewScrolled, setIsNotePreviewScrolled] = useState(false);
   const askInteractionLockRef = useRef(false);
   const highlightInteractionLockRef = useRef(false);
@@ -157,11 +155,15 @@ const ContextMenu = ({
   const isAnnotationPreviewMode =
     isAnnotationMode && hasSavedAnnotationContent && !isNoteEditorOpen;
   const isAnnotationEditingMode = isAnnotationMode && !isAnnotationPreviewMode;
-  const canDeleteAnnotationFromCurrentState =
-    isAnnotationMode && (isAnnotationPreviewMode || !hasSavedAnnotationContent);
+  const isNotePanelVisible = isNoteEditorOpen || isAnnotationPreviewMode;
+  const canDeleteAnnotationFromCurrentState = isAnnotationMode && hasSavedAnnotationContent;
+  const shouldShowToolbarNoteButton = !isAnnotationMode || !hasSavedAnnotationContent;
+  const notePanelTitle =
+    isAnnotationMode && hasSavedAnnotationContent
+      ? 'Nota associata al passaggio'
+      : 'Aggiungi una nota alla lezione';
   const lessonSelectionPreview = abbreviate(selectedText, 120);
   const lessonInstructionPreview = trimmedInput ? abbreviate(trimmedInput, 120) : null;
-  const noteSelectionPreview = abbreviate(selectedText, 180);
   const normalizedNotePreview = useMemo(
     () => normalizeMarkdownForRendering(noteInput),
     [noteInput]
@@ -172,7 +174,7 @@ const ContextMenu = ({
   };
 
   const submitAsk = () => {
-    if (!trimmedInput || isAnnotationMode) {
+    if (!trimmedInput) {
       return;
     }
 
@@ -237,11 +239,15 @@ const ContextMenu = ({
   const handleHighlightClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (highlightInteractionLockRef.current || isAnnotationMode) {
+    if (highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
-    onHighlight();
+    if (isAnnotationMode) {
+      onDeleteAnnotation();
+    } else {
+      onHighlight();
+    }
     window.setTimeout(() => {
       highlightInteractionLockRef.current = false;
     }, 400);
@@ -250,11 +256,15 @@ const ContextMenu = ({
   const handleHighlightPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (highlightInteractionLockRef.current || isAnnotationMode) {
+    if (highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
-    onHighlight();
+    if (isAnnotationMode) {
+      onDeleteAnnotation();
+    } else {
+      onHighlight();
+    }
     window.setTimeout(() => {
       highlightInteractionLockRef.current = false;
     }, 400);
@@ -263,11 +273,15 @@ const ContextMenu = ({
   const handleHighlightTouchStart = (event: TouchEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    if (highlightInteractionLockRef.current || isAnnotationMode) {
+    if (highlightInteractionLockRef.current) {
       return;
     }
     highlightInteractionLockRef.current = true;
-    onHighlight();
+    if (isAnnotationMode) {
+      onDeleteAnnotation();
+    } else {
+      onHighlight();
+    }
     window.setTimeout(() => {
       highlightInteractionLockRef.current = false;
     }, 400);
@@ -352,11 +366,7 @@ const ContextMenu = ({
     setIsAttachmentPickerOpen(false);
     setLocalAnnotationArtifactRefs(annotationArtifactRefs);
     setNoteInput(annotationNote);
-    setIsNoteEditorOpen(
-      type === 'annotation'
-        ? annotationNote.trim().length === 0 && annotationArtifactRefs.length === 0
-        : false
-    );
+    setIsNoteEditorOpen(false);
   }, [annotationArtifactRefs, annotationNote, selectedText, type]);
 
   const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight;
@@ -372,6 +382,10 @@ const ContextMenu = ({
   const shouldOpenAbove =
     !isMobileSheet &&
     (selectionRect?.top ?? anchorY ?? CONTEXT_MENU_VIEWPORT_PADDING) > viewportHeight / 3;
+  const desktopSafeHeight =
+    isNoteEditorOpen || isAnnotationMode
+      ? CONTEXT_MENU_DESKTOP_NOTE_SAFE_HEIGHT
+      : CONTEXT_MENU_DESKTOP_SAFE_HEIGHT;
   const desktopMenuWidth =
     viewportWidth > 0
       ? Math.min(
@@ -411,10 +425,7 @@ const ContextMenu = ({
           bottom: clamp(
             viewportHeight - (anchorY ?? CONTEXT_MENU_VIEWPORT_PADDING) + 14,
             CONTEXT_MENU_VIEWPORT_PADDING,
-            Math.max(
-              CONTEXT_MENU_VIEWPORT_PADDING,
-              viewportHeight - CONTEXT_MENU_DESKTOP_SAFE_HEIGHT
-            )
+            Math.max(CONTEXT_MENU_VIEWPORT_PADDING, viewportHeight - desktopSafeHeight)
           ),
           left: desktopLeft,
           width: desktopMenuWidth,
@@ -423,10 +434,7 @@ const ContextMenu = ({
           top: clamp(
             (anchorY ?? CONTEXT_MENU_VIEWPORT_PADDING) + 14,
             CONTEXT_MENU_VIEWPORT_PADDING,
-            Math.max(
-              CONTEXT_MENU_VIEWPORT_PADDING,
-              viewportHeight - CONTEXT_MENU_DESKTOP_SAFE_HEIGHT
-            )
+            Math.max(CONTEXT_MENU_VIEWPORT_PADDING, viewportHeight - desktopSafeHeight)
           ),
           left: desktopLeft,
           width: desktopMenuWidth,
@@ -437,8 +445,8 @@ const ContextMenu = ({
     : 'flex h-[3.3rem] w-[3.3rem] shrink-0 items-center justify-center rounded-full border border-stone-300/95 bg-white text-stone-700 shadow-[0_16px_36px_-16px_rgba(34,28,19,0.28),0_8px_18px_-12px_rgba(34,28,19,0.2),0_0_0_1px_rgba(0,0,0,0.03)] transition-transform duration-200 hover:scale-[1.02] hover:bg-amber-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-0 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600';
 
   const askButtonClassName = isMobileSheet
-    ? 'flex h-11 items-center justify-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500'
-    : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-stone-300/95 bg-stone-900 text-stone-50 shadow-[0_22px_36px_-18px_rgba(34,28,19,0.54),0_8px_14px_-12px_rgba(34,28,19,0.26)] transition-colors hover:bg-stone-700 disabled:border-stone-200 disabled:bg-stone-200 disabled:text-stone-500 dark:border-stone-400/90 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:border-stone-600 dark:disabled:bg-stone-700 dark:disabled:text-stone-500';
+    ? 'flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-600 dark:disabled:text-stone-300'
+    : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-stone-300/95 bg-stone-900 text-stone-50 shadow-[0_22px_36px_-18px_rgba(34,28,19,0.54),0_8px_14px_-12px_rgba(34,28,19,0.26)] transition-colors hover:bg-stone-700 disabled:border-stone-200 disabled:bg-stone-200 disabled:text-stone-500 dark:border-stone-400/90 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:border-stone-500 dark:disabled:bg-stone-600 dark:disabled:text-stone-300';
 
   const lessonButtonClassName = isMobileSheet
     ? 'flex h-11 items-center justify-center gap-2 rounded-full border border-orange-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-orange-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-0 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600'
@@ -456,18 +464,18 @@ const ContextMenu = ({
 
   const noteEditorClassName = isMobileSheet
     ? `overflow-hidden text-stone-700 ${isAnnotationMode ? '' : 'transition-all duration-200'} dark:text-stone-300 ${
-        isNoteEditorOpen || isAnnotationMode
-          ? `${isAnnotationMode ? 'mt-0 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 border-t-0 pt-0 opacity-100' : 'mt-3 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 border-t border-stone-200/80 pt-3 opacity-100 dark:border-stone-400/70'}`
+        isNotePanelVisible
+          ? '-mx-[0.9375rem] -mb-[1.0625rem] mt-5 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 rounded-[2rem] border border-stone-200/80 bg-stone-50 opacity-100 dark:border-stone-500/70 dark:bg-stone-800'
           : 'max-h-0 translate-y-[-6px] border-t-0 pt-0 opacity-0'
       }`
-    : `overflow-hidden rounded-[1.6rem] border border-stone-200/90 bg-[#fbf7ef] text-stone-700 shadow-[0_18px_40px_-30px_rgba(46,34,16,0.55)] ${isAnnotationMode ? '' : 'transition-all duration-200'} dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 ${
-        isNoteEditorOpen || isAnnotationMode
-          ? 'mt-2 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 opacity-100'
+    : `overflow-hidden rounded-[1.6rem] border border-stone-200/90 bg-stone-50 text-stone-700 shadow-[0_18px_40px_-30px_rgba(46,34,16,0.55)] ${isAnnotationMode ? '' : 'transition-all duration-200'} dark:border-stone-500/80 dark:bg-stone-800 dark:text-stone-300 ${
+        isNotePanelVisible
+          ? 'mt-3 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 opacity-100'
           : 'max-h-0 translate-y-[-6px] opacity-0'
       }`;
 
-  const notePreviewClassName =
-    'custom-scrollbar max-h-52 overflow-y-auto px-4 py-3 text-sm leading-6 text-stone-800 dark:text-stone-100';
+  const notePreviewClassName = `custom-scrollbar max-h-52 overflow-y-auto ${isMobileSheet ? 'px-0 py-3' : 'px-4 py-3'} text-sm leading-6 text-stone-800 dark:text-stone-100`;
+  const notePreviewFadeColor = isDarkMode ? '#292524' : '#fafaf9';
 
   const handleNotePreviewScroll = () => {
     const el = notePreviewRef.current;
@@ -572,149 +580,142 @@ const ContextMenu = ({
         className="pointer-events-none absolute left-0 right-0 top-0 h-6 transition-opacity duration-200"
         style={{
           opacity: isNotePreviewScrolled ? 1 : 0,
-          background: `linear-gradient(to bottom, ${isDarkMode ? '#44403c' : '#fbf7ef'}, transparent)`,
+          background: `linear-gradient(to bottom, ${notePreviewFadeColor}, transparent)`,
         }}
       />
     </div>
   );
 
-  const renderNoteEditor = () => (
-    <div className={noteEditorClassName} aria-hidden={!isNoteEditorOpen && !isAnnotationMode}>
-      <div
-        className={
-          isMobileSheet
-            ? 'custom-scrollbar max-h-[min(34rem,calc(100dvh-2rem))] space-y-3 overflow-y-auto px-0 py-0'
-            : 'custom-scrollbar max-h-[min(34rem,calc(100dvh-2rem))] space-y-3 overflow-y-auto px-4 py-3'
-        }
-      >
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-stone-900 text-center dark:text-stone-100">
-            {isAnnotationMode
-              ? 'Nota associata al passaggio evidenziato'
-              : 'Aggiungi una nota a questa selezione'}
-          </p>
-          {!isAnnotationMode ? (
-            <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-              "{noteSelectionPreview}"
+  const renderNoteEditor = () => {
+    if (isAnnotationMode && !isNoteEditorOpen && !hasSavedAnnotationContent) {
+      return null;
+    }
+
+    return (
+      <div className={noteEditorClassName} aria-hidden={!isNoteEditorOpen && !isAnnotationMode}>
+        <div
+          className={
+            isMobileSheet
+              ? 'custom-scrollbar max-h-[min(34rem,calc(100dvh-2rem))] space-y-3 overflow-y-auto px-4 py-4'
+              : 'custom-scrollbar max-h-[min(34rem,calc(100dvh-2rem))] space-y-3 overflow-y-auto px-4 py-3'
+          }
+        >
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-stone-900 text-center dark:text-stone-100">
+              {notePanelTitle}
             </p>
-          ) : null}
-        </div>
-
-        {isAnnotationPreviewMode ? (
-          renderRenderedNotePreview()
-        ) : (
-          <div className="rounded-[1.4rem] border border-stone-200/80 p-1.5 transition-colors focus-within:border-stone-300 dark:border-stone-400/95 dark:focus-within:border-stone-400">
-            <textarea
-              value={noteInput}
-              onChange={event => setNoteInput(event.target.value)}
-              onFocus={event => {
-                if (!isMobileSheet) return;
-                const target = event.currentTarget;
-                window.setTimeout(() => {
-                  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-                }, 250);
-              }}
-              placeholder={
-                isAnnotationMode
-                  ? 'Scrivi, aggiorna o svuota la nota...'
-                  : 'Scrivi la nota che vuoi lasciare su questo passaggio...'
-              }
-              rows={8}
-              className="custom-scrollbar w-full resize-none rounded-[1.4rem] bg-transparent px-4 py-3 text-sm leading-6 text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-300"
-              disabled={isLoading}
-            />
           </div>
-        )}
-
-        {!isAnnotationPreviewMode ? renderAttachedAnnotationArtifacts() : null}
-
-        <div className="relative flex flex-wrap items-center justify-end gap-2">
-          {renderAnnotationAttachmentPicker()}
-
-          {isAnnotationEditingMode && attachableArtifactPayloads.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setIsAttachmentPickerOpen(currentValue => !currentValue)}
-              disabled={isLoading}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-200/60 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-stone-300 dark:hover:bg-stone-600/70 dark:hover:text-stone-100"
-              aria-label="Allega dagli artefatti"
-              title="Allega dagli artefatti"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
-          ) : null}
-
-          {!isAnnotationMode ? (
-            <button
-              type="button"
-              onClick={() => setIsNoteEditorOpen(false)}
-              className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
-            >
-              Annulla
-            </button>
-          ) : null}
-
-          {isAnnotationEditingMode && hasSavedAnnotationNote ? (
-            <button
-              type="button"
-              onClick={handleCancelNoteEdit}
-              className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
-            >
-              Annulla
-            </button>
-          ) : null}
-
-          {canDeleteAnnotationFromCurrentState ? (
-            <button
-              type="button"
-              aria-label="Rimuovi evidenziazione"
-              onClick={handleDeleteAnnotationClick}
-              disabled={isLoading}
-              className="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600 dark:hover:text-stone-100"
-            >
-              <X className="h-3.5 w-3.5" />
-              <span>Rimuovi</span>
-            </button>
-          ) : null}
 
           {isAnnotationPreviewMode ? (
-            <button
-              type="button"
-              onClick={handleToggleNoteEditor}
-              disabled={isLoading}
-              className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
-            >
-              Modifica
-            </button>
-          ) : null}
+            renderRenderedNotePreview()
+          ) : (
+            <div className="rounded-[1.4rem] border border-stone-200/80 p-1.5 transition-colors focus-within:border-stone-300 dark:border-stone-400/95 dark:focus-within:border-stone-400">
+              <textarea
+                value={noteInput}
+                onChange={event => setNoteInput(event.target.value)}
+                onFocus={event => {
+                  if (!isMobileSheet) return;
+                  const target = event.currentTarget;
+                  window.setTimeout(() => {
+                    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                  }, 250);
+                }}
+                placeholder={
+                  isAnnotationMode
+                    ? 'Scrivi, aggiorna o svuota la nota...'
+                    : 'Scrivi la nota che vuoi lasciare su questo passaggio...'
+                }
+                rows={8}
+                className="custom-scrollbar w-full resize-none rounded-[1.4rem] bg-transparent px-4 py-3 text-sm leading-6 text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-300"
+                disabled={isLoading}
+              />
+            </div>
+          )}
 
-          {!isAnnotationPreviewMode ? (
-            <button
-              type="button"
-              onClick={handleSaveNote}
-              disabled={isLoading || (!isAnnotationMode && !trimmedNote)}
-              className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
-            >
-              {isAnnotationMode ? 'Salva' : 'Salva nota'}
-            </button>
-          ) : null}
+          {!isAnnotationPreviewMode ? renderAttachedAnnotationArtifacts() : null}
+
+          <div className="relative flex flex-wrap items-center justify-end gap-2">
+            {renderAnnotationAttachmentPicker()}
+
+            {isAnnotationEditingMode && attachableArtifactPayloads.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setIsAttachmentPickerOpen(currentValue => !currentValue)}
+                disabled={isLoading}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-200/60 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-stone-300 dark:hover:bg-stone-600/70 dark:hover:text-stone-100"
+                aria-label="Allega dagli artefatti"
+                title="Allega dagli artefatti"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+            ) : null}
+
+            {!isAnnotationMode || isAnnotationEditingMode ? (
+              <button
+                type="button"
+                onClick={handleCancelNoteEdit}
+                className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+              >
+                Annulla
+              </button>
+            ) : null}
+
+            {canDeleteAnnotationFromCurrentState ? (
+              <button
+                type="button"
+                aria-label="Rimuovi evidenziazione"
+                onClick={handleDeleteAnnotationClick}
+                disabled={isLoading}
+                className="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600 dark:hover:text-stone-100"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>Rimuovi</span>
+              </button>
+            ) : null}
+
+            {isAnnotationPreviewMode ? (
+              <button
+                type="button"
+                onClick={handleToggleNoteEditor}
+                disabled={isLoading}
+                className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
+              >
+                Modifica
+              </button>
+            ) : null}
+
+            {!isAnnotationPreviewMode ? (
+              <button
+                type="button"
+                onClick={handleSaveNote}
+                disabled={isLoading || (!isAnnotationMode && !trimmedNote)}
+                className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
+              >
+                {isAnnotationMode ? 'Salva' : 'Salva nota'}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderSelectionDesktop = () => (
     <div className="space-y-2">
       <div className="flex items-center gap-2.5">
         <button
           type="button"
-          aria-label="Evidenzia selezione"
+          aria-label={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione'}
           disabled={isLoading}
           onClick={handleHighlightClick}
           className={highlightButtonClassName}
-          title="Evidenzia il testo selezionato"
+          title={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'}
         >
-          <Highlighter className="h-4 w-4 translate-x-px -translate-y-px text-amber-700 dark:text-amber-400" />
+          {isAnnotationMode ? (
+            <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
+          ) : (
+            <Highlighter className="h-4 w-4 translate-x-px -translate-y-px text-amber-700 dark:text-amber-400" />
+          )}
         </button>
 
         <form
@@ -746,18 +747,24 @@ const ContextMenu = ({
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={handleToggleNoteEditor}
-            disabled={isLoading}
-            className={noteButtonClassName}
-            title="Aggiungi una nota a questo passaggio"
-          >
-            <NotebookPen className="h-4 w-4 shrink-0 text-stone-600 transition-none dark:text-stone-200" />
-            <span className="max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-[2.45rem] group-hover:opacity-100 group-focus-visible:max-w-[2.45rem] group-focus-visible:opacity-100">
-              Nota
-            </span>
-          </button>
+          {shouldShowToolbarNoteButton ? (
+            <button
+              type="button"
+              onClick={handleToggleNoteEditor}
+              disabled={isLoading}
+              className={noteButtonClassName}
+              title={
+                isAnnotationMode
+                  ? 'Aggiungi o modifica una nota su questo passaggio'
+                  : 'Aggiungi una nota a questo passaggio'
+              }
+            >
+              <NotebookPen className="h-4 w-4 shrink-0 text-stone-600 transition-none dark:text-stone-200" />
+              <span className="max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-[2.45rem] group-hover:opacity-100 group-focus-visible:max-w-[2.45rem] group-focus-visible:opacity-100">
+                Nota
+              </span>
+            </button>
+          ) : null}
 
           <button
             type="button"
@@ -774,7 +781,7 @@ const ContextMenu = ({
         </form>
       </div>
 
-      <div className="pl-[3.375rem]">
+      <div className={isNotePanelVisible ? 'w-full' : 'pl-[3.375rem]'}>
         {renderNoteEditor()}
 
         <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
@@ -837,15 +844,19 @@ const ContextMenu = ({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            aria-label="Evidenzia selezione"
+            aria-label={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione'}
             disabled={isLoading}
             onClick={handleHighlightClick}
             onPointerDown={handleHighlightPointerDown}
             onTouchStart={handleHighlightTouchStart}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-sm transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-            title="Evidenzia il testo selezionato"
+            title={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'}
           >
-            <Highlighter className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+            {isAnnotationMode ? (
+              <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
+            ) : (
+              <Highlighter className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+            )}
           </button>
 
           <button
@@ -855,7 +866,7 @@ const ContextMenu = ({
             onClick={handleAskClick}
             onPointerDown={handleAskPointerDown}
             onTouchStart={handleAskTouchStart}
-            className="flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
+            className={askButtonClassName}
             title={trimmedInput ? 'Invia domanda' : 'Inserisci una domanda'}
           >
             {isLoading ? (
@@ -866,16 +877,22 @@ const ContextMenu = ({
             <span>Chiedi</span>
           </button>
 
-          <button
-            type="button"
-            onClick={handleToggleNoteEditor}
-            disabled={isLoading}
-            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-            title="Aggiungi una nota a questo passaggio"
-          >
-            <NotebookPen className="h-4 w-4 shrink-0 text-stone-600 dark:text-stone-200" />
-            <span className="hidden min-[390px]:inline">Nota</span>
-          </button>
+          {shouldShowToolbarNoteButton ? (
+            <button
+              type="button"
+              onClick={handleToggleNoteEditor}
+              disabled={isLoading}
+              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
+              title={
+                isAnnotationMode
+                  ? 'Aggiungi o modifica una nota su questo passaggio'
+                  : 'Aggiungi una nota a questo passaggio'
+              }
+            >
+              <NotebookPen className="h-4 w-4 shrink-0 text-stone-600 dark:text-stone-200" />
+              <span className="hidden min-[390px]:inline">Nota</span>
+            </button>
+          ) : null}
 
           <button
             type="button"
@@ -931,8 +948,6 @@ const ContextMenu = ({
     </>
   );
 
-  const renderAnnotationBody = () => <div className="space-y-2">{renderNoteEditor()}</div>;
-
   const shouldAnimate = useShouldAnimate();
 
   // Stabilize transformOrigin across re-renders so extended selections
@@ -960,7 +975,7 @@ const ContextMenu = ({
       ref={containerRef}
       className={`fixed z-50 ${
         isMobileSheet
-          ? 'left-1/2 rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700'
+          ? 'left-1/2 overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700'
           : ''
       }`}
       style={{
@@ -987,11 +1002,7 @@ const ContextMenu = ({
       }
       onPointerDown={handleContainerPointerDown}
     >
-      {isAnnotationMode
-        ? renderAnnotationBody()
-        : isMobileSheet
-          ? renderSelectionMobile()
-          : renderSelectionDesktop()}
+      {isMobileSheet ? renderSelectionMobile() : renderSelectionDesktop()}
     </motion.div>
   );
 };
