@@ -80,11 +80,14 @@ Regole SVG obbligatorie:
 - Niente shadow, blur, glow, filter, emoji, HTML, commenti, icone dentro box.
 - Usa al massimo due rampe colore; c-gray come default, c-amber/c-red/c-green solo semanticamente.
 - Altezza viewBox = ultimo elemento + 40px.
-- Le frecce non devono attraversare box non collegati.
-- **Gestione intelligente dello spazio:** non sovraffollare ne in orizzontale ne in verticale. Usa griglie bilanciate: se hai piu di 3 blocchi con testo, distribuiscili su righe e colonne in modo compatto ma leggibile, non tutti in fila orizzontale ne tutti in colonna verticale.
-- **Titoli compatti:** titoli di 1-3 parole. Se il titolo e lungo, riduci il font-size. Usa ellipsis o text-overflow se necessario.
-- **Spaziatura e aria:** lascia almeno 12-16px di padding interno nei box e 16-24px di margine tra elementi. La densita eccessiva rende il diagramma illeggibile.
-- **Adatta il testo alla viewBox:** se il testo sfora, riduci il font-size del contenuto prima di allargare i box. La viewBox e fissa a 680px di larghezza, devi lavorare dentro quella.
+- **Larghezza box dal testo:** prima di scrivere un <rect>, trova la label piu lunga tra titolo e sottotitolo. A 14px weight-500: ~8px/char; a 12px: ~7px/char. Formula: rect_width = max(titolo_chars × 8, sottotitolo_chars × 7) + 24. Esempio: sottotitolo di 20 char → min 164px. Se il testo e piu lungo del box, abbrevia il testo — non sperare che vada bene.
+- **Altezze canoniche:** single-line box = 44px; two-line box (titolo + sottotitolo) = 56px con 22px di distanza tra le due righe. y del titolo = cy - 9; y del sottotitolo = cy + 13 (dove cy e il centro verticale del box).
+- **Spaziatura:** padding interno box ≥ 24px; gap minimo tra box adiacenti = 60px; gap freccia-bordo ≥ 10px.
+- **Tier packing:** prima di posizionare una riga di N box, verifica che N × box_width + (N-1) × gap ≤ 600. Se non entra, riduci la larghezza dei box oppure distribuisci su 2 righe. Mai stimare a occhio.
+- **Frecce che deviano:** se il percorso diretto di una freccia attraversa un box non collegato, usa un L-bend: <path d="M x1 y1 L x1 ymid L x2 ymid L x2 y2" fill="none" class="arr" marker-end="url(#arrow)"/>. Scegli ymid in uno spazio libero tra i box.
+- **Nesting c-{ramp}:** applica la classe c-* al gruppo o shape piu interno che contiene rect/circle + text. Se metti c-blue su un <g> wrapper esterno e dentro c'e un altro <g>, le shape diventano nipoti e perdono il colore (SVG default = nero). Non annidare un <g> dentro un <g class="c-*">.
+- **Label in diagrammi illustrativi:** posiziona le etichette fuori dall'oggetto disegnato, con una linea guida tratteggiata (<line class="leader"/>). Default: lato destro con text-anchor="start". Riserva almeno 140px di margine orizzontale sul lato delle etichette. Usa class="ts" per callout descrittivi, class="th" per nomi di componenti principali.
+- **Adatta il testo alla viewBox:** la viewBox e fissa a 680px. Se il testo sfora, abbrevia prima di allargare i box.
 - **Niente caption narrativa, niente box di sintesi, niente "takeaway".** Non aggiungere riquadri finali con titoli tipo "Cambio di paradigma", "Concetto chiave", "In sintesi", "In una frase", "Punto chiave", "Conclusione", o simili. Non scrivere paragrafi di prosa dentro l'SVG. Ogni <text> deve essere un'etichetta breve (1-6 parole) o una label di nodo, MAI una frase narrativa multi-riga che riassume la lezione. Se senti il bisogno di "spiegare" la visuale dentro l'SVG, la visuale e gia sbagliata: rifalla con etichette piu chiare.
 - **Vietate frasi complete di prosa.** Niente periodi che iniziano con "Il...", "La...", "Quando...", "Mentre...", "Perche...", "In Rust...", "Nei linguaggi...", o costruzioni soggetto-verbo-complemento estese. Le label sono nominali e telegrafiche, non discorsive.`;
 
