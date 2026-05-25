@@ -94,25 +94,6 @@ test('is ready only when the pdf plan already has a chunk index and primary mapp
   assert.equal(needsPdfProjectHydration(pdfFile, mappedPlan, readyIndex), false);
 });
 
-test('treats legacy fallback mappings as stale when most lessons point to the first two chunks', () => {
-  const stalePlan: LearningPlan = buildTestLearningPlan(
-    Array.from({ length: 5 }, (_, index) =>
-      buildTestLesson({
-        id: `lesson-${index + 1}`,
-        title: `Lezione ${index + 1}`,
-        description: 'Intro',
-        primaryChunkIds: ['chunk-001', 'chunk-002'],
-      })
-    )
-  );
-
-  assert.equal(
-    getPdfProjectHydrationState(pdfFile, stalePlan, largeReadyIndex),
-    'missing-primary-chunk-mappings'
-  );
-  assert.equal(needsPdfProjectHydration(pdfFile, stalePlan, largeReadyIndex), true);
-});
-
 test('treats explicit fallback mapping markers as stale even when chunk ids vary across lessons', () => {
   const stalePlan: LearningPlan = buildTestLearningPlan(
     Array.from({ length: 4 }, (_, index) =>

@@ -7,9 +7,6 @@ export type PdfProjectHydrationState =
   | 'missing-primary-chunk-mappings'
   | 'ready';
 
-const MIN_SUSPICIOUS_MAPPING_SECTIONS = 4;
-const MIN_SUSPICIOUS_MAPPING_CHUNKS = 6;
-
 const isPdfFileData = (file: FileData | null): boolean => {
   if (!file) {
     return false;
@@ -24,39 +21,10 @@ const getHydrationRelevantSections = (plan: LearningPlan): LessonNode[] => {
   return contentLessons.length > 0 ? contentLessons : allLessons;
 };
 
-const sameChunkIds = (left: string[] | undefined, right: string[]): boolean =>
-  Array.isArray(left) &&
-  left.length === right.length &&
-  left.every((chunkId, index) => chunkId === right[index]);
-
 const hasExplicitFallbackChunkMappings = (plan: LearningPlan): boolean =>
   getHydrationRelevantSections(plan).some(
     section => section.primaryChunkMappingSource === 'fallback'
   );
-
-const hasSuspiciousFallbackChunkMappings = (
-  plan: LearningPlan,
-  documentIndex: PdfTextIndex
-): boolean => {
-  const relevantSections = getHydrationRelevantSections(plan);
-  if (
-    relevantSections.length < MIN_SUSPICIOUS_MAPPING_SECTIONS ||
-    documentIndex.chunks.length < MIN_SUSPICIOUS_MAPPING_CHUNKS
-  ) {
-    return false;
-  }
-
-  const fallbackChunkIds = documentIndex.chunks.slice(0, 2).map(chunk => chunk.id);
-  if (fallbackChunkIds.length < 2) {
-    return false;
-  }
-
-  const suspiciousSectionCount = relevantSections.filter(section =>
-    sameChunkIds(section.primaryChunkIds, fallbackChunkIds)
-  ).length;
-
-  return suspiciousSectionCount >= Math.max(3, Math.ceil(relevantSections.length * 0.6));
-};
 
 export const getPdfProjectHydrationState = (
   file: FileData | null,
@@ -80,10 +48,6 @@ export const getPdfProjectHydrationState = (
   }
 
   if (hasExplicitFallbackChunkMappings(plan)) {
-    return 'missing-primary-chunk-mappings';
-  }
-
-  if (hasSuspiciousFallbackChunkMappings(plan, documentIndex)) {
     return 'missing-primary-chunk-mappings';
   }
 
