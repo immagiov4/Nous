@@ -18,7 +18,7 @@ interface UseReaderChromeArgs {
   sidebarGroups: SidebarGroup[];
 }
 
-// fallow-ignore-next-line unused-exports — used by useWorkspaceReaderRuntime.ts
+// fallow-ignore-next-line unused-exports — used by useWorkspaceReaderState.ts
 export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChromeArgs) => {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);

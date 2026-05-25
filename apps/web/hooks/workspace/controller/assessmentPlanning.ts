@@ -1,6 +1,6 @@
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
-import { markApplicationExercisePlanningFailed } from '../../../services/learning/applicationExercises.ts';
+import { markApplicationExercisePlanningFailed } from '../../../services/exercises/plan.ts';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -471,7 +471,7 @@ export const createAssessmentPlanningCommands = (
       const nextProjectId = createProjectId();
       projectLibrary.setProjectHydrated(false);
       domain.resetDomain();
-      state.resetRuntimeState();
+      state.resetSessionState();
       projectLibrary.setCurrentProjectId(nextProjectId);
       domain.setIsLearnMode(true);
       projectLibrary.setProjectHydrated(true);
@@ -510,7 +510,7 @@ export const createAssessmentPlanningCommands = (
 
     try {
       domain.resetDomain();
-      state.resetRuntimeState();
+      state.resetSessionState();
       projectLibrary.setCurrentProjectId(null);
       projectLibrary.setProjectHydrated(false);
 

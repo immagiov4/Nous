@@ -4,6 +4,7 @@ import type {
   LibraryPlacement,
   ProjectExportData,
   ProjectId,
+  ProjectPatch,
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types';
@@ -30,7 +31,7 @@ const PROJECT_SYNC_ERROR_MESSAGE =
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 
 const createProjectSyncError = (error: unknown): ProjectStorageError => {
-  console.warn('[Lumina] LAN project sync failed', error);
+  console.warn('[Nous] LAN project sync failed', error);
   if (error instanceof ProjectStorageError) {
     return error;
   }
@@ -190,7 +191,7 @@ export class HttpProjectRepository implements ProjectRepository {
     };
   }
 
-  async patchProject(id: ProjectId, patch: Record<string, unknown>): Promise<SavedProjectMeta> {
+  async patchProject(id: ProjectId, patch: ProjectPatch): Promise<SavedProjectMeta> {
     const response = await this.request<{ meta?: SavedProjectMeta }>(
       `/api/projects/projects/${encodeURIComponent(id)}`,
       {

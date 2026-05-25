@@ -5,7 +5,7 @@ import {
   getApplicationExerciseRepairLabel,
   planNeedsApplicationExerciseRepair,
   removeApplicationExercisesFromPlan,
-} from '../../../services/learning/applicationExercises.ts';
+} from '../../../services/exercises/plan.ts';
 import type { ApplicationExerciseNode } from '../../../types.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 

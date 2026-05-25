@@ -52,7 +52,7 @@ export const createWorkspaceControllerContext = ({
     projectLibrary.setCurrentProjectId(snapshot.id);
     projectLibrary.setProjectHydrated(false);
     domain.hydrateSnapshot(snapshot);
-    state.resetRuntimeState();
+    state.resetSessionState();
     state.setScreenState(resolveScreenStateForSnapshot(snapshot));
     scheduleHydration(() => {
       projectLibrary.setProjectHydrated(true);

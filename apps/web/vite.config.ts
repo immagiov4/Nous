@@ -48,6 +48,7 @@ export default defineConfig(({ mode }) => {
       dedupe: ['react', 'react-dom'],
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@shared': path.resolve(repoRoot, 'packages/shared-types'),
         react: path.resolve(rootNodeModules, 'react'),
         'react-dom': path.resolve(rootNodeModules, 'react-dom'),
         'react/jsx-dev-runtime': path.resolve(rootNodeModules, 'react/jsx-dev-runtime.js'),

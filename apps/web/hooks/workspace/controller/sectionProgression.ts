@@ -4,7 +4,7 @@ import {
   markApplicationExercisePlanningFailed,
   updateApplicationExerciseInPlan,
   withGeneratedExerciseBrief,
-} from '../../../services/learning/applicationExercises.ts';
+} from '../../../services/exercises/plan.ts';
 import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
 import { mergeDocumentAssetsForPlan } from '../../../services/workspace/controller/documentAssets.ts';
 import { resolveLearnSectionContext } from '../../../services/workspace/controller/learnMode.ts';
@@ -36,8 +36,8 @@ const READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN: WorkspaceWorkflowId[] = [
   'contextQuestion',
   'createLesson',
   'completeSection',
-  'generateLaboratory',
-  'evaluateLaboratory',
+  'generateExercise',
+  'evaluateExercise',
 ];
 
 export const createSectionCommands = (context: WorkspaceControllerContext) => {
@@ -130,7 +130,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     const requestId = state.beginWorkflow(
-      'generateLaboratory',
+      'generateExercise',
       'Scelgo dove inserire gli esercizi...'
     );
 
@@ -142,14 +142,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         researchCoursePlan: domain.researchCoursePlan,
         researchDossiersBySectionId: domain.researchDossiersBySectionId,
         onStatusUpdate: status => {
-          state.setWorkflowMessage('generateLaboratory', requestId, status);
+          state.setWorkflowMessage('generateExercise', requestId, status);
         },
         onReasoningUpdate: reasoning => {
-          state.setWorkflowReasoning('generateLaboratory', requestId, reasoning);
+          state.setWorkflowReasoning('generateExercise', requestId, reasoning);
         },
       });
 
-      if (!state.isWorkflowCurrent('generateLaboratory', requestId)) {
+      if (!state.isWorkflowCurrent('generateExercise', requestId)) {
         return { outcome: 'noop' };
       }
 
@@ -159,7 +159,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         activeSectionId: domain.activeSectionId,
         state: AppState.READING,
       });
-      state.succeedWorkflow('generateLaboratory', requestId);
+      state.succeedWorkflow('generateExercise', requestId);
       return { outcome: 'repaired' };
     } catch (error) {
       const attempts =
@@ -177,7 +177,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         activeSectionId: domain.activeSectionId,
         state: AppState.READING,
       });
-      state.failWorkflow('generateLaboratory', requestId, getErrorMessage(error));
+      state.failWorkflow('generateExercise', requestId, getErrorMessage(error));
       throw error;
     }
   }
@@ -740,7 +740,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     stopAudio(true);
     state.setGeneratingSectionId(null);
     state.invalidateWorkflows(READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN);
-    state.resetRuntimeState();
+    state.resetSessionState();
     state.setScreenState(AppState.LIBRARY);
   }
 

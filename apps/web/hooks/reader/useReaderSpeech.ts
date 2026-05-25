@@ -7,7 +7,7 @@ interface UseReaderSpeechBlocksArgs {
   sectionContent: string;
 }
 
-// fallow-ignore-next-line unused-exports — used by useWorkspaceReaderRuntime.ts
+// fallow-ignore-next-line unused-exports — used by useWorkspaceReaderState.ts
 export const useReaderSpeechBlocks = ({
   contentRef,
   sectionContent,

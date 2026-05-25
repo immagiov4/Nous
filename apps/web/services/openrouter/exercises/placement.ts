@@ -4,10 +4,10 @@ import type {
   ResearchCoursePlan,
   ResearchDossiersBySectionId,
   UserProfile,
-} from '../../types.ts';
-import { applyApplicationExercisePlacements } from '../learning/applicationExercises.ts';
-import { MEDIUM_REASONING_CONFIG, MODEL_REASONING, teacherInstruction } from './config.ts';
-import { callOpenRouter, parseCleanJson } from './shared.ts';
+} from '../../../types.ts';
+import { applyApplicationExercisePlacements } from '../../exercises/plan.ts';
+import { MEDIUM_REASONING_CONFIG, MODEL_REASONING, teacherInstruction } from '../config.ts';
+import { callOpenRouter, parseCleanJson } from '../shared.ts';
 
 interface ExercisePlacementDraft {
   assessedObjective?: unknown;

@@ -2,12 +2,12 @@
 import { defaultModelConfig } from '../../app/modelDefaults.ts';
 import { useWorkspaceAssessmentScreen } from '../../hooks/workspace/useWorkspaceAssessmentScreen.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
-import type { useWorkspaceReaderRuntime } from '../../hooks/workspace/useWorkspaceReaderRuntime.ts';
+import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import type { AppState, Message } from '../../types.ts';
 import AssessmentView from './AssessmentView.tsx';
 
 type WorkspaceNavigation = ReturnType<typeof useWorkspaceNavigation>;
-type WorkspaceReaderRuntime = ReturnType<typeof useWorkspaceReaderRuntime>;
+type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
 
 interface AssessmentScreenContainerProps {
   assessmentMessages: Message[];
@@ -15,7 +15,7 @@ interface AssessmentScreenContainerProps {
   loadingStatus: string;
   navigation: WorkspaceNavigation;
   notify: (message: string) => void;
-  readerRuntime: WorkspaceReaderRuntime;
+  readerState: WorkspaceReaderState;
   screenState: AppState;
   startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
   submitAssessment: (input: string) => Promise<{
@@ -31,7 +31,7 @@ export const AssessmentScreenContainer = ({
   loadingStatus,
   navigation,
   notify,
-  readerRuntime,
+  readerState,
   screenState,
   startLearnJourney,
   submitAssessment,
@@ -49,7 +49,7 @@ export const AssessmentScreenContainer = ({
       assessmentInputId={assessmentScreen.assessmentInputId}
       assessmentInputRef={assessmentScreen.assessmentInputRef}
       currentAssessmentInput={assessmentScreen.currentAssessmentInput}
-      isDarkMode={readerRuntime.readerChrome.isDarkMode}
+      isDarkMode={readerState.readerChrome.isDarkMode}
       isLoading={isLoading}
       loadingStatus={loadingStatus}
       messages={assessmentMessages}
@@ -57,9 +57,9 @@ export const AssessmentScreenContainer = ({
       modelDefaults={defaultModelConfig}
       onBackToLibrary={navigation.handleBackToLibrary}
       onInputChange={assessmentScreen.setCurrentAssessmentInput}
-      onSetPreferredOpenRouterModel={readerRuntime.setPreferredOpenRouterModel}
+      onSetPreferredOpenRouterModel={readerState.setPreferredOpenRouterModel}
       onSubmit={assessmentScreen.handleAssessmentSubmit}
-      preferredModels={readerRuntime.preferredModels}
+      preferredModels={readerState.preferredModels}
     />
   );
 };

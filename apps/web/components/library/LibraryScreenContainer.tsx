@@ -6,12 +6,12 @@ import type { useProjectLibrary } from '../../hooks/library/useProjectLibrary.ts
 import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspaceFileActions.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
-import type { useWorkspaceReaderRuntime } from '../../hooks/workspace/useWorkspaceReaderRuntime.ts';
+import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import LibraryView from './LibraryView.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
-type WorkspaceReaderRuntime = ReturnType<typeof useWorkspaceReaderRuntime>;
+type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
 type WorkspaceProjectLibrary = ReturnType<typeof useProjectLibrary>;
 type WorkspaceLibraryAssistantChat = ReturnType<typeof useLibraryAssistantChat>;
 type WorkspaceFileActions = ReturnType<typeof useWorkspaceFileActions>;
@@ -19,7 +19,7 @@ type WorkspaceNavigation = ReturnType<typeof useWorkspaceNavigation>;
 
 interface LibraryScreenContainerProps {
   controller: WorkspaceController;
-  readerRuntime: WorkspaceReaderRuntime;
+  readerState: WorkspaceReaderState;
   projectLibrary: WorkspaceProjectLibrary;
   libraryAssistantChat: WorkspaceLibraryAssistantChat;
   fileActions: WorkspaceFileActions;
@@ -35,7 +35,7 @@ interface LibraryScreenContainerProps {
 // fallow-ignore-next-line unused-exports — used by App.tsx
 export const LibraryScreenContainer = ({
   controller,
-  readerRuntime,
+  readerState,
   projectLibrary,
   libraryAssistantChat,
   fileActions,
@@ -117,7 +117,7 @@ export const LibraryScreenContainer = ({
       assessmentComplete={assessmentComplete}
       assessmentMessages={assessmentMessages}
       homeChatMode={homeChatMode}
-      isDarkMode={readerRuntime.readerChrome.isDarkMode}
+      isDarkMode={readerState.readerChrome.isDarkMode}
       isLibraryLoading={isLibraryLoading}
       isLibraryQueryLoading={libraryAssistantChat.isLoading}
       isNewCourseLoading={controller.workflowState.assessment.status === 'pending'}
@@ -132,7 +132,7 @@ export const LibraryScreenContainer = ({
       newCourseLoadingStatus={controller.workflowState.assessment.message || 'Caricamento...'}
       openingProjectId={openingProjectId}
       planFileInputId={fileActions.planFileInputId}
-      preferredModels={readerRuntime.preferredModels}
+      preferredModels={readerState.preferredModels}
       projects={savedProjects}
       pendingHomeFileName={pendingHomeSourceFile?.name || null}
       sourceFileInputId={fileActions.sourceFileInputId}
@@ -174,11 +174,11 @@ export const LibraryScreenContainer = ({
       onTransferFolderToLan={transferFolderToLan}
       onTransferProjectToLan={transferProjectToLan}
       onSendAssessmentMessage={handleNewCourseMessage}
-      onSetPreferredOpenRouterModel={readerRuntime.setPreferredOpenRouterModel}
+      onSetPreferredOpenRouterModel={readerState.setPreferredOpenRouterModel}
       onSetProjectRepositoryMode={setProjectRepositoryMode}
       onSourceFileUpload={handleHomeSourceFileUpload}
       onToggleDarkMode={() =>
-        readerRuntime.readerChrome.setIsDarkMode(!readerRuntime.readerChrome.isDarkMode)
+        readerState.readerChrome.setIsDarkMode(!readerState.readerChrome.isDarkMode)
       }
       onToggleLibraryContextRef={libraryAssistantChat.toggleAttachedContextRef}
       onUploadSourceClick={fileActions.handleUploadSourceClick}

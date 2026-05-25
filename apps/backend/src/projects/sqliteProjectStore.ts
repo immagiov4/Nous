@@ -274,20 +274,13 @@ export class SqliteProjectStore implements ProjectStore {
 
     const snapshot = { ...existing };
 
-    // Apply top-level scalar patches
     if (patch.activeSectionId !== undefined) snapshot.activeSectionId = patch.activeSectionId;
-    if (patch.activeLaboratoryExerciseId !== undefined)
-      snapshot.activeLaboratoryExerciseId = patch.activeLaboratoryExerciseId;
     if (patch.state !== undefined) snapshot.state = patch.state;
     if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode;
     if (patch.source !== undefined) snapshot.source = patch.source as ProjectSnapshot['source'];
 
-    // Apply object patches (deep merge)
     if (patch.learningPlan !== undefined) {
       snapshot.learningPlan = patch.learningPlan as ProjectSnapshot['learningPlan'];
-    }
-    if (patch.laboratory !== undefined) {
-      snapshot.laboratory = patch.laboratory as ProjectSnapshot['laboratory'];
     }
     if (patch.userProfile !== undefined) {
       snapshot.userProfile = patch.userProfile as ProjectSnapshot['userProfile'];
@@ -316,12 +309,10 @@ export class SqliteProjectStore implements ProjectStore {
   private hasNonSectionPatches(patch: ProjectPatch): boolean {
     return (
       patch.activeSectionId !== undefined ||
-      patch.activeLaboratoryExerciseId !== undefined ||
       patch.state !== undefined ||
       patch.isLearnMode !== undefined ||
       patch.source !== undefined ||
       patch.learningPlan !== undefined ||
-      patch.laboratory !== undefined ||
       patch.userProfile !== undefined ||
       patch.syllabus !== undefined ||
       patch.researchCoursePlan !== undefined ||

@@ -93,7 +93,7 @@ export const useWorkspaceControllerState = () => {
       },
       isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) =>
         workflowStateRef.current[workflowId].requestId === requestId,
-      resetRuntimeState: () => {
+      resetSessionState: () => {
         setAssessmentMessages([]);
         assessmentMessagesRef.current = [];
         setChatSession(null);

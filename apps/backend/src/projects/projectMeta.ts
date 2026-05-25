@@ -48,11 +48,6 @@ const getProjectTitle = (snapshot: ProjectSnapshot): string => {
     return planTitle;
   }
 
-  const laboratoryTitle = snapshot.laboratory?.title?.trim();
-  if (laboratoryTitle) {
-    return laboratoryTitle;
-  }
-
   const userTopic = snapshot.userProfile?.topic?.trim();
   if (userTopic) {
     return userTopic;
@@ -153,11 +148,6 @@ const buildCoverLabel = (snapshot: ProjectSnapshot, sourceKind: ProjectSourceKin
 
   if (sourceKind === 'learn-mode') {
     return 'Percorso AI';
-  }
-
-  const exerciseCount = snapshot.laboratory?.exercises?.length || 0;
-  if (exerciseCount > 0) {
-    return `${exerciseCount} esercizi`;
   }
 
   const { lessonCount } = getLearningPlanLessonStats(snapshot.learningPlan);

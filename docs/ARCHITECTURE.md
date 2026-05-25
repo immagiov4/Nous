@@ -2,24 +2,26 @@
 
 This document explains how Nous Reader is organized and where to make changes.
 
-## What Nous Reader Does
+## What Nous Reader does
 
-Nous Reader takes a document source, then generates a personalized study flow: onboarding chat, study plan, lessons, quizzes, and a laboratory phase with AI-evaluated exercises.
+Nous Reader takes a document source (typically a PDF) and generates a personalized study flow: onboarding chat, study plan, lessons, quizzes, and application exercises that are intercalated between lessons in the path and evaluated by AI.
 
-AI generation is centered in the frontend code under `services/openrouter/`, while the backend provides supporting API routes for chat, PDF extraction, project storage, and TTS.
+AI generation runs in two parallel infrastructures (see [Two AI Clients](#two-ai-clients) below). The backend is a thin service that proxies AI calls, extracts text and images from PDFs, persists projects in LAN mode, and provides TTS — most of the product logic lives in the browser.
 
-## Runtime Pieces
+## Runtime pieces
 
 The application is made of two separate runtimes:
 
 | Piece | Default port | Purpose |
 | --- | --- | --- |
-| Frontend | 5173 | React UI and most client-side orchestration |
-| Backend | 3301 | API server for chat, PDF, projects, and TTS |
+| Frontend (`apps/web/`) | 5173 | React UI and most client-side orchestration (including AI calls) |
+| Backend (`apps/backend/`) | 3301 | Thin API server for AI proxy, PDF extraction, project storage (LAN), and TTS |
 
-## Frontend Entry Point
+`packages/shared-types/` holds the type-only contract used on the wire between the two (see [Shared types](#9-shared-types)). It is type-level only; nothing executes from it.
 
-`App.tsx` is the composition root. It wires together the domain, controller, reader runtime, navigation, file actions, and library chat, then chooses one of four screens based on `screenState`:
+## Frontend entry point
+
+`App.tsx` is the composition root. It wires together the domain, controller, reader state, navigation, file actions, and library chat, then chooses one of four screens based on `screenState`:
 
 - Library
 - Assessment
@@ -28,7 +30,7 @@ The application is made of two separate runtimes:
 
 The screen switch itself is simple, but `App.tsx` still coordinates a few cross-cutting behaviors such as project auto-opening, the course-generation notes dialog, and top-level file inputs.
 
-## Frontend Layers
+## Frontend layers
 
 Think of the frontend as a set of concentric layers.
 
@@ -38,14 +40,15 @@ Think of the frontend as a set of concentric layers.
 
 Important subfolders:
 
-- `services/laboratory/` - laboratory attachment handling and state management
-- `services/openrouter/` - OpenRouter clients, prompt builders, model selection, TTS requests, lesson generation, assessment, planning, curriculum, laboratory, PDF indexing
-- `services/audio/` - audio helpers and voice profile definitions
-- `services/library/` - library assistant tool execution
-- `services/projects/` - project repositories, snapshots, archives, transfer helpers, import/export
-- `services/workspace/` - domain reducer, persistence helpers, workflow selectors, and pure controller logic (`controller/documentAssets.ts`, `controller/learnMode.ts`, `controller/snapshotHydration.ts`)
-- `services/preferences/` - UI preference persistence and library folder expansion storage
-- `services/core/` - shared utilities such as tracing and error normalization
+- `services/openrouter/` — OpenRouter HTTP client, prompt builders, model selection, retry, payload limits, and the **AI pipelines** for assessment, planning, research, curriculum, lesson generation, lesson verification, lesson markdown quality, lesson images, visual examples, PDF indexing, and TTS. The biggest folder in the frontend, with subfolders for `documentIndex/`, `lessonMarkdownQuality/`, `planning/`, and `exercises/` (exercise brief and placement pipelines).
+- `services/exercises/` — application-exercise domain: pure plan operations (`plan.ts`), constants, and deliverable handling (attachments + zip).
+- `services/learning/` — pure functions on the learning plan that are not exercise-specific: sub-chapter grouping and legacy migration for old "mini-lab" lessons.
+- `services/projects/` — `ProjectRepository` interface, IndexedDB and HTTP adapters, repository factory, project snapshot helpers, archives, persistence signatures, persist queue, sync state.
+- `services/workspace/` — domain reducer (`domain.ts`), persistence helpers, workflow selectors, and pure controller logic under `controller/` (`documentAssets.ts`, `learnMode.ts`, `snapshotHydration.ts`).
+- `services/library/` — library assistant tool execution.
+- `services/preferences/` — UI preference persistence and library folder expansion storage.
+- `services/audio/` — voice profile definitions and helpers.
+- `services/core/` — shared utilities such as tracing and error normalization.
 
 ### 2. Domain
 
@@ -54,41 +57,43 @@ The workspace domain lives in `services/workspace/domain.ts` and is exposed thro
 This is the source of truth for the current project payload:
 
 - source document
-- learning plan
-- laboratory state
-- PDF assets and index
-- learner profile
-- syllabus
-- active section and active laboratory exercise
+- learning plan (modules → lessons + application exercises intercalated)
+- PDF assets and document index
+- learner profile and syllabus
+- research course plan and per-section research dossiers (used by research mode)
+- active section id
+- learn mode flag
 
 It should not know anything about the screen the user is on.
+
+Application exercises live inside `learningPlan.modules[].children` as `PathNode` entries with `kind: 'exercise'`, intercalated with lessons. There is no separate laboratory state. See [Shared types](#9-shared-types).
 
 ### 3. Controller
 
 `hooks/workspace/useWorkspaceController.ts` is the public entry point for workspace behavior. The real logic is split across `hooks/workspace/controller/`.
 
-Relevant controller modules:
+Controller modules:
 
-- `assessmentPlanning.ts` - onboarding chat and study-plan creation
-- `sectionProgression.ts` - opening, completing, regenerating, and progressing through sections
-- `laboratory.ts` - laboratory generation, attachment handling, and AI evaluation
-- `projectLifecycle.ts` - create, open, save, delete, export
-- `projectImport.ts` - import from JSON
-- `state.ts` - controller state model
-- `controllerContext.ts` - shared controller context and dependency wiring
-- `createWorkspaceController.ts` - factory for constructing the controller
-- `types.ts` - controller-specific type definitions
+- `assessmentPlanning.ts` — onboarding chat, study-plan creation, and the start of home-chat-driven flows.
+- `sectionProgression.ts` — opening, completing, regenerating, and progressing through sections; library return.
+- `projectLifecycle.ts` — create, open, save, delete, export, source reattachment.
+- `projectImport.ts` — import from JSON.
+- `state.ts` — controller state model, including the **workflow tracking** (`requestId` + status per workflow) and the session-state reset (`resetSessionState`).
+- `controllerContext.ts` — shared controller context and dependency wiring.
+- `createWorkspaceController.ts` — factory for constructing the controller.
+- `types.ts` — controller-specific type definitions, including `WorkspaceControllerStateAdapter`.
 
 A parallel controller layer lives at `services/workspace/controller/` for pure (non-hook) workspace logic:
-- `documentAssets.ts` - PDF asset coordination
-- `learnMode.ts` - learn mode state machine
-- `snapshotHydration.ts` - snapshot loading and hydration
+
+- `documentAssets.ts` — PDF asset coordination.
+- `learnMode.ts` — learn-mode state transitions.
+- `snapshotHydration.ts` — snapshot loading: legacy plan migration, removal of dropped `laboratory`/`activeLaboratoryExerciseId` fields from old snapshots, markdown normalization, and lesson annotation migration.
 
 If you are adding a new user-visible operation, it usually belongs here.
 
-### 4. Reader Runtime
+### 4. Reader state
 
-`hooks/workspace/useWorkspaceReaderRuntime.ts` holds visual state, not project state:
+`hooks/workspace/useWorkspaceReaderState.ts` holds visual state, not project state:
 
 - focus mode
 - dark mode
@@ -106,7 +111,7 @@ It composes smaller reader hooks from `hooks/reader/`:
 - `useReaderSpeech.ts` for speech-block extraction
 - `useTtsPlayer`
 
-### 5. Reader Actions
+### 5. Reader actions
 
 `hooks/workspace/useWorkspaceReaderActions.ts` translates gestures into coordinated operations.
 
@@ -129,38 +134,75 @@ It handles:
 - returning to the library
 - syncing the project id into the location
 
-### 7. Library Hooks
+### 7. Library hooks
 
 The library has its own small subsystem:
 
-- `hooks/library/useProjectLibrary.ts` - project repository, folders, autosave, LAN transfer, import/export
-- `hooks/library/useLibraryAssistantChat.ts` - the library assistant chat powered by the backend chat route
+- `hooks/library/useProjectLibrary.ts` — project repository, folders, autosave, LAN transfer, import/export.
+- `hooks/library/useLibraryAssistantChat.ts` — library assistant chat (Vercel AI SDK; see [Two AI Clients](#two-ai-clients)).
+- `hooks/library/usePersistedLibraryFolderExpansion.ts` — which folders are expanded (localStorage).
 
-### 8. UI Components
+### 8. UI components
 
 `components/` should stay rendering-focused.
 
-- `components/library/` - library screen, project cards, folder tree, assistant chat
-- `components/assessment/` - onboarding screen
-- `components/workspace/` - reader shell, header, sidebar, laboratory, overlays, audio player, context menu
-- `components/shared/` - loading screen, markdown rendering, model settings panel, shared UI
+- `components/library/` — library screen, project cards, folder tree (drag & drop), home chat panel.
+- `components/assessment/` — onboarding screen.
+- `components/workspace/` — reader shell, header, sidebar, content, audio player, context menu, ask-AI panel, overlays.
+- `components/shared/` — loading screen, markdown rendering, model settings panel, shared UI.
 
 Components should not call services directly when a hook can own the behavior instead.
 
-### 9. Shared Types
+### 9. Shared types
 
-`types.ts` holds the shared contract for the app, including:
+Two type homes:
+
+**`apps/web/types.ts`** holds the rich domain contract for the frontend app:
 
 - `AppState`
-- `ProjectSnapshot`
-- `LearningPlan`
-- `LearningSection`
-- `LaboratoryState`
+- `ProjectSnapshot` (frontend variant: strictly typed against the rich domain)
+- `LearningPlan` (modules)
+- `LearningSection` (base for a node in the plan)
+- `LessonNode` (`kind: 'lesson'`)
+- `ApplicationExerciseNode` (`kind: 'exercise'`)
+- `PathNode` (`LessonNode | ApplicationExerciseNode`)
+- `ResearchCoursePlan`, `ResearchLessonDossier`, `ResearchDossiersBySectionId`
 - `UiPreferences`
-- `LibraryTree`
-- PDF source and index types
+- `LibraryTree`, `LibraryProjectNode`, `LibraryFolderNode`
+- `PdfDocumentAssets`, `PdfTextIndex`, `PdfTextChunk`, `PdfImageAsset`, `PdfTextPage`
+- `QuizQuestion`, `SectionAnnotation`, `LessonImageRef`, `LessonGeneratedVisual`, `ExerciseAttachment`
 
-If you add or change a field here, follow the TypeScript errors to the affected layers.
+**`packages/shared-types/projectContract.ts`** holds the wire contract shared between the frontend and the backend, imported via the `@shared/*` alias:
+
+- `ProjectId`, `ProjectSourceKind`, `ProjectSyncState`
+- `LibraryFolder`, `LibraryPlacement`
+- `SavedProjectMeta`
+- `SectionPatch`
+- `ProjectPatch` (the typed PATCH body — same shape on both sides of the wire)
+
+Both the frontend `types.ts` and the backend `apps/backend/src/projects/types.ts` re-export from `@shared/projectContract`, so the shared shapes have a single source of truth.
+
+`ProjectSnapshot` is **not** shared. The frontend models it strictly against the rich domain (`LearningPlan`, `ProjectSource`, `PdfDocumentAssets`, …). The backend defines its own permissive JSON-shape `ProjectSnapshot` (`apps/backend/src/projects/types.ts`) because it only shuttles the payload to and from SQLite without inspecting deep fields. The two definitions diverge by design.
+
+If you add or change a field in the rich frontend `ProjectSnapshot`, follow the TypeScript errors to the affected layers. If you add a wire-level field that the backend must understand (typically a new `ProjectPatch` field), edit `packages/shared-types/projectContract.ts` once and both sides pick it up.
+
+Project snapshots may carry legacy fields `laboratory` and `activeLaboratoryExerciseId` inside the raw JSON blob loaded from older storage. These are stripped during `prepareSnapshotForHydration` on the frontend and are not part of the typed surface on either side; if present in inbound payloads they are silently dropped.
+
+## Two AI clients
+
+The frontend uses two distinct AI infrastructures, **on purpose**:
+
+| Client | Used for | Where |
+| --- | --- | --- |
+| `services/openrouter/` | **Batch pipelines**: one-shot generations (assessment, planning, research, curriculum, lesson content, lesson verification, exercise brief & placement, lesson markdown quality, lesson images, visual examples, document indexing, TTS) | `services/openrouter/` (~30 top-level files) |
+| **Vercel AI SDK** (`@ai-sdk/react`, `ai`) | **Interactive chat with tool calls**: Reader Ask-AI panel and Library Home Chat | `components/workspace/shell/ContextAnswerPanel.tsx` and `hooks/library/useLibraryAssistantChat.ts` |
+
+We did not unify because rebuilding the chat/tool-call/history stack on top of `callOpenRouter` would be expensive for low value. The two systems stay separate. The backend exposes both:
+
+- `/api/openrouter/chat/completions` — raw proxy for `services/openrouter/`.
+- `/api/chat/context` and `/api/chat/library` — Vercel AI SDK protocol endpoints (streaming + tool calls).
+
+The AI API key is held server-side: the browser never sees it, regardless of which client is making the call.
 
 ## Backend
 
@@ -168,49 +210,68 @@ The backend lives in `apps/backend/src/`, with `apps/backend/dist/` used as buil
 
 Main entry points:
 
-- `apps/backend/src/server.ts` - reads config, starts the HTTP server, handles shutdown
-- `apps/backend/src/index.ts` - builds the Express app and registers routes
+- `apps/backend/src/server.ts` — reads config, starts the HTTP server, handles shutdown.
+- `apps/backend/src/index.ts` — builds the Express app, configures CORS (including private-network override for LAN mode), per-endpoint body limits, and registers routes.
 
 Main entries in `apps/backend/src/routes/`:
 
-- `/api/chat` - chat proxy routes (orchestrates contextChat, libraryChat)
-- `/api/chat/context` (via `contextChat.ts`) - contextual conversation with project-aware AI
-- `/api/chat/library` (via `libraryChat.ts`) - library assistant chat with tool execution
-- `/api/openrouter` (via `openRouterProxy.ts`) - raw OpenRouter proxy
-- `/api/pdf` - PDF text and image extraction
-- `/api/projects` - project repository API used by LAN sync mode
-- `/api/status` - OpenRouter TTS readiness snapshot
-- `/api/tts` - speech generation and model discovery
-- `/api/voices` - voice profiles
-- `chatPrompts.ts` - shared chat prompt construction utilities
+- `/api/chat` — chat top-level router that mounts `contextChat` and `libraryChat`.
+- `/api/chat/context` (via `contextChat.ts`) — contextual conversation with project-aware AI (Vercel AI SDK protocol).
+- `/api/chat/library` (via `libraryChat.ts`) — library assistant chat with tool execution (Vercel AI SDK protocol).
+- `/api/openrouter` (via `openRouterProxy.ts`) — raw OpenRouter proxy used by `services/openrouter/`.
+- `/api/pdf` — PDF text and image extraction.
+- `/api/projects` — project repository API used by LAN sync mode.
+- `/api/status` — OpenRouter TTS readiness snapshot.
+- `/api/tts` — speech generation and model discovery.
+- `/api/voices` — voice profiles.
+- `chatPrompts.ts` — shared chat prompt construction utilities used by `contextChat.ts` and `libraryChat.ts`.
 
-The backend uses SQLite for project storage in LAN mode. The frontend chooses between browser IndexedDB and backend HTTP storage through `services/projects/projectRepositoryFactory.ts`.
+Supporting modules:
+
+- `apps/backend/src/projects/` — `ProjectStore` interface, `SqliteProjectStore` (the LAN-mode persistence), project meta and sibling-ordering helpers.
+- `apps/backend/src/services/` — `pdfTextExtractor` (delegates to `pdftotext`), `pdfImageExtractor`, `ttsClient`, `voiceService`, `statusService`.
+- `apps/backend/src/auth/currentUser.ts` — auth resolution. Supports `LOCAL_AUTH_BYPASS=true` for local development. **Not production-grade**: do not enable bypass in a deployment without a real authentication layer.
+- `apps/backend/src/config/` — env loading and server config (host, port, backend URL).
+
+### Project storage modes
+
+The frontend chooses between browser IndexedDB and backend HTTP storage through `services/projects/projectRepositoryFactory.ts`. The mode is decided at runtime (priority: localStorage > Vite env > process env). The backend SQLite store is only used in LAN mode.
+
+The frontend `ProjectRepository` interface and the backend `ProjectStore` interface are currently defined independently in their own files (the contract is **not** type-shared yet). See `docs/architecture-review.md` priority 6.
 
 ## TTS
 
 Frontend audio playback calls the backend `/api/tts` route, and that route uses OpenRouter's `audio/speech` endpoint. There is no local TTS runtime in the app flow.
 
-## Where To Make Changes
+The TTS player in the Reader (`hooks/reader/useTtsPlayer.ts`) splits the lesson content into ~580-character chunks, crossfades them at 35 ms boundaries, and handles seek, skip, and speed changes against the queued audio buffers.
+
+## Where to make changes
 
 | Goal | Files to start with |
 | --- | --- |
-| Change an AI prompt | `services/openrouter/` |
-| Add or adjust a model slot | `services/openrouter/config.ts`, `components/workspace/`, `components/library/` |
+| Change an AI pipeline prompt | `services/openrouter/` |
+| Change a chat (Ask-AI / Library) prompt | `apps/backend/src/routes/chatPrompts.ts` |
+| Add or adjust a model slot | `services/openrouter/config.ts`, the model settings panel under `components/shared/`, and the relevant screen container |
 | Add a new user operation | `hooks/workspace/controller/`, then `hooks/workspace/useWorkspaceReaderActions.ts` |
-| Add a field to the project model | `types.ts`, then follow the compiler errors |
-| Change reader layout or behavior | `components/workspace/` and `hooks/workspace/useWorkspaceReaderRuntime.ts` |
-| Add a new UI element with state | `hooks/workspace/useWorkspaceReaderRuntime.ts` plus a component in `components/workspace/` |
+| Add a field to the rich project model | `apps/web/types.ts` (frontend domain `ProjectSnapshot`), then follow the compiler errors. If the field also crosses the wire (e.g. it must survive a PATCH), add it to `packages/shared-types/projectContract.ts` and the backend `ProjectSnapshot` in `apps/backend/src/projects/types.ts` |
+| Add a field to the FE↔BE wire contract | `packages/shared-types/projectContract.ts` — both sides pick it up via the `@shared/*` alias |
+| Change reader layout or behavior | `components/workspace/` and `hooks/workspace/useWorkspaceReaderState.ts` |
+| Add a new UI element with state | `hooks/workspace/useWorkspaceReaderState.ts` plus a component in `components/workspace/` |
 | Change sidebar click behavior | `hooks/workspace/useWorkspaceReaderActions.ts` |
 | Modify project persistence | `services/projects/` and `hooks/library/useProjectLibrary.ts` |
 | Change how screen transitions work | `hooks/workspace/useWorkspaceNavigation.ts` |
-| Adjust the library assistant | `hooks/library/useLibraryAssistantChat.ts` and `apps/backend/src/routes/libraryChat.ts` |
+| Adjust the library assistant | `hooks/library/useLibraryAssistantChat.ts`, `services/library/toolExecutor.ts`, and `apps/backend/src/routes/libraryChat.ts` |
+| Change application-exercise placement or generation | `services/exercises/plan.ts` (pure logic) + `services/openrouter/exercises/placement.ts` and `services/openrouter/exercises/brief.ts` (AI side) |
+| Change LAN auth or CORS | `apps/backend/src/auth/currentUser.ts` and `apps/backend/src/index.ts` |
 
-## Architectural Rules
+## Architectural rules
 
 - Services do not import React hooks.
 - Components should not call services directly when a hook can own the side effect.
 - The domain should not depend on the current screen or visual state.
 - Each hook should stay inside one responsibility area.
+- AI pipelines (batch) go through `services/openrouter/`. Interactive chats with tool calls go through Vercel AI SDK. Do not mix the two stacks in a single feature.
+- All AI calls go through the backend proxy. The browser must never receive the AI API key.
 - `apps/backend/dist/` should not be edited directly.
 
 ## Tooling
@@ -218,5 +279,7 @@ Frontend audio playback calls the backend `/api/tts` route, and that route uses 
 ```bash
 bun run dev       # Frontend + backend in watch mode
 bun run quality   # TypeScript type check + Biome lint
+bun run fix       # Auto-fix Biome lint, format, and import ordering
+bun run gate      # Full gate: quality + fallow + tests
 bun run test      # Vitest test suite (runs under Bun runtime)
 ```

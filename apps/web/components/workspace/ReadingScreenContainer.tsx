@@ -9,19 +9,19 @@ import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceC
 import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspaceFileActions.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import { useWorkspaceReaderActions } from '../../hooks/workspace/useWorkspaceReaderActions.ts';
-import type { useWorkspaceReaderRuntime } from '../../hooks/workspace/useWorkspaceReaderRuntime.ts';
+import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import type { AppState } from '../../types.ts';
 import CourseGenerationNotesDialog from './CourseGenerationNotesDialog.tsx';
 import WorkspaceReaderShell from './WorkspaceReaderShell.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
-type WorkspaceReaderRuntime = ReturnType<typeof useWorkspaceReaderRuntime>;
+type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
 type WorkspaceFileActions = ReturnType<typeof useWorkspaceFileActions>;
 type WorkspaceNavigation = ReturnType<typeof useWorkspaceNavigation>;
 
 interface ReadingScreenContainerProps {
   controller: WorkspaceController;
-  readerRuntime: WorkspaceReaderRuntime;
+  readerState: WorkspaceReaderState;
   fileActions: WorkspaceFileActions;
   navigation: WorkspaceNavigation;
   notify: (message: string) => void;
@@ -31,7 +31,7 @@ interface ReadingScreenContainerProps {
 // fallow-ignore-next-line unused-exports — used by App.tsx
 export const ReadingScreenContainer = ({
   controller,
-  readerRuntime,
+  readerState,
   fileActions,
   navigation,
   notify,
@@ -51,22 +51,22 @@ export const ReadingScreenContainer = ({
     activeSectionId,
     advanceActiveSection: controller.advanceActiveSection,
     askContextQuestion: controller.askContextQuestion,
-    closeContextMenu: readerRuntime.readerContext.closeContextMenu,
+    closeContextMenu: readerState.readerContext.closeContextMenu,
     completeActiveSection: controller.completeActiveSection,
-    contextMenu: readerRuntime.readerContext.contextMenu,
+    contextMenu: readerState.readerContext.contextMenu,
     createLessonFromSelection: controller.createLessonFromSelection,
     documentIndex: controller.documentIndex,
-    isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+    isMobileViewport: readerState.readerChrome.isMobileViewport,
     learningPlan,
     notify,
-    openContextAnswer: readerRuntime.readerContext.openContextAnswer,
+    openContextAnswer: readerState.readerContext.openContextAnswer,
     openExercise: controller.openExercise,
     openSection,
     patchSectionAnnotations: controller.patchSectionAnnotations,
     projectId: currentProjectId,
     regenerateActiveSection: controller.regenerateActiveSection,
     sectionContent: controller.sectionContent,
-    setIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
+    setIsMobileSidebarOpen: readerState.readerChrome.setIsMobileSidebarOpen,
     source: controller.source,
     updateSection: controller.updateSection,
   });
@@ -93,16 +93,16 @@ export const ReadingScreenContainer = ({
     notify,
     pdfMappingWarning,
     readerActions,
-    readerRuntime,
+    readerState,
     syncState,
   });
 
   // Close context menu when navigating away from reader (container unmounts)
   useEffect(() => {
     return () => {
-      readerRuntime.readerContext.closeContextMenu();
+      readerState.readerContext.closeContextMenu();
     };
-  }, [readerRuntime.readerContext.closeContextMenu]);
+  }, [readerState.readerContext.closeContextMenu]);
 
   return (
     <>

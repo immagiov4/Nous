@@ -12,6 +12,7 @@ import type {
   LibraryPlacement,
   ProjectExportData,
   ProjectId,
+  ProjectPatch,
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../../types.ts';
@@ -88,11 +89,10 @@ class InMemoryProjectRepository implements ProjectRepository {
 
   renameFolder = async () => null;
 
-  patchProject = async (id: ProjectId, patch: Record<string, unknown>) => {
+  patchProject = async (id: ProjectId, patch: ProjectPatch) => {
     const snapshot = this.projects.get(id);
     if (!snapshot) throw new Error(`Not found: ${id}`);
-    if (patch.activeSectionId !== undefined)
-      snapshot.activeSectionId = patch.activeSectionId as string | null;
+    if (patch.activeSectionId !== undefined) snapshot.activeSectionId = patch.activeSectionId;
     if (patch.state !== undefined) snapshot.state = patch.state as AppState;
     return this.saveProject(snapshot);
   };

@@ -6,11 +6,11 @@ import type {
   ResearchDossiersBySectionId,
   ResearchSourceReference,
   UserProfile,
-} from '../../types.ts';
-import { flattenPathNodes } from '../../utils/learning/pathNodes.ts';
-import { clipText } from '../../utils/text.ts';
-import { MEDIUM_REASONING_CONFIG, MODEL_REASONING, teacherInstruction } from './config.ts';
-import { callOpenRouter, parseCleanJson, retryWithBackoff } from './shared.ts';
+} from '../../../types.ts';
+import { flattenPathNodes } from '../../../utils/learning/pathNodes.ts';
+import { clipText } from '../../../utils/text.ts';
+import { MEDIUM_REASONING_CONFIG, MODEL_REASONING, teacherInstruction } from '../config.ts';
+import { callOpenRouter, parseCleanJson, retryWithBackoff } from '../shared.ts';
 
 interface ExerciseBriefDraft {
   briefMarkdown?: unknown;

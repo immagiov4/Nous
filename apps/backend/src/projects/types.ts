@@ -1,22 +1,22 @@
-export type ProjectId = string;
-export type ProjectSourceKind = 'document' | 'codebase' | 'learn-mode' | 'imported-json';
-export type ProjectSyncState = 'local-only' | 'sync-ready' | 'sync-error';
+export type {
+  LibraryFolder,
+  LibraryPlacement,
+  ProjectId,
+  ProjectPatch,
+  ProjectSourceKind,
+  ProjectSyncState,
+  SavedProjectMeta,
+  SectionPatch,
+} from '@shared/projectContract';
 
-export interface SavedProjectMeta {
-  id: ProjectId;
-  title: string;
-  sourceKind: ProjectSourceKind;
-  createdAt: string;
-  updatedAt: string;
-  lastOpenedAt: string;
-  lessonCount: number;
-  completedCount: number;
-  exerciseCount: number;
-  completedExercises: number;
-  hasSourceFile: boolean;
-  coverLabel: string;
-  syncState: ProjectSyncState;
-}
+import type {
+  LibraryFolder,
+  LibraryPlacement,
+  ProjectId,
+  ProjectPatch,
+  ProjectSourceKind,
+  SavedProjectMeta,
+} from '@shared/projectContract';
 
 export interface LearningPlanNodeSnapshot {
   id?: string;
@@ -40,22 +40,10 @@ export interface LearningPlanSnapshot {
   [key: string]: unknown;
 }
 
-export interface LibraryFolder {
-  id: string;
-  name: string;
-  parentFolderId: string | null;
-  createdAt: string;
-  updatedAt: string;
-  order: number;
-}
-
-export interface LibraryPlacement {
-  projectId: ProjectId;
-  folderId: string | null;
-  order: number;
-  updatedAt: string;
-}
-
+// Wire/storage shape of a project. The frontend has its own strictly typed
+// ProjectSnapshot in apps/web/types.ts that models the rich domain (LearningPlan,
+// ProjectSource, PdfDocumentAssets). The backend treats the same payload as
+// permissive JSON it shuttles to and from SQLite. The two intentionally diverge.
 export interface ProjectSnapshot {
   id: ProjectId;
   version: string;
@@ -63,10 +51,6 @@ export interface ProjectSnapshot {
   state?: string;
   source?: unknown;
   learningPlan?: LearningPlanSnapshot | null;
-  laboratory?: {
-    title?: string;
-    exercises?: unknown[];
-  } | null;
   isLearnMode?: boolean;
   userProfile?: {
     topic?: string;
@@ -75,7 +59,6 @@ export interface ProjectSnapshot {
   researchCoursePlan?: unknown | null;
   researchDossiersBySectionId?: Record<string, unknown>;
   activeSectionId?: string | null;
-  activeLaboratoryExerciseId?: string | null;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
@@ -121,32 +104,4 @@ export interface ProjectStore {
   saveProject: (userId: string, snapshot: ProjectSnapshot) => Promise<SavedProjectMeta>;
   patchProject: (userId: string, id: ProjectId, patch: ProjectPatch) => Promise<SavedProjectMeta>;
   touchProject: (userId: string, id: ProjectId) => Promise<void>;
-}
-
-export interface SectionPatch {
-  sectionId: string;
-  annotations?: unknown[];
-  content?: string;
-  generatedVisuals?: unknown[];
-  imageRefs?: unknown[];
-  isCompleted?: boolean;
-  quiz?: unknown[];
-}
-
-export interface ProjectPatch {
-  activeSectionId?: string | null;
-  activeLaboratoryExerciseId?: string | null;
-  state?: string;
-  isLearnMode?: boolean;
-  learningPlan?: Record<string, unknown> | null;
-  laboratory?: Record<string, unknown> | null;
-  userProfile?: Record<string, unknown> | null;
-  syllabus?: unknown[];
-  researchCoursePlan?: Record<string, unknown> | null;
-  researchDossiersBySectionId?: Record<string, unknown>;
-  documentAssets?: Record<string, unknown> | null;
-  documentIndex?: Record<string, unknown> | null;
-  source?: unknown;
-  section?: SectionPatch;
-  updatedAt?: string;
 }

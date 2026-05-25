@@ -1,11 +1,11 @@
 {
-  "name": "lumina-backend",
+  "name": "nous-backend",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "bun src/server.ts"
   },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "^2.3.3",

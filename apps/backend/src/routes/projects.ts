@@ -62,22 +62,6 @@ const readLearningPlan = (value: unknown): ProjectSnapshot['learningPlan'] | und
   return value as ProjectSnapshot['learningPlan'];
 };
 
-const readLaboratory = (value: unknown): ProjectSnapshot['laboratory'] | undefined => {
-  if (value === null) {
-    return null;
-  }
-
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  if (value.exercises !== undefined && !Array.isArray(value.exercises)) {
-    return undefined;
-  }
-
-  return value as ProjectSnapshot['laboratory'];
-};
-
 const readUserProfile = (value: unknown): ProjectSnapshot['userProfile'] | undefined => {
   if (value === null) {
     return null;
@@ -105,7 +89,6 @@ const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectS
     state: readOptionalString(snapshotRecord.state),
     source: snapshotRecord.source,
     learningPlan: readLearningPlan(snapshotRecord.learningPlan),
-    laboratory: readLaboratory(snapshotRecord.laboratory),
     isLearnMode:
       typeof snapshotRecord.isLearnMode === 'boolean' ? snapshotRecord.isLearnMode : undefined,
     userProfile: readUserProfile(snapshotRecord.userProfile),
@@ -118,7 +101,6 @@ const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectS
       ? snapshotRecord.researchDossiersBySectionId
       : undefined,
     activeSectionId: readNullableString(snapshotRecord.activeSectionId),
-    activeLaboratoryExerciseId: readNullableString(snapshotRecord.activeLaboratoryExerciseId),
     createdAt: readOptionalString(snapshotRecord.createdAt) || timestampIso(),
     updatedAt: readOptionalString(snapshotRecord.updatedAt) || timestampIso(),
     lastOpenedAt: readOptionalString(snapshotRecord.lastOpenedAt) || timestampIso(),
@@ -229,12 +211,10 @@ const requireProjectPatch = (body: unknown, _routeProjectId: string): ProjectPat
 
   return {
     activeSectionId: readNullableString(patchRecord.activeSectionId),
-    activeLaboratoryExerciseId: readNullableString(patchRecord.activeLaboratoryExerciseId),
     state: readOptionalString(patchRecord.state),
     isLearnMode: typeof patchRecord.isLearnMode === 'boolean' ? patchRecord.isLearnMode : undefined,
     source: patchRecord.source,
     learningPlan: patchRecord.learningPlan as Record<string, unknown> | null | undefined,
-    laboratory: patchRecord.laboratory as Record<string, unknown> | null | undefined,
     userProfile: patchRecord.userProfile as Record<string, unknown> | null | undefined,
     syllabus: Array.isArray(patchRecord.syllabus) ? patchRecord.syllabus : undefined,
     researchCoursePlan:

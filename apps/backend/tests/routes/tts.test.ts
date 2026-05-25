@@ -61,7 +61,7 @@ describe('POST /api/tts', () => {
 
   test('returns generated OpenRouter audio and cache headers', async () => {
     const response = await request(createApp()).post('/api/tts').send({
-      text: 'Ciao Lumina',
+      text: 'Ciao Nous',
       model: 'openai/gpt-4o-mini-tts-2025-12-15',
       voice: 'coral',
       speed: 1,
@@ -73,7 +73,7 @@ describe('POST /api/tts', () => {
     expect(response.headers['x-generation-id']).toBe('gen-123');
     expect(response.body).toBeInstanceOf(Buffer);
     expect(ttsClientMocks.generateSpeech).toHaveBeenCalledWith({
-      text: 'Ciao Lumina',
+      text: 'Ciao Nous',
       model: 'openai/gpt-4o-mini-tts-2025-12-15',
       voice: 'coral',
       speed: 1,

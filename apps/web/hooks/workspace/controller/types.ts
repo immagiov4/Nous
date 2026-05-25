@@ -148,7 +148,7 @@ export interface WorkspaceControllerStateAdapter {
   getWorkflowState: () => WorkspaceWorkflowState;
   invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
   isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) => boolean;
-  resetRuntimeState: () => void;
+  resetSessionState: () => void;
   setAssessmentMessages: (
     nextMessages: Message[] | ((previousMessages: Message[]) => Message[])
   ) => void;

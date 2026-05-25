@@ -23,7 +23,7 @@ import { useReaderContext } from '../reader/useReaderContext.ts';
 import { useReaderSpeechBlocks } from '../reader/useReaderSpeech.ts';
 import { useTtsPlayer } from '../reader/useTtsPlayer.ts';
 
-interface UseWorkspaceReaderRuntimeArgs {
+interface UseWorkspaceReaderStateArgs {
   activeSection: LearningSection | null;
   activeSectionId: string | null;
   documentAssets: PdfDocumentAssets | null;
@@ -41,7 +41,7 @@ const areSettingsSectionsEqual = (
   currentSections.every((sectionId, index) => sectionId === nextSections[index]);
 
 // fallow-ignore-next-line unused-exports — used by App.tsx
-export const useWorkspaceReaderRuntime = ({
+export const useWorkspaceReaderState = ({
   activeSection,
   activeSectionId,
   documentAssets,
@@ -49,7 +49,7 @@ export const useWorkspaceReaderRuntime = ({
   quiz,
   sectionContent,
   syllabus,
-}: UseWorkspaceReaderRuntimeArgs) => {
+}: UseWorkspaceReaderStateArgs) => {
   const sidebarGroups = useMemo(
     () => buildSidebarGroups(learningPlan, syllabus),
     [learningPlan, syllabus]

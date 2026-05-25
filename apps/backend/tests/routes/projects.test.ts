@@ -23,13 +23,11 @@ const createSnapshot = (id: string, title: string, updatedAt = '2026-04-26T10:00
       title,
       sections: [{ isCompleted: true }, { isCompleted: false }],
     },
-    laboratory: null,
     source: null,
     isLearnMode: false,
     userProfile: null,
     syllabus: [],
     activeSectionId: null,
-    activeLaboratoryExerciseId: null,
     createdAt: '2026-04-26T09:00:00.000Z',
     updatedAt,
     lastOpenedAt: updatedAt,
@@ -84,7 +82,7 @@ const createModuleSnapshot = (id: string, title: string, updatedAt = '2026-04-26
 describe('/api/projects', () => {
   beforeEach(() => {
     previousLocalUserId = process.env.LOCAL_USER_ID;
-    tempDir = mkdtempSync(join(tmpdir(), 'lumina-projects-'));
+    tempDir = mkdtempSync(join(tmpdir(), 'nous-projects-'));
     store = new SqliteProjectStore(join(tempDir, 'projects.sqlite'));
     setProjectStoreForTesting(store);
   });

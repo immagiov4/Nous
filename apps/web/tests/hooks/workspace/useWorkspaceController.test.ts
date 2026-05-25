@@ -421,7 +421,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
 };
 
 const createStateAdapter = () => {
-  const runtime = {
+  const internalState = {
     assessmentMessages: [] as Message[],
     chatSession: null as WorkspaceChatSession | null,
     generatingSectionId: null as string | null,
@@ -432,9 +432,9 @@ const createStateAdapter = () => {
 
   const adapter: WorkspaceControllerStateAdapter = {
     beginWorkflow: (workflowId, message) => {
-      const nextRequestId = runtime.workflowState[workflowId].requestId + 1;
-      runtime.workflowState = {
-        ...runtime.workflowState,
+      const nextRequestId = internalState.workflowState[workflowId].requestId + 1;
+      internalState.workflowState = {
+        ...internalState.workflowState,
         [workflowId]: {
           status: 'pending',
           message,
@@ -445,87 +445,90 @@ const createStateAdapter = () => {
       return nextRequestId;
     },
     failWorkflow: (workflowId, requestId, errorMessage) => {
-      if (runtime.workflowState[workflowId].requestId !== requestId) {
+      if (internalState.workflowState[workflowId].requestId !== requestId) {
         return;
       }
 
-      runtime.workflowState = {
-        ...runtime.workflowState,
+      internalState.workflowState = {
+        ...internalState.workflowState,
         [workflowId]: {
-          ...runtime.workflowState[workflowId],
+          ...internalState.workflowState[workflowId],
           status: 'failed',
           error: errorMessage,
           message: undefined,
         },
       };
     },
-    getAssessmentMessages: () => runtime.assessmentMessages,
-    getChatSession: () => runtime.chatSession,
-    getOpeningProjectId: () => runtime.openingProjectId,
-    getWorkflowState: () => runtime.workflowState,
+    getAssessmentMessages: () => internalState.assessmentMessages,
+    getChatSession: () => internalState.chatSession,
+    getOpeningProjectId: () => internalState.openingProjectId,
+    getWorkflowState: () => internalState.workflowState,
     invalidateWorkflows: workflowIds => {
-      runtime.workflowState = invalidateWorkspaceWorkflows(runtime.workflowState, workflowIds);
+      internalState.workflowState = invalidateWorkspaceWorkflows(
+        internalState.workflowState,
+        workflowIds
+      );
     },
     isWorkflowCurrent: (workflowId, requestId) =>
-      runtime.workflowState[workflowId].requestId === requestId,
-    resetRuntimeState: () => {
-      runtime.assessmentMessages = [];
-      runtime.chatSession = null;
-      runtime.openingProjectId = null;
+      internalState.workflowState[workflowId].requestId === requestId,
+    resetSessionState: () => {
+      internalState.assessmentMessages = [];
+      internalState.chatSession = null;
+      internalState.openingProjectId = null;
     },
     setAssessmentMessages: nextMessages => {
-      runtime.assessmentMessages =
+      internalState.assessmentMessages =
         typeof nextMessages === 'function'
-          ? nextMessages(runtime.assessmentMessages)
+          ? nextMessages(internalState.assessmentMessages)
           : nextMessages;
     },
     setChatSession: chatSession => {
-      runtime.chatSession = chatSession;
+      internalState.chatSession = chatSession;
     },
     setGeneratingSectionId: sectionId => {
-      runtime.generatingSectionId = sectionId;
+      internalState.generatingSectionId = sectionId;
     },
     setOpeningProjectId: projectId => {
-      runtime.openingProjectId = projectId;
+      internalState.openingProjectId = projectId;
     },
     setScreenState: screenState => {
-      runtime.screenState = screenState;
+      internalState.screenState = screenState;
     },
     setWorkflowMessage: (workflowId, requestId, message) => {
-      if (runtime.workflowState[workflowId].requestId !== requestId) {
+      if (internalState.workflowState[workflowId].requestId !== requestId) {
         return;
       }
 
-      runtime.workflowState = {
-        ...runtime.workflowState,
+      internalState.workflowState = {
+        ...internalState.workflowState,
         [workflowId]: {
-          ...runtime.workflowState[workflowId],
+          ...internalState.workflowState[workflowId],
           message,
         },
       };
     },
     setWorkflowReasoning: (workflowId, requestId, reasoning) => {
-      if (runtime.workflowState[workflowId].requestId !== requestId) {
+      if (internalState.workflowState[workflowId].requestId !== requestId) {
         return;
       }
 
-      runtime.workflowState = {
-        ...runtime.workflowState,
+      internalState.workflowState = {
+        ...internalState.workflowState,
         [workflowId]: {
-          ...runtime.workflowState[workflowId],
+          ...internalState.workflowState[workflowId],
           reasoning,
         },
       };
     },
     succeedWorkflow: (workflowId, requestId, message) => {
-      if (runtime.workflowState[workflowId].requestId !== requestId) {
+      if (internalState.workflowState[workflowId].requestId !== requestId) {
         return;
       }
 
-      runtime.workflowState = {
-        ...runtime.workflowState,
+      internalState.workflowState = {
+        ...internalState.workflowState,
         [workflowId]: {
-          ...runtime.workflowState[workflowId],
+          ...internalState.workflowState[workflowId],
           status: 'succeeded',
           error: undefined,
           message,
@@ -535,7 +538,7 @@ const createStateAdapter = () => {
   };
   return {
     adapter,
-    runtime,
+    internalState,
   };
 };
 
@@ -787,8 +790,8 @@ test('openProject starts document assessment when a stored project has a source 
 
   assert.equal(result.outcome, 'opened');
   assert.equal(projectLibrary.adapter.currentProjectId, 'project-doc');
-  assert.equal(state.runtime.screenState, AppState.ASSESSMENT);
-  assert.equal(state.runtime.assessmentMessages[0]?.text, 'Domanda iniziale');
+  assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
+  assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
 test('openProject hydrates pdf mappings before applying a stored plan', async () => {
@@ -923,7 +926,7 @@ test('openProject falls back to the stored snapshot when pdf hydration stalls', 
     const result = await resultPromise;
 
     assert.equal(result.outcome, 'opened');
-    assert.equal(state.runtime.workflowState.openProject.status, 'succeeded');
+    assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
     assert.equal(projectLibrary.persistedSnapshots.length, 1);
     assert.equal(projectLibrary.persistedSnapshots[0]?.documentIndex, null);
     assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Già pronta');
@@ -965,7 +968,7 @@ test('openProject keeps the stored snapshot when pdf hydration repair throws', a
   const result = await controller.openProject('project-pdf-error');
 
   assert.equal(result.outcome, 'opened');
-  assert.equal(state.runtime.workflowState.openProject.status, 'succeeded');
+  assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Già pronta');
   assert.equal(domain.activeSectionId, 'lesson-1');
 });
@@ -1066,7 +1069,7 @@ test('openProject starts assessment from stored text sources without rebuilding 
   assert.equal(result.outcome, 'opened');
   assert.equal(textAssessmentCalls, 1);
   assert.equal(fileAssessmentCalls, 0);
-  assert.equal(state.runtime.assessmentMessages[0]?.text, 'Domanda iniziale');
+  assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
 test('openProject settles its own workflow before starting assessment follow-up', async () => {
@@ -1079,7 +1082,7 @@ test('openProject settles its own workflow before starting assessment follow-up'
   const { controller, state } = createControllerHarness({
     openRouter: {
       createAssessmentChatFromTextSource: async () => {
-        assert.equal(state.runtime.workflowState.openProject.status, 'succeeded');
+        assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
         return {
           getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
           sendMessage: async () => ({ text: 'Domanda iniziale' }),
@@ -1092,7 +1095,7 @@ test('openProject settles its own workflow before starting assessment follow-up'
   const result = await controller.openProject('project-md-follow-up');
 
   assert.equal(result.outcome, 'opened');
-  assert.equal(state.runtime.workflowState.openProject.status, 'succeeded');
+  assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
 });
 
 test('openProject does not wait for library metadata refresh before continuing', async () => {
@@ -1141,7 +1144,7 @@ test('openProject does not wait for library metadata refresh before continuing',
   const openProjectPromise = controller.openProject('project-md-refresh');
   await assessmentStarted;
 
-  assert.equal(state.runtime.workflowState.openProject.status, 'succeeded');
+  assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
   assert.equal(refreshStarted, false);
 
   const result = await openProjectPromise;
@@ -1164,14 +1167,14 @@ test('handleSourceUpload creates a fresh project and lands in assessment for doc
   });
 
   assert.equal(result.outcome, 'started-assessment');
-  assert.equal(state.runtime.screenState, AppState.ASSESSMENT);
+  assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
   assert.equal(domain.source?.kind, 'pdf');
   assert.equal(projectLibrary.persistedSnapshots.length, 1);
   assert.equal(projectLibrary.persistedSnapshots[0]?.state, AppState.ASSESSMENT);
-  assert.equal(state.runtime.assessmentMessages[0]?.text, 'Domanda iniziale');
+  assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
-test('handleSourceUpload reattach clears transient runtime state and invalidates stale workflows', async () => {
+test('handleSourceUpload reattach clears transient session state and invalidates stale workflows', async () => {
   const { controller, domain, projectLibrary, state } = createControllerHarness({
     domain: {
       learningPlan: buildPlan(),
@@ -1185,11 +1188,11 @@ test('handleSourceUpload reattach clears transient runtime state and invalidates
     type: 'application/pdf',
   });
 
-  state.runtime.assessmentMessages = [{ role: 'model', text: 'Vecchia chat' }];
-  state.runtime.chatSession = {
+  state.internalState.assessmentMessages = [{ role: 'model', text: 'Vecchia chat' }];
+  state.internalState.chatSession = {
     sendMessage: async () => ({ text: 'unused' }),
   };
-  state.runtime.openingProjectId = 'project-opening';
+  state.internalState.openingProjectId = 'project-opening';
   const staleLoadSectionRequestId = state.adapter.beginWorkflow(
     'loadSection',
     'Analisi contenuti...'
@@ -1203,12 +1206,12 @@ test('handleSourceUpload reattach clears transient runtime state and invalidates
   assert.equal(domain.source?.kind, 'pdf');
   assert.equal(projectLibrary.savedOverrides.length, 1);
   assert.equal(projectLibrary.savedOverrides[0]?.source?.kind, 'pdf');
-  assert.deepEqual(state.runtime.assessmentMessages, []);
-  assert.equal(state.runtime.chatSession, null);
-  assert.equal(state.runtime.openingProjectId, null);
-  assert.equal(state.runtime.workflowState.loadSection.status, 'idle');
+  assert.deepEqual(state.internalState.assessmentMessages, []);
+  assert.equal(state.internalState.chatSession, null);
+  assert.equal(state.internalState.openingProjectId, null);
+  assert.equal(state.internalState.workflowState.loadSection.status, 'idle');
   assert.equal(state.adapter.isWorkflowCurrent('loadSection', staleLoadSectionRequestId), false);
-  assert.equal(state.runtime.workflowState.attachSource.status, 'succeeded');
+  assert.equal(state.internalState.workflowState.attachSource.status, 'succeeded');
 });
 
 test('handleSourceUpload accepts markdown sources with missing mime and stores them as document projects', async () => {
@@ -1242,13 +1245,13 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
 
   assert.equal(result.outcome, 'started-assessment');
   assert.equal(result.errorMessage, undefined);
-  assert.equal(state.runtime.screenState, AppState.ASSESSMENT);
+  assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
   assert.equal(domain.source?.kind, 'codebase-bundle');
   assert.equal(projectLibrary.persistedSnapshots[0]?.sourceKind, 'document');
   assert.equal(projectLibrary.persistedSnapshots[0]?.source?.kind, 'codebase-bundle');
   assert.equal(textAssessmentCalls, 1);
   assert.equal(fileAssessmentCalls, 0);
-  assert.equal(state.runtime.assessmentMessages[0]?.text, 'Domanda iniziale');
+  assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
 test('handleSourceUpload imports Nous backup zips instead of treating them as codebase bundles', async () => {
@@ -1280,10 +1283,10 @@ test('handleSourceUpload imports Nous backup zips instead of treating them as co
 
   assert.equal(result.outcome, 'imported');
   assert.equal(projectLibrary.adapter.currentProjectId, 'backup-project');
-  assert.equal(state.runtime.screenState, AppState.READING);
+  assert.equal(state.internalState.screenState, AppState.READING);
   assert.equal(domain.source?.kind, 'pdf');
   assert.equal(domain.learningPlan?.title, archivedSnapshot.learningPlan?.title);
-  assert.deepEqual(state.runtime.assessmentMessages, []);
+  assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
 test('handleSourceUpload rejects unsupported binary sources with a clear error', async () => {
@@ -1299,7 +1302,7 @@ test('handleSourceUpload rejects unsupported binary sources with a clear error',
 
   assert.equal(result.outcome, 'started-assessment');
   assert.equal(result.errorMessage, 'Sono supportati PDF, ZIP o file di testo.');
-  assert.equal(state.runtime.screenState, AppState.LIBRARY);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.equal(domain.source, null);
   assert.equal(projectLibrary.persistedSnapshots.length, 0);
 });
@@ -1328,12 +1331,12 @@ test('startLearnJourney resets the workspace and lands in learn assessment', asy
   const result = await controller.startLearnJourney();
 
   assert.equal(result.outcome, 'started');
-  assert.equal(state.runtime.screenState, AppState.ASSESSMENT);
+  assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
   assert.equal(domain.isLearnMode, true);
   assert.equal(domain.learningPlan, null);
   assert.equal(projectLibrary.persistedSnapshots.length, 1);
   assert.equal(projectLibrary.persistedSnapshots[0]?.isLearnMode, true);
-  assert.equal(state.runtime.assessmentMessages[0]?.text.includes('Architect'), true);
+  assert.equal(state.internalState.assessmentMessages[0]?.text.includes('Architect'), true);
 });
 
 test('startHomeChat passes the Nuovo corso preference to the model without altering the visible user message', async () => {
@@ -1355,7 +1358,10 @@ test('startHomeChat passes the Nuovo corso preference to the model without alter
   });
 
   assert.equal(result.outcome, 'continued');
-  assert.equal(state.runtime.assessmentMessages[0]?.text, 'Vorrei capire meglio come studiare');
+  assert.equal(
+    state.internalState.assessmentMessages[0]?.text,
+    'Vorrei capire meglio come studiare'
+  );
   assert.equal(sentMessage.includes('[Preferenza utente attiva: Nuovo corso]'), true);
   assert.equal(sentMessage.includes('Vorrei capire meglio come studiare'), true);
 });
@@ -1400,7 +1406,7 @@ test('submitAssessment in learn mode finalizes the profile and generates the fir
   assert.equal(domain.userProfile?.topic, 'TypeScript');
   assert.equal(getLessons(domain.learningPlan).length, 1);
   assert.equal(domain.activeSectionId, 'lesson-1');
-  assert.equal(state.runtime.screenState, AppState.READING);
+  assert.equal(state.internalState.screenState, AppState.READING);
   assert.equal(projectLibrary.savedOverrides[0]?.userProfile?.topic, 'TypeScript');
 });
 
@@ -1437,7 +1443,7 @@ test('submitAssessment forwards the Nuovo corso preference to the active chat se
   assert.equal(result.outcome, 'continued');
   assert.equal(sentMessage.includes('[Preferenza utente attiva: Nuovo corso]'), true);
   assert.equal(sentMessage.includes('Fammi una domanda utile'), true);
-  assert.equal(state.runtime.assessmentMessages.at(-1)?.text, 'Profilazione');
+  assert.equal(state.internalState.assessmentMessages.at(-1)?.text, 'Profilazione');
 });
 
 test('submitAssessment in document mode generates the plan after the minimum number of turns', async () => {
@@ -1489,7 +1495,7 @@ test('submitAssessment in document mode generates the plan after the minimum num
 
   assert.equal(assessmentResult.outcome, 'assessment-complete');
   assert.equal(result.outcome, 'planned');
-  assert.equal(state.runtime.screenState, AppState.READING);
+  assert.equal(state.internalState.screenState, AppState.READING);
   assert.equal(getLessons(domain.learningPlan)[0]?.title, 'Lezione 1');
 });
 
@@ -1548,7 +1554,7 @@ test('submitAssessment in document mode can generate a plan for text-backed sour
   assert.equal(result.outcome, 'planned');
   assert.equal(planFileArg?.name, 'notes.md');
   assert.equal(planFileArg?.mimeType, 'text/markdown');
-  assert.equal(state.runtime.screenState, AppState.READING);
+  assert.equal(state.internalState.screenState, AppState.READING);
   assert.equal(getLessons(domain.learningPlan)[0]?.title, 'Lezione 1');
 });
 
@@ -1975,7 +1981,7 @@ test('createLessonFromSelection rolls back the inserted lesson when generation f
     ['lesson-1', 'lesson-2']
   );
   assert.equal(projectLibrary.savedOverrides.at(-1)?.activeSectionId, 'lesson-1');
-  assert.equal(state.runtime.workflowState.createLesson.status, 'failed');
+  assert.equal(state.internalState.workflowState.createLesson.status, 'failed');
 });
 
 test('completeActiveSection marks progress and opens the next lesson, then reports journey completion on the last one', async () => {
@@ -2028,6 +2034,6 @@ test('goToLibrary returns the UX to library and stops active audio playback', as
   state.adapter.setScreenState(AppState.READING);
   await controller.goToLibrary();
 
-  assert.equal(state.runtime.screenState, AppState.LIBRARY);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.deepEqual(stopAudioCalls, [true]);
 });

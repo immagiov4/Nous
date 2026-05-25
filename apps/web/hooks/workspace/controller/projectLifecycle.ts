@@ -41,8 +41,8 @@ const REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE = [
   'importProject',
   'assessment',
   'generatePlan',
-  'generateLaboratory',
-  'evaluateLaboratory',
+  'generateExercise',
+  'evaluateExercise',
   'loadSection',
   'contextQuestion',
   'createLesson',
@@ -159,7 +159,7 @@ export const createProjectLifecycleCommands = (
 
       if (options?.mode === 'reattach-source' && projectLibrary.currentProjectId) {
         state.invalidateWorkflows([...REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE]);
-        state.resetRuntimeState();
+        state.resetSessionState();
         domain.setSource(nextSource);
         projectLibrary.setProjectHydrated(true);
         await projectLibrary.saveCurrentProject({ source: nextSource });
@@ -170,7 +170,7 @@ export const createProjectLifecycleCommands = (
       const nextProjectId = createProjectId();
       projectLibrary.setProjectHydrated(false);
       domain.resetDomain();
-      state.resetRuntimeState();
+      state.resetSessionState();
       projectLibrary.setCurrentProjectId(nextProjectId);
       domain.setSource(nextSource);
       projectLibrary.setProjectHydrated(true);
@@ -437,7 +437,7 @@ export const createProjectLifecycleCommands = (
       projectLibrary.setProjectHydrated(false);
       projectLibrary.setCurrentProjectId(null);
       domain.resetDomain();
-      state.resetRuntimeState();
+      state.resetSessionState();
       state.setScreenState(AppState.LIBRARY);
     }
     await projectLibrary.refreshLibraryState();

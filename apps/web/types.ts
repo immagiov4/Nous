@@ -103,9 +103,24 @@ export const AppState = {
 
 export type AppState = (typeof AppState)[keyof typeof AppState];
 
-export type ProjectId = string;
-export type ProjectSourceKind = 'document' | 'codebase' | 'learn-mode' | 'imported-json';
-export type ProjectSyncState = 'local-only' | 'sync-ready' | 'sync-error';
+export type {
+  LibraryFolder,
+  LibraryPlacement,
+  ProjectId,
+  ProjectPatch,
+  ProjectSourceKind,
+  ProjectSyncState,
+  SavedProjectMeta,
+  SectionPatch,
+} from '@shared/projectContract';
+
+import type {
+  LibraryFolder,
+  LibraryPlacement,
+  ProjectId,
+  ProjectSourceKind,
+  SavedProjectMeta,
+} from '@shared/projectContract';
 
 export interface Message {
   role: 'user' | 'model';
@@ -127,22 +142,6 @@ export interface HomeChatToolPreferences {
   mode: HomeChatMode;
   newCourse: boolean;
   webSearch?: boolean;
-}
-
-export interface LibraryFolder {
-  id: string;
-  name: string;
-  parentFolderId: string | null;
-  createdAt: string;
-  updatedAt: string;
-  order: number;
-}
-
-export interface LibraryPlacement {
-  projectId: ProjectId;
-  folderId: string | null;
-  order: number;
-  updatedAt: string;
 }
 
 export interface LibraryProjectNode {
@@ -408,22 +407,6 @@ export interface ApplicationExercisePlanningError {
   message: string;
   attempts: number;
   lastAttemptAt: string;
-}
-
-export interface SavedProjectMeta {
-  id: ProjectId;
-  title: string;
-  sourceKind: ProjectSourceKind;
-  createdAt: string;
-  updatedAt: string;
-  lastOpenedAt: string;
-  lessonCount: number;
-  completedCount: number;
-  exerciseCount: number;
-  completedExercises: number;
-  hasSourceFile: boolean;
-  coverLabel: string;
-  syncState: ProjectSyncState;
 }
 
 export interface ProjectSnapshot {

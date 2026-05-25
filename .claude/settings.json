@@ -31,13 +31,18 @@
       "Bash(git add *)",
       "Bash(git commit -m 'feat\\(learning\\): add pathNodes helpers for walking modules *)",
       "Bash(git commit -m 'refactor\\(persistence\\): drop laboratory + activeLaboratoryExerciseId; sectionPatch walks modules *)",
-      "Bash(awk -F'\\(' '{print $1}')"
+      "Bash(awk -F'\\(' '{print $1}')",
+      "mcp__graphify__get_node",
+      "mcp__graphify__query_graph",
+      "Bash(bun --bun vitest run apps/backend/tests/routes/projects.test.ts --config apps/web/vitest.config.ts)"
     ],
     "additionalDirectories": [
       "C:\\Users\\giovb\\.vscode\\extensions\\highagency.pencildev-0.6.49\\out\\data"
     ]
   },
-  "enabledMcpjsonServers": ["graphify"],
+  "enabledMcpjsonServers": [
+    "graphify"
+  ],
   "hooks": {
     "PreToolUse": [
       {

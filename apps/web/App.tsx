@@ -14,7 +14,7 @@ import { useWorkspaceController } from './hooks/workspace/useWorkspaceController
 import { useWorkspaceDomain } from './hooks/workspace/useWorkspaceDomain.ts';
 import { useWorkspaceFileActions } from './hooks/workspace/useWorkspaceFileActions.ts';
 import { useWorkspaceNavigation } from './hooks/workspace/useWorkspaceNavigation.ts';
-import { useWorkspaceReaderRuntime } from './hooks/workspace/useWorkspaceReaderRuntime.ts';
+import { useWorkspaceReaderState } from './hooks/workspace/useWorkspaceReaderState.ts';
 import { selectBlockingReasoning } from './services/workspace/workflow.ts';
 import { AppState } from './types';
 
@@ -22,7 +22,7 @@ const App = () => {
   const { appOverlays, notify, requestConfirmation } = useAppDialogs();
   const domain = useWorkspaceDomain();
 
-  const readerRuntime = useWorkspaceReaderRuntime({
+  const readerState = useWorkspaceReaderState({
     activeSection: domain.activeSection,
     activeSectionId: domain.activeSectionId,
     documentAssets: domain.documentAssets,
@@ -33,8 +33,8 @@ const App = () => {
   });
 
   useUiPreferencesPersistence({
-    uiPreferences: readerRuntime.uiPreferences,
-    applyUiPreferences: readerRuntime.applyUiPreferences,
+    uiPreferences: readerState.uiPreferences,
+    applyUiPreferences: readerState.applyUiPreferences,
   });
 
   const projectLibrary = useProjectLibrary({
@@ -44,7 +44,7 @@ const App = () => {
   const libraryAssistantChat = useLibraryAssistantChat({
     folders: projectLibrary.libraryFolders,
     loadProjectsById: projectLibrary.loadProjectsById,
-    preferredContextModel: readerRuntime.preferredModels.preferredContextModel,
+    preferredContextModel: readerState.preferredModels.preferredContextModel,
     projectRepositoryMode: projectLibrary.projectRepositoryMode,
     projects: projectLibrary.savedProjects,
     saveLessonArtifactNote: projectLibrary.saveLessonArtifactNote,
@@ -54,7 +54,7 @@ const App = () => {
   const controller = useWorkspaceController({
     domain,
     projectLibrary,
-    stopAudio: readerRuntime.ttsPlayer.stopAudio,
+    stopAudio: readerState.ttsPlayer.stopAudio,
   });
 
   const {
@@ -89,8 +89,8 @@ const App = () => {
     onOpenProject: controller.openProject,
     openingProjectId,
     screenState,
-    setIsFocusMode: readerRuntime.readerChrome.setIsFocusMode,
-    setIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
+    setIsFocusMode: readerState.readerChrome.setIsFocusMode,
+    setIsMobileSidebarOpen: readerState.readerChrome.setIsMobileSidebarOpen,
   });
 
   // Scroll to top on screen transitions (library preserves scroll position)
@@ -114,7 +114,7 @@ const App = () => {
       {!shouldShowStyleLab && screenState === AppState.LIBRARY && (
         <LibraryScreenContainer
           controller={controller}
-          readerRuntime={readerRuntime}
+          readerState={readerState}
           projectLibrary={projectLibrary}
           libraryAssistantChat={libraryAssistantChat}
           fileActions={fileActions}
@@ -130,7 +130,7 @@ const App = () => {
           loadingStatus={loadingStatus}
           navigation={navigation}
           notify={notify}
-          readerRuntime={readerRuntime}
+          readerState={readerState}
           screenState={screenState}
           startLearnJourney={controller.startLearnJourney}
           submitAssessment={controller.submitAssessment}
@@ -141,14 +141,14 @@ const App = () => {
         window.location.hash === '#preview-loading' && (
           <LoadingScreen
             message="Analisi Volume in Corso..."
-            isDarkMode={readerRuntime.readerChrome.isDarkMode}
+            isDarkMode={readerState.readerChrome.isDarkMode}
             subMessage="Strutturazione semantica del piano di studi..."
           />
         )}
       {!shouldShowStyleLab && screenState === AppState.PLANNING && (
         <LoadingScreen
           message="Analisi Volume in Corso..."
-          isDarkMode={readerRuntime.readerChrome.isDarkMode}
+          isDarkMode={readerState.readerChrome.isDarkMode}
           reasoningText={loadingReasoningText}
           subMessage={loadingStatus || 'Costruzione piano...'}
         />
@@ -156,7 +156,7 @@ const App = () => {
       {!shouldShowStyleLab && screenState === AppState.READING && (
         <ReadingScreenContainer
           controller={controller}
-          readerRuntime={readerRuntime}
+          readerState={readerState}
           fileActions={fileActions}
           navigation={navigation}
           notify={notify}

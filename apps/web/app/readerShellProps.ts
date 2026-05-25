@@ -2,17 +2,17 @@
 import type { WorkspaceReaderShellProps } from '../components/workspace/shell/types.ts';
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceReaderActions } from '../hooks/workspace/useWorkspaceReaderActions.ts';
-import type { useWorkspaceReaderRuntime } from '../hooks/workspace/useWorkspaceReaderRuntime.ts';
+import type { useWorkspaceReaderState } from '../hooks/workspace/useWorkspaceReaderState.ts';
 import {
   getApplicationExerciseRepairLabel,
   planNeedsApplicationExerciseRepair,
-} from '../services/learning/applicationExercises.ts';
+} from '../services/exercises/plan.ts';
 import type { OpenRouterModelDefaults } from '../types.ts';
 import { getLessonSourcePageLabel } from '../utils/context/sourceMaterial.ts';
 import { findPathNodeById, flattenLessons } from '../utils/learning/pathNodes.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
-type WorkspaceReaderRuntime = ReturnType<typeof useWorkspaceReaderRuntime>;
+type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
 type WorkspaceReaderActions = ReturnType<typeof useWorkspaceReaderActions>;
 
 interface BuildReaderShellPropsArgs {
@@ -24,7 +24,7 @@ interface BuildReaderShellPropsArgs {
   notify: (message: string, kind?: 'error' | 'success') => void;
   pdfMappingWarning: string | null;
   readerActions: WorkspaceReaderActions;
-  readerRuntime: WorkspaceReaderRuntime;
+  readerState: WorkspaceReaderState;
   syncState: 'saved' | 'saving' | 'error';
 }
 
@@ -38,7 +38,7 @@ export const buildReaderShellProps = ({
   notify,
   pdfMappingWarning,
   readerActions,
-  readerRuntime,
+  readerState,
   syncState,
 }: BuildReaderShellPropsArgs): WorkspaceReaderShellProps => {
   const activeSectionSourcePageRangeLabel = getLessonSourcePageLabel({
@@ -63,10 +63,10 @@ export const buildReaderShellProps = ({
     controller.generatingSectionId !== null &&
     controller.generatingSectionId === controller.activeSectionId;
   const isRepairingApplicationExercises =
-    controller.workflowState.generateLaboratory.status === 'pending';
+    controller.workflowState.generateExercise.status === 'pending';
   const loadingStatus = controller.blockingMessage || 'Caricamento...';
   const playerCurrentChunkIsLoading =
-    readerRuntime.ttsPlayer.audioState.chunks[readerRuntime.ttsPlayer.audioState.currentChunkIndex]
+    readerState.ttsPlayer.audioState.chunks[readerState.ttsPlayer.audioState.currentChunkIndex]
       ?.isLoading || false;
 
   return {
@@ -84,17 +84,17 @@ export const buildReaderShellProps = ({
       activeExercise,
       exercisePrerequisiteGaps: [],
       activeSectionTitle: controller.activeSection?.title || null,
-      activeSectionAssetsById: readerRuntime.activeSectionAssetsById,
-      activeSectionGeneratedVisualsById: readerRuntime.activeSectionGeneratedVisualsById,
-      activeSectionImageRefsById: readerRuntime.activeSectionImageRefsById,
-      contentRef: readerRuntime.contentRef,
+      activeSectionAssetsById: readerState.activeSectionAssetsById,
+      activeSectionGeneratedVisualsById: readerState.activeSectionGeneratedVisualsById,
+      activeSectionImageRefsById: readerState.activeSectionImageRefsById,
+      contentRef: readerState.contentRef,
       currentLessonArtifactPayloads: undefined,
       hasNextSection,
-      isDarkMode: readerRuntime.readerChrome.isDarkMode,
-      isFocusMode: readerRuntime.readerChrome.isFocusMode,
+      isDarkMode: readerState.readerChrome.isDarkMode,
+      isFocusMode: readerState.readerChrome.isFocusMode,
       isLoading: isActiveSectionLoading,
-      isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
-      isQuizSubmitted: readerRuntime.isQuizSubmitted,
+      isMobileViewport: readerState.readerChrome.isMobileViewport,
+      isQuizSubmitted: readerState.isQuizSubmitted,
       onAdvanceSection: () => {
         void readerActions.handleAdvanceSection();
       },
@@ -102,16 +102,16 @@ export const buildReaderShellProps = ({
         void readerActions.handleCompleteSection();
       },
       onAttachExerciseFiles: () => {},
-      onContentClick: readerRuntime.readerContext.handleContentClick,
-      onContentContextMenu: readerRuntime.readerContext.handleContentContextMenu,
-      onContentPointerDownCapture: readerRuntime.readerContext.handleContentPointerDownCapture,
-      onSelectQuizAnswer: readerRuntime.handleSelectQuizAnswer,
+      onContentClick: readerState.readerContext.handleContentClick,
+      onContentContextMenu: readerState.readerContext.handleContentContextMenu,
+      onContentPointerDownCapture: readerState.readerContext.handleContentPointerDownCapture,
+      onSelectQuizAnswer: readerState.handleSelectQuizAnswer,
       onRemoveExerciseAttachment: () => {},
-      onSetIsQuizSubmitted: readerRuntime.setIsQuizSubmitted,
+      onSetIsQuizSubmitted: readerState.setIsQuizSubmitted,
       onUpdateExerciseInternalText: () => {},
       quiz: activeExercise ? [] : controller.quiz,
-      quizAnswers: activeExercise ? [] : readerRuntime.quizAnswers,
-      scrollContainerRef: readerRuntime.scrollContainerRef,
+      quizAnswers: activeExercise ? [] : readerState.quizAnswers,
+      scrollContainerRef: readerState.scrollContainerRef,
       sectionAnnotations: controller.activeSection?.annotations,
       sectionContent: activeExercise ? '' : controller.sectionContent,
       sectionReasoningText: controller.workflowState.loadSection.reasoning,
@@ -120,71 +120,71 @@ export const buildReaderShellProps = ({
     header: {
       activeSectionId: activePathNode?.id ?? null,
       activeSectionTitle: activePathNode?.title ?? null,
-      activeSidebarGroup: readerRuntime.activeSidebarGroup,
+      activeSidebarGroup: readerState.activeSidebarGroup,
       hasActiveSection: Boolean(controller.activeSection),
       courseGenerationNotes: controller.learningPlan?.generationNotes ?? '',
-      isDarkMode: readerRuntime.readerChrome.isDarkMode,
-      isFocusMode: readerRuntime.readerChrome.isFocusMode,
+      isDarkMode: readerState.readerChrome.isDarkMode,
+      isFocusMode: readerState.readerChrome.isFocusMode,
       isLoading: controller.isBlocking,
-      isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
-      isMobileSidebarOpen: readerRuntime.readerChrome.isMobileSidebarOpen,
-      isMusicPlaying: readerRuntime.isMusicPlaying,
-      isSettingsOpen: readerRuntime.readerChrome.isSettingsOpen,
-      lastAudioTab: readerRuntime.lastAudioTab,
+      isMobileViewport: readerState.readerChrome.isMobileViewport,
+      isMobileSidebarOpen: readerState.readerChrome.isMobileSidebarOpen,
+      isMusicPlaying: readerState.isMusicPlaying,
+      isSettingsOpen: readerState.readerChrome.isSettingsOpen,
+      lastAudioTab: readerState.lastAudioTab,
       learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
       loadingStatus,
       modelDefaults,
       musicUrl: controller.musicUrl,
-      musicVolume: readerRuntime.musicVolume,
+      musicVolume: readerState.musicVolume,
       onBackToLibrary: handleBackToLibrary,
-      onOpenSidebar: () => readerRuntime.readerChrome.setIsMobileSidebarOpen(v => !v),
+      onOpenSidebar: () => readerState.readerChrome.setIsMobileSidebarOpen(v => !v),
       onRegenerateActiveSection: readerActions.handleRegenerateActiveSection,
       onSetCourseGenerationNotes: controller.setGenerationNotes,
-      onSetDarkMode: readerRuntime.readerChrome.setIsDarkMode,
-      onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
-      onSetIsMusicPlaying: readerRuntime.setIsMusicPlaying,
-      onSetLastAudioTab: readerRuntime.setLastAudioTab,
+      onSetDarkMode: readerState.readerChrome.setIsDarkMode,
+      onSetFocusMode: readerState.readerChrome.setIsFocusMode,
+      onSetIsMusicPlaying: readerState.setIsMusicPlaying,
+      onSetLastAudioTab: readerState.setLastAudioTab,
       onSetMusicUrl: controller.setMusicUrl,
-      onSetMusicVolume: readerRuntime.setMusicVolume,
-      onSetPreferredOpenRouterModel: readerRuntime.setPreferredOpenRouterModel,
-      onSetSettingsOpen: readerRuntime.readerChrome.setIsSettingsOpen,
-      onSetSettingsPanelExpandedSections: readerRuntime.setSettingsPanelExpandedSections,
-      preferredModels: readerRuntime.preferredModels,
-      settingsPanelExpandedSections: readerRuntime.settingsPanelExpandedSections,
+      onSetMusicVolume: readerState.setMusicVolume,
+      onSetPreferredOpenRouterModel: readerState.setPreferredOpenRouterModel,
+      onSetSettingsOpen: readerState.readerChrome.setIsSettingsOpen,
+      onSetSettingsPanelExpandedSections: readerState.setSettingsPanelExpandedSections,
+      preferredModels: readerState.preferredModels,
+      settingsPanelExpandedSections: readerState.settingsPanelExpandedSections,
       syncState,
       tts: {
-        availableVoices: readerRuntime.ttsPlayer.availableVoices,
-        currentTime: readerRuntime.ttsPlayer.playerCurrentTime,
-        currentVoice: readerRuntime.ttsPlayer.audioState.currentVoice,
-        duration: readerRuntime.ttsPlayer.playerDuration,
+        availableVoices: readerState.ttsPlayer.availableVoices,
+        currentTime: readerState.ttsPlayer.playerCurrentTime,
+        currentVoice: readerState.ttsPlayer.audioState.currentVoice,
+        duration: readerState.ttsPlayer.playerDuration,
         isLoading: playerCurrentChunkIsLoading,
-        isPlaying: readerRuntime.ttsPlayer.audioState.isPlaying,
-        playbackRate: readerRuntime.ttsPlayer.audioState.playbackRate,
+        isPlaying: readerState.ttsPlayer.audioState.isPlaying,
+        playbackRate: readerState.ttsPlayer.audioState.playbackRate,
         sectionContent: controller.sectionContent,
-        ttsConnected: readerRuntime.ttsPlayer.ttsConnected,
-        onPlayPause: readerRuntime.ttsPlayer.togglePlayPause,
-        onSeek: readerRuntime.ttsPlayer.handleSeek,
-        onSkipChunk: readerRuntime.ttsPlayer.handleSkipChunk,
-        onSpeedChange: readerRuntime.ttsPlayer.handleSpeedChange,
-        onVoiceChange: readerRuntime.ttsPlayer.handleVoiceChange,
+        ttsConnected: readerState.ttsPlayer.ttsConnected,
+        onPlayPause: readerState.ttsPlayer.togglePlayPause,
+        onSeek: readerState.ttsPlayer.handleSeek,
+        onSkipChunk: readerState.ttsPlayer.handleSkipChunk,
+        onSpeedChange: readerState.ttsPlayer.handleSpeedChange,
+        onVoiceChange: readerState.ttsPlayer.handleVoiceChange,
       },
     },
     overlays: {
-      contextAnswer: readerRuntime.readerContext.contextAnswer,
-      contextAnswerPanelRef: readerRuntime.readerContext.contextAnswerPanelRef,
-      contextAnswerResizePreviewRef: readerRuntime.readerContext.contextAnswerResizePreviewRef,
-      contextAnswerSize: readerRuntime.readerContext.contextAnswerSize,
-      contextMenu: readerRuntime.readerContext.contextMenu,
-      contextMenuRef: readerRuntime.readerContext.contextMenuRef,
+      contextAnswer: readerState.readerContext.contextAnswer,
+      contextAnswerPanelRef: readerState.readerContext.contextAnswerPanelRef,
+      contextAnswerResizePreviewRef: readerState.readerContext.contextAnswerResizePreviewRef,
+      contextAnswerSize: readerState.readerContext.contextAnswerSize,
+      contextMenu: readerState.readerContext.contextMenu,
+      contextMenuRef: readerState.readerContext.contextMenuRef,
       currentLessonArtifactPayloads: undefined,
-      handleContextAnswerResizeStart: readerRuntime.readerContext.handleContextAnswerResizeStart,
+      handleContextAnswerResizeStart: readerState.readerContext.handleContextAnswerResizeStart,
       isContextLoading: controller.isContextBusy,
-      isDarkMode: readerRuntime.readerChrome.isDarkMode,
-      isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+      isDarkMode: readerState.readerChrome.isDarkMode,
+      isMobileViewport: readerState.readerChrome.isMobileViewport,
       onAskContextQuestion: readerActions.handleContextQuestion,
       onAttachArtifactToAnnotation: readerActions.handleAttachArtifactToAnnotation,
-      onCloseContextAnswer: readerRuntime.readerContext.closeContextAnswer,
-      onCloseContextMenu: readerRuntime.readerContext.closeContextMenu,
+      onCloseContextAnswer: readerState.readerContext.closeContextAnswer,
+      onCloseContextMenu: readerState.readerContext.closeContextMenu,
       onCreateLesson: readerActions.handleCreateLesson,
       onDeleteAnnotation: readerActions.handleDeleteAnnotation,
       onDetachArtifactFromAnnotation: readerActions.handleDetachArtifactFromAnnotation,
@@ -193,24 +193,24 @@ export const buildReaderShellProps = ({
       onSaveConversationNote: readerActions.handleSaveConversationNote,
       onSaveNote: readerActions.handleSaveNote,
       onUpdateConversationNote: readerActions.handleUpdateConversationNote,
-      preferredModels: readerRuntime.preferredModels,
+      preferredModels: readerState.preferredModels,
     },
-    shouldUseDesktopSidebar: readerRuntime.readerChrome.shouldUseDesktopSidebar,
+    shouldUseDesktopSidebar: readerState.readerChrome.shouldUseDesktopSidebar,
     sidebar: {
       activeSectionId: controller.activeSectionId,
       canRepairApplicationExercises: planNeedsApplicationExerciseRepair(controller.learningPlan),
-      expandedModuleId: readerRuntime.readerChrome.expandedModuleId,
+      expandedModuleId: readerState.readerChrome.expandedModuleId,
       generatingSectionId: controller.generatingSectionId ?? null,
       isRepairingApplicationExercises,
       isLoading: controller.isBlocking,
-      isMobileViewport: readerRuntime.readerChrome.isMobileViewport,
+      isMobileViewport: readerState.readerChrome.isMobileViewport,
       learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
       repairApplicationExercisesLabel: getApplicationExerciseRepairLabel(controller.learningPlan),
       onBackToLibrary: handleBackToLibrary,
       onExportProject: () => {
         void handleExportProject();
       },
-      onModuleToggle: readerRuntime.readerChrome.handleModuleToggle,
+      onModuleToggle: readerState.readerChrome.handleModuleToggle,
       onRepairApplicationExercises: () => {
         void controller
           .repairApplicationExercises()
@@ -229,10 +229,10 @@ export const buildReaderShellProps = ({
       },
       onSelectExercise: readerActions.handleSelectExercise,
       onSelectSection: readerActions.handleSelectSection,
-      onSetFocusMode: readerRuntime.readerChrome.setIsFocusMode,
-      onSetIsMobileSidebarOpen: readerRuntime.readerChrome.setIsMobileSidebarOpen,
-      shouldShowSidebar: readerRuntime.readerChrome.shouldShowSidebar,
-      sidebarGroups: readerRuntime.sidebarGroups,
+      onSetFocusMode: readerState.readerChrome.setIsFocusMode,
+      onSetIsMobileSidebarOpen: readerState.readerChrome.setIsMobileSidebarOpen,
+      shouldShowSidebar: readerState.readerChrome.shouldShowSidebar,
+      sidebarGroups: readerState.sidebarGroups,
     },
   };
 };

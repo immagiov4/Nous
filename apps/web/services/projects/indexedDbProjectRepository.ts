@@ -10,6 +10,7 @@ import type {
   PdfTextIndex,
   ProjectExportData,
   ProjectId,
+  ProjectPatch,
   ProjectSnapshot,
   ProjectSource,
   QuizQuestion,
@@ -720,7 +721,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     return this.enqueueProjectOp(snapshot.id, () => this.writeProjectSnapshot(snapshot));
   }
 
-  async patchProject(id: ProjectId, patch: Record<string, unknown>): Promise<SavedProjectMeta> {
+  async patchProject(id: ProjectId, patch: ProjectPatch): Promise<SavedProjectMeta> {
     return this.enqueueProjectOp(id, async () => {
       const snapshot = await this.loadProject(id);
       if (!snapshot) {
@@ -730,11 +731,9 @@ export class IndexedDbProjectRepository implements ProjectRepository {
         );
       }
 
-      // Apply patches
-      if (patch.activeSectionId !== undefined)
-        snapshot.activeSectionId = patch.activeSectionId as string | null;
+      if (patch.activeSectionId !== undefined) snapshot.activeSectionId = patch.activeSectionId;
       if (patch.state !== undefined) snapshot.state = patch.state as AppState;
-      if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode as boolean;
+      if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode;
       if (patch.source !== undefined) snapshot.source = patch.source as ProjectSource | null;
       if (patch.learningPlan !== undefined)
         snapshot.learningPlan = patch.learningPlan as LearningPlan | null;
@@ -751,12 +750,11 @@ export class IndexedDbProjectRepository implements ProjectRepository {
         snapshot.documentAssets = patch.documentAssets as PdfDocumentAssets | null;
       if (patch.documentIndex !== undefined)
         snapshot.documentIndex = patch.documentIndex as PdfTextIndex | null;
-      if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt as string;
+      if (patch.updatedAt !== undefined) snapshot.updatedAt = patch.updatedAt;
 
-      // Apply section patch
-      const sectionPatch = patch.section as Record<string, unknown> | undefined;
+      const sectionPatch = patch.section;
       if (sectionPatch?.sectionId && snapshot.learningPlan?.modules) {
-        const sectionId = sectionPatch.sectionId as string;
+        const sectionId = sectionPatch.sectionId;
         snapshot.learningPlan = {
           ...snapshot.learningPlan,
           modules: snapshot.learningPlan.modules.map(module => ({
@@ -770,9 +768,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
                 ...(sectionPatch.annotations !== undefined
                   ? { annotations: sectionPatch.annotations as SectionAnnotation[] }
                   : {}),
-                ...(sectionPatch.content !== undefined
-                  ? { content: sectionPatch.content as string }
-                  : {}),
+                ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
                 ...(sectionPatch.generatedVisuals !== undefined
                   ? {
                       generatedVisuals:
@@ -783,7 +779,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
                   ? { imageRefs: sectionPatch.imageRefs as LearningSection['imageRefs'] }
                   : {}),
                 ...(sectionPatch.isCompleted !== undefined
-                  ? { isCompleted: sectionPatch.isCompleted as boolean }
+                  ? { isCompleted: sectionPatch.isCompleted }
                   : {}),
                 ...(sectionPatch.quiz !== undefined
                   ? { quiz: sectionPatch.quiz as QuizQuestion[] }
