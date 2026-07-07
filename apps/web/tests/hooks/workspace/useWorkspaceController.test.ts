@@ -372,7 +372,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     loadStoredProject: async () => loadedSnapshot,
     moveFolder: async () => null,
     moveProjects: async () => [],
-    projectRepositoryMode: 'indexeddb',
+    projectRepositoryMode: 'server',
     persistSnapshot: async snapshot => {
       persistedSnapshots.push(snapshot);
       return buildMeta(snapshot.id);
@@ -396,10 +396,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       adapter.currentProjectId = projectId;
     },
     setProjectHydrated: () => {},
-    setProjectRepositoryMode: () => {},
     storageError: null,
-    transferFolderToLan: async () => {},
-    transferProjectToLan: async () => {},
     touchStoredProject: async projectId => {
       touchedProjectIds.push(projectId);
     },

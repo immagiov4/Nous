@@ -8,6 +8,7 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types';
+import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 import type { ProjectRepository } from './projectRepository';
 import { ProjectStorageError } from './projectRepository';
@@ -27,11 +28,11 @@ interface ApiResponse {
 }
 
 const PROJECT_SYNC_ERROR_MESSAGE =
-  'Sincronizzazione LAN non disponibile. Verifica che il backend sia acceso e raggiungibile.';
+  'Sincronizzazione server non disponibile. Verifica che il backend sia acceso e raggiungibile.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 
 const createProjectSyncError = (error: unknown): ProjectStorageError => {
-  console.warn('[Nous] LAN project sync failed', error);
+  console.warn('[Nous] Server project sync failed', error);
   if (error instanceof ProjectStorageError) {
     return error;
   }
@@ -260,6 +261,7 @@ export class HttpProjectRepository implements ProjectRepository {
         cache: init.cache || 'no-store',
         headers: {
           'Content-Type': 'application/json',
+          ...getSupabaseAuthHeaders(),
           ...init.headers,
         },
         signal: init.signal || timeoutController.signal,
@@ -268,7 +270,7 @@ export class HttpProjectRepository implements ProjectRepository {
 
       if (!response.ok || data.success === false) {
         throw new ProjectStorageError(
-          data.error || response.statusText || 'Richiesta LAN non riuscita.',
+          data.error || response.statusText || 'Richiesta server non riuscita.',
           'persistence-failed'
         );
       }

@@ -2,6 +2,7 @@ import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } fr
 import { sanitizePartialPages } from '../../utils/pdf/sanitizePartialPages.ts';
 import { normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
+import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
 import { isOpenRouterDataUrlInlineSafe } from './payloadLimits.ts';
 import {
   callOpenRouter,
@@ -313,6 +314,7 @@ const extractPdfImagesViaBackend = async (
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...getSupabaseAuthHeaders(),
     },
     body: JSON.stringify({
       fileData: fileToDataUrl(file),
@@ -394,6 +396,7 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...getSupabaseAuthHeaders(),
     },
     body: JSON.stringify({
       fileData: fileToDataUrl(file),

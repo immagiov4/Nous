@@ -2,7 +2,9 @@
 /* @refresh reset */
 import { useEffect } from 'react';
 import { useAppDialogs } from './app/useAppDialogs.tsx';
+import AdminPanel from './components/admin/AdminPanel.tsx';
 import { AssessmentScreenContainer } from './components/assessment/AssessmentScreenContainer.tsx';
+import AuthGate from './components/auth/AuthGate.tsx';
 import StylePreviewLab from './components/dev/StylePreviewLab.tsx';
 import { LibraryScreenContainer } from './components/library/LibraryScreenContainer.tsx';
 import LoadingScreen from './components/shared/LoadingScreen';
@@ -18,7 +20,7 @@ import { useWorkspaceReaderState } from './hooks/workspace/useWorkspaceReaderSta
 import { selectBlockingReasoning } from './services/workspace/workflow.ts';
 import { AppState } from './types';
 
-const App = () => {
+const AppContent = () => {
   const { appOverlays, notify, requestConfirmation } = useAppDialogs();
   const domain = useWorkspaceDomain();
 
@@ -44,7 +46,6 @@ const App = () => {
   const libraryAssistantChat = useLibraryAssistantChat({
     folders: projectLibrary.libraryFolders,
     loadProjectsById: projectLibrary.loadProjectsById,
-    preferredContextModel: readerState.preferredModels.preferredContextModel,
     projectRepositoryMode: projectLibrary.projectRepositoryMode,
     projects: projectLibrary.savedProjects,
     replaceLessonGeneratedVisual: projectLibrary.replaceLessonGeneratedVisual,
@@ -71,7 +72,7 @@ const App = () => {
     confirmProjectDelete: projectTitle =>
       requestConfirmation({
         title: 'Eliminare corso',
-        message: `Eliminare "${projectTitle}" dalla libreria locale?`,
+        message: `Eliminare "${projectTitle}" dalla libreria server?`,
         confirmLabel: 'Elimina',
       }),
     deleteProject: controller.deleteProject,
@@ -168,6 +169,16 @@ const App = () => {
     </>
   );
 };
+
+const App = () => (
+  <AuthGate>
+    {typeof window !== 'undefined' && window.location.pathname === '/admin' ? (
+      <AdminPanel />
+    ) : (
+      <AppContent />
+    )}
+  </AuthGate>
+);
 
 // fallow-ignore-next-line unused-exports — Vite entry point component
 export default App;

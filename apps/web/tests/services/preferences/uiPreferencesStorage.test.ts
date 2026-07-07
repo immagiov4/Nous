@@ -19,7 +19,7 @@ test('parseUiPreferences normalizes supported fields and ignores the rest', () =
       preferredContextModel: ' openai/gpt-5.4-nano ',
       preferredTtsModel: ' openai/gpt-4o-mini-tts-2025-12-15 ',
       preferredTtsVoice: ' cloned-voice-id ',
-      settingsPanelExpandedSections: ['course-notes', 'ai-models', 'unknown'],
+      settingsPanelExpandedSections: ['course-notes', 'unknown'],
       ignored: 'value',
     })
   );
@@ -28,12 +28,8 @@ test('parseUiPreferences normalizes supported fields and ignores the rest', () =
     isDarkMode: true,
     preferredVoice: 'coral',
     playbackRate: 1.25,
-    preferredLessonModel: 'openai/gpt-5.4-mini',
-    preferredAssessmentModel: 'mistralai/mistral-small-2603',
-    preferredContextModel: 'openai/gpt-5.4-nano',
-    preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
     preferredTtsVoice: 'coral',
-    settingsPanelExpandedSections: ['course-notes', 'ai-models'],
+    settingsPanelExpandedSections: ['course-notes'],
   });
 });
 
@@ -55,10 +51,6 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
     isDarkMode: false,
     preferredVoice: 'mario',
     playbackRate: 1,
-    preferredLessonModel: 'openai/gpt-5.4-mini',
-    preferredAssessmentModel: 'mistralai/mistral-small-2603',
-    preferredContextModel: 'openai/gpt-5.4-nano',
-    preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
     preferredTtsVoice: 'coral',
     settingsPanelExpandedSections: ['course-notes'],
     lastAudioTab: 'voce',
@@ -70,10 +62,6 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
     lastAudioTab: 'voce',
     preferredVoice: 'coral',
     playbackRate: 1,
-    preferredLessonModel: 'openai/gpt-5.4-mini',
-    preferredAssessmentModel: 'mistralai/mistral-small-2603',
-    preferredContextModel: 'openai/gpt-5.4-nano',
-    preferredTtsModel: 'openai/gpt-4o-mini-tts-2025-12-15',
     preferredTtsVoice: 'coral',
     settingsPanelExpandedSections: ['course-notes'],
   });

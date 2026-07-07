@@ -81,7 +81,6 @@ type LibraryAssistantMessage = UIMessage<unknown, Record<string, never>, Library
 interface UseLibraryAssistantChatArgs {
   folders: LibraryFolder[];
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
-  preferredContextModel: string;
   projectRepositoryMode: ProjectRepositoryMode;
   projects: SavedProjectMeta[];
   saveLessonArtifactNote?: (input: {
@@ -118,7 +117,6 @@ interface RequestSaveLearningArtifactNoteInput {
 }
 interface LibraryAssistantRequestState {
   attachedContextRefs: LibraryContextRef[];
-  preferredContextModel: string;
   scopeSummary: LibraryScopeSummary;
   toolPreferences: HomeChatToolPreferences;
 }
@@ -170,7 +168,6 @@ const LIBRARY_REPLACEMENT_DRAFT_PREFIX = 'library-replacement-draft';
 export const useLibraryAssistantChat = ({
   folders,
   loadProjectsById,
-  preferredContextModel,
   projectRepositoryMode,
   projects,
   replaceLessonGeneratedVisual,
@@ -229,7 +226,6 @@ export const useLibraryAssistantChat = ({
   useEffect(() => {
     libraryAssistantRequestStateStore.set(requestStateKey, {
       attachedContextRefs,
-      preferredContextModel,
       scopeSummary,
       toolPreferences,
     });
@@ -237,7 +233,7 @@ export const useLibraryAssistantChat = ({
     return () => {
       libraryAssistantRequestStateStore.delete(requestStateKey);
     };
-  }, [attachedContextRefs, preferredContextModel, requestStateKey, scopeSummary, toolPreferences]);
+  }, [attachedContextRefs, requestStateKey, scopeSummary, toolPreferences]);
 
   const transport = useMemo(
     () =>
@@ -252,7 +248,6 @@ export const useLibraryAssistantChat = ({
 
           const {
             attachedContextRefs: currentAttachedContextRefs,
-            preferredContextModel: currentPreferredContextModel,
             scopeSummary: currentScopeSummary,
             toolPreferences: currentToolPreferences,
           } = requestState;
@@ -262,7 +257,6 @@ export const useLibraryAssistantChat = ({
               attachedContextRefs: currentAttachedContextRefs,
               id,
               messages,
-              modelOverride: currentPreferredContextModel.trim() || undefined,
               resolvedScopeSummary: currentScopeSummary,
               toolPreferences: currentToolPreferences,
             },

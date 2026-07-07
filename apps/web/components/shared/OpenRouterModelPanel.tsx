@@ -1,11 +1,6 @@
 import { ChevronDown, X } from 'lucide-react';
 import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
-import type {
-  OpenRouterModelDefaults,
-  OpenRouterModelPreferences,
-  OpenRouterModelSlot,
-  SettingsPanelSectionId,
-} from '../../types.ts';
+import type { SettingsPanelSectionId } from '../../types.ts';
 import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
 
 export interface CourseGenerationNotesBinding {
@@ -18,51 +13,24 @@ interface OpenRouterModelPanelProps {
   className?: string;
   style?: CSSProperties;
   courseNotes?: CourseGenerationNotesBinding;
-  defaultModels: OpenRouterModelDefaults;
   expandedSections?: SettingsPanelSectionId[];
   onClose?: () => void;
-  onModelChange: (slot: OpenRouterModelSlot, value: string) => void;
   onSectionToggle?: (sections: SettingsPanelSectionId[]) => void;
-  preferredModels: OpenRouterModelPreferences;
 }
-
-const modelFields: Array<{
-  label: string;
-  placeholder: keyof OpenRouterModelDefaults;
-  slot: OpenRouterModelSlot;
-  value: keyof OpenRouterModelPreferences;
-}> = [
-  {
-    slot: 'lesson',
-    label: 'Lezioni',
-    placeholder: 'lessonModel',
-    value: 'preferredLessonModel',
-  },
-  {
-    slot: 'context',
-    label: 'Domande rapide',
-    placeholder: 'contextModel',
-    value: 'preferredContextModel',
-  },
-];
 
 export default function OpenRouterModelPanel({
   className,
   style,
   courseNotes,
-  defaultModels,
   expandedSections = ['course-notes'],
   onClose,
-  onModelChange,
   onSectionToggle,
-  preferredModels,
 }: OpenRouterModelPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const notesInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldAnimate = useShouldAnimate();
   const expandedSectionSet = new Set(expandedSections);
   const isCourseNotesExpanded = expandedSectionSet.has('course-notes');
-  const isModelsExpanded = onSectionToggle ? expandedSectionSet.has('ai-models') : true;
   const courseNotesValue = courseNotes?.value ?? '';
 
   const saveNotesIfChanged = useCallback(() => {
@@ -108,18 +76,8 @@ export default function OpenRouterModelPanel({
       >
         <div className="max-h-[inherit] overflow-y-auto overflow-x-hidden">
           <div className="model-panel-divider flex items-center justify-between gap-4 border-b pb-3">
-            <h3 className="model-panel-title text-sm font-semibold">Impostazioni modelli</h3>
+            <h3 className="model-panel-title text-sm font-semibold">Impostazioni lettura</h3>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  onModelChange('lesson', '');
-                  onModelChange('context', '');
-                }}
-                className="model-panel-reset rounded-full px-2.5 py-1 text-xs font-medium"
-              >
-                Reset
-              </button>
               {onClose ? (
                 <button
                   type="button"
@@ -175,41 +133,6 @@ export default function OpenRouterModelPanel({
               ) : null}
             </div>
           ) : null}
-
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => toggleSection('ai-models')}
-              className="model-panel-section-toggle flex w-full items-center justify-between gap-3 py-1 text-left"
-              aria-expanded={isModelsExpanded}
-            >
-              <span className="model-panel-title text-sm font-semibold">Modelli IA</span>
-              <ChevronDown
-                className={`h-4 w-4 shrink-0 transition-transform ${
-                  isModelsExpanded ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-
-            {isModelsExpanded ? (
-              <div className="mt-3 space-y-3">
-                {modelFields.map(field => (
-                  <label key={field.slot} className="block">
-                    <span className="model-panel-label block text-[11px] font-semibold uppercase tracking-[0.18em]">
-                      {field.label}
-                    </span>
-                    <input
-                      type="text"
-                      value={preferredModels[field.value]}
-                      onChange={event => onModelChange(field.slot, event.target.value)}
-                      placeholder={defaultModels[field.placeholder]}
-                      className="model-panel-input mt-1.5 w-full rounded-xl px-3 py-2.5 text-sm"
-                    />
-                  </label>
-                ))}
-              </div>
-            ) : null}
-          </div>
         </div>
       </div>
     </div>

@@ -167,9 +167,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={tree}
       />
     );
@@ -194,9 +191,6 @@ describe('LibraryTreeView', () => {
       onMoveProjects: vi.fn(async () => []),
       onOpenProject: vi.fn(),
       onRenameFolder: vi.fn(async () => {}),
-      onTransferFolderToLan: vi.fn(async () => {}),
-      onTransferProjectToLan: vi.fn(async () => {}),
-      projectRepositoryMode: 'indexeddb' as const,
       tree,
     };
     const { rerender } = render(<LibraryTreeView {...props} createRootTrigger={0} />);
@@ -223,9 +217,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={vi.fn(async () => [])}
         onOpenProject={vi.fn()}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={desktopTree}
       />
     );
@@ -291,9 +282,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={tree}
       />
     );
@@ -319,9 +307,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={tree}
       />
     );
@@ -343,9 +328,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={tree}
       />
     );
@@ -368,9 +350,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={tree}
       />
     );
@@ -394,9 +373,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={vi.fn(async () => {})}
         onOpenProject={onOpenProject}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={tree}
       />
     );
@@ -421,9 +397,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={onMoveProjects}
         onOpenProject={vi.fn()}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={tree}
       />
     );
@@ -455,9 +428,6 @@ describe('LibraryTreeView', () => {
         onMoveProjects={onMoveProjects}
         onOpenProject={vi.fn()}
         onRenameFolder={vi.fn(async () => {})}
-        onTransferFolderToLan={vi.fn(async () => {})}
-        onTransferProjectToLan={vi.fn(async () => {})}
-        projectRepositoryMode="indexeddb"
         tree={tree}
       />
     );

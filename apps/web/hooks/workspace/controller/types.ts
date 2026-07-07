@@ -132,10 +132,7 @@ export interface WorkspaceProjectLibraryAdapter {
   savedProjects: SavedProjectMeta[];
   setCurrentProjectId: (projectId: string | null) => void;
   setProjectHydrated: (value: boolean) => void;
-  setProjectRepositoryMode: (mode: ProjectRepositoryMode) => void;
   storageError: string | null;
-  transferFolderToLan: (folderId: string) => Promise<void>;
-  transferProjectToLan: (projectId: string) => Promise<void>;
   touchStoredProject: (projectId: string) => Promise<void>;
 }
 

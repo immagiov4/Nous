@@ -114,7 +114,6 @@ const buildProps = (
   isDarkMode: false,
   isMobileViewport: false,
   onClose: vi.fn(),
-  preferredContextModel: 'openai/gpt-5.4-mini',
   onSaveConversationNote: vi.fn(),
   onUpdateConversationNote: vi.fn(),
   currentLessonArtifactPayloads: [currentLessonArtifact],
@@ -252,7 +251,7 @@ describe('ContextAnswerPanel', () => {
     expect(chatTextComposerProps.at(-1)?.placeholder).toMatch(/Accetta o rifiuta la nota/i);
   });
 
-  test('sends the preferred context model override with context chat requests', () => {
+  test('does not send a frontend model override with context chat requests', () => {
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -271,7 +270,7 @@ describe('ContextAnswerPanel', () => {
       messages: [{ role: 'user', parts: [{ type: 'text', text: 'spiega meglio' }] }],
     }) as { body?: Record<string, unknown> };
 
-    expect(request.body?.modelOverride).toBe('openai/gpt-5.4-mini');
+    expect(request.body?.modelOverride).toBeUndefined();
   });
 
   test('sends lesson context scope with context chat requests', () => {
@@ -333,30 +332,6 @@ describe('ContextAnswerPanel', () => {
 
     expect(screen.getByText('mappa concettuale')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Apri mappa concettuale/i })).toBeInTheDocument();
-  });
-
-  test('uses the latest preferred context model after rerender on the initial transport instance', () => {
-    useChatMock.mockReturnValue({
-      addToolOutput: addToolOutputMock,
-      error: undefined,
-      messages: [],
-      sendMessage: sendMessageMock,
-      status: 'ready',
-    });
-
-    const { rerender } = render(<ContextAnswerPanel {...buildProps()} preferredContextModel="" />);
-
-    const transport = defaultChatTransportInstances[0];
-    expect(transport?.prepareSendMessagesRequest).toBeTypeOf('function');
-
-    rerender(<ContextAnswerPanel {...buildProps()} preferredContextModel="openai/gpt-5.4-nano" />);
-
-    const request = transport?.prepareSendMessagesRequest?.({
-      id: 'chat-2',
-      messages: [{ role: 'user', parts: [{ type: 'text', text: 'spiega meglio' }] }],
-    }) as { body?: Record<string, unknown> };
-
-    expect(request.body?.modelOverride).toBe('openai/gpt-5.4-nano');
   });
 
   test('shows fallback buttons after grace period when requestAddToNotes input is invalid', async () => {

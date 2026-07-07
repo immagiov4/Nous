@@ -8,7 +8,6 @@ import {
   GripVertical,
   MoreVertical,
   Pencil,
-  Server,
   Trash2,
   X,
 } from 'lucide-react';
@@ -22,10 +21,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  LIBRARY_FOLDER_MENU_INDEXEDDB_ESTIMATED_HEIGHT_PX,
-  LIBRARY_FOLDER_MENU_LAN_ESTIMATED_HEIGHT_PX,
-} from '../../constants/layout.ts';
+import { LIBRARY_FOLDER_MENU_ESTIMATED_HEIGHT_PX } from '../../constants/layout.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import type { LibraryFolderNode, LibraryTree, LibraryTreeNode } from '../../types.ts';
 import { flattenLibraryTreeNodes } from '../../utils/library/tree.ts';
@@ -53,9 +49,6 @@ interface LibraryTreeViewProps {
   ) => Promise<unknown>;
   onOpenProject: (projectId: string) => void;
   onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
-  onTransferFolderToLan: (folderId: string) => Promise<unknown>;
-  onTransferProjectToLan: (projectId: string) => Promise<unknown>;
-  projectRepositoryMode: 'indexeddb' | 'lan';
   tree: LibraryTree;
 }
 
@@ -281,9 +274,6 @@ export default function LibraryTreeView({
   onMoveProjects,
   onOpenProject,
   onRenameFolder,
-  onTransferFolderToLan,
-  onTransferProjectToLan,
-  projectRepositoryMode,
   tree,
 }: LibraryTreeViewProps) {
   const [createTargetId, setCreateTargetId] = useState<string | null>(null);
@@ -852,13 +842,6 @@ export default function LibraryTreeView({
             onDelete={onDeleteProject}
             onExport={onExportProject}
             onMove={projectId => setMoveTarget({ id: projectId, kind: 'project' })}
-            onTransferToLan={
-              projectRepositoryMode === 'indexeddb'
-                ? projectId => {
-                    void onTransferProjectToLan(projectId);
-                  }
-                : undefined
-            }
             onOpen={onOpenProject}
           />
           {isDropAfter(node.id, 'project') ? (
@@ -989,10 +972,7 @@ export default function LibraryTreeView({
                   return;
                 }
                 const rect = e.currentTarget.getBoundingClientRect();
-                const estimatedMenuHeight =
-                  projectRepositoryMode === 'indexeddb'
-                    ? LIBRARY_FOLDER_MENU_INDEXEDDB_ESTIMATED_HEIGHT_PX
-                    : LIBRARY_FOLDER_MENU_LAN_ESTIMATED_HEIGHT_PX;
+                const estimatedMenuHeight = LIBRARY_FOLDER_MENU_ESTIMATED_HEIGHT_PX;
                 const spaceBelow = window.innerHeight - rect.bottom;
                 const spaceAbove = rect.top;
                 const shouldFlipUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
@@ -1048,19 +1028,6 @@ export default function LibraryTreeView({
                 <GripVertical className="h-4 w-4 shrink-0" />
                 Sposta
               </button>
-              {projectRepositoryMode === 'indexeddb' ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpenFolderMenuId(null);
-                    void onTransferFolderToLan(node.id);
-                  }}
-                  className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                  <Server className="h-4 w-4 shrink-0" />
-                  Porta in LAN
-                </button>
-              ) : null}
               <div className="border-t border-gray-100 dark:border-zinc-700" />
               <button
                 type="button"

@@ -13,25 +13,18 @@ const renderPanel = (onNotesChange = vi.fn(), value = 'Spiega lentamente') =>
         value,
         onChange: onNotesChange,
       }}
-      defaultModels={{
-        assessmentModel: 'google/gemini-3.1-flash-lite',
-        contextModel: 'google/gemini-3.1-flash-lite',
-        lessonModel: 'openai/gpt-5.4-mini',
-        ttsModel: 'openai/gpt-4o-mini-tts',
-        ttsVoice: 'alloy',
-      }}
-      onModelChange={vi.fn()}
-      preferredModels={{
-        preferredAssessmentModel: '',
-        preferredContextModel: '',
-        preferredLessonModel: '',
-        preferredTtsModel: '',
-        preferredTtsVoice: '',
-      }}
     />
   );
 
 describe('OpenRouterModelPanel', () => {
+  test('keeps global model selection out of the reader panel', () => {
+    renderPanel();
+
+    expect(screen.queryByText('Modelli IA')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Lezioni')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Domande rapide')).not.toBeInTheDocument();
+  });
+
   test('saves custom instructions on blur only when changed', async () => {
     const user = userEvent.setup();
     const onNotesChange = vi.fn();
@@ -70,22 +63,7 @@ describe('OpenRouterModelPanel', () => {
             value: 'Spiega lentamente',
             onChange: onNotesChange,
           }}
-          defaultModels={{
-            assessmentModel: 'google/gemini-3.1-flash-lite',
-            contextModel: 'google/gemini-3.1-flash-lite',
-            lessonModel: 'openai/gpt-5.4-mini',
-            ttsModel: 'openai/gpt-4o-mini-tts',
-            ttsVoice: 'alloy',
-          }}
           onClose={onClose}
-          onModelChange={vi.fn()}
-          preferredModels={{
-            preferredAssessmentModel: '',
-            preferredContextModel: '',
-            preferredLessonModel: '',
-            preferredTtsModel: '',
-            preferredTtsVoice: '',
-          }}
         />
       </div>
     );

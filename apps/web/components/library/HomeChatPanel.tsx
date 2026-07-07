@@ -947,7 +947,7 @@ export default function HomeChatPanel({
             <p className="mt-1.5 max-w-2xl text-sm leading-6 text-gray-600 dark:text-zinc-400">
               {homeChatMode === 'new-course'
                 ? 'Bastano poche righe: obiettivo, livello di partenza, scadenza e materiale disponibile.'
-                : 'Interroga corsi, lezioni, note e highlight locali.'}
+                : 'Interroga corsi, lezioni, note e highlight della libreria.'}
             </p>
           </div>
 
@@ -1447,8 +1447,8 @@ export default function HomeChatPanel({
                     Cerca sul web
                   </span>
                   <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                    Da usare insieme ai dati locali quando vuoi confronti o suggerimenti oltre la
-                    libreria.
+                    Da usare insieme ai dati della libreria quando vuoi confronti o suggerimenti
+                    oltre la libreria.
                   </span>
                 </span>
               </button>

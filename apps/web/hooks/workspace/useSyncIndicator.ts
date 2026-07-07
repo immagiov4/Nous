@@ -1,4 +1,4 @@
-// fallow-ignore-file unused-exports — used by readerShellProps
+// fallow-ignore-file unused-exports — used by the reader shell container
 
 import { useSyncExternalStore } from 'react';
 import {

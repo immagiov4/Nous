@@ -1,6 +1,7 @@
 // Exposes text-to-speech routes for the backend API.
 import { type Request, type Response, Router } from 'express';
 
+import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { DEFAULT_TTS_MODEL, ttsClient } from '../services/ttsClient.js';
 
 const router = Router();
@@ -37,7 +38,8 @@ router.get('/models', async (_req: Request, res: Response) => {
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { text, model, voice, speed } = req.body;
+    const { text, speed } = req.body;
+    const modelConfig = await getResolvedGlobalModelConfig();
 
     if (!text || typeof text !== 'string') {
       return res.status(400).json({
@@ -57,8 +59,8 @@ router.post('/', async (req: Request, res: Response) => {
 
     const generatedAudio = await ttsClient.generateSpeech({
       text: normalizedText,
-      model,
-      voice,
+      model: modelConfig.ttsModel,
+      voice: modelConfig.ttsVoice,
       speed,
     });
 

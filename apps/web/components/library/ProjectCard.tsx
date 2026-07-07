@@ -7,12 +7,11 @@ import {
   FolderInput,
   Loader2,
   MoreVertical,
-  Server,
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { useRef, useState } from 'react';
+import { createElement, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   LIBRARY_MENU_EDGE_PADDING_PX,
@@ -27,7 +26,6 @@ interface ProjectCardProps {
   className?: string;
   isOpening?: boolean;
   onMove?: (projectId: string) => void;
-  onTransferToLan?: (projectId: string) => void;
   project: SavedProjectMeta;
   onDelete: (projectId: string) => void;
   onExport: (projectId: string) => void;
@@ -61,7 +59,6 @@ const ProjectCard = ({
   onExport,
   onMove,
   onOpen,
-  onTransferToLan,
   project,
   style,
 }: ProjectCardProps) => {
@@ -73,7 +70,7 @@ const ProjectCard = ({
     top: null as number | null,
   });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const CoverIcon = getProjectCoverIcon(project.sourceKind);
+  const coverIcon = getProjectCoverIcon(project.sourceKind);
   const showSourceWarning = !project.hasSourceFile && project.sourceKind !== 'learn-mode';
 
   const openMenu = () => {
@@ -157,19 +154,6 @@ const ProjectCard = ({
               Sposta
             </button>
           ) : null}
-          {onTransferToLan ? (
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onTransferToLan(project.id);
-              }}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
-            >
-              <Server className="h-4 w-4 shrink-0" />
-              Porta in LAN
-            </button>
-          ) : null}
           <button
             type="button"
             onClick={() => {
@@ -214,7 +198,7 @@ const ProjectCard = ({
         {isOpening ? (
           <Loader2 className="h-4 w-4 animate-spin sm:h-[1.125rem] sm:w-[1.125rem]" />
         ) : (
-          <CoverIcon className="h-4 w-4 sm:h-[1.125rem] sm:w-[1.125rem]" />
+          createElement(coverIcon, { className: 'h-4 w-4 sm:h-[1.125rem] sm:w-[1.125rem]' })
         )}
       </Pressable>
 

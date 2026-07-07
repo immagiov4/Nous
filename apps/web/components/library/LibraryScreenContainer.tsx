@@ -1,6 +1,5 @@
 // fallow-ignore-file unused-files
 import { useState } from 'react';
-import { defaultModelConfig } from '../../app/modelDefaults.ts';
 import type { useLibraryAssistantChat } from '../../hooks/library/useLibraryAssistantChat.ts';
 import type { useProjectLibrary } from '../../hooks/library/useProjectLibrary.ts';
 import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceController.ts';
@@ -56,10 +55,6 @@ export const LibraryScreenContainer = ({
     startHomeChat,
     submitAssessment,
     storageError,
-    transferFolderToLan,
-    transferProjectToLan,
-    projectRepositoryMode,
-    setProjectRepositoryMode,
   } = controller;
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -129,11 +124,9 @@ export const LibraryScreenContainer = ({
       libraryTree={projectLibrary.libraryTree}
       libraryWebSearch={libraryAssistantChat.webSearch}
       libraryGenerateArtifacts={libraryAssistantChat.generateArtifacts}
-      modelDefaults={defaultModelConfig}
       newCourseLoadingStatus={controller.workflowState.assessment.message || 'Caricamento...'}
       openingProjectId={openingProjectId}
       planFileInputId={fileActions.planFileInputId}
-      preferredModels={readerState.preferredModels}
       projects={savedProjects}
       pendingHomeFileName={pendingHomeSourceFile?.name || null}
       sourceFileInputId={fileActions.sourceFileInputId}
@@ -175,18 +168,13 @@ export const LibraryScreenContainer = ({
       }}
       onRemoveLibraryContextRef={libraryAssistantChat.removeAttachedContextRef}
       onRenameFolder={projectLibrary.renameFolder}
-      onTransferFolderToLan={transferFolderToLan}
-      onTransferProjectToLan={transferProjectToLan}
       onSendAssessmentMessage={handleNewCourseMessage}
-      onSetPreferredOpenRouterModel={readerState.setPreferredOpenRouterModel}
-      onSetProjectRepositoryMode={setProjectRepositoryMode}
       onSourceFileUpload={handleHomeSourceFileUpload}
       onToggleDarkMode={() =>
         readerState.readerChrome.setIsDarkMode(!readerState.readerChrome.isDarkMode)
       }
       onToggleLibraryContextRef={libraryAssistantChat.toggleAttachedContextRef}
       onUploadSourceClick={fileActions.handleUploadSourceClick}
-      projectRepositoryMode={projectRepositoryMode}
     />
   );
 };

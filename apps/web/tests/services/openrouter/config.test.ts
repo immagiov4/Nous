@@ -6,7 +6,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test('resolveOpenRouterModel can bypass UI model preferences for fixed internal tasks', () => {
+test('resolveOpenRouterModel ignores legacy UI model preferences', () => {
   vi.stubGlobal('window', {
     localStorage: {
       getItem: () =>
@@ -20,7 +20,7 @@ test('resolveOpenRouterModel can bypass UI model preferences for fixed internal 
 
   assert.equal(
     resolveOpenRouterModel('nvidia/nemotron-nano-12b-v2-vl', 'lesson'),
-    'openai/gpt-5.4-mini'
+    'nvidia/nemotron-nano-12b-v2-vl'
   );
   assert.equal(
     resolveOpenRouterModel('nvidia/nemotron-nano-12b-v2-vl', 'lesson', false),
@@ -28,6 +28,6 @@ test('resolveOpenRouterModel can bypass UI model preferences for fixed internal 
   );
   assert.equal(
     resolveOpenRouterModel('mistralai/mistral-small-2603', 'assessment'),
-    'openai/gpt-5.4-nano'
+    'mistralai/mistral-small-2603'
   );
 });

@@ -5,6 +5,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { type Request, type Response, Router } from 'express';
 
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_RESPONSE_HEADERS = ['content-type', 'cache-control'] as const;
@@ -24,6 +25,21 @@ const forwardOpenRouterHeaders = (req: Request): HeadersInit => ({
   'HTTP-Referer': getRequestOrigin(req),
   'X-Title': 'Nous Reader',
 });
+
+const resolveProxyModel = async (req: Request): Promise<string> => {
+  const modelConfig = await getResolvedGlobalModelConfig();
+  const slot = req.get('x-nous-model-slot')?.trim();
+
+  if (slot === 'assessment') {
+    return modelConfig.assessmentModel;
+  }
+
+  if (slot === 'context') {
+    return modelConfig.contextModel;
+  }
+
+  return modelConfig.lessonModel;
+};
 
 const pipeOpenRouterResponse = (upstreamResponse: globalThis.Response, res: Response): void => {
   res.status(upstreamResponse.status);
@@ -50,7 +66,10 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
     const upstreamResponse = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
       method: 'POST',
       headers: forwardOpenRouterHeaders(req),
-      body: JSON.stringify(req.body),
+      body: JSON.stringify({
+        ...req.body,
+        model: await resolveProxyModel(req),
+      }),
     });
 
     pipeOpenRouterResponse(upstreamResponse, res);

@@ -1,0 +1,158 @@
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import {
+  consumeSupabaseSessionFromUrl,
+  isLocalAuthBypassEnabled,
+  isSupabaseAuthEnabled,
+  readSupabaseSession,
+  type SupabaseUserSession,
+  sendMagicLink,
+  signInWithPassword,
+} from '../../services/auth/supabaseAuth.ts';
+
+interface AuthGateProps {
+  children: ReactNode;
+}
+
+type AuthStatus = 'idle' | 'loading' | 'magic-link-sent' | 'error';
+
+const LoginPanel = ({
+  onAuthenticated,
+}: {
+  onAuthenticated: (session: SupabaseUserSession) => void;
+}) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [status, setStatus] = useState<AuthStatus>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const handlePasswordLogin = async (event: FormEvent) => {
+    event.preventDefault();
+    setStatus('loading');
+    setErrorMessage('');
+
+    try {
+      onAuthenticated(await signInWithPassword({ email, password }));
+      setStatus('idle');
+    } catch (error) {
+      setStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : 'Accesso non riuscito.');
+    }
+  };
+
+  const handleMagicLink = async () => {
+    setStatus('loading');
+    setErrorMessage('');
+
+    try {
+      await sendMagicLink(email);
+      setStatus('magic-link-sent');
+    } catch (error) {
+      setStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : 'Invio magic link non riuscito.');
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#f8f7f4] px-5 py-10 text-gray-950">
+      <section className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-md flex-col justify-center">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h1 className="font-serif text-3xl">Nous</h1>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            Accedi al tuo spazio di studio per sincronizzare corsi, note e progressi.
+          </p>
+
+          <form className="mt-6 space-y-4" onSubmit={handlePasswordLogin}>
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+                Email
+              </span>
+              <input
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={event => setEmail(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-900"
+                required
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+                Password
+              </span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={event => setPassword(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-gray-900"
+              />
+            </label>
+
+            {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
+            {status === 'magic-link-sent' ? (
+              <p className="text-sm text-gray-600">Magic link inviato. Controlla la tua email.</p>
+            ) : null}
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                type="submit"
+                disabled={status === 'loading'}
+                className="inline-flex flex-1 items-center justify-center rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Accedi
+              </button>
+              <button
+                type="button"
+                disabled={!email || status === 'loading'}
+                onClick={handleMagicLink}
+                className="inline-flex flex-1 items-center justify-center rounded-full border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-800 disabled:opacity-50"
+              >
+                Magic link
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+  );
+};
+
+export default function AuthGate({ children }: AuthGateProps) {
+  const [session, setSession] = useState<SupabaseUserSession | null>(() =>
+    isSupabaseAuthEnabled()
+      ? readSupabaseSession()
+      : isLocalAuthBypassEnabled()
+        ? { accessToken: 'local-bypass' }
+        : null
+  );
+
+  useEffect(() => {
+    if (!isSupabaseAuthEnabled()) {
+      return;
+    }
+
+    const nextSession = consumeSupabaseSessionFromUrl();
+    queueMicrotask(() => setSession(nextSession));
+  }, []);
+
+  if (isLocalAuthBypassEnabled() || session) {
+    return <>{children}</>;
+  }
+
+  if (!isSupabaseAuthEnabled()) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f8f7f4] px-5 text-gray-950">
+        <section className="max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h1 className="font-serif text-3xl">Nous</h1>
+          <p className="mt-3 text-sm leading-6 text-gray-600">
+            Autenticazione non configurata. Imposta VITE_AUTH_MODE=supabase e collega Supabase per
+            accedere alla libreria server.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  return <LoginPanel onAuthenticated={setSession} />;
+}

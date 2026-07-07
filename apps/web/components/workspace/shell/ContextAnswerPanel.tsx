@@ -199,7 +199,6 @@ interface ContextRequestState {
   lessonContent?: string;
   lessonDescription?: string;
   lessonTitle?: string;
-  preferredContextModel: string;
   selectedText: string;
   sourceKind?: ContextAnswerState['sourceKind'];
   sourceMaterial?: string;
@@ -234,7 +233,6 @@ interface ContextAnswerPanelProps {
   isMobileViewport: boolean;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   onClose: () => void;
-  preferredContextModel: string;
   onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
   onUpdateConversationNote: (
     input: SaveConversationNoteInput
@@ -272,7 +270,6 @@ function ContextAnswerPanelSession({
   isMobileViewport,
   currentLessonArtifactPayloads = [],
   onClose,
-  preferredContextModel,
   onSaveConversationNote,
   onUpdateConversationNote,
   onSaveArtifactToLesson,
@@ -349,7 +346,6 @@ function ContextAnswerPanelSession({
       sourceKind: contextAnswer.sourceKind,
       sourceMaterial: contextAnswer.sourceMaterial,
       sourceName: contextAnswer.sourceName,
-      preferredContextModel,
       toolPreferences,
     });
 
@@ -369,7 +365,6 @@ function ContextAnswerPanelSession({
     contextAnswer.sourceKind,
     contextAnswer.sourceMaterial,
     contextAnswer.sourceName,
-    preferredContextModel,
     requestStateKey,
     toolPreferences,
   ]);
@@ -395,7 +390,6 @@ function ContextAnswerPanelSession({
               lessonContent: currentRequestState.lessonContent,
               lessonDescription: currentRequestState.lessonDescription,
               lessonTitle: currentRequestState.lessonTitle,
-              modelOverride: currentRequestState.preferredContextModel.trim() || undefined,
               selectedText: currentRequestState.selectedText,
               sourceKind: currentRequestState.sourceKind,
               sourceMaterial: currentRequestState.sourceMaterial,

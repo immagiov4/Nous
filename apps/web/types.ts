@@ -450,31 +450,16 @@ export interface ProjectExportData {
 }
 
 export type OpenRouterModelSlot = 'lesson' | 'assessment' | 'context' | 'tts';
-export type SettingsPanelSectionId = 'course-notes' | 'ai-models';
-
-export interface OpenRouterModelDefaults {
-  lessonModel: string;
-  assessmentModel: string;
-  contextModel: string;
-  ttsModel: string;
-  ttsVoice: string;
-}
-
-export interface OpenRouterModelPreferences {
-  preferredLessonModel: string;
-  preferredAssessmentModel: string;
-  preferredContextModel: string;
-  preferredTtsModel: string;
-  preferredTtsVoice: string;
-}
+export type SettingsPanelSectionId = 'course-notes';
 
 export type AudioPanelTab = 'voce' | 'ambiente';
 
-export interface UiPreferences extends OpenRouterModelPreferences {
+export interface UiPreferences {
   isDarkMode: boolean;
   lastAudioTab: AudioPanelTab;
   preferredVoice: VoiceProfileId;
   playbackRate: number;
+  preferredTtsVoice: VoiceProfileId;
   settingsPanelExpandedSections: SettingsPanelSectionId[];
 }
 

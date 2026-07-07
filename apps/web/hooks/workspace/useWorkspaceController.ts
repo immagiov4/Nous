@@ -46,10 +46,7 @@ export const useWorkspaceController = ({
     projectRepositoryMode: projectLibrary.projectRepositoryMode,
     savedProjects: projectLibrary.savedProjects,
     screenState: controllerState.screenState,
-    setProjectRepositoryMode: projectLibrary.setProjectRepositoryMode,
     storageError: projectLibrary.storageError,
-    transferFolderToLan: projectLibrary.transferFolderToLan,
-    transferProjectToLan: projectLibrary.transferProjectToLan,
     workflowState: controllerState.workflowState,
   };
 };

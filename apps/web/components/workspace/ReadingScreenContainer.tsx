@@ -1,6 +1,5 @@
 // fallow-ignore-file unused-files
 import { useEffect } from 'react';
-import { defaultModelConfig } from '../../app/modelDefaults.ts';
 import { resolvePdfMappingWarning } from '../../app/pdfMappingWarning.ts';
 import { useInitialSectionAutoOpen } from '../../app/useInitialSectionAutoOpen.ts';
 import { useReaderShellProps } from '../../app/useReaderShellProps.ts';
@@ -101,7 +100,6 @@ export const ReadingScreenContainer = ({
     handleAttachSourceFile: fileActions.handleAttachSourceFile,
     handleBackToLibrary: navigation.handleBackToLibrary,
     handleExportProject: fileActions.handleExportProject,
-    modelDefaults: defaultModelConfig,
     notify,
     pdfMappingWarning,
     readerActions,

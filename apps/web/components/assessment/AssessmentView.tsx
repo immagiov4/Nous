@@ -1,15 +1,9 @@
 // fallow-ignore-file unused-files
-import { ArrowLeft, BrainCircuit, Settings2, Sparkles } from 'lucide-react';
-import { type FormEvent, type RefObject, useState } from 'react';
+import { ArrowLeft, BrainCircuit, Sparkles } from 'lucide-react';
+import type { FormEvent, RefObject } from 'react';
 import { ASSESSMENT_MIN_TURNS } from '../../constants';
-import type {
-  Message,
-  OpenRouterModelDefaults,
-  OpenRouterModelPreferences,
-  OpenRouterModelSlot,
-} from '../../types';
+import type { Message } from '../../types';
 import MarkdownRenderer from '../shared/MarkdownRenderer';
-import OpenRouterModelPanel from '../shared/OpenRouterModelPanel';
 
 interface AssessmentViewProps {
   assessmentInputId: string;
@@ -18,14 +12,11 @@ interface AssessmentViewProps {
   isDarkMode: boolean;
   isLoading: boolean;
   loadingStatus: string;
-  modelDefaults: OpenRouterModelDefaults;
   messages: Message[];
   messagesEndRef: RefObject<HTMLDivElement | null>;
   onBackToLibrary: () => void;
   onInputChange: (value: string) => void;
-  onSetPreferredOpenRouterModel: (slot: OpenRouterModelSlot, value: string) => void;
   onSubmit: (event: FormEvent) => void;
-  preferredModels: OpenRouterModelPreferences;
 }
 
 const tips = [
@@ -41,16 +32,12 @@ const AssessmentView = ({
   isDarkMode,
   isLoading,
   loadingStatus,
-  modelDefaults,
   messages,
   messagesEndRef,
   onBackToLibrary,
   onInputChange,
-  onSetPreferredOpenRouterModel,
   onSubmit,
-  preferredModels,
 }: AssessmentViewProps) => {
-  const [isModelPanelOpen, setIsModelPanelOpen] = useState(false);
   const currentTurn = messages.filter(message => message.role === 'user').length + 1;
   const progress = Math.min(currentTurn / ASSESSMENT_MIN_TURNS, 1);
   const showTips = messages.length <= 1;
@@ -80,29 +67,6 @@ const AssessmentView = ({
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsModelPanelOpen(currentValue => !currentValue)}
-                onPointerDown={e => e.stopPropagation()}
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-paper-surface dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
-                aria-label="Apri configurazione modelli AI"
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Modelli AI</span>
-              </button>
-
-              {isModelPanelOpen ? (
-                <OpenRouterModelPanel
-                  className="absolute right-0 top-[calc(100%+0.75rem)] z-30 w-[min(26rem,calc(100vw-2rem))]"
-                  defaultModels={modelDefaults}
-                  preferredModels={preferredModels}
-                  onClose={() => setIsModelPanelOpen(false)}
-                  onModelChange={onSetPreferredOpenRouterModel}
-                />
-              ) : null}
-            </div>
-
             <div className="hidden items-center gap-2 sm:flex">
               <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-200 dark:bg-zinc-800">
                 <div

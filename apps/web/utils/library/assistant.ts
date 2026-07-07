@@ -87,7 +87,7 @@ const resolveProjectTitle = ({
 export const buildLibraryScopeSummary = ({
   attachedContextRefs,
   folders,
-  projectRepositoryMode,
+  projectRepositoryMode: _projectRepositoryMode,
   projects,
   tree,
 }: {
@@ -97,7 +97,7 @@ export const buildLibraryScopeSummary = ({
   projects: SavedProjectMeta[];
   tree: LibraryTree;
 }): LibraryScopeSummary => {
-  const repositoryLabel = projectRepositoryMode === 'lan' ? 'archivio LAN' : 'libreria locale';
+  const repositoryLabel = 'archivio server';
   const allProjectIds = projects.map(project => project.id);
   const scopeProjectIds = resolveScopedProjectIds({
     attachedContextRefs,

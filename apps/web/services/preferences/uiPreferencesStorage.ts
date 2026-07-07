@@ -1,9 +1,5 @@
 import type { AudioPanelTab, SettingsPanelSectionId, UiPreferences } from '../../types.ts';
-import {
-  DEFAULT_TTS_MODEL,
-  DEFAULT_TTS_VOICE,
-  normalizeVoiceProfileId,
-} from '../audio/voiceProfile.ts';
+import { DEFAULT_TTS_VOICE, normalizeVoiceProfileId } from '../audio/voiceProfile.ts';
 
 export const UI_PREFERENCES_KEY = 'nous-ui-preferences';
 
@@ -12,7 +8,7 @@ const LEGACY_UI_PREFERENCES_KEY = 'lumina-ui-preferences';
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
-const SETTINGS_PANEL_SECTION_IDS = new Set<SettingsPanelSectionId>(['course-notes', 'ai-models']);
+const SETTINGS_PANEL_SECTION_IDS = new Set<SettingsPanelSectionId>(['course-notes']);
 const DEFAULT_SETTINGS_PANEL_EXPANDED_SECTIONS: SettingsPanelSectionId[] = ['course-notes'];
 
 const normalizeSettingsPanelExpandedSections = (
@@ -59,22 +55,6 @@ export const parseUiPreferences = (
 
     if (isFiniteNumber(parsedPreferences.playbackRate)) {
       nextPreferences.playbackRate = parsedPreferences.playbackRate;
-    }
-
-    if (typeof parsedPreferences.preferredLessonModel === 'string') {
-      nextPreferences.preferredLessonModel = parsedPreferences.preferredLessonModel.trim();
-    }
-
-    if (typeof parsedPreferences.preferredAssessmentModel === 'string') {
-      nextPreferences.preferredAssessmentModel = parsedPreferences.preferredAssessmentModel.trim();
-    }
-
-    if (typeof parsedPreferences.preferredContextModel === 'string') {
-      nextPreferences.preferredContextModel = parsedPreferences.preferredContextModel.trim();
-    }
-
-    if (typeof parsedPreferences.preferredTtsModel === 'string') {
-      nextPreferences.preferredTtsModel = DEFAULT_TTS_MODEL;
     }
 
     if (typeof parsedPreferences.preferredTtsVoice === 'string') {

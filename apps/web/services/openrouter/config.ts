@@ -1,5 +1,4 @@
 import type { OpenRouterModelSlot } from '../../types.ts';
-import { readUiPreferences } from '../preferences/uiPreferencesStorage.ts';
 import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from './prompts.ts';
 import type { OpenRouterReasoningOptions } from './types.ts';
 
@@ -30,22 +29,10 @@ export const MEDIUM_REASONING_CONFIG: OpenRouterReasoningOptions = {
 
 export const resolveOpenRouterModel = (
   fallbackModel: string,
-  slot: OpenRouterModelSlot = 'lesson',
-  allowUiOverride = true
+  _slot: OpenRouterModelSlot = 'lesson',
+  _allowFrontendOverride = true
 ): string => {
-  if (typeof window === 'undefined' || !allowUiOverride) {
-    return fallbackModel;
-  }
-
-  const preferences = readUiPreferences(window.localStorage);
-  const preferredModel =
-    slot === 'assessment'
-      ? preferences?.preferredContextModel?.trim() || preferences?.preferredAssessmentModel?.trim()
-      : slot === 'context'
-        ? preferences?.preferredContextModel?.trim()
-        : preferences?.preferredLessonModel?.trim();
-
-  return preferredModel || fallbackModel;
+  return fallbackModel;
 };
 
 const FALLBACK_BACKEND_HOST = '127.0.0.1';

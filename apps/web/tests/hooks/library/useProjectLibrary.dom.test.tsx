@@ -29,25 +29,10 @@ const repositoryMocks = vi.hoisted(() => ({
   touchProject: vi.fn(),
 }));
 
-vi.mock('../../../services/projects/indexedDbProjectRepository', () => ({
-  IndexedDbProjectRepository: class MockIndexedDbProjectRepository {
-    createFolder = repositoryMocks.createFolder;
-    deleteProject = repositoryMocks.deleteProject;
-    deleteFolder = repositoryMocks.deleteFolder;
-    exportProject = repositoryMocks.exportProject;
-    importProject = repositoryMocks.importProject;
-    listFolders = repositoryMocks.listFolders;
-    listPlacements = repositoryMocks.listPlacements;
-    listProjects = repositoryMocks.listProjects;
-    loadProject = repositoryMocks.loadProject;
-    loadProjectsById = repositoryMocks.loadProjectsById;
-    moveFolder = repositoryMocks.moveFolder;
-    moveProjects = repositoryMocks.moveProjects;
-    renameFolder = repositoryMocks.renameFolder;
-    saveProject = repositoryMocks.saveProject;
-    patchProject = repositoryMocks.patchProject;
-    touchProject = repositoryMocks.touchProject;
-  },
+vi.mock('../../../services/projects/projectRepositoryFactory', () => ({
+  createProjectRepository: () => repositoryMocks,
+  getProjectRepositoryMode: () => 'server',
+  setProjectRepositoryMode: vi.fn(),
 }));
 
 const { useProjectLibrary } = await import('../../../hooks/library/useProjectLibrary.ts');

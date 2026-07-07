@@ -12,9 +12,6 @@ import type {
   LessonGeneratedVisual,
   LessonImageRef,
   LessonNode,
-  OpenRouterModelDefaults,
-  OpenRouterModelPreferences,
-  OpenRouterModelSlot,
   PdfImageAsset,
   ProjectSource,
   QuizQuestion,
@@ -151,7 +148,6 @@ export interface WorkspaceReaderHeaderModel {
   isSettingsOpen: boolean;
   learningPlanTitle: string;
   loadingStatus: string;
-  modelDefaults: OpenRouterModelDefaults;
   musicUrl: string;
   musicVolume: number;
   onBackToLibrary: () => void;
@@ -163,10 +159,8 @@ export interface WorkspaceReaderHeaderModel {
   onSetIsMusicPlaying: (value: boolean) => void;
   onSetMusicUrl: (value: string) => void;
   onSetMusicVolume: (value: number) => void;
-  onSetPreferredOpenRouterModel: (slot: OpenRouterModelSlot, value: string) => void;
   onSetSettingsOpen: (value: boolean) => void;
   onSetSettingsPanelExpandedSections: (value: SettingsPanelSectionId[]) => void;
-  preferredModels: OpenRouterModelPreferences;
   settingsPanelExpandedSections: SettingsPanelSectionId[];
   syncState: 'saved' | 'saving' | 'error';
   tts: WorkspaceReaderTtsModel;
@@ -226,7 +220,6 @@ export interface WorkspaceReaderOverlaysModel {
   onDeleteAnnotation: () => void;
   onDetachArtifactFromAnnotation: (artifactId: string) => void;
   onHighlight: () => void;
-  preferredModels: OpenRouterModelPreferences;
   onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
   onUpdateConversationNote: (
     input: SaveConversationNoteInput

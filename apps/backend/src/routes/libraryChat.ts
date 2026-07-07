@@ -10,7 +10,8 @@ import {
 } from 'ai';
 import { type Request, type Response, Router } from 'express';
 
-import { CONTEXT_CHAT_MODEL, requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString, readStringArray } from '../utils/validation.js';
 
@@ -83,7 +84,7 @@ const genericLibraryToolOutputSchema = jsonSchema<Record<string, unknown>>({
 const libraryChatTools = {
   listLibraryTree: tool({
     description:
-      'Esplora l albero cartelle/corsi attualmente disponibile nello scope locale consentito.',
+      'Esplora l albero cartelle/corsi attualmente disponibile nello scope corrente consentito.',
     inputSchema: jsonSchema<{
       includeProjects?: boolean;
     }>({
@@ -135,7 +136,7 @@ const libraryChatTools = {
             type: 'string',
           },
           description:
-            'Lista facoltativa di projectId reali gia ottenuti da tool locali. Se omessa, usa tutto lo scope corrente.',
+            'Lista facoltativa di projectId reali gia ottenuti dai tool della libreria. Se omessa, usa tutto lo scope corrente.',
         },
       },
     }),
@@ -193,7 +194,7 @@ const libraryChatTools = {
             type: 'string',
           },
           description:
-            'Lista facoltativa di projectId reali gia ottenuti dai tool locali. Se omessa usa tutto lo scope corrente.',
+            'Lista facoltativa di projectId reali gia ottenuti dai tool della libreria. Se omessa usa tutto lo scope corrente.',
         },
         query: {
           type: 'string',
@@ -402,7 +403,7 @@ const createLibrarySearchWebTool = ({
 }) =>
   createWebSearchTool({
     description:
-      'Esegue un cross-check web esterno con fonti aggiornate. Quando Cerca sul web e attiva devi chiamarlo prima della risposta finale. Usalo per verificare accuratezza, definizioni standard, best practice, fatti recenti o confronto esterno. Non usarlo per leggere dati interni della libreria, che vanno recuperati con i tool locali.',
+      'Esegue un cross-check web esterno con fonti aggiornate. Quando Cerca sul web e attiva devi chiamarlo prima della risposta finale. Usalo per verificare accuratezza, definizioni standard, best practice, fatti recenti o confronto esterno. Non usarlo per leggere dati interni della libreria, che vanno recuperati con i tool della libreria.',
     queryDescription:
       'Query web precisa da usare per il cross-check esterno, formulata in modo specifico rispetto al punto da verificare.',
     execute: async ({ maxResults, query }) =>
@@ -504,7 +505,7 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
 
     const messages = req.body.messages;
     const attachedContextRefs = readLibraryContextReferences(req.body.attachedContextRefs);
-    const modelOverride = readOptionalString(req.body.modelOverride);
+    const backendContextModel = (await getResolvedGlobalModelConfig()).contextModel;
     const resolvedScopeSummary = readLibraryResolvedScopeSummary(req.body.resolvedScopeSummary);
     const toolPreferences = readLibraryToolPreferences(req.body.toolPreferences);
 
@@ -519,11 +520,9 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
     const openrouter = createOpenRouter({
       apiKey: requireOpenRouterApiKey(),
     });
-    const selectedLibraryModel = modelOverride || CONTEXT_CHAT_MODEL;
-
     const libraryTools = buildLibraryToolSet({
       attachedContextRefs,
-      modelOverride,
+      modelOverride: backendContextModel,
       resolvedScopeSummary,
     });
 
@@ -533,7 +532,7 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
     );
 
     const result = streamText({
-      model: openrouter.chat(selectedLibraryModel),
+      model: openrouter.chat(backendContextModel),
       system: buildLibrarySystemPrompt({
         attachedContextRefs,
         resolvedScopeSummary,

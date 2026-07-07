@@ -83,7 +83,7 @@ const libraryScopeSummary: LibraryScopeSummary = {
   contextLabels: [],
   isWholeLibraryScope: true,
   scopeProjectIds: [project.id],
-  scopeSummary: 'Intera libreria locale (1 corsi disponibili).',
+  scopeSummary: 'Intero archivio server (1 corsi disponibili).',
 };
 
 const libraryMessages: UIMessage[] = [

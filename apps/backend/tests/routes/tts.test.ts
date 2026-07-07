@@ -15,9 +15,13 @@ vi.mock('../../src/services/ttsClient.js', () => ({
 }));
 
 const { createApp } = await import('../../src/index.js');
+const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
+  '../../src/config/modelConfig.js'
+);
 
 describe('POST /api/tts', () => {
   beforeEach(() => {
+    resetModelConfigForTesting();
     ttsClientMocks.generateSpeech.mockReset();
     ttsClientMocks.listModels.mockReset();
     ttsClientMocks.generateSpeech.mockResolvedValue({
@@ -59,11 +63,16 @@ describe('POST /api/tts', () => {
     });
   });
 
-  test('returns generated OpenRouter audio and cache headers', async () => {
+  test('returns generated OpenRouter audio using backend global model and voice', async () => {
+    patchGlobalModelConfig({
+      ttsModel: 'server/tts-model',
+      ttsVoice: 'verse',
+    });
+
     const response = await request(createApp()).post('/api/tts').send({
       text: 'Ciao Nous',
-      model: 'openai/gpt-4o-mini-tts-2025-12-15',
-      voice: 'coral',
+      model: 'client/ignored-tts-model',
+      voice: 'client-voice',
       speed: 1,
     });
 
@@ -74,8 +83,8 @@ describe('POST /api/tts', () => {
     expect(response.body).toBeInstanceOf(Buffer);
     expect(ttsClientMocks.generateSpeech).toHaveBeenCalledWith({
       text: 'Ciao Nous',
-      model: 'openai/gpt-4o-mini-tts-2025-12-15',
-      voice: 'coral',
+      model: 'server/tts-model',
+      voice: 'verse',
       speed: 1,
     });
   });

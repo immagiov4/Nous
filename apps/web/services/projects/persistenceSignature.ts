@@ -66,7 +66,7 @@ const sourceIdentityToken = (source: unknown): number => {
 // Signature used by the autosave loop: identical to buildPersistenceSignature
 // but skips serializing `source` (it never changes after import, so a reference
 // token is enough). NOT interchangeable with buildPersistenceSignature for
-// content-equality checks (e.g. LAN transfer verification) because two
+// content-equality checks because two
 // otherwise-identical snapshots loaded from different stores will have
 // different source object identities.
 export const buildAutosaveSignature = (snapshotLike: SignatureInput): string =>

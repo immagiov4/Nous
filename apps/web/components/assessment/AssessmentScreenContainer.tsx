@@ -1,5 +1,4 @@
 // fallow-ignore-file unused-files
-import { defaultModelConfig } from '../../app/modelDefaults.ts';
 import { useWorkspaceAssessmentScreen } from '../../hooks/workspace/useWorkspaceAssessmentScreen.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
@@ -54,12 +53,9 @@ export const AssessmentScreenContainer = ({
       loadingStatus={loadingStatus}
       messages={assessmentMessages}
       messagesEndRef={assessmentScreen.messagesEndRef}
-      modelDefaults={defaultModelConfig}
       onBackToLibrary={navigation.handleBackToLibrary}
       onInputChange={assessmentScreen.setCurrentAssessmentInput}
-      onSetPreferredOpenRouterModel={readerState.setPreferredOpenRouterModel}
       onSubmit={assessmentScreen.handleAssessmentSubmit}
-      preferredModels={readerState.preferredModels}
     />
   );
 };

@@ -3,7 +3,9 @@ import './config/env.js';
 
 import cors from 'cors';
 import express from 'express';
+import { resolveCurrentUser } from './auth/currentUser.js';
 import { getBackendServerConfig, loadServerConfig } from './config/serverConfig.js';
+import adminRouter from './routes/admin.js';
 import chatRouter from './routes/chat.js';
 import openRouterProxyRouter from './routes/openRouterProxy.js';
 import pdfRouter from './routes/pdf.js';
@@ -14,7 +16,6 @@ import voicesRouter from './routes/voices.js';
 import { timestampIso } from './utils/time.js';
 
 const DEFAULT_FRONTEND_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
-const DEV_FRONTEND_PORT = '5173';
 const DEFAULT_JSON_BODY_LIMIT = '50mb';
 const OPENROUTER_JSON_BODY_LIMIT = '80mb';
 const PDF_JSON_BODY_LIMIT = '160mb';
@@ -31,40 +32,6 @@ const shouldLogRequest = (method: string, path: string, statusCode: number): boo
 
 const getRequestLogPath = (req: express.Request): string =>
   req.originalUrl.split('?')[0] || req.path;
-
-const isPrivateIpv4Host = (host: string): boolean => {
-  const parts = host.split('.').map(part => Number.parseInt(part, 10));
-  if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return false;
-  }
-
-  const [first, second] = parts;
-  return (
-    first === 10 ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168)
-  );
-};
-
-const isPrivateNetworkCorsEnabled = (): boolean =>
-  process.env.CORS_ALLOW_PRIVATE_NETWORK === 'true';
-
-const isPrivateNetworkFrontendOrigin = (origin: string): boolean => {
-  if (!isPrivateNetworkCorsEnabled()) {
-    return false;
-  }
-
-  try {
-    const parsedOrigin = new URL(origin);
-    return (
-      (parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:') &&
-      parsedOrigin.port === DEV_FRONTEND_PORT &&
-      isPrivateIpv4Host(parsedOrigin.hostname)
-    );
-  } catch {
-    return false;
-  }
-};
 
 const parseAllowedOrigins = (): Set<string> => {
   const configuredOrigins = process.env.CORS_ALLOWED_ORIGINS?.split(',')
@@ -88,12 +55,7 @@ export const createApp = () => {
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (
-          !origin ||
-          allowedOrigins.has(origin) ||
-          backendOrigins.has(origin) ||
-          isPrivateNetworkFrontendOrigin(origin)
-        ) {
+        if (!origin || allowedOrigins.has(origin) || backendOrigins.has(origin)) {
           callback(null, true);
           return;
         }
@@ -118,13 +80,14 @@ export const createApp = () => {
     next();
   });
 
-  app.use('/api/tts', ttsRouter);
+  app.use('/api/tts', resolveCurrentUser, ttsRouter);
   app.use('/api/voices', voicesRouter);
   app.use('/api/status', statusRouter);
-  app.use('/api/pdf', pdfRouter);
-  app.use('/api/chat', chatRouter);
-  app.use('/api/openrouter', openRouterProxyRouter);
-  app.use('/api/projects', projectsRouter);
+  app.use('/api/pdf', resolveCurrentUser, pdfRouter);
+  app.use('/api/chat', resolveCurrentUser, chatRouter);
+  app.use('/api/openrouter', resolveCurrentUser, openRouterProxyRouter);
+  app.use('/api/projects', resolveCurrentUser, projectsRouter);
+  app.use('/api/admin', resolveCurrentUser, adminRouter);
 
   app.get('/', (_req, res) => {
     res.redirect('http://localhost:5173');

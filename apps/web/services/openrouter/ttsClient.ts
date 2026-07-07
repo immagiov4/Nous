@@ -1,3 +1,4 @@
+import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 import type { TtsModelsResponse, TtsStatusResponse, TtsVoiceDescriptor } from './types.ts';
 
@@ -30,6 +31,7 @@ export const requestSpeechAudio = async (
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...getSupabaseAuthHeaders(),
     },
     body: JSON.stringify(payload),
   });
@@ -77,6 +79,7 @@ export const requestTtsVoices = async (): Promise<TtsVoiceDescriptor[]> => {
 export const requestTtsModels = async (): Promise<TtsModelsResponse> => {
   const response = await fetch(`${getBackendUrl()}/api/tts/models`, {
     method: 'GET',
+    headers: getSupabaseAuthHeaders(),
     signal: AbortSignal.timeout(TTS_DISCOVERY_REQUEST_TIMEOUT_MS),
   });
 

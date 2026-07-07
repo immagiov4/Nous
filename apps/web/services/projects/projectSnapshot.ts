@@ -104,7 +104,7 @@ export const buildCoverLabel = (
   const lessonCount = snapshot.learningPlan
     ? flattenLessons(snapshot.learningPlan.modules).length
     : 0;
-  return lessonCount > 0 ? `${lessonCount} lezioni` : 'Bozza locale';
+  return lessonCount > 0 ? `${lessonCount} lezioni` : 'Bozza salvata';
 };
 
 export const buildProjectMeta = (

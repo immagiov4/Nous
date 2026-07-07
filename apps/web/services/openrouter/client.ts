@@ -1,3 +1,4 @@
+import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
 import { getBackendUrl, MAX_OUTPUT_TOKENS, resolveOpenRouterModel } from './config.ts';
 import {
   measureUtf8Bytes,
@@ -22,8 +23,10 @@ const OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH = '/api/openrouter/chat/completions
 const getOpenRouterProxyUrl = (): string =>
   `${getBackendUrl()}${OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH}`;
 
-const getHeaders = () => ({
+const getHeaders = (modelSlot: ChatCompletionOptions['modelSlot'] = 'lesson') => ({
   'Content-Type': 'application/json',
+  'X-Nous-Model-Slot': modelSlot,
+  ...getSupabaseAuthHeaders(),
 });
 
 const createPayloadTooLargeError = (details: string): HttpError => {
@@ -182,7 +185,7 @@ export const callOpenRouterRaw = async (
   });
   const response = await fetch(getOpenRouterProxyUrl(), {
     method: 'POST',
-    headers: getHeaders(),
+    headers: getHeaders(options.modelSlot),
     body,
   });
 
@@ -212,7 +215,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
   });
   const response = await fetch(getOpenRouterProxyUrl(), {
     method: 'POST',
-    headers: getHeaders(),
+    headers: getHeaders(options.modelSlot),
     body,
   });
 

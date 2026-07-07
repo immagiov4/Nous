@@ -8,15 +8,9 @@ import {
 import { ProjectStorageError } from '../../services/projects/projectRepository';
 import {
   createProjectRepository,
-  getProjectRepositoryMode,
   type ProjectRepositoryMode,
-  setProjectRepositoryMode as persistProjectRepositoryMode,
 } from '../../services/projects/projectRepositoryFactory';
 import { createProjectSnapshot } from '../../services/projects/projectSnapshot';
-import {
-  transferFolderToLanRepository,
-  transferProjectToLanRepository,
-} from '../../services/projects/projectTransfer';
 import { markSyncError, markSyncSaved, markSyncSaving } from '../../services/projects/syncState.ts';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
@@ -47,9 +41,7 @@ const sortProjects = (projects: SavedProjectMeta[]) =>
     .sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime());
 
 export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
-  const [projectRepositoryMode, setProjectRepositoryModeState] = useState<ProjectRepositoryMode>(
-    () => getProjectRepositoryMode()
-  );
+  const projectRepositoryMode: ProjectRepositoryMode = 'server';
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [libraryFolders, setLibraryFolders] = useState<LibraryFolder[]>([]);
   const [libraryPlacements, setLibraryPlacements] = useState<LibraryPlacement[]>([]);
@@ -62,14 +54,9 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const didLoadInitialStateRef = useRef(false);
   const lastPersistedSignatureRef = useRef<string>('');
   const pendingPatchCountRef = useRef<number>(0);
-  const lastLoadedRepositoryModeRef = useRef<ProjectRepositoryMode | null>(null);
   const domainStateRef = useRef<WorkspaceDomainState>(domainState);
 
-  const projectRepository = useMemo(
-    () => createProjectRepository(projectRepositoryMode),
-    [projectRepositoryMode]
-  );
-  const lanProjectRepository = useMemo(() => createProjectRepository('lan'), []);
+  const projectRepository = useMemo(() => createProjectRepository(), []);
   const projectRepositoryRef = useRef(projectRepository);
 
   useEffect(() => {
@@ -510,98 +497,6 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     [buildSnapshotFromDomain, currentProjectId, downloadBlob]
   );
 
-  const shouldSwitchToLanForProject = useCallback(
-    (projectId: string) => currentProjectId === projectId,
-    [currentProjectId]
-  );
-
-  const shouldSwitchToLanForFolder = useCallback(
-    (folderId: string) => {
-      if (!currentProjectId) {
-        return false;
-      }
-
-      return Boolean(
-        libraryTree.descendantProjectIdsByFolderId[folderId]?.includes(currentProjectId)
-      );
-    },
-    [currentProjectId, libraryTree]
-  );
-
-  const transferProjectToLan = useCallback(
-    async (projectId: string) => {
-      if (projectRepositoryMode === 'lan') {
-        return;
-      }
-
-      try {
-        await transferProjectToLanRepository({
-          projectId,
-          sourceRepository: projectRepositoryRef.current,
-          targetRepository: lanProjectRepository,
-          tree: libraryTree,
-        });
-
-        if (shouldSwitchToLanForProject(projectId)) {
-          persistProjectRepositoryMode('lan');
-          setProjectRepositoryModeState('lan');
-          return;
-        }
-
-        await refreshLibraryState();
-        setStorageError(null);
-      } catch (error) {
-        const message =
-          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
-        setStorageError(message);
-      }
-    },
-    [
-      lanProjectRepository,
-      libraryTree,
-      projectRepositoryMode,
-      refreshLibraryState,
-      shouldSwitchToLanForProject,
-    ]
-  );
-
-  const transferFolderToLan = useCallback(
-    async (folderId: string) => {
-      if (projectRepositoryMode === 'lan') {
-        return;
-      }
-
-      try {
-        await transferFolderToLanRepository({
-          folderId,
-          sourceRepository: projectRepositoryRef.current,
-          targetRepository: lanProjectRepository,
-          tree: libraryTree,
-        });
-
-        if (shouldSwitchToLanForFolder(folderId)) {
-          persistProjectRepositoryMode('lan');
-          setProjectRepositoryModeState('lan');
-          return;
-        }
-
-        await refreshLibraryState();
-        setStorageError(null);
-      } catch (error) {
-        const message =
-          error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
-        setStorageError(message);
-      }
-    },
-    [
-      lanProjectRepository,
-      libraryTree,
-      projectRepositoryMode,
-      refreshLibraryState,
-      shouldSwitchToLanForFolder,
-    ]
-  );
-
   useEffect(() => {
     if (didLoadInitialStateRef.current) {
       return;
@@ -616,50 +511,12 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       } catch (error) {
         setStorageError(getErrorMessage(error));
       } finally {
-        lastLoadedRepositoryModeRef.current = projectRepositoryMode;
         setIsLibraryLoading(false);
       }
     };
 
     void loadInitialState();
-  }, [projectRepositoryMode, refreshLibraryState]);
-
-  useEffect(() => {
-    if (lastLoadedRepositoryModeRef.current === null) {
-      return;
-    }
-
-    if (lastLoadedRepositoryModeRef.current === projectRepositoryMode) {
-      return;
-    }
-
-    let isActive = true;
-    setIsLibraryLoading(true);
-
-    const reloadLibraryState = async () => {
-      try {
-        await refreshLibraryState();
-        if (isActive) {
-          setStorageError(null);
-        }
-      } catch (error) {
-        if (isActive) {
-          setStorageError(getErrorMessage(error));
-        }
-      } finally {
-        if (isActive) {
-          setIsLibraryLoading(false);
-        }
-      }
-    };
-
-    void reloadLibraryState();
-    lastLoadedRepositoryModeRef.current = projectRepositoryMode;
-
-    return () => {
-      isActive = false;
-    };
-  }, [projectRepositoryMode, refreshLibraryState]);
+  }, [refreshLibraryState]);
 
   const currentPersistenceSignature = useMemo(
     () => buildAutosaveSignature(domainState),
@@ -769,17 +626,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       }
     },
     projectRepositoryMode,
-    setProjectRepositoryMode: (mode: ProjectRepositoryMode) => {
-      if (mode === projectRepositoryMode) {
-        return;
-      }
-
-      persistProjectRepositoryMode(mode);
-      setProjectRepositoryModeState(mode);
-    },
     storageError,
-    transferFolderToLan,
-    transferProjectToLan,
     touchStoredProject: (projectId: string) => projectRepositoryRef.current.touchProject(projectId),
   };
 };

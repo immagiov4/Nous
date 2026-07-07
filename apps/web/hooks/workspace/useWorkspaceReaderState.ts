@@ -5,8 +5,6 @@ import type {
   AudioPanelTab,
   LearningPlan,
   LearningSection,
-  OpenRouterModelPreferences,
-  OpenRouterModelSlot,
   PdfDocumentAssets,
   QuizQuestion,
   SettingsPanelSectionId,
@@ -58,13 +56,6 @@ export const useWorkspaceReaderState = ({
   const [musicVolume, setMusicVolume] = useState(20);
   const [quizAnswers, setQuizAnswers] = useState<number[]>([]);
   const [isQuizSubmitted, setIsQuizSubmitted] = useState(false);
-  const [preferredModels, setPreferredModels] = useState<OpenRouterModelPreferences>({
-    preferredLessonModel: '',
-    preferredAssessmentModel: '',
-    preferredContextModel: '',
-    preferredTtsModel: '',
-    preferredTtsVoice: '',
-  });
   const [settingsPanelExpandedSections, setSettingsPanelExpandedSections] = useState<
     SettingsPanelSectionId[]
   >(['course-notes']);
@@ -95,30 +86,7 @@ export const useWorkspaceReaderState = ({
     speechBlocks,
   });
   const { setIsDarkMode } = readerChrome;
-  const { handleModelChange, handleSpeedChange, handleVoiceChange } = ttsPlayer;
-
-  const setPreferredOpenRouterModel = useCallback(
-    (slot: OpenRouterModelSlot, value: string) => {
-      const trimmedValue = value.trim();
-      setPreferredModels(currentModels => {
-        const key = getPreferredModelKey(slot);
-
-        if (currentModels[key] === trimmedValue) {
-          return currentModels;
-        }
-
-        return {
-          ...currentModels,
-          [key]: trimmedValue,
-        };
-      });
-
-      if (slot === 'tts') {
-        handleModelChange(trimmedValue);
-      }
-    },
-    [handleModelChange]
-  );
+  const { handleSpeedChange, handleVoiceChange } = ttsPlayer;
 
   const applyUiPreferences = useCallback(
     (preferences: Partial<UiPreferences>) => {
@@ -129,10 +97,6 @@ export const useWorkspaceReaderState = ({
       const preferredVoice = preferences.preferredTtsVoice || preferences.preferredVoice;
       if (preferredVoice) {
         handleVoiceChange(preferredVoice);
-      }
-
-      if (preferences.preferredTtsModel) {
-        handleModelChange(preferences.preferredTtsModel);
       }
 
       if (typeof preferences.playbackRate === 'number') {
@@ -150,39 +114,8 @@ export const useWorkspaceReaderState = ({
             : preferences.settingsPanelExpandedSections || []
         );
       }
-
-      setPreferredModels(currentModels => {
-        const nextModels = {
-          preferredLessonModel:
-            typeof preferences.preferredLessonModel === 'string'
-              ? preferences.preferredLessonModel
-              : currentModels.preferredLessonModel,
-          preferredAssessmentModel:
-            typeof preferences.preferredAssessmentModel === 'string'
-              ? preferences.preferredAssessmentModel || preferences.preferredContextModel || ''
-              : currentModels.preferredAssessmentModel,
-          preferredContextModel:
-            typeof preferences.preferredContextModel === 'string'
-              ? preferences.preferredContextModel
-              : currentModels.preferredContextModel,
-          preferredTtsModel:
-            typeof preferences.preferredTtsModel === 'string'
-              ? preferences.preferredTtsModel
-              : currentModels.preferredTtsModel,
-          preferredTtsVoice:
-            typeof preferences.preferredTtsVoice === 'string'
-              ? preferences.preferredTtsVoice
-              : currentModels.preferredTtsVoice,
-        };
-
-        return Object.entries(nextModels).every(
-          ([key, value]) => currentModels[key as keyof OpenRouterModelPreferences] === value
-        )
-          ? currentModels
-          : nextModels;
-      });
     },
-    [handleModelChange, handleSpeedChange, handleVoiceChange, setIsDarkMode]
+    [handleSpeedChange, handleVoiceChange, setIsDarkMode]
   );
 
   const uiPreferences = useMemo<UiPreferences>(
@@ -191,33 +124,16 @@ export const useWorkspaceReaderState = ({
       lastAudioTab,
       preferredVoice: ttsPlayer.audioState.currentVoice,
       playbackRate: ttsPlayer.audioState.playbackRate,
-      preferredLessonModel: preferredModels.preferredLessonModel,
-      preferredAssessmentModel: preferredModels.preferredAssessmentModel,
-      preferredContextModel: preferredModels.preferredContextModel,
-      preferredTtsModel: ttsPlayer.audioState.currentModel,
       preferredTtsVoice: ttsPlayer.audioState.currentVoice,
       settingsPanelExpandedSections,
     }),
     [
       lastAudioTab,
-      preferredModels.preferredAssessmentModel,
-      preferredModels.preferredContextModel,
-      preferredModels.preferredLessonModel,
       readerChrome.isDarkMode,
       settingsPanelExpandedSections,
-      ttsPlayer.audioState.currentModel,
       ttsPlayer.audioState.currentVoice,
       ttsPlayer.audioState.playbackRate,
     ]
-  );
-
-  const displayedPreferredModels = useMemo<OpenRouterModelPreferences>(
-    () => ({
-      ...preferredModels,
-      preferredTtsModel: ttsPlayer.audioState.currentModel,
-      preferredTtsVoice: ttsPlayer.audioState.currentVoice,
-    }),
-    [preferredModels, ttsPlayer.audioState.currentModel, ttsPlayer.audioState.currentVoice]
   );
 
   const activeSidebarGroup = useMemo(
@@ -309,23 +225,9 @@ export const useWorkspaceReaderState = ({
     setLastAudioTab,
     setMusicVolume,
     setSettingsPanelExpandedSections,
-    setPreferredOpenRouterModel,
     settingsPanelExpandedSections,
-    preferredModels: displayedPreferredModels,
     sidebarGroups,
     ttsPlayer,
     uiPreferences,
   };
-};
-
-const getPreferredModelKey = (slot: OpenRouterModelSlot): keyof OpenRouterModelPreferences => {
-  if (slot === 'assessment' || slot === 'context') {
-    return 'preferredContextModel';
-  }
-
-  if (slot === 'tts') {
-    return 'preferredTtsModel';
-  }
-
-  return 'preferredLessonModel';
 };

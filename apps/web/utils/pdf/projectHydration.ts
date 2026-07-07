@@ -26,6 +26,24 @@ const hasExplicitFallbackChunkMappings = (plan: LearningPlan): boolean =>
     section => section.primaryChunkMappingSource === 'fallback'
   );
 
+const hasLegacyRepeatedChunkMappings = (
+  plan: LearningPlan,
+  documentIndex: PdfTextIndex
+): boolean => {
+  const mappedSections = getHydrationRelevantSections(plan).filter(
+    section => section.primaryChunkIds && section.primaryChunkIds.length > 0
+  );
+  if (mappedSections.length < 3 || documentIndex.chunks.length <= mappedSections.length) {
+    return false;
+  }
+
+  const firstMapping = mappedSections[0]?.primaryChunkIds?.join('\u0000');
+  return Boolean(
+    firstMapping &&
+      mappedSections.every(section => section.primaryChunkIds?.join('\u0000') === firstMapping)
+  );
+};
+
 export const getPdfProjectHydrationState = (
   file: FileData | null,
   plan: LearningPlan | null,
@@ -47,7 +65,10 @@ export const getPdfProjectHydrationState = (
     return 'missing-primary-chunk-mappings';
   }
 
-  if (hasExplicitFallbackChunkMappings(plan)) {
+  if (
+    hasExplicitFallbackChunkMappings(plan) ||
+    hasLegacyRepeatedChunkMappings(plan, documentIndex)
+  ) {
     return 'missing-primary-chunk-mappings';
   }
 

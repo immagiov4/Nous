@@ -10,7 +10,8 @@ import {
 } from 'ai';
 import { type Request, type Response, Router } from 'express';
 
-import { CONTEXT_CHAT_MODEL, requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
 
@@ -408,7 +409,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const contextScope = readContextScope(req.body.contextScope);
     const selectedText = readOptionalString(req.body.selectedText);
     const messages = req.body.messages;
-    const modelOverride = readOptionalString(req.body.modelOverride);
+    const backendContextModel = (await getResolvedGlobalModelConfig()).contextModel;
 
     const contextInput = {
       attachedAnnotationNote: readOptionalString(attachedAnnotationNote),
@@ -459,7 +460,6 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const openrouter = createOpenRouter({
       apiKey: requireOpenRouterApiKey(),
     });
-    const selectedContextModel = modelOverride || CONTEXT_CHAT_MODEL;
     const contextSubject =
       selectedText ||
       (contextInput.lessonTitle
@@ -467,7 +467,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
         : 'Intera lezione corrente');
 
     const contextTools = buildContextToolSet({
-      modelOverride,
+      modelOverride: backendContextModel,
       selectedText: contextSubject,
       ...contextInput,
     });
@@ -478,7 +478,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     );
 
     const result = streamText({
-      model: openrouter.chat(selectedContextModel),
+      model: openrouter.chat(backendContextModel),
       system: buildContextSystemPrompt({
         contextScope,
         selectedText,

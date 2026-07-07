@@ -11,7 +11,7 @@ import {
   withUpdatedExerciseDeliverable,
 } from '../services/exercises/plan.ts';
 import { getExercisePrerequisiteGaps } from '../services/openrouter/exercises/brief.ts';
-import type { ExerciseAttachment, OpenRouterModelDefaults } from '../types.ts';
+import type { ExerciseAttachment } from '../types.ts';
 import { getLessonSourcePageLabel } from '../utils/context/sourceMaterial.ts';
 import { collectSectionLearningArtifactPayloads } from '../utils/learning/artifacts.ts';
 import { findPathNodeById, flattenLessons } from '../utils/learning/pathNodes.ts';
@@ -25,7 +25,6 @@ interface UseReaderShellPropsArgs {
   handleAttachSourceFile: () => void;
   handleBackToLibrary: () => void;
   handleExportProject: (projectId?: string) => Promise<void>;
-  modelDefaults: OpenRouterModelDefaults;
   notify: (message: string, kind?: 'error' | 'success') => void;
   pdfMappingWarning: string | null;
   readerActions: WorkspaceReaderActions;
@@ -39,7 +38,6 @@ export const useReaderShellProps = ({
   handleAttachSourceFile,
   handleBackToLibrary,
   handleExportProject,
-  modelDefaults,
   notify,
   pdfMappingWarning,
   readerActions,
@@ -225,7 +223,6 @@ export const useReaderShellProps = ({
         lastAudioTab: readerState.lastAudioTab,
         learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
         loadingStatus,
-        modelDefaults,
         musicUrl: controller.musicUrl,
         musicVolume: readerState.musicVolume,
         onBackToLibrary: handleBackToLibrary,
@@ -238,10 +235,8 @@ export const useReaderShellProps = ({
         onSetLastAudioTab: readerState.setLastAudioTab,
         onSetMusicUrl: controller.setMusicUrl,
         onSetMusicVolume: readerState.setMusicVolume,
-        onSetPreferredOpenRouterModel: readerState.setPreferredOpenRouterModel,
         onSetSettingsOpen: readerState.readerChrome.setIsSettingsOpen,
         onSetSettingsPanelExpandedSections: readerState.setSettingsPanelExpandedSections,
-        preferredModels: readerState.preferredModels,
         settingsPanelExpandedSections: readerState.settingsPanelExpandedSections,
         syncState,
         tts: {
@@ -286,7 +281,6 @@ export const useReaderShellProps = ({
         onSaveConversationNote: readerActions.handleSaveConversationNote,
         onSaveNote: readerActions.handleSaveNote,
         onUpdateConversationNote: readerActions.handleUpdateConversationNote,
-        preferredModels: readerState.preferredModels,
       },
       shouldUseDesktopSidebar: readerState.readerChrome.shouldUseDesktopSidebar,
       sidebar: {
@@ -344,7 +338,6 @@ export const useReaderShellProps = ({
       isActiveSectionLoading,
       isRepairingApplicationExercises,
       loadingStatus,
-      modelDefaults,
       pdfMappingWarning,
       playerCurrentChunkIsLoading,
       readerActions,
@@ -358,7 +351,6 @@ export const useReaderShellProps = ({
       readerState.isQuizSubmitted,
       readerState.lastAudioTab,
       readerState.musicVolume,
-      readerState.preferredModels,
       readerState.quizAnswers,
       readerState.readerChrome,
       readerState.readerContext.closeContextAnswer,
@@ -378,7 +370,6 @@ export const useReaderShellProps = ({
       readerState.setIsQuizSubmitted,
       readerState.setLastAudioTab,
       readerState.setMusicVolume,
-      readerState.setPreferredOpenRouterModel,
       readerState.setSettingsPanelExpandedSections,
       readerState.settingsPanelExpandedSections,
       readerState.sidebarGroups,

@@ -185,7 +185,7 @@ export class SqliteProjectStore implements ProjectStore {
   getConfig() {
     return {
       driver: 'sqlite' as const,
-      isLanSyncEnabled: true,
+      isServerStorageEnabled: true,
     };
   }
 

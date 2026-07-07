@@ -45,6 +45,9 @@ vi.mock('../../src/config/chatConfig.js', async () => {
 });
 
 const { createApp } = await import('../../src/index.js');
+const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
+  '../../src/config/modelConfig.js'
+);
 
 describe('POST /api/chat/context', () => {
   beforeEach(() => {
@@ -54,6 +57,7 @@ describe('POST /api/chat/context', () => {
     openRouterMocks.chat.mockReset();
     openRouterMocks.createOpenRouter.mockReset();
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
+    resetModelConfigForTesting();
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
     fetchMock.mockReset();
@@ -254,8 +258,9 @@ describe('POST /api/chat/context', () => {
     expect(fetchOptions?.body).toContain('Puntatore');
   });
 
-  test('uses the UI-provided context model override when present', async () => {
+  test('uses the backend global context model instead of a UI override', async () => {
     openRouterMocks.chat.mockImplementation(model => model);
+    patchGlobalModelConfig({ contextModel: 'server/context-model' });
 
     const response = await request(createApp())
       .post('/api/chat/context')
@@ -266,13 +271,14 @@ describe('POST /api/chat/context', () => {
       });
 
     expect(response.status).toBe(200);
-    expect(openRouterMocks.chat).toHaveBeenCalledWith('openai/gpt-5.4-mini');
+    expect(openRouterMocks.chat).toHaveBeenCalledWith('server/context-model');
     expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
-      model: 'openai/gpt-5.4-mini',
+      model: 'server/context-model',
     });
   });
 
-  test('uses the UI-provided context model override for contextual web search when present', async () => {
+  test('uses the backend global context model for contextual web search', async () => {
+    patchGlobalModelConfig({ contextModel: 'server/context-model' });
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -305,7 +311,8 @@ describe('POST /api/chat/context', () => {
     });
 
     const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
-    expect(fetchOptions?.body).toContain('"model":"openai/gpt-5.4-nano"');
+    expect(fetchOptions?.body).toContain('"model":"server/context-model"');
+    expect(fetchOptions?.body).not.toContain('"model":"openai/gpt-5.4-nano"');
   });
 });
 
@@ -317,6 +324,7 @@ describe('POST /api/chat/library', () => {
     openRouterMocks.chat.mockReset();
     openRouterMocks.createOpenRouter.mockReset();
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
+    resetModelConfigForTesting();
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
     fetchMock.mockReset();
@@ -544,8 +552,9 @@ describe('POST /api/chat/library', () => {
     });
   });
 
-  test('uses the UI-provided context model override for library chat when present', async () => {
+  test('uses the backend global context model for library chat', async () => {
     openRouterMocks.chat.mockImplementation(model => model);
+    patchGlobalModelConfig({ contextModel: 'server/library-model' });
 
     const response = await request(createApp())
       .post('/api/chat/library')
@@ -555,13 +564,14 @@ describe('POST /api/chat/library', () => {
       });
 
     expect(response.status).toBe(200);
-    expect(openRouterMocks.chat).toHaveBeenCalledWith('openai/gpt-5.4-mini');
+    expect(openRouterMocks.chat).toHaveBeenCalledWith('server/library-model');
     expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
-      model: 'openai/gpt-5.4-mini',
+      model: 'server/library-model',
     });
   });
 
-  test('uses the UI-provided context model override for library web search when present', async () => {
+  test('uses the backend global context model for library web search', async () => {
+    patchGlobalModelConfig({ contextModel: 'server/library-model' });
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -593,6 +603,7 @@ describe('POST /api/chat/library', () => {
     });
 
     const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
-    expect(fetchOptions?.body).toContain('"model":"openai/gpt-5.4-nano"');
+    expect(fetchOptions?.body).toContain('"model":"server/library-model"');
+    expect(fetchOptions?.body).not.toContain('"model":"openai/gpt-5.4-nano"');
   });
 });

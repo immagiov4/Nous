@@ -26,24 +26,30 @@ Nous Reader turns uploaded documents into personalized study plans with lessons,
 
 This starts the Vite frontend on `http://localhost:5173` and the Express backend on `http://localhost:3301`.
 
-## LAN Development
+## Server-Only Storage
 
-Use LAN mode when another device on the same private network must read and write the shared backend project store.
+Nous now uses authenticated server storage as the product path.
 
-1. Bind the backend and frontend to the network:
-   - `server.config.json`: set `backendHost` to `0.0.0.0`
-   - `apps/web/vite.config.ts`: keep `server.host` set to `0.0.0.0`
-2. Enable the LAN repository in `.env.local`:
-   ```env
-   PROJECT_REPOSITORY_MODE=lan
-   VITE_PROJECT_REPOSITORY_MODE=lan
-   LOCAL_AUTH_BYPASS=true
-   CORS_ALLOW_PRIVATE_NETWORK=true
-   ```
-3. Open the app from the other device with the host machine IP, for example `http://192.168.1.10:5173`.
-4. Restart the dev server after changing `.env.local`; backend auth and CORS flags are loaded at startup.
+- Default backend storage is Postgres. Use `PROJECT_STORAGE_DRIVER=postgres` with `DATABASE_URL`.
+- Frontend auth should use `VITE_AUTH_MODE=supabase`.
+- Development can use `AUTH_MODE=local-bypass` only in tests or with `LOCAL_DEV_PROFILE=true` plus `LOCAL_AUTH_BYPASS=true`; projects still use the server HTTP repository.
+- Supabase Auth requires `SUPABASE_URL`, `SUPABASE_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY`.
+- SQLite is a legacy test/dev driver and is blocked outside `NODE_ENV=test` or `LOCAL_DEV_PROFILE=true`.
 
-`LOCAL_AUTH_BYPASS=true` is for local development only. Do not enable it in a deployment without a real authentication layer. `CORS_ALLOW_PRIVATE_NETWORK=true` only admits private-network frontend origins on port `5173`; production origins should be listed explicitly with `CORS_ALLOWED_ORIGINS`.
+Production origins should be listed explicitly with `CORS_ALLOWED_ORIGINS`.
+
+Supabase email templates live in `supabase/templates/` and are synced with:
+
+```bash
+bun run supabase:templates:diff
+bun run supabase:templates:sync
+```
+
+With Supabase local running, the real auth/RLS integration check is:
+
+```bash
+bun run test:supabase-local
+```
 
 ## What Lives Where
 
@@ -52,7 +58,7 @@ Use LAN mode when another device on the same private network must read and write
 - Tooling scripts: `tooling/scripts/`
 - Documentation: `docs/`
 
-By default, projects are stored in browser IndexedDB. LAN sync uses the backend SQLite store when repository mode is set to `lan`.
+Authenticated sessions use server storage. Import/export remains available for manual migration and backups.
 
 ## Useful Commands
 
@@ -63,4 +69,5 @@ bun run gate          # Full gate: quality + fallow + tests
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
+bun run test:supabase-local # Supabase local Auth/RLS integration test
 ```

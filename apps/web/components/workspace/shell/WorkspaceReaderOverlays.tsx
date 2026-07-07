@@ -23,7 +23,6 @@ function WorkspaceReaderOverlays({
   onDeleteAnnotation,
   onDetachArtifactFromAnnotation,
   onHighlight,
-  preferredModels,
   onSaveConversationNote,
   onUpdateConversationNote,
   onSaveNote,
@@ -44,7 +43,6 @@ function WorkspaceReaderOverlays({
             isDarkMode={isDarkMode}
             isMobileViewport={isMobileViewport}
             onClose={onCloseContextAnswer}
-            preferredContextModel={preferredModels.preferredContextModel}
             onSaveConversationNote={onSaveConversationNote}
             onUpdateConversationNote={onUpdateConversationNote}
             onSaveArtifactToLesson={onSaveArtifactToLesson}

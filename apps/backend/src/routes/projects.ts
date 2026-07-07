@@ -1,7 +1,7 @@
 // Exposes project CRUD routes for the backend API.
 import { type Request, type Response, Router } from 'express';
 
-import { getCurrentUser, LOCAL_AUTH_MODE, resolveCurrentUser } from '../auth/currentUser.js';
+import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type { ProjectPatch, ProjectSnapshot, SectionPatch } from '../projects/types.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
@@ -14,8 +14,6 @@ import {
 } from '../utils/validation.js';
 
 const router = Router();
-
-router.use(resolveCurrentUser);
 
 const PROJECT_SOURCE_KINDS = new Set(['document', 'codebase', 'learn-mode', 'imported-json']);
 
@@ -117,7 +115,7 @@ router.get('/config', (req: Request, res: Response) => {
       success: true,
       config: {
         ...getProjectStore().getConfig(),
-        authMode: LOCAL_AUTH_MODE,
+        authMode: getAuthMode(),
         userId: currentUser.id,
       },
     });

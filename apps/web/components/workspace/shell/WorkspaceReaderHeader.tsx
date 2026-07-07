@@ -20,7 +20,6 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   lastAudioTab,
   learningPlanTitle,
   loadingStatus,
-  modelDefaults,
   musicUrl,
   musicVolume,
   onBackToLibrary,
@@ -33,10 +32,8 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   onSetLastAudioTab,
   onSetMusicUrl,
   onSetMusicVolume,
-  onSetPreferredOpenRouterModel,
   onSetSettingsOpen,
   onSetSettingsPanelExpandedSections,
-  preferredModels,
   settingsPanelExpandedSections,
   syncState,
   tts,
@@ -303,7 +300,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             }}
             onPointerDown={e => e.stopPropagation()}
             className="rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
-            title="Apri impostazioni modello"
+            title="Apri impostazioni lettura"
           >
             <Settings2 className="h-5 w-5" />
           </button>
@@ -327,10 +324,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
         <WorkspaceReaderSettingsPanel
           courseNotes={courseNotesBinding}
           expandedSections={settingsPanelExpandedSections}
-          modelDefaults={modelDefaults}
-          preferredModels={preferredModels}
           onClose={() => onSetSettingsOpen(false)}
-          onModelChange={onSetPreferredOpenRouterModel}
           onSectionToggle={onSetSettingsPanelExpandedSections}
         />
       ) : null}

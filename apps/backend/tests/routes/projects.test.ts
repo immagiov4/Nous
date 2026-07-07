@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createApp } from '../../src/index.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
@@ -112,7 +112,7 @@ describe('/api/projects', () => {
 
   test('saves, lists, loads, exports, touches, and deletes projects', async () => {
     const app = createApp();
-    const snapshot = createSnapshot('project-1', 'Corso LAN');
+    const snapshot = createSnapshot('project-1', 'Corso server');
 
     const saveResponse = await request(app).put('/api/projects/projects/project-1').send({
       snapshot,
@@ -121,7 +121,7 @@ describe('/api/projects', () => {
     expect(saveResponse.status).toBe(200);
     expect(saveResponse.body.meta).toMatchObject({
       id: 'project-1',
-      title: 'Corso LAN',
+      title: 'Corso server',
       lessonCount: 2,
       completedCount: 1,
       syncState: 'sync-ready',
@@ -133,7 +133,7 @@ describe('/api/projects', () => {
     const loadResponse = await request(app).get('/api/projects/projects/project-1');
     expect(loadResponse.body.project).toMatchObject({
       id: 'project-1',
-      learningPlan: { title: 'Corso LAN' },
+      learningPlan: { title: 'Corso server' },
     });
 
     const exportResponse = await request(app).post('/api/projects/projects/project-1/export');
@@ -169,7 +169,7 @@ describe('/api/projects', () => {
     expect(loadResponse.body.project.learningPlan.title).toBe('Versione nuova');
   });
 
-  test('counts module-shaped lessons in LAN project metadata', async () => {
+  test('counts module-shaped lessons in server project metadata', async () => {
     const app = createApp();
     const snapshot = createModuleSnapshot('module-project', 'Corso modulare');
 
@@ -198,7 +198,7 @@ describe('/api/projects', () => {
     });
   });
 
-  test('repairs stale LAN metadata for module-shaped projects while listing', async () => {
+  test('repairs stale server metadata for module-shaped projects while listing', async () => {
     const app = createApp();
     const snapshot = createModuleSnapshot('stale-module-project', 'Corso con meta vecchi');
 
@@ -235,7 +235,7 @@ describe('/api/projects', () => {
     });
   });
 
-  test('patches generated lesson content inside module-shaped LAN projects', async () => {
+  test('patches generated lesson content inside module-shaped server projects', async () => {
     const app = createApp();
     const snapshot = createModuleSnapshot('patch-module-project', 'Corso patch moduli');
 
@@ -311,7 +311,7 @@ describe('/api/projects', () => {
     ]);
   });
 
-  test('section PATCH stays fast even with a heavy documentIndex', async () => {
+  test('section PATCH uses the fast path with a heavy documentIndex', async () => {
     const app = createApp();
 
     // Build a snapshot with a ~3MB documentIndex (simulating a 200-page PDF)
@@ -334,9 +334,13 @@ describe('/api/projects', () => {
     } as unknown as ProjectSnapshot;
 
     await request(app).put('/api/projects/projects/heavy-project').send({ snapshot });
+    const storeInternals = store as unknown as {
+      readSnapshot: (userId: string, id: string) => ProjectSnapshot | null;
+      saveProject: SqliteProjectStore['saveProject'];
+    };
+    const readSnapshotSpy = vi.spyOn(storeInternals, 'readSnapshot');
+    const saveProjectSpy = vi.spyOn(storeInternals, 'saveProject');
 
-    // Section PATCH should not touch documentIndex — measure round-trip wall time
-    const start = Date.now();
     const patchResponse = await request(app)
       .patch('/api/projects/projects/heavy-project')
       .send({
@@ -344,12 +348,12 @@ describe('/api/projects', () => {
           section: { sectionId: 'sec-1', annotations: [{ id: 'ann-1', text: 'note' }] },
         },
       });
-    const elapsed = Date.now() - start;
 
     expect(patchResponse.status).toBe(200);
-    // With documentIndex split into its own column, this should be <100ms even
-    // for a 3MB documentIndex. Generous threshold to avoid CI flakes.
-    expect(elapsed).toBeLessThan(500);
+    expect(readSnapshotSpy).not.toHaveBeenCalled();
+    expect(saveProjectSpy).not.toHaveBeenCalled();
+    readSnapshotSpy.mockRestore();
+    saveProjectSpy.mockRestore();
 
     // Reload — documentIndex must survive the PATCH unchanged
     const loadResponse = await request(app).get('/api/projects/projects/heavy-project');
