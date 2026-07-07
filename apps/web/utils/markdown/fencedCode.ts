@@ -10,9 +10,6 @@ import {
 import { escapeRegExp } from './html.ts';
 import { processMarkdownSegment } from './segment.ts';
 
-const FENCED_BLOCK_WITH_ORPHANED_CONTINUATION_REGEX =
-  /((```|~~~)[^\n]*\n[\s\S]*?\n)(\2[^\n]*\n)((?:[ \t].*\n)+)/g;
-
 type FenceToken = '```' | '~~~';
 
 interface FencedBlock {
@@ -98,27 +95,48 @@ const sanitizeMixedFencedCodeBlock = (
   return output.join('\n\n');
 };
 
-export const mergeOrphanedContinuationLinesIntoPreviousFence = (content: string): string =>
-  content.replace(
-    FENCED_BLOCK_WITH_ORPHANED_CONTINUATION_REGEX,
-    (
-      match,
-      codePrefix: string,
-      _fenceToken: string,
-      closingFenceLine: string,
-      continuationBlock: string
-    ) => {
-      const continuationLines = continuationBlock.split('\n').filter(line => line.length > 0);
-      if (
-        continuationLines.length === 0 ||
-        !continuationLines.every(isOrphanedCodeContinuationLine)
-      ) {
-        return match;
-      }
+export const mergeOrphanedContinuationLinesIntoPreviousFence = (content: string): string => {
+  const lines = content.split('\n');
+  const output: string[] = [];
+  let index = 0;
 
-      return `${codePrefix}${continuationBlock}${closingFenceLine}`;
+  while (index < lines.length) {
+    const block = parseFencedBlockAt(lines, index);
+    if (!block) {
+      output.push(lines[index]);
+      index += 1;
+      continue;
     }
-  );
+
+    let continuationCursor = block.lastIndex + 1;
+    const continuationLines: string[] = [];
+    while (
+      continuationCursor < lines.length &&
+      /^[ \t]/u.test(lines[continuationCursor] || '') &&
+      lines[continuationCursor] !== ''
+    ) {
+      continuationLines.push(lines[continuationCursor]);
+      continuationCursor += 1;
+    }
+
+    const shouldMerge =
+      continuationLines.length > 0 && continuationLines.every(isOrphanedCodeContinuationLine);
+
+    output.push(block.openingLine);
+    output.push(...block.bodyLines);
+    if (shouldMerge) {
+      output.push(...continuationLines);
+      output.push(block.closingLine);
+      index = continuationCursor;
+      continue;
+    }
+
+    output.push(block.closingLine);
+    index = block.lastIndex + 1;
+  }
+
+  return output.join('\n');
+};
 
 export const getFenceToken = (line: string): FenceToken | null => {
   const match = line.match(/^(```|~~~)[^\n]*$/);
@@ -162,7 +180,7 @@ const splitLeadingClosingBraceLines = (
 
   while (cursor < lines.length) {
     const line = lines[cursor];
-    if (!/^\s*}\s*;?\s*$/.test(stripInlineCodeSpans(line))) {
+    if (!['}', '};'].includes(stripInlineCodeSpans(line).trim())) {
       break;
     }
 
@@ -194,6 +212,33 @@ const isMergeableSplitBraceCodeLine = (line: string): boolean => {
 const isTextPseudocodeFence = (block: FencedBlock): boolean =>
   /^(```|~~~)text\s*$/i.test(block.openingLine.trim());
 
+const isClosingElsePseudocodeLine = (trimmed: string): boolean => {
+  if (!trimmed.startsWith('}')) {
+    return false;
+  }
+
+  let cursor = 1;
+  while (cursor < trimmed.length && trimmed[cursor] === ' ') {
+    cursor += 1;
+  }
+
+  if (cursor === trimmed.length) {
+    return true;
+  }
+
+  const elseKeyword = 'ELSE';
+  if (!trimmed.slice(cursor).toUpperCase().startsWith(elseKeyword)) {
+    return false;
+  }
+
+  cursor += elseKeyword.length;
+  while (cursor < trimmed.length && trimmed[cursor] === ' ') {
+    cursor += 1;
+  }
+
+  return trimmed.slice(cursor) === '{';
+};
+
 const isPseudocodeLine = (line: string): boolean => {
   const trimmed = stripInlineCodeSpans(line).trim();
   if (!trimmed || isMarkdownStructuralLine(trimmed)) {
@@ -202,7 +247,7 @@ const isPseudocodeLine = (line: string): boolean => {
 
   return (
     /^\s+\S/.test(line) ||
-    /^}\s*(?:ELSE\s*\{)?\s*$/i.test(trimmed) ||
+    isClosingElsePseudocodeLine(trimmed) ||
     /^(?:IF|ELSE|FOR|WHILE|RETURN)\b/i.test(trimmed) ||
     /^[A-Za-z_][\w]*\s*=/.test(trimmed) ||
     /^[A-Za-z_][\w]*\([^)]*\)\s*$/.test(trimmed)

@@ -85,7 +85,7 @@ Regole SVG obbligatorie:
 - **Spaziatura:** padding interno box ≥ 24px; gap minimo tra box adiacenti = 60px; gap freccia-bordo ≥ 10px.
 - **Tier packing:** prima di posizionare una riga di N box, verifica che N × box_width + (N-1) × gap ≤ 600. Se non entra, riduci la larghezza dei box oppure distribuisci su 2 righe. Mai stimare a occhio.
 - **Frecce che deviano:** se il percorso diretto di una freccia attraversa un box non collegato, usa un L-bend: <path d="M x1 y1 L x1 ymid L x2 ymid L x2 y2" fill="none" class="arr" marker-end="url(#arrow)"/>. Scegli ymid in uno spazio libero tra i box.
-- **Nesting c-{ramp}:** applica la classe c-* al gruppo o shape piu interno che contiene rect/circle + text. Se metti c-blue su un <g> wrapper esterno e dentro c'e un altro <g>, le shape diventano nipoti e perdono il colore (SVG default = nero). Non annidare un <g> dentro un <g class="c-*">.
+- **Uso c-{ramp}:** wrappa sempre rect + text in un <g class="c-*"> — cosi sia il fill del box sia il colore del testo vengono applicati. Se metti c-* direttamente sul <rect> il testo sibling non prende il colore. Non annidare un <g> dentro un <g class="c-*"> (le shape diventano nipoti e il CSS non le raggiunge).
 - **Label in diagrammi illustrativi:** posiziona le etichette fuori dall'oggetto disegnato, con una linea guida tratteggiata (<line class="leader"/>). Default: lato destro con text-anchor="start". Riserva almeno 140px di margine orizzontale sul lato delle etichette. Usa class="ts" per callout descrittivi, class="th" per nomi di componenti principali.
 - **Adatta il testo alla viewBox:** la viewBox e fissa a 680px. Se il testo sfora, abbrevia prima di allargare i box.
 - **Niente caption narrativa, niente box di sintesi, niente "takeaway".** Non aggiungere riquadri finali con titoli tipo "Cambio di paradigma", "Concetto chiave", "In sintesi", "In una frase", "Punto chiave", "Conclusione", o simili. Non scrivere paragrafi di prosa dentro l'SVG. Ogni <text> deve essere un'etichetta breve (1-6 parole) o una label di nodo, MAI una frase narrativa multi-riga che riassume la lezione. Se senti il bisogno di "spiegare" la visuale dentro l'SVG, la visuale e gia sbagliata: rifalla con etichette piu chiare.
@@ -222,17 +222,47 @@ const stripFence = (code: string, language?: string): string => {
 };
 
 const sanitizeTitle = (title: unknown, fallback: string): string => {
-  const normalized =
-    typeof title === 'string'
-      ? title
-          .replace(/[^a-z0-9_ -]/gi, ' ')
-          .replace(/\s+/g, '_')
-          .toLowerCase()
-          .replace(/_+/g, '_')
-          .replace(/^_+|_+$/g, '')
-      : '';
+  if (typeof title !== 'string') {
+    return fallback;
+  }
 
-  return normalized || fallback;
+  let normalized = '';
+  let previousWasSeparator = false;
+
+  for (const rawCharacter of title.toLowerCase()) {
+    const isAlphaNumeric =
+      (rawCharacter >= 'a' && rawCharacter <= 'z') || (rawCharacter >= '0' && rawCharacter <= '9');
+    const isSeparator = rawCharacter === '_' || rawCharacter === ' ' || rawCharacter === '-';
+
+    if (isAlphaNumeric) {
+      normalized += rawCharacter;
+      previousWasSeparator = false;
+      continue;
+    }
+
+    if (!isSeparator || previousWasSeparator) {
+      continue;
+    }
+
+    normalized += '_';
+    previousWasSeparator = true;
+  }
+
+  normalized = normalized.trim();
+
+  let startIndex = 0;
+  while (normalized[startIndex] === '_') {
+    startIndex += 1;
+  }
+
+  let endIndex = normalized.length;
+  while (endIndex > startIndex && normalized[endIndex - 1] === '_') {
+    endIndex -= 1;
+  }
+
+  const sanitizedTitle = normalized.slice(startIndex, endIndex);
+
+  return sanitizedTitle || fallback;
 };
 
 const normalizeLoadingMessages = (messages: unknown): string[] =>

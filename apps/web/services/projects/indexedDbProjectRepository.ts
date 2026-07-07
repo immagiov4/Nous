@@ -92,7 +92,7 @@ const classifyStorageError = (error: unknown): ProjectStorageError => {
 };
 
 export class IndexedDbProjectRepository implements ProjectRepository {
-  private dbPromise: Promise<IDBPDatabase<NousProjectDb>>;
+  private readonly dbPromise: Promise<IDBPDatabase<NousProjectDb>>;
   private placementBackfillPromise: Promise<void> | null = null;
 
   /**
@@ -101,7 +101,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
    * never interleave, preventing the second operation from loading a
    * stale snapshot and silently overwriting the first.
    */
-  private pendingProjectOps = new Map<ProjectId, Promise<unknown>>();
+  private readonly pendingProjectOps = new Map<ProjectId, Promise<unknown>>();
 
   private async enqueueProjectOp<T>(projectId: ProjectId, fn: () => Promise<T>): Promise<T> {
     const previous = this.pendingProjectOps.get(projectId) ?? Promise.resolve();
@@ -302,7 +302,7 @@ export class IndexedDbProjectRepository implements ProjectRepository {
     if (
       !this.hasStore(db, PLACEMENT_STORE) ||
       placements.length === 0 ||
-      this.placementBackfillPromise
+      this.placementBackfillPromise !== null
     ) {
       return;
     }

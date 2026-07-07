@@ -1,3 +1,4 @@
+// Exposes text-to-speech routes for the backend API.
 import { type Request, type Response, Router } from 'express';
 
 import { DEFAULT_TTS_MODEL, ttsClient } from '../services/ttsClient.js';

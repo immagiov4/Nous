@@ -123,6 +123,7 @@ export const LibraryScreenContainer = ({
       isNewCourseLoading={controller.workflowState.assessment.status === 'pending'}
       libraryAttachedContextRefs={libraryAssistantChat.attachedContextRefs}
       libraryArtifactPayloadsByToolCallId={libraryAssistantChat.artifactPayloadsByToolCallId}
+      libraryFloatingArtifactPayloads={libraryAssistantChat.replacementDraftPayloads}
       libraryErrorMessage={libraryAssistantChat.error?.message || null}
       libraryMessages={libraryAssistantChat.messages}
       libraryTree={projectLibrary.libraryTree}
@@ -159,6 +160,9 @@ export const LibraryScreenContainer = ({
       onLibraryAssistantSend={libraryAssistantChat.sendLibraryMessage}
       onLibraryArtifactNoteApprove={libraryAssistantChat.approveLearningArtifactNoteSave}
       onLibraryArtifactNoteReject={libraryAssistantChat.rejectLearningArtifactNoteSave}
+      onLibraryArtifactDiscard={libraryAssistantChat.discardLearningArtifact}
+      onLibraryArtifactRegenerate={libraryAssistantChat.regenerateLearningArtifact}
+      onLibraryArtifactReplace={libraryAssistantChat.replaceLearningArtifact}
       onLibraryWebSearchChange={libraryAssistantChat.setWebSearch}
       onLibraryGenerateArtifactsChange={libraryAssistantChat.setGenerateArtifacts}
       onMoveFolder={projectLibrary.moveFolder}

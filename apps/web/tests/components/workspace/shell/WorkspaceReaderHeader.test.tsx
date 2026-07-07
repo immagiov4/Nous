@@ -113,6 +113,23 @@ describe('WorkspaceReaderHeader', () => {
     expect(dialog).toHaveClass('-translate-x-1/2');
   });
 
+  test('hides the regeneration confirmation while the lesson is loading', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const { rerender } = render(<WorkspaceReaderHeader {...props} />);
+
+    await user.click(screen.getByRole('button', { name: /Rigenera/i }));
+    expect(
+      screen.getByRole('dialog', { name: /Conferma rigenerazione contenuto/i })
+    ).toBeInTheDocument();
+
+    rerender(<WorkspaceReaderHeader {...props} isLoading />);
+
+    expect(
+      screen.queryByRole('dialog', { name: /Conferma rigenerazione contenuto/i })
+    ).not.toBeInTheDocument();
+  });
+
   test('shows the actual loading status on mobile instead of a generic label', () => {
     const props = buildProps();
 

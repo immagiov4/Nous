@@ -112,7 +112,7 @@ export const useReaderShellProps = ({
           error instanceof Error ? error.message : 'Non sono riuscito a pianificare gli esercizi.'
         );
       });
-  }, [controller.repairApplicationExercises, notify]);
+  }, [controller, notify]);
   const handleUpdateExerciseInternalText = useCallback(
     (exerciseId: string, text: string) => {
       void controller
@@ -125,7 +125,7 @@ export const useReaderShellProps = ({
           );
         });
     },
-    [controller.updateApplicationExercise, notify]
+    [controller, notify]
   );
   const handleRemoveExerciseAttachment = useCallback(
     (exerciseId: string, attachmentId: string) => {
@@ -139,7 +139,7 @@ export const useReaderShellProps = ({
           notify(error instanceof Error ? error.message : 'Non sono riuscito a rimuovere il file.');
         });
     },
-    [controller.updateApplicationExercise, notify]
+    [controller, notify]
   );
   const handleAttachExerciseFiles = useCallback(
     (exerciseId: string, files: FileList | null) => {
@@ -157,7 +157,7 @@ export const useReaderShellProps = ({
         notify(error instanceof Error ? error.message : 'Non sono riuscito ad allegare il file.');
       });
     },
-    [controller.attachExerciseFiles, notify]
+    [controller, notify]
   );
 
   return useMemo(
@@ -282,6 +282,7 @@ export const useReaderShellProps = ({
         onDetachArtifactFromAnnotation: readerActions.handleDetachArtifactFromAnnotation,
         onHighlight: readerActions.handleHighlight,
         onSaveArtifactToLesson: readerActions.handleSaveArtifactToLesson,
+        onReplaceArtifactInLesson: readerActions.handleReplaceArtifactInLesson,
         onSaveConversationNote: readerActions.handleSaveConversationNote,
         onSaveNote: readerActions.handleSaveNote,
         onUpdateConversationNote: readerActions.handleUpdateConversationNote,
@@ -346,21 +347,7 @@ export const useReaderShellProps = ({
       modelDefaults,
       pdfMappingWarning,
       playerCurrentChunkIsLoading,
-      readerActions.handleAttachArtifactToAnnotation,
-      readerActions.handleAdvanceSection,
-      readerActions.handleCompleteSection,
-      readerActions.handleContextQuestion,
-      readerActions.handleCreateLesson,
-      readerActions.handleDeleteAnnotation,
-      readerActions.handleDetachArtifactFromAnnotation,
-      readerActions.handleHighlight,
-      readerActions.handleRegenerateActiveSection,
-      readerActions.handleSaveArtifactToLesson,
-      readerActions.handleSaveConversationNote,
-      readerActions.handleSaveNote,
-      readerActions.handleSelectExercise,
-      readerActions.handleSelectSection,
-      readerActions.handleUpdateConversationNote,
+      readerActions,
       readerState.activeSectionAssetsById,
       readerState.activeSectionGeneratedVisualsById,
       readerState.activeSectionImageRefsById,
@@ -373,19 +360,7 @@ export const useReaderShellProps = ({
       readerState.musicVolume,
       readerState.preferredModels,
       readerState.quizAnswers,
-      readerState.readerChrome.expandedModuleId,
-      readerState.readerChrome.handleModuleToggle,
-      readerState.readerChrome.isDarkMode,
-      readerState.readerChrome.isFocusMode,
-      readerState.readerChrome.isMobileSidebarOpen,
-      readerState.readerChrome.isMobileViewport,
-      readerState.readerChrome.isSettingsOpen,
-      readerState.readerChrome.setIsDarkMode,
-      readerState.readerChrome.setIsFocusMode,
-      readerState.readerChrome.setIsMobileSidebarOpen,
-      readerState.readerChrome.setIsSettingsOpen,
-      readerState.readerChrome.shouldShowSidebar,
-      readerState.readerChrome.shouldUseDesktopSidebar,
+      readerState.readerChrome,
       readerState.readerContext.closeContextAnswer,
       readerState.readerContext.closeContextMenu,
       readerState.readerContext.contextAnswer,

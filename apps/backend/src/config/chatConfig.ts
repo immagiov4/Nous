@@ -1,3 +1,4 @@
+// Reads backend chat configuration from the environment.
 import './env.js';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';

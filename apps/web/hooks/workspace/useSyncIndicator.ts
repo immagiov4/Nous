@@ -1,6 +1,6 @@
 // fallow-ignore-file unused-exports — used by readerShellProps
 
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import {
   getSyncState,
   onSyncStateChange,
@@ -12,9 +12,7 @@ export interface SyncIndicatorState {
 }
 
 export const useSyncIndicator = (): SyncIndicatorState => {
-  const [syncState, setSyncState] = useState<SyncState>(() => getSyncState());
-
-  useEffect(() => onSyncStateChange(setSyncState), []);
+  const syncState = useSyncExternalStore(onSyncStateChange, getSyncState, getSyncState);
 
   return { syncState };
 };

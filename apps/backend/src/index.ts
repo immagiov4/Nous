@@ -1,3 +1,4 @@
+// Backend process entrypoint.
 import './config/env.js';
 
 import cors from 'cors';

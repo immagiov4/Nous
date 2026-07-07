@@ -24,11 +24,7 @@ const buildPdfReasoningExtractionNotes = (
     | undefined
 ): string => {
   const notes = [
-    pdfSession?.parser === 'pdftotext'
-      ? '- Il testo e stato estratto con pdftotext in modalita layout-preserving: se trovi blocchi allineati, colonne o valori ripetuti per riga, trattali come possibili tabelle.'
-      : pdfSession?.parser === 'pdf-parse'
-        ? '- Il testo e stato estratto con pdf-parse: i blocchi tabellari possono risultare piu piatti o riordinati. Se noti pattern tabellari, trattali come tabelle solo quando il testo lo supporta chiaramente.'
-        : '- Il testo del PDF puo perdere parte del layout originario: non ignorare blocchi tabellari o confronti solo perche appaiono meno puliti del documento visivo.',
+    getPdfReasoningLayoutNote(pdfSession?.parser),
     '- Considera come contenuto sostanziale anche tabelle, blocchi comparativi, matrici, didascalie, legende, assi e label testuali di grafici o schemi quando compaiono nel testo estratto.',
   ];
 
@@ -37,6 +33,18 @@ const buildPdfReasoningExtractionNotes = (
   }
 
   return notes.join('\n');
+};
+
+const getPdfReasoningLayoutNote = (parser: 'pdftotext' | 'pdf-parse' | undefined): string => {
+  if (parser === 'pdftotext') {
+    return '- Il testo e stato estratto con pdftotext in modalita layout-preserving: se trovi blocchi allineati, colonne o valori ripetuti per riga, trattali come possibili tabelle.';
+  }
+
+  if (parser === 'pdf-parse') {
+    return '- Il testo e stato estratto con pdf-parse: i blocchi tabellari possono risultare piu piatti o riordinati. Se noti pattern tabellari, trattali come tabelle solo quando il testo lo supporta chiaramente.';
+  }
+
+  return '- Il testo del PDF puo perdere parte del layout originario: non ignorare blocchi tabellari o confronti solo perche appaiono meno puliti del documento visivo.';
 };
 
 export const buildReasoningContentForFile = async (

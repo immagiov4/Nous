@@ -30,6 +30,7 @@ const PDF_IMAGE_PLACEHOLDER_REGEX = /\{\{PDF_IMAGE:([^|}]+)(?:\|[^}]*)?\}\}/g;
 const VISUAL_EXAMPLE_PLACEHOLDER_REGEX = /\{\{VISUAL_EXAMPLE:([^|}]+)(?:\|[^}]*)?\}\}/g;
 const DEFAULT_MAX_ARTIFACT_RESULTS = 24;
 const GENERATED_VISUAL_FALLBACK_ORDER = 1_000_000;
+const GENERATED_VISUAL_ARTIFACT_SEGMENT = ':generated-visual:';
 
 const normalizeSearchText = (value: string): string =>
   value
@@ -54,6 +55,39 @@ const buildArtifactId = ({
   lessonId: string;
   projectId: string;
 }) => `${projectId}:${lessonId}:${kind}:${artifactId}`;
+
+export const readGeneratedVisualIdFromArtifactId = (artifactId: string): string => {
+  const segmentIndex = artifactId.indexOf(GENERATED_VISUAL_ARTIFACT_SEGMENT);
+  return segmentIndex >= 0
+    ? artifactId.slice(segmentIndex + GENERATED_VISUAL_ARTIFACT_SEGMENT.length)
+    : artifactId;
+};
+
+export const replaceGeneratedVisualPreservingId = ({
+  artifactId,
+  replacementVisual,
+  visuals,
+}: {
+  artifactId: string;
+  replacementVisual: LessonGeneratedVisual;
+  visuals?: LessonGeneratedVisual[];
+}): LessonGeneratedVisual[] | null => {
+  const targetVisualId = readGeneratedVisualIdFromArtifactId(artifactId);
+  let didReplace = false;
+  const nextVisuals = (visuals || []).map(visual => {
+    if (visual.id !== targetVisualId) {
+      return visual;
+    }
+
+    didReplace = true;
+    return {
+      ...replacementVisual,
+      id: visual.id,
+    };
+  });
+
+  return didReplace ? nextVisuals : null;
+};
 
 const readPlaceholderOrder = (content: string) => {
   const orderByKey = new Map<string, number>();

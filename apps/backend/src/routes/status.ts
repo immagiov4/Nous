@@ -1,3 +1,4 @@
+// Exposes the backend status endpoint.
 import { type Request, type Response, Router } from 'express';
 
 import { getStatusSnapshot } from '../services/statusService.js';

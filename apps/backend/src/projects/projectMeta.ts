@@ -1,3 +1,4 @@
+// Builds metadata objects for persisted project records.
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';

@@ -445,7 +445,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
         </div>
       </aside>
 
-      {/* TODO: Remove this temporary lesson markdown debug copy action after renderer QA is complete. */}
+      {/* Temporary debug action for renderer QA; keep isolated from regular lesson controls. */}
       {lessonContextMenu ? (
         <div
           ref={lessonContextMenuRef}

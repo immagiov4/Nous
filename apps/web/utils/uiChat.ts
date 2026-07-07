@@ -1,7 +1,35 @@
 import { isTextUIPart, isToolUIPart, type UIMessage } from 'ai';
 
+const PLACEHOLDER_START = '{{';
+const PLACEHOLDER_END = '}}';
+
 /** Strip internal placeholder syntax like {{attachment ...}} that leaks from some models. */
-const stripPlaceholders = (text: string): string => text.replace(/\{\{[^}]*\}\}/g, '').trim();
+const stripPlaceholders = (text: string): string => {
+  const chunks: string[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const placeholderStart = text.indexOf(PLACEHOLDER_START, cursor);
+    if (placeholderStart === -1) {
+      chunks.push(text.slice(cursor));
+      break;
+    }
+
+    const placeholderEnd = text.indexOf(
+      PLACEHOLDER_END,
+      placeholderStart + PLACEHOLDER_START.length
+    );
+    if (placeholderEnd === -1) {
+      chunks.push(text.slice(cursor));
+      break;
+    }
+
+    chunks.push(text.slice(cursor, placeholderStart));
+    cursor = placeholderEnd + PLACEHOLDER_END.length;
+  }
+
+  return chunks.join('').trim();
+};
 
 export const getUiMessageText = (message: UIMessage) => {
   return stripPlaceholders(

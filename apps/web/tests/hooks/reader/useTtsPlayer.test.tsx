@@ -221,4 +221,39 @@ describe('useTtsPlayer', () => {
       { id: 'coral', label: 'coral', language: 'it-IT' },
     ]);
   });
+
+  test('clears playback chunks when the active section changes', async () => {
+    const { result, rerender } = renderHook(
+      ({ activeSectionId, sectionContent }) =>
+        useTtsPlayer({
+          activeSectionId,
+          sectionContent,
+          speechBlocks: [],
+        }),
+      {
+        initialProps: {
+          activeSectionId: 'lesson-1',
+          sectionContent: 'Prima parte.\n\nSeconda parte.',
+        },
+      }
+    );
+
+    await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+
+    act(() => {
+      result.current.togglePlayPause();
+    });
+
+    await waitFor(() => expect(result.current.audioState.chunks.length).toBeGreaterThan(0));
+
+    rerender({
+      activeSectionId: 'lesson-2',
+      sectionContent: 'Nuova lezione',
+    });
+
+    await waitFor(() => {
+      expect(result.current.audioState.chunks).toEqual([]);
+      expect(result.current.audioState.isPlaying).toBe(false);
+    });
+  });
 });

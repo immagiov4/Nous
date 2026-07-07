@@ -1,5 +1,5 @@
+// Extracts text from uploaded PDF files through the backend worker flow.
 import { execFile } from 'node:child_process';
-import crypto from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 
 import { PDFParse } from 'pdf-parse';
 
+import { buildSha256HexDigest } from '../utils/hash.js';
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
 import { normalizeLineEndings } from '../utils/text.js';
 
@@ -31,12 +32,29 @@ export interface ExtractedPdfText {
   usedFallbackParser: boolean;
 }
 
-const buildSourceHash = (buffer: Buffer): string =>
-  crypto.createHash('sha1').update(buffer).digest('hex');
+const buildSourceHash = (buffer: Buffer): string => buildSha256HexDigest(buffer);
+
+const isPageMarkerLine = (line: string): boolean => {
+  const trimmedLine = line.trim();
+  if (!trimmedLine.startsWith('--') || !trimmedLine.endsWith('--')) {
+    return false;
+  }
+
+  const content = trimmedLine.slice(2, -2).trim();
+  const parts = content.split(/\s+/);
+  return (
+    parts.length === 3 &&
+    /^\d+$/u.test(parts[0] || '') &&
+    (parts[1] || '').toLowerCase() === 'of' &&
+    /^\d+$/u.test(parts[2] || '')
+  );
+};
 
 const normalizeExtractedTextSegment = (text: string): string =>
   normalizeLineEndings(text)
-    .replace(/^\s*--\s*\d+\s+of\s+\d+\s*--\s*$/gim, '')
+    .split('\n')
+    .filter(line => !isPageMarkerLine(line))
+    .join('\n')
     .replace(/\f/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

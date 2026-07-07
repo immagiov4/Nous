@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import JSZip from 'jszip';
 import { test } from 'vitest';
-import { buildCodebaseBundleSource, isBinaryFile } from '../../../utils/project/codebaseBundle.ts';
+import {
+  buildCodebaseBundleSource,
+  createCodebaseBundleSourceFromZip,
+  isBinaryFile,
+} from '../../../utils/project/codebaseBundle.ts';
 
 test('buildCodebaseBundleSource sorts files deterministically and keeps stable aggregated text', () => {
   const bundle = buildCodebaseBundleSource('repo.zip', [
@@ -37,4 +42,13 @@ test('buildCodebaseBundleSource applies explicit truncation budgets and tracks s
 test('isBinaryFile detects null bytes early', () => {
   assert.equal(isBinaryFile(new Uint8Array([65, 0, 66])), true);
   assert.equal(isBinaryFile(new Uint8Array([65, 66, 67])), false);
+});
+
+test('createCodebaseBundleSourceFromZip rejects unsafe archive paths', async () => {
+  const zip = new JSZip();
+  zip.file('../secret.ts', 'export const secret = true;');
+  const bytes = await zip.generateAsync({ type: 'uint8array' });
+  const file = new File([bytes as BlobPart], 'repo.zip', { type: 'application/zip' });
+
+  await assert.rejects(() => createCodebaseBundleSourceFromZip(file), /Invalid ZIP archive\./);
 });

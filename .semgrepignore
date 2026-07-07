@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+graphify-out/
+.scannerwork/
+.git/
+.codex/
+.claude/
+.dyad/
+.venv/
+.temp/
+apps/backend/dist/
+**/*.egg

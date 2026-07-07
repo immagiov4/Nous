@@ -4,6 +4,7 @@ import {
   buildGeneratedVisualLearningArtifactPayload,
   collectLearningArtifactPayloads,
   filterLearningArtifactPayloads,
+  replaceGeneratedVisualPreservingId,
 } from '../../../utils/learning/artifacts.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
@@ -221,5 +222,46 @@ describe('learning artifacts', () => {
         query: 'schema entita',
       }).map(artifact => artifact.summary.title)
     ).toEqual(['Schema ER']);
+  });
+
+  test('replaces a generated visual while preserving the original visual id', () => {
+    const nextVisuals = replaceGeneratedVisualPreservingId({
+      artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+      replacementVisual: {
+        id: 'visual-draft-9',
+        title: 'mappa_nuova',
+        kind: 'svg',
+        code: '<svg data-new="true"></svg>',
+        createdAt: '2026-05-02T10:00:00.000Z',
+      },
+      visuals: [
+        {
+          id: 'visual-1',
+          title: 'mappa_vecchia',
+          kind: 'svg',
+          code: '<svg data-old="true"></svg>',
+          createdAt: '2026-05-01T10:00:00.000Z',
+        },
+        {
+          id: 'visual-2',
+          title: 'altra_mappa',
+          kind: 'html',
+          code: '<div>Non toccare</div>',
+          createdAt: '2026-05-01T11:00:00.000Z',
+        },
+      ],
+    });
+
+    expect(nextVisuals).toEqual([
+      expect.objectContaining({
+        id: 'visual-1',
+        title: 'mappa_nuova',
+        code: '<svg data-new="true"></svg>',
+      }),
+      expect.objectContaining({
+        id: 'visual-2',
+        title: 'altra_mappa',
+      }),
+    ]);
   });
 });

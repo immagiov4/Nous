@@ -80,6 +80,13 @@ interface AnimatedFolderChildrenProps {
   folderName: string;
 }
 
+const DropLineIndicator = () => (
+  <div className="pointer-events-none flex items-center gap-1.5">
+    <div className="h-2 w-2 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
+    <div className="h-0.5 flex-1 rounded-full bg-amber-500 dark:bg-amber-400" />
+  </div>
+);
+
 const ROOT_CREATE_KEY = '__root__';
 const FOLDER_COLLAPSE_DURATION_MS = 340;
 
@@ -179,14 +186,16 @@ const getScrollViewportTop = (scrollContainer: HTMLElement | Window): number =>
   'scrollY' in scrollContainer ? 0 : scrollContainer.getBoundingClientRect().top;
 
 const resolveDropTargetFromTouchPoint = (x: number, y: number): DropTarget | null => {
-  const el = (document.elementFromPoint(x, y) as Element | null)?.closest('[data-drag-id]');
+  const el = (document.elementFromPoint(x, y) as Element | null)?.closest<HTMLElement>(
+    '[data-drag-id]'
+  );
   if (!el) return null;
 
-  const targetId = el.getAttribute('data-drag-id');
-  const targetKind = el.getAttribute('data-drag-kind') as 'folder' | 'project' | null;
-  const parentFolderId = el.getAttribute('data-drag-parent-id') || null;
-  const siblingIndex = parseInt(el.getAttribute('data-drag-sibling-index') ?? '0', 10);
-  const siblingCount = parseInt(el.getAttribute('data-drag-sibling-count') ?? '1', 10);
+  const targetId = el.dataset.dragId;
+  const targetKind = el.dataset.dragKind as 'folder' | 'project' | undefined;
+  const parentFolderId = el.dataset.dragParentId || null;
+  const siblingIndex = parseInt(el.dataset.dragSiblingIndex ?? '0', 10);
+  const siblingCount = parseInt(el.dataset.dragSiblingCount ?? '1', 10);
 
   if (!targetId || !targetKind) return null;
 
@@ -229,7 +238,7 @@ const resolveDropTargetFromTouchPoint = (x: number, y: number): DropTarget | nul
     };
   }
 
-  const childrenCount = parseInt(el.getAttribute('data-drag-children-count') ?? '0', 10);
+  const childrenCount = parseInt(el.dataset.dragChildrenCount ?? '0', 10);
   return {
     index: childrenCount,
     parentFolderId: targetId,
@@ -237,6 +246,27 @@ const resolveDropTargetFromTouchPoint = (x: number, y: number): DropTarget | nul
     targetId,
     targetKind: 'folder',
   };
+};
+
+const getFolderRowClassName = ({
+  isDropInside,
+  isMoveTargetDisabled,
+}: {
+  isDropInside: boolean;
+  isMoveTargetDisabled: boolean;
+}): string => {
+  const baseClassName =
+    'group flex items-center gap-2 rounded-2xl border px-3 py-3 transition-colors';
+
+  if (isMoveTargetDisabled) {
+    return `${baseClassName} border-gray-200 bg-gray-50/60 dark:border-zinc-700/80 dark:bg-[#161210]`;
+  }
+
+  if (isDropInside) {
+    return `${baseClassName} border-amber-400 bg-amber-50/40 dark:border-amber-400/60 dark:bg-amber-500/5`;
+  }
+
+  return `${baseClassName} border-gray-300 bg-white dark:border-zinc-700/80 dark:bg-[#1b1614]`;
 };
 
 export default function LibraryTreeView({
@@ -284,10 +314,19 @@ export default function LibraryTreeView({
   }, []);
 
   useEffect(() => {
-    if (!createRootTrigger) return;
-    setCreateTargetId(ROOT_CREATE_KEY);
-    setEditingFolderId(null);
-    setFolderDraftName('');
+    if (!createRootTrigger) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCreateTargetId(ROOT_CREATE_KEY);
+      setEditingFolderId(null);
+      setFolderDraftName('');
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [createRootTrigger]);
 
   useEffect(() => {
@@ -506,7 +545,10 @@ export default function LibraryTreeView({
     () => resolveDisabledFolderIds(draggedItem),
     [draggedItem, resolveDisabledFolderIds]
   );
-  liveRef.current = { draggedFolderDisabledIds, onMoveFolder, onMoveProjects };
+
+  useEffect(() => {
+    liveRef.current = { draggedFolderDisabledIds, onMoveFolder, onMoveProjects };
+  }, [draggedFolderDisabledIds, onMoveFolder, onMoveProjects]);
 
   const moveTargetDisabledFolderIds = useMemo(
     () => resolveDisabledFolderIds(moveTarget),
@@ -714,13 +756,6 @@ export default function LibraryTreeView({
     dropTarget.targetKind === 'folder' &&
     dropTarget.position === 'inside';
 
-  const DropLine = () => (
-    <div className="pointer-events-none flex items-center gap-1.5">
-      <div className="h-2 w-2 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400" />
-      <div className="h-0.5 flex-1 rounded-full bg-amber-500 dark:bg-amber-400" />
-    </div>
-  );
-
   const rootDropTarget: DropTarget = {
     index: tree.rootNodes.length,
     parentFolderId: null,
@@ -808,7 +843,7 @@ export default function LibraryTreeView({
         >
           {isDropBefore(node.id, 'project') ? (
             <div className="absolute -top-px right-0 z-20" style={{ left: paddingLeft }}>
-              <DropLine />
+              <DropLineIndicator />
             </div>
           ) : null}
           <ProjectCard
@@ -828,7 +863,7 @@ export default function LibraryTreeView({
           />
           {isDropAfter(node.id, 'project') ? (
             <div className="absolute -bottom-px right-0 z-20" style={{ left: paddingLeft }}>
-              <DropLine />
+              <DropLineIndicator />
             </div>
           ) : null}
         </li>
@@ -846,7 +881,7 @@ export default function LibraryTreeView({
       >
         {isDropBefore(node.id, 'folder') ? (
           <div className="absolute -top-px right-0 z-20" style={{ left: paddingLeft }}>
-            <DropLine />
+            <DropLineIndicator />
           </div>
         ) : null}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: folder rows need pointer drag/drop while nested controls keep button semantics. */}
@@ -858,13 +893,10 @@ export default function LibraryTreeView({
           data-drag-sibling-count={siblingCount}
           data-drag-children-count={node.children.length}
           draggable={!isMobileViewport}
-          className={`group flex items-center gap-2 rounded-2xl border px-3 py-3 transition-colors ${
-            isMoveTargetDisabled
-              ? 'border-gray-200 bg-gray-50/60 dark:border-zinc-700/80 dark:bg-[#161210]'
-              : isDropInside(node.id)
-                ? 'border-amber-400 bg-amber-50/40 dark:border-amber-400/60 dark:bg-amber-500/5'
-                : 'border-gray-300 bg-white dark:border-zinc-700/80 dark:bg-[#1b1614]'
-          }`}
+          className={getFolderRowClassName({
+            isDropInside: isDropInside(node.id),
+            isMoveTargetDisabled,
+          })}
           style={{ paddingLeft }}
           onDragStart={() => setDraggedItem({ id: node.id, kind: 'folder' })}
           onDragEnd={() => {
@@ -1070,7 +1102,7 @@ export default function LibraryTreeView({
         </AnimatePresence>
         {isDropAfter(node.id, 'folder') ? (
           <div className="absolute -bottom-px right-0 z-20" style={{ left: paddingLeft }}>
-            <DropLine />
+            <DropLineIndicator />
           </div>
         ) : null}
       </li>
@@ -1170,7 +1202,7 @@ export default function LibraryTreeView({
             }}
           >
             {dropTarget?.targetKind === 'root' ? (
-              <DropLine />
+              <DropLineIndicator />
             ) : (
               <span className="block text-center text-xs font-medium text-gray-500 dark:text-zinc-400">
                 Radice libreria

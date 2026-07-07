@@ -27,7 +27,11 @@ import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.
 import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
-import type { LearningArtifactRenderPayload, LessonGeneratedVisual } from '../../../types.ts';
+import type {
+  LearningArtifactRenderPayload,
+  LearningSection,
+  LessonGeneratedVisual,
+} from '../../../types.ts';
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
 import {
   filterLearningArtifactPayloads,
@@ -38,6 +42,11 @@ import {
   getUiMessageRenderableParts,
   getUiMessageText,
 } from '../../../utils/uiChat.ts';
+import type {
+  ChatArtifactActionRequest,
+  ChatArtifactRegenerateRequest,
+  ChatArtifactReplaceRequest,
+} from '../../shared/ChatArtifactRenderer.tsx';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.tsx';
 import ChatTextComposer from '../chat/ChatTextComposer.tsx';
@@ -76,7 +85,10 @@ interface CurrentLessonArtifactsToolInput {
 }
 
 interface GenerateCurrentLessonArtifactInput {
+  mode?: 'new' | 'replacement-draft';
   prompt: string;
+  revisionInstructions?: string;
+  sourceArtifactId?: string;
 }
 
 const isRequestAddToNotesInput = (value: unknown): value is RequestAddToNotesInput => {
@@ -144,7 +156,16 @@ const readGenerateCurrentLessonArtifactInput = (
 
   const candidate = value as Partial<GenerateCurrentLessonArtifactInput>;
   return typeof candidate.prompt === 'string' && candidate.prompt.trim()
-    ? { prompt: candidate.prompt.trim() }
+    ? {
+        mode: candidate.mode === 'replacement-draft' ? 'replacement-draft' : 'new',
+        prompt: candidate.prompt.trim(),
+        revisionInstructions:
+          typeof candidate.revisionInstructions === 'string'
+            ? candidate.revisionInstructions.trim()
+            : undefined,
+        sourceArtifactId:
+          typeof candidate.sourceArtifactId === 'string' ? candidate.sourceArtifactId : undefined,
+      }
     : null;
 };
 
@@ -174,6 +195,7 @@ interface ContextRequestState {
   attachedAnnotationText?: string;
   contextAfter?: string;
   contextBefore?: string;
+  contextScope?: ContextAnswerState['contextScope'];
   lessonContent?: string;
   lessonDescription?: string;
   lessonTitle?: string;
@@ -184,6 +206,24 @@ interface ContextRequestState {
   sourceName?: string;
   toolPreferences: ContextChatToolPreferences;
 }
+
+const buildContextDraftLesson = (
+  contextAnswer: ContextAnswerState,
+  requestState: ContextRequestState | undefined
+): LearningSection | null => {
+  if (!contextAnswer.lessonId || !requestState?.lessonTitle) {
+    return null;
+  }
+
+  return {
+    id: contextAnswer.lessonId,
+    title: requestState.lessonTitle,
+    description: requestState.lessonDescription || '',
+    isCompleted: false,
+    type: 'core',
+    content: requestState.lessonContent || '',
+  };
+};
 
 interface ContextAnswerPanelProps {
   contextAnswer: ContextAnswerState;
@@ -204,6 +244,8 @@ interface ContextAnswerPanelProps {
     visual: LessonGeneratedVisual,
     artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
   ) => Promise<void>;
+  /** Replaces an already saved generated visual while preserving its artifact identity. */
+  onReplaceArtifactInLesson?: (artifactId: string, visual: LessonGeneratedVisual) => Promise<void>;
 }
 
 const toolCardClassName =
@@ -214,8 +256,14 @@ const autoSubmittedInitialQuestionIds = new Set<string>();
 // show fallback buttons after this many ms and auto-reject after HARD_TIMEOUT_MS.
 const STUCK_TOOL_GRACE_MS = 2_000;
 const STUCK_TOOL_HARD_TIMEOUT_MS = 15_000;
+const REPLACEMENT_DRAFT_TOOL_CALL_PREFIX = 'replacement-draft';
+const contextRequestStateStore = new Map<symbol, ContextRequestState>();
 
-export default function ContextAnswerPanel({
+export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps) {
+  return <ContextAnswerPanelSession key={props.contextAnswer.id} {...props} />;
+}
+
+function ContextAnswerPanelSession({
   contextAnswer,
   contextAnswerPanelRef,
   contextAnswerSize,
@@ -228,6 +276,7 @@ export default function ContextAnswerPanel({
   onSaveConversationNote,
   onUpdateConversationNote,
   onSaveArtifactToLesson,
+  onReplaceArtifactInLesson,
 }: ContextAnswerPanelProps) {
   const [input, setInput] = useState('');
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
@@ -284,22 +333,46 @@ export default function ContextAnswerPanel({
     };
   }, [contextAnswer.contextAfter, contextAnswer.contextBefore, contextAnswer.selectedText]);
 
-  const latestRequestStateRef = useRef<ContextRequestState | null>(null);
-  latestRequestStateRef.current = {
-    attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
-    attachedAnnotationText: contextAnswer.attachedAnnotationText,
-    contextAfter: contextAnswer.contextAfter,
-    contextBefore: contextAnswer.contextBefore,
-    lessonContent: contextAnswer.lessonContent,
-    lessonDescription: contextAnswer.lessonDescription,
-    lessonTitle: contextAnswer.lessonTitle,
-    selectedText: contextAnswer.selectedText,
-    sourceKind: contextAnswer.sourceKind,
-    sourceMaterial: contextAnswer.sourceMaterial,
-    sourceName: contextAnswer.sourceName,
+  const requestStateKey = useMemo(() => Symbol('context-request-state'), []);
+
+  useEffect(() => {
+    contextRequestStateStore.set(requestStateKey, {
+      attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
+      attachedAnnotationText: contextAnswer.attachedAnnotationText,
+      contextAfter: contextAnswer.contextAfter,
+      contextBefore: contextAnswer.contextBefore,
+      contextScope: contextAnswer.contextScope,
+      lessonContent: contextAnswer.lessonContent,
+      lessonDescription: contextAnswer.lessonDescription,
+      lessonTitle: contextAnswer.lessonTitle,
+      selectedText: contextAnswer.selectedText,
+      sourceKind: contextAnswer.sourceKind,
+      sourceMaterial: contextAnswer.sourceMaterial,
+      sourceName: contextAnswer.sourceName,
+      preferredContextModel,
+      toolPreferences,
+    });
+
+    return () => {
+      contextRequestStateStore.delete(requestStateKey);
+    };
+  }, [
+    contextAnswer.attachedAnnotationNote,
+    contextAnswer.attachedAnnotationText,
+    contextAnswer.contextAfter,
+    contextAnswer.contextBefore,
+    contextAnswer.contextScope,
+    contextAnswer.lessonContent,
+    contextAnswer.lessonDescription,
+    contextAnswer.lessonTitle,
+    contextAnswer.selectedText,
+    contextAnswer.sourceKind,
+    contextAnswer.sourceMaterial,
+    contextAnswer.sourceName,
     preferredContextModel,
+    requestStateKey,
     toolPreferences,
-  };
+  ]);
 
   const transport = useMemo(
     () =>
@@ -307,7 +380,7 @@ export default function ContextAnswerPanel({
         api: `${getBackendUrl()}/api/chat/context`,
         // `useChat` keeps the initial transport instance, so request data must come from a ref.
         prepareSendMessagesRequest: ({ id, messages }) => {
-          const currentRequestState = latestRequestStateRef.current;
+          const currentRequestState = contextRequestStateStore.get(requestStateKey);
           if (!currentRequestState) {
             throw new Error('Context request state is not initialized.');
           }
@@ -318,6 +391,7 @@ export default function ContextAnswerPanel({
               messages,
               contextAfter: currentRequestState.contextAfter,
               contextBefore: currentRequestState.contextBefore,
+              contextScope: currentRequestState.contextScope || 'selection',
               lessonContent: currentRequestState.lessonContent,
               lessonDescription: currentRequestState.lessonDescription,
               lessonTitle: currentRequestState.lessonTitle,
@@ -333,7 +407,7 @@ export default function ContextAnswerPanel({
           };
         },
       }),
-    []
+    [requestStateKey]
   );
 
   const { addToolOutput, error, messages, sendMessage, status } = useChat<ContextChatMessage>({
@@ -374,20 +448,45 @@ export default function ContextAnswerPanel({
 
       if (toolCall.toolName === 'generateCurrentLessonArtifact') {
         const artifactInput = readGenerateCurrentLessonArtifactInput(toolCall.input);
-        const currentState = latestRequestStateRef.current;
+        const currentState = contextRequestStateStore.get(requestStateKey);
+        const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
+        const allArtifactPayloads = [
+          ...currentLessonArtifactPayloads,
+          ...Object.values(artifactPayloadsByToolCallId).flat(),
+        ];
+        const sourceArtifactId =
+          artifactInput?.sourceArtifactId ||
+          (artifactInput?.mode === 'replacement-draft'
+            ? latestGeneratedArtifactIdRef.current || undefined
+            : undefined);
+        const sourceArtifact = sourceArtifactId
+          ? allArtifactPayloads.find(
+              payload =>
+                payload.summary.id === sourceArtifactId &&
+                payload.summary.kind === 'generated-visual' &&
+                'visual' in payload
+            )
+          : undefined;
 
-        if (
-          !artifactInput ||
-          !contextAnswer.projectId ||
-          !contextAnswer.lessonId ||
-          !currentState?.lessonTitle
-        ) {
+        if (!artifactInput || !contextAnswer.projectId || !draftLesson || !currentState) {
           void addToolOutput({
             tool: 'generateCurrentLessonArtifact',
             toolCallId: toolCall.toolCallId,
             output: {
               artifact: null,
               error: 'Non ho abbastanza contesto per generare un artefatto su questa lezione.',
+            },
+          });
+          return;
+        }
+
+        if (artifactInput.mode === 'replacement-draft' && !sourceArtifact) {
+          void addToolOutput({
+            tool: 'generateCurrentLessonArtifact',
+            toolCallId: toolCall.toolCallId,
+            output: {
+              artifact: null,
+              error: 'Non ho trovato un artefatto generato modificabile da usare come sorgente.',
             },
           });
           return;
@@ -405,18 +504,15 @@ export default function ContextAnswerPanel({
             contextAfter: currentState.contextAfter,
             contextBefore: currentState.contextBefore,
             generationNotes: undefined,
-            lesson: {
-              id: contextAnswer.lessonId,
-              title: currentState.lessonTitle,
-              description: currentState.lessonDescription || '',
-              isCompleted: false,
-              type: 'core',
-              content: currentState.lessonContent || '',
-            },
+            lesson: draftLesson,
+            mode: artifactInput.mode,
             projectId: contextAnswer.projectId,
             projectTitle: contextAnswer.projectTitle || 'Corso',
             prompt: artifactInput.prompt,
+            revisionInstructions: artifactInput.revisionInstructions,
             selectedText: currentState.selectedText,
+            sourceArtifact,
+            sourceArtifactId,
           });
         } finally {
           setGeneratingArtifactToolCallIds(prev => {
@@ -469,6 +565,13 @@ export default function ContextAnswerPanel({
     ];
     return new Map(payloads.map(payload => [payload.summary.id, payload]));
   }, [artifactPayloadsByToolCallId, currentLessonArtifactPayloads]);
+  const replacementDraftPayloads = useMemo(
+    () =>
+      Object.entries(artifactPayloadsByToolCallId).flatMap(([toolCallId, payloads]) =>
+        toolCallId.startsWith(REPLACEMENT_DRAFT_TOOL_CALL_PREFIX) ? payloads : []
+      ),
+    [artifactPayloadsByToolCallId]
+  );
 
   useEffect(() => {
     const initialQuestion = contextAnswer.initialQuestion.trim();
@@ -506,27 +609,6 @@ export default function ContextAnswerPanel({
     };
   }, [isToolMenuOpen]);
 
-  useEffect(() => {
-    if (!contextAnswer.id) {
-      return;
-    }
-
-    hasSubmittedInitialQuestionRef.current = false;
-    setIsToolMenuOpen(false);
-    setArtifactPayloadsByToolCallId({});
-    setGeneratedVisualsByArtifactId({});
-    latestGeneratedArtifactIdRef.current = null;
-    setGeneratingArtifactToolCallIds(new Set());
-    setToolPreferences({
-      annotate: false,
-      generateArtifacts: false,
-      webSearch: false,
-    });
-    stuckToolTimestampsRef.current.clear();
-    setExpiredGraceTools(new Set());
-    setProcessingNoteToolCallIds(new Set());
-  }, [contextAnswer.id]);
-
   const handleRejectNoteRequest = (toolCallId: string) => {
     void addToolOutput({
       tool: 'requestAddToNotes',
@@ -543,7 +625,7 @@ export default function ContextAnswerPanel({
       return;
     }
 
-    const currentState = latestRequestStateRef.current;
+    const currentState = contextRequestStateStore.get(requestStateKey);
     const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
     const mode: 'new' | 'update' = hasExistingNote ? 'update' : 'new';
     const runMutation = mode === 'update' ? onUpdateConversationNote : onSaveConversationNote;
@@ -631,7 +713,9 @@ export default function ContextAnswerPanel({
     }
   };
 
-  const handleSaveGeneratedArtifact = async (artifactId: string): Promise<void> => {
+  const handleSaveGeneratedArtifact = async ({
+    artifactId,
+  }: ChatArtifactActionRequest): Promise<void> => {
     const payload = artifactPayloadsById.get(artifactId);
     if (!payload || !('visual' in payload)) return;
 
@@ -643,7 +727,7 @@ export default function ContextAnswerPanel({
       kind: 'generated-visual',
       title: payload.summary.title,
     } as const;
-    const currentState = latestRequestStateRef.current;
+    const currentState = contextRequestStateStore.get(requestStateKey);
     const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
     const runMutation = hasExistingNote ? onUpdateConversationNote : onSaveConversationNote;
     const candidates = buildConversationNoteSaveCandidates({
@@ -668,12 +752,54 @@ export default function ContextAnswerPanel({
     }
   };
 
-  const handleRegenerateArtifact = (artifactId: string) => {
+  const handleRegenerateArtifact = async ({
+    artifactId,
+    instructions,
+  }: ChatArtifactRegenerateRequest): Promise<void> => {
     const payload = artifactPayloadsById.get(artifactId);
-    if (!payload) return;
+    const currentState = contextRequestStateStore.get(requestStateKey);
+    const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
+    if (!payload || !('visual' in payload) || !contextAnswer.projectId || !draftLesson) return;
 
-    // Remove the old artifact payload so the UI shows it as discarded,
-    // then re-trigger generation via a follow-up message.
+    const draft = await generateLessonArtifactDraft({
+      contextAfter: currentState?.contextAfter,
+      contextBefore: currentState?.contextBefore,
+      lesson: draftLesson,
+      mode: 'replacement-draft',
+      projectId: contextAnswer.projectId,
+      projectTitle: contextAnswer.projectTitle || 'Corso',
+      prompt: `Modifica l artefatto "${payload.summary.title}".`,
+      revisionInstructions: instructions,
+      selectedText: currentState?.selectedText,
+      sourceArtifact: payload,
+      sourceArtifactId: artifactId,
+    });
+    if (!draft) {
+      return;
+    }
+
+    setGeneratedVisualsByArtifactId(currentVisuals => ({
+      ...currentVisuals,
+      [draft.artifactId]: draft.visual,
+    }));
+    latestGeneratedArtifactIdRef.current = draft.artifactId;
+    setArtifactPayloadsByToolCallId(currentPayloads => ({
+      ...currentPayloads,
+      [`${REPLACEMENT_DRAFT_TOOL_CALL_PREFIX}-${artifactId}-${Date.now()}`]: [draft.payload],
+    }));
+  };
+
+  const handleReplaceArtifact = async ({
+    artifactId,
+    replacementOfArtifactId,
+  }: ChatArtifactReplaceRequest): Promise<void> => {
+    const payload = artifactPayloadsById.get(artifactId);
+    const visual = generatedVisualsByArtifactId[artifactId];
+    if (!payload || !('visual' in payload) || !visual || !onReplaceArtifactInLesson) {
+      return;
+    }
+
+    await onReplaceArtifactInLesson(replacementOfArtifactId, visual);
     setArtifactPayloadsByToolCallId(currentPayloads => {
       const next = { ...currentPayloads };
       for (const [key, payloads] of Object.entries(next)) {
@@ -690,16 +816,11 @@ export default function ContextAnswerPanel({
       return next;
     });
     if (latestGeneratedArtifactIdRef.current === artifactId) {
-      latestGeneratedArtifactIdRef.current = null;
+      latestGeneratedArtifactIdRef.current = replacementOfArtifactId;
     }
-
-    // Send a follow-up message asking to regenerate
-    void sendMessage({
-      text: `Rigenera l'artefatto "${payload.summary.title}" con le stesse specifiche ma con un layout diverso.`,
-    });
   };
 
-  const handleDiscardArtifact = (artifactId: string) => {
+  const handleDiscardArtifact = ({ artifactId }: ChatArtifactActionRequest) => {
     setArtifactPayloadsByToolCallId(currentPayloads => {
       const next = { ...currentPayloads };
       for (const [key, payloads] of Object.entries(next)) {
@@ -941,14 +1062,7 @@ export default function ContextAnswerPanel({
           ) : null}
 
           {part.state === 'input-available' && inputValue ? (
-            isProcessing ? (
-              <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                <span>
-                  {hasExistingNote ? 'Aggiornamento in corso...' : 'Salvataggio in corso...'}
-                </span>
-              </div>
-            ) : (
+            isProcessing ? null : (
               <div className="mt-3 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
@@ -1044,6 +1158,7 @@ export default function ContextAnswerPanel({
           isLoading={(isGenerating || isAwaitingArtifactOutput) && artifactPayloads.length === 0}
           onDiscardArtifact={handleDiscardArtifact}
           onRegenerateArtifact={handleRegenerateArtifact}
+          onReplaceArtifact={handleReplaceArtifact}
           onSaveArtifact={
             part.type === 'tool-generateCurrentLessonArtifact'
               ? handleSaveGeneratedArtifact
@@ -1127,6 +1242,16 @@ export default function ContextAnswerPanel({
                 </div>
               );
             })}
+
+            {replacementDraftPayloads.length > 0 ? (
+              <ChatArtifactRenderer
+                artifacts={replacementDraftPayloads}
+                isDarkMode={isDarkMode}
+                onDiscardArtifact={handleDiscardArtifact}
+                onRegenerateArtifact={handleRegenerateArtifact}
+                onReplaceArtifact={handleReplaceArtifact}
+              />
+            ) : null}
 
             {isLoading ? (
               <div className="text-sm text-stone-400 dark:text-stone-500">

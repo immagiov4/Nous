@@ -1,9 +1,53 @@
-const collapseWhitespace = (text: string): string =>
-  text
-    .replace(/\r/g, '')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+import { getMarkdownProtectedRanges, type MarkdownRange } from '../markdown/codeRanges.ts';
+import { stripPdfImagePlaceholders } from '../pdf/imagePlaceholders.ts';
+
+const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
+
+const trimTrailingInlineSpace = (characters: string[]): void => {
+  while (characters[characters.length - 1] === ' ') {
+    characters.pop();
+  }
+};
+
+const appendInlineSpace = (characters: string[]): void => {
+  if (characters.length > 0 && characters[characters.length - 1] !== ' ') {
+    characters.push(' ');
+  }
+};
+
+const appendCollapsedNewline = (characters: string[], consecutiveNewlines: number): void => {
+  trimTrailingInlineSpace(characters);
+  if (consecutiveNewlines <= 2) {
+    characters.push('\n');
+  }
+};
+
+const collapseWhitespace = (text: string): string => {
+  const characters: string[] = [];
+  let consecutiveNewlines = 0;
+
+  for (const character of text) {
+    if (character === '\r') {
+      continue;
+    }
+
+    if (isInlineWhitespace(character)) {
+      appendInlineSpace(characters);
+      continue;
+    }
+
+    if (character === '\n') {
+      consecutiveNewlines += 1;
+      appendCollapsedNewline(characters, consecutiveNewlines);
+      continue;
+    }
+
+    consecutiveNewlines = 0;
+    characters.push(character);
+  }
+
+  return characters.join('').trim();
+};
 
 const BLOCK_PAUSE_WEIGHT = 200;
 const NON_SPEECH_SELECTOR =
@@ -12,6 +56,290 @@ const READABLE_TEXT_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, li, blockquote';
 const PROSE_READABLE_TEXT_SELECTOR = READABLE_TEXT_SELECTOR.split(', ')
   .map(selector => `.prose ${selector}`)
   .join(', ');
+const VISUAL_EXAMPLE_PLACEHOLDER_PREFIX = '{{VISUAL_EXAMPLE:';
+const HTML_SPACE_ENTITY = '&nbsp;';
+const HTML_TAGS_TO_DROP_WITH_CONTENT = ['figure', 'picture', 'figcaption'] as const;
+const HTML_TAGS_TO_STRIP = new Set(['mark', 'span']);
+
+const rangeContainsLineBreak = (content: string, range: MarkdownRange): boolean =>
+  content.slice(range.start, range.end).includes('\n');
+
+const replaceMarkdownProtectedRanges = (content: string): string => {
+  const ranges = getMarkdownProtectedRanges(content);
+  if (ranges.length === 0) {
+    return content;
+  }
+
+  let nextContent = '';
+  let cursor = 0;
+
+  ranges.forEach(range => {
+    nextContent += content.slice(cursor, range.start);
+    nextContent += rangeContainsLineBreak(content, range) ? '\n' : ' ';
+    cursor = range.end;
+  });
+
+  nextContent += content.slice(cursor);
+  return nextContent;
+};
+
+const stripPlaceholderToken = (content: string, placeholderPrefix: string): string => {
+  let normalizedContent = '';
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const tokenIndex = content.indexOf(placeholderPrefix, cursor);
+    if (tokenIndex === -1) {
+      normalizedContent += content.slice(cursor);
+      break;
+    }
+
+    normalizedContent += content.slice(cursor, tokenIndex);
+    const tokenEnd = content.indexOf('}}', tokenIndex + placeholderPrefix.length);
+    normalizedContent += ' ';
+    cursor = tokenEnd === -1 ? content.length : tokenEnd + 2;
+  }
+
+  return normalizedContent;
+};
+
+const stripHtmlTag = (content: string, tagName: string): string => {
+  const openTag = `<${tagName}`;
+  const closeTag = `</${tagName}>`;
+  let normalizedContent = '';
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const tagIndex = content.toLowerCase().indexOf(openTag, cursor);
+    if (tagIndex === -1) {
+      normalizedContent += content.slice(cursor);
+      break;
+    }
+
+    normalizedContent += content.slice(cursor, tagIndex);
+    const openTagEnd = content.indexOf('>', tagIndex + openTag.length);
+    if (openTagEnd === -1) {
+      normalizedContent += content.slice(tagIndex);
+      break;
+    }
+
+    const lowerCasedContent = content.toLowerCase();
+    const closeTagIndex = lowerCasedContent.indexOf(closeTag, openTagEnd + 1);
+    normalizedContent += ' ';
+    cursor = closeTagIndex === -1 ? openTagEnd + 1 : closeTagIndex + closeTag.length;
+  }
+
+  return normalizedContent;
+};
+
+const stripHtmlVoidTag = (content: string, tagName: string): string => {
+  const openTag = `<${tagName}`;
+  let normalizedContent = '';
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const tagIndex = content.toLowerCase().indexOf(openTag, cursor);
+    if (tagIndex === -1) {
+      normalizedContent += content.slice(cursor);
+      break;
+    }
+
+    normalizedContent += content.slice(cursor, tagIndex);
+    const tagEnd = content.indexOf('>', tagIndex + openTag.length);
+    normalizedContent += ' ';
+    cursor = tagEnd === -1 ? content.length : tagEnd + 1;
+  }
+
+  return normalizedContent;
+};
+
+const stripAllowedHtmlTags = (content: string): string => {
+  let normalizedContent = '';
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const tagStart = content.indexOf('<', cursor);
+    if (tagStart === -1) {
+      normalizedContent += content.slice(cursor);
+      break;
+    }
+
+    normalizedContent += content.slice(cursor, tagStart);
+    const tagEnd = content.indexOf('>', tagStart + 1);
+    if (tagEnd === -1) {
+      normalizedContent += content.slice(tagStart);
+      break;
+    }
+
+    const rawTag = content.slice(tagStart + 1, tagEnd).trim();
+    const normalizedTag = rawTag.startsWith('/') ? rawTag.slice(1).trim() : rawTag;
+    const tagName = normalizedTag.split(/[\s/>]/u, 1)[0]?.toLowerCase();
+
+    if (tagName && HTML_TAGS_TO_STRIP.has(tagName)) {
+      cursor = tagEnd + 1;
+      continue;
+    }
+
+    normalizedContent += ' ';
+    cursor = tagEnd + 1;
+  }
+
+  return normalizedContent;
+};
+
+const findClosingMarkdownParen = (content: string, startIndex: number): number => {
+  let depth = 0;
+
+  for (let index = startIndex; index < content.length; index += 1) {
+    const character = content[index];
+    if (character === '(') {
+      depth += 1;
+      continue;
+    }
+
+    if (character !== ')') {
+      continue;
+    }
+
+    depth -= 1;
+    if (depth === 0) {
+      return index;
+    }
+  }
+
+  return -1;
+};
+
+interface MarkdownLinkCandidate {
+  isImage: boolean;
+  start: number;
+}
+
+const findNextMarkdownLinkCandidate = (
+  content: string,
+  cursor: number
+): MarkdownLinkCandidate | null => {
+  const imageStart = content.indexOf('![', cursor);
+  const linkStart = content.indexOf('[', cursor);
+
+  if (imageStart === -1 && linkStart === -1) {
+    return null;
+  }
+
+  if (imageStart !== -1 && (linkStart === -1 || imageStart <= linkStart)) {
+    return { isImage: true, start: imageStart };
+  }
+
+  return { isImage: false, start: linkStart };
+};
+
+const normalizeMarkdownLinks = (content: string): string => {
+  let normalizedContent = '';
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const candidate = findNextMarkdownLinkCandidate(content, cursor);
+    if (!candidate) {
+      normalizedContent += content.slice(cursor);
+      break;
+    }
+
+    normalizedContent += content.slice(cursor, candidate.start);
+
+    const labelStart = candidate.start + (candidate.isImage ? 2 : 1);
+    const labelEnd = content.indexOf(']', labelStart);
+    const urlStart = labelEnd === -1 ? -1 : labelEnd + 1;
+
+    if (labelEnd === -1 || content[urlStart] !== '(') {
+      normalizedContent += content[candidate.start];
+      cursor = candidate.start + 1;
+      continue;
+    }
+
+    const urlEnd = findClosingMarkdownParen(content, urlStart);
+    if (urlEnd === -1) {
+      normalizedContent += content[candidate.start];
+      cursor = candidate.start + 1;
+      continue;
+    }
+
+    if (candidate.isImage) {
+      normalizedContent += ' ';
+    } else {
+      normalizedContent += content.slice(labelStart, labelEnd);
+    }
+
+    cursor = urlEnd + 1;
+  }
+
+  return normalizedContent;
+};
+
+const isMarkdownListMarker = (character: string | undefined): boolean =>
+  character === '>' || character === '-' || character === '*' || character === '+';
+
+const findMarkdownLinePrefixEnd = (line: string, prefixStart: number): number | null => {
+  const prefixCharacter = line[prefixStart];
+  if (!prefixCharacter) {
+    return null;
+  }
+
+  let cursor = prefixStart;
+  if (prefixCharacter === '#') {
+    while (line[cursor] === '#') {
+      cursor += 1;
+    }
+    return cursor;
+  }
+
+  if (isMarkdownListMarker(prefixCharacter)) {
+    return cursor + 1;
+  }
+
+  while (line[cursor] >= '0' && line[cursor] <= '9') {
+    cursor += 1;
+  }
+
+  return cursor > prefixStart && line[cursor] === '.' ? cursor + 1 : null;
+};
+
+const stripMarkdownLinePrefix = (line: string): string => {
+  let cursor = 0;
+
+  while (cursor < line.length && cursor < 3 && line[cursor] === ' ') {
+    cursor += 1;
+  }
+
+  const prefixStart = cursor;
+  const prefixEnd = findMarkdownLinePrefixEnd(line, prefixStart);
+  if (prefixEnd === null) {
+    return line;
+  }
+
+  cursor = prefixEnd;
+  if (line[cursor] !== ' ') {
+    return line;
+  }
+
+  while (cursor < line.length && line[cursor] === ' ') {
+    cursor += 1;
+  }
+
+  return line.slice(cursor);
+};
+
+const stripMarkdownFormattingMarkers = (content: string): string => {
+  let normalizedContent = '';
+
+  for (const character of content) {
+    normalizedContent +=
+      character === '*' || character === '_' || character === '~' || character === '|'
+        ? ' '
+        : character;
+  }
+
+  return normalizedContent;
+};
 
 const getReadingWeight = (text: string): number => {
   const baseLength = text.length;
@@ -34,29 +362,27 @@ export interface ReadableBlock extends ReadableSegment {
 }
 
 export const prepareMarkdownForSpeech = (content: string): string => {
-  const cleanedContent = content
-    .replace(/\{\{PDF_IMAGE:[^}]+\}\}/g, ' ')
-    .replace(/\{\{VISUAL_EXAMPLE:[^}]+\}\}/g, ' ')
-    .replace(/<figure\b[\s\S]*?<\/figure>/gi, ' ')
-    .replace(/<picture\b[\s\S]*?<\/picture>/gi, ' ')
-    .replace(/<figcaption\b[\s\S]*?<\/figcaption>/gi, ' ')
-    .replace(/<img\b[^>]*>/gi, ' ')
-    .replace(/<\/?mark\b[^>]*>/g, '')
-    .replace(/<\/?span[^>]*>/g, '')
-    .replace(/```[\s\S]*?```/g, '\n')
-    .replace(/`[^`]+`/g, ' ')
-    .replace(/\$\$[\s\S]*?\$\$/g, '\n')
-    .replace(/\\\[[\s\S]*?\\\]/g, '\n')
-    .replace(/\$(?!\s)[^$\n]+?\$/g, ' ')
-    .replace(/\\\(([\s\S]*?)\\\)/g, ' ')
-    .replace(/!\[[^\]]*]\([^)]+\)/g, ' ')
-    .replace(/\[([^\]]+)]\([^)]+\)/g, '$1')
-    .replace(/^\s{0,3}(#{1,6}|>|-|\*|\+|\d+\.)\s+/gm, '')
-    .replace(/[*_~|]+/g, ' ')
-    .replace(/<\/?[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ');
+  const placeholderStrippedContent = stripPlaceholderToken(
+    stripPdfImagePlaceholders(content),
+    VISUAL_EXAMPLE_PLACEHOLDER_PREFIX
+  );
+  const markdownProtectedContent = replaceMarkdownProtectedRanges(placeholderStrippedContent);
+  const htmlContentRemoved = HTML_TAGS_TO_DROP_WITH_CONTENT.reduce(
+    (nextContent, tagName) => stripHtmlTag(nextContent, tagName),
+    markdownProtectedContent
+  );
+  const htmlVoidTagsRemoved = stripHtmlVoidTag(htmlContentRemoved, 'img');
+  const htmlTagsStripped = stripAllowedHtmlTags(htmlVoidTagsRemoved).replaceAll(
+    HTML_SPACE_ENTITY,
+    ' '
+  );
+  const markdownLinksNormalized = normalizeMarkdownLinks(htmlTagsStripped);
+  const markdownPrefixesStripped = markdownLinksNormalized
+    .split('\n')
+    .map(stripMarkdownLinePrefix)
+    .join('\n');
 
-  return collapseWhitespace(cleanedContent);
+  return collapseWhitespace(stripMarkdownFormattingMarkers(markdownPrefixesStripped));
 };
 
 const extractReadableElementText = (element: HTMLElement): string => {

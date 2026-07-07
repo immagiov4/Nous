@@ -1,4 +1,8 @@
+// Stops local dev servers on the standard Lumina Reader ports.
 const DEV_PORTS = [5173, 3301] as const;
+const writeStatus = (message: string) => {
+  process.stdout.write(`${message}\n`);
+};
 
 const isWindows = process.platform === 'win32';
 
@@ -69,6 +73,6 @@ for (const port of DEV_PORTS) {
     continue;
   }
 
-  console.log(`[dev] Closing old server on port ${port}: ${processIds.join(', ')}`);
+  writeStatus(`[dev] Closing old server on port ${port}: ${processIds.join(', ')}`);
   await Promise.all(processIds.map(killProcess));
 }

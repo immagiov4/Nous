@@ -231,6 +231,7 @@ export interface LearningArtifactSummary {
   previewMode: LearningArtifactPreviewMode;
   projectId: ProjectId;
   projectTitle: string;
+  replacementOfArtifactId?: string;
   sourceLabel?: string;
   title: string;
 }
@@ -490,6 +491,7 @@ export interface HorizontalViewportBounds {
 }
 
 export type ContextMenuPlacement = 'desktop-floating' | 'mobile-sheet';
+export type ContextScope = 'annotation' | 'lesson' | 'selection';
 
 export type SectionAnnotationAnchor = { kind: 'lesson' } | { kind: 'selection' };
 
@@ -524,6 +526,12 @@ export interface SelectionContextMenuState extends BaseContextMenuState {
   contextAfter?: string;
 }
 
+export interface LessonContextMenuState extends BaseContextMenuState {
+  type: 'lesson';
+  contextBefore?: string;
+  contextAfter?: string;
+}
+
 export interface AnnotationContextMenuState extends BaseContextMenuState {
   type: 'annotation';
   annotationId: string;
@@ -533,7 +541,10 @@ export interface AnnotationContextMenuState extends BaseContextMenuState {
   contextAfter?: string;
 }
 
-export type ContextMenuState = SelectionContextMenuState | AnnotationContextMenuState;
+export type ContextMenuState =
+  | AnnotationContextMenuState
+  | LessonContextMenuState
+  | SelectionContextMenuState;
 
 export type VoiceProfileId = string;
 export type VoiceName = VoiceProfileId;

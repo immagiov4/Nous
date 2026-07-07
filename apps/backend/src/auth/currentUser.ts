@@ -1,3 +1,4 @@
+// Resolves the current backend user from the local auth context.
 import type { NextFunction, Request, Response } from 'express';
 
 const DEFAULT_LOCAL_USER_ID = 'local-user';

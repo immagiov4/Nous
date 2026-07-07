@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { createRef } from 'react';
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderContentModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderContent from '../../../../components/workspace/shell/WorkspaceReaderContent.tsx';
 import type { LearningArtifactRenderPayload } from '../../../../types.ts';
@@ -65,6 +66,10 @@ const savedSelectionArtifact: LearningArtifactRenderPayload = {
 };
 
 describe('WorkspaceReaderContent', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   test('shows a lesson generation skeleton when the selected lesson is not ready yet', () => {
     render(
       <WorkspaceReaderContent
@@ -175,6 +180,24 @@ describe('WorkspaceReaderContent', () => {
 
     expect(screen.getByRole('heading', { name: 'Artefatti' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Apri Flashcard interattive/i })).toBeInTheDocument();
+  });
+
+  test('persists dismissal of the context hint banner', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<WorkspaceReaderContent {...buildProps()} />);
+
+    await user.click(
+      screen.getByRole('button', { name: /Nascondi suggerimento selezione testo/i })
+    );
+    expect(
+      screen.queryByText(/Seleziona un passaggio e fai click destro per chiedere spiegazioni/i)
+    ).toBeNull();
+
+    rerender(<WorkspaceReaderContent {...buildProps()} />);
+
+    expect(
+      screen.queryByText(/Seleziona un passaggio e fai click destro per chiedere spiegazioni/i)
+    ).toBeNull();
   });
 
   test('renders the selected application exercise brief instead of a lesson skeleton', () => {

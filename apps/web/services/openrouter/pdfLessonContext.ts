@@ -6,6 +6,10 @@ import {
 import type { PdfTextChunk, PdfTextIndex } from './types.ts';
 
 const PDF_IMAGE_PAGE_RADIUS = 2;
+type PageMappingMode =
+  | 'exact-from-page-text'
+  | 'exact-from-chunk-metadata'
+  | 'estimated-from-offsets';
 
 const formatEstimatedPageRange = (
   span: { startPage: number; endPage: number } | null | undefined
@@ -87,12 +91,26 @@ export const buildPdfChunkUsageDebugPayload = (
       targetedImagePages.length > 0
         ? `pag. ${targetedImagePages[0]}-${targetedImagePages[targetedImagePages.length - 1]}`
         : null,
-    pageMappingMode: pageLayout
-      ? 'exact-from-page-text'
-      : hasStoredChunkPages
-        ? 'exact-from-chunk-metadata'
-        : 'estimated-from-offsets',
+    pageMappingMode: resolvePageMappingMode({ hasStoredChunkPages, pageLayout }),
   };
+};
+
+const resolvePageMappingMode = ({
+  hasStoredChunkPages,
+  pageLayout,
+}: {
+  hasStoredChunkPages: boolean;
+  pageLayout: ReturnType<typeof buildPdfPageTextLayout>;
+}): PageMappingMode => {
+  if (pageLayout) {
+    return 'exact-from-page-text';
+  }
+
+  if (hasStoredChunkPages) {
+    return 'exact-from-chunk-metadata';
+  }
+
+  return 'estimated-from-offsets';
 };
 
 export const estimateRelevantPdfImagePages = (

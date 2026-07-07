@@ -13,22 +13,101 @@ const SCROLL_VELOCITY_PX_PER_SECOND = 42;
 const SCROLL_START_BUFFER_PX = 120;
 const SCROLL_STOP_BUFFER_PX = 28;
 
-const normalizeReasoningText = (text: string): string =>
+const isEscapedBackslashSequence = (text: string, slashIndex: number): boolean => {
+  let backslashCount = 0;
+  let cursor = slashIndex - 1;
+
+  while (cursor >= 0 && text[cursor] === '\\') {
+    backslashCount += 1;
+    cursor -= 1;
+  }
+
+  return backslashCount % 2 === 1;
+};
+
+const restoreLiteralWhitespaceTokens = (text: string): string => {
+  let normalized = '';
+
+  for (let index = 0; index < text.length; ) {
+    if (text[index] === '\\' && !isEscapedBackslashSequence(text, index)) {
+      const nextSlice = text.slice(index, index + 4);
+      if (nextSlice === '\\r\\n') {
+        normalized += '\n';
+        index += 4;
+        continue;
+      }
+
+      const nextCharacter = text[index + 1];
+      if (nextCharacter === 'n' || nextCharacter === 'r') {
+        normalized += '\n';
+        index += 2;
+        continue;
+      }
+
+      if (nextCharacter === 't') {
+        normalized += '  ';
+        index += 2;
+        continue;
+      }
+    }
+
+    normalized += text[index];
+    index += 1;
+  }
+
+  return normalized;
+};
+
+const findHeadingStartIndex = (line: string): number => {
+  for (let index = 1; index < line.length; index += 1) {
+    if (line[index] !== '#') {
+      continue;
+    }
+
+    const previousCharacter = line[index - 1];
+    if (previousCharacter === '#') {
+      continue;
+    }
+
+    let headingEnd = index;
+    while (headingEnd < line.length && line[headingEnd] === '#') {
+      headingEnd += 1;
+    }
+
+    if (headingEnd === index || headingEnd - index > 6 || line[headingEnd] !== ' ') {
+      continue;
+    }
+
+    return index;
+  }
+
+  return -1;
+};
+
+const insertHeadingBreaks = (text: string): string =>
   text
-    // Some providers (DeepSeek/Qwen) emit literal "\n", "\t", "\r" inside
-    // reasoning chunks instead of real whitespace. Convert them back so the
-    // markdown renderer doesn't show "\n" tokens. Use lookbehind to avoid
-    // touching escaped backslashes ("\\n" stays as a literal backslash + n).
-    .replace(/(?<!\\)\\r\\n/g, '\n')
-    .replace(/(?<!\\)\\n/g, '\n')
-    .replace(/(?<!\\)\\r/g, '\n')
-    .replace(/(?<!\\)\\t/g, '  ')
-    .replace(/([^\n])\s*(#{1,6}\s)/g, '$1\n\n$2')
-    .replace(/([.!?])\s*(\*\*[^*\n][^*\n]{1,100}\*\*)(?=\s|$)/g, '$1\n\n$2')
-    .replace(
-      /([.!?])\s*([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+(?:\s+[A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+){1,5})(?=\n)/g,
-      '$1\n\n$2'
-    );
+    .split('\n')
+    .map(line => {
+      const headingStartIndex = findHeadingStartIndex(line);
+      if (headingStartIndex <= 0) {
+        return line;
+      }
+
+      const prefix = line.slice(0, headingStartIndex).trimEnd();
+      const heading = line.slice(headingStartIndex);
+      return `${prefix}\n\n${heading}`;
+    })
+    .join('\n');
+
+const normalizeReasoningText = (text: string): string =>
+  insertHeadingBreaks(
+    restoreLiteralWhitespaceTokens(text)
+      .replace(/([.!?])\s*(\*\*[^*\n][^*\n]{1,100}\*\*)(?=\s|$)/g, '$1\n\n$2')
+      .replace(
+        /([.!?])\s*([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+(?:\s+[A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+){1,5})(?=\n)/g,
+        '$1\n\n$2'
+      )
+  );
 
 export default function ThinkingStream({ className = '', isDarkMode, text }: ThinkingStreamProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);

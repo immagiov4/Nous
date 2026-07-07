@@ -1,9 +1,11 @@
-import JSZip from 'jszip';
 import type { CodebaseBundleSource, CodebaseSourceFile } from '../../types';
 import { clipText as clipTextToLimit, normalizeLineEndings } from '../text.ts';
+import { getSafeZipEntryPath, loadZipSafely, readZipEntryBytesWithinLimit } from './zipSafety.ts';
 
 const DEFAULT_MAX_TOTAL_CHARS = 220_000;
 const DEFAULT_MAX_FILE_CHARS = 24_000;
+const DEFAULT_MAX_ZIP_ENTRIES = 2_000;
+const DEFAULT_MAX_ZIP_ENTRY_BYTES = 1_000_000;
 
 const IGNORED_DIRS = new Set([
   'node_modules',
@@ -131,19 +133,24 @@ export const createCodebaseBundleSourceFromZip = async (
   file: File,
   options: CodebaseBundleBuildOptions = {}
 ): Promise<CodebaseBundleSource> => {
-  const zip = new JSZip();
-  const contents = await zip.loadAsync(file);
+  const contents = await loadZipSafely(await file.arrayBuffer(), {
+    maxEntries: DEFAULT_MAX_ZIP_ENTRIES,
+  });
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const entries = Object.values(contents.files)
     .filter(entry => !entry.dir)
-    .filter(entry => !shouldIgnorePath(entry.name))
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .map(entry => ({ entry, path: getSafeZipEntryPath(entry) }))
+    .filter((item): item is { entry: NonNullable<typeof item.entry>; path: string } =>
+      Boolean(item.path)
+    )
+    .filter(item => !shouldIgnorePath(item.path))
+    .sort((left, right) => left.path.localeCompare(right.path));
 
   const readableEntries: CodebaseBundleBuildEntry[] = [];
   let skippedBinaryCount = 0;
 
-  for (const entry of entries) {
-    const rawData = await entry.async('uint8array');
+  for (const { entry, path } of entries) {
+    const rawData = await readZipEntryBytesWithinLimit(entry, DEFAULT_MAX_ZIP_ENTRY_BYTES);
     if (isBinaryFile(rawData)) {
       skippedBinaryCount += 1;
       continue;
@@ -152,7 +159,7 @@ export const createCodebaseBundleSourceFromZip = async (
     try {
       const text = decoder.decode(rawData);
       readableEntries.push({
-        path: entry.name,
+        path,
         text,
       });
     } catch {

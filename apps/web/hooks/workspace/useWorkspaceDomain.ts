@@ -43,7 +43,10 @@ export const useWorkspaceDomain = () => {
   const userProfile = domainState.userProfile;
   const syllabus = domainState.syllabus;
   const researchCoursePlan = domainState.researchCoursePlan ?? null;
-  const researchDossiersBySectionId = domainState.researchDossiersBySectionId ?? {};
+  const researchDossiersBySectionId = useMemo(
+    () => domainState.researchDossiersBySectionId ?? {},
+    [domainState.researchDossiersBySectionId]
+  );
   const activeSectionId = domainState.activeSectionId;
   const activeSection = useMemo(
     () => selectActiveSection({ learningPlan, activeSectionId }),

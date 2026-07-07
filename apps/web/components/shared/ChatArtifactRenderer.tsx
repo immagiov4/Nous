@@ -1,4 +1,5 @@
 import {
+  Check,
   Download,
   FileImage,
   MousePointerClick,
@@ -13,16 +14,30 @@ import { createPortal } from 'react-dom';
 import type { LearningArtifactRenderPayload } from '../../types.ts';
 import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
 
+export interface ChatArtifactActionRequest {
+  artifactId: string;
+}
+
+export interface ChatArtifactRegenerateRequest extends ChatArtifactActionRequest {
+  instructions: string;
+}
+
+export interface ChatArtifactReplaceRequest extends ChatArtifactActionRequest {
+  replacementOfArtifactId: string;
+}
+
 interface ChatArtifactRendererProps {
   artifacts: LearningArtifactRenderPayload[];
   className?: string;
   isDarkMode: boolean;
   /** Called when user clicks "Salva" in the overlay footer. Returns a promise so the button shows saving state correctly. */
-  onSaveArtifact?: (artifactId: string) => Promise<void>;
+  onSaveArtifact?: (request: ChatArtifactActionRequest) => Promise<void>;
   /** Called when user clicks "Rigenera" in the overlay footer. */
-  onRegenerateArtifact?: (artifactId: string) => void;
+  onRegenerateArtifact?: (request: ChatArtifactRegenerateRequest) => Promise<void> | void;
   /** Called when user clicks "Scarta" in the overlay footer. */
-  onDiscardArtifact?: (artifactId: string) => void;
+  onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
+  /** Called when user approves a replacement draft. */
+  onReplaceArtifact?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   /** If true, the artifact grid shows a loading skeleton instead of cards. */
   isLoading?: boolean;
   /** When set, replaces the Maximize2 icon with an X remove button inside the card. */
@@ -52,6 +67,20 @@ const getArtifactIcon = (artifact: LearningArtifactRenderPayload) => {
 
   return Network;
 };
+
+const getArtifactReplacementTargetId = (artifact: LearningArtifactRenderPayload) =>
+  artifact.summary.kind === 'generated-visual'
+    ? artifact.summary.replacementOfArtifactId
+    : undefined;
+
+const ARTIFACT_ACTION_FEEDBACK = {
+  discarded: 'Artefatto scartato.',
+  regenerationRequested: 'Rigenerazione richiesta.',
+  replaced: 'Artefatto sostituito.',
+  saved: 'Salvato.',
+} as const;
+
+type ArtifactActionFeedback = keyof typeof ARTIFACT_ACTION_FEEDBACK;
 
 const ArtifactPreview = ({
   artifact,
@@ -95,17 +124,28 @@ const ArtifactOverlay = ({
   onClose,
   onDiscardArtifact,
   onRegenerateArtifact,
+  onReplaceArtifact,
   onSaveArtifact,
 }: {
   artifact: LearningArtifactRenderPayload;
   isDarkMode: boolean;
   onClose: () => void;
-  onDiscardArtifact?: (artifactId: string) => void;
-  onRegenerateArtifact?: (artifactId: string) => void;
-  onSaveArtifact?: (artifactId: string) => Promise<void>;
+  onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
+  onRegenerateArtifact?: (request: ChatArtifactRegenerateRequest) => Promise<void> | void;
+  onReplaceArtifact?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
+  onSaveArtifact?: (request: ChatArtifactActionRequest) => Promise<void>;
 }) => {
   const [isSaving, setIsSaving] = useState(false);
-  const hasActions = onSaveArtifact || onRegenerateArtifact || onDiscardArtifact;
+  const [isRegenerationFormOpen, setIsRegenerationFormOpen] = useState(false);
+  const [regenerationInstructions, setRegenerationInstructions] = useState('');
+  const [actionFeedback, setActionFeedback] = useState<ArtifactActionFeedback | null>(null);
+  const replacementOfArtifactId = getArtifactReplacementTargetId(artifact);
+  const canRegenerate =
+    Boolean(onRegenerateArtifact) && artifact.summary.kind === 'generated-visual';
+  const canReplace = Boolean(onReplaceArtifact && replacementOfArtifactId);
+  const shouldShowSaveAction = Boolean(onSaveArtifact && !canReplace);
+  const hasActions = shouldShowSaveAction || canRegenerate || onDiscardArtifact || canReplace;
+  const trimmedRegenerationInstructions = regenerationInstructions.trim();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -117,6 +157,50 @@ const ArtifactOverlay = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+
+  const handleDiscardArtifact = async () => {
+    setActionFeedback('discarded');
+    await onDiscardArtifact?.({ artifactId: artifact.summary.id });
+  };
+
+  const handleRegenerateArtifact = async () => {
+    if (!onRegenerateArtifact || !trimmedRegenerationInstructions) {
+      return;
+    }
+
+    await onRegenerateArtifact({
+      artifactId: artifact.summary.id,
+      instructions: trimmedRegenerationInstructions,
+    });
+    setActionFeedback('regenerationRequested');
+  };
+
+  const handleReplaceArtifact = async () => {
+    if (!onReplaceArtifact || !replacementOfArtifactId) {
+      return;
+    }
+
+    await onReplaceArtifact({
+      artifactId: artifact.summary.id,
+      replacementOfArtifactId,
+    });
+    setActionFeedback('replaced');
+  };
+
+  const handleSaveArtifact = async () => {
+    if (!onSaveArtifact) {
+      return;
+    }
+
+    setIsSaving(true);
+    setActionFeedback(null);
+    try {
+      await onSaveArtifact({ artifactId: artifact.summary.id });
+      setActionFeedback('saved');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div
@@ -173,49 +257,95 @@ const ArtifactOverlay = ({
         </div>
 
         {hasActions ? (
-          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-stone-200/80 px-4 py-3 dark:border-zinc-700 sm:px-5">
-            {onDiscardArtifact ? (
-              <button
-                type="button"
-                onClick={() => onDiscardArtifact(artifact.summary.id)}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-red-600 dark:text-stone-400 dark:hover:bg-zinc-800 dark:hover:text-red-400"
-                aria-label="Scarta artefatto"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>Scarta</span>
-              </button>
+          <div className="shrink-0 space-y-3 border-t border-stone-200/80 px-4 py-3 dark:border-zinc-700 sm:px-5">
+            {isRegenerationFormOpen ? (
+              <div className="rounded-2xl border border-stone-200/80 bg-stone-50/80 p-3 dark:border-zinc-700 dark:bg-zinc-800/70">
+                <label className="block text-xs font-semibold text-stone-600 dark:text-zinc-300">
+                  Istruzioni rigenerazione
+                  <textarea
+                    value={regenerationInstructions}
+                    onChange={event => {
+                      setRegenerationInstructions(event.target.value);
+                      setActionFeedback(null);
+                    }}
+                    rows={3}
+                    className="mt-2 w-full resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm leading-5 text-stone-800 outline-none transition-colors placeholder:text-stone-400 focus:border-stone-300 focus:ring-0 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                    placeholder="Spiega cosa cambiare nella nuova bozza..."
+                  />
+                </label>
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void handleRegenerateArtifact()}
+                    disabled={!trimmedRegenerationInstructions}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
+                    aria-label="Conferma rigenerazione"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    <span>Rigenera bozza</span>
+                  </button>
+                </div>
+              </div>
             ) : null}
-            {onRegenerateArtifact ? (
-              <button
-                type="button"
-                onClick={() => onRegenerateArtifact(artifact.summary.id)}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-amber-600 dark:text-stone-400 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
-                aria-label="Rigenera artefatto"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span>Rigenera</span>
-              </button>
-            ) : null}
-            {onSaveArtifact ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  setIsSaving(true);
-                  try {
-                    await onSaveArtifact(artifact.summary.id);
-                  } finally {
-                    setIsSaving(false);
-                    onClose();
-                  }
-                }}
-                disabled={isSaving}
-                className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                aria-label="Salva artefatto nelle note"
-              >
-                <Download className="h-3.5 w-3.5" />
-                <span>{isSaving ? 'Salvando...' : 'Salva'}</span>
-              </button>
-            ) : null}
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {actionFeedback ? (
+                <div className="inline-flex items-center gap-2 rounded-full bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-zinc-800 dark:text-zinc-200">
+                  <Check className="h-3.5 w-3.5" />
+                  <span>{ARTIFACT_ACTION_FEEDBACK[actionFeedback]}</span>
+                </div>
+              ) : (
+                <span />
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {onDiscardArtifact ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleDiscardArtifact()}
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-red-600 dark:text-stone-400 dark:hover:bg-zinc-800 dark:hover:text-red-400"
+                    aria-label="Scarta artefatto"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Scarta</span>
+                  </button>
+                ) : null}
+                {canRegenerate ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsRegenerationFormOpen(currentValue => !currentValue)}
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-amber-600 dark:text-stone-400 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
+                    aria-label="Rigenera artefatto"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    <span>Rigenera</span>
+                  </button>
+                ) : null}
+                {canReplace ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleReplaceArtifact()}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+                    aria-label="Sostituisci artefatto"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    <span>Sostituisci</span>
+                  </button>
+                ) : null}
+                {shouldShowSaveAction ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveArtifact()}
+                    disabled={isSaving}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+                    aria-label="Salva artefatto nelle note"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>{isSaving ? 'Salvando...' : 'Salva'}</span>
+                  </button>
+                ) : null}
+              </div>
+            </div>
           </div>
         ) : null}
       </div>
@@ -231,6 +361,7 @@ const ChatArtifactRenderer = ({
   onDiscardArtifact,
   onRegenerateArtifact,
   onRemoveArtifact,
+  onReplaceArtifact,
   onSaveArtifact,
 }: ChatArtifactRendererProps) => {
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
@@ -251,11 +382,13 @@ const ChatArtifactRenderer = ({
     deduplicatedArtifacts.find(artifact => artifact.summary.id === openArtifactId) || null;
   const artifactOverlay = openArtifact ? (
     <ArtifactOverlay
+      key={openArtifact.summary.id}
       artifact={openArtifact}
       isDarkMode={isDarkMode}
       onClose={() => setOpenArtifactId(null)}
       onDiscardArtifact={onDiscardArtifact}
       onRegenerateArtifact={onRegenerateArtifact}
+      onReplaceArtifact={onReplaceArtifact}
       onSaveArtifact={onSaveArtifact}
     />
   ) : null;

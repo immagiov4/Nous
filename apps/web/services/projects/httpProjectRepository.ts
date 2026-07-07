@@ -59,7 +59,7 @@ const assertValue = <T>(value: T | undefined, message: string): T => {
 };
 
 export class HttpProjectRepository implements ProjectRepository {
-  private baseUrl: string;
+  private readonly baseUrl: string;
 
   constructor(baseUrl = getBackendUrl()) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -168,13 +168,14 @@ export class HttpProjectRepository implements ProjectRepository {
     // import and would otherwise resend ~100 MB on every debounced save,
     // OOM-crashing the browser tab. The backend preserves the existing source
     // when omitSource=true.
+    const source = snapshot.source;
     const lightweightSnapshot =
-      snapshot.source && snapshot.source.kind === 'pdf' && snapshot.source.file
+      source?.kind === 'pdf'
         ? {
             ...snapshot,
             source: {
-              ...snapshot.source,
-              file: { ...snapshot.source.file, data: '' },
+              ...source,
+              file: { ...source.file, data: '' },
             },
           }
         : snapshot;

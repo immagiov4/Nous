@@ -26,6 +26,32 @@ describe('ThinkingStream', () => {
     );
   });
 
+  test('inserts paragraph breaks before glued markdown headings without regex backtracking tricks', () => {
+    render(
+      <ThinkingStream
+        isDarkMode={false}
+        text={'Prima frase utile ## Titolo operativo\nContenuto successivo.'}
+      />
+    );
+
+    expect(screen.getByTestId('streaming-markdown-renderer').textContent).toBe(
+      'Prima frase utile\n\n## Titolo operativo\nContenuto successivo.'
+    );
+  });
+
+  test('restores literal whitespace tokens without unescaping escaped backslashes', () => {
+    render(
+      <ThinkingStream
+        isDarkMode={false}
+        text={'Prima riga\\nSeconda riga e \\\\n token letterale'}
+      />
+    );
+
+    expect(screen.getByTestId('streaming-markdown-renderer').textContent).toBe(
+      'Prima riga\nSeconda riga e \\\\n token letterale'
+    );
+  });
+
   test('runs a constant-velocity scroll loop while text is present', () => {
     const requestAnimationFrameMock = vi.fn(() => 1);
     const cancelAnimationFrameMock = vi.fn();

@@ -1,3 +1,4 @@
+// Exposes PDF upload and extraction routes.
 import { Router } from 'express';
 import { extractPdfImages } from '../services/pdfImageExtractor.js';
 import { extractPdfText } from '../services/pdfTextExtractor.js';

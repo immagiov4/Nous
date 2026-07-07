@@ -1,9 +1,94 @@
-const MATH_DELIMITER_REGEX =
-  /(\$\$[\s\S]*?\$\$|(?<!\$)\$[^$\n]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
-const BARE_PAREN_INLINE_MATH_REGEX = /\(([^()\n]*\\[A-Za-z]+[^()\n]*)\)/g;
+import { getMarkdownMathRangeAt } from './codeRanges.ts';
+
 const WORD_LIKE_MATH_SCRIPT_LABEL_REGEX = /^[A-Za-z][A-Za-z0-9-]{2,}(?:\s+[A-Za-z0-9-]+)*$/;
 const LIKELY_DISPLAY_MATH_CONTENT_REGEX =
   /(\\[A-Za-z]+|[_^=]|\\frac|\\sum|\\int|\\approx|\\cdot|\\omega|\\theta|\\alpha|\\beta|\\gamma|\\lambda)/;
+
+const mapMathDelimitedSegments = (
+  segment: string,
+  transformMathSegment: (value: string) => string,
+  transformPlainText: (value: string) => string = value => value
+): string => {
+  let normalizedSegment = '';
+  let cursor = 0;
+  let plainTextStart = 0;
+
+  while (cursor < segment.length) {
+    const mathRange = getMarkdownMathRangeAt(segment, cursor);
+    if (!mathRange) {
+      cursor += 1;
+      continue;
+    }
+
+    normalizedSegment += transformPlainText(segment.slice(plainTextStart, mathRange.start));
+    normalizedSegment += transformMathSegment(segment.slice(mathRange.start, mathRange.end));
+    cursor = mathRange.end;
+    plainTextStart = cursor;
+  }
+
+  normalizedSegment += transformPlainText(segment.slice(plainTextStart));
+  return normalizedSegment;
+};
+
+const hasLatexCommand = (value: string): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== '\\') {
+      continue;
+    }
+
+    const nextCharacter = value[index + 1];
+    if (!nextCharacter || !/[A-Za-z]/u.test(nextCharacter)) {
+      continue;
+    }
+
+    return true;
+  }
+
+  return false;
+};
+
+const normalizeBareParenInlineMathInPlainText = (plainText: string): string => {
+  let normalizedText = '';
+  let cursor = 0;
+
+  while (cursor < plainText.length) {
+    if (plainText[cursor] !== '(') {
+      normalizedText += plainText[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    let closingIndex = cursor + 1;
+    let isValidCandidate = true;
+
+    while (closingIndex < plainText.length && plainText[closingIndex] !== ')') {
+      if (plainText[closingIndex] === '\n' || plainText[closingIndex] === '(') {
+        isValidCandidate = false;
+        break;
+      }
+
+      closingIndex += 1;
+    }
+
+    if (!isValidCandidate || closingIndex >= plainText.length || plainText[closingIndex] !== ')') {
+      normalizedText += plainText[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    const body = plainText.slice(cursor + 1, closingIndex);
+    if (!hasLatexCommand(body)) {
+      normalizedText += plainText.slice(cursor, closingIndex + 1);
+      cursor = closingIndex + 1;
+      continue;
+    }
+
+    normalizedText += `$${body}$`;
+    cursor = closingIndex + 1;
+  }
+
+  return normalizedText;
+};
 
 const escapeLatexTextContent = (value: string): string =>
   value
@@ -51,47 +136,111 @@ const repairMathExpressionForKatex = (value: string): string =>
   );
 
 const repairMathMarkdown = (segment: string): string =>
-  segment.replace(MATH_DELIMITER_REGEX, expression => repairMathExpressionForKatex(expression));
+  mapMathDelimitedSegments(segment, expression => repairMathExpressionForKatex(expression));
 
 const normalizeBareParenInlineMath = (segment: string): string =>
-  segment
-    .split(MATH_DELIMITER_REGEX)
-    .map((part, i) =>
-      i % 2 === 1 ? part : part.replace(BARE_PAREN_INLINE_MATH_REGEX, (_, body) => `$${body}$`)
-    )
-    .join('');
+  mapMathDelimitedSegments(
+    segment,
+    expression => expression,
+    plainText => normalizeBareParenInlineMathInPlainText(plainText)
+  );
 
 const normalizeBackslashDelimitedMath = (segment: string): string =>
-  segment
-    .replace(/\\\[([\s\S]*?)\\\]/g, (_match, body: string) => `$$${body}$$`)
-    .replace(/\\\(([\s\S]*?)\\\)/g, (_match, body: string) => `$${body}$`);
-
-const normalizeBracketDelimitedDisplayMath = (
-  segment: string,
-  regex: RegExp,
-  formatter: (prefix: string, body: string) => string
-): string =>
-  segment.replace(regex, (match, prefix: string, body: string) => {
-    const trimmedBody = body.trim();
-    if (!trimmedBody || !LIKELY_DISPLAY_MATH_CONTENT_REGEX.test(trimmedBody)) {
-      return match;
+  mapMathDelimitedSegments(segment, expression => {
+    if (expression.startsWith('\\[') && expression.endsWith('\\]')) {
+      return `$$${expression.slice(2, -2)}$$`;
     }
 
-    return formatter(prefix, trimmedBody);
+    if (expression.startsWith('\\(') && expression.endsWith('\\)')) {
+      return `$${expression.slice(2, -2)}$`;
+    }
+
+    return expression;
   });
 
-const normalizeOrphanedBracketDisplayMath = (segment: string): string => {
-  const multilineNormalized = normalizeBracketDelimitedDisplayMath(
-    segment,
-    /(^|\n)\[\s*\n([\s\S]*?)\n\]\s*(?=\n|$)/g,
-    (prefix, body) => `${prefix}$$\n${body}\n$$`
-  );
+const hasLikelyDisplayMathContent = (value: string): boolean =>
+  LIKELY_DISPLAY_MATH_CONTENT_REGEX.test(value);
 
-  return normalizeBracketDelimitedDisplayMath(
-    multilineNormalized,
-    /(^|\n)\[\s*([^\n\]]*?)\s*\]\s*(?=\n|$)/g,
-    (prefix, body) => `${prefix}$$\n${body}\n$$`
-  );
+interface OrphanedBracketMathCandidate {
+  body: string;
+  nextIndex: number;
+}
+
+const buildDisplayMathReplacement = (body: string): string[] | null => {
+  const trimmedBody = body.trim();
+  return trimmedBody && hasLikelyDisplayMathContent(trimmedBody) ? ['$$', trimmedBody, '$$'] : null;
+};
+
+const getNextLineIndex = (lines: string[], index: number): number =>
+  index + (lines[index + 1] === '' ? 2 : 1);
+
+const readMultilineBracketMathCandidate = (
+  lines: string[],
+  startIndex: number
+): OrphanedBracketMathCandidate | null => {
+  if (lines[startIndex] !== '[') {
+    return null;
+  }
+
+  const bodyLines: string[] = [];
+  let closingIndex = startIndex + 1;
+
+  while (closingIndex < lines.length && lines[closingIndex] !== ']') {
+    bodyLines.push(lines[closingIndex]);
+    closingIndex += 1;
+  }
+
+  if (closingIndex >= lines.length) {
+    return null;
+  }
+
+  return {
+    body: bodyLines.join('\n'),
+    nextIndex: getNextLineIndex(lines, closingIndex),
+  };
+};
+
+const readSingleLineBracketMathCandidate = (
+  lines: string[],
+  startIndex: number
+): OrphanedBracketMathCandidate | null => {
+  const line = lines[startIndex];
+  if (!line.startsWith('[') || !line.endsWith(']')) {
+    return null;
+  }
+
+  return {
+    body: line.slice(1, -1),
+    nextIndex: getNextLineIndex(lines, startIndex),
+  };
+};
+
+const readOrphanedBracketMathCandidate = (
+  lines: string[],
+  startIndex: number
+): OrphanedBracketMathCandidate | null =>
+  readMultilineBracketMathCandidate(lines, startIndex) ??
+  readSingleLineBracketMathCandidate(lines, startIndex);
+
+const normalizeOrphanedBracketDisplayMath = (segment: string): string => {
+  const lines = segment.split('\n');
+  const normalizedLines: string[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const candidate = readOrphanedBracketMathCandidate(lines, index);
+    const replacement = candidate ? buildDisplayMathReplacement(candidate.body) : null;
+    if (candidate && replacement) {
+      normalizedLines.push(...replacement);
+      index = candidate.nextIndex;
+      continue;
+    }
+
+    normalizedLines.push(lines[index]);
+    index += 1;
+  }
+
+  return normalizedLines.join('\n');
 };
 
 export const getDisplayMathClosingDelimiter = (line: string): '$$' | '\\]' | null => {

@@ -1,3 +1,4 @@
+// Handles library-scoped chat requests for the backend API.
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
   convertToModelMessages,
@@ -235,8 +236,11 @@ const libraryChatTools = {
       'Genera un nuovo artefatto visuale temporaneo per una lezione precisa della libreria. Devi conoscere projectId e lessonId reali prima di chiamarlo: se sono ambigui usa prima getProjectStructures/getLessonDetails o chiedi chiarimento.',
     inputSchema: jsonSchema<{
       lessonId: string;
+      mode?: 'new' | 'replacement-draft';
       projectId: string;
       prompt: string;
+      revisionInstructions?: string;
+      sourceArtifactId?: string;
     }>({
       type: 'object',
       additionalProperties: false,
@@ -244,6 +248,12 @@ const libraryChatTools = {
         lessonId: {
           type: 'string',
           description: 'Id reale della lezione target ottenuto dai tool della libreria.',
+        },
+        mode: {
+          type: 'string',
+          enum: ['new', 'replacement-draft'],
+          description:
+            'Usa replacement-draft quando l utente chiede di modificare o sostituire un artefatto esistente; altrimenti usa new.',
         },
         projectId: {
           type: 'string',
@@ -253,6 +263,16 @@ const libraryChatTools = {
           type: 'string',
           description:
             'Richiesta visuale precisa da soddisfare, con concetto e tipo di artefatto desiderato se indicato.',
+        },
+        revisionInstructions: {
+          type: 'string',
+          description:
+            'Istruzioni obbligatorie dell utente su cosa cambiare quando mode e replacement-draft.',
+        },
+        sourceArtifactId: {
+          type: 'string',
+          description:
+            'Id esatto dell artefatto sorgente da modificare quando mode e replacement-draft.',
         },
       },
       required: ['lessonId', 'projectId', 'prompt'],

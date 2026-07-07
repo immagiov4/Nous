@@ -7,6 +7,7 @@ import type {
 import type {
   ApplicationExerciseNode,
   ContextMenuState,
+  ContextScope,
   LearningPlan,
   LessonGeneratedVisual,
   LessonNode,
@@ -15,6 +16,7 @@ import type {
   SectionAnnotationArtifactRef,
 } from '../../types.ts';
 import { buildContextSourceMaterial } from '../../utils/context/sourceMaterial.ts';
+import { replaceGeneratedVisualPreservingId } from '../../utils/learning/artifacts.ts';
 import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import {
   applySectionAnnotation,
@@ -52,6 +54,7 @@ interface UseWorkspaceReaderActionsArgs {
     attachedAnnotationText?: string;
     contextAfter?: string;
     contextBefore?: string;
+    contextScope?: ContextScope;
     initialQuestion: string;
     lessonContent?: string;
     lessonDescription?: string;
@@ -90,6 +93,10 @@ const getErrorMessage = (error: unknown) => {
 
 const clearNativeSelection = () => {
   window.getSelection()?.removeAllRanges();
+};
+
+const buildWholeLessonContextLabel = (lessonTitle?: string) => {
+  return lessonTitle ? `Intera lezione: ${lessonTitle}` : 'Intera lezione corrente';
 };
 
 const mergeGeneratedVisuals = (
@@ -141,11 +148,16 @@ export const useWorkspaceReaderActions = ({
 
   const handleContextQuestion = useCallback(
     (question: string) => {
-      if (!contextMenu.selectedText) {
+      if (contextMenu.type !== 'lesson' && !contextMenu.selectedText) {
         return;
       }
 
       const activeSection = getCurrentSection();
+      const contextScope = contextMenu.type;
+      const selectedText =
+        contextScope === 'lesson'
+          ? buildWholeLessonContextLabel(activeSection?.title)
+          : contextMenu.selectedText;
       const sourceContext = buildContextSourceMaterial({
         activeSection,
         documentIndex,
@@ -179,6 +191,7 @@ export const useWorkspaceReaderActions = ({
       openContextAnswer({
         contextAfter: contextMenu.contextAfter,
         contextBefore: contextMenu.contextBefore,
+        contextScope,
         initialQuestion: question,
         attachedAnnotationNote:
           clickedAnnotation?.note || attachedAnnotationMatch?.annotation.note || undefined,
@@ -195,7 +208,7 @@ export const useWorkspaceReaderActions = ({
         lessonTitle: activeSection?.title,
         projectId: projectId || undefined,
         projectTitle: learningPlan?.title,
-        selectedText: contextMenu.selectedText,
+        selectedText,
         sourceKind: sourceContext.sourceKind,
         sourceMaterial: sourceContext.sourceMaterial,
         sourceName: sourceContext.sourceName,
@@ -330,6 +343,10 @@ export const useWorkspaceReaderActions = ({
         void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
         closeContextMenu();
         clearNativeSelection();
+        return;
+      }
+
+      if (contextMenu.type !== 'annotation') {
         return;
       }
 
@@ -750,6 +767,40 @@ export const useWorkspaceReaderActions = ({
     [activeSectionId, getCurrentSection, patchSectionAnnotations, updateSection]
   );
 
+  const handleReplaceArtifactInLesson = useCallback(
+    async (artifactId: string, visual: LessonGeneratedVisual): Promise<void> => {
+      if (!activeSectionId) return;
+
+      const currentSection = getCurrentSection();
+      if (!currentSection) return;
+
+      const nextGeneratedVisuals = replaceGeneratedVisualPreservingId({
+        artifactId,
+        replacementVisual: visual,
+        visuals: currentSection.generatedVisuals,
+      });
+      if (!nextGeneratedVisuals) return;
+
+      updateSection(activeSectionId, section => ({
+        ...section,
+        generatedVisuals: nextGeneratedVisuals,
+      }));
+
+      try {
+        await patchSectionAnnotations(
+          activeSectionId,
+          currentSection.annotations,
+          undefined,
+          nextGeneratedVisuals
+        );
+      } catch {
+        // PATCH failure is surfaced by patchSectionAnnotations; the optimistic
+        // section update remains available for the autosave fallback.
+      }
+    },
+    [activeSectionId, getCurrentSection, patchSectionAnnotations, updateSection]
+  );
+
   return {
     handleAdvanceSection,
     handleAttachArtifactToAnnotation,
@@ -766,5 +817,6 @@ export const useWorkspaceReaderActions = ({
     handleSelectExercise,
     handleSelectSection,
     handleSaveArtifactToLesson,
+    handleReplaceArtifactInLesson,
   };
 };

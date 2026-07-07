@@ -1,3 +1,4 @@
+// Error normalization helpers for backend logging and responses.
 type ErrorLike = {
   cause?: unknown;
   code?: unknown;

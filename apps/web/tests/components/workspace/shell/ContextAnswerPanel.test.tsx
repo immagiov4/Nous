@@ -93,7 +93,12 @@ const currentLessonArtifact = {
   },
 } as const;
 
-const buildProps = () => ({
+const buildProps = (
+  contextAnswerOverrides: Partial<{
+    contextScope: 'annotation' | 'lesson' | 'selection';
+    selectedText: string;
+  }> = {}
+) => ({
   contextAnswer: {
     id: 'context-1',
     initialQuestion: 'spiega meglio',
@@ -101,6 +106,7 @@ const buildProps = () => ({
     lessonContent: 'Contenuto',
     lessonDescription: 'Descrizione',
     lessonTitle: 'Titolo',
+    ...contextAnswerOverrides,
   },
   contextAnswerPanelRef: createRef<HTMLDivElement>(),
   contextAnswerSize: { width: 360, height: 280 },
@@ -266,6 +272,33 @@ describe('ContextAnswerPanel', () => {
     }) as { body?: Record<string, unknown> };
 
     expect(request.body?.modelOverride).toBe('openai/gpt-5.4-mini');
+  });
+
+  test('sends lesson context scope with context chat requests', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(
+      <ContextAnswerPanel
+        {...buildProps({
+          contextScope: 'lesson',
+          selectedText: 'Intera lezione: Titolo',
+        })}
+      />
+    );
+
+    const request = defaultChatTransportInstances[0]?.prepareSendMessagesRequest?.({
+      id: 'chat-lesson',
+      messages: [{ role: 'user', parts: [{ type: 'text', text: 'spiega tutto' }] }],
+    }) as { body?: Record<string, unknown> };
+
+    expect(request.body?.contextScope).toBe('lesson');
+    expect(request.body?.selectedText).toBe('Intera lezione: Titolo');
   });
 
   test('renders current lesson artifact cards from tool results', () => {

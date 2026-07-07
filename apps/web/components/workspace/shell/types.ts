@@ -7,6 +7,7 @@ import type {
   ApplicationExerciseNode,
   AudioPanelTab,
   ContextMenuState,
+  ContextScope,
   LearningArtifactRenderPayload,
   LessonGeneratedVisual,
   LessonImageRef,
@@ -29,6 +30,7 @@ export interface ContextAnswerState {
   attachedAnnotationText?: string;
   contextAfter?: string;
   contextBefore?: string;
+  contextScope?: ContextScope;
   id: string;
   initialQuestion: string;
   lessonContent?: string;
@@ -234,6 +236,7 @@ export interface WorkspaceReaderOverlaysModel {
     visual: LessonGeneratedVisual,
     artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
   ) => Promise<void>;
+  onReplaceArtifactInLesson?: (artifactId: string, visual: LessonGeneratedVisual) => Promise<void>;
 }
 
 export interface WorkspaceReaderShellProps {

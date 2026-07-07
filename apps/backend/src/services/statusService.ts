@@ -1,3 +1,4 @@
+// Produces the backend status snapshot returned by the API.
 import { ttsClient } from './ttsClient.js';
 
 export interface StatusSnapshot {

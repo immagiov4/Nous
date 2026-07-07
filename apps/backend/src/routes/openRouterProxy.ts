@@ -1,3 +1,4 @@
+// Streams OpenRouter responses through the backend proxy.
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 

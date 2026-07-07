@@ -1,6 +1,7 @@
-import crypto from 'node:crypto';
+// Extracts rendered PDF page images for backend processing.
 import { PDFParse } from 'pdf-parse';
 
+import { buildSha256HexDigest } from '../utils/hash.js';
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
 import { sanitizePartialPages } from '../utils/sanitizePartialPages.js';
 import { normalizeLineEndings } from '../utils/text.js';
@@ -684,7 +685,7 @@ export const extractPdfImages = async (
           continue;
         }
 
-        const hash = crypto.createHash('sha1').update(dataBuffer).digest('hex');
+        const hash = buildSha256HexDigest(dataBuffer);
         if (dedupedImages.has(hash)) {
           continue;
         }

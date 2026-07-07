@@ -42,6 +42,18 @@ const formatDate = (value: string): string =>
     year: 'numeric',
   }).format(new Date(value));
 
+const getProjectCoverIcon = (sourceKind: SavedProjectMeta['sourceKind']) => {
+  if (sourceKind === 'codebase') {
+    return FileArchive;
+  }
+
+  if (sourceKind === 'learn-mode') {
+    return BookCopy;
+  }
+
+  return FileText;
+};
+
 const ProjectCard = ({
   className,
   isOpening = false,
@@ -61,12 +73,7 @@ const ProjectCard = ({
     top: null as number | null,
   });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const CoverIcon =
-    project.sourceKind === 'codebase'
-      ? FileArchive
-      : project.sourceKind === 'learn-mode'
-        ? BookCopy
-        : FileText;
+  const CoverIcon = getProjectCoverIcon(project.sourceKind);
   const showSourceWarning = !project.hasSourceFile && project.sourceKind !== 'learn-mode';
 
   const openMenu = () => {

@@ -1,3 +1,4 @@
+// Loads and formats voice profiles exposed by the backend API.
 import type { VoiceProfile } from '../types/index.js';
 
 import { ttsClient } from './ttsClient.js';

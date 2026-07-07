@@ -90,6 +90,20 @@ test('isProjectArchiveFile rejects generic source zips and readProjectImportData
   );
 });
 
+test('readProjectImportData rejects ZIP archives with unsafe paths', async () => {
+  const zip = new JSZip();
+  zip.file('../secret.txt', 'not allowed');
+  const unsafeZip = new Blob([(await zip.generateAsync({ type: 'uint8array' })) as BlobPart], {
+    type: 'application/zip',
+  });
+
+  assert.equal(await isProjectArchiveFile(unsafeZip), false);
+  await assert.rejects(
+    () => readProjectImportData(unsafeZip),
+    /Questo ZIP non contiene un backup Nous valido\./
+  );
+});
+
 test('readProjectImportData still supports legacy json exports', async () => {
   const legacyExport = {
     version: '4.1',

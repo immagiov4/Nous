@@ -1,3 +1,4 @@
+// Project storage types shared across backend persistence modules.
 export type {
   LibraryFolder,
   LibraryPlacement,

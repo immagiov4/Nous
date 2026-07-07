@@ -1,3 +1,4 @@
+// Resolves user-facing folder names for library placement records.
 import type { LibraryFolder } from './types.js';
 
 const DEFAULT_FOLDER_NAME = 'Nuova cartella';

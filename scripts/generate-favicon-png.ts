@@ -1,3 +1,4 @@
+// Generates favicon PNG assets from the SVG source.
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
@@ -9,8 +10,10 @@ const APP_ICON_512_OUT = path.resolve('apps/web/public/icons/nous-app-icon-512.p
 const APP_ICON_MASK_192_OUT = path.resolve('apps/web/public/icons/nous-app-icon-mask-192.png');
 const APP_ICON_MASK_512_OUT = path.resolve('apps/web/public/icons/nous-app-icon-mask-512.png');
 
-const PAPER_BG = '#F3EFE6';
-const OWL_FILL = '#1F1A14';
+const SVG_COLORS = {
+  paperBackground: '#F3EFE6',
+  owlFill: '#1F1A14',
+} as const;
 // `any` purpose icons are shown as-is (Firefox install, apple-touch-icon).
 const PAPER_OWL_SCALE = 0.8;
 // Below the 80% maskable safe zone so the owl keeps visible padding
@@ -27,17 +30,17 @@ if (pathData.length === 0) {
 function buildPaperSvg(scale: number): string {
   const offset = (VIEWBOX_SIZE * (1 - scale)) / 2;
   const paths = pathData.map(d => `<path d="${d}"/>`).join('');
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VIEWBOX_SIZE} ${VIEWBOX_SIZE}"><rect width="${VIEWBOX_SIZE}" height="${VIEWBOX_SIZE}" fill="${PAPER_BG}"/><g fill="${OWL_FILL}" transform="translate(${offset} ${offset}) scale(${scale})">${paths}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VIEWBOX_SIZE} ${VIEWBOX_SIZE}"><rect width="${VIEWBOX_SIZE}" height="${VIEWBOX_SIZE}" fill="${SVG_COLORS.paperBackground}"/><g fill="${SVG_COLORS.owlFill}" transform="translate(${offset} ${offset}) scale(${scale})">${paths}</g></svg>`;
 }
 
 function renderToPng(svg: string, size: number, outPath: string, transparent: boolean): void {
   const resvg = new Resvg(svg, {
     fitTo: { mode: 'width', value: size },
-    background: transparent ? 'rgba(0,0,0,0)' : PAPER_BG,
+    background: transparent ? 'rgba(0,0,0,0)' : SVG_COLORS.paperBackground,
   });
   const png = resvg.render().asPng();
   writeFileSync(outPath, png);
-  console.log(`Wrote ${outPath} (${png.byteLength} bytes, ${size}x${size}).`);
+  process.stdout.write(`Wrote ${outPath} (${png.byteLength} bytes, ${size}x${size}).\n`);
 }
 
 renderToPng(faviconSvg, 32, FAVICON_OUT_PATH, true);

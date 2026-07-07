@@ -3,6 +3,7 @@ import type {
   ContextMenuPlacement,
   ContextMenuState,
   HorizontalViewportBounds,
+  LessonContextMenuState,
   SelectionContextMenuState,
   SelectionRect,
 } from '../../types';
@@ -139,6 +140,28 @@ export const createClosedContextMenuState = (): ContextMenuState => ({
   visible: false,
   placement: 'desktop-floating',
   selectedText: '',
+  contextBefore: '',
+  contextAfter: '',
+});
+
+export const createLessonContextMenuState = ({
+  anchorX,
+  anchorY,
+  horizontalBounds,
+  placement,
+}: {
+  anchorX: number;
+  anchorY: number;
+  horizontalBounds?: HorizontalViewportBounds;
+  placement: ContextMenuPlacement;
+}): LessonContextMenuState => ({
+  type: 'lesson',
+  visible: true,
+  placement,
+  selectedText: '',
+  anchorX,
+  anchorY,
+  horizontalBounds,
   contextBefore: '',
   contextAfter: '',
 });

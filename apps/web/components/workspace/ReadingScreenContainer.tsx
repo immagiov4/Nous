@@ -40,35 +40,47 @@ export const ReadingScreenContainer = ({
   const {
     activeSection,
     activeSectionId,
+    askContextQuestion,
+    completeActiveSection,
     currentProjectId,
+    createLessonFromSelection,
+    documentIndex,
     isBlocking,
     learningPlan,
     openSection,
+    openExercise,
+    patchSectionAnnotations,
+    regenerateActiveSection,
+    sectionContent,
     setGenerationNotes,
+    source,
+    updateSection,
   } = controller;
+  const { closeContextMenu, contextMenu, openContextAnswer } = readerState.readerContext;
+  const { isMobileViewport, setIsMobileSidebarOpen } = readerState.readerChrome;
 
   const readerActions = useWorkspaceReaderActions({
     activeSectionId,
     advanceActiveSection: controller.advanceActiveSection,
-    askContextQuestion: controller.askContextQuestion,
-    closeContextMenu: readerState.readerContext.closeContextMenu,
-    completeActiveSection: controller.completeActiveSection,
-    contextMenu: readerState.readerContext.contextMenu,
-    createLessonFromSelection: controller.createLessonFromSelection,
-    documentIndex: controller.documentIndex,
-    isMobileViewport: readerState.readerChrome.isMobileViewport,
+    askContextQuestion,
+    closeContextMenu,
+    completeActiveSection,
+    contextMenu,
+    createLessonFromSelection,
+    documentIndex,
+    isMobileViewport,
     learningPlan,
     notify,
-    openContextAnswer: readerState.readerContext.openContextAnswer,
-    openExercise: controller.openExercise,
+    openContextAnswer,
+    openExercise,
     openSection,
-    patchSectionAnnotations: controller.patchSectionAnnotations,
+    patchSectionAnnotations,
     projectId: currentProjectId,
-    regenerateActiveSection: controller.regenerateActiveSection,
-    sectionContent: controller.sectionContent,
-    setIsMobileSidebarOpen: readerState.readerChrome.setIsMobileSidebarOpen,
-    source: controller.source,
-    updateSection: controller.updateSection,
+    regenerateActiveSection,
+    sectionContent,
+    setIsMobileSidebarOpen,
+    source,
+    updateSection,
   });
 
   const { acknowledgeGenerationNotesDialog, isNotesDialogOpen } = useInitialSectionAutoOpen({
@@ -100,9 +112,9 @@ export const ReadingScreenContainer = ({
   // Close context menu when navigating away from reader (container unmounts)
   useEffect(() => {
     return () => {
-      readerState.readerContext.closeContextMenu();
+      closeContextMenu();
     };
-  }, [readerState.readerContext.closeContextMenu]);
+  }, [closeContextMenu]);
 
   return (
     <>

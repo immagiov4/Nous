@@ -5,6 +5,11 @@ import type {
   ProjectExportData,
   ProjectSnapshot,
 } from '../../types.ts';
+import {
+  loadZipSafely,
+  readZipEntryBytesWithinLimit,
+  readZipEntryTextWithinLimit,
+} from '../../utils/project/zipSafety.ts';
 import { isRecord } from '../../utils/records.ts';
 import { exportProjectData } from './projectSnapshot.ts';
 import { decodeBase64Bytes, encodeBytesBase64 } from './projectSource.ts';
@@ -18,6 +23,9 @@ const PROJECT_ARCHIVE_SOURCE_DIR = 'source';
 const INVALID_BACKUP_ARCHIVE_MESSAGE =
   "Questo ZIP non contiene un backup Nous valido. Importa un file .nous.zip esportato dall'app.";
 const INVALID_BACKUP_FILE_MESSAGE = 'Il file selezionato non e un backup Nous valido.';
+const PROJECT_ARCHIVE_MAX_ENTRIES = 8;
+const PROJECT_ARCHIVE_MAX_MANIFEST_BYTES = 1_000_000;
+const PROJECT_ARCHIVE_MAX_ATTACHMENT_BYTES = 80_000_000;
 
 type ArchivedPdfFileMeta = Omit<FileData, 'data'>;
 
@@ -140,14 +148,23 @@ const buildArchiveManifest = (
 };
 
 const loadProjectArchive = async (bytes: Uint8Array): Promise<LoadedProjectArchive> => {
-  const zip = await JSZip.loadAsync(bytes);
+  const zip = await loadZipSafely(bytes, {
+    invalidArchiveMessage: INVALID_BACKUP_ARCHIVE_MESSAGE,
+    maxEntries: PROJECT_ARCHIVE_MAX_ENTRIES,
+  });
   const manifestEntry = zip.file(PROJECT_ARCHIVE_MANIFEST_PATH);
 
   if (!manifestEntry) {
     throw new Error(INVALID_BACKUP_ARCHIVE_MESSAGE);
   }
 
-  const manifest = JSON.parse(await manifestEntry.async('string')) as ProjectArchiveManifest;
+  const manifest = JSON.parse(
+    await readZipEntryTextWithinLimit(
+      manifestEntry,
+      PROJECT_ARCHIVE_MAX_MANIFEST_BYTES,
+      INVALID_BACKUP_ARCHIVE_MESSAGE
+    )
+  ) as ProjectArchiveManifest;
 
   if (
     manifest.format !== PROJECT_ARCHIVE_FORMAT &&
@@ -176,7 +193,11 @@ const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportDa
       throw new Error(`Archivio backup non valido: manca ${attachment.path}.`);
     }
 
-    const fileBytes = await attachmentEntry.async('uint8array');
+    const fileBytes = await readZipEntryBytesWithinLimit(
+      attachmentEntry,
+      PROJECT_ARCHIVE_MAX_ATTACHMENT_BYTES,
+      INVALID_BACKUP_ARCHIVE_MESSAGE
+    );
 
     return {
       ...manifest.project,

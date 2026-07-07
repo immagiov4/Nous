@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
   createClosedContextMenuState,
+  createLessonContextMenuState,
   resolveContextMenuSelection,
   resolveMobileContextMenuSyncAction,
 } from '../../../utils/context/menuSelection.ts';
@@ -16,6 +17,28 @@ test('creates a closed context menu state with desktop placement default', () =>
     contextBefore: '',
     contextAfter: '',
   });
+});
+
+test('creates a lesson context menu state anchored to the whole lesson', () => {
+  assert.deepEqual(
+    createLessonContextMenuState({
+      anchorX: 240,
+      anchorY: 180,
+      horizontalBounds: { left: 120, right: 960 },
+      placement: 'desktop-floating',
+    }),
+    {
+      type: 'lesson',
+      visible: true,
+      placement: 'desktop-floating',
+      selectedText: '',
+      anchorX: 240,
+      anchorY: 180,
+      horizontalBounds: { left: 120, right: 960 },
+      contextBefore: '',
+      contextAfter: '',
+    }
+  );
 });
 
 test('resolves selection payload when the range belongs to the content container', () => {

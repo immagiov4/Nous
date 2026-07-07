@@ -10,7 +10,7 @@ export const MARK_OPEN_WITH_ID = (annotationId: string) =>
 const MARK_OPEN_TAG_REGEX = /^<mark\b[^>]*>/iu;
 const ANNOTATION_ID_REGEX = /\bdata-(?:nous|lumina)-annotation-id=(["'])([^"']+)\1/iu;
 const LEGACY_GROUP_GAP_TOKENS_REGEX =
-  /(?:\s+|[*_~`]+|(?:^|\n)\s{0,3}(?:#{1,6}|>|-|\*|\+|\d+\.)\s*)/gu;
+  /(?:\s+|[*_~`]+|(?:^|\n)\s{0,3}(?:#{1,6}|>|[-*+]|\d+\.)\s*)/gu;
 
 interface ParsedMarkSegment extends MarkdownRange {
   annotationId?: string;

@@ -1,3 +1,4 @@
+// Express server bootstrap for the backend API.
 import './config/env.js';
 
 import {

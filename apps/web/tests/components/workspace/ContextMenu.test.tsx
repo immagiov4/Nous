@@ -68,6 +68,28 @@ describe('ContextMenu', () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
+  test('submits a whole-lesson question without selection-only actions', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      selectedText: '',
+      type: 'lesson' as const,
+    };
+
+    render(<ContextMenu {...props} />);
+
+    expect(screen.queryByTitle(/Evidenzia il testo selezionato/i)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Aggiungi una nota a questo passaggio/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByTitle(/Crea una nuova lezione dedicata a questo punto/i)
+    ).not.toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/Chiedi su tutta la lezione/i), 'Fammi una mappa');
+    await user.click(screen.getByRole('button', { name: /Invia domanda/i }));
+
+    expect(props.onAsk).toHaveBeenCalledWith('Fammi una mappa');
+  });
+
   test('submits on mobile only after closing the sheet', async () => {
     const user = userEvent.setup();
     const callLog: string[] = [];
@@ -152,6 +174,18 @@ describe('ContextMenu', () => {
     expect(screen.getByRole('button', { name: /Inserisci una domanda/i })).toBeDisabled();
     expect(screen.getByTitle(/Evidenzia il testo selezionato/i)).toBeDisabled();
     expect(screen.getByTitle(/Crea una nuova lezione dedicata a questo punto/i)).toBeDisabled();
+  });
+
+  test('keeps the desktop transform origin stable across rerenders', () => {
+    const props = buildProps();
+    const { container, rerender } = render(<ContextMenu {...props} anchorX={240} anchorY={180} />);
+
+    const surface = container.firstElementChild as HTMLElement;
+    const initialTransformOrigin = surface.style.transformOrigin;
+
+    rerender(<ContextMenu {...props} anchorX={320} anchorY={220} />);
+
+    expect(surface.style.transformOrigin).toBe(initialTransformOrigin);
   });
 
   test('opens the note editor and saves a note from a new selection', async () => {

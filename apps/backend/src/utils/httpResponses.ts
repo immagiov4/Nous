@@ -1,3 +1,4 @@
+// Shared HTTP response helpers for backend routes.
 import type { Response } from 'express';
 
 import { getErrorMessage } from './errors.js';

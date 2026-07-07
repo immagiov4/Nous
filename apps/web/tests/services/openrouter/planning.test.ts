@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'vitest';
 import {
+  buildVisibleImageLabel,
   injectImagePlaceholders,
   insertGeneratedVisualExamplePlaceholder,
 } from '../../../services/openrouter/lessonImages.ts';
@@ -506,4 +507,24 @@ test('insertGeneratedVisualExamplePlaceholder places generated visuals near thei
     /piu leggibile\.\n\n\{\{VISUAL_EXAMPLE:visual-001\|title=grafico_dei_costi\}\}\n\nIl testo prosegue/
   );
   assert.doesNotMatch(result, /Il testo prosegue[\s\S]*VISUAL_EXAMPLE/);
+});
+
+test('buildVisibleImageLabel keeps only the first meaningful clause from PDF captions', () => {
+  const label = buildVisibleImageLabel(
+    {
+      id: 'pdf-img-001',
+      caption: 'La pipeline del rendering: passaggio completo. Dettaglio extra.',
+      dataUrl: 'data:image/png;base64,AAA',
+      mimeType: 'image/png',
+      textBefore: '',
+      textCurrent: '',
+      textAfter: '',
+      sourceOrder: 1,
+      pageNumber: 7,
+    },
+    'Rendering',
+    'Panoramica del flusso'
+  );
+
+  assert.equal(label, 'pipeline del rendering');
 });

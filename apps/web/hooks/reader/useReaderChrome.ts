@@ -18,6 +18,11 @@ interface UseReaderChromeArgs {
   sidebarGroups: SidebarGroup[];
 }
 
+interface MobileSidebarState {
+  isOpen: boolean;
+  sectionId: string | null;
+}
+
 // fallow-ignore-next-line unused-exports — used by useWorkspaceReaderState.ts
 export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChromeArgs) => {
   const [isFocusMode, setIsFocusMode] = useState(false);
@@ -26,16 +31,45 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY).matches
   );
-  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [mobileSidebarState, setMobileSidebarState] = useState<MobileSidebarState>({
+    isOpen: false,
+    sectionId: null,
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const previousActiveSectionIdRef = useRef<string | null>(null);
   const shouldUseDesktopSidebar = !isMobileViewport && !isFocusMode;
+  const isMobileSidebarOpen =
+    isMobileViewport &&
+    mobileSidebarState.isOpen &&
+    (activeSectionId === null || mobileSidebarState.sectionId === activeSectionId);
   const shouldShowSidebar = isMobileViewport ? isMobileSidebarOpen : !isFocusMode;
 
   const handleModuleToggle = useCallback((groupId: string) => {
     setExpandedModuleId(currentId => (currentId === groupId ? null : groupId));
   }, []);
+
+  const setIsMobileSidebarOpen = useCallback(
+    (nextValue: boolean | ((currentValue: boolean) => boolean)) => {
+      setMobileSidebarState(currentState => {
+        const currentValue =
+          isMobileViewport &&
+          currentState.isOpen &&
+          (activeSectionId === null || currentState.sectionId === activeSectionId);
+        const resolvedValue = typeof nextValue === 'function' ? nextValue(currentValue) : nextValue;
+
+        if (currentState.isOpen === resolvedValue && currentState.sectionId === activeSectionId) {
+          return currentState;
+        }
+
+        return {
+          isOpen: resolvedValue,
+          sectionId: activeSectionId,
+        };
+      });
+    },
+    [activeSectionId, isMobileViewport]
+  );
 
   useEffect(() => {
     if (isDarkMode) {
@@ -53,23 +87,16 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
     const mediaQueryList = window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY);
     const handleMediaQueryChange = (event: MediaQueryListEvent) => {
       setIsMobileViewport(keepCurrentWhenEqual(event.matches));
+
+      if (!event.matches) {
+        setMobileSidebarState(currentState =>
+          currentState.isOpen ? { ...currentState, isOpen: false } : currentState
+        );
+      }
     };
 
-    setIsMobileViewport(keepCurrentWhenEqual(mediaQueryList.matches));
     return subscribeToMediaQuery(mediaQueryList, handleMediaQueryChange);
   }, []);
-
-  useEffect(() => {
-    if (!isMobileViewport) {
-      setIsMobileSidebarOpen(keepCurrentWhenEqual(false));
-    }
-  }, [isMobileViewport]);
-
-  useEffect(() => {
-    if (isMobileViewport && activeSectionId) {
-      setIsMobileSidebarOpen(keepCurrentWhenEqual(false));
-    }
-  }, [activeSectionId, isMobileViewport]);
 
   useEffect(() => {
     const nextState: ExpandedModuleState = resolveExpandedModuleState({
@@ -114,6 +141,7 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
       isSettingsOpen,
       shouldShowSidebar,
       shouldUseDesktopSidebar,
+      setIsMobileSidebarOpen,
     ]
   );
 };

@@ -1,3 +1,4 @@
+// Shared JSON file helpers for backend configuration loading.
 import { existsSync, readFileSync } from 'node:fs';
 
 import { getErrorMessage } from '../utils/errors.js';

@@ -11,7 +11,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { VoiceProfileId } from '../../types';
 import type { WorkspaceReaderTtsModel, WorkspaceReaderVoiceOption } from './shell/types.ts';
 
@@ -72,8 +72,122 @@ const YOUTUBE_PLAYER_STATE = {
   BUFFERING: 3,
 } as const;
 const SOURCE_VIDEO_ID_LENGTH = 11;
+const YOUTUBE_HOSTNAMES = new Set(['m.youtube.com', 'www.youtube.com', 'youtube.com', 'youtu.be']);
 
 type AudioTab = 'voce' | 'ambiente';
+
+const normalizeVideoId = (value: string | null | undefined): string | null =>
+  value?.length === SOURCE_VIDEO_ID_LENGTH ? value : null;
+
+const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
+  const baseClassName =
+    'relative inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition-colors';
+
+  if (isDisabled) {
+    return `${baseClassName} cursor-not-allowed text-gray-400 dark:text-zinc-600`;
+  }
+
+  if (activeTab === 'voce') {
+    return `${baseClassName} text-white dark:text-stone-900`;
+  }
+
+  return `${baseClassName} cursor-pointer text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100`;
+};
+
+const getTtsPlayButtonClassName = ({
+  isDisabled,
+  isLoading,
+  isPlaying,
+}: {
+  isDisabled: boolean;
+  isLoading: boolean;
+  isPlaying: boolean;
+}): string => {
+  const baseClassName =
+    'flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full shadow-md transition-all duration-200';
+
+  if (isLoading) {
+    return `${baseClassName} cursor-pointer bg-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:bg-zinc-800 dark:hover:bg-red-900/10`;
+  }
+
+  if (isPlaying) {
+    return `${baseClassName} bg-black text-white hover:scale-105 dark:bg-white dark:text-black`;
+  }
+
+  if (isDisabled) {
+    return `${baseClassName} cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-zinc-700 dark:text-zinc-400`;
+  }
+
+  return `${baseClassName} bg-black pl-1 text-white hover:scale-105 dark:bg-white dark:text-black`;
+};
+
+const getTtsPlayButtonTitle = ({
+  isDisabled,
+  isLoading,
+  isPlaying,
+}: {
+  isDisabled: boolean;
+  isLoading: boolean;
+  isPlaying: boolean;
+}): string => {
+  if (isDisabled) {
+    return 'TTS non disponibile';
+  }
+
+  if (isLoading) {
+    return 'In caricamento';
+  }
+
+  return isPlaying ? 'Pausa' : 'Play';
+};
+
+const formatPlaybackRateLabel = (value: number): string => {
+  const fixedValue = value.toFixed(2);
+  const [integerPart, fractionalPart = ''] = fixedValue.split('.');
+  let endIndex = fractionalPart.length;
+
+  while (endIndex > 0 && fractionalPart[endIndex - 1] === '0') {
+    endIndex -= 1;
+  }
+
+  const trimmedFraction = fractionalPart.slice(0, endIndex);
+  return trimmedFraction ? `${integerPart}.${trimmedFraction}` : integerPart;
+};
+
+const extractYouTubeVideoId = (rawUrl: string): string | null => {
+  if (!rawUrl) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(rawUrl);
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (!YOUTUBE_HOSTNAMES.has(hostname)) {
+      return null;
+    }
+
+    if (hostname === 'youtu.be') {
+      return normalizeVideoId(parsedUrl.pathname.split('/').filter(Boolean)[0]);
+    }
+
+    const searchVideoId = parsedUrl.searchParams.get('v');
+    if (searchVideoId) {
+      return normalizeVideoId(searchVideoId);
+    }
+
+    const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
+    const videoSegmentIndex = pathSegments.findIndex(segment =>
+      ['embed', 'shorts', 'u', 'v'].includes(segment)
+    );
+    if (videoSegmentIndex >= 0) {
+      return normalizeVideoId(pathSegments[videoSegmentIndex + 1]);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+};
 
 const UnifiedAudioPanel = ({
   isMobileViewport = false,
@@ -97,24 +211,24 @@ const UnifiedAudioPanel = ({
         onToggle(next);
       }
     : setIsOpenLocal;
-  const setIsOpenRef = useRef(setIsOpen);
-  setIsOpenRef.current = setIsOpen;
   const [activeTab, setActiveTab] = useState<AudioTab>(initialTab);
 
-  const [isYtReady, setIsYtReady] = useState(false);
-  const [videoId, setVideoId] = useState<string | null>(null);
-  const [hasYtError, setHasYtError] = useState(false);
-  const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const [isYtReady, setIsYtReady] = useState(
+    () => typeof window !== 'undefined' && Boolean(window.YT)
+  );
+  const [playerErrorVideoId, setPlayerErrorVideoId] = useState<string | null>(null);
+  const [readyVideoId, setReadyVideoId] = useState<string | null>(null);
   const [isSpeedPickerOpen, setIsSpeedPickerOpen] = useState(false);
   // Lazy-mount the YouTube iframe + API only after the user actually starts the music.
   // Otherwise every project with a saved musicUrl loads the YT API and keeps a hidden
   // iframe alive — that alone consumes ~30% of the tab's CPU on tracking/heartbeat loops.
-  const [hasUserActivatedPlayer, setHasUserActivatedPlayer] = useState(false);
+  const [hasUserActivatedPlayerLocal, setHasUserActivatedPlayerLocal] = useState(isMusicPlaying);
 
   const inputId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const playerRef = useRef<YouTubePlayerInstance | null>(null);
+  const hasUserActivatedPlayer = hasUserActivatedPlayerLocal || isMusicPlaying;
 
   const presets = [
     {
@@ -125,6 +239,32 @@ const UnifiedAudioPanel = ({
 
   const ttsDisabled = !tts.ttsConnected || !tts.sectionContent;
   const normalizedPlaybackRate = Math.round(tts.playbackRate * 20) / 20;
+  const requestedVideoId = useMemo(() => {
+    return extractYouTubeVideoId(musicUrl);
+  }, [musicUrl]);
+  const hasInvalidMusicUrl = Boolean(musicUrl) && !requestedVideoId;
+  const hasPlayerError = requestedVideoId !== null && playerErrorVideoId === requestedVideoId;
+  const hasYtError = hasInvalidMusicUrl || hasPlayerError;
+  const isPlayerReady = requestedVideoId !== null && readyVideoId === requestedVideoId;
+  const isYtApiReady =
+    hasUserActivatedPlayer && (isYtReady || (typeof window !== 'undefined' && Boolean(window.YT)));
+  const ttsPlayButtonState = {
+    isDisabled: ttsDisabled,
+    isLoading: tts.isLoading,
+    isPlaying: tts.isPlaying,
+  };
+
+  const handleBackgroundPlayRequest = () => {
+    setHasUserActivatedPlayerLocal(true);
+    setPlayerErrorVideoId(null);
+    setIsMusicPlaying(!isMusicPlaying);
+  };
+
+  const handlePresetSelect = (url: string) => {
+    setHasUserActivatedPlayerLocal(true);
+    setPlayerErrorVideoId(null);
+    setMusicUrl(url);
+  };
 
   const displayedVoices: WorkspaceReaderVoiceOption[] = tts.availableVoices.some(
     voice => voice.id === tts.currentVoice
@@ -174,33 +314,19 @@ const UnifiedAudioPanel = ({
   };
 
   useEffect(() => {
-    setHasYtError(false);
     if (!musicUrl) {
       if (playerRef.current) {
         playerRef.current.destroy?.();
         playerRef.current = null;
       }
-      setIsPlayerReady(false);
-      setVideoId(null);
       return;
     }
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = musicUrl.match(regExp);
-    const id = match && match[2].length === SOURCE_VIDEO_ID_LENGTH ? match[2] : null;
-
-    if (!id) {
+    if (!requestedVideoId) {
       if (playerRef.current) {
         playerRef.current.destroy?.();
         playerRef.current = null;
       }
-      setIsPlayerReady(false);
-      setVideoId(null);
       setIsMusicPlaying(false);
-      setHasYtError(true);
-      return;
-    }
-
-    if (id === videoId) {
       return;
     }
 
@@ -209,34 +335,22 @@ const UnifiedAudioPanel = ({
       playerRef.current = null;
     }
 
-    setIsPlayerReady(false);
-    setVideoId(id);
     setIsMusicPlaying(false);
-  }, [setIsMusicPlaying, musicUrl, videoId]);
+  }, [musicUrl, requestedVideoId, setIsMusicPlaying]);
 
   useEffect(() => {
-    if (isMusicPlaying) {
-      setHasUserActivatedPlayer(true);
-    }
-  }, [isMusicPlaying]);
-
-  useEffect(() => {
-    if (!hasUserActivatedPlayer) {
+    if (!hasUserActivatedPlayer || isYtApiReady) {
       return;
     }
-    if (!window.YT) {
-      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        document.head.appendChild(tag);
-      }
-      window.onYouTubeIframeAPIReady = () => {
-        setIsYtReady(true);
-      };
-    } else {
-      setIsYtReady(true);
+    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
     }
-  }, [hasUserActivatedPlayer]);
+    window.onYouTubeIframeAPIReady = () => {
+      setIsYtReady(true);
+    };
+  }, [hasUserActivatedPlayer, isYtApiReady]);
 
   useEffect(
     () => () => {
@@ -247,12 +361,12 @@ const UnifiedAudioPanel = ({
   );
 
   useEffect(() => {
-    if (isYtReady && videoId && iframeRef.current && !playerRef.current && window.YT) {
+    if (isYtApiReady && requestedVideoId && iframeRef.current && !playerRef.current && window.YT) {
       try {
         const newPlayer = new window.YT.Player(iframeRef.current, {
           events: {
             onReady: event => {
-              setIsPlayerReady(true);
+              setReadyVideoId(requestedVideoId);
               event.target.setVolume(musicVolume);
               if (isMusicPlaying) {
                 event.target.playVideo();
@@ -265,7 +379,7 @@ const UnifiedAudioPanel = ({
               }
               if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
                 setIsMusicPlaying(true);
-                setHasYtError(false);
+                setPlayerErrorVideoId(null);
               }
               if (event.data === YOUTUBE_PLAYER_STATE.PAUSED) setIsMusicPlaying(false);
             },
@@ -277,8 +391,8 @@ const UnifiedAudioPanel = ({
                 event.data === 150 ||
                 event.data === 153
               ) {
-                setIsPlayerReady(false);
-                setHasYtError(true);
+                setReadyVideoId(null);
+                setPlayerErrorVideoId(requestedVideoId);
                 setIsMusicPlaying(false);
               }
             },
@@ -289,7 +403,7 @@ const UnifiedAudioPanel = ({
         console.error('YT init error', e);
       }
     }
-  }, [isMusicPlaying, isYtReady, setIsMusicPlaying, videoId, musicVolume]);
+  }, [isMusicPlaying, isYtApiReady, setIsMusicPlaying, requestedVideoId, musicVolume]);
 
   useEffect(() => {
     const p = playerRef.current;
@@ -300,10 +414,8 @@ const UnifiedAudioPanel = ({
           if (state !== YOUTUBE_PLAYER_STATE.PLAYING && state !== YOUTUBE_PLAYER_STATE.BUFFERING) {
             p.playVideo();
           }
-        } else {
-          if (p.getPlayerState() === YOUTUBE_PLAYER_STATE.PLAYING) {
-            p.pauseVideo();
-          }
+        } else if (p.getPlayerState() === YOUTUBE_PLAYER_STATE.PLAYING) {
+          p.pauseVideo();
         }
       } catch (error) {
         console.warn('[Nous] YouTube player play/pause failed', error);
@@ -322,19 +434,19 @@ const UnifiedAudioPanel = ({
     if (!isOpen) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpenRef.current(false);
+        if (onToggle) {
+          onToggle(false);
+          return;
+        }
+        setIsOpenLocal(false);
       }
     };
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [isOpen]);
-
-  useEffect(() => {
-    setIsSpeedPickerOpen(false);
-  }, []);
+  }, [isOpen, onToggle]);
 
   const handleRetry = () => {
-    setHasYtError(false);
+    setPlayerErrorVideoId(null);
     const currentUrl = musicUrl;
     setMusicUrl('');
     setTimeout(() => setMusicUrl(currentUrl), 100);
@@ -414,13 +526,7 @@ const UnifiedAudioPanel = ({
                       }
                     }}
                     disabled={ttsDisabled}
-                    className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition-colors ${
-                      ttsDisabled
-                        ? 'cursor-not-allowed text-gray-400 dark:text-zinc-600'
-                        : activeTab === 'voce'
-                          ? 'text-white dark:text-stone-900'
-                          : 'cursor-pointer text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
-                    }`}
+                    className={getVoiceTabClassName(ttsDisabled, activeTab)}
                   >
                     {activeTab === 'voce' && !ttsDisabled ? (
                       <motion.span
@@ -505,7 +611,7 @@ const UnifiedAudioPanel = ({
                           aria-expanded={isSpeedPickerOpen}
                         >
                           <span className="inline-block tabular-nums">
-                            {normalizedPlaybackRate.toFixed(2).replace(/\.?0+$/, '')}x
+                            {formatPlaybackRateLabel(normalizedPlaybackRate)}x
                           </span>
                         </button>
                       </div>
@@ -514,7 +620,7 @@ const UnifiedAudioPanel = ({
                           <div className="mb-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-zinc-400">
                             <span>Velocita</span>
                             <span className="w-10 text-right font-medium tabular-nums text-gray-700 dark:text-zinc-200">
-                              {normalizedPlaybackRate.toFixed(2).replace(/\.?0+$/, '')}x
+                              {formatPlaybackRateLabel(normalizedPlaybackRate)}x
                             </span>
                           </div>
                           <input
@@ -546,27 +652,8 @@ const UnifiedAudioPanel = ({
                         type="button"
                         onClick={tts.onPlayPause}
                         disabled={ttsDisabled}
-                        className={`
-                          flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full shadow-md transition-all duration-200
-                          ${
-                            tts.isLoading
-                              ? 'cursor-pointer bg-gray-100 text-gray-400 hover:bg-red-50 hover:text-red-500 dark:bg-zinc-800 dark:hover:bg-red-900/10'
-                              : tts.isPlaying
-                                ? 'bg-black text-white hover:scale-105 dark:bg-white dark:text-black'
-                                : ttsDisabled
-                                  ? 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-zinc-700 dark:text-zinc-400'
-                                  : 'bg-black pl-1 text-white hover:scale-105 dark:bg-white dark:text-black'
-                          }
-                        `}
-                        title={
-                          ttsDisabled
-                            ? 'TTS non disponibile'
-                            : tts.isLoading
-                              ? 'In caricamento'
-                              : tts.isPlaying
-                                ? 'Pausa'
-                                : 'Play'
-                        }
+                        className={getTtsPlayButtonClassName(ttsPlayButtonState)}
+                        title={getTtsPlayButtonTitle(ttsPlayButtonState)}
                       >
                         {tts.isLoading ? (
                           <Loader2 className="h-6 w-6 animate-spin" />
@@ -636,12 +723,16 @@ const UnifiedAudioPanel = ({
                   <div className="flex items-center gap-4 rounded-[1.5rem] border border-gray-200 bg-white p-3 dark:border-zinc-500/80 dark:bg-stone-800">
                     <button
                       type="button"
-                      onClick={() => setIsMusicPlaying(!isMusicPlaying)}
-                      disabled={!videoId || hasYtError}
+                      onClick={handleBackgroundPlayRequest}
+                      disabled={!requestedVideoId || hasYtError}
+                      aria-label={
+                        isMusicPlaying ? 'Pausa musica ambiente' : 'Riproduci musica ambiente'
+                      }
+                      title={isMusicPlaying ? 'Pausa musica ambiente' : 'Riproduci musica ambiente'}
                       className={`
                         flex h-10 w-10 items-center justify-center rounded-full transition-colors
                         ${
-                          videoId && !hasYtError
+                          requestedVideoId && !hasYtError
                             ? 'bg-gray-900 text-white hover:bg-black dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white'
                             : 'bg-gray-200 dark:bg-zinc-700 text-gray-400 cursor-not-allowed'
                         }
@@ -679,7 +770,7 @@ const UnifiedAudioPanel = ({
                         <button
                           type="button"
                           key={preset.url}
-                          onClick={() => setMusicUrl(preset.url)}
+                          onClick={() => handlePresetSelect(preset.url)}
                           className="whitespace-nowrap rounded-[1rem] border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-500/80 dark:bg-stone-800 dark:text-gray-300 dark:hover:border-zinc-400 dark:hover:text-white"
                         >
                           {preset.name}
@@ -695,13 +786,13 @@ const UnifiedAudioPanel = ({
       )}
 
       <div className="absolute w-[1px] h-[1px] opacity-0 pointer-events-none overflow-hidden bottom-0 right-0">
-        {hasUserActivatedPlayer && videoId && (
+        {hasUserActivatedPlayer && requestedVideoId && (
           <iframe
             ref={iframeRef}
             id="nous-bg-player"
             width="100%"
             height="100%"
-            src={getIframeSrc(videoId)}
+            src={getIframeSrc(requestedVideoId)}
             title="Background Music"
             frameBorder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

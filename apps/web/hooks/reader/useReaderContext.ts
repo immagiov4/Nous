@@ -14,6 +14,7 @@ import type { ContextMenuPlacement, ContextMenuState, SectionAnnotation } from '
 import {
   createAnnotationContextMenuState,
   createClosedContextMenuState,
+  createLessonContextMenuState,
   resolveContextMenuSelection,
   resolveMobileContextMenuSyncAction,
 } from '../../utils/context/menuSelection';
@@ -28,6 +29,8 @@ const CONTEXT_MENU_MOBILE_DEBOUNCE_MS = 160;
 const SELECTION_MENU_REOPEN_SUPPRESSION_MS = 260;
 const ANNOTATION_MENU_OPEN_SUPPRESSION_MS = 700;
 const ANNOTATION_MARK_SELECTOR = 'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
+const LESSON_CONTEXT_INTERACTIVE_SELECTOR =
+  'a,button,input,textarea,select,option,summary,[role="button"],[role="link"],[role="menuitem"],[contenteditable="true"],[data-nous-native-context-menu]';
 
 interface ContextAnswerResizeState {
   pointerId: number;
@@ -67,6 +70,19 @@ const getSelectionMenuKey = ({
   return `${placement}::${selectedText}::${contextBefore || ''}::${contextAfter || ''}`;
 };
 
+const canOpenLessonContextMenu = (target: EventTarget | null, contentElement: HTMLElement) => {
+  if (!(target instanceof Node) || !contentElement.contains(target)) {
+    return false;
+  }
+
+  const targetElement = target instanceof Element ? target : target.parentElement;
+  if (!targetElement || !contentElement.contains(targetElement)) {
+    return false;
+  }
+
+  return !targetElement.closest(LESSON_CONTEXT_INTERACTIVE_SELECTOR);
+};
+
 export const useReaderContext = ({
   activeSectionId,
   contentRef,
@@ -76,9 +92,17 @@ export const useReaderContext = ({
 }: UseReaderContextArgs) => {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(createClosedContextMenuState);
   const [contextAnswer, setContextAnswer] = useState<ContextAnswerState | null>(null);
+  const [contextMenuOwnerSectionId, setContextMenuOwnerSectionId] = useState<string | null>(null);
+  const [contextAnswerOwnerSectionId, setContextAnswerOwnerSectionId] = useState<string | null>(
+    null
+  );
   const [contextAnswerSize, setContextAnswerSize] = useState<ContextAnswerSize>(
     CONTEXT_ANSWER_DEFAULT_SIZE
   );
+  const visibleContextMenu =
+    contextMenuOwnerSectionId === activeSectionId ? contextMenu : createClosedContextMenuState();
+  const visibleContextAnswer =
+    contextAnswerOwnerSectionId === activeSectionId ? contextAnswer : null;
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const contextAnswerPanelRef = useRef<HTMLDivElement>(null);
@@ -96,8 +120,8 @@ export const useReaderContext = ({
   // reparse of the reader content right before the menu appears.
   const contextMenuStateRef = useRef<ContextMenuState>(contextMenu);
   useEffect(() => {
-    contextMenuStateRef.current = contextMenu;
-  }, [contextMenu]);
+    contextMenuStateRef.current = visibleContextMenu;
+  }, [visibleContextMenu]);
 
   // Mirror of sectionContent so that handleContentClick can read the latest
   // value without listing it as a useCallback dependency. sectionContent
@@ -184,6 +208,7 @@ export const useReaderContext = ({
   );
 
   const closeContextMenu = useCallback(() => {
+    setContextMenuOwnerSectionId(null);
     contextMenuStateRef.current = createClosedContextMenuState();
     setContextMenu(currentMenu => {
       if (!currentMenu.visible) {
@@ -195,13 +220,17 @@ export const useReaderContext = ({
   }, []);
 
   const closeContextAnswer = useCallback(() => {
+    setContextAnswerOwnerSectionId(null);
     setContextAnswer(null);
   }, []);
 
   const openContextAnswer = useCallback(
     ({
+      attachedAnnotationNote,
+      attachedAnnotationText,
       contextAfter,
       contextBefore,
+      contextScope,
       initialQuestion,
       lessonContent,
       lessonDescription,
@@ -214,9 +243,13 @@ export const useReaderContext = ({
       sourceMaterial,
       sourceName,
     }: Omit<ContextAnswerState, 'id'>) => {
+      setContextAnswerOwnerSectionId(activeSectionId);
       setContextAnswer({
+        attachedAnnotationNote,
+        attachedAnnotationText,
         contextAfter,
         contextBefore,
+        contextScope,
         id: createProjectId(),
         initialQuestion,
         lessonContent,
@@ -231,7 +264,55 @@ export const useReaderContext = ({
         sourceName,
       });
     },
-    []
+    [activeSectionId]
+  );
+
+  const openContextMenuFromLesson = useCallback(
+    (
+      placement: ContextMenuPlacement,
+      anchorX: number,
+      anchorY: number,
+      target: EventTarget | null
+    ): OpenSelectionMenuOutcome => {
+      const contentElement = contentRef.current;
+      if (
+        !contentElement ||
+        !sectionContentRef.current.trim() ||
+        !canOpenLessonContextMenu(target, contentElement)
+      ) {
+        return 'ignored';
+      }
+
+      const contentRect = contentElement.getBoundingClientRect();
+      const nextMenu = createLessonContextMenuState({
+        anchorX,
+        anchorY,
+        horizontalBounds: {
+          left: contentRect.left,
+          right: contentRect.right,
+        },
+        placement,
+      });
+
+      setContextMenuOwnerSectionId(activeSectionId);
+      contextMenuStateRef.current = nextMenu;
+      setContextMenu(currentMenu => {
+        if (
+          currentMenu.visible &&
+          currentMenu.type === 'lesson' &&
+          currentMenu.placement === nextMenu.placement &&
+          currentMenu.anchorX === nextMenu.anchorX &&
+          currentMenu.anchorY === nextMenu.anchorY
+        ) {
+          return currentMenu;
+        }
+
+        return nextMenu;
+      });
+
+      return 'opened';
+    },
+    [activeSectionId, contentRef]
   );
 
   const openContextMenuFromSelection = useCallback(
@@ -282,6 +363,7 @@ export const useReaderContext = ({
         return 'closed';
       }
 
+      setContextMenuOwnerSectionId(activeSectionId);
       contextMenuStateRef.current = nextMenu;
       setContextMenu(currentMenu => {
         if (
@@ -300,7 +382,7 @@ export const useReaderContext = ({
 
       return 'opened';
     },
-    [closeContextMenu, contentRef]
+    [activeSectionId, closeContextMenu, contentRef]
   );
 
   const handleContentContextMenu = useCallback(
@@ -310,23 +392,32 @@ export const useReaderContext = ({
       }
 
       const selection = window.getSelection();
-      if (!selection) {
-        return;
+      if (selection) {
+        const selectionMenuOutcome = openContextMenuFromSelection(
+          selection,
+          'desktop-floating',
+          event.clientX,
+          event.clientY,
+          { allowToggleClose: false }
+        );
+
+        if (selectionMenuOutcome !== 'ignored') {
+          event.preventDefault();
+          return;
+        }
       }
 
-      const selectionMenuOutcome = openContextMenuFromSelection(
-        selection,
+      const lessonMenuOutcome = openContextMenuFromLesson(
         'desktop-floating',
         event.clientX,
         event.clientY,
-        { allowToggleClose: false }
+        event.target
       );
-
-      if (selectionMenuOutcome !== 'ignored') {
+      if (lessonMenuOutcome !== 'ignored') {
         event.preventDefault();
       }
     },
-    [isMobileViewport, openContextMenuFromSelection]
+    [isMobileViewport, openContextMenuFromLesson, openContextMenuFromSelection]
   );
 
   const handleContentPointerDownCapture = useCallback(
@@ -375,9 +466,8 @@ export const useReaderContext = ({
         return;
       }
 
-      const annotationId =
-        annotationElement.getAttribute('data-nous-annotation-id') ||
-        annotationElement.getAttribute('data-lumina-annotation-id');
+      const annotationData = (annotationElement as HTMLElement).dataset;
+      const annotationId = annotationData.nousAnnotationId || annotationData.luminaAnnotationId;
       if (!annotationId) {
         return;
       }
@@ -427,11 +517,12 @@ export const useReaderContext = ({
         },
       });
 
+      setContextMenuOwnerSectionId(activeSectionId);
       contextMenuStateRef.current = nextMenu;
       suppressOutsideCloseUntilRef.current = Date.now() + ANNOTATION_MENU_OPEN_SUPPRESSION_MS;
       setContextMenu(nextMenu);
     },
-    [closeContextMenu, contentRef, isMobileViewport, sectionAnnotations]
+    [activeSectionId, closeContextMenu, contentRef, isMobileViewport, sectionAnnotations]
   );
 
   const handleContextAnswerResizeStart = useCallback(
@@ -574,6 +665,7 @@ export const useReaderContext = ({
   }, [applyContextAnswerPanelSize, clampContextAnswerSize]);
 
   useEffect(() => {
+    const contextAnswerPanelElement = contextAnswerPanelRef.current;
     window.addEventListener('pointermove', handleContextAnswerResizeMove);
     window.addEventListener('pointerup', handleContextAnswerResizeEnd);
     window.addEventListener('pointercancel', handleContextAnswerResizeEnd);
@@ -582,10 +674,10 @@ export const useReaderContext = ({
       window.removeEventListener('pointerup', handleContextAnswerResizeEnd);
       window.removeEventListener('pointercancel', handleContextAnswerResizeEnd);
       contextAnswerResizeRef.current = null;
-      if (contextAnswerPanelRef.current) {
-        contextAnswerPanelRef.current.style.removeProperty('will-change');
-        contextAnswerPanelRef.current.style.removeProperty('animation');
-        contextAnswerPanelRef.current.style.removeProperty('opacity');
+      if (contextAnswerPanelElement) {
+        contextAnswerPanelElement.style.removeProperty('will-change');
+        contextAnswerPanelElement.style.removeProperty('animation');
+        contextAnswerPanelElement.style.removeProperty('opacity');
       }
       applyContextAnswerResizePreview(null);
       resetContextAnswerResizeStyles();
@@ -673,22 +765,15 @@ export const useReaderContext = ({
     };
   }, [clearSelectionMenuTimeout, contentRef, isMobileViewport, syncMobileContextMenu]);
 
-  useEffect(() => {
-    if (activeSectionId === null || activeSectionId.length > 0) {
-      closeContextMenu();
-    }
-    closeContextAnswer();
-  }, [activeSectionId, closeContextAnswer, closeContextMenu]);
-
   return useMemo(
     () => ({
       closeContextAnswer,
       closeContextMenu,
-      contextAnswer,
+      contextAnswer: visibleContextAnswer,
       contextAnswerPanelRef,
       contextAnswerResizePreviewRef,
       contextAnswerSize,
-      contextMenu,
+      contextMenu: visibleContextMenu,
       contextMenuRef,
       handleContentClick,
       handleContentContextMenu,
@@ -700,9 +785,9 @@ export const useReaderContext = ({
     [
       closeContextAnswer,
       closeContextMenu,
-      contextAnswer,
+      visibleContextAnswer,
       contextAnswerSize,
-      contextMenu,
+      visibleContextMenu,
       handleContentContextMenu,
       handleContentClick,
       handleContentPointerDownCapture,

@@ -47,9 +47,10 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   const activeContentTitle = activeSectionTitle || learningPlanTitle || 'Lezione';
   const activeContentGroupTitle = activeSidebarGroup?.title || learningPlanTitle || 'Percorso';
   const canRegenerate = hasActiveSection;
+  const isRegenerateConfirmVisible = isRegenerateConfirmOpen && canRegenerate && !isLoading;
 
   useEffect(() => {
-    if (!isRegenerateConfirmOpen) {
+    if (!isRegenerateConfirmVisible) {
       return;
     }
 
@@ -66,13 +67,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
     };
-  }, [isRegenerateConfirmOpen]);
-
-  useEffect(() => {
-    if (!hasActiveSection || isLoading) {
-      setIsRegenerateConfirmOpen(false);
-    }
-  }, [hasActiveSection, isLoading]);
+  }, [isRegenerateConfirmVisible]);
 
   const handleRegenerateIntent = () => {
     if (!canRegenerate || isLoading) {
@@ -200,14 +195,14 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               title={
                 canRegenerate ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
               }
-              aria-expanded={isRegenerateConfirmOpen}
+              aria-expanded={isRegenerateConfirmVisible}
               aria-haspopup="dialog"
             >
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               {!isMobileViewport ? <span>Rigenera</span> : null}
             </button>
 
-            {isMobileViewport && isRegenerateConfirmOpen ? (
+            {isMobileViewport && isRegenerateConfirmVisible ? (
               <div
                 className="fixed bottom-0 left-1/2 top-0 z-50 flex w-full -translate-x-1/2 items-start justify-center pt-24"
                 role="dialog"
@@ -245,7 +240,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
 
             {!isMobileViewport ? (
               <MotionPopover
-                isOpen={isRegenerateConfirmOpen}
+                isOpen={isRegenerateConfirmVisible}
                 originX="top right"
                 role="dialog"
                 aria-label="Conferma rigenerazione contenuto"
@@ -349,16 +344,18 @@ export default WorkspaceReaderHeader;
 function SyncBadge({ syncState }: { syncState: 'saved' | 'saving' | 'error' }) {
   if (syncState === 'saved') return null;
 
+  const isSaving = syncState === 'saving';
+
   return (
     <div
       className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
-        syncState === 'saving'
+        isSaving
           ? 'bg-sky-50 text-sky-600 dark:bg-sky-900/20 dark:text-sky-400'
           : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
       }`}
-      title={syncState === 'saving' ? 'Salvataggio in corso...' : 'Errore di salvataggio'}
+      title={isSaving ? 'Salvataggio in corso...' : 'Errore di salvataggio'}
     >
-      {syncState === 'saving' ? (
+      {isSaving ? (
         <>
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
           <span>Salvataggio</span>

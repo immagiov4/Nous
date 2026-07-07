@@ -34,7 +34,6 @@ export const useReaderSpeechBlocks = ({
 
   useEffect(() => {
     if (!sectionContent) {
-      setSpeechBlocks([]);
       return;
     }
 
@@ -84,8 +83,8 @@ export const useReaderSpeechBlocks = ({
 
   return useMemo(
     () => ({
-      speechBlocks,
+      speechBlocks: sectionContent ? speechBlocks : [],
     }),
-    [speechBlocks]
+    [sectionContent, speechBlocks]
   );
 };

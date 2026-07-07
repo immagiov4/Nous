@@ -115,6 +115,76 @@ test('desktop right pointer-down opens the selection menu immediately', () => {
   selectionSpy.mockRestore();
 });
 
+test('desktop context menu without selection opens a whole-lesson menu inside content only', () => {
+  const container = document.createElement('div');
+  container.innerHTML = '<p>Alpha beta gamma delta</p><button type="button">Azione</button>';
+  document.body.append(container);
+  container.getBoundingClientRect = () =>
+    ({
+      bottom: 640,
+      height: 600,
+      left: 24,
+      right: 420,
+      top: 40,
+      width: 396,
+      x: 24,
+      y: 40,
+      toJSON: () => ({}),
+    }) as DOMRect;
+  const contentRef = { current: container };
+  const paragraph = container.querySelector('p');
+  const button = container.querySelector('button');
+  assert.ok(paragraph);
+  assert.ok(button);
+
+  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+    rangeCount: 0,
+    toString: () => '',
+  } as unknown as Selection);
+  const preventDefault = vi.fn();
+
+  const { result } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef,
+      isMobileViewport: false,
+      sectionContent: 'Alpha beta gamma delta',
+    })
+  );
+
+  act(() => {
+    result.current.handleContentContextMenu({
+      clientX: 240,
+      clientY: 180,
+      preventDefault,
+      target: paragraph,
+    } as never);
+  });
+
+  assert.equal(result.current.contextMenu.visible, true);
+  assert.equal(result.current.contextMenu.type, 'lesson');
+  assert.equal(result.current.contextMenu.anchorX, 240);
+  assert.equal(result.current.contextMenu.anchorY, 180);
+  assert.equal(preventDefault.mock.calls.length, 1);
+
+  act(() => {
+    result.current.closeContextMenu();
+  });
+
+  act(() => {
+    result.current.handleContentContextMenu({
+      clientX: 320,
+      clientY: 220,
+      preventDefault,
+      target: button,
+    } as never);
+  });
+
+  assert.equal(result.current.contextMenu.visible, false);
+  assert.equal(preventDefault.mock.calls.length, 1);
+  selectionSpy.mockRestore();
+});
+
 test('clicking the same annotation mark toggles its menu closed', () => {
   const container = document.createElement('div');
   container.innerHTML = 'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma';

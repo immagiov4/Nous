@@ -1,3 +1,4 @@
+// Exposes the backend voice catalog route.
 import { type Request, type Response, Router } from 'express';
 
 import { getVoiceDetails, listVoices } from '../services/voiceService.js';

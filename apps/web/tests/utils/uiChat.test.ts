@@ -68,3 +68,16 @@ test('getUiMessageRenderableParts preserves text-tool-text order', () => {
   assert.equal(renderableParts[2]?.text, 'Dopo.');
   assert.equal(renderableParts[2]?.isStreaming, true);
 });
+
+test('getUiMessageText removes leaked model placeholders', () => {
+  const message = {
+    id: 'assistant-1',
+    role: 'assistant',
+    parts: [
+      { type: 'text', text: 'Prima {{attachment id="broken"}} dopo ' },
+      { type: 'text', text: '{{visual ignored}} fine' },
+    ],
+  } as UIMessage;
+
+  assert.equal(getUiMessageText(message), 'Prima  dopo  fine');
+});

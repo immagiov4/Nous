@@ -94,19 +94,14 @@ export const useWorkspaceReaderState = ({
     sectionContent,
     speechBlocks,
   });
+  const { setIsDarkMode } = readerChrome;
+  const { handleModelChange, handleSpeedChange, handleVoiceChange } = ttsPlayer;
 
   const setPreferredOpenRouterModel = useCallback(
     (slot: OpenRouterModelSlot, value: string) => {
       const trimmedValue = value.trim();
       setPreferredModels(currentModels => {
-        const key =
-          slot === 'assessment'
-            ? 'preferredContextModel'
-            : slot === 'context'
-              ? 'preferredContextModel'
-              : slot === 'tts'
-                ? 'preferredTtsModel'
-                : 'preferredLessonModel';
+        const key = getPreferredModelKey(slot);
 
         if (currentModels[key] === trimmedValue) {
           return currentModels;
@@ -119,29 +114,29 @@ export const useWorkspaceReaderState = ({
       });
 
       if (slot === 'tts') {
-        ttsPlayer.handleModelChange(trimmedValue);
+        handleModelChange(trimmedValue);
       }
     },
-    [ttsPlayer.handleModelChange]
+    [handleModelChange]
   );
 
   const applyUiPreferences = useCallback(
     (preferences: Partial<UiPreferences>) => {
       if (typeof preferences.isDarkMode === 'boolean') {
-        readerChrome.setIsDarkMode(preferences.isDarkMode);
+        setIsDarkMode(preferences.isDarkMode);
       }
 
       const preferredVoice = preferences.preferredTtsVoice || preferences.preferredVoice;
       if (preferredVoice) {
-        ttsPlayer.handleVoiceChange(preferredVoice);
+        handleVoiceChange(preferredVoice);
       }
 
       if (preferences.preferredTtsModel) {
-        ttsPlayer.handleModelChange(preferences.preferredTtsModel);
+        handleModelChange(preferences.preferredTtsModel);
       }
 
       if (typeof preferences.playbackRate === 'number') {
-        ttsPlayer.handleSpeedChange(preferences.playbackRate);
+        handleSpeedChange(preferences.playbackRate);
       }
 
       if (preferences.lastAudioTab === 'voce' || preferences.lastAudioTab === 'ambiente') {
@@ -187,12 +182,7 @@ export const useWorkspaceReaderState = ({
           : nextModels;
       });
     },
-    [
-      readerChrome.setIsDarkMode,
-      ttsPlayer.handleModelChange,
-      ttsPlayer.handleSpeedChange,
-      ttsPlayer.handleVoiceChange,
-    ]
+    [handleModelChange, handleSpeedChange, handleVoiceChange, setIsDarkMode]
   );
 
   const uiPreferences = useMemo<UiPreferences>(
@@ -326,4 +316,16 @@ export const useWorkspaceReaderState = ({
     ttsPlayer,
     uiPreferences,
   };
+};
+
+const getPreferredModelKey = (slot: OpenRouterModelSlot): keyof OpenRouterModelPreferences => {
+  if (slot === 'assessment' || slot === 'context') {
+    return 'preferredContextModel';
+  }
+
+  if (slot === 'tts') {
+    return 'preferredTtsModel';
+  }
+
+  return 'preferredLessonModel';
 };

@@ -306,7 +306,7 @@ export const buildPdfTextIndex = (
   pages?: PdfTextPage[]
 ): PdfTextIndex => {
   const pageLayout = buildPdfPageTextLayout(pages);
-  const normalized = pageLayout?.text || normalizeWhitespace(extractedText);
+  const normalized = pageLayout ? pageLayout.text : normalizeWhitespace(extractedText);
   const sections = buildSections(normalized);
 
   const baseChunks =
@@ -321,13 +321,16 @@ export const buildPdfTextIndex = (
 
   const chunks: PdfTextChunk[] = baseChunks.map((chunk, index) => {
     const pageSpan = resolveChunkPageSpanFromLayout(chunk.startOffset, chunk.endOffset, pageLayout);
+    let headingPath = chunk.headingPath;
+    if (headingPath.length === 0) {
+      headingPath = documentTitle ? [documentTitle] : [];
+    }
 
     return {
       id: `chunk-${String(index + 1).padStart(3, '0')}`,
       sequence: index,
       text: chunk.text,
-      headingPath:
-        chunk.headingPath.length > 0 ? chunk.headingPath : documentTitle ? [documentTitle] : [],
+      headingPath,
       startOffset: chunk.startOffset,
       endOffset: chunk.endOffset,
       pageStart: pageSpan?.startPage,
@@ -340,7 +343,7 @@ export const buildPdfTextIndex = (
     parsedAt: timestampIso(),
     sourceHash,
     documentTitle,
-    pageCount: pageLayout?.pages.length,
+    pageCount: pageLayout ? pageLayout.pages.length : undefined,
     chunks,
   };
 };

@@ -130,12 +130,12 @@ const assessPdfTextQuality = (session: PdfAssetSession): PdfTextQualityReport =>
     pageCount <= PDF_TEXT_QUALITY.SHORT_DOCUMENT_MAX_PAGES ||
     substantivePageRatio >= PDF_TEXT_QUALITY.MIN_TEXT_PAGE_RATIO;
 
-  const status =
-    extractedCharacterCount === 0
-      ? 'no-text'
-      : hasEnoughTotalText && hasEnoughTextDensity && hasEnoughPageCoverage
-        ? 'ok'
-        : 'low-text';
+  const status = resolvePdfTextQualityStatus({
+    extractedCharacterCount,
+    hasEnoughPageCoverage,
+    hasEnoughTextDensity,
+    hasEnoughTotalText,
+  });
 
   return {
     averageCharsPerPage: Number.parseFloat(averageCharsPerPage.toFixed(2)),
@@ -145,6 +145,28 @@ const assessPdfTextQuality = (session: PdfAssetSession): PdfTextQualityReport =>
     substantivePageCount,
     substantivePageRatio: Number.parseFloat(substantivePageRatio.toFixed(4)),
   };
+};
+
+const resolvePdfTextQualityStatus = ({
+  extractedCharacterCount,
+  hasEnoughPageCoverage,
+  hasEnoughTextDensity,
+  hasEnoughTotalText,
+}: {
+  extractedCharacterCount: number;
+  hasEnoughPageCoverage: boolean;
+  hasEnoughTextDensity: boolean;
+  hasEnoughTotalText: boolean;
+}): PdfTextQualityReport['status'] => {
+  if (extractedCharacterCount === 0) {
+    return 'no-text';
+  }
+
+  if (hasEnoughTotalText && hasEnoughTextDensity && hasEnoughPageCoverage) {
+    return 'ok';
+  }
+
+  return 'low-text';
 };
 
 export const validatePdfTextSource = async (
@@ -428,7 +450,7 @@ export const getPdfTextSession = async (file: FileData): Promise<PdfAssetSession
 
   const cacheKey = getPdfCacheKey(file);
   const cached = PDF_TEXT_PARSE_CACHE.get(cacheKey);
-  if (cached) {
+  if (cached !== undefined) {
     return cached;
   }
 
@@ -452,7 +474,7 @@ export const getPdfAssetSession = async (
   const sanitizedPartialPages = sanitizePartialPages(options?.partialPages);
   const cacheKey = getPdfCacheKey(file, sanitizedPartialPages);
   const cached = PDF_PARSE_CACHE.get(cacheKey);
-  if (cached) {
+  if (cached !== undefined) {
     return cached;
   }
 

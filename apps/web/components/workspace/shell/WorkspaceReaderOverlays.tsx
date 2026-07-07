@@ -28,6 +28,7 @@ function WorkspaceReaderOverlays({
   onUpdateConversationNote,
   onSaveNote,
   onSaveArtifactToLesson,
+  onReplaceArtifactInLesson,
 }: WorkspaceReaderOverlaysModel) {
   return (
     <>
@@ -47,6 +48,7 @@ function WorkspaceReaderOverlays({
             onSaveConversationNote={onSaveConversationNote}
             onUpdateConversationNote={onUpdateConversationNote}
             onSaveArtifactToLesson={onSaveArtifactToLesson}
+            onReplaceArtifactInLesson={onReplaceArtifactInLesson}
           />
           {!isMobileViewport ? (
             <div

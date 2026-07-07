@@ -1,3 +1,4 @@
+// Loads and validates the backend server configuration file.
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

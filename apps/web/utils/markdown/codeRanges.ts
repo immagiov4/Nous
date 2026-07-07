@@ -6,10 +6,10 @@ export interface MarkdownRange {
 const MARK_TAG_REGEX = /<\/?mark\b[^>]*>/g;
 const TEXT_LIKE_MATH_COMMANDS = new Set(['text', 'mathrm', 'mathtt', 'operatorname']);
 const ZERO_WIDTH_CHARACTERS_REGEX = /[\u200b-\u200d\uFEFF]/gu;
-const INLINE_MATH_LIKE_EXPRESSION_REGEX =
-  /[A-Za-z0-9]+(?:[_^]\{(?:\\[A-Za-z]+\{[^{}]*\}|[^{}]+)\})+/gu;
 
 const isLineStart = (content: string, index: number) => index === 0 || content[index - 1] === '\n';
+const isAsciiAlphaNumeric = (character: string | undefined): boolean =>
+  Boolean(character && /[A-Za-z0-9]/u.test(character));
 
 const countRepeatedCharacter = (content: string, index: number, character: string): number => {
   let cursor = index;
@@ -219,6 +219,54 @@ const projectInlineMathLikeExpression = (expression: string): string => {
   return projected || expression;
 };
 
+const findClosingBraceIndex = (value: string, openingBraceIndex: number): number => {
+  let braceDepth = 0;
+
+  for (let index = openingBraceIndex; index < value.length; index += 1) {
+    if (value[index] === '{') {
+      braceDepth += 1;
+      continue;
+    }
+
+    if (value[index] !== '}') {
+      continue;
+    }
+
+    braceDepth -= 1;
+    if (braceDepth === 0) {
+      return index;
+    }
+  }
+
+  return -1;
+};
+
+const findInlineMathLikeExpressionEnd = (value: string, startIndex: number): number | null => {
+  let cursor = startIndex;
+
+  while (isAsciiAlphaNumeric(value[cursor])) {
+    cursor += 1;
+  }
+
+  if (cursor === startIndex) {
+    return null;
+  }
+
+  let scriptCount = 0;
+
+  while ((value[cursor] === '_' || value[cursor] === '^') && value[cursor + 1] === '{') {
+    const closingBraceIndex = findClosingBraceIndex(value, cursor + 1);
+    if (closingBraceIndex === -1 || closingBraceIndex === cursor + 2) {
+      return scriptCount > 0 ? cursor : null;
+    }
+
+    scriptCount += 1;
+    cursor = closingBraceIndex + 1;
+  }
+
+  return scriptCount > 0 ? cursor : null;
+};
+
 const collapseAdjacentDuplicatedWordRuns = (value: string): string => {
   let nextValue = value;
 
@@ -235,9 +283,20 @@ const collapseAdjacentDuplicatedWordRuns = (value: string): string => {
 
 export const normalizeMathSelectionArtifacts = (value: string): string => {
   const strippedValue = value.replace(ZERO_WIDTH_CHARACTERS_REGEX, '');
-  const projectedValue = strippedValue.replace(INLINE_MATH_LIKE_EXPRESSION_REGEX, expression =>
-    projectInlineMathLikeExpression(expression)
-  );
+  let projectedValue = '';
+  let cursor = 0;
+
+  while (cursor < strippedValue.length) {
+    const expressionEnd = findInlineMathLikeExpressionEnd(strippedValue, cursor);
+    if (expressionEnd === null) {
+      projectedValue += strippedValue[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    projectedValue += projectInlineMathLikeExpression(strippedValue.slice(cursor, expressionEnd));
+    cursor = expressionEnd;
+  }
 
   if (projectedValue === strippedValue) {
     return strippedValue;

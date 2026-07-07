@@ -57,6 +57,18 @@ export interface ExecutedLibraryToolResult {
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === 'string');
 
+const formatUnknownProjectCount = (unknownProjectCount: number): string => {
+  if (unknownProjectCount === 0) {
+    return '';
+  }
+
+  if (unknownProjectCount === 1) {
+    return '1 corso non riconosciuto';
+  }
+
+  return `${unknownProjectCount} corsi non riconosciuti`;
+};
+
 const formatProjectList = (projectIds: string[], projects: SavedProjectMeta[]) => {
   const titleById = new Map(projects.map(project => [project.id, project.title]));
   const knownProjectTitles = projectIds.flatMap(projectId => {
@@ -66,11 +78,7 @@ const formatProjectList = (projectIds: string[], projects: SavedProjectMeta[]) =
   const unknownProjectCount = projectIds.length - knownProjectTitles.length;
 
   if (knownProjectTitles.length === 0) {
-    return unknownProjectCount > 0
-      ? unknownProjectCount === 1
-        ? '1 corso non riconosciuto'
-        : `${unknownProjectCount} corsi non riconosciuti`
-      : '';
+    return formatUnknownProjectCount(unknownProjectCount);
   }
 
   if (unknownProjectCount === 0) {

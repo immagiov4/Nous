@@ -55,7 +55,7 @@ interface ContextMenuProps {
   placement: ContextMenuPlacement;
   selectionRect?: SelectionRect;
   selectedText: string;
-  type: 'annotation' | 'selection';
+  type: 'annotation' | 'lesson' | 'selection';
 }
 
 const CONTEXT_MENU_DESKTOP_MAX_WIDTH = 460;
@@ -117,10 +117,10 @@ const ContextMenu = ({
       .join('|')}`
   );
   const notePreviewRef = useRef<HTMLDivElement>(null);
-  const stableTransformOriginRef = useRef<string | null>(null);
   const isMobileSheet = placement === 'mobile-sheet';
   const { keyboardOffset } = useMobileKeyboardOffset();
   const isAnnotationMode = type === 'annotation';
+  const isLessonMode = type === 'lesson';
   const activeAnnotationArtifactRefs = isAnnotationMode
     ? localAnnotationArtifactRefs
     : annotationArtifactRefs;
@@ -156,8 +156,13 @@ const ContextMenu = ({
     isAnnotationMode && hasSavedAnnotationContent && !isNoteEditorOpen;
   const isAnnotationEditingMode = isAnnotationMode && !isAnnotationPreviewMode;
   const isNotePanelVisible = isNoteEditorOpen || isAnnotationPreviewMode;
-  const canDeleteAnnotationFromCurrentState = isAnnotationMode && hasSavedAnnotationContent;
-  const shouldShowToolbarNoteButton = !isAnnotationMode || !hasSavedAnnotationContent;
+  const canDeleteAnnotationFromCurrentState =
+    !isLessonMode && isAnnotationMode && hasSavedAnnotationContent;
+  const shouldShowToolbarNoteButton =
+    !isLessonMode && (!isAnnotationMode || !hasSavedAnnotationContent);
+  const askInputPlaceholder = isLessonMode
+    ? 'Chiedi su tutta la lezione'
+    : 'Chiedi a Nous o aggiungi istruzioni';
   const notePanelTitle =
     isAnnotationMode && hasSavedAnnotationContent
       ? 'Nota associata al passaggio'
@@ -440,6 +445,23 @@ const ContextMenu = ({
           width: desktopMenuWidth,
         };
 
+  const [transformOrigin] = useState(() => {
+    if (isMobileSheet) {
+      return 'bottom center';
+    }
+
+    const left = typeof menuStyle.left === 'number' ? menuStyle.left : Number.NaN;
+    const originX = Number.isFinite(left) && anchorX !== undefined ? anchorX - left : 0;
+    const originY =
+      'top' in menuStyle && typeof menuStyle.top === 'number'
+        ? 0
+        : 'bottom' in menuStyle
+          ? '100%'
+          : 0;
+
+    return `${originX}px ${typeof originY === 'number' ? `${originY}px` : originY}`;
+  });
+
   const highlightButtonClassName = isMobileSheet
     ? 'flex h-11 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-4 text-sm font-semibold text-stone-700 shadow-[0_12px_30px_-14px_rgba(34,28,19,0.22),0_6px_14px_-10px_rgba(34,28,19,0.16)] transition-colors hover:bg-amber-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-0 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600'
     : 'flex h-[3.3rem] w-[3.3rem] shrink-0 items-center justify-center rounded-full border border-stone-300/95 bg-white text-stone-700 shadow-[0_16px_36px_-16px_rgba(34,28,19,0.28),0_8px_18px_-12px_rgba(34,28,19,0.2),0_0_0_1px_rgba(0,0,0,0.03)] transition-transform duration-200 hover:scale-[1.02] hover:bg-amber-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-0 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600';
@@ -587,6 +609,10 @@ const ContextMenu = ({
   );
 
   const renderNoteEditor = () => {
+    if (isLessonMode) {
+      return null;
+    }
+
     if (isAnnotationMode && !isNoteEditorOpen && !hasSavedAnnotationContent) {
       return null;
     }
@@ -703,20 +729,22 @@ const ContextMenu = ({
   const renderSelectionDesktop = () => (
     <div className="space-y-2">
       <div className="flex items-center gap-2.5">
-        <button
-          type="button"
-          aria-label={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione'}
-          disabled={isLoading}
-          onClick={handleHighlightClick}
-          className={highlightButtonClassName}
-          title={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'}
-        >
-          {isAnnotationMode ? (
-            <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
-          ) : (
-            <Highlighter className="h-4 w-4 translate-x-px -translate-y-px text-amber-700 dark:text-amber-400" />
-          )}
-        </button>
+        {!isLessonMode ? (
+          <button
+            type="button"
+            aria-label={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione'}
+            disabled={isLoading}
+            onClick={handleHighlightClick}
+            className={highlightButtonClassName}
+            title={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'}
+          >
+            {isAnnotationMode ? (
+              <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
+            ) : (
+              <Highlighter className="h-4 w-4 translate-x-px -translate-y-px text-amber-700 dark:text-amber-400" />
+            )}
+          </button>
+        ) : null}
 
         <form
           className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[1.65rem] border border-stone-200/60 bg-white px-1.5 py-1.5 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.1),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] outline-none focus-within:outline-none focus-within:ring-0 dark:border-stone-400/95 dark:bg-stone-700"
@@ -727,7 +755,7 @@ const ContextMenu = ({
               type="text"
               value={input}
               onChange={event => setInput(event.target.value)}
-              placeholder="Chiedi a Nous o aggiungi istruzioni"
+              placeholder={askInputPlaceholder}
               className="h-10 w-full min-w-0 border-0 bg-transparent px-3.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
               disabled={isLoading}
             />
@@ -766,18 +794,20 @@ const ContextMenu = ({
             </button>
           ) : null}
 
-          <button
-            type="button"
-            onClick={handleCreateIntent}
-            disabled={isLoading}
-            className={lessonButtonClassName}
-            title="Crea una nuova lezione dedicata a questo punto nel menu a sinistra"
-          >
-            <BookPlus className="h-4 w-4 shrink-0 text-orange-600 transition-none" />
-            <span className="max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-[5.8rem] group-hover:opacity-100 group-focus-visible:max-w-[5.8rem] group-focus-visible:opacity-100">
-              Crea lezione
-            </span>
-          </button>
+          {!isLessonMode ? (
+            <button
+              type="button"
+              onClick={handleCreateIntent}
+              disabled={isLoading}
+              className={lessonButtonClassName}
+              title="Crea una nuova lezione dedicata a questo punto nel menu a sinistra"
+            >
+              <BookPlus className="h-4 w-4 shrink-0 text-orange-600 transition-none" />
+              <span className="max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-[5.8rem] group-hover:opacity-100 group-focus-visible:max-w-[5.8rem] group-focus-visible:opacity-100">
+                Crea lezione
+              </span>
+            </button>
+          ) : null}
         </form>
       </div>
 
@@ -837,27 +867,29 @@ const ContextMenu = ({
               target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
             }, 250);
           }}
-          placeholder="Chiedi a Nous o aggiungi istruzioni"
+          placeholder={askInputPlaceholder}
           className="h-11 w-full rounded-full border border-stone-200/80 bg-stone-50/60 px-4 text-sm text-stone-800 transition-all placeholder:text-stone-400 focus:border-stone-300 focus:bg-white focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:border-stone-400/95 dark:bg-stone-700/70 dark:text-stone-100 dark:placeholder:text-stone-300 dark:focus:border-stone-400/95 dark:focus:bg-stone-700"
           disabled={isLoading}
         />
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            aria-label={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione'}
-            disabled={isLoading}
-            onClick={handleHighlightClick}
-            onPointerDown={handleHighlightPointerDown}
-            onTouchStart={handleHighlightTouchStart}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-sm transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-            title={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'}
-          >
-            {isAnnotationMode ? (
-              <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
-            ) : (
-              <Highlighter className="h-4 w-4 text-amber-500 dark:text-amber-400" />
-            )}
-          </button>
+          {!isLessonMode ? (
+            <button
+              type="button"
+              aria-label={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione'}
+              disabled={isLoading}
+              onClick={handleHighlightClick}
+              onPointerDown={handleHighlightPointerDown}
+              onTouchStart={handleHighlightTouchStart}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-sm transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
+              title={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'}
+            >
+              {isAnnotationMode ? (
+                <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
+              ) : (
+                <Highlighter className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+              )}
+            </button>
+          ) : null}
 
           <button
             type="button"
@@ -894,16 +926,18 @@ const ContextMenu = ({
             </button>
           ) : null}
 
-          <button
-            type="button"
-            onClick={handleCreateIntent}
-            disabled={isLoading}
-            className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-orange-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-orange-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-            title="Crea una nuova lezione dedicata a questo punto"
-          >
-            <BookPlus className="h-4 w-4 shrink-0 text-orange-600" />
-            <span className="hidden min-[420px]:inline">Lezione</span>
-          </button>
+          {!isLessonMode ? (
+            <button
+              type="button"
+              onClick={handleCreateIntent}
+              disabled={isLoading}
+              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-orange-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-orange-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
+              title="Crea una nuova lezione dedicata a questo punto"
+            >
+              <BookPlus className="h-4 w-4 shrink-0 text-orange-600" />
+              <span className="hidden min-[420px]:inline">Lezione</span>
+            </button>
+          ) : null}
         </div>
       </form>
 
@@ -949,26 +983,6 @@ const ContextMenu = ({
   );
 
   const shouldAnimate = useShouldAnimate();
-
-  // Stabilize transformOrigin across re-renders so extended selections
-  // don't shift the animation pivot mid-gesture. Compute once on first
-  // render and freeze — avoiding dependency-hook lint noise.
-  if (!stableTransformOriginRef.current) {
-    if (isMobileSheet) {
-      stableTransformOriginRef.current = 'bottom center';
-    } else {
-      const left = typeof menuStyle.left === 'number' ? menuStyle.left : Number.NaN;
-      const originX = Number.isFinite(left) && anchorX !== undefined ? anchorX - left : 0;
-      const originY =
-        'top' in menuStyle && typeof menuStyle.top === 'number'
-          ? 0
-          : 'bottom' in menuStyle
-            ? '100%'
-            : 0;
-      stableTransformOriginRef.current = `${originX}px ${typeof originY === 'number' ? `${originY}px` : originY}`;
-    }
-  }
-  const transformOrigin = stableTransformOriginRef.current;
 
   return (
     <motion.div

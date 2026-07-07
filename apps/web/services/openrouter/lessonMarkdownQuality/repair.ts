@@ -7,12 +7,18 @@ import {
   teacherInstruction,
 } from '../shared.ts';
 import { MAX_LESSON_REPAIR_SOURCE_CHARS } from './constants.ts';
+import {
+  hasBrokenDisplayMathBracketBlock,
+  hasBrokenKatexDelimiterLine,
+  hasSplitTextPseudocodeFence,
+  parseLabelBodyPair,
+  parseStandaloneLabel,
+  stripMarkdownForSimilarity,
+} from './markdownHeuristics.ts';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
 const BLOCKISH_PARAGRAPH_PREFIX = /^(#{1,6}\s|[-*+]\s|>\s|```|~~~|\|.*\||\{\{PDF_IMAGE:)/;
-const LABEL_BODY_REGEX = /^(?:\*\*)?([^*\n:]{2,90})(?:\*\*)?:\s+(.+)$/;
-const STANDALONE_LABEL_REGEX = /^(?:\*\*)?([^*\n:]{2,90})(?:\*\*)?:\s*$/;
 const _MAX_LIST_LABEL_WORDS = 12;
 const REPETITION_SIMILARITY_THRESHOLD = 0.72;
 const REPETITION_SECONDARY_KEYWORD_THRESHOLD = 0.2;
@@ -71,10 +77,6 @@ const PARAGRAPH_REPETITION_STOP_WORDS = new Set([
 const LESSON_CONCLUSION_HEADING_REGEX = /(^|\n)#{1,6}\s+Conclusione\b/i;
 const LESSON_ABORTED_ENDING_REGEX =
   /(include|includono|comprende|comprendono|principali sono|si dividono in|origini includono)\s*:\s*$/i;
-const BROKEN_DISPLAY_MATH_BRACKET_REGEX = /(^|\n)\[\s*\n[\s\S]*?\n\]\s*(?=\n|$)/m;
-const BROKEN_KATEX_DELIMITER_REGEX = /(^|\n)(?:\[\s*$|\]\s*$)/m;
-const SPLIT_TEXT_PSEUDOCODE_FENCE_REGEX =
-  /```text\s*\n(?:IF|FOR|WHILE|RETURN|[A-Za-z_]\w*\(|\s*[A-Za-z_]\w*\s*=|\s*})[\s\S]*?\n```\s*\n+(?:\s*(?:IF|ELSE|FOR|WHILE|RETURN|[A-Za-z_]\w*\(|[A-Za-z_]\w*\s*=|})\b|\s+\S)[\s\S]{0,800}?```text\s*\n/gi;
 
 // ── Helper functions ───────────────────────────────────────────────────
 
@@ -82,17 +84,6 @@ const normalizeParagraphForDetection = (paragraph: string): string =>
   paragraph
     .replace(/\n+/g, ' ')
     .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-
-const stripMarkdownForSimilarity = (value: string): string =>
-  value
-    .replace(/`[^`]+`/g, ' ')
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
-    .replace(/\[[^\]]+\]\([^)]+\)/g, ' ')
-    .replace(/[*_#>|[\]()`~]/g, ' ')
-    .replace(/\{\{PDF_IMAGE:[^}]+\}\}/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
     .trim();
 
 const normalizeSimilarityWord = (word: string): string =>
@@ -210,7 +201,7 @@ const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
     const normalized = normalizeParagraphForDetection(paragraph);
     return (
       !BLOCKISH_PARAGRAPH_PREFIX.test(normalized) &&
-      (LABEL_BODY_REGEX.test(normalized) || STANDALONE_LABEL_REGEX.test(normalized))
+      (parseLabelBodyPair(normalized) !== null || parseStandaloneLabel(normalized) !== null)
     );
   }).length;
 
@@ -238,16 +229,13 @@ const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
     issues.push('Manca una conclusione esplicita.');
   }
 
-  if (
-    BROKEN_DISPLAY_MATH_BRACKET_REGEX.test(trimmed) ||
-    BROKEN_KATEX_DELIMITER_REGEX.test(trimmed)
-  ) {
+  if (hasBrokenDisplayMathBracketBlock(trimmed) || hasBrokenKatexDelimiterLine(trimmed)) {
     issues.push(
       'La formattazione KaTeX/LaTeX sembra malformata: correggi delimitatori e sintassi matematica per il rendering.'
     );
   }
 
-  if (SPLIT_TEXT_PSEUDOCODE_FENCE_REGEX.test(trimmed)) {
+  if (hasSplitTextPseudocodeFence(trimmed)) {
     issues.push(
       'Gli esempi di pseudocodice sono spezzati in piu blocchi ```text con righe del corpo fuori dal blocco: unisci ogni esempio in un unico code block.'
     );

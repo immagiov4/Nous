@@ -163,7 +163,7 @@ const resolveDatabasePath = (): string => {
 };
 
 export class SqliteProjectStore implements ProjectStore {
-  private database: Database;
+  private readonly database: Database;
 
   constructor(databasePath = resolveDatabasePath()) {
     mkdirSync(dirname(databasePath), { recursive: true });
@@ -432,8 +432,7 @@ export class SqliteProjectStore implements ProjectStore {
 
     const touchedAt = timestampIso();
 
-    // Extract only lessonCount and completedCount from snapshot_json via json_extract.
-    // Avoids parsing the full snapshot (~237KB) just to update lastOpenedAt.
+    // Read only the learning plan JSON needed to refresh derived counters with lastOpenedAt.
     const row = this.database
       .prepare(
         `select

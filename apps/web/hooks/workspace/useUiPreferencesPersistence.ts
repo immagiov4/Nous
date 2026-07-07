@@ -1,5 +1,5 @@
 // fallow-ignore-file unused-files
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   readUiPreferences,
   writeUiPreferences,
@@ -16,8 +16,9 @@ export const useUiPreferencesPersistence = ({
   applyUiPreferences,
   uiPreferences,
 }: UseUiPreferencesPersistenceArgs) => {
-  const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
   const hasHydratedFromStorageRef = useRef(false);
+  const hasLoadedPreferencesRef = useRef(typeof window === 'undefined');
+  const shouldSkipNextPersistRef = useRef(true);
   const applyUiPreferencesRef = useRef(applyUiPreferences);
 
   useEffect(() => {
@@ -32,7 +33,6 @@ export const useUiPreferencesPersistence = ({
     hasHydratedFromStorageRef.current = true;
 
     if (typeof window === 'undefined') {
-      setHasLoadedPreferences(true);
       return;
     }
 
@@ -40,14 +40,20 @@ export const useUiPreferencesPersistence = ({
     if (storedPreferences) {
       applyUiPreferencesRef.current(storedPreferences);
     }
-    setHasLoadedPreferences(true);
+
+    hasLoadedPreferencesRef.current = true;
   }, []);
 
   useEffect(() => {
-    if (!hasLoadedPreferences || typeof window === 'undefined') {
+    if (!hasLoadedPreferencesRef.current || typeof window === 'undefined') {
+      return;
+    }
+
+    if (shouldSkipNextPersistRef.current) {
+      shouldSkipNextPersistRef.current = false;
       return;
     }
 
     writeUiPreferences(window.localStorage, uiPreferences);
-  }, [hasLoadedPreferences, uiPreferences]);
+  }, [uiPreferences]);
 };

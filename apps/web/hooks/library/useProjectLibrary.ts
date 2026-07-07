@@ -29,6 +29,7 @@ import type {
   SectionAnnotationArtifactRef,
   WorkspaceDomainState,
 } from '../../types';
+import { replaceGeneratedVisualPreservingId } from '../../utils/learning/artifacts.ts';
 import { findPathNodeById } from '../../utils/learning/pathNodes.ts';
 import { createLessonSectionAnnotation } from '../../utils/learning/sectionAnnotations.ts';
 import { buildLibraryTree } from '../../utils/library/tree.ts';
@@ -37,6 +38,8 @@ import { timestampIso } from '../../utils/time.ts';
 interface UseProjectLibraryArgs {
   domainState: WorkspaceDomainState;
 }
+
+type LessonGeneratedVisualInput = NonNullable<LearningSection['generatedVisuals']>[number];
 
 const sortProjects = (projects: SavedProjectMeta[]) =>
   projects
@@ -61,7 +64,6 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const pendingPatchCountRef = useRef<number>(0);
   const lastLoadedRepositoryModeRef = useRef<ProjectRepositoryMode | null>(null);
   const domainStateRef = useRef<WorkspaceDomainState>(domainState);
-  domainStateRef.current = domainState;
 
   const projectRepository = useMemo(
     () => createProjectRepository(projectRepositoryMode),
@@ -69,7 +71,14 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   );
   const lanProjectRepository = useMemo(() => createProjectRepository('lan'), []);
   const projectRepositoryRef = useRef(projectRepository);
-  projectRepositoryRef.current = projectRepository;
+
+  useEffect(() => {
+    domainStateRef.current = domainState;
+  }, [domainState]);
+
+  useEffect(() => {
+    projectRepositoryRef.current = projectRepository;
+  }, [projectRepository]);
 
   const currentProjectMeta = useMemo(
     () => savedProjects.find(project => project.id === currentProjectId) || null,
@@ -421,6 +430,48 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     [syncProjectMeta]
   );
 
+  const replaceLessonGeneratedVisual = useCallback(
+    async ({
+      artifactId,
+      lessonId,
+      projectId,
+      visual,
+    }: {
+      artifactId: string;
+      lessonId: string;
+      projectId: string;
+      visual: LessonGeneratedVisualInput;
+    }): Promise<{ error?: string; replaced: boolean }> => {
+      const snapshot = await projectRepositoryRef.current.loadProject(projectId);
+      const learningPlan = snapshot?.learningPlan;
+      const sectionNode = learningPlan ? findPathNodeById(learningPlan.modules, lessonId) : null;
+      const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
+      if (!snapshot || !learningPlan || !section) {
+        return { replaced: false, error: 'Non ho trovato la lezione target in questo corso.' };
+      }
+
+      const nextGeneratedVisuals = replaceGeneratedVisualPreservingId({
+        artifactId,
+        replacementVisual: visual,
+        visuals: section.generatedVisuals,
+      });
+      if (!nextGeneratedVisuals) {
+        return { replaced: false, error: 'Non ho trovato l artefatto da sostituire.' };
+      }
+
+      const meta = await projectRepositoryRef.current.patchProject(projectId, {
+        section: {
+          sectionId: lessonId,
+          generatedVisuals: nextGeneratedVisuals,
+        },
+        updatedAt: timestampIso(),
+      });
+      syncProjectMeta(meta);
+      return { replaced: true };
+    },
+    [syncProjectMeta]
+  );
+
   const downloadBlob = useCallback((blob: Blob, filename: string) => {
     const objectUrl = URL.createObjectURL(blob);
     const downloadAnchorNode = document.createElement('a');
@@ -705,6 +756,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     },
     saveCurrentProject,
     saveLessonArtifactNote,
+    replaceLessonGeneratedVisual,
     patchCurrentProject,
     patchSectionLessonContent,
     patchSectionAnnotations,

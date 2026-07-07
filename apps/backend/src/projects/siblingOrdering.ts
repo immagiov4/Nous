@@ -1,3 +1,4 @@
+// Computes stable sibling ordering keys for library records.
 import type { LibraryFolder, LibraryPlacement } from './types.js';
 
 export const SIBLING_ORDER_STEP = 1024;

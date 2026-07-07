@@ -6,19 +6,9 @@ import {
   MAX_LESSON_QUIZ_QUESTIONS,
   MIN_LESSON_QUIZ_QUESTIONS,
 } from './constants.ts';
+import { stripMarkdownForSimilarity } from './markdownHeuristics.ts';
 
 // ── Helpers ────────────────────────────────────────────────────────────
-
-const stripMarkdownForSimilarity = (value: string): string =>
-  value
-    .replace(/`[^`]+`/g, ' ')
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
-    .replace(/\[[^\]]+\]\([^)]+\)/g, ' ')
-    .replace(/[*_#>|[\]()`~]/g, ' ')
-    .replace(/\{\{PDF_IMAGE:[^}]+\}\}/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 
 const normalizeSimilarityWord = (word: string): string =>
   word
@@ -75,21 +65,58 @@ export const estimateTargetQuizCount = (contentMarkdown: string): number => {
 
 // ── Quiz sanitization ──────────────────────────────────────────────────
 
-const WHOLE_QUIZ_CODE_FENCE_REGEX = /^\s*```(?:[a-z0-9_+-]+)?\s*\n([\s\S]*?)\n```\s*$/i;
-const WHOLE_QUIZ_INLINE_CODE_REGEX = /^\s*(`+)([\s\S]*?)\1\s*$/;
+const collapseInternalNewlines = (value: string): string =>
+  value
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .join(' ');
+
+const unwrapWholeFenceBlock = (value: string): string | null => {
+  const lines = value.split('\n');
+  if (lines.length < 3) {
+    return null;
+  }
+
+  const openingLine = lines[0]?.trim() || '';
+  const closingLine = lines[lines.length - 1]?.trim() || '';
+  if (!/^```(?:[a-z0-9_+-]+)?$/iu.test(openingLine) || closingLine !== '```') {
+    return null;
+  }
+
+  return collapseInternalNewlines(lines.slice(1, -1).join('\n').trim());
+};
+
+const unwrapWholeInlineCode = (value: string): string | null => {
+  let fenceLength = 0;
+  while (value[fenceLength] === '`') {
+    fenceLength += 1;
+  }
+
+  if (fenceLength === 0) {
+    return null;
+  }
+
+  const fence = '`'.repeat(fenceLength);
+  if (!value.endsWith(fence) || value.length <= fenceLength * 2) {
+    return null;
+  }
+
+  const unwrapped = value.slice(fenceLength, value.length - fenceLength).trim();
+  return unwrapped ? collapseInternalNewlines(unwrapped) : null;
+};
 
 const unwrapWholeQuizCodeFormatting = (value: string): string => {
   const trimmedValue = value.trim();
   if (!trimmedValue) return '';
 
-  const fencedMatch = trimmedValue.match(WHOLE_QUIZ_CODE_FENCE_REGEX);
-  if (fencedMatch) return fencedMatch[1].trim().replace(/\s*\n+\s*/g, ' ');
+  const fencedBlock = unwrapWholeFenceBlock(trimmedValue);
+  if (fencedBlock !== null) return fencedBlock;
 
-  const inlineMatch = trimmedValue.match(WHOLE_QUIZ_INLINE_CODE_REGEX);
-  if (!inlineMatch) return trimmedValue;
+  const inlineCode = unwrapWholeInlineCode(trimmedValue);
+  if (inlineCode === null) return trimmedValue;
 
-  const unwrapped = inlineMatch[2].trim();
-  return unwrapped ? unwrapped.replace(/\s*\n+\s*/g, ' ') : trimmedValue;
+  return inlineCode;
 };
 
 const sanitizeQuizQuestion = (question: QuizQuestion): QuizQuestion => ({

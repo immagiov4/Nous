@@ -1,3 +1,4 @@
+// Composes the backend chat routers into a single entrypoint.
 import { Router } from 'express';
 
 import { contextChatRouter } from './contextChat.js';

@@ -1,3 +1,4 @@
+// Wraps the backend TTS client and model defaults.
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';

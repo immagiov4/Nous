@@ -1,3 +1,4 @@
+// Validates and strips PDF data URL prefixes.
 const PDF_DATA_URL_PREFIX = /^data:application\/pdf;base64,/i;
 export const PDF_DATA_URL_REQUIRED_MESSAGE = 'E richiesto un data URL PDF valido.';
 

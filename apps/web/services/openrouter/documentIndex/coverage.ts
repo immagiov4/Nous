@@ -100,6 +100,8 @@ const buildPdfPlanCoverageReport = (
         } satisfies PdfPlanLessonCoverage;
       }
 
+      const allSpansAreExact = chunkSpans.every(span => span.exact);
+      const someSpansAreExact = chunkSpans.some(span => span.exact);
       const coveredPages: number[] = Array.from(
         new Set(chunkSpans.flatMap(span => expandPageRange(span.startPage, span.endPage)))
       ).sort((left, right) => left - right);
@@ -108,6 +110,13 @@ const buildPdfPlanCoverageReport = (
       const pageRangeLength = endPage - startPage + 1;
       const coveredPageCount = coveredPages.length;
       const flags: string[] = [];
+      let pageRangeSource: PdfPlanLessonCoverage['pageRangeSource'] = 'estimated';
+
+      if (allSpansAreExact) {
+        pageRangeSource = 'exact';
+      } else if (someSpansAreExact) {
+        pageRangeSource = 'mixed';
+      }
 
       return {
         lessonId: lesson.id,
@@ -120,11 +129,7 @@ const buildPdfPlanCoverageReport = (
         flags,
         pageRange: formatPageRange(startPage, endPage),
         pageRangeLength,
-        pageRangeSource: chunkSpans.every(span => span.exact)
-          ? ('exact' as const)
-          : chunkSpans.some(span => span.exact)
-            ? ('mixed' as const)
-            : ('estimated' as const),
+        pageRangeSource,
       } satisfies PdfPlanLessonCoverage;
     });
 

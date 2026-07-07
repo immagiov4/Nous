@@ -190,6 +190,7 @@ export const buildReaderShellProps = ({
       onDetachArtifactFromAnnotation: readerActions.handleDetachArtifactFromAnnotation,
       onHighlight: readerActions.handleHighlight,
       onSaveArtifactToLesson: readerActions.handleSaveArtifactToLesson,
+      onReplaceArtifactInLesson: readerActions.handleReplaceArtifactInLesson,
       onSaveConversationNote: readerActions.handleSaveConversationNote,
       onSaveNote: readerActions.handleSaveNote,
       onUpdateConversationNote: readerActions.handleUpdateConversationNote,

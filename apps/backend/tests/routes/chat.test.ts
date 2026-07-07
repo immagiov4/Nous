@@ -89,6 +89,24 @@ describe('POST /api/chat/context', () => {
     });
   });
 
+  test('accepts whole-lesson context without selected text', async () => {
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        contextScope: 'lesson',
+        lessonTitle: 'Lezione sui grafi',
+        lessonDescription: 'Introduzione alle mappe concettuali',
+        lessonContent: 'Tutta la lezione parla di nodi, archi e percorsi.',
+        messages: [{ id: '1', role: 'user', content: 'Generami un riassunto visuale' }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, streamed: true });
+    expect(aiMocks.streamText).toHaveBeenCalledTimes(1);
+    expect(aiMocks.streamText.mock.calls[0][0].system).toContain('INTERA LEZIONE CORRENTE');
+    expect(aiMocks.streamText.mock.calls[0][0].system).not.toContain('SELEZIONE EVIDENZIATA');
+  });
+
   test('validates that chat messages are present', async () => {
     const response = await request(createApp())
       .post('/api/chat/context')

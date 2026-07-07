@@ -452,10 +452,6 @@ function ApplicationExerciseViewer({
   const visibleBrief = brief ? stripExerciseObjectiveSection(brief) : '';
   const hasDeliverable = internalText.trim().length > 0 || exercise.attachments.length > 0;
 
-  useEffect(() => {
-    setInternalText(exercise.internalText || '');
-  }, [exercise.internalText]);
-
   return (
     <div className="mx-auto max-w-[90rem] px-0 pb-20 pt-0">
       <article className="mx-auto max-w-[82ch] space-y-8">
@@ -656,7 +652,12 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   onUpdateExerciseInternalText,
   sourcePageRangeLabel,
 }: WorkspaceReaderContentModel) {
-  const [isContextHintVisible, setIsContextHintVisible] = useState(false);
+  const [hasDismissedContextHint, setHasDismissedContextHint] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    return window.localStorage.getItem(CONTEXT_MENU_HINT_STORAGE_KEY) === 'true';
+  });
   const readingShellClassName = isFocusMode
     ? 'max-w-[72rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-12 xl:px-16'
     : 'max-w-[90rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
@@ -727,17 +728,10 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   const canCompleteSection = quiz.length === 0 || unansweredQuestionCount === 0;
   const shouldShowLessonSkeleton =
     !activeExercise && (isLoading || Boolean(activeSectionTitle && !sectionContent));
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !sectionContent) {
-      return;
-    }
-
-    setIsContextHintVisible(window.localStorage.getItem(CONTEXT_MENU_HINT_STORAGE_KEY) !== 'true');
-  }, [sectionContent]);
+  const isContextHintVisible = Boolean(sectionContent) && !hasDismissedContextHint;
 
   const dismissContextHint = () => {
-    setIsContextHintVisible(false);
+    setHasDismissedContextHint(true);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(CONTEXT_MENU_HINT_STORAGE_KEY, 'true');
     }
@@ -772,6 +766,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
         >
           {activeExercise ? (
             <ApplicationExerciseViewer
+              key={`${activeExercise.id}:${activeExercise.updatedAt}`}
               exercise={activeExercise}
               exercisePrerequisiteGaps={exercisePrerequisiteGaps}
               isDarkMode={isDarkMode}

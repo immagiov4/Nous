@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import ChatArtifactRenderer from '../../../components/shared/ChatArtifactRenderer.tsx';
 import type { LearningArtifactRenderPayload } from '../../../types.ts';
@@ -50,6 +50,21 @@ const htmlArtifact: LearningArtifactRenderPayload = {
   },
 };
 
+const replacementDraftArtifact: LearningArtifactRenderPayload = {
+  ...htmlArtifact,
+  summary: {
+    ...htmlArtifact.summary,
+    id: 'project-1:lesson-2:generated-visual:visual-draft-3',
+    replacementOfArtifactId: htmlArtifact.summary.id,
+    title: 'simulatore chiusura rivisto',
+  },
+  visual: {
+    ...htmlArtifact.visual,
+    id: 'visual-draft-3',
+    title: 'simulatore_chiusura_rivisto',
+  },
+};
+
 describe('ChatArtifactRenderer', () => {
   test('renders image thumbnails and chip-only interactive artifacts', () => {
     render(<ChatArtifactRenderer artifacts={[pdfArtifact, htmlArtifact]} isDarkMode={false} />);
@@ -84,5 +99,83 @@ describe('ChatArtifactRenderer', () => {
 
     const dialog = screen.getByRole('dialog', { name: /simulatore chiusura/i });
     expect(within(dialog).getByTitle('simulatore chiusura').closest('figure')).toHaveClass('my-0');
+  });
+
+  test('requires revision instructions before regenerating an artifact', async () => {
+    const user = userEvent.setup();
+    const onRegenerateArtifact = vi.fn();
+    render(
+      <ChatArtifactRenderer
+        artifacts={[htmlArtifact]}
+        isDarkMode={false}
+        onRegenerateArtifact={onRegenerateArtifact}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
+    await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+
+    const dialog = screen.getByRole('dialog', { name: /simulatore chiusura/i });
+    const submitButton = within(dialog).getByRole('button', { name: /Conferma rigenerazione/i });
+    expect(within(dialog).getByLabelText(/Istruzioni rigenerazione/i)).toBeInTheDocument();
+    expect(submitButton).toBeDisabled();
+
+    await user.type(
+      within(dialog).getByLabelText(/Istruzioni rigenerazione/i),
+      'Rendilo piu sintetico e leggibile.'
+    );
+    await user.click(submitButton);
+
+    expect(onRegenerateArtifact).toHaveBeenCalledWith({
+      artifactId: htmlArtifact.summary.id,
+      instructions: 'Rendilo piu sintetico e leggibile.',
+    });
+  });
+
+  test('shows local feedback when discarding and saving artifacts', async () => {
+    const user = userEvent.setup();
+    const onDiscardArtifact = vi.fn();
+    const onSaveArtifact = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ChatArtifactRenderer
+        artifacts={[htmlArtifact]}
+        isDarkMode={false}
+        onDiscardArtifact={onDiscardArtifact}
+        onSaveArtifact={onSaveArtifact}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
+    await user.click(screen.getByRole('button', { name: /Scarta artefatto/i }));
+
+    expect(onDiscardArtifact).toHaveBeenCalledWith({ artifactId: htmlArtifact.summary.id });
+    expect(screen.getByText('Artefatto scartato.')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
+    await user.click(screen.getByRole('button', { name: /Salva artefatto nelle note/i }));
+
+    expect(onSaveArtifact).toHaveBeenCalledWith({ artifactId: htmlArtifact.summary.id });
+    expect(await screen.findByText('Salvato.')).toBeInTheDocument();
+  });
+
+  test('shows replace action for replacement drafts', async () => {
+    const user = userEvent.setup();
+    const onReplaceArtifact = vi.fn();
+    render(
+      <ChatArtifactRenderer
+        artifacts={[replacementDraftArtifact]}
+        isDarkMode={false}
+        onReplaceArtifact={onReplaceArtifact}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura rivisto/i }));
+    await user.click(screen.getByRole('button', { name: /Sostituisci artefatto/i }));
+
+    expect(onReplaceArtifact).toHaveBeenCalledWith({
+      artifactId: replacementDraftArtifact.summary.id,
+      replacementOfArtifactId: htmlArtifact.summary.id,
+    });
   });
 });

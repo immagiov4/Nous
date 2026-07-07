@@ -246,15 +246,32 @@ export const buildProjectStructurePayload = ({
             const notesWithTimestamp = annotations.filter(a => a.note.trim().length > 0);
             const latestNote =
               notesWithTimestamp.length > 0
-                ? notesWithTimestamp.reduce((best, a) =>
-                    (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
+                ? notesWithTimestamp.reduce<(typeof notesWithTimestamp)[number] | null>(
+                    (best, annotation) => {
+                      if (best === null) {
+                        return annotation;
+                      }
+
+                      return (annotation.updatedAt || annotation.createdAt) >
+                        (best.updatedAt || best.createdAt)
+                        ? annotation
+                        : best;
+                    },
+                    null
                   )
                 : null;
             const latestAnnotation =
               annotations.length > 0
-                ? annotations.reduce((best, a) =>
-                    (a.updatedAt || a.createdAt) > (best.updatedAt || best.createdAt) ? a : best
-                  )
+                ? annotations.reduce<(typeof annotations)[number] | null>((best, annotation) => {
+                    if (best === null) {
+                      return annotation;
+                    }
+
+                    return (annotation.updatedAt || annotation.createdAt) >
+                      (best.updatedAt || best.createdAt)
+                      ? annotation
+                      : best;
+                  }, null)
                 : null;
 
             return {

@@ -335,15 +335,22 @@ const splitSegmentOnParagraphBreaks = (
   return fragments;
 };
 
+const isWhitespaceCharacter = (character: string | undefined): boolean => character?.trim() === '';
+
 export const trimSegmentWhitespace = (
   content: string,
   segment: MarkdownRange
 ): MarkdownRange | null => {
-  const segmentText = content.slice(segment.start, segment.end);
-  const leadingWhitespaceLength = segmentText.match(/^\s*/u)?.[0].length ?? 0;
-  const trailingWhitespaceLength = segmentText.match(/\s*$/u)?.[0].length ?? 0;
-  const start = segment.start + leadingWhitespaceLength;
-  const end = segment.end - trailingWhitespaceLength;
+  let start = segment.start;
+  let end = segment.end;
+
+  while (start < end && isWhitespaceCharacter(content[start])) {
+    start += 1;
+  }
+
+  while (end > start && isWhitespaceCharacter(content[end - 1])) {
+    end -= 1;
+  }
 
   return start < end ? { start, end } : null;
 };

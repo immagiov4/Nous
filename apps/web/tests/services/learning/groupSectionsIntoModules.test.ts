@@ -83,4 +83,9 @@ describe('groupSectionsIntoModules', () => {
     expect(child.kind).toBe('lesson');
     expect((child as unknown as Record<string, unknown>).moduleTitle).toBeUndefined();
   });
+
+  it('builds stable slugs from accented titles with outer punctuation', () => {
+    const result = groupSectionsIntoModules([section('a', { moduleTitle: ' Àlgèbra!!! ' })]);
+    expect(result[0].id).toBe('m-0-algebra');
+  });
 });

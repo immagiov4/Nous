@@ -122,6 +122,26 @@ const artifactPayload: LearningArtifactRenderPayload = {
   },
 };
 
+const generatedArtifactPayload: LearningArtifactRenderPayload = {
+  summary: {
+    id: 'project-1:lesson-1:generated-visual:visual-1',
+    kind: 'generated-visual',
+    lessonId: 'lesson-1',
+    lessonTitle: 'Modello relazionale',
+    previewMode: 'thumbnail',
+    projectId: 'project-1',
+    projectTitle: 'Corso TypeScript',
+    title: 'Mappa ER',
+  },
+  visual: {
+    id: 'visual-1',
+    title: 'mappa_er',
+    kind: 'svg',
+    code: '<svg viewBox="0 0 680 120"></svg>',
+    createdAt: '2026-05-01T10:00:00.000Z',
+  },
+};
+
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', {
     configurable: true,
@@ -239,6 +259,26 @@ describe('HomeChatPanel', () => {
       kind: 'project',
       label: 'Corso TypeScript',
     });
+  });
+
+  test('closes the mobile attachment sheet before switching back to new-course mode', async () => {
+    setViewportWidth(390);
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+    };
+    const { rerender } = render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+    expect(screen.getByText(/Scegli il contesto/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /Nuovo corso/i }));
+    expect(props.onHomeChatModeChange).toHaveBeenCalledWith('new-course');
+
+    rerender(<HomeChatPanel {...props} homeChatMode="new-course" />);
+
+    expect(screen.queryByText(/Scegli il contesto/i)).not.toBeInTheDocument();
   });
 
   test('toggles web search from the library tools menu', async () => {
@@ -450,6 +490,56 @@ describe('HomeChatPanel', () => {
     expect(renderedText.indexOf('Ecco il grafico richiesto.')).toBeLessThan(
       renderedText.indexOf('Schema ER')
     );
+  });
+
+  test('passes shared artifact actions to library artifact cards', async () => {
+    const user = userEvent.setup();
+    const onLibraryArtifactRegenerate = vi.fn();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      onLibraryArtifactRegenerate,
+      libraryArtifactPayloadsByToolCallId: {
+        'tool-artifacts-1': [generatedArtifactPayload],
+      },
+      libraryMessages: [
+        {
+          id: 'assistant-artifacts',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-getLearningArtifacts',
+              toolCallId: 'tool-artifacts-1',
+              state: 'output-available',
+              input: {
+                renderMode: 'attachments',
+              },
+              output: {
+                artifactCount: 1,
+                artifacts: [generatedArtifactPayload.summary],
+                renderMode: 'attachments',
+                renderedArtifactCount: 1,
+              },
+            },
+          ],
+        } as UIMessage,
+      ],
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByRole('button', { name: /Apri Mappa ER/i }));
+    await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+    await user.type(
+      screen.getByLabelText(/Istruzioni rigenerazione/i),
+      'Rendi il diagramma piu leggibile.'
+    );
+    await user.click(screen.getByRole('button', { name: /Conferma rigenerazione/i }));
+
+    expect(onLibraryArtifactRegenerate).toHaveBeenCalledWith({
+      artifactId: generatedArtifactPayload.summary.id,
+      instructions: 'Rendi il diagramma piu leggibile.',
+    });
   });
 
   test('renders a confirmation card for saving generated artifacts into lesson notes', async () => {

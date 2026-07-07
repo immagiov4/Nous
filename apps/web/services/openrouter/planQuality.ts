@@ -160,12 +160,7 @@ export const resolvePlanningSourceProfileFromSeed = ({
   kind,
   pageCount,
 }: PlanningSourceProfileSeed): PlanningSourceProfile => {
-  const sizeTier =
-    kind === 'pdf'
-      ? resolvePdfSourceSizeTier(pageCount)
-      : kind === 'text'
-        ? resolveTextSourceSizeTier(extractedCharacterCount)
-        : 'medium';
+  const sizeTier = resolvePlanningSourceSizeTier({ extractedCharacterCount, kind, pageCount });
 
   switch (sizeTier) {
     case 'tiny':
@@ -215,6 +210,22 @@ export const resolvePlanningSourceProfileFromSeed = ({
   }
 };
 
+const resolvePlanningSourceSizeTier = ({
+  extractedCharacterCount,
+  kind,
+  pageCount,
+}: PlanningSourceProfileSeed): PlanningSourceSizeTier => {
+  if (kind === 'pdf') {
+    return resolvePdfSourceSizeTier(pageCount);
+  }
+
+  if (kind === 'text') {
+    return resolveTextSourceSizeTier(extractedCharacterCount);
+  }
+
+  return 'medium';
+};
+
 export const resolvePlanningSourceProfile = async (
   file: FileData
 ): Promise<PlanningSourceProfile> => {
@@ -253,7 +264,14 @@ const formatPlanningCountRange = (
   { max, min }: PlanningCountRange,
   singular: string,
   plural: string
-) => (min === max ? `${min} ${min === 1 ? singular : plural}` : `${min}-${max} ${plural}`);
+): string => {
+  if (min !== max) {
+    return `${min}-${max} ${plural}`;
+  }
+
+  const unit = min === 1 ? singular : plural;
+  return `${min} ${unit}`;
+};
 
 const formatPlanningSourceStats = (profile: PlanningSourceProfile): string => {
   if (profile.kind === 'pdf' && typeof profile.pageCount === 'number') {
@@ -295,14 +313,7 @@ const buildPdfPlanCoverageGuidance = (profile: PlanningSourceProfile): string[] 
 };
 
 export const buildAdaptivePlanGuidance = (profile: PlanningSourceProfile): string => {
-  const sizeLabel =
-    profile.sizeTier === 'tiny'
-      ? 'molto compatta'
-      : profile.sizeTier === 'small'
-        ? 'compatta'
-        : profile.sizeTier === 'large'
-          ? 'estesa'
-          : 'intermedia';
+  const sizeLabel = formatPlanningSourceSizeLabel(profile.sizeTier);
 
   return [
     `- Calibra la granularita sull'effettiva dimensione della fonte: qui la fonte appare ${sizeLabel} (${formatPlanningSourceStats(profile)}).`,
@@ -317,6 +328,19 @@ export const buildAdaptivePlanGuidance = (profile: PlanningSourceProfile): strin
     '- Crea una nuova lezione solo se puo avere materiale sorgente distinto, uno scope autonomo e un obiettivo didattico non sovrapposto.',
     '- Se due lezioni condividono quasi gli stessi concetti, esempi, risultati o passaggi del materiale, fondile invece di tenerle separate.',
   ].join('\n');
+};
+
+const formatPlanningSourceSizeLabel = (sizeTier: PlanningSourceSizeTier): string => {
+  switch (sizeTier) {
+    case 'tiny':
+      return 'molto compatta';
+    case 'small':
+      return 'compatta';
+    case 'large':
+      return 'estesa';
+    case 'medium':
+      return 'intermedia';
+  }
 };
 
 const PLAN_SECTION_SCOPE_OVERLAP_THRESHOLD = 0.72;

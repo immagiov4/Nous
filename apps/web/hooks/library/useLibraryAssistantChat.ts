@@ -4,8 +4,12 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from 'ai';
-import { useEffect, useMemo, useRef, useState } from 'react';
-
+import { useEffect, useMemo, useState } from 'react';
+import type {
+  ChatArtifactActionRequest,
+  ChatArtifactRegenerateRequest,
+  ChatArtifactReplaceRequest,
+} from '../../components/shared/ChatArtifactRenderer.tsx';
 import {
   executeLibraryAssistantTool,
   LIBRARY_ASSISTANT_TOOL_NAMES,
@@ -87,13 +91,22 @@ interface UseLibraryAssistantChatArgs {
     note: string;
     projectId: string;
   }) => Promise<{ annotationId?: string; error?: string; saved: boolean }>;
+  replaceLessonGeneratedVisual?: (input: {
+    artifactId: string;
+    lessonId: string;
+    projectId: string;
+    visual: LessonGeneratedVisual;
+  }) => Promise<{ error?: string; replaced: boolean }>;
   tree: LibraryTree;
 }
 
 interface GenerateLearningArtifactInput {
   lessonId: string;
+  mode?: 'new' | 'replacement-draft';
   projectId: string;
   prompt: string;
+  revisionInstructions?: string;
+  sourceArtifactId?: string;
 }
 
 interface RequestSaveLearningArtifactNoteInput {
@@ -102,6 +115,12 @@ interface RequestSaveLearningArtifactNoteInput {
   noteDraft: string;
   projectId: string;
   rationale: string;
+}
+interface LibraryAssistantRequestState {
+  attachedContextRefs: LibraryContextRef[];
+  preferredContextModel: string;
+  scopeSummary: LibraryScopeSummary;
+  toolPreferences: HomeChatToolPreferences;
 }
 
 const readGenerateLearningArtifactInput = (
@@ -117,8 +136,15 @@ const readGenerateLearningArtifactInput = (
     candidate.prompt.trim()
     ? {
         lessonId: candidate.lessonId,
+        mode: candidate.mode === 'replacement-draft' ? 'replacement-draft' : 'new',
         projectId: candidate.projectId,
         prompt: candidate.prompt.trim(),
+        revisionInstructions:
+          typeof candidate.revisionInstructions === 'string'
+            ? candidate.revisionInstructions.trim()
+            : undefined,
+        sourceArtifactId:
+          typeof candidate.sourceArtifactId === 'string' ? candidate.sourceArtifactId : undefined,
       }
     : null;
 };
@@ -138,6 +164,8 @@ const resolveContextRefLabel = ({
 
   return projects.find(project => project.id === reference.id)?.title || reference.label;
 };
+const libraryAssistantRequestStateStore = new Map<symbol, LibraryAssistantRequestState>();
+const LIBRARY_REPLACEMENT_DRAFT_PREFIX = 'library-replacement-draft';
 
 export const useLibraryAssistantChat = ({
   folders,
@@ -145,10 +173,11 @@ export const useLibraryAssistantChat = ({
   preferredContextModel,
   projectRepositoryMode,
   projects,
+  replaceLessonGeneratedVisual,
   saveLessonArtifactNote,
   tree,
 }: UseLibraryAssistantChatArgs) => {
-  const [attachedContextRefs, setAttachedContextRefs] = useState<LibraryContextRef[]>([]);
+  const [selectedContextRefs, setSelectedContextRefs] = useState<LibraryContextRef[]>([]);
   const [artifactPayloadsByToolCallId, setArtifactPayloadsByToolCallId] = useState<
     Record<string, LearningArtifactRenderPayload[]>
   >({});
@@ -157,10 +186,9 @@ export const useLibraryAssistantChat = ({
   >({});
   const [webSearch, setWebSearch] = useState(false);
   const [generateArtifacts, setGenerateArtifacts] = useState(false);
-
-  useEffect(() => {
-    setAttachedContextRefs(currentRefs =>
-      currentRefs
+  const attachedContextRefs = useMemo(
+    () =>
+      selectedContextRefs
         .filter(reference =>
           reference.kind === 'folder'
             ? folders.some(folder => folder.id === reference.id)
@@ -169,9 +197,9 @@ export const useLibraryAssistantChat = ({
         .map(reference => ({
           ...reference,
           label: resolveContextRefLabel({ folders, projects, reference }),
-        }))
-    );
-  }, [folders, projects]);
+        })),
+    [folders, projects, selectedContextRefs]
+  );
 
   const scopeSummary = useMemo<LibraryScopeSummary>(
     () =>
@@ -196,19 +224,20 @@ export const useLibraryAssistantChat = ({
     [attachedContextRefs, generateArtifacts, webSearch]
   );
 
-  const latestRequestStateRef = useRef({
-    attachedContextRefs,
-    preferredContextModel,
-    scopeSummary,
-    toolPreferences,
-  });
+  const requestStateKey = useMemo(() => Symbol('library-assistant-request-state'), []);
 
-  latestRequestStateRef.current = {
-    attachedContextRefs,
-    preferredContextModel,
-    scopeSummary,
-    toolPreferences,
-  };
+  useEffect(() => {
+    libraryAssistantRequestStateStore.set(requestStateKey, {
+      attachedContextRefs,
+      preferredContextModel,
+      scopeSummary,
+      toolPreferences,
+    });
+
+    return () => {
+      libraryAssistantRequestStateStore.delete(requestStateKey);
+    };
+  }, [attachedContextRefs, preferredContextModel, requestStateKey, scopeSummary, toolPreferences]);
 
   const transport = useMemo(
     () =>
@@ -216,12 +245,17 @@ export const useLibraryAssistantChat = ({
         api: `${getBackendUrl()}/api/chat/library`,
         // `useChat` keeps the initial transport instance, so request data must come from a ref.
         prepareSendMessagesRequest: ({ id, messages }) => {
+          const requestState = libraryAssistantRequestStateStore.get(requestStateKey);
+          if (!requestState) {
+            throw new Error('Library assistant request state is not initialized.');
+          }
+
           const {
             attachedContextRefs: currentAttachedContextRefs,
             preferredContextModel: currentPreferredContextModel,
             scopeSummary: currentScopeSummary,
             toolPreferences: currentToolPreferences,
-          } = latestRequestStateRef.current;
+          } = requestState;
 
           return {
             body: {
@@ -235,7 +269,7 @@ export const useLibraryAssistantChat = ({
           };
         },
       }),
-    []
+    [requestStateKey]
   );
 
   const { addToolOutput, error, messages, sendMessage, setMessages, status } =
@@ -274,11 +308,37 @@ export const useLibraryAssistantChat = ({
             return;
           }
 
+          const sourceArtifact = input.sourceArtifactId
+            ? Object.values(artifactPayloadsByToolCallId)
+                .flat()
+                .find(
+                  payload =>
+                    payload.summary.id === input.sourceArtifactId &&
+                    payload.summary.kind === 'generated-visual' &&
+                    'visual' in payload
+                )
+            : undefined;
+          if (input.mode === 'replacement-draft' && !sourceArtifact) {
+            void addToolOutput({
+              tool: 'generateLearningArtifact',
+              toolCallId: toolCall.toolCallId,
+              output: {
+                artifact: null,
+                error: 'Non ho trovato un artefatto generato modificabile da usare come sorgente.',
+              },
+            });
+            return;
+          }
+
           const draft = await generateLessonArtifactDraft({
             lesson,
+            mode: input.mode,
             projectId: snapshot.id,
             projectTitle: snapshot.learningPlan.title,
             prompt: input.prompt,
+            revisionInstructions: input.revisionInstructions,
+            sourceArtifact,
+            sourceArtifactId: input.sourceArtifactId,
           });
           if (!draft) {
             void addToolOutput({
@@ -360,9 +420,103 @@ export const useLibraryAssistantChat = ({
       },
     });
 
+  const artifactPayloadsById = useMemo(() => {
+    const payloads = Object.values(artifactPayloadsByToolCallId).flat();
+    return new Map(payloads.map(payload => [payload.summary.id, payload]));
+  }, [artifactPayloadsByToolCallId]);
+
+  const replacementDraftPayloads = useMemo(
+    () =>
+      Object.entries(artifactPayloadsByToolCallId).flatMap(([toolCallId, payloads]) =>
+        toolCallId.startsWith(LIBRARY_REPLACEMENT_DRAFT_PREFIX) ? payloads : []
+      ),
+    [artifactPayloadsByToolCallId]
+  );
+
+  const discardLearningArtifact = ({ artifactId }: ChatArtifactActionRequest) => {
+    setArtifactPayloadsByToolCallId(currentPayloads => {
+      const next = { ...currentPayloads };
+      for (const [key, payloads] of Object.entries(next)) {
+        next[key] = payloads.filter(payload => payload.summary.id !== artifactId);
+        if (next[key].length === 0) {
+          delete next[key];
+        }
+      }
+      return next;
+    });
+    setGeneratedVisualsByArtifactId(currentVisuals => {
+      const next = { ...currentVisuals };
+      delete next[artifactId];
+      return next;
+    });
+  };
+
+  const regenerateLearningArtifact = async ({
+    artifactId,
+    instructions,
+  }: ChatArtifactRegenerateRequest) => {
+    const payload = artifactPayloadsById.get(artifactId);
+    if (!payload || !('visual' in payload)) {
+      return;
+    }
+
+    const [snapshot] = await loadProjectsById([payload.summary.projectId]);
+    const lesson = flattenLessons(snapshot?.learningPlan?.modules).find(
+      section => section.id === payload.summary.lessonId
+    );
+    if (!snapshot?.learningPlan || !lesson) {
+      return;
+    }
+
+    const draft = await generateLessonArtifactDraft({
+      lesson,
+      mode: 'replacement-draft',
+      projectId: snapshot.id,
+      projectTitle: snapshot.learningPlan.title,
+      prompt: `Modifica l artefatto "${payload.summary.title}".`,
+      revisionInstructions: instructions,
+      sourceArtifact: payload,
+      sourceArtifactId: artifactId,
+    });
+    if (!draft) {
+      return;
+    }
+
+    setGeneratedVisualsByArtifactId(currentVisuals => ({
+      ...currentVisuals,
+      [draft.artifactId]: draft.visual,
+    }));
+    setArtifactPayloadsByToolCallId(currentPayloads => ({
+      ...currentPayloads,
+      [`${LIBRARY_REPLACEMENT_DRAFT_PREFIX}-${artifactId}-${Date.now()}`]: [draft.payload],
+    }));
+  };
+
+  const replaceLearningArtifact = async ({
+    artifactId,
+    replacementOfArtifactId,
+  }: ChatArtifactReplaceRequest) => {
+    const payload = artifactPayloadsById.get(artifactId);
+    const visual = generatedVisualsByArtifactId[artifactId];
+    if (!payload || !('visual' in payload) || !visual || !replaceLessonGeneratedVisual) {
+      return;
+    }
+
+    const result = await replaceLessonGeneratedVisual({
+      artifactId: replacementOfArtifactId,
+      lessonId: payload.summary.lessonId,
+      projectId: payload.summary.projectId,
+      visual,
+    });
+    if (result.replaced) {
+      discardLearningArtifact({ artifactId });
+    }
+  };
+
   return {
     attachedContextRefs,
     artifactPayloadsByToolCallId,
+    replacementDraftPayloads,
     error,
     isLoading: status === 'submitted' || status === 'streaming',
     messages,
@@ -423,8 +577,11 @@ export const useLibraryAssistantChat = ({
         output: { approved: false, saved: false },
       });
     },
+    discardLearningArtifact,
+    regenerateLearningArtifact,
+    replaceLearningArtifact,
     removeAttachedContextRef: (reference: LibraryContextRef) => {
-      setAttachedContextRefs(currentRefs =>
+      setSelectedContextRefs(currentRefs =>
         currentRefs.filter(
           currentReference =>
             !(currentReference.id === reference.id && currentReference.kind === reference.kind)
@@ -436,7 +593,7 @@ export const useLibraryAssistantChat = ({
     setWebSearch,
     status,
     toggleAttachedContextRef: (reference: LibraryContextRef) => {
-      setAttachedContextRefs(currentRefs => {
+      setSelectedContextRefs(currentRefs => {
         const existingRef = currentRefs.find(
           currentReference =>
             currentReference.id === reference.id && currentReference.kind === reference.kind

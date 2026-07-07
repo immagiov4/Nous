@@ -31,10 +31,48 @@ const extractAttribute = (tag: string, attributeName: string): string | undefine
   return match ? decodeHtml(match[2]) : undefined;
 };
 
-const stripHtml = (value: string): string =>
-  decodeHtml(value.replace(/<[^>]+>/g, ' '))
-    .replace(/\s+/g, ' ')
-    .trim();
+const stripHtmlTags = (value: string): string => {
+  const chunks: string[] = [];
+  let cursor = 0;
+
+  while (cursor < value.length) {
+    const tagStart = value.indexOf('<', cursor);
+    if (tagStart === -1) {
+      chunks.push(value.slice(cursor));
+      break;
+    }
+
+    const tagEnd = value.indexOf('>', tagStart + 1);
+    if (tagEnd === -1) {
+      chunks.push(value.slice(cursor));
+      break;
+    }
+
+    chunks.push(value.slice(cursor, tagStart), ' ');
+    cursor = tagEnd + 1;
+  }
+
+  return chunks.join('');
+};
+
+const collapseWhitespace = (value: string): string => {
+  const characters: string[] = [];
+
+  for (const character of value) {
+    if (character.trim() === '') {
+      if (characters[characters.length - 1] !== ' ') {
+        characters.push(' ');
+      }
+      continue;
+    }
+
+    characters.push(character);
+  }
+
+  return characters.join('').trim();
+};
+
+const stripHtml = (value: string): string => collapseWhitespace(decodeHtml(stripHtmlTags(value)));
 
 const buildPlaceholder = (assetId: string, alt?: string, caption?: string): string => {
   const normalizedAssetId = escapePlaceholderValue(assetId);

@@ -2,12 +2,15 @@ import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts
 import { normalizeLineEndings } from '../../../utils/text.ts';
 import { sanitizeAssetIdMentions } from '../lessonImages.ts';
 import type { QuizQuestion } from '../shared.ts';
+import {
+  parseLabelBodyPair,
+  parseStandaloneLabel,
+  stripMarkdownForSimilarity,
+} from './markdownHeuristics.ts';
 
 // ── Repetition detection constants ─────────────────────────────────────
 
 const BLOCKISH_PARAGRAPH_PREFIX = /^(#{1,6}\s|[-*+]\s|>\s|```|~~~|\|.*\||\{\{PDF_IMAGE:)/;
-const LABEL_BODY_REGEX = /^(?:\*\*)?([^*\n:]{2,90})(?:\*\*)?:\s+(.+)$/;
-const STANDALONE_LABEL_REGEX = /^(?:\*\*)?([^*\n:]{2,90})(?:\*\*)?:\s*$/;
 const MAX_LIST_LABEL_WORDS = 12;
 const REPETITION_SIMILARITY_THRESHOLD = 0.72;
 const REPETITION_SECONDARY_KEYWORD_THRESHOLD = 0.2;
@@ -71,16 +74,48 @@ const normalizeParagraphForDetection = (paragraph: string): string =>
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 
-const stripMarkdownForSimilarity = (value: string): string =>
-  value
-    .replace(/`[^`]+`/g, ' ')
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
-    .replace(/\[[^\]]+\]\([^)]+\)/g, ' ')
-    .replace(/[*_#>|[\]()`~]/g, ' ')
-    .replace(/\{\{PDF_IMAGE:[^}]+\}\}/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+const trimLineTrailingWhitespace = (line: string): string => {
+  let endIndex = line.length;
+
+  while (endIndex > 0) {
+    const character = line[endIndex - 1];
+    if (character !== ' ' && character !== '\t') {
+      break;
+    }
+
+    endIndex -= 1;
+  }
+
+  return endIndex === line.length ? line : line.slice(0, endIndex);
+};
+
+const insertHeadingSpacing = (contentMarkdown: string): string => {
+  const lines = contentMarkdown.split('\n');
+  const normalizedLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmedLine = line.trimStart();
+    const isHeading =
+      trimmedLine.startsWith('# ') ||
+      trimmedLine.startsWith('## ') ||
+      trimmedLine.startsWith('### ') ||
+      trimmedLine.startsWith('#### ') ||
+      trimmedLine.startsWith('##### ') ||
+      trimmedLine.startsWith('###### ');
+
+    if (
+      isHeading &&
+      normalizedLines.length > 0 &&
+      normalizedLines[normalizedLines.length - 1] !== ''
+    ) {
+      normalizedLines.push('');
+    }
+
+    normalizedLines.push(line);
+  }
+
+  return normalizedLines.join('\n');
+};
 
 const normalizeSimilarityWord = (word: string): string =>
   word
@@ -228,20 +263,17 @@ const isReasonableListLabel = (label: string): boolean => {
 const toStandaloneSubheading = (paragraph: string): string | null => {
   const normalized = normalizeParagraphForDetection(paragraph);
   if (BLOCKISH_PARAGRAPH_PREFIX.test(normalized)) return null;
-  const match = normalized.match(STANDALONE_LABEL_REGEX);
-  if (!match) return null;
-  const label = match[1].trim();
+  const label = parseStandaloneLabel(normalized);
+  if (!label) return null;
   return isReasonableListLabel(label) ? `#### ${label}` : null;
 };
 
 const toListItemParagraph = (paragraph: string): string | null => {
   const normalized = normalizeParagraphForDetection(paragraph);
   if (BLOCKISH_PARAGRAPH_PREFIX.test(normalized)) return null;
-  const match = normalized.match(LABEL_BODY_REGEX);
-  if (!match) return null;
-  const [, rawLabel, rawBody] = match;
-  const label = rawLabel.trim();
-  const body = rawBody.trim();
+  const parsedPair = parseLabelBodyPair(normalized);
+  if (!parsedPair) return null;
+  const { body, label } = parsedPair;
   if (!isReasonableListLabel(label) || !body) return null;
   return `- **${label}**: ${body}`;
 };
@@ -336,10 +368,9 @@ const stripStructuredQuizFromMarkdown = (
 
 const prettifyMarkdownSpacing = (contentMarkdown: string): string =>
   normalizePseudoLists(
-    normalizeLineEndings(contentMarkdown)
-      .replace(/[ \t]+\n/g, '\n')
-      .replace(/([^\n])\s+(#{1,6}\s+)/g, '$1\n\n$2')
-      .replace(/([^\n])\n(#{1,6}\s+)/g, '$1\n\n$2')
+    insertHeadingSpacing(
+      normalizeLineEndings(contentMarkdown).split('\n').map(trimLineTrailingWhitespace).join('\n')
+    )
       .replace(/\n{3,}/g, '\n\n')
       .trim()
   );

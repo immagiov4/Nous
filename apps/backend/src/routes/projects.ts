@@ -1,3 +1,4 @@
+// Exposes project CRUD routes for the backend API.
 import { type Request, type Response, Router } from 'express';
 
 import { getCurrentUser, LOCAL_AUTH_MODE, resolveCurrentUser } from '../auth/currentUser.js';

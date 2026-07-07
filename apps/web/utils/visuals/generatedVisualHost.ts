@@ -88,6 +88,21 @@ svg {
 .c-pink rect,.c-pink circle,.c-pink ellipse { fill:#FBEAF0; stroke:#993556; stroke-width:.5 }
 .c-pink .t,.c-pink .th { fill:#72243E }
 .c-pink .ts { fill:#993556 }
+rect.c-purple,circle.c-purple,ellipse.c-purple{fill:#EEEDFE;stroke:#534AB7;stroke-width:.5}
+rect.c-teal,circle.c-teal,ellipse.c-teal{fill:#E1F5EE;stroke:#0F6E56;stroke-width:.5}
+rect.c-coral,circle.c-coral,ellipse.c-coral{fill:#FAECE7;stroke:#993C1D;stroke-width:.5}
+rect.c-blue,circle.c-blue,ellipse.c-blue{fill:#E6F1FB;stroke:#185FA5;stroke-width:.5}
+rect.c-amber,circle.c-amber,ellipse.c-amber{fill:#FAEEDA;stroke:#854F0B;stroke-width:.5}
+rect.c-gray,circle.c-gray,ellipse.c-gray{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:.5}
+rect.c-green,circle.c-green,ellipse.c-green{fill:#EAF3DE;stroke:#3B6D11;stroke-width:.5}
+rect.c-red,circle.c-red,ellipse.c-red{fill:#FCEBEB;stroke:#A32D2D;stroke-width:.5}
+rect.c-pink,circle.c-pink,ellipse.c-pink{fill:#FBEAF0;stroke:#993556;stroke-width:.5}
+html.dark rect.c-purple,html.dark circle.c-purple,html.dark ellipse.c-purple{fill:#3C3489;stroke:#AFA9EC}
+html.dark rect.c-teal,html.dark circle.c-teal,html.dark ellipse.c-teal{fill:#085041;stroke:#5DCAA5}
+html.dark rect.c-blue,html.dark circle.c-blue,html.dark ellipse.c-blue{fill:#0C447C;stroke:#85B7EB}
+html.dark rect.c-gray,html.dark circle.c-gray,html.dark ellipse.c-gray{fill:#444441;stroke:#B4B2A9}
+html.dark rect.c-amber,html.dark circle.c-amber,html.dark ellipse.c-amber{fill:#633806;stroke:#EF9F27}
+html.dark rect.c-coral,html.dark circle.c-coral,html.dark ellipse.c-coral{fill:#712B13;stroke:#F0997B}
 html.dark .c-purple rect, html.dark .c-purple circle, html.dark .c-purple ellipse { fill:#3C3489; stroke:#AFA9EC }
 html.dark .c-purple .t, html.dark .c-purple .th { fill:#CECBF6 }
 html.dark .c-purple .ts { fill:#AFA9EC }

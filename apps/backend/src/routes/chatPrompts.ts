@@ -1,3 +1,4 @@
+// Builds shared chat prompts and tool definitions for backend agents.
 import { jsonSchema, tool } from 'ai';
 
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
@@ -21,6 +22,8 @@ export interface ContextChatToolPreferences {
   generateArtifacts?: boolean;
   webSearch?: boolean;
 }
+
+export type ContextChatScope = 'annotation' | 'lesson' | 'selection';
 
 export interface LibraryChatToolPreferences {
   generateArtifacts?: boolean;
@@ -340,6 +343,7 @@ export const buildContextSystemPrompt = ({
   attachedAnnotationText,
   contextAfter,
   contextBefore,
+  contextScope = 'selection',
   lessonContent,
   lessonDescription,
   lessonTitle,
@@ -353,16 +357,35 @@ export const buildContextSystemPrompt = ({
   attachedAnnotationText?: string;
   contextAfter?: string;
   contextBefore?: string;
+  contextScope?: ContextChatScope;
   lessonContent?: string;
   lessonDescription?: string;
   lessonTitle?: string;
-  selectedText: string;
+  selectedText?: string;
   sourceKind?: string;
   sourceMaterial?: string;
   sourceName?: string;
   toolPreferences?: ContextChatToolPreferences;
 }) => {
-  const selectionContext = [contextBefore, selectedText, contextAfter].filter(Boolean).join(' ');
+  const selectedContextText = selectedText || '';
+  const selectionContext = [contextBefore, selectedContextText, contextAfter]
+    .filter(Boolean)
+    .join(' ');
+  const primaryContextBlock =
+    contextScope === 'lesson'
+      ? `INTERA LEZIONE CORRENTE:
+"""
+${clip(lessonContent)}
+"""`
+      : `SELEZIONE EVIDENZIATA:
+"""
+${selectedContextText}
+"""
+
+CONTESTO IMMEDIATO DELLA SELEZIONE:
+"""
+${selectionContext || selectedContextText}
+"""`;
   const attachedAnnotationBlock = attachedAnnotationText
     ? `PASSAGGIO GIA ANNOTATO:
 """
@@ -373,7 +396,20 @@ NOTA GIA ASSOCIATA:
 """
 ${attachedAnnotationNote || '[nessuna nota salvata finora]'}
 """`
-    : 'NOTA GIA ASSOCIATA:\n[nessuna nota collegata a questa selezione]';
+    : contextScope === 'lesson'
+      ? 'NOTA GIA ASSOCIATA:\n[nessuna nota collegata a questa lezione]'
+      : 'NOTA GIA ASSOCIATA:\n[nessuna nota collegata a questa selezione]';
+  const lessonContentBlock =
+    contextScope === 'lesson'
+      ? ''
+      : `CONTENUTO LEZIONE:
+"""
+${clip(lessonContent)}
+"""`;
+  const focusRule =
+    contextScope === 'lesson'
+      ? '- Rimani concreto e orientato alla spiegazione della lezione corrente.'
+      : '- Rimani concreto e orientato alla spiegazione del punto selezionato.';
 
   return `Sei Nous, un assistente didattico integrato nel reader.
 
@@ -383,15 +419,7 @@ ${buildContextWebSearchMandate(toolPreferences)}
 
 Devi rispondere alla conversazione usando come base il contesto seguente:
 
-SELEZIONE EVIDENZIATA:
-"""
-${selectedText}
-"""
-
-CONTESTO IMMEDIATO DELLA SELEZIONE:
-"""
-${selectionContext || selectedText}
-"""
+${primaryContextBlock}
 
 ${attachedAnnotationBlock}
 
@@ -401,10 +429,7 @@ ${lessonTitle || 'Lezione corrente'}
 DESCRIZIONE LEZIONE:
 ${lessonDescription || 'Nessuna descrizione disponibile'}
 
-CONTENUTO LEZIONE:
-"""
-${clip(lessonContent)}
-"""
+${lessonContentBlock}
 
 MATERIALE SORGENTE ORIGINALE (${sourceKind || 'non specificato'}${sourceName ? ` - ${sourceName}` : ''}):
 """
@@ -421,7 +446,7 @@ Regole:
 - Se il contesto non basta, dillo chiaramente invece di inventare.
 - Se il materiale sorgente originale e presente, preferiscilo come base fattuale quando chiarisce meglio della lezione generata.
 - Usa il backtick (\`...\`) SOLO per nomi di funzioni, variabili, classi, comandi e identificatori tecnici. Per citare frasi, titoli o brani usa le virgolette tipografiche ("..."), mai i backtick.
-- Rimani concreto e orientato alla spiegazione del punto selezionato.
+${focusRule}
 - Quando l utente chiede mappe, grafici, immagini, visual example o artefatti gia presenti nella lezione corrente, usa \`getCurrentLessonArtifacts\`. La prima chiamata deve essere normalmente con \`renderMode: "metadata-only"\`; usa \`renderMode: "attachments"\`, preferibilmente con \`artifactIds\`, solo quando devi mostrare in chat artefatti specifici gia scelti. Non trascrivere HTML, SVG o dati immagine: riassumi brevemente cosa hai trovato e lascia che la UI mostri schede solo per gli allegati richiesti. Se mostri un allegato, non introdurlo e non ripeterne il titolo nella risposta: la card rende gia visibili nome e anteprima.
 - Quando l utente chiede di creare sul momento una nuova mappa, grafico, diagramma, simulazione o esempio visuale, usa \`generateCurrentLessonArtifact\`. La generazione resta temporanea finche l utente non chiede di salvarla; se chiede di salvarla, chiama \`requestAddToNotes\` includendo l id dell artefatto in \`artifactIds\`. Non dire che e stata salvata finche non ricevi l output positivo del tool di note.
 - Rispondi direttamente alla domanda dell'utente e fermati li. Non aggiungere code conversazionali o inviti del tipo "se vuoi posso...", "posso anche...", "dimmi se vuoi..." o simili.

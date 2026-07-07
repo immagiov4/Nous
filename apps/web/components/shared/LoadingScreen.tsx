@@ -48,7 +48,6 @@ const LoadingScreen = ({
   }, []);
 
   useEffect(() => {
-    setElapsedSeconds(0);
     const intervalId = window.setInterval(() => {
       setElapsedSeconds(seconds => seconds + 1);
     }, 1000);
@@ -58,12 +57,7 @@ const LoadingScreen = ({
     };
   }, []);
 
-  const waitingHint =
-    elapsedSeconds >= 120
-      ? 'Sto ancora lavorando: per corsi lunghi puo volerci qualche minuto.'
-      : elapsedSeconds >= 35
-        ? 'Operazione ancora in corso, non e un blocco.'
-        : null;
+  const waitingHint = getWaitingHint(elapsedSeconds);
 
   return (
     <div className="relative flex flex-1 flex-col items-center justify-start overflow-hidden bg-paper-light p-4 pt-[max(1rem,env(safe-area-inset-top))] text-center transition-colors animate-in fade-in duration-1000 sm:justify-center sm:p-8 dark:bg-paper-dark">
@@ -153,6 +147,18 @@ const LoadingScreen = ({
       </div>
     </div>
   );
+};
+
+const getWaitingHint = (elapsedSeconds: number): string | null => {
+  if (elapsedSeconds >= 120) {
+    return 'Sto ancora lavorando: per corsi lunghi puo volerci qualche minuto.';
+  }
+
+  if (elapsedSeconds >= 35) {
+    return 'Operazione ancora in corso, non e un blocco.';
+  }
+
+  return null;
 };
 
 // fallow-ignore-next-line unused-exports — imported by App.tsx as default

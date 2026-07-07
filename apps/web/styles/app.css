@@ -336,7 +336,11 @@ body {
 
 .home-chat-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(180, 125, 70, 0.72) transparent;
+  scrollbar-color: #a1a1aa transparent;
+}
+
+.dark .home-chat-scrollbar {
+  scrollbar-color: #71717a transparent;
 }
 
 .home-chat-scrollbar::-webkit-scrollbar {
@@ -348,24 +352,20 @@ body {
 }
 
 .home-chat-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(180, 125, 70, 0.72);
-  border-radius: 999px;
-}
-
-.home-chat-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(161, 95, 39, 0.88);
-}
-
-.dark .home-chat-scrollbar {
-  scrollbar-color: rgba(201, 145, 92, 0.72) transparent;
+  background: #a1a1aa;
+  border-radius: 3px;
 }
 
 .dark .home-chat-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(201, 145, 92, 0.72);
+  background: #71717a;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
 }
 
 .dark .home-chat-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(230, 171, 110, 0.88);
+  background: #a1a1aa;
 }
 
 /* custom thin scrollbar for textareas (notes editor) */

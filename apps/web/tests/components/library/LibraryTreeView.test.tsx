@@ -182,6 +182,32 @@ describe('LibraryTreeView', () => {
     expect(removeListener).toHaveBeenCalledTimes(addListener.mock.calls.length);
   });
 
+  test('opens the root folder form when the external trigger increments', async () => {
+    const props = {
+      openingProjectId: null,
+      onCreateFolder: vi.fn(async () => {}),
+      onConfirmDeleteFolder: vi.fn(async () => true),
+      onDeleteFolder: vi.fn(async () => {}),
+      onDeleteProject: vi.fn(),
+      onExportProject: vi.fn(),
+      onMoveFolder: vi.fn(async () => {}),
+      onMoveProjects: vi.fn(async () => []),
+      onOpenProject: vi.fn(),
+      onRenameFolder: vi.fn(async () => {}),
+      onTransferFolderToLan: vi.fn(async () => {}),
+      onTransferProjectToLan: vi.fn(async () => {}),
+      projectRepositoryMode: 'indexeddb' as const,
+      tree,
+    };
+    const { rerender } = render(<LibraryTreeView {...props} createRootTrigger={0} />);
+
+    expect(screen.queryByPlaceholderText('Nome cartella...')).not.toBeInTheDocument();
+
+    rerender(<LibraryTreeView {...props} createRootTrigger={1} />);
+
+    expect(await screen.findByPlaceholderText('Nome cartella...')).toBeInTheDocument();
+  });
+
   test('drops a folder before a root project instead of always appending it below', () => {
     const onMoveFolder = vi.fn(async () => null);
 

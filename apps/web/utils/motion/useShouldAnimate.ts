@@ -26,8 +26,6 @@ export const useShouldAnimate = (): boolean => {
     }
 
     const mediaQueryList = window.matchMedia(REDUCED_MOTION_QUERY);
-    setShouldAnimate(!mediaQueryList.matches);
-
     return subscribeToMediaQuery(mediaQueryList, event => {
       setShouldAnimate(!event.matches);
     });

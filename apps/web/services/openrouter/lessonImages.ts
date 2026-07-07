@@ -47,6 +47,44 @@ const scorePageProximity = (pageNumber: number | undefined, targetedPages: numbe
 const scoreKeywordHits = (haystack: string, keywords: Iterable<string>): number =>
   Array.from(keywords).reduce((total, keyword) => total + (haystack.includes(keyword) ? 1 : 0), 0);
 
+const trimLeadingSummaryPunctuation = (value: string): string => {
+  let startIndex = 0;
+
+  while (startIndex < value.length) {
+    const character = value[startIndex];
+    if (
+      character !== ':' &&
+      character !== ';' &&
+      character !== ',' &&
+      character !== '-' &&
+      character !== ' '
+    ) {
+      break;
+    }
+
+    startIndex += 1;
+  }
+
+  return value.slice(startIndex);
+};
+
+const trimAfterSentencePunctuation = (value: string): string => {
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (
+      character === '.' ||
+      character === ':' ||
+      character === ';' ||
+      character === '!' ||
+      character === '?'
+    ) {
+      return value.slice(0, index);
+    }
+  }
+
+  return value;
+};
+
 export const selectCandidatePdfImages = (
   images: PdfDocumentAssets['usedImages'],
   sectionTitle: string,
@@ -111,10 +149,7 @@ const buildImageContextSummary = (
 
   const chosen =
     image.caption?.trim() || bestSentence || sentenceCandidates[0] || normalized || sectionTitle;
-  const compact = chosen
-    .replace(/^[:;,\-\s]+/, '')
-    .replace(/[|}]/g, ' ')
-    .trim();
+  const compact = trimLeadingSummaryPunctuation(chosen).replace(/[|}]/g, ' ').trim();
 
   return compact.length > 140 ? `${compact.slice(0, 137).trim()}...` : compact;
 };
@@ -126,14 +161,14 @@ export const buildVisibleImageLabel = (
 ): string => {
   const summary = buildImageContextSummary(image, sectionTitle, sectionDescription)
     .replace(/^(la|il|lo|i|gli|le|una|un|uno)\s+/i, '')
-    .replace(/[.:;!?].*$/, '')
     .trim();
+  const compactSummary = trimAfterSentencePunctuation(summary).trim();
 
-  if (!summary) {
+  if (!compactSummary) {
     return `Figura del PDF: ${sectionTitle}`;
   }
 
-  return summary.length > 72 ? `${summary.slice(0, 69).trim()}...` : summary;
+  return compactSummary.length > 72 ? `${compactSummary.slice(0, 69).trim()}...` : compactSummary;
 };
 
 const pickFallbackAnchorHeading = (

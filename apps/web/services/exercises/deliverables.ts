@@ -1,7 +1,11 @@
-import JSZip from 'jszip';
 import type { ExerciseAttachment } from '../../types.ts';
 import { createEntityId } from '../../utils/ids.ts';
 import { isBinaryFile } from '../../utils/project/codebaseBundle.ts';
+import {
+  getSafeZipEntryPath,
+  loadZipSafely,
+  readZipEntryBytesWithinLimit,
+} from '../../utils/project/zipSafety.ts';
 import { normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { decodeBase64Bytes, encodeBytesBase64 } from '../projects/projectSource.ts';
@@ -29,6 +33,9 @@ export interface ExerciseDeliverableValidationResult {
 
 const TEXT_MIME_TYPE_FALLBACK = 'text/plain';
 const ZIP_MIME_TYPE_FALLBACK = 'application/zip';
+const EXERCISE_MAX_ZIP_ENTRIES = 200;
+const EXERCISE_MAX_ZIP_ENTRY_BYTES = 512_000;
+const INVALID_EXERCISE_ZIP_MESSAGE = 'Archivio ZIP non valido.';
 
 const createExerciseAttachmentId = () => createEntityId({ fallbackPrefix: 'exercise-attachment' });
 
@@ -189,13 +196,18 @@ export const validateExerciseDeliverable = async (args: {
       continue;
     }
 
-    const zip = await JSZip.loadAsync(decodeBase64Bytes(attachment.data));
+    const zip = await loadZipSafely(decodeBase64Bytes(attachment.data), {
+      invalidArchiveMessage: INVALID_EXERCISE_ZIP_MESSAGE,
+      maxEntries: EXERCISE_MAX_ZIP_ENTRIES,
+    });
     const candidates = sortZipEntries(
       Object.values(zip.files)
         .filter(entry => !entry.dir)
-        .filter(entry => !shouldIgnoreZipEntry(entry.name))
-        .filter(entry => isAllowedTextPath(entry.name))
-        .map(entry => ({ path: entry.name, size: entry.name.length }))
+        .map(entry => getSafeZipEntryPath(entry))
+        .filter((path): path is string => Boolean(path))
+        .filter(path => !shouldIgnoreZipEntry(path))
+        .filter(isAllowedTextPath)
+        .map(path => ({ path, size: path.length }))
     );
 
     for (const candidate of candidates) {
@@ -204,7 +216,11 @@ export const validateExerciseDeliverable = async (args: {
         continue;
       }
 
-      const bytes = await zipEntry.async('uint8array');
+      const bytes = await readZipEntryBytesWithinLimit(
+        zipEntry,
+        EXERCISE_MAX_ZIP_ENTRY_BYTES,
+        INVALID_EXERCISE_ZIP_MESSAGE
+      );
       if (isBinaryFile(bytes)) {
         result.dropped.push(`${candidate.path}: file binario ignorato.`);
         continue;

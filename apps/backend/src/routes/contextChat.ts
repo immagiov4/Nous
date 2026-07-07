@@ -1,3 +1,4 @@
+// Handles context-aware chat requests for the backend API.
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
   convertToModelMessages,
@@ -16,6 +17,7 @@ import { isRecord, readOptionalString } from '../utils/validation.js';
 import {
   buildContextSystemPrompt,
   CHAT_TOOL_STEP_LIMIT,
+  type ContextChatScope,
   type ContextChatToolPreferences,
   createWebSearchTool,
   isUiMessageArray,
@@ -23,6 +25,9 @@ import {
   runOpenRouterWebSearch,
   type WebSearchToolResult,
 } from './chatPrompts.js';
+
+const DEFAULT_CONTEXT_SCOPE: ContextChatScope = 'selection';
+const CONTEXT_CHAT_SCOPES = new Set<ContextChatScope>(['annotation', 'lesson', 'selection']);
 
 const runContextWebSearch = async ({
   attachedAnnotationNote,
@@ -123,15 +128,34 @@ const contextChatTools = {
     description:
       'Genera un nuovo artefatto visuale temporaneo per la lezione corrente in base alla richiesta dell utente. Usalo per mappe concettuali, grafici, diagrammi o widget HTML interattivi richiesti sul momento. Dopo averlo mostrato, se l utente chiede di salvarlo chiama requestAddToNotes includendo artifactIds.',
     inputSchema: jsonSchema<{
+      mode?: 'new' | 'replacement-draft';
       prompt: string;
+      revisionInstructions?: string;
+      sourceArtifactId?: string;
     }>({
       type: 'object',
       additionalProperties: false,
       properties: {
+        mode: {
+          type: 'string',
+          enum: ['new', 'replacement-draft'],
+          description:
+            'Usa replacement-draft quando l utente chiede di modificare o sostituire un artefatto esistente; altrimenti usa new.',
+        },
         prompt: {
           type: 'string',
           description:
             'Richiesta visuale precisa da soddisfare, includendo concetto, taglio didattico e tipo di artefatto desiderato se indicato.',
+        },
+        revisionInstructions: {
+          type: 'string',
+          description:
+            'Istruzioni obbligatorie dell utente su cosa cambiare quando mode e replacement-draft.',
+        },
+        sourceArtifactId: {
+          type: 'string',
+          description:
+            'Id esatto dell artefatto sorgente da modificare quando mode e replacement-draft.',
         },
       },
       required: ['prompt'],
@@ -345,6 +369,17 @@ const readContextToolPreferences = (value: unknown): ContextChatToolPreferences 
   };
 };
 
+const readContextScope = (value: unknown): ContextChatScope | null => {
+  if (value === undefined) {
+    return DEFAULT_CONTEXT_SCOPE;
+  }
+
+  const contextScope = readOptionalString(value);
+  return contextScope && CONTEXT_CHAT_SCOPES.has(contextScope as ContextChatScope)
+    ? (contextScope as ContextChatScope)
+    : null;
+};
+
 export const contextChatRouter = Router();
 
 contextChatRouter.post('/context', async (req: Request, res: Response) => {
@@ -370,6 +405,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       sourceName,
       toolPreferences,
     } = req.body;
+    const contextScope = readContextScope(req.body.contextScope);
     const selectedText = readOptionalString(req.body.selectedText);
     const messages = req.body.messages;
     const modelOverride = readOptionalString(req.body.modelOverride);
@@ -388,10 +424,26 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       toolPreferences: readContextToolPreferences(toolPreferences),
     };
 
-    if (!selectedText) {
+    if (!contextScope) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid contextScope for contextual chat.',
+      });
+      return;
+    }
+
+    if (contextScope !== 'lesson' && !selectedText) {
       res.status(400).json({
         success: false,
         error: 'Missing selectedText for contextual chat.',
+      });
+      return;
+    }
+
+    if (contextScope === 'lesson' && !contextInput.lessonContent) {
+      res.status(400).json({
+        success: false,
+        error: 'Missing lessonContent for whole-lesson contextual chat.',
       });
       return;
     }
@@ -408,10 +460,15 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       apiKey: requireOpenRouterApiKey(),
     });
     const selectedContextModel = modelOverride || CONTEXT_CHAT_MODEL;
+    const contextSubject =
+      selectedText ||
+      (contextInput.lessonTitle
+        ? `Intera lezione: ${contextInput.lessonTitle}`
+        : 'Intera lezione corrente');
 
     const contextTools = buildContextToolSet({
       modelOverride,
-      selectedText,
+      selectedText: contextSubject,
       ...contextInput,
     });
 
@@ -423,6 +480,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const result = streamText({
       model: openrouter.chat(selectedContextModel),
       system: buildContextSystemPrompt({
+        contextScope,
         selectedText,
         ...contextInput,
       }),

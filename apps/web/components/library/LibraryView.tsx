@@ -16,6 +16,11 @@ import type {
   SavedProjectMeta,
 } from '../../types';
 import { Pressable } from '../../utils/motion/index.ts';
+import type {
+  ChatArtifactActionRequest,
+  ChatArtifactRegenerateRequest,
+  ChatArtifactReplaceRequest,
+} from '../shared/ChatArtifactRenderer.tsx';
 import OpenRouterModelPanel from '../shared/OpenRouterModelPanel';
 import HomeChatPanel from './HomeChatPanel';
 import LibraryTreeView from './LibraryTreeView.tsx';
@@ -34,6 +39,7 @@ interface LibraryViewProps {
   isNewCourseLoading: boolean;
   libraryAttachedContextRefs: LibraryContextRef[];
   libraryArtifactPayloadsByToolCallId: Record<string, LearningArtifactRenderPayload[]>;
+  libraryFloatingArtifactPayloads: LearningArtifactRenderPayload[];
   libraryErrorMessage: string | null;
   libraryMessages: UIMessage[];
   libraryTree: LibraryTree;
@@ -69,6 +75,9 @@ interface LibraryViewProps {
     }
   ) => Promise<void>;
   onLibraryArtifactNoteReject: (toolCallId: string) => void;
+  onLibraryArtifactDiscard: (request: ChatArtifactActionRequest) => void;
+  onLibraryArtifactRegenerate: (request: ChatArtifactRegenerateRequest) => Promise<void> | void;
+  onLibraryArtifactReplace: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   onLibraryWebSearchChange: (value: boolean) => void;
   onLibraryGenerateArtifactsChange: (value: boolean) => void;
   onMoveFolder: (
@@ -109,6 +118,7 @@ const LibraryView = ({
   isNewCourseLoading,
   libraryAttachedContextRefs,
   libraryArtifactPayloadsByToolCallId,
+  libraryFloatingArtifactPayloads,
   libraryErrorMessage,
   libraryMessages,
   libraryTree,
@@ -136,6 +146,9 @@ const LibraryView = ({
   onLibraryAssistantSend,
   onLibraryArtifactNoteApprove,
   onLibraryArtifactNoteReject,
+  onLibraryArtifactDiscard,
+  onLibraryArtifactRegenerate,
+  onLibraryArtifactReplace,
   onLibraryWebSearchChange,
   onLibraryGenerateArtifactsChange,
   onMoveFolder,
@@ -260,6 +273,7 @@ const LibraryView = ({
           isNewCourseLoading={isNewCourseLoading}
           libraryAttachedContextRefs={libraryAttachedContextRefs}
           libraryArtifactPayloadsByToolCallId={libraryArtifactPayloadsByToolCallId}
+          libraryFloatingArtifactPayloads={libraryFloatingArtifactPayloads}
           libraryErrorMessage={libraryErrorMessage}
           libraryMessages={libraryMessages}
           libraryTree={libraryTree}
@@ -275,6 +289,9 @@ const LibraryView = ({
           onLibraryMessageSend={onLibraryAssistantSend}
           onLibraryArtifactNoteApprove={onLibraryArtifactNoteApprove}
           onLibraryArtifactNoteReject={onLibraryArtifactNoteReject}
+          onLibraryArtifactDiscard={onLibraryArtifactDiscard}
+          onLibraryArtifactRegenerate={onLibraryArtifactRegenerate}
+          onLibraryArtifactReplace={onLibraryArtifactReplace}
           onLibraryWebSearchChange={onLibraryWebSearchChange}
           onLibraryGenerateArtifactsChange={onLibraryGenerateArtifactsChange}
           onRemoveLibraryContextRef={onRemoveLibraryContextRef}

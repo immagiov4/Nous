@@ -42,6 +42,35 @@ interface PlaybackRun {
   cancelled: boolean;
 }
 
+const splitSentencesByTerminator = (text: string): string[] => {
+  const sentences: string[] = [];
+  let segmentStartIndex = 0;
+  let index = 0;
+
+  while (index < text.length) {
+    const character = text[index];
+    if (character !== '.' && character !== '!' && character !== '?') {
+      index += 1;
+      continue;
+    }
+
+    let nextIndex = index + 1;
+    while (nextIndex < text.length && /\s/u.test(text[nextIndex] || '')) {
+      nextIndex += 1;
+    }
+
+    sentences.push(text.slice(segmentStartIndex, nextIndex));
+    segmentStartIndex = nextIndex;
+    index = nextIndex;
+  }
+
+  if (segmentStartIndex < text.length) {
+    sentences.push(text.slice(segmentStartIndex));
+  }
+
+  return sentences.filter(sentence => sentence.trim().length > 0);
+};
+
 export const splitOversizedText = (text: string, maxLength: number): string[] => {
   if (text.length <= maxLength) {
     return [text];
@@ -140,7 +169,7 @@ export const splitContentIntoChunks = (text: string, speechBlocks: string[]): st
         return;
       }
 
-      const sentences = block.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [block];
+      const sentences = splitSentencesByTerminator(block);
       sentences.forEach(sentence => {
         appendBoundedUnit(sentence.trim(), ' ');
       });
@@ -183,7 +212,7 @@ export const splitContentIntoChunks = (text: string, speechBlocks: string[]): st
 
   paragraphs.forEach(paragraph => {
     if (paragraph.length > CHUNK_SIZE_APPROX) {
-      const sentences = paragraph.match(/[^.!?]+[.!?]+(\s|$)/g) || [paragraph];
+      const sentences = splitSentencesByTerminator(paragraph);
       sentences.forEach(sentence => {
         splitOversizedText(sentence.trim(), CHUNK_SIZE_APPROX).forEach(part => {
           appendParagraphPart(part, ' ');
@@ -541,17 +570,12 @@ export const useTtsPlayer = ({
 
   const generateChunkAudio = useCallback(
     async (index: number, retries = 2): Promise<string | null> => {
-      if (audioStateRef.current.chunks[index]?.blobUrl) {
-        return audioStateRef.current.chunks[index].blobUrl;
-      }
-
-      if (chunkPromisesRef.current[index]) {
-        return chunkPromisesRef.current[index];
-      }
-
-      const promise = (async () => {
-        const chunk = audioStateRef.current.chunks[index];
-        if (!chunk || !chunk.text.trim()) {
+      const generateChunkAudioWithRetries = async (
+        retryIndex: number,
+        remainingRetries: number
+      ): Promise<string | null> => {
+        const chunk = audioStateRef.current.chunks[retryIndex];
+        if (!chunk?.text.trim()) {
           // Empty chunk (e.g. produced from an image-only section). Skip the
           // TTS API call entirely and signal the caller to advance.
           return null;
@@ -559,8 +583,8 @@ export const useTtsPlayer = ({
 
         setTrackedAudioState(previousState => {
           const nextChunks = [...previousState.chunks];
-          if (nextChunks[index]) {
-            nextChunks[index] = { ...nextChunks[index], isLoading: true };
+          if (nextChunks[retryIndex]) {
+            nextChunks[retryIndex] = { ...nextChunks[retryIndex], isLoading: true };
           }
 
           return { ...previousState, chunks: nextChunks };
@@ -579,7 +603,7 @@ export const useTtsPlayer = ({
           const url = URL.createObjectURL(audioBlob);
           generatedObjectUrlsRef.current.add(url);
 
-          const latestChunk = audioStateRef.current.chunks[index];
+          const latestChunk = audioStateRef.current.chunks[retryIndex];
           if (
             !latestChunk ||
             latestChunk.text !== requestedText ||
@@ -587,7 +611,7 @@ export const useTtsPlayer = ({
             audioStateRef.current.currentModel !== requestedModel
           ) {
             revokeTrackedUrl(url);
-            delete chunkPromisesRef.current[index];
+            delete chunkPromisesRef.current[retryIndex];
             return null;
           }
 
@@ -598,36 +622,52 @@ export const useTtsPlayer = ({
 
           setTrackedAudioState(previousState => {
             const nextChunks = [...previousState.chunks];
-            if (nextChunks[index]) {
-              nextChunks[index] = { ...nextChunks[index], blobUrl: url, isLoading: false };
+            if (nextChunks[retryIndex]) {
+              nextChunks[retryIndex] = {
+                ...nextChunks[retryIndex],
+                blobUrl: url,
+                isLoading: false,
+              };
             }
 
             return { ...previousState, chunks: nextChunks };
           });
 
-          delete chunkPromisesRef.current[index];
+          delete chunkPromisesRef.current[retryIndex];
           return url;
         } catch (error) {
-          console.error(`Error generating chunk ${index}`, error);
+          console.error(`Error generating chunk ${retryIndex}`, error);
 
-          if (retries > 0) {
-            delete chunkPromisesRef.current[index];
+          if (remainingRetries > 0) {
+            delete chunkPromisesRef.current[retryIndex];
             await new Promise(resolve => setTimeout(resolve, 1000));
-            return generateChunkAudio(index, retries - 1);
+            return generateChunkAudioWithRetries(retryIndex, remainingRetries - 1);
           }
 
           setTrackedAudioState(previousState => {
             const nextChunks = [...previousState.chunks];
-            if (nextChunks[index]) {
-              nextChunks[index] = { ...nextChunks[index], isLoading: false };
+            if (nextChunks[retryIndex]) {
+              nextChunks[retryIndex] = { ...nextChunks[retryIndex], isLoading: false };
             }
 
             return { ...previousState, chunks: nextChunks };
           });
 
-          delete chunkPromisesRef.current[index];
+          delete chunkPromisesRef.current[retryIndex];
           return null;
         }
+      };
+
+      if (audioStateRef.current.chunks[index]?.blobUrl) {
+        return audioStateRef.current.chunks[index].blobUrl;
+      }
+
+      if (chunkPromisesRef.current[index] !== undefined) {
+        return chunkPromisesRef.current[index];
+      }
+
+      const promise = (async () => {
+        return generateChunkAudioWithRetries(index, retries);
       })();
 
       chunkPromisesRef.current[index] = promise;
@@ -1095,15 +1135,6 @@ export const useTtsPlayer = ({
     };
   }, [setTrackedAudioState]);
 
-  useEffect(() => {
-    if (activeSectionId === null) {
-      stopAudio(true);
-      return;
-    }
-
-    stopAudio(true);
-  }, [activeSectionId, stopAudio]);
-
   // biome-ignore lint/correctness/useExhaustiveDependencies: this polling loop intentionally uses refs to read fresh playback state without recreating the interval on every render.
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -1259,7 +1290,7 @@ export const useTtsPlayer = ({
     return () => {
       clearInterval(interval);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the interval intentionally reads fresh state from refs; recreating it on every callback change would interrupt crossfades.
 
   useEffect(
     () => () => {

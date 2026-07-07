@@ -23,7 +23,7 @@ const hasStreamingBoundary = (nextContent: string, committedContent: string): bo
     /(?:```|~~~)/.test(appendedContent) ||
     /\n(?:[-*+]|\d+\.)\s/.test(appendedContent) ||
     /[.!?;:]\s*$/.test(nextContent) ||
-    /\n$/.test(nextContent)
+    nextContent.endsWith('\n')
   );
 };
 
@@ -34,7 +34,7 @@ const StreamingMarkdownRenderer = ({
 }: StreamingMarkdownRendererProps) => {
   const [committedContent, setCommittedContent] = useState(content);
   const latestContentRef = useRef(content);
-  const lastCommitAtRef = useRef(Date.now());
+  const lastCommitAtRef = useRef(0);
   const flushTimeoutRef = useRef<number | null>(null);
 
   const clearPendingFlush = useCallback(() => {
@@ -78,6 +78,10 @@ const StreamingMarkdownRenderer = ({
     }
 
     const now = Date.now();
+    if (lastCommitAtRef.current === 0) {
+      lastCommitAtRef.current = now;
+    }
+
     const elapsedSinceLastCommit = now - lastCommitAtRef.current;
     const reachedStreamingBoundary = hasStreamingBoundary(content, committedContent);
 

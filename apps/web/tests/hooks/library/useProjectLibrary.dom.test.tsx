@@ -8,7 +8,7 @@ import {
   type SavedProjectMeta,
   type WorkspaceDomainState,
 } from '../../../types.ts';
-import { buildTestLearningPlan } from '../../helpers/learningPlan.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 const repositoryMocks = vi.hoisted(() => ({
   createFolder: vi.fn(),
@@ -383,5 +383,84 @@ describe('useProjectLibrary', () => {
 
     expect(result.current.isLibraryLoading).toBe(true);
     expect(result.current.storageError).toBeNull();
+  });
+
+  test('replaces a saved generated visual while preserving its original id', async () => {
+    const visualOne = {
+      id: 'visual-1',
+      title: 'mappa_vecchia',
+      kind: 'svg' as const,
+      code: '<svg data-old="true"></svg>',
+      createdAt: '2026-05-01T10:00:00.000Z',
+    };
+    const visualTwo = {
+      id: 'visual-2',
+      title: 'mappa_intoccata',
+      kind: 'html' as const,
+      code: '<div>Intatta</div>',
+      createdAt: '2026-05-01T11:00:00.000Z',
+    };
+    repositoryMocks.loadProject.mockResolvedValue(
+      buildSnapshot('project-1', {
+        learningPlan: buildTestLearningPlan([
+          buildTestLesson({
+            id: 'lesson-1',
+            generatedVisuals: [visualOne, visualTwo],
+          }),
+          buildTestLesson({
+            id: 'lesson-2',
+            generatedVisuals: [
+              {
+                id: 'visual-other',
+                title: 'altra_lezione',
+                kind: 'svg',
+                code: '<svg data-other="true"></svg>',
+                createdAt: '2026-05-01T12:00:00.000Z',
+              },
+            ],
+          }),
+        ]),
+      })
+    );
+    repositoryMocks.patchProject.mockResolvedValue(
+      buildMeta('project-1', '2026-05-02T10:00:00.000Z')
+    );
+
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.replaceLessonGeneratedVisual({
+        artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+        lessonId: 'lesson-1',
+        projectId: 'project-1',
+        visual: {
+          id: 'visual-draft-9',
+          title: 'mappa_nuova',
+          kind: 'svg',
+          code: '<svg data-new="true"></svg>',
+          createdAt: '2026-05-02T10:00:00.000Z',
+        },
+      });
+    });
+
+    expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
+      'project-1',
+      expect.objectContaining({
+        section: {
+          sectionId: 'lesson-1',
+          generatedVisuals: [
+            expect.objectContaining({
+              id: 'visual-1',
+              title: 'mappa_nuova',
+              code: '<svg data-new="true"></svg>',
+            }),
+            visualTwo,
+          ],
+        },
+      })
+    );
   });
 });

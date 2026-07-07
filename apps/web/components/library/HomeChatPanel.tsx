@@ -39,6 +39,11 @@ import {
   getUiMessageRenderableParts,
   getUiMessageText,
 } from '../../utils/uiChat.ts';
+import type {
+  ChatArtifactActionRequest,
+  ChatArtifactRegenerateRequest,
+  ChatArtifactReplaceRequest,
+} from '../shared/ChatArtifactRenderer.tsx';
 import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import StreamingMarkdownRenderer from '../shared/StreamingMarkdownRenderer.tsx';
@@ -53,6 +58,7 @@ interface HomeChatPanelProps {
   isNewCourseLoading: boolean;
   libraryAttachedContextRefs: LibraryContextRef[];
   libraryArtifactPayloadsByToolCallId?: Record<string, LearningArtifactRenderPayload[]>;
+  libraryFloatingArtifactPayloads?: LearningArtifactRenderPayload[];
   libraryErrorMessage: string | null;
   libraryMessages: UIMessage[];
   libraryTree: LibraryTree;
@@ -77,6 +83,9 @@ interface HomeChatPanelProps {
     }
   ) => Promise<void>;
   onLibraryArtifactNoteReject?: (toolCallId: string) => void;
+  onLibraryArtifactDiscard?: (request: ChatArtifactActionRequest) => void;
+  onLibraryArtifactRegenerate?: (request: ChatArtifactRegenerateRequest) => Promise<void> | void;
+  onLibraryArtifactReplace?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   onLibraryWebSearchChange: (value: boolean) => void;
   onLibraryGenerateArtifactsChange: (value: boolean) => void;
   onRemoveLibraryContextRef: (reference: LibraryContextRef) => void;
@@ -106,6 +115,7 @@ const isRequestSaveLearningArtifactNoteInput = (
     return false;
   }
   const candidate = value as Partial<RequestSaveLearningArtifactNoteInput>;
+
   return (
     Array.isArray(candidate.artifactIds) &&
     candidate.artifactIds.every(item => typeof item === 'string') &&
@@ -315,6 +325,7 @@ export default function HomeChatPanel({
   isNewCourseLoading,
   libraryAttachedContextRefs,
   libraryArtifactPayloadsByToolCallId = {},
+  libraryFloatingArtifactPayloads = [],
   libraryErrorMessage,
   libraryMessages,
   libraryTree,
@@ -330,6 +341,9 @@ export default function HomeChatPanel({
   onLibraryMessageSend,
   onLibraryArtifactNoteApprove = async () => {},
   onLibraryArtifactNoteReject = () => {},
+  onLibraryArtifactDiscard = () => {},
+  onLibraryArtifactRegenerate = () => {},
+  onLibraryArtifactReplace = () => {},
   onLibraryWebSearchChange,
   onLibraryGenerateArtifactsChange,
   onRemoveLibraryContextRef,
@@ -398,18 +412,6 @@ export default function HomeChatPanel({
       window.removeEventListener('resize', updateViewport);
     };
   }, []);
-
-  useEffect(() => {
-    const shouldResetAttachmentFlow =
-      homeChatMode === 'library-query' || homeChatMode === 'new-course';
-
-    if (!shouldResetAttachmentFlow) {
-      return;
-    }
-
-    setActiveSurface(null);
-    setAttachmentStep('root');
-  }, [homeChatMode]);
 
   useEffect(() => {
     const lastItem = activeMessages[activeMessages.length - 1] || null;
@@ -482,6 +484,7 @@ export default function HomeChatPanel({
   };
 
   const handleModeChange = (mode: HomeChatMode) => {
+    closeMenus();
     onHomeChatModeChange(mode);
   };
 
@@ -655,7 +658,15 @@ export default function HomeChatPanel({
       return null;
     }
 
-    return <ChatArtifactRenderer artifacts={artifactPayloads} isDarkMode={isDarkMode} />;
+    return (
+      <ChatArtifactRenderer
+        artifacts={artifactPayloads}
+        isDarkMode={isDarkMode}
+        onDiscardArtifact={onLibraryArtifactDiscard}
+        onRegenerateArtifact={onLibraryArtifactRegenerate}
+        onReplaceArtifact={onLibraryArtifactReplace}
+      />
+    );
   };
 
   const renderLearningArtifactNoteRequests = (parts: UIMessage['parts'], messageId: string) => {
@@ -1081,6 +1092,16 @@ export default function HomeChatPanel({
                   </div>
                 );
               })}
+
+          {homeChatMode === 'library-query' && libraryFloatingArtifactPayloads.length > 0 ? (
+            <ChatArtifactRenderer
+              artifacts={libraryFloatingArtifactPayloads}
+              isDarkMode={isDarkMode}
+              onDiscardArtifact={onLibraryArtifactDiscard}
+              onRegenerateArtifact={onLibraryArtifactRegenerate}
+              onReplaceArtifact={onLibraryArtifactReplace}
+            />
+          ) : null}
 
           {homeChatMode === 'new-course' && isLoading ? (
             <div className="flex justify-start">

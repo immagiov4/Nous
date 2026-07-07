@@ -18,6 +18,18 @@ export interface PdfPageTextLayout {
   pages: PdfPageLayoutEntry[];
 }
 
+const getPageDistanceFromOffset = (page: PdfPageLayoutEntry, offset: number): number => {
+  if (offset < page.startOffset) {
+    return page.startOffset - offset;
+  }
+
+  if (offset > page.endOffset) {
+    return offset - page.endOffset;
+  }
+
+  return 0;
+};
+
 export const buildPdfPageTextLayout = (
   pages: PdfTextPage[] | null | undefined
 ): PdfPageTextLayout | null => {
@@ -84,17 +96,13 @@ export const resolveChunkPageSpanFromLayout = (
   }
 
   const midpoint = (startOffset + normalizedEndOffset) / 2;
-  const closestPage = pagesWithText
+  const closestPageEntry = pagesWithText
     .map(page => ({
       page,
-      distance:
-        midpoint < page.startOffset
-          ? page.startOffset - midpoint
-          : midpoint > page.endOffset
-            ? midpoint - page.endOffset
-            : 0,
+      distance: getPageDistanceFromOffset(page, midpoint),
     }))
-    .sort((left, right) => left.distance - right.distance)[0]?.page;
+    .sort((left, right) => left.distance - right.distance)[0];
+  const closestPage = closestPageEntry ? closestPageEntry.page : null;
 
   return closestPage
     ? {
@@ -109,7 +117,7 @@ const clampPageNumber = (page: number, pageCount: number): number =>
 
 const getPdfDocumentCharLength = (documentIndex: PdfTextIndex): number =>
   Math.max(
-    documentIndex.chunks[documentIndex.chunks.length - 1]?.endOffset || 0,
+    (documentIndex.chunks[documentIndex.chunks.length - 1] || { endOffset: 0 }).endOffset,
     documentIndex.chunks.reduce((maxChars, chunk) => Math.max(maxChars, chunk.endOffset), 0)
   );
 
@@ -123,14 +131,14 @@ const estimatePdfChunkPageSpan = (
   }
 
   const totalDocumentChars = getPdfDocumentCharLength(documentIndex);
-  const startProgress =
-    totalDocumentChars > 0
-      ? chunk.startOffset / totalDocumentChars
-      : chunk.sequence / Math.max(1, documentIndex.chunks.length);
-  const endProgress =
-    totalDocumentChars > 0
-      ? Math.max(chunk.startOffset, chunk.endOffset - 1) / totalDocumentChars
-      : (chunk.sequence + 1) / Math.max(1, documentIndex.chunks.length);
+  const chunkCount = Math.max(1, documentIndex.chunks.length);
+  const hasDocumentCharLength = totalDocumentChars > 0;
+  const startProgress = hasDocumentCharLength
+    ? chunk.startOffset / totalDocumentChars
+    : chunk.sequence / chunkCount;
+  const endProgress = hasDocumentCharLength
+    ? Math.max(chunk.startOffset, chunk.endOffset - 1) / totalDocumentChars
+    : (chunk.sequence + 1) / chunkCount;
   const startPage = clampPageNumber(Math.floor(startProgress * pageCount) + 1, pageCount);
   const endPage = clampPageNumber(Math.ceil(endProgress * pageCount), pageCount);
 
@@ -163,10 +171,12 @@ export const resolvePdfChunkPageSpan = (
   }
 
   const estimatedSpan = estimatePdfChunkPageSpan(documentIndex, chunk, pageCount);
-  return estimatedSpan
-    ? {
-        ...estimatedSpan,
-        exact: false,
-      }
-    : null;
+  if (!estimatedSpan) {
+    return null;
+  }
+
+  return {
+    ...estimatedSpan,
+    exact: false,
+  };
 };

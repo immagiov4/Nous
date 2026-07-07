@@ -1,3 +1,4 @@
+// Project store abstraction used by the backend routing layer.
 import { SqliteProjectStore } from './sqliteProjectStore.js';
 import type { ProjectStore } from './types.js';
 

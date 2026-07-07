@@ -31,6 +31,9 @@ nul
 .fallow/
 .fallow-current.json
 graphify-out/
+.scannerwork/
+sonar.local.properties
+ai-slop-report.json
 
 # Allow fallow baselines (checked into VCS)
 !.fallow-baselines/

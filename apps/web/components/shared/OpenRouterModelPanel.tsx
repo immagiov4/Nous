@@ -1,12 +1,5 @@
 import { ChevronDown, X } from 'lucide-react';
-import {
-  type ChangeEvent,
-  type CSSProperties,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
 import type {
   OpenRouterModelDefaults,
   OpenRouterModelPreferences,
@@ -65,37 +58,21 @@ export default function OpenRouterModelPanel({
   preferredModels,
 }: OpenRouterModelPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const notesInputRef = useRef<HTMLTextAreaElement>(null);
   const shouldAnimate = useShouldAnimate();
   const expandedSectionSet = new Set(expandedSections);
   const isCourseNotesExpanded = expandedSectionSet.has('course-notes');
   const isModelsExpanded = onSectionToggle ? expandedSectionSet.has('ai-models') : true;
-
-  const [localNotes, setLocalNotes] = useState(courseNotes?.value ?? '');
-  const courseNotesRef = useRef(courseNotes);
-  const localNotesRef = useRef(localNotes);
-  const savedNotesRef = useRef(courseNotes?.value ?? '');
-  courseNotesRef.current = courseNotes;
-  localNotesRef.current = localNotes;
-
-  const handleNotesChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
-    setLocalNotes(event.target.value);
-  }, []);
+  const courseNotesValue = courseNotes?.value ?? '';
 
   const saveNotesIfChanged = useCallback(() => {
-    const nextNotes = localNotesRef.current;
-    if (nextNotes === savedNotesRef.current) {
+    const nextNotes = notesInputRef.current?.value ?? courseNotesValue;
+    if (nextNotes === courseNotesValue) {
       return;
     }
 
-    savedNotesRef.current = nextNotes;
-    courseNotesRef.current?.onChange(nextNotes);
-  }, []);
-
-  useEffect(() => {
-    const nextNotes = courseNotes?.value ?? '';
-    savedNotesRef.current = nextNotes;
-    setLocalNotes(nextNotes);
-  }, [courseNotes?.value]);
+    courseNotes?.onChange(nextNotes);
+  }, [courseNotes, courseNotesValue]);
 
   const toggleSection = (sectionId: SettingsPanelSectionId) => {
     if (!onSectionToggle) {
@@ -183,9 +160,10 @@ export default function OpenRouterModelPanel({
                     Tono, livello, cose da evitare o ripetere.
                   </p>
                   <textarea
-                    value={localNotes}
-                    onChange={handleNotesChange}
+                    key={courseNotesValue}
+                    ref={notesInputRef}
                     onBlur={saveNotesIfChanged}
+                    defaultValue={courseNotesValue}
                     placeholder={
                       courseNotes.placeholder ||
                       'Es. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico.'
@@ -198,7 +176,7 @@ export default function OpenRouterModelPanel({
             </div>
           ) : null}
 
-          <div className={courseNotes ? 'mt-3' : 'mt-3'}>
+          <div className="mt-3">
             <button
               type="button"
               onClick={() => toggleSection('ai-models')}

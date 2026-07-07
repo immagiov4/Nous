@@ -276,12 +276,18 @@ const resolveCandidateChunksForMappingBatch = (
     maxChunkCandidates
   );
   const windowCenter = (estimatedStartIndex + estimatedEndIndex) / 2;
-  const windowStart =
-    startRatio <= 0.02
-      ? 0
-      : endRatio >= 0.98
-        ? Math.max(0, totalChunks - targetWindowSize)
-        : clamp(Math.round(windowCenter - targetWindowSize / 2), 0, maxChunkIndex);
+  const resolveWindowStart = (): number => {
+    if (startRatio <= 0.02) {
+      return 0;
+    }
+
+    if (endRatio >= 0.98) {
+      return Math.max(0, totalChunks - targetWindowSize);
+    }
+
+    return clamp(Math.round(windowCenter - targetWindowSize / 2), 0, maxChunkIndex);
+  };
+  const windowStart = resolveWindowStart();
   const windowEnd = Math.min(maxChunkIndex, windowStart + targetWindowSize - 1);
   const adjustedWindowStart = Math.max(0, windowEnd - targetWindowSize + 1);
 
@@ -850,6 +856,17 @@ const describeSectionTitles = (plan: LearningPlan, sectionIds: string[]): string
     .join(', ');
 };
 
+const canReusePdfTextIndex = (
+  index: PdfTextIndex | null | undefined,
+  sourceHash: string | undefined
+): index is PdfTextIndex => {
+  if (!index || index.sourceHash !== sourceHash) {
+    return false;
+  }
+
+  return index.chunks.length > 0;
+};
+
 // ── Public exports ─────────────────────────────────────────────────────
 
 export const preparePdfLessonMappings = async (
@@ -868,10 +885,15 @@ export const preparePdfLessonMappings = async (
   }
 
   const sourceHash = pdfSession.sourceHash || existingIndex?.sourceHash;
-  const documentIndex =
-    existingIndex && existingIndex.sourceHash === sourceHash && existingIndex.chunks.length > 0
-      ? existingIndex
-      : buildPdfTextIndex(pdfSession.extractedText, sourceHash, file.name, pdfSession.pages);
+  let documentIndex = buildPdfTextIndex(
+    pdfSession.extractedText,
+    sourceHash,
+    file.name,
+    pdfSession.pages
+  );
+  if (canReusePdfTextIndex(existingIndex, sourceHash)) {
+    documentIndex = existingIndex;
+  }
   const targetSectionIds = getTargetSectionsForMapping(plan, sectionIds).map(section => section.id);
   const validateWholePlan = !sectionIds || sectionIds.length === 0;
   let recoveredMappings = new Map<string, string[]>();

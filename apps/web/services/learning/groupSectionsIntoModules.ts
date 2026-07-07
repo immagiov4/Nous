@@ -2,14 +2,37 @@ import type { LearningModule, LearningSection, LessonNode, PathNode } from '../.
 
 const UNTITLED = 'Untitled module';
 
+const isCombiningMarkCodePoint = (codePoint: number): boolean =>
+  codePoint >= 0x0300 && codePoint <= 0x036f;
+
+const stripCombiningMarks = (input: string): string =>
+  Array.from(input)
+    .filter(character => {
+      const codePoint = character.codePointAt(0);
+      return codePoint === undefined || !isCombiningMarkCodePoint(codePoint);
+    })
+    .join('');
+
+const trimHyphenEdges = (input: string): string => {
+  let startIndex = 0;
+  let endIndex = input.length;
+
+  while (startIndex < endIndex && input[startIndex] === '-') {
+    startIndex += 1;
+  }
+
+  while (endIndex > startIndex && input[endIndex - 1] === '-') {
+    endIndex -= 1;
+  }
+
+  return input.slice(startIndex, endIndex);
+};
+
 const slugify = (input: string): string => {
-  const base = input
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
+  const normalizedInput = stripCombiningMarks(input.toLowerCase().normalize('NFKD'));
+  const collapsedSeparators = normalizedInput.replace(/[^a-z0-9]+/g, '-');
+  const trimmedSlug = trimHyphenEdges(collapsedSeparators);
+  const base = trimmedSlug.slice(0, 48);
   return base.length > 0 ? base : 'untitled';
 };
 
