@@ -175,7 +175,8 @@ Contiene due famiglie:
 | `MODEL_RESEARCH_PLANNER` | `perplexity/sonar-pro-search` | no |
 | `MODEL_RESEARCH_DOSSIER` | = MODEL_RESEARCH_PLANNER | no |
 | `MODEL_PDF_IMAGE_CAPTION` | `nvidia/nemotron-nano-12b-v2-vl` | no |
-| `MODEL_VISUAL_PLANNER/RENDERER` | = MODEL_REASONING | no |
+| `MODEL_VISUAL_PLANNER` | = MODEL_FLASH | no |
+| `MODEL_VISUAL_RENDERER` | = MODEL_REASONING | no |
 
 ### Sequenza pipeline per un nuovo progetto
 

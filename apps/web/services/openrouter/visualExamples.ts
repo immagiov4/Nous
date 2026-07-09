@@ -4,8 +4,10 @@ import {
   findMissingStaticHtmlElementIds,
   hasUnsafeHtmlElementDereferences,
 } from '../../utils/visuals/htmlElementReferences.ts';
+import { normalizeSearchText } from './planQuality.ts';
 import {
   callOpenRouter,
+  LOW_REASONING_CONFIG,
   MEDIUM_REASONING_CONFIG,
   MODEL_VISUAL_PLANNER,
   MODEL_VISUAL_RENDERER,
@@ -161,6 +163,8 @@ type VisualType =
   | 'none'
   | 'structural_svg';
 
+type GeneratedVisualType = Exclude<VisualType, 'none'>;
+
 interface VisualPlan {
   anchor_heading?: null | string;
   complexity?: 'simple' | 'moderate' | 'complex';
@@ -198,7 +202,54 @@ export interface GenerateLessonVisualExampleInput {
   lessonMarkdown: string;
   sectionDescription: string;
   sectionTitle: string;
+  visualTypeHint?: GeneratedVisualType;
 }
+
+interface ExplicitVisualIntent {
+  patterns: readonly RegExp[];
+  visualType: GeneratedVisualType;
+}
+
+const EXPLICIT_VISUAL_INTENTS: readonly ExplicitVisualIntent[] = [
+  {
+    visualType: 'mermaid_erd',
+    patterns: [
+      /\bdiagramma (?:er|entita relazione)\b/,
+      /\bentity relationship diagram\b/,
+      /\bschema entita relazione\b/,
+    ],
+  },
+  {
+    visualType: 'mermaid_class',
+    patterns: [/\bclass diagram\b/, /\bdiagramma (?:di|delle) classi\b/, /\bdiagramma uml\b/],
+  },
+  {
+    visualType: 'flowchart_svg',
+    patterns: [/\bflow ?chart\b/, /\bdiagramma di flusso\b/],
+  },
+  {
+    visualType: 'interactive_html',
+    patterns: [
+      /\b(?:simulatore|simulation|slider|widget interattivo)\b/,
+      /\bcursore interattivo\b/,
+    ],
+  },
+  {
+    visualType: 'chart_html',
+    patterns: [
+      /\bgrafico (?:a barre|a linee|lineare|a torta|di dispersione)\b/,
+      /\b(?:bar|line|pie) chart\b/,
+      /\b(?:istogramma|histogram|scatter plot)\b/,
+    ],
+  },
+];
+
+export const inferExplicitVisualType = (prompt: string): GeneratedVisualType | undefined => {
+  const normalizedPrompt = normalizeSearchText(prompt);
+  return EXPLICIT_VISUAL_INTENTS.find(intent =>
+    intent.patterns.some(pattern => pattern.test(normalizedPrompt))
+  )?.visualType;
+};
 
 const stripFence = (code: string, language?: string): string => {
   const trimmed = code.trim();
@@ -441,14 +492,33 @@ ${
 Testo lezione:
 ${lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 
-export const generateLessonVisualExample = async (
-  input: GenerateLessonVisualExampleInput
-): Promise<{
-  anchorHeading?: string;
-  contentSuffix: string;
-  visual: LessonGeneratedVisual;
-} | null> => {
-  const planResponse = await retryWithBackoff(
+const PEDAGOGICAL_GOAL_BY_VISUAL_TYPE: Record<GeneratedVisualType, string> = {
+  chart_html: 'show_data',
+  flowchart_svg: 'show_process',
+  illustrative_svg: 'build_intuition',
+  interactive_html: 'enable_exploration',
+  mermaid_class: 'show_structure',
+  mermaid_erd: 'show_structure',
+  structural_svg: 'show_structure',
+};
+
+const buildExplicitVisualPlan = (
+  input: GenerateLessonVisualExampleInput,
+  visualType: GeneratedVisualType
+): VisualPlan => ({
+  visual_type: visualType,
+  concept: input.sectionDescription,
+  pedagogical_goal: PEDAGOGICAL_GOAL_BY_VISUAL_TYPE[visualType],
+  interaction_level:
+    visualType === 'interactive_html' ? 'high' : visualType === 'chart_html' ? 'low' : 'none',
+  complexity: 'simple',
+  coverage: 'complete_synthesis',
+  coverage_rationale: 'Il formato visuale è stato richiesto esplicitamente dall’utente.',
+  reason: 'Il tipo è inequivocabile, quindi il planner LLM non è necessario.',
+});
+
+const requestVisualPlan = async (input: GenerateLessonVisualExampleInput): Promise<VisualPlan> => {
+  const response = await retryWithBackoff(
     () =>
       callOpenRouter({
         model: MODEL_VISUAL_PLANNER,
@@ -457,14 +527,27 @@ export const generateLessonVisualExample = async (
           { role: 'system', content: VISUAL_PLANNER_PROMPT },
           { role: 'user', content: buildPlannerRequest(input) },
         ],
-        reasoning: MEDIUM_REASONING_CONFIG,
+        reasoning: LOW_REASONING_CONFIG,
         response_format: { type: 'json_object' },
         temperature: 0.2,
       }),
     1,
     500
   );
-  const plan = parseCleanJson<VisualPlan>(planResponse || '{}');
+
+  return parseCleanJson<VisualPlan>(response || '{}');
+};
+
+export const generateLessonVisualExample = async (
+  input: GenerateLessonVisualExampleInput
+): Promise<{
+  anchorHeading?: string;
+  contentSuffix: string;
+  visual: LessonGeneratedVisual;
+} | null> => {
+  const plan = input.visualTypeHint
+    ? buildExplicitVisualPlan(input, input.visualTypeHint)
+    : await requestVisualPlan(input);
   const visualType = plan.visual_type;
   if (!visualType || visualType === 'none') {
     return null;
