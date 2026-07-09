@@ -46,8 +46,23 @@ const MAX_GROUNDING_SOURCES = 6;
 const VISUAL_PLACEHOLDER_REGEX = /\{\{(?:PDF_IMAGE|VISUAL_EXAMPLE):[^}]+}}/g;
 const QUIZ_HEADING_REGEX =
   /(?:^|\n)#{1,6}\s+(?:quiz|verifica|domande|pausa attiva|esercizi di controllo)\b[\s\S]*$/i;
+const PRIMARY_DELIVERY_HEADING_REGEX =
+  /^#{1,6}[ \t]+(?:cosa devi consegnare|consegna|output richiesto|deliverable)[ \t]*$/im;
+const REDUNDANT_FINAL_DELIVERY_SECTION_REGEX =
+  /^#{1,6}[ \t]+(?:consegna finale attesa|risultato finale atteso|output finale atteso)[ \t]*\r?\n[\s\S]*?(?=^#{1,6}[ \t]+|(?![\s\S]))/gim;
 
 const asString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+const normalizeExerciseBrief = (brief: string): string => {
+  if (!PRIMARY_DELIVERY_HEADING_REGEX.test(brief)) {
+    return brief.trim();
+  }
+
+  return brief
+    .replace(REDUNDANT_FINAL_DELIVERY_SECTION_REGEX, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
 
 const normalizeSources = (value: unknown): ResearchSourceReference[] | undefined => {
   if (!Array.isArray(value)) {
@@ -196,6 +211,10 @@ REGOLA FONDAMENTALE:
 - Devi scrivere una traccia operativa: scenario, task, vincoli, cosa consegnare, criteri di verifica.
 - Lo studente deve produrre qualcosa: diagnosi, mappa, checklist, procedura, configurazione ragionata, report o artefatto equivalente.
 - Non introdurre concetti nuovi fuori dal corso; puoi usare esempi realistici solo per rendere il compito concreto.
+- Se il task dipende da un messaggio, caso, dataset, configurazione, brano o altro oggetto da analizzare, fornisci tu nella traccia tutto il materiale necessario in forma compatta ma sufficiente.
+- Non chiedere allo studente di cercare, scegliere o recuperare autonomamente il materiale di partenza: il laboratorio deve essere autosufficiente.
+- Mantieni la traccia breve e operativa. Ogni sezione deve aggiungere informazioni nuove, senza parafrasi o riepiloghi ridondanti.
+- Usa una sola sezione dedicata alla consegna e non ripetere la consegna in una conclusione finale.
 - Non creare sezioni intitolate "Obiettivo", "Obiettivo operativo" o equivalenti: l'obiettivo resta interno alla valutazione.
 - Lingua: ${args.profile?.language || 'Italiano'}.
 
@@ -255,7 +274,7 @@ export const generateApplicationExerciseBrief = async (
 
   args.onStatusUpdate?.('Verifico la traccia…');
   const parsed = parseCleanJson<ExerciseBriefDraft>(response || '{}');
-  const brief = asString(parsed.briefMarkdown);
+  const brief = normalizeExerciseBrief(asString(parsed.briefMarkdown));
   if (!brief) {
     throw new Error('Il modello non ha restituito una traccia valida.');
   }
