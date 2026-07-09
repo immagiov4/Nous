@@ -45,7 +45,7 @@
     "test": "bun --bun vitest run --config apps/web/vitest.config.ts",
     "test:supabase-local": "RUN_SUPABASE_LOCAL_TESTS=1 bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/integration/supabaseLocal.integration.test.ts",
     "test:watch": "bun --bun vitest --config apps/web/vitest.config.ts",
-    "test:coverage": "bun --bun vitest run --coverage --config apps/web/vitest.config.ts"
+    "test:coverage": "vitest run --coverage --config apps/web/vitest.config.ts apps/web/tests"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",

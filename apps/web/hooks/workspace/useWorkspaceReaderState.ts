@@ -20,6 +20,7 @@ import { useReaderChrome } from '../reader/useReaderChrome.ts';
 import { useReaderContext } from '../reader/useReaderContext.ts';
 import { useReaderSpeechBlocks } from '../reader/useReaderSpeech.ts';
 import { useTtsPlayer } from '../reader/useTtsPlayer.ts';
+import { useTtsTextPicker } from '../reader/useTtsTextPicker.ts';
 
 interface UseWorkspaceReaderStateArgs {
   activeSection: LearningSection | null;
@@ -84,6 +85,11 @@ export const useWorkspaceReaderState = ({
     activeSectionId,
     sectionContent,
     speechBlocks,
+  });
+  const ttsTextPicker = useTtsTextPicker({
+    chunkTexts: ttsPlayer.chunkTexts,
+    contentRef,
+    onSelectChunk: ttsPlayer.handleSelectChunk,
   });
   const { setIsDarkMode } = readerChrome;
   const { handleSpeedChange, handleVoiceChange } = ttsPlayer;
@@ -228,6 +234,7 @@ export const useWorkspaceReaderState = ({
     settingsPanelExpandedSections,
     sidebarGroups,
     ttsPlayer,
+    ttsTextPicker,
     uiPreferences,
   };
 };

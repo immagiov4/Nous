@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, test, vi } from 'vitest';
@@ -22,9 +22,11 @@ const buildTtsModel = (
     duration: 180,
     isLoading: false,
     isPlaying: false,
+    isTextPickerActive: false,
     onPlayPause: () => {},
     onSeek: () => {},
     onSelectChunk: () => {},
+    onSetTextPickerActive: () => {},
     onSkipChunk: () => {},
     onSpeedChange: () => {},
     onVoiceChange: () => {},
@@ -76,6 +78,55 @@ describe('UnifiedAudioPanel', () => {
     expect(screen.getByText('Parte 2 di 3')).toBeInTheDocument();
     await user.selectOptions(screen.getByRole('combobox', { name: 'Parte da leggere' }), '2');
     expect(onSelectChunk).toHaveBeenCalledWith(2);
+  });
+
+  test('starts direct selection from the lesson text', async () => {
+    const user = userEvent.setup();
+    const onSetTextPickerActive = vi.fn();
+
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ onSetTextPickerActive })}
+      />
+    );
+
+    const textPickerButton = screen.getByRole('button', { name: 'Scegli dal testo' });
+    expect(textPickerButton).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(textPickerButton);
+
+    expect(onSetTextPickerActive).toHaveBeenCalledWith(true);
+  });
+
+  test('keeps the panel open while the user clicks a part in the lesson', () => {
+    const onToggle = vi.fn();
+
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        onToggle={onToggle}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ isTextPickerActive: true })}
+      />
+    );
+
+    fireEvent.pointerDown(document.body);
+
+    expect(onToggle).not.toHaveBeenCalled();
   });
 
   test('keeps the iframe lazy until the user starts background audio', async () => {

@@ -206,6 +206,11 @@ export const useReaderShellProps = ({
         sectionContent: activeExercise ? '' : controller.sectionContent,
         sectionReasoningText: controller.workflowState.loadSection.reasoning,
         sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
+        ttsTextPicker: {
+          hoveredChunkIndex: readerState.ttsTextPicker.hoveredChunkIndex,
+          isActive: readerState.ttsTextPicker.isActive,
+          overlayRects: readerState.ttsTextPicker.overlayRects,
+        },
       },
       header: {
         activeSectionId: activePathNode?.id ?? null,
@@ -248,12 +253,14 @@ export const useReaderShellProps = ({
           duration: readerState.ttsPlayer.playerDuration,
           isLoading: playerCurrentChunkIsLoading,
           isPlaying: readerState.ttsPlayer.audioState.isPlaying,
+          isTextPickerActive: readerState.ttsTextPicker.isActive,
           playbackRate: readerState.ttsPlayer.audioState.playbackRate,
           sectionContent: controller.sectionContent,
           ttsConnected: readerState.ttsPlayer.ttsConnected,
           onPlayPause: readerState.ttsPlayer.togglePlayPause,
           onSeek: readerState.ttsPlayer.handleSeek,
           onSelectChunk: readerState.ttsPlayer.handleSelectChunk,
+          onSetTextPickerActive: readerState.ttsTextPicker.setIsActive,
           onSkipChunk: readerState.ttsPlayer.handleSkipChunk,
           onSpeedChange: readerState.ttsPlayer.handleSpeedChange,
           onVoiceChange: readerState.ttsPlayer.handleVoiceChange,
@@ -391,6 +398,10 @@ export const useReaderShellProps = ({
       readerState.ttsPlayer.playerDuration,
       readerState.ttsPlayer.togglePlayPause,
       readerState.ttsPlayer.ttsConnected,
+      readerState.ttsTextPicker.hoveredChunkIndex,
+      readerState.ttsTextPicker.isActive,
+      readerState.ttsTextPicker.overlayRects,
+      readerState.ttsTextPicker.setIsActive,
       syncState,
     ]
   );

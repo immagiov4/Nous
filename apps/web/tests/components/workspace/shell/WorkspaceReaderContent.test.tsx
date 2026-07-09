@@ -42,6 +42,11 @@ const buildProps = (
   scrollContainerRef: createRef<HTMLDivElement>(),
   sectionAnnotations: [],
   sectionContent: '# Lezione\n\nContenuto',
+  ttsTextPicker: {
+    hoveredChunkIndex: null,
+    isActive: false,
+    overlayRects: [],
+  },
   ...overrides,
 });
 

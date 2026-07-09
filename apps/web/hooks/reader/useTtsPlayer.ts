@@ -20,6 +20,7 @@ interface UseTtsPlayerResult {
   availableVoices: Array<{ id: VoiceProfileId; label: string; language: string }>;
   audioState: AudioState;
   chunkOptions: Array<{ index: number; label: string }>;
+  chunkTexts: string[];
   handleModelChange: (model: string) => void;
   handleSeek: (time: number) => void;
   handleSelectChunk: (chunkIndex: number) => void;
@@ -1348,6 +1349,7 @@ export const useTtsPlayer = ({
     availableVoices,
     audioState,
     chunkOptions,
+    chunkTexts: preparedChunkTexts,
     handleModelChange,
     handleSeek,
     handleSelectChunk,

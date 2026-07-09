@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Headphones,
   Loader2,
+  MousePointer2,
   Pause,
   Play,
   RefreshCw,
@@ -239,6 +240,7 @@ const UnifiedAudioPanel = ({
   ] as const;
 
   const ttsDisabled = !tts.ttsConnected || !tts.sectionContent;
+  const { isTextPickerActive, onSetTextPickerActive } = tts;
   const normalizedPlaybackRate = Math.round(tts.playbackRate * 20) / 20;
   const requestedVideoId = useMemo(() => {
     return extractYouTubeVideoId(musicUrl);
@@ -254,6 +256,12 @@ const UnifiedAudioPanel = ({
     isLoading: tts.isLoading,
     isPlaying: tts.isPlaying,
   };
+
+  useEffect(() => {
+    if ((!isOpen || activeTab !== 'voce') && isTextPickerActive) {
+      onSetTextPickerActive(false);
+    }
+  }, [activeTab, isOpen, isTextPickerActive, onSetTextPickerActive]);
 
   const handleBackgroundPlayRequest = () => {
     setHasUserActivatedPlayerLocal(true);
@@ -432,7 +440,7 @@ const UnifiedAudioPanel = ({
   }, [isPlayerReady, musicVolume]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isTextPickerActive) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         if (onToggle) {
@@ -444,7 +452,7 @@ const UnifiedAudioPanel = ({
     };
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [isOpen, onToggle]);
+  }, [isOpen, isTextPickerActive, onToggle]);
 
   const handleRetry = () => {
     setPlayerErrorVideoId(null);
@@ -583,36 +591,54 @@ const UnifiedAudioPanel = ({
 
                   {tts.chunkOptions.length > 0 ? (
                     <div className="space-y-1.5 px-1">
-                      <label
-                        htmlFor={`${inputId}-tts-chunk`}
-                        className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-600 dark:text-zinc-300"
-                      >
-                        <span>Parte da leggere</span>
+                      <div className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-600 dark:text-zinc-300">
+                        <label htmlFor={`${inputId}-tts-chunk`}>Parte da leggere</label>
                         <span className="shrink-0 tabular-nums text-gray-500 dark:text-zinc-400">
                           Parte {tts.currentChunkIndex + 1} di {tts.chunkOptions.length}
                         </span>
-                      </label>
-                      <div className="relative">
-                        <select
-                          id={`${inputId}-tts-chunk`}
-                          aria-label="Parte da leggere"
-                          value={tts.currentChunkIndex}
-                          onChange={event =>
-                            tts.onSelectChunk(Number.parseInt(event.target.value, 10))
-                          }
+                      </div>
+                      <div className="flex items-stretch gap-2">
+                        <button
+                          type="button"
+                          aria-label="Scegli dal testo"
+                          aria-pressed={isTextPickerActive}
                           disabled={ttsDisabled}
-                          className="w-full cursor-pointer appearance-none truncate rounded-xl border border-gray-300 bg-white py-2 pl-3 pr-10 text-sm text-gray-700 outline-none transition-colors hover:border-gray-400 focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus:border-zinc-400 dark:focus:ring-zinc-700 dark:disabled:bg-zinc-800/60 dark:disabled:text-zinc-500"
+                          onClick={() => onSetTextPickerActive(!isTextPickerActive)}
+                          className={`inline-flex w-10 shrink-0 items-center justify-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300 disabled:cursor-not-allowed disabled:opacity-45 ${
+                            isTextPickerActive
+                              ? 'border-orange-400 bg-orange-100 text-orange-800 dark:border-orange-500 dark:bg-orange-950/60 dark:text-orange-200'
+                              : 'border-gray-300 bg-white text-gray-600 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-orange-500/70 dark:hover:text-orange-300'
+                          }`}
+                          title={
+                            isTextPickerActive
+                              ? 'Annulla selezione dal testo'
+                              : 'Passa sul testo e clicca la parte da leggere'
+                          }
                         >
-                          {tts.chunkOptions.map(option => (
-                            <option key={option.index} value={option.index}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        <ChevronDown
-                          aria-hidden="true"
-                          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-600 dark:text-zinc-300"
-                        />
+                          <MousePointer2 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <div className="relative min-w-0 flex-1">
+                          <select
+                            id={`${inputId}-tts-chunk`}
+                            aria-label="Parte da leggere"
+                            value={tts.currentChunkIndex}
+                            onChange={event =>
+                              tts.onSelectChunk(Number.parseInt(event.target.value, 10))
+                            }
+                            disabled={ttsDisabled}
+                            className="w-full cursor-pointer appearance-none truncate rounded-xl border border-gray-300 bg-white py-2 pl-3 pr-10 text-sm text-gray-700 outline-none transition-colors hover:border-gray-400 focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus:border-zinc-400 dark:focus:ring-zinc-700 dark:disabled:bg-zinc-800/60 dark:disabled:text-zinc-500"
+                          >
+                            {tts.chunkOptions.map(option => (
+                              <option key={option.index} value={option.index}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown
+                            aria-hidden="true"
+                            className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-600 dark:text-zinc-300"
+                          />
+                        </div>
                       </div>
                     </div>
                   ) : null}

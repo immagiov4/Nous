@@ -3,7 +3,20 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+const TEST_ENVIRONMENT = {
+  AUTH_MODE: 'local-bypass',
+  PROJECT_STORAGE_DRIVER: 'sqlite',
+} as const;
+
+const applyTestEnvironment = (): void => {
+  Object.assign(process.env, TEST_ENVIRONMENT);
+};
+
+// Dotenv must not let a developer's local Supabase profile change the test contract.
+applyTestEnvironment();
+
 beforeEach(() => {
+  applyTestEnvironment();
   vi.restoreAllMocks();
   if (typeof window !== 'undefined') {
     window.scrollTo = vi.fn();

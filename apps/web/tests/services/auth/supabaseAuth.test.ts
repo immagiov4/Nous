@@ -46,6 +46,18 @@ describe('Supabase auth session storage', () => {
     });
   });
 
+  test('falls back to memory when the runtime exposes incomplete localStorage', () => {
+    vi.stubGlobal('localStorage', {});
+
+    saveSupabaseSession({
+      accessToken: 'memory-access-token',
+      user: { id: 'memory-user' },
+    });
+
+    expect(readSupabaseSession()).toMatchObject({ accessToken: 'memory-access-token' });
+    expect(getSupabaseAuthHeaders()).toEqual({ Authorization: 'Bearer memory-access-token' });
+  });
+
   test('drops expired sessions without refresh credentials', async () => {
     saveSupabaseSession({
       accessToken: 'expired-token',

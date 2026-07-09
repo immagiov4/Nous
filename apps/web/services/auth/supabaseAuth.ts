@@ -43,12 +43,22 @@ export const isLocalAuthBypassEnabled = (): boolean =>
   getFrontendAuthMode() === LOCAL_AUTH_MODE &&
   (import.meta.env.MODE === 'test' || import.meta.env.VITE_LOCAL_DEV_PROFILE === 'true');
 
-const getStorage = (): Storage | null => {
-  if (typeof window !== 'undefined') {
-    return window.localStorage;
-  }
+const isStorage = (candidate: unknown): candidate is Storage =>
+  typeof candidate === 'object' &&
+  candidate !== null &&
+  typeof (candidate as Partial<Storage>).getItem === 'function' &&
+  typeof (candidate as Partial<Storage>).setItem === 'function' &&
+  typeof (candidate as Partial<Storage>).removeItem === 'function';
 
-  return typeof globalThis.localStorage !== 'undefined' ? globalThis.localStorage : null;
+const getStorage = (): Storage | null => {
+  try {
+    const candidate = typeof window !== 'undefined' ? window.localStorage : globalThis.localStorage;
+
+    // Some runtimes expose a partial localStorage global that is not browser Storage.
+    return isStorage(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
 };
 
 const getSupabaseAuthConfig = () => {

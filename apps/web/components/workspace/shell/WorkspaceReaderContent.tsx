@@ -651,6 +651,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   sectionReasoningText,
   onUpdateExerciseInternalText,
   sourcePageRangeLabel,
+  ttsTextPicker,
 }: WorkspaceReaderContentModel) {
   const [hasDismissedContextHint, setHasDismissedContextHint] = useState(() => {
     if (typeof window === 'undefined') {
@@ -756,6 +757,27 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       className={scrollContainerClassName}
       style={{ touchAction: shouldShowLessonSkeleton ? 'none' : 'pan-y' }}
     >
+      {ttsTextPicker.isActive ? (
+        <p className="sr-only" aria-live="polite">
+          {ttsTextPicker.hoveredChunkIndex === null
+            ? 'Selezione dal testo attiva. Passa su una parte e fai clic per sceglierla.'
+            : `Parte ${ttsTextPicker.hoveredChunkIndex + 1} evidenziata. Fai clic per sceglierla.`}
+        </p>
+      ) : null}
+      {ttsTextPicker.overlayRects.map((rect, index) => (
+        <div
+          key={`${rect.top}:${rect.left}:${rect.width}:${rect.height}`}
+          data-testid="tts-text-picker-overlay"
+          className="pointer-events-none fixed z-40 rounded-md border border-orange-500/80 bg-orange-300/20 shadow-[0_0_0_2px_rgba(249,115,22,0.12)] transition-[top,height] duration-75 dark:border-orange-400/90 dark:bg-orange-400/15"
+          style={rect}
+        >
+          {index === 0 && ttsTextPicker.hoveredChunkIndex !== null ? (
+            <span className="absolute -top-7 left-0 rounded-full bg-orange-600 px-2 py-1 text-[10px] font-semibold text-white shadow-sm dark:bg-orange-500 dark:text-stone-950">
+              Parte {ttsTextPicker.hoveredChunkIndex + 1}
+            </span>
+          ) : null}
+        </div>
+      ))}
       <div
         className={`mx-auto w-full min-w-0 transition-all duration-500 ${readingShellClassName}`}
       >

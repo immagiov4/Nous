@@ -2,6 +2,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   buildReadableBlocks,
+  buildReadableTextElements,
   prepareMarkdownForSpeech,
 } from '../../../utils/reader/readingText.ts';
 
@@ -44,6 +45,32 @@ describe('buildReadableBlocks', () => {
     const blocks = buildReadableBlocks(container);
 
     expect(blocks.map(block => block.text)).toEqual(['Prima del media.', 'Dopo il media.']);
+  });
+
+  test('falls back to textContent when a browser returns empty innerText for a detached clone', () => {
+    const originalInnerTextDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'innerText'
+    );
+    Object.defineProperty(HTMLElement.prototype, 'innerText', {
+      configurable: true,
+      get: () => '',
+    });
+
+    try {
+      const container = document.createElement('div');
+      container.innerHTML = '<article class="prose"><p>Testo selezionabile.</p></article>';
+
+      expect(buildReadableTextElements(container).map(item => item.text)).toEqual([
+        'Testo selezionabile.',
+      ]);
+    } finally {
+      if (originalInnerTextDescriptor) {
+        Object.defineProperty(HTMLElement.prototype, 'innerText', originalInnerTextDescriptor);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'innerText');
+      }
+    }
   });
 });
 

@@ -123,15 +123,23 @@ export interface WorkspaceReaderTtsModel {
   duration: number;
   isPlaying: boolean;
   isLoading: boolean;
+  isTextPickerActive: boolean;
   playbackRate: number;
   sectionContent: string;
   ttsConnected: boolean;
   onPlayPause: () => void;
   onSeek: (time: number) => void;
   onSelectChunk: (chunkIndex: number) => void;
+  onSetTextPickerActive: (isActive: boolean) => void;
   onSkipChunk: (direction: 'prev' | 'next') => void;
   onSpeedChange: (value: number) => void;
   onVoiceChange: (voiceId: VoiceProfileId) => void;
+}
+
+export interface WorkspaceReaderTextPickerModel {
+  hoveredChunkIndex: number | null;
+  isActive: boolean;
+  overlayRects: Array<{ height: number; left: number; top: number; width: number }>;
 }
 
 export interface WorkspaceReaderHeaderModel {
@@ -199,6 +207,7 @@ export interface WorkspaceReaderContentModel {
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sectionAnnotations?: SectionAnnotation[];
   sectionContent: string;
+  ttsTextPicker: WorkspaceReaderTextPickerModel;
   sectionReasoningText?: string;
   sourcePageRangeLabel?: string;
 }

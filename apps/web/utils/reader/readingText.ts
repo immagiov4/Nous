@@ -361,6 +361,11 @@ export interface ReadableBlock extends ReadableSegment {
   hitBottom: number;
 }
 
+export interface ReadableTextElement {
+  element: HTMLElement;
+  text: string;
+}
+
 export const prepareMarkdownForSpeech = (content: string): string => {
   const placeholderStrippedContent = stripPlaceholderToken(
     stripPdfImagePlaceholders(content),
@@ -393,26 +398,33 @@ const extractReadableElementText = (element: HTMLElement): string => {
       node.remove();
     });
 
-  return collapseWhitespace(clone.innerText ?? clone.textContent ?? '');
+  return collapseWhitespace(clone.innerText || clone.textContent || '');
 };
 
-export const buildReadableBlocks = (container: HTMLElement): ReadableBlock[] => {
-  const containerRect = container.getBoundingClientRect();
+export const buildReadableTextElements = (container: HTMLElement): ReadableTextElement[] => {
   const proseTextElements = container.querySelectorAll(PROSE_READABLE_TEXT_SELECTOR);
   const textElements =
     proseTextElements.length > 0
       ? proseTextElements
       : container.querySelectorAll(READABLE_TEXT_SELECTOR);
 
-  let totalWeight = 0;
-  const weightedElements = Array.from(textElements)
+  return Array.from(textElements)
     .filter(node => !(node as HTMLElement).closest(NON_SPEECH_SELECTOR))
     .map(node => {
       const element = node as HTMLElement;
-      const text = extractReadableElementText(element);
+      return { element, text: extractReadableElementText(element) };
+    })
+    .filter(item => item.text.length > 0);
+};
+
+export const buildReadableBlocks = (container: HTMLElement): ReadableBlock[] => {
+  const containerRect = container.getBoundingClientRect();
+  let totalWeight = 0;
+  const weightedElements = buildReadableTextElements(container)
+    .map(({ element, text }) => {
       const weight = getReadingWeight(text);
       totalWeight += weight > 0 ? weight + BLOCK_PAUSE_WEIGHT : 0;
-      return { element, weight };
+      return { element, text, weight };
     })
     .filter(item => item.weight > 0);
 
@@ -423,8 +435,7 @@ export const buildReadableBlocks = (container: HTMLElement): ReadableBlock[] => 
   const blocks: Array<Omit<ReadableBlock, 'hitTop' | 'hitBottom'>> = [];
   let weightSoFar = 0;
 
-  weightedElements.forEach(({ element, weight }) => {
-    const text = extractReadableElementText(element);
+  weightedElements.forEach(({ element, text, weight }) => {
     const startPct = weightSoFar / totalWeight;
     const endPct = (weightSoFar + weight) / totalWeight;
     const elementRect = element.getBoundingClientRect();
