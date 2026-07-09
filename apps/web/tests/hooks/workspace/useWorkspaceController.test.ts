@@ -888,6 +888,58 @@ test('openProject remaps legacy fallback chunk assignments for old pdf projects'
   );
 });
 
+test('openProject does not retry pdf mapping after automatic recovery was exhausted', async () => {
+  const exhaustedIndex: PdfTextIndex = {
+    ...createReadyIndex(),
+    mappingRecovery: {
+      status: 'exhausted',
+      updatedAt: '2026-03-20T10:05:00.000Z',
+    },
+  };
+  const fallbackPlan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Lezione 1',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+        content: '# Già pronta',
+        primaryChunkIds: ['chunk-001'],
+        primaryChunkMappingSource: 'fallback',
+      },
+    ],
+  });
+  const snapshot = createProjectSnapshot({
+    id: 'project-pdf-exhausted',
+    source: createProjectSourceFromFile(pdfFile),
+    learningPlan: fallbackPlan,
+    documentIndex: exhaustedIndex,
+    state: AppState.READING,
+  });
+  let prepareCalls = 0;
+  const { controller, domain } = createControllerHarness({
+    openRouter: {
+      getPdfLessonMappingState: (file, plan, documentIndex) =>
+        getPdfProjectHydrationState(file, plan, documentIndex),
+      preparePdfLessonMappings: async () => {
+        prepareCalls += 1;
+        return {
+          learningPlan: fallbackPlan,
+          documentIndex: exhaustedIndex,
+        };
+      },
+    },
+    loadedSnapshot: snapshot,
+  });
+
+  const result = await controller.openProject('project-pdf-exhausted');
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(prepareCalls, 0);
+  assert.equal(domain.documentIndex?.mappingRecovery?.status, 'exhausted');
+});
+
 test('openProject falls back to the stored snapshot when pdf hydration stalls', async () => {
   vi.useFakeTimers();
 

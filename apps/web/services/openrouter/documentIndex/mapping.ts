@@ -12,6 +12,7 @@ import {
   updateLessons,
 } from '../../../utils/learning/pathNodes.ts';
 import { getPdfProjectHydrationState } from '../../../utils/pdf/projectHydration.ts';
+import { timestampIso } from '../../../utils/time.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import { getPdfTextSession } from '../pdfAssets.ts';
 import {
@@ -76,6 +77,28 @@ interface ParsedChunkMappingsResult {
   rejectedChunkIds: string[];
   rejectedLessonIds: string[];
 }
+
+const PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING =
+  'Il mapping automatico del PDF non è riuscito dopo tutti i tentativi. Il corso continuerà a usare associazioni di fallback senza riprovare a ogni apertura.';
+
+const markPdfMappingRecoveryExhausted = (documentIndex: PdfTextIndex): PdfTextIndex => ({
+  ...documentIndex,
+  mappingRecovery: {
+    status: 'exhausted',
+    updatedAt: timestampIso(),
+  },
+  mappingWarnings: Array.from(
+    new Set([...(documentIndex.mappingWarnings || []), PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING])
+  ),
+});
+
+const clearPdfMappingRecovery = (documentIndex: PdfTextIndex): PdfTextIndex => ({
+  ...documentIndex,
+  mappingRecovery: undefined,
+  mappingWarnings: (documentIndex.mappingWarnings || []).filter(
+    warning => warning !== PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING
+  ),
+});
 
 interface LessonMappingDescriptor {
   lessonId: string;
@@ -1050,9 +1073,12 @@ export const preparePdfLessonMappings = async (
       pdfSession,
       'fallback'
     );
+    const documentIndexWithQuality = applyPdfMappingQuality(documentIndex, coverageReport);
     return {
       learningPlan,
-      documentIndex: applyPdfMappingQuality(documentIndex, coverageReport),
+      documentIndex: validateWholePlan
+        ? markPdfMappingRecoveryExhausted(documentIndexWithQuality)
+        : documentIndexWithQuality,
     };
   }
 
@@ -1063,9 +1089,12 @@ export const preparePdfLessonMappings = async (
     pdfSession,
     'mapped'
   );
+  const documentIndexWithQuality = applyPdfMappingQuality(documentIndex, coverageReport);
   return {
     learningPlan,
-    documentIndex: applyPdfMappingQuality(documentIndex, coverageReport),
+    documentIndex: validateWholePlan
+      ? clearPdfMappingRecovery(documentIndexWithQuality)
+      : documentIndexWithQuality,
   };
 };
 
@@ -1075,7 +1104,10 @@ export const needsPdfLessonMappingMigration = (
   documentIndex: PdfTextIndex | null | undefined
 ): boolean => {
   const hydrationState = getPdfProjectHydrationState(file, plan, documentIndex);
-  return hydrationState !== 'ready' && hydrationState !== 'idle';
+  return (
+    hydrationState === 'missing-document-index' ||
+    hydrationState === 'missing-primary-chunk-mappings'
+  );
 };
 
 export { getPdfProjectHydrationState as getPdfLessonMappingState } from '../../../utils/pdf/projectHydration.ts';

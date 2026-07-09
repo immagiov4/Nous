@@ -398,6 +398,8 @@ test('preparePdfLessonMappings falls back when deep repair still cannot produce 
   assert.deepEqual(resultLessons[9]?.primaryChunkIds, [buildChunkId(23), buildChunkId(24)]);
   assert.equal(resultLessons[8]?.primaryChunkMappingSource, 'fallback');
   assert.equal(resultLessons[9]?.primaryChunkMappingSource, 'fallback');
+  assert.equal(result.documentIndex?.mappingRecovery?.status, 'exhausted');
+  assert.ok(result.documentIndex?.mappingRecovery?.updatedAt);
 
   assert.ok(
     warnSpy.mock.calls.some(call =>

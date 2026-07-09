@@ -308,6 +308,10 @@ export interface PdfTextIndex {
     mappingSource: 'fallback' | 'mapped';
     updatedAt: string;
   };
+  mappingRecovery?: {
+    status: 'exhausted';
+    updatedAt: string;
+  };
   mappingWarnings?: string[];
   chunks: PdfTextChunk[];
 }

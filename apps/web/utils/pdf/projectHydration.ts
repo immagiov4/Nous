@@ -3,6 +3,7 @@ import { flattenLessons } from '../learning/pathNodes.ts';
 
 export type PdfProjectHydrationState =
   | 'idle'
+  | 'mapping-recovery-exhausted'
   | 'missing-document-index'
   | 'missing-primary-chunk-mappings'
   | 'ready';
@@ -55,6 +56,10 @@ export const getPdfProjectHydrationState = (
 
   if (!documentIndex || documentIndex.chunks.length === 0) {
     return 'missing-document-index';
+  }
+
+  if (documentIndex.mappingRecovery?.status === 'exhausted') {
+    return 'mapping-recovery-exhausted';
   }
 
   if (

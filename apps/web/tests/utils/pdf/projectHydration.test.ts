@@ -114,6 +114,33 @@ test('treats explicit fallback mapping markers as stale even when chunk ids vary
   assert.equal(needsPdfProjectHydration(pdfFile, stalePlan, largeReadyIndex), true);
 });
 
+test('does not retry automatic hydration after mapping recovery was exhausted', () => {
+  const fallbackPlan: LearningPlan = buildTestLearningPlan(
+    Array.from({ length: 4 }, (_, index) =>
+      buildTestLesson({
+        id: `lesson-${index + 1}`,
+        title: `Lezione ${index + 1}`,
+        description: 'Intro',
+        primaryChunkIds: [`chunk-00${index + 1}`],
+        primaryChunkMappingSource: 'fallback' as const,
+      })
+    )
+  );
+  const exhaustedIndex: PdfTextIndex = {
+    ...largeReadyIndex,
+    mappingRecovery: {
+      status: 'exhausted',
+      updatedAt: '2026-07-09T18:00:00.000Z',
+    },
+  };
+
+  assert.equal(
+    getPdfProjectHydrationState(pdfFile, fallbackPlan, exhaustedIndex),
+    'mapping-recovery-exhausted'
+  );
+  assert.equal(needsPdfProjectHydration(pdfFile, fallbackPlan, exhaustedIndex), false);
+});
+
 test('does not flag small documents that only have the first chunks available', () => {
   const smallDocPlan: LearningPlan = buildTestLearningPlan(
     Array.from({ length: 4 }, (_, index) =>
