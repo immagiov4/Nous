@@ -197,6 +197,7 @@ Contiene due famiglie:
 8. Per ogni esercizio: Exercise Brief
 9. Context Chat       →  Q&A in lettura
 10. TTS               →  speech reader
+11. STT               →  speech input nei composer
 ```
 
 Un libro intero → facilmente 30-50 chiamate AI sequenziali.
@@ -556,12 +557,13 @@ apps/backend/src/
 └─ utils/, types/
 ```
 
-### I 4 ruoli del backend
+### I 5 ruoli del backend
 
 1. **Proxy AI** — `openRouterProxy.ts` + chat routes. Aggiunge API key OpenRouter (env), inoltra. Le chat routes (`contextChat`, `libraryChat`) implementano il protocollo Vercel AI SDK (stream + tool calls).
 2. **Estrazione PDF** — `pdf.ts` + `pdfTextExtractor` (delega a `pdftotext`) + `pdfImageExtractor` (probabilmente `pdfjs-dist`).
 3. **Archivio progetti SQLite** — attivo solo in modalità LAN, usa `better-sqlite3`.
 4. **TTS** — chiama OpenRouter `audio/speech`, espone elenchi voci/modelli.
+5. **STT** — valida audio browser e chiama OpenRouter `audio/transcriptions` con un modello server-owned.
 
 ### Scelte forti
 

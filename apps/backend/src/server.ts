@@ -17,6 +17,7 @@ const server = app.listen(backendConfig.backendPort, backendConfig.backendHost, 
   const backendUrl = buildBackendServerUrl(backendConfig, { displayHost: true });
   console.log(`[Backend] Server running on ${backendUrl}`);
   console.log(`[Backend] TTS API available at ${backendUrl}/api/tts`);
+  console.log(`[Backend] STT API available at ${backendUrl}/api/stt`);
   console.log(`[Backend] OpenRouter TTS default model: ${DEFAULT_TTS_MODEL}`);
 });
 

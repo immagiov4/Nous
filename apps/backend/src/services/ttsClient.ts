@@ -11,24 +11,19 @@ import type {
   VoiceProfilesConfig,
 } from '../types/index.js';
 import { isRecord } from '../utils/validation.js';
+import {
+  getOpenRouterJsonHeaders,
+  OPENROUTER_API_BASE_URL,
+  readOpenRouterErrorDetails,
+} from './openRouterAudioApi.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const DEFAULT_TTS_MODEL =
   process.env.MODEL_TTS || process.env.TTS_MODEL_NAME || 'openai/gpt-4o-mini-tts-2025-12-15';
 const DEFAULT_TTS_VOICE = process.env.TTS_VOICE || 'coral';
 const TTS_RESPONSE_FORMAT = 'mp3';
-const OPENROUTER_APP_REFERER = process.env.OPENROUTER_APP_REFERER || 'http://localhost:5173';
-const OPENROUTER_APP_TITLE = 'Nous Reader';
-
-interface OpenRouterErrorPayload {
-  error?: {
-    message?: string;
-  };
-  message?: string;
-}
 
 interface OpenRouterSpeechAttempt {
   speed?: number;
@@ -155,13 +150,6 @@ const normalizeVoiceProfilesConfig = (value: unknown): VoiceProfilesConfig => {
   };
 };
 
-const getOpenRouterHeaders = () => ({
-  Authorization: `Bearer ${requireOpenRouterApiKey()}`,
-  'Content-Type': 'application/json',
-  'HTTP-Referer': OPENROUTER_APP_REFERER,
-  'X-OpenRouter-Title': OPENROUTER_APP_TITLE,
-});
-
 const normalizeOptionalText = (value: string | undefined, fallback: string): string => {
   const trimmed = value?.trim();
   return trimmed || fallback;
@@ -171,21 +159,6 @@ const normalizeOpenAiVoice = (voice: string): string => {
   const normalizedVoice = voice.trim();
 
   return OPENAI_TTS_VOICES.has(normalizedVoice) ? normalizedVoice : DEFAULT_TTS_VOICE;
-};
-
-const parseOpenRouterError = async (response: Response): Promise<string> => {
-  const responseText = await response.text();
-  if (!responseText) {
-    return response.statusText || 'Unknown OpenRouter TTS error';
-  }
-
-  try {
-    const payload = JSON.parse(responseText) as OpenRouterErrorPayload;
-    return payload.error?.message || payload.message || responseText;
-  } catch {
-    // OpenRouter error bodies are not guaranteed to be JSON.
-    return responseText;
-  }
 };
 
 class TTSClient {
@@ -223,9 +196,9 @@ class TTSClient {
   }
 
   private async requestSpeech(attempt: OpenRouterSpeechAttempt): Promise<GeneratedSpeechAudio> {
-    const response = await fetch(`${OPENROUTER_BASE_URL}/audio/speech`, {
+    const response = await fetch(`${OPENROUTER_API_BASE_URL}/audio/speech`, {
       method: 'POST',
-      headers: getOpenRouterHeaders(),
+      headers: getOpenRouterJsonHeaders(),
       body: JSON.stringify({
         model: DEFAULT_TTS_MODEL,
         input: attempt.text,
@@ -236,7 +209,7 @@ class TTSClient {
     });
 
     if (!response.ok) {
-      const details = await parseOpenRouterError(response);
+      const details = await readOpenRouterErrorDetails(response);
       console.warn('[Nous] OpenRouter TTS request failed', {
         status: response.status,
         model: DEFAULT_TTS_MODEL,

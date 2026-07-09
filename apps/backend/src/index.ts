@@ -11,6 +11,7 @@ import openRouterProxyRouter from './routes/openRouterProxy.js';
 import pdfRouter from './routes/pdf.js';
 import projectsRouter from './routes/projects.js';
 import statusRouter from './routes/status.js';
+import sttRouter from './routes/stt.js';
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
 import { timestampIso } from './utils/time.js';
@@ -20,6 +21,7 @@ const DEFAULT_JSON_BODY_LIMIT = '50mb';
 const OPENROUTER_JSON_BODY_LIMIT = '80mb';
 const PDF_JSON_BODY_LIMIT = '160mb';
 const PROJECTS_JSON_BODY_LIMIT = '300mb';
+const STT_JSON_BODY_LIMIT = '20mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
 
 const shouldLogRequest = (method: string, path: string, statusCode: number): boolean => {
@@ -68,6 +70,7 @@ export const createApp = () => {
   app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));
   app.use('/api/pdf', express.json({ limit: PDF_JSON_BODY_LIMIT }));
   app.use('/api/projects', express.json({ limit: PROJECTS_JSON_BODY_LIMIT }));
+  app.use('/api/stt', express.json({ limit: STT_JSON_BODY_LIMIT }));
   app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 
   app.use((req, res, next) => {
@@ -81,6 +84,7 @@ export const createApp = () => {
   });
 
   app.use('/api/tts', resolveCurrentUser, ttsRouter);
+  app.use('/api/stt', resolveCurrentUser, sttRouter);
   app.use('/api/voices', voicesRouter);
   app.use('/api/status', statusRouter);
   app.use('/api/pdf', resolveCurrentUser, pdfRouter);

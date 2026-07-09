@@ -46,6 +46,10 @@ import type {
 } from '../shared/ChatArtifactRenderer.tsx';
 import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
+import {
+  appendSpeechTranscription,
+  default as SpeechInputButton,
+} from '../shared/SpeechInputButton.tsx';
 import StreamingMarkdownRenderer from '../shared/StreamingMarkdownRenderer.tsx';
 
 interface HomeChatPanelProps {
@@ -483,6 +487,16 @@ export default function HomeChatPanel({
       ...currentDrafts,
       [homeChatMode]: value,
     }));
+  };
+
+  const handleSpeechTranscription = (transcription: string) => {
+    setDraftByMode(currentDrafts => ({
+      ...currentDrafts,
+      [homeChatMode]: appendSpeechTranscription(currentDrafts[homeChatMode], transcription),
+    }));
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
   const handleModeChange = (mode: HomeChatMode) => {
@@ -1306,6 +1320,11 @@ export default function HomeChatPanel({
               disabled={isLoading}
             />
 
+            <SpeechInputButton
+              disabled={isLoading}
+              onTranscription={handleSpeechTranscription}
+              variant="compact"
+            />
             <button
               type="submit"
               disabled={isLoading || !currentDraft.trim()}

@@ -3,7 +3,7 @@
 import '@testing-library/jest-dom/vitest';
 
 import { act, render, screen } from '@testing-library/react';
-import { createRef, StrictMode } from 'react';
+import { createRef, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const defaultChatTransportInstances: Array<{
@@ -16,6 +16,7 @@ const chatTextComposerProps: Array<{
   disabled?: boolean;
   onSubmit: () => void;
   placeholder: string;
+  trailingContent?: ReactNode;
   value: string;
 }> = [];
 
@@ -49,18 +50,22 @@ vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
     disabled?: boolean;
     onSubmit: () => void;
     placeholder: string;
+    trailingContent?: ReactNode;
     value: string;
   }) => {
     chatTextComposerProps.push(props);
     return (
-      <button
-        type="button"
-        data-testid="chat-text-composer"
-        disabled={props.disabled}
-        onClick={props.onSubmit}
-      >
-        {props.placeholder}
-      </button>
+      <>
+        {props.trailingContent}
+        <button
+          type="button"
+          data-testid="chat-text-composer"
+          disabled={props.disabled}
+          onClick={props.onSubmit}
+        >
+          {props.placeholder}
+        </button>
+      </>
     );
   },
 }));
@@ -253,6 +258,20 @@ describe('ContextAnswerPanel', () => {
     expect(screen.getByTestId('chat-text-composer')).toBeDisabled();
     expect(chatTextComposerProps.at(-1)?.disabled).toBe(true);
     expect(chatTextComposerProps.at(-1)?.placeholder).toMatch(/Accetta o rifiuta la nota/i);
+  });
+
+  test('offers speech input in the follow-up composer', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(screen.getByRole('button', { name: 'Avvia dettatura' })).toBeInTheDocument();
   });
 
   test('does not send a frontend model override with context chat requests', () => {

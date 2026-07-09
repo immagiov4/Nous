@@ -223,13 +223,14 @@ Main entries in `apps/backend/src/routes/`:
 - `/api/projects` — auth-gated project repository API used by the frontend server repository.
 - `/api/status` — OpenRouter TTS readiness snapshot.
 - `/api/tts` — speech generation and model discovery.
+- `/api/stt` — authenticated speech transcription through OpenRouter.
 - `/api/voices` — voice profiles.
 - `chatPrompts.ts` — shared chat prompt construction utilities used by `contextChat.ts` and `libraryChat.ts`.
 
 Supporting modules:
 
 - `apps/backend/src/projects/` — `ProjectStore` interface, `PostgresProjectStore`, legacy `SqliteProjectStore` for dev/test, project meta and sibling-ordering helpers.
-- `apps/backend/src/services/` — `pdfTextExtractor` (delegates to `pdftotext`), `pdfImageExtractor`, `ttsClient`, `voiceService`, `statusService`.
+- `apps/backend/src/services/` — `pdfTextExtractor` (delegates to `pdftotext`), `pdfImageExtractor`, `ttsClient`, `sttClient`, `voiceService`, `statusService`.
 - `apps/backend/src/auth/currentUser.ts` — auth resolution. Supabase is the product path. `LOCAL_AUTH_BYPASS=true` is accepted only in tests or with `LOCAL_DEV_PROFILE=true`.
 - `apps/backend/src/config/` — env loading and server config (host, port, backend URL).
 
@@ -244,6 +245,14 @@ The frontend `ProjectRepository` interface and the backend `ProjectStore` interf
 Frontend audio playback calls the backend `/api/tts` route, and that route uses OpenRouter's `audio/speech` endpoint. There is no local TTS runtime in the app flow.
 
 The TTS player in the Reader (`hooks/reader/useTtsPlayer.ts`) splits the lesson content into ~580-character chunks, crossfades them at 35 ms boundaries, and handles seek, skip, and speed changes against the queued audio buffers.
+
+## Speech input
+
+The Library/Home composer and the Reader follow-up composer expose the same microphone control. The first click starts a browser `MediaRecorder`; the second stops it, sends the recording to the authenticated `/api/stt` route, and inserts the returned text into the draft without submitting it.
+
+Browser recordings are capped at 90 seconds. The backend validates the audio format and a 12 MiB decoded payload limit, then calls OpenRouter's dedicated `audio/transcriptions` endpoint. The server-owned model defaults to `nvidia/parakeet-tdt-0.6b-v3` and can be changed with `MODEL_STT`.
+
+Provider details stay in server logs; the frontend receives stable Italian error messages for denied microphone access, empty audio, and transcription failures.
 
 ## Where to make changes
 

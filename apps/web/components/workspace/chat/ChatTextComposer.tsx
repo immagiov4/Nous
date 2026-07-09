@@ -15,6 +15,7 @@ interface ChatTextComposerProps {
   submitButtonClassName?: string;
   submitContent?: ReactNode;
   submitTitle?: string;
+  trailingContent?: ReactNode;
   value: string;
 }
 
@@ -32,6 +33,7 @@ export default function ChatTextComposer({
   submitButtonClassName,
   submitContent,
   submitTitle,
+  trailingContent,
   value,
 }: ChatTextComposerProps) {
   const trimmedValue = value.trim();
@@ -69,6 +71,8 @@ export default function ChatTextComposer({
           }
         />
       </div>
+
+      {trailingContent}
 
       <button
         type="submit"

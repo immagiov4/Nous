@@ -654,6 +654,11 @@ describe('HomeChatPanel', () => {
     );
   });
 
+  test('offers speech input in the library composer', () => {
+    render(<HomeChatPanel {...buildProps()} homeChatMode="library-query" />);
+
+    expect(screen.getByRole('button', { name: 'Avvia dettatura' })).toBeInTheDocument();
+  });
   test('outside click closes the attachment menu', async () => {
     const user = userEvent.setup();
     const props = {

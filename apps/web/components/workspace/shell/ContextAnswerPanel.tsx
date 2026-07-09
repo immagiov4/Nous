@@ -49,6 +49,10 @@ import type {
   ChatArtifactReplaceRequest,
 } from '../../shared/ChatArtifactRenderer.tsx';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
+import {
+  appendSpeechTranscription,
+  default as SpeechInputButton,
+} from '../../shared/SpeechInputButton.tsx';
 import StreamingMarkdownRenderer from '../../shared/StreamingMarkdownRenderer.tsx';
 import ChatTextComposer from '../chat/ChatTextComposer.tsx';
 import type {
@@ -966,6 +970,10 @@ function ContextAnswerPanelSession({
     void sendMessage({ text: trimmedInput });
   };
 
+  const handleSpeechTranscription = (transcription: string) => {
+    setInput(currentInput => appendSpeechTranscription(currentInput, transcription));
+  };
+
   const visibleMessages = dedupeUiMessagesById(messages).filter(message => {
     if (message.role === 'user') {
       return true;
@@ -1284,6 +1292,12 @@ function ContextAnswerPanelSession({
           disabled={isComposerDisabled}
           isLoading={isLoading}
           className="flex items-center gap-2"
+          trailingContent={
+            <SpeechInputButton
+              disabled={isComposerDisabled}
+              onTranscription={handleSpeechTranscription}
+            />
+          }
           leadingContent={
             <div ref={toolMenuRef} className="relative flex shrink-0 items-center">
               <button
