@@ -116,6 +116,8 @@ export interface WorkspaceReaderBannersModel {
 
 export interface WorkspaceReaderTtsModel {
   availableVoices: WorkspaceReaderVoiceOption[];
+  chunkOptions: Array<{ index: number; label: string }>;
+  currentChunkIndex: number;
   currentTime: number;
   currentVoice: VoiceProfileId;
   duration: number;
@@ -126,6 +128,7 @@ export interface WorkspaceReaderTtsModel {
   ttsConnected: boolean;
   onPlayPause: () => void;
   onSeek: (time: number) => void;
+  onSelectChunk: (chunkIndex: number) => void;
   onSkipChunk: (direction: 'prev' | 'next') => void;
   onSpeedChange: (value: number) => void;
   onVoiceChange: (voiceId: VoiceProfileId) => void;

@@ -203,6 +203,37 @@ describe('useTtsPlayer', () => {
     expect(result.current.audioState.playbackRate).toBe(1.25);
   });
 
+  test('selects a speech chunk before playback and starts from that chunk', async () => {
+    const sectionContent = `${'Prima parte della lezione con concetti introduttivi. '.repeat(16)}\n\n${'Seconda parte dedicata agli esempi applicativi. '.repeat(16)}`;
+    const { result } = renderHook(() =>
+      useTtsPlayer({
+        activeSectionId: 'lesson-1',
+        sectionContent,
+        speechBlocks: [],
+      })
+    );
+
+    await waitFor(() => expect(result.current.ttsConnected).toBe(true));
+    expect(result.current.chunkOptions.length).toBeGreaterThan(1);
+
+    act(() => {
+      result.current.handleSelectChunk(1);
+    });
+
+    expect(result.current.audioState.currentChunkIndex).toBe(1);
+    expect(result.current.audioState.chunks).toHaveLength(result.current.chunkOptions.length);
+    expect(openRouterMocks.generateSpeech).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.togglePlayPause();
+    });
+
+    await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1));
+    expect(openRouterMocks.generateSpeech.mock.calls[0]?.[0]).toBe(
+      result.current.audioState.chunks[1]?.text
+    );
+  });
+
   test('falls back to disconnected state when the TTS checks fail', async () => {
     openRouterMocks.checkTTSStatus.mockRejectedValueOnce(new Error('offline'));
     openRouterMocks.getTTSModels.mockRejectedValueOnce(new Error('offline'));
