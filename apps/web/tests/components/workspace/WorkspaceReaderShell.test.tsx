@@ -110,6 +110,8 @@ const buildProps = (): WorkspaceReaderShellProps => {
       settingsPanelExpandedSections: ['course-notes'],
       tts: {
         availableVoices: [],
+        chunkOptions: [],
+        currentChunkIndex: 0,
         currentTime: 0,
         currentVoice: 'coral' as const,
         duration: 0,
@@ -120,6 +122,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
         ttsConnected: false,
         onPlayPause: vi.fn(),
         onSeek: vi.fn(),
+        onSelectChunk: vi.fn(),
         onSkipChunk: vi.fn(),
         onSpeedChange: vi.fn(),
         onVoiceChange: vi.fn(),

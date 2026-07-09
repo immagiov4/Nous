@@ -580,6 +580,36 @@ const UnifiedAudioPanel = ({
                     <span className="w-9">{formatTime(tts.duration)}</span>
                   </div>
 
+                  {tts.chunkOptions.length > 0 ? (
+                    <div className="space-y-1.5 px-1">
+                      <label
+                        htmlFor={`${inputId}-tts-chunk`}
+                        className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-600 dark:text-zinc-300"
+                      >
+                        <span>Parte da leggere</span>
+                        <span className="shrink-0 tabular-nums text-gray-500 dark:text-zinc-400">
+                          Parte {tts.currentChunkIndex + 1} di {tts.chunkOptions.length}
+                        </span>
+                      </label>
+                      <select
+                        id={`${inputId}-tts-chunk`}
+                        aria-label="Parte da leggere"
+                        value={tts.currentChunkIndex}
+                        onChange={event =>
+                          tts.onSelectChunk(Number.parseInt(event.target.value, 10))
+                        }
+                        disabled={ttsDisabled}
+                        className="w-full cursor-pointer truncate rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none transition-colors hover:border-gray-400 focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus:border-zinc-400 dark:focus:ring-zinc-700 dark:disabled:bg-zinc-800/60 dark:disabled:text-zinc-500"
+                      >
+                        {tts.chunkOptions.map(option => (
+                          <option key={option.index} value={option.index}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+
                   <div className="flex items-center justify-between gap-4">
                     <div className="relative inline-flex items-center overflow-visible rounded-xl border border-gray-300 bg-white/80 dark:border-zinc-600 dark:bg-zinc-800/80">
                       <select

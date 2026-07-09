@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../../services/audio/voiceProfile';
 import * as OpenRouterService from '../../services/openrouter';
 import type { AudioChunk, AudioState, TtsModelSummary, VoiceProfileId } from '../../types';
 import { prepareMarkdownForSpeech } from '../../utils/reader/readingText';
 
 const CHUNK_SIZE_APPROX = 580;
+const CHUNK_LABEL_MAX_CHARACTERS = 72;
 const CHUNK_CROSSFADE_SECONDS = 0.035;
 const DEBUG_TTS_PLAYER = false;
 
@@ -18,8 +19,10 @@ interface UseTtsPlayerResult {
   availableModels: TtsModelSummary[];
   availableVoices: Array<{ id: VoiceProfileId; label: string; language: string }>;
   audioState: AudioState;
+  chunkOptions: Array<{ index: number; label: string }>;
   handleModelChange: (model: string) => void;
   handleSeek: (time: number) => void;
+  handleSelectChunk: (chunkIndex: number) => void;
   handleSkipChunk: (direction: 'prev' | 'next') => void;
   handleSpeedChange: (speed: number) => void;
   handleVoiceChange: (voice: VoiceProfileId) => void;
@@ -234,6 +237,24 @@ export const splitContentIntoChunks = (text: string, speechBlocks: string[]): st
   return chunks;
 };
 
+const createAudioChunks = (chunks: string[]): AudioChunk[] =>
+  chunks.map((text, index) => ({
+    text,
+    index,
+    blobUrl: null,
+    duration: 0,
+    isLoading: false,
+  }));
+
+const buildChunkOptionLabel = (text: string, index: number): string => {
+  const normalizedText = text.replace(/\s+/g, ' ').trim();
+  const preview =
+    normalizedText.length > CHUNK_LABEL_MAX_CHARACTERS
+      ? `${normalizedText.slice(0, CHUNK_LABEL_MAX_CHARACTERS - 1).trimEnd()}…`
+      : normalizedText;
+  return `Parte ${index + 1} — ${preview}`;
+};
+
 const createIdlePlaybackRun = (): PlaybackRun => ({
   runId: 0,
   status: 'idle',
@@ -249,6 +270,18 @@ export const useTtsPlayer = ({
   sectionContent,
   speechBlocks,
 }: UseTtsPlayerParams): UseTtsPlayerResult => {
+  const preparedChunkTexts = useMemo(
+    () => splitContentIntoChunks(sectionContent, speechBlocks),
+    [sectionContent, speechBlocks]
+  );
+  const chunkOptions = useMemo(
+    () =>
+      preparedChunkTexts.map((text, index) => ({
+        index,
+        label: buildChunkOptionLabel(text, index),
+      })),
+    [preparedChunkTexts]
+  );
   const [availableVoices, setAvailableVoices] = useState<
     Array<{ id: VoiceProfileId; label: string; language: string }>
   >([{ id: DEFAULT_TTS_VOICE, label: DEFAULT_TTS_VOICE, language: 'it-IT' }]);
@@ -947,14 +980,7 @@ export const useTtsPlayer = ({
     }
 
     if (currentState.chunks.length === 0) {
-      const chunks = splitContentIntoChunks(sectionContent, speechBlocks);
-      const audioChunks: AudioChunk[] = chunks.map((text, index) => ({
-        text,
-        index,
-        blobUrl: null,
-        duration: 0,
-        isLoading: false,
-      }));
+      const audioChunks = createAudioChunks(preparedChunkTexts);
 
       setTrackedAudioState(previousState => ({ ...previousState, chunks: audioChunks }));
       window.setTimeout(() => {
@@ -970,9 +996,8 @@ export const useTtsPlayer = ({
     abortCurrentRun,
     beginNewRun,
     playAudio,
-    sectionContent,
+    preparedChunkTexts,
     setTrackedAudioState,
-    speechBlocks,
     startFromScratch,
   ]);
 
@@ -1029,48 +1054,58 @@ export const useTtsPlayer = ({
     setPlayerCurrentTime(time);
   };
 
+  const handleSelectChunk = useCallback(
+    (nextIndex: number) => {
+      const currentState = audioStateRef.current;
+      const chunks =
+        currentState.chunks.length === preparedChunkTexts.length
+          ? currentState.chunks
+          : createAudioChunks(preparedChunkTexts);
+      if (nextIndex < 0 || nextIndex >= chunks.length) {
+        return;
+      }
+      if (nextIndex === currentState.currentChunkIndex && currentState.chunks.length > 0) {
+        return;
+      }
+
+      const wasPlaying =
+        shouldPlayRef.current &&
+        (playbackRunRef.current.status === 'playing' ||
+          playbackRunRef.current.status === 'crossfading' ||
+          playbackRunRef.current.status === 'starting');
+
+      shouldPlayRef.current = false;
+      playbackSessionRef.current += 1;
+      playRequestIdRef.current += 1;
+      abortCurrentRun('skip');
+      pausedTimeRef.current = 0;
+
+      setTrackedAudioState(previousState => ({
+        ...previousState,
+        chunks,
+        currentChunkIndex: nextIndex,
+        audioElement: null,
+        isPlaying: false,
+      }));
+
+      if (wasPlaying) {
+        shouldPlayRef.current = true;
+        beginNewRun(nextIndex);
+        void playAudio(nextIndex, 0);
+        return;
+      }
+
+      playbackRunRef.current.status = 'paused';
+      playbackRunRef.current.currentChunkIndex = nextIndex;
+      setPlayerCurrentTime(0);
+      setPlayerDuration(chunks[nextIndex]?.duration || 0);
+    },
+    [abortCurrentRun, beginNewRun, playAudio, preparedChunkTexts, setTrackedAudioState]
+  );
+
   const handleSkipChunk = (direction: 'prev' | 'next') => {
-    const currentState = audioStateRef.current;
-    const wasPlaying =
-      shouldPlayRef.current &&
-      (playbackRunRef.current.status === 'playing' ||
-        playbackRunRef.current.status === 'crossfading' ||
-        playbackRunRef.current.status === 'starting');
-
-    const nextIndex =
-      direction === 'next'
-        ? currentState.currentChunkIndex + 1
-        : currentState.currentChunkIndex - 1;
-
-    if (nextIndex < 0 || nextIndex >= currentState.chunks.length) {
-      return;
-    }
-
-    shouldPlayRef.current = false;
-    playbackSessionRef.current += 1;
-    playRequestIdRef.current += 1;
-    abortCurrentRun('skip');
-    pausedTimeRef.current = 0;
-
-    setTrackedAudioState(previousState => ({
-      ...previousState,
-      currentChunkIndex: nextIndex,
-      audioElement: null,
-      isPlaying: false,
-    }));
-
-    if (wasPlaying) {
-      shouldPlayRef.current = true;
-      beginNewRun(nextIndex);
-      void playAudio(nextIndex, 0);
-      return;
-    }
-
-    playbackRunRef.current.status = 'paused';
-    playbackRunRef.current.currentChunkIndex = nextIndex;
-    if (!currentState.chunks[nextIndex].blobUrl) {
-      void generateChunkAudio(nextIndex);
-    }
+    const currentIndex = audioStateRef.current.currentChunkIndex;
+    handleSelectChunk(direction === 'next' ? currentIndex + 1 : currentIndex - 1);
   };
 
   useEffect(() => {
@@ -1312,8 +1347,10 @@ export const useTtsPlayer = ({
     availableModels,
     availableVoices,
     audioState,
+    chunkOptions,
     handleModelChange,
     handleSeek,
+    handleSelectChunk,
     handleSkipChunk,
     handleSpeedChange,
     handleVoiceChange,

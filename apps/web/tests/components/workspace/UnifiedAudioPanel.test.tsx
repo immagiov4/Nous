@@ -2,26 +2,37 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderTtsModel } from '../../../components/workspace/shell/types.ts';
 import UnifiedAudioPanel from '../../../components/workspace/UnifiedAudioPanel.tsx';
 
-const buildTtsModel = (): WorkspaceReaderTtsModel => ({
-  availableVoices: [{ id: 'alloy', label: 'Alloy', language: 'en' }],
-  currentTime: 0,
-  currentVoice: 'alloy',
-  duration: 180,
-  isLoading: false,
-  isPlaying: false,
-  onPlayPause: () => {},
-  onSeek: () => {},
-  onSkipChunk: () => {},
-  onSpeedChange: () => {},
-  onVoiceChange: () => {},
-  playbackRate: 1,
-  sectionContent: 'Contenuto di test',
-  ttsConnected: true,
-});
+const buildTtsModel = (
+  overrides: Partial<WorkspaceReaderTtsModel> & Record<string, unknown> = {}
+): WorkspaceReaderTtsModel =>
+  ({
+    availableVoices: [{ id: 'alloy', label: 'Alloy', language: 'en' }],
+    chunkOptions: [
+      { index: 0, label: 'Parte 1 — Introduzione alle reti' },
+      { index: 1, label: 'Parte 2 — Collegamenti e protocolli' },
+      { index: 2, label: 'Parte 3 — Instradamento dei pacchetti' },
+    ],
+    currentChunkIndex: 0,
+    currentTime: 0,
+    currentVoice: 'alloy',
+    duration: 180,
+    isLoading: false,
+    isPlaying: false,
+    onPlayPause: () => {},
+    onSeek: () => {},
+    onSelectChunk: () => {},
+    onSkipChunk: () => {},
+    onSpeedChange: () => {},
+    onVoiceChange: () => {},
+    playbackRate: 1,
+    sectionContent: 'Contenuto di test',
+    ttsConnected: true,
+    ...overrides,
+  }) as WorkspaceReaderTtsModel;
 
 const AudioHarness = ({ initialMusicUrl = '' }: { initialMusicUrl?: string }) => {
   const [musicUrl, setMusicUrl] = useState(initialMusicUrl);
@@ -44,6 +55,29 @@ const AudioHarness = ({ initialMusicUrl = '' }: { initialMusicUrl?: string }) =>
 };
 
 describe('UnifiedAudioPanel', () => {
+  test('shows how many speech parts exist and lets the user choose one directly', async () => {
+    const user = userEvent.setup();
+    const onSelectChunk = vi.fn();
+
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({ currentChunkIndex: 1, onSelectChunk })}
+      />
+    );
+
+    expect(screen.getByText('Parte 2 di 3')).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Parte da leggere' }), '2');
+    expect(onSelectChunk).toHaveBeenCalledWith(2);
+  });
+
   test('keeps the iframe lazy until the user starts background audio', async () => {
     const user = userEvent.setup();
     const { container } = render(
