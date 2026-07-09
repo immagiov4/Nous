@@ -134,6 +134,11 @@ export const getSupabaseAuthHeaders = (): HeadersInit => {
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 };
 
+export const mergeSupabaseAuthHeaders = (headers: HeadersInit | undefined = {}): HeadersInit => ({
+  ...Object.fromEntries(new Headers(headers).entries()),
+  ...getSupabaseAuthHeaders(),
+});
+
 export const signInWithPassword = async ({
   email,
   password,

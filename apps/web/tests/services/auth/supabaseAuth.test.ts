@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import {
   clearSupabaseSession,
   getSupabaseAuthHeaders,
+  mergeSupabaseAuthHeaders,
   readSupabaseSession,
   saveSupabaseSession,
 } from '../../../services/auth/supabaseAuth.ts';
@@ -29,6 +30,10 @@ describe('Supabase auth session storage', () => {
     });
     expect(getSupabaseAuthHeaders()).toEqual({
       Authorization: 'Bearer access-token-123',
+    });
+    expect(mergeSupabaseAuthHeaders({ 'X-Existing-Header': 'kept' })).toEqual({
+      Authorization: 'Bearer access-token-123',
+      'x-existing-header': 'kept',
     });
   });
 

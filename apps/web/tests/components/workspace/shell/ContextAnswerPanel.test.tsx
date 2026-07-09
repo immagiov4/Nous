@@ -69,6 +69,13 @@ vi.mock('../../../../services/openrouter/config.ts', () => ({
   getBackendUrl: () => 'http://localhost:3301',
 }));
 
+vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
+  mergeSupabaseAuthHeaders: (headers: HeadersInit = {}) => ({
+    ...Object.fromEntries(new Headers(headers).entries()),
+    Authorization: 'Bearer context-token',
+  }),
+}));
+
 const { default: ContextAnswerPanel } = await import(
   '../../../../components/workspace/shell/ContextAnswerPanel.tsx'
 );
@@ -266,11 +273,16 @@ describe('ContextAnswerPanel', () => {
     expect(transport?.prepareSendMessagesRequest).toBeTypeOf('function');
 
     const request = transport?.prepareSendMessagesRequest?.({
+      headers: { 'X-Existing-Header': 'kept' },
       id: 'chat-1',
       messages: [{ role: 'user', parts: [{ type: 'text', text: 'spiega meglio' }] }],
-    }) as { body?: Record<string, unknown> };
+    }) as { body?: Record<string, unknown>; headers?: Record<string, string> };
 
     expect(request.body?.modelOverride).toBeUndefined();
+    expect(request.headers).toMatchObject({
+      Authorization: 'Bearer context-token',
+      'x-existing-header': 'kept',
+    });
   });
 
   test('sends lesson context scope with context chat requests', () => {

@@ -10,6 +10,7 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../../components/shared/ChatArtifactRenderer.tsx';
+import { mergeSupabaseAuthHeaders } from '../../services/auth/supabaseAuth.ts';
 import {
   executeLibraryAssistantTool,
   LIBRARY_ASSISTANT_TOOL_NAMES,
@@ -240,7 +241,7 @@ export const useLibraryAssistantChat = ({
       new DefaultChatTransport<LibraryAssistantMessage>({
         api: `${getBackendUrl()}/api/chat/library`,
         // `useChat` keeps the initial transport instance, so request data must come from a ref.
-        prepareSendMessagesRequest: ({ id, messages }) => {
+        prepareSendMessagesRequest: ({ headers, id, messages }) => {
           const requestState = libraryAssistantRequestStateStore.get(requestStateKey);
           if (!requestState) {
             throw new Error('Library assistant request state is not initialized.');
@@ -253,6 +254,7 @@ export const useLibraryAssistantChat = ({
           } = requestState;
 
           return {
+            headers: mergeSupabaseAuthHeaders(headers),
             body: {
               attachedContextRefs: currentAttachedContextRefs,
               id,

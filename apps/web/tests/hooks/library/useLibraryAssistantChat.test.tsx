@@ -44,6 +44,13 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
   getBackendUrl: () => 'http://localhost:3301',
 }));
 
+vi.mock('../../../services/auth/supabaseAuth.ts', () => ({
+  mergeSupabaseAuthHeaders: (headers: HeadersInit = {}) => ({
+    ...Object.fromEntries(new Headers(headers).entries()),
+    Authorization: 'Bearer library-token',
+  }),
+}));
+
 const { useLibraryAssistantChat } = await import(
   '../../../hooks/library/useLibraryAssistantChat.ts'
 );
@@ -132,7 +139,7 @@ describe('useLibraryAssistantChat', () => {
       api: 'http://localhost:3301/api/chat/library',
       body: {},
       credentials: undefined,
-      headers: {},
+      headers: { 'X-Existing-Header': 'kept' },
       id: 'chat-1',
       messageId: undefined,
       messages: [],
@@ -150,6 +157,10 @@ describe('useLibraryAssistantChat', () => {
     expect(
       (preparedRequest as { body?: Record<string, unknown> }).body?.modelOverride
     ).toBeUndefined();
+    expect((preparedRequest as { headers?: Record<string, string> }).headers).toMatchObject({
+      Authorization: 'Bearer library-token',
+      'x-existing-header': 'kept',
+    });
   });
 
   test('uses the latest whole-library scope after library hydration on the initial transport instance', async () => {
