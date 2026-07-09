@@ -64,3 +64,17 @@ test('HttpProjectRepository only uses the server unavailable message for network
         'Sincronizzazione server non disponibile. Verifica che il backend sia acceso e raggiungibile.'
   );
 });
+
+test('HttpProjectRepository reports request timeouts without claiming the backend is offline', async () => {
+  fetchMock.mockRejectedValueOnce(new DOMException('The operation was aborted.', 'AbortError'));
+
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await assert.rejects(
+    () => repository.listFolders(),
+    (error: unknown) =>
+      error instanceof ProjectStorageError &&
+      error.message ===
+        'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.'
+  );
+});

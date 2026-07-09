@@ -10,7 +10,7 @@ import {
   isZipFileData,
 } from '../../../services/projects/projectSource.ts';
 import {
-  prepareSnapshotForHydration,
+  prepareSnapshotForHydrationResult,
   resolvePlanLesson,
 } from '../../../services/workspace/controller/snapshotHydration.ts';
 import {
@@ -87,6 +87,27 @@ export const createProjectLifecycleCommands = (
         pushNousDebugTrace('open-project:library-refresh-failed', {
           errorMessage: getErrorMessage(error),
           projectId,
+          requestId,
+        });
+      }
+    })();
+  };
+
+  const persistHydrationMigrationInBackground = (
+    snapshot: Parameters<typeof projectLibrary.persistSnapshot>[0],
+    requestId: number
+  ) => {
+    void (async () => {
+      try {
+        await projectLibrary.persistSnapshot(snapshot);
+        pushNousDebugTrace('open-project:migration-persisted', {
+          projectId: snapshot.id,
+          requestId,
+        });
+      } catch (error) {
+        pushNousDebugTrace('open-project:migration-persist-failed', {
+          errorMessage: getErrorMessage(error),
+          projectId: snapshot.id,
           requestId,
         });
       }
@@ -332,10 +353,8 @@ export const createProjectLifecycleCommands = (
         return { outcome: 'stale' };
       }
 
-      const preparedSnapshot = prepareSnapshotForHydration(nextSnapshot);
-      if (JSON.stringify(preparedSnapshot) !== JSON.stringify(nextSnapshot)) {
-        await projectLibrary.persistSnapshot(preparedSnapshot);
-      }
+      const hydration = prepareSnapshotForHydrationResult(nextSnapshot);
+      const preparedSnapshot = hydration.snapshot;
       persistHydratedSnapshot(preparedSnapshot);
       pushNousDebugTrace('open-project:hydrated-snapshot', {
         hasLearningPlan: Boolean(preparedSnapshot.learningPlan),
@@ -352,6 +371,9 @@ export const createProjectLifecycleCommands = (
       didSettleOpenWorkflow = true;
       state.setOpeningProjectId(null);
       pushNousDebugTrace('open-project:settled-before-follow-up', { projectId, requestId });
+      if (hydration.didChange) {
+        persistHydrationMigrationInBackground(preparedSnapshot, requestId);
+      }
       refreshLibraryMetadataInBackground(projectId, requestId);
 
       if (!preparedSnapshot.learningPlan) {

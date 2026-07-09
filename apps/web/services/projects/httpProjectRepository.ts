@@ -29,12 +29,17 @@ interface ApiResponse {
 
 const PROJECT_SYNC_ERROR_MESSAGE =
   'Sincronizzazione server non disponibile. Verifica che il backend sia acceso e raggiungibile.';
+const PROJECT_SYNC_TIMEOUT_MESSAGE =
+  'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 
 const createProjectSyncError = (error: unknown): ProjectStorageError => {
   console.warn('[Nous] Server project sync failed', error);
   if (error instanceof ProjectStorageError) {
     return error;
+  }
+  if (error instanceof Error && error.name === 'AbortError') {
+    return new ProjectStorageError(PROJECT_SYNC_TIMEOUT_MESSAGE, 'persistence-failed');
   }
 
   return new ProjectStorageError(PROJECT_SYNC_ERROR_MESSAGE, 'persistence-failed');

@@ -2,16 +2,16 @@ import {
   isProjectArchiveFile,
   readProjectImportData,
 } from '../../../services/projects/projectArchive.ts';
-import { prepareSnapshotForHydration } from '../../../services/workspace/controller/snapshotHydration.ts';
+import { prepareSnapshotForHydrationResult } from '../../../services/workspace/controller/snapshotHydration.ts';
 import type { ProjectSnapshot } from '../../../types.ts';
 import type { WorkspaceControllerContext } from './types.ts';
 
 const persistPreparedSnapshotIfChanged = async (
   context: Pick<WorkspaceControllerContext, 'projectLibrary'>,
-  originalSnapshot: ProjectSnapshot,
-  preparedSnapshot: ProjectSnapshot
+  preparedSnapshot: ProjectSnapshot,
+  didChange: boolean
 ) => {
-  if (JSON.stringify(preparedSnapshot) === JSON.stringify(originalSnapshot)) {
+  if (!didChange) {
     return;
   }
 
@@ -24,9 +24,10 @@ export const importProjectBackupFile = async (
 ): Promise<ProjectSnapshot> => {
   const importedProject = await readProjectImportData(selectedFile);
   const { snapshot } = await context.projectLibrary.importProjectData(importedProject);
-  const preparedSnapshot = prepareSnapshotForHydration(snapshot);
+  const hydration = prepareSnapshotForHydrationResult(snapshot);
+  const preparedSnapshot = hydration.snapshot;
 
-  await persistPreparedSnapshotIfChanged(context, snapshot, preparedSnapshot);
+  await persistPreparedSnapshotIfChanged(context, preparedSnapshot, hydration.didChange);
   context.persistHydratedSnapshot(preparedSnapshot);
   await context.projectLibrary.touchStoredProject(preparedSnapshot.id);
   await context.projectLibrary.refreshLibraryState();

@@ -21,42 +21,75 @@ import { removeTemporaryMiniLabLessons } from '../../learning/temporaryLabLesson
 const HYDRATION_TRACE_PREVIEW_CHARS = 1600;
 const UNTITLED_MODULE_TITLE = 'Untitled module';
 
+interface LearningPlanMigrationResult {
+  didChange: boolean;
+  plan: LearningPlan | null;
+}
+
+export interface SnapshotHydrationResult {
+  didChange: boolean;
+  snapshot: ProjectSnapshot;
+}
+
 const summarizeHydratedContent = (content: string) => ({
   hasCodeFence: /(^|\n)```/.test(content),
   length: content.length,
   preview: content.slice(0, HYDRATION_TRACE_PREVIEW_CHARS),
 });
 
-const migrateLegacyPlanShape = (raw: unknown): LearningPlan | null => {
-  if (!raw || typeof raw !== 'object') return null;
+const isApplicationExercisePlanningStatus = (
+  value: unknown
+): value is LearningPlan['applicationExercisePlanningStatus'] =>
+  value === 'not-run' || value === 'completed' || value === 'failed';
+
+const migrateLegacyPlanShape = (raw: unknown): LearningPlanMigrationResult => {
+  if (raw === null || raw === undefined) {
+    return { didChange: false, plan: null };
+  }
+  if (typeof raw !== 'object') {
+    return { didChange: true, plan: null };
+  }
+
   const plan = raw as Record<string, unknown>;
   if (Array.isArray(plan.modules)) {
+    const hasModernShape =
+      typeof plan.title === 'string' &&
+      typeof plan.summary === 'string' &&
+      isApplicationExercisePlanningStatus(plan.applicationExercisePlanningStatus);
+    if (hasModernShape) {
+      return { didChange: false, plan: raw as LearningPlan };
+    }
+
     return {
-      title: typeof plan.title === 'string' ? plan.title : '',
-      summary: typeof plan.summary === 'string' ? plan.summary : '',
-      modules: plan.modules as LearningPlan['modules'],
-      applicationExercisePlanningStatus:
-        (plan.applicationExercisePlanningStatus as LearningPlan['applicationExercisePlanningStatus']) ??
-        'not-run',
-      applicationExercisePlanningNotes: plan.applicationExercisePlanningNotes as string | undefined,
-      applicationExercisePlanningError:
-        plan.applicationExercisePlanningError as LearningPlan['applicationExercisePlanningError'],
-      backgroundMusicUrl: plan.backgroundMusicUrl as string | undefined,
-      generationNotes: plan.generationNotes as string | undefined,
+      didChange: true,
+      plan: {
+        ...plan,
+        title: typeof plan.title === 'string' ? plan.title : '',
+        summary: typeof plan.summary === 'string' ? plan.summary : '',
+        modules: plan.modules as LearningPlan['modules'],
+        applicationExercisePlanningStatus: isApplicationExercisePlanningStatus(
+          plan.applicationExercisePlanningStatus
+        )
+          ? plan.applicationExercisePlanningStatus
+          : 'not-run',
+      } as LearningPlan,
     };
   }
   if (Array.isArray(plan.sections)) {
     const sections = plan.sections as LearningSection[];
     return {
-      title: typeof plan.title === 'string' ? plan.title : '',
-      summary: typeof plan.summary === 'string' ? plan.summary : '',
-      modules: groupSectionsIntoModules(sections),
-      applicationExercisePlanningStatus: 'not-run',
-      backgroundMusicUrl: plan.backgroundMusicUrl as string | undefined,
-      generationNotes: plan.generationNotes as string | undefined,
+      didChange: true,
+      plan: {
+        title: typeof plan.title === 'string' ? plan.title : '',
+        summary: typeof plan.summary === 'string' ? plan.summary : '',
+        modules: groupSectionsIntoModules(sections),
+        applicationExercisePlanningStatus: 'not-run',
+        backgroundMusicUrl: plan.backgroundMusicUrl as string | undefined,
+        generationNotes: plan.generationNotes as string | undefined,
+      },
     };
   }
-  return null;
+  return { didChange: true, plan: null };
 };
 
 const buildSectionsFromSyllabus = (syllabus: SyllabusItem[]): LearningSection[] =>
@@ -174,13 +207,17 @@ export const resolveScreenStateForSnapshot = (
   return AppState.LIBRARY;
 };
 
-export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectSnapshot => {
-  const migratedPlan = migrateLegacyPlanShape(snapshot.learningPlan as unknown);
-  const cleanedPlan = migratedPlan ? removeTemporaryMiniLabLessons(migratedPlan) : null;
+export const prepareSnapshotForHydrationResult = (
+  snapshot: ProjectSnapshot
+): SnapshotHydrationResult => {
+  const migration = migrateLegacyPlanShape(snapshot.learningPlan as unknown);
+  const cleanedPlan = migration.plan ? removeTemporaryMiniLabLessons(migration.plan) : null;
   const repairedPlan = repairFlattenedLearnModePlan(cleanedPlan, snapshot);
   const normalizedPlan = normalizeLearningPlanContent(repairedPlan);
 
   const legacy = snapshot as unknown as Record<string, unknown>;
+  const hasLegacyLaboratory = Object.hasOwn(legacy, 'laboratory');
+  const hasLegacyActiveExercise = Object.hasOwn(legacy, 'activeLaboratoryExerciseId');
   if (legacy.laboratory) {
     pushNousDebugTrace('snapshot-hydration:dropped-legacy-laboratory', {});
   }
@@ -194,13 +231,33 @@ export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectS
     });
   }
 
+  const nextActiveSectionId = activeLesson?.id ?? null;
+  const didChange =
+    migration.didChange ||
+    cleanedPlan !== migration.plan ||
+    repairedPlan !== cleanedPlan ||
+    normalizedPlan !== repairedPlan ||
+    hasLegacyLaboratory ||
+    hasLegacyActiveExercise ||
+    nextActiveSectionId !== snapshot.activeSectionId;
+
+  if (!didChange) {
+    return { didChange: false, snapshot };
+  }
+
   const { laboratory: _laboratory, activeLaboratoryExerciseId: _activeLab, ...rest } = legacy;
   void _laboratory;
   void _activeLab;
 
   return {
-    ...(rest as unknown as ProjectSnapshot),
-    learningPlan: normalizedPlan,
-    activeSectionId: activeLesson?.id ?? null,
+    didChange: true,
+    snapshot: {
+      ...(rest as unknown as ProjectSnapshot),
+      learningPlan: normalizedPlan,
+      activeSectionId: nextActiveSectionId,
+    },
   };
 };
+
+export const prepareSnapshotForHydration = (snapshot: ProjectSnapshot): ProjectSnapshot =>
+  prepareSnapshotForHydrationResult(snapshot).snapshot;

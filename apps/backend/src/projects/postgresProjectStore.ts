@@ -298,14 +298,17 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   async touchProject(userId: string, id: ProjectId): Promise<void> {
-    const existing = await this.loadProject(userId, id);
     const existingMeta = await this.readProjectMeta(userId, id);
-    if (!existing || !existingMeta) {
+    if (!existingMeta) {
       return;
     }
 
     const touchedAt = timestampIso();
-    await this.writeProjectMeta(userId, buildProjectMeta(existing, existingMeta, { touchedAt }));
+    await this.writeProjectMeta(userId, {
+      ...existingMeta,
+      updatedAt: touchedAt,
+      lastOpenedAt: touchedAt,
+    });
   }
 
   async listFolders(userId: string): Promise<LibraryFolder[]> {

@@ -1,11 +1,76 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { prepareSnapshotForHydration } from '../../../../services/workspace/controller/snapshotHydration.ts';
-import { AppState, type ProjectSnapshot } from '../../../../types.ts';
+import { createProjectSnapshot } from '../../../../services/projects/projectSnapshot.ts';
+import {
+  prepareSnapshotForHydration,
+  prepareSnapshotForHydrationResult,
+} from '../../../../services/workspace/controller/snapshotHydration.ts';
+import { AppState, type LearningPlan, type ProjectSnapshot } from '../../../../types.ts';
 import { flattenLessons, flattenPathNodes } from '../../../../utils/learning/pathNodes.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../../helpers/learningPlan.ts';
 
 const CURRENT_LEGACY_LABORATORY_SCHEMA_VERSION = 3;
+
+test('prepareSnapshotForHydrationResult preserves unchanged modern snapshots by reference', () => {
+  const originalPlan = buildTestLearningPlan(
+    [
+      buildTestLesson({
+        id: 'lesson-stable',
+        content: '# Contenuto pronto',
+      }),
+    ],
+    { title: 'Reti', summary: 'Fondamenti' }
+  );
+  const reorderedPlan: LearningPlan = {
+    title: originalPlan.title,
+    modules: originalPlan.modules,
+    summary: originalPlan.summary,
+    generationNotes: 'Usa esempi concreti.',
+    applicationExercisePlanningStatus: originalPlan.applicationExercisePlanningStatus,
+  };
+  const snapshot = createProjectSnapshot({
+    id: 'project-stable',
+    learningPlan: reorderedPlan,
+    state: AppState.READING,
+    activeSectionId: 'lesson-stable',
+  });
+
+  const result = prepareSnapshotForHydrationResult(snapshot);
+
+  assert.equal(result.didChange, false);
+  assert.equal(result.snapshot, snapshot);
+  assert.equal(result.snapshot.learningPlan, reorderedPlan);
+});
+
+test('prepareSnapshotForHydrationResult reports legacy plan migrations explicitly', () => {
+  const snapshot = {
+    ...createProjectSnapshot({
+      id: 'project-legacy-plan',
+      state: AppState.READING,
+    }),
+    learningPlan: {
+      title: 'Reti',
+      summary: 'Fondamenti',
+      sections: [
+        {
+          id: 'legacy-lesson',
+          title: 'Comunicazione',
+          description: 'Introduzione',
+          isCompleted: false,
+          type: 'core',
+          content: '# Contenuto pronto',
+        },
+      ],
+    },
+  } as unknown as ProjectSnapshot;
+
+  const result = prepareSnapshotForHydrationResult(snapshot);
+
+  assert.equal(result.didChange, true);
+  assert.notEqual(result.snapshot, snapshot);
+  assert.equal(result.snapshot.learningPlan?.modules.length, 1);
+  assert.equal(result.snapshot.activeSectionId, 'legacy-lesson');
+});
 
 test('prepareSnapshotForHydration normalizes persisted lesson markdown code blocks', () => {
   const snapshot: ProjectSnapshot = {

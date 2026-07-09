@@ -791,6 +791,91 @@ test('openProject starts document assessment when a stored project has a source 
   assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
+test('openProject does not persist unchanged modern snapshots with reordered plan keys', async () => {
+  const originalPlan = buildPlan({
+    title: 'Reti',
+    summary: 'Fondamenti',
+    sections: [
+      buildTestLesson({
+        id: 'lesson-stable',
+        content: '# Contenuto pronto',
+      }),
+    ],
+  });
+  const reorderedPlan: LearningPlan = {
+    title: originalPlan.title,
+    modules: originalPlan.modules,
+    summary: originalPlan.summary,
+    generationNotes: 'Usa esempi concreti.',
+    applicationExercisePlanningStatus: originalPlan.applicationExercisePlanningStatus,
+  };
+  const snapshot = createProjectSnapshot({
+    id: 'project-stable',
+    learningPlan: reorderedPlan,
+    state: AppState.READING,
+    activeSectionId: 'lesson-stable',
+  });
+  const { controller, projectLibrary } = createControllerHarness({
+    loadedSnapshot: snapshot,
+  });
+
+  const result = await controller.openProject('project-stable');
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(projectLibrary.persistedSnapshots.length, 0);
+});
+
+test('openProject does not wait for a real hydration migration to be persisted', async () => {
+  const snapshot = {
+    ...createProjectSnapshot({
+      id: 'project-legacy-plan',
+      state: AppState.READING,
+    }),
+    learningPlan: {
+      title: 'Reti',
+      summary: 'Fondamenti',
+      sections: [
+        {
+          id: 'legacy-lesson',
+          title: 'Comunicazione',
+          description: 'Introduzione',
+          isCompleted: false,
+          type: 'core',
+          content: '# Contenuto pronto',
+        },
+      ],
+    },
+  } as unknown as ProjectSnapshot;
+  let releasePersistence: (() => void) | undefined;
+  let notifyPersistenceStarted: (() => void) | undefined;
+  const persistenceGate = new Promise<void>(resolve => {
+    releasePersistence = resolve;
+  });
+  const persistenceStarted = new Promise<void>(resolve => {
+    notifyPersistenceStarted = resolve;
+  });
+  const { controller, state } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    projectLibrary: {
+      persistSnapshot: async persistedSnapshot => {
+        notifyPersistenceStarted?.();
+        await persistenceGate;
+        return buildMeta(persistedSnapshot.id);
+      },
+    },
+  });
+
+  const outcome = await Promise.race([
+    controller.openProject('project-legacy-plan').then(result => result.outcome),
+    new Promise(resolve => setTimeout(() => resolve('timeout'), 0)),
+  ]);
+
+  assert.equal(outcome, 'opened');
+  assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
+  await persistenceStarted;
+  releasePersistence?.();
+});
+
 test('openProject hydrates pdf mappings before applying a stored plan', async () => {
   const snapshot = createProjectSnapshot({
     id: 'project-pdf',
