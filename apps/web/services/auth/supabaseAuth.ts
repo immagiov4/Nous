@@ -11,6 +11,7 @@ export interface SupabaseUserSession {
 interface SupabaseAuthResponse {
   access_token?: string;
   expires_at?: number;
+  expires_in?: number;
   refresh_token?: string;
   user?: {
     email?: string;
@@ -19,10 +20,13 @@ interface SupabaseAuthResponse {
 }
 
 const SUPABASE_SESSION_STORAGE_KEY = 'nousSupabaseSession';
+const SUPABASE_SESSION_CHANGE_EVENT = 'nous:supabase-session-change';
 const SESSION_EXPIRY_SKEW_SECONDS = 30;
+export const SUPABASE_SESSION_REFRESH_RETRY_MS = 30_000;
 const LOCAL_AUTH_MODE = 'local-bypass';
 const SUPABASE_AUTH_MODE = 'supabase';
 let memorySession: string | null = null;
+let refreshSessionPromise: Promise<SupabaseUserSession | null> | null = null;
 
 export const getFrontendAuthMode = (): 'local-bypass' | 'supabase' | 'unconfigured' => {
   const configuredMode = import.meta.env.VITE_AUTH_MODE?.trim();
@@ -61,21 +65,28 @@ const getSupabaseAuthConfig = () => {
   };
 };
 
-const normalizeSession = (response: SupabaseAuthResponse): SupabaseUserSession => {
+const normalizeSession = (
+  response: SupabaseAuthResponse,
+  previousSession?: SupabaseUserSession
+): SupabaseUserSession => {
   if (!response.access_token) {
     throw new Error('Supabase Auth did not return an access token.');
   }
 
   return {
     accessToken: response.access_token,
-    expiresAt: response.expires_at,
-    refreshToken: response.refresh_token,
+    expiresAt:
+      response.expires_at ||
+      (response.expires_in
+        ? Math.floor(Date.now() / 1000) + response.expires_in
+        : previousSession?.expiresAt),
+    refreshToken: response.refresh_token || previousSession?.refreshToken,
     user: response.user?.id
       ? {
           id: response.user.id,
           email: response.user.email,
         }
-      : undefined,
+      : previousSession?.user,
   };
 };
 
@@ -87,6 +98,12 @@ const isSessionExpired = (session: SupabaseUserSession): boolean => {
   return session.expiresAt <= Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SKEW_SECONDS;
 };
 
+const notifySupabaseSessionChange = (): void => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(SUPABASE_SESSION_CHANGE_EVENT));
+  }
+};
+
 export const readSupabaseSession = (): SupabaseUserSession | null => {
   const storage = getStorage();
   const rawSession = storage?.getItem(SUPABASE_SESSION_STORAGE_KEY) ?? memorySession;
@@ -96,7 +113,7 @@ export const readSupabaseSession = (): SupabaseUserSession | null => {
 
   try {
     const parsed = JSON.parse(rawSession) as SupabaseUserSession;
-    if (!parsed.accessToken || isSessionExpired(parsed)) {
+    if (!parsed.accessToken || (isSessionExpired(parsed) && !parsed.refreshToken)) {
       clearSupabaseSession();
       return null;
     }
@@ -115,19 +132,24 @@ export const saveSupabaseSession = (session: SupabaseUserSession): void => {
   if (storage) {
     storage.setItem(SUPABASE_SESSION_STORAGE_KEY, serializedSession);
     memorySession = null;
+    notifySupabaseSessionChange();
     return;
   }
 
   memorySession = serializedSession;
+  notifySupabaseSessionChange();
 };
 
 export const clearSupabaseSession = (): void => {
   getStorage()?.removeItem(SUPABASE_SESSION_STORAGE_KEY);
   memorySession = null;
+  notifySupabaseSessionChange();
 };
 
-export const getSupabaseAccessToken = (): string | null =>
-  readSupabaseSession()?.accessToken || null;
+export const getSupabaseAccessToken = (): string | null => {
+  const session = readSupabaseSession();
+  return session && !isSessionExpired(session) ? session.accessToken : null;
+};
 
 export const getSupabaseAuthHeaders = (): HeadersInit => {
   const accessToken = getSupabaseAccessToken();
@@ -138,6 +160,146 @@ export const mergeSupabaseAuthHeaders = (headers: HeadersInit | undefined = {}):
   ...Object.fromEntries(new Headers(headers).entries()),
   ...getSupabaseAuthHeaders(),
 });
+
+const requestRefreshedSupabaseSession = async (
+  session: SupabaseUserSession
+): Promise<SupabaseUserSession | null> => {
+  if (!session.refreshToken) {
+    clearSupabaseSession();
+    return null;
+  }
+
+  const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
+  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: {
+      apikey: anonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ refresh_token: session.refreshToken }),
+  });
+
+  if (!response.ok) {
+    if (response.status === 400 || response.status === 401) {
+      clearSupabaseSession();
+      return null;
+    }
+    throw new Error('Aggiornamento sessione temporaneamente non disponibile.');
+  }
+
+  try {
+    const refreshedSession = normalizeSession(
+      (await response.json()) as SupabaseAuthResponse,
+      session
+    );
+    saveSupabaseSession(refreshedSession);
+    return refreshedSession;
+  } catch {
+    clearSupabaseSession();
+    return null;
+  }
+};
+
+export const refreshSupabaseSession = (): Promise<SupabaseUserSession | null> => {
+  if (refreshSessionPromise) {
+    return refreshSessionPromise;
+  }
+
+  const session = readSupabaseSession();
+  if (!session?.refreshToken) {
+    clearSupabaseSession();
+    return Promise.resolve(null);
+  }
+
+  refreshSessionPromise = requestRefreshedSupabaseSession(session).finally(() => {
+    refreshSessionPromise = null;
+  });
+  return refreshSessionPromise;
+};
+
+export const getValidSupabaseSession = async (): Promise<SupabaseUserSession | null> => {
+  const session = readSupabaseSession();
+  if (!session) {
+    return null;
+  }
+
+  return isSessionExpired(session) ? refreshSupabaseSession() : session;
+};
+
+const buildAuthenticatedHeaders = (
+  headers: HeadersInit | undefined,
+  session: SupabaseUserSession | null
+): HeadersInit => ({
+  ...Object.fromEntries(new Headers(headers).entries()),
+  ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+});
+
+export const fetchWithSupabaseAuth = async (
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> => {
+  const session = await getValidSupabaseSession();
+  const sendRequest = (requestSession: SupabaseUserSession | null) =>
+    fetch(input, {
+      ...init,
+      headers: buildAuthenticatedHeaders(init.headers, requestSession),
+    });
+
+  const response = await sendRequest(session);
+  if (response.status !== 401) {
+    return response;
+  }
+
+  const refreshedSession = await refreshSupabaseSession();
+  if (!refreshedSession) {
+    return response;
+  }
+
+  const retryResponse = await sendRequest(refreshedSession);
+  if (retryResponse.status === 401) {
+    clearSupabaseSession();
+  }
+  return retryResponse;
+};
+
+export const scheduleSupabaseSessionRefresh = (
+  session: SupabaseUserSession,
+  refresh: () => void | Promise<void>
+): (() => void) => {
+  if (!session.expiresAt || !session.refreshToken) {
+    return () => {};
+  }
+
+  const refreshAt = session.expiresAt * 1000 - SESSION_EXPIRY_SKEW_SECONDS * 1000;
+  const timeoutId = globalThis.setTimeout(
+    () => {
+      void refresh();
+    },
+    Math.max(0, refreshAt - Date.now())
+  );
+  return () => globalThis.clearTimeout(timeoutId);
+};
+
+export const subscribeToSupabaseSession = (
+  listener: (session: SupabaseUserSession | null) => void
+): (() => void) => {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  const handleSessionChange = () => listener(readSupabaseSession());
+  const handleStorageChange = (event: StorageEvent) => {
+    if (event.key === SUPABASE_SESSION_STORAGE_KEY) {
+      handleSessionChange();
+    }
+  };
+  window.addEventListener(SUPABASE_SESSION_CHANGE_EVENT, handleSessionChange);
+  window.addEventListener('storage', handleStorageChange);
+  return () => {
+    window.removeEventListener(SUPABASE_SESSION_CHANGE_EVENT, handleSessionChange);
+    window.removeEventListener('storage', handleStorageChange);
+  };
+};
 
 export const signInWithPassword = async ({
   email,

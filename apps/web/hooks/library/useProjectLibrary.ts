@@ -85,6 +85,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const refreshSavedProjects = useCallback(async () => {
     const projects = await projectRepositoryRef.current.listProjects();
     setSavedProjects(sortProjects(projects));
+    setStorageError(null);
   }, []);
 
   const refreshLibraryOrganization = useCallback(async () => {

@@ -10,7 +10,7 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../../components/shared/ChatArtifactRenderer.tsx';
-import { mergeSupabaseAuthHeaders } from '../../services/auth/supabaseAuth.ts';
+import { fetchWithSupabaseAuth } from '../../services/auth/supabaseAuth.ts';
 import {
   executeLibraryAssistantTool,
   LIBRARY_ASSISTANT_TOOL_NAMES,
@@ -240,6 +240,7 @@ export const useLibraryAssistantChat = ({
     () =>
       new DefaultChatTransport<LibraryAssistantMessage>({
         api: `${getBackendUrl()}/api/chat/library`,
+        fetch: fetchWithSupabaseAuth,
         // `useChat` keeps the initial transport instance, so request data must come from a ref.
         prepareSendMessagesRequest: ({ headers, id, messages }) => {
           const requestState = libraryAssistantRequestStateStore.get(requestStateKey);
@@ -254,7 +255,7 @@ export const useLibraryAssistantChat = ({
           } = requestState;
 
           return {
-            headers: mergeSupabaseAuthHeaders(headers),
+            headers,
             body: {
               attachedContextRefs: currentAttachedContextRefs,
               id,

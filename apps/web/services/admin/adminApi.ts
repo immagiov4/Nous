@@ -1,4 +1,4 @@
-import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
+import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 
 export interface AdminUser {
@@ -63,11 +63,10 @@ const readAdminResponse = async <T>(response: Response): Promise<T> => {
 
 const requestAdmin = async <T>(path: string, init: RequestInit = {}): Promise<T> =>
   readAdminResponse<T>(
-    await fetch(`${getBackendUrl()}${path}`, {
+    await fetchWithSupabaseAuth(`${getBackendUrl()}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
-        ...getSupabaseAuthHeaders(),
         ...init.headers,
       },
     })

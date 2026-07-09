@@ -9,7 +9,7 @@
  * - Notifies callbacks on success/failure for sync-state tracking.
  */
 
-import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
+import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getErrorMessage } from '../core/errorMessage.ts';
 
 export type PatchOperation = {
@@ -52,9 +52,9 @@ const buildPatchUrl = (projectId: string): string =>
   `${getBackendUrl()}/api/projects/projects/${encodeURIComponent(projectId)}`;
 
 const sendPatch = async (item: QueuedItem): Promise<void> => {
-  const response = await fetch(buildPatchUrl(item.projectId), {
+  const response = await fetchWithSupabaseAuth(buildPatchUrl(item.projectId), {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...getSupabaseAuthHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ patch: item.body }),
   });
 

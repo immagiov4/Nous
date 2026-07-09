@@ -24,7 +24,7 @@ import {
   useState,
 } from 'react';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
-import { mergeSupabaseAuthHeaders } from '../../../services/auth/supabaseAuth.ts';
+import { fetchWithSupabaseAuth } from '../../../services/auth/supabaseAuth.ts';
 import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { getBackendUrl } from '../../../services/openrouter/config.ts';
@@ -374,6 +374,7 @@ function ContextAnswerPanelSession({
     () =>
       new DefaultChatTransport<ContextChatMessage>({
         api: `${getBackendUrl()}/api/chat/context`,
+        fetch: fetchWithSupabaseAuth,
         // `useChat` keeps the initial transport instance, so request data must come from a ref.
         prepareSendMessagesRequest: ({ headers, id, messages }) => {
           const currentRequestState = contextRequestStateStore.get(requestStateKey);
@@ -382,7 +383,7 @@ function ContextAnswerPanelSession({
           }
 
           return {
-            headers: mergeSupabaseAuthHeaders(headers),
+            headers,
             body: {
               id,
               messages,

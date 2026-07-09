@@ -2,7 +2,7 @@ import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } fr
 import { sanitizePartialPages } from '../../utils/pdf/sanitizePartialPages.ts';
 import { normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
-import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
+import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { isOpenRouterDataUrlInlineSafe } from './payloadLimits.ts';
 import {
   callOpenRouter,
@@ -310,11 +310,10 @@ const extractPdfImagesViaBackend = async (
   pages: PdfTextPage[],
   partialPages?: number[]
 ): Promise<PdfImageAsset[]> => {
-  const response = await fetch(`${getBackendUrl()}/api/pdf/extract-images`, {
+  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/pdf/extract-images`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...getSupabaseAuthHeaders(),
     },
     body: JSON.stringify({
       fileData: fileToDataUrl(file),
@@ -392,11 +391,10 @@ const extractPdfImagesViaBackend = async (
 };
 
 const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession> => {
-  const response = await fetch(`${getBackendUrl()}/api/pdf/extract-text`, {
+  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/pdf/extract-text`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...getSupabaseAuthHeaders(),
     },
     body: JSON.stringify({
       fileData: fileToDataUrl(file),

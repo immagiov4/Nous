@@ -146,6 +146,21 @@ describe('useProjectLibrary', () => {
     expect(result.current.savedProjects.map(project => project.id)).toEqual(['newer', 'older']);
   });
 
+  test('clears a stale synchronization error after metadata refresh succeeds', async () => {
+    repositoryMocks.listProjects.mockRejectedValueOnce(new Error('Sincronizzazione fallita'));
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+    );
+    await waitFor(() => expect(result.current.storageError).toBe('Sincronizzazione fallita'));
+    repositoryMocks.listProjects.mockResolvedValue([]);
+
+    await act(async () => {
+      await result.current.refreshSavedProjects();
+    });
+
+    expect(result.current.storageError).toBeNull();
+  });
+
   test('persistSnapshot syncs metadata and keeps the newest project first', async () => {
     repositoryMocks.listProjects.mockResolvedValue([
       buildMeta('older', '2026-04-01T10:00:00.000Z'),

@@ -1,12 +1,17 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import {
   consumeSupabaseSessionFromUrl,
+  getValidSupabaseSession,
   isLocalAuthBypassEnabled,
   isSupabaseAuthEnabled,
   readSupabaseSession,
+  refreshSupabaseSession,
+  SUPABASE_SESSION_REFRESH_RETRY_MS,
   type SupabaseUserSession,
+  scheduleSupabaseSessionRefresh,
   sendMagicLink,
   signInWithPassword,
+  subscribeToSupabaseSession,
 } from '../../services/auth/supabaseAuth.ts';
 
 interface AuthGateProps {
@@ -132,8 +137,59 @@ export default function AuthGate({ children }: AuthGateProps) {
       return;
     }
 
-    const nextSession = consumeSupabaseSessionFromUrl();
-    queueMicrotask(() => setSession(nextSession));
+    let isActive = true;
+    let cancelScheduledRefresh = () => {};
+
+    const scheduleSynchronizationRetry = () => {
+      cancelScheduledRefresh();
+      const retryId = globalThis.setTimeout(() => {
+        void synchronizeSession();
+      }, SUPABASE_SESSION_REFRESH_RETRY_MS);
+      cancelScheduledRefresh = () => globalThis.clearTimeout(retryId);
+    };
+
+    const applySession = (nextSession: SupabaseUserSession | null) => {
+      if (!isActive) {
+        return;
+      }
+
+      cancelScheduledRefresh();
+      setSession(nextSession);
+      cancelScheduledRefresh = nextSession
+        ? scheduleSupabaseSessionRefresh(nextSession, async () => {
+            try {
+              applySession(await refreshSupabaseSession());
+            } catch {
+              scheduleSynchronizationRetry();
+            }
+          })
+        : () => {};
+    };
+
+    const synchronizeSession = async () => {
+      try {
+        consumeSupabaseSessionFromUrl();
+        applySession(await getValidSupabaseSession());
+      } catch {
+        scheduleSynchronizationRetry();
+      }
+    };
+
+    const unsubscribe = subscribeToSupabaseSession(nextSession => {
+      applySession(nextSession);
+      if (nextSession?.refreshToken) {
+        void synchronizeSession();
+      }
+    });
+    queueMicrotask(() => {
+      void synchronizeSession();
+    });
+
+    return () => {
+      isActive = false;
+      cancelScheduledRefresh();
+      unsubscribe();
+    };
   }, []);
 
   if (isLocalAuthBypassEnabled() || session) {

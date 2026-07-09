@@ -8,7 +8,7 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types';
-import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
+import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 import type { ProjectRepository } from './projectRepository';
 import { ProjectStorageError } from './projectRepository';
@@ -261,12 +261,11 @@ export class HttpProjectRepository implements ProjectRepository {
     }, PROJECT_REQUEST_TIMEOUT_MS);
 
     try {
-      const response = await fetch(requestUrl, {
+      const response = await fetchWithSupabaseAuth(requestUrl, {
         ...init,
         cache: init.cache || 'no-store',
         headers: {
           'Content-Type': 'application/json',
-          ...getSupabaseAuthHeaders(),
           ...init.headers,
         },
         signal: init.signal || timeoutController.signal,

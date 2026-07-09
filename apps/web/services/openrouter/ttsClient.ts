@@ -1,4 +1,4 @@
-import { getSupabaseAuthHeaders } from '../auth/supabaseAuth.ts';
+import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 import type { TtsModelsResponse, TtsStatusResponse, TtsVoiceDescriptor } from './types.ts';
 
@@ -27,11 +27,10 @@ interface TtsVoicesResponse {
 export const requestSpeechAudio = async (
   payload: GenerateSpeechPayload
 ): Promise<SpeechAudioResponse> => {
-  const response = await fetch(`${getBackendUrl()}/api/tts`, {
+  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/tts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...getSupabaseAuthHeaders(),
     },
     body: JSON.stringify(payload),
   });
@@ -50,7 +49,7 @@ export const requestSpeechAudio = async (
 };
 
 export const requestTtsStatus = async (): Promise<TtsStatusResponse> => {
-  const response = await fetch(`${getBackendUrl()}/api/status`, {
+  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/status`, {
     method: 'GET',
     signal: AbortSignal.timeout(TTS_DISCOVERY_REQUEST_TIMEOUT_MS),
   });
@@ -63,7 +62,7 @@ export const requestTtsStatus = async (): Promise<TtsStatusResponse> => {
 };
 
 export const requestTtsVoices = async (): Promise<TtsVoiceDescriptor[]> => {
-  const response = await fetch(`${getBackendUrl()}/api/voices`, {
+  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/voices`, {
     method: 'GET',
     signal: AbortSignal.timeout(TTS_DISCOVERY_REQUEST_TIMEOUT_MS),
   });
@@ -77,9 +76,8 @@ export const requestTtsVoices = async (): Promise<TtsVoiceDescriptor[]> => {
 };
 
 export const requestTtsModels = async (): Promise<TtsModelsResponse> => {
-  const response = await fetch(`${getBackendUrl()}/api/tts/models`, {
+  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/tts/models`, {
     method: 'GET',
-    headers: getSupabaseAuthHeaders(),
     signal: AbortSignal.timeout(TTS_DISCOVERY_REQUEST_TIMEOUT_MS),
   });
 

@@ -45,10 +45,7 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
 }));
 
 vi.mock('../../../services/auth/supabaseAuth.ts', () => ({
-  mergeSupabaseAuthHeaders: (headers: HeadersInit = {}) => ({
-    ...Object.fromEntries(new Headers(headers).entries()),
-    Authorization: 'Bearer library-token',
-  }),
+  fetchWithSupabaseAuth: vi.fn(),
 }));
 
 const { useLibraryAssistantChat } = await import(
@@ -157,9 +154,8 @@ describe('useLibraryAssistantChat', () => {
     expect(
       (preparedRequest as { body?: Record<string, unknown> }).body?.modelOverride
     ).toBeUndefined();
-    expect((preparedRequest as { headers?: Record<string, string> }).headers).toMatchObject({
-      Authorization: 'Bearer library-token',
-      'x-existing-header': 'kept',
+    expect((preparedRequest as { headers?: Record<string, string> }).headers).toEqual({
+      'X-Existing-Header': 'kept',
     });
   });
 
