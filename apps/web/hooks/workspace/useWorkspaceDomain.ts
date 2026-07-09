@@ -1,6 +1,7 @@
 // fallow-ignore-file unused-files
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
+import { getProjectSourceFile } from '../../services/projects/projectSource.ts';
 import {
   createEmptyWorkspaceDomainState,
   selectActiveSection,
@@ -35,7 +36,7 @@ export const useWorkspaceDomain = () => {
   );
 
   const source = domainState.source;
-  const file = useMemo(() => (source?.kind === 'pdf' ? source.file : null), [source]);
+  const file = useMemo(() => getProjectSourceFile(source), [source]);
   const learningPlan = domainState.learningPlan;
   const documentAssets = domainState.documentAssets;
   const documentIndex = domainState.documentIndex;

@@ -2,6 +2,7 @@ import * as OpenRouterService from '../../../services/openrouter/index.ts';
 import {
   detectSourceFileKind,
   encodeBytesBase64,
+  getProjectSourceFile,
   isPdfFileData,
   normalizeSourceFileMimeType,
 } from '../../../services/projects/projectSource.ts';
@@ -16,6 +17,31 @@ const createSleep = (ms: number) =>
 
 const scheduleHydrationWithMicrotask = (callback: () => void) => {
   queueMicrotask(callback);
+};
+
+export const loadProjectSourceFile = async (
+  context: Pick<WorkspaceControllerContext, 'domain' | 'projectLibrary'>
+): Promise<FileData | null> => {
+  const currentFile = context.domain.file?.data
+    ? context.domain.file
+    : getProjectSourceFile(context.domain.source);
+  if (currentFile) {
+    return currentFile;
+  }
+
+  const source = context.domain.source;
+  const projectId = context.projectLibrary.currentProjectId;
+  if (source?.kind !== 'pdf' || !projectId) {
+    return null;
+  }
+
+  const loadedFile = await context.projectLibrary.loadStoredProjectSource(projectId);
+  if (!loadedFile) {
+    return null;
+  }
+
+  context.domain.setSource({ ...source, file: loadedFile });
+  return loadedFile;
 };
 
 export const readSourceFileData = async (file: File): Promise<FileData> => {

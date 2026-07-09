@@ -305,9 +305,13 @@ export const createProjectLifecycleCommands = (
         let prepared: Awaited<ReturnType<typeof context.preparePdfLessonPlan>> | null = null;
 
         try {
+          const hydrationSourceFile =
+            snapshotFile?.data || snapshot.source?.kind !== 'pdf'
+              ? snapshotFile
+              : await projectLibrary.loadStoredProjectSource(projectId);
           prepared = await withTimeoutFallback(
             context.preparePdfLessonPlan(
-              snapshotFile,
+              hydrationSourceFile,
               snapshot.learningPlan as LearningPlan,
               snapshot.documentIndex
             ),
@@ -395,7 +399,10 @@ export const createProjectLifecycleCommands = (
             projectId,
             requestId,
           });
-          await startAssessment({ file: preparedSnapshot.source.file });
+          const assessmentFile =
+            getProjectSourceFile(preparedSnapshot.source) ??
+            (await projectLibrary.loadStoredProjectSource(projectId));
+          await startAssessment({ file: assessmentFile });
         }
       } else if (preparedSnapshot.learningPlan) {
         const nextSnapshotFile = getProjectSourceFile(preparedSnapshot.source);
@@ -404,16 +411,23 @@ export const createProjectLifecycleCommands = (
           preparedSnapshot.activeSectionId
         );
         if (nextSection && (!nextSection.content || nextSection.content.length === 0)) {
-          void openSection(nextSection, {
-            allowWhileBlocking: true,
-            currentDocumentAssets: preparedSnapshot.documentAssets ?? null,
-            currentDocumentIndex: preparedSnapshot.documentIndex ?? null,
-            currentPlan: preparedSnapshot.learningPlan,
-            currentSourceFile: nextSnapshotFile ?? undefined,
-            currentSyllabus: preparedSnapshot.syllabus,
-            currentUserProfile: preparedSnapshot.userProfile,
-            isLearnMode: preparedSnapshot.isLearnMode,
-          }).catch(error => {
+          void (async () => {
+            const sourceFile =
+              nextSnapshotFile ??
+              (preparedSnapshot.source?.kind === 'pdf'
+                ? await projectLibrary.loadStoredProjectSource(projectId)
+                : null);
+            await openSection(nextSection, {
+              allowWhileBlocking: true,
+              currentDocumentAssets: preparedSnapshot.documentAssets ?? null,
+              currentDocumentIndex: preparedSnapshot.documentIndex ?? null,
+              currentPlan: preparedSnapshot.learningPlan,
+              currentSourceFile: sourceFile,
+              currentSyllabus: preparedSnapshot.syllabus,
+              currentUserProfile: preparedSnapshot.userProfile,
+              isLearnMode: preparedSnapshot.isLearnMode,
+            });
+          })().catch(error => {
             pushNousDebugTrace('open-project:background-section-load-failed', {
               errorMessage: getErrorMessage(error),
               projectId,

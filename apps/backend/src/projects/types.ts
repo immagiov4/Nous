@@ -71,6 +71,20 @@ export interface ProjectExportData extends ProjectSnapshot {
   musicUrl?: string;
 }
 
+export interface ProjectSourceFile {
+  data: string;
+  mimeType: string;
+  name: string;
+}
+
+export interface ProjectSourceRef {
+  byteSize: number;
+  hash: string;
+  id: string;
+  mimeType: string;
+  name: string;
+}
+
 export interface ProjectStore {
   createFolder: (
     userId: string,
@@ -88,6 +102,7 @@ export interface ProjectStore {
   listPlacements: (userId: string) => Promise<LibraryPlacement[]>;
   listProjects: (userId: string) => Promise<SavedProjectMeta[]>;
   loadProject: (userId: string, id: ProjectId) => Promise<ProjectSnapshot | null>;
+  loadProjectSource: (userId: string, id: ProjectId) => Promise<ProjectSourceFile | null>;
   loadProjectsById: (userId: string, ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
   moveFolder: (
     userId: string,
@@ -103,6 +118,11 @@ export interface ProjectStore {
   ) => Promise<LibraryPlacement[]>;
   renameFolder: (userId: string, folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveProject: (userId: string, snapshot: ProjectSnapshot) => Promise<SavedProjectMeta>;
+  saveProjectSource: (
+    userId: string,
+    id: ProjectId,
+    source: ProjectSourceFile
+  ) => Promise<ProjectSourceRef>;
   patchProject: (userId: string, id: ProjectId, patch: ProjectPatch) => Promise<SavedProjectMeta>;
   touchProject: (userId: string, id: ProjectId) => Promise<void>;
 }

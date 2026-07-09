@@ -16,6 +16,12 @@ import {
   normalizeProjectSnapshot,
 } from './projectMeta.js';
 import {
+  attachProjectSource,
+  detachProjectSource,
+  prepareProjectSource,
+  readEmbeddedPdfSource,
+} from './projectSource.js';
+import {
   buildOrderedSiblingItems,
   collectFolderDescendantIds,
   insertMovedSiblingItems,
@@ -33,6 +39,8 @@ import type {
   ProjectId,
   ProjectPatch,
   ProjectSnapshot,
+  ProjectSourceFile,
+  ProjectSourceRef,
   ProjectStore,
   SavedProjectMeta,
   SectionPatch,
@@ -49,6 +57,12 @@ interface ProjectRow {
 interface SnapshotRow {
   snapshot_json: string;
   updated_at: string;
+}
+
+interface ProjectSourceRow {
+  data: Uint8Array;
+  mime_type: string;
+  name: string;
 }
 
 interface FolderRow {
@@ -200,7 +214,71 @@ export class SqliteProjectStore implements ProjectStore {
       .prepare('select snapshot_json from project_snapshots where user_id = ? and id = ?')
       .get(userId, id) as SnapshotRow | undefined;
 
-    return row ? normalizeProjectSnapshot(parseJson<ProjectSnapshot>(row.snapshot_json)) : null;
+    if (!row) {
+      return null;
+    }
+
+    const snapshot = normalizeProjectSnapshot(parseJson<ProjectSnapshot>(row.snapshot_json));
+    const embeddedSource = readEmbeddedPdfSource(snapshot);
+    if (!embeddedSource) {
+      return snapshot;
+    }
+
+    const ref = await this.saveProjectSource(userId, id, embeddedSource);
+    const detachedSnapshot = detachProjectSource(snapshot, ref);
+    this.writeSnapshot(userId, detachedSnapshot);
+    return detachedSnapshot;
+  }
+
+  async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {
+    const row = this.database
+      .prepare(
+        'select name, mime_type, data from project_sources where user_id = ? and project_id = ?'
+      )
+      .get(userId, id) as ProjectSourceRow | undefined;
+    if (!row) {
+      return null;
+    }
+
+    return {
+      name: row.name,
+      mimeType: row.mime_type,
+      data: Buffer.from(row.data).toString('base64'),
+    };
+  }
+
+  async saveProjectSource(
+    userId: string,
+    id: ProjectId,
+    source: ProjectSourceFile
+  ): Promise<ProjectSourceRef> {
+    const { bytes, ref } = prepareProjectSource(source);
+    this.database
+      .prepare(
+        `insert into project_sources
+           (user_id, project_id, source_id, source_hash, name, mime_type, byte_size, data, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         on conflict(user_id, project_id) do update set
+           source_id = excluded.source_id,
+           source_hash = excluded.source_hash,
+           name = excluded.name,
+           mime_type = excluded.mime_type,
+           byte_size = excluded.byte_size,
+           data = excluded.data,
+           updated_at = excluded.updated_at`
+      )
+      .run(
+        userId,
+        id,
+        ref.id,
+        ref.hash,
+        ref.name,
+        ref.mimeType,
+        ref.byteSize,
+        bytes,
+        timestampIso()
+      );
+    return ref;
   }
 
   async loadProjectsById(userId: string, ids: ProjectId[]): Promise<ProjectSnapshot[]> {
@@ -209,7 +287,14 @@ export class SqliteProjectStore implements ProjectStore {
   }
 
   async saveProject(userId: string, data: ProjectSnapshot): Promise<SavedProjectMeta> {
-    const snapshot = normalizeProjectSnapshot(data);
+    let snapshot = normalizeProjectSnapshot(data);
+    const embeddedSource = readEmbeddedPdfSource(snapshot);
+    if (embeddedSource) {
+      snapshot = detachProjectSource(
+        snapshot,
+        await this.saveProjectSource(userId, snapshot.id, embeddedSource)
+      );
+    }
     const existingSnapshot = this.readSnapshot(userId, snapshot.id);
     const existingMeta = this.readProjectMeta(userId, snapshot.id);
 
@@ -402,6 +487,9 @@ export class SqliteProjectStore implements ProjectStore {
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
     this.database
+      .prepare('delete from project_sources where user_id = ? and project_id = ?')
+      .run(userId, id);
+    this.database
       .prepare('delete from project_snapshots where user_id = ? and id = ?')
       .run(userId, id);
     this.database.prepare('delete from projects where user_id = ? and id = ?').run(userId, id);
@@ -416,12 +504,17 @@ export class SqliteProjectStore implements ProjectStore {
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
     const snapshot = normalizeProjectSnapshot(data, true);
     const meta = await this.saveProject(userId, snapshot);
-    return { meta, snapshot };
+    return { meta, snapshot: (await this.loadProject(userId, snapshot.id)) || snapshot };
   }
 
   async exportProject(userId: string, id: ProjectId): Promise<ProjectExportData | null> {
     const snapshot = await this.loadProject(userId, id);
-    return snapshot;
+    if (!snapshot) {
+      return null;
+    }
+
+    const source = await this.loadProjectSource(userId, id);
+    return source ? attachProjectSource(snapshot, source) : snapshot;
   }
 
   async touchProject(userId: string, id: ProjectId): Promise<void> {
@@ -750,6 +843,19 @@ export class SqliteProjectStore implements ProjectStore {
         primary key (user_id, id)
       );
 
+      create table if not exists project_sources (
+        user_id text not null,
+        project_id text not null,
+        source_id text not null,
+        source_hash text not null,
+        name text not null,
+        mime_type text not null,
+        byte_size integer not null,
+        data blob not null,
+        updated_at text not null,
+        primary key (user_id, project_id)
+      );
+
       create table if not exists library_folders (
         user_id text not null,
         id text not null,
@@ -819,6 +925,16 @@ export class SqliteProjectStore implements ProjectStore {
       .get(userId, id) as SnapshotRow | undefined;
 
     return row ? normalizeProjectSnapshot(parseJson<ProjectSnapshot>(row.snapshot_json)) : null;
+  }
+
+  private writeSnapshot(userId: string, snapshot: ProjectSnapshot): void {
+    this.database
+      .prepare(
+        `update project_snapshots
+         set snapshot_json = ?, updated_at = ?, server_updated_at = ?
+         where user_id = ? and id = ?`
+      )
+      .run(JSON.stringify(snapshot), snapshot.updatedAt, timestampIso(), userId, snapshot.id);
   }
 
   private readFolders(userId: string): LibraryFolder[] {

@@ -7,6 +7,12 @@ import { isRecord } from '../utils/validation.js';
 import { resolveAvailableFolderName } from './folderNames.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
 import {
+  attachProjectSource,
+  detachProjectSource,
+  prepareProjectSource,
+  readEmbeddedPdfSource,
+} from './projectSource.js';
+import {
   buildOrderedSiblingItems,
   collectFolderDescendantIds,
   insertMovedSiblingItems,
@@ -24,6 +30,8 @@ import type {
   ProjectId,
   ProjectPatch,
   ProjectSnapshot,
+  ProjectSourceFile,
+  ProjectSourceRef,
   ProjectStore,
   SavedProjectMeta,
   SectionPatch,
@@ -40,6 +48,12 @@ interface ProjectMetaRow {
 interface ProjectSnapshotRow {
   document_index: unknown | null;
   snapshot: Omit<ProjectSnapshot, 'documentIndex'>;
+}
+
+interface ProjectSourceRow {
+  data: Uint8Array;
+  mime_type: string;
+  name: string;
 }
 
 interface FolderRow {
@@ -167,7 +181,66 @@ export class PostgresProjectStore implements ProjectStore {
       limit 1
     `;
 
-    return rows[0] ? mergeSnapshot(rows[0]) : null;
+    if (!rows[0]) {
+      return null;
+    }
+
+    const snapshot = mergeSnapshot(rows[0]);
+    const embeddedSource = readEmbeddedPdfSource(snapshot);
+    if (!embeddedSource) {
+      return snapshot;
+    }
+
+    const ref = await this.saveProjectSource(userId, id, embeddedSource);
+    const detachedSnapshot = detachProjectSource(snapshot, ref);
+    const { snapshotWithoutDocumentIndex } = splitSnapshot(detachedSnapshot);
+    await this.sql`
+      update public.project_snapshots
+      set snapshot = ${this.sql.json(toPostgresJson(snapshotWithoutDocumentIndex))},
+          server_updated_at = now()
+      where user_id = ${userId} and id = ${id}
+    `;
+    return detachedSnapshot;
+  }
+
+  async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {
+    const rows = await this.sql<ProjectSourceRow[]>`
+      select name, mime_type, data
+      from public.project_sources
+      where user_id = ${userId} and project_id = ${id}
+      limit 1
+    `;
+    const row = rows[0];
+    return row
+      ? {
+          name: row.name,
+          mimeType: row.mime_type,
+          data: Buffer.from(row.data).toString('base64'),
+        }
+      : null;
+  }
+
+  async saveProjectSource(
+    userId: string,
+    id: ProjectId,
+    source: ProjectSourceFile
+  ): Promise<ProjectSourceRef> {
+    const { bytes, ref } = prepareProjectSource(source);
+    await this.sql`
+      insert into public.project_sources
+        (user_id, project_id, source_id, source_hash, name, mime_type, byte_size, data, updated_at)
+      values
+        (${userId}, ${id}, ${ref.id}, ${ref.hash}, ${ref.name}, ${ref.mimeType}, ${ref.byteSize}, ${bytes}, now())
+      on conflict (user_id, project_id) do update set
+        source_id = excluded.source_id,
+        source_hash = excluded.source_hash,
+        name = excluded.name,
+        mime_type = excluded.mime_type,
+        byte_size = excluded.byte_size,
+        data = excluded.data,
+        updated_at = excluded.updated_at
+    `;
+    return ref;
   }
 
   async loadProjectsById(userId: string, ids: ProjectId[]): Promise<ProjectSnapshot[]> {
@@ -176,7 +249,14 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   async saveProject(userId: string, data: ProjectSnapshot): Promise<SavedProjectMeta> {
-    const snapshot = normalizeProjectSnapshot(data);
+    let snapshot = normalizeProjectSnapshot(data);
+    const embeddedSource = readEmbeddedPdfSource(snapshot);
+    if (embeddedSource) {
+      snapshot = detachProjectSource(
+        snapshot,
+        await this.saveProjectSource(userId, snapshot.id, embeddedSource)
+      );
+    }
     const existingSnapshot = await this.loadProject(userId, snapshot.id);
     const existingMeta = await this.readProjectMeta(userId, snapshot.id);
 
@@ -279,6 +359,10 @@ export class PostgresProjectStore implements ProjectStore {
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
     await this.sql`
+      delete from public.project_sources
+      where user_id = ${userId} and project_id = ${id}
+    `;
+    await this.sql`
       delete from public.projects
       where user_id = ${userId} and id = ${id}
     `;
@@ -290,11 +374,17 @@ export class PostgresProjectStore implements ProjectStore {
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
     const snapshot = normalizeProjectSnapshot(data, true);
     const meta = await this.saveProject(userId, snapshot);
-    return { meta, snapshot };
+    return { meta, snapshot: (await this.loadProject(userId, snapshot.id)) || snapshot };
   }
 
   async exportProject(userId: string, id: ProjectId): Promise<ProjectExportData | null> {
-    return this.loadProject(userId, id);
+    const snapshot = await this.loadProject(userId, id);
+    if (!snapshot) {
+      return null;
+    }
+
+    const source = await this.loadProjectSource(userId, id);
+    return source ? attachProjectSource(snapshot, source) : snapshot;
   }
 
   async touchProject(userId: string, id: ProjectId): Promise<void> {

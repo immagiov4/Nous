@@ -22,7 +22,7 @@ import {
   type UserProfile,
 } from '../../../types.ts';
 import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
-import { readSourceFileData } from './controllerContext.ts';
+import { loadProjectSourceFile, readSourceFileData } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -385,7 +385,7 @@ export const createAssessmentPlanningCommands = (
           );
         }
       } else {
-        const sourceFile = domain.file ?? getProjectSourceFile(domain.source);
+        const sourceFile = await loadProjectSourceFile(context);
         if (!sourceFile) {
           throw new Error('Missing source file for plan generation');
         }

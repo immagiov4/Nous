@@ -325,7 +325,7 @@ export const getProjectSourceFile = (source: ProjectSource | null | undefined): 
   }
 
   if (source.kind === 'pdf') {
-    return source.file;
+    return source.file.data ? source.file : null;
   }
 
   return {

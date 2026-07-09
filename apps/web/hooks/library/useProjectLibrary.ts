@@ -10,7 +10,10 @@ import {
   createProjectRepository,
   type ProjectRepositoryMode,
 } from '../../services/projects/projectRepositoryFactory';
-import { createProjectSnapshot } from '../../services/projects/projectSnapshot';
+import {
+  createProjectSnapshot,
+  normalizeImportedProject,
+} from '../../services/projects/projectSnapshot';
 import { markSyncError, markSyncSaved, markSyncSaving } from '../../services/projects/syncState.ts';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
@@ -480,22 +483,19 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         return;
       }
 
-      const exportData =
-        targetProjectId === currentProjectId
-          ? buildSnapshotFromDomain()
-          : await projectRepositoryRef.current.loadProject(targetProjectId);
+      const exportData = await projectRepositoryRef.current.exportProject(targetProjectId);
 
       if (!exportData) {
         return;
       }
 
-      const archive = await createProjectArchiveBlob(exportData);
+      const archive = await createProjectArchiveBlob(normalizeImportedProject(exportData));
       downloadBlob(
         archive,
         `nous-backup-${timestampIso().slice(0, 10)}${getProjectArchiveExtension()}`
       );
     },
-    [buildSnapshotFromDomain, currentProjectId, downloadBlob]
+    [currentProjectId, downloadBlob]
   );
 
   useEffect(() => {
@@ -585,6 +585,8 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
     libraryTree,
     loadProjectsById: (ids: string[]) => projectRepositoryRef.current.loadProjectsById(ids),
     loadStoredProject: (projectId: string) => projectRepositoryRef.current.loadProject(projectId),
+    loadStoredProjectSource: (projectId: string) =>
+      projectRepositoryRef.current.loadProjectSource(projectId),
     moveFolder: async (folderId: string, parentFolderId: string | null, targetIndex?: number) => {
       const nextFolder = await projectRepositoryRef.current.moveFolder(
         folderId,

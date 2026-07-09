@@ -1,4 +1,5 @@
 import type {
+  FileData,
   LibraryFolder,
   LibraryPlacement,
   ProjectExportData,
@@ -25,6 +26,7 @@ export interface ProjectRepository {
   listPlacements: () => Promise<LibraryPlacement[]>;
   listProjects: () => Promise<SavedProjectMeta[]>;
   loadProject: (id: ProjectId) => Promise<ProjectSnapshot | null>;
+  loadProjectSource: (id: ProjectId) => Promise<FileData | null>;
   loadProjectsById: (ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
   moveFolder: (
     folderId: string,
