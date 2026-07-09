@@ -101,6 +101,7 @@ export interface WorkspaceProjectLibraryAdapter {
   libraryTree: LibraryTree;
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
   loadStoredProject: (projectId: string) => Promise<ProjectSnapshot | null>;
+  loadStoredProjectSource: (projectId: string) => Promise<FileData | null>;
   moveFolder: (
     folderId: string,
     parentFolderId: string | null,

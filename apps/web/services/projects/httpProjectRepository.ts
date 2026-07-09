@@ -1,11 +1,13 @@
 // fallow-ignore-file unused-class-members — interface implementation methods
 import type {
+  FileData,
   LibraryFolder,
   LibraryPlacement,
   ProjectExportData,
   ProjectId,
   ProjectPatch,
   ProjectSnapshot,
+  ProjectSourceRef,
   SavedProjectMeta,
 } from '../../types';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
@@ -24,6 +26,8 @@ interface ApiResponse {
   placements?: LibraryPlacement[];
   project?: ProjectSnapshot | null;
   projects?: ProjectSnapshot[] | SavedProjectMeta[];
+  source?: FileData | null;
+  sourceRef?: ProjectSourceRef;
   snapshot?: ProjectSnapshot;
 }
 
@@ -117,6 +121,13 @@ export class HttpProjectRepository implements ProjectRepository {
     return response.project || null;
   }
 
+  async loadProjectSource(id: ProjectId): Promise<FileData | null> {
+    const response = await this.request<{ source?: FileData | null }>(
+      `/api/projects/projects/${encodeURIComponent(id)}/source`
+    );
+    return response.source || null;
+  }
+
   async loadProjectsById(ids: ProjectId[]): Promise<ProjectSnapshot[]> {
     const response = await this.request<{ projects?: ProjectSnapshot[] }>(
       '/api/projects/projects/by-id',
@@ -170,26 +181,43 @@ export class HttpProjectRepository implements ProjectRepository {
   }
 
   async saveProject(snapshot: ProjectSnapshot): Promise<SavedProjectMeta> {
-    // Strip the PDF base64 from the autosave payload — it doesn't change after
-    // import and would otherwise resend ~100 MB on every debounced save,
-    // OOM-crashing the browser tab. The backend preserves the existing source
-    // when omitSource=true.
     const source = snapshot.source;
-    const lightweightSnapshot =
-      source?.kind === 'pdf'
-        ? {
-            ...snapshot,
-            source: {
-              ...source,
-              file: { ...source.file, data: '' },
-            },
+    let lightweightSnapshot = snapshot;
+    if (source?.kind === 'pdf') {
+      let sourceRef = source.ref;
+      if (!sourceRef && source.file.data) {
+        const sourceResponse = await this.request<{ sourceRef?: ProjectSourceRef }>(
+          `/api/projects/projects/${encodeURIComponent(snapshot.id)}/source`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ source: source.file }),
           }
-        : snapshot;
+        );
+        sourceRef = assertValue(
+          sourceResponse.sourceRef,
+          'La sorgente del progetto non e stata salvata.'
+        );
+      }
+      if (!sourceRef) {
+        throw new ProjectStorageError(
+          'La sorgente del progetto non e disponibile.',
+          'persistence-failed'
+        );
+      }
+      lightweightSnapshot = {
+        ...snapshot,
+        source: {
+          ...source,
+          file: { ...source.file, data: '' },
+          ref: sourceRef,
+        },
+      };
+    }
     const response = await this.request<{ meta?: SavedProjectMeta }>(
       `/api/projects/projects/${encodeURIComponent(snapshot.id)}`,
       {
         method: 'PUT',
-        body: JSON.stringify({ snapshot: lightweightSnapshot, omitSource: true }),
+        body: JSON.stringify({ snapshot: lightweightSnapshot }),
       }
     );
     return {

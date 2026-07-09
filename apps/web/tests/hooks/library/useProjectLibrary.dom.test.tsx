@@ -20,6 +20,7 @@ const repositoryMocks = vi.hoisted(() => ({
   listPlacements: vi.fn(),
   listProjects: vi.fn(),
   loadProject: vi.fn(),
+  loadProjectSource: vi.fn(),
   loadProjectsById: vi.fn(),
   moveFolder: vi.fn(),
   moveProjects: vi.fn(),
@@ -96,6 +97,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.listPlacements.mockReset();
     repositoryMocks.listProjects.mockReset();
     repositoryMocks.loadProject.mockReset();
+    repositoryMocks.loadProjectSource.mockReset();
     repositoryMocks.loadProjectsById.mockReset();
     repositoryMocks.moveFolder.mockReset();
     repositoryMocks.moveProjects.mockReset();
@@ -248,7 +250,7 @@ describe('useProjectLibrary', () => {
     const appendChildSpy = vi.spyOn(document.body, 'appendChild');
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
-    repositoryMocks.loadProject.mockResolvedValue(buildSnapshot('project-export'));
+    repositoryMocks.exportProject.mockResolvedValue(buildSnapshot('project-export'));
 
     const { result } = renderHook(() =>
       useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
@@ -267,6 +269,7 @@ describe('useProjectLibrary', () => {
     expect(anchor?.download.endsWith('.nous.zip')).toBe(true);
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(objectUrlSpy).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.exportProject).toHaveBeenCalledWith('project-export');
   });
 
   test('createFolder refreshes library organization and rebuilds the tree', async () => {

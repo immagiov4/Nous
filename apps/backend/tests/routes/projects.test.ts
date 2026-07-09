@@ -169,6 +169,115 @@ describe('/api/projects', () => {
     expect(loadResponse.body.project.learningPlan.title).toBe('Versione nuova');
   });
 
+  test('stores PDF bytes separately and only reattaches them for source download or export', async () => {
+    const app = createApp();
+    const pdfData = 'JVBERi0xLjQKZmFrZS1wZGY=';
+    const snapshot = {
+      ...createSnapshot('pdf-project', 'Corso PDF'),
+      source: {
+        kind: 'pdf',
+        file: {
+          name: 'dispensa.pdf',
+          mimeType: 'application/pdf',
+          data: pdfData,
+        },
+      },
+    } satisfies ProjectSnapshot;
+
+    const saveResponse = await request(app)
+      .put('/api/projects/projects/pdf-project')
+      .send({ snapshot });
+    expect(saveResponse.status).toBe(200);
+
+    const loadResponse = await request(app).get('/api/projects/projects/pdf-project');
+    expect(loadResponse.status).toBe(200);
+    expect(loadResponse.body.project.source).toMatchObject({
+      kind: 'pdf',
+      file: {
+        name: 'dispensa.pdf',
+        mimeType: 'application/pdf',
+        data: '',
+      },
+      ref: {
+        byteSize: 17,
+        hash: expect.any(String),
+        id: expect.any(String),
+      },
+    });
+
+    const sourceResponse = await request(app).get('/api/projects/projects/pdf-project/source');
+    expect(sourceResponse.status).toBe(200);
+    expect(sourceResponse.body.source).toEqual({
+      name: 'dispensa.pdf',
+      mimeType: 'application/pdf',
+      data: pdfData,
+    });
+
+    const exportResponse = await request(app).post('/api/projects/projects/pdf-project/export');
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.body.data.source.file.data).toBe(pdfData);
+
+    const importResponse = await request(app)
+      .post('/api/projects/import')
+      .send({ data: { ...exportResponse.body.data, id: 'imported-pdf-project' } });
+    expect(importResponse.status).toBe(200);
+    expect(importResponse.body.snapshot.source.file.data).toBe('');
+    const importedSourceResponse = await request(app).get(
+      '/api/projects/projects/imported-pdf-project/source'
+    );
+    expect(importedSourceResponse.body.source.data).toBe(pdfData);
+
+    const database = (store as unknown as { database: import('bun:sqlite').Database }).database;
+    const storedRow = database
+      .prepare('select snapshot_json from project_snapshots where user_id = ? and id = ?')
+      .get('local-user', 'pdf-project') as { snapshot_json: string };
+    expect(storedRow.snapshot_json).not.toContain(pdfData);
+  });
+
+  test('migrates a legacy embedded PDF once when the project is first loaded', async () => {
+    const app = createApp();
+    const pdfData = 'JVBERi0xLjQKbGVnYWN5';
+    const snapshot = {
+      ...createSnapshot('legacy-pdf', 'Corso legacy'),
+      source: {
+        kind: 'pdf',
+        file: {
+          name: 'legacy.pdf',
+          mimeType: 'application/pdf',
+          data: pdfData,
+        },
+      },
+    } satisfies ProjectSnapshot;
+    const database = (store as unknown as { database: import('bun:sqlite').Database }).database;
+    database
+      .prepare(
+        `insert into project_snapshots
+           (user_id, id, snapshot_json, updated_at, server_updated_at)
+         values (?, ?, ?, ?, ?)`
+      )
+      .run(
+        'local-user',
+        snapshot.id,
+        JSON.stringify(snapshot),
+        snapshot.updatedAt,
+        snapshot.updatedAt
+      );
+
+    const firstLoad = await request(app).get('/api/projects/projects/legacy-pdf');
+    const secondLoad = await request(app).get('/api/projects/projects/legacy-pdf');
+
+    expect(firstLoad.body.project.source.file.data).toBe('');
+    expect(secondLoad.body.project.source.ref).toEqual(firstLoad.body.project.source.ref);
+    const sourceCount = database
+      .prepare('select count(*) as count from project_sources where project_id = ?')
+      .get(snapshot.id) as { count: number };
+    expect(sourceCount.count).toBe(1);
+    const storedSnapshot = database
+      .prepare('select snapshot_json from project_snapshots where id = ?')
+      .get(snapshot.id) as { snapshot_json: string };
+    expect(storedSnapshot.snapshot_json).not.toContain(pdfData);
+  });
+
   test('counts module-shaped lessons in server project metadata', async () => {
     const app = createApp();
     const snapshot = createModuleSnapshot('module-project', 'Corso modulare');

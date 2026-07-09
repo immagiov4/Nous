@@ -79,9 +79,18 @@ export interface CodebaseBundleStats {
   totalCharacterCount: number;
 }
 
+export interface ProjectSourceRef {
+  byteSize: number;
+  hash: string;
+  id: string;
+  mimeType: string;
+  name: string;
+}
+
 export interface PdfProjectSource {
   kind: 'pdf';
   file: FileData;
+  ref?: ProjectSourceRef;
 }
 
 export interface CodebaseBundleSource {

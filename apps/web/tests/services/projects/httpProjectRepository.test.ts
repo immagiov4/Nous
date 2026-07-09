@@ -3,6 +3,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
 import { HttpProjectRepository } from '../../../services/projects/httpProjectRepository.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
+import { AppState, type ProjectSnapshot } from '../../../types.ts';
 
 const fetchMock = vi.fn();
 
@@ -12,6 +13,31 @@ beforeEach(() => {
   vi.stubEnv('VITE_SUPABASE_URL', 'https://supabase.test');
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
   clearSupabaseSession();
+});
+
+const buildPdfSnapshot = (): ProjectSnapshot => ({
+  id: 'pdf-project',
+  version: '4.1',
+  sourceKind: 'document',
+  state: AppState.READING,
+  source: {
+    kind: 'pdf',
+    file: {
+      name: 'dispensa.pdf',
+      mimeType: 'application/pdf',
+      data: 'JVBERi0xLjQ=',
+    },
+  },
+  learningPlan: null,
+  isLearnMode: false,
+  userProfile: null,
+  syllabus: [],
+  activeSectionId: null,
+  createdAt: '2026-07-09T10:00:00.000Z',
+  updatedAt: '2026-07-09T10:00:00.000Z',
+  lastOpenedAt: '2026-07-09T10:00:00.000Z',
+  documentAssets: null,
+  documentIndex: null,
 });
 
 test('HttpProjectRepository sends the Supabase bearer token to the backend', async () => {
@@ -115,4 +141,77 @@ test('HttpProjectRepository refreshes once and retries a backend 401', async () 
   expect(fetchMock.mock.calls[2]?.[1]?.headers).toMatchObject({
     Authorization: 'Bearer access-token-new',
   });
+});
+
+test('HttpProjectRepository uploads a new PDF once and saves a lightweight snapshot', async () => {
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        sourceRef: {
+          id: 'source-123',
+          hash: 'hash-123',
+          byteSize: 8,
+          name: 'dispensa.pdf',
+          mimeType: 'application/pdf',
+        },
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        meta: {
+          id: 'pdf-project',
+          title: 'Dispensa',
+          sourceKind: 'document',
+          createdAt: '2026-07-09T10:00:00.000Z',
+          updatedAt: '2026-07-09T10:00:00.000Z',
+          lastOpenedAt: '2026-07-09T10:00:00.000Z',
+          lessonCount: 0,
+          completedCount: 0,
+          exerciseCount: 0,
+          completedExercises: 0,
+          hasSourceFile: true,
+          coverLabel: 'dispensa.pdf',
+          syncState: 'synced',
+        },
+      }),
+    });
+
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  await repository.saveProject(buildPdfSnapshot());
+
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    'http://localhost:3301/api/projects/projects/pdf-project/source'
+  );
+  expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+    source: {
+      name: 'dispensa.pdf',
+      mimeType: 'application/pdf',
+      data: 'JVBERi0xLjQ=',
+    },
+  });
+
+  const saveBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+  expect(saveBody.snapshot.source).toEqual({
+    kind: 'pdf',
+    file: {
+      name: 'dispensa.pdf',
+      mimeType: 'application/pdf',
+      data: '',
+    },
+    ref: {
+      id: 'source-123',
+      hash: 'hash-123',
+      byteSize: 8,
+      name: 'dispensa.pdf',
+      mimeType: 'application/pdf',
+    },
+  });
+  expect(saveBody.omitSource).toBeUndefined();
 });

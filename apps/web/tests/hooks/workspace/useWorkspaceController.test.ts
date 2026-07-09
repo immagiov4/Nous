@@ -370,6 +370,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
         })
       ),
     loadStoredProject: async () => loadedSnapshot,
+    loadStoredProjectSource: async () => null,
     moveFolder: async () => null,
     moveProjects: async () => [],
     projectRepositoryMode: 'server',
@@ -1143,6 +1144,57 @@ test('openProject resolves immediately while loading an empty stored section in 
   assert.equal(domain.activeSectionId, 'lesson-empty');
 });
 
+test('openProject does not download detached PDF bytes when the active lesson is cached', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-detached-cached',
+    source: {
+      kind: 'pdf',
+      file: {
+        name: pdfFile.name,
+        mimeType: pdfFile.mimeType,
+        data: '',
+      },
+      ref: {
+        id: 'source-123',
+        hash: 'hash-123',
+        byteSize: 4,
+        name: pdfFile.name,
+        mimeType: pdfFile.mimeType,
+      },
+    },
+    learningPlan: buildPlan({
+      sections: [
+        {
+          id: 'lesson-cached',
+          title: 'Lezione pronta',
+          description: 'Già generata',
+          isCompleted: false,
+          type: 'core',
+          content: '# Contenuto pronto',
+        },
+      ],
+    }),
+    documentIndex: createReadyIndex(),
+    state: AppState.READING,
+    activeSectionId: 'lesson-cached',
+  });
+  let sourceLoadCalls = 0;
+  const { controller } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    projectLibrary: {
+      loadStoredProjectSource: async () => {
+        sourceLoadCalls += 1;
+        return pdfFile;
+      },
+    },
+  });
+
+  const result = await controller.openProject(snapshot.id);
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(sourceLoadCalls, 0);
+});
+
 test('openProject skips pdf hydration checks for text document sources', async () => {
   const snapshot = createProjectSnapshot({
     id: 'project-md',
@@ -1762,6 +1814,79 @@ test('openSection reuses cached lessons and only generates when content is missi
   assert.equal(loadedOutcome, 'loaded');
   assert.equal(generateSectionCalls, 1);
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Generata');
+});
+
+test('openSection downloads detached PDF bytes only when an uncached lesson needs them', async () => {
+  const uncachedPlan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Lezione 1',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+      },
+    ],
+  });
+  const detachedSource = {
+    kind: 'pdf' as const,
+    file: {
+      name: pdfFile.name,
+      mimeType: pdfFile.mimeType,
+      data: '',
+    },
+    ref: {
+      id: 'source-123',
+      hash: 'hash-123',
+      byteSize: 4,
+      name: pdfFile.name,
+      mimeType: pdfFile.mimeType,
+    },
+  };
+  let sourceLoadCalls = 0;
+  let generatedWithFile: FileData | null | undefined;
+  const { controller } = createControllerHarness({
+    domain: {
+      file: null,
+      learningPlan: uncachedPlan,
+      source: detachedSource,
+      domainState: {
+        source: detachedSource,
+        learningPlan: uncachedPlan,
+        documentAssets: null,
+        documentIndex: null,
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: null,
+      },
+    },
+    projectLibrary: {
+      currentProjectId: 'pdf-project',
+      loadStoredProjectSource: async () => {
+        sourceLoadCalls += 1;
+        return pdfFile;
+      },
+    },
+    openRouter: {
+      generateSectionContent: async file => {
+        generatedWithFile = file;
+        return {
+          content: '# Generata dal PDF',
+          documentAssets: null,
+          generatedVisuals: [],
+          imageRefs: [],
+          quiz: [],
+        };
+      },
+    },
+  });
+
+  const outcome = await controller.openSection(getLessons(uncachedPlan)[0]);
+
+  assert.equal(outcome, 'loaded');
+  assert.equal(sourceLoadCalls, 1);
+  assert.deepEqual(generatedWithFile, pdfFile);
 });
 
 test('openSection generates and caches research dossiers for research-backed learn lessons', async () => {

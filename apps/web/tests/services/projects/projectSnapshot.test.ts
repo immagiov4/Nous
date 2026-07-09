@@ -39,6 +39,41 @@ test('getProjectSourceFile preserves a round-trip legacy file payload for codeba
   assert.equal(decodeTextBase64(file?.data || ''), 'console.log("hi");');
 });
 
+test('detached PDF snapshots retain their source reference without pretending bytes are loaded', () => {
+  const snapshot = normalizeImportedProject({
+    id: 'detached-pdf',
+    version: '4.1',
+    source: {
+      kind: 'pdf',
+      file: {
+        name: 'paper.pdf',
+        mimeType: 'application/pdf',
+        data: '',
+      },
+      ref: {
+        id: 'source-123',
+        hash: 'hash-123',
+        byteSize: 1024,
+        name: 'paper.pdf',
+        mimeType: 'application/pdf',
+      },
+    },
+    learningPlan: null,
+    isLearnMode: false,
+    userProfile: null,
+    syllabus: [],
+  });
+
+  assert.deepEqual(snapshot.source?.kind === 'pdf' ? snapshot.source.ref : null, {
+    id: 'source-123',
+    hash: 'hash-123',
+    byteSize: 1024,
+    name: 'paper.pdf',
+    mimeType: 'application/pdf',
+  });
+  assert.equal(getProjectSourceFile(snapshot.source), null);
+});
+
 test('inferProjectSourceKind treats single text files as documents', () => {
   const source = createProjectSourceFromFile({
     name: 'notes.md',

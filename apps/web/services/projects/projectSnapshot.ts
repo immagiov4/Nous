@@ -10,6 +10,7 @@ import {
   type ProjectSnapshot,
   type ProjectSource,
   type ProjectSourceKind,
+  type ProjectSourceRef,
   type SavedProjectMeta,
   type SyllabusItem,
   type UserProfile,
@@ -180,6 +181,27 @@ const parseFileData = (value: unknown): FileData | null => {
   };
 };
 
+const parseProjectSourceRef = (value: unknown): ProjectSourceRef | undefined => {
+  if (
+    !isRecord(value) ||
+    !isString(value.id) ||
+    !isString(value.hash) ||
+    typeof value.byteSize !== 'number' ||
+    !isString(value.name) ||
+    !isString(value.mimeType)
+  ) {
+    return undefined;
+  }
+
+  return {
+    id: value.id,
+    hash: value.hash,
+    byteSize: value.byteSize,
+    name: value.name,
+    mimeType: value.mimeType,
+  };
+};
+
 const parseCodebaseBundleSource = (value: Record<string, unknown>): CodebaseBundleSource | null => {
   if (!isString(value.name) || !isString(value.aggregatedText) || !Array.isArray(value.files)) {
     return null;
@@ -225,7 +247,9 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
 
   if (value.kind === 'pdf') {
     const file = parseFileData(value.file);
-    return file && isPdfFileData(file) ? { kind: 'pdf', file } : null;
+    return file && isPdfFileData(file)
+      ? { kind: 'pdf', file, ref: parseProjectSourceRef(value.ref) }
+      : null;
   }
 
   if (value.kind === 'codebase-bundle') {

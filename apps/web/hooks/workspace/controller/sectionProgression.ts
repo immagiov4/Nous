@@ -22,6 +22,7 @@ import {
 import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
 import { findPathNodeById, flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { insertSectionAfterSubtree } from '../../../utils/learning/sectionTree.ts';
+import { loadProjectSourceFile } from './controllerContext.ts';
 import type {
   AdvanceSectionOutcome,
   CompleteSectionOutcome,
@@ -221,10 +222,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       options.currentDocumentAssets === undefined
         ? domain.documentAssets
         : options.currentDocumentAssets;
-    const sourceFile =
-      options.currentSourceFile === undefined
-        ? (domain.file ?? getProjectSourceFile(domain.source))
-        : options.currentSourceFile;
     const isLearnMode =
       options.isLearnMode === undefined ? domain.isLearnMode : options.isLearnMode;
     const currentSyllabus =
@@ -273,6 +270,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       activeSectionId: section.id,
       state: AppState.READING,
     });
+
+    const sourceFile =
+      options.currentSourceFile === undefined
+        ? await loadProjectSourceFile(context)
+        : options.currentSourceFile;
 
     const lessonGenerationState = resolveLessonGenerationState({
       file: sourceFile,
@@ -493,7 +495,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         args.contextBefore ||
         args.contextAfter
     );
-    const sourceFile = domain.file ?? getProjectSourceFile(domain.source);
+    const sourceFile = canAnswerFromLesson
+      ? getProjectSourceFile(domain.source)
+      : await loadProjectSourceFile(context);
 
     if (!sourceFile && !canAnswerFromLesson) {
       return {
@@ -552,7 +556,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const previousActiveSectionId = domain.activeSectionId;
 
     try {
-      const sourceFile = domain.file ?? getProjectSourceFile(domain.source);
+      const sourceFile = await loadProjectSourceFile(context);
       const canCreateWithoutFile =
         domain.isLearnMode ||
         domain.syllabus.length > 0 ||

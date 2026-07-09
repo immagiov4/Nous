@@ -3,7 +3,12 @@ import { type Request, type Response, Router } from 'express';
 
 import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
 import { getProjectStore } from '../projects/projectStore.js';
-import type { ProjectPatch, ProjectSnapshot, SectionPatch } from '../projects/types.js';
+import type {
+  ProjectPatch,
+  ProjectSnapshot,
+  ProjectSourceFile,
+  SectionPatch,
+} from '../projects/types.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { timestampIso } from '../utils/time.js';
 import {
@@ -108,6 +113,25 @@ const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectS
   };
 };
 
+const requireProjectSourceFile = (body: unknown): ProjectSourceFile => {
+  const source = getBodyRecord(body).source;
+  if (
+    !isRecord(source) ||
+    typeof source.name !== 'string' ||
+    typeof source.mimeType !== 'string' ||
+    typeof source.data !== 'string' ||
+    !source.data
+  ) {
+    throw new Error('Sorgente progetto mancante o non valida.');
+  }
+
+  return {
+    name: source.name,
+    mimeType: source.mimeType,
+    data: source.data,
+  };
+};
+
 router.get('/config', (req: Request, res: Response) => {
   try {
     const currentUser = getCurrentUser(req);
@@ -152,6 +176,31 @@ router.get('/projects/:id', async (req: Request, res: Response) => {
     res.json({ success: true, project });
   } catch (error) {
     sendErrorResponse(res, 500, error, 'Failed to load project');
+  }
+});
+
+router.get('/projects/:id/source', async (req: Request, res: Response) => {
+  try {
+    const source = await getProjectStore().loadProjectSource(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id)
+    );
+    res.json({ success: true, source });
+  } catch (error) {
+    sendErrorResponse(res, 500, error, 'Failed to load project source');
+  }
+});
+
+router.post('/projects/:id/source', async (req: Request, res: Response) => {
+  try {
+    const sourceRef = await getProjectStore().saveProjectSource(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id),
+      requireProjectSourceFile(req.body)
+    );
+    res.json({ success: true, sourceRef });
+  } catch (error) {
+    sendErrorResponse(res, 400, error, 'Failed to save project source');
   }
 });
 
