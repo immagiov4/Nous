@@ -69,7 +69,9 @@ interface LibraryViewProps {
   ) => Promise<void>;
   onLibraryArtifactNoteReject: (toolCallId: string) => void;
   onLibraryArtifactDiscard: (request: ChatArtifactActionRequest) => void;
-  onLibraryArtifactRegenerate: (request: ChatArtifactRegenerateRequest) => Promise<void> | void;
+  onLibraryArtifactRegenerate: (
+    request: ChatArtifactRegenerateRequest
+  ) => Promise<boolean> | boolean;
   onLibraryArtifactReplace: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   onLibraryWebSearchChange: (value: boolean) => void;
   onLibraryGenerateArtifactsChange: (value: boolean) => void;

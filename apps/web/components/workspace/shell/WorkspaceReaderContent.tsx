@@ -761,7 +761,9 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       >
         <section
           ref={contentRef}
+          aria-label="Area di lettura"
           className="mb-8 min-h-[50vh] min-w-0"
+          onContextMenu={onContentContextMenu}
           onPointerDownCapture={onContentPointerDownCapture}
         >
           {activeExercise ? (
@@ -810,7 +812,6 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                     lessonAssetsById={activeSectionAssetsById}
                     lessonImageRefsById={activeSectionImageRefsById}
                     onClick={onContentClick}
-                    onContextMenu={onContentContextMenu}
                     sectionAnnotations={sectionAnnotations}
                     className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
                       prose-p:text-gray-800 dark:prose-p:text-gray-200

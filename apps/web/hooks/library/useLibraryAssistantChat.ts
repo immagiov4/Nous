@@ -453,7 +453,7 @@ export const useLibraryAssistantChat = ({
   }: ChatArtifactRegenerateRequest) => {
     const payload = artifactPayloadsById.get(artifactId);
     if (!payload || !('visual' in payload)) {
-      return;
+      return false;
     }
 
     const [snapshot] = await loadProjectsById([payload.summary.projectId]);
@@ -461,7 +461,7 @@ export const useLibraryAssistantChat = ({
       section => section.id === payload.summary.lessonId
     );
     if (!snapshot?.learningPlan || !lesson) {
-      return;
+      return false;
     }
 
     const draft = await generateLessonArtifactDraft({
@@ -475,7 +475,7 @@ export const useLibraryAssistantChat = ({
       sourceArtifactId: artifactId,
     });
     if (!draft) {
-      return;
+      return false;
     }
 
     setGeneratedVisualsByArtifactId(currentVisuals => ({
@@ -486,6 +486,7 @@ export const useLibraryAssistantChat = ({
       ...currentPayloads,
       [`${LIBRARY_REPLACEMENT_DRAFT_PREFIX}-${artifactId}-${Date.now()}`]: [draft.payload],
     }));
+    return true;
   };
 
   const replaceLearningArtifact = async ({

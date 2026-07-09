@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
 import type { LessonGeneratedVisual } from '../../types.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
+import { findMissingStaticHtmlElementIds } from '../../utils/visuals/htmlElementReferences.ts';
 
 interface GeneratedVisualFrameProps {
   className?: string;
@@ -19,6 +20,114 @@ html, body {
 body > * {
   background: transparent !important;
 }
+#nous-generated-visual-root,
+#nous-generated-visual-root > * {
+  background: transparent !important;
+}
+`;
+
+const GENERATED_VISUAL_ROOT_ID = 'nous-generated-visual-root';
+
+const toSafeScriptJson = (value: string): string => JSON.stringify(value).replace(/<\//g, '<\\/');
+
+const buildGeneratedVisualBootstrapScript = (visual: LessonGeneratedVisual): string => `
+const visualCode = ${toSafeScriptJson(visual.code)};
+const visualId = ${toSafeScriptJson(visual.id)};
+const visualTitle = ${toSafeScriptJson(visual.title)};
+const missingStaticElementIds = ${JSON.stringify(findMissingStaticHtmlElementIds(visual.code))};
+const root = document.getElementById('${GENERATED_VISUAL_ROOT_ID}');
+let hasShownGeneratedVisualError = false;
+
+function showGeneratedVisualError(error) {
+  if (hasShownGeneratedVisualError) {
+    return;
+  }
+  hasShownGeneratedVisualError = true;
+  const message = error && error.message ? error.message : 'Errore nello script del visuale.';
+  const errorDetails = {
+    message,
+    missingElementIds: missingStaticElementIds,
+    stack: error && error.stack ? error.stack : null,
+    visualId,
+    visualTitle,
+  };
+  window.parent.postMessage({ type: 'generated-visual-error', error: errorDetails }, '*');
+  const warning = document.createElement('div');
+  warning.setAttribute('role', 'status');
+  warning.style.cssText = 'margin:12px auto;padding:12px 14px;max-width:720px;border:1px solid #fecaca;border-radius:14px;background:#fef2f2;color:#991b1b;font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;';
+  const hasRenderedContent = Boolean(root && Array.from(root.children).some(element => !['LINK', 'SCRIPT', 'STYLE'].includes(element.tagName)));
+  warning.textContent = hasRenderedContent
+    ? "Una parte interattiva dell'artefatto ha avuto un errore. Puoi rigenerarlo o sostituirlo."
+    : 'Questo artefatto interattivo non e riuscito a caricarsi. Puoi rigenerarlo o sostituirlo.';
+  root?.prepend(warning);
+  window.parent.postMessage({ type: 'generated-visual-resize', height: document.body.scrollHeight }, '*');
+}
+
+window.addEventListener('error', event => {
+  showGeneratedVisualError(event.error || event.message);
+});
+window.addEventListener('unhandledrejection', event => {
+  showGeneratedVisualError(event.reason);
+});
+
+function notifyGeneratedVisualReady() {
+  window.__nousGeneratedVisualReady = true;
+  window.dispatchEvent(new Event('generated-visual-ready'));
+}
+
+function replayGeneratedVisualScript(script) {
+  return new Promise(resolve => {
+    const isExternalScript = Boolean(script.getAttribute('src'));
+    const replayedScript = document.createElement('script');
+    Array.from(script.attributes).forEach(attribute => {
+      replayedScript.setAttribute(attribute.name, attribute.value);
+    });
+    replayedScript.async = false;
+    replayedScript.textContent = script.textContent || '';
+
+    if (isExternalScript) {
+      replayedScript.addEventListener('load', () => resolve(), { once: true });
+      replayedScript.addEventListener('error', event => {
+        showGeneratedVisualError(event.error || event.message || 'Script esterno non caricato.');
+        resolve();
+      }, { once: true });
+    }
+
+    try {
+      script.replaceWith(replayedScript);
+    } catch (error) {
+      showGeneratedVisualError(error);
+      resolve();
+      return;
+    }
+
+    if (!isExternalScript) {
+      resolve();
+    }
+  });
+}
+
+async function replayGeneratedVisualScripts(container) {
+  const scripts = Array.from(container.querySelectorAll('script'));
+  for (const script of scripts) {
+    await replayGeneratedVisualScript(script);
+  }
+}
+
+(async () => {
+  try {
+    const template = document.createElement('template');
+    template.innerHTML = visualCode;
+    root?.appendChild(template.content.cloneNode(true));
+    if (root) {
+      await replayGeneratedVisualScripts(root);
+    }
+  } catch (error) {
+    showGeneratedVisualError(error);
+  } finally {
+    notifyGeneratedVisualReady();
+  }
+})();
 `;
 
 const RESIZE_SCRIPT = `
@@ -297,10 +406,14 @@ function normalizeAndMeasure() {
   updateHeight();
 }
 window.addEventListener('load', normalizeAndMeasure);
+window.addEventListener('generated-visual-ready', normalizeAndMeasure);
 const resizeObserver = new ResizeObserver(updateHeight);
 resizeObserver.observe(document.body);
 document.querySelectorAll('svg, canvas, .mermaid').forEach(element => resizeObserver.observe(element));
 window.addEventListener('resize', updateHeight);
+if (window.__nousGeneratedVisualReady) {
+  setTimeout(normalizeAndMeasure, 0);
+}
 setTimeout(normalizeAndMeasure, 100);
 setTimeout(normalizeAndMeasure, 500);
 setTimeout(normalizeAndMeasure, 1500);
@@ -331,7 +444,7 @@ const buildMermaidHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): s
   </body>
 </html>`;
 
-const buildVisualHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): string => `
+export const buildVisualHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): string => `
 <!DOCTYPE html>
 <html class="${isDarkMode ? 'dark' : ''}">
   <head>
@@ -339,8 +452,9 @@ const buildVisualHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): st
     <style>${GENERATED_VISUAL_HOST_STYLES}</style>
   </head>
   <body>
-    ${visual.code}
+    <div id="${GENERATED_VISUAL_ROOT_ID}"></div>
     <style>${GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE}</style>
+    <script>${buildGeneratedVisualBootstrapScript(visual)}</script>
     <script>${RESIZE_SCRIPT}</script>
   </body>
 </html>`;
@@ -372,6 +486,11 @@ const GeneratedVisualFrame = ({
         if (Math.abs(currentHeight - nextHeight) > 1) {
           iframeRef.current.style.height = `${nextHeight}px`;
         }
+        return;
+      }
+
+      if (event.data?.type === 'generated-visual-error') {
+        console.error('[Nous] Generated visual runtime error', event.data.error);
       }
     };
 

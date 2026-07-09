@@ -751,11 +751,12 @@ function ContextAnswerPanelSession({
   const handleRegenerateArtifact = async ({
     artifactId,
     instructions,
-  }: ChatArtifactRegenerateRequest): Promise<void> => {
+  }: ChatArtifactRegenerateRequest): Promise<boolean> => {
     const payload = artifactPayloadsById.get(artifactId);
     const currentState = contextRequestStateStore.get(requestStateKey);
     const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
-    if (!payload || !('visual' in payload) || !contextAnswer.projectId || !draftLesson) return;
+    if (!payload || !('visual' in payload) || !contextAnswer.projectId || !draftLesson)
+      return false;
 
     const draft = await generateLessonArtifactDraft({
       contextAfter: currentState?.contextAfter,
@@ -771,7 +772,7 @@ function ContextAnswerPanelSession({
       sourceArtifactId: artifactId,
     });
     if (!draft) {
-      return;
+      return false;
     }
 
     setGeneratedVisualsByArtifactId(currentVisuals => ({
@@ -783,6 +784,7 @@ function ContextAnswerPanelSession({
       ...currentPayloads,
       [`${REPLACEMENT_DRAFT_TOOL_CALL_PREFIX}-${artifactId}-${Date.now()}`]: [draft.payload],
     }));
+    return true;
   };
 
   const handleReplaceArtifact = async ({

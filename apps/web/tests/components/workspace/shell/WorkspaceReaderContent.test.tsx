@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
@@ -91,6 +91,25 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByText(/Pausa attiva 1 - Previsione/i)).toBeInTheDocument();
     expect(screen.queryByTestId('reader-quiz-column')).toBeNull();
     expect(screen.getByText('Prosegui')).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('handles context-menu requests from empty space around the reading column', () => {
+    const contentRef = createRef<HTMLDivElement>();
+    const onContentContextMenu = vi.fn();
+
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          contentRef,
+          onContentContextMenu,
+        })}
+      />
+    );
+
+    expect(contentRef.current).not.toBeNull();
+    fireEvent.contextMenu(contentRef.current as HTMLDivElement);
+
+    expect(onContentContextMenu).toHaveBeenCalledTimes(1);
   });
 
   test('keeps the source page range appended after the lesson body with inline questions active', () => {

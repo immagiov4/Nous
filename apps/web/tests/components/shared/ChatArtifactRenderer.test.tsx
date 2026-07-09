@@ -103,7 +103,7 @@ describe('ChatArtifactRenderer', () => {
 
   test('requires revision instructions before regenerating an artifact', async () => {
     const user = userEvent.setup();
-    const onRegenerateArtifact = vi.fn();
+    const onRegenerateArtifact = vi.fn().mockResolvedValue(true);
     render(
       <ChatArtifactRenderer
         artifacts={[htmlArtifact]}
@@ -130,6 +130,33 @@ describe('ChatArtifactRenderer', () => {
       artifactId: htmlArtifact.summary.id,
       instructions: 'Rendilo piu sintetico e leggibile.',
     });
+    expect(await screen.findByText('Rigenerazione richiesta.')).toBeInTheDocument();
+  });
+
+  test('reports a failed regeneration without claiming that a new draft was created', async () => {
+    const user = userEvent.setup();
+    const onRegenerateArtifact = vi.fn().mockResolvedValue(false);
+    render(
+      <ChatArtifactRenderer
+        artifacts={[htmlArtifact]}
+        isDarkMode={false}
+        onRegenerateArtifact={onRegenerateArtifact}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
+    await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+    const dialog = screen.getByRole('dialog', { name: /simulatore chiusura/i });
+    await user.type(
+      within(dialog).getByLabelText(/Istruzioni rigenerazione/i),
+      'Correggi il widget.'
+    );
+    await user.click(within(dialog).getByRole('button', { name: /Conferma rigenerazione/i }));
+
+    expect(
+      await screen.findByText('Rigenerazione fallita. La bozza precedente non e stata modificata.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Rigenerazione richiesta.')).toBeNull();
   });
 
   test('shows local feedback when discarding and saving artifacts', async () => {

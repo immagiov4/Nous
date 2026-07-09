@@ -1,6 +1,10 @@
 import type { LessonGeneratedVisual } from '../../types.ts';
 import { timestampIso } from '../../utils/time.ts';
 import {
+  findMissingStaticHtmlElementIds,
+  hasUnsafeHtmlElementDereferences,
+} from '../../utils/visuals/htmlElementReferences.ts';
+import {
   callOpenRouter,
   MEDIUM_REASONING_CONFIG,
   MODEL_VISUAL_PLANNER,
@@ -107,6 +111,9 @@ Regole:
 - Tutto il testo visibile nel widget deve essere nella stessa lingua della lezione fornita. Non tradurre in inglese se la lezione non e in inglese.
 - Nessun DOCTYPE, <html>, <head>, <body>.
 - Ordine immutabile: <style> prima, HTML in mezzo, <script> ultimo.
+- Ogni ID usato in document.getElementById deve esistere letteralmente nell'HTML prima dello script. Non creare quegli elementi via JavaScript.
+- Vietato dereferenziare direttamente document.getElementById(...).property. Salva prima il risultato in una variabile e gestisci esplicitamente il caso null prima di leggere o assegnare proprieta. Questa regola vale anche nei cicli e nei forEach.
+- In modalita replacement-draft non copiare ciecamente il JavaScript sorgente: correggi eventuali lookup DOM incoerenti o errori runtime prima di restituire la bozza.
 - Usa sempre variabili CSS: --bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong.
 - Niente @media (prefers-color-scheme: dark); host gestisce .dark.
 - Niente position:fixed, shadow pesanti, blur, filter, backdrop-filter, gradienti.
@@ -335,7 +342,9 @@ const normalizeHtmlVisual = (
     !code ||
     hasFullHtmlDocument(code) ||
     !/^\s*<style[\s>]/i.test(code) ||
-    !/<script[\s>]/i.test(code)
+    !/<script[\s>]/i.test(code) ||
+    findMissingStaticHtmlElementIds(code).length > 0 ||
+    hasUnsafeHtmlElementDereferences(code)
   ) {
     return null;
   }
@@ -466,16 +475,14 @@ export const generateLessonVisualExample = async (
     return null;
   }
 
-  const rendererResponse = await retryWithBackoff(
-    () =>
-      callOpenRouter({
-        model: MODEL_VISUAL_RENDERER,
-        disableModelOverride: true,
-        messages: [
-          { role: 'system', content: rendererPrompt },
-          {
-            role: 'user',
-            content: `Lesson title: ${input.sectionTitle}
+  const rendererMessages: Array<{
+    content: string;
+    role: 'assistant' | 'system' | 'user';
+  }> = [
+    { role: 'system' as const, content: rendererPrompt },
+    {
+      role: 'user' as const,
+      content: `Lesson title: ${input.sectionTitle}
 Lesson description: ${input.sectionDescription}
 Target language: infer it from the lesson excerpt. Every visible label, caption, control, button, axis, state, relation, field name, and explanatory phrase in the generated visual must use that same language.
 Planner output:
@@ -483,21 +490,45 @@ ${JSON.stringify(plan, null, 2)}
 
 Relevant lesson excerpt:
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`,
-          },
-        ],
-        reasoning: MEDIUM_REASONING_CONFIG,
-        response_format: { type: 'json_object' },
-        temperature: 0.2,
-      }),
-    1,
-    500
-  );
+    },
+  ];
+  const requestRenderedVisual = (messages: typeof rendererMessages) =>
+    retryWithBackoff(
+      () =>
+        callOpenRouter({
+          model: MODEL_VISUAL_RENDERER,
+          disableModelOverride: true,
+          messages,
+          reasoning: MEDIUM_REASONING_CONFIG,
+          response_format: { type: 'json_object' },
+          temperature: 0.2,
+        }),
+      1,
+      500
+    );
+  const rendererResponse = await requestRenderedVisual(rendererMessages);
 
-  const visual = normalizeRenderedVisual(
+  let visual = normalizeRenderedVisual(
     visualType,
     rendererResponse || '{}',
     `${VISUAL_ID_PREFIX}001`
   );
+  if (!visual) {
+    const repairedResponse = await requestRenderedVisual([
+      ...rendererMessages,
+      { role: 'assistant', content: rendererResponse || '{}' },
+      {
+        role: 'user',
+        content:
+          'La bozza precedente non e valida o contiene accessi DOM non sicuri. Rigenerala correggendo ogni riferimento a elementi mancanti: nessun document.getElementById(...) puo essere dereferenziato direttamente e ogni lookup deve gestire null. Restituisci nuovamente solo il JSON richiesto.',
+      },
+    ]);
+    visual = normalizeRenderedVisual(
+      visualType,
+      repairedResponse || '{}',
+      `${VISUAL_ID_PREFIX}001`
+    );
+  }
   if (!visual) {
     return null;
   }

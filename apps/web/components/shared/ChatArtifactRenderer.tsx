@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Check,
   Download,
   FileImage,
@@ -33,7 +34,7 @@ interface ChatArtifactRendererProps {
   /** Called when user clicks "Salva" in the overlay footer. Returns a promise so the button shows saving state correctly. */
   onSaveArtifact?: (request: ChatArtifactActionRequest) => Promise<void>;
   /** Called when user clicks "Rigenera" in the overlay footer. */
-  onRegenerateArtifact?: (request: ChatArtifactRegenerateRequest) => Promise<void> | void;
+  onRegenerateArtifact?: (request: ChatArtifactRegenerateRequest) => Promise<boolean> | boolean;
   /** Called when user clicks "Scarta" in the overlay footer. */
   onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
   /** Called when user approves a replacement draft. */
@@ -75,6 +76,7 @@ const getArtifactReplacementTargetId = (artifact: LearningArtifactRenderPayload)
 
 const ARTIFACT_ACTION_FEEDBACK = {
   discarded: 'Artefatto scartato.',
+  regenerationFailed: 'Rigenerazione fallita. La bozza precedente non e stata modificata.',
   regenerationRequested: 'Rigenerazione richiesta.',
   replaced: 'Artefatto sostituito.',
   saved: 'Salvato.',
@@ -131,11 +133,12 @@ const ArtifactOverlay = ({
   isDarkMode: boolean;
   onClose: () => void;
   onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
-  onRegenerateArtifact?: (request: ChatArtifactRegenerateRequest) => Promise<void> | void;
+  onRegenerateArtifact?: (request: ChatArtifactRegenerateRequest) => Promise<boolean> | boolean;
   onReplaceArtifact?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   onSaveArtifact?: (request: ChatArtifactActionRequest) => Promise<void>;
 }) => {
   const [isSaving, setIsSaving] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const [isRegenerationFormOpen, setIsRegenerationFormOpen] = useState(false);
   const [regenerationInstructions, setRegenerationInstructions] = useState('');
   const [actionFeedback, setActionFeedback] = useState<ArtifactActionFeedback | null>(null);
@@ -164,15 +167,25 @@ const ArtifactOverlay = ({
   };
 
   const handleRegenerateArtifact = async () => {
-    if (!onRegenerateArtifact || !trimmedRegenerationInstructions) {
+    if (!onRegenerateArtifact || !trimmedRegenerationInstructions || isRegenerating) {
       return;
     }
 
-    await onRegenerateArtifact({
-      artifactId: artifact.summary.id,
-      instructions: trimmedRegenerationInstructions,
-    });
-    setActionFeedback('regenerationRequested');
+    setIsRegenerating(true);
+    setActionFeedback(null);
+    try {
+      const regenerated = await onRegenerateArtifact({
+        artifactId: artifact.summary.id,
+        instructions: trimmedRegenerationInstructions,
+      });
+      setActionFeedback(regenerated ? 'regenerationRequested' : 'regenerationFailed');
+      if (regenerated) {
+        setIsRegenerationFormOpen(false);
+        setRegenerationInstructions('');
+      }
+    } finally {
+      setIsRegenerating(false);
+    }
   };
 
   const handleReplaceArtifact = async () => {
@@ -277,12 +290,12 @@ const ArtifactOverlay = ({
                   <button
                     type="button"
                     onClick={() => void handleRegenerateArtifact()}
-                    disabled={!trimmedRegenerationInstructions}
+                    disabled={!trimmedRegenerationInstructions || isRegenerating}
                     className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
                     aria-label="Conferma rigenerazione"
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Rigenera bozza</span>
+                    <span>{isRegenerating ? 'Rigenerazione...' : 'Rigenera bozza'}</span>
                   </button>
                 </div>
               </div>
@@ -290,8 +303,18 @@ const ArtifactOverlay = ({
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               {actionFeedback ? (
-                <div className="inline-flex items-center gap-2 rounded-full bg-stone-100 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-zinc-800 dark:text-zinc-200">
-                  <Check className="h-3.5 w-3.5" />
+                <div
+                  className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${
+                    actionFeedback === 'regenerationFailed'
+                      ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-200'
+                      : 'bg-stone-100 text-stone-600 dark:bg-zinc-800 dark:text-zinc-200'
+                  }`}
+                >
+                  {actionFeedback === 'regenerationFailed' ? (
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" />
+                  )}
                   <span>{ARTIFACT_ACTION_FEEDBACK[actionFeedback]}</span>
                 </div>
               ) : (

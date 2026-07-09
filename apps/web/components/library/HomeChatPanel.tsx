@@ -84,7 +84,9 @@ interface HomeChatPanelProps {
   ) => Promise<void>;
   onLibraryArtifactNoteReject?: (toolCallId: string) => void;
   onLibraryArtifactDiscard?: (request: ChatArtifactActionRequest) => void;
-  onLibraryArtifactRegenerate?: (request: ChatArtifactRegenerateRequest) => Promise<void> | void;
+  onLibraryArtifactRegenerate?: (
+    request: ChatArtifactRegenerateRequest
+  ) => Promise<boolean> | boolean;
   onLibraryArtifactReplace?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   onLibraryWebSearchChange: (value: boolean) => void;
   onLibraryGenerateArtifactsChange: (value: boolean) => void;
@@ -342,7 +344,7 @@ export default function HomeChatPanel({
   onLibraryArtifactNoteApprove = async () => {},
   onLibraryArtifactNoteReject = () => {},
   onLibraryArtifactDiscard = () => {},
-  onLibraryArtifactRegenerate = () => {},
+  onLibraryArtifactRegenerate = () => false,
   onLibraryArtifactReplace = () => {},
   onLibraryWebSearchChange,
   onLibraryGenerateArtifactsChange,
