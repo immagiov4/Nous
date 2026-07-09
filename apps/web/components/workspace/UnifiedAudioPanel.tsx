@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertCircle,
+  ChevronDown,
   Headphones,
   Loader2,
   Pause,
@@ -591,22 +592,28 @@ const UnifiedAudioPanel = ({
                           Parte {tts.currentChunkIndex + 1} di {tts.chunkOptions.length}
                         </span>
                       </label>
-                      <select
-                        id={`${inputId}-tts-chunk`}
-                        aria-label="Parte da leggere"
-                        value={tts.currentChunkIndex}
-                        onChange={event =>
-                          tts.onSelectChunk(Number.parseInt(event.target.value, 10))
-                        }
-                        disabled={ttsDisabled}
-                        className="w-full cursor-pointer truncate rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none transition-colors hover:border-gray-400 focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus:border-zinc-400 dark:focus:ring-zinc-700 dark:disabled:bg-zinc-800/60 dark:disabled:text-zinc-500"
-                      >
-                        {tts.chunkOptions.map(option => (
-                          <option key={option.index} value={option.index}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          id={`${inputId}-tts-chunk`}
+                          aria-label="Parte da leggere"
+                          value={tts.currentChunkIndex}
+                          onChange={event =>
+                            tts.onSelectChunk(Number.parseInt(event.target.value, 10))
+                          }
+                          disabled={ttsDisabled}
+                          className="w-full cursor-pointer appearance-none truncate rounded-xl border border-gray-300 bg-white py-2 pl-3 pr-10 text-sm text-gray-700 outline-none transition-colors hover:border-gray-400 focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:focus:border-zinc-400 dark:focus:ring-zinc-700 dark:disabled:bg-zinc-800/60 dark:disabled:text-zinc-500"
+                        >
+                          {tts.chunkOptions.map(option => (
+                            <option key={option.index} value={option.index}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown
+                          aria-hidden="true"
+                          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-600 dark:text-zinc-300"
+                        />
+                      </div>
                     </div>
                   ) : null}
 
