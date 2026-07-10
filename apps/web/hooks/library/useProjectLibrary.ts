@@ -354,8 +354,8 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
           'content' | 'generatedVisuals' | 'imageRefs' | 'learningAids' | 'quiz'
         >
       >
-    ): Promise<void> => {
-      if (!currentProjectId) return;
+    ): Promise<boolean> => {
+      if (!currentProjectId) return true;
 
       const patch: Record<string, unknown> = {
         section: { sectionId, ...patchValue },
@@ -368,10 +368,12 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         setStorageError(null);
         lastPersistedSignatureRef.current = buildAutosaveSignature(domainStateRef.current);
         void requestPersistentStorage();
+        return true;
       } catch (error) {
         const message =
           error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
         setStorageError(message);
+        return false;
       }
     },
     [currentProjectId, requestPersistentStorage, syncProjectMeta]

@@ -580,6 +580,8 @@ const ENGLISH_UI_MESSAGES = {
   'Il salvataggio delle note non e disponibile in questo contesto.':
     'Saving notes is unavailable in this context.',
   'La sezione attiva non e disponibile.': 'The active section is unavailable.',
+  'La lezione rigenerata non e stata salvata. Riprova.':
+    'The regenerated lesson was not saved. Try again.',
   'Non ho trovato l artefatto da sostituire.': 'I could not find the artifact to replace.',
   'Non ho trovato la lezione target.': 'I could not find the target lesson.',
   'Non ho trovato la lezione target in questo corso.':

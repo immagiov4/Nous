@@ -390,7 +390,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       savedOverrides.push(overridesArg);
       return adapter.currentProjectId ? buildMeta(adapter.currentProjectId) : null;
     },
-    patchSectionLessonContent: async () => {},
+    patchSectionLessonContent: async () => true,
     patchSectionAnnotations: async () => {},
     savedProjects: [],
     setCurrentProjectId: projectId => {
@@ -2009,6 +2009,59 @@ test('openSection generates and caches research dossiers for research-backed lea
   assert.equal(secondOutcome, 'loaded');
   assert.equal(dossierCalls, 1);
   assert.equal(contentCalls, 2);
+});
+
+test('regenerateActiveSection waits for the regenerated lesson to be persisted', async () => {
+  const plan = buildPlan({
+    sections: [
+      buildTestLesson({
+        id: 'lesson-1',
+        content: '# Versione precedente',
+      }),
+    ],
+  });
+  let resolvePersist: ((value: boolean) => void) | undefined;
+  const persistLesson = new Promise<boolean>(resolve => {
+    resolvePersist = resolve;
+  });
+  let persistedContent = '';
+  const { controller, domain, state } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      file: pdfFile,
+      learningPlan: plan,
+      source: createProjectSourceFromFile(pdfFile),
+    },
+    projectLibrary: {
+      currentProjectId: 'project-1',
+      patchSectionLessonContent: async (_sectionId, patch) => {
+        persistedContent = patch.content || '';
+        return persistLesson;
+      },
+    },
+    openRouter: {
+      generateSectionContent: async () => ({
+        content: '# Versione rigenerata',
+        documentAssets: null,
+        generatedVisuals: [],
+        imageRefs: [],
+        learningAids: [],
+        quiz: [],
+      }),
+    },
+  });
+
+  const regeneration = controller.regenerateActiveSection();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(persistedContent, '# Versione rigenerata');
+  assert.equal(state.internalState.workflowState.loadSection.status, 'pending');
+  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Versione rigenerata');
+
+  resolvePersist?.(true);
+  assert.equal(await regeneration, 'loaded');
+  assert.equal(state.internalState.workflowState.loadSection.status, 'succeeded');
 });
 
 test('openSection ignores user navigation while another blocking workflow is pending', async () => {

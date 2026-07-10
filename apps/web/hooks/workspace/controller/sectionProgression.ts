@@ -406,13 +406,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           null
         );
         domain.setDocumentAssets(mergedDocumentAssets);
-        void projectLibrary.patchSectionLessonContent(section.id, {
+        const didPersistLesson = await projectLibrary.patchSectionLessonContent(section.id, {
           content,
           generatedVisuals,
           imageRefs: [],
           learningAids,
           quiz,
         });
+        if (!didPersistLesson) {
+          throw new Error(t('La lezione rigenerata non e stata salvata. Riprova.'));
+        }
         void projectLibrary.patchCurrentProject({
           documentAssets: mergedDocumentAssets,
           researchDossiersBySectionId: nextResearchDossiersBySectionId,
@@ -466,13 +469,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           nextDocumentAssets
         );
         domain.setDocumentAssets(mergedDocumentAssets);
-        void projectLibrary.patchSectionLessonContent(section.id, {
+        const didPersistLesson = await projectLibrary.patchSectionLessonContent(section.id, {
           content,
           generatedVisuals,
           imageRefs,
           learningAids,
           quiz,
         });
+        if (!didPersistLesson) {
+          throw new Error(t('La lezione rigenerata non e stata salvata. Riprova.'));
+        }
         void projectLibrary.patchCurrentProject({
           documentAssets: mergedDocumentAssets,
           activeSectionId: section.id,

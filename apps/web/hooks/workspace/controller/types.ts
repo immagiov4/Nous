@@ -131,7 +131,7 @@ export interface WorkspaceProjectLibraryAdapter {
     patch: Partial<
       Pick<LessonNode, 'content' | 'generatedVisuals' | 'imageRefs' | 'learningAids' | 'quiz'>
     >
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   savedProjects: SavedProjectMeta[];
   setCurrentProjectId: (projectId: string | null) => void;
   setProjectHydrated: (value: boolean) => void;
