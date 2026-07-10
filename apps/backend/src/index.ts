@@ -15,6 +15,7 @@ import statusRouter from './routes/status.js';
 import sttRouter from './routes/stt.js';
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
+import waitlistRouter from './routes/waitlist.js';
 import { timestampIso } from './utils/time.js';
 
 const DEFAULT_FRONTEND_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
@@ -89,6 +90,7 @@ export const createApp = () => {
   app.use('/api/images', resolveCurrentUser, imagesRouter);
   app.use('/api/voices', voicesRouter);
   app.use('/api/status', statusRouter);
+  app.use('/api/waitlist', waitlistRouter);
   app.use('/api/pdf', resolveCurrentUser, pdfRouter);
   app.use('/api/chat', resolveCurrentUser, chatRouter);
   app.use('/api/openrouter', resolveCurrentUser, openRouterProxyRouter);

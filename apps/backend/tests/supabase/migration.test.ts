@@ -15,6 +15,10 @@ const adminBootstrapMigrationSql = readFileSync(
   resolve(process.cwd(), 'supabase/migrations/202607070003_bootstrap_admin_account.sql'),
   'utf8'
 );
+const waitlistMigrationSql = readFileSync(
+  resolve(process.cwd(), 'supabase/migrations/202607100001_create_waitlist.sql'),
+  'utf8'
+);
 
 describe('Supabase initial user backend migration', () => {
   test('enables RLS and owner policies on every tenant table', () => {
@@ -60,5 +64,13 @@ describe('Supabase initial user backend migration', () => {
     expect(adminBootstrapMigrationSql).not.toContain(
       'delete from public.project_snapshots where user_id <> admin_id'
     );
+  });
+
+  test('stores normalized waitlist emails without exposing them through PostgREST', () => {
+    expect(waitlistMigrationSql).toContain('create table if not exists public.waitlist_entries');
+    expect(waitlistMigrationSql).toContain('primary key');
+    expect(waitlistMigrationSql).toContain('enable row level security');
+    expect(waitlistMigrationSql).toContain('revoke all on public.waitlist_entries');
+    expect(waitlistMigrationSql).not.toContain('create policy');
   });
 });

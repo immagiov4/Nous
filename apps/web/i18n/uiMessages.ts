@@ -14,7 +14,11 @@ const ENGLISH_UI_MESSAGES = {
   Amministrazione: 'Administration',
   'Accedi al tuo spazio di studio per sincronizzare corsi, note e progressi.':
     'Sign in to your study space to sync courses, notes, and progress.',
+  'Accesso alla preview': 'Preview access',
   'Accesso non riuscito.': 'Sign-in failed.',
+  'Accesso tester': 'Tester access',
+  'Anteprima del lettore Nous': 'Nous Reader preview',
+  'Apri menu': 'Open menu',
   Annulla: 'Cancel',
   'Analisi Volume in Corso...': 'Analyzing source material...',
   'Apri progetto': 'Open project',
@@ -23,10 +27,14 @@ const ENGLISH_UI_MESSAGES = {
   'Azioni cartella': 'Folder actions',
   'Autenticazione non configurata. Imposta VITE_AUTH_MODE=supabase e collega Supabase per accedere alla libreria server.':
     'Authentication is not configured. Set VITE_AUTH_MODE=supabase and connect Supabase to access the server library.',
+  'Aggiungi PDF e libri, oppure parti da una ricerca guidata.':
+    'Add PDFs and books, or start from guided research.',
   Calibrazione: 'Calibration',
   'Cambia tema': 'Change theme',
   'Caricamento...': 'Loading...',
   Chiudi: 'Close',
+  'Chiudi accesso': 'Close access',
+  'Chiudi menu': 'Close menu',
   'Chiudi conferma': 'Close confirmation',
   'Chiudi menu progetto': 'Close project menu',
   'Chiudi cartella': 'Close folder',
@@ -34,13 +42,24 @@ const ENGLISH_UI_MESSAGES = {
   'Costruzione piano...': 'Building learning plan...',
   'Contenuto cartella {folderName}': '{folderName} folder contents',
   Contesto: 'Context',
+  Continua: 'Continue',
   Corso: 'Course',
+  'Corsi che capisci davvero': 'Courses you truly understand',
   'Corso {projectTitle}': 'Course {projectTitle}',
   'Cartella {folderName}': 'Folder {folderName}',
   corsi: 'courses',
+  'Chiedi a Nous': 'Ask Nous',
+  'COME FUNZIONA': 'HOW IT WORKS',
+  'Come funziona': 'How it works',
+  'Come viaggiano i dati': 'How data travels',
   'Descrivi obiettivi, livello e come preferisci imparare…':
     'Describe your goals, current level, and how you prefer to learn…',
   Elimina: 'Delete',
+  'Dal materiale a un percorso.': 'From source material to a learning path.',
+  'Dal problema della comunicazione': 'The problem of communication',
+  'Dalle fonti a un percorso': 'From sources to a learning path',
+  'Dentro Internet': 'Inside the Internet',
+  'Domande dentro il contesto': 'Questions within context',
   'Eliminare cartella': 'Delete folder',
   'Eliminare corso': 'Delete course',
   'Eliminare la cartella "{folderName}"? I corsi e le sottocartelle verranno riportati al livello superiore.':
@@ -48,15 +67,43 @@ const ENGLISH_UI_MESSAGES = {
   'Eliminare "{projectTitle}" dalla libreria server?':
     'Delete "{projectTitle}" from the server library?',
   Esporta: 'Export',
+  Evidenzia: 'Highlight',
+  'Fai domande, ottieni spiegazioni e verifica la tua comprensione.':
+    'Ask questions, get explanations, and check your understanding.',
+  'Email per la waitlist': 'Waitlist email',
+  'Entra nella waitlist': 'Join the waitlist',
   Importa: 'Import',
+  'Il problema della comunicazione': 'The problem of communication',
+  'Il protocollo è un accordo: stabilisce forma, ordine e significato dei messaggi.':
+    'A protocol is an agreement: it defines the form, order, and meaning of messages.',
+  'Impara un argomento intero, un passo alla volta.': 'Learn a whole subject, one step at a time.',
+  'Impara a modo tuo': 'Learn your way',
+  'Impara senza perdere il filo': 'Learn without losing the thread',
+  'Imparare un soggetto intero, senza perdere il filo.':
+    'Learn a whole subject without losing the thread.',
+  'Indice del corso': 'Course outline',
+  'Inserisci un indirizzo email valido.': 'Enter a valid email address.',
+  'Invio in corso…': 'Sending…',
   'Importa backup Nous (.nous.zip, formato legacy o JSON legacy)':
     'Import Nous backup (.nous.zip, legacy format, or legacy JSON)',
   Invia: 'Send',
   'Inserisci una password.': 'Enter a password.',
   'Invio magic link non riuscito.': 'Could not send the magic link.',
+  'Interroga e verifica': 'Ask and check your understanding',
+  'La richiesta non è disponibile in questo momento. Riprova più tardi.':
+    'The request is unavailable right now. Try again later.',
+  'La tua email': 'Your email',
   lezioni: 'lessons',
   Libreria: 'Library',
   'Magic link inviato. Controlla la tua email.': 'Magic link sent. Check your email.',
+  'Navigazione principale': 'Main navigation',
+  'Non un riassunto. Non una chat generica.': 'Not a summary. Not a generic chat.',
+  'Nous costruisce il percorso': 'Nous builds the learning path',
+  'Nous è un ambiente di apprendimento: conserva la struttura del soggetto, il punto in cui sei e le domande che ti hanno fatto avanzare.':
+    'Nous is a learning environment: it preserves the structure of the subject, where you are, and the questions that helped you move forward.',
+  'Nous mette ordine prima che tu debba farlo da solo.':
+    'Nous creates order before you have to do it yourself.',
+  'Nous Reader, torna all’inizio': 'Nous Reader, back to the beginning',
   'Nome cartella...': 'Folder name...',
   'Nuova password per {userName}': 'New password for {userName}',
   'Nuova cartella': 'New folder',
@@ -64,9 +111,24 @@ const ENGLISH_UI_MESSAGES = {
   'Nessun corso salvato da organizzare.': 'No saved courses to organize.',
   'Parla del tuo livello reale, non di quello ideale.':
     'Describe your actual level, not your ideal one.',
+  'Parte 1 di 12': 'Part 1 of 12',
+  'PARTE 01 · FONDAMENTI': 'PART 01 · FOUNDATIONS',
+  'PDF, libri e ricerca diventano corsi leggibili, interrogabili e continui.':
+    'PDFs, books, and research become readable, explorable, continuous courses.',
+  'PER CHI VUOLE CAPIRE': 'FOR PEOPLE WHO WANT TO UNDERSTAND',
+  'PERCHÉ NOUS': 'WHY NOUS',
+  'Perché Nous': 'Why Nous',
+  'Per chi studia da fonti diverse, perde il filo tra una sessione e l’altra o ha bisogno di vedere un argomento diventare una sequenza affrontabile.':
+    'For people who study from different sources, lose the thread between sessions, or need to see a subject become a manageable sequence.',
+  'Porta il materiale': 'Bring your source material',
+  'Porta un argomento. Noi gli diamo una direzione.': 'Bring a subject. We give it direction.',
+  'Preview a inviti. Niente rumore, solo aggiornamenti utili.':
+    'Invite-only preview. No noise, only useful updates.',
+  'PREVIEW PRIVATA': 'PRIVATE PREVIEW',
   'Se vuoi esempi, codice o analogie, dillo subito.':
     'Say up front if you want examples, code, or analogies.',
   'Radice libreria': 'Library root',
+  'Reti e Internet': 'Networks and the Internet',
   Rinomina: 'Rename',
   'Rinomina cartella...': 'Rename folder...',
   Salva: 'Save',
@@ -80,7 +142,33 @@ const ENGLISH_UI_MESSAGES = {
   'Albero corsi': 'Course tree',
   'Scrivi cosa vuoi saper fare alla fine del percorso.':
     'Write what you want to be able to do by the end of the course.',
+  'Scopri come funziona': 'See how it works',
+  'Sei nella lista. Ti scriveremo quando si libera un posto.':
+    'You are on the list. We will write when a place opens up.',
+  'SOLO SU INVITO': 'INVITE ONLY',
+  'STUDIARE UN ARGOMENTO, DAVVERO': 'TRULY STUDY A SUBJECT',
   'Strutturazione semantica del piano di studi...': 'Structuring the learning plan semantically...',
+  'Strumenti di studio': 'Study tools',
+  'Continuità tra le sessioni': 'Continuity between sessions',
+  'I vantaggi di Nous': 'The benefits of Nous',
+  'Hai inviato troppe richieste. Riprova tra qualche minuto.':
+    'You sent too many requests. Try again in a few minutes.',
+  'Le fonti diventano parti ordinate, leggibili e collegate tra loro.':
+    'Sources become ordered, readable sections connected to each other.',
+  'Leggi, fai domande, annota e riprendi sempre dal punto giusto.':
+    'Read, ask questions, take notes, and always resume in the right place.',
+  'Leggi, ascolta, evidenzia, visualizza. Rimani concentrato e fai progressi.':
+    'Read, listen, highlight, and visualize. Stay focused and make progress.',
+  'Progressi e contesto che continuano tra una sessione e l’altra.':
+    'Progress and context that continue between sessions.',
+  'Risposte ancorate a ciò che stai studiando.': 'Answers anchored to what you are studying.',
+  'Trasforma qualsiasi testo complesso in lezioni chiare, passo dopo passo.':
+    'Turn complex material into clear lessons, step by step.',
+  'Un percorso, non una cartella di file.': 'A learning path, not a folder of files.',
+  'Una rete nasce da una domanda semplice: come facciamo a scambiare informazioni senza perdere il significato lungo il percorso?':
+    'A network begins with a simple question: how can we exchange information without losing its meaning along the way?',
+  'Quando il materiale è tanto, il percorso deve restare semplice.':
+    'When there is a lot of material, the path must stay simple.',
   'Apri {artifactTitle}': 'Open {artifactTitle}',
   'Artefatto scartato.': 'Artifact discarded.',
   'Artefatto sostituito.': 'Artifact replaced.',
