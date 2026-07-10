@@ -3,6 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { MotionPopover } from '../../../utils/motion/index.ts';
 import MusicPlayer from '../UnifiedAudioPanel.tsx';
+import { HeaderLearningAids } from './LessonLearningAids.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
 import WorkspaceReaderSettingsPanel from './WorkspaceReaderSettingsPanel.tsx';
 
@@ -20,12 +21,14 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   isSettingsOpen,
   lastAudioTab,
   learningPlanTitle,
+  learningAids,
   loadingStatus,
   musicUrl,
   musicVolume,
   onBackToLibrary,
   onOpenSidebar,
   onRegenerateActiveSection,
+  onDismissLearningAid,
   onSetDarkMode,
   onSetCourseGenerationNotes,
   onSetFocusMode,
@@ -290,6 +293,14 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             setMusicVolume={onSetMusicVolume}
             tts={tts}
           />
+
+          {!isMobileViewport ? (
+            <HeaderLearningAids
+              isDarkMode={isDarkMode}
+              learningAids={learningAids}
+              onDismissLearningAid={onDismissLearningAid}
+            />
+          ) : null}
 
           {!isMobileViewport ? (
             <div className="mx-1 h-4 w-px bg-gray-300 dark:bg-zinc-600" />

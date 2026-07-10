@@ -18,13 +18,46 @@ import voicesRouter from './routes/voices.js';
 import waitlistRouter from './routes/waitlist.js';
 import { timestampIso } from './utils/time.js';
 
-const DEFAULT_FRONTEND_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const DEFAULT_FRONTEND_PORT = '5173';
+const DEFAULT_FRONTEND_ORIGINS = [
+  `http://localhost:${DEFAULT_FRONTEND_PORT}`,
+  `http://127.0.0.1:${DEFAULT_FRONTEND_PORT}`,
+];
 const DEFAULT_JSON_BODY_LIMIT = '50mb';
 const OPENROUTER_JSON_BODY_LIMIT = '80mb';
 const PDF_JSON_BODY_LIMIT = '160mb';
 const PROJECTS_JSON_BODY_LIMIT = '300mb';
 const STT_JSON_BODY_LIMIT = '20mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
+
+const isPrivateIpv4Address = (hostname: string): boolean => {
+  const octets = hostname.split('.').map(value => Number.parseInt(value, 10));
+  if (
+    octets.length !== 4 ||
+    octets.some(octet => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  ) {
+    return false;
+  }
+
+  return (
+    octets[0] === 10 ||
+    (octets[0] === 172 && (octets[1] ?? 0) >= 16 && (octets[1] ?? 0) <= 31) ||
+    (octets[0] === 192 && octets[1] === 168)
+  );
+};
+
+export const isPrivateNetworkFrontendOrigin = (origin: string): boolean => {
+  try {
+    const parsedOrigin = new URL(origin);
+    return (
+      parsedOrigin.protocol === 'http:' &&
+      parsedOrigin.port === DEFAULT_FRONTEND_PORT &&
+      isPrivateIpv4Address(parsedOrigin.hostname)
+    );
+  } catch {
+    return false;
+  }
+};
 
 const shouldLogRequest = (method: string, path: string, statusCode: number): boolean => {
   if (method === 'GET' && statusCode < 400 && QUIET_SUCCESS_GET_PATHS.has(path)) {
@@ -59,7 +92,12 @@ export const createApp = () => {
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin || allowedOrigins.has(origin) || backendOrigins.has(origin)) {
+        if (
+          !origin ||
+          allowedOrigins.has(origin) ||
+          backendOrigins.has(origin) ||
+          isPrivateNetworkFrontendOrigin(origin)
+        ) {
           callback(null, true);
           return;
         }

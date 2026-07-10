@@ -75,3 +75,26 @@
   status mapping are covered by service tests.
 
 Final result: passed
+
+## Reader controls — key concepts, audio, and settings
+
+### Source and target state
+
+- Reference: Codex Environment floating panel supplied by the user.
+- Route: the VLAN lesson in project `5d31c240-5915-4747-8405-1da47f4ea721`.
+- Desktop: 1280 × 900, light theme, key-concepts popover open.
+- Tablet: 768 × 900, light theme, audio and reading-settings popovers checked separately.
+- Mobile: 390 × 844, light theme, key-concepts bottom sheet open.
+
+### Contract replay
+
+- The desktop reading column remains centered and no longer allocates a grid column to learning aids.
+- Key concepts open from the sticky header after Audio; the closed control is outline-only.
+- The panel and each definition use matching down-to-open and up-to-close indicators.
+- Counts are absent from both the desktop control and the mobile entry point.
+- Definitions begin collapsed and expand independently without changing the lesson Markdown.
+- The audio panel aligns its right edge with the audio control and opens directly below it on tablet.
+- Reading settings no longer render a trailing divider after the last section.
+- No runtime console errors were observed in the replayed reader states.
+
+Final result: passed

@@ -677,10 +677,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     ? 'max-w-[72rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-12 xl:px-16'
     : 'max-w-[90rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
   const readingColumnClassName = isFocusMode ? 'mx-auto max-w-[76ch]' : 'mx-auto max-w-[82ch]';
-  const hasDesktopLearningAids = learningAids.length > 0 && !isMobileViewport;
-  const lessonLayoutClassName = hasDesktopLearningAids
-    ? 'mx-auto grid w-full max-w-[116ch] grid-cols-[minmax(0,82ch)_auto] items-start gap-8'
-    : readingColumnClassName;
+  const lessonLayoutClassName = readingColumnClassName;
   const renderedSectionContent = useMemo(
     () =>
       sectionContent && sourcePageRangeLabel
@@ -966,14 +963,6 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                   remainingQuestionCount={unansweredQuestionCount}
                 />
               </div>
-              {hasDesktopLearningAids ? (
-                <LessonLearningAids
-                  isDarkMode={isDarkMode}
-                  isMobileViewport={false}
-                  learningAids={learningAids}
-                  onDismissLearningAid={onDismissLearningAid}
-                />
-              ) : null}
             </div>
           ) : (
             <div className="mt-16 flex flex-col items-center text-center text-gray-400 sm:mt-20">

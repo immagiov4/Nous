@@ -57,6 +57,27 @@ const AudioHarness = ({ initialMusicUrl = '' }: { initialMusicUrl?: string }) =>
 };
 
 describe('UnifiedAudioPanel', () => {
+  test('anchors the compact panel below the audio control on mobile viewports', () => {
+    const { container } = render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isMobileViewport
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel()}
+      />
+    );
+
+    const panel = container.querySelector('[data-audio-panel-positioner]');
+    expect(panel).toHaveClass('absolute', 'right-0');
+    expect(panel).not.toHaveClass('fixed', 'left-1/2', '-translate-x-1/2');
+  });
+
   test('shows how many speech parts exist and lets the user choose one directly', async () => {
     const user = userEvent.setup();
     const onSelectChunk = vi.fn();

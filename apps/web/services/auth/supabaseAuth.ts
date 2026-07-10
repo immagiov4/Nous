@@ -61,6 +61,36 @@ const getStorage = (): Storage | null => {
   }
 };
 
+interface BrowserLocationLike {
+  hostname: string;
+}
+
+const isLoopbackHostname = (hostname: string): boolean =>
+  hostname === 'localhost' ||
+  hostname === '127.0.0.1' ||
+  hostname === '::1' ||
+  hostname === '[::1]';
+
+export const resolveBrowserReachableSupabaseUrl = (
+  configuredUrl: string,
+  browserLocation: BrowserLocationLike | null = typeof window === 'undefined'
+    ? null
+    : window.location
+): string => {
+  const normalizedUrl = configuredUrl.replace(/\/$/, '');
+  if (!browserLocation || isLoopbackHostname(browserLocation.hostname)) {
+    return normalizedUrl;
+  }
+
+  const parsedUrl = new URL(normalizedUrl);
+  if (!isLoopbackHostname(parsedUrl.hostname)) {
+    return normalizedUrl;
+  }
+
+  parsedUrl.hostname = browserLocation.hostname;
+  return parsedUrl.toString().replace(/\/$/, '');
+};
+
 const getSupabaseAuthConfig = () => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
@@ -70,7 +100,7 @@ const getSupabaseAuthConfig = () => {
   }
 
   return {
-    supabaseUrl: supabaseUrl.replace(/\/$/, ''),
+    supabaseUrl: resolveBrowserReachableSupabaseUrl(supabaseUrl),
     anonKey,
   };
 };

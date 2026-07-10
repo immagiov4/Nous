@@ -463,7 +463,7 @@ const UnifiedAudioPanel = ({
   };
 
   const panelClassName = isMobileViewport
-    ? 'fixed left-1/2 top-[calc(env(safe-area-inset-top,0px)+5.5rem)] z-50 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2'
+    ? 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(22rem,calc(100vw-2rem))]'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[22rem]';
 
   const isAnyAudioActive = isMusicPlaying || tts.isPlaying;
@@ -490,7 +490,7 @@ const UnifiedAudioPanel = ({
 
       {isOpen && (
         <AnimatePresence>
-          <div key="unified-audio-panel" className={panelClassName}>
+          <div key="unified-audio-panel" data-audio-panel-positioner className={panelClassName}>
             <motion.div
               initial={{ opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -500,7 +500,7 @@ const UnifiedAudioPanel = ({
                 scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
               }}
               style={{
-                transformOrigin: isMobileViewport ? 'top center' : 'top right',
+                transformOrigin: 'top right',
                 willChange: 'transform, opacity',
               }}
               className="panel-shadow overflow-visible rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)]"

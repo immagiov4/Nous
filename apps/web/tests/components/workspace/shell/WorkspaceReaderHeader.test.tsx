@@ -28,12 +28,14 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   syncState: 'saved',
   isSettingsOpen: false,
   learningPlanTitle: 'Percorso',
+  learningAids: [],
   loadingStatus: '',
   musicUrl: '',
   musicVolume: 20,
   onBackToLibrary: vi.fn(),
   onOpenSidebar: vi.fn(),
   onRegenerateActiveSection: vi.fn(),
+  onDismissLearningAid: vi.fn(),
   onSetDarkMode: vi.fn(),
   onSetCourseGenerationNotes: vi.fn(),
   onSetFocusMode: vi.fn(),
@@ -145,5 +147,30 @@ describe('WorkspaceReaderHeader', () => {
     render(<WorkspaceReaderHeader {...props} isMobileViewport />);
 
     expect(screen.getByTestId('music-player')).toBeInTheDocument();
+  });
+
+  test('opens desktop key concepts from the sticky header without showing a count', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(
+      <WorkspaceReaderHeader
+        {...props}
+        learningAids={[
+          {
+            id: 'learning-aid-definition-vlan',
+            kind: 'definition',
+            title: 'VLAN',
+            content: 'Una rete locale separata logicamente.',
+          },
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
+
+    expect(screen.getByRole('complementary', { name: 'Concetti chiave' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Espandi VLAN' })).toBeInTheDocument();
+    expect(screen.queryByText('1 elemento')).toBeNull();
   });
 });

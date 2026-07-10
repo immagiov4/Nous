@@ -383,6 +383,7 @@ export default function LandingProductDemo() {
       isMusicPlaying,
       isSettingsOpen,
       lastAudioTab,
+      learningAids: [],
       learningPlanTitle: courseTitle,
       loadingStatus: isGenerating
         ? isItalian
@@ -394,6 +395,7 @@ export default function LandingProductDemo() {
       onBackToLibrary: () => showStage('plan'),
       onOpenSidebar: () => setIsMobileSidebarOpen(current => !current),
       onRegenerateActiveSection: () => showStage('generation'),
+      onDismissLearningAid: () => {},
       onSetCourseGenerationNotes: setCourseGenerationNotes,
       onSetDarkMode: setIsDarkMode,
       onSetFocusMode: setIsFocusMode,

@@ -1,12 +1,4 @@
-import {
-  BookOpen,
-  ChevronLeft,
-  ChevronRight,
-  Code2,
-  Heading2,
-  MousePointerClick,
-  X,
-} from 'lucide-react';
+import { BookOpen, Braces, ChevronDown, Lightbulb, Sigma, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
@@ -38,11 +30,11 @@ const getLearningAidIcon = (kind: LessonLearningAidKind) => {
     case 'definition':
       return BookOpen;
     case 'formula':
-      return Code2;
+      return Sigma;
     case 'symbol':
-      return Heading2;
+      return Braces;
     case 'analogy':
-      return MousePointerClick;
+      return Lightbulb;
   }
 };
 
@@ -51,41 +43,77 @@ function LearningAidList({
   learningAids,
   onDismissLearningAid,
 }: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onDismissLearningAid'>) {
+  const [expandedAidIds, setExpandedAidIds] = useState<Set<string>>(() => new Set());
+
+  const toggleAid = (learningAidId: string) => {
+    setExpandedAidIds(currentIds => {
+      const nextIds = new Set(currentIds);
+      if (nextIds.has(learningAidId)) {
+        nextIds.delete(learningAidId);
+      } else {
+        nextIds.add(learningAidId);
+      }
+      return nextIds;
+    });
+  };
+
   return (
-    <ol className="divide-y divide-gray-200 dark:divide-zinc-700">
+    <ol className="grid gap-2">
       {learningAids.map(learningAid => {
         const KindIcon = getLearningAidIcon(learningAid.kind);
+        const isExpanded = expandedAidIds.has(learningAid.id);
+        const disclosureLabel = t(
+          isExpanded ? 'Comprimi {learningAidTitle}' : 'Espandi {learningAidTitle}',
+          { learningAidTitle: learningAid.title }
+        );
 
         return (
-          <li key={learningAid.id} className="py-3 first:pt-0 last:pb-0">
-            <div className="flex items-start gap-2.5">
-              <KindIcon className="mt-0.5 h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-zinc-400">
-                      {getLearningAidKindLabel(learningAid.kind)}
-                    </p>
-                    <h3 className="mt-0.5 text-sm font-semibold leading-5 text-gray-900 dark:text-zinc-100">
-                      {learningAid.title}
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={t('Rimuovi {learningAidTitle}', {
-                      learningAidTitle: learningAid.title,
-                    })}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-300"
-                    onClick={() => onDismissLearningAid(learningAid.id)}
-                    title={t('Rimuovi {learningAidTitle}', {
-                      learningAidTitle: learningAid.title,
-                    })}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+          <li
+            key={learningAid.id}
+            className="overflow-hidden rounded-xl border border-gray-200 bg-white/95 dark:border-zinc-700 dark:bg-zinc-900/80"
+          >
+            <div className="flex items-center gap-1 px-2 py-1.5">
+              <button
+                type="button"
+                aria-expanded={isExpanded}
+                aria-label={disclosureLabel}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                onClick={() => toggleAid(learningAid.id)}
+                title={disclosureLabel}
+              >
+                <KindIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-500 dark:text-zinc-400">
+                    {getLearningAidKindLabel(learningAid.kind)}
+                  </span>
+                  <span className="block truncate text-sm font-medium leading-5 text-gray-900 dark:text-zinc-100">
+                    {learningAid.title}
+                  </span>
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 dark:text-zinc-500 ${
+                    isExpanded ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+              <button
+                type="button"
+                aria-label={t('Rimuovi {learningAidTitle}', {
+                  learningAidTitle: learningAid.title,
+                })}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-300"
+                onClick={() => onDismissLearningAid(learningAid.id)}
+                title={t('Rimuovi {learningAidTitle}', {
+                  learningAidTitle: learningAid.title,
+                })}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {isExpanded ? (
+              <div className="border-t border-gray-100 px-4 pb-3 pt-2.5 dark:border-zinc-800">
                 <MarkdownRenderer
-                  className={`prose-sm mt-1 max-w-none leading-5 text-gray-600 dark:text-zinc-300 [&_p]:my-0 ${
+                  className={`prose-sm max-w-none text-sm leading-5 text-gray-600 dark:text-zinc-300 [&_p]:my-0 ${
                     isDarkMode ? 'prose-invert' : ''
                   }`}
                   content={learningAid.content}
@@ -97,7 +125,7 @@ function LearningAidList({
                   </p>
                 ) : null}
               </div>
-            </div>
+            ) : null}
           </li>
         );
       })}
@@ -105,62 +133,64 @@ function LearningAidList({
   );
 }
 
-function DesktopLearningAids({
+export function HeaderLearningAids({
   isDarkMode,
   learningAids,
   onDismissLearningAid,
 }: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onDismissLearningAid'>) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
-  if (!isExpanded) {
-    return (
-      <aside
-        aria-label={t('Concetti chiave')}
-        className="sticky top-6 w-11 border-l border-gray-200 pl-3 dark:border-zinc-700"
-      >
-        <button
-          type="button"
-          aria-label={t('Espandi concetti chiave')}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"
-          onClick={() => setIsExpanded(true)}
-          title={t('Espandi concetti chiave')}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-      </aside>
-    );
+  if (learningAids.length === 0) {
+    return null;
   }
 
   return (
-    <aside
-      aria-label={t('Concetti chiave')}
-      className="sticky top-6 w-64 border-l border-gray-200 pl-4 dark:border-zinc-700"
-    >
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-            {t('Concetti chiave')}
-          </h2>
-          <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
-            {t('Supporti contestuali della lezione')}
-          </p>
-        </div>
-        <button
-          type="button"
-          aria-label={t('Comprimi concetti chiave')}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-          onClick={() => setIsExpanded(false)}
-          title={t('Comprimi concetti chiave')}
+    <div className="relative">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-label={t(isOpen ? 'Chiudi concetti chiave' : 'Apri concetti chiave')}
+        className={`inline-flex h-10 items-center justify-center gap-2 rounded-full border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
+          isOpen
+            ? 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100'
+            : 'border-gray-300 bg-transparent text-gray-500 shadow-none hover:border-gray-400 hover:text-gray-800 dark:border-zinc-600 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-100'
+        }`}
+        onClick={() => setIsOpen(current => !current)}
+        title={t('Concetti chiave')}
+      >
+        <BookOpen className="h-4 w-4" />
+        <span className="hidden xl:inline">{t('Concetti chiave')}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {isOpen ? (
+        <aside
+          aria-label={t('Concetti chiave')}
+          className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-[0_16px_40px_rgba(15,23,42,0.12)] dark:border-zinc-700 dark:bg-zinc-900"
         >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
-      <LearningAidList
-        isDarkMode={isDarkMode}
-        learningAids={learningAids}
-        onDismissLearningAid={onDismissLearningAid}
-      />
-    </aside>
+          <div className="mb-3 flex items-center justify-between gap-2 px-1">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+              {t('Concetti chiave')}
+            </h2>
+            <button
+              type="button"
+              aria-label={t('Chiudi concetti chiave')}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              onClick={() => setIsOpen(false)}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <LearningAidList
+            isDarkMode={isDarkMode}
+            learningAids={learningAids}
+            onDismissLearningAid={onDismissLearningAid}
+          />
+        </aside>
+      ) : null}
+    </div>
   );
 }
 
@@ -170,10 +200,6 @@ function MobileLearningAids({
   onDismissLearningAid,
 }: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onDismissLearningAid'>) {
   const [isOpen, setIsOpen] = useState(false);
-  const itemCountLabel =
-    learningAids.length === 1
-      ? t('1 elemento')
-      : t('{count} elementi', { count: learningAids.length });
   const portalContainer = typeof document === 'undefined' ? null : document.body;
 
   useEffect(() => {
@@ -194,7 +220,7 @@ function MobileLearningAids({
     <>
       <button
         type="button"
-        aria-label={t('Apri concetti chiave, {itemCount}', { itemCount: itemCountLabel })}
+        aria-label={t('Apri concetti chiave')}
         className="mb-5 flex w-full items-center justify-between gap-3 border-y border-gray-200 py-3 text-left text-sm text-gray-700 transition-colors hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:border-zinc-700 dark:text-zinc-300 dark:hover:text-white"
         onClick={() => setIsOpen(true)}
       >
@@ -202,10 +228,7 @@ function MobileLearningAids({
           <BookOpen className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
           <span className="font-medium">{t('Concetti chiave')}</span>
         </span>
-        <span className="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 dark:text-zinc-400">
-          {itemCountLabel}
-          <ChevronRight className="h-4 w-4" />
-        </span>
+        <ChevronDown className="h-4 w-4 -rotate-90 text-gray-500 dark:text-zinc-400" />
       </button>
 
       {isOpen && portalContainer
@@ -224,14 +247,9 @@ function MobileLearningAids({
                 className="relative max-h-[min(75dvh,40rem)] w-full overflow-hidden rounded-[1.8rem] border border-gray-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
               >
                 <header className="flex items-center justify-between gap-3 border-b border-gray-200 px-5 py-4 dark:border-zinc-700">
-                  <div>
-                    <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
-                      {t('Concetti chiave')}
-                    </h2>
-                    <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
-                      {itemCountLabel}
-                    </p>
-                  </div>
+                  <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
+                    {t('Concetti chiave')}
+                  </h2>
                   <button
                     type="button"
                     aria-label={t('Chiudi concetti chiave')}
@@ -241,7 +259,7 @@ function MobileLearningAids({
                     <X className="h-4 w-4" />
                   </button>
                 </header>
-                <div className="max-h-[calc(min(75dvh,40rem)-5rem)] overflow-y-auto px-5 py-4 overscroll-contain">
+                <div className="max-h-[calc(min(75dvh,40rem)-5rem)] overflow-y-auto px-4 py-4 overscroll-contain">
                   <LearningAidList
                     isDarkMode={isDarkMode}
                     learningAids={learningAids}
@@ -257,14 +275,14 @@ function MobileLearningAids({
   );
 }
 
+/*
+ * Mobile keeps the entry point in the reading flow. Desktop owns the same content from the
+ * sticky header so the reading column never moves sideways to make room for contextual aids.
+ */
 export default function LessonLearningAids(props: LessonLearningAidsProps) {
-  if (props.learningAids.length === 0) {
+  if (props.learningAids.length === 0 || !props.isMobileViewport) {
     return null;
   }
 
-  return props.isMobileViewport ? (
-    <MobileLearningAids {...props} />
-  ) : (
-    <DesktopLearningAids {...props} />
-  );
+  return <MobileLearningAids {...props} />;
 }

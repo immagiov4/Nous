@@ -161,12 +161,14 @@ export interface WorkspaceReaderHeaderModel {
   isMusicPlaying: boolean;
   isSettingsOpen: boolean;
   learningPlanTitle: string;
+  learningAids: LessonLearningAid[];
   loadingStatus: string;
   musicUrl: string;
   musicVolume: number;
   onBackToLibrary: () => void;
   onOpenSidebar: () => void;
   onRegenerateActiveSection: () => void;
+  onDismissLearningAid: (learningAidId: string) => void;
   onSetDarkMode: (value: boolean) => void;
   onSetCourseGenerationNotes: (value: string) => void;
   onSetFocusMode: (value: boolean) => void;

@@ -130,6 +130,35 @@ test('generates compact learning aids in the lesson language with a strict schem
   assert.match(String(request?.messages?.[1]?.content ?? ''), /stessa lingua della lezione/i);
   assert.match(String(request?.messages?.[1]?.content ?? ''), /massimo 2 definizioni/i);
   assert.match(String(request?.messages?.[1]?.content ?? ''), /non modificare il markdown/i);
+  assert.match(String(request?.messages?.[1]?.content ?? ''), /simbolo convenzionale/i);
+  assert.match(String(request?.messages?.[1]?.content ?? ''), /comprensibile da sola/i);
+});
+
+test('rejects conceptual phrases mislabeled as symbols', () => {
+  const result = normalizeLessonLearningAids(
+    {
+      aids: [
+        {
+          kind: 'symbol',
+          title: 'Decisione di inoltro',
+          content: 'Una scelta operativa dello switch.',
+          anchorHeading: null,
+        },
+        {
+          kind: 'symbol',
+          title: 'λ',
+          content: 'Tasso medio di arrivo.',
+          anchorHeading: null,
+        },
+      ],
+    },
+    '# Code di rete'
+  );
+
+  assert.deepEqual(
+    result.map(aid => aid.title),
+    ['λ']
+  );
 });
 
 test('learning-aid generation is optional and does not fail the lesson', async () => {

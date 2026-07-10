@@ -100,10 +100,7 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByText('Prosegui')).toHaveAttribute('aria-disabled', 'true');
   });
 
-  test('renders a collapsible desktop rail for contextual learning aids', async () => {
-    const user = userEvent.setup();
-    const onDismissLearningAid = vi.fn();
-
+  test('keeps the desktop reading column centered when contextual learning aids exist', () => {
     render(
       <WorkspaceReaderContent
         {...buildProps({
@@ -115,20 +112,12 @@ describe('WorkspaceReaderContent', () => {
               content: 'Regole condivise per scambiare messaggi.',
             },
           ],
-          onDismissLearningAid,
         })}
       />
     );
 
-    expect(screen.getByRole('complementary', { name: 'Concetti chiave' })).toBeInTheDocument();
-    expect(screen.getByText('Regole condivise per scambiare messaggi.')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Rimuovi Protocollo' }));
-    expect(onDismissLearningAid).toHaveBeenCalledWith('learning-aid-definition-protocollo');
-
-    await user.click(screen.getByRole('button', { name: 'Comprimi concetti chiave' }));
+    expect(screen.queryByRole('complementary', { name: 'Concetti chiave' })).toBeNull();
     expect(screen.queryByText('Regole condivise per scambiare messaggi.')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Espandi concetti chiave' })).toBeInTheDocument();
   });
 
   test('keeps learning aids collapsed in a mobile bottom sheet until requested', async () => {
@@ -151,9 +140,12 @@ describe('WorkspaceReaderContent', () => {
     );
 
     expect(screen.queryByText('T = T_prop + T_tx')).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave, 1 elemento' }));
+    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
 
     expect(screen.getByRole('dialog', { name: 'Concetti chiave' })).toBeInTheDocument();
+    expect(screen.queryByText('T = T_prop + T_tx')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Espandi Latenza totale' }));
     expect(screen.getByText('T = T_prop + T_tx')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Chiudi concetti chiave' }));
