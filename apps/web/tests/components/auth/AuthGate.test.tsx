@@ -34,7 +34,7 @@ test('keeps the public landing available to signed-in testers at /landing', () =
   expect(
     screen.getByRole('heading', {
       level: 1,
-      name: 'Un argomento intero. Un passo alla volta.',
+      name: 'Un corso intero. Un passo alla volta.',
     })
   ).toBeInTheDocument();
   expect(screen.queryByText('Area autenticata')).toBeNull();

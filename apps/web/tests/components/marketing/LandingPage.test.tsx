@@ -15,17 +15,18 @@ test('presents the course transformation and keeps tester login secondary', asyn
   expect(
     screen.getByRole('heading', {
       level: 1,
-      name: 'Un argomento intero. Un passo alla volta.',
+      name: 'Un corso intero. Un passo alla volta.',
     })
   ).toBeInTheDocument();
   expect(
     screen.getByText(
-      'Carica il materiale che devi padroneggiare. Nous prepara il piano, genera lezioni ordinate con audio e domande, e alla sessione successiva riapre il punto esatto.'
+      'Metti insieme slide, dispense e libri. Nous li trasforma nel corso che avresti voluto ricevere: lezioni leggibili, domande, note e audio, sempre dal punto in cui eri rimasto.'
     )
   ).toBeInTheDocument();
   expect(
-    screen.getByRole('heading', { name: 'Il prossimo passo è già pronto.' })
+    screen.getByRole('heading', { name: 'Scorri. Guarda il materiale diventare studiabile.' })
   ).toBeInTheDocument();
+  expect(screen.getByText('L’ho costruito perché mi serviva.')).toBeInTheDocument();
   expect(screen.queryByText(/interfaccia reale/i)).toBeNull();
   expect(screen.queryByText(/sviluppo visibile/i)).toBeNull();
   expect(screen.queryByText('Area tester')).toBeNull();
@@ -44,6 +45,7 @@ test('lets visitors inspect the real lesson generation and reader states', async
 
   render(<LandingPage loginPanel={<p>Area tester</p>} />);
 
+  await user.click(screen.getByRole('tab', { name: 'Lezione' }));
   expect(
     screen.getByRole('heading', { name: 'Perché l’attenzione è limitata' })
   ).toBeInTheDocument();

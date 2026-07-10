@@ -76,6 +76,33 @@
 
 Final result: passed
 
+### Pass 4 — narrative scroll journey
+
+#### Contract
+
+| Surface | Decision |
+| --- | --- |
+| Waitlist submission and stable error states | Keep |
+| Tester sign-in dialog and persistent **Accedi** entry | Keep |
+| Interactive Libreria, Generazione, and Lezione demo | Keep and synchronize with page scroll |
+| Abstract hero and static product/comparison sections | Replace with a student pain-to-outcome narrative |
+| Product routes, authentication, and saved data behavior | Keep |
+
+- Reframed the hero around the concrete university-study problem: fragmented slides, course notes,
+  and books that still need to be studied together.
+- Changed the primary promise to **Un corso intero. Un passo alla volta.** and kept **Richiedi
+  accesso** as the single primary conversion action.
+- Added a four-chapter scroll journey. The sticky product demo moves from Libreria to Generazione to
+  Lezione and back to continuity as the relevant chapter enters view; the tabs remain manually usable.
+- Replaced repeated feature claims with two outcome-led sections: studying without rebuilding context
+  and returning to saved progress across devices.
+- Added a founder note as the page's human proof instead of inventing customer counts, testimonials,
+  or institutional endorsements.
+- Replayed desktop and 390 × 844 mobile states. Mobile has no horizontal overflow, the tester sign-in
+  remains available from the menu, and a clean reload produces no console errors.
+
+Final result: passed
+
 ## Reader controls — key concepts, audio, and settings
 
 ### Source and target state

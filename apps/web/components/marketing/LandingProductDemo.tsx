@@ -13,7 +13,12 @@ import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
 import type { WorkspaceReaderShellProps } from '../workspace/shell/types.ts';
 import WorkspaceReaderShell from '../workspace/WorkspaceReaderShell.tsx';
 
-type DemoStage = 'plan' | 'generation' | 'lesson';
+export type DemoStage = 'plan' | 'generation' | 'lesson';
+
+interface LandingProductDemoProps {
+  activeStage?: DemoStage;
+  onStageChange?: (stage: DemoStage) => void;
+}
 
 const ITALIAN_COURSE_TITLE = 'Psicologia cognitiva: memoria e attenzione';
 const ENGLISH_COURSE_TITLE = 'Cognitive psychology: memory and attention';
@@ -210,7 +215,10 @@ const resolveInitialMobileViewport = (): boolean =>
 
 const resolvedNoteSave = () => Promise.resolve({ merged: false, saved: false });
 
-export default function LandingProductDemo() {
+export default function LandingProductDemo({
+  activeStage,
+  onStageChange,
+}: LandingProductDemoProps = {}) {
   const isItalian = getAppLocale() === 'it';
   const courseTitle = isItalian ? ITALIAN_COURSE_TITLE : ENGLISH_COURSE_TITLE;
   const demoReasoning = isItalian ? buildItalianDemoReasoning() : ENGLISH_DEMO_REASONING;
@@ -227,7 +235,8 @@ export default function LandingProductDemo() {
     () => buildCourseGroups(demoLessons, isItalian),
     [demoLessons, isItalian]
   );
-  const [stage, setStage] = useState<DemoStage>('lesson');
+  const [internalStage, setInternalStage] = useState<DemoStage>('lesson');
+  const stage = activeStage ?? internalStage;
   const [activeSectionId, setActiveSectionId] = useState(demoLessons[0].id);
   const [expandedModuleId, setExpandedModuleId] = useState(courseGroups[0].id);
   const [completedSectionIds, setCompletedSectionIds] = useState<Set<string>>(new Set());
@@ -283,7 +292,8 @@ export default function LandingProductDemo() {
   );
 
   const showStage = (nextStage: DemoStage) => {
-    setStage(nextStage);
+    setInternalStage(nextStage);
+    onStageChange?.(nextStage);
     setIsTtsPlaying(false);
     if (nextStage === 'plan') {
       setActiveSectionId('');
@@ -296,7 +306,7 @@ export default function LandingProductDemo() {
 
   const selectLesson = (lesson: LessonNode) => {
     setActiveSectionId(lesson.id);
-    setStage('lesson');
+    showStage('lesson');
     setIsMobileSidebarOpen(false);
     setTtsChunkIndex(0);
   };
