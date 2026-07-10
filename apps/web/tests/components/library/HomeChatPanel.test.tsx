@@ -187,6 +187,19 @@ describe('HomeChatPanel', () => {
     setViewportWidth(1280);
   });
 
+  test('renders the course setup surface in the browser language', () => {
+    Object.defineProperties(window.navigator, {
+      language: { configurable: true, value: 'en-US' },
+      languages: { configurable: true, value: ['en-US'] },
+    });
+
+    render(<HomeChatPanel {...buildProps()} assessmentMessages={[]} />);
+
+    expect(screen.getByText('Set up a new course')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /New course/i })).toBeInTheDocument();
+    expect(screen.getByText('What would you like to learn?')).toBeInTheDocument();
+  });
+
   test('switches between preserved new-course and library threads', async () => {
     const user = userEvent.setup();
     const props = buildProps();

@@ -1,5 +1,6 @@
 import { ArrowLeft, KeyRound, Link2, Plus, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   type AdminModelConfig,
   type AdminUser,
@@ -40,7 +41,9 @@ export default function AdminPanel() {
       setUsers(nextUsers);
       setModelConfig(nextModelConfig);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Pannello admin non disponibile.');
+      setErrorMessage(
+        error instanceof Error ? error.message : t('Pannello admin non disponibile.')
+      );
     } finally {
       setIsLoading(false);
     }
@@ -60,10 +63,12 @@ export default function AdminPanel() {
       setEmail('');
       setPassword('');
       setRole('user');
-      setStatusMessage('Account creato.');
+      setStatusMessage(t('Account creato.'));
       await loadAdminData();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Creazione account non riuscita.');
+      setErrorMessage(
+        error instanceof Error ? error.message : t('Creazione account non riuscita.')
+      );
     }
   };
 
@@ -71,9 +76,11 @@ export default function AdminPanel() {
     setErrorMessage('');
     try {
       setModelConfig(await patchAdminModelConfig(modelConfig));
-      setStatusMessage('Modelli aggiornati.');
+      setStatusMessage(t('Modelli aggiornati.'));
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Salvataggio modelli non riuscito.');
+      setErrorMessage(
+        error instanceof Error ? error.message : t('Salvataggio modelli non riuscito.')
+      );
     }
   };
 
@@ -87,7 +94,7 @@ export default function AdminPanel() {
       await loadAdminData();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : 'Aggiornamento utente non riuscito.'
+        error instanceof Error ? error.message : t('Aggiornamento utente non riuscito.')
       );
     }
   };
@@ -95,14 +102,14 @@ export default function AdminPanel() {
   const handlePasswordSave = async (user: AdminUser) => {
     const nextPassword = passwordDraft.trim();
     if (!nextPassword) {
-      setErrorMessage('Inserisci una password.');
+      setErrorMessage(t('Inserisci una password.'));
       return;
     }
 
     await handleUserPatch(user, { password: nextPassword });
     setPasswordDraft('');
     setPasswordEditorUserId(null);
-    setStatusMessage('Password aggiornata.');
+    setStatusMessage(t('Password aggiornata.'));
   };
 
   return (
@@ -112,9 +119,9 @@ export default function AdminPanel() {
           <div>
             <a href="/" className="inline-flex items-center gap-2 text-sm text-gray-600">
               <ArrowLeft className="h-4 w-4" />
-              Libreria
+              {t('Libreria')}
             </a>
-            <h1 className="mt-2 font-serif text-3xl">Amministrazione</h1>
+            <h1 className="mt-2 font-serif text-3xl">{t('Amministrazione')}</h1>
           </div>
           <button
             type="button"
@@ -122,7 +129,7 @@ export default function AdminPanel() {
             className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-semibold"
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            Aggiorna
+            {t('Aggiorna')}
           </button>
         </header>
 
@@ -133,7 +140,7 @@ export default function AdminPanel() {
           <div>
             <div className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5" />
-              <h2 className="text-lg font-semibold">Utenti</h2>
+              <h2 className="text-lg font-semibold">{t('Utenti')}</h2>
             </div>
             <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-white">
               {users.map(user => (
@@ -144,7 +151,7 @@ export default function AdminPanel() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{user.email || user.id}</p>
                     <p className="mt-1 text-xs text-gray-500">
-                      {getUserRole(user)} · {isDisabledUser(user) ? 'disabilitato' : 'attivo'}
+                      {getUserRole(user)} · {t(isDisabledUser(user) ? 'disabilitato' : 'attivo')}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -165,7 +172,7 @@ export default function AdminPanel() {
                       }
                       className="rounded-full border border-gray-300 px-3 py-1.5 text-xs font-semibold"
                     >
-                      {getUserRole(user) === 'admin' ? 'Base' : 'Admin'}
+                      {getUserRole(user) === 'admin' ? t('Base') : 'Admin'}
                     </button>
                     <button
                       type="button"
@@ -174,7 +181,7 @@ export default function AdminPanel() {
                       }
                       className="rounded-full border border-gray-300 px-3 py-1.5 text-xs font-semibold"
                     >
-                      {isDisabledUser(user) ? 'Abilita' : 'Disabilita'}
+                      {t(isDisabledUser(user) ? 'Abilita' : 'Disabilita')}
                     </button>
                     <button
                       type="button"
@@ -194,7 +201,9 @@ export default function AdminPanel() {
                     <div className="sm:col-span-2 flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
                       <input
                         type="password"
-                        aria-label={`Nuova password per ${user.email || user.id}`}
+                        aria-label={t('Nuova password per {userName}', {
+                          userName: user.email || user.id,
+                        })}
                         value={passwordDraft}
                         onChange={event => setPasswordDraft(event.target.value)}
                         className="min-w-[14rem] flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
@@ -204,7 +213,7 @@ export default function AdminPanel() {
                         onClick={() => void handlePasswordSave(user)}
                         className="rounded-full bg-gray-950 px-4 py-2 text-xs font-semibold text-white"
                       >
-                        Salva password
+                        {t('Salva password')}
                       </button>
                     </div>
                   ) : null}
@@ -218,7 +227,7 @@ export default function AdminPanel() {
               onSubmit={handleCreateUser}
               className="rounded-lg border border-gray-200 bg-white p-4"
             >
-              <h2 className="text-sm font-semibold">Crea account</h2>
+              <h2 className="text-sm font-semibold">{t('Crea account')}</h2>
               <input
                 type="email"
                 placeholder="email"
@@ -240,7 +249,7 @@ export default function AdminPanel() {
                 onChange={event => setRole(event.target.value === 'admin' ? 'admin' : 'user')}
                 className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               >
-                <option value="user">Base</option>
+                <option value="user">{t('Base')}</option>
                 <option value="admin">Admin</option>
               </select>
               <button
@@ -248,20 +257,20 @@ export default function AdminPanel() {
                 className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-4 py-2 text-sm font-semibold text-white"
               >
                 <Plus className="h-4 w-4" />
-                Crea
+                {t('Crea')}
               </button>
             </form>
 
             <div className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-semibold">Modelli globali</h2>
+              <h2 className="text-sm font-semibold">{t('Modelli globali')}</h2>
               {(
                 [
-                  ['lessonModel', 'Lezioni'],
-                  ['contextModel', 'Contesto'],
-                  ['assessmentModel', 'Assessment'],
-                  ['ttsModel', 'TTS'],
-                  ['ttsVoice', 'Voce'],
-                ] as const
+                  ['lessonModel', t('Lezioni')],
+                  ['contextModel', t('Contesto')],
+                  ['assessmentModel', t('Assessment')],
+                  ['ttsModel', t('TTS')],
+                  ['ttsVoice', t('Voce')],
+                ] as const satisfies ReadonlyArray<readonly [keyof AdminModelConfig, string]>
               ).map(([key, label]) => (
                 <label key={key} className="mt-3 block">
                   <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
@@ -282,7 +291,7 @@ export default function AdminPanel() {
                 className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-4 py-2 text-sm font-semibold text-white"
               >
                 <Save className="h-4 w-4" />
-                Salva modelli
+                {t('Salva modelli')}
               </button>
             </div>
           </aside>

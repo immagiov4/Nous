@@ -22,6 +22,7 @@ import {
   useState,
 } from 'react';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type {
   ContextMenuPlacement,
   HorizontalViewportBounds,
@@ -160,13 +161,13 @@ const ContextMenu = ({
     !isLessonMode && isAnnotationMode && hasSavedAnnotationContent;
   const shouldShowToolbarNoteButton =
     !isLessonMode && (!isAnnotationMode || !hasSavedAnnotationContent);
-  const askInputPlaceholder = isLessonMode
-    ? 'Chiedi su tutta la lezione'
-    : 'Chiedi a Nous o aggiungi istruzioni';
+  const askInputPlaceholder = t(
+    isLessonMode ? 'Chiedi su tutta la lezione' : 'Chiedi a Nous o aggiungi istruzioni'
+  );
   const notePanelTitle =
     isAnnotationMode && hasSavedAnnotationContent
-      ? 'Nota associata al passaggio'
-      : 'Aggiungi una nota alla lezione';
+      ? t('Nota associata al passaggio')
+      : t('Aggiungi una nota alla lezione');
   const lessonSelectionPreview = abbreviate(selectedText, 120);
   const lessonInstructionPreview = trimmedInput ? abbreviate(trimmedInput, 120) : null;
   const normalizedNotePreview = useMemo(
@@ -572,7 +573,9 @@ const ContextMenu = ({
               onClick={() => handleAttachArtifact(artifact)}
               className="flex w-full min-w-0 items-center gap-2 rounded-[1rem] px-3 py-2.5 text-left transition-colors hover:bg-orange-50/80 dark:hover:bg-stone-700/70"
               title={artifact.summary.title}
-              aria-label={`Allega ${artifact.summary.title} alla nota`}
+              aria-label={t('Allega {artifactTitle} alla nota', {
+                artifactTitle: artifact.summary.title,
+              })}
               role="menuitem"
             >
               <Paperclip className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
@@ -648,8 +651,8 @@ const ContextMenu = ({
                 }}
                 placeholder={
                   isAnnotationMode
-                    ? 'Scrivi, aggiorna o svuota la nota...'
-                    : 'Scrivi la nota che vuoi lasciare su questo passaggio...'
+                    ? t('Scrivi, aggiorna o svuota la nota...')
+                    : t('Scrivi la nota che vuoi lasciare su questo passaggio...')
                 }
                 rows={8}
                 className="custom-scrollbar w-full resize-none rounded-[1.4rem] bg-transparent px-4 py-3 text-sm leading-6 text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-300"
@@ -669,8 +672,8 @@ const ContextMenu = ({
                 onClick={() => setIsAttachmentPickerOpen(currentValue => !currentValue)}
                 disabled={isLoading}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-stone-500 transition-colors hover:bg-stone-200/60 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-45 dark:text-stone-300 dark:hover:bg-stone-600/70 dark:hover:text-stone-100"
-                aria-label="Allega dagli artefatti"
-                title="Allega dagli artefatti"
+                aria-label={t('Allega dagli artefatti')}
+                title={t('Allega dagli artefatti')}
               >
                 <Paperclip className="h-4 w-4" />
               </button>
@@ -682,20 +685,20 @@ const ContextMenu = ({
                 onClick={handleCancelNoteEdit}
                 className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
               >
-                Annulla
+                {t('Annulla')}
               </button>
             ) : null}
 
             {canDeleteAnnotationFromCurrentState ? (
               <button
                 type="button"
-                aria-label="Rimuovi evidenziazione"
+                aria-label={t('Rimuovi evidenziazione')}
                 onClick={handleDeleteAnnotationClick}
                 disabled={isLoading}
                 className="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 dark:border-stone-400/95 dark:bg-stone-700 dark:text-stone-300 dark:hover:bg-stone-600 dark:hover:text-stone-100"
               >
                 <X className="h-3.5 w-3.5" />
-                <span>Rimuovi</span>
+                <span>{t('Rimuovi')}</span>
               </button>
             ) : null}
 
@@ -706,7 +709,7 @@ const ContextMenu = ({
                 disabled={isLoading}
                 className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
               >
-                Modifica
+                {t('Modifica')}
               </button>
             ) : null}
 
@@ -717,7 +720,7 @@ const ContextMenu = ({
                 disabled={isLoading || (!isAnnotationMode && !trimmedNote)}
                 className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
               >
-                {isAnnotationMode ? 'Salva' : 'Salva nota'}
+                {t(isAnnotationMode ? 'Salva' : 'Salva nota')}
               </button>
             ) : null}
           </div>
@@ -732,11 +735,13 @@ const ContextMenu = ({
         {!isLessonMode ? (
           <button
             type="button"
-            aria-label={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione'}
+            aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
             disabled={isLoading}
             onClick={handleHighlightClick}
             className={highlightButtonClassName}
-            title={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'}
+            title={t(
+              isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'
+            )}
           >
             {isAnnotationMode ? (
               <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
@@ -763,10 +768,10 @@ const ContextMenu = ({
 
           <button
             type="submit"
-            aria-label={trimmedInput ? 'Invia domanda' : 'Inserisci una domanda'}
+            aria-label={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
             disabled={!trimmedInput || isLoading}
             className={askButtonClassName}
-            title={trimmedInput ? 'Invia domanda' : 'Inserisci una domanda'}
+            title={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
           >
             {isLoading ? (
               <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -783,13 +788,13 @@ const ContextMenu = ({
               className={noteButtonClassName}
               title={
                 isAnnotationMode
-                  ? 'Aggiungi o modifica una nota su questo passaggio'
-                  : 'Aggiungi una nota a questo passaggio'
+                  ? t('Aggiungi o modifica una nota su questo passaggio')
+                  : t('Aggiungi una nota a questo passaggio')
               }
             >
               <NotebookPen className="h-4 w-4 shrink-0 text-stone-600 transition-none dark:text-stone-200" />
               <span className="max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-[2.45rem] group-hover:opacity-100 group-focus-visible:max-w-[2.45rem] group-focus-visible:opacity-100">
-                Nota
+                {t('Nota')}
               </span>
             </button>
           ) : null}
@@ -800,11 +805,11 @@ const ContextMenu = ({
               onClick={handleCreateIntent}
               disabled={isLoading}
               className={lessonButtonClassName}
-              title="Crea una nuova lezione dedicata a questo punto nel menu a sinistra"
+              title={t('Crea una nuova lezione dedicata a questo punto nel menu a sinistra')}
             >
               <BookPlus className="h-4 w-4 shrink-0 text-orange-600 transition-none" />
               <span className="max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-[5.8rem] group-hover:opacity-100 group-focus-visible:max-w-[5.8rem] group-focus-visible:opacity-100">
-                Crea lezione
+                {t('Crea lezione')}
               </span>
             </button>
           ) : null}
@@ -817,18 +822,18 @@ const ContextMenu = ({
         <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
           <div className="space-y-2 px-4 py-3">
             <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-              Vuoi creare una nuova lezione da questa selezione?
+              {t('Vuoi creare una nuova lezione da questa selezione?')}
             </p>
             <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
               "{lessonSelectionPreview}"
             </p>
             {lessonInstructionPreview ? (
               <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-                Istruzioni: {lessonInstructionPreview}
+                {t('Istruzioni')}: {lessonInstructionPreview}
               </p>
             ) : (
               <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-                Nessuna istruzione aggiuntiva: verrà usata solo la selezione corrente.
+                {t('Nessuna istruzione aggiuntiva: verrà usata solo la selezione corrente.')}
               </p>
             )}
             <div className="flex items-center justify-end gap-2 pt-1">
@@ -837,7 +842,7 @@ const ContextMenu = ({
                 onClick={handleCancelCreate}
                 className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
               >
-                Annulla
+                {t('Annulla')}
               </button>
               <button
                 type="button"
@@ -845,7 +850,7 @@ const ContextMenu = ({
                 disabled={isLoading}
                 className="rounded-full bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-500 dark:hover:bg-orange-600"
               >
-                Procedi
+                {t('Procedi')}
               </button>
             </div>
           </div>
@@ -875,13 +880,15 @@ const ContextMenu = ({
           {!isLessonMode ? (
             <button
               type="button"
-              aria-label={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione'}
+              aria-label={t(isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia selezione')}
               disabled={isLoading}
               onClick={handleHighlightClick}
               onPointerDown={handleHighlightPointerDown}
               onTouchStart={handleHighlightTouchStart}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 shadow-sm transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-              title={isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'}
+              title={t(
+                isAnnotationMode ? 'Rimuovi evidenziazione' : 'Evidenzia il testo selezionato'
+              )}
             >
               {isAnnotationMode ? (
                 <Eraser className="h-4 w-4 text-stone-600 dark:text-stone-200" />
@@ -893,20 +900,20 @@ const ContextMenu = ({
 
           <button
             type="button"
-            aria-label={trimmedInput ? 'Invia domanda' : 'Inserisci una domanda'}
+            aria-label={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
             disabled={!trimmedInput || isLoading}
             onClick={handleAskClick}
             onPointerDown={handleAskPointerDown}
             onTouchStart={handleAskTouchStart}
             className={askButtonClassName}
-            title={trimmedInput ? 'Invia domanda' : 'Inserisci una domanda'}
+            title={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
           >
             {isLoading ? (
               <LoaderCircle className="h-4 w-4 animate-spin" />
             ) : (
               <ArrowUp className="h-4 w-4" />
             )}
-            <span>Chiedi</span>
+            <span>{t('Chiedi')}</span>
           </button>
 
           {shouldShowToolbarNoteButton ? (
@@ -917,12 +924,12 @@ const ContextMenu = ({
               className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
               title={
                 isAnnotationMode
-                  ? 'Aggiungi o modifica una nota su questo passaggio'
-                  : 'Aggiungi una nota a questo passaggio'
+                  ? t('Aggiungi o modifica una nota su questo passaggio')
+                  : t('Aggiungi una nota a questo passaggio')
               }
             >
               <NotebookPen className="h-4 w-4 shrink-0 text-stone-600 dark:text-stone-200" />
-              <span className="hidden min-[390px]:inline">Nota</span>
+              <span className="hidden min-[390px]:inline">{t('Nota')}</span>
             </button>
           ) : null}
 
@@ -932,10 +939,10 @@ const ContextMenu = ({
               onClick={handleCreateIntent}
               disabled={isLoading}
               className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-orange-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-orange-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-              title="Crea una nuova lezione dedicata a questo punto"
+              title={t('Crea una nuova lezione dedicata a questo punto')}
             >
               <BookPlus className="h-4 w-4 shrink-0 text-orange-600" />
-              <span className="hidden min-[420px]:inline">Lezione</span>
+              <span className="hidden min-[420px]:inline">{t('Lezione')}</span>
             </button>
           ) : null}
         </div>
@@ -946,18 +953,18 @@ const ContextMenu = ({
       <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
         <div className="space-y-2 px-4 py-3">
           <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-            Vuoi creare una nuova lezione da questa selezione?
+            {t('Vuoi creare una nuova lezione da questa selezione?')}
           </p>
           <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
             "{lessonSelectionPreview}"
           </p>
           {lessonInstructionPreview ? (
             <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-              Istruzioni: {lessonInstructionPreview}
+              {t('Istruzioni')}: {lessonInstructionPreview}
             </p>
           ) : (
             <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-              Nessuna istruzione aggiuntiva: verrà usata solo la selezione corrente.
+              {t('Nessuna istruzione aggiuntiva: verrà usata solo la selezione corrente.')}
             </p>
           )}
           <div className="flex items-center justify-end gap-2 pt-1">
@@ -966,7 +973,7 @@ const ContextMenu = ({
               onClick={handleCancelCreate}
               className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
             >
-              Annulla
+              {t('Annulla')}
             </button>
             <button
               type="button"
@@ -974,7 +981,7 @@ const ContextMenu = ({
               disabled={isLoading}
               className="rounded-full bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-500 dark:hover:bg-orange-600"
             >
-              Procedi
+              {t('Procedi')}
             </button>
           </div>
         </div>

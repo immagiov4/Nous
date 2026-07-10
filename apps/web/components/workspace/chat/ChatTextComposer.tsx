@@ -1,5 +1,6 @@
 import { ArrowUp, LoaderCircle } from 'lucide-react';
 import type { FormEvent, ReactNode } from 'react';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 
 interface ChatTextComposerProps {
   className?: string;
@@ -76,8 +77,8 @@ export default function ChatTextComposer({
 
       <button
         type="submit"
-        aria-label={submitAriaLabel || submitTitle || 'Invia messaggio'}
-        title={submitTitle || 'Invia messaggio'}
+        aria-label={submitAriaLabel || submitTitle || t('Invia messaggio')}
+        title={submitTitle || t('Invia messaggio')}
         disabled={isSubmitDisabled}
         className={
           submitButtonClassName ||

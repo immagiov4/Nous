@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { VoiceProfileId } from '../../types';
 import type { WorkspaceReaderTtsModel, WorkspaceReaderVoiceOption } from './shell/types.ts';
 
@@ -133,14 +134,14 @@ const getTtsPlayButtonTitle = ({
   isPlaying: boolean;
 }): string => {
   if (isDisabled) {
-    return 'TTS non disponibile';
+    return t('TTS non disponibile');
   }
 
   if (isLoading) {
-    return 'In caricamento';
+    return t('In caricamento');
   }
 
-  return isPlaying ? 'Pausa' : 'Play';
+  return isPlaying ? t('Pausa') : 'Play';
 };
 
 const formatPlaybackRateLabel = (value: number): string => {
@@ -473,7 +474,7 @@ const UnifiedAudioPanel = ({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
-        aria-label={isOpen ? 'Chiudi menu audio' : 'Apri menu audio'}
+        aria-label={t(isOpen ? 'Chiudi menu audio' : 'Apri menu audio')}
         className={`
           cursor-pointer rounded-full border p-2 transition-colors
           ${
@@ -482,7 +483,7 @@ const UnifiedAudioPanel = ({
               : 'border-transparent bg-transparent text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-zinc-800 dark:hover:text-gray-300'
           }
         `}
-        title={isOpen ? 'Chiudi menu audio' : 'Menu audio'}
+        title={t(isOpen ? 'Chiudi menu audio' : 'Menu audio')}
       >
         <Headphones className="h-5 w-5" />
       </button>
@@ -512,7 +513,7 @@ const UnifiedAudioPanel = ({
                   type="button"
                   onClick={() => setIsOpen(false)}
                   className="cursor-pointer text-gray-400 transition-colors hover:text-gray-700 dark:hover:text-zinc-200"
-                  title="Chiudi"
+                  title={t('Chiudi')}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -522,7 +523,7 @@ const UnifiedAudioPanel = ({
                 <div
                   className="relative inline-flex rounded-full border border-gray-300/80 bg-white p-1 shadow-[0_1px_2px_rgba(24,24,27,0.04)] dark:border-white/10 dark:bg-stone-900/80"
                   role="tablist"
-                  aria-label="Modalità audio"
+                  aria-label={t('Modalità audio')}
                 >
                   <button
                     type="button"
@@ -545,7 +546,7 @@ const UnifiedAudioPanel = ({
                         aria-hidden="true"
                       />
                     ) : null}
-                    <span className="relative z-10">Voce</span>
+                    <span className="relative z-10">{t('Voce')}</span>
                   </button>
                   <button
                     type="button"
@@ -569,7 +570,7 @@ const UnifiedAudioPanel = ({
                         aria-hidden="true"
                       />
                     ) : null}
-                    <span className="relative z-10">Ambiente</span>
+                    <span className="relative z-10">{t('Ambiente')}</span>
                   </button>
                 </div>
               </div>
@@ -592,15 +593,18 @@ const UnifiedAudioPanel = ({
                   {tts.chunkOptions.length > 0 ? (
                     <div className="space-y-1.5 px-1">
                       <div className="flex items-center justify-between gap-3 text-[11px] font-medium text-gray-600 dark:text-zinc-300">
-                        <label htmlFor={`${inputId}-tts-chunk`}>Parte da leggere</label>
+                        <label htmlFor={`${inputId}-tts-chunk`}>{t('Parte da leggere')}</label>
                         <span className="shrink-0 tabular-nums text-gray-500 dark:text-zinc-400">
-                          Parte {tts.currentChunkIndex + 1} di {tts.chunkOptions.length}
+                          {t('Parte {current} di {total}', {
+                            current: tts.currentChunkIndex + 1,
+                            total: tts.chunkOptions.length,
+                          })}
                         </span>
                       </div>
                       <div className="flex items-stretch gap-2">
                         <button
                           type="button"
-                          aria-label="Scegli dal testo"
+                          aria-label={t('Scegli dal testo')}
                           aria-pressed={isTextPickerActive}
                           disabled={ttsDisabled}
                           onClick={() => onSetTextPickerActive(!isTextPickerActive)}
@@ -611,8 +615,8 @@ const UnifiedAudioPanel = ({
                           }`}
                           title={
                             isTextPickerActive
-                              ? 'Annulla selezione dal testo'
-                              : 'Passa sul testo e clicca la parte da leggere'
+                              ? t('Annulla selezione dal testo')
+                              : t('Passa sul testo e clicca la parte da leggere')
                           }
                         >
                           <MousePointer2 className="h-4 w-4" aria-hidden="true" />
@@ -620,7 +624,7 @@ const UnifiedAudioPanel = ({
                         <div className="relative min-w-0 flex-1">
                           <select
                             id={`${inputId}-tts-chunk`}
-                            aria-label="Parte da leggere"
+                            aria-label={t('Parte da leggere')}
                             value={tts.currentChunkIndex}
                             onChange={event =>
                               tts.onSelectChunk(Number.parseInt(event.target.value, 10))
@@ -681,7 +685,7 @@ const UnifiedAudioPanel = ({
                       {isSpeedPickerOpen ? (
                         <div className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30 w-44 rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_12px_30px_-18px_rgba(15,23,42,0.18)] dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-[0_12px_30px_-18px_rgba(0,0,0,0.42)]">
                           <div className="mb-2 flex items-center justify-between text-[11px] text-gray-500 dark:text-zinc-400">
-                            <span>Velocita</span>
+                            <span>{t('Velocita')}</span>
                             <span className="w-10 text-right font-medium tabular-nums text-gray-700 dark:text-zinc-200">
                               {formatPlaybackRateLabel(normalizedPlaybackRate)}x
                             </span>
@@ -740,7 +744,7 @@ const UnifiedAudioPanel = ({
 
                   {ttsDisabled ? (
                     <p className="text-center text-[10px] text-gray-400 dark:text-zinc-500">
-                      TTS non disponibile. Carica una lezione per iniziare.
+                      {t('TTS non disponibile. Carica una lezione per iniziare.')}
                     </p>
                   ) : null}
                 </div>
@@ -759,7 +763,7 @@ const UnifiedAudioPanel = ({
                         type="text"
                         value={musicUrl}
                         onChange={e => setMusicUrl(e.target.value)}
-                        placeholder="incolla link YouTube..."
+                        placeholder={t('incolla link YouTube...')}
                         className={`flex-1 rounded-[1.15rem] border bg-white px-3 py-2 text-xs text-gray-800 outline-none transition-colors focus:border-gray-400 dark:bg-stone-800 dark:text-gray-100 dark:focus:border-zinc-500 ${hasYtError ? 'border-red-300 ring-1 ring-red-100' : 'border-gray-200 dark:border-zinc-500/80'}`}
                       />
                       {hasYtError && (
@@ -767,7 +771,7 @@ const UnifiedAudioPanel = ({
                           type="button"
                           onClick={handleRetry}
                           className="rounded-[1.15rem] bg-red-50 p-2 text-red-500 transition-colors hover:bg-red-100"
-                          title="Riprova a caricare"
+                          title={t('Riprova a caricare')}
                         >
                           <RefreshCw className="w-4 h-4" />
                         </button>
@@ -777,7 +781,7 @@ const UnifiedAudioPanel = ({
                       <div className="mt-2 flex items-start gap-2 rounded-[1.15rem] bg-red-50 p-2 text-[10px] font-medium leading-tight text-red-500 dark:bg-red-900/10">
                         <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
                         <span>
-                          Link non valido o video limitato da YouTube. Prova un altro link.
+                          {t('Link non valido o video limitato da YouTube. Prova un altro link.')}
                         </span>
                       </div>
                     )}
@@ -788,10 +792,12 @@ const UnifiedAudioPanel = ({
                       type="button"
                       onClick={handleBackgroundPlayRequest}
                       disabled={!requestedVideoId || hasYtError}
-                      aria-label={
+                      aria-label={t(
                         isMusicPlaying ? 'Pausa musica ambiente' : 'Riproduci musica ambiente'
-                      }
-                      title={isMusicPlaying ? 'Pausa musica ambiente' : 'Riproduci musica ambiente'}
+                      )}
+                      title={t(
+                        isMusicPlaying ? 'Pausa musica ambiente' : 'Riproduci musica ambiente'
+                      )}
                       className={`
                         flex h-10 w-10 items-center justify-center rounded-full transition-colors
                         ${

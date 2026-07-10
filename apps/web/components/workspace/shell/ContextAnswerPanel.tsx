@@ -24,6 +24,7 @@ import {
   useState,
 } from 'react';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../../services/auth/supabaseAuth.ts';
 import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
@@ -475,7 +476,7 @@ function ContextAnswerPanelSession({
             toolCallId: toolCall.toolCallId,
             output: {
               artifact: null,
-              error: 'Non ho abbastanza contesto per generare un artefatto su questa lezione.',
+              error: t('Non ho abbastanza contesto per generare un artefatto su questa lezione.'),
             },
           });
           return;
@@ -487,7 +488,7 @@ function ContextAnswerPanelSession({
             toolCallId: toolCall.toolCallId,
             output: {
               artifact: null,
-              error: 'Non ho trovato un artefatto generato modificabile da usare come sorgente.',
+              error: t('Non ho trovato un artefatto generato modificabile da usare come sorgente.'),
             },
           });
           return;
@@ -508,7 +509,7 @@ function ContextAnswerPanelSession({
             lesson: draftLesson,
             mode: artifactInput.mode,
             projectId: contextAnswer.projectId,
-            projectTitle: contextAnswer.projectTitle || 'Corso',
+            projectTitle: contextAnswer.projectTitle || t('Corso'),
             prompt: artifactInput.prompt,
             revisionInstructions: artifactInput.revisionInstructions,
             selectedText: currentState.selectedText,
@@ -530,8 +531,9 @@ function ContextAnswerPanelSession({
             toolCallId: toolCall.toolCallId,
             output: {
               artifact: null,
-              error:
-                'Non sono riuscito a generare un artefatto visuale utile per questa richiesta.',
+              error: t(
+                'Non sono riuscito a generare un artefatto visuale utile per questa richiesta.'
+              ),
             },
           });
           return;
@@ -698,8 +700,8 @@ function ContextAnswerPanelSession({
           error:
             lastResult?.error ||
             (mode === 'update'
-              ? 'Non sono riuscito ad aggiornare la nota.'
-              : 'Non sono riuscito a salvare la nota.'),
+              ? t('Non sono riuscito ad aggiornare la nota.')
+              : t('Non sono riuscito a salvare la nota.')),
         },
       });
     } finally {
@@ -769,8 +771,10 @@ function ContextAnswerPanelSession({
       lesson: draftLesson,
       mode: 'replacement-draft',
       projectId: contextAnswer.projectId,
-      projectTitle: contextAnswer.projectTitle || 'Corso',
-      prompt: `Modifica l artefatto "${payload.summary.title}".`,
+      projectTitle: contextAnswer.projectTitle || t('Corso'),
+      prompt: t('Modifica l artefatto "{artifactTitle}".', {
+        artifactTitle: payload.summary.title,
+      }),
       revisionInstructions: instructions,
       selectedText: currentState?.selectedText,
       sourceArtifact: payload,
@@ -997,10 +1001,10 @@ function ContextAnswerPanelSession({
           const payload = artifactPayloadsById.get(artifactId);
           return payload ? [payload] : [];
         }) || [];
-      const cardTitle = hasExistingNote
-        ? 'Vuoi aggiornare la nota collegata?'
-        : 'Vuoi aggiungerlo alle note?';
-      const approveLabel = hasExistingNote ? 'Aggiorna nota' : 'Aggiungi alle note';
+      const cardTitle = t(
+        hasExistingNote ? 'Vuoi aggiornare la nota collegata?' : 'Vuoi aggiungerlo alle note?'
+      );
+      const approveLabel = t(hasExistingNote ? 'Aggiorna nota' : 'Aggiungi alle note');
 
       const renderResultPill = () => {
         if (!outputValue) {
@@ -1011,7 +1015,7 @@ function ContextAnswerPanelSession({
           return (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
               <Check className="h-3.5 w-3.5" />
-              <span>Richiesta rifiutata, la conversazione continua senza salvare.</span>
+              <span>{t('Richiesta rifiutata, la conversazione continua senza salvare.')}</span>
             </div>
           );
         }
@@ -1020,7 +1024,7 @@ function ContextAnswerPanelSession({
           return (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
               <Check className="h-3.5 w-3.5" />
-              <span>{outputValue.mode === 'update' ? 'Nota aggiornata.' : 'Nota salvata.'}</span>
+              <span>{t(outputValue.mode === 'update' ? 'Nota aggiornata.' : 'Nota salvata.')}</span>
             </div>
           );
         }
@@ -1029,8 +1033,8 @@ function ContextAnswerPanelSession({
           <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
             {outputValue.error ||
               (outputValue.mode === 'update'
-                ? 'Non sono riuscito ad aggiornare la nota.'
-                : 'Non sono riuscito a salvare la nota.')}
+                ? t('Non sono riuscito ad aggiornare la nota.')
+                : t('Non sono riuscito a salvare la nota.'))}
           </div>
         );
       };
@@ -1043,19 +1047,19 @@ function ContextAnswerPanelSession({
           </div>
 
           <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-            {inputValue?.rationale || 'Sto preparando il suggerimento da salvare nelle note.'}
+            {inputValue?.rationale || t('Sto preparando il suggerimento da salvare nelle note.')}
           </p>
 
           {inputValue ? (
             <div className="mt-3 space-y-2 rounded-[1rem] bg-white/70 px-3 py-2 dark:bg-stone-800/50">
               <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-stone-400 dark:text-stone-500">
-                Passaggio proposto
+                {t('Passaggio proposto')}
               </p>
               <p className="text-sm leading-6 text-stone-700 dark:text-stone-200">
                 "{inputValue.selectedTextDraft}"
               </p>
               <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-stone-400 dark:text-stone-500">
-                {hasExistingNote ? 'Nuova versione della nota' : 'Nota proposta'}
+                {t(hasExistingNote ? 'Nuova versione della nota' : 'Nota proposta')}
               </p>
               <p className="whitespace-pre-wrap text-sm leading-6 text-stone-700 dark:text-stone-200">
                 {inputValue.noteDraft}
@@ -1076,7 +1080,7 @@ function ContextAnswerPanelSession({
                   onClick={() => handleRejectNoteRequest(part.toolCallId)}
                   className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
                 >
-                  No grazie
+                  {t('No grazie')}
                 </button>
                 <button
                   type="button"
@@ -1090,7 +1094,7 @@ function ContextAnswerPanelSession({
           ) : part.state === 'input-available' && expiredGraceTools.has(part.toolCallId) ? (
             <div className="mt-3 space-y-2">
               <div className="rounded-full bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
-                Suggerimento non disponibile. Puoi riprovare.
+                {t('Suggerimento non disponibile. Puoi riprovare.')}
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 <button
@@ -1098,14 +1102,14 @@ function ContextAnswerPanelSession({
                   onClick={() => handleRejectNoteRequest(part.toolCallId)}
                   className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100"
                 >
-                  No grazie
+                  {t('No grazie')}
                 </button>
               </div>
             </div>
           ) : part.state === 'input-available' ? (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-800/60 dark:text-stone-200">
               <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              <span>Sto caricando i dettagli della nota proposta...</span>
+              <span>{t('Sto caricando i dettagli della nota proposta...')}</span>
             </div>
           ) : part.state === 'output-available' ? (
             renderResultPill()
@@ -1262,7 +1266,7 @@ function ContextAnswerPanelSession({
 
             {isLoading ? (
               <div className="text-sm text-stone-400 dark:text-stone-500">
-                Sto continuando a rispondere...
+                {t('Sto continuando a rispondere...')}
               </div>
             ) : null}
 
@@ -1286,8 +1290,8 @@ function ContextAnswerPanelSession({
           onSubmit={handleSubmit}
           placeholder={
             isWaitingForNoteDecision
-              ? 'Accetta o rifiuta la nota proposta per continuare...'
-              : 'Chiedi un follow-up su questa risposta...'
+              ? t('Accetta o rifiuta la nota proposta per continuare...')
+              : t('Chiedi un follow-up su questa risposta...')
           }
           disabled={isComposerDisabled}
           isLoading={isLoading}
@@ -1309,7 +1313,7 @@ function ContextAnswerPanelSession({
                     ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:hover:bg-orange-500/25'
                     : 'text-stone-400 hover:bg-stone-100 hover:text-stone-600 dark:text-stone-500 dark:hover:bg-zinc-700 dark:hover:text-stone-300'
                 }`}
-                title="Apri strumenti conversazione"
+                title={t('Apri strumenti conversazione')}
                 aria-expanded={isToolMenuOpen}
                 aria-haspopup="menu"
               >
@@ -1345,11 +1349,12 @@ function ContextAnswerPanelSession({
                     <span className="min-w-0">
                       <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
                         <NotebookPen className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                        Annota
+                        {t('Annota')}
                       </span>
                       <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                        Segnala con forza che vuoi trasformare il chiarimento in una nota o
-                        aggiornare quella già collegata al passaggio.
+                        {t(
+                          'Segnala con forza che vuoi trasformare il chiarimento in una nota o aggiornare quella già collegata al passaggio.'
+                        )}
                       </span>
                     </span>
                   </button>
@@ -1378,11 +1383,12 @@ function ContextAnswerPanelSession({
                     <span className="min-w-0">
                       <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
                         <Globe className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                        Cerca sul web
+                        {t('Cerca sul web')}
                       </span>
                       <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                        Dai priorita a grounding e verifica con fonti esterne quando servono
-                        informazioni aggiornate o non presenti nel testo.
+                        {t(
+                          'Dai priorita a grounding e verifica con fonti esterne quando servono informazioni aggiornate o non presenti nel testo.'
+                        )}
                       </span>
                     </span>
                   </button>
@@ -1411,11 +1417,12 @@ function ContextAnswerPanelSession({
                     <span className="min-w-0">
                       <span className="flex items-center gap-2 text-sm font-medium text-stone-800 dark:text-zinc-100">
                         <Sparkles className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                        Genera artefatti visuali
+                        {t('Genera artefatti visuali')}
                       </span>
                       <span className="mt-1 block text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                        Crea automaticamente mappe, grafici, diagrammi e widget per visualizzare i
-                        concetti del follow-up.
+                        {t(
+                          'Crea automaticamente mappe, grafici, diagrammi e widget per visualizzare i concetti del follow-up.'
+                        )}
                       </span>
                     </span>
                   </button>
@@ -1433,19 +1440,19 @@ function ContextAnswerPanelSession({
             {toolPreferences.annotate ? (
               <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
                 <NotebookPen className="h-3.5 w-3.5" />
-                Annota attivo
+                {t('Annota attivo')}
               </span>
             ) : null}
             {toolPreferences.generateArtifacts ? (
               <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
                 <Sparkles className="h-3.5 w-3.5" />
-                Artefatti visuali attivi
+                {t('Artefatti visuali attivi')}
               </span>
             ) : null}
             {toolPreferences.webSearch ? (
               <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200">
                 <Globe className="h-3.5 w-3.5" />
-                Cerca sul web attivo
+                {t('Cerca sul web attivo')}
               </span>
             ) : null}
           </div>
@@ -1455,12 +1462,12 @@ function ContextAnswerPanelSession({
       {!isMobileViewport ? (
         <button
           type="button"
-          aria-label="Ridimensiona pannello risposta"
+          aria-label={t('Ridimensiona pannello risposta')}
           onPointerDown={handleContextAnswerResizeStart}
           className="absolute bottom-3 left-3 flex h-6 w-6 cursor-nesw-resize touch-none items-end justify-start rounded-md text-stone-300 transition-colors hover:bg-stone-100 hover:text-stone-500 dark:text-stone-500 dark:hover:bg-zinc-700 dark:hover:text-stone-300"
         >
           <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4">
-            <title>Ridimensiona pannello risposta</title>
+            <title>{t('Ridimensiona pannello risposta')}</title>
             <path d="M1 1L15 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <path d="M1 5L11 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             <path d="M1 9L7 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

@@ -17,6 +17,7 @@ import { useWorkspaceDomain } from './hooks/workspace/useWorkspaceDomain.ts';
 import { useWorkspaceFileActions } from './hooks/workspace/useWorkspaceFileActions.ts';
 import { useWorkspaceNavigation } from './hooks/workspace/useWorkspaceNavigation.ts';
 import { useWorkspaceReaderState } from './hooks/workspace/useWorkspaceReaderState.ts';
+import { translateUiMessage as t } from './i18n/uiMessages.ts';
 import { selectBlockingReasoning } from './services/workspace/workflow.ts';
 import { AppState } from './types';
 
@@ -71,9 +72,9 @@ const AppContent = () => {
   const fileActions = useWorkspaceFileActions({
     confirmProjectDelete: projectTitle =>
       requestConfirmation({
-        title: 'Eliminare corso',
-        message: `Eliminare "${projectTitle}" dalla libreria server?`,
-        confirmLabel: 'Elimina',
+        title: t('Eliminare corso'),
+        message: t('Eliminare "{projectTitle}" dalla libreria server?', { projectTitle }),
+        confirmLabel: t('Elimina'),
       }),
     deleteProject: controller.deleteProject,
     exportProject: controller.exportProject,
@@ -105,7 +106,7 @@ const AppContent = () => {
   }, [screenState]);
 
   const isLoading = isBlocking;
-  const loadingStatus = controller.blockingMessage || 'Caricamento...';
+  const loadingStatus = controller.blockingMessage || t('Caricamento...');
   const loadingReasoningText = selectBlockingReasoning(workflowState);
   const shouldShowStyleLab =
     typeof window !== 'undefined' && window.location.hash.startsWith('#style-lab');
@@ -142,17 +143,17 @@ const AppContent = () => {
         typeof window !== 'undefined' &&
         window.location.hash === '#preview-loading' && (
           <LoadingScreen
-            message="Analisi Volume in Corso..."
+            message={t('Analisi Volume in Corso...')}
             isDarkMode={readerState.readerChrome.isDarkMode}
-            subMessage="Strutturazione semantica del piano di studi..."
+            subMessage={t('Strutturazione semantica del piano di studi...')}
           />
         )}
       {!shouldShowStyleLab && screenState === AppState.PLANNING && (
         <LoadingScreen
-          message="Analisi Volume in Corso..."
+          message={t('Analisi Volume in Corso...')}
           isDarkMode={readerState.readerChrome.isDarkMode}
           reasoningText={loadingReasoningText}
-          subMessage={loadingStatus || 'Costruzione piano...'}
+          subMessage={loadingStatus || t('Costruzione piano...')}
         />
       )}
       {!shouldShowStyleLab && screenState === AppState.READING && (

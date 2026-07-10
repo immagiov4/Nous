@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type {
   ApplicationExerciseNode,
   LearningArtifactRenderPayload,
@@ -130,7 +131,7 @@ function LessonGenerationSkeleton({
     <output className="mx-auto mt-8 block max-w-3xl space-y-8" aria-live="polite">
       <div className="flex items-center gap-3 text-sm font-semibold text-gray-500 dark:text-zinc-400">
         <LoaderCircle className="h-4 w-4 animate-spin text-orange-600 dark:text-orange-300" />
-        <span>Generazione lezione...</span>
+        <span>{t('Generazione lezione...')}</span>
         {lessonTitle && !isMobileViewport ? (
           <span className="min-w-0 truncate text-gray-400 dark:text-zinc-500">{lessonTitle}</span>
         ) : null}
@@ -260,7 +261,7 @@ function ExerciseInternalTextEditor({
       <header className="space-y-2 border-b border-gray-200/80 px-4 py-4 dark:border-zinc-700/80">
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
-            Risposta per {exercise.title}
+            {t('Risposta per {exerciseTitle}', { exerciseTitle: exercise.title })}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -269,7 +270,7 @@ function ExerciseInternalTextEditor({
             className={TOOLBAR_BUTTON_CLASS_NAME}
             onClick={() =>
               withTextareaTransform((selectedText, start, end) => {
-                const replacement = `## ${selectedText || 'Titolo sezione'}`;
+                const replacement = `## ${selectedText || t('Titolo sezione')}`;
                 const nextSelectionStart = start + replacement.length;
                 return {
                   nextText: `${internalText.slice(0, start)}${replacement}${internalText.slice(end)}`,
@@ -278,7 +279,7 @@ function ExerciseInternalTextEditor({
                 };
               })
             }
-            title="Inserisci heading"
+            title={t('Inserisci heading')}
           >
             <Heading2 className="h-4 w-4" />
           </button>
@@ -287,7 +288,7 @@ function ExerciseInternalTextEditor({
             className={TOOLBAR_BUTTON_CLASS_NAME}
             onClick={() =>
               withTextareaTransform((selectedText, start, end) => {
-                const replacement = `**${selectedText || 'testo'}**`;
+                const replacement = `**${selectedText || t('testo')}**`;
                 return {
                   nextText: `${internalText.slice(0, start)}${replacement}${internalText.slice(end)}`,
                   nextSelectionStart: start + 2,
@@ -295,7 +296,7 @@ function ExerciseInternalTextEditor({
                 };
               })
             }
-            title="Grassetto"
+            title={t('Grassetto')}
           >
             <Bold className="h-4 w-4" />
           </button>
@@ -304,7 +305,7 @@ function ExerciseInternalTextEditor({
             className={TOOLBAR_BUTTON_CLASS_NAME}
             onClick={() =>
               withTextareaTransform((selectedText, start, end) => {
-                const replacement = (selectedText || 'voce lista')
+                const replacement = (selectedText || t('voce lista'))
                   .split(/\n/)
                   .map(line => `- ${line}`)
                   .join('\n');
@@ -315,7 +316,7 @@ function ExerciseInternalTextEditor({
                 };
               })
             }
-            title="Lista"
+            title={t('Lista')}
           >
             <List className="h-4 w-4" />
           </button>
@@ -324,7 +325,7 @@ function ExerciseInternalTextEditor({
             className={TOOLBAR_BUTTON_CLASS_NAME}
             onClick={() =>
               withTextareaTransform((selectedText, start, end) => {
-                const replacement = `\n\`\`\`\n${selectedText || 'codice'}\n\`\`\`\n`;
+                const replacement = `\n\`\`\`\n${selectedText || t('codice')}\n\`\`\`\n`;
                 return {
                   nextText: `${internalText.slice(0, start)}${replacement}${internalText.slice(end)}`,
                   nextSelectionStart: start + 5,
@@ -332,7 +333,7 @@ function ExerciseInternalTextEditor({
                 };
               })
             }
-            title="Blocco codice"
+            title={t('Blocco codice')}
           >
             <Code2 className="h-4 w-4" />
           </button>
@@ -340,12 +341,12 @@ function ExerciseInternalTextEditor({
             type="button"
             className={TOOLBAR_BUTTON_CLASS_NAME}
             onClick={() => setIsPreviewOpen(currentValue => !currentValue)}
-            title={isPreviewOpen ? 'Chiudi anteprima' : 'Apri anteprima'}
+            title={t(isPreviewOpen ? 'Chiudi anteprima' : 'Apri anteprima')}
           >
             {isPreviewOpen ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
           <span className="ml-auto text-xs font-medium text-gray-500 dark:text-zinc-400">
-            Salvataggio automatico
+            {t('Salvataggio automatico')}
           </span>
         </div>
       </header>
@@ -354,7 +355,7 @@ function ExerciseInternalTextEditor({
         {isPreviewOpen ? (
           <div className="rounded-xl border border-gray-200/80 bg-gray-50/80 px-5 py-5 dark:border-zinc-700 dark:bg-zinc-950/70">
             <MarkdownRenderer
-              content={internalText || '_Anteprima vuota_'}
+              content={internalText || `_${t('Anteprima vuota')}_`}
               isDarkMode={isDarkMode}
               className={
                 isDarkMode ? 'prose-invert prose-sm sm:prose-base' : 'prose-sm sm:prose-base'
@@ -369,7 +370,7 @@ function ExerciseInternalTextEditor({
             onBlur={onCommit}
             spellCheck={false}
             className="min-h-[17rem] w-full rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-4 font-mono text-sm leading-6 text-gray-900 outline-none transition-colors focus:border-gray-400 dark:border-zinc-700 dark:bg-zinc-950/80 dark:text-zinc-100 dark:focus:border-zinc-500"
-            placeholder="Scrivi qui la tua consegna in Markdown o testo libero."
+            placeholder={t('Scrivi qui la tua consegna in Markdown o testo libero.')}
           />
         )}
       </div>
@@ -406,7 +407,7 @@ function ExerciseAttachmentCard({
         <button
           type="button"
           onClick={() => onRemove(attachment.id)}
-          title="Rimuovi allegato"
+          title={t('Rimuovi allegato')}
           className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
         >
           <Trash2 className="h-4 w-4" />
@@ -417,8 +418,10 @@ function ExerciseAttachmentCard({
         <div className="rounded-xl border border-dashed border-gray-200/80 bg-gray-50/60 px-4 py-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-300">
           {attachment.kind === 'archive'
             ? attachment.description ||
-              'Archivio pronto per la valutazione. Il sistema leggerà solo file testuali supportati.'
-            : 'File testuale pronto per la valutazione.'}
+              t(
+                'Archivio pronto per la valutazione. Il sistema leggerà solo file testuali supportati.'
+              )
+            : t('File testuale pronto per la valutazione.')}
         </div>
         {attachment.truncatedReason ? (
           <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">
@@ -461,7 +464,7 @@ function ApplicationExerciseViewer({
             <div>
               <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
                 <ClipboardCheck className="h-4 w-4" />
-                Esercizio applicativo
+                {t('Esercizio applicativo')}
               </div>
               <h2 className="font-serif text-3xl leading-tight text-gray-900 dark:text-gray-100">
                 {exercise.title}
@@ -475,9 +478,11 @@ function ApplicationExerciseViewer({
 
         {!brief && exercisePrerequisiteGaps.length > 0 ? (
           <section className="rounded-xl border border-amber-200/80 bg-amber-50/85 px-5 py-5 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
-            <h2 className="font-serif text-xl font-normal">Prima genera le lezioni precedenti</h2>
+            <h2 className="font-serif text-xl font-normal">
+              {t('Prima genera le lezioni precedenti')}
+            </h2>
             <p className="mt-2 text-sm leading-6">
-              La consegna del laboratorio usa le lezioni gia scritte. Mancano ancora:
+              {t('La consegna del laboratorio usa le lezioni gia scritte. Mancano ancora:')}
             </p>
             <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
               {exercisePrerequisiteGaps.map(gap => (
@@ -492,11 +497,11 @@ function ApplicationExerciseViewer({
             {isLoading ? (
               <div className="flex items-center justify-center gap-3 text-sm font-semibold text-gray-600 dark:text-zinc-300">
                 <LoaderCircle className="h-4 w-4 animate-spin text-orange-600 dark:text-orange-300" />
-                Generazione consegna...
+                {t('Generazione consegna...')}
               </div>
             ) : (
               <div className="text-sm leading-6 text-gray-600 dark:text-zinc-300">
-                Questo laboratorio è pianificato. Aprilo di nuovo per generare la consegna.
+                {t('Questo laboratorio è pianificato. Aprilo di nuovo per generare la consegna.')}
               </div>
             )}
           </section>
@@ -506,7 +511,7 @@ function ApplicationExerciseViewer({
           <>
             <section className="border-t border-gray-300 pt-6 dark:border-zinc-600">
               <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
-                Traccia
+                {t('Traccia')}
               </p>
               <MarkdownRenderer
                 content={visibleBrief}
@@ -520,7 +525,7 @@ function ApplicationExerciseViewer({
             <section className="space-y-4 border-t border-gray-300 pt-6 dark:border-zinc-600">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
-                  Consegna
+                  {t('Consegna')}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -530,14 +535,14 @@ function ApplicationExerciseViewer({
                     className="inline-flex items-center gap-2 rounded-full border border-gray-200/80 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-gray-700 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:text-white"
                   >
                     <Upload className="h-4 w-4" />
-                    Carica file
+                    {t('Carica file')}
                   </button>
                   <button
                     type="button"
                     disabled={!hasDeliverable}
                     className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-gray-50 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
                   >
-                    {exercise.feedbackStale ? 'Aggiorna riscontro' : 'Richiedi riscontro'}
+                    {t(exercise.feedbackStale ? 'Aggiorna riscontro' : 'Richiedi riscontro')}
                   </button>
                 </div>
               </div>
@@ -568,8 +573,9 @@ function ApplicationExerciseViewer({
 
               {exercise.attachments.length === 0 && internalText.trim().length === 0 ? (
                 <div className="rounded-xl border border-dashed border-gray-200/80 bg-gray-50/80 px-5 py-8 text-center text-sm leading-7 text-gray-500 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-400">
-                  Scrivi una nota Markdown oppure carica file testuali o archivi ZIP. Tutto cio che
-                  produci qui resta una consegna persistente e verra usato nella valutazione.
+                  {t(
+                    'Scrivi una nota Markdown oppure carica file testuali o archivi ZIP. Tutto cio che produci qui resta una consegna persistente e verra usato nella valutazione.'
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -587,7 +593,7 @@ function ApplicationExerciseViewer({
             <section className="border-t border-gray-300 pt-6 dark:border-zinc-600">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
-                  Correzione AI
+                  {t('Correzione AI')}
                 </p>
                 {exercise.currentFeedback ? (
                   <span className="inline-flex items-center gap-2 rounded-full border border-emerald-200/80 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -606,12 +612,15 @@ function ApplicationExerciseViewer({
                     </p>
                   </div>
                   {exercise.feedbackStale ? (
-                    <p className="text-sm text-amber-600 dark:text-amber-300">Riscontro datato.</p>
+                    <p className="text-sm text-amber-600 dark:text-amber-300">
+                      {t('Riscontro datato.')}
+                    </p>
                   ) : null}
                 </div>
               ) : (
                 <p className="text-sm text-gray-400 dark:text-zinc-500">
-                  Nessuna valutazione disponibile. Aggiungi una consegna e richiedi un riscontro.
+                  {t('Nessuna valutazione disponibile.')}{' '}
+                  {t('Aggiungi una consegna e richiedi un riscontro.')}
                 </p>
               )}
             </section>
@@ -667,7 +676,9 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   const renderedSectionContent = useMemo(
     () =>
       sectionContent && sourcePageRangeLabel
-        ? `${sectionContent.trim()}\n\n&nbsp;\n\n*Fonte originale: ${sourcePageRangeLabel}*`
+        ? `${sectionContent.trim()}\n\n&nbsp;\n\n*${t('Fonte originale: {sourcePageRangeLabel}', {
+            sourcePageRangeLabel,
+          })}*`
         : sectionContent,
     [sectionContent, sourcePageRangeLabel]
   );
@@ -761,8 +772,10 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       {ttsTextPicker.isActive ? (
         <p className="sr-only" aria-live="polite">
           {ttsTextPicker.hoveredChunkIndex === null
-            ? 'Selezione dal testo attiva. Passa su una parte e fai clic per sceglierla.'
-            : `Parte ${ttsTextPicker.hoveredChunkIndex + 1} evidenziata. Fai clic per sceglierla.`}
+            ? t('Selezione dal testo attiva. Passa su una parte e fai clic per sceglierla.')
+            : t('Parte {partNumber} evidenziata. Fai clic per sceglierla.', {
+                partNumber: ttsTextPicker.hoveredChunkIndex + 1,
+              })}
         </p>
       ) : null}
       {ttsTextPicker.overlayRects.map((rect, index) => (
@@ -774,7 +787,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
         >
           {index === 0 && ttsTextPicker.hoveredChunkIndex !== null ? (
             <span className="absolute -top-7 left-0 rounded-full bg-orange-600 px-2 py-1 text-[10px] font-semibold text-white shadow-sm dark:bg-orange-500 dark:text-stone-950">
-              Parte {ttsTextPicker.hoveredChunkIndex + 1}
+              {t('Parte {partNumber}', { partNumber: ttsTextPicker.hoveredChunkIndex + 1 })}
             </span>
           ) : null}
         </div>
@@ -784,7 +797,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       >
         <section
           ref={contentRef}
-          aria-label="Area di lettura"
+          aria-label={t('Area di lettura')}
           className="mb-8 min-h-[50vh] min-w-0"
           onContextMenu={onContentContextMenu}
           onPointerDownCapture={onContentPointerDownCapture}
@@ -813,14 +826,15 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                 <div className="mb-6 flex items-start gap-3 rounded-2xl border border-orange-200/80 bg-orange-50/80 px-4 py-3 text-sm leading-6 text-orange-900 dark:border-orange-900/50 dark:bg-orange-950/25 dark:text-orange-100">
                   <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
                   <p className="min-w-0 flex-1">
-                    Seleziona un passaggio e fai click destro per chiedere spiegazioni, aggiungere
-                    una nota o creare una lezione di approfondimento.
+                    {t(
+                      'Seleziona un passaggio e fai click destro per chiedere spiegazioni, aggiungere una nota o creare una lezione di approfondimento.'
+                    )}
                   </p>
                   <button
                     type="button"
                     onClick={dismissContextHint}
                     className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-orange-600 transition-colors hover:bg-orange-100 hover:text-orange-800 dark:text-orange-200 dark:hover:bg-orange-900/40"
-                    aria-label="Nascondi suggerimento selezione testo"
+                    aria-label={t('Nascondi suggerimento selezione testo')}
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -869,7 +883,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
               {sectionArtifactPayloads.length > 0 ? (
                 <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
                   <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
-                    Artefatti
+                    {t('Artefatti')}
                   </h2>
                   <ChatArtifactRenderer
                     artifacts={sectionArtifactPayloads}
@@ -882,7 +896,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
               {lessonAnnotations.length > 0 ? (
                 <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
                   <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
-                    Artefatti della lezione
+                    {t('Artefatti della lezione')}
                   </h2>
                   {lessonAnnotations.map(annotation => {
                     const annotationArtifacts = resolveAnnotationArtifactPayloads({
@@ -934,8 +948,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
               <BookOpen className="mb-4 h-16 w-16 opacity-20" />
               <p>
                 {isMobileViewport
-                  ? 'Apri il menu lezioni per scegliere cosa leggere.'
-                  : 'Seleziona una sezione dal piano di studi per iniziare.'}
+                  ? t('Apri il menu lezioni per scegliere cosa leggere.')
+                  : t('Seleziona una sezione dal piano di studi per iniziare.')}
               </p>
             </div>
           )}

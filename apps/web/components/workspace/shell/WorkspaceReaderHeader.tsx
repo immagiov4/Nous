@@ -1,5 +1,6 @@
 import { ArrowLeft, Moon, RefreshCw, Settings2, SidebarOpen, Sun, X } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { MotionPopover } from '../../../utils/motion/index.ts';
 import MusicPlayer from '../UnifiedAudioPanel.tsx';
 import type { WorkspaceReaderHeaderModel } from './types.ts';
@@ -41,8 +42,8 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   const [isRegenerateConfirmOpen, setIsRegenerateConfirmOpen] = useState(false);
   const [isAudioOpen, setIsAudioOpen] = useState(false);
   const regenerateConfirmRef = useRef<HTMLDivElement>(null);
-  const activeContentTitle = activeSectionTitle || learningPlanTitle || 'Lezione';
-  const activeContentGroupTitle = activeSidebarGroup?.title || learningPlanTitle || 'Percorso';
+  const activeContentTitle = activeSectionTitle || learningPlanTitle || t('Lezione');
+  const activeContentGroupTitle = activeSidebarGroup?.title || learningPlanTitle || t('Percorso');
   const canRegenerate = hasActiveSection;
   const isRegenerateConfirmVisible = isRegenerateConfirmOpen && canRegenerate && !isLoading;
 
@@ -131,7 +132,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                 type="button"
                 onClick={onBackToLibrary}
                 className="rounded-full border border-gray-200 bg-white/85 p-2 text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
-                title="Torna alla libreria"
+                title={t('Torna alla libreria')}
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
@@ -139,7 +140,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                 type="button"
                 onClick={onOpenSidebar}
                 className="rounded-full border border-gray-200 bg-white/85 p-2 text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
-                title={isMobileSidebarOpen ? 'Chiudi elenco lezioni' : 'Apri elenco lezioni'}
+                title={t(isMobileSidebarOpen ? 'Chiudi elenco lezioni' : 'Apri elenco lezioni')}
               >
                 {isMobileSidebarOpen ? (
                   <X className="h-4 w-4" />
@@ -161,7 +162,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
               type="button"
               onClick={() => onSetFocusMode(false)}
               className="rounded-md p-1 text-gray-400 transition-all hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
-              title="Mostra Menu"
+              title={t('Mostra Menu')}
             >
               <SidebarOpen className="h-5 w-5" />
             </button>
@@ -189,31 +190,32 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                   ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-zinc-600/80 dark:bg-zinc-800 dark:text-zinc-500'
                   : 'border-gray-200 bg-white/90 text-gray-700 hover:border-orange-300 hover:text-orange-700 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-200 dark:hover:border-orange-500/60 dark:hover:text-orange-300'
               }`}
-              title={
+              title={t(
                 canRegenerate ? 'Rigenera la lezione corrente' : 'Apri una lezione per rigenerarla'
-              }
+              )}
               aria-expanded={isRegenerateConfirmVisible}
               aria-haspopup="dialog"
             >
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-              {!isMobileViewport ? <span>Rigenera</span> : null}
+              {!isMobileViewport ? <span>{t('Rigenera')}</span> : null}
             </button>
 
             {isMobileViewport && isRegenerateConfirmVisible ? (
               <div
                 className="fixed bottom-0 left-1/2 top-0 z-50 flex w-full -translate-x-1/2 items-start justify-center pt-24"
                 role="dialog"
-                aria-label="Conferma rigenerazione contenuto"
+                aria-label={t('Conferma rigenerazione contenuto')}
               >
                 <div
                   className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
                 >
                   <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                    Rigenerare questa lezione?
+                    {t('Rigenerare questa lezione?')}
                   </p>
                   <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                    Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti
-                    perdere il contenuto attuale.
+                    {t(
+                      'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'
+                    )}
                   </p>
                   <div className="mt-4 flex items-center justify-end gap-2">
                     <button
@@ -221,14 +223,14 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                       onClick={() => setIsRegenerateConfirmOpen(false)}
                       className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                     >
-                      Annulla
+                      {t('Annulla')}
                     </button>
                     <button
                       type="button"
                       onClick={handleConfirmRegenerate}
                       className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
                     >
-                      Rigenera
+                      {t('Rigenera')}
                     </button>
                   </div>
                 </div>
@@ -240,15 +242,16 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                 isOpen={isRegenerateConfirmVisible}
                 originX="top right"
                 role="dialog"
-                aria-label="Conferma rigenerazione contenuto"
+                aria-label={t('Conferma rigenerazione contenuto')}
                 className={`${regenerateDialogClassName} panel-shadow rounded-2xl border border-gray-200 bg-white px-4 py-4 text-stone-700 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)] dark:text-zinc-200`}
               >
                 <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                  Rigenerare questa lezione?
+                  {t('Rigenerare questa lezione?')}
                 </p>
                 <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-zinc-400">
-                  Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti
-                  perdere il contenuto attuale.
+                  {t(
+                    'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.'
+                  )}
                 </p>
                 <div className="mt-4 flex items-center justify-end gap-2">
                   <button
@@ -256,14 +259,14 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
                     onClick={() => setIsRegenerateConfirmOpen(false)}
                     className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                   >
-                    Annulla
+                    {t('Annulla')}
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmRegenerate}
                     className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
                   >
-                    Rigenera
+                    {t('Rigenera')}
                   </button>
                 </div>
               </MotionPopover>
@@ -300,7 +303,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             }}
             onPointerDown={e => e.stopPropagation()}
             className="rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
-            title="Apri impostazioni lettura"
+            title={t('Apri impostazioni lettura')}
           >
             <Settings2 className="h-5 w-5" />
           </button>
@@ -309,7 +312,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             type="button"
             onClick={() => onSetDarkMode(!isDarkMode)}
             className="rounded-full border border-transparent bg-transparent p-2 text-gray-400 transition-colors hover:border-gray-200 hover:bg-gray-100 hover:text-gray-600 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
-            title="Cambia Tema"
+            title={t('Cambia Tema')}
           >
             {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </button>
@@ -347,17 +350,17 @@ function SyncBadge({ syncState }: { syncState: 'saved' | 'saving' | 'error' }) {
           ? 'bg-sky-50 text-sky-600 dark:bg-sky-900/20 dark:text-sky-400'
           : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
       }`}
-      title={isSaving ? 'Salvataggio in corso...' : 'Errore di salvataggio'}
+      title={t(isSaving ? 'Salvataggio in corso...' : 'Errore di salvataggio')}
     >
       {isSaving ? (
         <>
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-          <span>Salvataggio</span>
+          <span>{t('Salvataggio')}</span>
         </>
       ) : (
         <>
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
-          <span>Errore</span>
+          <span>{t('Errore')}</span>
         </>
       )}
     </div>

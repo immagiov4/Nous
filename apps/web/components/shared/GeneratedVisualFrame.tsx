@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LessonGeneratedVisual } from '../../types.ts';
 import { isSafeGeneratedImageDataUrl } from '../../utils/visuals/generatedImage.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
@@ -36,6 +37,14 @@ const visualCode = ${toSafeScriptJson(visual.code)};
 const visualId = ${toSafeScriptJson(visual.id)};
 const visualTitle = ${toSafeScriptJson(visual.title)};
 const missingStaticElementIds = ${JSON.stringify(findMissingStaticHtmlElementIds(visual.code))};
+const unknownVisualError = ${toSafeScriptJson(t('Errore nello script del visuale.'))};
+const partialVisualError = ${toSafeScriptJson(
+  t("Una parte interattiva dell'artefatto ha avuto un errore. Puoi rigenerarlo o sostituirlo.")
+)};
+const failedVisualError = ${toSafeScriptJson(
+  t('Questo artefatto interattivo non e riuscito a caricarsi. Puoi rigenerarlo o sostituirlo.')
+)};
+const externalScriptError = ${toSafeScriptJson(t('Script esterno non caricato.'))};
 const root = document.getElementById('${GENERATED_VISUAL_ROOT_ID}');
 let hasShownGeneratedVisualError = false;
 
@@ -44,7 +53,7 @@ function showGeneratedVisualError(error) {
     return;
   }
   hasShownGeneratedVisualError = true;
-  const message = error && error.message ? error.message : 'Errore nello script del visuale.';
+  const message = error && error.message ? error.message : unknownVisualError;
   const errorDetails = {
     message,
     missingElementIds: missingStaticElementIds,
@@ -58,8 +67,8 @@ function showGeneratedVisualError(error) {
   warning.style.cssText = 'margin:12px auto;padding:12px 14px;max-width:720px;border:1px solid #fecaca;border-radius:14px;background:#fef2f2;color:#991b1b;font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;';
   const hasRenderedContent = Boolean(root && Array.from(root.children).some(element => !['LINK', 'SCRIPT', 'STYLE'].includes(element.tagName)));
   warning.textContent = hasRenderedContent
-    ? "Una parte interattiva dell'artefatto ha avuto un errore. Puoi rigenerarlo o sostituirlo."
-    : 'Questo artefatto interattivo non e riuscito a caricarsi. Puoi rigenerarlo o sostituirlo.';
+    ? partialVisualError
+    : failedVisualError;
   root?.prepend(warning);
   window.parent.postMessage({ type: 'generated-visual-resize', height: document.body.scrollHeight }, '*');
 }
@@ -89,7 +98,7 @@ function replayGeneratedVisualScript(script) {
     if (isExternalScript) {
       replayedScript.addEventListener('load', () => resolve(), { once: true });
       replayedScript.addEventListener('error', event => {
-        showGeneratedVisualError(event.error || event.message || 'Script esterno non caricato.');
+        showGeneratedVisualError(event.error || event.message || externalScriptError);
         resolve();
       }, { once: true });
     }
@@ -517,7 +526,7 @@ const GeneratedVisualFrame = ({
           />
         ) : (
           <output className="block rounded-2xl border border-stone-200 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-            Immagine non disponibile
+            {t('Immagine non disponibile')}
           </output>
         )}
       </figure>

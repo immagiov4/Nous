@@ -4,6 +4,7 @@ import { Download, Moon, Plus, Sun } from 'lucide-react';
 import { type ChangeEvent, useState } from 'react';
 import logoUrl from '@/assets/logo.svg';
 import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type {
   HomeChatMode,
   LearningArtifactRenderPayload,
@@ -183,7 +184,7 @@ const LibraryView = ({
             <Pressable
               onClick={onToggleDarkMode}
               className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-900 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-400 dark:hover:border-zinc-400 dark:hover:text-white"
-              aria-label="Cambia tema"
+              aria-label={t('Cambia tema')}
             >
               {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Pressable>
@@ -235,29 +236,31 @@ const LibraryView = ({
 
         <section className="mt-8">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-            <h2 className="text-2xl font-serif text-gray-900 dark:text-zinc-100">Libreria</h2>
+            <h2 className="text-2xl font-serif text-gray-900 dark:text-zinc-100">
+              {t('Libreria')}
+            </h2>
             <div className="flex items-center gap-3">
               <Pressable
                 onClick={onImportJsonClick}
                 className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-zinc-600/50 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
-                title="Importa backup Nous (.nous.zip, formato legacy o JSON legacy)"
+                title={t('Importa backup Nous (.nous.zip, formato legacy o JSON legacy)')}
               >
                 <Download className="h-3.5 w-3.5" />
-                Importa
+                {t('Importa')}
               </Pressable>
               <Pressable
                 onClick={() => setNewFolderTrigger(n => n + 1)}
                 className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-zinc-600 dark:bg-[#201917] dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Nuova cartella
+                {t('Nuova cartella')}
               </Pressable>
             </div>
           </div>
 
           {isLibraryLoading ? (
             <div className="rounded-[1.4rem] border border-gray-200/80 bg-white/95 p-8 text-sm text-gray-500 dark:border-white/10 dark:bg-paper-surface/95 dark:text-zinc-400">
-              Caricamento libreria...
+              {t('Caricamento libreria...')}
             </div>
           ) : null}
 

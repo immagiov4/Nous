@@ -33,6 +33,26 @@ describe('ProjectCard', () => {
     });
   });
 
+  test('renders library controls in the browser language', () => {
+    Object.defineProperties(window.navigator, {
+      language: { configurable: true, value: 'en-GB' },
+      languages: { configurable: true, value: ['en-GB'] },
+    });
+
+    render(
+      <ProjectCard
+        onDelete={vi.fn()}
+        onExport={vi.fn()}
+        onMove={vi.fn()}
+        onOpen={vi.fn()}
+        project={project}
+      />
+    );
+
+    expect(screen.getByText('28 lessons')).toBeInTheDocument();
+    expect(screen.getByTitle('Actions')).toBeInTheDocument();
+  });
+
   test('keeps the project action menu attached to the button near the viewport bottom', async () => {
     Object.defineProperty(window, 'innerHeight', {
       configurable: true,

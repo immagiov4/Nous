@@ -23,6 +23,7 @@ import {
 } from 'react';
 import { LIBRARY_FOLDER_MENU_ESTIMATED_HEIGHT_PX } from '../../constants/layout.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LibraryFolderNode, LibraryTree, LibraryTreeNode } from '../../types.ts';
 import { flattenLibraryTreeNodes } from '../../utils/library/tree.ts';
 import { subscribeToMediaQuery } from '../../utils/mediaQuery.ts';
@@ -111,7 +112,7 @@ const AnimatedFolderChildren = ({
       }}
       style={{ overflow: 'hidden', overflowAnchor: 'none', willChange: 'height, opacity' }}
     >
-      <ul className="space-y-3" aria-label={`Contenuto cartella ${folderName}`}>
+      <ul className="space-y-3" aria-label={t('Contenuto cartella {folderName}', { folderName })}>
         {children}
       </ul>
     </motion.div>
@@ -592,21 +593,21 @@ export default function LibraryTreeView({
         type="text"
         value={folderDraftName}
         onChange={event => setFolderDraftName(event.target.value)}
-        placeholder={mode === 'create' ? 'Nome cartella...' : 'Rinomina cartella...'}
+        placeholder={mode === 'create' ? t('Nome cartella...') : t('Rinomina cartella...')}
         className="min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-zinc-100 dark:placeholder:text-zinc-500"
       />
       <button
         type="submit"
         className="rounded-full bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-stone-100 dark:text-stone-900"
       >
-        Salva
+        {t('Salva')}
       </button>
       <button
         type="button"
         onClick={cancelFolderEditing}
         className="rounded-full px-2 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
       >
-        Annulla
+        {t('Annulla')}
       </button>
     </form>
   );
@@ -621,21 +622,21 @@ export default function LibraryTreeView({
         type="text"
         value={folderDraftName}
         onChange={event => setFolderDraftName(event.target.value)}
-        placeholder="Rinomina cartella..."
+        placeholder={t('Rinomina cartella...')}
         className="min-w-0 flex-1 rounded-xl border border-gray-300 bg-white/90 px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
       />
       <button
         type="submit"
         className="rounded-full bg-stone-900 px-2.5 py-1.5 text-xs font-semibold text-white dark:bg-stone-100 dark:text-stone-900"
       >
-        Salva
+        {t('Salva')}
       </button>
       <button
         type="button"
         onClick={cancelFolderEditing}
         className="rounded-full px-2 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
       >
-        Annulla
+        {t('Annulla')}
       </button>
     </form>
   );
@@ -772,7 +773,7 @@ export default function LibraryTreeView({
       return (
         <li
           key={node.id}
-          aria-label={`Corso ${node.project.title}`}
+          aria-label={t('Corso {projectTitle}', { projectTitle: node.project.title })}
           data-drag-id={node.id}
           data-drag-kind="project"
           data-drag-parent-id={parentFolderId ?? ''}
@@ -859,7 +860,7 @@ export default function LibraryTreeView({
     return (
       <li
         key={node.id}
-        aria-label={`Cartella ${node.folder.name}`}
+        aria-label={t('Cartella {folderName}', { folderName: node.folder.name })}
         className={`relative mt-2 ${isDropBefore(node.id, 'folder') || isDropAfter(node.id, 'folder') ? 'z-10' : ''}`}
       >
         {isDropBefore(node.id, 'folder') ? (
@@ -935,7 +936,7 @@ export default function LibraryTreeView({
             type="button"
             onClick={() => handleFolderExpansionToggle(node.id, isExpanded)}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-            title={isExpanded ? 'Chiudi cartella' : 'Apri cartella'}
+            title={isExpanded ? t('Chiudi cartella') : t('Apri cartella')}
           >
             {isExpanded ? (
               <ChevronDown className="h-4 w-4" />
@@ -957,7 +958,7 @@ export default function LibraryTreeView({
                   {node.folder.name}
                 </p>
                 <span className="hidden sm:inline rounded-full border border-amber-200 bg-amber-50/80 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                  {node.descendantProjectIds.length} corsi
+                  {node.descendantProjectIds.length} {t('corsi')}
                 </span>
               </div>
             )}
@@ -980,7 +981,7 @@ export default function LibraryTreeView({
                 setOpenFolderMenuId(node.id);
               }}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-              title="Azioni cartella"
+              title={t('Azioni cartella')}
             >
               <MoreVertical className="h-4 w-4" />
             </Pressable>
@@ -1002,7 +1003,7 @@ export default function LibraryTreeView({
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
               >
                 <FolderPlus className="h-4 w-4 shrink-0" />
-                <span className="whitespace-nowrap">Nuova sottocartella</span>
+                <span className="whitespace-nowrap">{t('Nuova sottocartella')}</span>
               </button>
               <button
                 type="button"
@@ -1015,7 +1016,7 @@ export default function LibraryTreeView({
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
               >
                 <Pencil className="h-4 w-4 shrink-0" />
-                Rinomina
+                {t('Rinomina')}
               </button>
               <button
                 type="button"
@@ -1026,7 +1027,7 @@ export default function LibraryTreeView({
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
               >
                 <GripVertical className="h-4 w-4 shrink-0" />
-                Sposta
+                {t('Sposta')}
               </button>
               <div className="border-t border-gray-100 dark:border-zinc-700" />
               <button
@@ -1044,7 +1045,7 @@ export default function LibraryTreeView({
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
               >
                 <Trash2 className="h-4 w-4 shrink-0" />
-                Elimina
+                {t('Elimina')}
               </button>
             </MotionPopover>
           </div>
@@ -1098,7 +1099,7 @@ export default function LibraryTreeView({
       {openFolderMenuId ? (
         <button
           type="button"
-          aria-label="Chiudi menu cartella"
+          aria-label={t('Chiudi menu cartella')}
           className="fixed inset-0 z-[55]"
           onClick={() => setOpenFolderMenuId(null)}
           onKeyDown={e => {
@@ -1110,7 +1111,7 @@ export default function LibraryTreeView({
       {createTargetId === ROOT_CREATE_KEY ? renderFolderForm(ROOT_CREATE_KEY, 'create') : null}
 
       <ul
-        aria-label="Albero corsi"
+        aria-label={t('Albero corsi')}
         className={`space-y-3 rounded-[1.4rem] transition-colors ${
           dropTarget?.targetKind === 'root' ? 'bg-amber-50/50 dark:bg-amber-500/8' : ''
         }`}
@@ -1144,12 +1145,12 @@ export default function LibraryTreeView({
           )
         ) : (
           <li className="list-none rounded-2xl border border-dashed border-gray-300 bg-gray-50/70 px-4 py-8 text-sm text-gray-500 dark:border-zinc-700/80 dark:bg-[#1b1614] dark:text-zinc-400">
-            Nessun corso salvato da organizzare.
+            {t('Nessun corso salvato da organizzare.')}
           </li>
         )}
         {draggedItem ? (
           <li
-            aria-label="Sposta nella radice libreria"
+            aria-label={t('Sposta nella radice libreria')}
             className={`list-none rounded-2xl border border-dashed px-4 py-3 transition-colors ${
               dropTarget?.targetKind === 'root'
                 ? 'border-amber-400 bg-amber-50/70 dark:border-amber-400/60 dark:bg-amber-500/10'
@@ -1172,7 +1173,7 @@ export default function LibraryTreeView({
               <DropLineIndicator />
             ) : (
               <span className="block text-center text-xs font-medium text-gray-500 dark:text-zinc-400">
-                Radice libreria
+                {t('Radice libreria')}
               </span>
             )}
           </li>
@@ -1185,10 +1186,10 @@ export default function LibraryTreeView({
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
-                  Sposta elemento
+                  {t('Sposta elemento')}
                 </p>
                 <h4 className="mt-1 text-lg font-semibold text-gray-900 dark:text-zinc-100">
-                  Scegli la destinazione
+                  {t('Scegli la destinazione')}
                 </h4>
               </div>
               <button
@@ -1207,9 +1208,11 @@ export default function LibraryTreeView({
                 className="flex w-full items-center justify-between rounded-2xl border border-gray-200 px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
               >
                 <span className="font-medium text-gray-900 dark:text-zinc-100">
-                  Radice libreria
+                  {t('Radice libreria')}
                 </span>
-                <span className="text-xs text-gray-500 dark:text-zinc-400">Senza cartella</span>
+                <span className="text-xs text-gray-500 dark:text-zinc-400">
+                  {t('Senza cartella')}
+                </span>
               </button>
 
               {destinationFolders.map(folderNode => {
@@ -1229,7 +1232,7 @@ export default function LibraryTreeView({
                       {folderNode.folder.name}
                     </span>
                     <span className="text-xs text-gray-500 dark:text-zinc-400">
-                      {folderNode.descendantProjectIds.length} corsi
+                      {folderNode.descendantProjectIds.length} {t('corsi')}
                     </span>
                   </button>
                 );

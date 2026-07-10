@@ -4,6 +4,7 @@ import type { WorkspaceReaderShellProps } from '../components/workspace/shell/ty
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceReaderActions } from '../hooks/workspace/useWorkspaceReaderActions.ts';
 import type { useWorkspaceReaderState } from '../hooks/workspace/useWorkspaceReaderState.ts';
+import { translateUiMessage as t } from '../i18n/uiMessages.ts';
 import { createExerciseAttachmentFromFile } from '../services/exercises/deliverables.ts';
 import {
   getApplicationExerciseRepairLabel,
@@ -77,7 +78,7 @@ export const useReaderShellProps = ({
         ? collectSectionLearningArtifactPayloads({
             documentAssets: controller.documentAssets,
             projectId: controller.currentProjectId || 'current-project',
-            projectTitle: controller.learningPlan?.title || 'Corso',
+            projectTitle: controller.learningPlan?.title || t('Corso'),
             section: controller.activeSection,
           })
         : [],
@@ -93,7 +94,7 @@ export const useReaderShellProps = ({
     controller.generatingSectionId === controller.activeSectionId;
   const isRepairingApplicationExercises =
     controller.workflowState.generateExercise.status === 'pending';
-  const loadingStatus = controller.blockingMessage || 'Caricamento...';
+  const loadingStatus = controller.blockingMessage || t('Caricamento...');
   const playerCurrentChunkIsLoading =
     readerState.ttsPlayer.audioState.chunks[readerState.ttsPlayer.audioState.currentChunkIndex]
       ?.isLoading || false;
@@ -102,12 +103,14 @@ export const useReaderShellProps = ({
       .repairApplicationExercises()
       .then(result => {
         if (result.outcome === 'repaired') {
-          notify('Pianificazione esercizi completata.', 'success');
+          notify(t('Pianificazione esercizi completata.'), 'success');
         }
       })
       .catch(error => {
         notify(
-          error instanceof Error ? error.message : 'Non sono riuscito a pianificare gli esercizi.'
+          error instanceof Error
+            ? error.message
+            : t('Non sono riuscito a pianificare gli esercizi.')
         );
       });
   }, [controller, notify]);
@@ -119,7 +122,7 @@ export const useReaderShellProps = ({
         )
         .catch(error => {
           notify(
-            error instanceof Error ? error.message : 'Non sono riuscito a salvare la consegna.'
+            error instanceof Error ? error.message : t('Non sono riuscito a salvare la consegna.')
           );
         });
     },
@@ -134,7 +137,9 @@ export const useReaderShellProps = ({
           })
         )
         .catch(error => {
-          notify(error instanceof Error ? error.message : 'Non sono riuscito a rimuovere il file.');
+          notify(
+            error instanceof Error ? error.message : t('Non sono riuscito a rimuovere il file.')
+          );
         });
     },
     [controller, notify]
@@ -152,7 +157,9 @@ export const useReaderShellProps = ({
         }
         await controller.attachExerciseFiles(exerciseId, attachments);
       })().catch(error => {
-        notify(error instanceof Error ? error.message : 'Non sono riuscito ad allegare il file.');
+        notify(
+          error instanceof Error ? error.message : t('Non sono riuscito ad allegare il file.')
+        );
       });
     },
     [controller, notify]

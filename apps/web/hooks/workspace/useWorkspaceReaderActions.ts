@@ -4,6 +4,7 @@ import type {
   SaveConversationNoteInput,
   SaveConversationNoteResult,
 } from '../../components/workspace/shell/types.ts';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type {
   ApplicationExerciseNode,
   ContextMenuState,
@@ -282,7 +283,9 @@ export const useWorkspaceReaderActions = ({
 
     if (!result) {
       notify(
-        'Non sono riuscito a evidenziare questa selezione in modo affidabile. Prova con una selezione leggermente piu corta.'
+        t(
+          'Non sono riuscito a evidenziare questa selezione in modo affidabile. Prova con una selezione leggermente piu corta.'
+        )
       );
       return;
     }
@@ -330,7 +333,9 @@ export const useWorkspaceReaderActions = ({
 
         if (!result) {
           notify(
-            "Non sono riuscito ad associare la nota a questa selezione. Prova a selezionare un frammento un po' piu preciso."
+            t(
+              'Non sono riuscito a associare la nota a questa selezione. Prova a selezionare un frammento un po più preciso.'
+            )
           );
           return;
         }
@@ -357,7 +362,7 @@ export const useWorkspaceReaderActions = ({
       });
 
       if (!result) {
-        notify('Non ho trovato questa annotazione. Riprova dopo aver ricaricato la sezione.');
+        notify(t('Non ho trovato questa annotazione. Riprova dopo aver ricaricato la sezione.'));
         return;
       }
 
@@ -397,7 +402,7 @@ export const useWorkspaceReaderActions = ({
     });
 
     if (!result.removed) {
-      notify('Non sono riuscito a rimuovere questo highlight. Riprova.');
+      notify(t('Non sono riuscito a rimuovere questo highlight. Riprova.'));
       return;
     }
 
@@ -437,7 +442,7 @@ export const useWorkspaceReaderActions = ({
       });
 
       if (!result) {
-        notify('Non ho trovato questa annotazione. Riprova dopo aver ricaricato la sezione.');
+        notify(t('Non ho trovato questa annotazione. Riprova dopo aver ricaricato la sezione.'));
         return;
       }
 
@@ -476,7 +481,7 @@ export const useWorkspaceReaderActions = ({
 
       if (!result) {
         notify(
-          'Non ho trovato questo allegato nella nota. Riprova dopo aver ricaricato la sezione.'
+          t('Non ho trovato questo allegato nella nota. Riprova dopo aver ricaricato la sezione.')
         );
         return;
       }
@@ -511,7 +516,7 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error: 'La sezione attiva non e disponibile.',
+          error: t('La sezione attiva non e disponibile.'),
         };
       }
 
@@ -520,7 +525,7 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error: 'Non ho trovato la sezione corrente.',
+          error: t('Non ho trovato la sezione corrente.'),
         };
       }
 
@@ -556,7 +561,9 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error: 'Non sono riuscito a ritrovare il passaggio da annotare nella lezione corrente.',
+          error: t(
+            'Non sono riuscito a ritrovare il passaggio da annotare nella lezione corrente.'
+          ),
         };
       }
 
@@ -602,7 +609,7 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error: 'La sezione attiva non e disponibile.',
+          error: t('La sezione attiva non e disponibile.'),
         };
       }
 
@@ -611,7 +618,7 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error: 'Non ho trovato la sezione corrente.',
+          error: t('Non ho trovato la sezione corrente.'),
         };
       }
 
@@ -642,7 +649,7 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error: 'Non ho trovato una nota esistente collegata a questo passaggio da aggiornare.',
+          error: t('Non ho trovato una nota esistente collegata a questo passaggio da aggiornare.'),
         };
       }
 
@@ -657,7 +664,7 @@ export const useWorkspaceReaderActions = ({
         return {
           saved: false,
           merged: false,
-          error: 'Non sono riuscito ad aggiornare la nota esistente.',
+          error: t('Non sono riuscito ad aggiornare la nota esistente.'),
         };
       }
 

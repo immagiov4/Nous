@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import { useState } from 'react';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 
 interface WorkspaceReaderQuizFooterProps {
   canComplete: boolean;
@@ -19,18 +20,22 @@ const getProgressPrompt = ({
   remainingQuestionCount: number;
 }): string => {
   if (canComplete) {
-    return 'Hai completato tutte le pause attive di questa lezione.';
+    return t('Hai completato tutte le pause attive di questa lezione.');
   }
 
   if (hasNextSection) {
-    return 'Puoi andare avanti subito oppure completare prima le pause attive per segnare la lezione come completata.';
+    return t(
+      'Puoi andare avanti subito oppure completare prima le pause attive per segnare la lezione come completata.'
+    );
   }
 
   if (remainingQuestionCount === 1) {
-    return "Rispondi all'ultima pausa attiva per completare la lezione.";
+    return t("Rispondi all'ultima pausa attiva per completare la lezione.");
   }
 
-  return `Rispondi alle ${remainingQuestionCount} pause attive rimanenti per completare la lezione.`;
+  return t('Rispondi alle {count} pause attive rimanenti per completare la lezione.', {
+    count: remainingQuestionCount,
+  });
 };
 
 const getButtonClassName = ({
@@ -65,8 +70,10 @@ export default function WorkspaceReaderQuizFooter({
   const canAdvance = canComplete || hasNextSection;
   const missingPauseMessage =
     remainingQuestionCount === 1
-      ? 'Manca 1 pausa attiva: rispondi a quella evidenziata nella lezione.'
-      : `Mancano ${remainingQuestionCount} pause attive: completa quelle ancora senza risposta.`;
+      ? t('Manca 1 pausa attiva: rispondi a quella evidenziata nella lezione.')
+      : t('Mancano {count} pause attive: completa quelle ancora senza risposta.', {
+          count: remainingQuestionCount,
+        });
 
   const handleCompleteClick = () => {
     if (canComplete) {
@@ -96,7 +103,7 @@ export default function WorkspaceReaderQuizFooter({
           aria-disabled={!canAdvance}
           className={getButtonClassName({ canAdvance, canComplete })}
         >
-          {canComplete ? 'Completa e Prosegui' : 'Prosegui'} <ChevronRight className="h-5 w-5" />
+          {t(canComplete ? 'Completa e Prosegui' : 'Prosegui')} <ChevronRight className="h-5 w-5" />
         </button>
       </div>
       {!canAdvance && hasAttemptedCompletion ? (

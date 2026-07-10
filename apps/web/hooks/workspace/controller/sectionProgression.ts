@@ -1,3 +1,4 @@
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import {
   addExerciseAttachments,
@@ -83,7 +84,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
 
     state.setGeneratingSectionId(exercise.id);
-    const requestId = state.beginWorkflow('loadSection', 'Controllo le lezioni precedenti...');
+    const requestId = state.beginWorkflow('loadSection', t('Controllo le lezioni precedenti...'));
 
     try {
       const result = await openRouter.generateApplicationExerciseBrief({
@@ -132,7 +133,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const requestId = state.beginWorkflow(
       'generateExercise',
-      'Scelgo dove inserire gli esercizi...'
+      t('Scelgo dove inserire gli esercizi...')
     );
 
     try {
@@ -291,7 +292,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const requestId = state.beginWorkflow(
       'loadSection',
-      forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...'
+      t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
     );
 
     const completedTitles = flattenLessons(currentPlan.modules)
@@ -506,7 +507,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       };
     }
 
-    const requestId = state.beginWorkflow('contextQuestion', 'Analisi contesto...');
+    const requestId = state.beginWorkflow('contextQuestion', t('Analisi contesto...'));
 
     try {
       const answer = await openRouter.askContextualQuestion({
@@ -550,7 +551,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       };
     }
 
-    const requestId = state.beginWorkflow('createLesson', 'Creazione approfondimento...');
+    const requestId = state.beginWorkflow('createLesson', t('Creazione approfondimento...'));
     const previousPlan = domain.learningPlan;
     const previousDocumentIndex = domain.documentIndex;
     const previousActiveSectionId = domain.activeSectionId;
@@ -609,7 +610,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         state.setWorkflowMessage(
           'createLesson',
           requestId,
-          'Associazione chunk alla nuova lezione...'
+          t('Associazione chunk alla nuova lezione...')
         );
         const prepared = await context.preparePdfLessonPlan(
           sourceFile,
@@ -685,7 +686,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'noop';
     }
 
-    const requestId = state.beginWorkflow('completeSection', 'Salvataggio progresso...');
+    const requestId = state.beginWorkflow('completeSection', t('Salvataggio progresso...'));
 
     try {
       const updatedModules = domain.learningPlan.modules.map(module => ({

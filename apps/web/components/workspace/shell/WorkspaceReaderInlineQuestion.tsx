@@ -1,3 +1,4 @@
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { QuizQuestion } from '../../../types.ts';
 import { getActivePauseExerciseLabel } from '../../../utils/learning/activePause.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
@@ -59,7 +60,10 @@ export default function WorkspaceReaderInlineQuestion({
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <span className="rounded-full bg-orange-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
-          Pausa attiva {questionIndex + 1} - {exerciseLabel}
+          {t('Pausa attiva {questionNumber} - {exerciseLabel}', {
+            exerciseLabel,
+            questionNumber: questionIndex + 1,
+          })}
         </span>
         {isAnswered ? (
           <span
@@ -69,7 +73,7 @@ export default function WorkspaceReaderInlineQuestion({
                 : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
             }`}
           >
-            {answeredCorrectly ? 'Corretta' : 'Da rivedere'}
+            {t(answeredCorrectly ? 'Corretta' : 'Da rivedere')}
           </span>
         ) : null}
       </div>
@@ -86,7 +90,7 @@ export default function WorkspaceReaderInlineQuestion({
         <div className="mt-4 grid gap-3 rounded-2xl border border-stone-200/80 bg-white/80 px-4 py-4 text-sm text-stone-700 dark:border-stone-700/70 dark:bg-zinc-900/70 dark:text-stone-200">
           <div>
             <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500 dark:text-stone-400">
-              La tua scelta
+              {t('La tua scelta')}
             </span>
             <MarkdownRenderer
               content={selectedOption}
@@ -97,7 +101,7 @@ export default function WorkspaceReaderInlineQuestion({
           {!answeredCorrectly ? (
             <div>
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500 dark:text-stone-400">
-                Risposta corretta
+                {t('Risposta corretta')}
               </span>
               <MarkdownRenderer
                 content={correctOption}

@@ -6,6 +6,7 @@ import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceC
 import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspaceFileActions.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import LibraryView from './LibraryView.tsx';
 
@@ -124,7 +125,7 @@ export const LibraryScreenContainer = ({
       libraryTree={projectLibrary.libraryTree}
       libraryWebSearch={libraryAssistantChat.webSearch}
       libraryGenerateArtifacts={libraryAssistantChat.generateArtifacts}
-      newCourseLoadingStatus={controller.workflowState.assessment.message || 'Caricamento...'}
+      newCourseLoadingStatus={controller.workflowState.assessment.message || t('Caricamento...')}
       openingProjectId={openingProjectId}
       planFileInputId={fileActions.planFileInputId}
       projects={savedProjects}
@@ -138,9 +139,12 @@ export const LibraryScreenContainer = ({
       onCreateFolder={projectLibrary.createFolder}
       onConfirmDeleteFolder={folderName =>
         requestConfirmation({
-          title: 'Eliminare cartella',
-          message: `Eliminare la cartella "${folderName}"? I corsi e le sottocartelle verranno riportati al livello superiore.`,
-          confirmLabel: 'Elimina',
+          title: t('Eliminare cartella'),
+          message: t(
+            'Eliminare la cartella "{folderName}"? I corsi e le sottocartelle verranno riportati al livello superiore.',
+            { folderName }
+          ),
+          confirmLabel: t('Elimina'),
         })
       }
       onDeleteFolder={projectLibrary.deleteFolder}

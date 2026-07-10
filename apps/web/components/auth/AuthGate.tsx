@@ -1,4 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   consumeSupabaseSessionFromUrl,
   getValidSupabaseSession,
@@ -40,7 +41,7 @@ const LoginPanel = ({
       setStatus('idle');
     } catch (error) {
       setStatus('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Accesso non riuscito.');
+      setErrorMessage(error instanceof Error ? error.message : t('Accesso non riuscito.'));
     }
   };
 
@@ -53,7 +54,7 @@ const LoginPanel = ({
       setStatus('magic-link-sent');
     } catch (error) {
       setStatus('error');
-      setErrorMessage(error instanceof Error ? error.message : 'Invio magic link non riuscito.');
+      setErrorMessage(error instanceof Error ? error.message : t('Invio magic link non riuscito.'));
     }
   };
 
@@ -63,7 +64,7 @@ const LoginPanel = ({
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h1 className="font-serif text-3xl">Nous</h1>
           <p className="mt-2 text-sm leading-6 text-gray-600">
-            Accedi al tuo spazio di studio per sincronizzare corsi, note e progressi.
+            {t('Accedi al tuo spazio di studio per sincronizzare corsi, note e progressi.')}
           </p>
 
           <form className="mt-6 space-y-4" onSubmit={handlePasswordLogin}>
@@ -96,7 +97,9 @@ const LoginPanel = ({
 
             {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
             {status === 'magic-link-sent' ? (
-              <p className="text-sm text-gray-600">Magic link inviato. Controlla la tua email.</p>
+              <p className="text-sm text-gray-600">
+                {t('Magic link inviato. Controlla la tua email.')}
+              </p>
             ) : null}
 
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -105,7 +108,7 @@ const LoginPanel = ({
                 disabled={status === 'loading'}
                 className="inline-flex flex-1 items-center justify-center rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
               >
-                Accedi
+                {t('Accedi')}
               </button>
               <button
                 type="button"
@@ -202,8 +205,9 @@ export default function AuthGate({ children }: AuthGateProps) {
         <section className="max-w-md rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h1 className="font-serif text-3xl">Nous</h1>
           <p className="mt-3 text-sm leading-6 text-gray-600">
-            Autenticazione non configurata. Imposta VITE_AUTH_MODE=supabase e collega Supabase per
-            accedere alla libreria server.
+            {t(
+              'Autenticazione non configurata. Imposta VITE_AUTH_MODE=supabase e collega Supabase per accedere alla libreria server.'
+            )}
           </p>
         </section>
       </main>

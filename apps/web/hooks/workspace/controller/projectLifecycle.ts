@@ -1,3 +1,4 @@
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import {
@@ -118,7 +119,7 @@ export const createProjectLifecycleCommands = (
     selectedFile: File,
     options?: { mode?: 'new-project' | 'reattach-source' }
   ): Promise<{ errorMessage?: string; outcome: 'imported' | 'started-assessment' | 'reattached' }> {
-    const requestId = state.beginWorkflow('attachSource', 'Caricamento...');
+    const requestId = state.beginWorkflow('attachSource', t('Caricamento...'));
     pushNousDebugTrace('attach-source:start', {
       mode: options?.mode || 'new-project',
       name: selectedFile.name,
@@ -141,7 +142,7 @@ export const createProjectLifecycleCommands = (
             );
           }
 
-          state.setWorkflowMessage('attachSource', requestId, 'Importazione backup...');
+          state.setWorkflowMessage('attachSource', requestId, t('Importazione backup...'));
           const importedSnapshot = await importProjectBackupFile(context, selectedFile);
           pushNousDebugTrace('attach-source:backup-imported', {
             projectId: importedSnapshot.id,
@@ -166,7 +167,7 @@ export const createProjectLifecycleCommands = (
       }
 
       if (nextSource.kind === 'pdf') {
-        state.setWorkflowMessage('attachSource', requestId, 'Verifica testo PDF...');
+        state.setWorkflowMessage('attachSource', requestId, t('Verifica testo PDF...'));
         await openRouter.validatePdfTextSource(nextFile);
       }
 
@@ -233,7 +234,7 @@ export const createProjectLifecycleCommands = (
   async function importProjectFile(
     selectedFile: File
   ): Promise<{ errorMessage?: string; outcome: 'failed' | 'imported' }> {
-    const requestId = state.beginWorkflow('importProject', 'Importazione progetto...');
+    const requestId = state.beginWorkflow('importProject', t('Importazione progetto...'));
 
     try {
       await importProjectBackupFile(context, selectedFile);
@@ -249,7 +250,7 @@ export const createProjectLifecycleCommands = (
   async function openProject(
     projectId: string
   ): Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }> {
-    const requestId = state.beginWorkflow('openProject', 'Apertura progetto...');
+    const requestId = state.beginWorkflow('openProject', t('Apertura progetto...'));
     let didSettleOpenWorkflow = false;
     state.setOpeningProjectId(projectId);
     pushNousDebugTrace('open-project:start', { projectId, requestId });
@@ -298,8 +299,8 @@ export const createProjectLifecycleCommands = (
           'openProject',
           requestId,
           pdfHydrationState === 'missing-document-index'
-            ? 'Indicizzazione capitoli del PDF...'
-            : 'Allineamento lezioni con il PDF...'
+            ? t('Indicizzazione capitoli del PDF...')
+            : t('Allineamento lezioni con il PDF...')
         );
 
         let prepared: Awaited<ReturnType<typeof context.preparePdfLessonPlan>> | null = null;

@@ -1,6 +1,7 @@
 // fallow-ignore-file unused-files
 import { Loader2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useState } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import ThinkingStream from './ThinkingStream.tsx';
 
 interface LoadingScreenProps {
@@ -151,11 +152,11 @@ const LoadingScreen = ({
 
 const getWaitingHint = (elapsedSeconds: number): string | null => {
   if (elapsedSeconds >= 120) {
-    return 'Sto ancora lavorando: per corsi lunghi puo volerci qualche minuto.';
+    return t('Sto ancora lavorando: per corsi lunghi puo volerci qualche minuto.');
   }
 
   if (elapsedSeconds >= 35) {
-    return 'Operazione ancora in corso, non e un blocco.';
+    return t('Operazione ancora in corso, non e un blocco.');
   }
 
   return null;

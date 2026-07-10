@@ -1,6 +1,7 @@
 import { LoaderCircle, Mic, Square } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   requestSpeechTranscription,
   type SttAudioFormat,
@@ -36,14 +37,14 @@ const stopStreamTracks = (stream: MediaStream | null) => {
 
 const getMicrophoneErrorMessage = (error: unknown): string => {
   if (error instanceof DOMException && error.name === 'NotAllowedError') {
-    return 'Permesso microfono negato. Abilitalo nelle impostazioni del browser.';
+    return t('Permesso microfono negato. Abilitalo nelle impostazioni del browser.');
   }
 
   if (error instanceof DOMException && error.name === 'NotFoundError') {
-    return 'Nessun microfono disponibile.';
+    return t('Nessun microfono disponibile.');
   }
 
-  return 'Non riesco ad accedere al microfono. Riprova.';
+  return t('Non riesco ad accedere al microfono. Riprova.');
 };
 
 const selectRecordingFormat = () => {
@@ -56,14 +57,14 @@ const selectRecordingFormat = () => {
 
 const getButtonLabel = (state: SpeechInputState): string => {
   if (state === 'recording') {
-    return 'Ferma e trascrivi';
+    return t('Ferma e trascrivi');
   }
 
   if (state === 'transcribing') {
-    return 'Trascrizione in corso';
+    return t('Trascrizione in corso');
   }
 
-  return 'Avvia dettatura';
+  return t('Avvia dettatura');
 };
 
 export const appendSpeechTranscription = (currentValue: string, transcription: string): string => {
@@ -75,7 +76,7 @@ export const appendSpeechTranscription = (currentValue: string, transcription: s
 
 export default function SpeechInputButton({
   disabled = false,
-  language = 'it',
+  language = getAppLocale(),
   onTranscription,
   variant = 'round',
 }: SpeechInputButtonProps) {
@@ -110,7 +111,7 @@ export default function SpeechInputButton({
     setErrorMessage(null);
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setErrorMessage('La registrazione audio non è supportata da questo browser.');
+      setErrorMessage(t('La registrazione audio non è supportata da questo browser.'));
       return;
     }
 
@@ -140,7 +141,7 @@ export default function SpeechInputButton({
         streamRef.current = null;
         if (isMountedRef.current) {
           setState('idle');
-          setErrorMessage('La registrazione si è interrotta. Riprova.');
+          setErrorMessage(t('La registrazione si è interrotta. Riprova.'));
         }
       };
       recorder.onstop = async () => {
@@ -155,7 +156,7 @@ export default function SpeechInputButton({
         const audio = new Blob(audioChunks, { type: recorder.mimeType });
         if (audio.size === 0) {
           setState('idle');
-          setErrorMessage('Non ho rilevato audio. Riprova.');
+          setErrorMessage(t('Non ho rilevato audio. Riprova.'));
           return;
         }
 
@@ -171,7 +172,7 @@ export default function SpeechInputButton({
           }
         } catch {
           if (isMountedRef.current) {
-            setErrorMessage('Trascrizione non riuscita. Riprova.');
+            setErrorMessage(t('Trascrizione non riuscita. Riprova.'));
           }
         } finally {
           if (isMountedRef.current) {
@@ -251,8 +252,8 @@ export default function SpeechInputButton({
       </button>
 
       <span className="sr-only" aria-live="polite">
-        {isRecording ? 'Registrazione in corso.' : null}
-        {isTranscribing ? 'Sto trascrivendo la registrazione.' : null}
+        {isRecording ? t('Registrazione in corso.') : null}
+        {isTranscribing ? t('Sto trascrivendo la registrazione.') : null}
       </span>
 
       {errorMessage ? (

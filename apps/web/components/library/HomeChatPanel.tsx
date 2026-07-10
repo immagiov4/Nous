@@ -26,6 +26,7 @@ import {
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type {
   HomeChatMode,
   LearningArtifactRenderPayload,
@@ -246,34 +247,33 @@ const getMergedLibraryAssistantText = (messages: UIMessage[]): MergedAssistantTe
   };
 };
 
-const LIBRARY_TOOL_META: Record<string, { icon: LucideIcon; label: string }> = {
-  getLessonDetails: { icon: FileText, label: 'Dettagli lezioni' },
-  getLearningArtifacts: { icon: FileText, label: 'Artefatti lezioni' },
-  generateLearningArtifact: { icon: Sparkles, label: 'Genera artefatto' },
-  getProjectOverviews: { icon: BookOpen, label: 'Panoramica corsi' },
-  getProjectStructures: { icon: GitFork, label: 'Struttura corsi' },
-  listLibraryTree: { icon: List, label: 'Indice libreria' },
-  requestSaveLearningArtifactNote: { icon: FileText, label: 'Salva nota' },
-  searchLibrary: { icon: Search, label: 'Ricerca contenuti' },
-  searchWeb: { icon: Globe, label: 'Ricerca web' },
+const LIBRARY_TOOL_META: Record<string, { icon: LucideIcon; getLabel: () => string }> = {
+  getLessonDetails: { icon: FileText, getLabel: () => t('Dettagli lezioni') },
+  getLearningArtifacts: { icon: FileText, getLabel: () => t('Artefatti lezioni') },
+  generateLearningArtifact: { icon: Sparkles, getLabel: () => t('Genera artefatto') },
+  getProjectOverviews: { icon: BookOpen, getLabel: () => t('Panoramica corsi') },
+  getProjectStructures: { icon: GitFork, getLabel: () => t('Struttura corsi') },
+  listLibraryTree: { icon: List, getLabel: () => t('Indice libreria') },
+  requestSaveLearningArtifactNote: { icon: FileText, getLabel: () => t('Salva nota') },
+  searchLibrary: { icon: Search, getLabel: () => t('Ricerca contenuti') },
+  searchWeb: { icon: Globe, getLabel: () => t('Ricerca web') },
 };
 
-const FALLBACK_TOOL_META = { icon: Search, label: 'Tool' };
-
 const getToolMeta = (part: UIMessage['parts'][number]) => {
-  if (!isToolUIPart(part)) return FALLBACK_TOOL_META;
+  if (!isToolUIPart(part)) return { icon: Search, label: t('Tool') };
   const raw =
     'toolName' in part && typeof part.toolName === 'string'
       ? part.toolName
       : part.type.startsWith('tool-')
         ? part.type.slice(5)
         : '';
-  return (
-    LIBRARY_TOOL_META[raw] || {
-      icon: Search,
-      label: raw.replace(/([A-Z])/g, ' $1').trim() || 'Tool',
-    }
-  );
+  const configuredMeta = LIBRARY_TOOL_META[raw];
+  return configuredMeta
+    ? { icon: configuredMeta.icon, label: configuredMeta.getLabel() }
+    : {
+        icon: Search,
+        label: raw.replace(/([A-Z])/g, ' $1').trim() || t('Tool'),
+      };
 };
 
 const getToolArgHint = (part: LibraryToolPart): string | null => {
@@ -286,13 +286,13 @@ const getToolArgHint = (part: LibraryToolPart): string | null => {
     case 'getProjectOverviews': {
       const ids = input.projectIds as string[] | undefined;
       if (!ids || ids.length === 0) return null;
-      return ids.length === 1 ? '1 corso' : `${ids.length} corsi`;
+      return ids.length === 1 ? t('1 corso') : t('{count} corsi', { count: ids.length });
     }
     case 'getLessonDetails': {
       const reqs = input.requests as Array<{ lessonIds?: string[] }> | undefined;
       if (!reqs) return null;
       const count = reqs.reduce((sum, r) => sum + (r.lessonIds?.length ?? 0), 0);
-      return count === 0 ? null : count === 1 ? '1 lezione' : `${count} lezioni`;
+      return count === 0 ? null : count === 1 ? t('1 lezione') : t('{count} lezioni', { count });
     }
     case 'searchLibrary':
     case 'searchWeb': {
@@ -558,7 +558,10 @@ export default function HomeChatPanel({
               {node.project.title}
             </span>
             <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-              {node.project.completedCount}/{node.project.lessonCount} lezioni completate
+              {t('{completed}/{total} lezioni completate', {
+                completed: node.project.completedCount,
+                total: node.project.lessonCount,
+              })}
             </span>
           </span>
         </label>
@@ -605,7 +608,7 @@ export default function HomeChatPanel({
                 <span className="truncate">{node.folder.name}</span>
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                {node.descendantProjectIds.length} corsi inclusi
+                {t('{count} corsi inclusi', { count: node.descendantProjectIds.length })}
               </span>
             </span>
             {isExpanded ? (
@@ -710,10 +713,11 @@ export default function HomeChatPanel({
             >
               <div className="flex items-center gap-2 font-semibold text-stone-900 dark:text-stone-100">
                 <FileText className="h-4 w-4" />
-                <span>Vuoi salvarlo nelle note della lezione?</span>
+                <span>{t('Vuoi salvarlo nelle note della lezione?')}</span>
               </div>
               <p className="mt-2 text-xs leading-5 text-stone-500 dark:text-stone-400">
-                {inputValue?.rationale || 'Preparo la nota di lezione con gli artefatti allegati.'}
+                {inputValue?.rationale ||
+                  t('Preparo la nota di lezione con gli artefatti allegati.')}
               </p>
               {inputValue ? (
                 <p className="mt-3 whitespace-pre-wrap rounded-[0.9rem] bg-white/70 px-3 py-2 text-sm leading-6 text-stone-700 dark:bg-stone-900/40 dark:text-stone-200">
@@ -727,7 +731,7 @@ export default function HomeChatPanel({
                     onClick={() => onLibraryArtifactNoteReject(part.toolCallId)}
                     className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-100"
                   >
-                    No grazie
+                    {t('No grazie')}
                   </button>
                   <button
                     type="button"
@@ -737,17 +741,17 @@ export default function HomeChatPanel({
                     className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-3 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
                   >
                     <Check className="h-3.5 w-3.5" />
-                    Salva nota
+                    {t('Salva nota')}
                   </button>
                 </div>
               ) : outputValue?.saved ? (
                 <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-stone-600 dark:bg-stone-900/50 dark:text-stone-200">
                   <Check className="h-3.5 w-3.5" />
-                  <span>Nota salvata.</span>
+                  <span>{t('Nota salvata.')}</span>
                 </div>
               ) : outputValue?.approved === false ? (
                 <div className="mt-3 text-xs font-semibold text-stone-500 dark:text-stone-400">
-                  Richiesta rifiutata.
+                  {t('Richiesta rifiutata.')}
                 </div>
               ) : outputValue?.error ? (
                 <div className="mt-3 rounded-full bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 dark:bg-red-950/30 dark:text-red-200">
@@ -766,11 +770,12 @@ export default function HomeChatPanel({
       return (
         <div className="flex h-full flex-col items-center justify-center px-4 py-6 text-center">
           <p className="font-serif text-xl text-gray-400 dark:text-zinc-500 sm:text-2xl">
-            Cosa vorresti imparare?
+            {t('Cosa vorresti imparare?')}
           </p>
           <p className="mt-2 max-w-xl text-sm text-gray-500 dark:text-zinc-400">
-            Descrivi l'obiettivo del corso oppure allega un materiale sorgente e dimmi dove vuoi
-            arrivare.
+            {t(
+              "Descrivi l'obiettivo del corso oppure allega un materiale sorgente e dimmi dove vuoi arrivare."
+            )}
           </p>
         </div>
       );
@@ -779,10 +784,10 @@ export default function HomeChatPanel({
     return (
       <div className="flex h-full flex-col items-center justify-center px-4 py-6 text-center">
         <p className="font-serif text-xl text-gray-400 dark:text-zinc-500 sm:text-2xl">
-          Interroga la tua libreria
+          {t('Interroga la tua libreria')}
         </p>
         <p className="mt-2 max-w-2xl text-sm text-gray-500 dark:text-zinc-400">
-          Chiedi riassunti, progresso, note, highlight o confronti tra corsi.
+          {t('Chiedi riassunti, progresso, note, highlight o confronti tra corsi.')}
         </p>
       </div>
     );
@@ -804,10 +809,10 @@ export default function HomeChatPanel({
           >
             <span className="min-w-0">
               <span className="block text-sm font-medium text-gray-900 dark:text-zinc-100">
-                Scegli corsi o cartelle
+                {t('Scegli corsi o cartelle')}
               </span>
               <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                Multi-selezione mista con cartelle annidate e corsi singoli.
+                {t('Multi-selezione mista con cartelle annidate e corsi singoli.')}
               </span>
             </span>
             <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
@@ -825,17 +830,17 @@ export default function HomeChatPanel({
             <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-zinc-700/70">
               <div>
                 <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                  Contesto libreria
+                  {t('Contesto libreria')}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-zinc-400">
-                  Seleziona cartelle e corsi da allegare.
+                  {t('Seleziona cartelle e corsi da allegare.')}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setAttachmentStep('root')}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-                title="Chiudi selettore contesto"
+                title={t('Chiudi selettore contesto')}
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
@@ -844,13 +849,13 @@ export default function HomeChatPanel({
             <div className="max-h-[22rem] overflow-y-auto px-2 py-2">
               {isLibraryLoading ? (
                 <div className="px-3 py-6 text-sm text-gray-500 dark:text-zinc-400">
-                  Caricamento libreria...
+                  {t('Caricamento libreria...')}
                 </div>
               ) : libraryTree.rootNodes.length > 0 ? (
                 libraryTree.rootNodes.map(node => renderAttachmentTreeNode(node))
               ) : (
                 <div className="px-3 py-6 text-sm text-gray-500 dark:text-zinc-400">
-                  Nessun corso disponibile da allegare.
+                  {t('Nessun corso disponibile da allegare.')}
                 </div>
               )}
             </div>
@@ -877,10 +882,10 @@ export default function HomeChatPanel({
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
-              Allega contesto
+              {t('Allega contesto')}
             </p>
             <h4 className="mt-1 text-lg font-semibold text-gray-900 dark:text-zinc-100">
-              {attachmentStep === 'root' ? 'Scegli il contesto' : 'Scegli corsi o cartelle'}
+              {t(attachmentStep === 'root' ? 'Scegli il contesto' : 'Scegli corsi o cartelle')}
             </h4>
           </div>
 
@@ -902,10 +907,10 @@ export default function HomeChatPanel({
             >
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-gray-900 dark:text-zinc-100">
-                  Scegli corsi o cartelle
+                  {t('Scegli corsi o cartelle')}
                 </span>
                 <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                  Apri l'esploratore contesto senza rischi di clipping laterale.
+                  {t("Apri l'esploratore contesto senza rischi di clipping laterale.")}
                 </span>
               </span>
               <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
@@ -919,19 +924,19 @@ export default function HomeChatPanel({
               className="mb-3 inline-flex items-center gap-2 rounded-full px-2 py-1 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             >
               <ArrowLeft className="h-4 w-4" />
-              Indietro
+              {t('Indietro')}
             </button>
 
             <div className="max-h-[52vh] overflow-y-auto">
               {isLibraryLoading ? (
                 <div className="px-1 py-6 text-sm text-gray-500 dark:text-zinc-400">
-                  Caricamento libreria...
+                  {t('Caricamento libreria...')}
                 </div>
               ) : libraryTree.rootNodes.length > 0 ? (
                 libraryTree.rootNodes.map(node => renderAttachmentTreeNode(node))
               ) : (
                 <div className="px-1 py-6 text-sm text-gray-500 dark:text-zinc-400">
-                  Nessun corso disponibile da allegare.
+                  {t('Nessun corso disponibile da allegare.')}
                 </div>
               )}
             </div>
@@ -956,14 +961,16 @@ export default function HomeChatPanel({
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="font-serif text-2xl text-gray-900 dark:text-zinc-100">
                 {homeChatMode === 'new-course'
-                  ? 'Imposta un nuovo corso'
-                  : 'Consulta la tua libreria'}
+                  ? t('Imposta un nuovo corso')
+                  : t('Consulta la tua libreria')}
               </h2>
             </div>
             <p className="mt-1.5 max-w-2xl text-sm leading-6 text-gray-600 dark:text-zinc-400">
               {homeChatMode === 'new-course'
-                ? 'Bastano poche righe: obiettivo, livello di partenza, scadenza e materiale disponibile.'
-                : 'Interroga corsi, lezioni, note e highlight della libreria.'}
+                ? t(
+                    'Bastano poche righe: obiettivo, livello di partenza, scadenza e materiale disponibile.'
+                  )
+                : t('Interroga corsi, lezioni, note e highlight della libreria.')}
             </p>
           </div>
 
@@ -976,8 +983,8 @@ export default function HomeChatPanel({
                 onClick={onClearLibraryMessages}
                 disabled={isLoading}
                 className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-300/80 bg-white text-gray-500 shadow-[0_1px_2px_rgba(24,24,27,0.04)] transition-colors hover:border-gray-400 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-stone-900/80 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-100"
-                title="Pulisci questa chat"
-                aria-label="Pulisci questa chat"
+                title={t('Pulisci questa chat')}
+                aria-label={t('Pulisci questa chat')}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -986,7 +993,7 @@ export default function HomeChatPanel({
             <div
               className="relative inline-flex rounded-full border border-gray-300/80 bg-white p-1 shadow-[0_1px_2px_rgba(24,24,27,0.04)] dark:border-white/10 dark:bg-stone-900/80"
               role="tablist"
-              aria-label="Modalità home chat"
+              aria-label={t('Modalità home chat')}
             >
               <button
                 type="button"
@@ -1009,7 +1016,7 @@ export default function HomeChatPanel({
                 ) : null}
                 <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
                   <BookPlus className="h-4 w-4" />
-                  Nuovo corso
+                  {t('Nuovo corso')}
                 </span>
               </button>
               <button
@@ -1033,7 +1040,7 @@ export default function HomeChatPanel({
                 ) : null}
                 <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
                   <Folder className="h-4 w-4" />
-                  Consulta libreria
+                  {t('Consulta libreria')}
                 </span>
               </button>
             </div>
@@ -1147,7 +1154,7 @@ export default function HomeChatPanel({
           {homeChatMode === 'new-course' && assessmentComplete && !isLoading ? (
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
               <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
-                Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?
+                {t('Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?')}
               </p>
               <div className="flex items-center gap-3">
                 <button
@@ -1156,7 +1163,7 @@ export default function HomeChatPanel({
                   className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
                 >
                   <Sparkles className="h-4 w-4" />
-                  Sì, genera il corso
+                  {t('Sì, genera il corso')}
                 </button>
                 <button
                   type="button"
@@ -1166,7 +1173,7 @@ export default function HomeChatPanel({
                   }}
                   className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-400 hover:bg-gray-50 dark:border-zinc-600 dark:bg-stone-700 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-stone-600"
                 >
-                  No, voglio aggiungere...
+                  {t('No, voglio aggiungere...')}
                 </button>
               </div>
             </div>
@@ -1192,7 +1199,7 @@ export default function HomeChatPanel({
                 type="button"
                 onClick={onClearPendingFile}
                 className="flex h-7 w-7 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-stone-600 dark:hover:text-zinc-100"
-                title="Rimuovi allegato"
+                title={t('Rimuovi allegato')}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1218,7 +1225,9 @@ export default function HomeChatPanel({
                     type="button"
                     onClick={() => onRemoveLibraryContextRef(reference)}
                     className="inline-flex h-4 w-4 items-center justify-center rounded-full text-orange-500 transition-colors hover:bg-orange-100 hover:text-orange-700 dark:hover:bg-orange-500/15 dark:hover:text-orange-100"
-                    aria-label={`Rimuovi ${reference.label}`}
+                    aria-label={t('Rimuovi {referenceLabel}', {
+                      referenceLabel: reference.label,
+                    })}
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -1228,13 +1237,13 @@ export default function HomeChatPanel({
               {libraryWebSearch ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-stone-100/80 px-3 py-1.5 text-xs font-medium text-stone-700 dark:border-stone-500/40 dark:bg-stone-700/50 dark:text-stone-200">
                   <Globe className="h-3.5 w-3.5" />
-                  Cerca sul web attiva
+                  {t('Cerca sul web attiva')}
                 </span>
               ) : null}
               {libraryGenerateArtifacts ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-stone-100/80 px-3 py-1.5 text-xs font-medium text-stone-700 dark:border-stone-500/40 dark:bg-stone-700/50 dark:text-stone-200">
                   <Sparkles className="h-3.5 w-3.5" />
-                  Artefatti visuali attivi
+                  {t('Artefatti visuali attivi')}
                 </span>
               ) : null}
             </div>
@@ -1264,8 +1273,8 @@ export default function HomeChatPanel({
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-200/60 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300"
               title={
                 homeChatMode === 'new-course'
-                  ? 'Allega un file sorgente (PDF, ZIP, testo)'
-                  : 'Apri esploratore contesto libreria'
+                  ? t('Allega un file sorgente (PDF, ZIP, testo)')
+                  : t('Apri esploratore contesto libreria')
               }
               aria-haspopup={homeChatMode === 'library-query' ? 'menu' : undefined}
               aria-expanded={
@@ -1289,7 +1298,7 @@ export default function HomeChatPanel({
                     ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:hover:bg-orange-500/25'
                     : 'text-gray-400 hover:bg-gray-200/60 hover:text-gray-600 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300'
                 }`}
-                title="Apri strumenti libreria"
+                title={t('Apri strumenti libreria')}
                 aria-expanded={activeSurface === 'tool-menu'}
                 aria-haspopup="menu"
               >
@@ -1312,9 +1321,11 @@ export default function HomeChatPanel({
               placeholder={
                 homeChatMode === 'new-course'
                   ? assessmentComplete
-                    ? 'Aggiungi dettagli o requisiti...'
-                    : "Descrivi l'obiettivo del corso o allega un file: cosa prepari, livello attuale, scadenza..."
-                  : 'Chiedi progressi, riassunti, note o confronti tra corsi...'
+                    ? t('Aggiungi dettagli o requisiti...')
+                    : t(
+                        "Descrivi l'obiettivo del corso o allega un file: cosa prepari, livello attuale, scadenza..."
+                      )
+                  : t('Chiedi progressi, riassunti, note o confronti tra corsi...')
               }
               className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-zinc-100 dark:placeholder:text-zinc-500"
               disabled={isLoading}
@@ -1333,7 +1344,7 @@ export default function HomeChatPanel({
                   ? 'bg-orange-500 text-white'
                   : 'bg-gray-900 text-white hover:bg-black disabled:bg-gray-200 disabled:text-gray-400 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-500'
               }`}
-              title={homeChatMode === 'new-course' ? 'Inizia' : 'Invia domanda libreria'}
+              title={t(homeChatMode === 'new-course' ? 'Inizia' : 'Invia domanda libreria')}
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1370,11 +1381,12 @@ export default function HomeChatPanel({
                   <span className="min-w-0">
                     <span className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-zinc-100">
                       <Globe className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                      Cerca sul web
+                      {t('Cerca sul web')}
                     </span>
                     <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                      Aggiunge grounding esterno quando servono confronti, suggerimenti di corsi o
-                      dati aggiornati.
+                      {t(
+                        'Aggiunge grounding esterno quando servono confronti, suggerimenti di corsi o dati aggiornati.'
+                      )}
                     </span>
                   </span>
                 </button>
@@ -1397,11 +1409,12 @@ export default function HomeChatPanel({
                   <span className="min-w-0">
                     <span className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-zinc-100">
                       <Sparkles className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                      Genera artefatti visuali
+                      {t('Genera artefatti visuali')}
                     </span>
                     <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                      Crea automaticamente mappe, grafici, diagrammi e widget per visualizzare i
-                      concetti trattati.
+                      {t(
+                        'Crea automaticamente mappe, grafici, diagrammi e widget per visualizzare i concetti trattati.'
+                      )}
                     </span>
                   </span>
                 </button>
@@ -1433,10 +1446,10 @@ export default function HomeChatPanel({
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
-                    Strumenti libreria
+                    {t('Strumenti libreria')}
                   </p>
                   <h4 className="mt-1 text-lg font-semibold text-gray-900 dark:text-zinc-100">
-                    Preferenze risposta
+                    {t('Preferenze risposta')}
                   </h4>
                 </div>
                 <button
@@ -1465,11 +1478,12 @@ export default function HomeChatPanel({
                 <span className="min-w-0">
                   <span className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-zinc-100">
                     <Globe className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                    Cerca sul web
+                    {t('Cerca sul web')}
                   </span>
                   <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                    Da usare insieme ai dati della libreria quando vuoi confronti o suggerimenti
-                    oltre la libreria.
+                    {t(
+                      'Da usare insieme ai dati della libreria quando vuoi confronti o suggerimenti oltre la libreria.'
+                    )}
                   </span>
                 </span>
               </button>
@@ -1490,11 +1504,12 @@ export default function HomeChatPanel({
                 <span className="min-w-0">
                   <span className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-zinc-100">
                     <Sparkles className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-                    Genera artefatti visuali
+                    {t('Genera artefatti visuali')}
                   </span>
                   <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                    Crea mappe, grafici e diagrammi per visualizzare i concetti insieme alle
-                    risposte.
+                    {t(
+                      'Crea mappe, grafici e diagrammi per visualizzare i concetti insieme alle risposte.'
+                    )}
                   </span>
                 </span>
               </button>

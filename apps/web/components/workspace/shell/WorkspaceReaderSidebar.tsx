@@ -13,6 +13,7 @@ import {
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { memo, useEffect, useRef, useState } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../../constants/layout.ts';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { ApplicationExerciseNode, LessonNode, PathNode } from '../../../types.ts';
 import type { WorkspaceReaderSidebarModel } from './types.ts';
 
@@ -32,33 +33,33 @@ const getSectionStatusLabel = ({
   isGenerating: boolean;
 }) => {
   if (isGenerating) {
-    return 'Generazione lezione in corso…';
+    return t('Generazione lezione in corso…');
   }
 
   if (isCompleted) {
-    return 'Lezione completata';
+    return t('Lezione completata');
   }
 
   if (isActive) {
-    return 'Lezione attiva';
+    return t('Lezione attiva');
   }
 
   if (hasGeneratedContent) {
-    return 'Lezione già generata';
+    return t('Lezione già generata');
   }
 
-  return 'Lezione non ancora generata';
+  return t('Lezione non ancora generata');
 };
 
 const getExerciseStatusLabel = (exercise: ApplicationExerciseNode, isActive: boolean) => {
   if (exercise.isCompleted) {
     return exercise.bestScore !== undefined
-      ? `Esercizio completato: ${exercise.bestScore}/100`
-      : 'Esercizio completato';
+      ? t('Esercizio completato: {score}/100', { score: exercise.bestScore })
+      : t('Esercizio completato');
   }
 
   if (exercise.feedbackStale) {
-    return 'Esercizio con feedback da aggiornare';
+    return t('Esercizio con feedback da aggiornare');
   }
 
   if (exercise.currentFeedback) {
@@ -66,14 +67,14 @@ const getExerciseStatusLabel = (exercise: ApplicationExerciseNode, isActive: boo
   }
 
   if (isActive) {
-    return 'Esercizio applicativo attivo';
+    return t('Esercizio applicativo attivo');
   }
 
   if (exercise.brief?.trim()) {
-    return 'Esercizio applicativo pronto';
+    return t('Esercizio applicativo pronto');
   }
 
-  return 'Esercizio applicativo pianificato';
+  return t('Esercizio applicativo pianificato');
 };
 
 const renderExerciseStatus = (exercise: ApplicationExerciseNode, isActive: boolean) => {
@@ -244,7 +245,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       {isMobileViewport && shouldShowSidebar ? (
         <button
           type="button"
-          aria-label="Chiudi elenco lezioni"
+          aria-label={t('Chiudi elenco lezioni')}
           className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-[1px]"
           onClick={() => onSetIsMobileSidebarOpen(false)}
         />
@@ -263,14 +264,14 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
         <div className="shrink-0 flex flex-col gap-4 border-b border-gray-200/80 px-5 py-5 dark:border-zinc-700/80 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <h1 className="font-serif text-xl font-bold leading-tight text-gray-900 dark:text-white">
-              {learningPlanTitle || 'Percorso di Studio'}
+              {learningPlanTitle || t('Percorso di Studio')}
             </h1>
             {isMobileViewport ? (
               <button
                 type="button"
                 onClick={() => onSetIsMobileSidebarOpen(false)}
                 className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100/80 hover:text-gray-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
-                title="Chiudi elenco lezioni"
+                title={t('Chiudi elenco lezioni')}
               >
                 <X className="h-5 w-5" />
               </button>
@@ -279,7 +280,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                 type="button"
                 onClick={() => onSetFocusMode(true)}
                 className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100/80 hover:text-gray-700 dark:hover:bg-zinc-800 dark:hover:text-gray-300"
-                title="Nascondi Menu (Focus Mode)"
+                title={t('Nascondi Menu (Focus Mode)')}
               >
                 <SidebarClose className="h-5 w-5" />
               </button>
@@ -292,7 +293,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
               onClick={onBackToLibrary}
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600"
             >
-              <LibraryBig className="h-4 w-4" /> Libreria
+              <LibraryBig className="h-4 w-4" /> {t('Libreria')}
             </button>
             <button
               type="button"
@@ -302,7 +303,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
                 isLoading ? 'cursor-not-allowed opacity-50' : ''
               }`}
             >
-              <Download className="h-4 w-4" /> Esporta
+              <Download className="h-4 w-4" /> {t('Esporta')}
             </button>
           </div>
 
@@ -317,7 +318,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
             >
               {isRepairingApplicationExercises ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Pianificazione esercizi...
+                  <Loader2 className="h-4 w-4 animate-spin" /> {t('Pianificazione esercizi...')}
                 </>
               ) : (
                 <>
@@ -450,7 +451,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
         <div
           ref={lessonContextMenuRef}
           role="menu"
-          aria-label="Azioni debug lezione"
+          aria-label={t('Azioni debug lezione')}
           className="fixed z-[90] w-[17rem] rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.28)] dark:border-zinc-600/80 dark:bg-stone-800"
           style={lessonContextMenuStyle}
         >
@@ -464,10 +465,10 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
             }`}
           >
             <Copy className="h-4 w-4 shrink-0" />
-            {lessonContextMenu.copied ? 'Markdown copiato' : 'Copia markdown lezione'}
+            {t(lessonContextMenu.copied ? 'Markdown copiato' : 'Copia markdown lezione')}
           </button>
           <p className="px-3 pb-2 pt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-            Debug temporaneo: copia il markdown salvato prima del rendering.
+            {t('Debug temporaneo: copia il markdown salvato prima del rendering.')}
           </p>
         </div>
       ) : null}

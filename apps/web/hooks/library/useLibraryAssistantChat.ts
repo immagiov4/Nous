@@ -10,6 +10,7 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../../components/shared/ChatArtifactRenderer.tsx';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { fetchWithSupabaseAuth } from '../../services/auth/supabaseAuth.ts';
 import {
   executeLibraryAssistantTool,
@@ -287,7 +288,7 @@ export const useLibraryAssistantChat = ({
             void addToolOutput({
               tool: 'generateLearningArtifact',
               toolCallId: toolCall.toolCallId,
-              output: { artifact: null, error: 'Target lezione o richiesta non validi.' },
+              output: { artifact: null, error: t('Target lezione o richiesta non validi.') },
             });
             return;
           }
@@ -300,7 +301,7 @@ export const useLibraryAssistantChat = ({
             void addToolOutput({
               tool: 'generateLearningArtifact',
               toolCallId: toolCall.toolCallId,
-              output: { artifact: null, error: 'Non ho trovato la lezione target.' },
+              output: { artifact: null, error: t('Non ho trovato la lezione target.') },
             });
             return;
           }
@@ -321,7 +322,9 @@ export const useLibraryAssistantChat = ({
               toolCallId: toolCall.toolCallId,
               output: {
                 artifact: null,
-                error: 'Non ho trovato un artefatto generato modificabile da usare come sorgente.',
+                error: t(
+                  'Non ho trovato un artefatto generato modificabile da usare come sorgente.'
+                ),
               },
             });
             return;
@@ -343,7 +346,7 @@ export const useLibraryAssistantChat = ({
               toolCallId: toolCall.toolCallId,
               output: {
                 artifact: null,
-                error: 'Non sono riuscito a generare un artefatto visuale utile.',
+                error: t('Non sono riuscito a generare un artefatto visuale utile.'),
               },
             });
             return;
@@ -470,7 +473,9 @@ export const useLibraryAssistantChat = ({
       mode: 'replacement-draft',
       projectId: snapshot.id,
       projectTitle: snapshot.learningPlan.title,
-      prompt: `Modifica l artefatto "${payload.summary.title}".`,
+      prompt: t('Modifica l artefatto "{artifactTitle}".', {
+        artifactTitle: payload.summary.title,
+      }),
       revisionInstructions: instructions,
       sourceArtifact: payload,
       sourceArtifactId: artifactId,
@@ -554,7 +559,7 @@ export const useLibraryAssistantChat = ({
             projectId: input.projectId,
           })
         : {
-            error: 'Il salvataggio delle note non e disponibile in questo contesto.',
+            error: t('Il salvataggio delle note non e disponibile in questo contesto.'),
             saved: false,
           };
       void addToolOutput({

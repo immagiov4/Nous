@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../../services/audio/voiceProfile';
 import * as OpenRouterService from '../../services/openrouter';
 import type { AudioChunk, AudioState, TtsModelSummary, VoiceProfileId } from '../../types';
@@ -253,7 +254,7 @@ const buildChunkOptionLabel = (text: string, index: number): string => {
     normalizedText.length > CHUNK_LABEL_MAX_CHARACTERS
       ? `${normalizedText.slice(0, CHUNK_LABEL_MAX_CHARACTERS - 1).trimEnd()}…`
       : normalizedText;
-  return `Parte ${index + 1} — ${preview}`;
+  return `${t('Parte {partNumber}', { partNumber: index + 1 })} — ${preview}`;
 };
 
 const createIdlePlaybackRun = (): PlaybackRun => ({

@@ -1,3 +1,4 @@
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import { markApplicationExercisePlanningFailed } from '../../../services/exercises/plan.ts';
@@ -219,7 +220,7 @@ export const createAssessmentPlanningCommands = (
   };
 
   async function startAssessment({ file, textSource }: AssessmentSourceInput): Promise<void> {
-    const requestId = state.beginWorkflow('assessment', 'Avvio Valutazione...');
+    const requestId = state.beginWorkflow('assessment', t('Avvio Valutazione...'));
     state.setScreenState(AppState.ASSESSMENT);
     pushNousDebugTrace('assessment:start', {
       fileName: file?.name || null,
@@ -247,7 +248,7 @@ export const createAssessmentPlanningCommands = (
       }
 
       state.setChatSession(session);
-      state.setWorkflowMessage('assessment', requestId, 'Avvio domande valutazione...');
+      state.setWorkflowMessage('assessment', requestId, t('Avvio domande valutazione...'));
       const seededQuestion = getSeededAssessmentQuestion(session);
       if (seededQuestion) {
         pushNousDebugTrace('assessment:seeded-question', {
@@ -286,7 +287,7 @@ export const createAssessmentPlanningCommands = (
   }
 
   async function startLearnAssessment(): Promise<void> {
-    const requestId = state.beginWorkflow('assessment', 'Avvio Profilazione...');
+    const requestId = state.beginWorkflow('assessment', t('Avvio Profilazione...'));
     state.setScreenState(AppState.ASSESSMENT);
 
     try {
@@ -308,7 +309,7 @@ export const createAssessmentPlanningCommands = (
     mode: 'document' | 'learn';
     profile?: UserProfile;
   }): Promise<void> {
-    const requestId = state.beginWorkflow('generatePlan', 'Creazione Piano Studi...');
+    const requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
     state.setScreenState(AppState.PLANNING);
 
     try {
@@ -391,7 +392,7 @@ export const createAssessmentPlanningCommands = (
         }
 
         if (domain.source?.kind === 'pdf') {
-          state.setWorkflowMessage('generatePlan', requestId, 'Verifica testo PDF...');
+          state.setWorkflowMessage('generatePlan', requestId, t('Verifica testo PDF...'));
           await openRouter.validatePdfTextSource(sourceFile);
         }
 
@@ -505,7 +506,7 @@ export const createAssessmentPlanningCommands = (
 
     const requestId = state.beginWorkflow(
       'assessment',
-      args.selectedFile ? 'Preparazione sorgente...' : 'Avvio conversazione...'
+      t(args.selectedFile ? 'Preparazione sorgente...' : 'Avvio conversazione...')
     );
 
     try {
@@ -527,7 +528,7 @@ export const createAssessmentPlanningCommands = (
           const isBackupArchive = await isNousBackupArchive(args.selectedFile);
 
           if (isBackupArchive) {
-            state.setWorkflowMessage('assessment', requestId, 'Importazione backup...');
+            state.setWorkflowMessage('assessment', requestId, t('Importazione backup...'));
             await importProjectBackupFile(context, args.selectedFile);
             state.succeedWorkflow('assessment', requestId);
             return { outcome: 'imported' };
@@ -547,7 +548,7 @@ export const createAssessmentPlanningCommands = (
         }
 
         if (nextSource.kind === 'pdf') {
-          state.setWorkflowMessage('assessment', requestId, 'Verifica testo PDF...');
+          state.setWorkflowMessage('assessment', requestId, t('Verifica testo PDF...'));
           await openRouter.validatePdfTextSource(nextFile);
         }
 
@@ -643,7 +644,7 @@ export const createAssessmentPlanningCommands = (
       return { outcome: 'noop' };
     }
 
-    const requestId = state.beginWorkflow('assessment', 'Valutazione risposta...');
+    const requestId = state.beginWorkflow('assessment', t('Valutazione risposta...'));
     const userMessage: Message = { role: 'user', text: trimmedInput };
     const previousMessages = state.getAssessmentMessages();
     state.setAssessmentMessages([...previousMessages, userMessage]);

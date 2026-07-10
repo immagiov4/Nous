@@ -2,6 +2,7 @@
 import { ArrowLeft, BrainCircuit, Sparkles } from 'lucide-react';
 import type { FormEvent, RefObject } from 'react';
 import { ASSESSMENT_MIN_TURNS } from '../../constants';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { Message } from '../../types';
 import MarkdownRenderer from '../shared/MarkdownRenderer';
 
@@ -18,12 +19,6 @@ interface AssessmentViewProps {
   onInputChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
 }
-
-const tips = [
-  'Parla del tuo livello reale, non di quello ideale.',
-  'Scrivi cosa vuoi saper fare alla fine del percorso.',
-  'Se vuoi esempi, codice o analogie, dillo subito.',
-];
 
 const AssessmentView = ({
   assessmentInputId,
@@ -42,6 +37,11 @@ const AssessmentView = ({
   const progress = Math.min(currentTurn / ASSESSMENT_MIN_TURNS, 1);
   const showTips = messages.length <= 1;
   const messageKeyCounts = new Map<string, number>();
+  const tips = [
+    t('Parla del tuo livello reale, non di quello ideale.'),
+    t('Scrivi cosa vuoi saper fare alla fine del percorso.'),
+    t('Se vuoi esempi, codice o analogie, dillo subito.'),
+  ];
 
   return (
     <div className="flex min-h-screen flex-col bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark">
@@ -54,7 +54,7 @@ const AssessmentView = ({
             className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-900 dark:border-zinc-600/80 dark:bg-paper-surface dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-white"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            Libreria
+            {t('Libreria')}
           </button>
 
           <div className="flex flex-1 items-center gap-3">
@@ -62,7 +62,7 @@ const AssessmentView = ({
               <BrainCircuit className="h-3.5 w-3.5" />
             </div>
             <span className="text-sm font-medium text-gray-900 dark:text-zinc-100">
-              Calibrazione
+              {t('Calibrazione')}
             </span>
           </div>
 
@@ -168,7 +168,7 @@ const AssessmentView = ({
             type="text"
             value={currentAssessmentInput}
             onChange={event => onInputChange(event.target.value)}
-            placeholder="Descrivi obiettivi, livello e come preferisci imparare…"
+            placeholder={t('Descrivi obiettivi, livello e come preferisci imparare…')}
             className="flex-1 rounded-xl border border-gray-200 bg-[#fcfaf6] px-4 py-3 text-sm text-gray-900 outline-none transition-colors focus:border-orange-300 dark:border-zinc-600/80 dark:bg-paper-surface dark:text-white dark:focus:border-orange-800"
             disabled={isLoading}
           />
@@ -177,7 +177,7 @@ const AssessmentView = ({
             disabled={isLoading || !currentAssessmentInput.trim()}
             className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Invia
+            {t('Invia')}
           </button>
         </form>
       </div>

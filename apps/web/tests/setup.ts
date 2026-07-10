@@ -20,6 +20,10 @@ beforeEach(() => {
   vi.restoreAllMocks();
   if (typeof window !== 'undefined') {
     window.scrollTo = vi.fn();
+    Object.defineProperties(window.navigator, {
+      language: { configurable: true, value: 'it-IT' },
+      languages: { configurable: true, value: ['it-IT'] },
+    });
 
     const storedValues = new Map<string, string>();
     Object.defineProperty(window, 'localStorage', {

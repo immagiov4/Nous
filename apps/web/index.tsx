@@ -2,7 +2,10 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { initializeDocumentLanguage } from './i18n/uiMessages.ts';
 import './styles/app.css';
+
+initializeDocumentLanguage();
 
 const container = document.getElementById('root');
 if (!container) {

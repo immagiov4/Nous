@@ -1,5 +1,6 @@
 import { ChevronDown, X } from 'lucide-react';
 import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { SettingsPanelSectionId } from '../../types.ts';
 import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
 
@@ -76,7 +77,7 @@ export default function OpenRouterModelPanel({
       >
         <div className="max-h-[inherit] overflow-y-auto overflow-x-hidden">
           <div className="model-panel-divider flex items-center justify-between gap-4 border-b pb-3">
-            <h3 className="model-panel-title text-sm font-semibold">Impostazioni lettura</h3>
+            <h3 className="model-panel-title text-sm font-semibold">{t('Impostazioni lettura')}</h3>
             <div className="flex items-center gap-1">
               {onClose ? (
                 <button
@@ -86,7 +87,7 @@ export default function OpenRouterModelPanel({
                     onClose();
                   }}
                   className="model-panel-close inline-flex h-7 w-7 items-center justify-center rounded-full"
-                  title="Chiudi"
+                  title={t('Chiudi')}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -103,7 +104,7 @@ export default function OpenRouterModelPanel({
                 aria-expanded={isCourseNotesExpanded}
               >
                 <span className="model-panel-title text-sm font-semibold">
-                  Istruzioni personalizzate
+                  {t('Istruzioni personalizzate')}
                 </span>
                 <ChevronDown
                   className={`h-4 w-4 shrink-0 transition-transform ${
@@ -115,7 +116,7 @@ export default function OpenRouterModelPanel({
               {isCourseNotesExpanded ? (
                 <label className="mt-3 block">
                   <p className="model-panel-help text-xs leading-5">
-                    Tono, livello, cose da evitare o ripetere.
+                    {t('Tono, livello, cose da evitare o ripetere.')}
                   </p>
                   <textarea
                     key={courseNotesValue}
@@ -124,7 +125,9 @@ export default function OpenRouterModelPanel({
                     defaultValue={courseNotesValue}
                     placeholder={
                       courseNotes.placeholder ||
-                      'Es. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico.'
+                      t(
+                        'Es. Quando introduci una formula, spiega ogni simbolo e fai un esempio numerico.'
+                      )
                     }
                     rows={5}
                     className="model-panel-input mt-2 w-full resize-y rounded-xl px-3 py-2.5 text-sm leading-6"

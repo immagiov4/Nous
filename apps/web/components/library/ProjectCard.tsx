@@ -19,6 +19,7 @@ import {
   LIBRARY_PROJECT_MENU_ESTIMATED_HEIGHT_PX,
   LIBRARY_PROJECT_MENU_WIDTH_PX,
 } from '../../constants/layout.ts';
+import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { SavedProjectMeta } from '../../types';
 import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 
@@ -34,7 +35,7 @@ interface ProjectCardProps {
 }
 
 const formatDate = (value: string): string =>
-  new Intl.DateTimeFormat('it-IT', {
+  new Intl.DateTimeFormat(getAppLocale() === 'it' ? 'it-IT' : 'en-US', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
@@ -122,7 +123,7 @@ const ProjectCard = ({
       <>
         <button
           type="button"
-          aria-label="Chiudi menu progetto"
+          aria-label={t('Chiudi menu progetto')}
           className="fixed inset-0 z-40"
           onClick={() => setMenuOpen(false)}
           onKeyDown={e => {
@@ -151,7 +152,7 @@ const ProjectCard = ({
               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
             >
               <FolderInput className="h-4 w-4 shrink-0" />
-              Sposta
+              {t('Sposta')}
             </button>
           ) : null}
           <button
@@ -163,7 +164,7 @@ const ProjectCard = ({
             className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
           >
             <Download className="h-4 w-4 shrink-0" />
-            Esporta
+            {t('Esporta')}
           </button>
           <div className="border-t border-gray-100 dark:border-zinc-700" />
           <button
@@ -175,7 +176,7 @@ const ProjectCard = ({
             className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
           >
             <Trash2 className="h-4 w-4 shrink-0" />
-            Elimina
+            {t('Elimina')}
           </button>
         </MotionPopover>
       </>,
@@ -193,7 +194,7 @@ const ProjectCard = ({
         onClick={() => onOpen(project.id)}
         aria-busy={isOpening}
         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 sm:h-10 sm:w-10 sm:rounded-xl dark:bg-paper-dark dark:text-zinc-300 dark:hover:bg-zinc-700/50"
-        title="Apri progetto"
+        title={t('Apri progetto')}
       >
         {isOpening ? (
           <Loader2 className="h-4 w-4 animate-spin sm:h-[1.125rem] sm:w-[1.125rem]" />
@@ -219,7 +220,7 @@ const ProjectCard = ({
         </div>
         <div className="flex w-full items-center gap-2 text-[11px] text-gray-500 sm:text-xs dark:text-zinc-500">
           <span className="flex-shrink-0 font-semibold text-gray-700 dark:text-zinc-300">
-            {project.lessonCount} lezioni
+            {project.lessonCount} {t('lezioni')}
           </span>
           <span className="flex-shrink-0 text-gray-400 dark:text-zinc-700">&middot;</span>
           <span className="truncate" title={project.coverLabel}>
@@ -247,7 +248,7 @@ const ProjectCard = ({
             openMenu();
           }}
           className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-paper-dark dark:hover:text-zinc-200"
-          title="Azioni"
+          title={t('Azioni')}
         >
           <MoreVertical className="h-4 w-4" />
         </Pressable>

@@ -1,6 +1,7 @@
 // fallow-ignore-file unused-files
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { translateUiMessage as t } from '../i18n/uiMessages.ts';
 import { Pressable } from '../utils/motion/index.ts';
 
 const NOTIFICATION_AUTO_DISMISS_MS = 5_200;
@@ -84,7 +85,7 @@ export const useAppDialogs = () => {
           <div className="fixed inset-0 z-[140] flex items-center justify-center px-4 py-6">
             <button
               type="button"
-              aria-label="Chiudi conferma"
+              aria-label={t('Chiudi conferma')}
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
               onClick={() => resolveConfirmation(false)}
             />
@@ -104,7 +105,7 @@ export const useAppDialogs = () => {
                   onClick={() => resolveConfirmation(false)}
                   className="rounded-full px-4 py-2 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                 >
-                  Annulla
+                  {t('Annulla')}
                 </Pressable>
                 <Pressable
                   onClick={() => resolveConfirmation(true)}
@@ -143,9 +144,9 @@ export const useAppDialogs = () => {
             <Pressable
               onClick={() => setNotification(null)}
               className={notificationPalette.closeButton}
-              title="Chiudi"
+              title={t('Chiudi')}
             >
-              Chiudi
+              {t('Chiudi')}
             </Pressable>
           </div>
         </div>

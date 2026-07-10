@@ -12,6 +12,7 @@ import {
 import { memo, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LearningArtifactRenderPayload } from '../../types.ts';
 import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
 
@@ -47,18 +48,18 @@ interface ChatArtifactRendererProps {
 
 const getArtifactKindLabel = (artifact: LearningArtifactRenderPayload): string => {
   if (artifact.summary.kind === 'pdf-image') {
-    return 'Immagine PDF';
+    return t('Immagine PDF');
   }
 
   if ('visual' in artifact && artifact.visual.kind === 'image') {
-    return 'Immagine generata';
+    return t('Immagine generata');
   }
 
   if ('visual' in artifact && artifact.visual.kind === 'html') {
-    return 'Interattivo';
+    return t('Interattivo');
   }
 
-  return 'Visuale';
+  return t('Visuale');
 };
 
 const getArtifactIcon = (artifact: LearningArtifactRenderPayload) => {
@@ -82,12 +83,12 @@ const getArtifactReplacementTargetId = (artifact: LearningArtifactRenderPayload)
     : undefined;
 
 const ARTIFACT_ACTION_FEEDBACK = {
-  discarded: 'Artefatto scartato.',
-  regenerationFailed: 'Rigenerazione fallita. La bozza precedente non e stata modificata.',
-  regenerationRequested: 'Rigenerazione richiesta.',
-  replaced: 'Artefatto sostituito.',
-  saved: 'Salvato.',
-} as const;
+  discarded: () => t('Artefatto scartato.'),
+  regenerationFailed: () => t('Rigenerazione fallita. La bozza precedente non e stata modificata.'),
+  regenerationRequested: () => t('Rigenerazione richiesta.'),
+  replaced: () => t('Artefatto sostituito.'),
+  saved: () => t('Salvato.'),
+} as const satisfies Record<string, () => string>;
 
 type ArtifactActionFeedback = keyof typeof ARTIFACT_ACTION_FEEDBACK;
 
@@ -229,7 +230,7 @@ const ArtifactOverlay = ({
     >
       <button
         type="button"
-        aria-label="Chiudi anteprima artefatto"
+        aria-label={t('Chiudi anteprima artefatto')}
         onClick={onClose}
         className="absolute inset-0 cursor-default"
       />
@@ -252,7 +253,7 @@ const ArtifactOverlay = ({
             type="button"
             onClick={onClose}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            aria-label="Chiudi artefatto"
+            aria-label={t('Chiudi artefatto')}
           >
             <X className="h-4 w-4" />
           </button>
@@ -281,7 +282,7 @@ const ArtifactOverlay = ({
             {isRegenerationFormOpen ? (
               <div className="rounded-2xl border border-stone-200/80 bg-stone-50/80 p-3 dark:border-zinc-700 dark:bg-zinc-800/70">
                 <label className="block text-xs font-semibold text-stone-600 dark:text-zinc-300">
-                  Istruzioni rigenerazione
+                  {t('Istruzioni rigenerazione')}
                   <textarea
                     value={regenerationInstructions}
                     onChange={event => {
@@ -290,7 +291,7 @@ const ArtifactOverlay = ({
                     }}
                     rows={3}
                     className="mt-2 w-full resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm leading-5 text-stone-800 outline-none transition-colors placeholder:text-stone-400 focus:border-stone-300 focus:ring-0 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-                    placeholder="Spiega cosa cambiare nella nuova bozza..."
+                    placeholder={t('Spiega cosa cambiare nella nuova bozza...')}
                   />
                 </label>
                 <div className="mt-2 flex justify-end">
@@ -299,10 +300,10 @@ const ArtifactOverlay = ({
                     onClick={() => void handleRegenerateArtifact()}
                     disabled={!trimmedRegenerationInstructions || isRegenerating}
                     className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
-                    aria-label="Conferma rigenerazione"
+                    aria-label={t('Conferma rigenerazione')}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    <span>{isRegenerating ? 'Rigenerazione...' : 'Rigenera bozza'}</span>
+                    <span>{isRegenerating ? t('Rigenerazione...') : t('Rigenera bozza')}</span>
                   </button>
                 </div>
               </div>
@@ -322,7 +323,7 @@ const ArtifactOverlay = ({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  <span>{ARTIFACT_ACTION_FEEDBACK[actionFeedback]}</span>
+                  <span>{ARTIFACT_ACTION_FEEDBACK[actionFeedback]()}</span>
                 </div>
               ) : (
                 <span />
@@ -334,10 +335,10 @@ const ArtifactOverlay = ({
                     type="button"
                     onClick={() => void handleDiscardArtifact()}
                     className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-red-600 dark:text-stone-400 dark:hover:bg-zinc-800 dark:hover:text-red-400"
-                    aria-label="Scarta artefatto"
+                    aria-label={t('Scarta artefatto')}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    <span>Scarta</span>
+                    <span>{t('Scarta')}</span>
                   </button>
                 ) : null}
                 {canRegenerate ? (
@@ -345,10 +346,10 @@ const ArtifactOverlay = ({
                     type="button"
                     onClick={() => setIsRegenerationFormOpen(currentValue => !currentValue)}
                     className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-100 hover:text-amber-600 dark:text-stone-400 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
-                    aria-label="Rigenera artefatto"
+                    aria-label={t('Rigenera artefatto')}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Rigenera</span>
+                    <span>{t('Rigenera')}</span>
                   </button>
                 ) : null}
                 {canReplace ? (
@@ -356,10 +357,10 @@ const ArtifactOverlay = ({
                     type="button"
                     onClick={() => void handleReplaceArtifact()}
                     className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                    aria-label="Sostituisci artefatto"
+                    aria-label={t('Sostituisci artefatto')}
                   >
                     <Check className="h-3.5 w-3.5" />
-                    <span>Sostituisci</span>
+                    <span>{t('Sostituisci')}</span>
                   </button>
                 ) : null}
                 {shouldShowSaveAction ? (
@@ -368,10 +369,10 @@ const ArtifactOverlay = ({
                     onClick={() => void handleSaveArtifact()}
                     disabled={isSaving}
                     className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                    aria-label="Salva artefatto nelle note"
+                    aria-label={t('Salva artefatto nelle note')}
                   >
                     <Download className="h-3.5 w-3.5" />
-                    <span>{isSaving ? 'Salvando...' : 'Salva'}</span>
+                    <span>{isSaving ? t('Salvando...') : t('Salva')}</span>
                   </button>
                 ) : null}
               </div>
@@ -432,7 +433,7 @@ const ChatArtifactRenderer = ({
       {isLoading ? (
         <div className="col-span-full flex items-center gap-2 rounded-2xl border border-stone-200/90 bg-white/85 p-4 text-sm text-stone-500 dark:border-zinc-700/80 dark:bg-stone-800/75 dark:text-zinc-400">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
-          <span>Generazione artefatto in corso...</span>
+          <span>{t('Generazione artefatto in corso...')}</span>
         </div>
       ) : (
         deduplicatedArtifacts.map(artifact => {
@@ -447,7 +448,9 @@ const ChatArtifactRenderer = ({
                 type="button"
                 onClick={() => setOpenArtifactId(artifact.summary.id)}
                 className="block w-full min-w-0 text-left"
-                aria-label={`Apri ${artifact.summary.title}`}
+                aria-label={t('Apri {artifactTitle}', {
+                  artifactTitle: artifact.summary.title,
+                })}
               >
                 <ArtifactPreview artifact={artifact} isDarkMode={isDarkMode} />
                 <span
@@ -473,8 +476,10 @@ const ChatArtifactRenderer = ({
                   type="button"
                   onClick={() => onRemoveArtifact(artifact.summary.id)}
                   className="absolute right-2.5 bottom-2.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-stone-700 dark:hover:text-red-300"
-                  aria-label={`Rimuovi ${artifact.summary.title} dalla nota`}
-                  title="Rimuovi dalla nota"
+                  aria-label={t('Rimuovi {artifactTitle} dalla nota', {
+                    artifactTitle: artifact.summary.title,
+                  })}
+                  title={t('Rimuovi dalla nota')}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>

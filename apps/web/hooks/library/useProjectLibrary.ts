@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
 import {
@@ -390,7 +391,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       const sectionNode = learningPlan ? findPathNodeById(learningPlan.modules, lessonId) : null;
       const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
       if (!snapshot || !learningPlan || !section) {
-        return { saved: false, error: 'Non ho trovato la lezione target in questo corso.' };
+        return { saved: false, error: t('Non ho trovato la lezione target in questo corso.') };
       }
 
       const annotationResult = createLessonSectionAnnotation({
@@ -438,7 +439,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
       const sectionNode = learningPlan ? findPathNodeById(learningPlan.modules, lessonId) : null;
       const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
       if (!snapshot || !learningPlan || !section) {
-        return { replaced: false, error: 'Non ho trovato la lezione target in questo corso.' };
+        return { replaced: false, error: t('Non ho trovato la lezione target in questo corso.') };
       }
 
       const nextGeneratedVisuals = replaceGeneratedVisualPreservingId({
@@ -447,7 +448,7 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
         visuals: section.generatedVisuals,
       });
       if (!nextGeneratedVisuals) {
-        return { replaced: false, error: 'Non ho trovato l artefatto da sostituire.' };
+        return { replaced: false, error: t('Non ho trovato l artefatto da sostituire.') };
       }
 
       const meta = await projectRepositoryRef.current.patchProject(projectId, {
