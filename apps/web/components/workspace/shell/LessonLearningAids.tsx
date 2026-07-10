@@ -86,7 +86,7 @@ function LearningAidList({
                   <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-500 dark:text-zinc-400">
                     {getLearningAidKindLabel(learningAid.kind)}
                   </span>
-                  <span className="block truncate text-sm font-medium leading-5 text-gray-900 dark:text-zinc-100">
+                  <span className="block text-pretty text-sm font-medium leading-5 text-gray-900 dark:text-zinc-100">
                     {learningAid.title}
                   </span>
                 </span>
@@ -168,7 +168,7 @@ export function HeaderLearningAids({
       {isOpen ? (
         <aside
           aria-label={t('Concetti chiave')}
-          className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-72 rounded-2xl border border-gray-200 bg-white p-3 shadow-[0_16px_40px_rgba(15,23,42,0.12)] dark:border-zinc-700 dark:bg-zinc-900"
+          className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-96 rounded-2xl border border-gray-200 bg-white p-3 shadow-[0_16px_40px_rgba(15,23,42,0.12)] dark:border-zinc-700 dark:bg-zinc-900"
         >
           <div className="mb-3 flex items-center justify-between gap-2 px-1">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">

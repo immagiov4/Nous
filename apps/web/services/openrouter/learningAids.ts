@@ -158,6 +158,7 @@ VINCOLI:
 - Puoi aggiungere al massimo una formula, un simbolo e un'analogia, solo se sono realmente utili.
 - Usa "simbolo" esclusivamente per un simbolo convenzionale breve e letterale (per esempio λ, ∑, R), mai per un processo, una decisione, una frase o un concetto che appartiene alle definizioni.
 - Mantieni titolo e contenuto compatti, autonomi e privi di riempitivo.
+- Il titolo è un'etichetta: massimo 4 parole e 32 caratteri. Scegli il nome più breve e riconoscibile del concetto, mai una frase descrittiva.
 - Ogni definizione deve essere comprensibile da sola per il richiamo immediato: usa parole comuni e non introdurre termini tecnici non spiegati; se un termine è indispensabile, chiariscilo nella stessa definizione.
 - Non duplicare frasi o concetti equivalenti.
 - Usa anchorHeading solo se coincide esattamente con un heading Markdown esistente; altrimenti usa null.

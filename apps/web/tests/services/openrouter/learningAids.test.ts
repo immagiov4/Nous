@@ -132,6 +132,7 @@ test('generates compact learning aids in the lesson language with a strict schem
   assert.match(String(request?.messages?.[1]?.content ?? ''), /non modificare il markdown/i);
   assert.match(String(request?.messages?.[1]?.content ?? ''), /simbolo convenzionale/i);
   assert.match(String(request?.messages?.[1]?.content ?? ''), /comprensibile da sola/i);
+  assert.match(String(request?.messages?.[1]?.content ?? ''), /massimo 4 parole e 32 caratteri/i);
 });
 
 test('rejects conceptual phrases mislabeled as symbols', () => {

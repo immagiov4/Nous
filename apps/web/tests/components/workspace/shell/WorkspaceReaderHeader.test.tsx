@@ -169,7 +169,8 @@ describe('WorkspaceReaderHeader', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
 
-    expect(screen.getByRole('complementary', { name: 'Concetti chiave' })).toBeInTheDocument();
+    const learningAidsPanel = screen.getByRole('complementary', { name: 'Concetti chiave' });
+    expect(learningAidsPanel).toHaveClass('w-96');
     expect(screen.getByRole('button', { name: 'Espandi VLAN' })).toBeInTheDocument();
     expect(screen.queryByText('1 elemento')).toBeNull();
   });
