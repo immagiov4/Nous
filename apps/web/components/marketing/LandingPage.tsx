@@ -1,5 +1,4 @@
 import {
-  ArrowDown,
   ArrowRight,
   BookOpen,
   Cloud,
@@ -11,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
-import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { translateMarketingMessage as t } from '../../i18n/marketingMessages.ts';
 import LandingProductDemo, { type DemoStage } from './LandingProductDemo.tsx';
 import './marketing.css';
 import WaitlistForm from './WaitlistForm.tsx';
@@ -21,12 +20,13 @@ interface LandingPageProps {
   onJoinWaitlist?: (email: string) => Promise<void>;
 }
 
-const JOURNEY_STAGES = ['plan', 'generation', 'lesson', 'plan'] as const satisfies DemoStage[];
+const JOURNEY_STAGES = ['plan', 'generation', 'lesson', 'library'] as const satisfies DemoStage[];
 
 export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageProps) {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [journeyStage, setJourneyStage] = useState<DemoStage>('plan');
+  const [activeJourneyStep, setActiveJourneyStep] = useState(0);
+  const journeyStage = JOURNEY_STAGES[activeJourneyStep];
 
   useEffect(() => {
     if (!isLoginOpen) {
@@ -48,18 +48,16 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
       return;
     }
 
-    const journeySteps = document.querySelectorAll<HTMLElement>('[data-journey-stage]');
+    const journeySteps = document.querySelectorAll<HTMLElement>('[data-journey-step]');
     const observer = new IntersectionObserver(
       entries => {
         const mostVisibleStep = entries
           .filter(entry => entry.isIntersecting)
           .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
-        const nextStage = mostVisibleStep?.target.getAttribute('data-journey-stage') as
-          | DemoStage
-          | undefined;
+        const nextStep = Number(mostVisibleStep?.target.getAttribute('data-journey-step'));
 
-        if (nextStage) {
-          setJourneyStage(current => (current === nextStage ? current : nextStage));
+        if (Number.isInteger(nextStep)) {
+          setActiveJourneyStep(current => (current === nextStep ? current : nextStep));
         }
       },
       { rootMargin: '-22% 0px -45%', threshold: [0.2, 0.45, 0.7] }
@@ -128,16 +126,15 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
 
       <section className="marketing-hero" id="inizio">
         <div className="marketing-hero-copy">
-          <p className="marketing-hero-kicker">{t('IL CORSO CHE MANCAVA AI TUOI MATERIALI')}</p>
           <h1>{t('Un corso intero. Un passo alla volta.')}</h1>
           <p className="marketing-hero-hook">
             {t(
-              'Le slide del professore sembrano sopravvissute a tre versioni di PowerPoint? Il libro spiega tutto, tranne quello che chiederà all’esame?'
+              'Slide sopravvissute a tre versioni di PowerPoint? Un libro che spiega tutto, tranne quello che chiederà all’esame?'
             )}
           </p>
           <p className="marketing-hero-description">
             {t(
-              'Metti insieme slide, dispense e libri. Nous li trasforma nel corso che avresti voluto ricevere: lezioni leggibili, domande, note e audio, sempre dal punto in cui eri rimasto.'
+              'Carica un PDF o un archivio di materiali. Nous costruisce lezioni leggibili, domande, note e audio, sempre dal punto in cui eri rimasto.'
             )}
           </p>
 
@@ -170,142 +167,116 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
             <BookOpen aria-hidden="true" />
             <span>{t('Libro · 684 pagine')}</span>
           </div>
-          <div className="marketing-material-path" aria-hidden="true">
-            <ArrowDown />
-          </div>
-          <div className="marketing-course-result">
-            <span>{t('Il tuo corso')}</span>
-            <strong>{t('Reti e Internet')}</strong>
-            <div>
-              <i className="is-complete" />
-              <i className="is-complete" />
-              <i />
-              <i />
-              <i />
-            </div>
-            <small>{t('2 lezioni completate · riprendi dalla 3')}</small>
-          </div>
         </div>
       </section>
 
       <section className="marketing-problem">
-        <p>{t('Il materiale non dovrebbe essere un secondo esame.')}</p>
-        <h2>
-          {t(
-            'Non sei tu che devi ricostruire il filo tra slide, libro, appunti e cinque chat diverse.'
-          )}
-        </h2>
+        <h2>{t('Il materiale non dovrebbe essere un secondo esame.')}</h2>
       </section>
 
       <section className="marketing-journey" id="journey">
         <div className="marketing-journey-intro">
-          <p>{t('Dal caos al corso')}</p>
-          <h2>{t('Scorri. Guarda il materiale diventare studiabile.')}</h2>
+          <h2>{t('Finalmente il materiale diventa studiabile.')}</h2>
         </div>
 
         <div className="marketing-journey-layout">
           <div className="marketing-journey-steps">
-            <article data-journey-stage={JOURNEY_STAGES[0]}>
+            <article className={activeJourneyStep === 0 ? 'is-active' : ''} data-journey-step="0">
               <span>01</span>
               <h3>{t('Metti tutto sul tavolo.')}</h3>
               <p>
                 {t(
-                  'Il libro, le slide vecchie, le dispense del corso. Non devi scegliere una fonte perfetta: Nous parte da quello che devi davvero studiare.'
+                  'Carica il PDF del corso oppure uno ZIP con più file. Nous parte dal materiale che devi davvero studiare.'
                 )}
               </p>
+              <ul>
+                <li>
+                  <FileText aria-hidden="true" /> {t('PDF, testi e archivi ZIP')}
+                </li>
+                <li>
+                  <BookOpen aria-hidden="true" /> {t('Le fonti restano collegate al corso')}
+                </li>
+              </ul>
             </article>
-            <article data-journey-stage={JOURNEY_STAGES[1]}>
+            <article className={activeJourneyStep === 1 ? 'is-active' : ''} data-journey-step="1">
               <span>02</span>
               <h3>{t('Nous ricostruisce il filo.')}</h3>
               <p>
                 {t(
-                  'Prima crea il piano. Poi trasforma le fonti in moduli e lezioni che spiegano abbastanza da permetterti di orientarti nell’argomento.'
+                  'Prima prepara il piano. Poi genera una lezione alla volta, abbastanza chiara da farti orientare senza riscrivere il libro.'
                 )}
               </p>
+              <ul>
+                <li>
+                  <BookOpen aria-hidden="true" /> {t('Moduli, lezioni e attività')}
+                </li>
+                <li>
+                  <Cloud aria-hidden="true" /> {t('Il progresso viene salvato')}
+                </li>
+              </ul>
             </article>
-            <article data-journey-stage={JOURNEY_STAGES[2]}>
+            <article className={activeJourneyStep === 2 ? 'is-active' : ''} data-journey-step="2">
               <span>03</span>
               <h3>{t('Studi senza uscire dal contesto.')}</h3>
               <p>
                 {t(
-                  'Se un passaggio non è chiaro, chiedi lì. Puoi salvare una nota, ottenere un esempio visivo o aprire una sottolezione senza ricominciare da zero in un’altra chat.'
+                  'Se un passaggio non è chiaro, chiedi lì. La risposta conosce la lezione e le fonti: niente copia e incolla in un’altra chat.'
                 )}
               </p>
+              <ul>
+                <li>
+                  <MessageCircle aria-hidden="true" /> {t('Chiedi nel punto esatto')}
+                </li>
+                <li>
+                  <NotebookPen aria-hidden="true" /> {t('Salva note, esempi e sottolezioni')}
+                </li>
+              </ul>
             </article>
-            <article data-journey-stage={JOURNEY_STAGES[3]}>
+            <article className={activeJourneyStep === 3 ? 'is-active' : ''} data-journey-step="3">
               <span>04</span>
               <h3>{t('Chiudi. Torna. Riparti da lì.')}</h3>
               <p>
                 {t(
-                  'Progressi, evidenziazioni, note e lezioni restano insieme. Dal computer o dal telefono, il prossimo passo è già pronto.'
+                  'Lezioni, evidenziazioni e note restano insieme. Puoi riprendere dal computer o dal telefono, leggendo oppure ascoltando.'
                 )}
               </p>
+              <ul>
+                <li>
+                  <Headphones aria-hidden="true" /> {t('Testo, audio e musica per concentrarti')}
+                </li>
+                <li>
+                  <Cloud aria-hidden="true" /> {t('Tutto disponibile sui tuoi dispositivi')}
+                </li>
+              </ul>
             </article>
           </div>
 
           <div className="marketing-journey-demo" id="prodotto">
-            <LandingProductDemo activeStage={journeyStage} onStageChange={setJourneyStage} />
+            <LandingProductDemo
+              activeStage={journeyStage}
+              animateInteraction={activeJourneyStep === 2}
+              hideControls
+              onStageChange={stage => {
+                setActiveJourneyStep(
+                  stage === 'plan' ? 0 : stage === 'generation' ? 1 : stage === 'lesson' ? 2 : 3
+                );
+              }}
+            />
           </div>
         </div>
-      </section>
 
-      <section className="marketing-study-flow">
-        <div className="marketing-study-flow-heading">
-          <p>{t('Un solo posto per studiare')}</p>
-          <h2>{t('Non devi più fare il regista del tuo studio.')}</h2>
-        </div>
-
-        <div className="marketing-study-flow-list">
-          <article>
-            <MessageCircle aria-hidden="true" />
-            <h3>{t('Chiedi nel punto esatto')}</h3>
-            <p>
-              {t(
-                'La risposta conosce la lezione e le fonti del corso. Niente copia e incolla, niente contesto da ricostruire.'
-              )}
-            </p>
-          </article>
-          <article>
-            <NotebookPen aria-hidden="true" />
-            <h3>{t('Trasforma i dubbi in materiale utile')}</h3>
-            <p>
-              {t(
-                'Salva note ed esempi, oppure crea una sottolezione quando ti manca una base. Rimane tutto accanto a ciò che stavi leggendo.'
-              )}
-            </p>
-          </article>
-          <article>
-            <Headphones aria-hidden="true" />
-            <h3>{t('Leggi oppure ascolta')}</h3>
-            <p>
-              {t(
-                'Usa il TTS, associa la musica con cui ti concentri e continua anche dal telefono, senza passarti file da un dispositivo all’altro.'
-              )}
-            </p>
-          </article>
-          <article>
-            <Cloud aria-hidden="true" />
-            <h3>{t('Ripassa ciò che conta davvero')}</h3>
-            <p>
-              {t(
-                'Domande, attività, definizioni e parti evidenziate restano recuperabili quando arriva il momento di preparare l’esame.'
-              )}
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <section className="marketing-founder-note">
-        <p>{t('L’ho costruito perché mi serviva.')}</p>
-        <blockquote>
-          {t(
-            'Volevo studiare seriamente senza spendere metà dell’energia a sistemare materiali, cambiare app e ricordarmi dove avevo lasciato ogni cosa. Nous nasce da quella frustrazione.'
-          )}
-        </blockquote>
+        <aside className="marketing-founder-note">
+          <p>{t('L’ho costruito perché mi serviva.')}</p>
+          <blockquote>
+            {t(
+              'Volevo studiare senza spendere metà dell’energia a sistemare materiali, cambiare app e ricordarmi dove avevo lasciato ogni cosa.'
+            )}
+          </blockquote>
+        </aside>
       </section>
 
       <section className="marketing-final-cta">
-        <h2>{t('Porta il materiale. Ritrova il corso.')}</h2>
+        <h2>{t('Porta il materiale. Al corso pensa Nous.')}</h2>
         <p>{t('Richiedi l’accesso alla preview di Nous Reader.')}</p>
         <div className="marketing-final-actions">
           <a className="marketing-primary-button" href="#waitlist">
@@ -318,23 +289,10 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
         </div>
       </section>
 
-      <footer className="marketing-footer">
-        <a
-          className="marketing-brand"
-          href="#inizio"
-          aria-label={t('Nous Reader, torna all’inizio')}
-        >
-          <img src="/assets/logo.svg" alt="" />
-          <span>Nous Reader</span>
-        </a>
-        <nav aria-label={t('Link nel footer')}>
-          <a href="#prodotto">{t('Demo')}</a>
-          <a href="#journey">{t('Come funziona')}</a>
-          <button type="button" onClick={openLogin}>
-            {t('Accesso tester')}
-          </button>
-        </nav>
-      </footer>
+      <div className="marketing-contact">
+        <span>Nous Reader</span>
+        <a href="mailto:brancaccio@proton.me">brancaccio@proton.me</a>
+      </div>
 
       {isLoginOpen ? (
         <div className="marketing-dialog-backdrop">

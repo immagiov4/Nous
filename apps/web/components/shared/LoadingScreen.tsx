@@ -5,6 +5,7 @@ import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import ThinkingStream from './ThinkingStream.tsx';
 
 interface LoadingScreenProps {
+  displayMode?: 'embedded' | 'page';
   isDarkMode?: boolean;
   message: string;
   reasoningText?: string;
@@ -12,16 +13,18 @@ interface LoadingScreenProps {
 }
 
 const LoadingScreen = ({
+  displayMode = 'page',
   isDarkMode = false,
   message,
   reasoningText,
   subMessage,
 }: LoadingScreenProps) => {
+  const isEmbedded = displayMode === 'embedded';
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const hasReasoningText = Boolean(reasoningText?.trim());
 
   useLayoutEffect(() => {
-    if (typeof document === 'undefined') {
+    if (isEmbedded || typeof document === 'undefined') {
       return;
     }
 
@@ -46,7 +49,7 @@ const LoadingScreen = ({
       html.style.overscrollBehavior = previousHtmlOverscroll;
       body.style.overscrollBehavior = previousBodyOverscroll;
     };
-  }, []);
+  }, [isEmbedded]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -61,7 +64,9 @@ const LoadingScreen = ({
   const waitingHint = getWaitingHint(elapsedSeconds);
 
   return (
-    <div className="relative flex flex-1 flex-col items-center justify-start overflow-hidden bg-paper-light p-4 pt-[max(1rem,env(safe-area-inset-top))] text-center transition-colors animate-in fade-in duration-1000 sm:justify-center sm:p-8 dark:bg-paper-dark">
+    <div
+      className={`relative flex flex-1 flex-col items-center justify-start overflow-hidden bg-paper-light text-center transition-colors animate-in fade-in duration-1000 dark:bg-paper-dark ${isEmbedded ? 'p-5 sm:p-6' : 'p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:justify-center sm:p-8'}`}
+    >
       {/* Dynamic Background Glow */}
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
         <div
@@ -76,7 +81,7 @@ const LoadingScreen = ({
 
       {/* Core Orbital Animation */}
       <div
-        className={`relative mb-6 mt-2 flex h-28 w-28 items-center justify-center sm:mb-12 sm:mt-0 sm:h-40 sm:w-40 ${
+        className={`relative mt-2 flex items-center justify-center ${isEmbedded ? 'mb-5 h-20 w-20' : 'mb-6 h-28 w-28 sm:mb-12 sm:mt-0 sm:h-40 sm:w-40'} ${
           hasReasoningText ? 'opacity-35' : ''
         }`}
       >
@@ -143,7 +148,11 @@ const LoadingScreen = ({
         <ThinkingStream
           text={reasoningText}
           isDarkMode={isDarkMode}
-          className="mt-4 min-h-[14rem] h-[58dvh] max-h-[36rem] w-full max-w-3xl flex-1 self-center text-left sm:mt-6 sm:h-[68vh] sm:max-h-[52rem]"
+          className={
+            isEmbedded
+              ? 'mt-3 h-44 w-full max-w-2xl flex-1 self-center text-left'
+              : 'mt-4 min-h-[14rem] h-[58dvh] max-h-[36rem] w-full max-w-3xl flex-1 self-center text-left sm:mt-6 sm:h-[68vh] sm:max-h-[52rem]'
+          }
         />
       </div>
     </div>

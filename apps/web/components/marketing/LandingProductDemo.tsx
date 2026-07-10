@@ -1,6 +1,7 @@
-import { BookOpen, Clock3, LoaderCircle } from 'lucide-react';
+import { BookOpen, Clock3, FileArchive, FileText, MousePointer2, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { READER_MOBILE_LAYOUT_BREAKPOINT_PX } from '../../constants/layout.ts';
+import { translateMarketingMessage as tm } from '../../i18n/marketingMessages.ts';
 import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   type AudioPanelTab,
@@ -10,13 +11,16 @@ import {
   type VoiceProfileId,
 } from '../../types.ts';
 import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
+import LoadingScreen from '../shared/LoadingScreen.tsx';
 import type { WorkspaceReaderShellProps } from '../workspace/shell/types.ts';
 import WorkspaceReaderShell from '../workspace/WorkspaceReaderShell.tsx';
 
-export type DemoStage = 'plan' | 'generation' | 'lesson';
+export type DemoStage = 'plan' | 'generation' | 'lesson' | 'library';
 
 interface LandingProductDemoProps {
   activeStage?: DemoStage;
+  animateInteraction?: boolean;
+  hideControls?: boolean;
   onStageChange?: (stage: DemoStage) => void;
 }
 
@@ -217,6 +221,8 @@ const resolvedNoteSave = () => Promise.resolve({ merged: false, saved: false });
 
 export default function LandingProductDemo({
   activeStage,
+  animateInteraction = false,
+  hideControls = false,
   onStageChange,
 }: LandingProductDemoProps = {}) {
   const isItalian = getAppLocale() === 'it';
@@ -295,7 +301,7 @@ export default function LandingProductDemo({
     setInternalStage(nextStage);
     onStageChange?.(nextStage);
     setIsTtsPlaying(false);
-    if (nextStage === 'plan') {
+    if (nextStage === 'plan' || nextStage === 'library') {
       setActiveSectionId('');
       return;
     }
@@ -511,30 +517,81 @@ export default function LandingProductDemo({
 
   return (
     <div className="marketing-product-demo">
-      <div className="marketing-demo-controls">
-        <div
-          role="tablist"
-          aria-label={isItalian ? t('Stati del corso demo') : 'Demo course states'}
-        >
-          {demoStages.map(([value, label], index) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-label={label}
-              aria-selected={stage === value}
-              className={stage === value ? 'is-active' : undefined}
-              onClick={() => showStage(value)}
-            >
-              <span>{index + 1}</span>
-              {label}
-            </button>
-          ))}
+      {!hideControls ? (
+        <div className="marketing-demo-controls">
+          <div
+            role="tablist"
+            aria-label={isItalian ? t('Stati del corso demo') : 'Demo course states'}
+          >
+            {demoStages.map(([value, label], index) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-label={label}
+                aria-selected={stage === value}
+                className={stage === value ? 'is-active' : undefined}
+                onClick={() => showStage(value)}
+              >
+                <span>{index + 1}</span>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className={`marketing-product-window ${isDarkMode ? 'dark' : ''}`}>
+      <div
+        className={`marketing-product-window marketing-product-stage-${stage} ${isDarkMode ? 'dark' : ''}`}
+      >
         {stage === 'plan' ? (
+          <section className="marketing-demo-plan" aria-label={tm('Preparazione del corso')}>
+            <aside>
+              <p>{t('Nuovo corso')}</p>
+              <h3>{tm('Reti e Internet')}</h3>
+              <span>{tm('2 fonti collegate')}</span>
+              <div className="marketing-demo-source">
+                <FileText aria-hidden="true" />
+                <span>
+                  <strong>reti_dispense.pdf</strong>
+                  <small>{tm('186 pagine')}</small>
+                </span>
+              </div>
+              <div className="marketing-demo-source">
+                <FileArchive aria-hidden="true" />
+                <span>
+                  <strong>slide_e_appunti.zip</strong>
+                  <small>{tm('24 file')}</small>
+                </span>
+              </div>
+            </aside>
+            <div className="marketing-demo-plan-main">
+              <header>
+                <span>{tm('Piano del corso')}</span>
+                <button type="button">
+                  <Sparkles aria-hidden="true" /> {tm('Prepara il piano')}
+                </button>
+              </header>
+              <ol>
+                <li>
+                  <span>01</span>
+                  <strong>{tm('Dal problema della comunicazione a Internet')}</strong>
+                  <small>{tm('4 lezioni')}</small>
+                </li>
+                <li>
+                  <span>02</span>
+                  <strong>{tm('Come viaggiano i dati')}</strong>
+                  <small>{tm('5 lezioni')}</small>
+                </li>
+                <li>
+                  <span>03</span>
+                  <strong>{tm('Reti locali, VLAN e instradamento')}</strong>
+                  <small>{tm('6 lezioni')}</small>
+                </li>
+              </ol>
+            </div>
+          </section>
+        ) : stage === 'library' ? (
           <section className="marketing-demo-library" aria-label={t('Libreria dei corsi')}>
             <header>
               <div>
@@ -567,43 +624,28 @@ export default function LandingProductDemo({
             </button>
           </section>
         ) : stage === 'generation' ? (
-          <section className="marketing-demo-generation" aria-label={t('Costruzione del corso')}>
-            <aside>
-              <p>{t('Piano del corso')}</p>
-              <h3>{courseTitle}</h3>
-              <ol>
-                {demoLessons.map((lesson, index) => (
-                  <li key={lesson.id} className={index === 0 ? 'is-active' : undefined}>
-                    <span>{String(index + 1).padStart(2, '0')}</span>
-                    {lesson.title}
-                  </li>
-                ))}
-              </ol>
-            </aside>
-            <div className="marketing-demo-generation-main">
-              <div className="marketing-demo-generation-status">
-                <LoaderCircle aria-hidden="true" />
-                <div>
-                  <p>{t('Lezione 1 di 4')}</p>
-                  <h3>{t('Sto preparando “Perché l’attenzione è limitata”')}</h3>
-                </div>
-              </div>
-              <div className="marketing-demo-generation-steps">
-                {demoReasoning.split('\n\n').map((step, index) => (
-                  <div key={step} className={index === 2 ? 'is-current' : 'is-complete'}>
-                    <span>{index < 2 ? '✓' : '•'}</span>
-                    <p>{step}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="marketing-demo-generation-progress" aria-hidden="true">
-                <span />
-              </div>
-            </div>
+          <section className="marketing-demo-loading" aria-label={t('Costruzione del corso')}>
+            <LoadingScreen
+              displayMode="embedded"
+              isDarkMode={false}
+              message={t('Generazione della lezione')}
+              reasoningText={demoReasoning}
+              subMessage={t('Sto preparando “Perché l’attenzione è limitata”')}
+            />
           </section>
         ) : (
           <WorkspaceReaderShell {...shellProps} />
         )}
+        {stage === 'lesson' && animateInteraction ? (
+          <div className="marketing-demo-interaction" aria-hidden="true">
+            <MousePointer2 className="marketing-demo-cursor" />
+            <div className="marketing-demo-question">
+              <span>{tm('Chiedi alla lezione')}</span>
+              <p>{tm('Perché due compiti insieme peggiorano la prestazione?')}</p>
+              <strong>{tm('Perché competono per la stessa risorsa cognitiva limitata.')}</strong>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

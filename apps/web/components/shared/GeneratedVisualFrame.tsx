@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LessonGeneratedVisual } from '../../types.ts';
 import { isSafeGeneratedImageDataUrl } from '../../utils/visuals/generatedImage.ts';
@@ -476,15 +476,14 @@ const GeneratedVisualFrame = ({
   visual,
 }: GeneratedVisualFrameProps) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const hostDocument = useMemo(() => {
-    if (visual.kind === 'image') {
-      return '';
-    }
-
-    return visual.kind === 'mermaid'
-      ? buildMermaidHost(visual, isDarkMode)
-      : buildVisualHost(visual, isDarkMode);
-  }, [isDarkMode, visual]);
+  // Rebuild the iframe document on render so visual-host HMR updates only this
+  // frame instead of requiring a full application reload.
+  const hostDocument =
+    visual.kind === 'image'
+      ? ''
+      : visual.kind === 'mermaid'
+        ? buildMermaidHost(visual, isDarkMode)
+        : buildVisualHost(visual, isDarkMode);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {

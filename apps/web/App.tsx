@@ -1,5 +1,4 @@
 // fallow-ignore-file unused-files
-/* @refresh reset */
 import { useEffect } from 'react';
 import { useAppDialogs } from './app/useAppDialogs.tsx';
 import AdminPanel from './components/admin/AdminPanel.tsx';
