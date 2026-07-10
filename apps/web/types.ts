@@ -481,6 +481,7 @@ export type OpenRouterModelSlot = 'lesson' | 'assessment' | 'context' | 'tts';
 export type SettingsPanelSectionId = 'course-notes';
 
 export type AudioPanelTab = 'voce' | 'ambiente';
+export const DEFAULT_AUDIO_PANEL_TAB: AudioPanelTab = 'voce';
 
 export interface UiPreferences {
   isDarkMode: boolean;

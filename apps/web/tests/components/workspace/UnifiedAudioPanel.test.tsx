@@ -106,6 +106,29 @@ describe('UnifiedAudioPanel', () => {
     expect(onSetTextPickerActive).toHaveBeenCalledWith(true);
   });
 
+  test('shows one stable playback error instead of provider details', () => {
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({
+          errorMessage: 'Non sono riuscito a generare l’audio. Riprova tra poco.',
+        })}
+      />
+    );
+
+    expect(
+      screen.getByText('Non sono riuscito a generare l’audio. Riprova tra poco.')
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('502');
+  });
+
   test('keeps the panel open while the user clicks a part in the lesson', () => {
     const onToggle = vi.fn();
 

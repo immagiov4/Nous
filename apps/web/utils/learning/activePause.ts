@@ -1,3 +1,4 @@
+import { type AppLocale, translateUiMessage as t, type UiMessage } from '../../i18n/uiMessages.ts';
 import {
   ACTIVE_PAUSE_EXERCISE_TYPES,
   type ActivePauseExerciseType,
@@ -6,7 +7,7 @@ import {
 
 export const DEFAULT_ACTIVE_PAUSE_EXERCISE_TYPE: ActivePauseExerciseType = 'concept-check';
 
-const ACTIVE_PAUSE_EXERCISE_LABELS: Record<ActivePauseExerciseType, string> = {
+const ACTIVE_PAUSE_EXERCISE_LABELS: Record<ActivePauseExerciseType, UiMessage> = {
   'application-card': 'Applicazione lampo',
   classification: 'Classificazione',
   'compare-contrast': 'Confronto',
@@ -69,5 +70,12 @@ export const normalizeActivePauseExerciseType = (value: unknown): ActivePauseExe
     ? (value as ActivePauseExerciseType)
     : DEFAULT_ACTIVE_PAUSE_EXERCISE_TYPE;
 
-export const getActivePauseExerciseLabel = (question: Pick<QuizQuestion, 'exerciseType'>) =>
-  ACTIVE_PAUSE_EXERCISE_LABELS[normalizeActivePauseExerciseType(question.exerciseType)];
+export const getActivePauseExerciseLabel = (
+  question: Pick<QuizQuestion, 'exerciseType'>,
+  locale?: AppLocale
+) =>
+  t(
+    ACTIVE_PAUSE_EXERCISE_LABELS[normalizeActivePauseExerciseType(question.exerciseType)],
+    undefined,
+    locale
+  );

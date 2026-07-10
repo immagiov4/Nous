@@ -2,6 +2,7 @@
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { READER_MOBILE_LAYOUT_BREAKPOINT_PX } from '../../constants/layout.ts';
+import { readInitialDarkMode } from '../../services/preferences/documentTheme.ts';
 import { subscribeToMediaQuery } from '../../utils/mediaQuery.ts';
 import { type ExpandedModuleState, resolveExpandedModuleState } from '../../utils/reader/chrome.ts';
 import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
@@ -26,7 +27,7 @@ interface MobileSidebarState {
 // fallow-ignore-next-line unused-exports — used by useWorkspaceReaderState.ts
 export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChromeArgs) => {
   const [isFocusMode, setIsFocusMode] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(readInitialDarkMode);
   const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY).matches

@@ -24,6 +24,16 @@ interface TtsVoicesResponse {
   voices?: TtsVoiceDescriptor[];
 }
 
+export class TtsRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = 'TtsRequestError';
+  }
+}
+
 export const requestSpeechAudio = async (
   payload: GenerateSpeechPayload
 ): Promise<SpeechAudioResponse> => {
@@ -39,7 +49,10 @@ export const requestSpeechAudio = async (
     const errorData = (await response
       .json()
       .catch(() => ({ error: 'Unknown error' }))) as TtsErrorResponse;
-    throw new Error(`TTS API error: ${response.status} - ${errorData.error || 'Unknown error'}`);
+    throw new TtsRequestError(
+      `TTS API error: ${response.status} - ${errorData.error || 'Unknown error'}`,
+      response.status
+    );
   }
 
   return {

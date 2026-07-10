@@ -191,6 +191,13 @@ export default function AuthGate({ children }: AuthGateProps) {
     };
   }, []);
 
+  const shouldShowPublicLanding =
+    typeof window !== 'undefined' && window.location.pathname === '/landing';
+
+  if (shouldShowPublicLanding) {
+    return <LandingPage loginPanel={<LoginPanel onAuthenticated={setSession} />} />;
+  }
+
   if (isLocalAuthBypassEnabled() || session) {
     return <>{children}</>;
   }

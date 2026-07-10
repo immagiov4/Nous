@@ -42,6 +42,26 @@ const ENGLISH_UI_MESSAGES = {
   'Costruzione piano...': 'Building learning plan...',
   'Contenuto cartella {folderName}': '{folderName} folder contents',
   Contesto: 'Context',
+  'Capire il collo di bottiglia che seleziona ciò che elaboriamo.':
+    'Understand the bottleneck that selects what we process.',
+  'Ciò che riceve attenzione ha più probabilità di entrare nella memoria di lavoro. Ripetere, collegare e recuperare attivamente quell’informazione rende poi più stabile la traccia nella memoria a lungo termine.':
+    'What receives attention is more likely to enter working memory. Repetition, connection, and active retrieval then make that trace more stable in long-term memory.',
+  'Generazione della lezione': 'Lesson generation',
+  'In ogni istante arrivano più segnali di quanti il cervello possa elaborare in profondità. L’attenzione risolve questo squilibrio: **seleziona cosa riceverà risorse cognitive** e cosa resterà sullo sfondo.':
+    'At every moment, more signals arrive than the brain can process in depth. Attention resolves this imbalance: it **selects what receives cognitive resources** and what remains in the background.',
+  'Inserisco una pausa attiva per verificare la distinzione tra selezione e memoria.':
+    'I am adding an active pause to check the distinction between selection and memory.',
+  'La memoria di lavoro mantiene disponibili, per pochi secondi, le informazioni che stai usando. È lo spazio mentale in cui confronti un esempio con una regola, segui un ragionamento o componi una risposta.':
+    'Working memory keeps the information you are using available for a few seconds. It is the mental space where you compare an example with a rule, follow an argument, or compose an answer.',
+  'Parte 1 — Il collo di bottiglia': 'Part 1 — The bottleneck',
+  'Parte 2 — Dalla selezione alla memoria': 'Part 2 — From selection to memory',
+  'Qual è la funzione principale dell’attenzione in questa lezione?':
+    'What is the main function of attention in this lesson?',
+  'Stati del corso demo': 'Demo course states',
+  'Tentare di recuperare una risposta rende la traccia più accessibile. Le domande brevi non sono un’interruzione della lezione: sono parte del processo con cui la conoscenza diventa utilizzabile.':
+    'Trying to retrieve an answer makes the trace more accessible. Short questions are not an interruption to the lesson; they are part of the process that makes knowledge usable.',
+  'Quando due compiti chiedono la stessa risorsa nello stesso momento, le prestazioni peggiorano. Non è mancanza di volontà: è un limite del sistema. Per questo una lezione efficace riduce le decisioni accessorie e rende evidente il prossimo passo.':
+    'When two tasks need the same resource at the same time, performance drops. It is not a lack of willpower; it is a system limit. An effective lesson therefore reduces secondary decisions and makes the next step obvious.',
   Continua: 'Continue',
   Corso: 'Course',
   'Corsi che capisci davvero': 'Courses you truly understand',
@@ -98,6 +118,8 @@ const ENGLISH_UI_MESSAGES = {
   'Magic link inviato. Controlla la tua email.': 'Magic link sent. Check your email.',
   'Navigazione principale': 'Main navigation',
   'Non un riassunto. Non una chat generica.': 'Not a summary. Not a generic chat.',
+  'Non sono riuscito a generare l’audio. Riprova tra poco.':
+    'I could not generate the audio. Try again shortly.',
   'Nous costruisce il percorso': 'Nous builds the learning path',
   'Nous è un ambiente di apprendimento: conserva la struttura del soggetto, il punto in cui sei e le domande che ti hanno fatto avanzare.':
     'Nous is a learning environment: it preserves the structure of the subject, where you are, and the questions that helped you move forward.',
@@ -614,6 +636,110 @@ const ENGLISH_UI_MESSAGES = {
   'Impostazioni lettura': 'Reading settings',
   'Istruzioni personalizzate': 'Custom instructions',
   'Tono, livello, cose da evitare o ripetere.': 'Tone, level, and things to avoid or reinforce.',
+  'Analizza, organizza, poi insegna.': 'Analyze, organize, then teach.',
+  'Applicazione lampo': 'Quick application',
+  'Capisci un argomento intero. Senza perdere il filo.':
+    'Understand a whole subject without losing the thread.',
+  'COME ACCEDI': 'HOW TO GET ACCESS',
+  'Contesto e progressi che restano': 'Context and progress that carry over',
+  'Continua da dove avevi lasciato.': 'Continue where you left off.',
+  'Costruzione del corso': 'Course construction',
+  'Dentro Nous, il prossimo passo è già pronto.': 'Inside Nous, your next step is already ready.',
+  'Apri la libreria, segui la costruzione del corso e continua dalla lezione che stavi studiando.':
+    'Open your library, follow the course as it is built, and continue from the lesson you were studying.',
+  '4 lezioni · 1 in corso': '4 lessons · 1 in progress',
+  '25% completato': '25% complete',
+  'Lezione 1 di 4': 'Lesson 1 of 4',
+  'Libreria dei corsi': 'Course library',
+  'Piano del corso': 'Course plan',
+  'Sto preparando “Perché l’attenzione è limitata”': 'Preparing “Why attention is limited”',
+  'Ultimo accesso: oggi': 'Last opened: today',
+  Classificazione: 'Classification',
+  Confronto: 'Compare and contrast',
+  'Controllo concettuale': 'Concept check',
+  'Controlla il piano': 'Review the plan',
+  'COSA FA': 'WHAT IT DOES',
+  'Cosa offre Nous': 'What Nous offers',
+  'Costruisce un corso, non un riassunto.': 'It builds a course, not a summary.',
+  'Dal materiale a un corso vero.': 'From source material to a real course.',
+  'DALLE FONTI A UN PERCORSO COMPLETO': 'FROM SOURCES TO A COMPLETE LEARNING PATH',
+  'Dà all’argomento una struttura completa e una sequenza affrontabile.':
+    'It gives the subject a complete structure and a manageable sequence.',
+  'Entra in waitlist; se sei già tester, usa Accedi in alto.':
+    'Join the waitlist; if you are already a tester, use Sign in above.',
+  'Entra quando si libera un posto.': 'Join when a place becomes available.',
+  'Diagnosi errore': 'Error diagnosis',
+  'Forza di ragionamento': 'Reasoning effort',
+  'Genera e studia una lezione': 'Generate and study one lesson',
+  High: 'High',
+  'Il prodotto': 'The product',
+  'IL PROSSIMO CORSO PUÒ PARTIRE DA QUI': 'YOUR NEXT COURSE CAN START HERE',
+  'Il TTS genera audio e non usa una forza di ragionamento.':
+    'TTS generates audio and does not use reasoning effort.',
+  'La struttura viene prima del testo, così sai sempre dove stai andando.':
+    'Structure comes before prose, so you always know where you are going.',
+  'Leggi, ascolta, verifica e continua quando sei pronto.':
+    'Read, listen, check your understanding, and continue when you are ready.',
+  Low: 'Low',
+  Medium: 'Medium',
+  'Micro-sintesi': 'Micro-synthesis',
+  Generazione: 'Generation',
+  'Nessuno / non supportato': 'None / unsupported',
+  'Nous propone moduli e lezioni; tu sai sempre cosa verrà costruito.':
+    'Nous proposes modules and lessons, so you always know what will be built.',
+  'Porta un argomento. Nous costruisce il percorso.':
+    'Bring a subject. Nous builds the learning path.',
+  Piano: 'Plan',
+  Previsione: 'Prediction',
+  'Preview su invito, accesso dal browser.': 'Invite-only preview, available in your browser.',
+  'Prima prepara il piano; poi genera soltanto la lezione che stai studiando.':
+    'It prepares the plan first, then generates only the lesson you are studying.',
+  'Ragionamento {modelSlot}': '{modelSlot} reasoning',
+  'Stiamo aprendo Nous a piccoli gruppi per osservare come viene usato su corsi veri.':
+    'We are opening Nous to small groups to observe how it is used on real courses.',
+  'Trasforma PDF, libri e ricerca in un corso ordinato che puoi leggere, ascoltare e interrogare.':
+    'Turn PDFs, books, and research into an organized course you can read, listen to, and question.',
+  Sequenza: 'Sequence',
+  'Un piano prima della generazione': 'A plan before generation',
+  'Una lezione alla volta': 'One lesson at a time',
+  'ACCESSO ANTICIPATO': 'EARLY ACCESS',
+  'Campo di ricerca': 'Research field',
+  'Carica il materiale che devi padroneggiare. Nous prepara il piano, genera lezioni ordinate con audio e domande, e alla sessione successiva riapre il punto esatto.':
+    'Upload the material you need to master. Nous prepares the plan, generates ordered lessons with audio and questions, and reopens the exact point next time.',
+  'Chat AI': 'AI chat',
+  'ChatGPT ti dà una risposta. Nous ti dà il prossimo passo del corso.':
+    'ChatGPT gives you an answer. Nous gives you the next step in the course.',
+  'Confronto tra chat AI e Nous': 'Comparison between AI chat and Nous',
+  'DAL TUO MATERIALE A UN CORSO CONTINUO': 'FROM YOUR MATERIAL TO A CONTINUOUS COURSE',
+  'Decidi ogni volta cosa chiedere': 'Decide what to ask every time',
+  Demo: 'Demo',
+  'Esame universitario': 'University exam',
+  'Esempi di utilizzo': 'Use cases',
+  'Fonti, note e progressi restano nel corso': 'Sources, notes, and progress stay in the course',
+  'Hai già il materiale. Ora dagli una direzione.':
+    'You already have the material. Now give it a direction.',
+  'Dai una direzione al tuo materiale.': 'Give your material a direction.',
+  'Il contesto resta nella conversazione': 'Context stays in the conversation',
+  'LA DIFFERENZA È LA CONTINUITÀ': 'THE DIFFERENCE IS CONTINUITY',
+  'La domanda singola è utile. Per padroneggiare un soggetto servono anche ordine, memoria e una direzione che sopravviva alla sessione.':
+    'A single question is useful. Mastering a subject also takes order, memory, and direction that survives the session.',
+  'La lezione giusta dentro un piano': 'The right lesson inside a plan',
+  'Link nel footer': 'Footer links',
+  'Manuale professionale': 'Professional manual',
+  'Nella demo: una dispensa di psicologia cognitiva diventa un percorso di 4 lezioni, dalla selezione attentiva alla metacognizione.':
+    'In the demo, cognitive psychology notes become a four-lesson path from selective attention to metacognition.',
+  'Riapri e trovi già il prossimo passo': 'Reopen it and find the next step ready',
+  'Richiedi accesso': 'Request access',
+  'Richiedi l’accesso alla preview. Se sei già tester, usa Accedi.':
+    'Request preview access. If you are already a tester, use Sign in.',
+  'Studia un corso reale con Nous.': 'Study a real course with Nous.',
+  'Prova Nous sul tuo corso.': 'Try Nous with your course.',
+  'Trasforma i tuoi PDF in un corso che ricorda dove eri.':
+    'Turn your PDFs into a course that remembers where you left off.',
+  'Un argomento intero. Un passo alla volta.': 'One whole subject. One step at a time.',
+  'Il prossimo passo è già pronto.': 'Your next step is already ready.',
+  'Una risposta non è un percorso.': 'An answer is not a learning path.',
+  'Una risposta isolata': 'An isolated answer',
 } as const;
 
 export type UiMessage = keyof typeof ENGLISH_UI_MESSAGES;

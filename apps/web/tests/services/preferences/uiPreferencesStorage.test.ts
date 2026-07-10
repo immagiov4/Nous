@@ -26,9 +26,9 @@ test('parseUiPreferences normalizes supported fields and ignores the rest', () =
 
   assert.deepEqual(preferences, {
     isDarkMode: true,
-    preferredVoice: 'coral',
+    preferredVoice: 'Ara',
     playbackRate: 1.25,
-    preferredTtsVoice: 'coral',
+    preferredTtsVoice: 'Ara',
     settingsPanelExpandedSections: ['course-notes'],
   });
 });
@@ -51,7 +51,7 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
     isDarkMode: false,
     preferredVoice: 'mario',
     playbackRate: 1,
-    preferredTtsVoice: 'coral',
+    preferredTtsVoice: 'Ara',
     settingsPanelExpandedSections: ['course-notes'],
     lastAudioTab: 'voce',
   });
@@ -60,9 +60,9 @@ test('readUiPreferences and writeUiPreferences use the shared storage key', () =
   assert.deepEqual(readUiPreferences(storage), {
     isDarkMode: false,
     lastAudioTab: 'voce',
-    preferredVoice: 'coral',
+    preferredVoice: 'Ara',
     playbackRate: 1,
-    preferredTtsVoice: 'coral',
+    preferredTtsVoice: 'Ara',
     settingsPanelExpandedSections: ['course-notes'],
   });
 });
@@ -84,8 +84,8 @@ test('readUiPreferences accepts the legacy Lumina storage key', () => {
 
   assert.deepEqual(readUiPreferences(storage), {
     isDarkMode: true,
-    preferredVoice: 'coral',
+    preferredVoice: 'Ara',
     playbackRate: 1.15,
-    preferredTtsVoice: 'coral',
+    preferredTtsVoice: 'Ara',
   });
 });

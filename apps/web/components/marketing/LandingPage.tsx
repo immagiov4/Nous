@@ -1,16 +1,7 @@
-import {
-  ArrowDown,
-  ArrowRight,
-  BookOpenCheck,
-  Check,
-  Menu,
-  MessageSquareText,
-  Route,
-  X,
-} from 'lucide-react';
+import { ArrowRight, Check, Menu, X } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
-import LandingReaderPreview from './LandingReaderPreview.tsx';
+import LandingProductDemo from './LandingProductDemo.tsx';
 import './marketing.css';
 import WaitlistForm from './WaitlistForm.tsx';
 
@@ -19,36 +10,9 @@ interface LandingPageProps {
   onJoinWaitlist?: (email: string) => Promise<void>;
 }
 
-const getTransformationSteps = () =>
-  [
-    {
-      number: '01',
-      title: t('Porta il materiale'),
-      description: t('Aggiungi PDF e libri, oppure parti da una ricerca guidata.'),
-    },
-    {
-      number: '02',
-      title: t('Nous costruisce il percorso'),
-      description: t('Le fonti diventano parti ordinate, leggibili e collegate tra loro.'),
-    },
-    {
-      number: '03',
-      title: t('Impara senza perdere il filo'),
-      description: t('Leggi, fai domande, annota e riprendi sempre dal punto giusto.'),
-    },
-  ] as const;
-
-const getProductPromises = () => [
-  t('Un percorso, non una cartella di file.'),
-  t('Risposte ancorate a ciò che stai studiando.'),
-  t('Progressi e contesto che continuano tra una sessione e l’altra.'),
-];
-
 export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageProps) {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const transformationSteps = getTransformationSteps();
-  const productPromises = getProductPromises();
 
   useEffect(() => {
     if (!isLoginOpen) {
@@ -91,11 +55,11 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
           className={isMenuOpen ? 'marketing-nav is-open' : 'marketing-nav'}
           aria-label={t('Navigazione principale')}
         >
-          <button type="button" onClick={() => scrollToSection('come-funziona')}>
+          <button type="button" onClick={() => scrollToSection('prodotto')}>
             {t('Come funziona')}
           </button>
-          <button type="button" onClick={() => scrollToSection('perche-nous')}>
-            {t('Perché Nous')}
+          <button type="button" onClick={() => scrollToSection('prodotto')}>
+            {t('Il prodotto')}
           </button>
           <button className="marketing-login-button" type="button" onClick={openLogin}>
             {t('Accedi')}
@@ -105,7 +69,7 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
             type="button"
             onClick={() => scrollToSection('waitlist')}
           >
-            {t('Inizia')}
+            {t('Richiedi accesso')}
           </button>
         </nav>
 
@@ -122,118 +86,101 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
 
       <section className="marketing-hero" id="inizio">
         <div className="marketing-hero-copy">
-          <p className="marketing-eyebrow">{t('STUDIARE UN ARGOMENTO, DAVVERO')}</p>
-          <h1>{t('Impara un argomento intero, un passo alla volta.')}</h1>
+          <p className="marketing-eyebrow">{t('DAL TUO MATERIALE A UN CORSO CONTINUO')}</p>
+          <h1>{t('Un argomento intero. Un passo alla volta.')}</h1>
           <p className="marketing-hero-description">
-            {t('PDF, libri e ricerca diventano corsi leggibili, interrogabili e continui.')}
+            {t(
+              'Carica il materiale che devi padroneggiare. Nous prepara il piano, genera lezioni ordinate con audio e domande, e alla sessione successiva riapre il punto esatto.'
+            )}
           </p>
-          <div id="waitlist">
+          <ul className="marketing-hero-proof">
+            <li>
+              <Check aria-hidden="true" /> {t('Un piano prima della generazione')}
+            </li>
+            <li>
+              <Check aria-hidden="true" /> {t('Una lezione alla volta')}
+            </li>
+            <li>
+              <Check aria-hidden="true" /> {t('Contesto e progressi che restano')}
+            </li>
+          </ul>
+        </div>
+
+        <div className="marketing-hero-access" id="waitlist">
+          <div>
+            <p className="marketing-eyebrow">{t('ACCESSO ANTICIPATO')}</p>
+            <h2>{t('Prova Nous sul tuo corso.')}</h2>
+            <p className="marketing-access-description">
+              {t(
+                'Stiamo aprendo Nous a piccoli gruppi per osservare come viene usato su corsi veri.'
+              )}
+            </p>
+          </div>
+          <div>
             <WaitlistForm onJoinWaitlist={onJoinWaitlist} />
             <p className="marketing-form-note">
               {t('Preview a inviti. Niente rumore, solo aggiornamenti utili.')}
             </p>
           </div>
         </div>
-
-        <div className="marketing-hero-preview">
-          <LandingReaderPreview />
-        </div>
-
-        <a
-          className="marketing-scroll-cue"
-          href="#come-funziona"
-          aria-label={t('Scopri come funziona')}
-        >
-          <ArrowDown aria-hidden="true" />
-        </a>
       </section>
 
-      <section className="marketing-value-strip" aria-label={t('I vantaggi di Nous')}>
-        <div>
-          <span>
-            <BookOpenCheck aria-hidden="true" />
-          </span>
+      <section className="marketing-product-section" id="prodotto">
+        <div className="marketing-product-heading">
+          <h2>{t('Il prossimo passo è già pronto.')}</h2>
           <p>
-            <strong>{t('Corsi che capisci davvero')}</strong>
-            {t('Trasforma qualsiasi testo complesso in lezioni chiare, passo dopo passo.')}
+            {t(
+              'Apri la libreria, segui la costruzione del corso e continua dalla lezione che stavi studiando.'
+            )}
           </p>
         </div>
-        <div>
-          <span>
-            <MessageSquareText aria-hidden="true" />
-          </span>
-          <p>
-            <strong>{t('Interroga e verifica')}</strong>
-            {t('Fai domande, ottieni spiegazioni e verifica la tua comprensione.')}
-          </p>
-        </div>
-        <div>
-          <span>
-            <Route aria-hidden="true" />
-          </span>
-          <p>
-            <strong>{t('Impara a modo tuo')}</strong>
-            {t('Leggi, ascolta, evidenzia, visualizza. Rimani concentrato e fai progressi.')}
-          </p>
-        </div>
-      </section>
-
-      <section className="marketing-section marketing-how" id="come-funziona">
-        <div className="marketing-section-heading">
-          <p className="marketing-eyebrow">{t('COME FUNZIONA')}</p>
-          <h2>{t('Dal materiale a un percorso.')}</h2>
-          <p>{t('Nous mette ordine prima che tu debba farlo da solo.')}</p>
-        </div>
-
-        <ol className="marketing-step-list">
-          {transformationSteps.map(step => (
-            <li key={step.number}>
-              <span>{step.number}</span>
-              <h3>{step.title}</h3>
-              <p>{step.description}</p>
-            </li>
-          ))}
-        </ol>
+        <LandingProductDemo />
       </section>
 
       <section className="marketing-section marketing-difference" id="perche-nous">
         <div className="marketing-difference-statement">
-          <p className="marketing-eyebrow">{t('PERCHÉ NOUS')}</p>
-          <h2>{t('Non un riassunto. Non una chat generica.')}</h2>
-          <p>
+          <p className="marketing-eyebrow">{t('LA DIFFERENZA È LA CONTINUITÀ')}</p>
+          <h2>{t('Una risposta non è un percorso.')}</h2>
+          <p className="marketing-section-description">
             {t(
-              'Nous è un ambiente di apprendimento: conserva la struttura del soggetto, il punto in cui sei e le domande che ti hanno fatto avanzare.'
+              'La domanda singola è utile. Per padroneggiare un soggetto servono anche ordine, memoria e una direzione che sopravviva alla sessione.'
             )}
           </p>
         </div>
 
-        <ul className="marketing-promise-list">
-          {productPromises.map(promise => (
-            <li key={promise}>
-              <Check aria-hidden="true" />
-              <span>{promise}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="marketing-section marketing-audience">
-        <div>
-          <p className="marketing-eyebrow">{t('PER CHI VUOLE CAPIRE')}</p>
-          <h2>{t('Quando il materiale è tanto, il percorso deve restare semplice.')}</h2>
-        </div>
-        <p>
-          {t(
-            'Per chi studia da fonti diverse, perde il filo tra una sessione e l’altra o ha bisogno di vedere un argomento diventare una sequenza affrontabile.'
-          )}
-        </p>
+        <table className="marketing-comparison">
+          <caption className="marketing-visually-hidden">
+            {t('Confronto tra chat AI e Nous')}
+          </caption>
+          <thead>
+            <tr className="marketing-comparison-header">
+              <th scope="col">{t('Chat AI')}</th>
+              <th scope="col">Nous</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{t('Una risposta isolata')}</td>
+              <td>{t('La lezione giusta dentro un piano')}</td>
+            </tr>
+            <tr>
+              <td>{t('Il contesto resta nella conversazione')}</td>
+              <td>{t('Fonti, note e progressi restano nel corso')}</td>
+            </tr>
+            <tr>
+              <td>{t('Decidi ogni volta cosa chiedere')}</td>
+              <td>{t('Riapri e trovi già il prossimo passo')}</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <section className="marketing-final-cta">
-        <p className="marketing-eyebrow">{t('PREVIEW PRIVATA')}</p>
-        <h2>{t('Porta un argomento. Noi gli diamo una direzione.')}</h2>
+        <p className="marketing-eyebrow">{t('ACCESSO ANTICIPATO')}</p>
+        <h2>{t('Dai una direzione al tuo materiale.')}</h2>
+        <p>{t('Richiedi l’accesso alla preview. Se sei già tester, usa Accedi.')}</p>
         <a className="marketing-primary-button" href="#waitlist">
-          {t('Entra nella waitlist')}
+          {t('Richiedi accesso')}
           <ArrowRight aria-hidden="true" />
         </a>
       </section>
@@ -247,10 +194,13 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
           <img src="/assets/logo.svg" alt="" />
           <span>Nous Reader</span>
         </a>
-        <p>{t('Imparare un soggetto intero, senza perdere il filo.')}</p>
-        <button type="button" onClick={openLogin}>
-          {t('Accesso tester')}
-        </button>
+        <nav aria-label={t('Link nel footer')}>
+          <a href="#prodotto">{t('Demo')}</a>
+          <a href="#prodotto">{t('Come funziona')}</a>
+          <button type="button" onClick={openLogin}>
+            {t('Accesso tester')}
+          </button>
+        </nav>
       </footer>
 
       {isLoginOpen ? (

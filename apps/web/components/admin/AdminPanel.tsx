@@ -3,6 +3,7 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
   type AdminModelConfig,
+  type AdminReasoningEffort,
   type AdminUser,
   createAdminUser,
   DEFAULT_ADMIN_MODEL_CONFIG,
@@ -18,7 +19,19 @@ const getUserRole = (user: AdminUser): 'admin' | 'user' =>
 
 const isDisabledUser = (user: AdminUser): boolean => Boolean(user.banned_until);
 
+const REASONING_OPTIONS = [
+  ['none', 'Nessuno / non supportato'],
+  ['low', 'Low'],
+  ['medium', 'Medium'],
+  ['high', 'High'],
+] as const satisfies ReadonlyArray<readonly [AdminReasoningEffort, string]>;
+
 export default function AdminPanel() {
+  const modelFields = [
+    ['lessonModel', 'lessonReasoningEffort', t('Lezioni')],
+    ['contextModel', 'contextReasoningEffort', t('Contesto')],
+    ['assessmentModel', 'assessmentReasoningEffort', 'Assessment'],
+  ] as const;
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [modelConfig, setModelConfig] = useState<AdminModelConfig>(DEFAULT_ADMIN_MODEL_CONFIG);
   const [email, setEmail] = useState('');
@@ -263,14 +276,58 @@ export default function AdminPanel() {
 
             <div className="rounded-lg border border-gray-200 bg-white p-4">
               <h2 className="text-sm font-semibold">{t('Modelli globali')}</h2>
+              {modelFields.map(([modelKey, reasoningKey, rawLabel]) => {
+                const label = rawLabel;
+                return (
+                  <div
+                    key={modelKey}
+                    className="mt-4 border-b border-gray-100 pb-4 last:border-b-0"
+                  >
+                    <label className="block">
+                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                        {label}
+                      </span>
+                      <input
+                        value={modelConfig[modelKey]}
+                        onChange={event =>
+                          setModelConfig(current => ({
+                            ...current,
+                            [modelKey]: event.target.value,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <label className="mt-2 block">
+                      <span className="text-xs font-medium text-gray-500">
+                        {t('Forza di ragionamento')}
+                      </span>
+                      <select
+                        aria-label={t('Ragionamento {modelSlot}', { modelSlot: label })}
+                        value={modelConfig[reasoningKey]}
+                        onChange={event =>
+                          setModelConfig(current => ({
+                            ...current,
+                            [reasoningKey]: event.target.value as AdminReasoningEffort,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                      >
+                        {REASONING_OPTIONS.map(([value, optionLabel]) => (
+                          <option key={value} value={value}>
+                            {t(optionLabel)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                );
+              })}
               {(
                 [
-                  ['lessonModel', t('Lezioni')],
-                  ['contextModel', t('Contesto')],
-                  ['assessmentModel', t('Assessment')],
                   ['ttsModel', t('TTS')],
                   ['ttsVoice', t('Voce')],
-                ] as const satisfies ReadonlyArray<readonly [keyof AdminModelConfig, string]>
+                ] as const satisfies ReadonlyArray<readonly ['ttsModel' | 'ttsVoice', string]>
               ).map(([key, label]) => (
                 <label key={key} className="mt-3 block">
                   <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
@@ -285,6 +342,9 @@ export default function AdminPanel() {
                   />
                 </label>
               ))}
+              <p className="mt-2 text-xs leading-5 text-gray-500">
+                {t('Il TTS genera audio e non usa una forza di ragionamento.')}
+              </p>
               <button
                 type="button"
                 onClick={() => void handleModelSave()}

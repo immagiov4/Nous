@@ -57,6 +57,61 @@ describe('/api/openrouter proxy', () => {
     expect(fetchOptions?.body).not.toContain('client/ignored-model');
   });
 
+  test('overrides reasoning effort independently for each configured model slot', async () => {
+    patchGlobalModelConfig({
+      assessmentReasoningEffort: 'low',
+      lessonReasoningEffort: 'high',
+    });
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
+      .send({
+        messages: [{ role: 'user', content: 'Ciao' }],
+        reasoning: { effort: 'medium', exclude: false },
+      });
+
+    const lessonBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      reasoning?: { effort?: string };
+    };
+    expect(lessonBody.reasoning?.effort).toBe('high');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue({
+      body: null,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      status: 200,
+    });
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'assessment')
+      .send({
+        messages: [{ role: 'user', content: 'Ciao' }],
+        reasoning: { effort: 'medium', exclude: false },
+      });
+
+    const assessmentBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      reasoning?: { effort?: string };
+    };
+    expect(assessmentBody.reasoning?.effort).toBe('low');
+  });
+
+  test('omits reasoning for models configured without reasoning support', async () => {
+    patchGlobalModelConfig({ lessonReasoningEffort: 'none' });
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .send({
+        messages: [{ role: 'user', content: 'Ciao' }],
+        reasoning: { effort: 'medium', exclude: false },
+      });
+
+    const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
+    const body = JSON.parse(fetchOptions?.body || '{}') as { reasoning?: unknown };
+    expect(body.reasoning).toBeUndefined();
+  });
+
   test('loads persisted model config before proxying after a backend restart', async () => {
     process.env.PROJECT_STORAGE_DRIVER = 'postgres';
     process.env.SUPABASE_URL = 'http://supabase.local';
@@ -67,8 +122,11 @@ describe('/api/openrouter proxy', () => {
           JSON.stringify([
             {
               assessment_model: 'persisted/assessment-model',
+              assessment_reasoning_effort: 'low',
               context_model: 'persisted/context-model',
+              context_reasoning_effort: 'medium',
               lesson_model: 'persisted/lesson-model',
+              lesson_reasoning_effort: 'high',
               tts_model: 'persisted/tts-model',
               tts_voice: 'persisted-voice',
               updated_at: '2026-07-07T10:00:00.000Z',
@@ -97,6 +155,7 @@ describe('/api/openrouter proxy', () => {
     );
     const fetchOptions = fetchMock.mock.calls[1]?.[1] as { body?: string } | undefined;
     expect(fetchOptions?.body).toContain('"model":"persisted/lesson-model"');
+    expect(fetchOptions?.body).toContain('"effort":"high"');
     expect(fetchOptions?.body).not.toContain('client/ignored-model');
   });
 });

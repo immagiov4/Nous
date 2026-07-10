@@ -93,6 +93,7 @@ export interface WorkspaceReaderSidebarModel {
   isLoading: boolean;
   isMobileViewport: boolean;
   learningPlanTitle: string;
+  placement?: 'viewport' | 'container';
   repairApplicationExercisesLabel: string;
   onBackToLibrary: () => void;
   onExportProject: () => void;
@@ -122,6 +123,7 @@ export interface WorkspaceReaderTtsModel {
   currentTime: number;
   currentVoice: VoiceProfileId;
   duration: number;
+  errorMessage?: string | null;
   isPlaying: boolean;
   isLoading: boolean;
   isTextPickerActive: boolean;
@@ -211,6 +213,7 @@ export interface WorkspaceReaderContentModel {
   sectionAnnotations?: SectionAnnotation[];
   sectionContent: string;
   ttsTextPicker: WorkspaceReaderTextPickerModel;
+  scrollMode?: 'contained' | 'document';
   sectionReasoningText?: string;
   sourcePageRangeLabel?: string;
 }
@@ -250,6 +253,7 @@ export interface WorkspaceReaderOverlaysModel {
 export interface WorkspaceReaderShellProps {
   banners: WorkspaceReaderBannersModel;
   content: WorkspaceReaderContentModel;
+  displayMode?: 'application' | 'embedded';
   header: WorkspaceReaderHeaderModel;
   overlays: WorkspaceReaderOverlaysModel;
   shouldUseDesktopSidebar: boolean;

@@ -62,11 +62,11 @@ describe('useTtsPlayer', () => {
       contentType: 'audio/mpeg',
     });
     openRouterMocks.getTTSModels.mockResolvedValue({
-      defaultModel: 'openai/gpt-4o-mini-tts-2025-12-15',
+      defaultModel: 'x-ai/grok-voice-tts-1.0',
       models: [
         {
           contextLength: 4096,
-          id: 'openai/gpt-4o-mini-tts-2025-12-15',
+          id: 'x-ai/grok-voice-tts-1.0',
           name: 'OpenAI: GPT-4o Mini TTS',
           pricing: { completion: '0', prompt: '0.0000006' },
           supportedParameters: ['response_format'],
@@ -75,7 +75,7 @@ describe('useTtsPlayer', () => {
       ],
     });
     openRouterMocks.getTTSVoices.mockResolvedValue([
-      { id: 'coral', label: 'coral', language: 'it-IT' },
+      { id: 'Ara', label: 'Ara', language: 'it-IT' },
     ]);
 
     vi.stubGlobal('Audio', FakeAudio as unknown as typeof Audio);
@@ -136,7 +136,7 @@ describe('useTtsPlayer', () => {
     await waitFor(() => expect(result.current.ttsConnected).toBe(true));
 
     expect(result.current.availableVoices).toEqual([
-      { id: 'coral', label: 'coral', language: 'it-IT' },
+      { id: 'Ara', label: 'Ara', language: 'it-IT' },
     ]);
     expect(result.current.availableModels).toHaveLength(1);
   });
@@ -191,8 +191,8 @@ describe('useTtsPlayer', () => {
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1);
     expect(openRouterMocks.generateSpeech).toHaveBeenCalledWith(
       expect.any(String),
-      'coral',
-      'openai/gpt-4o-mini-tts-2025-12-15'
+      'Ara',
+      'x-ai/grok-voice-tts-1.0'
     );
     expect(result.current.audioState.currentChunkIndex).toBe(0);
 
@@ -249,7 +249,7 @@ describe('useTtsPlayer', () => {
 
     await waitFor(() => expect(result.current.ttsConnected).toBe(false));
     expect(result.current.availableVoices).toEqual([
-      { id: 'coral', label: 'coral', language: 'it-IT' },
+      { id: 'Ara', label: 'Ara', language: 'it-IT' },
     ]);
   });
 
@@ -286,5 +286,45 @@ describe('useTtsPlayer', () => {
       expect(result.current.audioState.chunks).toEqual([]);
       expect(result.current.audioState.isPlaying).toBe(false);
     });
+  });
+
+  test('stops the playback run after one retry instead of requesting every later chunk', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const upstreamError = Object.assign(new Error('temporary upstream failure'), { status: 502 });
+      openRouterMocks.generateSpeech.mockRejectedValue(upstreamError);
+      const sectionContent = `${'Prima parte abbastanza lunga. '.repeat(30)}\n\n${'Seconda parte abbastanza lunga. '.repeat(30)}`;
+      const { result } = renderHook(() =>
+        useTtsPlayer({
+          activeSectionId: 'lesson-1',
+          sectionContent,
+          speechBlocks: [],
+        })
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      act(() => {
+        result.current.togglePlayPause();
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(result.current.chunkOptions.length).toBeGreaterThan(1);
+      expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(2);
+      expect(result.current.audioState.currentChunkIndex).toBe(0);
+      expect(result.current.audioState.isPlaying).toBe(false);
+      expect(result.current.errorMessage).toBe(
+        'Non sono riuscito a generare l’audio. Riprova tra poco.'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

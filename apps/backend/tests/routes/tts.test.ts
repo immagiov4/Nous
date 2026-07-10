@@ -63,16 +63,16 @@ describe('POST /api/tts', () => {
     });
   });
 
-  test('returns generated OpenRouter audio using backend global model and voice', async () => {
+  test('returns generated OpenRouter audio using the backend model and selected voice', async () => {
     patchGlobalModelConfig({
       ttsModel: 'server/tts-model',
-      ttsVoice: 'verse',
+      ttsVoice: 'Ara',
     });
 
     const response = await request(createApp()).post('/api/tts').send({
       text: 'Ciao Nous',
       model: 'client/ignored-tts-model',
-      voice: 'client-voice',
+      voice: 'Eve',
       speed: 1,
     });
 
@@ -84,7 +84,7 @@ describe('POST /api/tts', () => {
     expect(ttsClientMocks.generateSpeech).toHaveBeenCalledWith({
       text: 'Ciao Nous',
       model: 'server/tts-model',
-      voice: 'verse',
+      voice: 'Eve',
       speed: 1,
     });
   });

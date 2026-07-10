@@ -23,13 +23,13 @@ describe('ttsClient', () => {
     vi.stubGlobal('fetch', fetchMock);
   });
 
-  test('always uses the OpenAI TTS model through OpenRouter', async () => {
+  test('uses the model selected by the global admin configuration', async () => {
     fetchMock.mockResolvedValueOnce(createAudioResponse());
 
     await ttsClient.generateSpeech({
       text: 'Ciao.',
-      model: 'openai/gpt-4o-mini-tts-2025-12-15',
-      voice: 'coral',
+      model: 'openai/admin-selected-tts',
+      voice: 'Ara',
       speed: 1,
     });
 
@@ -38,24 +38,24 @@ describe('ttsClient', () => {
       voice: string;
     };
     expect(requestBody).toMatchObject({
-      model: DEFAULT_TTS_MODEL,
-      voice: 'coral',
+      model: 'openai/admin-selected-tts',
+      voice: 'Ara',
     });
   });
 
-  test('normalizes unsupported voices to the OpenAI default voice', async () => {
+  test('passes the selected voice to the configured TTS model', async () => {
     fetchMock.mockResolvedValueOnce(createAudioResponse());
 
     await ttsClient.generateSpeech({
       text: 'Ciao.',
       model: DEFAULT_TTS_MODEL,
-      voice: 'coral',
+      voice: 'Eve',
       speed: 1,
     });
 
     const requestBody = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
       voice: string;
     };
-    expect(requestBody.voice).toBe('coral');
+    expect(requestBody.voice).toBe('Eve');
   });
 });

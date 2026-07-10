@@ -8,12 +8,36 @@ import { clearSupabaseSession, saveSupabaseSession } from '../../../services/aut
 const fetchMock = vi.fn();
 
 beforeEach(() => {
+  window.history.replaceState({}, '', '/');
   vi.stubEnv('VITE_AUTH_MODE', 'supabase');
   vi.stubEnv('VITE_SUPABASE_URL', 'https://supabase.test');
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   clearSupabaseSession();
+});
+
+test('keeps the public landing available to signed-in testers at /landing', () => {
+  saveSupabaseSession({
+    accessToken: 'access-token',
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    refreshToken: 'refresh-token',
+  });
+  window.history.replaceState({}, '', '/landing');
+
+  render(
+    <AuthGate>
+      <p>Area autenticata</p>
+    </AuthGate>
+  );
+
+  expect(
+    screen.getByRole('heading', {
+      level: 1,
+      name: 'Trasforma i tuoi PDF in un corso che ricorda dove eri.',
+    })
+  ).toBeInTheDocument();
+  expect(screen.queryByText('Area autenticata')).toBeNull();
 });
 
 test('AuthGate refreshes an expired stored session without requiring another login', async () => {

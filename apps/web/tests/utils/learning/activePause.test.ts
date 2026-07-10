@@ -12,7 +12,10 @@ test('normalizeActivePauseExerciseType keeps legacy pauses compatible', () => {
   assert.equal(normalizeActivePauseExerciseType('prediction'), 'prediction');
 });
 
-test('getActivePauseExerciseLabel returns a readable label for generated pause types', () => {
-  assert.equal(getActivePauseExerciseLabel({ exerciseType: 'error-diagnosis' }), 'Diagnosi errore');
-  assert.equal(getActivePauseExerciseLabel({}), 'Controllo concettuale');
+test('getActivePauseExerciseLabel localizes generated pause types', () => {
+  assert.equal(
+    getActivePauseExerciseLabel({ exerciseType: 'error-diagnosis' }, 'it'),
+    'Diagnosi errore'
+  );
+  assert.equal(getActivePauseExerciseLabel({}, 'en'), 'Concept check');
 });

@@ -246,4 +246,19 @@ describe('WorkspaceReaderShell', () => {
     expect(screen.getByTestId('workspace-sidebar')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-overlays')).toBeInTheDocument();
   });
+
+  test('supports an embedded reader without locking or resetting the document viewport', () => {
+    const props = buildProps();
+    const windowScrollSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+
+    const { container } = render(<WorkspaceReaderShell {...props} displayMode="embedded" />);
+
+    expect(windowScrollSpy).not.toHaveBeenCalled();
+    expect(document.documentElement.style.overflow).toBe('auto');
+    expect(document.body.style.overflow).toBe('auto');
+    expect(container.firstElementChild).toHaveAttribute('data-reader-display-mode', 'embedded');
+    expect(container.firstElementChild).toHaveClass('overflow-visible');
+  });
 });

@@ -73,6 +73,17 @@ describe('WorkspaceReaderSidebar', () => {
     expect(scrollRegion?.className).toContain('reader-sidebar-scroll-mobile');
   });
 
+  test('uses container positioning when embedded in the public product demo', () => {
+    const { container } = render(
+      <WorkspaceReaderSidebar {...buildProps({ placement: 'container' })} />
+    );
+
+    const sidebar = container.querySelector('aside');
+    expect(sidebar?.className).toContain('absolute');
+    expect(sidebar?.className).not.toContain('fixed');
+    expect(sidebar?.style.height).toBe('100%');
+  });
+
   test('renders application exercise rows separately from lesson rows', () => {
     const onSelectExercise = vi.fn();
     render(

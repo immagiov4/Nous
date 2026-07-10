@@ -659,6 +659,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   quiz,
   quizAnswers,
   scrollContainerRef,
+  scrollMode = 'contained',
   sectionAnnotations,
   sectionContent,
   sectionReasoningText,
@@ -766,15 +767,21 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     }
   }, [shouldShowLessonSkeleton, scrollContainerRef]);
 
-  const scrollContainerClassName = shouldShowLessonSkeleton
-    ? 'relative flex-1 min-w-0 overflow-hidden overscroll-none'
-    : 'relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth';
+  const scrollContainerClassName =
+    scrollMode === 'document'
+      ? 'relative min-w-0 flex-1 overflow-visible'
+      : shouldShowLessonSkeleton
+        ? 'relative flex-1 min-w-0 overflow-hidden overscroll-none'
+        : 'relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth';
 
   return (
     <div
       ref={scrollContainerRef}
       className={scrollContainerClassName}
-      style={{ touchAction: shouldShowLessonSkeleton ? 'none' : 'pan-y' }}
+      style={{
+        touchAction:
+          scrollMode === 'document' ? 'auto' : shouldShowLessonSkeleton ? 'none' : 'pan-y',
+      }}
     >
       {ttsTextPicker.isActive ? (
         <p className="sr-only" aria-live="polite">

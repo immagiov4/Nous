@@ -66,7 +66,7 @@ export default function WaitlistForm({ onJoinWaitlist = joinWaitlist }: Waitlist
         />
       </label>
       <button className="marketing-primary-button" type="submit" disabled={status === 'submitting'}>
-        {status === 'submitting' ? t('Invio in corso…') : t('Entra nella waitlist')}
+        {status === 'submitting' ? t('Invio in corso…') : t('Richiedi accesso')}
       </button>
       {status === 'error' ? (
         <p className="marketing-waitlist-error" role="alert">

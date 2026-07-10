@@ -14,10 +14,13 @@ import {
 vi.mock('../../../services/admin/adminApi.ts', () => ({
   DEFAULT_ADMIN_MODEL_CONFIG: {
     assessmentModel: 'google/gemini-3.1-flash-lite',
+    assessmentReasoningEffort: 'medium',
     contextModel: 'google/gemini-3.1-flash-lite',
+    contextReasoningEffort: 'medium',
     lessonModel: 'openai/gpt-5.4-mini',
-    ttsModel: 'openai/gpt-4o-mini-tts',
-    ttsVoice: 'coral',
+    lessonReasoningEffort: 'medium',
+    ttsModel: 'x-ai/grok-voice-tts-1.0',
+    ttsVoice: 'Ara',
     updatedAt: '',
   },
   createAdminUser: vi.fn(),
@@ -30,10 +33,13 @@ vi.mock('../../../services/admin/adminApi.ts', () => ({
 
 const defaultModelConfig = {
   assessmentModel: 'google/gemini-3.1-flash-lite',
+  assessmentReasoningEffort: 'medium' as const,
   contextModel: 'google/gemini-3.1-flash-lite',
+  contextReasoningEffort: 'medium' as const,
   lessonModel: 'openai/gpt-5.4-mini',
-  ttsModel: 'openai/gpt-4o-mini-tts',
-  ttsVoice: 'coral',
+  lessonReasoningEffort: 'medium' as const,
+  ttsModel: 'x-ai/grok-voice-tts-1.0',
+  ttsVoice: 'Ara',
   updatedAt: '2026-07-07T00:00:00.000Z',
 };
 
@@ -59,8 +65,12 @@ describe('AdminPanel', () => {
 
     expect(await screen.findByDisplayValue('openai/gpt-5.4-mini')).toBeInTheDocument();
     expect(screen.getAllByDisplayValue('google/gemini-3.1-flash-lite')).toHaveLength(2);
-    expect(screen.getByDisplayValue('openai/gpt-4o-mini-tts')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('coral')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('x-ai/grok-voice-tts-1.0')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Ara')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Ragionamento Lezioni' })).toHaveValue('medium');
+    expect(screen.getByRole('combobox', { name: 'Ragionamento Contesto' })).toHaveValue('medium');
+    expect(screen.getByRole('combobox', { name: 'Ragionamento Assessment' })).toHaveValue('medium');
+    expect(screen.queryByRole('combobox', { name: 'Ragionamento TTS' })).toBeNull();
   });
 
   test('lets admins set a user password manually', async () => {

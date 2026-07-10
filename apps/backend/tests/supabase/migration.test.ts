@@ -19,6 +19,14 @@ const waitlistMigrationSql = readFileSync(
   resolve(process.cwd(), 'supabase/migrations/202607100001_create_waitlist.sql'),
   'utf8'
 );
+const modelReasoningMigrationSql = readFileSync(
+  resolve(process.cwd(), 'supabase/migrations/202607100002_add_model_reasoning_effort.sql'),
+  'utf8'
+);
+const ttsModelMigrationSql = readFileSync(
+  resolve(process.cwd(), 'supabase/migrations/202607100003_replace_unavailable_tts_model.sql'),
+  'utf8'
+);
 
 describe('Supabase initial user backend migration', () => {
   test('enables RLS and owner policies on every tenant table', () => {
@@ -72,5 +80,20 @@ describe('Supabase initial user backend migration', () => {
     expect(waitlistMigrationSql).toContain('enable row level security');
     expect(waitlistMigrationSql).toContain('revoke all on public.waitlist_entries');
     expect(waitlistMigrationSql).not.toContain('create policy');
+  });
+
+  test('stores independent reasoning effort for every text model slot', () => {
+    expect(modelReasoningMigrationSql).toContain('lesson_reasoning_effort');
+    expect(modelReasoningMigrationSql).toContain('context_reasoning_effort');
+    expect(modelReasoningMigrationSql).toContain('assessment_reasoning_effort');
+    expect(modelReasoningMigrationSql).toContain("('none', 'low', 'medium', 'high')");
+  });
+
+  test('replaces unavailable TTS defaults without touching custom model choices', () => {
+    expect(ttsModelMigrationSql).toContain("tts_model = 'x-ai/grok-voice-tts-1.0'");
+    expect(ttsModelMigrationSql).toContain("tts_voice = 'Ara'");
+    expect(ttsModelMigrationSql).toContain("'openai/gpt-4o-mini-tts'");
+    expect(ttsModelMigrationSql).toContain("'openai/gpt-4o-mini-tts-2025-12-15'");
+    expect(ttsModelMigrationSql).toContain("'mistralai/voxtral-mini-tts-2603'");
   });
 });

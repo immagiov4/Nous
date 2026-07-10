@@ -8,7 +8,21 @@ import { prepareMarkdownForSpeech } from '../../utils/reader/readingText';
 const CHUNK_SIZE_APPROX = 580;
 const CHUNK_LABEL_MAX_CHARACTERS = 72;
 const CHUNK_CROSSFADE_SECONDS = 0.035;
+const TTS_GENERATION_MAX_RETRIES = 1;
+const TTS_GENERATION_RETRY_DELAY_MS = 750;
 const DEBUG_TTS_PLAYER = false;
+
+const isRetryableTtsError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object' || !('status' in error)) {
+    return false;
+  }
+
+  const status = (error as { status?: unknown }).status;
+  return (
+    typeof status === 'number' &&
+    (status === 408 || status === 425 || status === 429 || status >= 500)
+  );
+};
 
 interface UseTtsPlayerParams {
   activeSectionId: string | null;
@@ -22,6 +36,7 @@ interface UseTtsPlayerResult {
   audioState: AudioState;
   chunkOptions: Array<{ index: number; label: string }>;
   chunkTexts: string[];
+  errorMessage: string | null;
   handleModelChange: (model: string) => void;
   handleSeek: (time: number) => void;
   handleSelectChunk: (chunkIndex: number) => void;
@@ -300,10 +315,12 @@ export const useTtsPlayer = ({
   const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
   const [playerDuration, setPlayerDuration] = useState(0);
   const [ttsConnected, setTtsConnected] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const audioStateRef = useRef(audioState);
   const shouldPlayRef = useRef(false);
   const chunkPromisesRef = useRef<Partial<Record<number, Promise<string | null>>>>({});
+  const failedChunkIndexesRef = useRef<Set<number>>(new Set());
   const playbackSessionRef = useRef(0);
   const playbackRunIdRef = useRef(0);
   const playRequestIdRef = useRef(0);
@@ -366,6 +383,7 @@ export const useTtsPlayer = ({
     playRequestIdRef.current += 1;
     playbackSessionRef.current += 1;
     chunkPromisesRef.current = {};
+    failedChunkIndexesRef.current.clear();
     pausedTimeRef.current = 0;
 
     // Use setAudioState directly instead of setTrackedAudioState (defined
@@ -604,7 +622,7 @@ export const useTtsPlayer = ({
   );
 
   const generateChunkAudio = useCallback(
-    async (index: number, retries = 2): Promise<string | null> => {
+    async (index: number, retries = TTS_GENERATION_MAX_RETRIES): Promise<string | null> => {
       const generateChunkAudioWithRetries = async (
         retryIndex: number,
         remainingRetries: number
@@ -669,15 +687,19 @@ export const useTtsPlayer = ({
           });
 
           delete chunkPromisesRef.current[retryIndex];
+          failedChunkIndexesRef.current.delete(retryIndex);
+          setErrorMessage(null);
           return url;
         } catch (error) {
-          console.error(`Error generating chunk ${retryIndex}`, error);
-
-          if (remainingRetries > 0) {
+          if (remainingRetries > 0 && isRetryableTtsError(error)) {
             delete chunkPromisesRef.current[retryIndex];
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, TTS_GENERATION_RETRY_DELAY_MS));
             return generateChunkAudioWithRetries(retryIndex, remainingRetries - 1);
           }
+
+          console.error(`[Nous] TTS generation failed for chunk ${retryIndex}`, error);
+          failedChunkIndexesRef.current.add(retryIndex);
+          setErrorMessage(t('Non sono riuscito a generare l’audio. Riprova tra poco.'));
 
           setTrackedAudioState(previousState => {
             const nextChunks = [...previousState.chunks];
@@ -695,6 +717,10 @@ export const useTtsPlayer = ({
 
       if (audioStateRef.current.chunks[index]?.blobUrl) {
         return audioStateRef.current.chunks[index].blobUrl;
+      }
+
+      if (failedChunkIndexesRef.current.has(index)) {
+        return null;
       }
 
       if (chunkPromisesRef.current[index] !== undefined) {
@@ -810,19 +836,13 @@ export const useTtsPlayer = ({
       if (!url) {
         url = await generateChunkAudio(startIndex);
         if (!url) {
-          const followingIndex = startIndex + 1;
-          if (
-            shouldPlayRef.current &&
-            requestId === playRequestIdRef.current &&
-            sessionId === playbackSessionRef.current &&
-            runId === playbackRunRef.current.runId &&
-            !playbackRunRef.current.cancelled &&
-            followingIndex < audioStateRef.current.chunks.length
-          ) {
-            void playAudioRef.current(followingIndex, 0);
-          } else if (followingIndex >= audioStateRef.current.chunks.length) {
-            handleChunkEnded(startIndex, requestId, sessionId, runId);
-          }
+          shouldPlayRef.current = false;
+          abortCurrentRun('error');
+          setTrackedAudioState(previousState => ({
+            ...previousState,
+            isPlaying: false,
+            audioElement: null,
+          }));
           return;
         }
 
@@ -907,9 +927,10 @@ export const useTtsPlayer = ({
     },
     [
       attachAudioLifecycle,
+      abortCurrentRun,
       generateChunkAudio,
-      handleChunkEnded,
       registerCurrentAudio,
+      setTrackedAudioState,
       stopAndDisposeAudio,
       syncReactAudioStateFromRun,
     ]
@@ -934,6 +955,8 @@ export const useTtsPlayer = ({
       }));
 
       chunkPromisesRef.current = {};
+      failedChunkIndexesRef.current.clear();
+      setErrorMessage(null);
       pausedTimeRef.current = 0;
       shouldPlayRef.current = true;
       beginNewRun(0);
@@ -949,6 +972,9 @@ export const useTtsPlayer = ({
       playRequestIdRef.current += 1;
       abortCurrentRun('stop');
       chunkPromisesRef.current = {};
+      if (clearChunks) {
+        failedChunkIndexesRef.current.clear();
+      }
 
       if (clearChunks) {
         audioStateRef.current.chunks.forEach(chunk => {
@@ -1341,6 +1367,7 @@ export const useTtsPlayer = ({
       });
       generatedObjectUrlsRef.current.clear();
       chunkPromisesRef.current = {};
+      failedChunkIndexesRef.current.clear();
     },
     [abortCurrentRun]
   );
@@ -1351,6 +1378,7 @@ export const useTtsPlayer = ({
     audioState,
     chunkOptions,
     chunkTexts: preparedChunkTexts,
+    errorMessage,
     handleModelChange,
     handleSeek,
     handleSelectChunk,

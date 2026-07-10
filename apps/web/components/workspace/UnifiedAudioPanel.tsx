@@ -742,7 +742,11 @@ const UnifiedAudioPanel = ({
                     </div>
                   </div>
 
-                  {ttsDisabled ? (
+                  {tts.errorMessage ? (
+                    <p className="rounded-xl bg-red-50 px-3 py-2 text-center text-[11px] font-medium leading-5 text-red-700 dark:bg-red-950/30 dark:text-red-200">
+                      {tts.errorMessage}
+                    </p>
+                  ) : ttsDisabled ? (
                     <p className="text-center text-[10px] text-gray-400 dark:text-zinc-500">
                       {t('TTS non disponibile. Carica una lezione per iniziare.')}
                     </p>
