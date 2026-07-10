@@ -18,6 +18,7 @@ export {
   getExercisePrerequisiteGaps,
 } from './exercises/brief.ts';
 export { generateApplicationExercisePlacements } from './exercises/placement.ts';
+export { generateLessonLearningAids } from './learningAids.ts';
 export { validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,

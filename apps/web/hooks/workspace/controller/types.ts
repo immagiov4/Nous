@@ -128,7 +128,9 @@ export interface WorkspaceProjectLibraryAdapter {
   ) => Promise<void>;
   patchSectionLessonContent: (
     sectionId: string,
-    patch: Pick<LessonNode, 'content' | 'generatedVisuals' | 'imageRefs' | 'quiz'>
+    patch: Partial<
+      Pick<LessonNode, 'content' | 'generatedVisuals' | 'imageRefs' | 'learningAids' | 'quiz'>
+    >
   ) => Promise<void>;
   savedProjects: SavedProjectMeta[];
   setCurrentProjectId: (projectId: string | null) => void;

@@ -695,6 +695,7 @@ const createOpenRouterMock = (
       }),
     generateLearningPlan: async () => buildPlan(),
     generateLearnLessonContent: async () => '# Lezione generata',
+    generateLessonLearningAids: async () => [],
     generateResearchLessonDossier: async (args: { lesson: LearningSection }) => ({
       sectionId: args.lesson.id,
       title: args.lesson.title,
@@ -710,6 +711,7 @@ const createOpenRouterMock = (
     generateResearchLessonContent: async () => ({
       content: '# Lezione research',
       generatedVisuals: [],
+      learningAids: [],
       quiz: [],
     }),
     generateSectionContent: async () => ({
@@ -717,6 +719,7 @@ const createOpenRouterMock = (
       documentAssets: null,
       generatedVisuals: [],
       imageRefs: [],
+      learningAids: [],
       quiz: [],
     }),
     getPdfLessonMappingState: () => 'idle' as const,
@@ -1783,6 +1786,7 @@ test('openSection reuses cached lessons and only generates when content is missi
           documentAssets: null,
           generatedVisuals: [],
           imageRefs: [],
+          learningAids: [],
           quiz: [],
         };
       },
@@ -1876,6 +1880,7 @@ test('openSection downloads detached PDF bytes only when an uncached lesson need
           documentAssets: null,
           generatedVisuals: [],
           imageRefs: [],
+          learningAids: [],
           quiz: [],
         };
       },
@@ -1982,7 +1987,7 @@ test('openSection generates and caches research dossiers for research-backed lea
       },
       generateResearchLessonContent: async () => {
         contentCalls += 1;
-        return { content: '# Lezione research', generatedVisuals: [], quiz: [] };
+        return { content: '# Lezione research', generatedVisuals: [], learningAids: [], quiz: [] };
       },
       generateLearnLessonContent: async () => {
         throw new Error('Should use research-backed generation');

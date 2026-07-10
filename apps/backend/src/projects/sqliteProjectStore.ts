@@ -113,6 +113,7 @@ const applySectionPatchToNode = (
     : {}),
   ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
   ...(sectionPatch.isCompleted !== undefined ? { isCompleted: sectionPatch.isCompleted } : {}),
+  ...(sectionPatch.learningAids !== undefined ? { learningAids: sectionPatch.learningAids } : {}),
   ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
 });
 

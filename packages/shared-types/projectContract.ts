@@ -61,6 +61,7 @@ export interface SectionPatch {
   generatedVisuals?: unknown[];
   imageRefs?: unknown[];
   isCompleted?: boolean;
+  learningAids?: unknown[];
   quiz?: unknown[];
 }
 

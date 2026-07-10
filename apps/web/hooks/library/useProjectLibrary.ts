@@ -348,7 +348,12 @@ export const useProjectLibrary = ({ domainState }: UseProjectLibraryArgs) => {
   const patchSectionLessonContent = useCallback(
     async (
       sectionId: string,
-      patchValue: Pick<LearningSection, 'content' | 'generatedVisuals' | 'imageRefs' | 'quiz'>
+      patchValue: Partial<
+        Pick<
+          LearningSection,
+          'content' | 'generatedVisuals' | 'imageRefs' | 'learningAids' | 'quiz'
+        >
+      >
     ): Promise<void> => {
       if (!currentProjectId) return;
 

@@ -357,6 +357,14 @@ describe('/api/projects', () => {
           section: {
             sectionId: 'lesson-2',
             content: 'Contenuto generato e salvato',
+            learningAids: [
+              {
+                id: 'learning-aid-definition-protocollo',
+                kind: 'definition',
+                title: 'Protocollo',
+                content: 'Regole condivise per scambiare messaggi.',
+              },
+            ],
             isCompleted: true,
           },
         },
@@ -372,6 +380,14 @@ describe('/api/projects', () => {
     expect(loadResponse.body.project.learningPlan.modules[1].children[0]).toMatchObject({
       id: 'lesson-2',
       content: 'Contenuto generato e salvato',
+      learningAids: [
+        {
+          id: 'learning-aid-definition-protocollo',
+          kind: 'definition',
+          title: 'Protocollo',
+          content: 'Regole condivise per scambiare messaggi.',
+        },
+      ],
       isCompleted: true,
     });
     expect(loadResponse.body.project.learningPlan.modules[0].children[1]).toMatchObject({

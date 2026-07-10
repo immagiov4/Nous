@@ -118,6 +118,15 @@ const snapshots: ProjectSnapshot[] = [
               updatedAt: '2026-04-02T10:00:00.000Z',
             },
           ],
+          learningAids: [
+            {
+              id: 'learning-aid-definition-union-discriminata',
+              kind: 'definition',
+              title: 'Union discriminata',
+              content: 'Una union riconoscibile tramite una proprieta letterale condivisa.',
+              anchorHeading: 'Tipi primitivi',
+            },
+          ],
         }),
         buildTestLesson({
           id: 'lesson-2',
@@ -283,6 +292,12 @@ describe('executeLibraryAssistantTool', () => {
             {
               id: 'lesson-1',
               noteCount: 1,
+              learningAids: [
+                expect.objectContaining({
+                  kind: 'definition',
+                  title: 'Union discriminata',
+                }),
+              ],
               annotations: [
                 expect.objectContaining({
                   annotationId: 'annotation-1',
@@ -292,6 +307,37 @@ describe('executeLibraryAssistantTool', () => {
               ],
             },
           ],
+        },
+      ],
+    });
+  });
+
+  test('searches lesson learning aids inside the allowed scope', async () => {
+    const result = await executeLibraryAssistantTool({
+      dataSource: {
+        attachedContextRefs,
+        folders,
+        loadProjectsById,
+        projectRepositoryMode: 'server',
+        projects,
+        tree,
+      },
+      input: {
+        query: 'proprieta letterale condivisa',
+      },
+      toolName: 'searchLibrary',
+    });
+
+    expect(result.outputError).toBeUndefined();
+    expect(result.output).toMatchObject({
+      hits: [
+        {
+          kind: 'learning-aid',
+          learningAidKind: 'definition',
+          lessonId: 'lesson-1',
+          lessonTitle: 'Tipi primitivi',
+          projectId: 'project-1',
+          title: 'Union discriminata',
         },
       ],
     });

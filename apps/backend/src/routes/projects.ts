@@ -245,6 +245,7 @@ const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefin
     generatedVisuals: Array.isArray(value.generatedVisuals) ? value.generatedVisuals : undefined,
     imageRefs: Array.isArray(value.imageRefs) ? value.imageRefs : undefined,
     isCompleted: typeof value.isCompleted === 'boolean' ? value.isCompleted : undefined,
+    learningAids: Array.isArray(value.learningAids) ? value.learningAids : undefined,
     quiz: Array.isArray(value.quiz) ? value.quiz : undefined,
   };
 };

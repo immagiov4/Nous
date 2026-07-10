@@ -214,6 +214,16 @@ export interface LessonImageRef {
   anchorHeading?: string;
 }
 
+export type LessonLearningAidKind = 'definition' | 'formula' | 'symbol' | 'analogy';
+
+export interface LessonLearningAid {
+  id: string;
+  kind: LessonLearningAidKind;
+  title: string;
+  content: string;
+  anchorHeading?: string;
+}
+
 export type GeneratedRasterMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 
 export type LessonGeneratedVisualKind = 'svg' | 'html' | 'image' | 'mermaid';
@@ -341,6 +351,7 @@ export interface LearningSection {
   quiz?: QuizQuestion[]; // The generated quiz (persisted)
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
   generatedVisuals?: LessonGeneratedVisual[]; // Generated pedagogical visuals for missing examples
+  learningAids?: LessonLearningAid[]; // Compact definitions, formulas, symbols, and analogies
   contextPrompt?: string; // For Learn Mode
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
   primaryChunkMappingSource?: 'fallback' | 'mapped';

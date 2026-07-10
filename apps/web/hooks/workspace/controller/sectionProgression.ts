@@ -329,7 +329,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 }));
 
               if (!state.isWorkflowCurrent('loadSection', requestId)) {
-                return { content: '', generatedVisuals: [], quiz: [] };
+                return { content: '', generatedVisuals: [], learningAids: [], quiz: [] };
               }
 
               if (!cachedResearchDossier) {
@@ -356,8 +356,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 },
               });
             })()
-          : {
-              content: await openRouter.generateLearnLessonContent(
+          : await (async () => {
+              const content = await openRouter.generateLearnLessonContent(
                 section.title,
                 moduleTitle,
                 moduleId,
@@ -372,16 +372,25 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 reasoning => {
                   state.setWorkflowReasoning('loadSection', requestId, reasoning);
                 }
-              ),
-              generatedVisuals: [],
-              quiz: [],
-            };
+              );
+              if (!state.isWorkflowCurrent('loadSection', requestId)) {
+                return { content: '', generatedVisuals: [], learningAids: [], quiz: [] };
+              }
+
+              const learningAids = await openRouter.generateLessonLearningAids({
+                contentMarkdown: content,
+                sectionDescription: section.description,
+                sectionTitle: section.title,
+              });
+
+              return { content, generatedVisuals: [], learningAids, quiz: [] };
+            })();
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {
           return 'ignored-busy';
         }
 
-        const { content, generatedVisuals, quiz } = learnLessonResult;
+        const { content, generatedVisuals, learningAids, quiz } = learnLessonResult;
 
         domain.updateSection(section.id, section => ({
           ...section,
@@ -389,6 +398,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           quiz,
           imageRefs: [],
           generatedVisuals,
+          learningAids,
         }));
         const mergedDocumentAssets = mergeDocumentAssetsForPlan(
           domain.learningPlan ?? currentPlan,
@@ -400,6 +410,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           content,
           generatedVisuals,
           imageRefs: [],
+          learningAids,
           quiz,
         });
         void projectLibrary.patchCurrentProject({
@@ -419,6 +430,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           documentAssets: nextDocumentAssets,
           generatedVisuals,
           imageRefs,
+          learningAids,
           quiz,
         } = await openRouter.generateSectionContent(
           sourceFile,
@@ -445,6 +457,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           content,
           quiz,
           imageRefs,
+          learningAids,
           generatedVisuals,
         }));
         const mergedDocumentAssets = mergeDocumentAssetsForPlan(
@@ -457,6 +470,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           content,
           generatedVisuals,
           imageRefs,
+          learningAids,
           quiz,
         });
         void projectLibrary.patchCurrentProject({

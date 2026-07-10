@@ -279,6 +279,7 @@ export const buildProjectStructurePayload = ({
               hasContent: Boolean(lesson.content?.trim()),
               id: lesson.id,
               isCompleted: lesson.isCompleted,
+              learningAidCount: lesson.learningAids?.length || 0,
               moduleTitle: moduleTitle || '',
               noteCount: notesWithTimestamp.length,
               parentId: lesson.parentId || null,
@@ -319,6 +320,7 @@ export const buildLessonDetailPayload = ({
           description: lesson.description,
           id: lesson.id,
           isCompleted: lesson.isCompleted,
+          learningAids: lesson.learningAids || [],
           moduleTitle: moduleTitle || '',
           noteCount:
             lesson.annotations?.filter(annotation => annotation.note.trim().length > 0).length || 0,
@@ -410,6 +412,25 @@ export const searchLibraryContent = ({
           projectId,
           projectTitle: meta.title,
           snippet: buildSnippet(annotationBody, query),
+        });
+      });
+
+      (section.learningAids || []).forEach(learningAid => {
+        const learningAidBody = `${learningAid.title}\n${learningAid.content}`;
+        if (!normalizeSearchText(learningAidBody).includes(normalizedQuery)) {
+          return;
+        }
+
+        hits.push({
+          kind: 'learning-aid',
+          learningAidId: learningAid.id,
+          learningAidKind: learningAid.kind,
+          lessonId: section.id,
+          lessonTitle: section.title,
+          projectId,
+          projectTitle: meta.title,
+          snippet: buildSnippet(learningAidBody, query),
+          title: learningAid.title,
         });
       });
     });

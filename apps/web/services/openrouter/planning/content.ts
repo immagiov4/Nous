@@ -1,6 +1,7 @@
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import { MEDIUM_REASONING_CONFIG } from '../config.ts';
 import { buildLessonChunkContext } from '../documentIndex/index.ts';
+import { generateLessonLearningAids } from '../learningAids.ts';
 import {
   appendGeneratedVisualExample,
   buildFallbackImageRefs,
@@ -46,6 +47,7 @@ import {
   isPdfFile,
   type LessonGeneratedVisual,
   type LessonImageRef,
+  type LessonLearningAid,
   MODEL_REASONING,
   type PdfDocumentAssets,
   type PdfTextIndex,
@@ -135,6 +137,7 @@ export const generateSectionContent = async (
 ): Promise<{
   content: string;
   generatedVisuals: LessonGeneratedVisual[];
+  learningAids: LessonLearningAid[];
   quiz: QuizQuestion[];
   imageRefs: LessonImageRef[];
   documentAssets: PdfDocumentAssets | null;
@@ -467,18 +470,26 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     );
     traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown || '');
     const contentWithPdfImages = injectImagePlaceholders(cleanedContentMarkdown, imageRefs);
-    const visualResult = await appendGeneratedVisualExample({
-      contentMarkdown: contentWithPdfImages,
-      generationNotes,
-      hasPdfImages: imageRefs.length > 0,
-      onStatusUpdate,
-      sectionDescription,
-      sectionTitle,
-    });
+    const [visualResult, learningAids] = await Promise.all([
+      appendGeneratedVisualExample({
+        contentMarkdown: contentWithPdfImages,
+        generationNotes,
+        hasPdfImages: imageRefs.length > 0,
+        onStatusUpdate,
+        sectionDescription,
+        sectionTitle,
+      }),
+      generateLessonLearningAids({
+        contentMarkdown: cleanedContentMarkdown,
+        sectionDescription,
+        sectionTitle,
+      }),
+    ]);
 
     return {
       content: visualResult.content,
       generatedVisuals: visualResult.generatedVisuals,
+      learningAids,
       quiz: normalizeQuizLength(verifiedDraft.quiz, targetQuizCount),
       imageRefs,
       documentAssets: buildStoredPdfDocumentAssets(pdfSession, imageRefs),
@@ -566,18 +577,26 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     verifiedDraft.quiz
   );
   traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown);
-  const visualResult = await appendGeneratedVisualExample({
-    contentMarkdown: cleanedContentMarkdown,
-    generationNotes,
-    hasPdfImages: false,
-    onStatusUpdate,
-    sectionDescription,
-    sectionTitle,
-  });
+  const [visualResult, learningAids] = await Promise.all([
+    appendGeneratedVisualExample({
+      contentMarkdown: cleanedContentMarkdown,
+      generationNotes,
+      hasPdfImages: false,
+      onStatusUpdate,
+      sectionDescription,
+      sectionTitle,
+    }),
+    generateLessonLearningAids({
+      contentMarkdown: cleanedContentMarkdown,
+      sectionDescription,
+      sectionTitle,
+    }),
+  ]);
 
   return {
     content: visualResult.content,
     generatedVisuals: visualResult.generatedVisuals,
+    learningAids,
     quiz: normalizeQuizLength(verifiedDraft.quiz, targetQuizCount),
     imageRefs: [],
     documentAssets: null,

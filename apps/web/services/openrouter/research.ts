@@ -2,6 +2,7 @@ import type {
   LearningPlan,
   LearningSection,
   LessonGeneratedVisual,
+  LessonLearningAid,
   QuizQuestion,
   ResearchCoursePlan,
   ResearchLessonDossier,
@@ -19,6 +20,7 @@ import {
   MODEL_RESEARCH_PLANNER,
   teacherInstruction,
 } from './config.ts';
+import { generateLessonLearningAids } from './learningAids.ts';
 import { appendGeneratedVisualExample } from './lessonImages.ts';
 import { generateStandaloneLessonQuiz } from './lessonMarkdownQuality/index.ts';
 import { buildUserGenerationNotesBlock } from './prompts.ts';
@@ -593,6 +595,7 @@ export const generateResearchLessonContent = async (args: {
 }): Promise<{
   content: string;
   generatedVisuals: LessonGeneratedVisual[];
+  learningAids: LessonLearningAid[];
   quiz: QuizQuestion[];
 }> => {
   const profile = args.profile ?? {
@@ -660,14 +663,21 @@ FORMATO: Markdown.`;
       ? lessonContent
       : `${lessonContent}${sourceBlock}`;
 
-  const visualResult = await appendGeneratedVisualExample({
-    contentMarkdown: contentWithSources,
-    generationNotes: args.generationNotes,
-    hasPdfImages: false,
-    onStatusUpdate: args.onStatusUpdate,
-    sectionDescription: args.contextPrompt || args.lessonTitle,
-    sectionTitle: args.lessonTitle,
-  });
+  const [visualResult, learningAids] = await Promise.all([
+    appendGeneratedVisualExample({
+      contentMarkdown: contentWithSources,
+      generationNotes: args.generationNotes,
+      hasPdfImages: false,
+      onStatusUpdate: args.onStatusUpdate,
+      sectionDescription: args.contextPrompt || args.lessonTitle,
+      sectionTitle: args.lessonTitle,
+    }),
+    generateLessonLearningAids({
+      contentMarkdown: contentWithSources,
+      sectionDescription: args.contextPrompt || args.lessonTitle,
+      sectionTitle: args.lessonTitle,
+    }),
+  ]);
 
   args.onStatusUpdate('Generazione quiz...');
   let quiz: QuizQuestion[] = [];
@@ -687,6 +697,7 @@ FORMATO: Markdown.`;
   return {
     content: visualResult.content,
     generatedVisuals: visualResult.generatedVisuals,
+    learningAids,
     quiz,
   };
 };

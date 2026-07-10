@@ -4,6 +4,39 @@ import type { UserProfile } from '../../../types.ts';
 
 const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async <T>(operation: () => Promise<T>) => await operation());
+const appendGeneratedVisualExampleMock = vi.fn(
+  async ({ contentMarkdown }: { contentMarkdown: string }) => ({
+    content: contentMarkdown,
+    generatedVisuals: [],
+  })
+);
+const generateLessonLearningAidsMock = vi.fn(
+  async (_options: {
+    contentMarkdown: string;
+    sectionDescription: string;
+    sectionTitle: string;
+  }) => [
+    {
+      id: 'learning-aid-definition-bytecode',
+      kind: 'definition' as const,
+      title: 'Bytecode',
+      content: 'Formato intermedio eseguito dalla JVM.',
+    },
+  ]
+);
+const generateStandaloneLessonQuizMock = vi.fn(async () => []);
+
+vi.mock('../../../services/openrouter/lessonImages.ts', () => ({
+  appendGeneratedVisualExample: appendGeneratedVisualExampleMock,
+}));
+
+vi.mock('../../../services/openrouter/learningAids.ts', () => ({
+  generateLessonLearningAids: generateLessonLearningAidsMock,
+}));
+
+vi.mock('../../../services/openrouter/lessonMarkdownQuality/index.ts', () => ({
+  generateStandaloneLessonQuiz: generateStandaloneLessonQuizMock,
+}));
 
 vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   const actual = await importOriginal<typeof import('../../../services/openrouter/shared.ts')>();
@@ -17,6 +50,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
 const {
   buildLearningPlanFromResearchCourse,
   generateResearchCoursePlan,
+  generateResearchLessonContent,
   generateResearchLessonDossier,
 } = await import('../../../services/openrouter/research.ts');
 
@@ -32,6 +66,9 @@ const profile: UserProfile = {
 beforeEach(() => {
   callOpenRouterMock.mockReset();
   retryWithBackoffMock.mockClear();
+  appendGeneratedVisualExampleMock.mockClear();
+  generateLessonLearningAidsMock.mockClear();
+  generateStandaloneLessonQuizMock.mockClear();
 });
 
 test('generateResearchCoursePlan normalizes course shape and clamps oversized outlines', async () => {
@@ -219,4 +256,36 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.disableModelOverride, true);
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_object');
+});
+
+test('generateResearchLessonContent returns contextual learning aids with the lesson', async () => {
+  callOpenRouterMock.mockResolvedValue('## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.');
+
+  const result = await generateResearchLessonContent({
+    lessonTitle: 'Kotlin e JVM',
+    moduleTitle: 'Fondamenti',
+    contextPrompt: 'Spiega la relazione tra Kotlin, bytecode e JVM.',
+    profile,
+    syllabus: [],
+    researchDossier: {
+      sectionId: 'lesson-1',
+      title: 'Kotlin e JVM',
+      generatedAt: '2026-05-12T12:00:00.000Z',
+      factualSummary: 'Kotlin compila in bytecode.',
+      keyExamples: [],
+      difficultSteps: [],
+      sources: [],
+      avoidOversimplifying: [],
+      controversies: [],
+      recentDevelopments: [],
+    },
+    onStatusUpdate: () => {},
+  });
+
+  assert.equal(result.learningAids[0]?.title, 'Bytecode');
+  assert.deepEqual(generateLessonLearningAidsMock.mock.calls[0]?.[0], {
+    contentMarkdown: '## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.',
+    sectionDescription: 'Spiega la relazione tra Kotlin, bytecode e JVM.',
+    sectionTitle: 'Kotlin e JVM',
+  });
 });

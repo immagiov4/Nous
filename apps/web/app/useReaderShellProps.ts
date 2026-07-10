@@ -164,6 +164,21 @@ export const useReaderShellProps = ({
     },
     [controller, notify]
   );
+  const handleDismissLearningAid = useCallback(
+    (learningAidId: string) => {
+      const activeSection = controller.activeSection;
+      if (!activeSection?.learningAids?.some(learningAid => learningAid.id === learningAidId)) {
+        return;
+      }
+
+      const learningAids = activeSection.learningAids.filter(
+        learningAid => learningAid.id !== learningAidId
+      );
+      controller.updateSection(activeSection.id, section => ({ ...section, learningAids }));
+      void controller.patchSectionLessonContent(activeSection.id, { learningAids });
+    },
+    [controller]
+  );
 
   return useMemo(
     () => ({
@@ -192,6 +207,7 @@ export const useReaderShellProps = ({
         isLoading: isActiveSectionLoading,
         isMobileViewport: readerState.readerChrome.isMobileViewport,
         isQuizSubmitted: readerState.isQuizSubmitted,
+        learningAids: controller.activeSection?.learningAids || [],
         onAdvanceSection: () => {
           void readerActions.handleAdvanceSection();
         },
@@ -202,6 +218,7 @@ export const useReaderShellProps = ({
         onContentClick: readerState.readerContext.handleContentClick,
         onContentContextMenu: readerState.readerContext.handleContentContextMenu,
         onContentPointerDownCapture: readerState.readerContext.handleContentPointerDownCapture,
+        onDismissLearningAid: handleDismissLearningAid,
         onSelectQuizAnswer: readerState.handleSelectQuizAnswer,
         onRemoveExerciseAttachment: handleRemoveExerciseAttachment,
         onSetIsQuizSubmitted: readerState.setIsQuizSubmitted,
@@ -347,6 +364,7 @@ export const useReaderShellProps = ({
       handleAttachSourceFile,
       handleBackToLibrary,
       handleExportProject,
+      handleDismissLearningAid,
       handleRepairApplicationExercises,
       handleAttachExerciseFiles,
       handleRemoveExerciseAttachment,

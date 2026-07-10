@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
-import type { FileData, PdfTextIndex, QuizQuestion } from '../../../types.ts';
+import type { FileData, LessonLearningAid, PdfTextIndex, QuizQuestion } from '../../../types.ts';
 
 const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async (operation: () => Promise<string>) => await operation());
 const getPdfTextSessionMock = vi.fn();
 const getPdfAssetSessionMock = vi.fn();
 const generateLessonVisualExampleMock = vi.fn();
+const generateLessonLearningAidsMock = vi.fn(
+  async (_options: {
+    contentMarkdown: string;
+    sectionDescription: string;
+    sectionTitle: string;
+  }): Promise<LessonLearningAid[]> => []
+);
 const buildStoredPdfDocumentAssetsMock = vi.fn((session, imageRefs) => ({
   kind: 'pdf' as const,
   parsedAt: session.parsedAt,
@@ -25,6 +32,10 @@ vi.mock('../../../services/openrouter/pdfAssets.ts', () => ({
 
 vi.mock('../../../services/openrouter/visualExamples.ts', () => ({
   generateLessonVisualExample: generateLessonVisualExampleMock,
+}));
+
+vi.mock('../../../services/openrouter/learningAids.ts', () => ({
+  generateLessonLearningAids: generateLessonLearningAidsMock,
 }));
 
 vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
@@ -55,6 +66,16 @@ test('generateSectionContent keeps all verified image placements instead of trun
   getPdfTextSessionMock.mockReset();
   getPdfAssetSessionMock.mockReset();
   generateLessonVisualExampleMock.mockReset();
+  generateLessonLearningAidsMock.mockReset();
+  generateLessonLearningAidsMock.mockResolvedValue([
+    {
+      id: 'learning-aid-definition-decal',
+      kind: 'definition',
+      title: 'Decal',
+      content: 'Texture proiettata su una superficie.',
+      anchorHeading: 'Decal',
+    },
+  ]);
   buildStoredPdfDocumentAssetsMock.mockClear();
 
   const bulkyMarkdown = `## Decal\n\n${'Spiegazione tecnica sui decal e sugli overlay. '.repeat(120)}`;
@@ -211,6 +232,15 @@ test('generateSectionContent keeps all verified image placements instead of trun
     ['pdf-img-001', 'pdf-img-002', 'pdf-img-003', 'pdf-img-004']
   );
   assert.equal(result.quiz.length, 2);
+  assert.equal(result.learningAids.length, 1);
+  const learningAidRequest = generateLessonLearningAidsMock.mock.calls[0]?.[0];
+  assert.equal(
+    learningAidRequest?.sectionDescription,
+    'Uso di decal, overlay e layering dei materiali'
+  );
+  assert.equal(learningAidRequest?.sectionTitle, 'Decal e overlay');
+  assert.match(String(learningAidRequest?.contentMarkdown ?? ''), /## Decal/);
+  assert.match(String(learningAidRequest?.contentMarkdown ?? ''), /## Conclusione/);
   assert.match(result.content, /\{\{PDF_IMAGE:pdf-img-004/);
 });
 

@@ -11,6 +11,7 @@ import type {
   LearningArtifactRenderPayload,
   LessonGeneratedVisual,
   LessonImageRef,
+  LessonLearningAid,
   LessonNode,
   PdfImageAsset,
   ProjectSource,
@@ -192,12 +193,14 @@ export interface WorkspaceReaderContentModel {
   isLoading: boolean;
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
+  learningAids: LessonLearningAid[];
   onAdvanceSection: () => void;
   onCompleteSection: () => void;
   onAttachExerciseFiles: (exerciseId: string, files: FileList | null) => void;
   onContentClick: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
+  onDismissLearningAid: (learningAidId: string) => void;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
   onRemoveExerciseAttachment: (exerciseId: string, attachmentId: string) => void;
   onSetIsQuizSubmitted: (value: boolean) => void;

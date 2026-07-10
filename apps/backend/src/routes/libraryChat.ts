@@ -122,7 +122,7 @@ const libraryChatTools = {
   }),
   getProjectStructures: tool({
     description:
-      'Recupera struttura delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note/highlight. Se `projectIds` e omesso usa tutto lo scope corrente. Utile per capire quali lezioni leggere poi con getLessonDetails.',
+      'Recupera struttura delle lezioni di uno o piu corsi, inclusi completion state, parentId e conteggi di note, highlight e aiuti didattici. Se `projectIds` e omesso usa tutto lo scope corrente. Usalo per individuare le lezioni prima di leggere contenuto o glossario con getLessonDetails.',
     inputSchema: jsonSchema<{
       projectIds?: string[];
     }>({
@@ -324,7 +324,7 @@ const libraryChatTools = {
   }),
   getLessonDetails: tool({
     description:
-      'Recupera una o piu lezioni complete con contenuto integrale, highlight estratti e testo delle note per corso e lessonIds specifici.',
+      'Recupera una o piu lezioni complete con contenuto integrale, highlight, note e aiuti didattici contestuali (definizioni, formule, simboli e analogie) per corso e lessonIds specifici. Usalo anche per richieste di glossario.',
     inputSchema: jsonSchema<{
       requests: Array<{
         lessonIds: string[];
@@ -362,7 +362,7 @@ const libraryChatTools = {
   }),
   searchLibrary: tool({
     description:
-      'Cerca in titoli, descrizioni, contenuti lezioni, note e highlight nei corsi consentiti dallo scope corrente.',
+      'Cerca in titoli, descrizioni, contenuti lezioni, note, highlight e aiuti didattici (definizioni, formule, simboli e analogie) nei corsi consentiti dallo scope corrente.',
     inputSchema: jsonSchema<{
       maxResults?: number;
       projectIds?: string[];
