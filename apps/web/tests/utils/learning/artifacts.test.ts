@@ -88,6 +88,37 @@ describe('learning artifacts', () => {
     });
   });
 
+  test('indexes generated image alt text and labels the artifact as an image', () => {
+    const payload = buildGeneratedVisualLearningArtifactPayload({
+      lesson: {
+        id: 'lesson-1',
+        title: 'Anatomia della foglia',
+        description: 'Strati e tessuti vegetali',
+        isCompleted: false,
+        type: 'core',
+        content: 'Epidermide, mesofillo e nervature.',
+      },
+      projectId: 'project-1',
+      projectTitle: 'Botanica',
+      visual: {
+        altText: 'Sezione trasversale di una foglia con i tessuti visibili',
+        code: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+        createdAt: '2026-07-10T00:00:00.000Z',
+        id: 'visual-image-1',
+        kind: 'image',
+        mediaType: 'image/png',
+        title: 'sezione_foglia',
+      },
+    });
+
+    expect(payload.summary).toMatchObject({
+      previewMode: 'thumbnail',
+      sourceLabel: 'Immagine',
+    });
+    expect(payload.searchText).toContain(
+      'Sezione trasversale di una foglia con i tessuti visibili'
+    );
+  });
   test('normalizes generated visuals and PDF images into stable render payloads', () => {
     const snapshot = buildSnapshot(
       buildTestLearningPlan(

@@ -68,7 +68,11 @@ const buildDraftLessonMarkdown = ({
           'Artefatto sorgente da modificare:',
           `Titolo: ${sourceArtifact.summary.title}`,
           `Tipo: ${sourceArtifact.summary.kind}`,
-          'visual' in sourceArtifact ? `Codice attuale:\n${sourceArtifact.visual.code}` : undefined,
+          'visual' in sourceArtifact && sourceArtifact.visual.kind === 'image'
+            ? `Descrizione attuale: ${sourceArtifact.visual.altText || sourceArtifact.visual.title}`
+            : 'visual' in sourceArtifact
+              ? `Codice attuale:\n${sourceArtifact.visual.code}`
+              : undefined,
         ]
           .filter(Boolean)
           .join('\n')

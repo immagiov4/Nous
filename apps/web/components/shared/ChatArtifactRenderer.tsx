@@ -50,6 +50,10 @@ const getArtifactKindLabel = (artifact: LearningArtifactRenderPayload): string =
     return 'Immagine PDF';
   }
 
+  if ('visual' in artifact && artifact.visual.kind === 'image') {
+    return 'Immagine generata';
+  }
+
   if ('visual' in artifact && artifact.visual.kind === 'html') {
     return 'Interattivo';
   }
@@ -58,7 +62,10 @@ const getArtifactKindLabel = (artifact: LearningArtifactRenderPayload): string =
 };
 
 const getArtifactIcon = (artifact: LearningArtifactRenderPayload) => {
-  if (artifact.summary.kind === 'pdf-image') {
+  if (
+    artifact.summary.kind === 'pdf-image' ||
+    ('visual' in artifact && artifact.visual.kind === 'image')
+  ) {
     return FileImage;
   }
 

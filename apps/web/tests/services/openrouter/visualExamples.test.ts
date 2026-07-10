@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { callOpenRouterMock } = vi.hoisted(() => ({
+const { callOpenRouterMock, requestGeneratedImageMock } = vi.hoisted(() => ({
   callOpenRouterMock: vi.fn(),
+  requestGeneratedImageMock: vi.fn(),
 }));
 
+vi.mock('../../../services/openrouter/imageClient.ts', () => ({
+  requestGeneratedImage: requestGeneratedImageMock,
+}));
 vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   const actual = await importOriginal<typeof import('../../../services/openrouter/shared.ts')>();
 
@@ -38,6 +42,7 @@ const VALID_CHART_RESPONSE = JSON.stringify({
 describe('explicit visual intent', () => {
   beforeEach(() => {
     callOpenRouterMock.mockReset();
+    requestGeneratedImageMock.mockReset();
   });
 
   test.each([
@@ -46,6 +51,7 @@ describe('explicit visual intent', () => {
     ['Mostra un class diagram UML', 'mermaid_class'],
     ['Costruisci un diagramma di flusso del processo', 'flowchart_svg'],
     ['Rendilo un simulatore interattivo con uno slider', 'interactive_html'],
+    ['Crea un’illustrazione realistica di una cellula', 'illustrative_image'],
   ] as const)('maps %s to %s without an LLM planner', (prompt, expectedType) => {
     expect(inferExplicitVisualType(prompt)).toBe(expectedType);
   });
@@ -82,11 +88,92 @@ describe('explicit visual intent', () => {
     );
     expect(draft?.visual.kind).toBe('html');
   });
+
+  test('generates an explicit image draft without an extra LLM renderer call', async () => {
+    requestGeneratedImageMock.mockResolvedValueOnce({
+      dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+      mediaType: 'image/png',
+    });
+
+    const draft = await generateLessonArtifactDraft({
+      lesson: {
+        id: 'lesson-1',
+        title: 'La cellula',
+        description: 'Struttura concreta di una cellula vegetale.',
+        type: 'core',
+        isCompleted: false,
+        content: '## Struttura\n\nParete, membrana, citoplasma e nucleo.',
+      },
+      projectId: 'project-1',
+      projectTitle: 'Biologia',
+      prompt: 'Crea un’illustrazione realistica di una cellula vegetale.',
+    });
+
+    expect(callOpenRouterMock).not.toHaveBeenCalled();
+    expect(requestGeneratedImageMock).toHaveBeenCalledTimes(1);
+    expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain(
+      'Struttura concreta di una cellula vegetale'
+    );
+    expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain('senza testo');
+    expect(draft?.visual).toMatchObject({
+      altText: 'Struttura concreta di una cellula vegetale.',
+      kind: 'image',
+      mediaType: 'image/png',
+    });
+  });
+  test('does not copy generated image bytes into a replacement prompt', async () => {
+    requestGeneratedImageMock.mockResolvedValueOnce({
+      dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+      mediaType: 'image/png',
+    });
+
+    await generateLessonArtifactDraft({
+      lesson: {
+        id: 'lesson-1',
+        title: 'La cellula',
+        description: 'Struttura concreta di una cellula vegetale.',
+        type: 'core',
+        isCompleted: false,
+        content: '## Struttura\n\nParete, membrana, citoplasma e nucleo.',
+      },
+      mode: 'replacement-draft',
+      projectId: 'project-1',
+      projectTitle: 'Biologia',
+      prompt: 'Crea un’illustrazione realistica più chiara.',
+      revisionInstructions: 'Mostra meglio il nucleo.',
+      sourceArtifact: {
+        summary: {
+          id: 'artifact-source',
+          kind: 'generated-visual',
+          lessonId: 'lesson-1',
+          lessonTitle: 'La cellula',
+          previewMode: 'thumbnail',
+          projectId: 'project-1',
+          projectTitle: 'Biologia',
+          title: 'cellula vegetale',
+        },
+        visual: {
+          altText: 'Cellula vegetale con nucleo e membrana',
+          code: 'data:image/png;base64,SECRET_IMAGE_BYTES',
+          createdAt: '2026-07-10T00:00:00.000Z',
+          id: 'visual-source',
+          kind: 'image',
+          mediaType: 'image/png',
+          title: 'cellula_vegetale',
+        },
+      },
+    });
+
+    const imagePrompt = requestGeneratedImageMock.mock.calls[0]?.[0];
+    expect(imagePrompt).toContain('Cellula vegetale con nucleo e membrana');
+    expect(imagePrompt).not.toContain('SECRET_IMAGE_BYTES');
+  });
 });
 
 describe('visual planner latency profile', () => {
   beforeEach(() => {
     callOpenRouterMock.mockReset();
+    requestGeneratedImageMock.mockReset();
   });
 
   test('uses low reasoning only when the request still needs planning', async () => {
@@ -110,5 +197,36 @@ describe('visual planner latency profile', () => {
         },
       })
     );
+  });
+
+  test('uses a generated image only when the planner selects a non-schematic subject', async () => {
+    callOpenRouterMock.mockResolvedValueOnce(
+      JSON.stringify({
+        visual_type: 'illustrative_image',
+        concept: 'Aspetto e consistenza dei diversi strati di una barriera corallina.',
+        pedagogical_goal: 'build_intuition',
+        anchor_heading: 'Confronto',
+        reason: 'La forma e la consistenza non si comprendono bene con forme schematiche.',
+      })
+    );
+    requestGeneratedImageMock.mockResolvedValueOnce({
+      dataUrl: 'data:image/webp;base64,ZmFrZS1pbWFnZQ==',
+      mediaType: 'image/webp',
+    });
+
+    const result = await generateLessonVisualExample(BASE_VISUAL_INPUT);
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
+    expect(callOpenRouterMock.mock.calls[0]?.[0].messages[0].content).toContain(
+      'mai per decorazione'
+    );
+    expect(requestGeneratedImageMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      anchorHeading: 'Confronto',
+      visual: {
+        kind: 'image',
+        mediaType: 'image/webp',
+      },
+    });
   });
 });

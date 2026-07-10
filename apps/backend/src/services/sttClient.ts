@@ -3,7 +3,7 @@ import {
   getOpenRouterJsonHeaders,
   OPENROUTER_API_BASE_URL,
   readOpenRouterErrorDetails,
-} from './openRouterAudioApi.js';
+} from './openRouterApi.js';
 
 export const DEFAULT_STT_MODEL = process.env.MODEL_STT || 'nvidia/parakeet-tdt-0.6b-v3';
 export const SUPPORTED_STT_AUDIO_FORMATS = [

@@ -18,7 +18,7 @@ describe('protected backend API routes', () => {
     process.env = { ...ORIGINAL_ENV };
   });
 
-  test('rejects unauthenticated access to project, AI, PDF, TTS, and STT APIs', async () => {
+  test('rejects unauthenticated access to project, AI, PDF, TTS, STT, and image APIs', async () => {
     const app = createApp();
     const protectedRequests = [
       request(app).get('/api/projects/projects'),
@@ -27,11 +27,12 @@ describe('protected backend API routes', () => {
       request(app).post('/api/pdf/extract-text').send({ fileData: '' }),
       request(app).post('/api/tts').send({ text: 'ciao' }),
       request(app).post('/api/stt').send({ data: 'YXVkaW8=', format: 'webm' }),
+      request(app).post('/api/images/generate').send({ prompt: 'Una cellula vegetale' }),
     ];
 
     const responses = await Promise.all(protectedRequests);
 
-    expect(responses.map(response => response.status)).toEqual([401, 401, 401, 401, 401, 401]);
+    expect(responses.map(response => response.status)).toEqual([401, 401, 401, 401, 401, 401, 401]);
     for (const response of responses) {
       expect(response.body).toEqual({
         success: false,

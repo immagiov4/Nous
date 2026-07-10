@@ -15,7 +15,7 @@ import {
   getOpenRouterJsonHeaders,
   OPENROUTER_API_BASE_URL,
   readOpenRouterErrorDetails,
-} from './openRouterAudioApi.js';
+} from './openRouterApi.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -4,6 +4,7 @@ import {
   findMissingStaticHtmlElementIds,
   hasUnsafeHtmlElementDereferences,
 } from '../../utils/visuals/htmlElementReferences.ts';
+import { requestGeneratedImage } from './imageClient.ts';
 import { normalizeSearchText } from './planQuality.ts';
 import {
   callOpenRouter,
@@ -24,6 +25,7 @@ Dato il testo finale di una lezione, decidi se serve una rappresentazione visiva
 
 Scegli esattamente un tipo:
 - illustrative_svg: intuizione spaziale, meccanismo fisico, metafora visuale, concetto astratto difficile.
+- illustrative_image: aspetto reale di oggetti, organismi, materiali, luoghi, scene storiche o fenomeni naturali che forme schematiche farebbero perdere.
 - flowchart_svg: processo, pipeline, sequenza, albero decisionale.
 - structural_svg: contenimento, architettura, strati, parti dentro un sistema.
 - interactive_html: variabile manipolabile o esplorazione passo-passo.
@@ -36,6 +38,7 @@ Regole:
 - Inferisci la lingua dal testo finale della lezione. La visuale deve usare la stessa lingua della lezione.
 - Preferisci una visuale quando mancano immagini del PDF e il concetto contiene relazioni, flussi, struttura o variabili.
 - Non generare visuali decorative. La visuale deve insegnare qualcosa che il testo da solo rende piu faticoso.
+- Usa illustrative_image solo quando aspetto, texture o scena concreta sono informazione indispensabile, mai per decorazione. Per processi, strutture, dati e confronti usa i tipi schematici.
 - Se "Immagini PDF gia integrate" e "si", scegli "none": le immagini del PDF sono il materiale visivo primario e non vanno affiancate da visuali generate meno deterministiche.
 - Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
 - **Copertura completa di elementi co-presenti.** Se la lezione presenta un insieme di elementi equivalenti (es. un elenco di N regole, N principi, N caratteristiche, N passaggi, N tipologie), la visuale deve rappresentarli TUTTI in un unico grafico. Non e accettabile scegliere un solo sottoelemento e ignorare gli altri. L'unica eccezione e quando un elemento e oggettivamente molto piu complesso degli altri e necessita una visuale dedicata mentre gli altri sono banali e auto-esplicativi; in quel caso la scelta deve essere giustificata nel campo "reason".
@@ -156,6 +159,7 @@ Regole:
 type VisualType =
   | 'chart_html'
   | 'flowchart_svg'
+  | 'illustrative_image'
   | 'illustrative_svg'
   | 'interactive_html'
   | 'mermaid_class'
@@ -222,6 +226,13 @@ const EXPLICIT_VISUAL_INTENTS: readonly ExplicitVisualIntent[] = [
   {
     visualType: 'mermaid_class',
     patterns: [/\bclass diagram\b/, /\bdiagramma (?:di|delle) classi\b/, /\bdiagramma uml\b/],
+  },
+  {
+    visualType: 'illustrative_image',
+    patterns: [
+      /\b(?:crea|genera|disegna|realizza|mostra) un(?:a)? (?:immagine|illustrazione)\b/,
+      /\b(?:immagine|illustrazione) (?:realistica|fotorealistica)\b/,
+    ],
   },
   {
     visualType: 'flowchart_svg',
@@ -495,6 +506,7 @@ ${lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 const PEDAGOGICAL_GOAL_BY_VISUAL_TYPE: Record<GeneratedVisualType, string> = {
   chart_html: 'show_data',
   flowchart_svg: 'show_process',
+  illustrative_image: 'build_intuition',
   illustrative_svg: 'build_intuition',
   interactive_html: 'enable_exploration',
   mermaid_class: 'show_structure',
@@ -517,6 +529,59 @@ const buildExplicitVisualPlan = (
   reason: 'Il tipo è inequivocabile, quindi il planner LLM non è necessario.',
 });
 
+const getImageSubject = (plan: VisualPlan, input: GenerateLessonVisualExampleInput): string => {
+  const plannedConcept = typeof plan.concept === 'string' ? plan.concept.trim() : '';
+  const subject = plannedConcept || input.sectionDescription.trim() || input.sectionTitle;
+  return subject.split(/\n+\s*Richiesta:/i)[0]?.trim() || input.sectionTitle;
+};
+
+const buildImageGenerationPrompt = (
+  plan: VisualPlan,
+  input: GenerateLessonVisualExampleInput
+): string => {
+  const subject = getImageSubject(plan, input);
+
+  return [
+    'Crea una singola illustrazione pedagogica accurata in formato orizzontale 16:9.',
+    `Soggetto: ${subject}`,
+    `Contesto della lezione: ${input.sectionTitle}. ${input.sectionDescription}`,
+    'Mostra con chiarezza il soggetto centrale e solo i dettagli utili a comprenderlo.',
+    'Rappresentazione visiva senza testo, lettere, numeri, didascalie, loghi o watermark.',
+    'Nessun elemento puramente decorativo e nessuna interfaccia grafica.',
+    `Estratto di riferimento: ${input.lessonMarkdown.slice(0, 4_000)}`,
+  ].join('\n');
+};
+
+const generateImageVisual = async (
+  plan: VisualPlan,
+  input: GenerateLessonVisualExampleInput
+): Promise<LessonGeneratedVisual> => {
+  const subject = getImageSubject(plan, input);
+  const image = await requestGeneratedImage(buildImageGenerationPrompt(plan, input));
+
+  return {
+    id: `${VISUAL_ID_PREFIX}001`,
+    title: sanitizeTitle(subject, 'illustrazione_pedagogica'),
+    kind: 'image',
+    code: image.dataUrl,
+    altText: subject,
+    mediaType: image.mediaType,
+    createdAt: timestampIso(),
+  };
+};
+
+const buildGeneratedImageResult = (
+  input: GenerateLessonVisualExampleInput,
+  plan: VisualPlan,
+  visual: LessonGeneratedVisual
+) => ({
+  anchorHeading: resolvePlannedAnchorHeading(
+    plan.anchor_heading,
+    getMarkdownHeadingTitles(input.lessonMarkdown)
+  ),
+  visual,
+  contentSuffix: `\n\n${buildVisualPlaceholder(visual)}`,
+});
 const requestVisualPlan = async (input: GenerateLessonVisualExampleInput): Promise<VisualPlan> => {
   const response = await retryWithBackoff(
     () =>
@@ -551,6 +616,11 @@ export const generateLessonVisualExample = async (
   const visualType = plan.visual_type;
   if (!visualType || visualType === 'none') {
     return null;
+  }
+
+  if (visualType === 'illustrative_image') {
+    const imageVisual = await generateImageVisual(plan, input);
+    return buildGeneratedImageResult(input, plan, imageVisual);
   }
 
   const rendererPrompt = getRendererPrompt(visualType);

@@ -214,7 +214,9 @@ export interface LessonImageRef {
   anchorHeading?: string;
 }
 
-export type LessonGeneratedVisualKind = 'svg' | 'html' | 'mermaid';
+export type GeneratedRasterMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
+
+export type LessonGeneratedVisualKind = 'svg' | 'html' | 'image' | 'mermaid';
 
 export interface LessonGeneratedVisual {
   id: string;
@@ -222,6 +224,8 @@ export interface LessonGeneratedVisual {
   kind: LessonGeneratedVisualKind;
   code: string;
   diagramType?: 'erDiagram' | 'classDiagram';
+  altText?: string;
+  mediaType?: GeneratedRasterMediaType;
   loadingMessages?: string[];
   anchorHeading?: string;
   createdAt: string;

@@ -22,6 +22,7 @@ import type {
   LessonGeneratedVisual,
   SectionAnnotation,
 } from '../../../types.ts';
+import { getGeneratedVisualSourceLabel } from '../../../utils/learning/artifacts.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
@@ -53,7 +54,7 @@ const createFallbackVisualArtifactPayload = ({
     previewMode: visual.kind === 'html' ? 'chip-only' : 'thumbnail',
     projectId: '',
     projectTitle: '',
-    sourceLabel: visual.kind === 'html' ? 'Interattivo' : 'Visuale',
+    sourceLabel: getGeneratedVisualSourceLabel(visual),
     title: title || visual.title?.replace(/[_-]+/g, ' ').trim() || 'Esempio visuale',
   },
   visual,

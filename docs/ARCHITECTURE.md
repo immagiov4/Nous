@@ -254,6 +254,12 @@ Browser recordings are capped at 90 seconds. The backend validates the audio for
 
 Provider details stay in server logs; the frontend receives stable Italian error messages for denied microphone access, empty audio, and transcription failures.
 
+## Generated image artifacts
+
+The visual planner can select `illustrative_image` only for concrete appearance, texture, physical objects, organisms, places, historical scenes, or natural phenomena where a schematic representation would lose essential information. Processes, structures, comparisons, and quantitative data continue to use SVG, Mermaid, or interactive HTML.
+
+The frontend sends the pedagogical image prompt to the authenticated `/api/images/generate` route. The backend calls OpenRouter's dedicated `/images` endpoint with a server-owned model, defaulting to `google/gemini-3.1-flash-lite-image` and configurable through `MODEL_IMAGE`. Only PNG, JPEG, and WebP base64 responses are accepted and persisted; generated raster data URLs are never embedded in later LLM revision prompts.
+
 ## Where to make changes
 
 | Goal | Files to start with |

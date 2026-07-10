@@ -39,7 +39,43 @@ const missingElementVisual: LessonGeneratedVisual = {
   title: 'Elemento mancante',
 };
 
+const rasterImageVisual = {
+  altText: 'Sezione trasversale di una foglia',
+  code: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+  createdAt: '2026-07-10T00:00:00.000Z',
+  id: 'visual-raster-image',
+  kind: 'image',
+  mediaType: 'image/png',
+  title: 'sezione_foglia',
+} as unknown as LessonGeneratedVisual;
+
+const unsafeImageVisual = {
+  altText: 'Immagine non sicura',
+  code: 'javascript:alert(1)',
+  createdAt: '2026-07-10T00:00:00.000Z',
+  id: 'visual-unsafe-image',
+  kind: 'image',
+  mediaType: 'image/png',
+  title: 'immagine_non_sicura',
+} as unknown as LessonGeneratedVisual;
 describe('GeneratedVisualFrame', () => {
+  test('renders generated raster images directly without an iframe', () => {
+    render(<GeneratedVisualFrame title="Sezione foglia" visual={rasterImageVisual} />);
+
+    expect(screen.getByRole('img', { name: 'Sezione trasversale di una foglia' })).toHaveAttribute(
+      'src',
+      rasterImageVisual.code
+    );
+    expect(screen.queryByTitle('Sezione foglia')).toBeNull();
+  });
+
+  test('rejects unsafe generated image sources', () => {
+    render(<GeneratedVisualFrame title="Immagine non sicura" visual={unsafeImageVisual} />);
+
+    expect(screen.queryByRole('img')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Immagine non disponibile');
+  });
+
   test('injects dark-mode normalization for generated HTML colors', () => {
     render(
       <GeneratedVisualFrame isDarkMode={true} title="Nodo chiaro" visual={brightHtmlVisual} />

@@ -7,6 +7,7 @@ import { resolveCurrentUser } from './auth/currentUser.js';
 import { getBackendServerConfig, loadServerConfig } from './config/serverConfig.js';
 import adminRouter from './routes/admin.js';
 import chatRouter from './routes/chat.js';
+import imagesRouter from './routes/images.js';
 import openRouterProxyRouter from './routes/openRouterProxy.js';
 import pdfRouter from './routes/pdf.js';
 import projectsRouter from './routes/projects.js';
@@ -85,6 +86,7 @@ export const createApp = () => {
 
   app.use('/api/tts', resolveCurrentUser, ttsRouter);
   app.use('/api/stt', resolveCurrentUser, sttRouter);
+  app.use('/api/images', resolveCurrentUser, imagesRouter);
   app.use('/api/voices', voicesRouter);
   app.use('/api/status', statusRouter);
   app.use('/api/pdf', resolveCurrentUser, pdfRouter);

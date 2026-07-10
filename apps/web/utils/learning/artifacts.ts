@@ -44,6 +44,14 @@ const normalizeSearchText = (value: string): string =>
 const formatGeneratedVisualTitle = (title: string): string =>
   title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Esempio visuale';
 
+export const getGeneratedVisualSourceLabel = (visual: LessonGeneratedVisual): string => {
+  if (visual.kind === 'image') {
+    return 'Immagine';
+  }
+
+  return visual.kind === 'html' ? 'Interattivo' : 'Visuale';
+};
+
 const buildArtifactId = ({
   artifactId,
   kind,
@@ -174,7 +182,7 @@ export const buildGeneratedVisualLearningArtifactPayload = ({
   projectTitle: string;
   visual: LessonGeneratedVisual;
 }): LearningArtifactRenderPayload => ({
-  searchText: [getSectionSearchText(lesson), visual.title, visual.anchorHeading]
+  searchText: [getSectionSearchText(lesson), visual.title, visual.altText, visual.anchorHeading]
     .filter(Boolean)
     .join(' '),
   summary: {
@@ -191,7 +199,7 @@ export const buildGeneratedVisualLearningArtifactPayload = ({
     previewMode: getVisualPreviewMode(visual),
     projectId,
     projectTitle,
-    sourceLabel: visual.kind === 'html' ? 'Interattivo' : 'Visuale',
+    sourceLabel: getGeneratedVisualSourceLabel(visual),
     title: formatGeneratedVisualTitle(visual.title),
     description: lesson.description,
   },
@@ -222,7 +230,7 @@ const getArtifactSearchText = (artifact: LearningArtifactRenderPayload): string 
   }
 
   if ('visual' in artifact) {
-    baseText.push(artifact.visual.title, artifact.visual.anchorHeading);
+    baseText.push(artifact.visual.title, artifact.visual.altText, artifact.visual.anchorHeading);
   }
 
   return normalizeSearchText(baseText.filter(Boolean).join(' '));

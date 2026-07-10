@@ -164,7 +164,7 @@ Contiene due famiglie:
 - **Retry** ([retry.ts](apps/web/services/openrouter/retry.ts)): backoff esponenziale 1s→2s→4s, max 3. Retriabile su 5xx/408/429, network errors, e tre tipi di "modello mi ha dato spazzatura" (`empty_stream`, `empty_lesson_content`, `invalid_json_response`).
 - **Payload limits** ([payloadLimits.ts](apps/web/services/openrouter/payloadLimits.ts)): pre-check del JSON body prima del fetch per evitare 413.
 
-### Le 8 costanti modello (snapshot attuale)
+### Le 10 costanti modello (snapshot attuale)
 
 | Costante | Default | Override utente UI? |
 |---|---|---|
@@ -177,6 +177,7 @@ Contiene due famiglie:
 | `MODEL_PDF_IMAGE_CAPTION` | `nvidia/nemotron-nano-12b-v2-vl` | no |
 | `MODEL_VISUAL_PLANNER` | = MODEL_FLASH | no |
 | `MODEL_VISUAL_RENDERER` | = MODEL_REASONING | no |
+| `MODEL_IMAGE` | `google/gemini-3.1-flash-lite-image` | no |
 
 ### Sequenza pipeline per un nuovo progetto
 

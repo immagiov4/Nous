@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef } from 'react';
 import type { LessonGeneratedVisual } from '../../types.ts';
+import { isSafeGeneratedImageDataUrl } from '../../utils/visuals/generatedImage.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
 import { findMissingStaticHtmlElementIds } from '../../utils/visuals/htmlElementReferences.ts';
 
@@ -466,13 +467,15 @@ const GeneratedVisualFrame = ({
   visual,
 }: GeneratedVisualFrameProps) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const hostDocument = useMemo(
-    () =>
-      visual.kind === 'mermaid'
-        ? buildMermaidHost(visual, isDarkMode)
-        : buildVisualHost(visual, isDarkMode),
-    [isDarkMode, visual]
-  );
+  const hostDocument = useMemo(() => {
+    if (visual.kind === 'image') {
+      return '';
+    }
+
+    return visual.kind === 'mermaid'
+      ? buildMermaidHost(visual, isDarkMode)
+      : buildVisualHost(visual, isDarkMode);
+  }, [isDarkMode, visual]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -497,6 +500,29 @@ const GeneratedVisualFrame = ({
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  if (visual.kind === 'image') {
+    const imageAltText =
+      visual.altText?.trim() || visual.title.replace(/[_-]+/g, ' ').trim() || title;
+
+    return (
+      <figure className={`${className} overflow-hidden bg-transparent`} data-nous-speech="ignore">
+        {isSafeGeneratedImageDataUrl(visual.code) ? (
+          <img
+            src={visual.code}
+            alt={imageAltText}
+            className="mx-auto block max-h-[72dvh] w-full rounded-[1.2rem] object-contain"
+            decoding="async"
+            loading="lazy"
+          />
+        ) : (
+          <output className="block rounded-2xl border border-stone-200 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+            Immagine non disponibile
+          </output>
+        )}
+      </figure>
+    );
+  }
 
   return (
     <figure className={`${className} overflow-hidden bg-transparent`} data-nous-speech="ignore">
