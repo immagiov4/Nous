@@ -94,6 +94,7 @@ export const useReaderShellProps = ({
     controller.generatingSectionId === controller.activeSectionId;
   const isRepairingApplicationExercises =
     controller.workflowState.generateExercise.status === 'pending';
+  const isEvaluatingExercise = controller.workflowState.evaluateExercise.status === 'pending';
   const loadingStatus = controller.blockingMessage || t('Caricamento...');
   const playerCurrentChunkIsLoading =
     readerState.ttsPlayer.audioState.chunks[readerState.ttsPlayer.audioState.currentChunkIndex]
@@ -164,6 +165,12 @@ export const useReaderShellProps = ({
     },
     [controller, notify]
   );
+  const handleRequestExerciseFeedback = useCallback(
+    (exerciseId: string, internalText: string) => {
+      void controller.evaluateApplicationExercise(exerciseId, internalText);
+    },
+    [controller]
+  );
   const handleDismissLearningAid = useCallback(
     (learningAidId: string) => {
       const activeSection = controller.activeSection;
@@ -203,6 +210,7 @@ export const useReaderShellProps = ({
         currentLessonArtifactPayloads,
         hasNextSection,
         isDarkMode: readerState.readerChrome.isDarkMode,
+        isEvaluatingExercise,
         isFocusMode: readerState.readerChrome.isFocusMode,
         isLoading: isActiveSectionLoading,
         isMobileViewport: readerState.readerChrome.isMobileViewport,
@@ -219,6 +227,7 @@ export const useReaderShellProps = ({
         onContentContextMenu: readerState.readerContext.handleContentContextMenu,
         onContentPointerDownCapture: readerState.readerContext.handleContentPointerDownCapture,
         onDismissLearningAid: handleDismissLearningAid,
+        onRequestExerciseFeedback: handleRequestExerciseFeedback,
         onSelectQuizAnswer: readerState.handleSelectQuizAnswer,
         onRemoveExerciseAttachment: handleRemoveExerciseAttachment,
         onSetIsQuizSubmitted: readerState.setIsQuizSubmitted,
@@ -228,7 +237,10 @@ export const useReaderShellProps = ({
         scrollContainerRef: readerState.scrollContainerRef,
         sectionAnnotations: controller.activeSection?.annotations,
         sectionContent: activeExercise ? '' : controller.sectionContent,
+        exerciseFeedbackError: controller.workflowState.evaluateExercise.error,
+        exerciseFeedbackStatus: controller.workflowState.evaluateExercise.message,
         sectionReasoningText: controller.workflowState.loadSection.reasoning,
+        sectionProgress: controller.workflowState.loadSection.progress,
         sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
         ttsTextPicker: {
           hoveredChunkIndex: readerState.ttsTextPicker.hoveredChunkIndex,
@@ -251,12 +263,14 @@ export const useReaderShellProps = ({
         isSettingsOpen: readerState.readerChrome.isSettingsOpen,
         lastAudioTab: readerState.lastAudioTab,
         learningPlanTitle: controller.learningPlan?.title || 'Percorso di Studio',
+        learningAids: controller.activeSection?.learningAids || [],
         loadingStatus,
         musicUrl: controller.musicUrl,
         musicVolume: readerState.musicVolume,
         onBackToLibrary: handleBackToLibrary,
         onOpenSidebar: () => readerState.readerChrome.setIsMobileSidebarOpen(v => !v),
         onRegenerateActiveSection: readerActions.handleRegenerateActiveSection,
+        onDismissLearningAid: handleDismissLearningAid,
         onSetCourseGenerationNotes: controller.setGenerationNotes,
         onSetDarkMode: readerState.readerChrome.setIsDarkMode,
         onSetFocusMode: readerState.readerChrome.setIsFocusMode,
@@ -275,6 +289,7 @@ export const useReaderShellProps = ({
           currentTime: readerState.ttsPlayer.playerCurrentTime,
           currentVoice: readerState.ttsPlayer.audioState.currentVoice,
           duration: readerState.ttsPlayer.playerDuration,
+          errorMessage: readerState.ttsPlayer.errorMessage,
           isLoading: playerCurrentChunkIsLoading,
           isPlaying: readerState.ttsPlayer.audioState.isPlaying,
           isTextPickerActive: readerState.ttsTextPicker.isActive,
@@ -359,7 +374,10 @@ export const useReaderShellProps = ({
       controller.setGenerationNotes,
       controller.setMusicUrl,
       controller.storageError,
+      controller.workflowState.evaluateExercise.error,
+      controller.workflowState.evaluateExercise.message,
       controller.workflowState.loadSection.reasoning,
+      controller.workflowState.loadSection.progress,
       currentLessonArtifactPayloads,
       handleAttachSourceFile,
       handleBackToLibrary,
@@ -368,10 +386,12 @@ export const useReaderShellProps = ({
       handleRepairApplicationExercises,
       handleAttachExerciseFiles,
       handleRemoveExerciseAttachment,
+      handleRequestExerciseFeedback,
       handleUpdateExerciseInternalText,
       hasNextSection,
       isActiveSectionLoading,
       isRepairingApplicationExercises,
+      isEvaluatingExercise,
       loadingStatus,
       pdfMappingWarning,
       playerCurrentChunkIsLoading,
@@ -414,6 +434,7 @@ export const useReaderShellProps = ({
       readerState.ttsPlayer.audioState.playbackRate,
       readerState.ttsPlayer.availableVoices,
       readerState.ttsPlayer.chunkOptions,
+      readerState.ttsPlayer.errorMessage,
       readerState.ttsPlayer.handleSeek,
       readerState.ttsPlayer.handleSelectChunk,
       readerState.ttsPlayer.handleSkipChunk,

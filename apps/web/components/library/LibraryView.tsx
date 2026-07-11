@@ -35,6 +35,8 @@ interface LibraryViewProps {
   isNewCourseLoading: boolean;
   libraryAttachedContextRefs: LibraryContextRef[];
   libraryArtifactPayloadsByToolCallId: Record<string, LearningArtifactRenderPayload[]>;
+  libraryArtifactPreviewIdOverride?: string | null;
+  libraryArtifactPortalContainer?: HTMLElement | null;
   libraryFloatingArtifactPayloads: LearningArtifactRenderPayload[];
   libraryErrorMessage: string | null;
   libraryMessages: UIMessage[];
@@ -45,6 +47,8 @@ interface LibraryViewProps {
   planFileInputId: string;
   projects: SavedProjectMeta[];
   pendingHomeFileName: string | null;
+  homeChatDraftValue?: string;
+  homeChatScrollTopOverride?: number;
   sourceFileInputId: string;
   storageError: string | null;
   onClearPendingHomeFile: () => void;
@@ -109,6 +113,8 @@ const LibraryView = ({
   isNewCourseLoading,
   libraryAttachedContextRefs,
   libraryArtifactPayloadsByToolCallId,
+  libraryArtifactPreviewIdOverride,
+  libraryArtifactPortalContainer,
   libraryFloatingArtifactPayloads,
   libraryErrorMessage,
   libraryMessages,
@@ -117,6 +123,8 @@ const LibraryView = ({
   libraryGenerateArtifacts,
   newCourseLoadingStatus,
   planFileInputId,
+  homeChatDraftValue,
+  homeChatScrollTopOverride,
   pendingHomeFileName,
   sourceFileInputId,
   storageError,
@@ -207,6 +215,8 @@ const LibraryView = ({
           isNewCourseLoading={isNewCourseLoading}
           libraryAttachedContextRefs={libraryAttachedContextRefs}
           libraryArtifactPayloadsByToolCallId={libraryArtifactPayloadsByToolCallId}
+          libraryArtifactPreviewIdOverride={libraryArtifactPreviewIdOverride}
+          libraryArtifactPortalContainer={libraryArtifactPortalContainer}
           libraryFloatingArtifactPayloads={libraryFloatingArtifactPayloads}
           libraryErrorMessage={libraryErrorMessage}
           libraryMessages={libraryMessages}
@@ -214,6 +224,8 @@ const LibraryView = ({
           libraryWebSearch={libraryWebSearch}
           libraryGenerateArtifacts={libraryGenerateArtifacts}
           newCourseLoadingStatus={newCourseLoadingStatus}
+          draftValueOverride={homeChatDraftValue}
+          scrollTopOverride={homeChatScrollTopOverride}
           pendingFileName={pendingHomeFileName}
           onClearPendingFile={onClearPendingHomeFile}
           onClearLibraryMessages={onClearLibraryMessages}
@@ -236,7 +248,10 @@ const LibraryView = ({
 
         <section className="mt-8">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-            <h2 className="text-2xl font-serif text-gray-900 dark:text-zinc-100">
+            <h2
+              data-library-target="heading"
+              className="text-2xl font-serif text-gray-900 dark:text-zinc-100"
+            >
               {t('Libreria')}
             </h2>
             <div className="flex items-center gap-3">

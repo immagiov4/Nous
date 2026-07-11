@@ -1,5 +1,6 @@
 import { memo, useLayoutEffect } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../constants/layout.ts';
+import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
 import WorkspaceReaderContent from './shell/WorkspaceReaderContent.tsx';
@@ -10,13 +11,16 @@ import WorkspaceReaderSidebar from './shell/WorkspaceReaderSidebar.tsx';
 const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   banners,
   content,
+  displayMode = 'application',
   header,
   overlays,
   shouldUseDesktopSidebar,
   sidebar,
 }: WorkspaceReaderShellProps) {
+  const { viewportHeight } = useMobileKeyboardOffset();
+
   useLayoutEffect(() => {
-    if (typeof document === 'undefined') {
+    if (displayMode === 'embedded' || typeof document === 'undefined') {
       return;
     }
 
@@ -38,10 +42,10 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
       html.style.overscrollBehavior = previousHtmlOverscroll;
       body.style.overscrollBehavior = previousBodyOverscroll;
     };
-  }, []);
+  }, [displayMode]);
 
   useLayoutEffect(() => {
-    if (typeof window === 'undefined') {
+    if (displayMode === 'embedded' || typeof window === 'undefined') {
       return;
     }
 
@@ -60,14 +64,30 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [content.scrollContainerRef]);
+  }, [content.scrollContainerRef, displayMode]);
+
+  const isEmbedded = displayMode === 'embedded';
+  const sidebarModel = isEmbedded ? { ...sidebar, placement: 'container' as const } : sidebar;
+  const contentModel = isEmbedded ? { ...content, scrollMode: 'document' as const } : content;
 
   return (
     <div
-      className="flex h-screen max-w-full overflow-hidden overscroll-none bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark"
-      style={{ height: '100dvh', maxHeight: '100dvh' }}
+      data-reader-display-mode={displayMode}
+      className={`relative flex max-w-full overscroll-none bg-paper-light font-sans transition-colors duration-300 dark:bg-paper-dark ${
+        isEmbedded
+          ? `${header.isDarkMode ? 'dark ' : ''}min-h-[34rem] overflow-visible`
+          : 'h-screen overflow-hidden'
+      }`}
+      style={
+        isEmbedded
+          ? undefined
+          : {
+              height: viewportHeight === null ? '100dvh' : `${viewportHeight}px`,
+              maxHeight: viewportHeight === null ? '100dvh' : `${viewportHeight}px`,
+            }
+      }
     >
-      <WorkspaceReaderSidebar {...sidebar} />
+      <WorkspaceReaderSidebar {...sidebarModel} />
 
       <div
         className="relative flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-x-hidden bg-paper-light transition-[margin] duration-300 dark:bg-paper-dark"
@@ -75,7 +95,7 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
       >
         <WorkspaceReaderBanners {...banners} />
         <WorkspaceReaderHeader {...header} />
-        <WorkspaceReaderContent {...content} />
+        <WorkspaceReaderContent {...contentModel} />
 
         <WorkspaceReaderOverlays {...overlays} />
       </div>

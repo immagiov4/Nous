@@ -142,6 +142,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
   isLoading,
   isMobileViewport,
   learningPlanTitle,
+  placement = 'viewport',
   repairApplicationExercisesLabel,
   onBackToLibrary,
   onExportProject,
@@ -239,6 +240,9 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       ),
     };
   })();
+  const isContainerPlaced = placement === 'container';
+  const viewportPositionClassName = isContainerPlaced ? 'absolute' : 'fixed';
+  const sidebarHeight = isContainerPlaced ? '100%' : '100dvh';
 
   return (
     <>
@@ -246,19 +250,19 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
         <button
           type="button"
           aria-label={t('Chiudi elenco lezioni')}
-          className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-[1px]"
+          className={`${viewportPositionClassName} inset-0 z-[60] bg-black/40 backdrop-blur-[1px]`}
           onClick={() => onSetIsMobileSidebarOpen(false)}
         />
       ) : null}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-[70] flex min-h-0 flex-col overflow-hidden border-r border-gray-200/80 bg-white transition-transform duration-300 dark:border-zinc-700/80 dark:bg-zinc-800 ${
+        className={`${viewportPositionClassName} inset-y-0 left-0 z-[70] flex min-h-0 flex-col overflow-hidden border-r border-gray-200/80 bg-white transition-transform duration-300 dark:border-zinc-700/80 dark:bg-zinc-800 ${
           shouldShowSidebar ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{
           width: isMobileViewport ? 'min(92vw, 24rem)' : READER_SIDEBAR_WIDTH_PX,
-          height: '100dvh',
-          maxHeight: '100dvh',
+          height: sidebarHeight,
+          maxHeight: sidebarHeight,
         }}
       >
         <div className="shrink-0 flex flex-col gap-4 border-b border-gray-200/80 px-5 py-5 dark:border-zinc-700/80 sm:px-6">

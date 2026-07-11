@@ -1,7 +1,24 @@
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high';
+
+export const DEFAULT_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
+export const DEFAULT_TTS_VOICE = 'Ara';
+
+const UNAVAILABLE_TTS_MODELS = new Set([
+  'openai/gpt-4o-mini-tts',
+  'openai/gpt-4o-mini-tts-2025-12-15',
+  'mistralai/voxtral-mini-tts-2603',
+]);
+
 export interface GlobalModelConfig {
   assessmentModel: string;
+  assessmentReasoningEffort: ReasoningEffort;
   contextModel: string;
+  contextReasoningEffort: ReasoningEffort;
   lessonModel: string;
+  lessonReasoningEffort: ReasoningEffort;
+  progressModel: string;
+  progressReasoningEffort: ReasoningEffort;
+  researchModel: string;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
@@ -10,16 +27,32 @@ export interface GlobalModelConfig {
 export type GlobalModelConfigPatch = Partial<
   Pick<
     GlobalModelConfig,
-    'assessmentModel' | 'contextModel' | 'lessonModel' | 'ttsModel' | 'ttsVoice'
+    | 'assessmentModel'
+    | 'assessmentReasoningEffort'
+    | 'contextModel'
+    | 'contextReasoningEffort'
+    | 'lessonModel'
+    | 'lessonReasoningEffort'
+    | 'progressModel'
+    | 'progressReasoningEffort'
+    | 'researchModel'
+    | 'ttsModel'
+    | 'ttsVoice'
   >
 >;
 
 const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   assessmentModel: process.env.MODEL_ASSESSMENT || 'google/gemini-3.1-flash-lite',
+  assessmentReasoningEffort: 'medium',
   contextModel: process.env.MODEL_CONTEXT || 'google/gemini-3.1-flash-lite',
+  contextReasoningEffort: 'medium',
   lessonModel: process.env.MODEL_LESSON || 'openai/gpt-5.4-mini',
-  ttsModel: process.env.MODEL_TTS || 'openai/gpt-4o-mini-tts',
-  ttsVoice: process.env.TTS_VOICE || 'coral',
+  lessonReasoningEffort: 'medium',
+  progressModel: process.env.MODEL_PROGRESS || 'google/gemini-3.1-flash-lite',
+  progressReasoningEffort: 'low',
+  researchModel: process.env.MODEL_RESEARCH_PLANNER || 'perplexity/sonar-pro-search',
+  ttsModel: process.env.MODEL_TTS || DEFAULT_TTS_MODEL,
+  ttsVoice: process.env.TTS_VOICE || DEFAULT_TTS_VOICE,
 };
 
 let activeModelConfig: GlobalModelConfig = {
@@ -31,8 +64,14 @@ let persistedModelConfigPromise: Promise<GlobalModelConfig> | null = null;
 interface PersistedModelConfigRow {
   id?: 'global';
   assessment_model?: string;
+  assessment_reasoning_effort?: string;
   context_model?: string;
+  context_reasoning_effort?: string;
   lesson_model?: string;
+  lesson_reasoning_effort?: string;
+  progress_model?: string;
+  progress_reasoning_effort?: string;
+  research_model?: string;
   tts_model?: string;
   tts_voice?: string;
   updated_at?: string;
@@ -40,6 +79,14 @@ interface PersistedModelConfigRow {
 
 const readConfigValue = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
+const REASONING_EFFORTS = new Set<ReasoningEffort>(['none', 'low', 'medium', 'high']);
+
+export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
+  typeof value === 'string' && REASONING_EFFORTS.has(value as ReasoningEffort);
+
+const readReasoningEffort = (value: unknown, fallback: ReasoningEffort): ReasoningEffort =>
+  isReasoningEffort(value) ? value : fallback;
 
 export const getGlobalModelConfig = (): GlobalModelConfig => activeModelConfig;
 
@@ -61,11 +108,29 @@ export const patchGlobalModelConfig = (patch: GlobalModelConfigPatch): GlobalMod
     ...(readConfigValue(patch.assessmentModel)
       ? { assessmentModel: readConfigValue(patch.assessmentModel) }
       : {}),
+    ...(isReasoningEffort(patch.assessmentReasoningEffort)
+      ? { assessmentReasoningEffort: patch.assessmentReasoningEffort }
+      : {}),
     ...(readConfigValue(patch.contextModel)
       ? { contextModel: readConfigValue(patch.contextModel) }
       : {}),
+    ...(isReasoningEffort(patch.contextReasoningEffort)
+      ? { contextReasoningEffort: patch.contextReasoningEffort }
+      : {}),
     ...(readConfigValue(patch.lessonModel)
       ? { lessonModel: readConfigValue(patch.lessonModel) }
+      : {}),
+    ...(isReasoningEffort(patch.lessonReasoningEffort)
+      ? { lessonReasoningEffort: patch.lessonReasoningEffort }
+      : {}),
+    ...(readConfigValue(patch.progressModel)
+      ? { progressModel: readConfigValue(patch.progressModel) }
+      : {}),
+    ...(isReasoningEffort(patch.progressReasoningEffort)
+      ? { progressReasoningEffort: patch.progressReasoningEffort }
+      : {}),
+    ...(readConfigValue(patch.researchModel)
+      ? { researchModel: readConfigValue(patch.researchModel) }
       : {}),
     ...(readConfigValue(patch.ttsModel) ? { ttsModel: readConfigValue(patch.ttsModel) } : {}),
     ...(readConfigValue(patch.ttsVoice) ? { ttsVoice: readConfigValue(patch.ttsVoice) } : {}),
@@ -89,21 +154,56 @@ const getSupabaseRestConfig = () => ({
 const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelConfigRow => ({
   id: 'global',
   assessment_model: config.assessmentModel,
+  assessment_reasoning_effort: config.assessmentReasoningEffort,
   context_model: config.contextModel,
+  context_reasoning_effort: config.contextReasoningEffort,
   lesson_model: config.lessonModel,
+  lesson_reasoning_effort: config.lessonReasoningEffort,
+  progress_model: config.progressModel,
+  progress_reasoning_effort: config.progressReasoningEffort,
+  research_model: config.researchModel,
   tts_model: config.ttsModel,
   tts_voice: config.ttsVoice,
   updated_at: config.updatedAt,
 });
 
-const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConfig => ({
-  assessmentModel: readConfigValue(row.assessment_model) || activeModelConfig.assessmentModel,
-  contextModel: readConfigValue(row.context_model) || activeModelConfig.contextModel,
-  lessonModel: readConfigValue(row.lesson_model) || activeModelConfig.lessonModel,
-  ttsModel: readConfigValue(row.tts_model) || activeModelConfig.ttsModel,
-  ttsVoice: readConfigValue(row.tts_voice) || activeModelConfig.ttsVoice,
-  updatedAt: readConfigValue(row.updated_at) || activeModelConfig.updatedAt,
-});
+const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConfig => {
+  const persistedTtsModel = readConfigValue(row.tts_model);
+  const usesUnavailableTtsModel = Boolean(
+    persistedTtsModel && UNAVAILABLE_TTS_MODELS.has(persistedTtsModel)
+  );
+
+  return {
+    assessmentModel: readConfigValue(row.assessment_model) || activeModelConfig.assessmentModel,
+    assessmentReasoningEffort: readReasoningEffort(
+      row.assessment_reasoning_effort,
+      activeModelConfig.assessmentReasoningEffort
+    ),
+    contextModel: readConfigValue(row.context_model) || activeModelConfig.contextModel,
+    contextReasoningEffort: readReasoningEffort(
+      row.context_reasoning_effort,
+      activeModelConfig.contextReasoningEffort
+    ),
+    lessonModel: readConfigValue(row.lesson_model) || activeModelConfig.lessonModel,
+    lessonReasoningEffort: readReasoningEffort(
+      row.lesson_reasoning_effort,
+      activeModelConfig.lessonReasoningEffort
+    ),
+    progressModel: readConfigValue(row.progress_model) || activeModelConfig.progressModel,
+    progressReasoningEffort: readReasoningEffort(
+      row.progress_reasoning_effort,
+      activeModelConfig.progressReasoningEffort
+    ),
+    researchModel: readConfigValue(row.research_model) || activeModelConfig.researchModel,
+    ttsModel: usesUnavailableTtsModel
+      ? DEFAULT_TTS_MODEL
+      : persistedTtsModel || activeModelConfig.ttsModel,
+    ttsVoice: usesUnavailableTtsModel
+      ? DEFAULT_TTS_VOICE
+      : readConfigValue(row.tts_voice) || activeModelConfig.ttsVoice,
+    updatedAt: readConfigValue(row.updated_at) || activeModelConfig.updatedAt,
+  };
+};
 
 export const loadPersistedGlobalModelConfig = async (): Promise<GlobalModelConfig> => {
   if (!isPersistentModelConfigEnabled()) {

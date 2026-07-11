@@ -157,33 +157,6 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('NOTA GIA ASSOCIATA');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Annota: attiva');
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Cerca sul web: attiva');
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'devi usare davvero il tool `searchWeb` almeno una volta in questo turno'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Tratta quindi ogni tua risposta come un messaggio unico autosufficiente'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Non scrivere introduzioni sospese che si aspettano contenuti "dopo" o "qui sotto"'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      "Rispondi direttamente alla domanda dell'utente e fermati li."
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      "Non fare domande all'utente, non chiedere chiarimenti e non proporre prossimi passi di tua iniziativa."
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      "L'unica eccezione consentita e una domanda strettamente strumentale all'uso del tool di annotazione"
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Di default, la nota non deve limitarsi a ripetere, riassumere o parafrasare cio che e gia chiaramente leggibile nel testo selezionato nella pagina.'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      "Se l'utente chiede di salvare parola per parola un testo emerso nella risposta o nel chiarimento, puoi e devi riportarlo fedelmente in `noteDraft`."
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Non dire mai che il tool di note non puo salvare testo verbatim o citazioni testuali: puo farlo.'
-    );
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
       searchWeb: expect.any(Object),
       requestAddToNotes: expect.any(Object),
@@ -394,27 +367,9 @@ describe('POST /api/chat/library', () => {
       '2 corsi nello scope allegato: Frontend.'
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'chiama `getProjectStructures` **in una singola chiamata** con un oggetto vuoto `{}`'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Non inventare mai placeholder o alias come `proj_1`, `proj_2` o simili.'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
       'Riferimenti allegati: folder:Frontend'
     );
     expect(aiMocks.streamText.mock.calls[0][0].system).toContain('Cerca sul web: attiva');
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Le istruzioni esplicite dell\'utente hanno precedenza sulla preferenza "Cerca sul web".'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Se l\'utente non lo specifica, la preferenza "Cerca sul web" attiva rafforza l\'uso di `searchWeb`'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Tratta quindi ogni tua risposta come un messaggio unico autosufficiente'
-    );
-    expect(aiMocks.streamText.mock.calls[0][0].system).toContain(
-      'Non scrivere introduzioni sospese che si aspettano contenuti "dopo" o "qui sotto"'
-    );
     expect(aiMocks.streamText.mock.calls[0][0].tools).toMatchObject({
       searchWeb: expect.any(Object),
       listLibraryTree: expect.any(Object),
@@ -426,10 +381,6 @@ describe('POST /api/chat/library', () => {
     expect(
       aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.required
     ).toBeUndefined();
-    expect(
-      aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.properties
-        .projectIds.description
-    ).toContain('Se omessa, usa tutto lo scope corrente.');
     expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
     expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');

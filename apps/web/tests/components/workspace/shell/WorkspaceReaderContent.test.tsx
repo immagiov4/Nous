@@ -6,7 +6,7 @@ import { createRef } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderContentModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderContent from '../../../../components/workspace/shell/WorkspaceReaderContent.tsx';
-import type { LearningArtifactRenderPayload } from '../../../../types.ts';
+import type { ApplicationExerciseNode, LearningArtifactRenderPayload } from '../../../../types.ts';
 
 const buildProps = (
   overrides: Partial<WorkspaceReaderContentModel> = {}
@@ -28,6 +28,7 @@ const buildProps = (
   onContentContextMenu: vi.fn(),
   onContentPointerDownCapture: vi.fn(),
   onDismissLearningAid: vi.fn(),
+  onRequestExerciseFeedback: vi.fn(),
   onSelectQuizAnswer: vi.fn(),
   onRemoveExerciseAttachment: vi.fn(),
   onSetIsQuizSubmitted: vi.fn(),
@@ -49,6 +50,23 @@ const buildProps = (
     isActive: false,
     overlayRects: [],
   },
+  ...overrides,
+});
+
+const buildApplicationExercise = (
+  overrides: Partial<ApplicationExerciseNode> = {}
+): ApplicationExerciseNode => ({
+  kind: 'exercise',
+  id: 'exercise-1',
+  title: 'Laboratorio pratico: Modulo operativo',
+  description: 'Applica il modulo in un caso realistico.',
+  assessedObjective: 'Dimostrare di saper mappare host, servizi e flussi.',
+  brief: 'Disegna una mappa minima con host, IP, servizi e dipendenze.',
+  attachments: [],
+  currentFeedback: null,
+  isCompleted: false,
+  feedbackStale: false,
+  updatedAt: '2026-05-12T12:00:00.000Z',
   ...overrides,
 });
 
@@ -78,7 +96,7 @@ describe('WorkspaceReaderContent', () => {
   });
 
   test('shows a lesson generation skeleton when the selected lesson is not ready yet', () => {
-    render(
+    const { container } = render(
       <WorkspaceReaderContent
         {...buildProps({
           activeSectionTitle: 'Divide et impera',
@@ -90,6 +108,8 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Generazione lezione...');
     expect(screen.getByText('Divide et impera')).toBeInTheDocument();
     expect(screen.queryByText(/Seleziona una sezione/i)).toBeNull();
+    expect(container.firstElementChild).toHaveClass('overflow-y-auto');
+    expect(container.firstElementChild).toHaveStyle({ touchAction: 'pan-y' });
   });
 
   test('renders inline quiz cards inside the reading column in focus mode', () => {
@@ -100,10 +120,7 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByText('Prosegui')).toHaveAttribute('aria-disabled', 'true');
   });
 
-  test('renders a collapsible desktop rail for contextual learning aids', async () => {
-    const user = userEvent.setup();
-    const onDismissLearningAid = vi.fn();
-
+  test('keeps the desktop reading column centered when contextual learning aids exist', () => {
     render(
       <WorkspaceReaderContent
         {...buildProps({
@@ -115,20 +132,12 @@ describe('WorkspaceReaderContent', () => {
               content: 'Regole condivise per scambiare messaggi.',
             },
           ],
-          onDismissLearningAid,
         })}
       />
     );
 
-    expect(screen.getByRole('complementary', { name: 'Concetti chiave' })).toBeInTheDocument();
-    expect(screen.getByText('Regole condivise per scambiare messaggi.')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Rimuovi Protocollo' }));
-    expect(onDismissLearningAid).toHaveBeenCalledWith('learning-aid-definition-protocollo');
-
-    await user.click(screen.getByRole('button', { name: 'Comprimi concetti chiave' }));
+    expect(screen.queryByRole('complementary', { name: 'Concetti chiave' })).toBeNull();
     expect(screen.queryByText('Regole condivise per scambiare messaggi.')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Espandi concetti chiave' })).toBeInTheDocument();
   });
 
   test('keeps learning aids collapsed in a mobile bottom sheet until requested', async () => {
@@ -151,9 +160,12 @@ describe('WorkspaceReaderContent', () => {
     );
 
     expect(screen.queryByText('T = T_prop + T_tx')).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave, 1 elemento' }));
+    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
 
     expect(screen.getByRole('dialog', { name: 'Concetti chiave' })).toBeInTheDocument();
+    expect(screen.queryByText('T = T_prop + T_tx')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Espandi Latenza totale' }));
     expect(screen.getByText('T = T_prop + T_tx')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Chiudi concetti chiave' }));
@@ -316,6 +328,86 @@ describe('WorkspaceReaderContent', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Disegna una mappa minima/i)).toBeInTheDocument();
     expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  test('requests feedback with the current editor draft before autosave commits it', async () => {
+    const user = userEvent.setup();
+    const onRequestExerciseFeedback = vi.fn();
+
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeExercise: buildApplicationExercise(),
+          activeSectionTitle: null,
+          onRequestExerciseFeedback,
+          quiz: [],
+          quizAnswers: [],
+          sectionContent: '',
+        })}
+      />
+    );
+
+    await user.type(screen.getByRole('textbox'), 'Bozza corrente non ancora salvata');
+    await user.click(screen.getByRole('button', { name: 'Richiedi riscontro' }));
+
+    expect(onRequestExerciseFeedback).toHaveBeenCalledOnce();
+    expect(onRequestExerciseFeedback).toHaveBeenCalledWith(
+      'exercise-1',
+      'Bozza corrente non ancora salvata'
+    );
+  });
+
+  test('exposes evaluation progress and renders feedback or a stable error', () => {
+    const exercise = buildApplicationExercise({ internalText: 'Consegna pronta' });
+    const { rerender } = render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeExercise: exercise,
+          activeSectionTitle: null,
+          exerciseFeedbackStatus: 'Valutazione della consegna',
+          isEvaluatingExercise: true,
+          quiz: [],
+          quizAnswers: [],
+          sectionContent: '',
+        })}
+      />
+    );
+
+    const busyButton = screen.getByRole('button', { name: 'Valutazione in corso...' });
+    expect(busyButton).toBeDisabled();
+    expect(busyButton).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Valutazione della consegna');
+
+    rerender(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeExercise: buildApplicationExercise({
+            internalText: 'Consegna pronta',
+            currentFeedback: {
+              evaluatedAt: '2026-05-12T12:05:00.000Z',
+              score: 84,
+              qualitativeLabel: 'Obiettivo raggiunto',
+              summary: 'La consegna applica correttamente il metodo.',
+              strengths: ['Distingue host e servizi'],
+              improvements: ['Motiva una dipendenza'],
+              caveats: ['Nessun ambiente eseguibile allegato'],
+            },
+          }),
+          activeSectionTitle: null,
+          exerciseFeedbackError: 'Valutazione non disponibile. Riprova.',
+          quiz: [],
+          quizAnswers: [],
+          sectionContent: '',
+        })}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Valutazione non disponibile. Riprova.');
+    expect(screen.getByText('Score 84/100')).toBeInTheDocument();
+    expect(screen.getByText('La consegna applica correttamente il metodo.')).toBeInTheDocument();
+    expect(screen.getByText('Distingue host e servizi')).toBeInTheDocument();
+    expect(screen.getByText('Motiva una dipendenza')).toBeInTheDocument();
+    expect(screen.getByText('Nessun ambiente eseguibile allegato')).toBeInTheDocument();
   });
 
   test('hides legacy objective sections from application exercise briefs', () => {

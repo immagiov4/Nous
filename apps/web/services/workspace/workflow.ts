@@ -19,6 +19,7 @@ export interface WorkflowEntry {
   status: AsyncWorkflowStatus;
   message?: string;
   reasoning?: string;
+  progress?: GenerationProgressSnapshot;
   error?: string;
   requestId: number;
 }
@@ -116,6 +117,21 @@ export const selectBlockingReasoning = (
   return undefined;
 };
 
+export const selectBlockingProgress = (
+  workflowState: WorkspaceWorkflowState
+): GenerationProgressSnapshot | undefined => {
+  for (const workflowId of ['generatePlan', 'loadSection'] as const) {
+    const workflow = workflowState[workflowId];
+    if (workflow.status === 'pending' && workflow.progress) {
+      return workflow.progress;
+    }
+  }
+
+  return undefined;
+};
+
 export const selectIsContextBusy = (workflowState: WorkspaceWorkflowState): boolean =>
   workflowState.contextQuestion.status === 'pending' ||
   workflowState.createLesson.status === 'pending';
+
+import type { GenerationProgressSnapshot } from '../openrouter/generationProgress.ts';

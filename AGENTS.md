@@ -82,6 +82,7 @@ Before writing or modifying code, gather enough contextual awareness:
 4. Verify where the code is imported or called.
 5. Avoid recreating logic that already exists elsewhere.
 6. Prefer extending existing patterns over inventing a new local style.
+7. Check root-level and module-local documentation relevant to the area. When external API behavior matters, verify the authoritative documentation for the supported version instead of relying on memory.
 
 Do not start from a blank-slate design unless the existing structure is genuinely broken.
 
@@ -95,6 +96,8 @@ Reduce complexity by:
 - Replacing nested ternaries with named functions
 - Separating validation, transformation, side effects, and rendering logic
 - Avoiding large multipurpose functions
+
+Do not re-check invariants already guaranteed by earlier control flow, framework lifecycle, or an immediately preceding operation. Each guard should rule out a distinct failure mode; otherwise remove it or assert the invariant.
 
 A bad pattern is a single function that validates input, transforms data, handles permissions, updates state, logs errors, formats UI output, and triggers side effects. A better pattern is one coordinator function with specific helpers for each concern.
 
@@ -140,6 +143,8 @@ Split a file when it mixes unrelated responsibilities, functions become hard to 
 
 Helpers should encode meaningful responsibility: clarifying a domain rule, isolating a reusable calculation, hiding repetitive but meaningful setup, or centralizing a pattern used in multiple places. A helper that wraps a single assignment without adding meaning should not exist. For recurring generic patterns, prefer a shared general helper over many one-off microhelpers.
 
+Keep variables in the narrowest useful scope. Do not promote one-use values, literals, or temporary calculations to module scope merely to name them; use module-level state only when separate functions genuinely share it.
+
 ## Parameters and Configuration Objects
 
 When a function needs more than three or four parameters, use a configuration object or structured input type. This makes call sites clearer, reduces argument-order bugs, and allows future extension without breaking every caller.
@@ -166,7 +171,7 @@ Do not comment obvious assignments or trivial getters. The test: if removing the
 
 Use short comments above substantial control-flow blocks when the purpose is non-obvious. Do not write comments referencing change history or the conversation — comments should be factual and impersonal.
 
-For public functions, modules, components, or complex helpers, include concise documentation: purpose, assumptions, parameters, return value, side effects, and examples where useful.
+For public functions, modules, components, or complex helpers, document the responsibility and any non-obvious assumptions, side effects, or tradeoffs concisely. Avoid exhaustive field lists, caller narration, and mechanical walkthroughs.
 
 ## Code Style and Modern APIs
 
@@ -221,6 +226,8 @@ Never expose internal errors, stack traces, paths, tokens, or configuration secr
 After making changes, validate using the project's available tools: tests, linters, type checks, local scripts, or manual verification.
 
 For automated tests: test critical paths thoroughly, test utility modules more deeply, test integrations around real user flows, isolate time/randomness/network/external services, and clean up mocks and test state after each test.
+
+Only add tests that can catch a meaningful regression in behavior, contracts, transformations, rendering, persistence, or user flows. Do not add tests that merely assert that source text contains a keyword, substring, letter, prompt sentence, label, or other implementation wording. Such tests freeze copy without proving that generated output or runtime behavior is correct, create false confidence, and add maintenance cost. Prompt tests must exercise a meaningful boundary whenever feasible, for example structured prompt composition, precedence between instruction layers, schema enforcement, parsing, validation, or an observable generation contract. If a behavior cannot be tested meaningfully without calling a nondeterministic external model, prefer no automated test over a tautological string-inclusion test; document the manual or evaluation-based verification instead.
 
 For manual-only projects, explain what must be verified and where. If validation reveals unrelated pre-existing failures, mention them clearly instead of hiding them.
 

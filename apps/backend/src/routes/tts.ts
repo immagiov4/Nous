@@ -38,7 +38,7 @@ router.get('/models', async (_req: Request, res: Response) => {
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { text, speed } = req.body;
+    const { text, speed, voice } = req.body;
     const modelConfig = await getResolvedGlobalModelConfig();
 
     if (!text || typeof text !== 'string') {
@@ -60,7 +60,7 @@ router.post('/', async (req: Request, res: Response) => {
     const generatedAudio = await ttsClient.generateSpeech({
       text: normalizedText,
       model: modelConfig.ttsModel,
-      voice: modelConfig.ttsVoice,
+      voice: typeof voice === 'string' && voice.trim() ? voice.trim() : modelConfig.ttsVoice,
       speed,
     });
 

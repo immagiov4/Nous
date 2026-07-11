@@ -149,3 +149,34 @@ test('callOpenRouter preserves paragraph breaks between distinct reasoning secti
     "Designing a quiz.\n\nI'm planning a quiz.\n\nAnalyzing cost elements.",
   ]);
 });
+
+test('callOpenRouter uses streamed content when a provider exposes no reasoning', async () => {
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      controller.enqueue(
+        encoder.encode(
+          [
+            'data: {"choices":[{"delta":{"content":"First"}}]}',
+            '',
+            'data: {"choices":[{"delta":{"content":" section"}}]}',
+            '',
+            'data: [DONE]',
+            '',
+          ].join('\n')
+        )
+      );
+      controller.close();
+    },
+  });
+  const progressUpdates: string[] = [];
+  fetchMock.mockResolvedValue({ body: stream, ok: true });
+
+  await callOpenRouter({
+    model: 'provider/without-reasoning',
+    messages: [{ role: 'user', content: 'Test prompt' }],
+    onReasoningUpdate: update => progressUpdates.push(update),
+  });
+
+  assert.deepEqual(progressUpdates, ['First', 'First section']);
+});

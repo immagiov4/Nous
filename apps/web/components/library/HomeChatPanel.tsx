@@ -23,7 +23,15 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -63,6 +71,8 @@ interface HomeChatPanelProps {
   isNewCourseLoading: boolean;
   libraryAttachedContextRefs: LibraryContextRef[];
   libraryArtifactPayloadsByToolCallId?: Record<string, LearningArtifactRenderPayload[]>;
+  libraryArtifactPreviewIdOverride?: string | null;
+  libraryArtifactPortalContainer?: HTMLElement | null;
   libraryFloatingArtifactPayloads?: LearningArtifactRenderPayload[];
   libraryErrorMessage: string | null;
   libraryMessages: UIMessage[];
@@ -71,6 +81,8 @@ interface HomeChatPanelProps {
   libraryGenerateArtifacts: boolean;
   newCourseLoadingStatus: string;
   pendingFileName: string | null;
+  draftValueOverride?: string;
+  scrollTopOverride?: number;
   onClearPendingFile: () => void;
   onClearLibraryMessages?: () => void;
   onContinueAssessment?: () => void;
@@ -331,6 +343,8 @@ export default function HomeChatPanel({
   isNewCourseLoading,
   libraryAttachedContextRefs,
   libraryArtifactPayloadsByToolCallId = {},
+  libraryArtifactPreviewIdOverride,
+  libraryArtifactPortalContainer,
   libraryFloatingArtifactPayloads = [],
   libraryErrorMessage,
   libraryMessages,
@@ -339,6 +353,8 @@ export default function HomeChatPanel({
   libraryGenerateArtifacts,
   newCourseLoadingStatus,
   pendingFileName,
+  draftValueOverride,
+  scrollTopOverride,
   onClearPendingFile,
   onClearLibraryMessages,
   onContinueAssessment,
@@ -375,6 +391,7 @@ export default function HomeChatPanel({
   const surfaceRootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
 
   const { viewportHeight, keyboardOffset } = useMobileKeyboardOffset();
 
@@ -390,7 +407,24 @@ export default function HomeChatPanel({
     () => groupLibraryAssistantTurns(visibleLibraryMessages),
     [visibleLibraryMessages]
   );
-  const currentDraft = draftByMode[homeChatMode];
+
+  useLayoutEffect(() => {
+    if (scrollTopOverride === undefined || !messagesScrollRef.current) {
+      return;
+    }
+
+    const applyScrollOverride = () => {
+      const scrollContainer = messagesScrollRef.current;
+      if (!scrollContainer) {
+        return;
+      }
+      scrollContainer.scrollTop = scrollTopOverride;
+    };
+    applyScrollOverride();
+    const animationFrameId = window.requestAnimationFrame(applyScrollOverride);
+    return () => window.cancelAnimationFrame(animationFrameId);
+  }, [scrollTopOverride]);
+  const currentDraft = draftValueOverride ?? draftByMode[homeChatMode];
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
   const hasMessages = activeMessages.length > 0;
@@ -420,13 +454,16 @@ export default function HomeChatPanel({
   }, []);
 
   useEffect(() => {
+    if (scrollTopOverride !== undefined) {
+      return;
+    }
     const lastItem = activeMessages[activeMessages.length - 1] || null;
     if (!lastItem && !assessmentComplete && !isLoading) {
       return;
     }
 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [activeMessages, assessmentComplete, isLoading]);
+  }, [activeMessages, assessmentComplete, isLoading, scrollTopOverride]);
 
   useEffect(() => {
     if (isMobileViewport) {
@@ -681,6 +718,8 @@ export default function HomeChatPanel({
       <ChatArtifactRenderer
         artifacts={artifactPayloads}
         isDarkMode={isDarkMode}
+        openArtifactIdOverride={libraryArtifactPreviewIdOverride}
+        portalContainer={libraryArtifactPortalContainer}
         onDiscardArtifact={onLibraryArtifactDiscard}
         onRegenerateArtifact={onLibraryArtifactRegenerate}
         onReplaceArtifact={onLibraryArtifactReplace}
@@ -1048,8 +1087,23 @@ export default function HomeChatPanel({
         </div>
       </div>
 
-      <div className="home-chat-scrollbar h-[14rem] overflow-y-auto px-4 py-4 min-[640px]:h-[24rem] sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1">
-        <div className="space-y-3.5">
+      <div
+        ref={node => {
+          messagesScrollRef.current = node;
+          if (node && scrollTopOverride !== undefined) {
+            node.scrollTop = scrollTopOverride;
+          }
+        }}
+        className="home-chat-scrollbar h-[14rem] overflow-y-auto px-4 py-4 min-[640px]:h-[24rem] sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1"
+      >
+        <div
+          className="space-y-3.5"
+          style={
+            scrollTopOverride === undefined
+              ? undefined
+              : { position: 'relative', top: -scrollTopOverride }
+          }
+        >
           {!hasMessages ? renderEmptyState() : null}
 
           {homeChatMode === 'new-course'
@@ -1257,6 +1311,7 @@ export default function HomeChatPanel({
           >
             <button
               ref={attachmentButtonRef}
+              data-home-chat-target="attachment"
               type="button"
               onClick={() => {
                 if (homeChatMode === 'new-course') {
@@ -1308,6 +1363,7 @@ export default function HomeChatPanel({
 
             <input
               ref={inputRef}
+              data-home-chat-target="objective"
               type="text"
               value={currentDraft}
               onChange={event => handleDraftChange(event.target.value)}
@@ -1338,6 +1394,7 @@ export default function HomeChatPanel({
             />
             <button
               type="submit"
+              data-home-chat-target="submit"
               disabled={isLoading || !currentDraft.trim()}
               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
                 isLoading

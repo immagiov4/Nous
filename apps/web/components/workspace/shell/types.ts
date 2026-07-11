@@ -1,8 +1,10 @@
+import type { UIMessage } from 'ai';
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   RefObject,
 } from 'react';
+import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 import type {
   ApplicationExerciseNode,
   AudioPanelTab,
@@ -93,6 +95,7 @@ export interface WorkspaceReaderSidebarModel {
   isLoading: boolean;
   isMobileViewport: boolean;
   learningPlanTitle: string;
+  placement?: 'viewport' | 'container';
   repairApplicationExercisesLabel: string;
   onBackToLibrary: () => void;
   onExportProject: () => void;
@@ -122,6 +125,7 @@ export interface WorkspaceReaderTtsModel {
   currentTime: number;
   currentVoice: VoiceProfileId;
   duration: number;
+  errorMessage?: string | null;
   isPlaying: boolean;
   isLoading: boolean;
   isTextPickerActive: boolean;
@@ -159,12 +163,14 @@ export interface WorkspaceReaderHeaderModel {
   isMusicPlaying: boolean;
   isSettingsOpen: boolean;
   learningPlanTitle: string;
+  learningAids: LessonLearningAid[];
   loadingStatus: string;
   musicUrl: string;
   musicVolume: number;
   onBackToLibrary: () => void;
   onOpenSidebar: () => void;
   onRegenerateActiveSection: () => void;
+  onDismissLearningAid: (learningAidId: string) => void;
   onSetDarkMode: (value: boolean) => void;
   onSetCourseGenerationNotes: (value: string) => void;
   onSetFocusMode: (value: boolean) => void;
@@ -189,6 +195,7 @@ export interface WorkspaceReaderContentModel {
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   contentRef: RefObject<HTMLDivElement | null>;
   isDarkMode: boolean;
+  isEvaluatingExercise?: boolean;
   isFocusMode: boolean;
   isLoading: boolean;
   isMobileViewport: boolean;
@@ -201,6 +208,7 @@ export interface WorkspaceReaderContentModel {
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
   onDismissLearningAid: (learningAidId: string) => void;
+  onRequestExerciseFeedback: (exerciseId: string, internalText: string) => void;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
   onRemoveExerciseAttachment: (exerciseId: string, attachmentId: string) => void;
   onSetIsQuizSubmitted: (value: boolean) => void;
@@ -210,17 +218,31 @@ export interface WorkspaceReaderContentModel {
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sectionAnnotations?: SectionAnnotation[];
   sectionContent: string;
+  exerciseFeedbackError?: string;
+  exerciseFeedbackStatus?: string;
   ttsTextPicker: WorkspaceReaderTextPickerModel;
+  scrollMode?: 'contained' | 'document';
   sectionReasoningText?: string;
+  sectionProgress?: GenerationProgressSnapshot;
   sourcePageRangeLabel?: string;
 }
 
 export interface WorkspaceReaderOverlaysModel {
+  contextAnswerArtifactActionFeedbackOverride?: 'saved';
+  contextAnswerArtifactPreviewIdOverride?: string | null;
+  contextAnswerArtifactPortalContainer?: HTMLElement | null;
+  contextAnswerAutoScrollKey?: string;
   contextAnswer: ContextAnswerState | null;
+  contextAnswerDisplayMessages?: UIMessage[];
   contextAnswerPanelRef: RefObject<HTMLDivElement | null>;
   contextAnswerResizePreviewRef: RefObject<HTMLDivElement | null>;
   contextAnswerSize: ContextAnswerSize;
+  contextAnswerInputValue?: string;
   contextMenu: ContextMenuState;
+  contextMenuAskInputValue?: string;
+  contextMenuArtifactPreviewIdOverride?: string | null;
+  contextMenuArtifactPortalContainer?: HTMLElement | null;
+  contextMenuNotePreviewScrollTopOverride?: number;
   contextMenuRef: RefObject<HTMLDivElement | null>;
   handleContextAnswerResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   isContextLoading: boolean;
@@ -239,7 +261,7 @@ export interface WorkspaceReaderOverlaysModel {
   onUpdateConversationNote: (
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
-  onSaveNote: (note: string) => void;
+  onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
   onSaveArtifactToLesson?: (
     visual: LessonGeneratedVisual,
     artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
@@ -250,6 +272,7 @@ export interface WorkspaceReaderOverlaysModel {
 export interface WorkspaceReaderShellProps {
   banners: WorkspaceReaderBannersModel;
   content: WorkspaceReaderContentModel;
+  displayMode?: 'application' | 'embedded';
   header: WorkspaceReaderHeaderModel;
   overlays: WorkspaceReaderOverlaysModel;
   shouldUseDesktopSidebar: boolean;

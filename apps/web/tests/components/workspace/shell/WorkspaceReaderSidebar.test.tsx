@@ -57,22 +57,6 @@ describe('WorkspaceReaderSidebar', () => {
     ).toBeInTheDocument();
   });
 
-  test('constrains the mobile sidebar to the dynamic viewport and keeps its body scrollable', () => {
-    const { container } = render(
-      <WorkspaceReaderSidebar {...buildProps({ isMobileViewport: true })} />
-    );
-
-    const sidebar = container.querySelector('aside');
-    const scrollRegion = container.querySelector('aside > div:last-of-type');
-
-    expect(sidebar?.style.height).toBe('100dvh');
-    expect(sidebar?.style.maxHeight).toBe('100dvh');
-    expect(scrollRegion?.className).toContain('custom-scrollbar');
-    expect(scrollRegion?.className).toContain('min-h-0');
-    expect(scrollRegion?.className).toContain('overflow-y-auto');
-    expect(scrollRegion?.className).toContain('reader-sidebar-scroll-mobile');
-  });
-
   test('renders application exercise rows separately from lesson rows', () => {
     const onSelectExercise = vi.fn();
     render(

@@ -18,7 +18,9 @@ import {
   invalidateWorkspaceWorkflows,
 } from '../../../services/workspace/workflow.ts';
 import {
+  type ApplicationExerciseNode,
   AppState,
+  type ExerciseFeedback,
   type FileData,
   type LearningPlan,
   type LearningSection,
@@ -31,7 +33,11 @@ import {
   type SyllabusItem,
   type UserProfile,
 } from '../../../types.ts';
-import { flattenLessons, updateLessons } from '../../../utils/learning/pathNodes.ts';
+import {
+  findPathNodeById,
+  flattenLessons,
+  updateLessons,
+} from '../../../utils/learning/pathNodes.ts';
 import { getPdfProjectHydrationState } from '../../../utils/pdf/projectHydration.ts';
 import {
   buildTestLearningPlan,
@@ -390,7 +396,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       savedOverrides.push(overridesArg);
       return adapter.currentProjectId ? buildMeta(adapter.currentProjectId) : null;
     },
-    patchSectionLessonContent: async () => {},
+    patchSectionLessonContent: async () => true,
     patchSectionAnnotations: async () => {},
     savedProjects: [],
     setCurrentProjectId: projectId => {
@@ -518,6 +524,19 @@ const createStateAdapter = () => {
         },
       };
     },
+    setWorkflowProgress: (workflowId, requestId, progress) => {
+      if (internalState.workflowState[workflowId].requestId !== requestId) {
+        return;
+      }
+
+      internalState.workflowState = {
+        ...internalState.workflowState,
+        [workflowId]: {
+          ...internalState.workflowState[workflowId],
+          progress,
+        },
+      };
+    },
     succeedWorkflow: (workflowId, requestId, message) => {
       if (internalState.workflowState[workflowId].requestId !== requestId) {
         return;
@@ -573,6 +592,28 @@ const createOpenRouterMock = (
     createLearnAssessmentChat: () => ({
       sendMessage: async () => ({ text: 'Profilazione' }),
     }),
+    createGenerationProgressObserver: ({
+      onUpdate,
+      operation,
+      subject,
+    }: Parameters<
+      typeof import('../../../services/openrouter/index.ts').createGenerationProgressObserver
+    >[0]) => {
+      onUpdate({
+        operation,
+        sections: [],
+        stage: 'sources',
+        startedAt: Date.now(),
+        stepOffset: 0,
+        subject,
+      });
+      return {
+        complete: vi.fn(),
+        finish: vi.fn(async () => undefined),
+        push: vi.fn(),
+        updateStatus: vi.fn(),
+      };
+    },
     createLearnSubChapterMetadata: async () => ({
       id: 'deep-learn',
       title: 'Approfondimento AI',
@@ -589,12 +630,11 @@ const createOpenRouterMock = (
       type: 'deep-dive',
       parentId: 'lesson-1',
     }),
-    evaluateLaboratoryExercise: async () => ({
+    generateApplicationExerciseFeedback: async () => ({
       caveats: [],
-      confidenceScore: 74,
-      confidenceSummary: 'Buona copertura degli allegati disponibili.',
       evaluatedAt: '2026-03-20T10:00:00.000Z',
       improvements: ['Rendi piu esplicite le motivazioni'],
+      qualitativeLabel: 'Obiettivo raggiunto',
       score: 81,
       strengths: ['Consegna coerente con la traccia'],
       summary: 'Buon lavoro pratico con alcuni margini di chiarimento.',
@@ -869,10 +909,7 @@ test('openProject does not wait for a real hydration migration to be persisted',
     },
   });
 
-  const outcome = await Promise.race([
-    controller.openProject('project-legacy-plan').then(result => result.outcome),
-    new Promise(resolve => setTimeout(() => resolve('timeout'), 0)),
-  ]);
+  const outcome = (await controller.openProject('project-legacy-plan')).outcome;
 
   assert.equal(outcome, 'opened');
   assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
@@ -1138,10 +1175,7 @@ test('openProject resolves immediately while loading an empty stored section in 
     },
   });
 
-  const outcome = await Promise.race([
-    controller.openProject('project-empty-section').then(result => result.outcome),
-    new Promise(resolve => setTimeout(() => resolve('timeout'), 0)),
-  ]);
+  const outcome = (await controller.openProject('project-empty-section')).outcome;
 
   assert.equal(outcome, 'opened');
   assert.equal(domain.activeSectionId, 'lesson-empty');
@@ -2011,6 +2045,59 @@ test('openSection generates and caches research dossiers for research-backed lea
   assert.equal(contentCalls, 2);
 });
 
+test('regenerateActiveSection waits for the regenerated lesson to be persisted', async () => {
+  const plan = buildPlan({
+    sections: [
+      buildTestLesson({
+        id: 'lesson-1',
+        content: '# Versione precedente',
+      }),
+    ],
+  });
+  let resolvePersist: ((value: boolean) => void) | undefined;
+  const persistLesson = new Promise<boolean>(resolve => {
+    resolvePersist = resolve;
+  });
+  let persistedContent = '';
+  const { controller, domain, state } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      file: pdfFile,
+      learningPlan: plan,
+      source: createProjectSourceFromFile(pdfFile),
+    },
+    projectLibrary: {
+      currentProjectId: 'project-1',
+      patchSectionLessonContent: async (_sectionId, patch) => {
+        persistedContent = patch.content || '';
+        return persistLesson;
+      },
+    },
+    openRouter: {
+      generateSectionContent: async () => ({
+        content: '# Versione rigenerata',
+        documentAssets: null,
+        generatedVisuals: [],
+        imageRefs: [],
+        learningAids: [],
+        quiz: [],
+      }),
+    },
+  });
+
+  const regeneration = controller.regenerateActiveSection();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(persistedContent, '# Versione rigenerata');
+  assert.equal(state.internalState.workflowState.loadSection.status, 'pending');
+  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Versione rigenerata');
+
+  resolvePersist?.(true);
+  assert.equal(await regeneration, 'loaded');
+  assert.equal(state.internalState.workflowState.loadSection.status, 'succeeded');
+});
+
 test('openSection ignores user navigation while another blocking workflow is pending', async () => {
   const uncachedPlan = buildPlan({
     sections: [
@@ -2246,6 +2333,97 @@ test('createLessonFromSelection rolls back the inserted lesson when generation f
   );
   assert.equal(projectLibrary.savedOverrides.at(-1)?.activeSectionId, 'lesson-1');
   assert.equal(state.internalState.workflowState.createLesson.status, 'failed');
+});
+
+test('evaluateApplicationExercise ignores a duplicate request and persists feedback for the current draft', async () => {
+  const exercise: ApplicationExerciseNode = {
+    kind: 'exercise',
+    id: 'exercise-1',
+    title: 'Laboratorio pratico',
+    description: 'Applica il metodo a un caso concreto.',
+    assessedObjective: 'Motivare una diagnosi con prove osservabili.',
+    brief: 'Consegna una diagnosi motivata.',
+    internalText: 'Bozza salvata in precedenza',
+    attachments: [],
+    currentFeedback: null,
+    isCompleted: false,
+    feedbackStale: false,
+    updatedAt: '2026-03-20T10:00:00.000Z',
+  };
+  const plan = buildPlan();
+  plan.modules[0]?.children.push(exercise);
+
+  const feedback: ExerciseFeedback = {
+    evaluatedAt: '2026-03-20T10:05:00.000Z',
+    score: 84,
+    qualitativeLabel: 'Obiettivo raggiunto',
+    summary: 'La diagnosi collega correttamente prove e conclusioni.',
+    strengths: ['Prove osservabili'],
+    improvements: ['Esplicita un limite'],
+    caveats: [],
+  };
+  let resolveFeedback: ((value: ExerciseFeedback) => void) | undefined;
+  let markFeedbackStarted: (() => void) | undefined;
+  const feedbackResult = new Promise<ExerciseFeedback>(resolve => {
+    resolveFeedback = resolve;
+  });
+  const feedbackStarted = new Promise<void>(resolve => {
+    markFeedbackStarted = resolve;
+  });
+  const generateApplicationExerciseFeedback = vi.fn(
+    (
+      _args: Parameters<
+        typeof import('../../../services/openrouter/index.ts').generateApplicationExerciseFeedback
+      >[0]
+    ) => {
+      markFeedbackStarted?.();
+      return feedbackResult;
+    }
+  );
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    domain: {
+      activeSectionId: exercise.id,
+      learningPlan: plan,
+    },
+    openRouter: { generateApplicationExerciseFeedback },
+    projectLibrary: { currentProjectId: 'project-1' },
+  });
+  const currentDraft = 'Bozza corrente inviata subito';
+
+  const firstRequest = controller.evaluateApplicationExercise(exercise.id, currentDraft);
+  await feedbackStarted;
+  const duplicateRequest = controller.evaluateApplicationExercise(exercise.id, currentDraft);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const requestCount = generateApplicationExerciseFeedback.mock.calls.length;
+  resolveFeedback?.(feedback);
+
+  assert.deepEqual(await Promise.all([firstRequest, duplicateRequest]), [
+    { outcome: 'evaluated' },
+    { outcome: 'noop' },
+  ]);
+  assert.equal(requestCount, 1);
+  assert.equal(
+    generateApplicationExerciseFeedback.mock.calls[0]?.[0].deliverable.entries.some(entry =>
+      entry.text.includes(currentDraft)
+    ),
+    true
+  );
+
+  const persistedExercise = findPathNodeById(
+    projectLibrary.savedOverrides[0]?.learningPlan?.modules,
+    exercise.id
+  );
+  assert.equal(persistedExercise?.kind, 'exercise');
+  assert.deepEqual(
+    persistedExercise?.kind === 'exercise' ? persistedExercise.currentFeedback : null,
+    feedback
+  );
+  const domainExercise = findPathNodeById(domain.learningPlan?.modules, exercise.id);
+  assert.deepEqual(
+    domainExercise?.kind === 'exercise' ? domainExercise.currentFeedback : null,
+    feedback
+  );
+  assert.equal(state.internalState.workflowState.evaluateExercise.status, 'succeeded');
 });
 
 test('completeActiveSection marks progress and opens the next lesson, then reports journey completion on the last one', async () => {

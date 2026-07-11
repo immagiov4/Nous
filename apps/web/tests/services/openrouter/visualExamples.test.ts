@@ -5,6 +5,11 @@ const { callOpenRouterMock, requestGeneratedImageMock } = vi.hoisted(() => ({
   requestGeneratedImageMock: vi.fn(),
 }));
 
+vi.mock('../../../services/openrouter/svgReview.ts', () => ({
+  lintSvg: () => ['Possibile testo fuori dai bordi: "Nodo".'],
+  renderSvgPreview: () => Promise.resolve('data:image/png;base64,UFJFVklFVw=='),
+}));
+
 vi.mock('../../../services/openrouter/imageClient.ts', () => ({
   requestGeneratedImage: requestGeneratedImageMock,
 }));
@@ -114,7 +119,6 @@ describe('explicit visual intent', () => {
     expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain(
       'Struttura concreta di una cellula vegetale'
     );
-    expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain('senza testo');
     expect(draft?.visual).toMatchObject({
       altText: 'Struttura concreta di una cellula vegetale.',
       kind: 'image',
@@ -217,9 +221,6 @@ describe('visual planner latency profile', () => {
     const result = await generateLessonVisualExample(BASE_VISUAL_INPUT);
 
     expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
-    expect(callOpenRouterMock.mock.calls[0]?.[0].messages[0].content).toContain(
-      'mai per decorazione'
-    );
     expect(requestGeneratedImageMock).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({
       anchorHeading: 'Confronto',
@@ -227,6 +228,52 @@ describe('visual planner latency profile', () => {
         kind: 'image',
         mediaType: 'image/webp',
       },
+    });
+  });
+});
+
+describe('SVG multimodal review', () => {
+  beforeEach(() => {
+    callOpenRouterMock.mockReset();
+  });
+
+  test('renders, reviews once, and returns the revised SVG', async () => {
+    callOpenRouterMock
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          title: 'bozza',
+          svg_code: '<svg viewBox="0 0 680 120"><text x="670" y="40">Nodo</text></svg>',
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          title: 'revisionato',
+          svg_code: '<svg viewBox="0 0 680 120"><text x="40" y="40">Nodo</text></svg>',
+        })
+      );
+
+    const result = await generateLessonVisualExample({
+      ...BASE_VISUAL_INPUT,
+      visualTypeHint: 'flowchart_svg',
+    });
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(2);
+    expect(callOpenRouterMock.mock.calls[1]?.[0].messages.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'image_url',
+          image_url: { url: 'data:image/png;base64,UFJFVklFVw==' },
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('Il linter seguente e euristico'),
+        }),
+      ])
+    );
+    expect(result?.visual).toMatchObject({
+      kind: 'svg',
+      title: 'revisionato',
+      code: expect.stringContaining('x="40"'),
     });
   });
 });

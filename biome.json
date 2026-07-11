@@ -14,6 +14,8 @@
       "!!**/.codex",
       "!!**/.claude",
       "!!**/.specify",
+      "!!apps/web/remotion/landingDemos.tailwind.css",
+      "!!apps/web/remotion/landingDemos.tailwind.generated.css",
       "!!**/services/tts-server/qwen_tts.egg-info",
       "!!**/services/tts-server/__pycache__",
       "!!**/services/tts-server/api/__pycache__",

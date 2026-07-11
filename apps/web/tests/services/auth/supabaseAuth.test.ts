@@ -7,6 +7,7 @@ import {
   getValidSupabaseSession,
   mergeSupabaseAuthHeaders,
   readSupabaseSession,
+  resolveBrowserReachableSupabaseUrl,
   saveSupabaseSession,
   scheduleSupabaseSessionRefresh,
 } from '../../../services/auth/supabaseAuth.ts';
@@ -44,6 +45,19 @@ describe('Supabase auth session storage', () => {
       Authorization: 'Bearer access-token-123',
       'x-existing-header': 'kept',
     });
+  });
+
+  test('uses the device-visible host for a loopback Supabase URL', () => {
+    expect(
+      resolveBrowserReachableSupabaseUrl('http://127.0.0.1:54321', {
+        hostname: '192.168.1.126',
+      })
+    ).toBe('http://192.168.1.126:54321');
+    expect(
+      resolveBrowserReachableSupabaseUrl('https://cloud.supabase.co', {
+        hostname: '192.168.1.126',
+      })
+    ).toBe('https://cloud.supabase.co');
   });
 
   test('falls back to memory when the runtime exposes incomplete localStorage', () => {

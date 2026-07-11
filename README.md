@@ -1,6 +1,6 @@
 # Nous Reader
 
-Nous Reader turns uploaded documents into personalized study plans with lessons, quizzes, and laboratory exercises backed by AI feedback.
+Nous Reader turns uploaded documents and researched topics into personalized courses with lessons, reflection prompts, and application exercises backed by AI feedback.
 
 ## Start Here
 
@@ -25,6 +25,8 @@ Nous Reader turns uploaded documents into personalized study plans with lessons,
    ```
 
 This starts the Vite frontend on `http://localhost:5173` and the Express backend on `http://localhost:3301`.
+
+When the configured Supabase or Postgres URL points to the local machine, `bun run dev` also verifies Docker, starts Docker Desktop on Windows or macOS when needed, starts the local Supabase stack, and checks Supabase Auth before launching the app. If those services cannot start, the command exits instead of leaving a frontend without its backend. Remote-only configurations skip this local infrastructure check.
 
 ## Server-Only Storage
 
@@ -63,7 +65,7 @@ Authenticated sessions use server storage. Import/export remains available for m
 ## Useful Commands
 
 ```bash
-bun run quality       # TypeScript type checks + Biome lint
+bun run quality       # Type checks + Biome + dependency boundaries + React Hooks lint
 bun run check:fallow  # Static dead-code & duplication analysis
 bun run gate          # Full gate: quality + fallow + tests
 bun run fix           # Auto-fix Biome lint, format, and import ordering

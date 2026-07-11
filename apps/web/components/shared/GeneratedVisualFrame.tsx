@@ -1,7 +1,7 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LessonGeneratedVisual } from '../../types.ts';
-import { isSafeGeneratedImageDataUrl } from '../../utils/visuals/generatedImage.ts';
+import { isSafeGeneratedImageSource } from '../../utils/visuals/generatedImage.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
 import { findMissingStaticHtmlElementIds } from '../../utils/visuals/htmlElementReferences.ts';
 
@@ -476,15 +476,14 @@ const GeneratedVisualFrame = ({
   visual,
 }: GeneratedVisualFrameProps) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const hostDocument = useMemo(() => {
-    if (visual.kind === 'image') {
-      return '';
-    }
-
-    return visual.kind === 'mermaid'
-      ? buildMermaidHost(visual, isDarkMode)
-      : buildVisualHost(visual, isDarkMode);
-  }, [isDarkMode, visual]);
+  // Rebuild the iframe document on render so visual-host HMR updates only this
+  // frame instead of requiring a full application reload.
+  const hostDocument =
+    visual.kind === 'image'
+      ? ''
+      : visual.kind === 'mermaid'
+        ? buildMermaidHost(visual, isDarkMode)
+        : buildVisualHost(visual, isDarkMode);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -516,7 +515,7 @@ const GeneratedVisualFrame = ({
 
     return (
       <figure className={`${className} overflow-hidden bg-transparent`} data-nous-speech="ignore">
-        {isSafeGeneratedImageDataUrl(visual.code) ? (
+        {isSafeGeneratedImageSource(visual.code) ? (
           <img
             src={visual.code}
             alt={imageAltText}

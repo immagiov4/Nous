@@ -55,6 +55,7 @@ export const useWorkspaceControllerState = () => {
             status: 'pending' as const,
             message,
             reasoning: undefined,
+            progress: undefined,
             error: undefined,
             requestId: nextRequestId,
           },
@@ -77,6 +78,7 @@ export const useWorkspaceControllerState = () => {
             error: errorMessage,
             message: undefined,
             reasoning: undefined,
+            progress: undefined,
           },
         };
         commitWorkflowState(nextState);
@@ -156,6 +158,21 @@ export const useWorkspaceControllerState = () => {
         };
         commitWorkflowState(nextState);
       },
+      setWorkflowProgress: (workflowId, requestId, progress) => {
+        const currentState = workflowStateRef.current;
+        if (currentState[workflowId].requestId !== requestId) {
+          return;
+        }
+
+        const nextState = {
+          ...currentState,
+          [workflowId]: {
+            ...currentState[workflowId],
+            progress,
+          },
+        };
+        commitWorkflowState(nextState);
+      },
       succeedWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, message?: string) => {
         const currentState = workflowStateRef.current;
         if (currentState[workflowId].requestId !== requestId) {
@@ -170,6 +187,7 @@ export const useWorkspaceControllerState = () => {
             error: undefined,
             message,
             reasoning: undefined,
+            progress: undefined,
           },
         };
         commitWorkflowState(nextState);

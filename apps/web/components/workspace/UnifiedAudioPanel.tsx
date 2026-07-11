@@ -463,7 +463,7 @@ const UnifiedAudioPanel = ({
   };
 
   const panelClassName = isMobileViewport
-    ? 'fixed left-1/2 top-[calc(env(safe-area-inset-top,0px)+5.5rem)] z-50 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2'
+    ? 'fixed left-1/2 top-20 z-50 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 sm:absolute sm:right-0 sm:top-[calc(100%+0.75rem)] sm:left-auto sm:w-[22rem] sm:translate-x-0'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[22rem]';
 
   const isAnyAudioActive = isMusicPlaying || tts.isPlaying;
@@ -490,7 +490,7 @@ const UnifiedAudioPanel = ({
 
       {isOpen && (
         <AnimatePresence>
-          <div key="unified-audio-panel" className={panelClassName}>
+          <div key="unified-audio-panel" data-audio-panel-positioner className={panelClassName}>
             <motion.div
               initial={{ opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -500,10 +500,9 @@ const UnifiedAudioPanel = ({
                 scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
               }}
               style={{
-                transformOrigin: isMobileViewport ? 'top center' : 'top right',
                 willChange: 'transform, opacity',
               }}
-              className="panel-shadow overflow-visible rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 dark:border-zinc-600/80 dark:bg-[var(--bg-surface)]"
+              className="panel-shadow origin-top overflow-visible rounded-[2rem] border border-gray-200 bg-white px-5 pb-5 pt-4 sm:origin-top-right dark:border-zinc-600/80 dark:bg-[var(--bg-surface)]"
             >
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700 dark:text-zinc-200">
@@ -742,7 +741,11 @@ const UnifiedAudioPanel = ({
                     </div>
                   </div>
 
-                  {ttsDisabled ? (
+                  {tts.errorMessage ? (
+                    <p className="rounded-xl bg-red-50 px-3 py-2 text-center text-[11px] font-medium leading-5 text-red-700 dark:bg-red-950/30 dark:text-red-200">
+                      {tts.errorMessage}
+                    </p>
+                  ) : ttsDisabled ? (
                     <p className="text-center text-[10px] text-gray-400 dark:text-zinc-500">
                       {t('TTS non disponibile. Carica una lezione per iniziare.')}
                     </p>

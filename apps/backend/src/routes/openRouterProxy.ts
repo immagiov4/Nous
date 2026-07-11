@@ -6,6 +6,7 @@ import { type Request, type Response, Router } from 'express';
 
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
+import { isRecord } from '../utils/validation.js';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_RESPONSE_HEADERS = ['content-type', 'cache-control'] as const;
@@ -26,19 +27,62 @@ const forwardOpenRouterHeaders = (req: Request): HeadersInit => ({
   'X-Title': 'Nous Reader',
 });
 
-const resolveProxyModel = async (req: Request): Promise<string> => {
+const resolveProxyConfig = async (req: Request) => {
   const modelConfig = await getResolvedGlobalModelConfig();
   const slot = req.get('x-nous-model-slot')?.trim();
 
   if (slot === 'assessment') {
-    return modelConfig.assessmentModel;
+    return {
+      model: modelConfig.assessmentModel,
+      reasoningEffort: modelConfig.assessmentReasoningEffort,
+    };
   }
 
   if (slot === 'context') {
-    return modelConfig.contextModel;
+    return {
+      model: modelConfig.contextModel,
+      reasoningEffort: modelConfig.contextReasoningEffort,
+    };
   }
 
-  return modelConfig.lessonModel;
+  if (slot === 'progress') {
+    return {
+      model: modelConfig.progressModel,
+      reasoningEffort: modelConfig.progressReasoningEffort,
+    };
+  }
+
+  if (slot === 'research') {
+    return {
+      model: modelConfig.researchModel,
+      reasoningEffort: 'none' as const,
+    };
+  }
+
+  return {
+    model: modelConfig.lessonModel,
+    reasoningEffort: modelConfig.lessonReasoningEffort,
+  };
+};
+
+const buildProxyRequestBody = async (req: Request): Promise<Record<string, unknown>> => {
+  const requestBody = isRecord(req.body) ? req.body : {};
+  const { model, reasoningEffort } = await resolveProxyConfig(req);
+
+  if (reasoningEffort === 'none') {
+    const { reasoning: _ignoredReasoning, ...bodyWithoutReasoning } = requestBody;
+    return { ...bodyWithoutReasoning, model };
+  }
+
+  const reasoning = isRecord(requestBody.reasoning) ? requestBody.reasoning : {};
+  return {
+    ...requestBody,
+    model,
+    reasoning: {
+      ...reasoning,
+      effort: reasoningEffort,
+    },
+  };
 };
 
 const pipeOpenRouterResponse = (upstreamResponse: globalThis.Response, res: Response): void => {
@@ -66,10 +110,7 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
     const upstreamResponse = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
       method: 'POST',
       headers: forwardOpenRouterHeaders(req),
-      body: JSON.stringify({
-        ...req.body,
-        model: await resolveProxyModel(req),
-      }),
+      body: JSON.stringify(await buildProxyRequestBody(req)),
     });
 
     pipeOpenRouterResponse(upstreamResponse, res);

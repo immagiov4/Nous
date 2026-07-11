@@ -17,7 +17,10 @@ export {
   generateApplicationExerciseBrief,
   getExercisePrerequisiteGaps,
 } from './exercises/brief.ts';
+export { generateApplicationExerciseFeedback } from './exercises/evaluation.ts';
 export { generateApplicationExercisePlacements } from './exercises/placement.ts';
+export type { GenerationProgressSnapshot } from './generationProgress.ts';
+export { createGenerationProgressObserver } from './generationProgress.ts';
 export { generateLessonLearningAids } from './learningAids.ts';
 export { validatePdfTextSource } from './pdfAssets.ts';
 export {

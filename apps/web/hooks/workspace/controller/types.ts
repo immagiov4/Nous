@@ -1,3 +1,4 @@
+import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 import type { ProjectRepositoryMode } from '../../../services/projects/projectRepositoryFactory.ts';
 import type {
   WorkspaceWorkflowId,
@@ -131,7 +132,7 @@ export interface WorkspaceProjectLibraryAdapter {
     patch: Partial<
       Pick<LessonNode, 'content' | 'generatedVisuals' | 'imageRefs' | 'learningAids' | 'quiz'>
     >
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   savedProjects: SavedProjectMeta[];
   setCurrentProjectId: (projectId: string | null) => void;
   setProjectHydrated: (value: boolean) => void;
@@ -161,6 +162,11 @@ export interface WorkspaceControllerStateAdapter {
     workflowId: WorkspaceWorkflowId,
     requestId: number,
     reasoning: string
+  ) => void;
+  setWorkflowProgress: (
+    workflowId: WorkspaceWorkflowId,
+    requestId: number,
+    progress: GenerationProgressSnapshot
   ) => void;
   succeedWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, message?: string) => void;
 }
@@ -246,6 +252,10 @@ export interface WorkspaceControllerCommands {
     projectId: string
   ) => Promise<{ errorMessage?: string; outcome: 'failed' | 'missing' | 'opened' | 'stale' }>;
   attachExerciseFiles: (exerciseId: string, attachments: ExerciseAttachment[]) => Promise<void>;
+  evaluateApplicationExercise: (
+    exerciseId: string,
+    internalText: string
+  ) => Promise<{ errorMessage?: string; outcome: 'evaluated' | 'failed' | 'noop' }>;
   openExercise: (exercise: ApplicationExerciseNode) => Promise<void>;
   openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
   repairApplicationExercises: () => Promise<{ outcome: 'noop' | 'repaired' }>;

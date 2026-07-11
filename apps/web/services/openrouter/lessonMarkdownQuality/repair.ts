@@ -251,7 +251,8 @@ export const repairLessonMarkdown = async (
   sectionTitle: string,
   sectionDescription: string,
   sourceContext: string,
-  generationNotes?: string
+  generationNotes?: string,
+  onReasoningUpdate?: (reasoning: string) => void
 ): Promise<string> => {
   const issues = getLessonMarkdownIssues(contentMarkdown);
   if (issues.length === 0) return contentMarkdown;
@@ -300,6 +301,7 @@ ${contentMarkdown}`;
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
+        onReasoningUpdate,
         reasoning: MEDIUM_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },

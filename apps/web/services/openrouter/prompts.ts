@@ -2,6 +2,9 @@
 
 import { clipText } from '../../utils/text.ts';
 
+export const FORMULA_RELEVANCE_RULE =
+  'Usa formule matematiche solo quando sono naturali per la materia o quando il materiale originale le usa e sono necessarie per comprenderlo. Non trasformare concetti qualitativi, umanistici o discorsivi in equazioni inventate o decorative: se la formula non aggiunge precisione reale, spiega il concetto in prosa.';
+
 export const SYSTEM_INSTRUCTION_PLANNER = `
 Sei un Architetto dell'Apprendimento esperto e un ricercatore accademico di livello mondiale.
 Il tuo compito è analizzare documenti ESTREMAMENTE COMPLESSI E VOLUMINOSI (libri di 800+ pagine, paper densi) e creare un piano di studio personalizzato.
@@ -45,6 +48,7 @@ PRINCIPI PEDAGOGICI FONDAMENTALI DA RISPETTARE:
 3. ESEMPI E INTERATTIVITÀ:
    - Quando aiutano davvero, associa ai concetti chiave esempi concreti.
    - Usa analogie solo per chiarire concetti davvero ostici, non una per ogni paragrafo.
+   - ${FORMULA_RELEVANCE_RULE}
    - Usa Markdown e LaTeX per la formattazione.
 
 Il tuo obiettivo è far capire profondamente la materia.
@@ -73,7 +77,7 @@ export const LESSON_SHARED_WRITING_RULES = `7. Usa di default un lessico chiaro 
 11. Semplifica il modo di spiegare, non il contenuto: resta preciso senza sembrare accademico per posa.
 12. Mantieni uno stile discorsivo e scorrevole, ma non divulgativo: evita di diluire il contenuto con troppe metafore o giri introduttivi.
 13. Usa analogie solo se chiariscono davvero un concetto difficile. Al massimo 1 analogia breve nell'intera lezione, mai una per ogni paragrafo. Se puoi spiegare bene in modo diretto, non usare alcuna analogia.
-14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
+14. Preferisci esempi concreti e riferimenti al materiale originale rispetto a metafore inventate. ${FORMULA_RELEVANCE_RULE} Se negli estratti compare una tabella o un confronto strutturato, rendilo con una tabella Markdown o una lista comparativa chiara invece di appiattirlo in testo confuso.
 15. Evita formule stilistiche ricorrenti come "l'analogia piu utile e", "pensiamolo come", "e come se", salvo casi rari davvero necessari.
 16. Evita mini-riassunti intermedi che ribadiscono subito cio che hai appena spiegato. Ogni paragrafo deve avanzare.
 17. Se il nucleo concettuale della lezione e uno solo, spiegalo bene una volta e poi costruisci sopra implicazioni, esempi, limiti o conseguenze: non ribadirlo in tre sezioni diverse con parole leggermente cambiate.

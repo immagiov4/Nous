@@ -24,3 +24,9 @@ export const parseGeneratedImageDataUrl = (value: unknown): ParsedGeneratedImage
 
 export const isSafeGeneratedImageDataUrl = (value: unknown): value is string =>
   parseGeneratedImageDataUrl(value) !== null;
+
+const GENERATED_SVG_IMAGE_DATA_URL_PREFIX = 'data:image/svg+xml;charset=utf-8,';
+
+export const isSafeGeneratedImageSource = (value: unknown): value is string =>
+  isSafeGeneratedImageDataUrl(value) ||
+  (typeof value === 'string' && value.startsWith(GENERATED_SVG_IMAGE_DATA_URL_PREFIX));

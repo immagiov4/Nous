@@ -186,6 +186,7 @@ export const callOpenRouterRaw = async (
     method: 'POST',
     headers: getHeaders(options.modelSlot),
     body,
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -216,6 +217,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     method: 'POST',
     headers: getHeaders(options.modelSlot),
     body,
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -303,6 +305,9 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     content += extractDeltaContent(delta.content);
     const reasoningChunk = extractReasoningText(delta);
     if (!reasoningChunk) {
+      if (!reasoning) {
+        options.onReasoningUpdate?.(content);
+      }
       return;
     }
 

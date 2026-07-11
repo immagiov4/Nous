@@ -1,29 +1,6 @@
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
-import type { Plugin } from 'vite';
 import { defineConfig, loadEnv } from 'vite';
-
-const FULL_RELOAD_HOT_UPDATE_FILES = new Set([
-  'App.tsx',
-  path.join('components', 'shared', 'GeneratedVisualFrame.tsx'),
-  path.join('utils', 'visuals', 'generatedVisualHost.ts'),
-]);
-
-const fullReloadSensitiveHotUpdates = (): Plugin => ({
-  name: 'full-reload-sensitive-hot-updates',
-  handleHotUpdate({ file, server }) {
-    const normalizedFile = file.split(path.sep).join('/');
-    const shouldReload = [...FULL_RELOAD_HOT_UPDATE_FILES].some(reloadFile =>
-      normalizedFile.endsWith(reloadFile.split(path.sep).join('/'))
-    );
-    if (!shouldReload) {
-      return;
-    }
-
-    server.ws.send({ type: 'full-reload' });
-    return [];
-  },
-});
 
 export default defineConfig(({ mode }) => {
   const repoRoot = path.resolve(__dirname, '..', '..');
@@ -36,7 +13,7 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       host: '0.0.0.0',
     },
-    plugins: [react(), fullReloadSensitiveHotUpdates()],
+    plugins: [react()],
     define: {
       'process.env.MODEL_CONTEXT': JSON.stringify(env.MODEL_CONTEXT),
       'process.env.MODEL_FLASH': JSON.stringify(env.MODEL_FLASH),

@@ -231,11 +231,17 @@ const buildContextDraftLesson = (
 };
 
 interface ContextAnswerPanelProps {
+  artifactActionFeedbackOverride?: 'saved';
+  artifactPreviewIdOverride?: string | null;
+  artifactPortalContainer?: HTMLElement | null;
+  autoScrollKey?: string;
   contextAnswer: ContextAnswerState;
   contextAnswerPanelRef: RefObject<HTMLDivElement | null>;
   contextAnswerSize: ContextAnswerSize;
+  displayMessages?: UIMessage[];
   handleContextAnswerResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   isDarkMode: boolean;
+  inputValueOverride?: string;
   isMobileViewport: boolean;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   onClose: () => void;
@@ -268,11 +274,17 @@ export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps
 }
 
 function ContextAnswerPanelSession({
+  artifactActionFeedbackOverride,
+  artifactPreviewIdOverride,
+  artifactPortalContainer,
+  autoScrollKey,
   contextAnswer,
   contextAnswerPanelRef,
   contextAnswerSize,
+  displayMessages,
   handleContextAnswerResizeStart,
   isDarkMode,
+  inputValueOverride,
   isMobileViewport,
   currentLessonArtifactPayloads = [],
   onClose,
@@ -282,6 +294,7 @@ function ContextAnswerPanelSession({
   onReplaceArtifactInLesson,
 }: ContextAnswerPanelProps) {
   const [input, setInput] = useState('');
+  const displayedInput = inputValueOverride ?? input;
   const [isToolMenuOpen, setIsToolMenuOpen] = useState(false);
   const [, setIsChatScrolled] = useState(false);
   const [isChatNotAtBottom, setIsChatNotAtBottom] = useState(false);
@@ -414,7 +427,6 @@ function ContextAnswerPanelSession({
 
   const { addToolOutput, error, messages, sendMessage, status } = useChat<ContextChatMessage>({
     id: contextAnswer.id,
-    messages: [],
     transport,
     experimental_throttle: 96,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
@@ -957,14 +969,14 @@ function ContextAnswerPanelSession({
   useEffect(() => {
     if (!messagesContainerRef.current) return;
     messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-  }, [messages.length]);
+  }, [autoScrollKey, messages.length]);
 
   const handleSubmit = () => {
     if (isComposerDisabled) {
       return;
     }
 
-    const trimmedInput = input.trim();
+    const trimmedInput = displayedInput.trim();
     if (!trimmedInput) {
       return;
     }
@@ -978,7 +990,8 @@ function ContextAnswerPanelSession({
     setInput(currentInput => appendSpeechTranscription(currentInput, transcription));
   };
 
-  const visibleMessages = dedupeUiMessagesById(messages).filter(message => {
+  const renderedMessages = (displayMessages as ContextChatMessage[] | undefined) ?? messages;
+  const visibleMessages = dedupeUiMessagesById(renderedMessages).filter(message => {
     if (message.role === 'user') {
       return true;
     }
@@ -1084,6 +1097,7 @@ function ContextAnswerPanelSession({
                 </button>
                 <button
                   type="button"
+                  data-context-answer-target="note-approve"
                   onClick={() => void handleApproveNoteRequest(part.toolCallId, inputValue)}
                   className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
                 >
@@ -1164,9 +1178,12 @@ function ContextAnswerPanelSession({
       return (
         <ChatArtifactRenderer
           key={`${messageId}-${part.toolCallId}`}
+          actionFeedbackOverride={artifactActionFeedbackOverride}
           artifacts={artifactPayloads}
           isDarkMode={isDarkMode}
           isLoading={(isGenerating || isAwaitingArtifactOutput) && artifactPayloads.length === 0}
+          openArtifactIdOverride={artifactPreviewIdOverride}
+          portalContainer={artifactPortalContainer}
           onDiscardArtifact={handleDiscardArtifact}
           onRegenerateArtifact={handleRegenerateArtifact}
           onReplaceArtifact={handleReplaceArtifact}
@@ -1185,6 +1202,7 @@ function ContextAnswerPanelSession({
   return (
     <div
       ref={contextAnswerPanelRef}
+      data-context-answer-panel="true"
       className={`fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] animate-in slide-in-from-bottom-10 duration-500 dark:border-zinc-700/60 dark:bg-zinc-800 ${
         isMobileViewport ? 'inset-x-3 top-24' : 'top-6 right-8'
       }`}
@@ -1199,6 +1217,7 @@ function ContextAnswerPanelSession({
     >
       <button
         type="button"
+        data-context-answer-target="close"
         onClick={onClose}
         className="absolute right-4 top-4 rounded-full bg-gray-50 p-1 text-gray-400 hover:text-gray-600 dark:bg-zinc-700 dark:hover:text-gray-200"
       >
@@ -1285,7 +1304,7 @@ function ContextAnswerPanelSession({
           style={{ opacity: isChatNotAtBottom ? 1 : 0 }}
         />
         <ChatTextComposer
-          value={input}
+          value={displayedInput}
           onChange={setInput}
           onSubmit={handleSubmit}
           placeholder={
@@ -1294,6 +1313,7 @@ function ContextAnswerPanelSession({
               : t('Chiedi un follow-up su questa risposta...')
           }
           disabled={isComposerDisabled}
+          inputDataTarget="context-answer-input"
           isLoading={isLoading}
           className="flex items-center gap-2"
           trailingContent={
@@ -1433,6 +1453,7 @@ function ContextAnswerPanelSession({
           inputShellClassName="min-w-0 flex-1 rounded-full border border-stone-200/80 bg-stone-50/80 px-3 py-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-500/80 dark:bg-stone-700/70 dark:focus-within:border-stone-400 dark:focus-within:bg-stone-700"
           inputClassName="h-10 w-full min-w-0 border-0 bg-transparent px-2 text-sm text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-400"
           submitButtonClassName="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-stone-900 text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
+          submitDataTarget="context-answer-submit"
         />
 
         {hasActiveToolPreference ? (

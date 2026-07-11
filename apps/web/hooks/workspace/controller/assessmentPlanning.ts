@@ -175,6 +175,8 @@ export const createAssessmentPlanningCommands = (
     profile: UserProfile | null;
     requestId: number;
     researchCoursePlan?: ResearchCoursePlan | null;
+    onProgressStatus?: (status: string) => void;
+    onProgressStream?: (stream: string) => void;
   }) => {
     try {
       const result = await openRouter.generateApplicationExercisePlacements({
@@ -184,9 +186,10 @@ export const createAssessmentPlanningCommands = (
         researchCoursePlan: args.researchCoursePlan,
         onStatusUpdate: message => {
           state.setWorkflowMessage('generatePlan', args.requestId, message);
+          args.onProgressStatus?.(message);
         },
         onReasoningUpdate: reasoning => {
-          state.setWorkflowReasoning('generatePlan', args.requestId, reasoning);
+          args.onProgressStream?.(reasoning);
         },
       });
       return result.plan;
@@ -311,6 +314,21 @@ export const createAssessmentPlanningCommands = (
   }): Promise<void> {
     const requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
     state.setScreenState(AppState.PLANNING);
+    const profile = args.profile || domain.userProfile;
+    const progressObserver = openRouter.createGenerationProgressObserver({
+      language: profile?.language || 'Italiano',
+      onUpdate: progress => state.setWorkflowProgress('generatePlan', requestId, progress),
+      operation: 'plan',
+      subject:
+        profile?.topic ||
+        (domain.source?.kind === 'pdf' ? domain.source.file.name : domain.source?.name) ||
+        'Nuovo percorso',
+    });
+
+    const reportStatus = (status: string) => {
+      state.setWorkflowMessage('generatePlan', requestId, status);
+      progressObserver.updateStatus(status);
+    };
 
     try {
       if (args.mode === 'learn') {
@@ -320,15 +338,11 @@ export const createAssessmentPlanningCommands = (
 
         const researchResult = await openRouter.generateResearchCoursePlan(
           args.profile,
-          message => {
-            state.setWorkflowMessage('generatePlan', requestId, message);
-          },
+          reportStatus,
           items => {
             domain.setSyllabus(items as SyllabusItem[]);
           },
-          reasoning => {
-            state.setWorkflowReasoning('generatePlan', requestId, reasoning);
-          }
+          progressObserver.push
         );
         const newSyllabus = researchResult.syllabus;
 
@@ -346,6 +360,8 @@ export const createAssessmentPlanningCommands = (
           profile: args.profile,
           requestId,
           researchCoursePlan: researchResult.researchCoursePlan,
+          onProgressStatus: progressObserver.updateStatus,
+          onProgressStream: progressObserver.push,
         });
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
           return;
@@ -399,12 +415,8 @@ export const createAssessmentPlanningCommands = (
         const plan = await openRouter.generateLearningPlan(
           sourceFile,
           args.history || [],
-          status => {
-            state.setWorkflowMessage('generatePlan', requestId, status);
-          },
-          reasoning => {
-            state.setWorkflowReasoning('generatePlan', requestId, reasoning);
-          }
+          reportStatus,
+          progressObserver.push
         );
 
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
@@ -421,6 +433,8 @@ export const createAssessmentPlanningCommands = (
           plan: prepared.learningPlan,
           profile: domain.userProfile,
           requestId,
+          onProgressStatus: progressObserver.updateStatus,
+          onProgressStream: progressObserver.push,
         });
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
           return;
@@ -456,6 +470,8 @@ export const createAssessmentPlanningCommands = (
         }
       }
 
+      await progressObserver.finish();
+      progressObserver.complete();
       state.succeedWorkflow('generatePlan', requestId);
     } catch (error) {
       state.setScreenState(AppState.LIBRARY);

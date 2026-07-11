@@ -3,6 +3,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requireOpenRouterApiKey } from '../config/chatConfig.js';
 import { loadOptionalJsonFile } from '../config/jsonFile.js';
+import {
+  DEFAULT_TTS_MODEL as CONFIG_DEFAULT_TTS_MODEL,
+  DEFAULT_TTS_VOICE as CONFIG_DEFAULT_TTS_VOICE,
+} from '../config/modelConfig.js';
 import type {
   GeneratedSpeechAudio,
   TTSRequest,
@@ -21,11 +25,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export const DEFAULT_TTS_MODEL =
-  process.env.MODEL_TTS || process.env.TTS_MODEL_NAME || 'openai/gpt-4o-mini-tts-2025-12-15';
-const DEFAULT_TTS_VOICE = process.env.TTS_VOICE || 'coral';
+  process.env.MODEL_TTS || process.env.TTS_MODEL_NAME || CONFIG_DEFAULT_TTS_MODEL;
+const DEFAULT_TTS_VOICE = process.env.TTS_VOICE || CONFIG_DEFAULT_TTS_VOICE;
 const TTS_RESPONSE_FORMAT = 'mp3';
 
 interface OpenRouterSpeechAttempt {
+  model: string;
   speed?: number;
   text: string;
   voice: string;
@@ -42,44 +47,28 @@ class OpenRouterTtsError extends Error {
   }
 }
 
-const OPENAI_TTS_VOICE_IDS = [
-  'alloy',
-  'ash',
-  'ballad',
-  'coral',
-  'echo',
-  'fable',
-  'nova',
-  'onyx',
-  'sage',
-  'shimmer',
-  'verse',
-  'marin',
-  'cedar',
-] as const;
-
-const OPENAI_TTS_VOICES = new Set<string>(OPENAI_TTS_VOICE_IDS);
+const DEFAULT_TTS_VOICE_IDS = ['Ara', 'Eve', 'Rex', 'Sal', 'Leo'] as const;
 
 const VOICE_PROFILE_MODES = new Set(['openrouter_voice', 'voice_design']);
 
-const OPENAI_TTS_MODEL_SUMMARY: TtsModelSummary = {
+const DEFAULT_TTS_MODEL_SUMMARY: TtsModelSummary = {
   contextLength: 0,
   id: DEFAULT_TTS_MODEL,
-  name: 'OpenAI: GPT-4o Mini TTS',
+  name: 'xAI: Grok Voice TTS 1.0',
   pricing: {
     completion: '0',
-    prompt: '0.0000006',
+    prompt: '0.000015',
   },
   supportedParameters: ['response_format'],
   supportsVoiceCloning: false,
-  voiceHelpLabel: 'Voci OpenAI',
-  voiceHelpUrl: 'https://developers.openai.com/api/docs/guides/text-to-speech#voice-options',
+  voiceHelpLabel: 'Voci OpenRouter',
+  voiceHelpUrl: 'https://openrouter.ai/x-ai/grok-voice-tts-1.0/api',
 };
 
 const formatVoiceName = (voiceId: string): string =>
   voiceId.charAt(0).toUpperCase() + voiceId.slice(1);
 
-const createOpenAiVoiceProfile = (voiceId: string): VoiceProfile => ({
+const createDefaultVoiceProfile = (voiceId: string): VoiceProfile => ({
   id: voiceId,
   name: formatVoiceName(voiceId),
   language: 'it-IT',
@@ -89,12 +78,12 @@ const createOpenAiVoiceProfile = (voiceId: string): VoiceProfile => ({
 });
 
 const getDefaultVoiceProfileIds = (): string[] =>
-  OPENAI_TTS_VOICES.has(DEFAULT_TTS_VOICE)
-    ? [...OPENAI_TTS_VOICE_IDS]
-    : [DEFAULT_TTS_VOICE, ...OPENAI_TTS_VOICE_IDS];
+  DEFAULT_TTS_VOICE_IDS.includes(DEFAULT_TTS_VOICE as (typeof DEFAULT_TTS_VOICE_IDS)[number])
+    ? [...DEFAULT_TTS_VOICE_IDS]
+    : [DEFAULT_TTS_VOICE, ...DEFAULT_TTS_VOICE_IDS];
 
 const createDefaultVoiceProfiles = (): VoiceProfilesConfig => ({
-  profiles: getDefaultVoiceProfileIds().map(createOpenAiVoiceProfile),
+  profiles: getDefaultVoiceProfileIds().map(createDefaultVoiceProfile),
   defaultProfile: DEFAULT_TTS_VOICE,
 });
 
@@ -155,12 +144,6 @@ const normalizeOptionalText = (value: string | undefined, fallback: string): str
   return trimmed || fallback;
 };
 
-const normalizeOpenAiVoice = (voice: string): string => {
-  const normalizedVoice = voice.trim();
-
-  return OPENAI_TTS_VOICES.has(normalizedVoice) ? normalizedVoice : DEFAULT_TTS_VOICE;
-};
-
 class TTSClient {
   private voiceProfiles: VoiceProfilesConfig;
 
@@ -200,7 +183,7 @@ class TTSClient {
       method: 'POST',
       headers: getOpenRouterJsonHeaders(),
       body: JSON.stringify({
-        model: DEFAULT_TTS_MODEL,
+        model: attempt.model,
         input: attempt.text,
         voice: attempt.voice,
         response_format: TTS_RESPONSE_FORMAT,
@@ -212,7 +195,7 @@ class TTSClient {
       const details = await readOpenRouterErrorDetails(response);
       console.warn('[Nous] OpenRouter TTS request failed', {
         status: response.status,
-        model: DEFAULT_TTS_MODEL,
+        model: attempt.model,
         voice: attempt.voice,
         details,
       });
@@ -236,13 +219,15 @@ class TTSClient {
       selectedProfile?.voiceDesignPrompt ?? request.voice,
       this.getDefaultProfile().voiceDesignPrompt || DEFAULT_TTS_VOICE
     );
-    const normalizedVoice = normalizeOpenAiVoice(voice);
+    const normalizedVoice = normalizeOptionalText(voice, DEFAULT_TTS_VOICE);
+    const model = normalizeOptionalText(request.model, DEFAULT_TTS_MODEL);
 
     console.log(
-      `[TTSClient] Generating OpenRouter OpenAI speech for ${request.text.length} chars with voice: ${normalizedVoice}`
+      `[TTSClient] Generating OpenRouter speech for ${request.text.length} chars with model: ${model}, voice: ${normalizedVoice}`
     );
 
     return this.requestSpeech({
+      model,
       text: request.text,
       voice: normalizedVoice,
       speed: request.speed,
@@ -250,7 +235,7 @@ class TTSClient {
   }
 
   async listModels(): Promise<TtsModelSummary[]> {
-    return [OPENAI_TTS_MODEL_SUMMARY];
+    return [DEFAULT_TTS_MODEL_SUMMARY];
   }
 
   async checkReady(): Promise<{ message: string; ready: boolean }> {

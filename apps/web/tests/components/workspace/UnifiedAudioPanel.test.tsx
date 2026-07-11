@@ -57,6 +57,27 @@ const AudioHarness = ({ initialMusicUrl = '' }: { initialMusicUrl?: string }) =>
 };
 
 describe('UnifiedAudioPanel', () => {
+  test('centers the panel on phones and restores icon anchoring from the tablet breakpoint', () => {
+    const { container } = render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isMobileViewport
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel()}
+      />
+    );
+
+    const panel = container.querySelector('[data-audio-panel-positioner]');
+    expect(panel).toHaveClass('fixed', 'left-1/2', '-translate-x-1/2');
+    expect(panel).toHaveClass('sm:absolute', 'sm:right-0', 'sm:left-auto', 'sm:translate-x-0');
+  });
+
   test('shows how many speech parts exist and lets the user choose one directly', async () => {
     const user = userEvent.setup();
     const onSelectChunk = vi.fn();
@@ -104,6 +125,29 @@ describe('UnifiedAudioPanel', () => {
     await user.click(textPickerButton);
 
     expect(onSetTextPickerActive).toHaveBeenCalledWith(true);
+  });
+
+  test('shows one stable playback error instead of provider details', () => {
+    render(
+      <UnifiedAudioPanel
+        initialTab="voce"
+        isOpen
+        isMusicPlaying={false}
+        musicUrl=""
+        musicVolume={60}
+        setIsMusicPlaying={() => {}}
+        setMusicUrl={() => {}}
+        setMusicVolume={() => {}}
+        tts={buildTtsModel({
+          errorMessage: 'Non sono riuscito a generare l’audio. Riprova tra poco.',
+        })}
+      />
+    );
+
+    expect(
+      screen.getByText('Non sono riuscito a generare l’audio. Riprova tra poco.')
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('502');
   });
 
   test('keeps the panel open while the user clicks a part in the lesson', () => {

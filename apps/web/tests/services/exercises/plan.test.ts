@@ -5,8 +5,9 @@ import {
   getApplicationExerciseRepairLabel,
   planNeedsApplicationExerciseRepair,
   removeApplicationExercisesFromPlan,
+  withExerciseFeedback,
 } from '../../../services/exercises/plan.ts';
-import type { ApplicationExerciseNode } from '../../../types.ts';
+import type { ApplicationExerciseNode, ExerciseFeedback } from '../../../types.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
 const buildPlan = () =>
@@ -211,4 +212,67 @@ test('getApplicationExerciseRepairLabel stays stable when exercises are only par
   };
 
   assert.equal(getApplicationExerciseRepairLabel(partialPlan), 'Pianifica esercizi');
+});
+
+const buildExercise = (
+  overrides: Partial<ApplicationExerciseNode> = {}
+): ApplicationExerciseNode => ({
+  kind: 'exercise',
+  id: 'exercise-1',
+  title: 'Laboratorio',
+  description: 'Applica quanto appreso.',
+  assessedObjective: 'Dimostrare la competenza con una consegna concreta.',
+  attachments: [],
+  currentFeedback: null,
+  isCompleted: false,
+  feedbackStale: true,
+  updatedAt: '2026-07-10T09:00:00.000Z',
+  ...overrides,
+});
+
+const buildFeedback = (score: number, evaluatedAt: string): ExerciseFeedback => ({
+  evaluatedAt,
+  score,
+  qualitativeLabel: 'Riscontro',
+  summary: 'Valutazione della consegna.',
+  strengths: [],
+  improvements: [],
+  caveats: [],
+});
+
+test('withExerciseFeedback completes an exercise only at the pass threshold', () => {
+  const failed = withExerciseFeedback(
+    buildExercise({ bestScore: 55 }),
+    buildFeedback(59, '2026-07-10T10:00:00.000Z')
+  );
+
+  assert.equal(failed.isCompleted, false);
+  assert.equal(failed.completedAt, undefined);
+  assert.equal(failed.bestScore, 59);
+  assert.equal(failed.feedbackStale, false);
+
+  const passed = withExerciseFeedback(failed, buildFeedback(60, '2026-07-10T11:00:00.000Z'));
+
+  assert.equal(passed.isCompleted, true);
+  assert.equal(passed.completedAt, '2026-07-10T11:00:00.000Z');
+  assert.equal(passed.bestScore, 60);
+  assert.equal(passed.feedbackStale, false);
+});
+
+test('withExerciseFeedback never regresses completion or the best score', () => {
+  const completedAt = '2026-07-10T10:00:00.000Z';
+  const completed = buildExercise({
+    bestScore: 84,
+    completedAt,
+    isCompleted: true,
+  });
+  const latestFeedback = buildFeedback(42, '2026-07-10T12:00:00.000Z');
+
+  const updated = withExerciseFeedback(completed, latestFeedback);
+
+  assert.equal(updated.currentFeedback, latestFeedback);
+  assert.equal(updated.isCompleted, true);
+  assert.equal(updated.completedAt, completedAt);
+  assert.equal(updated.bestScore, 84);
+  assert.equal(updated.feedbackStale, false);
 });

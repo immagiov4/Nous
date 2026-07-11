@@ -50,13 +50,17 @@ describe('/api/admin', () => {
       .set('Authorization', authHeader(adminToken))
       .send({
         lessonModel: 'openai/gpt-5.4-mini',
+        lessonReasoningEffort: 'high',
         contextModel: 'google/gemini-3.1-flash-lite',
+        contextReasoningEffort: 'none',
       });
 
     expect(patchResponse.status).toBe(200);
     expect(patchResponse.body.config).toMatchObject({
       lessonModel: 'openai/gpt-5.4-mini',
+      lessonReasoningEffort: 'high',
       contextModel: 'google/gemini-3.1-flash-lite',
+      contextReasoningEffort: 'none',
     });
 
     const readResponse = await request(app)
@@ -66,7 +70,9 @@ describe('/api/admin', () => {
     expect(readResponse.status).toBe(200);
     expect(readResponse.body.config).toMatchObject({
       lessonModel: 'openai/gpt-5.4-mini',
+      lessonReasoningEffort: 'high',
       contextModel: 'google/gemini-3.1-flash-lite',
+      contextReasoningEffort: 'none',
     });
   });
 
@@ -92,6 +98,7 @@ describe('/api/admin', () => {
       .set('Authorization', authHeader(adminToken))
       .send({
         contextModel: 'server/context-model',
+        contextReasoningEffort: 'low',
       });
 
     expect(response.status).toBe(200);
@@ -113,6 +120,44 @@ describe('/api/admin', () => {
         body: expect.stringContaining('"context_model":"server/context-model"'),
       })
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: expect.stringContaining('"context_reasoning_effort":"low"'),
+      })
+    );
+  });
+
+  test('replaces an unavailable persisted TTS model with a working default', async () => {
+    process.env.PROJECT_STORAGE_DRIVER = 'postgres';
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              {
+                id: 'global',
+                tts_model: 'openai/gpt-4o-mini-tts',
+                tts_voice: 'coral',
+              },
+            ]),
+            { status: 200 }
+          )
+      )
+    );
+
+    const response = await request(app)
+      .get('/api/admin/model-config')
+      .set('Authorization', authHeader(adminToken));
+
+    expect(response.status).toBe(200);
+    expect(response.body.config).toMatchObject({
+      ttsModel: 'x-ai/grok-voice-tts-1.0',
+      ttsVoice: 'Ara',
+    });
   });
 
   test('creates Supabase users through the service-role Admin API only for admins', async () => {

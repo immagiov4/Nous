@@ -293,7 +293,7 @@ The frontend sends the pedagogical image prompt to the authenticated `/api/image
 
 ```bash
 bun run dev       # Frontend + backend in watch mode
-bun run quality   # TypeScript type check + Biome lint
+bun run quality   # Type checks + Biome + dependency boundaries + React Hooks lint
 bun run fix       # Auto-fix Biome lint, format, and import ordering
 bun run gate      # Full gate: quality + fallow + tests
 bun run test      # Vitest test suite (runs under Bun runtime)

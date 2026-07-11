@@ -15,6 +15,8 @@ import {
   parseCleanJson,
   retryWithBackoff,
 } from './shared.ts';
+import { lintSvg, renderSvgPreview } from './svgReview.ts';
+import type { ChatMessage } from './types.ts';
 
 const VISUAL_ID_PREFIX = 'visual-';
 const MAX_VISUAL_LESSON_CHARS = 12000;
@@ -628,10 +630,7 @@ export const generateLessonVisualExample = async (
     return null;
   }
 
-  const rendererMessages: Array<{
-    content: string;
-    role: 'assistant' | 'system' | 'user';
-  }> = [
+  const rendererMessages: ChatMessage[] = [
     { role: 'system' as const, content: rendererPrompt },
     {
       role: 'user' as const,
@@ -684,6 +683,33 @@ ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`,
   }
   if (!visual) {
     return null;
+  }
+
+  if (visual.kind === 'svg') {
+    const preview = await renderSvgPreview(visual.code);
+    const lintIssues = lintSvg(visual.code);
+    const reviewedResponse = await requestRenderedVisual([
+      ...rendererMessages,
+      { role: 'assistant', content: JSON.stringify({ svg_code: visual.code }) },
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: preview } },
+          {
+            type: 'text',
+            text: `Questa e la versione renderizzata della bozza SVG. Esegui una sola revisione multimodale: correggi problemi visivi reali di leggibilita, sovrapposizione, spaziatura, contrasto e bordi, mantenendo contenuto e intento pedagogico. Il linter seguente e euristico: usalo come indizio, non come verita assoluta.\n\n${lintIssues.length > 0 ? lintIssues.map(issue => `- ${issue}`).join('\n') : '- Nessun problema euristico rilevato.'}\n\nRestituisci il JSON completo richiesto con l'SVG revisionato.`,
+          },
+        ],
+      },
+    ]);
+    visual = normalizeRenderedVisual(
+      visualType,
+      reviewedResponse || '{}',
+      `${VISUAL_ID_PREFIX}001`
+    );
+    if (!visual) {
+      return null;
+    }
   }
 
   return {

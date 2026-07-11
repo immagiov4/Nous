@@ -3,6 +3,7 @@ import { type NextFunction, type Request, type Response, Router } from 'express'
 import { getCurrentUser } from '../auth/currentUser.js';
 import {
   type GlobalModelConfigPatch,
+  isReasoningEffort,
   loadPersistedGlobalModelConfig,
   patchAndPersistGlobalModelConfig,
 } from '../config/modelConfig.js';
@@ -93,6 +94,17 @@ const requestSupabaseAdmin = async ({
 const getRouteParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value[0] || '' : value || '';
 
+const readReasoningEffortPatch = (value: unknown) => {
+  const effort = readOptionalString(value);
+  if (!effort) {
+    return undefined;
+  }
+  if (!isReasoningEffort(effort)) {
+    throw new Error('Forza di ragionamento non valida.');
+  }
+  return effort;
+};
+
 router.use(requireAdminUser);
 
 router.get('/model-config', async (_req: Request, res: Response) => {
@@ -114,8 +126,14 @@ router.patch('/model-config', async (req: Request, res: Response) => {
 
     const patch: GlobalModelConfigPatch = {
       assessmentModel: readOptionalString(req.body.assessmentModel),
+      assessmentReasoningEffort: readReasoningEffortPatch(req.body.assessmentReasoningEffort),
       contextModel: readOptionalString(req.body.contextModel),
+      contextReasoningEffort: readReasoningEffortPatch(req.body.contextReasoningEffort),
       lessonModel: readOptionalString(req.body.lessonModel),
+      lessonReasoningEffort: readReasoningEffortPatch(req.body.lessonReasoningEffort),
+      progressModel: readOptionalString(req.body.progressModel),
+      progressReasoningEffort: readReasoningEffortPatch(req.body.progressReasoningEffort),
+      researchModel: readOptionalString(req.body.researchModel),
       ttsModel: readOptionalString(req.body.ttsModel),
       ttsVoice: readOptionalString(req.body.ttsVoice),
     };

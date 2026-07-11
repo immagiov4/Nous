@@ -96,7 +96,7 @@ export default function OpenRouterModelPanel({
           </div>
 
           {courseNotes ? (
-            <div className="model-panel-divider mt-3 border-b pb-3">
+            <div className="mt-3">
               <button
                 type="button"
                 onClick={() => toggleSection('course-notes')}
