@@ -13,6 +13,7 @@ describe('/api/admin', () => {
     process.env = {
       ...ORIGINAL_ENV,
       AUTH_MODE: 'supabase',
+      OPENROUTER_API_KEY: 'test-openrouter-key',
       SUPABASE_JWT_SECRET: 'test-secret',
       SUPABASE_URL: 'https://example.supabase.co',
       SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
