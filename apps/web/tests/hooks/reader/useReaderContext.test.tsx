@@ -186,6 +186,7 @@ test('desktop context menu without selection opens a whole-lesson menu inside co
 });
 
 test('clicking the same annotation mark toggles its menu closed', () => {
+  vi.useFakeTimers();
   const container = document.createElement('div');
   container.innerHTML = 'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma';
   document.body.append(container);
@@ -262,9 +263,128 @@ test('clicking the same annotation mark toggles its menu closed', () => {
   }
 
   act(() => {
+    vi.advanceTimersByTime(100);
     result.current.handleContentClick({ target: mark } as never);
   });
 
   assert.equal(result.current.contextMenu.visible, false);
   selectionSpy.mockRestore();
+  vi.useRealTimers();
+});
+
+test('mobile duplicate annotation clicks within 100 ms produce one stable transition', () => {
+  vi.useFakeTimers();
+  const container = document.createElement('div');
+  container.innerHTML = '<mark data-nous-annotation-id="annotation-1">beta</mark>';
+  document.body.append(container);
+  const mark = container.querySelector('mark');
+  assert.ok(mark);
+  mark.getBoundingClientRect = () =>
+    ({ bottom: 120, height: 20, left: 40, right: 82, top: 100, width: 42 }) as DOMRect;
+  container.getBoundingClientRect = () => ({ left: 24, right: 420 }) as DOMRect;
+  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+    isCollapsed: true,
+    rangeCount: 0,
+    toString: () => '',
+  } as unknown as Selection);
+  const contentRef = { current: container };
+
+  const { result } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef,
+      isMobileViewport: true,
+      sectionAnnotations: [{ id: 'annotation-1', note: '', createdAt: '', updatedAt: '' }],
+      sectionContent: '<mark data-nous-annotation-id="annotation-1">beta</mark>',
+    })
+  );
+
+  act(() => {
+    result.current.handleContentClick({ target: mark } as never);
+    result.current.handleContentClick({ target: mark } as never);
+  });
+  assert.equal(result.current.contextMenu.visible, true);
+
+  act(() => {
+    vi.advanceTimersByTime(100);
+    result.current.handleContentClick({ target: mark } as never);
+  });
+  assert.equal(result.current.contextMenu.visible, false);
+
+  selectionSpy.mockRestore();
+  vi.useRealTimers();
+});
+
+test('mobile annotation taps close the current menu before another annotation can open', () => {
+  vi.useFakeTimers();
+  const container = document.createElement('div');
+  container.innerHTML = [
+    '<mark data-nous-annotation-id="annotation-1">beta</mark>',
+    '<mark data-nous-annotation-id="annotation-2">gamma</mark>',
+  ].join(' ');
+  document.body.append(container);
+  const marks = container.querySelectorAll('mark');
+  assert.equal(marks.length, 2);
+  marks.forEach((mark, index) => {
+    mark.getBoundingClientRect = () =>
+      ({
+        bottom: 120,
+        height: 20,
+        left: 40 + index * 60,
+        right: 82 + index * 60,
+        top: 100,
+        width: 42,
+      }) as DOMRect;
+  });
+  container.getBoundingClientRect = () => ({ left: 24, right: 420 }) as DOMRect;
+  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+    isCollapsed: true,
+    rangeCount: 0,
+    toString: () => '',
+  } as unknown as Selection);
+  const contentRef = { current: container };
+
+  const { result } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef,
+      isMobileViewport: true,
+      sectionAnnotations: [
+        { id: 'annotation-1', note: 'Nota', createdAt: '', updatedAt: '' },
+        { id: 'annotation-2', note: '', createdAt: '', updatedAt: '' },
+      ],
+      sectionContent: container.innerHTML,
+    })
+  );
+
+  act(() => {
+    result.current.handleContentClick({ target: marks[0] } as never);
+  });
+  assert.equal(result.current.contextMenu.type, 'annotation');
+  assert.equal(
+    result.current.contextMenu.type === 'annotation'
+      ? result.current.contextMenu.annotationId
+      : null,
+    'annotation-1'
+  );
+
+  act(() => {
+    vi.advanceTimersByTime(100);
+    result.current.handleContentClick({ target: marks[1] } as never);
+  });
+  assert.equal(result.current.contextMenu.visible, false);
+
+  act(() => {
+    vi.advanceTimersByTime(100);
+    result.current.handleContentClick({ target: marks[1] } as never);
+  });
+  assert.equal(
+    result.current.contextMenu.type === 'annotation'
+      ? result.current.contextMenu.annotationId
+      : null,
+    'annotation-2'
+  );
+
+  selectionSpy.mockRestore();
+  vi.useRealTimers();
 });

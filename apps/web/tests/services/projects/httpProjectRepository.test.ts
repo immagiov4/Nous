@@ -3,6 +3,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
 import { HttpProjectRepository } from '../../../services/projects/httpProjectRepository.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
+import { consumeProjectRevisionStream } from '../../../services/projects/projectRevisionStream.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 
 const fetchMock = vi.fn();
@@ -214,4 +215,46 @@ test('HttpProjectRepository uploads a new PDF once and saves a lightweight snaps
     },
   });
   expect(saveBody.omitSource).toBeUndefined();
+});
+
+test('HttpProjectRepository sends the expected revision and preserves a 409 conflict', async () => {
+  fetchMock.mockResolvedValueOnce({
+    ok: false,
+    status: 409,
+    statusText: 'Conflict',
+    json: async () => ({
+      success: false,
+      error: "Il progetto è stato modificato in un'altra sessione.",
+    }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await assert.rejects(
+    () =>
+      repository.patchProject('project-1', { state: AppState.READING }, { expectedRevision: 4 }),
+    (error: unknown) => error instanceof ProjectStorageError && error.code === 'revision-conflict'
+  );
+
+  expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+    expectedRevision: 4,
+    patch: { state: AppState.READING },
+  });
+});
+
+test('consumeProjectRevisionStream emits only complete valid SSE events', async () => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(': heartbeat\n\ndata: {"projectId":"project-1",'));
+      controller.enqueue(
+        encoder.encode('"revision":2}\n\ndata: {"projectId":"project-2","revision":"bad"}\n\n')
+      );
+      controller.close();
+    },
+  });
+  const events: Array<{ projectId: string; revision: number }> = [];
+
+  await consumeProjectRevisionStream(stream, event => events.push(event));
+
+  expect(events).toEqual([{ projectId: 'project-1', revision: 2 }]);
 });

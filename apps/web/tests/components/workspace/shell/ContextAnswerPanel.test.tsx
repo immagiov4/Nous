@@ -105,6 +105,7 @@ const currentLessonArtifact = {
 const buildProps = (
   contextAnswerOverrides: Partial<{
     contextScope: 'annotation' | 'lesson' | 'selection';
+    id: string;
     selectedText: string;
   }> = {}
 ) => ({
@@ -148,7 +149,7 @@ describe('ContextAnswerPanel', () => {
 
     render(
       <StrictMode>
-        <ContextAnswerPanel {...buildProps()} />
+        <ContextAnswerPanel {...buildProps({ id: 'context-strict-mode' })} />
       </StrictMode>
     );
 

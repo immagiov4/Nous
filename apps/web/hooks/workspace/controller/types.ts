@@ -7,6 +7,7 @@ import type {
 import type {
   ApplicationExerciseNode,
   AppState,
+  CourseSourceDescriptor,
   ExerciseAttachment,
   FileData,
   HomeChatToolPreferences,
@@ -39,6 +40,7 @@ export interface TextSourceInput {
 
 export interface AssessmentSourceInput {
   file?: FileData | null;
+  sources?: CourseSourceDescriptor[];
   textSource?: TextSourceInput | null;
 }
 
@@ -131,7 +133,8 @@ export interface WorkspaceProjectLibraryAdapter {
     sectionId: string,
     patch: Partial<
       Pick<LessonNode, 'content' | 'generatedVisuals' | 'imageRefs' | 'learningAids' | 'quiz'>
-    >
+    >,
+    projectPatch?: Partial<ProjectSnapshot>
   ) => Promise<boolean>;
   savedProjects: SavedProjectMeta[];
   setCurrentProjectId: (projectId: string | null) => void;
@@ -239,11 +242,12 @@ export interface WorkspaceControllerCommands {
   exportProject: (projectId?: string) => Promise<void>;
   goToLibrary: () => Promise<void>;
   handleSourceUpload: (
-    selectedFile: File,
+    selectedFiles: File | File[],
     options?: { mode?: 'new-project' | 'reattach-source' }
   ) => Promise<{
     errorMessage?: string;
     outcome: 'imported' | 'started-assessment' | 'reattached';
+    sourceWarnings?: Array<{ message: string; name: string }>;
   }>;
   importProjectFile: (
     selectedFile: File
@@ -264,10 +268,12 @@ export interface WorkspaceControllerCommands {
   startHomeChat: (args: {
     input: string;
     selectedFile?: File | null;
+    selectedFiles?: File[];
     toolPreferences?: HomeChatToolPreferences;
   }) => Promise<{
     errorMessage?: string;
     outcome: 'assessment-complete' | 'continued' | 'failed' | 'imported' | 'noop' | 'planned';
+    sourceWarnings?: Array<{ message: string; name: string }>;
   }>;
   startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
   submitAssessment: (
@@ -276,6 +282,7 @@ export interface WorkspaceControllerCommands {
   ) => Promise<{
     errorMessage?: string;
     outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
+    sourceWarnings?: Array<{ message: string; name: string }>;
   }>;
   updateApplicationExercise: (
     exerciseId: string,

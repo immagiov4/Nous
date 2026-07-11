@@ -13,6 +13,7 @@ import type {
   SavedProjectMeta,
 } from '../../types';
 import { Pressable } from '../../utils/motion/index.ts';
+import AccountMenu from '../account/AccountMenu.tsx';
 import type {
   ChatArtifactActionRequest,
   ChatArtifactRegenerateRequest,
@@ -22,7 +23,7 @@ import HomeChatPanel from './HomeChatPanel';
 import LibraryTreeView from './LibraryTreeView.tsx';
 
 const SOURCE_FILE_ACCEPT =
-  '.pdf,.zip,.txt,.md,.markdown,.csv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.cs,.go,.rs,.rb,.php,.html,.css,text/*,application/pdf,application/zip,application/x-zip-compressed';
+  '.pdf,.zip,.txt,.md,.markdown,.mdx,.csv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.cs,.go,.rs,.rb,.php,.html,.css,text/*,application/pdf,application/zip,application/x-zip-compressed';
 
 interface LibraryViewProps {
   assessmentComplete: boolean;
@@ -30,6 +31,7 @@ interface LibraryViewProps {
   homeChatMode: HomeChatMode;
   openingProjectId: string | null;
   isDarkMode: boolean;
+  isExportingProject?: boolean;
   isLibraryLoading: boolean;
   isLibraryQueryLoading: boolean;
   isNewCourseLoading: boolean;
@@ -47,8 +49,9 @@ interface LibraryViewProps {
   planFileInputId: string;
   projects: SavedProjectMeta[];
   pendingHomeFileName: string | null;
+  pendingHomeFileNames?: string[];
   homeChatDraftValue?: string;
-  homeChatScrollTopOverride?: number;
+  homeChatScrollProgressOverride?: number;
   sourceFileInputId: string;
   storageError: string | null;
   onClearPendingHomeFile: () => void;
@@ -108,6 +111,7 @@ const LibraryView = ({
   homeChatMode,
   openingProjectId,
   isDarkMode,
+  isExportingProject = false,
   isLibraryLoading,
   isLibraryQueryLoading,
   isNewCourseLoading,
@@ -124,8 +128,9 @@ const LibraryView = ({
   newCourseLoadingStatus,
   planFileInputId,
   homeChatDraftValue,
-  homeChatScrollTopOverride,
+  homeChatScrollProgressOverride,
   pendingHomeFileName,
+  pendingHomeFileNames,
   sourceFileInputId,
   storageError,
   onClearPendingHomeFile,
@@ -167,6 +172,7 @@ const LibraryView = ({
       <input
         id={sourceFileInputId}
         type="file"
+        multiple
         className="hidden"
         accept={SOURCE_FILE_ACCEPT}
         onChange={onSourceFileUpload}
@@ -196,6 +202,7 @@ const LibraryView = ({
             >
               {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Pressable>
+            <AccountMenu />
           </div>
         </header>
 
@@ -225,8 +232,9 @@ const LibraryView = ({
           libraryGenerateArtifacts={libraryGenerateArtifacts}
           newCourseLoadingStatus={newCourseLoadingStatus}
           draftValueOverride={homeChatDraftValue}
-          scrollTopOverride={homeChatScrollTopOverride}
+          scrollProgressOverride={homeChatScrollProgressOverride}
           pendingFileName={pendingHomeFileName}
+          pendingFileNames={pendingHomeFileNames}
           onClearPendingFile={onClearPendingHomeFile}
           onClearLibraryMessages={onClearLibraryMessages}
           onContinueAssessment={onContinueAssessment}
@@ -282,6 +290,7 @@ const LibraryView = ({
           {!isLibraryLoading ? (
             <LibraryTreeView
               createRootTrigger={newFolderTrigger}
+              isExportingProject={isExportingProject}
               openingProjectId={openingProjectId}
               onCreateFolder={onCreateFolder}
               onConfirmDeleteFolder={onConfirmDeleteFolder}

@@ -22,6 +22,7 @@ import type {
   ApplicationExerciseNode,
   LearningArtifactRenderPayload,
   LessonGeneratedVisual,
+  ResearchSourceReference,
   SectionAnnotation,
 } from '../../../types.ts';
 import { getGeneratedVisualSourceLabel } from '../../../utils/learning/artifacts.ts';
@@ -707,6 +708,63 @@ function FeedbackList({ items, title }: { items: string[]; title: string }) {
   );
 }
 
+const getSafeSourceUrl = (url: string | undefined): string | null => {
+  if (!url) {
+    return null;
+  }
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === 'https:' || parsedUrl.protocol === 'http:'
+      ? parsedUrl.href
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference[] }) {
+  if (sources.length === 0) {
+    return null;
+  }
+
+  return (
+    <aside
+      aria-label={t('Fonti della lezione')}
+      className="mt-10 border-t border-stone-200/80 pt-6 dark:border-stone-700"
+    >
+      <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
+        {t('Fonti della lezione')}
+      </h2>
+      <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-700 dark:text-stone-300">
+        {sources.map((source, index) => {
+          const safeUrl = getSafeSourceUrl(source.url);
+          return (
+            <li key={`${source.title}:${source.url || index}`}>
+              {safeUrl ? (
+                <a
+                  href={safeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 dark:text-orange-300 dark:hover:text-orange-100"
+                >
+                  {source.title}
+                </a>
+              ) : (
+                <span className="font-semibold text-stone-900 dark:text-stone-100">
+                  {source.title}
+                </span>
+              )}
+              {source.note ? (
+                <p className="mt-1 text-stone-600 dark:text-stone-400">{source.note}</p>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </aside>
+  );
+}
+
 const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   activeExercise,
   exercisePrerequisiteGaps = [],
@@ -723,13 +781,14 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   isLoading,
   isMobileViewport,
   learningAids,
+  lessonSources = [],
   onAdvanceSection,
   onAttachExerciseFiles,
   onCompleteSection,
   onContentClick,
   onContentContextMenu,
   onContentPointerDownCapture,
-  onDismissLearningAid,
+  onSaveLearningAids,
   onRequestExerciseFeedback,
   onSelectQuizAnswer,
   onRemoveExerciseAttachment,
@@ -922,7 +981,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                     isDarkMode={isDarkMode}
                     isMobileViewport
                     learningAids={learningAids}
-                    onDismissLearningAid={onDismissLearningAid}
+                    onSaveLearningAids={onSaveLearningAids}
                   />
                 ) : null}
                 {isContextHintVisible ? (
@@ -1037,6 +1096,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                     })}
                   </section>
                 ) : null}
+
+                <LessonSourceAttribution sources={lessonSources} />
 
                 <WorkspaceReaderQuizFooter
                   canComplete={canCompleteSection}

@@ -7,10 +7,19 @@ export const CONTEXT_CHAT_MODEL = process.env.MODEL_CONTEXT || DEFAULT_CONTEXT_C
 export const requireOpenRouterApiKey = () => {
   const openRouterApiKey = process.env.OPENROUTER_API_KEY || '';
   if (!openRouterApiKey) {
-    throw new Error(
-      'Missing OPENROUTER_API_KEY. Add it to apps/backend/.env.local or the project root .env.local.'
-    );
+    console.error('[AI Config] OPENROUTER_API_KEY is missing.');
+    throw new Error('Servizio AI non configurato.');
   }
 
   return openRouterApiKey;
+};
+
+export const requireOpenAiApiKey = () => {
+  const openAiApiKey = process.env.OPENAI_API_KEY || '';
+  if (!openAiApiKey) {
+    console.error('[AI Config] OPENAI_API_KEY is missing.');
+    throw new Error('Servizio AI non configurato.');
+  }
+
+  return openAiApiKey;
 };

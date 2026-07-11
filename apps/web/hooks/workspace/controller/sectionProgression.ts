@@ -12,6 +12,7 @@ import {
   withGeneratedExerciseBrief,
   withUpdatedExerciseDeliverable,
 } from '../../../services/exercises/plan.ts';
+import { getCourseSourceDescriptors } from '../../../services/projects/courseSources.ts';
 import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
 import { mergeDocumentAssetsForPlan } from '../../../services/workspace/controller/documentAssets.ts';
 import { resolveLearnSectionContext } from '../../../services/workspace/controller/learnMode.ts';
@@ -503,26 +504,119 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           null
         );
         domain.setDocumentAssets(mergedDocumentAssets);
-        const didPersistLesson = await projectLibrary.patchSectionLessonContent(section.id, {
-          content,
-          generatedVisuals,
-          imageRefs: [],
-          learningAids,
-          quiz,
-        });
+        const didPersistLesson = await projectLibrary.patchSectionLessonContent(
+          section.id,
+          {
+            content,
+            generatedVisuals,
+            imageRefs: [],
+            learningAids,
+            quiz,
+          },
+          {
+            documentAssets: mergedDocumentAssets,
+            researchDossiersBySectionId: nextResearchDossiersBySectionId,
+            activeSectionId: section.id,
+            state: AppState.READING,
+            isLearnMode: true,
+          }
+        );
         if (!didPersistLesson) {
           throw new Error(t('La lezione rigenerata non e stata salvata. Riprova.'));
         }
-        void projectLibrary.patchCurrentProject({
-          documentAssets: mergedDocumentAssets,
-          researchDossiersBySectionId: nextResearchDossiersBySectionId,
-          activeSectionId: section.id,
-          state: AppState.READING,
-          isLearnMode: true,
-        });
       } else {
         if (!sourceFile) {
           throw new Error('Missing source file for section generation');
+        }
+
+        const cachedPrerequisiteDossier = currentResearchDossiersBySectionId[section.id];
+        const prerequisiteSourceContext =
+          section.type === 'prerequisite'
+            ? await openRouter.buildPrerequisiteSourceContext({
+                documentIndex: currentDocumentIndex,
+                file: sourceFile,
+                primaryChunkIds: section.primaryChunkIds,
+                sourceDescriptors: getCourseSourceDescriptors(domain.source),
+                sourceReferences: section.sourceReferences,
+              })
+            : null;
+        const coverageDecision =
+          section.type === 'prerequisite' && !cachedPrerequisiteDossier
+            ? await openRouter.selectPrerequisiteSourceCoverage({
+                description: section.description,
+                onReasoningUpdate: progressObserver.push,
+                onStatusUpdate: reportStatus,
+                sourceContext: prerequisiteSourceContext?.content || '',
+                title: section.title,
+              })
+            : null;
+        const needsMixedSources = Boolean(
+          section.type === 'prerequisite' &&
+            (cachedPrerequisiteDossier || coverageDecision?.needsResearch)
+        );
+        let nextResearchDossiersBySectionId = currentResearchDossiersBySectionId;
+        let lessonResult:
+          | Awaited<ReturnType<typeof openRouter.generateSectionContent>>
+          | (Awaited<ReturnType<typeof openRouter.generateResearchLessonContent>> & {
+              documentAssets: null;
+              imageRefs: [];
+            });
+
+        if (needsMixedSources && prerequisiteSourceContext) {
+          const moduleTitle =
+            currentPlan.modules.find(module =>
+              module.children.some(child => child.id === section.id)
+            )?.title || section.title;
+          const researchedDossier =
+            cachedPrerequisiteDossier ||
+            (await openRouter.generateResearchLessonDossier({
+              coverageGaps: coverageDecision?.missingTopics,
+              lesson: section,
+              moduleTitle,
+              profile: currentUserProfile,
+              researchCoursePlan: currentResearchCoursePlan,
+              onStatusUpdate: reportStatus,
+              onReasoningUpdate: progressObserver.push,
+            }));
+          const mixedDossier = openRouter.mergePrerequisiteDossierSources(
+            researchedDossier,
+            prerequisiteSourceContext.sources
+          );
+          nextResearchDossiersBySectionId = {
+            ...currentResearchDossiersBySectionId,
+            [section.id]: mixedDossier,
+          };
+          domain.setResearchLessonDossier(mixedDossier);
+
+          const researchLessonResult = await openRouter.generateResearchLessonContent({
+            lessonTitle: section.title,
+            moduleTitle,
+            contextPrompt: section.contextPrompt || section.description,
+            profile: currentUserProfile,
+            syllabus: currentSyllabus,
+            researchDossier: mixedDossier,
+            originalSourceContext: prerequisiteSourceContext.content,
+            generationNotes: currentPlan.generationNotes,
+            onStatusUpdate: reportStatus,
+            onReasoningUpdate: progressObserver.push,
+          });
+          lessonResult = {
+            ...researchLessonResult,
+            documentAssets: null,
+            imageRefs: [],
+          };
+        } else {
+          lessonResult = await openRouter.generateSectionContent(
+            sourceFile,
+            section.title,
+            section.description,
+            completedTitles,
+            section.primaryChunkIds,
+            currentDocumentIndex,
+            reportStatus,
+            currentPlan.generationNotes,
+            progressObserver.push
+          );
         }
 
         const {
@@ -532,17 +626,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           imageRefs,
           learningAids,
           quiz,
-        } = await openRouter.generateSectionContent(
-          sourceFile,
-          section.title,
-          section.description,
-          completedTitles,
-          section.primaryChunkIds,
-          currentDocumentIndex,
-          reportStatus,
-          currentPlan.generationNotes,
-          progressObserver.push
-        );
+        } = lessonResult;
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {
           return 'ignored-busy';
@@ -562,21 +646,27 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           nextDocumentAssets
         );
         domain.setDocumentAssets(mergedDocumentAssets);
-        const didPersistLesson = await projectLibrary.patchSectionLessonContent(section.id, {
-          content,
-          generatedVisuals,
-          imageRefs,
-          learningAids,
-          quiz,
-        });
+        const didPersistLesson = await projectLibrary.patchSectionLessonContent(
+          section.id,
+          {
+            content,
+            generatedVisuals,
+            imageRefs,
+            learningAids,
+            quiz,
+          },
+          {
+            documentAssets: mergedDocumentAssets,
+            ...(nextResearchDossiersBySectionId !== currentResearchDossiersBySectionId
+              ? { researchDossiersBySectionId: nextResearchDossiersBySectionId }
+              : {}),
+            activeSectionId: section.id,
+            state: AppState.READING,
+          }
+        );
         if (!didPersistLesson) {
           throw new Error(t('La lezione rigenerata non e stata salvata. Riprova.'));
         }
-        void projectLibrary.patchCurrentProject({
-          documentAssets: mergedDocumentAssets,
-          activeSectionId: section.id,
-          state: AppState.READING,
-        });
       }
 
       await progressObserver.finish();

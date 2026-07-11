@@ -124,19 +124,6 @@ describe('WorkspaceReaderSidebar', () => {
     expect(onRepairApplicationExercises).toHaveBeenCalledTimes(1);
   });
 
-  test('renders the configured planning label', () => {
-    render(
-      <WorkspaceReaderSidebar
-        {...buildProps({
-          canRepairApplicationExercises: true,
-          repairApplicationExercisesLabel: 'Pianifica esercizi',
-        })}
-      />
-    );
-
-    expect(screen.getByRole('button', { name: /Pianifica esercizi/i })).toBeVisible();
-  });
-
   test('shows a spinner while application exercise planning is running', () => {
     render(
       <WorkspaceReaderSidebar

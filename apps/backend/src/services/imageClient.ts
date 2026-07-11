@@ -1,16 +1,20 @@
+import { DEFAULT_OPENAI_IMAGE_MODEL, getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { isRecord } from '../utils/validation.js';
+import { getOpenAiJsonHeaders, OPENAI_API_BASE_URL } from './openAiApi.js';
 import {
   getOpenRouterJsonHeaders,
   OPENROUTER_API_BASE_URL,
   readOpenRouterErrorDetails,
 } from './openRouterApi.js';
 
-export const DEFAULT_IMAGE_MODEL = process.env.MODEL_IMAGE || 'google/gemini-3.1-flash-lite-image';
+export { DEFAULT_IMAGE_MODEL, DEFAULT_OPENAI_IMAGE_MODEL } from '../config/modelConfig.js';
 
 type GeneratedImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 
 interface GenerateImageRequest {
+  model?: string;
   prompt: string;
+  provider?: 'openai' | 'openrouter';
 }
 
 interface GeneratedImageResult {
@@ -20,6 +24,11 @@ interface GeneratedImageResult {
   usage?: Record<string, unknown>;
 }
 
+export interface ImageGenerationModel {
+  id: string;
+  name: string;
+}
+
 const ALLOWED_IMAGE_MEDIA_TYPES = new Set<GeneratedImageMediaType>([
   'image/jpeg',
   'image/png',
@@ -27,6 +36,12 @@ const ALLOWED_IMAGE_MEDIA_TYPES = new Set<GeneratedImageMediaType>([
 ]);
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_GENERATED_IMAGE_BYTES = 12 * 1024 * 1024;
+const SUPPORTED_OPENAI_IMAGE_MODELS = new Set([
+  DEFAULT_OPENAI_IMAGE_MODEL,
+  'gpt-image-1.5',
+  'gpt-image-1',
+  'gpt-image-1-mini',
+]);
 
 const isValidImageBase64 = (value: unknown): value is string =>
   typeof value === 'string' &&
@@ -41,24 +56,86 @@ const normalizeImageMediaType = (value: unknown): GeneratedImageMediaType | null
     : null;
 
 class ImageClient {
-  async generateImage(request: GenerateImageRequest): Promise<GeneratedImageResult> {
-    const response = await fetch(`${OPENROUTER_API_BASE_URL}/images`, {
-      method: 'POST',
+  async listModels(): Promise<ImageGenerationModel[]> {
+    const response = await fetch(`${OPENROUTER_API_BASE_URL}/images/models`, {
       headers: getOpenRouterJsonHeaders(),
-      body: JSON.stringify({
-        aspect_ratio: '16:9',
-        model: DEFAULT_IMAGE_MODEL,
-        n: 1,
-        prompt: request.prompt,
-        resolution: '1K',
-      }),
     });
+    if (!response.ok) {
+      throw new Error('Impossibile verificare i modelli immagini disponibili.');
+    }
+
+    const payload: unknown = await response.json().catch(() => null);
+    if (!isRecord(payload) || !Array.isArray(payload.data)) {
+      throw new Error('Il catalogo dei modelli immagini non è valido.');
+    }
+
+    return payload.data.flatMap(model => {
+      if (!isRecord(model) || typeof model.id !== 'string' || !model.id.trim()) {
+        return [];
+      }
+
+      return [
+        { id: model.id.trim(), name: typeof model.name === 'string' ? model.name : model.id },
+      ];
+    });
+  }
+
+  async assertModelSupportsImage(modelId: string): Promise<void> {
+    const models = await this.listModels();
+    if (!models.some(model => model.id === modelId)) {
+      throw new Error('Il modello selezionato non supporta la generazione immagini.');
+    }
+  }
+
+  assertOpenAiModelSupportsImage(modelId: string): void {
+    if (!SUPPORTED_OPENAI_IMAGE_MODELS.has(modelId)) {
+      throw new Error('Il modello OpenAI selezionato non supporta la generazione immagini.');
+    }
+  }
+
+  async generateImage(request: GenerateImageRequest): Promise<GeneratedImageResult> {
+    const modelConfig = await getResolvedGlobalModelConfig();
+    const provider = request.provider ?? modelConfig.aiProvider;
+    if (provider === 'codex') {
+      throw new Error('Generazione immagini non disponibile con il provider Codex.');
+    }
+    const usesOpenAi = provider === 'openai';
+    const model =
+      request.model || (usesOpenAi ? modelConfig.openAiImageModel : modelConfig.imageModel);
+    const response = await fetch(
+      usesOpenAi
+        ? `${OPENAI_API_BASE_URL}/images/generations`
+        : `${OPENROUTER_API_BASE_URL}/images`,
+      {
+        method: 'POST',
+        headers: usesOpenAi ? getOpenAiJsonHeaders() : getOpenRouterJsonHeaders(),
+        body: JSON.stringify(
+          usesOpenAi
+            ? {
+                model,
+                n: 1,
+                output_format: 'png',
+                prompt: request.prompt,
+                quality: 'medium',
+                size: '1536x1024',
+              }
+            : {
+                aspect_ratio: '16:9',
+                model,
+                n: 1,
+                prompt: request.prompt,
+                resolution: '1K',
+              }
+        ),
+      }
+    );
 
     if (!response.ok) {
       const details = await readOpenRouterErrorDetails(response);
-      console.warn('[Nous] OpenRouter image request failed', {
+      console.warn('[Nous] Image request failed', {
         status: response.status,
-        model: DEFAULT_IMAGE_MODEL,
+        model,
+        provider: usesOpenAi ? 'openai' : 'openrouter',
         details,
       });
       throw new Error('Il servizio immagini non ha completato la richiesta. Riprova tra poco.');
@@ -70,7 +147,7 @@ class ImageClient {
       payloadRecord && Array.isArray(payloadRecord.data) && isRecord(payloadRecord.data[0])
         ? payloadRecord.data[0]
         : null;
-    const mediaType = normalizeImageMediaType(firstImage?.media_type);
+    const mediaType = usesOpenAi ? 'image/png' : normalizeImageMediaType(firstImage?.media_type);
     const imageBase64 = firstImage?.b64_json;
 
     if (!mediaType || !isValidImageBase64(imageBase64)) {
@@ -79,7 +156,8 @@ class ImageClient {
 
     return {
       dataUrl: `data:${mediaType};base64,${imageBase64}`,
-      generationId: response.headers.get('x-generation-id') || undefined,
+      generationId:
+        response.headers.get(usesOpenAi ? 'x-request-id' : 'x-generation-id') || undefined,
       mediaType,
       usage: isRecord(payloadRecord?.usage) ? payloadRecord.usage : undefined,
     };

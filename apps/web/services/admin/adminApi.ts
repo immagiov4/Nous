@@ -2,6 +2,7 @@ import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 
 export type AdminReasoningEffort = 'none' | 'low' | 'medium' | 'high';
+export type AdminAiProvider = 'codex' | 'openai' | 'openrouter';
 
 export interface AdminUser {
   banned_until?: string | null;
@@ -13,12 +14,25 @@ export interface AdminUser {
 }
 
 export interface AdminModelConfig {
+  aiProvider: AdminAiProvider;
   assessmentModel: string;
   assessmentReasoningEffort: AdminReasoningEffort;
+  codexAssessmentModel: string;
+  codexContextModel: string;
+  codexLessonModel: string;
+  codexProgressModel: string;
+  codexResearchModel: string;
   contextModel: string;
   contextReasoningEffort: AdminReasoningEffort;
+  imageModel: string;
   lessonModel: string;
   lessonReasoningEffort: AdminReasoningEffort;
+  openAiAssessmentModel: string;
+  openAiContextModel: string;
+  openAiImageModel: string;
+  openAiLessonModel: string;
+  openAiProgressModel: string;
+  openAiResearchModel: string;
   progressModel: string;
   progressReasoningEffort: AdminReasoningEffort;
   researchModel: string;
@@ -30,12 +44,25 @@ export interface AdminModelConfig {
 export type AdminModelConfigPatch = Partial<
   Pick<
     AdminModelConfig,
+    | 'aiProvider'
     | 'assessmentModel'
     | 'assessmentReasoningEffort'
+    | 'codexAssessmentModel'
+    | 'codexContextModel'
+    | 'codexLessonModel'
+    | 'codexProgressModel'
+    | 'codexResearchModel'
     | 'contextModel'
     | 'contextReasoningEffort'
+    | 'imageModel'
     | 'lessonModel'
     | 'lessonReasoningEffort'
+    | 'openAiAssessmentModel'
+    | 'openAiContextModel'
+    | 'openAiImageModel'
+    | 'openAiLessonModel'
+    | 'openAiProgressModel'
+    | 'openAiResearchModel'
     | 'progressModel'
     | 'progressReasoningEffort'
     | 'researchModel'
@@ -45,12 +72,25 @@ export type AdminModelConfigPatch = Partial<
 >;
 
 export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
+  aiProvider: 'openrouter',
   assessmentModel: 'google/gemini-3.1-flash-lite',
   assessmentReasoningEffort: 'medium',
+  codexAssessmentModel: 'gpt-5.6-luna',
+  codexContextModel: 'gpt-5.6-luna',
+  codexLessonModel: 'gpt-5.6-terra',
+  codexProgressModel: 'gpt-5.6-luna',
+  codexResearchModel: 'gpt-5.6-terra',
   contextModel: 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium',
+  imageModel: 'google/gemini-3.1-flash-lite-image',
   lessonModel: 'openai/gpt-5.4-mini',
   lessonReasoningEffort: 'medium',
+  openAiAssessmentModel: 'gpt-5.6-luna',
+  openAiContextModel: 'gpt-5.6-luna',
+  openAiImageModel: 'gpt-image-2',
+  openAiLessonModel: 'gpt-5.6-terra',
+  openAiProgressModel: 'gpt-5.6-luna',
+  openAiResearchModel: 'gpt-5.6-terra',
   progressModel: 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low',
   researchModel: 'perplexity/sonar-pro-search',
@@ -63,6 +103,12 @@ const readConfigValue = (value: unknown, fallback: string): string =>
   typeof value === 'string' && value.trim() ? value.trim() : fallback;
 
 const ADMIN_REASONING_EFFORTS = new Set<AdminReasoningEffort>(['none', 'low', 'medium', 'high']);
+const ADMIN_AI_PROVIDERS = new Set<AdminAiProvider>(['codex', 'openai', 'openrouter']);
+
+const readAiProvider = (value: unknown): AdminAiProvider =>
+  typeof value === 'string' && ADMIN_AI_PROVIDERS.has(value as AdminAiProvider)
+    ? (value as AdminAiProvider)
+    : DEFAULT_ADMIN_MODEL_CONFIG.aiProvider;
 
 const readReasoningEffort = (
   value: unknown,
@@ -75,6 +121,7 @@ const readReasoningEffort = (
 const normalizeAdminModelConfig = (
   config: Partial<AdminModelConfig> | null | undefined
 ): AdminModelConfig => ({
+  aiProvider: readAiProvider(config?.aiProvider),
   assessmentModel: readConfigValue(
     config?.assessmentModel,
     DEFAULT_ADMIN_MODEL_CONFIG.assessmentModel
@@ -83,15 +130,60 @@ const normalizeAdminModelConfig = (
     config?.assessmentReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.assessmentReasoningEffort
   ),
+  codexAssessmentModel: readConfigValue(
+    config?.codexAssessmentModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexAssessmentModel
+  ),
+  codexContextModel: readConfigValue(
+    config?.codexContextModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexContextModel
+  ),
+  codexLessonModel: readConfigValue(
+    config?.codexLessonModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexLessonModel
+  ),
+  codexProgressModel: readConfigValue(
+    config?.codexProgressModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexProgressModel
+  ),
+  codexResearchModel: readConfigValue(
+    config?.codexResearchModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexResearchModel
+  ),
   contextModel: readConfigValue(config?.contextModel, DEFAULT_ADMIN_MODEL_CONFIG.contextModel),
   contextReasoningEffort: readReasoningEffort(
     config?.contextReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.contextReasoningEffort
   ),
+  imageModel: readConfigValue(config?.imageModel, DEFAULT_ADMIN_MODEL_CONFIG.imageModel),
   lessonModel: readConfigValue(config?.lessonModel, DEFAULT_ADMIN_MODEL_CONFIG.lessonModel),
   lessonReasoningEffort: readReasoningEffort(
     config?.lessonReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.lessonReasoningEffort
+  ),
+  openAiAssessmentModel: readConfigValue(
+    config?.openAiAssessmentModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiAssessmentModel
+  ),
+  openAiContextModel: readConfigValue(
+    config?.openAiContextModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiContextModel
+  ),
+  openAiImageModel: readConfigValue(
+    config?.openAiImageModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiImageModel
+  ),
+  openAiLessonModel: readConfigValue(
+    config?.openAiLessonModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiLessonModel
+  ),
+  openAiProgressModel: readConfigValue(
+    config?.openAiProgressModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiProgressModel
+  ),
+  openAiResearchModel: readConfigValue(
+    config?.openAiResearchModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiResearchModel
   ),
   progressModel: readConfigValue(config?.progressModel, DEFAULT_ADMIN_MODEL_CONFIG.progressModel),
   progressReasoningEffort: readReasoningEffort(

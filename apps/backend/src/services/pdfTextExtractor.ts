@@ -21,6 +21,14 @@ export interface ExtractedPdfTextPage {
   text: string;
 }
 
+export interface ExtractedPdfOutlineNode {
+  children: ExtractedPdfOutlineNode[];
+  id: string;
+  level: number;
+  page?: number;
+  title: string;
+}
+
 export interface ExtractedPdfText {
   text: string;
   pages: ExtractedPdfTextPage[];
@@ -30,6 +38,8 @@ export interface ExtractedPdfText {
   pageCount?: number;
   qualityWarning?: string;
   usedFallbackParser: boolean;
+  outline: ExtractedPdfOutlineNode[];
+  outlineOrigin: 'deterministic' | 'native' | 'none';
 }
 
 const buildSourceHash = (buffer: Buffer): string => buildSha256HexDigest(buffer);
@@ -74,6 +84,105 @@ const joinExtractedPages = (pages: ExtractedPdfTextPage[]): string =>
     .join('\n\n')
     .trim();
 
+const buildOutlineTree = (
+  flatNodes: Array<Omit<ExtractedPdfOutlineNode, 'children'>>
+): ExtractedPdfOutlineNode[] => {
+  const roots: ExtractedPdfOutlineNode[] = [];
+  const stack: ExtractedPdfOutlineNode[] = [];
+  for (const flatNode of flatNodes) {
+    const node = { ...flatNode, children: [] };
+    while (stack.length > 0 && stack[stack.length - 1].level >= node.level) {
+      stack.pop();
+    }
+    const parent = stack[stack.length - 1];
+    (parent?.children || roots).push(node);
+    stack.push(node);
+  }
+  return roots;
+};
+
+const extractNativePdfOutline = async (pdfBuffer: Buffer): Promise<ExtractedPdfOutlineNode[]> => {
+  const parser = new PDFParse({ data: pdfBuffer });
+  try {
+    const outline = (await parser.getInfo()).outline || [];
+    let sequence = 0;
+    const normalize = (items: typeof outline, level: number): ExtractedPdfOutlineNode[] =>
+      items.flatMap(item => {
+        const title = item.title?.trim();
+        if (!title) {
+          return [];
+        }
+        sequence += 1;
+        const destinationPage =
+          Array.isArray(item.dest) && typeof item.dest[0] === 'number'
+            ? Math.trunc(item.dest[0]) + 1
+            : undefined;
+        return [
+          {
+            children: normalize(item.items || [], level + 1),
+            id: `outline-${sequence}`,
+            level,
+            page: destinationPage,
+            title,
+          },
+        ];
+      });
+    return normalize(outline, 1);
+  } catch {
+    return [];
+  } finally {
+    await parser.destroy().catch(() => undefined);
+  }
+};
+
+export const buildDeterministicPdfOutline = (
+  pages: ExtractedPdfTextPage[]
+): ExtractedPdfOutlineNode[] => {
+  const seen = new Set<string>();
+  const flatNodes: Array<Omit<ExtractedPdfOutlineNode, 'children'>> = [];
+  for (const page of pages) {
+    for (const rawLine of page.text.split('\n')) {
+      const title = rawLine.replace(/\s+/g, ' ').trim();
+      if (title.length < 3 || title.length > 120) {
+        continue;
+      }
+      const numbered = title.match(/^(\d+(?:\.\d+){0,3})[.)]?\s+\S/u);
+      const named = /^(?:chapter|capitolo|parte|section|sezione)\s+[\dIVXLC]+\b/iu.test(title);
+      if (!numbered && !named) {
+        continue;
+      }
+      const key = title.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      flatNodes.push({
+        id: `outline-${flatNodes.length + 1}`,
+        level: numbered ? Math.min(6, numbered[1].split('.').length) : 1,
+        page: page.pageNumber,
+        title,
+      });
+    }
+  }
+  return buildOutlineTree(flatNodes);
+};
+
+const attachPdfOutline = async (
+  pdfBuffer: Buffer,
+  result: Omit<ExtractedPdfText, 'sourceHash' | 'outline' | 'outlineOrigin'>
+): Promise<Omit<ExtractedPdfText, 'sourceHash'>> => {
+  const nativeOutline = await extractNativePdfOutline(pdfBuffer);
+  if (nativeOutline.length > 0) {
+    return { ...result, outline: nativeOutline, outlineOrigin: 'native' };
+  }
+  const deterministicOutline = buildDeterministicPdfOutline(result.pages);
+  return {
+    ...result,
+    outline: deterministicOutline,
+    outlineOrigin: deterministicOutline.length > 0 ? 'deterministic' : 'none',
+  };
+};
+
 const extractWithPdfParse = async (
   pdfBuffer: Buffer
 ): Promise<Omit<ExtractedPdfText, 'sourceHash'>> => {
@@ -98,14 +207,14 @@ const extractWithPdfParse = async (
           ]
     );
 
-    return {
+    return attachPdfOutline(pdfBuffer, {
       text: joinExtractedPages(pages),
       pages,
       parser: 'pdf-parse',
       pageCount: infoResult?.total ?? textResult.total ?? pages.length,
       qualityWarning: PDF_TEXT_FALLBACK_WARNING,
       usedFallbackParser: true,
-    };
+    });
   } finally {
     await parser.destroy().catch(() => undefined);
   }
@@ -113,7 +222,10 @@ const extractWithPdfParse = async (
 
 const extractWithPdftotext = async (
   pdfBuffer: Buffer
-): Promise<{ result: Omit<ExtractedPdfText, 'sourceHash'> | null; failureReason?: string }> => {
+): Promise<{
+  result: Omit<ExtractedPdfText, 'sourceHash' | 'outline' | 'outlineOrigin'> | null;
+  failureReason?: string;
+}> => {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), TMP_DIR_PREFIX));
   const pdfPath = path.join(tmpDir, 'document.pdf');
 
@@ -145,7 +257,7 @@ const extractWithPdftotext = async (
       return { result: null, failureReason: 'pdftotext_empty_output' };
     }
 
-    const result: Omit<ExtractedPdfText, 'sourceHash'> = {
+    const result: Omit<ExtractedPdfText, 'sourceHash' | 'outline' | 'outlineOrigin'> = {
       text: normalizedText,
       pages,
       parser: 'pdftotext',
@@ -173,7 +285,7 @@ export const extractPdfText = async (pdfDataUrl: string): Promise<ExtractedPdfTe
   const pdftotextResult = await extractWithPdftotext(pdfBuffer);
   if (pdftotextResult.result) {
     return {
-      ...pdftotextResult.result,
+      ...(await attachPdfOutline(pdfBuffer, pdftotextResult.result)),
       sourceHash,
     };
   }

@@ -1,5 +1,4 @@
 // Handles library-scoped chat requests for the backend API.
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
   convertToModelMessages,
   jsonSchema,
@@ -10,8 +9,17 @@ import {
 } from 'ai';
 import { type Request, type Response, Router } from 'express';
 
-import { requireOpenRouterApiKey } from '../config/chatConfig.js';
-import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
+import {
+  getResolvedModelConfigForProvider,
+  resolveTextModelConfig,
+} from '../config/modelConfig.js';
+import { createConfiguredTextModel } from '../services/aiSdkTextModel.js';
+import {
+  assertCodexRequestAccess,
+  CODEX_ACCESS_DENIED_MESSAGE,
+  CodexAccessError,
+} from '../services/codexAccess.js';
+import { createCodexChatStream, SAFE_AI_STREAM_ERROR } from '../services/codexChatStream.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString, readStringArray } from '../utils/validation.js';
 
@@ -505,7 +513,6 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
 
     const messages = req.body.messages;
     const attachedContextRefs = readLibraryContextReferences(req.body.attachedContextRefs);
-    const backendContextModel = (await getResolvedGlobalModelConfig()).contextModel;
     const resolvedScopeSummary = readLibraryResolvedScopeSummary(req.body.resolvedScopeSummary);
     const toolPreferences = readLibraryToolPreferences(req.body.toolPreferences);
 
@@ -517,12 +524,12 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
       return;
     }
 
-    const openrouter = createOpenRouter({
-      apiKey: requireOpenRouterApiKey(),
-    });
+    const modelConfig = await getResolvedModelConfigForProvider(req.get('x-nous-ai-provider'));
+    const contextModelConfig = resolveTextModelConfig(modelConfig, 'context');
+
     const libraryTools = buildLibraryToolSet({
       attachedContextRefs,
-      modelOverride: backendContextModel,
+      modelOverride: modelConfig.researchModel,
       resolvedScopeSummary,
     });
 
@@ -530,15 +537,32 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
       messages.map(({ id: _id, ...message }) => message),
       { tools: libraryTools }
     );
+    const system = buildLibrarySystemPrompt({
+      attachedContextRefs,
+      resolvedScopeSummary,
+      toolPreferences,
+    });
+
+    if (modelConfig.aiProvider === 'codex') {
+      assertCodexRequestAccess(req);
+      const stream = await createCodexChatStream({
+        messages: modelMessages,
+        model: contextModelConfig.model,
+        reasoningEffort: contextModelConfig.reasoningEffort,
+        system,
+        tools: libraryTools,
+      });
+      pipeUIMessageStreamToResponse({ response: res, stream });
+      return;
+    }
+
+    const configuredModel = createConfiguredTextModel(modelConfig, 'context');
 
     const result = streamText({
-      model: openrouter.chat(backendContextModel),
-      system: buildLibrarySystemPrompt({
-        attachedContextRefs,
-        resolvedScopeSummary,
-        toolPreferences,
-      }),
+      model: configuredModel.model,
+      system,
       messages: modelMessages,
+      providerOptions: configuredModel.providerOptions,
       tools: libraryTools,
       stopWhen: stepCountIs(CHAT_TOOL_STEP_LIMIT),
       prepareStep: buildLibraryPrepareStep(),
@@ -546,10 +570,14 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
 
     pipeUIMessageStreamToResponse({
       response: res,
-      stream: result.toUIMessageStream(),
+      stream: result.toUIMessageStream({ onError: () => SAFE_AI_STREAM_ERROR }),
     });
   } catch (error) {
     console.error('[Library Chat Route] Error:', error);
+    if (error instanceof CodexAccessError) {
+      res.status(403).json({ success: false, error: CODEX_ACCESS_DENIED_MESSAGE });
+      return;
+    }
     sendErrorResponse(res, 500, error, 'Failed to stream library chat response');
   }
 });

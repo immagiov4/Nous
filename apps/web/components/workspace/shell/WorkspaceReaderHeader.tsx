@@ -28,7 +28,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
   onBackToLibrary,
   onOpenSidebar,
   onRegenerateActiveSection,
-  onDismissLearningAid,
+  onSaveLearningAids,
   onSetDarkMode,
   onSetCourseGenerationNotes,
   onSetFocusMode,
@@ -294,11 +294,11 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
             tts={tts}
           />
 
-          {!isMobileViewport ? (
+          {!isMobileViewport && hasActiveSection ? (
             <HeaderLearningAids
               isDarkMode={isDarkMode}
               learningAids={learningAids}
-              onDismissLearningAid={onDismissLearningAid}
+              onSaveLearningAids={onSaveLearningAids}
             />
           ) : null}
 

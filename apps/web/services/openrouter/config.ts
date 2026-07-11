@@ -1,4 +1,5 @@
 import type { OpenRouterModelSlot } from '../../types.ts';
+import { getNousRuntimeConfig } from '../runtimeConfig.ts';
 import { SYSTEM_INSTRUCTION_PLANNER, SYSTEM_INSTRUCTION_TEACHER } from './prompts.ts';
 import type { OpenRouterReasoningOptions } from './types.ts';
 
@@ -92,7 +93,11 @@ const getSameHostBackendUrl = (): string | null => {
 };
 
 export const getBackendUrl = (): string => {
-  return getSameHostBackendUrl() || DEFAULT_BACKEND_URL;
+  return (
+    getNousRuntimeConfig().backendUrl?.replace(/\/$/, '') ||
+    getSameHostBackendUrl() ||
+    DEFAULT_BACKEND_URL
+  );
 };
 
 export const plannerInstruction = SYSTEM_INSTRUCTION_PLANNER;

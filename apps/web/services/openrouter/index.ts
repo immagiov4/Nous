@@ -1,7 +1,9 @@
 export {
   createAssessmentChat,
+  createAssessmentChatFromSourceSet,
   createAssessmentChatFromTextSource,
   createEmbeddedAssessmentChat,
+  createEmbeddedAssessmentChatFromSourceSet,
   createEmbeddedAssessmentChatFromTextSource,
   createEmbeddedLearnAssessmentChat,
   createLearnAssessmentChat,
@@ -9,9 +11,11 @@ export {
 export { generateFullCurriculum, generateLearnLessonContent } from './curriculum.ts';
 export {
   buildLessonChunkContext,
+  buildPdfTextIndex,
   getPdfLessonMappingState,
   needsPdfLessonMappingMigration,
   preparePdfLessonMappings,
+  prepareSourceSetLessonMappings,
 } from './documentIndex/index.ts';
 export {
   generateApplicationExerciseBrief,
@@ -22,14 +26,20 @@ export { generateApplicationExercisePlacements } from './exercises/placement.ts'
 export type { GenerationProgressSnapshot } from './generationProgress.ts';
 export { createGenerationProgressObserver } from './generationProgress.ts';
 export { generateLessonLearningAids } from './learningAids.ts';
-export { validatePdfTextSource } from './pdfAssets.ts';
+export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,
   createLearnSubChapterMetadata,
   createSubChapterMetadata,
   generateLearningPlan,
+  generateLearningPlanFromSourceSet,
   generateSectionContent,
 } from './planning/index.ts';
+export {
+  buildPrerequisiteSourceContext,
+  mergePrerequisiteDossierSources,
+  selectPrerequisiteSourceCoverage,
+} from './prerequisiteSources.ts';
 export {
   buildLearningPlanFromResearchCourse,
   generateResearchCoursePlan,

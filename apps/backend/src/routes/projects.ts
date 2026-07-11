@@ -2,9 +2,12 @@
 import { type Request, type Response, Router } from 'express';
 
 import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
+import { publishProjectRevision, subscribeToProjectRevisions } from '../projects/projectEvents.js';
+import { ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type {
   ProjectPatch,
+  ProjectRevisionEvent,
   ProjectSnapshot,
   ProjectSourceFile,
   SectionPatch,
@@ -21,6 +24,7 @@ import {
 const router = Router();
 
 const PROJECT_SOURCE_KINDS = new Set(['document', 'codebase', 'learn-mode', 'imported-json']);
+const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
 
 const getTargetIndex = (value: unknown): number | undefined => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -39,6 +43,31 @@ const getBodyRecord = (body: unknown): Record<string, unknown> => {
   }
 
   return body;
+};
+
+const readExpectedRevision = (body: Record<string, unknown>): number | undefined => {
+  if (body.expectedRevision === undefined) {
+    return undefined;
+  }
+  if (!Number.isSafeInteger(body.expectedRevision) || (body.expectedRevision as number) < 1) {
+    throw new Error('Revisione progetto non valida.');
+  }
+  return body.expectedRevision as number;
+};
+
+const publishMetaRevision = (userId: string, meta: { id: string; revision?: number }): void => {
+  if (typeof meta.revision === 'number') {
+    publishProjectRevision(userId, { projectId: meta.id, revision: meta.revision });
+  }
+};
+
+const sendProjectWriteError = (res: Response, error: unknown, fallbackMessage: string): void => {
+  sendErrorResponse(
+    res,
+    error instanceof ProjectRevisionConflictError ? 409 : 400,
+    error,
+    fallbackMessage
+  );
 };
 
 const readProjectSourceKind = (value: unknown): ProjectSnapshot['sourceKind'] | undefined =>
@@ -148,6 +177,31 @@ router.get('/config', (req: Request, res: Response) => {
   }
 });
 
+router.get('/events', (req: Request, res: Response) => {
+  const userId = getCurrentUser(req).id;
+  res.status(200);
+  res.set({
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'Content-Type': 'text/event-stream',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  res.write('retry: 2000\n\n');
+
+  const unsubscribe = subscribeToProjectRevisions(userId, event => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+  const heartbeat = globalThis.setInterval(
+    () => res.write(': heartbeat\n\n'),
+    PROJECT_EVENT_HEARTBEAT_MS
+  );
+  req.on('close', () => {
+    globalThis.clearInterval(heartbeat);
+    unsubscribe();
+  });
+});
+
 router.get('/projects', async (req: Request, res: Response) => {
   try {
     const projects = await getProjectStore().listProjects(getCurrentUser(req).id);
@@ -220,10 +274,13 @@ router.put('/projects/:id', async (req: Request, res: Response) => {
         snapshot.source = existing.source;
       }
     }
-    const meta = await getProjectStore().saveProject(userId, snapshot);
+    const meta = await getProjectStore().saveProject(userId, snapshot, {
+      expectedRevision: readExpectedRevision(bodyRecord),
+    });
+    publishMetaRevision(userId, meta);
     res.json({ success: true, meta });
   } catch (error) {
-    sendErrorResponse(res, 400, error, 'Failed to save project');
+    sendProjectWriteError(res, error, 'Failed to save project');
   }
 });
 
@@ -282,21 +339,36 @@ const requireProjectPatch = (body: unknown, _routeProjectId: string): ProjectPat
 
 router.patch('/projects/:id', async (req: Request, res: Response) => {
   try {
-    const patch = requireProjectPatch(req.body, getRouteParam(req.params.id));
-    const meta = await getProjectStore().patchProject(
-      getCurrentUser(req).id,
-      getRouteParam(req.params.id),
-      patch
-    );
+    const body = getBodyRecord(req.body);
+    const projectId = getRouteParam(req.params.id);
+    const userId = getCurrentUser(req).id;
+    const patch = requireProjectPatch(body, projectId);
+    const meta = await getProjectStore().patchProject(userId, projectId, patch, {
+      expectedRevision: readExpectedRevision(body),
+    });
+    publishMetaRevision(userId, meta);
     res.json({ success: true, meta });
   } catch (error) {
-    sendErrorResponse(res, 400, error, 'Failed to patch project');
+    sendProjectWriteError(res, error, 'Failed to patch project');
   }
 });
 
 router.delete('/projects/:id', async (req: Request, res: Response) => {
   try {
-    await getProjectStore().deleteProject(getCurrentUser(req).id, getRouteParam(req.params.id));
+    const userId = getCurrentUser(req).id;
+    const projectId = getRouteParam(req.params.id);
+    const existingMeta = (await getProjectStore().listProjects(userId)).find(
+      project => project.id === projectId
+    );
+    await getProjectStore().deleteProject(userId, projectId);
+    if (existingMeta?.revision) {
+      const event: ProjectRevisionEvent = {
+        deleted: true,
+        projectId,
+        revision: existingMeta.revision + 1,
+      };
+      publishProjectRevision(userId, event);
+    }
     res.json({ success: true });
   } catch (error) {
     sendErrorResponse(res, 500, error, 'Failed to delete project');
@@ -326,10 +398,9 @@ router.post('/projects/:id/touch', async (req: Request, res: Response) => {
 
 router.post('/import', async (req: Request, res: Response) => {
   try {
-    const imported = await getProjectStore().importProject(
-      getCurrentUser(req).id,
-      getBodyRecord(req.body).data
-    );
+    const userId = getCurrentUser(req).id;
+    const imported = await getProjectStore().importProject(userId, getBodyRecord(req.body).data);
+    publishMetaRevision(userId, imported.meta);
     res.json({ success: true, ...imported });
   } catch (error) {
     sendErrorResponse(res, 400, error, 'Failed to import project');

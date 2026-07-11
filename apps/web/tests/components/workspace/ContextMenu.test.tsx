@@ -5,6 +5,31 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import ContextMenu from '../../../components/workspace/ContextMenu.tsx';
 import type { LearningArtifactRenderPayload } from '../../../types.ts';
 
+vi.mock('../../../components/shared/SpeechInputButton.tsx', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../components/shared/SpeechInputButton.tsx')>();
+
+  return {
+    ...actual,
+    default: ({
+      disabled,
+      onTranscription,
+    }: {
+      disabled?: boolean;
+      onTranscription: (text: string) => void;
+    }) => (
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label="Dettatura test"
+        onClick={() => onTranscription('testo trascritto')}
+      >
+        Mic
+      </button>
+    ),
+  };
+});
+
 const buildProps = () => ({
   anchorX: 240,
   anchorY: 180,
@@ -83,6 +108,7 @@ describe('ContextMenu', () => {
     expect(
       screen.queryByTitle(/Crea una nuova lezione dedicata a questo punto/i)
     ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Apri menu' })).not.toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText(/Chiedi su tutta la lezione/i), 'Fammi una mappa');
     await user.click(screen.getByRole('button', { name: /Invia domanda/i }));
@@ -104,6 +130,7 @@ describe('ContextMenu', () => {
 
     render(<ContextMenu {...props} />);
 
+    expect(screen.getByRole('button', { name: 'Dettatura test' })).toBeInTheDocument();
     await user.type(screen.getByPlaceholderText(/Chiedi a Nous/i), 'Domanda mobile');
     await user.click(screen.getByRole('button', { name: /Invia domanda/i }));
 
@@ -143,8 +170,9 @@ describe('ContextMenu', () => {
 
     await user.type(screen.getByPlaceholderText(/Chiedi a Nous/i), 'Approfondisci il punto');
 
-    const lessonButton = screen.getByTitle(/Crea una nuova lezione dedicata a questo punto/i);
-    await user.click(lessonButton);
+    const moreActionsButton = screen.getByRole('button', { name: 'Apri menu' });
+    await user.click(moreActionsButton);
+    await user.click(screen.getByRole('menuitem', { name: 'Crea lezione' }));
 
     const confirmationPanel = screen
       .getByText(/Vuoi creare una nuova lezione da questa selezione/i)
@@ -156,7 +184,8 @@ describe('ContextMenu', () => {
     await user.click(screen.getByRole('button', { name: 'Annulla' }));
     expect(confirmationPanel).toHaveAttribute('aria-hidden', 'true');
 
-    await user.click(lessonButton);
+    await user.click(moreActionsButton);
+    await user.click(screen.getByRole('menuitem', { name: 'Crea lezione' }));
     await user.click(screen.getByRole('button', { name: 'Procedi' }));
 
     expect(props.onCreateLesson).toHaveBeenCalledWith('Approfondisci il punto');
@@ -173,7 +202,66 @@ describe('ContextMenu', () => {
     expect(props.onClose).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: /Inserisci una domanda/i })).toBeDisabled();
     expect(screen.getByTitle(/Evidenzia il testo selezionato/i)).toBeDisabled();
-    expect(screen.getByTitle(/Crea una nuova lezione dedicata a questo punto/i)).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apri menu' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Dettatura test' })).toBeDisabled();
+  });
+
+  test('inserts speech transcription without replacing existing text or submitting', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<ContextMenu {...props} />);
+
+    const input = screen.getByPlaceholderText(/Chiedi a Nous/i);
+    await user.type(input, 'Domanda esistente');
+    await user.click(screen.getByRole('button', { name: 'Dettatura test' }));
+
+    expect(input).toHaveValue('Domanda esistente testo trascritto');
+    expect(props.onAsk).not.toHaveBeenCalled();
+  });
+
+  test('renders rare actions in a portal and closes that submenu before the parent', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const portalContainer = document.createElement('div');
+    document.body.append(portalContainer);
+
+    render(<ContextMenu {...props} artifactPortalContainer={portalContainer} />);
+
+    const moreActionsButton = screen.getByRole('button', { name: 'Apri menu' });
+    await user.click(moreActionsButton);
+
+    const submenu = screen.getByRole('menu', { name: 'Apri menu' });
+    const createLessonItem = screen.getByRole('menuitem', { name: 'Crea lezione' });
+    expect(submenu.parentElement).toBe(portalContainer);
+    expect(createLessonItem).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('menu', { name: 'Apri menu' })).not.toBeInTheDocument();
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(moreActionsButton).toHaveFocus();
+
+    await user.click(moreActionsButton);
+    fireEvent.pointerDown(screen.getByPlaceholderText(/Chiedi a Nous/i));
+    expect(screen.queryByRole('menu', { name: 'Apri menu' })).not.toBeInTheDocument();
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  test('opens the rare-actions portal and lesson confirmation from the mobile sheet', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    props.placement = 'mobile-sheet';
+
+    render(<ContextMenu {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crea lezione' }));
+
+    expect(
+      screen
+        .getByText(/Vuoi creare una nuova lezione da questa selezione/i)
+        .closest('[aria-hidden]')
+    ).toHaveAttribute('aria-hidden', 'false');
   });
 
   test('keeps the desktop transform origin stable across rerenders', () => {

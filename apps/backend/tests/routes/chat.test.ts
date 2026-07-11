@@ -5,6 +5,7 @@ const aiMocks = vi.hoisted(() => ({
   convertToModelMessages: vi.fn(),
   pipeUIMessageStreamToResponse: vi.fn(),
   streamText: vi.fn(),
+  toUIMessageStream: vi.fn(),
 }));
 
 const fetchMock = vi.hoisted(() => vi.fn());
@@ -14,8 +15,19 @@ const openRouterMocks = vi.hoisted(() => ({
   chat: vi.fn(),
 }));
 
+const openAiMocks = vi.hoisted(() => ({
+  createOpenAI: vi.fn(),
+  chat: vi.fn(),
+}));
+
 const chatConfigMocks = vi.hoisted(() => ({
+  requireOpenAiApiKey: vi.fn(),
   requireOpenRouterApiKey: vi.fn(),
+}));
+
+const codexStreamMocks = vi.hoisted(() => ({
+  createCodexChatStream: vi.fn(),
+  SAFE_AI_STREAM_ERROR: 'Il servizio AI non ha completato la richiesta. Riprova tra poco.',
 }));
 
 vi.mock('ai', async importOriginal => {
@@ -34,12 +46,19 @@ vi.mock('@openrouter/ai-sdk-provider', () => ({
   createOpenRouter: openRouterMocks.createOpenRouter,
 }));
 
+vi.mock('@ai-sdk/openai', () => ({
+  createOpenAI: openAiMocks.createOpenAI,
+}));
+
+vi.mock('../../src/services/codexChatStream.js', () => codexStreamMocks);
+
 vi.mock('../../src/config/chatConfig.js', async () => {
   const actual = await vi.importActual<typeof import('../../src/config/chatConfig.js')>(
     '../../src/config/chatConfig.js'
   );
   return {
     ...actual,
+    requireOpenAiApiKey: chatConfigMocks.requireOpenAiApiKey,
     requireOpenRouterApiKey: chatConfigMocks.requireOpenRouterApiKey,
   };
 });
@@ -54,22 +73,34 @@ describe('POST /api/chat/context', () => {
     aiMocks.convertToModelMessages.mockReset();
     aiMocks.pipeUIMessageStreamToResponse.mockReset();
     aiMocks.streamText.mockReset();
+    aiMocks.toUIMessageStream.mockReset();
     openRouterMocks.chat.mockReset();
     openRouterMocks.createOpenRouter.mockReset();
+    openAiMocks.chat.mockReset();
+    openAiMocks.createOpenAI.mockReset();
+    chatConfigMocks.requireOpenAiApiKey.mockReset();
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
+    codexStreamMocks.createCodexChatStream.mockReset();
     resetModelConfigForTesting();
+    process.env.CODEX_APP_SERVER_ENABLED = 'true';
+    process.env.CODEX_OWNER_USER_ID = 'local-user';
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
+    chatConfigMocks.requireOpenAiApiKey.mockReturnValue('openai-test-key');
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
     openRouterMocks.chat.mockReturnValue('context-model');
     openRouterMocks.createOpenRouter.mockReturnValue({
       chat: openRouterMocks.chat,
     });
-    aiMocks.convertToModelMessages.mockResolvedValue([{ role: 'user', content: 'Ciao' }]);
-    aiMocks.streamText.mockReturnValue({
-      toUIMessageStream: () => 'stream-token',
+    openAiMocks.chat.mockReturnValue('openai-context-model');
+    openAiMocks.createOpenAI.mockReturnValue({
+      chat: openAiMocks.chat,
     });
+    aiMocks.convertToModelMessages.mockResolvedValue([{ role: 'user', content: 'Ciao' }]);
+    aiMocks.toUIMessageStream.mockReturnValue('stream-token');
+    aiMocks.streamText.mockReturnValue({ toUIMessageStream: aiMocks.toUIMessageStream });
+    codexStreamMocks.createCodexChatStream.mockResolvedValue('codex-stream-token');
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
       ({
         response,
@@ -163,7 +194,9 @@ describe('POST /api/chat/context', () => {
     });
     expect(aiMocks.streamText.mock.calls[0][0].tools.saveConversationNote).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].tools.updateConversationNote).toBeUndefined();
-    expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toBeUndefined();
+    expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toEqual({
+      openrouter: { reasoning: { effort: 'medium' } },
+    });
     expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
     expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');
 
@@ -250,8 +283,93 @@ describe('POST /api/chat/context', () => {
     });
   });
 
-  test('uses the backend global context model for contextual web search', async () => {
-    patchGlobalModelConfig({ contextModel: 'server/context-model' });
+  test('switches model, credential, and reasoning mapping together for OpenAI', async () => {
+    patchGlobalModelConfig({
+      aiProvider: 'openai',
+      contextReasoningEffort: 'high',
+      openAiContextModel: 'gpt-openai-context',
+    });
+
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        selectedText: 'Puntatore',
+        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(chatConfigMocks.requireOpenAiApiKey).toHaveBeenCalledTimes(1);
+    expect(openAiMocks.chat).toHaveBeenCalledWith('gpt-openai-context');
+    expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
+      model: 'openai-context-model',
+      providerOptions: {
+        openai: { reasoningEffort: 'high' },
+      },
+    });
+    expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
+    const streamOptions = aiMocks.toUIMessageStream.mock.calls[0]?.[0] as {
+      onError?: (error: unknown) => string;
+    };
+    expect(streamOptions.onError?.(new Error('provider token detail'))).toBe(
+      'Il servizio AI non ha completato la richiesta. Riprova tra poco.'
+    );
+  });
+
+  test('routes contextual tools through Codex app-server without requiring API credentials', async () => {
+    patchGlobalModelConfig({
+      codexContextModel: 'gpt-codex-context',
+      contextReasoningEffort: 'high',
+    });
+
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('X-Nous-AI-Provider', 'codex')
+      .send({
+        selectedText: 'Puntatore',
+        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(codexStreamMocks.createCodexChatStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: 'user', content: 'Ciao' }],
+        model: 'gpt-codex-context',
+        reasoningEffort: 'high',
+        tools: expect.objectContaining({
+          searchWeb: expect.any(Object),
+          requestAddToNotes: expect.any(Object),
+        }),
+      })
+    );
+    expect(aiMocks.pipeUIMessageStreamToResponse).toHaveBeenCalledWith({
+      response: expect.any(Object),
+      stream: 'codex-stream-token',
+    });
+    expect(aiMocks.streamText).not.toHaveBeenCalled();
+    expect(chatConfigMocks.requireOpenAiApiKey).not.toHaveBeenCalled();
+    expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
+  });
+
+  test('rejects contextual Codex chat outside the configured local owner boundary', async () => {
+    process.env.CODEX_OWNER_USER_ID = 'another-user';
+
+    const response = await request(createApp())
+      .post('/api/chat/context')
+      .set('X-Nous-AI-Provider', 'codex')
+      .send({
+        selectedText: 'Puntatore',
+        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
+      });
+
+    expect(response.status).toBe(403);
+    expect(codexStreamMocks.createCodexChatStream).not.toHaveBeenCalled();
+  });
+
+  test('keeps contextual web search on the dedicated OpenRouter research model', async () => {
+    patchGlobalModelConfig({
+      contextModel: 'server/context-model',
+      researchModel: 'server/research-model',
+    });
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -284,7 +402,8 @@ describe('POST /api/chat/context', () => {
     });
 
     const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
-    expect(fetchOptions?.body).toContain('"model":"server/context-model"');
+    expect(fetchOptions?.body).toContain('"model":"server/research-model"');
+    expect(fetchOptions?.body).not.toContain('"model":"server/context-model"');
     expect(fetchOptions?.body).not.toContain('"model":"openai/gpt-5.4-nano"');
   });
 });
@@ -294,22 +413,34 @@ describe('POST /api/chat/library', () => {
     aiMocks.convertToModelMessages.mockReset();
     aiMocks.pipeUIMessageStreamToResponse.mockReset();
     aiMocks.streamText.mockReset();
+    aiMocks.toUIMessageStream.mockReset();
     openRouterMocks.chat.mockReset();
     openRouterMocks.createOpenRouter.mockReset();
+    openAiMocks.chat.mockReset();
+    openAiMocks.createOpenAI.mockReset();
+    chatConfigMocks.requireOpenAiApiKey.mockReset();
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
+    codexStreamMocks.createCodexChatStream.mockReset();
     resetModelConfigForTesting();
+    process.env.CODEX_APP_SERVER_ENABLED = 'true';
+    process.env.CODEX_OWNER_USER_ID = 'local-user';
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
+    chatConfigMocks.requireOpenAiApiKey.mockReturnValue('openai-test-key');
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
     openRouterMocks.chat.mockReturnValue('context-model');
     openRouterMocks.createOpenRouter.mockReturnValue({
       chat: openRouterMocks.chat,
     });
-    aiMocks.convertToModelMessages.mockResolvedValue([{ role: 'user', content: 'Ciao' }]);
-    aiMocks.streamText.mockReturnValue({
-      toUIMessageStream: () => 'stream-token',
+    openAiMocks.chat.mockReturnValue('openai-context-model');
+    openAiMocks.createOpenAI.mockReturnValue({
+      chat: openAiMocks.chat,
     });
+    aiMocks.convertToModelMessages.mockResolvedValue([{ role: 'user', content: 'Ciao' }]);
+    aiMocks.toUIMessageStream.mockReturnValue('stream-token');
+    aiMocks.streamText.mockReturnValue({ toUIMessageStream: aiMocks.toUIMessageStream });
+    codexStreamMocks.createCodexChatStream.mockResolvedValue('codex-stream-token');
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
       ({
         response,
@@ -381,7 +512,9 @@ describe('POST /api/chat/library', () => {
     expect(
       aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.required
     ).toBeUndefined();
-    expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toBeUndefined();
+    expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toEqual({
+      openrouter: { reasoning: { effort: 'medium' } },
+    });
     expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
     expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');
 
@@ -521,8 +654,11 @@ describe('POST /api/chat/library', () => {
     });
   });
 
-  test('uses the backend global context model for library web search', async () => {
-    patchGlobalModelConfig({ contextModel: 'server/library-model' });
+  test('uses the dedicated OpenRouter research model for library web search', async () => {
+    patchGlobalModelConfig({
+      contextModel: 'server/library-model',
+      researchModel: 'server/research-model',
+    });
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -554,7 +690,8 @@ describe('POST /api/chat/library', () => {
     });
 
     const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
-    expect(fetchOptions?.body).toContain('"model":"server/library-model"');
+    expect(fetchOptions?.body).toContain('"model":"server/research-model"');
+    expect(fetchOptions?.body).not.toContain('"model":"server/library-model"');
     expect(fetchOptions?.body).not.toContain('"model":"openai/gpt-5.4-nano"');
   });
 });

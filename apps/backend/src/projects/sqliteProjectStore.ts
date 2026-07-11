@@ -1,9 +1,9 @@
 // fallow-ignore-file unused-class-members — interface implementation methods
+// Test-only store used by backend route tests; runtime project storage is Postgres.
 
 import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
@@ -15,6 +15,7 @@ import {
   getLearningPlanLessonStats,
   normalizeProjectSnapshot,
 } from './projectMeta.js';
+import { ProjectRevisionConflictError } from './projectRevision.js';
 import {
   attachProjectSource,
   detachProjectSource,
@@ -42,16 +43,16 @@ import type {
   ProjectSourceFile,
   ProjectSourceRef,
   ProjectStore,
+  ProjectWriteOptions,
   SavedProjectMeta,
   SectionPatch,
 } from './types.js';
-
-const DEFAULT_SQLITE_PATH = './apps/backend/data/lumina-projects.sqlite';
 
 type LibraryItem = SiblingItem;
 
 interface ProjectRow {
   meta_json: string;
+  revision: number;
 }
 
 interface SnapshotRow {
@@ -74,6 +75,16 @@ interface PlacementRow {
 }
 
 const parseJson = <T>(value: string): T => JSON.parse(value) as T;
+
+const serializeProjectMeta = (meta: SavedProjectMeta): string => {
+  const { revision: _revision, ...storedMeta } = meta;
+  return JSON.stringify(storedMeta);
+};
+
+const mergeProjectMetaRow = (row: ProjectRow): SavedProjectMeta => ({
+  ...parseJson<SavedProjectMeta>(row.meta_json),
+  revision: row.revision,
+});
 
 const toEpochMillis = (value: string | undefined): number => {
   const timestamp = Date.parse(value || '');
@@ -165,22 +176,10 @@ const patchLearningPlanSection = (
   throw new Error(LEARNING_PLAN_NOT_FOUND_ERROR);
 };
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const repoRoot = resolve(__dirname, '..', '..', '..', '..');
-
-const resolveDatabasePath = (): string => {
-  if (process.env.PROJECT_SQLITE_PATH) {
-    return resolve(repoRoot, process.env.PROJECT_SQLITE_PATH);
-  }
-
-  return resolve(repoRoot, DEFAULT_SQLITE_PATH);
-};
-
 export class SqliteProjectStore implements ProjectStore {
   private readonly database: Database;
 
-  constructor(databasePath = resolveDatabasePath()) {
+  constructor(databasePath: string) {
     mkdirSync(dirname(databasePath), { recursive: true });
     this.database = new Database(databasePath);
     this.database.exec('PRAGMA journal_mode = WAL');
@@ -287,8 +286,16 @@ export class SqliteProjectStore implements ProjectStore {
     return snapshots.filter((snapshot): snapshot is ProjectSnapshot => Boolean(snapshot));
   }
 
-  async saveProject(userId: string, data: ProjectSnapshot): Promise<SavedProjectMeta> {
+  async saveProject(
+    userId: string,
+    data: ProjectSnapshot,
+    { expectedRevision }: ProjectWriteOptions = {}
+  ): Promise<SavedProjectMeta> {
     let snapshot = normalizeProjectSnapshot(data);
+    const existingMeta = this.readProjectMeta(userId, snapshot.id);
+    if (expectedRevision !== undefined && existingMeta?.revision !== expectedRevision) {
+      throw new ProjectRevisionConflictError();
+    }
     const embeddedSource = readEmbeddedPdfSource(snapshot);
     if (embeddedSource) {
       snapshot = detachProjectSource(
@@ -297,59 +304,82 @@ export class SqliteProjectStore implements ProjectStore {
       );
     }
     const existingSnapshot = this.readSnapshot(userId, snapshot.id);
-    const existingMeta = this.readProjectMeta(userId, snapshot.id);
 
     if (
+      expectedRevision === undefined &&
       existingSnapshot &&
       toEpochMillis(existingSnapshot.updatedAt) > toEpochMillis(snapshot.updatedAt)
     ) {
       const meta = buildProjectMeta(existingSnapshot, existingMeta, {
         touchedAt: existingMeta?.updatedAt || existingSnapshot.updatedAt,
       });
-      this.writeProjectMeta(userId, meta);
-      return meta;
+      return this.writeProjectMeta(userId, meta);
     }
 
     const meta = buildProjectMeta(snapshot, existingMeta);
     const now = timestampIso();
 
-    this.database
-      .prepare(
-        `insert into projects (user_id, id, meta_json, updated_at, server_updated_at, revision)
-         values (?, ?, ?, ?, ?, 1)
-         on conflict(user_id, id) do update set
-           meta_json = excluded.meta_json,
-           updated_at = excluded.updated_at,
-           server_updated_at = excluded.server_updated_at,
-           revision = projects.revision + 1`
-      )
-      .run(userId, snapshot.id, JSON.stringify(meta), meta.updatedAt, now);
-    this.database
-      .prepare(
-        `insert into project_snapshots (user_id, id, snapshot_json, updated_at, server_updated_at)
-         values (?, ?, ?, ?, ?)
-         on conflict(user_id, id) do update set
-           snapshot_json = excluded.snapshot_json,
-           updated_at = excluded.updated_at,
-           server_updated_at = excluded.server_updated_at`
-      )
-      .run(userId, snapshot.id, JSON.stringify(snapshot), snapshot.updatedAt, now);
+    const transaction = this.database.transaction(() => {
+      if (existingMeta) {
+        const update = this.database
+          .prepare(
+            `update projects
+             set meta_json = ?, updated_at = ?, server_updated_at = ?, revision = revision + 1
+             where user_id = ? and id = ?
+               ${expectedRevision === undefined ? '' : 'and revision = ?'}`
+          )
+          .run(
+            serializeProjectMeta(meta),
+            meta.updatedAt,
+            now,
+            userId,
+            snapshot.id,
+            ...(expectedRevision === undefined ? [] : [expectedRevision])
+          );
+        if (update.changes !== 1) {
+          throw new ProjectRevisionConflictError();
+        }
+      } else {
+        if (expectedRevision !== undefined) {
+          throw new ProjectRevisionConflictError();
+        }
+        this.database
+          .prepare(
+            `insert into projects (user_id, id, meta_json, updated_at, server_updated_at, revision)
+             values (?, ?, ?, ?, ?, 1)`
+          )
+          .run(userId, snapshot.id, serializeProjectMeta(meta), meta.updatedAt, now);
+      }
+
+      this.database
+        .prepare(
+          `insert into project_snapshots (user_id, id, snapshot_json, updated_at, server_updated_at)
+           values (?, ?, ?, ?, ?)
+           on conflict(user_id, id) do update set
+             snapshot_json = excluded.snapshot_json,
+             updated_at = excluded.updated_at,
+             server_updated_at = excluded.server_updated_at`
+        )
+        .run(userId, snapshot.id, JSON.stringify(snapshot), snapshot.updatedAt, now);
+    });
+    transaction();
 
     this.ensurePlacement(userId, snapshot.id);
-    return meta;
+    return this.readProjectMeta(userId, snapshot.id) as SavedProjectMeta;
   }
 
   async patchProject(
     userId: string,
     id: ProjectId,
-    patch: ProjectPatch
+    patch: ProjectPatch,
+    options: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
     const now = patch.updatedAt || timestampIso();
 
     // Fast path: section-only patch (highlight, note, delete annotation).
     // Modify the JSON directly in SQLite without loading/rewriting the full snapshot.
     if (patch.section && !this.hasNonSectionPatches(patch)) {
-      return this.patchSectionOnly(userId, id, patch.section, now);
+      return this.patchSectionOnly(userId, id, patch.section, now, options.expectedRevision);
     }
 
     // General path: load snapshot, apply patches, save
@@ -388,7 +418,7 @@ export class SqliteProjectStore implements ProjectStore {
     }
 
     snapshot.updatedAt = now;
-    return this.saveProject(userId, snapshot);
+    return this.saveProject(userId, snapshot, options);
   }
 
   /** Returns true if patch has fields other than `section`. */
@@ -418,11 +448,15 @@ export class SqliteProjectStore implements ProjectStore {
     userId: string,
     id: ProjectId,
     sectionPatch: SectionPatch,
-    now: string
+    now: string,
+    expectedRevision?: number
   ): SavedProjectMeta {
     const existingMeta = this.readProjectMeta(userId, id);
     if (!existingMeta) {
       throw new Error(`Progetto ${id} non trovato per patch sezione.`);
+    }
+    if (expectedRevision !== undefined && existingMeta.revision !== expectedRevision) {
+      throw new ProjectRevisionConflictError();
     }
 
     // Extract only the learningPlan field — avoids parsing the full snapshot JSON
@@ -464,6 +498,25 @@ export class SqliteProjectStore implements ProjectStore {
 
     // Single transaction: one commit for both UPDATEs → half the lock window.
     const transaction = this.database.transaction(() => {
+      const metaUpdate = this.database
+        .prepare(
+          `update projects
+           set meta_json = ?, updated_at = ?, server_updated_at = ?, revision = revision + 1
+           where user_id = ? and id = ?
+             ${expectedRevision === undefined ? '' : 'and revision = ?'}`
+        )
+        .run(
+          serializeProjectMeta(nextMeta),
+          now,
+          serverNow,
+          userId,
+          id,
+          ...(expectedRevision === undefined ? [] : [expectedRevision])
+        );
+      if (metaUpdate.changes !== 1) {
+        throw new ProjectRevisionConflictError();
+      }
+
       this.database
         .prepare(
           `update project_snapshots
@@ -472,18 +525,10 @@ export class SqliteProjectStore implements ProjectStore {
            where user_id = ? and id = ?`
         )
         .run(JSON.stringify(patchedLearningPlan), now, now, serverNow, userId, id);
-
-      this.database
-        .prepare(
-          `update projects
-           set meta_json = ?, updated_at = ?, server_updated_at = ?, revision = revision + 1
-           where user_id = ? and id = ?`
-        )
-        .run(JSON.stringify(nextMeta), now, serverNow, userId, id);
     });
     transaction();
 
-    return nextMeta;
+    return this.readProjectMeta(userId, id) as SavedProjectMeta;
   }
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
@@ -576,8 +621,7 @@ export class SqliteProjectStore implements ProjectStore {
            '$.coverLabel', ?
          ),
          updated_at = ?,
-         server_updated_at = ?,
-         revision = revision + 1
+         server_updated_at = ?
          where user_id = ? and id = ?`
       )
       .run(
@@ -881,18 +925,20 @@ export class SqliteProjectStore implements ProjectStore {
 
   private readProjectMetas(userId: string): SavedProjectMeta[] {
     const rows = this.database
-      .prepare('select meta_json from projects where user_id = ? order by updated_at desc, id asc')
+      .prepare(
+        'select meta_json, revision from projects where user_id = ? order by updated_at desc, id asc'
+      )
       .all(userId) as ProjectRow[];
 
-    return rows.map(row => parseJson<SavedProjectMeta>(row.meta_json));
+    return rows.map(mergeProjectMetaRow);
   }
 
   private readProjectMeta(userId: string, id: ProjectId): SavedProjectMeta | null {
     const row = this.database
-      .prepare('select meta_json from projects where user_id = ? and id = ?')
+      .prepare('select meta_json, revision from projects where user_id = ? and id = ?')
       .get(userId, id) as ProjectRow | undefined;
 
-    return row ? parseJson<SavedProjectMeta>(row.meta_json) : null;
+    return row ? mergeProjectMetaRow(row) : null;
   }
 
   private repairProjectMeta(userId: string, meta: SavedProjectMeta): SavedProjectMeta {
@@ -906,18 +952,18 @@ export class SqliteProjectStore implements ProjectStore {
       return meta;
     }
 
-    this.writeProjectMeta(userId, repairedMeta);
-    return repairedMeta;
+    return this.writeProjectMeta(userId, repairedMeta);
   }
 
-  private writeProjectMeta(userId: string, meta: SavedProjectMeta): void {
+  private writeProjectMeta(userId: string, meta: SavedProjectMeta): SavedProjectMeta {
     this.database
       .prepare(
         `update projects
          set meta_json = ?, updated_at = ?, server_updated_at = ?, revision = revision + 1
          where user_id = ? and id = ?`
       )
-      .run(JSON.stringify(meta), meta.updatedAt, timestampIso(), userId, meta.id);
+      .run(serializeProjectMeta(meta), meta.updatedAt, timestampIso(), userId, meta.id);
+    return this.readProjectMeta(userId, meta.id) as SavedProjectMeta;
   }
 
   private readSnapshot(userId: string, id: ProjectId): ProjectSnapshot | null {

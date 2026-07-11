@@ -6,6 +6,7 @@ import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
 import { resolveAvailableFolderName } from './folderNames.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
+import { ProjectRevisionConflictError } from './projectRevision.js';
 import {
   attachProjectSource,
   detachProjectSource,
@@ -33,6 +34,7 @@ import type {
   ProjectSourceFile,
   ProjectSourceRef,
   ProjectStore,
+  ProjectWriteOptions,
   SavedProjectMeta,
   SectionPatch,
 } from './types.js';
@@ -43,6 +45,7 @@ type LibraryItem = SiblingItem;
 
 interface ProjectMetaRow {
   meta: SavedProjectMeta;
+  revision: number;
 }
 
 interface ProjectSnapshotRow {
@@ -68,6 +71,16 @@ const createFolderId = (): string => createEntityId('folder');
 const LEARNING_PLAN_NOT_FOUND_ERROR = 'Learning plan non trovato';
 
 const toPostgresJson = (value: unknown): postgres.JSONValue => value as postgres.JSONValue;
+
+const stripProjectRevision = (meta: SavedProjectMeta): Omit<SavedProjectMeta, 'revision'> => {
+  const { revision: _revision, ...storedMeta } = meta;
+  return storedMeta;
+};
+
+const mergeProjectMetaRow = (row: ProjectMetaRow): SavedProjectMeta => ({
+  ...row.meta,
+  revision: Number(row.revision),
+});
 
 const toEpochMillis = (value: string | undefined): number => {
   const timestamp = Date.parse(value || '');
@@ -144,7 +157,7 @@ export class PostgresProjectStore implements ProjectStore {
 
   constructor(databaseUrl = process.env.DATABASE_URL?.trim(), sqlClient?: PostgresSql) {
     if (!databaseUrl && !sqlClient) {
-      throw new Error('DATABASE_URL is required when PROJECT_STORAGE_DRIVER=postgres.');
+      throw new Error('DATABASE_URL is required for project storage.');
     }
 
     this.sql = sqlClient ?? postgres(databaseUrl as string, { max: 10 });
@@ -163,14 +176,14 @@ export class PostgresProjectStore implements ProjectStore {
 
   async listProjects(userId: string): Promise<SavedProjectMeta[]> {
     const rows = await this.sql<ProjectMetaRow[]>`
-      select meta
+      select meta, revision
       from public.projects
       where user_id = ${userId}
       order by last_opened_at desc nulls last, updated_at desc, id asc
     `;
 
     return rows
-      .map(row => row.meta)
+      .map(mergeProjectMetaRow)
       .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
   }
 
@@ -249,8 +262,16 @@ export class PostgresProjectStore implements ProjectStore {
     return snapshots.filter((snapshot): snapshot is ProjectSnapshot => Boolean(snapshot));
   }
 
-  async saveProject(userId: string, data: ProjectSnapshot): Promise<SavedProjectMeta> {
+  async saveProject(
+    userId: string,
+    data: ProjectSnapshot,
+    { expectedRevision }: ProjectWriteOptions = {}
+  ): Promise<SavedProjectMeta> {
     let snapshot = normalizeProjectSnapshot(data);
+    const existingMeta = await this.readProjectMeta(userId, snapshot.id);
+    if (expectedRevision !== undefined && existingMeta?.revision !== expectedRevision) {
+      throw new ProjectRevisionConflictError();
+    }
     const embeddedSource = readEmbeddedPdfSource(snapshot);
     if (embeddedSource) {
       snapshot = detachProjectSource(
@@ -259,43 +280,69 @@ export class PostgresProjectStore implements ProjectStore {
       );
     }
     const existingSnapshot = await this.loadProject(userId, snapshot.id);
-    const existingMeta = await this.readProjectMeta(userId, snapshot.id);
 
     if (
+      expectedRevision === undefined &&
       existingSnapshot &&
       toEpochMillis(existingSnapshot.updatedAt) > toEpochMillis(snapshot.updatedAt)
     ) {
       const meta = buildProjectMeta(existingSnapshot, existingMeta, {
         touchedAt: existingMeta?.updatedAt || existingSnapshot.updatedAt,
       });
-      await this.writeProjectMeta(userId, meta);
-      return meta;
+      return this.writeProjectMeta(userId, meta);
     }
 
     const meta = buildProjectMeta(snapshot, existingMeta);
     const { documentIndex, snapshotWithoutDocumentIndex } = splitSnapshot(snapshot);
 
-    await this.sql.begin(async sql => {
-      await sql`
-        insert into public.projects
-          (user_id, id, meta, updated_at, last_opened_at, server_updated_at, revision)
-        values
-          (
-            ${userId},
-            ${snapshot.id},
-            ${sql.json(toPostgresJson(meta))},
-            ${meta.updatedAt},
-            ${meta.lastOpenedAt},
-            now(),
-            1
-          )
-        on conflict (user_id, id) do update set
-          meta = excluded.meta,
-          updated_at = excluded.updated_at,
-          last_opened_at = excluded.last_opened_at,
-          server_updated_at = excluded.server_updated_at,
-          revision = public.projects.revision + 1
-      `;
+    const revision = await this.sql.begin(async sql => {
+      let revisionRows: ProjectMetaRow[];
+      if (existingMeta) {
+        revisionRows =
+          expectedRevision === undefined
+            ? await sql<ProjectMetaRow[]>`
+                update public.projects
+                set meta = ${sql.json(toPostgresJson(stripProjectRevision(meta)))},
+                    updated_at = ${meta.updatedAt},
+                    last_opened_at = ${meta.lastOpenedAt},
+                    server_updated_at = now(),
+                    revision = revision + 1
+                where user_id = ${userId} and id = ${snapshot.id}
+                returning meta, revision
+              `
+            : await sql<ProjectMetaRow[]>`
+                update public.projects
+                set meta = ${sql.json(toPostgresJson(stripProjectRevision(meta)))},
+                    updated_at = ${meta.updatedAt},
+                    last_opened_at = ${meta.lastOpenedAt},
+                    server_updated_at = now(),
+                    revision = revision + 1
+                where user_id = ${userId} and id = ${snapshot.id} and revision = ${expectedRevision}
+                returning meta, revision
+              `;
+        if (!revisionRows[0]) {
+          throw new ProjectRevisionConflictError();
+        }
+      } else {
+        if (expectedRevision !== undefined) {
+          throw new ProjectRevisionConflictError();
+        }
+        revisionRows = await sql<ProjectMetaRow[]>`
+          insert into public.projects
+            (user_id, id, meta, updated_at, last_opened_at, server_updated_at, revision)
+          values
+            (
+              ${userId},
+              ${snapshot.id},
+              ${sql.json(toPostgresJson(stripProjectRevision(meta)))},
+              ${meta.updatedAt},
+              ${meta.lastOpenedAt},
+              now(),
+              1
+            )
+          returning meta, revision
+        `;
+      }
       await sql`
         insert into public.project_snapshots
           (user_id, id, snapshot, document_index, updated_at, server_updated_at)
@@ -314,16 +361,18 @@ export class PostgresProjectStore implements ProjectStore {
           updated_at = excluded.updated_at,
           server_updated_at = excluded.server_updated_at
       `;
+      return Number(revisionRows[0]?.revision);
     });
 
     await this.ensurePlacement(userId, snapshot.id);
-    return meta;
+    return { ...meta, revision };
   }
 
   async patchProject(
     userId: string,
     id: ProjectId,
-    patch: ProjectPatch
+    patch: ProjectPatch,
+    options: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
     const existing = await this.loadProject(userId, id);
     if (!existing) {
@@ -355,7 +404,7 @@ export class PostgresProjectStore implements ProjectStore {
     }
 
     snapshot.updatedAt = patch.updatedAt || timestampIso();
-    return this.saveProject(userId, snapshot);
+    return this.saveProject(userId, snapshot, options);
   }
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
@@ -395,11 +444,19 @@ export class PostgresProjectStore implements ProjectStore {
     }
 
     const touchedAt = timestampIso();
-    await this.writeProjectMeta(userId, {
+    const touchedMeta = {
       ...existingMeta,
       updatedAt: touchedAt,
       lastOpenedAt: touchedAt,
-    });
+    };
+    await this.sql`
+      update public.projects
+      set meta = ${this.sql.json(toPostgresJson(stripProjectRevision(touchedMeta)))},
+          updated_at = ${touchedAt},
+          last_opened_at = ${touchedAt},
+          server_updated_at = now()
+      where user_id = ${userId} and id = ${id}
+    `;
   }
 
   async listFolders(userId: string): Promise<LibraryFolder[]> {
@@ -596,25 +653,33 @@ export class PostgresProjectStore implements ProjectStore {
 
   private async readProjectMeta(userId: string, id: ProjectId): Promise<SavedProjectMeta | null> {
     const rows = await this.sql<ProjectMetaRow[]>`
-      select meta
+      select meta, revision
       from public.projects
       where user_id = ${userId} and id = ${id}
       limit 1
     `;
 
-    return rows[0]?.meta ?? null;
+    return rows[0] ? mergeProjectMetaRow(rows[0]) : null;
   }
 
-  private async writeProjectMeta(userId: string, meta: SavedProjectMeta): Promise<void> {
-    await this.sql`
+  private async writeProjectMeta(
+    userId: string,
+    meta: SavedProjectMeta
+  ): Promise<SavedProjectMeta> {
+    const rows = await this.sql<ProjectMetaRow[]>`
       update public.projects
-      set meta = ${this.sql.json(toPostgresJson(meta))},
+      set meta = ${this.sql.json(toPostgresJson(stripProjectRevision(meta)))},
           updated_at = ${meta.updatedAt},
           last_opened_at = ${meta.lastOpenedAt},
           server_updated_at = now(),
           revision = revision + 1
       where user_id = ${userId} and id = ${meta.id}
+      returning meta, revision
     `;
+    if (!rows[0]) {
+      throw new Error(`Progetto ${meta.id} non trovato per aggiornamento metadata.`);
+    }
+    return mergeProjectMetaRow(rows[0]);
   }
 
   private async readFolder(userId: string, folderId: string): Promise<LibraryFolder | null> {

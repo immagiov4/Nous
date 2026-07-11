@@ -303,7 +303,8 @@ export const buildPdfTextIndex = (
   extractedText: string,
   sourceHash?: string,
   documentTitle?: string,
-  pages?: PdfTextPage[]
+  pages?: PdfTextPage[],
+  sourceId?: string
 ): PdfTextIndex => {
   const pageLayout = buildPdfPageTextLayout(pages);
   const normalized = pageLayout ? pageLayout.text : normalizeWhitespace(extractedText);
@@ -327,7 +328,8 @@ export const buildPdfTextIndex = (
     }
 
     return {
-      id: `chunk-${String(index + 1).padStart(3, '0')}`,
+      id: `${sourceId ? `${sourceId}:` : ''}chunk-${String(index + 1).padStart(3, '0')}`,
+      sourceId,
       sequence: index,
       text: chunk.text,
       headingPath,
@@ -342,6 +344,7 @@ export const buildPdfTextIndex = (
     kind: 'pdf-text-index',
     parsedAt: timestampIso(),
     sourceHash,
+    sourceIds: sourceId ? [sourceId] : undefined,
     documentTitle,
     pageCount: pageLayout ? pageLayout.pages.length : undefined,
     chunks,

@@ -1,4 +1,6 @@
+import type { CourseSourceDescriptor } from '../../../types.ts';
 import { groupSectionsIntoModules } from '../../learning/groupSectionsIntoModules.ts';
+import { formatCourseSourceSetContext } from '../../projects/courseSources.ts';
 import { MEDIUM_REASONING_CONFIG } from '../config.ts';
 import { buildReasoningContentForFile } from '../pdfReasoning.ts';
 import {
@@ -6,6 +8,7 @@ import {
   dedupeLearningPlanSections,
   type PlanningSourceProfile,
   resolvePlanningSourceProfile,
+  resolvePlanningSourceProfileFromSeed,
 } from '../planQuality.ts';
 import { PLAN_PROPEDEUTIC_ORDER_RULES } from '../prompts.ts';
 import {
@@ -276,5 +279,86 @@ export const generateLearningPlan = async (
     );
     onStatusUpdate?.(`Indice raffinato: ${refinedLessonCount} lezioni`);
     return refinedPlan;
+  });
+};
+
+export const generateLearningPlanFromSourceSet = async (
+  sources: readonly CourseSourceDescriptor[],
+  assessmentHistory: Message[],
+  onStatusUpdate?: (status: string) => void,
+  onReasoningUpdate?: (reasoning: string) => void
+): Promise<LearningPlan> => {
+  const usableSources = sources.filter(source => source.status !== 'error');
+  if (usableSources.length === 0) {
+    throw new Error('No usable course sources');
+  }
+
+  const extractedCharacterCount = usableSources.reduce(
+    (total, source) =>
+      total +
+      (source.documentIndex?.chunks.reduce((count, chunk) => count + chunk.text.length, 0) || 0),
+    0
+  );
+  const sourceProfile = resolvePlanningSourceProfileFromSeed({
+    extractedCharacterCount,
+    kind: 'text',
+  });
+  const assessmentSummary = buildAssessmentSummary(assessmentHistory);
+  const planGuidance = buildAdaptivePlanGuidance(sourceProfile);
+  const prompt = `Crea un unico piano di studi a partire da un insieme di fonti distinte.
+
+CONTESTO UTENTE:
+${assessmentSummary}
+
+FONTI, INDICI E CAMPIONI MIRATI (una riga JSON per fonte):
+${formatCourseSourceSetContext(usableSources)}
+
+REGOLE:
+- L'ordine alfabetico delle fonti rende stabile la visualizzazione ma NON e un ordine didattico.
+- Combina gli argomenti complementari delle fonti senza concatenarle meccanicamente e senza creare una lezione per file.
+- Se piu fonti trattano lo stesso concetto, crea una sola lezione; conserva prospettive alternative solo quando aggiungono un confronto reale.
+- Gli indici sono mappe strutturali: non considerarli prova sufficiente della copertura di un tema.
+- Ogni lezione deve coprire un nucleo insegnabile distinto, con description precisa e non sovrapposta.
+- Ordina prerequisiti, concetti fondamentali, applicazioni e approfondimenti in sequenza propedeutica.
+${PLAN_PROPEDEUTIC_ORDER_RULES.map((rule, index) => `${index + 1}. ${rule}`).join('\n')}
+${planGuidance}
+- Deduplica esplicitamente titoli, concetti e lezioni quasi equivalenti prima dell'output.
+
+Rispondi SOLO con un oggetto JSON valido:
+{
+  "title": "Titolo generale del percorso",
+  "summary": "Breve panoramica motivazionale",
+  "sections": [
+    {
+      "moduleTitle": "Titolo del modulo",
+      "title": "Titolo sezione",
+      "description": "Cosa si impara e confini della lezione",
+      "type": "prerequisite|core|summary|deep-dive"
+    }
+  ]
+}`;
+
+  return retryWithBackoff(async () => {
+    onStatusUpdate?.(`Organizzazione di ${usableSources.length} fonti...`);
+    const response = await callOpenRouter({
+      model: MODEL_REASONING,
+      reasoning: MEDIUM_REASONING_CONFIG,
+      onReasoningUpdate,
+      messages: [
+        { role: 'system', content: plannerInstruction },
+        { role: 'user', content: prompt },
+      ],
+      response_format: { type: 'json_object' },
+    });
+    if (!response) {
+      throw new Error('No multi-source plan generated');
+    }
+    const plan = normalizeLearningPlan(parseCleanJson<LearningPlanDraft>(response), sourceProfile);
+    const lessonCount = plan.modules.reduce(
+      (total, module) => total + module.children.filter(child => child.kind === 'lesson').length,
+      0
+    );
+    onStatusUpdate?.(`Indice pronto: ${lessonCount} lezioni`);
+    return plan;
   });
 };

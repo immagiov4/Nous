@@ -33,6 +33,21 @@ export default function AdminPanel() {
     ['assessmentModel', 'assessmentReasoningEffort', 'Assessment'],
     ['progressModel', 'progressReasoningEffort', t('Avanzamento')],
   ] as const;
+  const openAiModelFields = [
+    ['openAiLessonModel', t('Lezioni')],
+    ['openAiContextModel', t('Contesto')],
+    ['openAiAssessmentModel', 'Assessment'],
+    ['openAiProgressModel', t('Avanzamento')],
+    ['openAiResearchModel', t('Ricerca')],
+    ['openAiImageModel', t('Immagini')],
+  ] as const;
+  const codexModelFields = [
+    ['codexLessonModel', t('Lezioni')],
+    ['codexContextModel', t('Contesto')],
+    ['codexAssessmentModel', 'Assessment'],
+    ['codexProgressModel', t('Avanzamento')],
+    ['codexResearchModel', t('Ricerca')],
+  ] as const;
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [modelConfig, setModelConfig] = useState<AdminModelConfig>(DEFAULT_ADMIN_MODEL_CONFIG);
   const [email, setEmail] = useState('');
@@ -43,6 +58,7 @@ export default function AdminPanel() {
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingModels, setIsSavingModels] = useState(false);
 
   const loadAdminData = useCallback(async () => {
     setIsLoading(true);
@@ -88,6 +104,8 @@ export default function AdminPanel() {
 
   const handleModelSave = async () => {
     setErrorMessage('');
+    setStatusMessage('');
+    setIsSavingModels(true);
     try {
       setModelConfig(await patchAdminModelConfig(modelConfig));
       setStatusMessage(t('Modelli aggiornati.'));
@@ -95,6 +113,8 @@ export default function AdminPanel() {
       setErrorMessage(
         error instanceof Error ? error.message : t('Salvataggio modelli non riuscito.')
       );
+    } finally {
+      setIsSavingModels(false);
     }
   };
 
@@ -147,8 +167,14 @@ export default function AdminPanel() {
           </button>
         </header>
 
-        {errorMessage ? <p className="mt-4 text-sm text-red-600">{errorMessage}</p> : null}
-        {statusMessage ? <p className="mt-4 text-sm text-gray-600">{statusMessage}</p> : null}
+        {errorMessage ? (
+          <p role="alert" className="mt-4 text-sm text-red-600">
+            {errorMessage}
+          </p>
+        ) : null}
+        {statusMessage ? (
+          <output className="mt-4 block text-sm text-gray-600">{statusMessage}</output>
+        ) : null}
 
         <section className="mt-6 grid gap-6 lg:grid-cols-[1fr_22rem]">
           <div>
@@ -244,6 +270,7 @@ export default function AdminPanel() {
               <h2 className="text-sm font-semibold">{t('Crea account')}</h2>
               <input
                 type="email"
+                aria-label={t('Email nuovo account')}
                 placeholder="email"
                 value={email}
                 onChange={event => setEmail(event.target.value)}
@@ -252,6 +279,7 @@ export default function AdminPanel() {
               />
               <input
                 type="password"
+                aria-label={t('Password nuovo account')}
                 placeholder="password"
                 value={password}
                 onChange={event => setPassword(event.target.value)}
@@ -259,6 +287,7 @@ export default function AdminPanel() {
                 required
               />
               <select
+                aria-label={t('Ruolo nuovo account')}
                 value={role}
                 onChange={event => setRole(event.target.value === 'admin' ? 'admin' : 'user')}
                 className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
@@ -277,6 +306,33 @@ export default function AdminPanel() {
 
             <div className="rounded-lg border border-gray-200 bg-white p-4">
               <h2 className="text-sm font-semibold">{t('Modelli globali')}</h2>
+              <label className="mt-4 block">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                  {t('Provider AI attivo')}
+                </span>
+                <select
+                  value={modelConfig.aiProvider}
+                  onChange={event =>
+                    setModelConfig(current => ({
+                      ...current,
+                      aiProvider:
+                        event.target.value === 'codex'
+                          ? 'codex'
+                          : event.target.value === 'openai'
+                            ? 'openai'
+                            : 'openrouter',
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="openai">OpenAI API</option>
+                  <option value="codex">Codex app-server</option>
+                </select>
+              </label>
+              <h3 className="mt-5 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                OpenRouter
+              </h3>
               {modelFields.map(([modelKey, reasoningKey, rawLabel]) => {
                 const label = rawLabel;
                 return (
@@ -339,6 +395,21 @@ export default function AdminPanel() {
                   className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 />
               </label>
+              <label className="mt-3 block">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                  {t('Immagini OpenRouter')}
+                </span>
+                <input
+                  value={modelConfig.imageModel}
+                  onChange={event =>
+                    setModelConfig(current => ({
+                      ...current,
+                      imageModel: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
               {(
                 [
                   ['ttsModel', t('TTS')],
@@ -358,13 +429,51 @@ export default function AdminPanel() {
                   />
                 </label>
               ))}
+              <h3 className="mt-5 border-t border-gray-100 pt-4 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                OpenAI API
+              </h3>
+              {openAiModelFields.map(([key, label]) => (
+                <label key={key} className="mt-3 block">
+                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                    {label}
+                  </span>
+                  <input
+                    value={modelConfig[key]}
+                    onChange={event =>
+                      setModelConfig(current => ({ ...current, [key]: event.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </label>
+              ))}
+              <h3 className="mt-5 border-t border-gray-100 pt-4 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                Codex app-server
+              </h3>
+              {codexModelFields.map(([key, label]) => (
+                <label key={key} className="mt-3 block">
+                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                    {label}
+                  </span>
+                  <input
+                    value={modelConfig[key]}
+                    onChange={event =>
+                      setModelConfig(current => ({ ...current, [key]: event.target.value }))
+                    }
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  />
+                </label>
+              ))}
               <p className="mt-2 text-xs leading-5 text-gray-500">
-                {t('Il TTS genera audio e non usa una forza di ragionamento.')}
+                {t(
+                  'La forza di ragionamento è condivisa per funzione; i modelli restano separati per provider. TTS e immagini non usano reasoning.'
+                )}
               </p>
               <button
                 type="button"
                 onClick={() => void handleModelSave()}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-4 py-2 text-sm font-semibold text-white"
+                disabled={isSavingModels}
+                aria-busy={isSavingModels}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
               >
                 <Save className="h-4 w-4" />
                 {t('Salva modelli')}

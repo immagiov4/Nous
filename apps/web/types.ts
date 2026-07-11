@@ -64,6 +64,31 @@ export interface FileData {
   name: string;
   mimeType: string;
   data: string; // Base64
+  sourceId?: string;
+}
+
+export interface SourceOutlineNode {
+  children: SourceOutlineNode[];
+  endOffset?: number;
+  id: string;
+  level: number;
+  page?: number;
+  startOffset?: number;
+  title: string;
+}
+
+export interface CourseSourceDescriptor {
+  documentIndex?: PdfTextIndex | null;
+  errorMessage?: string;
+  file: FileData;
+  hash: string;
+  id: string;
+  kind: 'markdown' | 'pdf' | 'text';
+  name: string;
+  outline: SourceOutlineNode[];
+  outlineOrigin: 'deterministic' | 'native' | 'none';
+  position: number;
+  status: 'error' | 'partial' | 'ready';
 }
 
 export interface CodebaseSourceFile {
@@ -91,6 +116,7 @@ export interface PdfProjectSource {
   kind: 'pdf';
   file: FileData;
   ref?: ProjectSourceRef;
+  sources?: CourseSourceDescriptor[];
 }
 
 export interface CodebaseBundleSource {
@@ -99,6 +125,7 @@ export interface CodebaseBundleSource {
   aggregatedText: string;
   files: CodebaseSourceFile[];
   stats: CodebaseBundleStats;
+  sources?: CourseSourceDescriptor[];
 }
 
 export type ProjectSource = PdfProjectSource | CodebaseBundleSource;
@@ -117,8 +144,10 @@ export type {
   LibraryPlacement,
   ProjectId,
   ProjectPatch,
+  ProjectRevisionEvent,
   ProjectSourceKind,
   ProjectSyncState,
+  ProjectWriteOptions,
   SavedProjectMeta,
   SectionPatch,
 } from '@shared/projectContract';
@@ -315,12 +344,14 @@ export interface PdfTextChunk {
   endOffset: number;
   pageStart?: number;
   pageEnd?: number;
+  sourceId?: string;
 }
 
 export interface PdfTextIndex {
   kind: 'pdf-text-index';
   parsedAt: string;
   sourceHash?: string;
+  sourceIds?: string[];
   documentTitle?: string;
   pageCount?: number;
   mappingQuality?: {
@@ -339,6 +370,13 @@ export interface PdfTextIndex {
   chunks: PdfTextChunk[];
 }
 
+export interface LessonSourceReference {
+  chunkIds: string[];
+  pageEnd?: number;
+  pageStart?: number;
+  sourceId: string;
+}
+
 export interface LearningSection {
   id: string;
   moduleTitle?: string;
@@ -355,6 +393,7 @@ export interface LearningSection {
   contextPrompt?: string; // For Learn Mode
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
   primaryChunkMappingSource?: 'fallback' | 'mapped';
+  sourceReferences?: LessonSourceReference[];
   annotations?: SectionAnnotation[]; // Persistent text annotations/highlights for the section
 }
 

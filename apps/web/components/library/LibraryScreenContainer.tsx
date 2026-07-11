@@ -7,6 +7,7 @@ import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspace
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import LibraryView from './LibraryView.tsx';
 
@@ -45,7 +46,7 @@ export const LibraryScreenContainer = ({
 }: LibraryScreenContainerProps) => {
   const [assessmentComplete, setAssessmentComplete] = useState(false);
   const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>('new-course');
-  const [pendingHomeSourceFile, setPendingHomeSourceFile] = useState<File | null>(null);
+  const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
 
   const {
     assessmentMessages,
@@ -59,8 +60,7 @@ export const LibraryScreenContainer = ({
   } = controller;
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0] || null;
-    setPendingHomeSourceFile(selectedFile);
+    setPendingHomeSourceFiles(sortSourceFiles(Array.from(event.target.files || [])));
     if (event.target) {
       event.target.value = '';
     }
@@ -79,7 +79,7 @@ export const LibraryScreenContainer = ({
       ? await submitAssessment(message, toolPreferences)
       : await startHomeChat({
           input: message,
-          selectedFile: pendingHomeSourceFile,
+          selectedFiles: pendingHomeSourceFiles,
           toolPreferences,
         });
 
@@ -92,11 +92,18 @@ export const LibraryScreenContainer = ({
     }
 
     if (result.outcome !== 'failed' && result.outcome !== 'noop') {
-      setPendingHomeSourceFile(null);
+      setPendingHomeSourceFiles([]);
     }
 
     if (result.errorMessage) {
       notify(result.errorMessage);
+    }
+    if (result.sourceWarnings?.length) {
+      notify(
+        t('Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.', {
+          sourceNames: result.sourceWarnings.map(warning => warning.name).join(', '),
+        })
+      );
     }
   };
 
@@ -114,6 +121,7 @@ export const LibraryScreenContainer = ({
       assessmentMessages={assessmentMessages}
       homeChatMode={homeChatMode}
       isDarkMode={readerState.readerChrome.isDarkMode}
+      isExportingProject={fileActions.isExportingProject}
       isLibraryLoading={isLibraryLoading}
       isLibraryQueryLoading={libraryAssistantChat.isLoading}
       isNewCourseLoading={controller.workflowState.assessment.status === 'pending'}
@@ -129,10 +137,11 @@ export const LibraryScreenContainer = ({
       openingProjectId={openingProjectId}
       planFileInputId={fileActions.planFileInputId}
       projects={savedProjects}
-      pendingHomeFileName={pendingHomeSourceFile?.name || null}
+      pendingHomeFileName={pendingHomeSourceFiles[0]?.name || null}
+      pendingHomeFileNames={pendingHomeSourceFiles.map(file => file.name)}
       sourceFileInputId={fileActions.sourceFileInputId}
       storageError={storageError}
-      onClearPendingHomeFile={() => setPendingHomeSourceFile(null)}
+      onClearPendingHomeFile={() => setPendingHomeSourceFiles([])}
       onClearLibraryMessages={libraryAssistantChat.clearLibraryMessages}
       onContinueAssessment={() => setAssessmentComplete(false)}
       onConfirmGenerate={handleConfirmGenerate}

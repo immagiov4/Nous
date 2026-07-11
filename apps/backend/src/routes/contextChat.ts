@@ -1,5 +1,4 @@
 // Handles context-aware chat requests for the backend API.
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import {
   convertToModelMessages,
   jsonSchema,
@@ -10,8 +9,17 @@ import {
 } from 'ai';
 import { type Request, type Response, Router } from 'express';
 
-import { requireOpenRouterApiKey } from '../config/chatConfig.js';
-import { getResolvedGlobalModelConfig } from '../config/modelConfig.js';
+import {
+  getResolvedModelConfigForProvider,
+  resolveTextModelConfig,
+} from '../config/modelConfig.js';
+import { createConfiguredTextModel } from '../services/aiSdkTextModel.js';
+import {
+  assertCodexRequestAccess,
+  CODEX_ACCESS_DENIED_MESSAGE,
+  CodexAccessError,
+} from '../services/codexAccess.js';
+import { createCodexChatStream, SAFE_AI_STREAM_ERROR } from '../services/codexChatStream.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
 
@@ -409,7 +417,6 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
     const contextScope = readContextScope(req.body.contextScope);
     const selectedText = readOptionalString(req.body.selectedText);
     const messages = req.body.messages;
-    const backendContextModel = (await getResolvedGlobalModelConfig()).contextModel;
 
     const contextInput = {
       attachedAnnotationNote: readOptionalString(attachedAnnotationNote),
@@ -457,9 +464,9 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       return;
     }
 
-    const openrouter = createOpenRouter({
-      apiKey: requireOpenRouterApiKey(),
-    });
+    const modelConfig = await getResolvedModelConfigForProvider(req.get('x-nous-ai-provider'));
+    const contextModelConfig = resolveTextModelConfig(modelConfig, 'context');
+
     const contextSubject =
       selectedText ||
       (contextInput.lessonTitle
@@ -467,7 +474,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
         : 'Intera lezione corrente');
 
     const contextTools = buildContextToolSet({
-      modelOverride: backendContextModel,
+      modelOverride: modelConfig.researchModel,
       selectedText: contextSubject,
       ...contextInput,
     });
@@ -476,15 +483,32 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       messages.map(({ id: _id, ...message }) => message),
       { tools: contextTools }
     );
+    const system = buildContextSystemPrompt({
+      contextScope,
+      selectedText,
+      ...contextInput,
+    });
+
+    if (modelConfig.aiProvider === 'codex') {
+      assertCodexRequestAccess(req);
+      const stream = await createCodexChatStream({
+        messages: modelMessages,
+        model: contextModelConfig.model,
+        reasoningEffort: contextModelConfig.reasoningEffort,
+        system,
+        tools: contextTools,
+      });
+      pipeUIMessageStreamToResponse({ response: res, stream });
+      return;
+    }
+
+    const configuredModel = createConfiguredTextModel(modelConfig, 'context');
 
     const result = streamText({
-      model: openrouter.chat(backendContextModel),
-      system: buildContextSystemPrompt({
-        contextScope,
-        selectedText,
-        ...contextInput,
-      }),
+      model: configuredModel.model,
+      system,
       messages: modelMessages,
+      providerOptions: configuredModel.providerOptions,
       tools: contextTools,
       stopWhen: stepCountIs(CHAT_TOOL_STEP_LIMIT),
       prepareStep: buildContextPrepareStep(),
@@ -492,10 +516,14 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
 
     pipeUIMessageStreamToResponse({
       response: res,
-      stream: result.toUIMessageStream(),
+      stream: result.toUIMessageStream({ onError: () => SAFE_AI_STREAM_ERROR }),
     });
   } catch (error) {
     console.error('[Chat Route] Error:', error);
+    if (error instanceof CodexAccessError) {
+      res.status(403).json({ success: false, error: CODEX_ACCESS_DENIED_MESSAGE });
+      return;
+    }
     sendErrorResponse(res, 500, error, 'Failed to stream contextual chat response');
   }
 });

@@ -1,4 +1,4 @@
-import { LoaderCircle, Mic, Square } from 'lucide-react';
+import { LoaderCircle, Mic, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -8,6 +8,7 @@ import {
 } from '../../services/openrouter/sttClient.ts';
 
 const MAX_SPEECH_RECORDING_MS = 90_000;
+const TEMPORARY_ERROR_DISMISS_MS = 8_000;
 
 const RECORDING_FORMATS: ReadonlyArray<{
   format: SttAudioFormat;
@@ -22,6 +23,11 @@ const RECORDING_FORMATS: ReadonlyArray<{
 type SpeechInputState = 'idle' | 'recording' | 'transcribing';
 type SpeechInputVariant = 'compact' | 'round';
 
+interface SpeechInputError {
+  autoDismiss: boolean;
+  message: string;
+}
+
 interface SpeechInputButtonProps {
   disabled?: boolean;
   language?: string;
@@ -35,16 +41,29 @@ const stopStreamTracks = (stream: MediaStream | null) => {
   });
 };
 
-const getMicrophoneErrorMessage = (error: unknown): string => {
+const getMicrophoneError = (error: unknown): SpeechInputError => {
   if (error instanceof DOMException && error.name === 'NotAllowedError') {
-    return t('Permesso microfono negato. Abilitalo nelle impostazioni del browser.');
+    return {
+      autoDismiss: false,
+      message: t('Permesso microfono negato. Abilitalo nelle impostazioni del browser.'),
+    };
   }
 
   if (error instanceof DOMException && error.name === 'NotFoundError') {
-    return t('Nessun microfono disponibile.');
+    return { autoDismiss: false, message: t('Nessun microfono disponibile.') };
   }
 
-  return t('Non riesco ad accedere al microfono. Riprova.');
+  if (error instanceof DOMException && error.name === 'NotReadableError') {
+    return {
+      autoDismiss: true,
+      message: t('Il microfono è occupato o non è temporaneamente disponibile. Riprova.'),
+    };
+  }
+
+  return {
+    autoDismiss: true,
+    message: t('Non riesco ad accedere al microfono. Riprova.'),
+  };
 };
 
 const selectRecordingFormat = () => {
@@ -81,7 +100,7 @@ export default function SpeechInputButton({
   variant = 'round',
 }: SpeechInputButtonProps) {
   const [state, setState] = useState<SpeechInputState>('idle');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [speechInputError, setSpeechInputError] = useState<SpeechInputError | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,6 +110,20 @@ export default function SpeechInputButton({
   useEffect(() => {
     onTranscriptionRef.current = onTranscription;
   }, [onTranscription]);
+
+  useEffect(() => {
+    if (!speechInputError?.autoDismiss) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setSpeechInputError(null);
+    }, TEMPORARY_ERROR_DISMISS_MS);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [speechInputError]);
 
   const clearRecordingTimeout = useCallback(() => {
     if (recordingTimeoutRef.current) {
@@ -108,10 +141,21 @@ export default function SpeechInputButton({
   }, [clearRecordingTimeout]);
 
   const startRecording = useCallback(async () => {
-    setErrorMessage(null);
+    setSpeechInputError(null);
+
+    if (window.isSecureContext === false) {
+      setSpeechInputError({
+        autoDismiss: false,
+        message: t('Il microfono richiede una connessione sicura (HTTPS o localhost).'),
+      });
+      return;
+    }
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setErrorMessage(t('La registrazione audio non è supportata da questo browser.'));
+      setSpeechInputError({
+        autoDismiss: false,
+        message: t('La registrazione audio non è supportata da questo browser.'),
+      });
       return;
     }
 
@@ -141,7 +185,10 @@ export default function SpeechInputButton({
         streamRef.current = null;
         if (isMountedRef.current) {
           setState('idle');
-          setErrorMessage(t('La registrazione si è interrotta. Riprova.'));
+          setSpeechInputError({
+            autoDismiss: true,
+            message: t('La registrazione si è interrotta. Riprova.'),
+          });
         }
       };
       recorder.onstop = async () => {
@@ -156,7 +203,10 @@ export default function SpeechInputButton({
         const audio = new Blob(audioChunks, { type: recorder.mimeType });
         if (audio.size === 0) {
           setState('idle');
-          setErrorMessage(t('Non ho rilevato audio. Riprova.'));
+          setSpeechInputError({
+            autoDismiss: true,
+            message: t('Non ho rilevato audio. Riprova.'),
+          });
           return;
         }
 
@@ -172,7 +222,10 @@ export default function SpeechInputButton({
           }
         } catch {
           if (isMountedRef.current) {
-            setErrorMessage(t('Trascrizione non riuscita. Riprova.'));
+            setSpeechInputError({
+              autoDismiss: true,
+              message: t('Trascrizione non riuscita. Riprova.'),
+            });
           }
         } finally {
           if (isMountedRef.current) {
@@ -193,7 +246,7 @@ export default function SpeechInputButton({
       streamRef.current = null;
       recorderRef.current = null;
       setState('idle');
-      setErrorMessage(getMicrophoneErrorMessage(error));
+      setSpeechInputError(getMicrophoneError(error));
     }
   }, [clearRecordingTimeout, language]);
 
@@ -256,13 +309,21 @@ export default function SpeechInputButton({
         {isTranscribing ? t('Sto trascrivendo la registrazione.') : null}
       </span>
 
-      {errorMessage ? (
+      {speechInputError ? (
         <div
           role="alert"
-          aria-label={errorMessage}
-          className="absolute bottom-[calc(100%+0.6rem)] right-0 z-30 w-64 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs leading-5 text-red-700 shadow-lg dark:border-red-900/70 dark:bg-stone-800 dark:text-red-200"
+          aria-label={speechInputError.message}
+          className="absolute bottom-[calc(100%+0.6rem)] right-0 z-30 flex w-64 items-start gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs leading-5 text-red-700 shadow-lg dark:border-red-900/70 dark:bg-stone-800 dark:text-red-200"
         >
-          {errorMessage}
+          <span className="min-w-0 flex-1">{speechInputError.message}</span>
+          <button
+            type="button"
+            onClick={() => setSpeechInputError(null)}
+            aria-label={t('Chiudi avviso microfono')}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-red-500 transition-colors hover:bg-red-100 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:text-red-300 dark:hover:bg-red-950/60 dark:hover:text-red-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       ) : null}
     </div>

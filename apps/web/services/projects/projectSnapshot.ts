@@ -1,6 +1,7 @@
 import {
   AppState,
   type CodebaseBundleSource,
+  type CourseSourceDescriptor,
   type FileData,
   type LearningPlan,
   type PdfDocumentAssets,
@@ -12,6 +13,7 @@ import {
   type ProjectSourceKind,
   type ProjectSourceRef,
   type SavedProjectMeta,
+  type SourceOutlineNode,
   type SyllabusItem,
   type UserProfile,
 } from '../../types.ts';
@@ -20,6 +22,7 @@ import { flattenLessons, flattenPathNodes } from '../../utils/learning/pathNodes
 import { isRecord } from '../../utils/records.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { groupSectionsIntoModules } from '../learning/groupSectionsIntoModules.ts';
+import { normalizeCourseSourceOrder } from './courseSources.ts';
 import {
   createProjectSourceFromFile,
   getProjectSourceName,
@@ -178,6 +181,7 @@ const parseFileData = (value: unknown): FileData | null => {
     name: value.name,
     mimeType: value.mimeType,
     data: value.data,
+    ...(isString(value.sourceId) ? { sourceId: value.sourceId } : {}),
   };
 };
 
@@ -200,6 +204,66 @@ const parseProjectSourceRef = (value: unknown): ProjectSourceRef | undefined => 
     name: value.name,
     mimeType: value.mimeType,
   };
+};
+
+const parseSourceOutlineNodes = (value: unknown): SourceOutlineNode[] =>
+  Array.isArray(value)
+    ? value
+        .filter(isRecord)
+        .map(node => ({
+          children: parseSourceOutlineNodes(node.children),
+          endOffset: typeof node.endOffset === 'number' ? node.endOffset : undefined,
+          id: ensureString(node.id),
+          level: typeof node.level === 'number' ? node.level : 1,
+          page: typeof node.page === 'number' ? node.page : undefined,
+          startOffset: typeof node.startOffset === 'number' ? node.startOffset : undefined,
+          title: ensureString(node.title),
+        }))
+        .filter(node => node.id && node.title)
+    : [];
+
+const parseCourseSources = (value: unknown): CourseSourceDescriptor[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const sources = value
+    .filter(isRecord)
+    .map(source => {
+      const file = parseFileData(source.file);
+      const kind =
+        source.kind === 'pdf' || source.kind === 'markdown' || source.kind === 'text'
+          ? source.kind
+          : null;
+      if (
+        !file ||
+        !kind ||
+        !isString(source.id) ||
+        !isString(source.hash) ||
+        !isString(source.name)
+      ) {
+        return null;
+      }
+      return {
+        documentIndex: parseDocumentIndex(source.documentIndex),
+        errorMessage: ensureString(source.errorMessage) || undefined,
+        file: { ...file, sourceId: file.sourceId || source.id },
+        hash: source.hash,
+        id: source.id,
+        kind,
+        name: source.name,
+        outline: parseSourceOutlineNodes(source.outline),
+        outlineOrigin:
+          source.outlineOrigin === 'native' || source.outlineOrigin === 'deterministic'
+            ? source.outlineOrigin
+            : 'none',
+        position: typeof source.position === 'number' ? source.position : 0,
+        status: source.status === 'error' || source.status === 'partial' ? source.status : 'ready',
+      } satisfies CourseSourceDescriptor;
+    })
+    .filter((source): source is Exclude<typeof source, null> => source !== null);
+
+  return sources.length > 0 ? normalizeCourseSourceOrder(sources) : undefined;
 };
 
 const parseCodebaseBundleSource = (value: Record<string, unknown>): CodebaseBundleSource | null => {
@@ -237,6 +301,7 @@ const parseCodebaseBundleSource = (value: Record<string, unknown>): CodebaseBund
           ? value.stats.totalCharacterCount
           : value.aggregatedText.length,
     },
+    sources: parseCourseSources(value.sources),
   };
 };
 
@@ -248,7 +313,12 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
   if (value.kind === 'pdf') {
     const file = parseFileData(value.file);
     return file && isPdfFileData(file)
-      ? { kind: 'pdf', file, ref: parseProjectSourceRef(value.ref) }
+      ? {
+          kind: 'pdf',
+          file,
+          ref: parseProjectSourceRef(value.ref),
+          sources: parseCourseSources(value.sources),
+        }
       : null;
   }
 
@@ -327,7 +397,7 @@ const parseDocumentAssets = (value: unknown): PdfDocumentAssets | null => {
   };
 };
 
-const parseDocumentIndex = (value: unknown): PdfTextIndex | null => {
+function parseDocumentIndex(value: unknown): PdfTextIndex | null {
   if (!isRecord(value) || value.kind !== 'pdf-text-index' || !Array.isArray(value.chunks)) {
     return null;
   }
@@ -336,6 +406,9 @@ const parseDocumentIndex = (value: unknown): PdfTextIndex | null => {
     kind: 'pdf-text-index',
     parsedAt: ensureString(value.parsedAt, timestampIso()),
     sourceHash: ensureString(value.sourceHash),
+    sourceIds: Array.isArray(value.sourceIds)
+      ? value.sourceIds.map(sourceId => ensureString(sourceId)).filter(Boolean)
+      : undefined,
     documentTitle: ensureString(value.documentTitle),
     pageCount: typeof value.pageCount === 'number' ? value.pageCount : undefined,
     chunks: value.chunks
@@ -351,10 +424,43 @@ const parseDocumentIndex = (value: unknown): PdfTextIndex | null => {
         endOffset: typeof chunk.endOffset === 'number' ? chunk.endOffset : 0,
         pageStart: typeof chunk.pageStart === 'number' ? chunk.pageStart : undefined,
         pageEnd: typeof chunk.pageEnd === 'number' ? chunk.pageEnd : undefined,
+        sourceId: ensureString(chunk.sourceId) || undefined,
       }))
       .filter(chunk => chunk.id && chunk.text),
+    mappingQuality: isRecord(value.mappingQuality)
+      ? {
+          coverageRatio:
+            typeof value.mappingQuality.coverageRatio === 'number'
+              ? value.mappingQuality.coverageRatio
+              : undefined,
+          gapCount:
+            typeof value.mappingQuality.gapCount === 'number'
+              ? value.mappingQuality.gapCount
+              : undefined,
+          lessonCount:
+            typeof value.mappingQuality.lessonCount === 'number'
+              ? value.mappingQuality.lessonCount
+              : undefined,
+          mappedLessonCount:
+            typeof value.mappingQuality.mappedLessonCount === 'number'
+              ? value.mappingQuality.mappedLessonCount
+              : undefined,
+          mappingSource: value.mappingQuality.mappingSource === 'mapped' ? 'mapped' : 'fallback',
+          updatedAt: ensureString(value.mappingQuality.updatedAt, timestampIso()),
+        }
+      : undefined,
+    mappingRecovery:
+      isRecord(value.mappingRecovery) && value.mappingRecovery.status === 'exhausted'
+        ? {
+            status: 'exhausted',
+            updatedAt: ensureString(value.mappingRecovery.updatedAt, timestampIso()),
+          }
+        : undefined,
+    mappingWarnings: Array.isArray(value.mappingWarnings)
+      ? value.mappingWarnings.map(warning => ensureString(warning)).filter(Boolean)
+      : undefined,
   };
-};
+}
 
 const parseUserProfile = (value: unknown): UserProfile | null => {
   if (!isRecord(value)) {

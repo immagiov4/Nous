@@ -4,8 +4,10 @@ export type {
   LibraryPlacement,
   ProjectId,
   ProjectPatch,
+  ProjectRevisionEvent,
   ProjectSourceKind,
   ProjectSyncState,
+  ProjectWriteOptions,
   SavedProjectMeta,
   SectionPatch,
 } from '@shared/projectContract';
@@ -16,6 +18,7 @@ import type {
   ProjectId,
   ProjectPatch,
   ProjectSourceKind,
+  ProjectWriteOptions,
   SavedProjectMeta,
 } from '@shared/projectContract';
 
@@ -44,7 +47,7 @@ export interface LearningPlanSnapshot {
 // Wire/storage shape of a project. The frontend has its own strictly typed
 // ProjectSnapshot in apps/web/types.ts that models the rich domain (LearningPlan,
 // ProjectSource, PdfDocumentAssets). The backend treats the same payload as
-// permissive JSON it shuttles to and from SQLite. The two intentionally diverge.
+// permissive JSON persisted by the store. The two intentionally diverge.
 export interface ProjectSnapshot {
   id: ProjectId;
   version: string;
@@ -117,12 +120,21 @@ export interface ProjectStore {
     targetIndex?: number
   ) => Promise<LibraryPlacement[]>;
   renameFolder: (userId: string, folderId: string, name: string) => Promise<LibraryFolder | null>;
-  saveProject: (userId: string, snapshot: ProjectSnapshot) => Promise<SavedProjectMeta>;
+  saveProject: (
+    userId: string,
+    snapshot: ProjectSnapshot,
+    options?: ProjectWriteOptions
+  ) => Promise<SavedProjectMeta>;
   saveProjectSource: (
     userId: string,
     id: ProjectId,
     source: ProjectSourceFile
   ) => Promise<ProjectSourceRef>;
-  patchProject: (userId: string, id: ProjectId, patch: ProjectPatch) => Promise<SavedProjectMeta>;
+  patchProject: (
+    userId: string,
+    id: ProjectId,
+    patch: ProjectPatch,
+    options?: ProjectWriteOptions
+  ) => Promise<SavedProjectMeta>;
   touchProject: (userId: string, id: ProjectId) => Promise<void>;
 }

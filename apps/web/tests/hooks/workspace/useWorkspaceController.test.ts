@@ -7,6 +7,7 @@ import {
   type WorkspaceDomainControllerAdapter,
   type WorkspaceProjectLibraryAdapter,
 } from '../../../hooks/workspace/useWorkspaceController.ts';
+import { mergePrerequisiteDossierSources } from '../../../services/openrouter/prerequisiteSources.ts';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
 import {
   createProjectSnapshot,
@@ -334,6 +335,7 @@ const createDomainAdapter = (
 const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryAdapter> = {}) => {
   const persistedSnapshots: ProjectSnapshot[] = [];
   const savedOverrides: Array<Partial<ProjectSnapshot> | undefined> = [];
+  const sectionProjectPatches: Array<Partial<ProjectSnapshot>> = [];
   const deletedProjectIds: string[] = [];
   const exportedProjectIds: Array<string | undefined> = [];
   const touchedProjectIds: string[] = [];
@@ -396,7 +398,12 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       savedOverrides.push(overridesArg);
       return adapter.currentProjectId ? buildMeta(adapter.currentProjectId) : null;
     },
-    patchSectionLessonContent: async () => true,
+    patchSectionLessonContent: async (_sectionId, _sectionPatch, projectPatch = {}) => {
+      const snapshotPatch = projectPatch as Partial<ProjectSnapshot>;
+      sectionProjectPatches.push(snapshotPatch);
+      savedOverrides.push(snapshotPatch);
+      return true;
+    },
     patchSectionAnnotations: async () => {},
     savedProjects: [],
     setCurrentProjectId: projectId => {
@@ -417,6 +424,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     exportedProjectIds,
     persistedSnapshots,
     savedOverrides,
+    sectionProjectPatches,
     setLoadedSnapshot: (snapshot: ProjectSnapshot | null) => {
       loadedSnapshot = snapshot;
     },
@@ -1589,6 +1597,38 @@ test('startHomeChat passes the Nuovo corso preference to the model without alter
   assert.equal(sentMessage.includes('Vorrei capire meglio come studiare'), true);
 });
 
+test('startHomeChat reports each unusable source while continuing with valid material', async () => {
+  const { controller } = createControllerHarness({
+    openRouter: {
+      validatePdfTextSource: async file => {
+        if (file.name === 'scansione.pdf') {
+          throw new Error('internal PDF extraction detail');
+        }
+        return null;
+      },
+      createEmbeddedAssessmentChatFromSourceSet: async () => ({
+        sendMessage: async () => ({ text: 'Continuiamo con la fonte valida.' }),
+      }),
+    },
+  });
+
+  const result = await controller.startHomeChat({
+    input: 'Preparami un corso combinando queste fonti',
+    selectedFiles: [
+      new File(['%PDF-1.4\n'], 'scansione.pdf', { type: 'application/pdf' }),
+      new File(['# Materiale valido'], 'appunti.md', { type: 'text/markdown' }),
+    ],
+  });
+
+  assert.equal(result.outcome, 'continued');
+  assert.deepEqual(result.sourceWarnings, [
+    {
+      message: 'Questa fonte non contiene testo PDF utilizzabile.',
+      name: 'scansione.pdf',
+    },
+  ]);
+});
+
 test('submitAssessment in learn mode finalizes the profile and generates the first lesson', async () => {
   const profileArgs = {
     topic: 'TypeScript',
@@ -2043,6 +2083,172 @@ test('openSection generates and caches research dossiers for research-backed lea
   assert.equal(secondOutcome, 'loaded');
   assert.equal(dossierCalls, 1);
   assert.equal(contentCalls, 2);
+});
+
+test('openSection keeps a covered prerequisite on the original document pipeline', async () => {
+  const plan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-prerequisite',
+        title: 'Basi gia presenti',
+        description: 'Spiega le basi coperte dalla dispensa.',
+        isCompleted: false,
+        type: 'prerequisite',
+      },
+    ],
+  });
+  let documentGenerationCalls = 0;
+  let researchCalls = 0;
+  const { controller, domain } = createControllerHarness({
+    domain: {
+      file: pdfFile,
+      learningPlan: plan,
+      source: createProjectSourceFromFile(pdfFile),
+      researchDossiersBySectionId: {},
+    },
+    openRouter: {
+      buildPrerequisiteSourceContext: async () => ({
+        content: 'Contesto originale completo.',
+        sources: [{ title: 'dispensa.pdf', note: 'Materiale originale del corso' }],
+      }),
+      selectPrerequisiteSourceCoverage: async () => ({
+        missingTopics: [],
+        needsResearch: false,
+      }),
+      generateResearchLessonDossier: async () => {
+        researchCalls += 1;
+        throw new Error('Covered prerequisites must not start web research');
+      },
+      generateSectionContent: async () => {
+        documentGenerationCalls += 1;
+        return {
+          content: '# Lezione dalla dispensa',
+          documentAssets: null,
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          quiz: [],
+        };
+      },
+    },
+  });
+
+  const outcome = await controller.openSection(getLessons(plan)[0]);
+
+  assert.equal(outcome, 'loaded');
+  assert.equal(documentGenerationCalls, 1);
+  assert.equal(researchCalls, 0);
+  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Lezione dalla dispensa');
+  assert.deepEqual(domain.researchDossiersBySectionId, {});
+});
+
+test('openSection researches uncovered prerequisites, mixes original context, and persists sources', async () => {
+  const plan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-prerequisite',
+        title: 'Basi mancanti',
+        description: 'Spiega ipotesi e limiti assenti dalla dispensa.',
+        isCompleted: false,
+        type: 'prerequisite',
+      },
+    ],
+  });
+  const originalSourceContext = 'FONTE ORIGINALE: dispensa.pdf\nEstratto parziale.';
+  let coverageCalls = 0;
+  let dossierCalls = 0;
+  let documentGenerationCalls = 0;
+  const dossierCoverageGaps: string[][] = [];
+  const mixedGenerationInputs: Array<{
+    originalSourceContext?: string;
+    sourceTitles: string[];
+  }> = [];
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    domain: {
+      file: pdfFile,
+      learningPlan: plan,
+      source: createProjectSourceFromFile(pdfFile),
+      researchDossiersBySectionId: {},
+    },
+    openRouter: {
+      buildPrerequisiteSourceContext: async () => ({
+        content: originalSourceContext,
+        sources: [{ title: 'dispensa.pdf', note: 'Materiale originale del corso' }],
+      }),
+      selectPrerequisiteSourceCoverage: async () => {
+        coverageCalls += 1;
+        return {
+          missingTopics: ['Ipotesi matematiche', 'Limiti del metodo'],
+          needsResearch: true,
+        };
+      },
+      generateResearchLessonDossier: async args => {
+        dossierCalls += 1;
+        dossierCoverageGaps.push(args.coverageGaps || []);
+        return {
+          sectionId: args.lesson.id,
+          title: args.lesson.title,
+          generatedAt: '2026-07-11T10:00:00.000Z',
+          factualSummary: 'Fondamento verificato.',
+          keyExamples: [],
+          difficultSteps: [],
+          sources: [{ title: 'Documentazione ufficiale', url: 'https://example.com/docs' }],
+          avoidOversimplifying: [],
+          controversies: [],
+          recentDevelopments: [],
+        };
+      },
+      mergePrerequisiteDossierSources,
+      generateResearchLessonContent: async args => {
+        mixedGenerationInputs.push({
+          originalSourceContext: args.originalSourceContext,
+          sourceTitles: args.researchDossier.sources.map(source => source.title),
+        });
+        return {
+          content: '# Lezione da fonti miste',
+          generatedVisuals: [],
+          learningAids: [],
+          quiz: [],
+        };
+      },
+      generateSectionContent: async () => {
+        documentGenerationCalls += 1;
+        throw new Error('Uncovered prerequisites must use mixed generation');
+      },
+    },
+  });
+
+  const firstOutcome = await controller.openSection(getLessons(plan)[0]);
+
+  assert.equal(firstOutcome, 'loaded');
+  assert.equal(coverageCalls, 1);
+  assert.equal(dossierCalls, 1);
+  assert.equal(documentGenerationCalls, 0);
+  assert.deepEqual(dossierCoverageGaps, [['Ipotesi matematiche', 'Limiti del metodo']]);
+  assert.deepEqual(mixedGenerationInputs[0], {
+    originalSourceContext,
+    sourceTitles: ['dispensa.pdf', 'Documentazione ufficiale'],
+  });
+  assert.deepEqual(
+    domain.researchDossiersBySectionId['lesson-prerequisite']?.sources.map(source => source.title),
+    ['dispensa.pdf', 'Documentazione ufficiale']
+  );
+  assert.deepEqual(
+    projectLibrary.sectionProjectPatches
+      .at(-1)
+      ?.researchDossiersBySectionId?.['lesson-prerequisite']?.sources.map(source => source.title),
+    ['dispensa.pdf', 'Documentazione ufficiale']
+  );
+
+  const secondOutcome = await controller.openSection(
+    getLessons(domain.learningPlan)[0] ?? getLessons(plan)[0],
+    { forceRegenerate: true }
+  );
+
+  assert.equal(secondOutcome, 'loaded');
+  assert.equal(coverageCalls, 1);
+  assert.equal(dossierCalls, 1);
+  assert.equal(mixedGenerationInputs.length, 2);
 });
 
 test('regenerateActiveSection waits for the regenerated lesson to be persisted', async () => {

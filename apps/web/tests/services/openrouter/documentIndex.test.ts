@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test, vi } from 'vitest';
-import type { FileData, LearningPlan, PdfTextIndex } from '../../../types.ts';
+import type {
+  CourseSourceDescriptor,
+  FileData,
+  LearningPlan,
+  PdfTextIndex,
+} from '../../../types.ts';
 import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
 
@@ -29,9 +34,12 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   };
 });
 
-const { buildPdfTextIndex, preparePdfLessonMappings } = await import(
-  '../../../services/openrouter/documentIndex/index.ts'
-);
+const {
+  buildPdfTextIndex,
+  preparePdfLessonMappings,
+  prepareSourceSetLessonMappings,
+  resolveLessonContextChunks,
+} = await import('../../../services/openrouter/documentIndex/index.ts');
 
 const buildChunkId = (index: number): string => `chunk-${String(index).padStart(3, '0')}`;
 
@@ -79,6 +87,137 @@ beforeEach(() => {
   callOpenRouterMock.mockReset();
   retryWithBackoffMock.mockClear();
   pushNousDebugTraceMock.mockReset();
+});
+
+test('prepareSourceSetLessonMappings maps relevant chunks across sources and records provenance', async () => {
+  const plan = buildPlan(1);
+  const sources: CourseSourceDescriptor[] = ['source-a', 'source-b'].map((sourceId, index) => ({
+    id: sourceId,
+    hash: `hash-${index}`,
+    name: `${sourceId}.txt`,
+    kind: 'text',
+    file: { name: `${sourceId}.txt`, mimeType: 'text/plain', data: '', sourceId },
+    outline: [],
+    outlineOrigin: 'none',
+    position: index,
+    status: 'ready',
+    documentIndex: {
+      kind: 'pdf-text-index',
+      parsedAt: '2026-07-11T00:00:00.000Z',
+      sourceHash: `hash-${index}`,
+      sourceIds: [sourceId],
+      chunks: [
+        {
+          id: `${sourceId}:chunk-001`,
+          sourceId,
+          sequence: 0,
+          headingPath: [sourceId],
+          text: `Relevant material from ${sourceId}`,
+          startOffset: 0,
+          endOffset: 24,
+          pageStart: index + 2,
+          pageEnd: index + 2,
+        },
+      ],
+    },
+  }));
+  callOpenRouterMock.mockResolvedValue(
+    JSON.stringify({
+      mappings: [
+        {
+          lessonId: 'section-1',
+          chunkIds: ['source-a:chunk-001', 'source-b:chunk-001'],
+        },
+      ],
+    })
+  );
+
+  const result = await prepareSourceSetLessonMappings(sources, plan);
+  const lesson = getLessons(result.learningPlan)[0];
+
+  assert.deepEqual(lesson?.primaryChunkIds, ['source-a:chunk-001', 'source-b:chunk-001']);
+  assert.deepEqual(lesson?.sourceReferences, [
+    { sourceId: 'source-a', chunkIds: ['source-a:chunk-001'], pageStart: 2, pageEnd: 2 },
+    { sourceId: 'source-b', chunkIds: ['source-b:chunk-001'], pageStart: 3, pageEnd: 3 },
+  ]);
+  assert.deepEqual(result.documentIndex?.sourceIds, ['source-a', 'source-b']);
+});
+
+test('prepareSourceSetLessonMappings keeps deterministic retrieval when model mapping is unavailable', async () => {
+  const plan = buildPlan(2);
+  const sourceId = 'source-fallback';
+  const sources: CourseSourceDescriptor[] = [
+    {
+      id: sourceId,
+      hash: 'hash-fallback',
+      name: 'fallback.txt',
+      kind: 'text',
+      file: { name: 'fallback.txt', mimeType: 'text/plain', data: '', sourceId },
+      outline: [],
+      outlineOrigin: 'none',
+      position: 0,
+      status: 'ready',
+      documentIndex: buildDocumentIndex(4),
+    },
+  ];
+  sources[0].documentIndex = {
+    ...sources[0].documentIndex,
+    sourceIds: [sourceId],
+    chunks: (sources[0].documentIndex?.chunks || []).map(chunk => ({
+      ...chunk,
+      id: `${sourceId}:${chunk.id}`,
+      sourceId,
+    })),
+  } as PdfTextIndex;
+  callOpenRouterMock.mockRejectedValue(new Error('mapping offline'));
+
+  const result = await prepareSourceSetLessonMappings(sources, plan);
+  const lessons = getLessons(result.learningPlan);
+
+  assert.ok(lessons.every(lesson => (lesson.primaryChunkIds?.length || 0) > 0));
+  assert.ok(lessons.every(lesson => lesson.primaryChunkMappingSource === 'fallback'));
+  assert.ok(lessons.every(lesson => lesson.sourceReferences?.[0]?.sourceId === sourceId));
+});
+
+test('multi-source lesson retrieval never pulls an adjacent chunk from another source', () => {
+  const index: PdfTextIndex = {
+    kind: 'pdf-text-index',
+    parsedAt: '2026-07-11T00:00:00.000Z',
+    chunks: [
+      {
+        id: 'source-a:chunk-001',
+        sourceId: 'source-a',
+        sequence: 0,
+        headingPath: ['A'],
+        text: 'A one',
+        startOffset: 0,
+        endOffset: 5,
+      },
+      {
+        id: 'source-a:chunk-002',
+        sourceId: 'source-a',
+        sequence: 1,
+        headingPath: ['A'],
+        text: 'A two',
+        startOffset: 6,
+        endOffset: 11,
+      },
+      {
+        id: 'source-b:chunk-001',
+        sourceId: 'source-b',
+        sequence: 2,
+        headingPath: ['B'],
+        text: 'B one',
+        startOffset: 0,
+        endOffset: 5,
+      },
+    ],
+  };
+
+  assert.deepEqual(
+    resolveLessonContextChunks(index, ['source-b:chunk-001']).map(chunk => chunk.id),
+    ['source-b:chunk-001']
+  );
 });
 
 test('preparePdfLessonMappings batches large mapping prompts and trims chunk content previews', async () => {

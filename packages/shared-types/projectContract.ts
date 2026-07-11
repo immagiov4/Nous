@@ -51,7 +51,19 @@ export interface SavedProjectMeta {
   completedExercises: number;
   hasSourceFile: boolean;
   coverLabel: string;
+  /** Monotonic server-side version used for optimistic concurrency and cross-session sync. */
+  revision?: number;
   syncState: ProjectSyncState;
+}
+
+export interface ProjectRevisionEvent {
+  deleted?: boolean;
+  projectId: ProjectId;
+  revision: number;
+}
+
+export interface ProjectWriteOptions {
+  expectedRevision?: number;
 }
 
 export interface SectionPatch {

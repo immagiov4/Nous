@@ -515,12 +515,14 @@ const resolvedTrue = async () => true;
 const DemoLibraryView = ({
   frame,
   height,
+  isCompact,
   isItalian,
   portalContainer,
   stage,
 }: {
   frame: number;
   height: number;
+  isCompact: boolean;
   isItalian: boolean;
   portalContainer?: HTMLElement | null;
   stage: 'library' | 'plan';
@@ -704,13 +706,18 @@ const DemoLibraryView = ({
     isItalian ? 'Perché l’attenzione è limitata' : 'Why attention is limited',
     isItalian ? ITALIAN_COURSE_TITLE : ENGLISH_COURSE_TITLE
   );
-  const libraryChatScrollTopOverride =
+  const homeChatScrollProgressOverride =
     stage === 'library'
-      ? interpolate(frame, [505, 595], [0, 300], {
+      ? interpolate(frame, [505, 595], [0, 1], {
           extrapolateLeft: 'clamp',
           extrapolateRight: 'clamp',
         })
-      : undefined;
+      : stage === 'plan' && isCompact
+        ? interpolate(frame, [170, 635], [0, 1], {
+            extrapolateLeft: 'clamp',
+            extrapolateRight: 'clamp',
+          })
+        : undefined;
 
   return (
     <div style={{ height, overflow: 'hidden' }}>
@@ -752,7 +759,7 @@ const DemoLibraryView = ({
           libraryGenerateArtifacts={false}
           newCourseLoadingStatus={t('Valutazione risposta...')}
           homeChatDraftValue={objectiveDraft}
-          homeChatScrollTopOverride={libraryChatScrollTopOverride}
+          homeChatScrollProgressOverride={homeChatScrollProgressOverride}
           planFileInputId="marketing-plan-file"
           projects={projects}
           pendingHomeFileName={pendingFileName}
@@ -1182,6 +1189,9 @@ const DemoCursor = ({
   );
 
   useLayoutEffect(() => {
+    if (frame < 0 || stage === 'generation') {
+      return;
+    }
     const root = rootRef.current;
     if (!root) {
       return;
@@ -1197,7 +1207,7 @@ const DemoCursor = ({
     setPoints(currentPoints =>
       areCursorPointsEqual(currentPoints, nextPoints) ? currentPoints : nextPoints
     );
-  }, [definitions, frame, rootRef, scale]);
+  }, [definitions, frame, rootRef, scale, stage]);
 
   if (stage === 'generation') {
     return null;
@@ -1374,6 +1384,11 @@ export const LandingProductVideoFrame = ({
 }: LandingProductVideoFrameProps) => {
   const [fontRenderHandle] = useState(() => delayRender('Waiting for product UI fonts'));
   const frame = useCurrentFrame();
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  });
   if (locale) {
     setRenderingLocaleOverride(locale);
   }
@@ -1877,7 +1892,7 @@ export const LandingProductVideoFrame = ({
       onContentClick: () => {},
       onContentContextMenu: event => event.preventDefault(),
       onContentPointerDownCapture: () => {},
-      onDismissLearningAid: () => {},
+      onSaveLearningAids: async () => true,
       onRemoveExerciseAttachment: () => {},
       onRequestExerciseFeedback: () => {},
       onSelectQuizAnswer: (questionIndex, optionIndex) => {
@@ -1927,7 +1942,7 @@ export const LandingProductVideoFrame = ({
       onBackToLibrary: () => showStage('plan'),
       onOpenSidebar: () => setIsMobileSidebarOpen(current => !current),
       onRegenerateActiveSection: () => showStage('generation'),
-      onDismissLearningAid: () => {},
+      onSaveLearningAids: async () => true,
       onSetCourseGenerationNotes: setCourseGenerationNotes,
       onSetDarkMode: setIsDarkMode,
       onSetFocusMode: setIsFocusMode,
@@ -2105,6 +2120,7 @@ export const LandingProductVideoFrame = ({
         <DemoLibraryView
           frame={frame}
           height={isCompact ? DEMO_MOBILE_HEIGHT : DEMO_HEIGHT}
+          isCompact={isCompact}
           isItalian={isItalian}
           portalContainer={demoRootElement}
           stage={stage}

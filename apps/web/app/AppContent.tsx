@@ -38,6 +38,7 @@ const AppContent = () => {
 
   const projectLibrary = useProjectLibrary({
     domainState: domain.domainState,
+    hydrateSnapshot: domain.hydrateSnapshot,
   });
 
   const libraryAssistantChat = useLibraryAssistantChat({
@@ -76,7 +77,7 @@ const AppContent = () => {
     exportProject: controller.exportProject,
     handleSourceUpload: controller.handleSourceUpload,
     importProjectFile: controller.importProjectFile,
-    notifyError: notify,
+    notify,
     savedProjects,
   });
 

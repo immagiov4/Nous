@@ -18,6 +18,7 @@ import type {
   PdfImageAsset,
   ProjectSource,
   QuizQuestion,
+  ResearchSourceReference,
   SectionAnnotation,
   SectionAnnotationArtifactRef,
   SettingsPanelSectionId,
@@ -170,7 +171,7 @@ export interface WorkspaceReaderHeaderModel {
   onBackToLibrary: () => void;
   onOpenSidebar: () => void;
   onRegenerateActiveSection: () => void;
-  onDismissLearningAid: (learningAidId: string) => void;
+  onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
   onSetDarkMode: (value: boolean) => void;
   onSetCourseGenerationNotes: (value: string) => void;
   onSetFocusMode: (value: boolean) => void;
@@ -201,13 +202,14 @@ export interface WorkspaceReaderContentModel {
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
   learningAids: LessonLearningAid[];
+  lessonSources?: ResearchSourceReference[];
   onAdvanceSection: () => void;
   onCompleteSection: () => void;
   onAttachExerciseFiles: (exerciseId: string, files: FileList | null) => void;
   onContentClick: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
-  onDismissLearningAid: (learningAidId: string) => void;
+  onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
   onRequestExerciseFeedback: (exerciseId: string, internalText: string) => void;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
   onRemoveExerciseAttachment: (exerciseId: string, attachmentId: string) => void;

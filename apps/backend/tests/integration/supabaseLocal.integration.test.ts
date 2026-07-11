@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { createApp } from '../../src/index.js';
 import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
@@ -84,14 +84,21 @@ describeLocalSupabase('Supabase local integration', () => {
   const adminAuthorization = `Bearer ${createBackendAdminToken()}`;
   const createdEmails: string[] = [];
 
-  beforeAll(async () => {
+  const applyLocalSupabaseEnvironment = () => {
     process.env.AUTH_MODE = 'supabase';
-    process.env.PROJECT_STORAGE_DRIVER = 'postgres';
     process.env.SUPABASE_JWT_SECRET = LOCAL_JWT_SECRET;
     process.env.SUPABASE_URL = LOCAL_SUPABASE_URL;
     process.env.SUPABASE_SERVICE_ROLE_KEY = serviceRoleKey;
+  };
+
+  beforeAll(async () => {
+    applyLocalSupabaseEnvironment();
     setProjectStoreForTesting(store);
     await sql`delete from auth.users where email like ${`${TEST_EMAIL_PREFIX}-%@nous.local`}`;
+  });
+
+  beforeEach(() => {
+    applyLocalSupabaseEnvironment();
   });
 
   afterAll(async () => {

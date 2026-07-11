@@ -1,4 +1,10 @@
-import type { LessonImageRef, PdfDocumentAssets, PdfImageAsset, PdfTextPage } from '../../types.ts';
+import type {
+  LessonImageRef,
+  PdfDocumentAssets,
+  PdfImageAsset,
+  PdfTextPage,
+  SourceOutlineNode,
+} from '../../types.ts';
 import { sanitizePartialPages } from '../../utils/pdf/sanitizePartialPages.ts';
 import { normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
@@ -59,6 +65,8 @@ interface BackendPdfTextResponse {
   sourceHash?: string;
   pageCount?: number;
   error?: string;
+  outline?: SourceOutlineNode[];
+  outlineOrigin?: 'deterministic' | 'native' | 'none';
 }
 
 export interface PdfAssetSession {
@@ -69,6 +77,8 @@ export interface PdfAssetSession {
   parser?: 'pdftotext' | 'pdf-parse';
   parsedAt: string;
   sourceHash?: string;
+  outline: SourceOutlineNode[];
+  outlineOrigin: 'deterministic' | 'native' | 'none';
 }
 
 export interface PdfTextQualityReport {
@@ -412,6 +422,22 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
   }
 
   const extractedText = typeof payload.text === 'string' ? payload.text : '';
+  let outlineSequence = 0;
+  const normalizeOutline = (nodes: SourceOutlineNode[], level = 1): SourceOutlineNode[] =>
+    nodes
+      .filter(node => Boolean(node) && typeof node.title === 'string' && node.title.trim())
+      .map(node => {
+        outlineSequence += 1;
+        const outlineId = `${file.sourceId || 'source'}:outline:pdf-${outlineSequence}`;
+        return {
+          children: normalizeOutline(Array.isArray(node.children) ? node.children : [], level + 1),
+          id: outlineId,
+          level,
+          page: Number.isInteger(node.page) && (node.page || 0) > 0 ? node.page : undefined,
+          title: node.title.trim(),
+        };
+      });
+  const outline = normalizeOutline(Array.isArray(payload.outline) ? payload.outline : []);
   const pages = Array.isArray(payload.pages)
     ? payload.pages
         .filter(
@@ -441,6 +467,8 @@ const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession
     parser: payload.parser,
     parsedAt: timestampIso(),
     sourceHash: payload.sourceHash,
+    outline,
+    outlineOrigin: outline.length > 0 ? payload.outlineOrigin || 'deterministic' : 'none',
   };
 };
 

@@ -42,6 +42,59 @@ describe('MarkdownRenderer', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  test('keeps malformed nested and unclosed fences from swallowing the rest of the lesson', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          '```js',
+          'const first = true;',
+          '```javascript',
+          'const nested = true;',
+          '```',
+          '',
+          '## Dopo il primo blocco',
+          '',
+          '```ts',
+          'const answer = 42;',
+          '## Dopo il fence aperto',
+          'Testo ancora leggibile.',
+        ].join('\n')}
+      />
+    );
+
+    expect(container.querySelector('pre')).toHaveTextContent('const nested = true;');
+    expect(screen.getByRole('heading', { name: 'Dopo il primo blocco' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Dopo il fence aperto' })).toBeInTheDocument();
+    expect(screen.getByText('Testo ancora leggibile.')).toBeInTheDocument();
+  });
+
+  test('normalizes common code language aliases before syntax highlighting', () => {
+    const { container } = render(
+      <MarkdownRenderer content={'```js\nconst answer = 42;\n```\n\n```html\n<p>ok</p>\n```'} />
+    );
+
+    expect(container.querySelector('code.language-javascript')).toHaveTextContent(
+      'const answer = 42;'
+    );
+    expect(container.querySelector('code.language-markup')).toHaveTextContent('<p>ok</p>');
+  });
+
+  test('drops unsafe raw html and attributes while preserving annotation ids', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={
+          '<script>window.bad = true</script><mark data-nous-annotation-id="annotation-1" style="display:none" onclick="bad()">focus</mark>'
+        }
+      />
+    );
+
+    const mark = container.querySelector('mark[data-nous-annotation-id="annotation-1"]');
+    expect(container.querySelector('script')).toBeNull();
+    expect(mark).toHaveTextContent('focus');
+    expect(mark).not.toHaveStyle({ display: 'none' });
+    expect(mark).not.toHaveAttribute('onclick');
+  });
+
   test('renders markdown tables with semantic cells', () => {
     render(<MarkdownRenderer content={'| Colonna | Valore |\n| --- | --- |\n| Alfa | 1 |'} />);
 

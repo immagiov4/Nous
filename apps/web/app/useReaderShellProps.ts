@@ -12,7 +12,7 @@ import {
   withUpdatedExerciseDeliverable,
 } from '../services/exercises/plan.ts';
 import { getExercisePrerequisiteGaps } from '../services/openrouter/exercises/brief.ts';
-import type { ExerciseAttachment } from '../types.ts';
+import type { ExerciseAttachment, LessonLearningAid } from '../types.ts';
 import { getLessonSourcePageLabel } from '../utils/context/sourceMaterial.ts';
 import { collectSectionLearningArtifactPayloads } from '../utils/learning/artifacts.ts';
 import { findPathNodeById, flattenLessons } from '../utils/learning/pathNodes.ts';
@@ -171,18 +171,22 @@ export const useReaderShellProps = ({
     },
     [controller]
   );
-  const handleDismissLearningAid = useCallback(
-    (learningAidId: string) => {
+  const handleSaveLearningAids = useCallback(
+    async (learningAids: LessonLearningAid[]) => {
       const activeSection = controller.activeSection;
-      if (!activeSection?.learningAids?.some(learningAid => learningAid.id === learningAidId)) {
-        return;
+      if (!activeSection) {
+        return false;
       }
 
-      const learningAids = activeSection.learningAids.filter(
-        learningAid => learningAid.id !== learningAidId
-      );
+      const didPersist = await controller.patchSectionLessonContent(activeSection.id, {
+        learningAids,
+      });
+      if (!didPersist) {
+        return false;
+      }
+
       controller.updateSection(activeSection.id, section => ({ ...section, learningAids }));
-      void controller.patchSectionLessonContent(activeSection.id, { learningAids });
+      return true;
     },
     [controller]
   );
@@ -216,6 +220,9 @@ export const useReaderShellProps = ({
         isMobileViewport: readerState.readerChrome.isMobileViewport,
         isQuizSubmitted: readerState.isQuizSubmitted,
         learningAids: controller.activeSection?.learningAids || [],
+        lessonSources: controller.activeSection
+          ? controller.researchDossiersBySectionId[controller.activeSection.id]?.sources || []
+          : [],
         onAdvanceSection: () => {
           void readerActions.handleAdvanceSection();
         },
@@ -226,7 +233,7 @@ export const useReaderShellProps = ({
         onContentClick: readerState.readerContext.handleContentClick,
         onContentContextMenu: readerState.readerContext.handleContentContextMenu,
         onContentPointerDownCapture: readerState.readerContext.handleContentPointerDownCapture,
-        onDismissLearningAid: handleDismissLearningAid,
+        onSaveLearningAids: handleSaveLearningAids,
         onRequestExerciseFeedback: handleRequestExerciseFeedback,
         onSelectQuizAnswer: readerState.handleSelectQuizAnswer,
         onRemoveExerciseAttachment: handleRemoveExerciseAttachment,
@@ -270,7 +277,7 @@ export const useReaderShellProps = ({
         onBackToLibrary: handleBackToLibrary,
         onOpenSidebar: () => readerState.readerChrome.setIsMobileSidebarOpen(v => !v),
         onRegenerateActiveSection: readerActions.handleRegenerateActiveSection,
-        onDismissLearningAid: handleDismissLearningAid,
+        onSaveLearningAids: handleSaveLearningAids,
         onSetCourseGenerationNotes: controller.setGenerationNotes,
         onSetDarkMode: readerState.readerChrome.setIsDarkMode,
         onSetFocusMode: readerState.readerChrome.setIsFocusMode,
@@ -370,6 +377,7 @@ export const useReaderShellProps = ({
       controller.musicUrl,
       controller.needsSourceFile,
       controller.quiz,
+      controller.researchDossiersBySectionId,
       controller.sectionContent,
       controller.setGenerationNotes,
       controller.setMusicUrl,
@@ -382,7 +390,7 @@ export const useReaderShellProps = ({
       handleAttachSourceFile,
       handleBackToLibrary,
       handleExportProject,
-      handleDismissLearningAid,
+      handleSaveLearningAids,
       handleRepairApplicationExercises,
       handleAttachExerciseFiles,
       handleRemoveExerciseAttachment,

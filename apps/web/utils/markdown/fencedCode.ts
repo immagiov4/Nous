@@ -10,7 +10,7 @@ import {
 import { escapeRegExp } from './html.ts';
 import { processMarkdownSegment } from './segment.ts';
 
-type FenceToken = '```' | '~~~';
+type FenceToken = string;
 
 interface FencedBlock {
   openingLine: string;
@@ -139,7 +139,7 @@ export const mergeOrphanedContinuationLinesIntoPreviousFence = (content: string)
 };
 
 export const getFenceToken = (line: string): FenceToken | null => {
-  const match = line.match(/^(```|~~~)[^\n]*$/);
+  const match = line.match(/^(`{3,}|~{3,})[^\n]*$/);
   return match ? (match[1] as FenceToken) : null;
 };
 
@@ -149,7 +149,7 @@ export const parseFencedBlockAt = (lines: string[], startIndex: number): FencedB
     return null;
   }
 
-  const closingFenceRegex = new RegExp(`^${escapeRegExp(token)}[^\n]*$`);
+  const closingFenceRegex = new RegExp(`^${escapeRegExp(token[0])}{${token.length},}[\\t ]*$`);
   for (let cursor = startIndex + 1; cursor < lines.length; cursor += 1) {
     if (closingFenceRegex.test(lines[cursor])) {
       return {

@@ -25,7 +25,7 @@ import {
   clampContextAnswerPanelSize,
 } from '../../utils/reader/chrome.ts';
 
-const CONTEXT_MENU_MOBILE_DEBOUNCE_MS = 160;
+const CONTEXT_MENU_MOBILE_DEBOUNCE_MS = 100;
 const SELECTION_MENU_REOPEN_SUPPRESSION_MS = 260;
 const ANNOTATION_MENU_OPEN_SUPPRESSION_MS = 700;
 const ANNOTATION_MARK_SELECTOR = 'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
@@ -108,6 +108,10 @@ export const useReaderContext = ({
   const contextAnswerPanelRef = useRef<HTMLDivElement>(null);
   const contextAnswerResizePreviewRef = useRef<HTMLDivElement>(null);
   const selectionMenuTimeoutRef = useRef<number | null>(null);
+  const lastAnnotationMenuTransitionRef = useRef<{
+    at: number;
+    sectionId: string | null;
+  } | null>(null);
   const suppressedSelectionMenuRef = useRef<{ key: string; until: number } | null>(null);
   const suppressOutsideCloseUntilRef = useRef(0);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
@@ -472,6 +476,18 @@ export const useReaderContext = ({
         return;
       }
 
+      if (isMobileViewport) {
+        const now = Date.now();
+        const lastTransition = lastAnnotationMenuTransitionRef.current;
+        if (
+          lastTransition?.sectionId === activeSectionId &&
+          now - lastTransition.at < CONTEXT_MENU_MOBILE_DEBOUNCE_MS
+        ) {
+          return;
+        }
+        lastAnnotationMenuTransitionRef.current = { at: now, sectionId: activeSectionId };
+      }
+
       const rect = annotationElement.getBoundingClientRect();
       const contentRect = contentRef.current.getBoundingClientRect();
       const selectedText =
@@ -488,6 +504,11 @@ export const useReaderContext = ({
       const annotationNote = annotation?.note || '';
 
       const currentMenu = contextMenuStateRef.current;
+      if (isMobileViewport && currentMenu.visible) {
+        closeContextMenu();
+        return;
+      }
+
       if (
         currentMenu.visible &&
         currentMenu.type === 'annotation' &&
@@ -615,6 +636,13 @@ export const useReaderContext = ({
       selectionMenuTimeoutRef.current = window.setTimeout(() => {
         selectionMenuTimeoutRef.current = null;
 
+        if (
+          contextMenuStateRef.current.visible &&
+          contextMenuStateRef.current.type === 'annotation'
+        ) {
+          return;
+        }
+
         const selection = window.getSelection();
         const isInteractingWithinMenu =
           interactionTarget instanceof Node &&
@@ -720,6 +748,10 @@ export const useReaderContext = ({
       }
 
       if (contextMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      if (target instanceof Element && target.closest('[data-nous-context-menu-portal]')) {
         return;
       }
 

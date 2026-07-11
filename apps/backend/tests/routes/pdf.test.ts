@@ -31,6 +31,8 @@ describe('POST /api/pdf', () => {
       sourceHash: 'hash-1',
       pageCount: 3,
       usedFallbackParser: true,
+      outline: [{ id: 'outline-1', title: 'Capitolo 1', level: 1, page: 2, children: [] }],
+      outlineOrigin: 'native',
       qualityWarning:
         'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.',
     });
@@ -73,6 +75,8 @@ describe('POST /api/pdf', () => {
       qualityWarning:
         'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.',
       usedFallbackParser: true,
+      outline: [{ id: 'outline-1', title: 'Capitolo 1', level: 1, page: 2, children: [] }],
+      outlineOrigin: 'native',
     });
   });
 

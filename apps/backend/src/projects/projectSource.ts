@@ -51,6 +51,8 @@ export const detachProjectSource = (
   if (!source || source.kind !== 'pdf' || !isRecord(source.file)) {
     return snapshot;
   }
+  const primarySourceId =
+    typeof source.file.sourceId === 'string' ? source.file.sourceId : undefined;
 
   return {
     ...snapshot,
@@ -62,6 +64,23 @@ export const detachProjectSource = (
         mimeType: ref.mimeType,
         data: '',
       },
+      sources: Array.isArray(source.sources)
+        ? source.sources.map((descriptor, index) =>
+            isRecord(descriptor) &&
+            isRecord(descriptor.file) &&
+            (primarySourceId ? descriptor.id === primarySourceId : index === 0)
+              ? {
+                  ...descriptor,
+                  file: {
+                    ...descriptor.file,
+                    name: ref.name,
+                    mimeType: ref.mimeType,
+                    data: '',
+                  },
+                }
+              : descriptor
+          )
+        : source.sources,
       ref,
     },
   };
@@ -75,12 +94,25 @@ export const attachProjectSource = (
   if (!source || source.kind !== 'pdf') {
     return snapshot;
   }
+  const primarySourceId =
+    isRecord(source.file) && typeof source.file.sourceId === 'string'
+      ? source.file.sourceId
+      : undefined;
 
   return {
     ...snapshot,
     source: {
       ...source,
-      file,
+      file: isRecord(source.file) ? { ...source.file, ...file } : file,
+      sources: Array.isArray(source.sources)
+        ? source.sources.map((descriptor, index) =>
+            isRecord(descriptor) &&
+            isRecord(descriptor.file) &&
+            (primarySourceId ? descriptor.id === primarySourceId : index === 0)
+              ? { ...descriptor, file: { ...descriptor.file, ...file } }
+              : descriptor
+          )
+        : source.sources,
     },
   };
 };
