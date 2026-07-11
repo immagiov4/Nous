@@ -460,3 +460,24 @@ mark {
     scale: 1;
   }
 }
+
+@keyframes generationStepPop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.generation-progress-step-current {
+  animation: generationStepPop 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generation-progress-step-current {
+    animation: none;
+  }
+}

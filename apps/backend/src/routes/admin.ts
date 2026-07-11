@@ -131,6 +131,9 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       contextReasoningEffort: readReasoningEffortPatch(req.body.contextReasoningEffort),
       lessonModel: readOptionalString(req.body.lessonModel),
       lessonReasoningEffort: readReasoningEffortPatch(req.body.lessonReasoningEffort),
+      progressModel: readOptionalString(req.body.progressModel),
+      progressReasoningEffort: readReasoningEffortPatch(req.body.progressReasoningEffort),
+      researchModel: readOptionalString(req.body.researchModel),
       ttsModel: readOptionalString(req.body.ttsModel),
       ttsVoice: readOptionalString(req.body.ttsVoice),
     };

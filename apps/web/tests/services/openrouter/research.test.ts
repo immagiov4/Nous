@@ -108,7 +108,7 @@ test('generateResearchCoursePlan normalizes course shape and clamps oversized ou
   assert.equal(result.syllabus[0]?.children?.length, 24);
   assert.equal(result.syllabus[0]?.children?.[0]?.contextPrompt?.includes('Concetti chiave'), true);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
-  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.disableModelOverride, true);
+  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_object');
 });
 
@@ -254,7 +254,7 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   assert.equal(dossier.factualSummary.includes('JVM'), true);
   assert.deepEqual(dossier.sources, []);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
-  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.disableModelOverride, true);
+  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_object');
 });
 

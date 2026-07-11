@@ -20,6 +20,8 @@ beforeEach(() => {
   vi.restoreAllMocks();
   if (typeof window !== 'undefined') {
     window.scrollTo = vi.fn();
+    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
     Object.defineProperties(window.navigator, {
       language: { configurable: true, value: 'it-IT' },
       languages: { configurable: true, value: ['it-IT'] },

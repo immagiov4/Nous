@@ -1,10 +1,16 @@
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import {
+  type ExerciseDeliverableValidationResult,
+  validateExerciseDeliverable,
+} from '../../../services/exercises/deliverables.ts';
+import {
   addExerciseAttachments,
   markApplicationExercisePlanningFailed,
   updateApplicationExerciseInPlan,
+  withExerciseFeedback,
   withGeneratedExerciseBrief,
+  withUpdatedExerciseDeliverable,
 } from '../../../services/exercises/plan.ts';
 import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
 import { mergeDocumentAssetsForPlan } from '../../../services/workspace/controller/documentAssets.ts';
@@ -210,6 +216,99 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     );
   }
 
+  async function evaluateApplicationExercise(
+    exerciseId: string,
+    internalText: string
+  ): Promise<{
+    errorMessage?: string;
+    outcome: 'evaluated' | 'failed' | 'noop';
+  }> {
+    const currentPlan = domain.learningPlan;
+    const exercise = findPathNodeById(currentPlan?.modules, exerciseId);
+    if (exercise?.kind !== 'exercise' || !currentPlan) {
+      return { outcome: 'noop' };
+    }
+    if (state.getWorkflowState().evaluateExercise.status === 'pending') {
+      return { outcome: 'noop' };
+    }
+
+    const submittedExercise =
+      internalText === (exercise.internalText || '')
+        ? exercise
+        : withUpdatedExerciseDeliverable(exercise, { internalText });
+    const submittedPlan =
+      submittedExercise === exercise
+        ? currentPlan
+        : updateApplicationExerciseInPlan(currentPlan, exercise.id, () => submittedExercise);
+    if (submittedPlan !== currentPlan) {
+      domain.setLearningPlan(submittedPlan);
+    }
+
+    const requestId = state.beginWorkflow('evaluateExercise', t('Valuto la consegna…'));
+    let deliverable: ExerciseDeliverableValidationResult;
+
+    try {
+      deliverable = await validateExerciseDeliverable({
+        attachments: submittedExercise.attachments,
+        internalText: submittedExercise.internalText,
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : t('La consegna non contiene testo leggibile.');
+      state.failWorkflow('evaluateExercise', requestId, errorMessage);
+      return { errorMessage, outcome: 'failed' };
+    }
+
+    if (deliverable.entries.length === 0) {
+      const errorMessage = t('La consegna non contiene testo leggibile.');
+      state.failWorkflow('evaluateExercise', requestId, errorMessage);
+      return { errorMessage, outcome: 'failed' };
+    }
+
+    try {
+      const feedback = await openRouter.generateApplicationExerciseFeedback({
+        deliverable,
+        exercise: submittedExercise,
+        profile: domain.userProfile,
+        onStatusUpdate: status => {
+          state.setWorkflowMessage('evaluateExercise', requestId, status);
+        },
+        onReasoningUpdate: reasoning => {
+          state.setWorkflowReasoning('evaluateExercise', requestId, reasoning);
+        },
+      });
+
+      if (!state.isWorkflowCurrent('evaluateExercise', requestId)) {
+        return { outcome: 'noop' };
+      }
+
+      const updatedPlan = updateApplicationExerciseInPlan(
+        submittedPlan,
+        submittedExercise.id,
+        node => withExerciseFeedback(node, feedback)
+      );
+      const savedProject = await projectLibrary.patchCurrentProject({
+        learningPlan: updatedPlan,
+        activeSectionId: submittedExercise.id,
+        state: AppState.READING,
+      });
+      if (!savedProject) {
+        throw new Error('Application exercise feedback persistence failed');
+      }
+
+      domain.setLearningPlan(updatedPlan);
+      state.succeedWorkflow('evaluateExercise', requestId);
+      return { outcome: 'evaluated' };
+    } catch (error) {
+      console.error('Application exercise feedback failed', error);
+      const errorMessage = t('Non sono riuscito a valutare la consegna. Riprova.');
+      state.failWorkflow('evaluateExercise', requestId, errorMessage);
+      return { errorMessage, outcome: 'failed' };
+    }
+  }
+
   async function openSection(
     section: LessonNode,
     options: OpenSectionOptions = {}
@@ -294,6 +393,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       'loadSection',
       t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
     );
+    const progressObserver = openRouter.createGenerationProgressObserver({
+      language: currentUserProfile?.language || 'Italiano',
+      onUpdate: progress => state.setWorkflowProgress('loadSection', requestId, progress),
+      operation: 'lesson',
+      subject: section.title,
+    });
+    const reportStatus = (status: string) => {
+      state.setWorkflowMessage('loadSection', requestId, status);
+      progressObserver.updateStatus(status);
+    };
 
     const completedTitles = flattenLessons(currentPlan.modules)
       .filter(currentLesson => currentLesson.isCompleted)
@@ -320,12 +429,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                   moduleTitle,
                   profile: currentUserProfile,
                   researchCoursePlan: currentResearchCoursePlan,
-                  onStatusUpdate: status => {
-                    state.setWorkflowMessage('loadSection', requestId, status);
-                  },
-                  onReasoningUpdate: reasoning => {
-                    state.setWorkflowReasoning('loadSection', requestId, reasoning);
-                  },
+                  onStatusUpdate: reportStatus,
+                  onReasoningUpdate: progressObserver.push,
                 }));
 
               if (!state.isWorkflowCurrent('loadSection', requestId)) {
@@ -348,12 +453,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 syllabus: currentSyllabus,
                 researchDossier,
                 generationNotes: currentPlan.generationNotes,
-                onStatusUpdate: status => {
-                  state.setWorkflowMessage('loadSection', requestId, status);
-                },
-                onReasoningUpdate: reasoning => {
-                  state.setWorkflowReasoning('loadSection', requestId, reasoning);
-                },
+                onStatusUpdate: reportStatus,
+                onReasoningUpdate: progressObserver.push,
               });
             })()
           : await (async () => {
@@ -365,13 +466,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 section.contextPrompt || anchorLessonContextPrompt,
                 currentUserProfile,
                 currentSyllabus,
-                status => {
-                  state.setWorkflowMessage('loadSection', requestId, status);
-                },
+                reportStatus,
                 currentPlan.generationNotes,
-                reasoning => {
-                  state.setWorkflowReasoning('loadSection', requestId, reasoning);
-                }
+                progressObserver.push
               );
               if (!state.isWorkflowCurrent('loadSection', requestId)) {
                 return { content: '', generatedVisuals: [], learningAids: [], quiz: [] };
@@ -442,13 +539,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           completedTitles,
           section.primaryChunkIds,
           currentDocumentIndex,
-          status => {
-            state.setWorkflowMessage('loadSection', requestId, status);
-          },
+          reportStatus,
           currentPlan.generationNotes,
-          reasoning => {
-            state.setWorkflowReasoning('loadSection', requestId, reasoning);
-          }
+          progressObserver.push
         );
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {
@@ -486,6 +579,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         });
       }
 
+      await progressObserver.finish();
+      progressObserver.complete();
       state.succeedWorkflow('loadSection', requestId);
       state.setGeneratingSectionId(null);
       return 'loaded';
@@ -776,6 +871,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     createLessonFromSelection,
     goToLibrary,
     attachExerciseFiles,
+    evaluateApplicationExercise,
     openExercise,
     openSection,
     repairApplicationExercises,

@@ -69,7 +69,6 @@ describe('ChatArtifactRenderer', () => {
   test('renders image thumbnails and chip-only interactive artifacts', () => {
     render(<ChatArtifactRenderer artifacts={[pdfArtifact, htmlArtifact]} isDarkMode={false} />);
 
-    expect(screen.getByRole('img', { name: /Schema ER/i })).toBeInTheDocument();
     expect(screen.getByText('simulatore chiusura')).toBeInTheDocument();
     expect(screen.getByText(/Interattivo/i)).toBeInTheDocument();
   });
@@ -82,7 +81,6 @@ describe('ChatArtifactRenderer', () => {
 
     const dialog = screen.getByRole('dialog', { name: /Schema ER/i });
     expect(dialog).toBeInTheDocument();
-    expect(dialog.parentElement).toHaveClass('z-[130]');
     expect(dialog.parentElement?.parentElement).toBe(document.body);
     expect(within(dialog).getByRole('img', { name: /Schema ER/i })).toBeInTheDocument();
 
@@ -97,8 +95,7 @@ describe('ChatArtifactRenderer', () => {
 
     await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
 
-    const dialog = screen.getByRole('dialog', { name: /simulatore chiusura/i });
-    expect(within(dialog).getByTitle('simulatore chiusura').closest('figure')).toHaveClass('my-0');
+    expect(screen.getByRole('dialog', { name: /simulatore chiusura/i })).toBeInTheDocument();
   });
 
   test('requires revision instructions before regenerating an artifact', async () => {

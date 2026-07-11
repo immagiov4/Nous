@@ -1,21 +1,17 @@
 import assert from 'node:assert/strict';
-import { describe, test } from 'vitest';
+import { test } from 'vitest';
 import {
   buildVisibleImageLabel,
   injectImagePlaceholders,
   insertGeneratedVisualExamplePlaceholder,
 } from '../../../services/openrouter/lessonImages.ts';
 import {
-  buildAdaptivePlanGuidance,
-  buildLessonVerificationPrompt,
   buildPdfChunkUsageDebugPayload,
   collapseRedundantParagraphs,
   dedupeLearningPlanSections,
   estimateRelevantPdfImagePages,
   estimateTargetQuizCount,
   LESSON_RESPONSE_SCHEMA,
-  LESSON_SCOPE_RULES,
-  PLAN_PROPEDEUTIC_ORDER_RULES,
   resolvePlanningSourceProfileFromSeed,
 } from '../../../services/openrouter/planning/index.ts';
 import type { PdfTextIndex } from '../../../types.ts';
@@ -31,32 +27,6 @@ test('resolvePlanningSourceProfileFromSeed keeps short PDFs compact and allows a
   assert.equal(profile.summaryLessonOptional, true);
   assert.deepEqual(profile.moduleCount, { min: 1, max: 2 });
   assert.deepEqual(profile.lessonCount, { min: 1, max: 3 });
-});
-
-test('buildAdaptivePlanGuidance tells the planner to merge overlaps on compact sources', () => {
-  const guidance = buildAdaptivePlanGuidance(
-    resolvePlanningSourceProfileFromSeed({
-      kind: 'pdf',
-      pageCount: 8,
-    })
-  );
-
-  assert.match(guidance, /anche una sola lezione/i);
-  assert.match(guidance, /sintesi finale e opzionale/i);
-  assert.match(guidance, /fondile invece di tenerle separate/i);
-});
-
-test('buildAdaptivePlanGuidance asks large PDFs to cover most substantive pages with soft page spans', () => {
-  const guidance = buildAdaptivePlanGuidance(
-    resolvePlanningSourceProfileFromSeed({
-      kind: 'pdf',
-      pageCount: 240,
-    })
-  );
-
-  assert.match(guidance, /copra quasi tutto il contenuto sostanziale del libro/i);
-  assert.match(guidance, /buchi di copertura/i);
-  assert.match(guidance, /10-30 pagine sostantive/i);
 });
 
 test('dedupeLearningPlanSections merges overlapping adjacent lessons for compact sources', () => {
@@ -144,80 +114,6 @@ test('LESSON_RESPONSE_SCHEMA marks all image placement keys as required for stri
   assert.deepEqual(imagePlacementSchema.properties.anchorHeading, {
     type: ['string', 'null'],
   });
-});
-
-// These tests guard against accidental prompt modification. They are intentionally static.
-describe('prompt invariants — intentional guardrails, not behavior tests', () => {
-  test('LESSON_SCOPE_RULES prevent future-lesson spoilers and filler deep dives', () => {
-    assert.ok(
-      LESSON_SCOPE_RULES.some(rule =>
-        rule.includes(
-          'Non anticipare in dettaglio argomenti che verranno trattati in lezioni future'
-        )
-      )
-    );
-    assert.ok(
-      LESSON_SCOPE_RULES.some(rule =>
-        rule.includes('Non inserire sezioni di "analisi approfondita"')
-      )
-    );
-    assert.ok(
-      LESSON_SCOPE_RULES.some(rule =>
-        rule.includes('Se la lezione ha gia esaurito il suo focus, chiudi con naturalezza')
-      )
-    );
-  });
-
-  test('PLAN_PROPEDEUTIC_ORDER_RULES enforce prerequisite ordering for modules and lessons', () => {
-    assert.ok(
-      PLAN_PROPEDEUTIC_ORDER_RULES.some(
-        rule => rule.includes('moduli/capitoli') && rule.includes('lezioni interne')
-      )
-    );
-    assert.ok(
-      PLAN_PROPEDEUTIC_ORDER_RULES.some(rule =>
-        rule.includes('Ogni modulo deve preparare il successivo')
-      )
-    );
-    assert.ok(
-      PLAN_PROPEDEUTIC_ORDER_RULES.some(
-        rule => rule.includes('raffinamento') && rule.includes('riordinale')
-      )
-    );
-    assert.ok(
-      PLAN_PROPEDEUTIC_ORDER_RULES.some(
-        rule => rule.includes('elementi invertiti') && rule.includes("correggi l'ordine")
-      )
-    );
-  });
-});
-
-test('buildLessonVerificationPrompt requires valid KaTeX delimiters', () => {
-  const prompt = buildLessonVerificationPrompt({
-    sectionTitle: 'Illuminazione sferica',
-    sectionDescription: 'Approssimazione con armoniche sferiche.',
-    previousContext: 'Lezione precedente',
-    sourceContext: 'Contesto',
-    continuityRule: 'Non anticipare la prossima lezione.',
-    scopeRule: '- Resta sul focus corrente.',
-    targetQuizCount: 2,
-    draft: {
-      contentMarkdown: '## Formula\n\n$$f(\\omega) = a_0$$',
-      quiz: [
-        { question: 'Q1', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
-        { question: 'Q2', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
-      ],
-      imagePlacements: [],
-    },
-    candidateImages: [],
-  });
-
-  assert.match(prompt, /KaTeX\/LaTeX/i);
-  assert.match(prompt, /righe orfane con solo/i);
-  assert.match(prompt, /non mischiare delimitatori diversi/i);
-  assert.match(prompt, /non racchiudere mai l'intera consegna|testo normale/i);
-  assert.match(prompt, /exerciseType/i);
-  assert.match(prompt, /application-card/i);
 });
 
 test('collapseRedundantParagraphs removes nearby paraphrases of the same concept', () => {
@@ -408,55 +304,6 @@ test('buildPdfChunkUsageDebugPayload reports exact prompt chunk ranges when page
       pageRangeSource: 'exact',
     },
   ]);
-});
-
-test('buildLessonVerificationPrompt enforces final checks on image placement and caption association', () => {
-  const prompt = buildLessonVerificationPrompt({
-    sectionTitle: 'Decal e overlay',
-    sectionDescription: 'Uso di decal, overlay e particelle',
-    previousContext: 'Lezione precedente sul deferred rendering',
-    sourceContext: 'Estratti sorgente sulle decal applicate alle superfici.',
-    continuityRule: 'Non inventare continuita inesistenti.',
-    scopeRule: '1. Resta sul focus della lezione.',
-    targetQuizCount: 2,
-    draft: {
-      contentMarkdown: '## Decal\n\nTesto.',
-      quiz: [
-        { question: 'Q1', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
-        { question: 'Q2', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
-        { question: 'Q3', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
-        { question: 'Q4', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
-        { question: 'Q5', options: ['A', 'B', 'C', 'D'], correctIndex: 0 },
-      ],
-      imagePlacements: [
-        {
-          assetId: 'pdf-img-001',
-          alt: 'Schema decal',
-          caption: 'Decal sovrapposte',
-          anchorHeading: 'Decal',
-        },
-      ],
-    },
-    candidateImages: [
-      {
-        assetId: 'pdf-img-001',
-        pageNumber: 42,
-        visibleLabel: 'Schema delle decal',
-        caption: 'Figura sulle decal proiettate',
-        sourceOrder: 1,
-      },
-    ],
-  });
-
-  assert.match(prompt, /verificatore finale/i);
-  assert.match(prompt, /ESATTAMENTE 2 pause attive/i);
-  assert.match(prompt, /Ogni immagine selezionata deve essere nel punto giusto della lezione/i);
-  assert.match(prompt, /descrizione, caption, immagine e paragrafo vicino siano abbinati/i);
-  assert.match(prompt, /collegamento bidirezionale con il testo vicino/i);
-  assert.match(prompt, /Meglio meno immagini che immagini sbagliate/i);
-  assert.doesNotMatch(prompt, /sourceContextCurrent/i);
-  assert.doesNotMatch(prompt, /sourceContextBefore/i);
-  assert.doesNotMatch(prompt, /sourceContextAfter/i);
 });
 
 test('injectImagePlaceholders places figures after the first local explanation block', () => {

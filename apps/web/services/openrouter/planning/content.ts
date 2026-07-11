@@ -142,7 +142,7 @@ export const generateSectionContent = async (
   imageRefs: LessonImageRef[];
   documentAssets: PdfDocumentAssets | null;
 }> => {
-  onStatusUpdate?.('Generazione lezione...');
+  onStatusUpdate?.('Preparazione materiale della lezione...');
   const isFirstLesson = previousContext.trim().length === 0;
   const continuityRule = isFirstLesson
     ? "PRIMA LEZIONE: non citare lezioni precedenti, capitoli gia visti, 'come abbiamo accennato', 'come vedremo', o altre formule di continuita retroattiva."
@@ -326,6 +326,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       imagePlacementInstruction: `36. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.\n37. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.\n38. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "la figura mostra". Il paragrafo vicino deve dire al lettore che cosa guardare nell'immagine e perche e utile alla spiegazione.`,
     });
 
+    onStatusUpdate?.('Strutturazione della lezione...');
     const parsed = await retryWithBackoff(async () => {
       const response = await callOpenRouter({
         model: MODEL_REASONING,
@@ -349,6 +350,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     });
 
     traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
+    onStatusUpdate?.('Organizzazione quiz...');
     const structuredQuiz = parseQuizPayload(parsed.quiz);
     const repairedContentMarkdown = await repairLessonMarkdown(
       parsed.contentMarkdown || '',
@@ -356,7 +358,8 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       sectionDescription,
       lessonSourceContext ||
         clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS),
-      generationNotes
+      generationNotes,
+      onReasoningUpdate
     ).catch(error => {
       console.warn('[Nous][Lesson] Markdown repair failed, keeping original content.', error);
       return parsed.contentMarkdown || '';
@@ -413,6 +416,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       },
       candidateImages: candidateImagePayload,
       generationNotes,
+      onReasoningUpdate,
     }).catch(error => {
       console.warn(
         '[Nous][Lesson] Final lesson verification failed, keeping pre-verified draft.',
@@ -507,6 +511,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     prompt,
     MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS
   );
+  onStatusUpdate?.('Strutturazione della lezione...');
   const parsed = await retryWithBackoff(async () => {
     const response = await callOpenRouter({
       model: MODEL_REASONING,
@@ -528,13 +533,15 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     return parseLessonContentPayload(response, sectionTitle);
   });
   traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
+  onStatusUpdate?.('Organizzazione quiz...');
   const structuredQuiz = parseQuizPayload(parsed.quiz);
   const repairedContentMarkdown = await repairLessonMarkdown(
     parsed.contentMarkdown || '',
     sectionTitle,
     sectionDescription,
     sectionDescription,
-    generationNotes
+    generationNotes,
+    onReasoningUpdate
   ).catch(error => {
     console.warn('[Nous][Lesson] Markdown repair failed, keeping original content.', error);
     return parsed.contentMarkdown || '';
@@ -559,6 +566,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     },
     candidateImages: [],
     generationNotes,
+    onReasoningUpdate,
   }).catch(error => {
     console.warn(
       '[Nous][Lesson] Final lesson verification failed, keeping pre-verified draft.',

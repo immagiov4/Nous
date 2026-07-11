@@ -95,6 +95,7 @@ export interface ChatCompletionOptions {
   response_format?: JsonSchemaFormat;
   tools?: Record<string, unknown>[];
   plugins?: Record<string, unknown>[];
+  signal?: AbortSignal;
 }
 
 export interface OpenRouterToolCall {

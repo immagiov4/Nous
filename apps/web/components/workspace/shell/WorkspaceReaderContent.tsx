@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
 import type {
   ApplicationExerciseNode,
   LearningArtifactRenderPayload,
@@ -26,6 +27,7 @@ import type {
 import { getGeneratedVisualSourceLabel } from '../../../utils/learning/artifacts.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
+import GenerationProgress from '../../shared/GenerationProgress.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
 import LessonLearningAids from './LessonLearningAids.tsx';
@@ -119,13 +121,19 @@ function LessonGenerationSkeleton({
   isDarkMode,
   isMobileViewport,
   lessonTitle,
+  progress,
   reasoningText,
 }: {
   isDarkMode: boolean;
   isMobileViewport: boolean;
   lessonTitle?: string | null;
+  progress?: GenerationProgressSnapshot;
   reasoningText?: string;
 }) {
+  if (progress) {
+    return <GenerationProgress displayMode="embedded" progress={progress} />;
+  }
+
   const hasReasoningText = Boolean(reasoningText?.trim());
 
   return (
@@ -223,6 +231,7 @@ function ExerciseInternalTextEditor({
 }) {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaId = `exercise-response-${exercise.id}`;
 
   useEffect(() => {
     if (internalText === (exercise.internalText || '')) {
@@ -261,9 +270,12 @@ function ExerciseInternalTextEditor({
     <article className="overflow-hidden rounded-xl border border-gray-200/80 bg-white/90 shadow-sm dark:border-zinc-700/80 dark:bg-zinc-900/85">
       <header className="space-y-2 border-b border-gray-200/80 px-4 py-4 dark:border-zinc-700/80">
         <div className="flex items-center gap-3">
-          <div className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
+          <label
+            htmlFor={textareaId}
+            className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+          >
             {t('Risposta per {exerciseTitle}', { exerciseTitle: exercise.title })}
-          </div>
+          </label>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -365,6 +377,7 @@ function ExerciseInternalTextEditor({
           </div>
         ) : (
           <textarea
+            id={textareaId}
             ref={textareaRef}
             value={internalText}
             onChange={event => onChange(event.target.value)}
@@ -435,20 +448,28 @@ function ExerciseAttachmentCard({
 }
 
 function ApplicationExerciseViewer({
+  exerciseFeedbackError,
+  exerciseFeedbackStatus,
   exercisePrerequisiteGaps,
   exercise,
   isDarkMode,
+  isEvaluating,
   isLoading,
   onAttachFiles,
   onRemoveAttachment,
+  onRequestFeedback,
   onUpdateInternalText,
 }: {
+  exerciseFeedbackError?: string;
+  exerciseFeedbackStatus?: string;
   exercisePrerequisiteGaps: Array<{ id: string; title: string }>;
   exercise: ApplicationExerciseNode;
   isDarkMode: boolean;
+  isEvaluating: boolean;
   isLoading: boolean;
   onAttachFiles: (exerciseId: string, files: FileList | null) => void;
   onRemoveAttachment: (exerciseId: string, attachmentId: string) => void;
+  onRequestFeedback: (exerciseId: string, internalText: string) => void;
   onUpdateInternalText: (exerciseId: string, text: string) => void;
 }) {
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -540,13 +561,33 @@ function ApplicationExerciseViewer({
                   </button>
                   <button
                     type="button"
-                    disabled={!hasDeliverable}
+                    disabled={!hasDeliverable || isEvaluating}
+                    aria-busy={isEvaluating}
+                    onClick={() => onRequestFeedback(exercise.id, internalText)}
                     className="inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-gray-50 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
                   >
-                    {t(exercise.feedbackStale ? 'Aggiorna riscontro' : 'Richiedi riscontro')}
+                    {isEvaluating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                    {t(
+                      isEvaluating
+                        ? 'Valutazione in corso...'
+                        : exercise.feedbackStale
+                          ? 'Aggiorna riscontro'
+                          : 'Richiedi riscontro'
+                    )}
                   </button>
                 </div>
               </div>
+
+              {isEvaluating && exerciseFeedbackStatus ? (
+                <output className="block text-sm text-gray-600 dark:text-zinc-300">
+                  {exerciseFeedbackStatus}
+                </output>
+              ) : null}
+              {!isEvaluating && exerciseFeedbackError ? (
+                <p role="alert" className="text-sm text-red-600 dark:text-red-300">
+                  {exerciseFeedbackError}
+                </p>
+              ) : null}
 
               <input
                 ref={uploadInputRef}
@@ -591,7 +632,10 @@ function ApplicationExerciseViewer({
               )}
             </section>
 
-            <section className="border-t border-gray-300 pt-6 dark:border-zinc-600">
+            <section
+              aria-label={t('Correzione AI')}
+              className="border-t border-gray-300 pt-6 dark:border-zinc-600"
+            >
               <div className="mb-4 flex items-center justify-between gap-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-zinc-400">
                   {t('Correzione AI')}
@@ -612,6 +656,24 @@ function ApplicationExerciseViewer({
                       {exercise.currentFeedback.summary}
                     </p>
                   </div>
+                  {exercise.currentFeedback.strengths.length > 0 ? (
+                    <FeedbackList
+                      title={t('Punti di forza')}
+                      items={exercise.currentFeedback.strengths}
+                    />
+                  ) : null}
+                  {exercise.currentFeedback.improvements.length > 0 ? (
+                    <FeedbackList
+                      title={t('Da migliorare')}
+                      items={exercise.currentFeedback.improvements}
+                    />
+                  ) : null}
+                  {exercise.currentFeedback.caveats.length > 0 ? (
+                    <FeedbackList
+                      title={t('Limiti della valutazione')}
+                      items={exercise.currentFeedback.caveats}
+                    />
+                  ) : null}
                   {exercise.feedbackStale ? (
                     <p className="text-sm text-amber-600 dark:text-amber-300">
                       {t('Riscontro datato.')}
@@ -632,6 +694,19 @@ function ApplicationExerciseViewer({
   );
 }
 
+function FeedbackList({ items, title }: { items: string[]; title: string }) {
+  return (
+    <div>
+      <p className="font-semibold text-gray-900 dark:text-zinc-100">{title}</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5">
+        {items.map(item => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   activeExercise,
   exercisePrerequisiteGaps = [],
@@ -643,6 +718,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   contentRef,
   currentLessonArtifactPayloads = [],
   isDarkMode,
+  isEvaluatingExercise = false,
   isFocusMode,
   isLoading,
   isMobileViewport,
@@ -654,6 +730,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   onContentContextMenu,
   onContentPointerDownCapture,
   onDismissLearningAid,
+  onRequestExerciseFeedback,
   onSelectQuizAnswer,
   onRemoveExerciseAttachment,
   quiz,
@@ -662,7 +739,10 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   scrollMode = 'contained',
   sectionAnnotations,
   sectionContent,
+  exerciseFeedbackError,
+  exerciseFeedbackStatus,
   sectionReasoningText,
+  sectionProgress,
   onUpdateExerciseInternalText,
   sourcePageRangeLabel,
   ttsTextPicker,
@@ -755,9 +835,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     }
   };
 
-  // Reset scroll when entering skeleton mode — the container uses
-  // overflow-hidden while generating, so a stale scroll offset would
-  // clip the thinking-stream header and spinner.
+  // Reset scroll when entering skeleton mode so generation always starts at
+  // the heading while keeping the container available for short viewports.
   useEffect(() => {
     if (shouldShowLessonSkeleton && scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
@@ -768,7 +847,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     scrollMode === 'document'
       ? 'relative min-w-0 flex-1 overflow-visible'
       : shouldShowLessonSkeleton
-        ? 'relative flex-1 min-w-0 overflow-hidden overscroll-none'
+        ? 'relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain'
         : 'relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth';
 
   return (
@@ -776,8 +855,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       ref={scrollContainerRef}
       className={scrollContainerClassName}
       style={{
-        touchAction:
-          scrollMode === 'document' ? 'auto' : shouldShowLessonSkeleton ? 'none' : 'pan-y',
+        touchAction: scrollMode === 'document' ? 'auto' : 'pan-y',
       }}
     >
       {ttsTextPicker.isActive ? (
@@ -817,11 +895,15 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
             <ApplicationExerciseViewer
               key={`${activeExercise.id}:${activeExercise.updatedAt}`}
               exercise={activeExercise}
+              exerciseFeedbackError={exerciseFeedbackError}
+              exerciseFeedbackStatus={exerciseFeedbackStatus}
               exercisePrerequisiteGaps={exercisePrerequisiteGaps}
               isDarkMode={isDarkMode}
+              isEvaluating={isEvaluatingExercise}
               isLoading={isLoading}
               onAttachFiles={onAttachExerciseFiles}
               onRemoveAttachment={onRemoveExerciseAttachment}
+              onRequestFeedback={onRequestExerciseFeedback}
               onUpdateInternalText={onUpdateExerciseInternalText}
             />
           ) : shouldShowLessonSkeleton ? (
@@ -829,6 +911,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
               isDarkMode={isDarkMode}
               isMobileViewport={isMobileViewport}
               lessonTitle={activeSectionTitle}
+              progress={sectionProgress}
               reasoningText={sectionReasoningText}
             />
           ) : sectionContent ? (

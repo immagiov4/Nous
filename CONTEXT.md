@@ -52,13 +52,13 @@ The frontend has two AI infrastructures by design. See `docs/ARCHITECTURE.md#two
 
 ## Persistence
 
-- **`ProjectRepository`**: the frontend interface for project + library-tree CRUD. Two adapters: `IndexedDbProjectRepository` (browser-local) and `HttpProjectRepository` (LAN). Selected at runtime by `projectRepositoryFactory`.
-- **`ProjectStore`**: the backend interface for the same operations, scoped by `userId`. One implementation: `SqliteProjectStore`.
+- **`ProjectRepository`**: the frontend interface for project + library-tree CRUD. The supported product adapter is `HttpProjectRepository`; `projectRepositoryFactory` always selects server storage.
+- **`ProjectStore`**: the backend interface for the same operations, scoped by `userId`. `PostgresProjectStore` is the default production implementation; `SqliteProjectStore` is restricted to tests and explicit local-development profiles.
 - **Wire contract** (`packages/shared-types/projectContract.ts`): the type-only contract shared between frontend and backend, imported via the `@shared/*` alias. Holds `ProjectId`, `ProjectSourceKind`, `ProjectSyncState`, `LibraryFolder`, `LibraryPlacement`, `SavedProjectMeta`, `SectionPatch`, `ProjectPatch`. The two sides keep separate `ProjectSnapshot` definitions because the frontend models the rich domain (`LearningPlan`, `ProjectSource`, …) and the backend treats the payload as permissive JSON.
 - **Persistence signature**: a string summarizing the snapshot, used to decide whether a save is needed. Two variants:
-  - `buildPersistenceSignature(snapshot)`: full serialization including `source`. Used for content-equality (e.g. LAN transfer verification).
+  - `buildPersistenceSignature(snapshot)`: full serialization including `source`. Used where complete snapshot content equality is required.
   - `buildAutosaveSignature(snapshot)`: skips `source` via a reference-identity token. Used in the autosave loop; avoids re-serializing the PDF on every render.
-- **Persist queue**: the FIFO of granular PATCH operations (`enqueuePatch`, `flush`). Deduplicates by `key`, retries with exponential backoff. Used in LAN mode for highlight/note edits.
+- **Persist queue**: the FIFO of granular server PATCH operations (`enqueuePatch`, `flush`). Deduplicates by `key` and retries with exponential backoff.
 - **Sync state**: the observable `'saved' | 'saving' | 'error'` that drives the sync indicator. Auto-clears to `'saved'` after 2s as a safety net.
 - **Snapshot hydration**: the load-time normalization performed by `prepareSnapshotForHydration` when a project is opened. Migrates legacy plan shapes, strips dropped fields, normalizes markdown, repairs annotations.
 - **Reference-identity token**: an integer assigned to an immutable object (typically `source`) via `WeakMap` so the autosave loop can detect change without serializing the PDF.
@@ -85,8 +85,8 @@ The frontend has two AI infrastructures by design. See `docs/ARCHITECTURE.md#two
 
 ## Modes
 
-- **Repository mode**: `'indexeddb' | 'lan'`. Selects which `ProjectRepository` adapter is active. Stored in `localStorage.projectRepositoryMode`; overridable by Vite/process env at first load.
-- **LAN mode**: the configuration where the frontend talks to the backend SQLite store across a private network. Enables shared project access between devices on the same LAN.
+- **Repository mode**: server-only. The frontend always uses `HttpProjectRepository`; browser-local IndexedDB and the former runtime mode switch are no longer supported product paths.
+- **Local development profile**: an explicit development-only backend configuration that may use SQLite. It does not change the frontend repository adapter or define a separate product mode.
 - **Learn mode**: a project mode that runs without a source document. The user studies a topic chosen at assessment time, and the AI generates the plan from scratch. Flag: `domain.isLearnMode`.
 
 ## Disambiguation

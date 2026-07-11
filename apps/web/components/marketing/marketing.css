@@ -231,6 +231,31 @@ html:has(.marketing-page) {
   font-weight: 700;
 }
 
+.marketing-hero-quote {
+  display: flex;
+  margin: 1.35rem 0 0;
+  align-items: baseline;
+  color: #756f68;
+  gap: 0.55rem;
+}
+
+.marketing-hero-quote p,
+.marketing-hero-quote cite {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.marketing-hero-quote p {
+  font-family: var(--marketing-serif);
+  font-style: italic;
+}
+
+.marketing-hero-quote cite {
+  color: #9a9289;
+  font-style: normal;
+}
+
 .marketing-waitlist-form {
   display: flex;
   width: 100%;
@@ -303,6 +328,7 @@ html:has(.marketing-page) {
 .marketing-material-sheet {
   position: absolute;
   border: 1px solid #d7cec3;
+  border-radius: 1rem;
   background: #fff;
   box-shadow: 0 1.5rem 3.5rem -2.6rem rgb(52 37 24 / 35%);
 }
@@ -386,13 +412,6 @@ html:has(.marketing-page) {
   transform: rotate(1deg);
 }
 
-.marketing-problem {
-  width: min(100% - 3rem, var(--marketing-reading-width));
-  margin: 0 auto;
-  padding: clamp(3.5rem, 6vw, 5.5rem) 0;
-}
-
-.marketing-problem h2,
 .marketing-journey-intro h2,
 .marketing-final-cta h2 {
   max-width: 22ch;
@@ -403,11 +422,6 @@ html:has(.marketing-page) {
   letter-spacing: -0.04em;
   line-height: 1.04;
   text-wrap: balance;
-}
-
-.marketing-problem h2 {
-  max-width: none;
-  font-size: clamp(1.8rem, 3vw, 3rem);
 }
 
 .marketing-journey {
@@ -488,7 +502,8 @@ html:has(.marketing-page) {
   display: flex;
   align-items: center;
   color: #f0ebe5;
-  font-size: 0.82rem;
+  font-size: 0.75rem;
+  font-weight: 600;
   gap: 0.7rem;
 }
 
@@ -512,34 +527,83 @@ html:has(.marketing-page) {
   overflow: hidden;
 }
 
-:where(.marketing-journey-demo) .marketing-product-window {
-  height: 100%;
-}
-
-.marketing-founder-note {
+.marketing-journey-mobile {
   display: grid;
-  margin-top: 2rem;
-  padding: 3rem 0 0;
+  gap: 1.2rem;
+}
+
+.marketing-journey-mobile-copy {
+  min-height: 10.5rem;
+  padding-top: 1.4rem;
   border-top: 1px solid #48433e;
-  grid-template-columns: minmax(14rem, 0.45fr) minmax(0, 1.55fr);
-  gap: clamp(3rem, 8vw, 8rem);
+  animation: marketing-journey-copy-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.marketing-founder-note > p {
-  margin: 0;
+.marketing-journey-mobile-copy > span {
   color: #d9966d;
-  font-size: 0.82rem;
-  font-weight: 750;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.marketing-founder-note blockquote {
-  max-width: 34ch;
-  margin: 0;
-  color: #f1ece6;
+.marketing-journey-mobile-copy h3 {
+  margin: 0.75rem 0 0.65rem;
   font-family: var(--marketing-serif);
-  font-size: clamp(1.35rem, 2.2vw, 2rem);
+  font-size: clamp(1.75rem, 9vw, 2.25rem);
+  font-weight: 500;
   letter-spacing: -0.035em;
-  line-height: 1.22;
+  line-height: 1.03;
+}
+
+.marketing-journey-mobile-copy p {
+  margin: 0;
+  color: #c7c0b8;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.marketing-journey-mobile-demo {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 1rem;
+  color: var(--marketing-ink);
+}
+
+.marketing-journey-mobile-demo .marketing-product-demo {
+  height: auto;
+}
+
+.marketing-journey-mobile-controls {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.55rem;
+}
+
+.marketing-journey-mobile-controls button {
+  min-height: 2.5rem;
+  border: 1px solid #514a44;
+  border-radius: 999px;
+  background: transparent;
+  color: #9f978f;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.marketing-journey-mobile-controls button[aria-pressed="true"] {
+  border-color: #d9966d;
+  background: #d9966d;
+  color: #181614;
+}
+
+@keyframes marketing-journey-copy-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.35rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .marketing-product-section {
@@ -582,6 +646,13 @@ html:has(.marketing-page) {
   border-radius: 1rem;
   background: var(--marketing-surface);
   box-shadow: 0 3rem 7rem -4rem rgb(42 32 23 / 48%);
+}
+
+.marketing-product-video {
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
 }
 
 .marketing-demo-controls {
@@ -1435,7 +1506,6 @@ html:has(.marketing-page) {
   .marketing-hero,
   .marketing-product-section,
   .marketing-section,
-  .marketing-problem,
   .marketing-footer,
   .marketing-contact {
     width: min(100% - 2rem, var(--marketing-page-width));
@@ -1471,39 +1541,33 @@ html:has(.marketing-page) {
   }
 
   .marketing-hero {
-    padding-top: 3rem;
+    padding: 2.4rem 0 2.8rem;
     grid-template-columns: 1fr;
-    gap: 2.75rem;
+    gap: 0;
   }
 
   .marketing-hero-access {
-    margin-top: 2.2rem;
+    margin-top: 1.65rem;
     padding: 0;
     border: 0;
   }
 
   .marketing-material-scene {
-    width: min(100%, 38rem);
-    margin: 0 auto;
+    display: none;
   }
 
-  .marketing-founder-note {
-    grid-template-columns: 1fr;
-    gap: 2.5rem;
+  .marketing-journey {
+    padding-top: 3.5rem;
+    padding-bottom: 4rem;
+  }
+
+  .marketing-journey-intro {
+    margin-bottom: 1.4rem;
   }
 
   .marketing-journey-layout {
     display: flex;
     flex-direction: column;
-  }
-
-  .marketing-journey-demo {
-    position: sticky;
-    z-index: 20;
-    top: 0.5rem;
-    height: 28rem;
-    width: 100%;
-    order: -1;
   }
 
   .marketing-journey-steps article,
@@ -1536,25 +1600,9 @@ html:has(.marketing-page) {
     grid-template-columns: 1fr;
   }
 
-  .marketing-demo-plan {
-    grid-template-columns: 1fr;
-  }
-
-  .marketing-demo-plan > aside {
-    display: none;
-  }
-
   .marketing-demo-generation aside {
     border-right: 0;
     border-bottom: 1px solid var(--marketing-line);
-  }
-
-  .marketing-demo-course {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .marketing-demo-course-progress {
-    grid-column: 2;
   }
 
   .marketing-step-list {
@@ -1684,12 +1732,6 @@ html:has(.marketing-page) {
   .marketing-comparison td {
     padding: 0.9rem;
     font-size: 0.76rem;
-  }
-
-  .marketing-demo-question {
-    top: 34%;
-    right: 4%;
-    width: 70%;
   }
 }
 

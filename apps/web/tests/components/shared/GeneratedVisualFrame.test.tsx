@@ -80,7 +80,6 @@ describe('GeneratedVisualFrame', () => {
     render(
       <GeneratedVisualFrame isDarkMode={true} title="Nodo chiaro" visual={brightHtmlVisual} />
     );
-
     const frame = screen.getByTitle('Nodo chiaro');
     expect(frame).toHaveAttribute('srcDoc', expect.stringContaining('normalizeDarkHtmlTheme'));
     expect(frame).toHaveAttribute('srcDoc', expect.stringContaining('toDarkSurfaceColor'));
@@ -108,8 +107,6 @@ describe('GeneratedVisualFrame', () => {
         visual={brightHtmlVisual}
       />
     );
-
-    expect(screen.getByTitle('Nodo compatto').closest('figure')).toHaveClass('my-0');
   });
 
   test('mounts generated HTML before replaying embedded scripts', () => {

@@ -16,6 +16,10 @@ vi.mock('../../../components/workspace/AudioPlayer.tsx', () => ({
   ),
 }));
 
+vi.mock('../../../hooks/useMobileKeyboardOffset.ts', () => ({
+  useMobileKeyboardOffset: () => ({ keyboardOffset: 0, viewportHeight: 612 }),
+}));
+
 vi.mock('../../../components/workspace/shell/WorkspaceReaderBanners.tsx', () => ({
   default: () => <div data-testid="workspace-banners" />,
 }));
@@ -68,6 +72,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
       onContentContextMenu: vi.fn(),
       onContentPointerDownCapture: vi.fn(),
       onDismissLearningAid: vi.fn(),
+      onRequestExerciseFeedback: vi.fn(),
       onSelectQuizAnswer: vi.fn(),
       onRemoveExerciseAttachment: vi.fn(),
       onSetIsQuizSubmitted: vi.fn(),
@@ -247,6 +252,12 @@ describe('WorkspaceReaderShell', () => {
     expect(shellColumn).toHaveStyle({ marginLeft: '384px' });
     expect(screen.getByTestId('workspace-sidebar')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-overlays')).toBeInTheDocument();
+  });
+
+  test('uses the visual viewport height for the application shell', () => {
+    const { container } = render(<WorkspaceReaderShell {...buildProps()} />);
+
+    expect(container.firstElementChild).toHaveStyle({ height: '612px', maxHeight: '612px' });
   });
 
   test('supports an embedded reader without locking or resetting the document viewport', () => {

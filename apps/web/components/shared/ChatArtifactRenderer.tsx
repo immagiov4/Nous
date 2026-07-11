@@ -29,6 +29,7 @@ export interface ChatArtifactReplaceRequest extends ChatArtifactActionRequest {
 }
 
 interface ChatArtifactRendererProps {
+  actionFeedbackOverride?: ArtifactActionFeedback;
   artifacts: LearningArtifactRenderPayload[];
   className?: string;
   isDarkMode: boolean;
@@ -42,6 +43,8 @@ interface ChatArtifactRendererProps {
   onReplaceArtifact?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   /** If true, the artifact grid shows a loading skeleton instead of cards. */
   isLoading?: boolean;
+  openArtifactIdOverride?: string | null;
+  portalContainer?: HTMLElement | null;
   /** When set, replaces the Maximize2 icon with an X remove button inside the card. */
   onRemoveArtifact?: (artifactId: string) => void;
 }
@@ -108,14 +111,14 @@ const ArtifactPreview = ({
       <img
         src={artifact.image.dataUrl}
         alt={artifact.summary.title}
-        className="h-24 w-full rounded-xl border border-stone-200/80 bg-stone-50 object-cover dark:border-zinc-700 dark:bg-zinc-900"
+        className="h-12 w-full rounded-xl border border-stone-200/80 bg-stone-50 object-cover dark:border-zinc-700 dark:bg-zinc-900"
       />
     );
   }
 
   if ('visual' in artifact) {
     return (
-      <div className="pointer-events-none max-h-32 overflow-hidden rounded-xl border border-stone-200/80 bg-white/70 dark:border-zinc-700 dark:bg-zinc-900/60">
+      <div className="pointer-events-none h-16 overflow-hidden rounded-xl border border-stone-200/80 bg-white/70 dark:border-zinc-700 dark:bg-zinc-900/60">
         <GeneratedVisualFrame
           isDarkMode={isDarkMode}
           title={artifact.summary.title}
@@ -129,6 +132,7 @@ const ArtifactPreview = ({
 };
 
 const ArtifactOverlay = ({
+  actionFeedbackOverride,
   artifact,
   isDarkMode,
   onClose,
@@ -137,6 +141,7 @@ const ArtifactOverlay = ({
   onReplaceArtifact,
   onSaveArtifact,
 }: {
+  actionFeedbackOverride?: ArtifactActionFeedback;
   artifact: LearningArtifactRenderPayload;
   isDarkMode: boolean;
   onClose: () => void;
@@ -157,6 +162,7 @@ const ArtifactOverlay = ({
   const shouldShowSaveAction = Boolean(onSaveArtifact && !canReplace);
   const hasActions = shouldShowSaveAction || canRegenerate || onDiscardArtifact || canReplace;
   const trimmedRegenerationInstructions = regenerationInstructions.trim();
+  const visibleActionFeedback = actionFeedbackOverride ?? actionFeedback;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -251,6 +257,7 @@ const ArtifactOverlay = ({
           </div>
           <button
             type="button"
+            data-artifact-target="close"
             onClick={onClose}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             aria-label={t('Chiudi artefatto')}
@@ -310,20 +317,20 @@ const ArtifactOverlay = ({
             ) : null}
 
             <div className="flex flex-wrap items-center justify-between gap-2">
-              {actionFeedback ? (
+              {visibleActionFeedback ? (
                 <div
                   className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${
-                    actionFeedback === 'regenerationFailed'
+                    visibleActionFeedback === 'regenerationFailed'
                       ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-200'
                       : 'bg-stone-100 text-stone-600 dark:bg-zinc-800 dark:text-zinc-200'
                   }`}
                 >
-                  {actionFeedback === 'regenerationFailed' ? (
+                  {visibleActionFeedback === 'regenerationFailed' ? (
                     <AlertTriangle className="h-3.5 w-3.5" />
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  <span>{ARTIFACT_ACTION_FEEDBACK[actionFeedback]()}</span>
+                  <span>{ARTIFACT_ACTION_FEEDBACK[visibleActionFeedback]()}</span>
                 </div>
               ) : (
                 <span />
@@ -366,6 +373,7 @@ const ArtifactOverlay = ({
                 {shouldShowSaveAction ? (
                   <button
                     type="button"
+                    data-artifact-target="save"
                     onClick={() => void handleSaveArtifact()}
                     disabled={isSaving}
                     className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
@@ -385,10 +393,13 @@ const ArtifactOverlay = ({
 };
 
 const ChatArtifactRenderer = ({
+  actionFeedbackOverride,
   artifacts,
   className = 'mt-3 grid gap-2 sm:grid-cols-2',
   isDarkMode,
   isLoading = false,
+  openArtifactIdOverride,
+  portalContainer,
   onDiscardArtifact,
   onRegenerateArtifact,
   onRemoveArtifact,
@@ -409,11 +420,14 @@ const ChatArtifactRenderer = ({
     [artifacts]
   );
 
+  const resolvedOpenArtifactId =
+    openArtifactIdOverride === undefined ? openArtifactId : openArtifactIdOverride;
   const openArtifact =
-    deduplicatedArtifacts.find(artifact => artifact.summary.id === openArtifactId) || null;
+    deduplicatedArtifacts.find(artifact => artifact.summary.id === resolvedOpenArtifactId) || null;
   const artifactOverlay = openArtifact ? (
     <ArtifactOverlay
       key={openArtifact.summary.id}
+      actionFeedbackOverride={actionFeedbackOverride}
       artifact={openArtifact}
       isDarkMode={isDarkMode}
       onClose={() => setOpenArtifactId(null)}
@@ -446,6 +460,7 @@ const ChatArtifactRenderer = ({
             >
               <button
                 type="button"
+                data-artifact-target={`open-${artifact.summary.id}`}
                 onClick={() => setOpenArtifactId(artifact.summary.id)}
                 className="block w-full min-w-0 text-left"
                 aria-label={t('Apri {artifactTitle}', {
@@ -490,7 +505,7 @@ const ChatArtifactRenderer = ({
       )}
 
       {artifactOverlay && typeof document !== 'undefined'
-        ? createPortal(artifactOverlay, document.body)
+        ? createPortal(artifactOverlay, portalContainer ?? document.body)
         : artifactOverlay}
     </div>
   );

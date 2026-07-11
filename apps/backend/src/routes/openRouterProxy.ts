@@ -45,6 +45,20 @@ const resolveProxyConfig = async (req: Request) => {
     };
   }
 
+  if (slot === 'progress') {
+    return {
+      model: modelConfig.progressModel,
+      reasoningEffort: modelConfig.progressReasoningEffort,
+    };
+  }
+
+  if (slot === 'research') {
+    return {
+      model: modelConfig.researchModel,
+      reasoningEffort: 'none' as const,
+    };
+  }
+
   return {
     model: modelConfig.lessonModel,
     reasoningEffort: modelConfig.lessonReasoningEffort,

@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LessonGeneratedVisual } from '../../types.ts';
-import { isSafeGeneratedImageDataUrl } from '../../utils/visuals/generatedImage.ts';
+import { isSafeGeneratedImageSource } from '../../utils/visuals/generatedImage.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
 import { findMissingStaticHtmlElementIds } from '../../utils/visuals/htmlElementReferences.ts';
 
@@ -515,7 +515,7 @@ const GeneratedVisualFrame = ({
 
     return (
       <figure className={`${className} overflow-hidden bg-transparent`} data-nous-speech="ignore">
-        {isSafeGeneratedImageDataUrl(visual.code) ? (
+        {isSafeGeneratedImageSource(visual.code) ? (
           <img
             src={visual.code}
             alt={imageAltText}

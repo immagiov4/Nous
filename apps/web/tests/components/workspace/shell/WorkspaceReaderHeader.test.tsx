@@ -141,6 +141,19 @@ describe('WorkspaceReaderHeader', () => {
     expect(loadingStatus.parentElement).toHaveClass('max-w-full');
   });
 
+  test('keeps database saving silent while preserving save errors', () => {
+    const props = buildProps();
+    const { rerender } = render(
+      <WorkspaceReaderHeader {...props} isMobileViewport syncState="saving" />
+    );
+
+    expect(screen.queryByText('Salvataggio')).not.toBeInTheDocument();
+
+    rerender(<WorkspaceReaderHeader {...props} isMobileViewport syncState="error" />);
+
+    expect(screen.getByText('Errore')).toBeInTheDocument();
+  });
+
   test('keeps the music player available on mobile', () => {
     const props = buildProps();
 
@@ -169,8 +182,7 @@ describe('WorkspaceReaderHeader', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
 
-    const learningAidsPanel = screen.getByRole('complementary', { name: 'Concetti chiave' });
-    expect(learningAidsPanel).toHaveClass('w-96');
+    expect(screen.getByRole('complementary', { name: 'Concetti chiave' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Espandi VLAN' })).toBeInTheDocument();
     expect(screen.queryByText('1 elemento')).toBeNull();
   });

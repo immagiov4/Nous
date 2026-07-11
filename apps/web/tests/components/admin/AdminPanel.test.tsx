@@ -19,6 +19,9 @@ vi.mock('../../../services/admin/adminApi.ts', () => ({
     contextReasoningEffort: 'medium',
     lessonModel: 'openai/gpt-5.4-mini',
     lessonReasoningEffort: 'medium',
+    progressModel: 'google/gemini-3.1-flash-lite',
+    progressReasoningEffort: 'low',
+    researchModel: 'perplexity/sonar-pro-search',
     ttsModel: 'x-ai/grok-voice-tts-1.0',
     ttsVoice: 'Ara',
     updatedAt: '',
@@ -38,6 +41,9 @@ const defaultModelConfig = {
   contextReasoningEffort: 'medium' as const,
   lessonModel: 'openai/gpt-5.4-mini',
   lessonReasoningEffort: 'medium' as const,
+  progressModel: 'google/gemini-3.1-flash-lite',
+  progressReasoningEffort: 'low' as const,
+  researchModel: 'perplexity/sonar-pro-search',
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   ttsVoice: 'Ara',
   updatedAt: '2026-07-07T00:00:00.000Z',
@@ -64,12 +70,14 @@ describe('AdminPanel', () => {
     render(<AdminPanel />);
 
     expect(await screen.findByDisplayValue('openai/gpt-5.4-mini')).toBeInTheDocument();
-    expect(screen.getAllByDisplayValue('google/gemini-3.1-flash-lite')).toHaveLength(2);
+    expect(screen.getAllByDisplayValue('google/gemini-3.1-flash-lite')).toHaveLength(3);
     expect(screen.getByDisplayValue('x-ai/grok-voice-tts-1.0')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('perplexity/sonar-pro-search')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Ara')).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Ragionamento Lezioni' })).toHaveValue('medium');
     expect(screen.getByRole('combobox', { name: 'Ragionamento Contesto' })).toHaveValue('medium');
     expect(screen.getByRole('combobox', { name: 'Ragionamento Assessment' })).toHaveValue('medium');
+    expect(screen.getByRole('combobox', { name: 'Ragionamento Avanzamento' })).toHaveValue('low');
     expect(screen.queryByRole('combobox', { name: 'Ragionamento TTS' })).toBeNull();
   });
 

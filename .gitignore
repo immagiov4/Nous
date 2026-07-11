@@ -34,6 +34,11 @@ graphify-out/
 .scannerwork/
 sonar.local.properties
 ai-slop-report.json
+cookies-chromium.json
+.codex-*.png
+.codex-remote-attachments/
+multitasking-context-switch*.png
+multitasking-context-switch.svg
 
 # Allow fallow baselines (checked into VCS)
 !.fallow-baselines/

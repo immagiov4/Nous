@@ -30,6 +30,20 @@ const isTranslationCall = (node: ts.Node): boolean => {
   return false;
 };
 
+const isLocaleConditionalLiteral = (node: ts.Node): boolean => {
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isConditionalExpression(current)) {
+      return current.condition.getText() === 'isItalian';
+    }
+    if (ts.isStatement(current)) {
+      return false;
+    }
+    current = current.parent;
+  }
+  return false;
+};
+
 const isInternalIdentifierLiteral = (node: ts.Node): boolean => {
   const parent = node.parent;
   if (
@@ -82,6 +96,7 @@ const findUnlocalizedUiText = (filePath: string): string[] => {
       text &&
       ITALIAN_UI_MARKER.test(text) &&
       !isTranslationCall(node) &&
+      !isLocaleConditionalLiteral(node) &&
       !isInternalIdentifierLiteral(node)
     ) {
       const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;

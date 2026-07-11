@@ -38,13 +38,17 @@ import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 interface ContextMenuProps {
   anchorX?: number;
   anchorY?: number;
+  askInputValue?: string;
   annotationArtifactRefs?: SectionAnnotationArtifactRef[];
   annotationNote?: string;
   artifactPayloads?: LearningArtifactRenderPayload[];
+  artifactPreviewIdOverride?: string | null;
+  artifactPortalContainer?: HTMLElement | null;
   containerRef?: RefObject<HTMLDivElement | null>;
   horizontalBounds?: HorizontalViewportBounds;
   isDarkMode?: boolean;
   isLoading: boolean;
+  notePreviewScrollTopOverride?: number;
   onAttachArtifactToAnnotation?: (artifactRef: SectionAnnotationArtifactRef) => void;
   onAsk: (question: string) => void;
   onClose: () => void;
@@ -52,7 +56,7 @@ interface ContextMenuProps {
   onDeleteAnnotation: () => void;
   onDetachArtifactFromAnnotation?: (artifactId: string) => void;
   onHighlight: () => void;
-  onSaveNote: (note: string) => void;
+  onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
   placement: ContextMenuPlacement;
   selectionRect?: SelectionRect;
   selectedText: string;
@@ -61,8 +65,7 @@ interface ContextMenuProps {
 
 const CONTEXT_MENU_DESKTOP_MAX_WIDTH = 460;
 const CONTEXT_MENU_DESKTOP_MIN_WIDTH = 320;
-const CONTEXT_MENU_DESKTOP_SAFE_HEIGHT = 120;
-const CONTEXT_MENU_DESKTOP_NOTE_SAFE_HEIGHT = 420;
+const CONTEXT_MENU_DESKTOP_CHROME_HEIGHT = 76;
 const CONTEXT_MENU_MOBILE_MAX_WIDTH = 384;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
 
@@ -82,13 +85,17 @@ const abbreviate = (value: string, maxLength: number) => {
 const ContextMenu = ({
   anchorX,
   anchorY,
+  askInputValue,
   annotationArtifactRefs = [],
   annotationNote = '',
   artifactPayloads = [],
+  artifactPreviewIdOverride,
+  artifactPortalContainer,
   containerRef,
   horizontalBounds,
   isDarkMode = false,
   isLoading,
+  notePreviewScrollTopOverride,
   onAttachArtifactToAnnotation,
   onAsk,
   onClose,
@@ -122,9 +129,9 @@ const ContextMenu = ({
   const { keyboardOffset } = useMobileKeyboardOffset();
   const isAnnotationMode = type === 'annotation';
   const isLessonMode = type === 'lesson';
-  const activeAnnotationArtifactRefs = isAnnotationMode
-    ? localAnnotationArtifactRefs
-    : annotationArtifactRefs;
+  const activeAnnotationArtifactRefs = isLessonMode
+    ? annotationArtifactRefs
+    : localAnnotationArtifactRefs;
   const annotationArtifactPayloads = useMemo(() => {
     if (!activeAnnotationArtifactRefs.length || !artifactPayloads.length) {
       return [];
@@ -140,22 +147,23 @@ const ContextMenu = ({
   }, [activeAnnotationArtifactRefs, artifactPayloads]);
   const attachableArtifactPayloads = useMemo(() => {
     const attachedArtifactIds = new Set(activeAnnotationArtifactRefs.map(ref => ref.artifactId));
-    return artifactPayloads.filter(payload => {
-      if (attachedArtifactIds.has(payload.summary.id)) {
-        return false;
-      }
-      return payload.summary.kind !== 'generated-visual' || !('visual' in payload)
-        ? true
-        : payload.visual.id.startsWith('visual-draft-');
-    });
+    return artifactPayloads.filter(
+      payload =>
+        !attachedArtifactIds.has(payload.summary.id) &&
+        (payload.summary.kind !== 'generated-visual' ||
+          !('visual' in payload) ||
+          payload.visual.id.startsWith('visual-draft-'))
+    );
   }, [activeAnnotationArtifactRefs, artifactPayloads]);
   const hasSavedAnnotationNote = annotationNote.trim().length > 0;
   const hasSavedAnnotationContent = hasSavedAnnotationNote || annotationArtifactPayloads.length > 0;
-  const trimmedInput = input.trim();
+  const displayedInput = askInputValue ?? input;
+  const trimmedInput = displayedInput.trim();
   const trimmedNote = noteInput.trim();
   const isAnnotationPreviewMode =
     isAnnotationMode && hasSavedAnnotationContent && !isNoteEditorOpen;
   const isAnnotationEditingMode = isAnnotationMode && !isAnnotationPreviewMode;
+  const canEditNoteAttachments = !isLessonMode && !isAnnotationPreviewMode;
   const isNotePanelVisible = isNoteEditorOpen || isAnnotationPreviewMode;
   const canDeleteAnnotationFromCurrentState =
     !isLessonMode && isAnnotationMode && hasSavedAnnotationContent;
@@ -324,11 +332,11 @@ const ContextMenu = ({
     event.preventDefault();
     event.stopPropagation();
 
-    if (!isAnnotationMode && !trimmedNote) {
+    if (!isAnnotationMode && !trimmedNote && localAnnotationArtifactRefs.length === 0) {
       return;
     }
 
-    onSaveNote(noteInput);
+    onSaveNote(noteInput, localAnnotationArtifactRefs);
   };
 
   const handleCancelNoteEdit = (event: MouseEvent<HTMLButtonElement>) => {
@@ -388,10 +396,6 @@ const ContextMenu = ({
   const shouldOpenAbove =
     !isMobileSheet &&
     (selectionRect?.top ?? anchorY ?? CONTEXT_MENU_VIEWPORT_PADDING) > viewportHeight / 3;
-  const desktopSafeHeight =
-    isNoteEditorOpen || isAnnotationMode
-      ? CONTEXT_MENU_DESKTOP_NOTE_SAFE_HEIGHT
-      : CONTEXT_MENU_DESKTOP_SAFE_HEIGHT;
   const desktopMenuWidth =
     viewportWidth > 0
       ? Math.min(
@@ -431,7 +435,7 @@ const ContextMenu = ({
           bottom: clamp(
             viewportHeight - (anchorY ?? CONTEXT_MENU_VIEWPORT_PADDING) + 14,
             CONTEXT_MENU_VIEWPORT_PADDING,
-            Math.max(CONTEXT_MENU_VIEWPORT_PADDING, viewportHeight - desktopSafeHeight)
+            Math.max(CONTEXT_MENU_VIEWPORT_PADDING, viewportHeight - CONTEXT_MENU_VIEWPORT_PADDING)
           ),
           left: desktopLeft,
           width: desktopMenuWidth,
@@ -440,11 +444,25 @@ const ContextMenu = ({
           top: clamp(
             (anchorY ?? CONTEXT_MENU_VIEWPORT_PADDING) + 14,
             CONTEXT_MENU_VIEWPORT_PADDING,
-            Math.max(CONTEXT_MENU_VIEWPORT_PADDING, viewportHeight - desktopSafeHeight)
+            Math.max(CONTEXT_MENU_VIEWPORT_PADDING, viewportHeight - CONTEXT_MENU_VIEWPORT_PADDING)
           ),
           left: desktopLeft,
           width: desktopMenuWidth,
         };
+  const desktopMenuOffset = shouldOpenAbove
+    ? typeof menuStyle.bottom === 'number'
+      ? menuStyle.bottom
+      : CONTEXT_MENU_VIEWPORT_PADDING
+    : typeof menuStyle.top === 'number'
+      ? menuStyle.top
+      : CONTEXT_MENU_VIEWPORT_PADDING;
+  const desktopNoteMaxHeight = Math.max(
+    0,
+    viewportHeight -
+      desktopMenuOffset -
+      CONTEXT_MENU_VIEWPORT_PADDING -
+      CONTEXT_MENU_DESKTOP_CHROME_HEIGHT
+  );
 
   const [transformOrigin] = useState(() => {
     if (isMobileSheet) {
@@ -493,11 +511,13 @@ const ContextMenu = ({
       }`
     : `overflow-hidden rounded-[1.6rem] border border-stone-200/90 bg-stone-50 text-stone-700 shadow-[0_18px_40px_-30px_rgba(46,34,16,0.55)] ${isAnnotationMode ? '' : 'transition-all duration-200'} dark:border-stone-500/80 dark:bg-stone-800 dark:text-stone-300 ${
         isNotePanelVisible
-          ? 'mt-3 max-h-[min(34rem,calc(100dvh-2rem))] translate-y-0 opacity-100'
+          ? 'mt-3 max-h-[min(34rem,var(--context-menu-note-max-height))] translate-y-0 opacity-100'
           : 'max-h-0 translate-y-[-6px] opacity-0'
       }`;
 
-  const notePreviewClassName = `custom-scrollbar max-h-52 overflow-y-auto ${isMobileSheet ? 'px-0 py-3' : 'px-4 py-3'} text-sm leading-6 text-stone-800 dark:text-stone-100`;
+  const notePreviewClassName = `custom-scrollbar max-h-52 overflow-y-auto ${
+    isMobileSheet ? 'px-0 pb-16 pt-3' : 'px-4 pb-16 pt-3'
+  } text-sm leading-6 text-stone-800 dark:text-stone-100`;
   const notePreviewFadeColor = isDarkMode ? '#292524' : '#fafaf9';
 
   const handleNotePreviewScroll = () => {
@@ -507,6 +527,15 @@ const ContextMenu = ({
     }
     setIsNotePreviewScrolled(el.scrollTop > 0);
   };
+
+  useEffect(() => {
+    if (notePreviewScrollTopOverride === undefined || !notePreviewRef.current) {
+      return;
+    }
+
+    notePreviewRef.current.scrollTop = notePreviewScrollTopOverride;
+    setIsNotePreviewScrolled(notePreviewScrollTopOverride > 0);
+  }, [notePreviewScrollTopOverride]);
 
   const handleAttachArtifact = (artifact: LearningArtifactRenderPayload) => {
     const artifactRef: SectionAnnotationArtifactRef = {
@@ -519,7 +548,9 @@ const ContextMenu = ({
         ? currentRefs
         : [...currentRefs, artifactRef]
     );
-    onAttachArtifactToAnnotation?.(artifactRef);
+    if (isAnnotationMode) {
+      onAttachArtifactToAnnotation?.(artifactRef);
+    }
     setIsAttachmentPickerOpen(false);
   };
 
@@ -531,7 +562,7 @@ const ContextMenu = ({
   };
 
   const renderAttachedAnnotationArtifacts = () => {
-    if (!isAnnotationMode) {
+    if (isLessonMode) {
       return null;
     }
 
@@ -548,6 +579,8 @@ const ContextMenu = ({
             artifacts={[artifact]}
             className="grid gap-2"
             isDarkMode={isDarkMode}
+            openArtifactIdOverride={artifactPreviewIdOverride}
+            portalContainer={artifactPortalContainer}
             onRemoveArtifact={() => handleDetachArtifact(artifact.summary.id)}
           />
         ))}
@@ -556,7 +589,7 @@ const ContextMenu = ({
   };
 
   const renderAnnotationAttachmentPicker = () => {
-    if (!isAnnotationMode || !isAttachmentPickerOpen || attachableArtifactPayloads.length === 0) {
+    if (isLessonMode || !isAttachmentPickerOpen || attachableArtifactPayloads.length === 0) {
       return null;
     }
 
@@ -590,16 +623,24 @@ const ContextMenu = ({
   };
 
   const renderRenderedNotePreview = () => (
-    <div className="relative">
+    <div className="relative" data-context-menu-target="note-preview">
       <div ref={notePreviewRef} onScroll={handleNotePreviewScroll} className={notePreviewClassName}>
-        {normalizedNotePreview.trim() ? (
-          <MarkdownRenderer
-            content={normalizedNotePreview}
-            isDarkMode={isDarkMode}
-            className="prose-sm text-stone-800 [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 [&_table]:text-sm dark:text-stone-100 dark:[&_p]:text-stone-100 dark:[&_li]:text-stone-100 [&_strong]:dark:text-amber-50 [&_code]:dark:text-amber-50 [&_h1]:dark:text-amber-50 [&_h2]:dark:text-amber-50 [&_h3]:dark:text-amber-50 [&_a]:dark:text-orange-400 [&_a]:dark:decoration-orange-400/40"
-          />
-        ) : null}
-        {renderAttachedAnnotationArtifacts()}
+        <div
+          style={
+            notePreviewScrollTopOverride === undefined
+              ? undefined
+              : { position: 'relative', top: -notePreviewScrollTopOverride }
+          }
+        >
+          {normalizedNotePreview.trim() ? (
+            <MarkdownRenderer
+              content={normalizedNotePreview}
+              isDarkMode={isDarkMode}
+              className="prose-sm text-stone-800 [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-2 [&_ol]:my-2 [&_pre]:my-2 [&_table]:text-sm dark:text-stone-100 dark:[&_p]:text-stone-100 dark:[&_li]:text-stone-100 [&_strong]:dark:text-amber-50 [&_code]:dark:text-amber-50 [&_h1]:dark:text-amber-50 [&_h2]:dark:text-amber-50 [&_h3]:dark:text-amber-50 [&_a]:dark:text-orange-400 [&_a]:dark:decoration-orange-400/40"
+            />
+          ) : null}
+          {renderAttachedAnnotationArtifacts()}
+        </div>
       </div>
       <div
         className="pointer-events-none absolute left-0 right-0 top-0 h-6 transition-opacity duration-200"
@@ -625,8 +666,8 @@ const ContextMenu = ({
         <div
           className={
             isMobileSheet
-              ? 'custom-scrollbar max-h-[min(34rem,calc(100dvh-2rem))] space-y-3 overflow-y-auto px-4 py-4'
-              : 'custom-scrollbar max-h-[min(34rem,calc(100dvh-2rem))] space-y-3 overflow-y-auto px-4 py-3'
+              ? 'custom-scrollbar m-2 max-h-[calc(min(34rem,calc(100dvh-2rem))-1rem)] space-y-3 overflow-y-auto px-4 py-4'
+              : 'custom-scrollbar m-2 max-h-[calc(min(34rem,var(--context-menu-note-max-height))-1rem)] space-y-3 overflow-y-auto px-4 py-3'
           }
         >
           <div className="space-y-1">
@@ -654,7 +695,7 @@ const ContextMenu = ({
                     ? t('Scrivi, aggiorna o svuota la nota...')
                     : t('Scrivi la nota che vuoi lasciare su questo passaggio...')
                 }
-                rows={8}
+                rows={5}
                 className="custom-scrollbar w-full resize-none rounded-[1.4rem] bg-transparent px-4 py-3 text-sm leading-6 text-stone-800 outline-none placeholder:text-stone-400 dark:text-stone-100 dark:placeholder:text-stone-300"
                 disabled={isLoading}
               />
@@ -663,10 +704,16 @@ const ContextMenu = ({
 
           {!isAnnotationPreviewMode ? renderAttachedAnnotationArtifacts() : null}
 
-          <div className="relative flex flex-wrap items-center justify-end gap-2">
+          <div
+            className={`relative flex flex-wrap items-center justify-end gap-2 ${
+              isAnnotationPreviewMode
+                ? 'sticky bottom-0 z-10 -mx-1 bg-stone-50 px-1 py-1 dark:bg-stone-800'
+                : ''
+            }`}
+          >
             {renderAnnotationAttachmentPicker()}
 
-            {isAnnotationEditingMode && attachableArtifactPayloads.length > 0 ? (
+            {canEditNoteAttachments && attachableArtifactPayloads.length > 0 ? (
               <button
                 type="button"
                 onClick={() => setIsAttachmentPickerOpen(currentValue => !currentValue)}
@@ -717,7 +764,10 @@ const ContextMenu = ({
               <button
                 type="button"
                 onClick={handleSaveNote}
-                disabled={isLoading || (!isAnnotationMode && !trimmedNote)}
+                disabled={
+                  isLoading ||
+                  (!isAnnotationMode && !trimmedNote && localAnnotationArtifactRefs.length === 0)
+                }
                 className="rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-700 dark:disabled:text-stone-500"
               >
                 {t(isAnnotationMode ? 'Salva' : 'Salva nota')}
@@ -758,7 +808,8 @@ const ContextMenu = ({
           <div className="min-w-0 flex-1">
             <input
               type="text"
-              value={input}
+              data-context-menu-target="input"
+              value={displayedInput}
               onChange={event => setInput(event.target.value)}
               placeholder={askInputPlaceholder}
               className="h-10 w-full min-w-0 border-0 bg-transparent px-3.5 text-sm text-stone-800 placeholder:text-stone-400 outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
@@ -768,6 +819,7 @@ const ContextMenu = ({
 
           <button
             type="submit"
+            data-context-menu-target="submit"
             aria-label={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
             disabled={!trimmedInput || isLoading}
             className={askButtonClassName}
@@ -864,7 +916,8 @@ const ContextMenu = ({
       <form className="space-y-3" onSubmit={handleAskSubmit}>
         <input
           type="text"
-          value={input}
+          data-context-menu-target="input"
+          value={displayedInput}
           onChange={event => setInput(event.target.value)}
           onFocus={event => {
             const target = event.currentTarget;
@@ -900,6 +953,7 @@ const ContextMenu = ({
 
           <button
             type="button"
+            data-context-menu-target="submit"
             aria-label={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
             disabled={!trimmedInput || isLoading}
             onClick={handleAskClick}
@@ -1001,6 +1055,11 @@ const ContextMenu = ({
       }`}
       style={{
         ...menuStyle,
+        ...(!isMobileSheet
+          ? ({
+              '--context-menu-note-max-height': `${desktopNoteMaxHeight}px`,
+            } as CSSProperties)
+          : null),
         transformOrigin,
         willChange: 'transform, opacity',
         ...(isMobileSheet ? { x: '-50%' } : null),

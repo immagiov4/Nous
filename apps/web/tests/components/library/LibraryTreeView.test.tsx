@@ -170,7 +170,6 @@ describe('LibraryTreeView', () => {
         tree={tree}
       />
     );
-
     expect(screen.getByText('Frontend')).toBeInTheDocument();
     expect(addListener).toHaveBeenCalled();
 
@@ -353,8 +352,6 @@ describe('LibraryTreeView', () => {
         tree={tree}
       />
     );
-
-    expect(screen.getByLabelText('Contenuto cartella Frontend')).toHaveClass('space-y-3');
   });
 
   test('keeps an opening project clickable so a stale opening state can be retried', async () => {

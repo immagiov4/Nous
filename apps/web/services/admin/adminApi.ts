@@ -19,6 +19,9 @@ export interface AdminModelConfig {
   contextReasoningEffort: AdminReasoningEffort;
   lessonModel: string;
   lessonReasoningEffort: AdminReasoningEffort;
+  progressModel: string;
+  progressReasoningEffort: AdminReasoningEffort;
+  researchModel: string;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
@@ -33,6 +36,9 @@ export type AdminModelConfigPatch = Partial<
     | 'contextReasoningEffort'
     | 'lessonModel'
     | 'lessonReasoningEffort'
+    | 'progressModel'
+    | 'progressReasoningEffort'
+    | 'researchModel'
     | 'ttsModel'
     | 'ttsVoice'
   >
@@ -45,6 +51,9 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   contextReasoningEffort: 'medium',
   lessonModel: 'openai/gpt-5.4-mini',
   lessonReasoningEffort: 'medium',
+  progressModel: 'google/gemini-3.1-flash-lite',
+  progressReasoningEffort: 'low',
+  researchModel: 'perplexity/sonar-pro-search',
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   ttsVoice: 'Ara',
   updatedAt: '',
@@ -84,6 +93,12 @@ const normalizeAdminModelConfig = (
     config?.lessonReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.lessonReasoningEffort
   ),
+  progressModel: readConfigValue(config?.progressModel, DEFAULT_ADMIN_MODEL_CONFIG.progressModel),
+  progressReasoningEffort: readReasoningEffort(
+    config?.progressReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.progressReasoningEffort
+  ),
+  researchModel: readConfigValue(config?.researchModel, DEFAULT_ADMIN_MODEL_CONFIG.researchModel),
   ttsModel: readConfigValue(config?.ttsModel, DEFAULT_ADMIN_MODEL_CONFIG.ttsModel),
   ttsVoice: readConfigValue(config?.ttsVoice, DEFAULT_ADMIN_MODEL_CONFIG.ttsVoice),
   updatedAt: readConfigValue(config?.updatedAt, DEFAULT_ADMIN_MODEL_CONFIG.updatedAt),

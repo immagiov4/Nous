@@ -4,11 +4,21 @@ import ContextAnswerPanel from './ContextAnswerPanel.tsx';
 import type { WorkspaceReaderOverlaysModel } from './types.ts';
 
 function WorkspaceReaderOverlays({
+  contextAnswerArtifactActionFeedbackOverride,
+  contextAnswerArtifactPreviewIdOverride,
+  contextAnswerArtifactPortalContainer,
+  contextAnswerAutoScrollKey,
   contextAnswer,
+  contextAnswerDisplayMessages,
   contextAnswerPanelRef,
   contextAnswerResizePreviewRef,
   contextAnswerSize,
+  contextAnswerInputValue,
   contextMenu,
+  contextMenuAskInputValue,
+  contextMenuArtifactPreviewIdOverride,
+  contextMenuArtifactPortalContainer,
+  contextMenuNotePreviewScrollTopOverride,
   contextMenuRef,
   handleContextAnswerResizeStart,
   isContextLoading,
@@ -35,12 +45,18 @@ function WorkspaceReaderOverlays({
         <>
           <ContextAnswerPanel
             key={contextAnswer.id}
+            artifactActionFeedbackOverride={contextAnswerArtifactActionFeedbackOverride}
+            artifactPreviewIdOverride={contextAnswerArtifactPreviewIdOverride}
+            artifactPortalContainer={contextAnswerArtifactPortalContainer}
+            autoScrollKey={contextAnswerAutoScrollKey}
             contextAnswer={contextAnswer}
+            displayMessages={contextAnswerDisplayMessages}
             contextAnswerPanelRef={contextAnswerPanelRef}
             contextAnswerSize={contextAnswerSize}
             handleContextAnswerResizeStart={handleContextAnswerResizeStart}
             currentLessonArtifactPayloads={currentLessonArtifactPayloads}
             isDarkMode={isDarkMode}
+            inputValueOverride={contextAnswerInputValue}
             isMobileViewport={isMobileViewport}
             onClose={onCloseContextAnswer}
             onSaveConversationNote={onSaveConversationNote}
@@ -61,9 +77,13 @@ function WorkspaceReaderOverlays({
       {contextMenu.visible ? (
         <ContextMenu
           {...contextMenu}
+          askInputValue={contextMenuAskInputValue}
+          artifactPreviewIdOverride={contextMenuArtifactPreviewIdOverride}
+          artifactPortalContainer={contextMenuArtifactPortalContainer}
           artifactPayloads={currentLessonArtifactPayloads}
           containerRef={contextMenuRef}
           isDarkMode={isDarkMode}
+          notePreviewScrollTopOverride={contextMenuNotePreviewScrollTopOverride}
           onClose={onCloseContextMenu}
           onAttachArtifactToAnnotation={onAttachArtifactToAnnotation}
           onAsk={onAskContextQuestion}

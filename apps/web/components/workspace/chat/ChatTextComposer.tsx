@@ -7,6 +7,7 @@ interface ChatTextComposerProps {
   disabled?: boolean;
   leadingContent?: ReactNode;
   inputClassName?: string;
+  inputDataTarget?: string;
   inputShellClassName?: string;
   isLoading?: boolean;
   onChange: (value: string) => void;
@@ -14,6 +15,7 @@ interface ChatTextComposerProps {
   placeholder: string;
   submitAriaLabel?: string;
   submitButtonClassName?: string;
+  submitDataTarget?: string;
   submitContent?: ReactNode;
   submitTitle?: string;
   trailingContent?: ReactNode;
@@ -25,6 +27,7 @@ export default function ChatTextComposer({
   disabled = false,
   leadingContent,
   inputClassName,
+  inputDataTarget,
   inputShellClassName,
   isLoading = false,
   onChange,
@@ -32,6 +35,7 @@ export default function ChatTextComposer({
   placeholder,
   submitAriaLabel,
   submitButtonClassName,
+  submitDataTarget,
   submitContent,
   submitTitle,
   trailingContent,
@@ -62,6 +66,7 @@ export default function ChatTextComposer({
       >
         <input
           type="text"
+          data-chat-composer-target={inputDataTarget}
           value={value}
           onChange={event => onChange(event.target.value)}
           placeholder={placeholder}
@@ -77,6 +82,7 @@ export default function ChatTextComposer({
 
       <button
         type="submit"
+        data-chat-composer-target={submitDataTarget}
         aria-label={submitAriaLabel || submitTitle || t('Invia messaggio')}
         title={submitTitle || t('Invia messaggio')}
         disabled={isSubmitDisabled}

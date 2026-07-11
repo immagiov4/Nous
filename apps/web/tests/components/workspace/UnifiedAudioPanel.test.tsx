@@ -57,7 +57,7 @@ const AudioHarness = ({ initialMusicUrl = '' }: { initialMusicUrl?: string }) =>
 };
 
 describe('UnifiedAudioPanel', () => {
-  test('anchors the compact panel below the audio control on mobile viewports', () => {
+  test('centers the panel on phones and restores icon anchoring from the tablet breakpoint', () => {
     const { container } = render(
       <UnifiedAudioPanel
         initialTab="voce"
@@ -74,8 +74,8 @@ describe('UnifiedAudioPanel', () => {
     );
 
     const panel = container.querySelector('[data-audio-panel-positioner]');
-    expect(panel).toHaveClass('absolute', 'right-0');
-    expect(panel).not.toHaveClass('fixed', 'left-1/2', '-translate-x-1/2');
+    expect(panel).toHaveClass('fixed', 'left-1/2', '-translate-x-1/2');
+    expect(panel).toHaveClass('sm:absolute', 'sm:right-0', 'sm:left-auto', 'sm:translate-x-0');
   });
 
   test('shows how many speech parts exist and lets the user choose one directly', async () => {

@@ -76,6 +76,38 @@
 
 Final result: passed
 
+## Issue 67 — lesson generation progress
+
+### Source and captures
+
+- Selected reference: `C:/Users/giovb/AppData/Local/Temp/codex-clipboard-bbefde98-1b5d-44b4-b111-5dd9d4fe1b99.png`.
+- Live preview: `/#preview-loading`.
+- Desktop capture: `.codex-generation-progress-desktop.png`, 1440 × 1024 viewport.
+- Mobile capture: `.codex-generation-progress-mobile.png`, 390 × 844 viewport.
+- Side-by-side comparison: `.codex-generation-progress-comparison.png`.
+
+### Findings and fixes
+
+- P1: the first mobile pass clipped the elapsed-time line because the page intentionally locks scrolling.
+  Reduced only the mobile spacing and section-row height; the full progress view now fits with zero
+  horizontal or vertical overflow.
+- P2: the first desktop pass omitted the Nous identity from the selected reference. Added the existing
+  Nous mark and wordmark on page-sized progress views while keeping embedded lesson generation compact.
+- P2: the reference reserves visible space for sections still being assembled. The live UI now renders
+  five total section slots using validated titles plus neutral skeleton rows.
+- The six-stage ribbon, amber active state, paper surface, editorial typography, live section assembly,
+  and elapsed time match the selected direction. Remaining differences are intentional: no decorative
+  citation callout is invented, and no cancel control is shown until generation has real cancellation.
+
+### Responsive and runtime checks
+
+- Desktop and mobile both report `scrollWidth === clientWidth` and `scrollHeight === clientHeight`.
+- Mobile uses a two-row stage ribbon and keeps every label, section, and elapsed-time line visible.
+- The DOM exposes the progress screen as a polite live region and does not contain raw reasoning text.
+- No runtime console errors were observed on the preview.
+
+Final result: passed
+
 ### Pass 4 — narrative scroll journey
 
 #### Contract

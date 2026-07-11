@@ -31,6 +31,7 @@ export default function AdminPanel() {
     ['lessonModel', 'lessonReasoningEffort', t('Lezioni')],
     ['contextModel', 'contextReasoningEffort', t('Contesto')],
     ['assessmentModel', 'assessmentReasoningEffort', 'Assessment'],
+    ['progressModel', 'progressReasoningEffort', t('Avanzamento')],
   ] as const;
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [modelConfig, setModelConfig] = useState<AdminModelConfig>(DEFAULT_ADMIN_MODEL_CONFIG);
@@ -323,6 +324,21 @@ export default function AdminPanel() {
                   </div>
                 );
               })}
+              <label className="mt-3 block">
+                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                  {t('Ricerca')}
+                </span>
+                <input
+                  value={modelConfig.researchModel}
+                  onChange={event =>
+                    setModelConfig(current => ({
+                      ...current,
+                      researchModel: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                />
+              </label>
               {(
                 [
                   ['ttsModel', t('TTS')],

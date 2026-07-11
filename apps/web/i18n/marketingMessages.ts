@@ -7,14 +7,22 @@ const ENGLISH_MARKETING_MESSAGES = {
     'Slides that survived three versions of PowerPoint? A book that explains everything except what will be on the exam?',
   'Carica un PDF o un archivio di materiali. Nous costruisce lezioni leggibili, domande, note e audio, sempre dal punto in cui eri rimasto.':
     'Upload a PDF or an archive of materials. Nous builds readable lessons, questions, notes, and audio, always from where you left off.',
+  'Carica un PDF o un archivio di materiali. Nous prepara lezioni, domande ed esercizi per te.':
+    'Upload a PDF or an archive of materials. Nous prepares lessons, questions, and exercises for you.',
   'Le slide del professore sembrano sopravvissute a tre versioni di PowerPoint? Il libro spiega tutto, tranne quello che chiederà all’esame?':
     'Do your professor’s slides look like they survived three versions of PowerPoint? Does the book explain everything except what will be on the exam?',
   'Metti insieme slide, dispense e libri. Nous li trasforma nel corso che avresti voluto ricevere: lezioni leggibili, domande, note e audio, sempre dal punto in cui eri rimasto.':
     'Bring your slides, course notes, and books together. Nous turns them into the course you wish you had received: readable lessons, questions, notes, and audio, always from where you left off.',
   'Richiedi l’accesso alla preview': 'Request preview access',
+  'Richiedi accesso all’anteprima': 'Request access to the preview',
+  'Accesso all’anteprima': 'Preview access',
   'Sei già tester? Usa Accedi in alto.': 'Already a tester? Use Sign in above.',
   'Materiali di studio disordinati': 'Disorganized study materials',
   'Architetture di rete': 'Network architectures',
+  'Psicologia cognitiva': 'Cognitive psychology',
+  'attenzione · memoria · apprendimento': 'attention · memory · learning',
+  'psicologia_cognitiva.pdf': 'cognitive_psychology.pdf',
+  'Psicologia · 640 pagine': 'Psychology · 640 pages',
   'dispense_finale_v7.pdf': 'course_notes_final_v7.pdf',
   '“Importante per l’esame”': '“Important for the exam”',
   'Libro · 684 pagine': 'Book · 684 pages',
@@ -23,6 +31,7 @@ const ENGLISH_MARKETING_MESSAGES = {
   '2 lezioni completate · riprendi dalla 3': '2 lessons complete · resume from 3',
   'Il materiale non dovrebbe essere un secondo esame.':
     'The material should not feel like a second exam.',
+  '— Giovanni, creatore di Nous': '— Giovanni, creator of Nous',
   'Finalmente il materiale diventa studiabile.':
     'Finally, the material becomes something you can study.',
   'Non sei tu che devi ricostruire il filo tra slide, libro, appunti e cinque chat diverse.':
@@ -99,6 +108,33 @@ const ENGLISH_MARKETING_MESSAGES = {
   '5 lezioni': '5 lessons',
   '6 lezioni': '6 lessons',
 } as const;
+
+export const MARKETING_JOURNEY_COPY = [
+  {
+    number: '01',
+    title: 'Metti tutto sul tavolo.',
+    description:
+      'Carica il PDF del corso oppure uno ZIP con più file. Nous parte dal materiale che devi davvero studiare.',
+  },
+  {
+    number: '02',
+    title: 'Nous ricostruisce il filo.',
+    description:
+      'Prima prepara il piano. Poi genera una lezione alla volta, abbastanza chiara da farti orientare senza riscrivere il libro.',
+  },
+  {
+    number: '03',
+    title: 'Studi senza uscire dal contesto.',
+    description:
+      'Se un passaggio non è chiaro, chiedi lì. La risposta conosce la lezione e le fonti: niente copia e incolla in un’altra chat.',
+  },
+  {
+    number: '04',
+    title: 'Chiudi. Torna. Riparti da lì.',
+    description:
+      'Lezioni, evidenziazioni e note restano insieme. Puoi riprendere dal computer o dal telefono, leggendo oppure ascoltando.',
+  },
+] as const;
 
 type MarketingMessage = keyof typeof ENGLISH_MARKETING_MESSAGES;
 

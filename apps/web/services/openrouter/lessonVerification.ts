@@ -10,7 +10,7 @@ import {
   normalizeQuizLength,
   parseQuizPayload,
 } from './lessonMarkdownQuality/index.ts';
-import { buildUserGenerationNotesBlock } from './prompts.ts';
+import { buildUserGenerationNotesBlock, FORMULA_RELEVANCE_RULE } from './prompts.ts';
 import {
   callOpenRouter,
   type LessonImageRef,
@@ -155,6 +155,10 @@ interface BuildLessonVerificationPromptInput {
   generationNotes?: string;
 }
 
+interface VerifyLessonDraftInput extends BuildLessonVerificationPromptInput {
+  onReasoningUpdate?: (reasoning: string) => void;
+}
+
 export const buildLessonVerificationPrompt = ({
   sectionTitle,
   sectionDescription,
@@ -196,7 +200,7 @@ ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 17. Se trovi forestierismi inutili nel testo, sostituiscili con equivalenti italiani naturali, salvo casi in cui il termine straniero sia davvero lo standard tecnico necessario.
 18. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
 19. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
-20. Verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
+20. ${FORMULA_RELEVANCE_RULE} Rimuovi le formule decorative o estranee al materiale. Per le formule pertinenti, verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
 21. Verifica con severita i blocchi di codice/pseudocodice Markdown: se un esempio e spezzato in piu blocchi \`\`\`text\` con righe del corpo fuori dal blocco, correggilo in UN SOLO code block che contenga firma, corpo, parentesi graffe e RETURN. Questo e un errore di formattazione, anche se il testo e semanticamente comprensibile.
 22. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
 23. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti. Se manca una frase vicina che aiuta il lettore a usare la figura, aggiungila con modifica minima oppure rimuovi l'immagine.
@@ -232,7 +236,8 @@ export const verifyLessonDraft = async ({
   draft,
   candidateImages,
   generationNotes,
-}: BuildLessonVerificationPromptInput): Promise<LessonVerificationDraft> => {
+  onReasoningUpdate,
+}: VerifyLessonDraftInput): Promise<LessonVerificationDraft> => {
   const verificationPrompt = buildLessonVerificationPrompt({
     sectionTitle,
     sectionDescription,
@@ -250,6 +255,7 @@ export const verifyLessonDraft = async ({
     async () => {
       const response = await callOpenRouter({
         model: MODEL_FLASH,
+        onReasoningUpdate,
         reasoning: MEDIUM_REASONING_CONFIG,
         messages: [
           { role: 'system', content: teacherInstruction },

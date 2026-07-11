@@ -350,30 +350,15 @@ export default WorkspaceReaderHeader;
 
 /** Small non-intrusive badge showing persistence sync state. */
 function SyncBadge({ syncState }: { syncState: 'saved' | 'saving' | 'error' }) {
-  if (syncState === 'saved') return null;
-
-  const isSaving = syncState === 'saving';
+  if (syncState !== 'error') return null;
 
   return (
     <div
-      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
-        isSaving
-          ? 'bg-sky-50 text-sky-600 dark:bg-sky-900/20 dark:text-sky-400'
-          : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
-      }`}
-      title={t(isSaving ? 'Salvataggio in corso...' : 'Errore di salvataggio')}
+      className="flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-600 dark:bg-red-900/20 dark:text-red-400"
+      title={t('Errore di salvataggio')}
     >
-      {isSaving ? (
-        <>
-          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
-          <span>{t('Salvataggio')}</span>
-        </>
-      ) : (
-        <>
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
-          <span>{t('Errore')}</span>
-        </>
-      )}
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+      <span>{t('Errore')}</span>
     </div>
   );
 }

@@ -1,10 +1,12 @@
 import type {
   ApplicationExerciseNode,
   ExerciseAttachment,
+  ExerciseFeedback,
   LearningPlan,
   ResearchSourceReference,
 } from '../../types.ts';
 import { timestampIso } from '../../utils/time.ts';
+import { EXERCISE_PASS_THRESHOLD } from './constants.ts';
 
 export interface ApplicationExercisePlacement {
   assessedObjective: string;
@@ -190,6 +192,23 @@ export const withGeneratedExerciseBrief = (
   generatedAt: timestampIso(),
   updatedAt: timestampIso(),
 });
+
+export const withExerciseFeedback = (
+  exercise: ApplicationExerciseNode,
+  feedback: ExerciseFeedback
+): ApplicationExerciseNode => {
+  const passed = feedback.score >= EXERCISE_PASS_THRESHOLD;
+
+  return {
+    ...exercise,
+    currentFeedback: feedback,
+    bestScore: Math.max(exercise.bestScore ?? 0, feedback.score),
+    completedAt: !exercise.isCompleted && passed ? feedback.evaluatedAt : exercise.completedAt,
+    isCompleted: exercise.isCompleted || passed,
+    feedbackStale: false,
+    updatedAt: timestampIso(),
+  };
+};
 
 export const addExerciseAttachments = (
   exercise: ApplicationExerciseNode,

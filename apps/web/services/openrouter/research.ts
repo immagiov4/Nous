@@ -312,7 +312,7 @@ export const generateResearchCoursePlan = async (
     () =>
       callOpenRouter({
         model: MODEL_RESEARCH_PLANNER,
-        disableModelOverride: true,
+        modelSlot: 'research',
         messages: [{ role: 'user', content: buildCoursePlanResearchPrompt(profile) }],
       }),
     2,
@@ -487,7 +487,7 @@ export const generateResearchLessonDossier = async (args: {
     () =>
       callOpenRouter({
         model: MODEL_RESEARCH_DOSSIER,
-        disableModelOverride: true,
+        modelSlot: 'research',
         messages: [
           {
             role: 'user',

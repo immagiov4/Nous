@@ -97,6 +97,44 @@ describe('/api/openrouter proxy', () => {
     expect(assessmentBody.reasoning?.effort).toBe('low');
   });
 
+  test('uses the dedicated fast model for progress summaries', async () => {
+    patchGlobalModelConfig({
+      progressModel: 'google/progress-model',
+      progressReasoningEffort: 'low',
+    });
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'progress')
+      .send({ messages: [{ role: 'user', content: 'Untrusted stream' }] });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      model?: string;
+      reasoning?: { effort?: string };
+    };
+    expect(body.model).toBe('google/progress-model');
+    expect(body.reasoning?.effort).toBe('low');
+  });
+
+  test('uses the configured search model without unsupported reasoning', async () => {
+    patchGlobalModelConfig({ researchModel: 'perplexity/custom-search-model' });
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'research')
+      .send({
+        messages: [{ role: 'user', content: 'Cerca fonti aggiornate' }],
+        reasoning: { effort: 'high' },
+      });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      model?: string;
+      reasoning?: unknown;
+    };
+    expect(body.model).toBe('perplexity/custom-search-model');
+    expect(body.reasoning).toBeUndefined();
+  });
+
   test('omits reasoning for models configured without reasoning support', async () => {
     patchGlobalModelConfig({ lessonReasoningEffort: 'none' });
 

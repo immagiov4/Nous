@@ -311,7 +311,7 @@ export const useWorkspaceReaderActions = ({
   ]);
 
   const handleSaveNote = useCallback(
-    (note: string) => {
+    (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => {
       if (!activeSectionId) {
         return;
       }
@@ -327,6 +327,7 @@ export const useWorkspaceReaderActions = ({
           content: currentSection.content || sectionContent,
           contextAfter: contextMenu.contextAfter,
           contextBefore: contextMenu.contextBefore,
+          artifactRefs,
           note,
           selectedText: contextMenu.selectedText,
         });

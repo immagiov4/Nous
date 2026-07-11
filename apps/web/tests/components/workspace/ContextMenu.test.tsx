@@ -23,7 +23,7 @@ const buildProps = () => ({
 
 const annotationArtifact: LearningArtifactRenderPayload = {
   summary: {
-    id: 'visual-draft-1',
+    id: 'project-1:section-1:generated-visual:visual-draft-1',
     kind: 'generated-visual',
     lessonId: 'section-1',
     lessonTitle: 'Lezione test',
@@ -188,6 +188,30 @@ describe('ContextMenu', () => {
     expect(surface.style.transformOrigin).toBe(initialTransformOrigin);
   });
 
+  test('bounds the desktop note panel to the remaining viewport height', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<ContextMenu {...buildProps()} />);
+    const surface = container.firstElementChild as HTMLElement;
+    const initialTop = surface.style.top;
+    const initialBottom = surface.style.bottom;
+
+    await user.click(screen.getByTitle(/Aggiungi una nota a questo passaggio/i));
+
+    const noteInput = screen.getByPlaceholderText(
+      /Scrivi la nota che vuoi lasciare su questo passaggio/i
+    );
+    const noteMaxHeight = Number.parseFloat(
+      surface.style.getPropertyValue('--context-menu-note-max-height')
+    );
+    const top = Number.parseFloat(surface.style.top);
+
+    expect(noteMaxHeight).toBeGreaterThan(0);
+    expect(top + noteMaxHeight).toBeLessThanOrEqual(window.innerHeight);
+    expect(surface.style.top).toBe(initialTop);
+    expect(surface.style.bottom).toBe(initialBottom);
+    expect(noteInput).toHaveAttribute('rows', '5');
+  });
+
   test('opens the note editor and saves a note from a new selection', async () => {
     const user = userEvent.setup();
     const props = buildProps();
@@ -201,7 +225,80 @@ describe('ContextMenu', () => {
     );
     await user.click(screen.getByRole('button', { name: /Salva nota/i }));
 
-    expect(props.onSaveNote).toHaveBeenCalledWith('Ricordati di rivedere questo concetto');
+    expect(props.onSaveNote).toHaveBeenCalledWith('Ricordati di rivedere questo concetto', []);
+  });
+
+  test('can attach an extra artifact while creating a note from a new selection', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      artifactPayloads: [annotationArtifact],
+    };
+
+    render(<ContextMenu {...props} />);
+
+    await user.click(screen.getByTitle(/Aggiungi una nota a questo passaggio/i));
+    await user.click(screen.getByRole('button', { name: /Allega dagli artefatti/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Allega Mappa salvata alla nota/i }));
+
+    expect(screen.getByRole('button', { name: /Apri Mappa salvata/i })).toBeInTheDocument();
+
+    await user.type(
+      screen.getByPlaceholderText(/Scrivi la nota che vuoi lasciare su questo passaggio/i),
+      'Nota con artefatto'
+    );
+    await user.click(screen.getByRole('button', { name: /Salva nota/i }));
+
+    expect(props.onSaveNote).toHaveBeenCalledWith('Nota con artefatto', [
+      {
+        artifactId: 'project-1:section-1:generated-visual:visual-draft-1',
+        kind: 'generated-visual',
+        title: 'Mappa salvata',
+      },
+    ]);
+  });
+
+  test('can save an attached artifact without note text', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      artifactPayloads: [annotationArtifact],
+    };
+
+    render(<ContextMenu {...props} />);
+
+    await user.click(screen.getByTitle(/Aggiungi una nota a questo passaggio/i));
+    await user.click(screen.getByRole('button', { name: /Allega dagli artefatti/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Allega Mappa salvata alla nota/i }));
+    await user.click(screen.getByRole('button', { name: /Salva nota/i }));
+
+    expect(props.onSaveNote).toHaveBeenCalledWith('', [
+      {
+        artifactId: 'project-1:section-1:generated-visual:visual-draft-1',
+        kind: 'generated-visual',
+        title: 'Mappa salvata',
+      },
+    ]);
+  });
+
+  test('does not offer visuals already embedded in the lesson', async () => {
+    const user = userEvent.setup();
+    const embeddedArtifact: LearningArtifactRenderPayload = {
+      ...annotationArtifact,
+      summary: {
+        ...annotationArtifact.summary,
+        id: 'project-1:section-1:generated-visual:visual-001',
+      },
+      visual: { ...annotationArtifact.visual, id: 'visual-001' },
+    };
+
+    render(<ContextMenu {...buildProps()} artifactPayloads={[embeddedArtifact]} />);
+
+    await user.click(screen.getByTitle(/Aggiungi una nota a questo passaggio/i));
+
+    expect(
+      screen.queryByRole('button', { name: /Allega dagli artefatti/i })
+    ).not.toBeInTheDocument();
   });
 
   test('does not show remove inside the note editor for a highlight without a saved note', async () => {
@@ -237,7 +334,7 @@ describe('ContextMenu', () => {
     ).not.toBeInTheDocument();
     expect(
       screen.getByText(/Nota associata al passaggio/i).closest('[aria-hidden]')
-    ).not.toHaveClass('max-h-0');
+    ).toHaveAttribute('aria-hidden', 'false');
     expect(screen.getByPlaceholderText(/Chiedi a Nous/i)).toBeInTheDocument();
     expect(screen.queryByTitle(/Aggiungi o modifica una nota/i)).not.toBeInTheDocument();
     expect(screen.getByTitle('Rimuovi evidenziazione')).toBeInTheDocument();
@@ -253,7 +350,7 @@ describe('ContextMenu', () => {
     await user.clear(textarea);
     await user.click(screen.getByRole('button', { name: 'Salva' }));
 
-    expect(props.onSaveNote).toHaveBeenCalledWith('');
+    expect(props.onSaveNote).toHaveBeenCalledWith('', []);
   });
 
   test('renders saved annotation artifacts in preview mode', () => {
@@ -262,7 +359,7 @@ describe('ContextMenu', () => {
       ...buildProps(),
       annotationArtifactRefs: [
         {
-          artifactId: 'visual-draft-1',
+          artifactId: 'project-1:section-1:generated-visual:visual-draft-1',
           kind: 'generated-visual' as const,
           title: 'Mappa salvata',
         },
@@ -277,7 +374,9 @@ describe('ContextMenu', () => {
 
     expect(screen.getByRole('button', { name: /Apri Mappa salvata/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Rimuovi Mappa salvata dalla nota/i }));
-    expect(onDetachArtifactFromAnnotation).toHaveBeenCalledWith('visual-draft-1');
+    expect(onDetachArtifactFromAnnotation).toHaveBeenCalledWith(
+      'project-1:section-1:generated-visual:visual-draft-1'
+    );
     expect(screen.queryByRole('button', { name: /Apri Mappa salvata/i })).not.toBeInTheDocument();
   });
 
@@ -298,7 +397,7 @@ describe('ContextMenu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /Allega Mappa salvata alla nota/i }));
 
     expect(onAttachArtifactToAnnotation).toHaveBeenCalledWith({
-      artifactId: 'visual-draft-1',
+      artifactId: 'project-1:section-1:generated-visual:visual-draft-1',
       kind: 'generated-visual',
       title: 'Mappa salvata',
     });

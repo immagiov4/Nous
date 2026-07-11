@@ -16,6 +16,9 @@ export interface GlobalModelConfig {
   contextReasoningEffort: ReasoningEffort;
   lessonModel: string;
   lessonReasoningEffort: ReasoningEffort;
+  progressModel: string;
+  progressReasoningEffort: ReasoningEffort;
+  researchModel: string;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
@@ -30,6 +33,9 @@ export type GlobalModelConfigPatch = Partial<
     | 'contextReasoningEffort'
     | 'lessonModel'
     | 'lessonReasoningEffort'
+    | 'progressModel'
+    | 'progressReasoningEffort'
+    | 'researchModel'
     | 'ttsModel'
     | 'ttsVoice'
   >
@@ -42,6 +48,9 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   contextReasoningEffort: 'medium',
   lessonModel: process.env.MODEL_LESSON || 'openai/gpt-5.4-mini',
   lessonReasoningEffort: 'medium',
+  progressModel: process.env.MODEL_PROGRESS || 'google/gemini-3.1-flash-lite',
+  progressReasoningEffort: 'low',
+  researchModel: process.env.MODEL_RESEARCH_PLANNER || 'perplexity/sonar-pro-search',
   ttsModel: process.env.MODEL_TTS || DEFAULT_TTS_MODEL,
   ttsVoice: process.env.TTS_VOICE || DEFAULT_TTS_VOICE,
 };
@@ -60,6 +69,9 @@ interface PersistedModelConfigRow {
   context_reasoning_effort?: string;
   lesson_model?: string;
   lesson_reasoning_effort?: string;
+  progress_model?: string;
+  progress_reasoning_effort?: string;
+  research_model?: string;
   tts_model?: string;
   tts_voice?: string;
   updated_at?: string;
@@ -111,6 +123,15 @@ export const patchGlobalModelConfig = (patch: GlobalModelConfigPatch): GlobalMod
     ...(isReasoningEffort(patch.lessonReasoningEffort)
       ? { lessonReasoningEffort: patch.lessonReasoningEffort }
       : {}),
+    ...(readConfigValue(patch.progressModel)
+      ? { progressModel: readConfigValue(patch.progressModel) }
+      : {}),
+    ...(isReasoningEffort(patch.progressReasoningEffort)
+      ? { progressReasoningEffort: patch.progressReasoningEffort }
+      : {}),
+    ...(readConfigValue(patch.researchModel)
+      ? { researchModel: readConfigValue(patch.researchModel) }
+      : {}),
     ...(readConfigValue(patch.ttsModel) ? { ttsModel: readConfigValue(patch.ttsModel) } : {}),
     ...(readConfigValue(patch.ttsVoice) ? { ttsVoice: readConfigValue(patch.ttsVoice) } : {}),
     updatedAt: new Date().toISOString(),
@@ -138,6 +159,9 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   context_reasoning_effort: config.contextReasoningEffort,
   lesson_model: config.lessonModel,
   lesson_reasoning_effort: config.lessonReasoningEffort,
+  progress_model: config.progressModel,
+  progress_reasoning_effort: config.progressReasoningEffort,
+  research_model: config.researchModel,
   tts_model: config.ttsModel,
   tts_voice: config.ttsVoice,
   updated_at: config.updatedAt,
@@ -165,6 +189,12 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       row.lesson_reasoning_effort,
       activeModelConfig.lessonReasoningEffort
     ),
+    progressModel: readConfigValue(row.progress_model) || activeModelConfig.progressModel,
+    progressReasoningEffort: readReasoningEffort(
+      row.progress_reasoning_effort,
+      activeModelConfig.progressReasoningEffort
+    ),
+    researchModel: readConfigValue(row.research_model) || activeModelConfig.researchModel,
     ttsModel: usesUnavailableTtsModel
       ? DEFAULT_TTS_MODEL
       : persistedTtsModel || activeModelConfig.ttsModel,

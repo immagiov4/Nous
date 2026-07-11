@@ -1,5 +1,6 @@
 import { memo, useLayoutEffect } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../constants/layout.ts';
+import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import type { WorkspaceReaderShellProps } from './shell/types.ts';
 import WorkspaceReaderBanners from './shell/WorkspaceReaderBanners.tsx';
 import WorkspaceReaderContent from './shell/WorkspaceReaderContent.tsx';
@@ -16,6 +17,8 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   shouldUseDesktopSidebar,
   sidebar,
 }: WorkspaceReaderShellProps) {
+  const { viewportHeight } = useMobileKeyboardOffset();
+
   useLayoutEffect(() => {
     if (displayMode === 'embedded' || typeof document === 'undefined') {
       return;
@@ -75,7 +78,14 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
           ? `${header.isDarkMode ? 'dark ' : ''}min-h-[34rem] overflow-visible`
           : 'h-screen overflow-hidden'
       }`}
-      style={isEmbedded ? undefined : { height: '100dvh', maxHeight: '100dvh' }}
+      style={
+        isEmbedded
+          ? undefined
+          : {
+              height: viewportHeight === null ? '100dvh' : `${viewportHeight}px`,
+              maxHeight: viewportHeight === null ? '100dvh' : `${viewportHeight}px`,
+            }
+      }
     >
       <WorkspaceReaderSidebar {...sidebarModel} />
 

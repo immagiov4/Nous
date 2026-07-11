@@ -6,12 +6,14 @@ type UiMessageVariables = Record<string, number | string>;
 
 const DEFAULT_APP_LOCALE: AppLocale = 'en';
 const supportedLocales = new Set<string>(SUPPORTED_APP_LOCALES);
+let renderingLocaleOverride: AppLocale | null = null;
 
 const ENGLISH_UI_MESSAGES = {
   Accedi: 'Sign in',
   Abilita: 'Enable',
   Aggiorna: 'Refresh',
   Amministrazione: 'Administration',
+  Avanzamento: 'Progress',
   'Accedi al tuo spazio di studio per sincronizzare corsi, note e progressi.':
     'Sign in to your study space to sync courses, notes, and progress.',
   'Accesso alla preview': 'Preview access',
@@ -20,7 +22,15 @@ const ENGLISH_UI_MESSAGES = {
   'Anteprima del lettore Nous': 'Nous Reader preview',
   'Apri menu': 'Open menu',
   Annulla: 'Cancel',
+  Fonti: 'Sources',
   'Analisi Volume in Corso...': 'Analyzing source material...',
+  'Lezione in cottura...': 'Lesson in the works...',
+  Pronta: 'Ready',
+  Quiz: 'Quiz',
+  Stesura: 'Drafting',
+  Struttura: 'Structure',
+  'Tempo trascorso': 'Elapsed time',
+  Verifica: 'Review',
   'Apri progetto': 'Open project',
   'Apri cartella': 'Open folder',
   Azioni: 'Actions',
@@ -257,6 +267,8 @@ const ENGLISH_UI_MESSAGES = {
   'Non sono riuscito a salvare la consegna.': 'I could not save the submission.',
   'Non sono riuscito a rimuovere il file.': 'I could not remove the file.',
   'Non sono riuscito ad allegare il file.': 'I could not attach the file.',
+  'Non sono riuscito a valutare la consegna. Riprova.':
+    'I could not assess the submission. Try again.',
   'Aggiungi una consegna e richiedi un riscontro.': 'Add a submission and request feedback.',
   'Come vuoi che siano le lezioni di "{courseTitle}"?':
     'What should the lessons in "{courseTitle}" be like?',
@@ -387,6 +399,7 @@ const ENGLISH_UI_MESSAGES = {
   codice: 'code',
   Consegna: 'Submission',
   'Correzione AI': 'AI assessment',
+  'Da migliorare': 'Improvements',
   'Esercizio applicativo': 'Application exercise',
   'File testuale pronto per la valutazione.': 'Text file ready for assessment.',
   'Fonte originale: {sourcePageRangeLabel}': 'Original source: {sourcePageRangeLabel}',
@@ -397,11 +410,14 @@ const ENGLISH_UI_MESSAGES = {
   Lista: 'List',
   'La consegna del laboratorio usa le lezioni gia scritte. Mancano ancora:':
     'The lab assignment uses the lessons already written. Still missing:',
+  'La consegna non contiene testo leggibile.': 'The submission contains no readable text.',
+  'Limiti della valutazione': 'Assessment limitations',
   'Nascondi suggerimento selezione testo': 'Hide text-selection hint',
   'Parte {partNumber}': 'Part {partNumber}',
   'Parte {partNumber} evidenziata. Fai clic per sceglierla.':
     'Part {partNumber} highlighted. Click to choose it.',
   'Prima genera le lezioni precedenti': 'Generate the previous lessons first',
+  'Punti di forza': 'Strengths',
   'Richiedi riscontro': 'Request feedback',
   'Rimuovi allegato': 'Remove attachment',
   'Riscontro datato.': 'Feedback is outdated.',
@@ -422,6 +438,8 @@ const ENGLISH_UI_MESSAGES = {
   testo: 'text',
   'Titolo sezione': 'Section title',
   Traccia: 'Assignment',
+  'Valutazione in corso...': 'Assessment in progress...',
+  'Valuto la consegna…': 'Assessing the submission…',
   'Questo laboratorio è pianificato. Aprilo di nuovo per generare la consegna.':
     'This lab is planned. Open it again to generate the assignment.',
   'voce lista': 'list item',
@@ -699,6 +717,7 @@ const ENGLISH_UI_MESSAGES = {
   'Prima prepara il piano; poi genera soltanto la lezione che stai studiando.':
     'It prepares the plan first, then generates only the lesson you are studying.',
   'Ragionamento {modelSlot}': '{modelSlot} reasoning',
+  Ricerca: 'Research',
   'Stiamo aprendo Nous a piccoli gruppi per osservare come viene usato su corsi veri.':
     'We are opening Nous to small groups to observe how it is used on real courses.',
   'Trasforma PDF, libri e ricerca in un corso ordinato che puoi leggere, ascoltare e interrogare.':
@@ -772,7 +791,12 @@ export const resolveAppLocale = (languages: readonly string[]): AppLocale => {
   return DEFAULT_APP_LOCALE;
 };
 
-export const getAppLocale = (): AppLocale => resolveAppLocale(getBrowserLanguagePreferences());
+export const setRenderingLocaleOverride = (locale: AppLocale | null): void => {
+  renderingLocaleOverride = locale;
+};
+
+export const getAppLocale = (): AppLocale =>
+  renderingLocaleOverride ?? resolveAppLocale(getBrowserLanguagePreferences());
 
 const interpolateMessage = (message: string, variables?: UiMessageVariables): string =>
   message.replace(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (placeholder, variableName: string) => {
