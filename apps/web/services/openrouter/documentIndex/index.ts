@@ -13,4 +13,5 @@ export {
   getPdfLessonMappingState,
   needsPdfLessonMappingMigration,
   preparePdfLessonMappings,
+  prepareSourceSetLessonMappings,
 } from './mapping.ts';

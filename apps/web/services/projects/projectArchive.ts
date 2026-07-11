@@ -1,10 +1,5 @@
 import JSZip from 'jszip';
-import type {
-  CodebaseBundleSource,
-  FileData,
-  ProjectExportData,
-  ProjectSnapshot,
-} from '../../types.ts';
+import type { FileData, ProjectExportData, ProjectSnapshot } from '../../types.ts';
 import {
   loadZipSafely,
   readZipEntryBytesWithinLimit,
@@ -23,33 +18,26 @@ const PROJECT_ARCHIVE_SOURCE_DIR = 'source';
 const INVALID_BACKUP_ARCHIVE_MESSAGE =
   "Questo ZIP non contiene un backup Nous valido. Importa un file .nous.zip esportato dall'app.";
 const INVALID_BACKUP_FILE_MESSAGE = 'Il file selezionato non e un backup Nous valido.';
-const PROJECT_ARCHIVE_MAX_ENTRIES = 8;
-const PROJECT_ARCHIVE_MAX_MANIFEST_BYTES = 1_000_000;
+const PROJECT_ARCHIVE_MAX_ENTRIES = 128;
+const PROJECT_ARCHIVE_MAX_MANIFEST_BYTES = 20_000_000;
 const PROJECT_ARCHIVE_MAX_ATTACHMENT_BYTES = 80_000_000;
-
-type ArchivedPdfFileMeta = Omit<FileData, 'data'>;
-
-type ArchivedProjectSource =
-  | {
-      kind: 'pdf';
-      file: ArchivedPdfFileMeta;
-    }
-  | CodebaseBundleSource;
 
 interface ProjectArchiveAttachment {
   mimeType: string;
   name: string;
   path: string;
+  sourceId?: string;
 }
 
 interface ProjectArchiveManifest {
   archiveVersion: number;
   attachments?: {
     sourceFile?: ProjectArchiveAttachment;
+    sourceFiles?: ProjectArchiveAttachment[];
   };
   format: typeof PROJECT_ARCHIVE_FORMAT | typeof LEGACY_PROJECT_ARCHIVE_FORMAT;
   project: Omit<ProjectExportData, 'file' | 'source'> & {
-    source?: ArchivedProjectSource | null;
+    source?: ProjectExportData['source'];
   };
 }
 
@@ -92,11 +80,50 @@ function assertProjectImportPayload(
 const buildArchiveManifest = (
   snapshot: ProjectSnapshot
 ): {
-  attachment?: { bytes: Uint8Array; entry: ProjectArchiveAttachment };
+  attachments?: Array<{ bytes: Uint8Array; entry: ProjectArchiveAttachment }>;
   manifest: ProjectArchiveManifest;
 } => {
   const project = exportProjectData(snapshot);
   const { file: _legacyFile, source: projectSource, ...projectRest } = project;
+
+  if (snapshot.source?.sources?.length) {
+    const attachments = snapshot.source.sources
+      .filter(source => source.file.data)
+      .map((source, index) => ({
+        bytes: decodeBase64Bytes(source.file.data),
+        entry: {
+          path: `${PROJECT_ARCHIVE_SOURCE_DIR}/${String(index + 1).padStart(3, '0')}-${sanitizeArchivePathSegment(source.file.name)}`,
+          name: source.file.name,
+          mimeType: source.file.mimeType,
+          sourceId: source.id,
+        },
+      }));
+    const archivedSources = snapshot.source.sources.map(source => ({
+      ...source,
+      file: { ...source.file, data: '' },
+    }));
+    let archivedSource: ProjectExportData['source'];
+    if (snapshot.source.kind === 'pdf') {
+      const { ref: _serverSourceReference, ...portableSource } = snapshot.source;
+      archivedSource = {
+        ...portableSource,
+        file: { ...snapshot.source.file, data: '' },
+        sources: archivedSources,
+      };
+    } else {
+      archivedSource = { ...snapshot.source, sources: archivedSources };
+    }
+
+    return {
+      attachments,
+      manifest: {
+        format: PROJECT_ARCHIVE_FORMAT,
+        archiveVersion: PROJECT_ARCHIVE_VERSION,
+        attachments: { sourceFiles: attachments.map(attachment => attachment.entry) },
+        project: { ...projectRest, source: archivedSource },
+      },
+    };
+  }
 
   if (snapshot.source?.kind !== 'pdf') {
     return {
@@ -115,14 +142,16 @@ const buildArchiveManifest = (
   const archivePath = `${PROJECT_ARCHIVE_SOURCE_DIR}/${sanitizeArchivePathSegment(file.name)}`;
 
   return {
-    attachment: {
-      bytes: decodeBase64Bytes(file.data),
-      entry: {
-        path: archivePath,
-        name: file.name,
-        mimeType: file.mimeType,
+    attachments: [
+      {
+        bytes: decodeBase64Bytes(file.data),
+        entry: {
+          path: archivePath,
+          name: file.name,
+          mimeType: file.mimeType,
+        },
       },
-    },
+    ],
     manifest: {
       format: PROJECT_ARCHIVE_FORMAT,
       archiveVersion: PROJECT_ARCHIVE_VERSION,
@@ -140,7 +169,7 @@ const buildArchiveManifest = (
           file: {
             name: file.name,
             mimeType: file.mimeType,
-          },
+          } as FileData,
         },
       },
     },
@@ -184,6 +213,48 @@ const loadProjectArchive = async (bytes: Uint8Array): Promise<LoadedProjectArchi
 
 const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportData> => {
   const { manifest, zip } = await loadProjectArchive(bytes);
+
+  if (manifest.attachments?.sourceFiles?.length && manifest.project.source?.sources?.length) {
+    const filesBySourceId = new Map(
+      await Promise.all(
+        manifest.attachments.sourceFiles.map(async attachment => {
+          const attachmentEntry = zip.file(attachment.path);
+          if (!attachmentEntry || !attachment.sourceId) {
+            throw new Error(`Archivio backup non valido: manca ${attachment.path}.`);
+          }
+          const fileBytes = await readZipEntryBytesWithinLimit(
+            attachmentEntry,
+            PROJECT_ARCHIVE_MAX_ATTACHMENT_BYTES,
+            INVALID_BACKUP_ARCHIVE_MESSAGE
+          );
+          return [
+            attachment.sourceId,
+            {
+              name: attachment.name,
+              mimeType: attachment.mimeType,
+              data: encodeBytesBase64(fileBytes),
+              sourceId: attachment.sourceId,
+            } satisfies FileData,
+          ] as const;
+        })
+      )
+    );
+    const sources = manifest.project.source.sources.map(source => ({
+      ...source,
+      file: filesBySourceId.get(source.id) || source.file,
+    }));
+    const primarySourceId =
+      manifest.project.source.kind === 'pdf' ? manifest.project.source.file.sourceId : undefined;
+    const primaryFile =
+      sources.find(source => source.id === primarySourceId)?.file || sources[0]?.file;
+    return {
+      ...manifest.project,
+      source:
+        manifest.project.source.kind === 'pdf' && primaryFile
+          ? { ...manifest.project.source, file: primaryFile, sources }
+          : { ...manifest.project.source, sources },
+    };
+  }
 
   if (manifest.attachments?.sourceFile && manifest.project.source?.kind === 'pdf') {
     const attachment = manifest.attachments.sourceFile;
@@ -241,9 +312,9 @@ export const isProjectArchiveFile = async (file: Blob): Promise<boolean> => {
 
 export const createProjectArchiveBlob = async (snapshot: ProjectSnapshot): Promise<Blob> => {
   const zip = new JSZip();
-  const { attachment, manifest } = buildArchiveManifest(snapshot);
+  const { attachments, manifest } = buildArchiveManifest(snapshot);
 
-  if (attachment) {
+  for (const attachment of attachments || []) {
     zip.file(attachment.entry.path, attachment.bytes, {
       binary: true,
       compression: 'STORE',

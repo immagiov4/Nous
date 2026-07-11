@@ -8,6 +8,7 @@
     "start": "bun src/server.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "3.0.84",
     "@openrouter/ai-sdk-provider": "^2.3.3",
     "ai": "^6.0.137",
     "cors": "^2.8.5",

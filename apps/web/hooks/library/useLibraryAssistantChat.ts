@@ -11,6 +11,7 @@ import type {
   ChatArtifactReplaceRequest,
 } from '../../components/shared/ChatArtifactRenderer.tsx';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { addAiProviderPreferenceHeader } from '../../services/ai/providerPreference.ts';
 import { fetchWithSupabaseAuth } from '../../services/auth/supabaseAuth.ts';
 import {
   executeLibraryAssistantTool,
@@ -256,7 +257,7 @@ export const useLibraryAssistantChat = ({
           } = requestState;
 
           return {
-            headers,
+            headers: addAiProviderPreferenceHeader(headers),
             body: {
               attachedContextRefs: currentAttachedContextRefs,
               id,

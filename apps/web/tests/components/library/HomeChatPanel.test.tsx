@@ -187,6 +187,48 @@ describe('HomeChatPanel', () => {
     setViewportWidth(1280);
   });
 
+  test('maps scroll progress to the actual overflow for short, medium, and long chats', () => {
+    const props = buildProps();
+    const { container, rerender } = render(<HomeChatPanel {...props} />);
+    const scrollContainer = container.querySelector('.home-chat-scrollbar');
+    expect(scrollContainer).not.toBeNull();
+    if (!(scrollContainer instanceof HTMLDivElement)) {
+      throw new Error('Expected the home chat scroll container.');
+    }
+
+    Object.defineProperties(scrollContainer, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 440 },
+    });
+    rerender(<HomeChatPanel {...props} scrollProgressOverride={0.5} />);
+
+    expect(scrollContainer.scrollTop).toBe(120);
+    expect(scrollContainer.firstElementChild).not.toHaveStyle({ position: 'relative' });
+    expect(scrollContainer.firstElementChild).not.toHaveStyle({ top: '-300px' });
+
+    Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 1200 });
+    rerender(<HomeChatPanel {...props} scrollProgressOverride={1} />);
+    expect(scrollContainer.scrollTop).toBe(1000);
+
+    Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 120 });
+    rerender(<HomeChatPanel {...props} scrollProgressOverride={0.75} />);
+    expect(scrollContainer.scrollTop).toBe(0);
+  });
+
+  test('shows a compact count and the stable source list for a multi-file course', () => {
+    render(
+      <HomeChatPanel
+        {...buildProps()}
+        assessmentMessages={[]}
+        pendingFileNames={['Alpha.md', 'zeta.pdf']}
+      />
+    );
+
+    expect(screen.getByText(/2 (sources selected|fonti selezionate)/i)).toBeInTheDocument();
+    expect(screen.getByText('Alpha.md')).toBeInTheDocument();
+    expect(screen.getByText('zeta.pdf')).toBeInTheDocument();
+  });
+
   test('renders the course setup surface in the browser language', () => {
     Object.defineProperties(window.navigator, {
       language: { configurable: true, value: 'en-US' },

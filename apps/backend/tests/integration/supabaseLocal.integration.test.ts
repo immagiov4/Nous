@@ -86,7 +86,6 @@ describeLocalSupabase('Supabase local integration', () => {
 
   beforeAll(async () => {
     process.env.AUTH_MODE = 'supabase';
-    process.env.PROJECT_STORAGE_DRIVER = 'postgres';
     process.env.SUPABASE_JWT_SECRET = LOCAL_JWT_SECRET;
     process.env.SUPABASE_URL = LOCAL_SUPABASE_URL;
     process.env.SUPABASE_SERVICE_ROLE_KEY = serviceRoleKey;

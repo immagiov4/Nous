@@ -81,8 +81,9 @@ interface HomeChatPanelProps {
   libraryGenerateArtifacts: boolean;
   newCourseLoadingStatus: string;
   pendingFileName: string | null;
+  pendingFileNames?: string[];
   draftValueOverride?: string;
-  scrollTopOverride?: number;
+  scrollProgressOverride?: number;
   onClearPendingFile: () => void;
   onClearLibraryMessages?: () => void;
   onContinueAssessment?: () => void;
@@ -353,8 +354,9 @@ export default function HomeChatPanel({
   libraryGenerateArtifacts,
   newCourseLoadingStatus,
   pendingFileName,
+  pendingFileNames,
   draftValueOverride,
-  scrollTopOverride,
+  scrollProgressOverride,
   onClearPendingFile,
   onClearLibraryMessages,
   onContinueAssessment,
@@ -373,6 +375,17 @@ export default function HomeChatPanel({
   onToggleLibraryContextRef,
   onUploadSourceClick,
 }: HomeChatPanelProps) {
+  const displayedPendingFileNames = pendingFileNames?.length
+    ? pendingFileNames
+    : pendingFileName
+      ? [pendingFileName]
+      : [];
+  const pendingFileNameOccurrences = new Map<string, number>();
+  const displayedPendingFiles = displayedPendingFileNames.map(name => {
+    const occurrence = (pendingFileNameOccurrences.get(name) || 0) + 1;
+    pendingFileNameOccurrences.set(name, occurrence);
+    return { key: `${name}-${occurrence}`, name };
+  });
   const [draftByMode, setDraftByMode] = useState<Record<HomeChatMode, string>>({
     'library-query': '',
     'new-course': '',
@@ -409,7 +422,7 @@ export default function HomeChatPanel({
   );
 
   useLayoutEffect(() => {
-    if (scrollTopOverride === undefined || !messagesScrollRef.current) {
+    if (scrollProgressOverride === undefined || !messagesScrollRef.current) {
       return;
     }
 
@@ -418,12 +431,14 @@ export default function HomeChatPanel({
       if (!scrollContainer) {
         return;
       }
-      scrollContainer.scrollTop = scrollTopOverride;
+      const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+      const progress = Math.min(1, Math.max(0, scrollProgressOverride));
+      scrollContainer.scrollTop = maxScrollTop * progress;
     };
     applyScrollOverride();
     const animationFrameId = window.requestAnimationFrame(applyScrollOverride);
     return () => window.cancelAnimationFrame(animationFrameId);
-  }, [scrollTopOverride]);
+  }, [scrollProgressOverride]);
   const currentDraft = draftValueOverride ?? draftByMode[homeChatMode];
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
@@ -454,7 +469,7 @@ export default function HomeChatPanel({
   }, []);
 
   useEffect(() => {
-    if (scrollTopOverride !== undefined) {
+    if (scrollProgressOverride !== undefined) {
       return;
     }
     const lastItem = activeMessages[activeMessages.length - 1] || null;
@@ -463,7 +478,7 @@ export default function HomeChatPanel({
     }
 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [activeMessages, assessmentComplete, isLoading, scrollTopOverride]);
+  }, [activeMessages, assessmentComplete, isLoading, scrollProgressOverride]);
 
   useEffect(() => {
     if (isMobileViewport) {
@@ -1090,20 +1105,15 @@ export default function HomeChatPanel({
       <div
         ref={node => {
           messagesScrollRef.current = node;
-          if (node && scrollTopOverride !== undefined) {
-            node.scrollTop = scrollTopOverride;
+          if (node && scrollProgressOverride !== undefined) {
+            const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+            const progress = Math.min(1, Math.max(0, scrollProgressOverride));
+            node.scrollTop = maxScrollTop * progress;
           }
         }}
         className="home-chat-scrollbar h-[14rem] overflow-y-auto px-4 py-4 min-[640px]:h-[24rem] sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1"
       >
-        <div
-          className="space-y-3.5"
-          style={
-            scrollTopOverride === undefined
-              ? undefined
-              : { position: 'relative', top: -scrollTopOverride }
-          }
-        >
+        <div className="space-y-3.5">
           {!hasMessages ? renderEmptyState() : null}
 
           {homeChatMode === 'new-course'
@@ -1242,11 +1252,28 @@ export default function HomeChatPanel({
         className="border-t border-gray-100 px-4 pb-4 pt-3 dark:border-zinc-700/50 sm:px-5"
         style={{ paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 12}px` : undefined }}
       >
-        {homeChatMode === 'new-course' && pendingFileName ? (
-          <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm text-gray-600 dark:border-zinc-600/50 dark:bg-stone-700 dark:text-zinc-300">
-            <div className="flex min-w-0 items-center gap-2">
+        {homeChatMode === 'new-course' && displayedPendingFileNames.length > 0 ? (
+          <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm text-gray-600 dark:border-zinc-600/50 dark:bg-stone-700 dark:text-zinc-300">
+            <div className="flex min-w-0 items-start gap-2">
               <Paperclip className="h-4 w-4 shrink-0" />
-              <span className="truncate">{pendingFileName}</span>
+              <div className="min-w-0">
+                <span className="font-medium">
+                  {displayedPendingFileNames.length === 1
+                    ? displayedPendingFileNames[0]
+                    : t('{count} fonti selezionate', {
+                        count: displayedPendingFileNames.length,
+                      })}
+                </span>
+                {displayedPendingFileNames.length > 1 ? (
+                  <ul className="mt-1 space-y-0.5 text-xs text-gray-500 dark:text-zinc-400">
+                    {displayedPendingFiles.map(file => (
+                      <li key={file.key} className="truncate">
+                        {file.name}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             </div>
             {assessmentMessages.length === 0 ? (
               <button

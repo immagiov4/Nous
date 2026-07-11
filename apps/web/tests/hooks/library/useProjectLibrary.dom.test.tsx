@@ -27,18 +27,20 @@ const repositoryMocks = vi.hoisted(() => ({
   patchProject: vi.fn(),
   renameFolder: vi.fn(),
   saveProject: vi.fn(),
+  subscribeToProjectRevisions: vi.fn(),
   touchProject: vi.fn(),
 }));
 
+let revisionListener: ((event: { projectId: string; revision: number }) => void) | null = null;
+let revisionReconnect: (() => void) | null = null;
+
 vi.mock('../../../services/projects/projectRepositoryFactory', () => ({
   createProjectRepository: () => repositoryMocks,
-  getProjectRepositoryMode: () => 'server',
-  setProjectRepositoryMode: vi.fn(),
 }));
 
 const { useProjectLibrary } = await import('../../../hooks/library/useProjectLibrary.ts');
 
-const buildMeta = (id: string, lastOpenedAt: string): SavedProjectMeta => ({
+const buildMeta = (id: string, lastOpenedAt: string, revision = 1): SavedProjectMeta => ({
   id,
   title: `Project ${id}`,
   sourceKind: 'document',
@@ -51,6 +53,7 @@ const buildMeta = (id: string, lastOpenedAt: string): SavedProjectMeta => ({
   completedExercises: 0,
   hasSourceFile: true,
   coverLabel: 'PDF',
+  revision,
   syncState: 'local-only',
 });
 
@@ -104,6 +107,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.renameFolder.mockReset();
     repositoryMocks.saveProject.mockReset();
     repositoryMocks.patchProject.mockReset();
+    repositoryMocks.subscribeToProjectRevisions.mockReset();
     repositoryMocks.touchProject.mockReset();
 
     repositoryMocks.createFolder.mockImplementation(
@@ -131,6 +135,15 @@ describe('useProjectLibrary', () => {
       meta: buildMeta('imported', '2026-04-02T10:00:00.000Z'),
       snapshot: buildSnapshot('imported'),
     });
+    revisionListener = null;
+    revisionReconnect = null;
+    repositoryMocks.subscribeToProjectRevisions.mockImplementation(
+      (listener: typeof revisionListener, onReconnect: () => void) => {
+        revisionListener = listener;
+        revisionReconnect = onReconnect;
+        return () => {};
+      }
+    );
   });
 
   test('loads and sorts saved projects by last opened time', async () => {
@@ -140,7 +153,10 @@ describe('useProjectLibrary', () => {
     ]);
 
     const { result } = renderHook(() =>
-      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
     );
 
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
@@ -151,7 +167,10 @@ describe('useProjectLibrary', () => {
   test('clears a stale synchronization error after metadata refresh succeeds', async () => {
     repositoryMocks.listProjects.mockRejectedValueOnce(new Error('Sincronizzazione fallita'));
     const { result } = renderHook(() =>
-      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
     );
     await waitFor(() => expect(result.current.storageError).toBe('Sincronizzazione fallita'));
     repositoryMocks.listProjects.mockResolvedValue([]);
@@ -169,7 +188,10 @@ describe('useProjectLibrary', () => {
     ]);
 
     const { result } = renderHook(() =>
-      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
     );
 
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
@@ -199,7 +221,7 @@ describe('useProjectLibrary', () => {
     };
 
     const { result, rerender } = renderHook(
-      ({ domainState }) => useProjectLibrary({ domainState }),
+      ({ domainState }) => useProjectLibrary({ domainState, hydrateSnapshot: vi.fn() }),
       {
         initialProps: { domainState: baseState },
       }
@@ -253,7 +275,10 @@ describe('useProjectLibrary', () => {
     repositoryMocks.exportProject.mockResolvedValue(buildSnapshot('project-export'));
 
     const { result } = renderHook(() =>
-      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
     );
 
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
@@ -296,7 +321,10 @@ describe('useProjectLibrary', () => {
     ]);
 
     const { result } = renderHook(() =>
-      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
     );
 
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
@@ -324,7 +352,7 @@ describe('useProjectLibrary', () => {
     const initialDomain = createEmptyWorkspaceDomainState();
     const { result, rerender } = renderHook(
       ({ domainState }: { domainState: WorkspaceDomainState }) =>
-        useProjectLibrary({ domainState }),
+        useProjectLibrary({ domainState, hydrateSnapshot: vi.fn() }),
       { initialProps: { domainState: initialDomain } }
     );
 
@@ -374,7 +402,10 @@ describe('useProjectLibrary', () => {
     repositoryMocks.listProjects.mockImplementation(() => new Promise(() => {}));
 
     const { result } = renderHook(() =>
-      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
     );
 
     expect(result.current.isLibraryLoading).toBe(true);
@@ -385,6 +416,273 @@ describe('useProjectLibrary', () => {
     });
 
     expect(result.current.isLibraryLoading).toBe(true);
+    expect(result.current.storageError).toBeNull();
+  });
+
+  test('hydrates a newer active project revision without reloading the page', async () => {
+    const firstMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    const nextMeta = buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2);
+    const remoteSnapshot = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([], { title: 'Aggiornato altrove' }),
+      updatedAt: nextMeta.updatedAt,
+    });
+    const hydrateSnapshot = vi.fn();
+    repositoryMocks.listProjects.mockResolvedValue([firstMeta]);
+    repositoryMocks.loadProject.mockResolvedValue(remoteSnapshot);
+
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+    repositoryMocks.listProjects.mockResolvedValue([nextMeta]);
+
+    await act(async () => {
+      revisionListener?.({ projectId: 'project-1', revision: 2 });
+    });
+    await waitFor(() => expect(hydrateSnapshot).toHaveBeenCalledWith(remoteSnapshot));
+
+    expect(repositoryMocks.loadProject).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not fetch the active snapshot when reconnect finds the same revision', async () => {
+    const meta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 3);
+    repositoryMocks.listProjects.mockResolvedValue([meta]);
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    await act(async () => {
+      revisionReconnect?.();
+    });
+    await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
+
+    expect(repositoryMocks.loadProject).not.toHaveBeenCalled();
+  });
+
+  test('waits for an in-flight local write before applying a remote revision', async () => {
+    let rejectPatch: ((error: Error) => void) | null = null;
+    const patchPromise = new Promise<never>((_resolve, reject) => {
+      rejectPatch = reject;
+    });
+    const hydrateSnapshot = vi.fn();
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.patchProject.mockReturnValue(patchPromise);
+    repositoryMocks.loadProject.mockResolvedValue(
+      buildSnapshot('project-1', { updatedAt: '2026-04-02T11:00:00.000Z' })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let localWrite!: Promise<boolean>;
+    act(() => {
+      localWrite = result.current.patchSectionLessonContent('lesson-1', { content: 'locale' });
+    });
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2),
+    ]);
+    await act(async () => {
+      revisionListener?.({ projectId: 'project-1', revision: 2 });
+      await Promise.resolve();
+    });
+
+    expect(repositoryMocks.loadProject).not.toHaveBeenCalled();
+    expect(hydrateSnapshot).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rejectPatch?.(new Error('revision conflict'));
+      await localWrite;
+    });
+    await waitFor(() => expect(hydrateSnapshot).toHaveBeenCalledTimes(1));
+  });
+
+  test('applies a newer remote revision after a successful local write settles', async () => {
+    vi.useFakeTimers();
+    let resolvePatch!: (meta: SavedProjectMeta) => void;
+    const patchPromise = new Promise<SavedProjectMeta>(resolve => {
+      resolvePatch = resolve;
+    });
+    const hydrateSnapshot = vi.fn();
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.patchProject.mockReturnValue(patchPromise);
+    repositoryMocks.loadProject.mockResolvedValue(
+      buildSnapshot('project-1', { updatedAt: '2026-04-02T12:00:00.000Z' })
+    );
+
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let localWrite!: Promise<boolean>;
+    act(() => {
+      localWrite = result.current.patchSectionLessonContent('lesson-1', { content: 'locale' });
+    });
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3),
+    ]);
+    await act(async () => {
+      revisionListener?.({ projectId: 'project-1', revision: 3 });
+      await Promise.resolve();
+    });
+    expect(repositoryMocks.loadProject).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePatch(buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2));
+      await localWrite;
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(hydrateSnapshot).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.loadProject).toHaveBeenCalledWith('project-1');
+  });
+
+  test('serializes concurrent local writes against successive server revisions', async () => {
+    vi.useFakeTimers();
+    const patchResolvers: Array<(meta: SavedProjectMeta) => void> = [];
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.patchProject.mockImplementation(
+      () =>
+        new Promise<SavedProjectMeta>(resolve => {
+          patchResolvers.push(resolve);
+        })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let firstWrite!: Promise<boolean>;
+    let secondWrite!: Promise<boolean>;
+    act(() => {
+      firstWrite = result.current.patchSectionLessonContent('lesson-1', { content: 'prima' });
+      secondWrite = result.current.patchSectionLessonContent('lesson-2', { content: 'seconda' });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.patchProject.mock.calls[0]?.[2]).toEqual({ expectedRevision: 1 });
+
+    await act(async () => {
+      patchResolvers[0]?.(buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(2);
+    expect(repositoryMocks.patchProject.mock.calls[1]?.[2]).toEqual({ expectedRevision: 2 });
+
+    await act(async () => {
+      patchResolvers[1]?.(buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3));
+      await Promise.all([firstWrite, secondWrite]);
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(await firstWrite).toBe(true);
+    expect(await secondWrite).toBe(true);
+  });
+
+  test('retries the full dirty snapshot when one queued local patch fails', async () => {
+    vi.useFakeTimers();
+    const baseState = createEmptyWorkspaceDomainState();
+    const dirtyState: WorkspaceDomainState = {
+      ...baseState,
+      learningPlan: buildTestLearningPlan([], { title: 'Stato locale completo' }),
+    };
+    repositoryMocks.listProjects.mockResolvedValue([
+      {
+        ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+        hasSourceFile: false,
+      },
+    ]);
+    repositoryMocks.patchProject
+      .mockRejectedValueOnce(new Error('prima patch non salvata'))
+      .mockResolvedValueOnce({
+        ...buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2),
+        hasSourceFile: false,
+      });
+    repositoryMocks.saveProject.mockResolvedValue(
+      buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3)
+    );
+    const { result, rerender } = renderHook(
+      ({ domainState }: { domainState: WorkspaceDomainState }) =>
+        useProjectLibrary({ domainState, hydrateSnapshot: vi.fn() }),
+      { initialProps: { domainState: baseState } }
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let failedWrite!: Promise<boolean>;
+    let successfulWrite!: Promise<boolean>;
+    act(() => {
+      failedWrite = result.current.patchSectionLessonContent('lesson-1', { content: 'prima' });
+      successfulWrite = result.current.patchSectionLessonContent('lesson-2', {
+        content: 'seconda',
+      });
+      rerender({ domainState: dirtyState });
+    });
+    await act(async () => {
+      await Promise.all([failedWrite, successfulWrite]);
+    });
+
+    expect(await failedWrite).toBe(false);
+    expect(await successfulWrite).toBe(true);
+    expect(result.current.storageError).toBe('prima patch non salvata');
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(repositoryMocks.saveProject).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.saveProject.mock.calls[0]?.[0]).toMatchObject({
+      learningPlan: { title: 'Stato locale completo' },
+    });
     expect(result.current.storageError).toBeNull();
   });
 
@@ -430,7 +728,10 @@ describe('useProjectLibrary', () => {
     );
 
     const { result } = renderHook(() =>
-      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState() })
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
     );
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
 
@@ -463,7 +764,8 @@ describe('useProjectLibrary', () => {
             visualTwo,
           ],
         },
-      })
+      }),
+      { expectedRevision: undefined }
     );
   });
 });

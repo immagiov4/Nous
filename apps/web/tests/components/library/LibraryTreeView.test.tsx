@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitForElementToBeRemoved } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  waitForElementToBeRemoved,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import LibraryTreeView from '../../../components/library/LibraryTreeView.tsx';
@@ -437,5 +444,168 @@ describe('LibraryTreeView', () => {
     fireEvent.drop(container.firstElementChild as HTMLElement);
 
     expect(onMoveProjects).toHaveBeenCalledWith(['project-1'], null, 1);
+  });
+
+  test('shows real folder save progress and confirms the completed mutation', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    let finishCreate: (() => void) | undefined;
+    const onCreateFolder = vi.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishCreate = resolve;
+        })
+    );
+
+    render(
+      <LibraryTreeView
+        createRootTrigger={1}
+        openingProjectId={null}
+        onCreateFolder={onCreateFolder}
+        onConfirmDeleteFolder={vi.fn(async () => true)}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        tree={tree}
+      />
+    );
+
+    await user.type(await screen.findByPlaceholderText('Nome cartella...'), 'Sistemi');
+    await user.click(screen.getByRole('button', { name: 'Salva' }));
+
+    expect(screen.getByRole('button', { name: 'Salvataggio in corso...' })).toHaveAttribute(
+      'aria-busy',
+      'true'
+    );
+    expect(onCreateFolder).toHaveBeenCalledWith({ name: 'Sistemi', parentFolderId: null });
+
+    await act(async () => finishCreate?.());
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Cartella creata.');
+  });
+
+  test('closes the folder menu with Escape and restores focus to its trigger', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onConfirmDeleteFolder={vi.fn(async () => true)}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        tree={tree}
+      />
+    );
+    const trigger = screen.getByRole('button', { name: 'Azioni cartella Frontend' });
+
+    await user.click(trigger);
+    expect(screen.getByRole('button', { name: 'Rinomina' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Rinomina' })).toBeNull());
+    expect(trigger).toHaveFocus();
+  });
+
+  test('keeps a failed move retryable and confirms the successful retry', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    const onMoveProjects = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('move failed'))
+      .mockResolvedValueOnce([]);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onConfirmDeleteFolder={vi.fn(async () => true)}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={onMoveProjects}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        tree={tree}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Azioni corso Corso Mobile' }));
+    await user.click(screen.getByRole('button', { name: 'Sposta' }));
+    const rootDestination = screen.getByRole('button', { name: /Radice libreria/ });
+    await user.click(rootDestination);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Operazione non riuscita. Riprova.');
+    await user.click(rootDestination);
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Elemento spostato.');
+    expect(onMoveProjects).toHaveBeenCalledTimes(2);
+  });
+
+  test('completes a mobile long-press move when the touch is released', async () => {
+    vi.useFakeTimers();
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: true,
+      media: '(max-width: 767px)',
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    });
+    const onMoveProjects = vi.fn(async () => []);
+    render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onConfirmDeleteFolder={vi.fn(async () => true)}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={onMoveProjects}
+        onOpenProject={vi.fn()}
+        onRenameFolder={vi.fn(async () => {})}
+        tree={desktopTree}
+      />
+    );
+    const draggedProject = screen.getByText('Corso Desktop').closest('[data-drag-id]');
+    const targetFolder = screen.getByText('Backend').closest('[data-drag-id]');
+    expect(draggedProject).toBeTruthy();
+    expect(targetFolder).toBeTruthy();
+    Object.defineProperty(targetFolder as HTMLElement, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        bottom: 100,
+        height: 100,
+        left: 0,
+        right: 320,
+        top: 0,
+        width: 320,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => targetFolder),
+    });
+
+    fireEvent.touchStart(draggedProject as HTMLElement, {
+      touches: [{ clientX: 10, clientY: 10 }],
+    });
+    act(() => vi.advanceTimersByTime(300));
+    fireEvent.touchMove(document, { touches: [{ clientX: 50, clientY: 50 }] });
+    fireEvent.touchEnd(document);
+    await act(async () => Promise.resolve());
+
+    expect(onMoveProjects).toHaveBeenCalledWith(['project-2'], 'folder-2', 0);
   });
 });

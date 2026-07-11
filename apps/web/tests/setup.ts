@@ -5,7 +5,8 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 const TEST_ENVIRONMENT = {
   AUTH_MODE: 'local-bypass',
-  PROJECT_STORAGE_DRIVER: 'sqlite',
+  SUPABASE_SERVICE_ROLE_KEY: '',
+  SUPABASE_URL: '',
 } as const;
 
 const applyTestEnvironment = (): void => {

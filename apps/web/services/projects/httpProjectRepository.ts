@@ -6,14 +6,18 @@ import type {
   ProjectExportData,
   ProjectId,
   ProjectPatch,
+  ProjectRevisionEvent,
   ProjectSnapshot,
   ProjectSourceRef,
+  ProjectWriteOptions,
   SavedProjectMeta,
 } from '../../types';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
+import { detachStoredPrimarySource } from './courseSources.ts';
 import type { ProjectRepository } from './projectRepository';
 import { ProjectStorageError } from './projectRepository';
+import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
 import { PROJECT_SYNC_READY } from './projectSyncState.ts';
 
 interface ApiResponse {
@@ -180,7 +184,10 @@ export class HttpProjectRepository implements ProjectRepository {
     return response.folder || null;
   }
 
-  async saveProject(snapshot: ProjectSnapshot): Promise<SavedProjectMeta> {
+  async saveProject(
+    snapshot: ProjectSnapshot,
+    options: ProjectWriteOptions = {}
+  ): Promise<SavedProjectMeta> {
     const source = snapshot.source;
     let lightweightSnapshot = snapshot;
     if (source?.kind === 'pdf') {
@@ -206,18 +213,14 @@ export class HttpProjectRepository implements ProjectRepository {
       }
       lightweightSnapshot = {
         ...snapshot,
-        source: {
-          ...source,
-          file: { ...source.file, data: '' },
-          ref: sourceRef,
-        },
+        source: { ...detachStoredPrimarySource(source), ref: sourceRef },
       };
     }
     const response = await this.request<{ meta?: SavedProjectMeta }>(
       `/api/projects/projects/${encodeURIComponent(snapshot.id)}`,
       {
         method: 'PUT',
-        body: JSON.stringify({ snapshot: lightweightSnapshot }),
+        body: JSON.stringify({ snapshot: lightweightSnapshot, ...options }),
       }
     );
     return {
@@ -226,18 +229,33 @@ export class HttpProjectRepository implements ProjectRepository {
     };
   }
 
-  async patchProject(id: ProjectId, patch: ProjectPatch): Promise<SavedProjectMeta> {
+  async patchProject(
+    id: ProjectId,
+    patch: ProjectPatch,
+    options: ProjectWriteOptions = {}
+  ): Promise<SavedProjectMeta> {
     const response = await this.request<{ meta?: SavedProjectMeta }>(
       `/api/projects/projects/${encodeURIComponent(id)}`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ patch }),
+        body: JSON.stringify({ patch, ...options }),
       }
     );
     return {
       ...assertValue(response.meta, 'Il progetto sincronizzato non e stato aggiornato.'),
       syncState: PROJECT_SYNC_READY,
     };
+  }
+
+  subscribeToProjectRevisions(
+    listener: (event: ProjectRevisionEvent) => void,
+    onReconnect: () => void
+  ): () => void {
+    return subscribeToProjectRevisionStream({
+      listener,
+      onReconnect,
+      url: `${this.baseUrl}/api/projects/events`,
+    });
   }
 
   async deleteProject(id: ProjectId): Promise<void> {
@@ -303,7 +321,7 @@ export class HttpProjectRepository implements ProjectRepository {
       if (!response.ok || data.success === false) {
         throw new ProjectStorageError(
           data.error || response.statusText || 'Richiesta server non riuscita.',
-          'persistence-failed'
+          response.status === 409 ? 'revision-conflict' : 'persistence-failed'
         );
       }
 

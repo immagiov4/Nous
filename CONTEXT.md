@@ -17,7 +17,8 @@ Glossary of the domain language used in this codebase. Use these names exactly. 
 
 ## Project shape
 
-- **Project**: the unit of study. One source document (PDF, codebase bundle, or learn-mode) plus its generated learning plan, assets, annotations, and session state.
+- **Project**: the unit of study. Zero sources in learn mode, or one or more document sources (PDF, Markdown, text, or a legacy codebase bundle), plus the generated learning plan, assets, annotations, and session state.
+- **Course source set** (`ProjectSource.sources`): the stable, alphabetical logical set of source descriptors. Each descriptor owns its file identity, hash, kind, outline, document index, processing status, and errors. The root `ProjectSource` file/text remains a single-source compatibility view; it is not a concatenated canonical document.
 - **Project snapshot**: the serializable payload of a project. What gets persisted and what hydrates the workspace domain.
 - **Workspace**: the part of the frontend that operates on the currently open project: domain, controller, reader state, reader actions.
 - **Domain**: the source-of-truth reducer state for the open project (`services/workspace/domain.ts`). Pure, no side effects, knows nothing about screens.
@@ -48,17 +49,15 @@ The frontend has two AI infrastructures by design. See `docs/ARCHITECTURE.md#two
 - **Tool call**: a function the chat AI can invoke (e.g. `listLibraryTree`, `getProjectOverviews`). Executed server-side in the chat routes and locally in `services/library/toolExecutor.ts`.
 - **Research dossier** (`ResearchLessonDossier`): per-section research material gathered by the research pipeline (Perplexity-based) before lesson generation. Stored on the domain as `researchDossiersBySectionId`.
 - **Research course plan** (`ResearchCoursePlan`): the pre-lesson research output that drives the research-mode planner.
-- **Document index** (`PdfTextIndex`): mapping from PDF chunks to pages and plan sections. Built once per project; consulted by the lesson and exercise pipelines.
+- **Document index** (`PdfTextIndex`): source-aware chunks mapped to plan sections. PDF chunks retain page ranges; Markdown/text chunks retain source ids and offsets. A multi-source project combines the per-source indices logically for retrieval without concatenating every source into each prompt.
 
 ## Persistence
 
 - **`ProjectRepository`**: the frontend interface for project + library-tree CRUD. The supported product adapter is `HttpProjectRepository`; `projectRepositoryFactory` always selects server storage.
-- **`ProjectStore`**: the backend interface for the same operations, scoped by `userId`. `PostgresProjectStore` is the default production implementation; `SqliteProjectStore` is restricted to tests and explicit local-development profiles.
-- **Wire contract** (`packages/shared-types/projectContract.ts`): the type-only contract shared between frontend and backend, imported via the `@shared/*` alias. Holds `ProjectId`, `ProjectSourceKind`, `ProjectSyncState`, `LibraryFolder`, `LibraryPlacement`, `SavedProjectMeta`, `SectionPatch`, `ProjectPatch`. The two sides keep separate `ProjectSnapshot` definitions because the frontend models the rich domain (`LearningPlan`, `ProjectSource`, …) and the backend treats the payload as permissive JSON.
-- **Persistence signature**: a string summarizing the snapshot, used to decide whether a save is needed. Two variants:
-  - `buildPersistenceSignature(snapshot)`: full serialization including `source`. Used where complete snapshot content equality is required.
-  - `buildAutosaveSignature(snapshot)`: skips `source` via a reference-identity token. Used in the autosave loop; avoids re-serializing the PDF on every render.
-- **Persist queue**: the FIFO of granular server PATCH operations (`enqueuePatch`, `flush`). Deduplicates by `key` and retries with exponential backoff.
+- **`ProjectStore`**: the backend interface for the same operations, scoped by `userId`. `PostgresProjectStore` is the only runtime implementation. `SqliteProjectStore` is imported directly by backend route tests as a fast behavioral fixture.
+- **Wire contract** (`packages/shared-types/projectContract.ts`): the type-only contract shared between frontend and backend, imported via the `@shared/*` alias. Holds project and library identifiers, metadata, revision events, write preconditions, and PATCH shapes. The two sides keep separate `ProjectSnapshot` definitions because the frontend models the rich domain (`LearningPlan`, `ProjectSource`, …) and persistence treats deep snapshot fields as JSON.
+- **Autosave signature** (`buildAutosaveSignature`): a string summarizing persisted workspace state while representing the immutable `source` through a reference-identity token. It lets the autosave loop detect changes without serializing the PDF on every render.
+- **Project revision**: the server-owned monotonic version in `SavedProjectMeta`. Existing-project writes carry `expectedRevision`; stale writes receive HTTP 409. Authenticated revision events invalidate library metadata and reload the open snapshot only after local writes and dirty autosave state have settled.
 - **Sync state**: the observable `'saved' | 'saving' | 'error'` that drives the sync indicator. Auto-clears to `'saved'` after 2s as a safety net.
 - **Snapshot hydration**: the load-time normalization performed by `prepareSnapshotForHydration` when a project is opened. Migrates legacy plan shapes, strips dropped fields, normalizes markdown, repairs annotations.
 - **Reference-identity token**: an integer assigned to an immutable object (typically `source`) via `WeakMap` so the autosave loop can detect change without serializing the PDF.
@@ -86,7 +85,7 @@ The frontend has two AI infrastructures by design. See `docs/ARCHITECTURE.md#two
 ## Modes
 
 - **Repository mode**: server-only. The frontend always uses `HttpProjectRepository`; browser-local IndexedDB and the former runtime mode switch are no longer supported product paths.
-- **Local development profile**: an explicit development-only backend configuration that may use SQLite. It does not change the frontend repository adapter or define a separate product mode.
+- **Local development profile**: an explicit development-only auth bypass. It does not change project persistence, which still uses the server repository and Postgres.
 - **Learn mode**: a project mode that runs without a source document. The user studies a topic chosen at assessment time, and the AI generates the plan from scratch. Flag: `domain.isLearnMode`.
 
 ## Disambiguation

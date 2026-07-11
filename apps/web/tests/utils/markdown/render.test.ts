@@ -475,3 +475,27 @@ test('normalizeMarkdownForRendering converts backslash-bracket display math into
 
   assert.equal(normalizeMarkdownForRendering(input), 'La formula:\n\n$$\ny = Ax\n$$\n\nFine.');
 });
+
+test('normalizeMarkdownForRendering does not treat a nested language fence as a closing fence', () => {
+  const input = [
+    '```js',
+    'const first = true;',
+    '```javascript',
+    'const nested = true;',
+    '```',
+    '',
+    '## Dopo il codice',
+  ].join('\n');
+
+  assert.equal(normalizeMarkdownForRendering(input), input);
+});
+
+test('normalizeMarkdownForRendering escapes an unclosed fence so following prose remains markdown', () => {
+  const output = normalizeMarkdownForRendering(
+    ['Prima', '```ts', 'const answer = 42;', '## Dopo il codice', 'Testo leggibile.'].join('\n')
+  );
+
+  assert.match(output, /\\```ts/);
+  assert.match(output, /## Dopo il codice/);
+  assert.match(output, /Testo leggibile\./);
+});

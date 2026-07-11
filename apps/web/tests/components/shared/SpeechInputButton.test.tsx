@@ -2,10 +2,10 @@
 
 import '@testing-library/jest-dom/vitest';
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const requestSpeechTranscriptionMock = vi.hoisted(() => vi.fn());
 
@@ -59,7 +59,15 @@ describe('SpeechInputButton', () => {
       configurable: true,
       value: { getUserMedia },
     });
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: true,
+    });
     vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   test('records on first click and transcribes on second click', async () => {
@@ -104,5 +112,63 @@ describe('SpeechInputButton', () => {
         name: 'Permesso microfono negato. Abilitalo nelle impostazioni del browser.',
       })
     ).toBeInTheDocument();
+  });
+
+  test('lets the user dismiss an error and replaces it on the next attempt', async () => {
+    const user = userEvent.setup();
+    getUserMedia
+      .mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'))
+      .mockRejectedValueOnce(new DOMException('Missing', 'NotFoundError'));
+
+    render(<SpeechInputButton onTranscription={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Avvia dettatura' }));
+    await user.click(screen.getByRole('button', { name: 'Chiudi avviso microfono' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Avvia dettatura' }));
+    expect(
+      await screen.findByRole('alert', { name: 'Nessun microfono disponibile.' })
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  test('automatically clears a temporary acquisition error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    getUserMedia.mockRejectedValue(new DOMException('Device temporarily busy', 'NotReadableError'));
+
+    render(<SpeechInputButton onTranscription={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Avvia dettatura' }));
+    expect(
+      await screen.findByRole('alert', {
+        name: 'Il microfono è occupato o non è temporaneamente disponibile. Riprova.',
+      })
+    ).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(8_000);
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('explains when microphone capture is blocked by an insecure page', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: false,
+    });
+
+    render(<SpeechInputButton onTranscription={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Avvia dettatura' }));
+
+    expect(
+      screen.getByRole('alert', {
+        name: 'Il microfono richiede una connessione sicura (HTTPS o localhost).',
+      })
+    ).toBeInTheDocument();
+    expect(getUserMedia).not.toHaveBeenCalled();
   });
 });

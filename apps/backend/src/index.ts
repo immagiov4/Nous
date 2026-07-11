@@ -7,6 +7,7 @@ import { resolveCurrentUser } from './auth/currentUser.js';
 import { getBackendServerConfig, loadServerConfig } from './config/serverConfig.js';
 import adminRouter from './routes/admin.js';
 import chatRouter from './routes/chat.js';
+import codexRouter from './routes/codex.js';
 import imagesRouter from './routes/images.js';
 import openRouterProxyRouter from './routes/openRouterProxy.js';
 import pdfRouter from './routes/pdf.js';
@@ -131,6 +132,7 @@ export const createApp = () => {
   app.use('/api/waitlist', waitlistRouter);
   app.use('/api/pdf', resolveCurrentUser, pdfRouter);
   app.use('/api/chat', resolveCurrentUser, chatRouter);
+  app.use('/api/codex', resolveCurrentUser, codexRouter);
   app.use('/api/openrouter', resolveCurrentUser, openRouterProxyRouter);
   app.use('/api/projects', resolveCurrentUser, projectsRouter);
   app.use('/api/admin', resolveCurrentUser, adminRouter);

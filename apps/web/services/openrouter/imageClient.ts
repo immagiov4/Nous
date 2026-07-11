@@ -2,6 +2,7 @@ import {
   type GeneratedRasterMediaType,
   parseGeneratedImageDataUrl,
 } from '../../utils/visuals/generatedImage.ts';
+import { addAiProviderPreferenceHeader } from '../ai/providerPreference.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 
@@ -21,9 +22,7 @@ interface GeneratedImageResult {
 export const requestGeneratedImage = async (prompt: string): Promise<GeneratedImageResult> => {
   const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/images/generate`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: addAiProviderPreferenceHeader({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ prompt }),
     signal: AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
   });

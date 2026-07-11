@@ -35,7 +35,7 @@ const buildProps = (): WorkspaceReaderHeaderModel => ({
   onBackToLibrary: vi.fn(),
   onOpenSidebar: vi.fn(),
   onRegenerateActiveSection: vi.fn(),
-  onDismissLearningAid: vi.fn(),
+  onSaveLearningAids: vi.fn(async () => true),
   onSetDarkMode: vi.fn(),
   onSetCourseGenerationNotes: vi.fn(),
   onSetFocusMode: vi.fn(),

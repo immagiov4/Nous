@@ -69,6 +69,19 @@ const EMPTY_SECTION_ANNOTATIONS: SectionAnnotation[] = [];
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex, rehypeRaw];
 const NORMALIZED_MARKDOWN_CACHE_LIMIT = 80;
+const CODE_LANGUAGE_ALIASES: Record<string, string> = {
+  'c++': 'cpp',
+  cs: 'csharp',
+  html: 'markup',
+  js: 'javascript',
+  md: 'markdown',
+  py: 'python',
+  sh: 'bash',
+  shell: 'bash',
+  ts: 'typescript',
+  xml: 'markup',
+  yml: 'yaml',
+};
 const SUPPORTED_CODE_LANGUAGES = new Set([
   'bash',
   'c',
@@ -76,25 +89,18 @@ const SUPPORTED_CODE_LANGUAGES = new Set([
   'csharp',
   'css',
   'go',
-  'html',
   'java',
   'javascript',
-  'js',
   'json',
   'jsx',
   'markdown',
-  'md',
+  'markup',
   'python',
-  'py',
   'rust',
-  'shell',
   'sql',
-  'ts',
   'tsx',
   'typescript',
-  'xml',
   'yaml',
-  'yml',
 ]);
 
 SyntaxHighlighter.registerLanguage('bash', bash);
@@ -147,9 +153,10 @@ const buildMarkdownComponents = (
   noteAnnotationIds: Set<string>
 ) => ({
   code({ inline, className, children }: CodeRendererProps) {
-    const match = /language-(\w+)/.exec(className || '');
-
-    const language = match?.[1].toLowerCase();
+    const languageLabel = /language-([^\s]+)/.exec(className || '')?.[1].toLowerCase();
+    const language = languageLabel
+      ? CODE_LANGUAGE_ALIASES[languageLabel] || languageLabel
+      : undefined;
 
     return !inline && language && SUPPORTED_CODE_LANGUAGES.has(language) ? (
       <div className="my-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm dark:border-zinc-700/80">
@@ -196,15 +203,10 @@ const buildMarkdownComponents = (
       </a>
     );
   },
-  mark({
-    node: _node,
-    children,
-    className: _className,
-    ...props
-  }: ComponentPropsWithoutRef<'mark'> & { children?: ReactNode; node?: unknown }) {
-    const annotationId =
-      (props as Record<string, unknown>)['data-nous-annotation-id'] ||
-      (props as Record<string, unknown>)['data-lumina-annotation-id'];
+  mark({ children, ...props }: ComponentPropsWithoutRef<'mark'> & { node?: unknown }) {
+    const nousAnnotationId = (props as Record<string, unknown>)['data-nous-annotation-id'];
+    const luminaAnnotationId = (props as Record<string, unknown>)['data-lumina-annotation-id'];
+    const annotationId = nousAnnotationId || luminaAnnotationId;
     const hasAttachedNote = typeof annotationId === 'string' && noteAnnotationIds.has(annotationId);
 
     return (
@@ -222,8 +224,13 @@ const buildMarkdownComponents = (
               }
             : null),
         }}
+        data-nous-annotation-id={
+          typeof nousAnnotationId === 'string' ? nousAnnotationId : undefined
+        }
+        data-lumina-annotation-id={
+          typeof luminaAnnotationId === 'string' ? luminaAnnotationId : undefined
+        }
         data-nous-note-attached={hasAttachedNote ? 'true' : undefined}
-        {...props}
       >
         {children}
       </mark>

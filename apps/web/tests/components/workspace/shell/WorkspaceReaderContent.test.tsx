@@ -27,7 +27,7 @@ const buildProps = (
   onContentClick: vi.fn(),
   onContentContextMenu: vi.fn(),
   onContentPointerDownCapture: vi.fn(),
-  onDismissLearningAid: vi.fn(),
+  onSaveLearningAids: vi.fn(async () => true),
   onRequestExerciseFeedback: vi.fn(),
   onSelectQuizAnswer: vi.fn(),
   onRemoveExerciseAttachment: vi.fn(),
@@ -206,6 +206,35 @@ describe('WorkspaceReaderContent', () => {
       renderedText.indexOf('Fonte originale: pag. 10-12')
     );
     expect(container.querySelector('[data-testid="reader-source-page-range"]')).toBeNull();
+  });
+
+  test('shows persisted lesson sources while refusing unsafe source links', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          lessonSources: [
+            {
+              title: 'Documentazione ufficiale',
+              url: 'https://example.com/docs',
+              note: 'Conferma il comportamento corrente.',
+            },
+            {
+              title: 'Materiale originale',
+              url: 'javascript:alert(1)',
+              note: 'Lessico del corso.',
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByRole('complementary', { name: 'Fonti della lezione' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Documentazione ufficiale' })).toHaveAttribute(
+      'href',
+      'https://example.com/docs'
+    );
+    expect(screen.queryByRole('link', { name: 'Materiale originale' })).toBeNull();
+    expect(screen.getByText('Lessico del corso.')).toBeInTheDocument();
   });
 
   test('enables lesson completion once all inline questions have been answered', () => {

@@ -1,15 +1,45 @@
-import { BookOpen, Braces, ChevronDown, Lightbulb, Sigma, X } from 'lucide-react';
+import {
+  BookOpen,
+  Braces,
+  Check,
+  ChevronDown,
+  Lightbulb,
+  Pencil,
+  Plus,
+  Sigma,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { LessonLearningAid, LessonLearningAidKind } from '../../../types.ts';
+import { createEntityId } from '../../../utils/ids.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 
 interface LessonLearningAidsProps {
   isDarkMode: boolean;
   isMobileViewport: boolean;
   learningAids: LessonLearningAid[];
-  onDismissLearningAid: (learningAidId: string) => void;
+  onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
+}
+
+const LEARNING_AID_TITLE_MAX_LENGTH = 64;
+const LEARNING_AID_CONTENT_MAX_LENGTH = 500;
+
+const LEARNING_AID_KIND_OPTIONS: ReadonlyArray<LessonLearningAidKind> = [
+  'definition',
+  'formula',
+  'symbol',
+  'analogy',
+];
+
+interface LearningAidDraft {
+  anchorHeading?: string;
+  id?: string;
+  kind: LessonLearningAidKind;
+  title: string;
+  content: string;
 }
 
 const getLearningAidKindLabel = (kind: LessonLearningAidKind): string => {
@@ -41,9 +71,12 @@ const getLearningAidIcon = (kind: LessonLearningAidKind) => {
 function LearningAidList({
   isDarkMode,
   learningAids,
-  onDismissLearningAid,
-}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onDismissLearningAid'>) {
+  onSaveLearningAids,
+}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'>) {
   const [expandedAidIds, setExpandedAidIds] = useState<Set<string>>(() => new Set());
+  const [draft, setDraft] = useState<LearningAidDraft | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const toggleAid = (learningAidId: string) => {
     setExpandedAidIds(currentIds => {
@@ -57,92 +90,271 @@ function LearningAidList({
     });
   };
 
-  return (
-    <ol className="grid gap-2">
-      {learningAids.map(learningAid => {
-        const KindIcon = getLearningAidIcon(learningAid.kind);
-        const isExpanded = expandedAidIds.has(learningAid.id);
-        const disclosureLabel = t(
-          isExpanded ? 'Comprimi {learningAidTitle}' : 'Espandi {learningAidTitle}',
-          { learningAidTitle: learningAid.title }
-        );
+  const beginCreate = () => {
+    setSaveError('');
+    setDraft({ kind: 'definition', title: '', content: '' });
+  };
 
-        return (
-          <li
-            key={learningAid.id}
-            className="overflow-hidden rounded-xl border border-gray-200 bg-white/95 dark:border-zinc-700 dark:bg-zinc-900/80"
-          >
-            <div className="flex items-center gap-1 px-2 py-1.5">
-              <button
-                type="button"
-                aria-expanded={isExpanded}
-                aria-label={disclosureLabel}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-                onClick={() => toggleAid(learningAid.id)}
-                title={disclosureLabel}
-              >
-                <KindIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-500 dark:text-zinc-400">
-                    {getLearningAidKindLabel(learningAid.kind)}
+  const beginEdit = (learningAid: LessonLearningAid) => {
+    setSaveError('');
+    setDraft({ ...learningAid });
+  };
+
+  const saveDraft = async () => {
+    if (!draft) {
+      return;
+    }
+
+    const title = draft.title.trim();
+    const content = draft.content.trim();
+    if (!title || !content) {
+      setSaveError(t('Titolo e contenuto sono obbligatori.'));
+      return;
+    }
+
+    const nextAid: LessonLearningAid = {
+      id:
+        draft.id || createEntityId({ fallbackPrefix: 'learning-aid', uuidPrefix: 'learning-aid' }),
+      kind: draft.kind,
+      title,
+      content,
+      ...(draft.anchorHeading ? { anchorHeading: draft.anchorHeading } : {}),
+    };
+    const nextLearningAids = draft.id
+      ? learningAids.map(learningAid => (learningAid.id === draft.id ? nextAid : learningAid))
+      : [...learningAids, nextAid];
+
+    setIsSaving(true);
+    setSaveError('');
+    const didSave = await onSaveLearningAids(nextLearningAids);
+    setIsSaving(false);
+    if (didSave) {
+      setDraft(null);
+      setExpandedAidIds(currentIds => new Set(currentIds).add(nextAid.id));
+      return;
+    }
+
+    setSaveError(t('Non sono riuscito a salvare i concetti chiave. Riprova.'));
+  };
+
+  const removeAid = async (learningAidId: string) => {
+    setIsSaving(true);
+    setSaveError('');
+    const didSave = await onSaveLearningAids(
+      learningAids.filter(learningAid => learningAid.id !== learningAidId)
+    );
+    setIsSaving(false);
+    if (!didSave) {
+      setSaveError(t('Non sono riuscito a salvare i concetti chiave. Riprova.'));
+    }
+  };
+
+  return (
+    <div className="space-y-3" aria-busy={isSaving}>
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={beginCreate}
+          disabled={isSaving || draft !== null}
+          aria-label={t('Aggiungi concetto chiave')}
+          className="inline-flex min-h-9 items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-white"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {t('Aggiungi')}
+        </button>
+      </div>
+
+      {draft ? (
+        <fieldset
+          aria-label={t(draft.id ? 'Modifica concetto chiave' : 'Nuovo concetto chiave')}
+          className="space-y-3 rounded-xl border border-orange-200 bg-orange-50/60 p-3 dark:border-orange-900/60 dark:bg-orange-950/20"
+        >
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+              {t('Tipo')}
+            </span>
+            <select
+              aria-label={t('Tipo concetto chiave')}
+              value={draft.kind}
+              onChange={event =>
+                setDraft(current =>
+                  current
+                    ? { ...current, kind: event.target.value as LessonLearningAidKind }
+                    : current
+                )
+              }
+              className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            >
+              {LEARNING_AID_KIND_OPTIONS.map(kind => (
+                <option key={kind} value={kind}>
+                  {getLearningAidKindLabel(kind)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+              {t('Titolo')}
+            </span>
+            <input
+              value={draft.title}
+              maxLength={LEARNING_AID_TITLE_MAX_LENGTH}
+              onChange={event =>
+                setDraft(current => (current ? { ...current, title: event.target.value } : current))
+              }
+              className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+              {t('Contenuto')}
+            </span>
+            <textarea
+              value={draft.content}
+              maxLength={LEARNING_AID_CONTENT_MAX_LENGTH}
+              rows={4}
+              onChange={event =>
+                setDraft(current =>
+                  current ? { ...current, content: event.target.value } : current
+                )
+              }
+              className="mt-1 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-5 text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            />
+          </label>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(null);
+                setSaveError('');
+              }}
+              disabled={isSaving}
+              className="min-h-9 rounded-full px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-white/80 hover:text-gray-800 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              {t('Annulla')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveDraft()}
+              disabled={isSaving || !draft.title.trim() || !draft.content.trim()}
+              className="inline-flex min-h-9 items-center gap-2 rounded-full bg-gray-950 px-4 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+            >
+              <Check className="h-3.5 w-3.5" />
+              {t(isSaving ? 'Salvataggio in corso...' : 'Salva')}
+            </button>
+          </div>
+        </fieldset>
+      ) : null}
+
+      {saveError ? (
+        <p role="alert" className="text-xs leading-5 text-red-600 dark:text-red-300">
+          {saveError}
+        </p>
+      ) : null}
+
+      {learningAids.length === 0 && !draft ? (
+        <p className="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-sm text-gray-500 dark:border-zinc-700 dark:text-zinc-400">
+          {t('Non ci sono ancora concetti chiave. Aggiungi quello che vuoi ricordare.')}
+        </p>
+      ) : null}
+
+      <ol className="grid gap-2">
+        {learningAids.map(learningAid => {
+          const KindIcon = getLearningAidIcon(learningAid.kind);
+          const isExpanded = expandedAidIds.has(learningAid.id);
+          const disclosureLabel = t(
+            isExpanded ? 'Comprimi {learningAidTitle}' : 'Espandi {learningAidTitle}',
+            { learningAidTitle: learningAid.title }
+          );
+
+          return (
+            <li
+              key={learningAid.id}
+              className="overflow-hidden rounded-xl border border-gray-200 bg-white/95 dark:border-zinc-700 dark:bg-zinc-900/80"
+            >
+              <div className="flex items-center gap-1 px-2 py-1.5">
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-label={disclosureLabel}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                  onClick={() => toggleAid(learningAid.id)}
+                  title={disclosureLabel}
+                >
+                  <KindIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-500 dark:text-zinc-400">
+                      {getLearningAidKindLabel(learningAid.kind)}
+                    </span>
+                    <span className="block text-pretty text-sm font-medium leading-5 text-gray-900 dark:text-zinc-100">
+                      {learningAid.title}
+                    </span>
                   </span>
-                  <span className="block text-pretty text-sm font-medium leading-5 text-gray-900 dark:text-zinc-100">
-                    {learningAid.title}
-                  </span>
-                </span>
-                <ChevronDown
-                  className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 dark:text-zinc-500 ${
-                    isExpanded ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-              <button
-                type="button"
-                aria-label={t('Rimuovi {learningAidTitle}', {
-                  learningAidTitle: learningAid.title,
-                })}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-300"
-                onClick={() => onDismissLearningAid(learningAid.id)}
-                title={t('Rimuovi {learningAidTitle}', {
-                  learningAidTitle: learningAid.title,
-                })}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {isExpanded ? (
-              <div className="border-t border-gray-100 px-4 pb-3 pt-2.5 dark:border-zinc-800">
-                <MarkdownRenderer
-                  className={`prose-sm max-w-none text-sm leading-5 text-gray-600 dark:text-zinc-300 [&_p]:my-0 ${
-                    isDarkMode ? 'prose-invert' : ''
-                  }`}
-                  content={learningAid.content}
-                  isDarkMode={isDarkMode}
-                />
-                {learningAid.anchorHeading ? (
-                  <p className="mt-1.5 text-xs text-gray-400 dark:text-zinc-500">
-                    {t('Vicino a {heading}', { heading: learningAid.anchorHeading })}
-                  </p>
-                ) : null}
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 dark:text-zinc-500 ${
+                      isExpanded ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('Modifica {learningAidTitle}', {
+                    learningAidTitle: learningAid.title,
+                  })}
+                  disabled={isSaving || draft !== null}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-300"
+                  onClick={() => beginEdit(learningAid)}
+                  title={t('Modifica {learningAidTitle}', {
+                    learningAidTitle: learningAid.title,
+                  })}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={t('Rimuovi {learningAidTitle}', {
+                    learningAidTitle: learningAid.title,
+                  })}
+                  disabled={isSaving || draft !== null}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-300"
+                  onClick={() => void removeAid(learningAid.id)}
+                  title={t('Rimuovi {learningAidTitle}', {
+                    learningAidTitle: learningAid.title,
+                  })}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
               </div>
-            ) : null}
-          </li>
-        );
-      })}
-    </ol>
+              {isExpanded ? (
+                <div className="border-t border-gray-100 px-4 pb-3 pt-2.5 dark:border-zinc-800">
+                  <MarkdownRenderer
+                    className={`prose-sm max-w-none text-sm leading-5 text-gray-600 dark:text-zinc-300 [&_p]:my-0 ${
+                      isDarkMode ? 'prose-invert' : ''
+                    }`}
+                    content={learningAid.content}
+                    isDarkMode={isDarkMode}
+                  />
+                  {learningAid.anchorHeading ? (
+                    <p className="mt-1.5 text-xs text-gray-400 dark:text-zinc-500">
+                      {t('Vicino a {heading}', { heading: learningAid.anchorHeading })}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
 export function HeaderLearningAids({
   isDarkMode,
   learningAids,
-  onDismissLearningAid,
-}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onDismissLearningAid'>) {
+  onSaveLearningAids,
+}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'>) {
   const [isOpen, setIsOpen] = useState(false);
-
-  if (learningAids.length === 0) {
-    return null;
-  }
 
   return (
     <div className="relative">
@@ -186,7 +398,7 @@ export function HeaderLearningAids({
           <LearningAidList
             isDarkMode={isDarkMode}
             learningAids={learningAids}
-            onDismissLearningAid={onDismissLearningAid}
+            onSaveLearningAids={onSaveLearningAids}
           />
         </aside>
       ) : null}
@@ -197,8 +409,8 @@ export function HeaderLearningAids({
 function MobileLearningAids({
   isDarkMode,
   learningAids,
-  onDismissLearningAid,
-}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onDismissLearningAid'>) {
+  onSaveLearningAids,
+}: Pick<LessonLearningAidsProps, 'isDarkMode' | 'learningAids' | 'onSaveLearningAids'>) {
   const [isOpen, setIsOpen] = useState(false);
   const portalContainer = typeof document === 'undefined' ? null : document.body;
 
@@ -263,7 +475,7 @@ function MobileLearningAids({
                   <LearningAidList
                     isDarkMode={isDarkMode}
                     learningAids={learningAids}
-                    onDismissLearningAid={onDismissLearningAid}
+                    onSaveLearningAids={onSaveLearningAids}
                   />
                 </div>
               </section>
@@ -280,7 +492,7 @@ function MobileLearningAids({
  * sticky header so the reading column never moves sideways to make room for contextual aids.
  */
 export default function LessonLearningAids(props: LessonLearningAidsProps) {
-  if (props.learningAids.length === 0 || !props.isMobileViewport) {
+  if (!props.isMobileViewport) {
     return null;
   }
 

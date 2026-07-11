@@ -1,7 +1,9 @@
 import type {
+  CourseSourceDescriptor,
   FileData,
   LearningPlan,
   LessonNode,
+  LessonSourceReference,
   PdfTextChunk,
   PdfTextIndex,
 } from '../../../types.ts';
@@ -14,6 +16,7 @@ import {
 import { getPdfProjectHydrationState } from '../../../utils/pdf/projectHydration.ts';
 import { timestampIso } from '../../../utils/time.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
+import { buildCombinedSourceIndex } from '../../projects/courseSources.ts';
 import { getPdfTextSession } from '../pdfAssets.ts';
 import {
   callOpenRouter,
@@ -840,6 +843,46 @@ const applyFallbackChunkMappings = (
   };
 };
 
+const buildLessonSourceReferences = (
+  documentIndex: PdfTextIndex,
+  chunkIds: readonly string[]
+): LessonSourceReference[] => {
+  const selectedChunkIds = new Set(chunkIds);
+  const chunksBySource = new Map<string, PdfTextChunk[]>();
+
+  for (const chunk of documentIndex.chunks) {
+    if (!selectedChunkIds.has(chunk.id) || !chunk.sourceId) {
+      continue;
+    }
+    const chunks = chunksBySource.get(chunk.sourceId) || [];
+    chunks.push(chunk);
+    chunksBySource.set(chunk.sourceId, chunks);
+  }
+
+  return [...chunksBySource.entries()].map(([sourceId, chunks]) => {
+    const pages = chunks.flatMap(chunk =>
+      [chunk.pageStart, chunk.pageEnd].filter((page): page is number => typeof page === 'number')
+    );
+    return {
+      chunkIds: chunks.map(chunk => chunk.id),
+      pageEnd: pages.length > 0 ? Math.max(...pages) : undefined,
+      pageStart: pages.length > 0 ? Math.min(...pages) : undefined,
+      sourceId,
+    };
+  });
+};
+
+const applyLessonSourceReferences = (
+  plan: LearningPlan,
+  documentIndex: PdfTextIndex
+): LearningPlan => ({
+  ...plan,
+  modules: updateLessons(plan.modules, lesson => ({
+    ...lesson,
+    sourceReferences: buildLessonSourceReferences(documentIndex, lesson.primaryChunkIds || []),
+  })),
+});
+
 const resolveSectionsNeedingMappingRepair = (
   file: FileData,
   plan: LearningPlan,
@@ -912,7 +955,8 @@ export const preparePdfLessonMappings = async (
     pdfSession.extractedText,
     sourceHash,
     file.name,
-    pdfSession.pages
+    pdfSession.pages,
+    file.sourceId
   );
   if (canReusePdfTextIndex(existingIndex, sourceHash)) {
     documentIndex = existingIndex;
@@ -1095,6 +1139,47 @@ export const preparePdfLessonMappings = async (
     documentIndex: validateWholePlan
       ? clearPdfMappingRecovery(documentIndexWithQuality)
       : documentIndexWithQuality,
+  };
+};
+
+export const prepareSourceSetLessonMappings = async (
+  sources: readonly CourseSourceDescriptor[],
+  plan: LearningPlan,
+  sectionIds?: string[]
+): Promise<{ learningPlan: LearningPlan; documentIndex: PdfTextIndex | null }> => {
+  const documentIndex = buildCombinedSourceIndex(sources);
+  if (!documentIndex) {
+    return { learningPlan: plan, documentIndex: null };
+  }
+
+  const targetSectionIds = getTargetSectionsForMapping(plan, sectionIds).map(section => section.id);
+  let mappings = new Map<string, string[]>();
+  try {
+    mappings = await mapLessonsToChunkIds(plan, documentIndex, {
+      model: MODEL_FLASH,
+      sectionIds,
+      traceLabel: 'Multi-source mapping',
+    });
+  } catch (error) {
+    console.warn(
+      '[Nous][DocumentIndex] Multi-source mapping failed, using deterministic fallback assignments.',
+      error
+    );
+  }
+
+  let learningPlan = applyRecoveredChunkMappings(plan, mappings);
+  const missingSectionIds = targetSectionIds.filter(sectionId => !mappings.has(sectionId));
+  if (missingSectionIds.length > 0) {
+    learningPlan = applyFallbackChunkMappings(
+      learningPlan,
+      buildFallbackChunkAssignments(learningPlan, documentIndex),
+      missingSectionIds
+    );
+  }
+
+  return {
+    learningPlan: applyLessonSourceReferences(learningPlan, documentIndex),
+    documentIndex,
   };
 };
 

@@ -36,6 +36,8 @@ router.post('/extract-text', async (req, res) => {
       sourceHash: result.sourceHash,
       pageCount: result.pageCount,
       pages: result.pages,
+      outline: result.outline,
+      outlineOrigin: result.outlineOrigin,
       parserFallbackReason: result.parserFallbackReason,
       qualityWarning: result.qualityWarning,
       usedFallbackParser: result.usedFallbackParser,

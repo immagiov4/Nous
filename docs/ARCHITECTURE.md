@@ -1,10 +1,10 @@
 # Nous Reader Architecture
 
-This document explains how Nous Reader is organized and where to make changes.
+This document explains how Nous Reader is organized and where to make changes. The evidence ledger, removal decisions, and measured baseline live in [ARCHITECTURE_AUDIT.md](ARCHITECTURE_AUDIT.md); production operations live in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## What Nous Reader does
 
-Nous Reader takes a document source (typically a PDF) and generates a personalized study flow: onboarding chat, study plan, lessons, quizzes, and application exercises that are intercalated between lessons in the path and evaluated by AI.
+Nous Reader takes one or more document sources (typically PDF, Markdown, or text) and generates a personalized study flow: onboarding chat, study plan, lessons, quizzes, and application exercises that are intercalated between lessons in the path and evaluated by AI.
 
 AI generation runs in two parallel infrastructures (see [Two AI Clients](#two-ai-clients) below). The backend proxies AI calls, extracts text and images from PDFs, validates Supabase Auth sessions, persists projects through the server repository, and provides TTS.
 
@@ -19,16 +19,23 @@ The application is made of two separate runtimes:
 
 `packages/shared-types/` holds the type-only contract used on the wire between the two (see [Shared types](#9-shared-types)). It is type-level only; nothing executes from it.
 
+```text
+Browser -> static frontend -> Bun backend -> Supabase Auth/Postgres
+                                  |-------> OpenRouter
+```
+
+Local development runs both application processes through Bun and the Supabase CLI stack through Docker. Production runs the same frontend/backend boundaries through `compose.yml`; Supabase is either managed or the separately maintained official self-hosted Docker stack. See [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Frontend entry point
 
-`App.tsx` is the composition root. It wires together the domain, controller, reader state, navigation, file actions, and library chat, then chooses one of four screens based on `screenState`:
+`apps/web/App.tsx` owns the authentication gate and lazy route split between the admin panel and the reader. `apps/web/app/AppContent.tsx` is the reader composition root: it wires together the domain, controller, reader state, navigation, file actions, and library chat, then chooses one of four screens based on `screenState`:
 
 - Library
 - Assessment
 - Planning
 - Reading
 
-The screen switch itself is simple, but `App.tsx` still coordinates a few cross-cutting behaviors such as project auto-opening, the course-generation notes dialog, and top-level file inputs.
+The screen switch itself is simple; `AppContent.tsx` owns the shared hook composition and passes navigation, file-action, and dialog adapters into the screen containers.
 
 ## Frontend layers
 
@@ -43,7 +50,7 @@ Important subfolders:
 - `services/openrouter/` — OpenRouter HTTP client, prompt builders, model selection, retry, payload limits, and the **AI pipelines** for assessment, planning, research, curriculum, lesson generation, lesson verification, lesson markdown quality, lesson images, visual examples, PDF indexing, and TTS. The biggest folder in the frontend, with subfolders for `documentIndex/`, `lessonMarkdownQuality/`, `planning/`, and `exercises/` (exercise brief and placement pipelines).
 - `services/exercises/` — application-exercise domain: pure plan operations (`plan.ts`), constants, and deliverable handling (attachments + zip).
 - `services/learning/` — pure functions on the learning plan that are not exercise-specific: sub-chapter grouping and legacy migration for old "mini-lab" lessons.
-- `services/projects/` — `ProjectRepository` interface, HTTP adapter, server-only repository factory, project snapshot helpers, archives, persistence signatures, persist queue, sync state.
+- `services/projects/` — `ProjectRepository` interface, HTTP adapter, authenticated revision stream, server-only repository factory, project snapshot helpers, archives, persistence signatures, and sync state.
 - `services/workspace/` — domain reducer (`domain.ts`), persistence helpers, workflow selectors, and pure controller logic under `controller/` (`documentAssets.ts`, `learnMode.ts`, `snapshotHydration.ts`).
 - `services/library/` — library assistant tool execution.
 - `services/preferences/` — UI preference persistence and library folder expansion storage.
@@ -56,13 +63,15 @@ The workspace domain lives in `services/workspace/domain.ts` and is exposed thro
 
 This is the source of truth for the current project payload:
 
-- source document
+- logical source set with per-source identity, outline, processing state, and document index
 - learning plan (modules → lessons + application exercises intercalated)
 - PDF assets and document index
 - learner profile and syllabus
 - research course plan and per-section research dossiers (used by research mode)
 - active section id
 - learn mode flag
+
+`ProjectSource.sources` is the authoritative logical source set for document-backed courses. The root PDF file or text bundle remains a compatibility view for legacy single-source code; it must not be treated as a physical merge of the set. Planning receives the source outlines and bounded content samples, while lesson generation retrieves only the chunks mapped to that lesson. Chunk ids and lesson source references retain their `sourceId`, plus page ranges where available.
 
 It should not know anything about the screen the user is on.
 
@@ -176,13 +185,13 @@ Two type homes:
 
 - `ProjectId`, `ProjectSourceKind`, `ProjectSyncState`
 - `LibraryFolder`, `LibraryPlacement`
-- `SavedProjectMeta`
+- `SavedProjectMeta`, `ProjectRevisionEvent`, `ProjectWriteOptions`
 - `SectionPatch`
 - `ProjectPatch` (the typed PATCH body — same shape on both sides of the wire)
 
 Both the frontend `types.ts` and the backend `apps/backend/src/projects/types.ts` re-export from `@shared/projectContract`, so the shared shapes have a single source of truth.
 
-`ProjectSnapshot` is **not** shared. The frontend models it strictly against the rich domain (`LearningPlan`, `ProjectSource`, `PdfDocumentAssets`, …). The backend defines its own permissive JSON-shape `ProjectSnapshot` (`apps/backend/src/projects/types.ts`) because it only shuttles the payload to and from SQLite without inspecting deep fields. The two definitions diverge by design.
+`ProjectSnapshot` is **not** shared. The frontend models it strictly against the rich domain (`LearningPlan`, `ProjectSource`, `PdfDocumentAssets`, …). The backend defines its own permissive JSON-shape `ProjectSnapshot` (`apps/backend/src/projects/types.ts`) because persistence treats its deep fields as JSON rather than importing the frontend domain. The two definitions diverge by design.
 
 If you add or change a field in the rich frontend `ProjectSnapshot`, follow the TypeScript errors to the affected layers. If you add a wire-level field that the backend must understand (typically a new `ProjectPatch` field), edit `packages/shared-types/projectContract.ts` once and both sides pick it up.
 
@@ -229,16 +238,18 @@ Main entries in `apps/backend/src/routes/`:
 
 Supporting modules:
 
-- `apps/backend/src/projects/` — `ProjectStore` interface, `PostgresProjectStore`, legacy `SqliteProjectStore` for dev/test, project meta and sibling-ordering helpers.
+- `apps/backend/src/projects/` — `ProjectStore` interface, runtime `PostgresProjectStore`, test-only `SqliteProjectStore`, project meta and sibling-ordering helpers.
 - `apps/backend/src/services/` — `pdfTextExtractor` (delegates to `pdftotext`), `pdfImageExtractor`, `ttsClient`, `sttClient`, `voiceService`, `statusService`.
 - `apps/backend/src/auth/currentUser.ts` — auth resolution. Supabase is the product path. `LOCAL_AUTH_BYPASS=true` is accepted only in tests or with `LOCAL_DEV_PROFILE=true`.
 - `apps/backend/src/config/` — env loading and server config (host, port, backend URL).
 
 ### Project Storage
 
-The frontend always uses backend HTTP storage through `services/projects/projectRepositoryFactory.ts`. The backend defaults to `PostgresProjectStore`; `PROJECT_STORAGE_DRIVER=sqlite` is a legacy test/dev driver and is blocked outside `NODE_ENV=test` or `LOCAL_DEV_PROFILE=true`.
+The frontend always uses backend HTTP storage through `services/projects/projectRepositoryFactory.ts`. The backend always creates `PostgresProjectStore`; there is no runtime storage-mode switch. `SqliteProjectStore` is imported directly only by backend route tests so they can exercise the complete persistence contract without an external database.
 
-The frontend `ProjectRepository` interface and the backend `ProjectStore` interface are currently defined independently in their own files (the contract is **not** type-shared yet). See `docs/architecture-review.md` priority 6.
+The frontend `ProjectRepository` and backend `ProjectStore` interfaces remain separate adapters, while their wire-level values are shared through `packages/shared-types/projectContract.ts` as described in [Shared types](#9-shared-types).
+
+Every project metadata response includes the server-owned monotonic `revision`. Existing-project PUT and PATCH requests send `expectedRevision`; a stale request receives HTTP 409 and never updates the snapshot. Authenticated server-sent events at `/api/projects/events` carry only `{ projectId, revision }`. `useProjectLibrary` refreshes metadata on an event, reconnect, foreground, or network recovery, and reloads the active snapshot only when the revision advanced and no local write or dirty autosave state is pending.
 
 ## TTS
 
@@ -290,6 +301,8 @@ The frontend sends the pedagogical image prompt to the authenticated `/api/image
 - `apps/backend/dist/` should not be edited directly.
 
 ## Tooling
+
+Bun is the only package manager and task runner. The root workspace owns the single lockfile for the frontend and backend.
 
 ```bash
 bun run dev       # Frontend + backend in watch mode

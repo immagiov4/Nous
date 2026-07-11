@@ -25,6 +25,7 @@ import {
 } from 'react';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import { addAiProviderPreferenceHeader } from '../../../services/ai/providerPreference.ts';
 import { fetchWithSupabaseAuth } from '../../../services/auth/supabaseAuth.ts';
 import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
@@ -401,7 +402,7 @@ function ContextAnswerPanelSession({
           }
 
           return {
-            headers,
+            headers: addAiProviderPreferenceHeader(headers),
             body: {
               id,
               messages,

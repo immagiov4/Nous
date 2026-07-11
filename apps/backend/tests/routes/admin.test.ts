@@ -44,6 +44,22 @@ describe('/api/admin', () => {
   test('lets admins update and read the global model configuration', async () => {
     const app = createApp();
     const adminToken = createSupabaseTestToken({ role: 'admin' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.endsWith('/images/models')) {
+          return new Response(
+            JSON.stringify({
+              data: [{ id: 'google/gemini-3.1-flash-lite-image' }],
+            }),
+            { status: 200 }
+          );
+        }
+
+        return new Response(JSON.stringify([{ id: 'global' }]), { status: 200 });
+      })
+    );
 
     const patchResponse = await request(app)
       .patch('/api/admin/model-config')
@@ -53,6 +69,7 @@ describe('/api/admin', () => {
         lessonReasoningEffort: 'high',
         contextModel: 'google/gemini-3.1-flash-lite',
         contextReasoningEffort: 'none',
+        imageModel: 'google/gemini-3.1-flash-lite-image',
       });
 
     expect(patchResponse.status).toBe(200);
@@ -61,6 +78,7 @@ describe('/api/admin', () => {
       lessonReasoningEffort: 'high',
       contextModel: 'google/gemini-3.1-flash-lite',
       contextReasoningEffort: 'none',
+      imageModel: 'google/gemini-3.1-flash-lite-image',
     });
 
     const readResponse = await request(app)
@@ -73,11 +91,32 @@ describe('/api/admin', () => {
       lessonReasoningEffort: 'high',
       contextModel: 'google/gemini-3.1-flash-lite',
       contextReasoningEffort: 'none',
+      imageModel: 'google/gemini-3.1-flash-lite-image',
     });
   });
 
+  test('rejects a configured model that is absent from the image catalog', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: [{ id: 'google/image-capable' }] }), { status: 200 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .patch('/api/admin/model-config')
+      .set('Authorization', authHeader(adminToken))
+      .send({ imageModel: 'google/text-only' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe(
+      'Il modello selezionato non supporta la generazione immagini.'
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test('persists global model configuration when Postgres storage is active', async () => {
-    process.env.PROJECT_STORAGE_DRIVER = 'postgres';
     const app = createApp();
     const adminToken = createSupabaseTestToken({ role: 'admin' });
     const fetchMock = vi.fn(
@@ -129,7 +168,6 @@ describe('/api/admin', () => {
   });
 
   test('replaces an unavailable persisted TTS model with a working default', async () => {
-    process.env.PROJECT_STORAGE_DRIVER = 'postgres';
     const app = createApp();
     const adminToken = createSupabaseTestToken({ role: 'admin' });
     vi.stubGlobal(

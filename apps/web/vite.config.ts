@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       host: '0.0.0.0',
+      strictPort: true,
     },
     plugins: [react()],
     define: {
@@ -19,7 +20,6 @@ export default defineConfig(({ mode }) => {
       'process.env.MODEL_FLASH': JSON.stringify(env.MODEL_FLASH),
       'process.env.MODEL_REASONING': JSON.stringify(env.MODEL_REASONING),
       'process.env.MAX_OUTPUT_TOKENS': JSON.stringify(env.MAX_OUTPUT_TOKENS),
-      'process.env.PROJECT_REPOSITORY_MODE': JSON.stringify(env.PROJECT_REPOSITORY_MODE),
     },
     resolve: {
       dedupe: ['react', 'react-dom'],

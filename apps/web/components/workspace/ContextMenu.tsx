@@ -5,6 +5,7 @@ import {
   Eraser,
   Highlighter,
   LoaderCircle,
+  MoreVertical,
   NotebookPen,
   Paperclip,
   X,
@@ -21,6 +22,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type {
@@ -34,6 +36,7 @@ import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
 import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
+import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechInputButton.tsx';
 
 interface ContextMenuProps {
   anchorX?: number;
@@ -68,6 +71,9 @@ const CONTEXT_MENU_DESKTOP_MIN_WIDTH = 320;
 const CONTEXT_MENU_DESKTOP_CHROME_HEIGHT = 76;
 const CONTEXT_MENU_MOBILE_MAX_WIDTH = 384;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
+const MORE_ACTIONS_MENU_WIDTH = 208;
+const MORE_ACTIONS_MENU_HEIGHT = 52;
+const MORE_ACTIONS_MENU_GAP = 8;
 
 const clamp = (value: number, min: number, max: number) => {
   return Math.min(Math.max(value, min), max);
@@ -115,6 +121,8 @@ const ContextMenu = ({
     useState(annotationArtifactRefs);
   const [isLessonConfirmOpen, setIsLessonConfirmOpen] = useState(false);
   const [isAttachmentPickerOpen, setIsAttachmentPickerOpen] = useState(false);
+  const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
+  const [moreActionsMenuStyle, setMoreActionsMenuStyle] = useState<CSSProperties | null>(null);
   const [isNoteEditorOpen, setIsNoteEditorOpen] = useState(false);
   const [isNotePreviewScrolled, setIsNotePreviewScrolled] = useState(false);
   const askInteractionLockRef = useRef(false);
@@ -125,6 +133,10 @@ const ContextMenu = ({
       .join('|')}`
   );
   const notePreviewRef = useRef<HTMLDivElement>(null);
+  const moreActionsButtonRef = useRef<HTMLButtonElement>(null);
+  const moreActionsMenuRef = useRef<HTMLDivElement>(null);
+  const moreActionsMenuItemRef = useRef<HTMLButtonElement>(null);
+  const lessonCancelButtonRef = useRef<HTMLButtonElement>(null);
   const isMobileSheet = placement === 'mobile-sheet';
   const { keyboardOffset } = useMobileKeyboardOffset();
   const isAnnotationMode = type === 'annotation';
@@ -182,6 +194,8 @@ const ContextMenu = ({
     () => normalizeMarkdownForRendering(noteInput),
     [noteInput]
   );
+  const moreActionsPortalTarget =
+    artifactPortalContainer ?? (typeof document === 'undefined' ? null : document.body);
 
   const handleContainerPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.stopPropagation();
@@ -301,11 +315,46 @@ const ContextMenu = ({
     }, 400);
   };
 
+  const handleToggleMoreActions = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isMoreActionsOpen) {
+      setIsMoreActionsOpen(false);
+      return;
+    }
+
+    const triggerRect = moreActionsButtonRef.current?.getBoundingClientRect();
+    if (!triggerRect || typeof window === 'undefined') {
+      return;
+    }
+
+    const left = clamp(
+      triggerRect.right - MORE_ACTIONS_MENU_WIDTH,
+      CONTEXT_MENU_VIEWPORT_PADDING,
+      Math.max(
+        CONTEXT_MENU_VIEWPORT_PADDING,
+        window.innerWidth - MORE_ACTIONS_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING
+      )
+    );
+    setMoreActionsMenuStyle(
+      triggerRect.top >= MORE_ACTIONS_MENU_HEIGHT + MORE_ACTIONS_MENU_GAP
+        ? {
+            bottom: window.innerHeight - triggerRect.top + MORE_ACTIONS_MENU_GAP,
+            left,
+          }
+        : { left, top: triggerRect.bottom + MORE_ACTIONS_MENU_GAP }
+    );
+    setIsNoteEditorOpen(false);
+    setIsLessonConfirmOpen(false);
+    setIsMoreActionsOpen(true);
+  };
+
   const handleCreateIntent = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    setIsNoteEditorOpen(false);
-    setIsLessonConfirmOpen(currentValue => !currentValue);
+    setIsMoreActionsOpen(false);
+    setIsLessonConfirmOpen(true);
+    window.requestAnimationFrame(() => lessonCancelButtonRef.current?.focus());
   };
 
   const handleCancelCreate = (event: MouseEvent<HTMLButtonElement>) => {
@@ -318,7 +367,7 @@ const ContextMenu = ({
     event.preventDefault();
     event.stopPropagation();
     setIsLessonConfirmOpen(false);
-    onCreateLesson(input);
+    onCreateLesson(displayedInput);
   };
 
   const handleToggleNoteEditor = (event: MouseEvent<HTMLButtonElement>) => {
@@ -358,6 +407,13 @@ const ContextMenu = ({
         return;
       }
 
+      if (isMoreActionsOpen) {
+        event.preventDefault();
+        setIsMoreActionsOpen(false);
+        window.requestAnimationFrame(() => moreActionsButtonRef.current?.focus());
+        return;
+      }
+
       onClose();
     };
 
@@ -365,7 +421,36 @@ const ContextMenu = ({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onClose]);
+  }, [isMoreActionsOpen, onClose]);
+
+  useEffect(() => {
+    if (!isMoreActionsOpen) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => moreActionsMenuItemRef.current?.focus());
+    const handlePointerDown = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (
+        moreActionsButtonRef.current?.contains(target) ||
+        moreActionsMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setIsMoreActionsOpen(false);
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, [isMoreActionsOpen]);
 
   useEffect(() => {
     const nextMenuKey = `${type}:${selectedText}:${annotationNote}:${annotationArtifactRefs
@@ -378,6 +463,7 @@ const ContextMenu = ({
     previousMenuKeyRef.current = nextMenuKey;
     setIsLessonConfirmOpen(false);
     setIsAttachmentPickerOpen(false);
+    setIsMoreActionsOpen(false);
     setLocalAnnotationArtifactRefs(annotationArtifactRefs);
     setNoteInput(annotationNote);
     setIsNoteEditorOpen(false);
@@ -489,9 +575,9 @@ const ContextMenu = ({
     ? 'flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-stone-900 px-4 text-sm font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:bg-stone-200 disabled:text-stone-500 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:bg-stone-600 dark:disabled:text-stone-300'
     : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-stone-300/95 bg-stone-900 text-stone-50 shadow-[0_22px_36px_-18px_rgba(34,28,19,0.54),0_8px_14px_-12px_rgba(34,28,19,0.26)] transition-colors hover:bg-stone-700 disabled:border-stone-200 disabled:bg-stone-200 disabled:text-stone-500 dark:border-stone-400/90 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:disabled:border-stone-500 dark:disabled:bg-stone-600 dark:disabled:text-stone-300';
 
-  const lessonButtonClassName = isMobileSheet
+  const moreActionsButtonClassName = isMobileSheet
     ? 'flex h-11 items-center justify-center gap-2 rounded-full border border-orange-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-orange-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-0 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600'
-    : 'group flex h-10 w-10 shrink-0 items-center justify-start gap-1 overflow-hidden rounded-full border border-stone-300/95 bg-white pl-[0.75rem] text-sm font-medium text-stone-700 shadow-[0_20px_34px_-18px_rgba(34,28,19,0.24),0_8px_14px_-12px_rgba(34,28,19,0.16)] transition-[width,padding,background-color,border-color] duration-200 hover:w-[7.4rem] hover:border-orange-300 hover:bg-orange-50/70 hover:pr-1.5 focus-visible:w-[7.4rem] focus-visible:border-orange-400 focus-visible:outline-none focus-visible:ring-0 focus-visible:pr-1.5 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:border-orange-700 dark:hover:bg-stone-600';
+    : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-stone-300/95 bg-white text-stone-700 shadow-[0_20px_34px_-18px_rgba(34,28,19,0.24),0_8px_14px_-12px_rgba(34,28,19,0.16)] transition-colors hover:border-orange-300 hover:bg-orange-50/70 focus-visible:border-orange-400 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:border-orange-700 dark:hover:bg-stone-600';
 
   const noteButtonClassName = isMobileSheet
     ? 'flex h-11 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-0 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600'
@@ -779,6 +865,56 @@ const ContextMenu = ({
     );
   };
 
+  const renderMoreActionsButton = () =>
+    !isLessonMode ? (
+      <button
+        ref={moreActionsButtonRef}
+        type="button"
+        onClick={handleToggleMoreActions}
+        disabled={isLoading}
+        aria-expanded={isMoreActionsOpen}
+        aria-haspopup="menu"
+        aria-label={t('Apri menu')}
+        className={moreActionsButtonClassName}
+        title={t('Apri menu')}
+      >
+        <MoreVertical className="h-4 w-4 shrink-0 text-orange-600" />
+      </button>
+    ) : null;
+
+  const renderMoreActionsPortal = () => {
+    if (!isMoreActionsOpen || !moreActionsMenuStyle || !moreActionsPortalTarget) {
+      return null;
+    }
+
+    return createPortal(
+      <div
+        ref={moreActionsMenuRef}
+        data-nous-context-menu-portal
+        role="menu"
+        aria-label={t('Apri menu')}
+        className="fixed z-[70] w-52 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-[0_24px_64px_-24px_rgba(28,25,23,0.45)] dark:border-stone-500 dark:bg-stone-800"
+        style={moreActionsMenuStyle}
+      >
+        <button
+          ref={moreActionsMenuItemRef}
+          type="button"
+          role="menuitem"
+          onClick={handleCreateIntent}
+          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-orange-50 focus-visible:bg-orange-50 focus-visible:outline-none dark:text-stone-100 dark:hover:bg-stone-700 dark:focus-visible:bg-stone-700"
+        >
+          <BookPlus className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+          <span>{t('Crea lezione')}</span>
+        </button>
+      </div>,
+      moreActionsPortalTarget
+    );
+  };
+
+  const handleSpeechTranscription = (transcription: string) => {
+    setInput(appendSpeechTranscription(displayedInput, transcription));
+  };
+
   const renderSelectionDesktop = () => (
     <div className="space-y-2">
       <div className="flex items-center gap-2.5">
@@ -817,6 +953,12 @@ const ContextMenu = ({
             />
           </div>
 
+          <SpeechInputButton
+            disabled={isLoading}
+            onTranscription={handleSpeechTranscription}
+            variant="compact"
+          />
+
           <button
             type="submit"
             data-context-menu-target="submit"
@@ -851,20 +993,7 @@ const ContextMenu = ({
             </button>
           ) : null}
 
-          {!isLessonMode ? (
-            <button
-              type="button"
-              onClick={handleCreateIntent}
-              disabled={isLoading}
-              className={lessonButtonClassName}
-              title={t('Crea una nuova lezione dedicata a questo punto nel menu a sinistra')}
-            >
-              <BookPlus className="h-4 w-4 shrink-0 text-orange-600 transition-none" />
-              <span className="max-w-0 overflow-hidden whitespace-nowrap text-left opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-[5.8rem] group-hover:opacity-100 group-focus-visible:max-w-[5.8rem] group-focus-visible:opacity-100">
-                {t('Crea lezione')}
-              </span>
-            </button>
-          ) : null}
+          {renderMoreActionsButton()}
         </form>
       </div>
 
@@ -890,6 +1019,7 @@ const ContextMenu = ({
             )}
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
+                ref={lessonCancelButtonRef}
                 type="button"
                 onClick={handleCancelCreate}
                 className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
@@ -914,21 +1044,28 @@ const ContextMenu = ({
   const renderSelectionMobile = () => (
     <>
       <form className="space-y-3" onSubmit={handleAskSubmit}>
-        <input
-          type="text"
-          data-context-menu-target="input"
-          value={displayedInput}
-          onChange={event => setInput(event.target.value)}
-          onFocus={event => {
-            const target = event.currentTarget;
-            window.setTimeout(() => {
-              target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
-            }, 250);
-          }}
-          placeholder={askInputPlaceholder}
-          className="h-11 w-full rounded-full border border-stone-200/80 bg-stone-50/60 px-4 text-sm text-stone-800 transition-all placeholder:text-stone-400 focus:border-stone-300 focus:bg-white focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:border-stone-400/95 dark:bg-stone-700/70 dark:text-stone-100 dark:placeholder:text-stone-300 dark:focus:border-stone-400/95 dark:focus:bg-stone-700"
-          disabled={isLoading}
-        />
+        <div className="flex items-center gap-1 rounded-full border border-stone-200/80 bg-stone-50/60 px-1.5 transition-colors focus-within:border-stone-300 focus-within:bg-white dark:border-stone-400/95 dark:bg-stone-700/70 dark:focus-within:bg-stone-700">
+          <input
+            type="text"
+            data-context-menu-target="input"
+            value={displayedInput}
+            onChange={event => setInput(event.target.value)}
+            onFocus={event => {
+              const target = event.currentTarget;
+              window.setTimeout(() => {
+                target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+              }, 250);
+            }}
+            placeholder={askInputPlaceholder}
+            className="h-11 min-w-0 flex-1 border-0 bg-transparent px-2.5 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
+            disabled={isLoading}
+          />
+          <SpeechInputButton
+            disabled={isLoading}
+            onTranscription={handleSpeechTranscription}
+            variant="compact"
+          />
+        </div>
         <div className="flex items-center gap-2">
           {!isLessonMode ? (
             <button
@@ -987,18 +1124,7 @@ const ContextMenu = ({
             </button>
           ) : null}
 
-          {!isLessonMode ? (
-            <button
-              type="button"
-              onClick={handleCreateIntent}
-              disabled={isLoading}
-              className="flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-orange-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-orange-50 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600"
-              title={t('Crea una nuova lezione dedicata a questo punto')}
-            >
-              <BookPlus className="h-4 w-4 shrink-0 text-orange-600" />
-              <span className="hidden min-[420px]:inline">{t('Lezione')}</span>
-            </button>
-          ) : null}
+          {renderMoreActionsButton()}
         </div>
       </form>
 
@@ -1023,6 +1149,7 @@ const ContextMenu = ({
           )}
           <div className="flex items-center justify-end gap-2 pt-1">
             <button
+              ref={lessonCancelButtonRef}
               type="button"
               onClick={handleCancelCreate}
               className="rounded-full px-3 py-2 text-xs font-semibold text-stone-500 transition-colors hover:bg-stone-200/70 hover:text-stone-700 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
@@ -1046,44 +1173,47 @@ const ContextMenu = ({
   const shouldAnimate = useShouldAnimate();
 
   return (
-    <motion.div
-      ref={containerRef}
-      className={`fixed z-50 ${
-        isMobileSheet
-          ? 'left-1/2 overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700'
-          : ''
-      }`}
-      style={{
-        ...menuStyle,
-        ...(!isMobileSheet
-          ? ({
-              '--context-menu-note-max-height': `${desktopNoteMaxHeight}px`,
-            } as CSSProperties)
-          : null),
-        transformOrigin,
-        willChange: 'transform, opacity',
-        ...(isMobileSheet ? { x: '-50%' } : null),
-      }}
-      initial={
-        shouldAnimate
-          ? isMobileSheet
-            ? { opacity: 0, y: 12 }
-            : { opacity: 0, scale: 0.94 }
-          : false
-      }
-      animate={isMobileSheet ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 }}
-      transition={
-        isMobileSheet
-          ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }
-          : {
-              opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] },
-              scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
-            }
-      }
-      onPointerDown={handleContainerPointerDown}
-    >
-      {isMobileSheet ? renderSelectionMobile() : renderSelectionDesktop()}
-    </motion.div>
+    <>
+      <motion.div
+        ref={containerRef}
+        className={`fixed z-50 ${
+          isMobileSheet
+            ? 'left-1/2 overflow-hidden rounded-[2rem] border border-stone-200/60 bg-white p-3.5 pb-4 shadow-[0_8px_20px_-4px_rgba(0,0,0,0.12),0_24px_56px_-16px_rgba(0,0,0,0.18),0_0_0_1px_rgba(0,0,0,0.04)] dark:border-stone-400/95 dark:bg-stone-700'
+            : ''
+        }`}
+        style={{
+          ...menuStyle,
+          ...(!isMobileSheet
+            ? ({
+                '--context-menu-note-max-height': `${desktopNoteMaxHeight}px`,
+              } as CSSProperties)
+            : null),
+          transformOrigin,
+          willChange: 'transform, opacity',
+          ...(isMobileSheet ? { x: '-50%' } : null),
+        }}
+        initial={
+          shouldAnimate
+            ? isMobileSheet
+              ? { opacity: 0, y: 12 }
+              : { opacity: 0, scale: 0.94 }
+            : false
+        }
+        animate={isMobileSheet ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 }}
+        transition={
+          isMobileSheet
+            ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }
+            : {
+                opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] },
+                scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
+              }
+        }
+        onPointerDown={handleContainerPointerDown}
+      >
+        {isMobileSheet ? renderSelectionMobile() : renderSelectionDesktop()}
+      </motion.div>
+      {renderMoreActionsPortal()}
+    </>
   );
 };
 

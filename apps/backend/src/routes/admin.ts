@@ -3,10 +3,12 @@ import { type NextFunction, type Request, type Response, Router } from 'express'
 import { getCurrentUser } from '../auth/currentUser.js';
 import {
   type GlobalModelConfigPatch,
+  isAiProvider,
   isReasoningEffort,
   loadPersistedGlobalModelConfig,
   patchAndPersistGlobalModelConfig,
 } from '../config/modelConfig.js';
+import { imageClient } from '../services/imageClient.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
 
@@ -105,6 +107,17 @@ const readReasoningEffortPatch = (value: unknown) => {
   return effort;
 };
 
+const readAiProviderPatch = (value: unknown) => {
+  const provider = readOptionalString(value);
+  if (!provider) {
+    return undefined;
+  }
+  if (!isAiProvider(provider)) {
+    throw new Error('Provider AI non valido.');
+  }
+  return provider;
+};
+
 router.use(requireAdminUser);
 
 router.get('/model-config', async (_req: Request, res: Response) => {
@@ -125,18 +138,38 @@ router.patch('/model-config', async (req: Request, res: Response) => {
     }
 
     const patch: GlobalModelConfigPatch = {
+      aiProvider: readAiProviderPatch(req.body.aiProvider),
       assessmentModel: readOptionalString(req.body.assessmentModel),
       assessmentReasoningEffort: readReasoningEffortPatch(req.body.assessmentReasoningEffort),
+      codexAssessmentModel: readOptionalString(req.body.codexAssessmentModel),
+      codexContextModel: readOptionalString(req.body.codexContextModel),
+      codexLessonModel: readOptionalString(req.body.codexLessonModel),
+      codexProgressModel: readOptionalString(req.body.codexProgressModel),
+      codexResearchModel: readOptionalString(req.body.codexResearchModel),
       contextModel: readOptionalString(req.body.contextModel),
       contextReasoningEffort: readReasoningEffortPatch(req.body.contextReasoningEffort),
+      imageModel: readOptionalString(req.body.imageModel),
       lessonModel: readOptionalString(req.body.lessonModel),
       lessonReasoningEffort: readReasoningEffortPatch(req.body.lessonReasoningEffort),
+      openAiAssessmentModel: readOptionalString(req.body.openAiAssessmentModel),
+      openAiContextModel: readOptionalString(req.body.openAiContextModel),
+      openAiImageModel: readOptionalString(req.body.openAiImageModel),
+      openAiLessonModel: readOptionalString(req.body.openAiLessonModel),
+      openAiProgressModel: readOptionalString(req.body.openAiProgressModel),
+      openAiResearchModel: readOptionalString(req.body.openAiResearchModel),
       progressModel: readOptionalString(req.body.progressModel),
       progressReasoningEffort: readReasoningEffortPatch(req.body.progressReasoningEffort),
       researchModel: readOptionalString(req.body.researchModel),
       ttsModel: readOptionalString(req.body.ttsModel),
       ttsVoice: readOptionalString(req.body.ttsVoice),
     };
+
+    if (patch.imageModel) {
+      await imageClient.assertModelSupportsImage(patch.imageModel);
+    }
+    if (patch.openAiImageModel) {
+      imageClient.assertOpenAiModelSupportsImage(patch.openAiImageModel);
+    }
 
     res.json({
       success: true,

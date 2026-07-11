@@ -32,6 +32,7 @@ import ProjectCard from './ProjectCard.tsx';
 
 interface LibraryTreeViewProps {
   createRootTrigger?: number;
+  isExportingProject?: boolean;
   openingProjectId: string | null;
   onCreateFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<unknown>;
   onConfirmDeleteFolder: (folderName: string) => Promise<boolean>;
@@ -83,6 +84,7 @@ const DropLineIndicator = () => (
 
 const ROOT_CREATE_KEY = '__root__';
 const FOLDER_COLLAPSE_DURATION_MS = 340;
+const ACTION_STATUS_DISMISS_MS = 3_500;
 
 const isFolderNode = (node: LibraryTreeNode): node is LibraryFolderNode => node.kind === 'folder';
 
@@ -265,6 +267,7 @@ const getFolderRowClassName = ({
 
 export default function LibraryTreeView({
   createRootTrigger,
+  isExportingProject = false,
   openingProjectId,
   onCreateFolder,
   onConfirmDeleteFolder,
@@ -288,7 +291,13 @@ export default function LibraryTreeView({
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
   const [folderMenuPlacement, setFolderMenuPlacement] = useState<'below' | 'above'>('below');
+  const [pendingAction, setPendingAction] = useState<'folder-save' | 'move' | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const collapseScrollFrameRef = useRef<number | null>(null);
+  const folderMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const moveDialogTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const movePendingRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
@@ -328,14 +337,32 @@ export default function LibraryTreeView({
     };
   }, []);
 
+  useEffect(() => {
+    if (!actionMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setActionMessage(''), ACTION_STATUS_DISMISS_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [actionMessage]);
+
+  useEffect(() => {
+    if (moveTarget) {
+      moveDialogTitleRef.current?.focus();
+    }
+  }, [moveTarget]);
+
   const touchDragRef = useRef<{ itemId: string; itemKind: 'folder' | 'project' } | null>(null);
   const touchDropTargetRef = useRef<DropTarget | null>(null);
   const touchHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartPointRef = useRef<{ x: number; y: number } | null>(null);
   const liveRef = useRef({
     draggedFolderDisabledIds: new Set<string>(),
-    onMoveFolder,
-    onMoveProjects,
+    moveItem: async (
+      _destinationFolderId: string | null,
+      _item: DraggedLibraryItem,
+      _targetIndex?: number
+    ) => {},
   });
 
   const TOUCH_HOLD_MS = 300;
@@ -452,20 +479,19 @@ export default function LibraryTreeView({
     };
 
     const handleTouchEnd = () => {
-      cancelTouchHold();
       const current = touchDragRef.current;
       const target = touchDropTargetRef.current;
+      cancelTouchHold();
       touchDragRef.current = null;
       touchDropTargetRef.current = null;
       setDraggedItem(null);
       setDropTarget(null);
       if (current && target) {
-        const { onMoveFolder: moveFolder, onMoveProjects: moveProjects } = liveRef.current;
-        if (current.itemKind === 'folder') {
-          void moveFolder(current.itemId, target.parentFolderId ?? null, target.index);
-        } else {
-          void moveProjects([current.itemId], target.parentFolderId ?? null, target.index);
-        }
+        void liveRef.current.moveItem(
+          target.parentFolderId ?? null,
+          { id: current.itemId, kind: current.itemKind },
+          target.index
+        );
       }
     };
 
@@ -487,25 +513,37 @@ export default function LibraryTreeView({
   ) => {
     event.preventDefault();
     const trimmedName = folderDraftName.trim();
-    if (!trimmedName) {
+    if (!trimmedName || pendingAction === 'folder-save') {
       return;
     }
 
-    if (args.mode === 'create') {
-      await onCreateFolder({
-        name: trimmedName,
-        parentFolderId: args.folderId === ROOT_CREATE_KEY ? null : (args.folderId ?? null),
-      });
-      if (args.folderId && args.folderId !== ROOT_CREATE_KEY) {
-        setExpandedFolderIds(currentIds => new Set(currentIds).add(args.folderId as string));
+    setPendingAction('folder-save');
+    setActionError('');
+    setActionMessage('');
+    try {
+      if (args.mode === 'create') {
+        await onCreateFolder({
+          name: trimmedName,
+          parentFolderId: args.folderId === ROOT_CREATE_KEY ? null : (args.folderId ?? null),
+        });
+        if (args.folderId && args.folderId !== ROOT_CREATE_KEY) {
+          setExpandedFolderIds(currentIds => new Set(currentIds).add(args.folderId as string));
+        }
+        setCreateTargetId(null);
+        setActionMessage(t('Cartella creata.'));
+      } else if (args.folderId) {
+        await onRenameFolder(args.folderId, trimmedName);
+        setEditingFolderId(null);
+        setActionMessage(t('Cartella rinominata.'));
       }
-      setCreateTargetId(null);
-    } else if (args.folderId) {
-      await onRenameFolder(args.folderId, trimmedName);
-      setEditingFolderId(null);
-    }
 
-    setFolderDraftName('');
+      setFolderDraftName('');
+    } catch (error) {
+      console.error('[Nous][Library] Folder save failed.', error);
+      setActionError(t('Operazione non riuscita. Riprova.'));
+    } finally {
+      setPendingAction(null);
+    }
   };
 
   const cancelFolderEditing = () => {
@@ -513,6 +551,75 @@ export default function LibraryTreeView({
     setEditingFolderId(null);
     setFolderDraftName('');
   };
+
+  const restoreFolderActionFocus = useCallback(() => {
+    queueMicrotask(() => folderMenuTriggerRef.current?.focus());
+  }, []);
+
+  const closeFolderMenu = useCallback(() => {
+    setOpenFolderMenuId(null);
+    restoreFolderActionFocus();
+  }, [restoreFolderActionFocus]);
+
+  const closeMoveDialog = useCallback(() => {
+    setMoveTarget(null);
+    restoreFolderActionFocus();
+  }, [restoreFolderActionFocus]);
+
+  const handleMoveDroppedItem = useCallback(
+    async (destinationFolderId: string | null, item = draggedItem, targetIndex?: number) => {
+      if (!item || movePendingRef.current) {
+        return;
+      }
+
+      movePendingRef.current = true;
+      setPendingAction('move');
+      setActionError('');
+      setActionMessage('');
+      try {
+        if (item.kind === 'folder') {
+          await onMoveFolder(item.id, destinationFolderId, targetIndex);
+        } else {
+          await onMoveProjects([item.id], destinationFolderId, targetIndex);
+        }
+
+        setDraggedItem(null);
+        setDropTarget(null);
+        setMoveTarget(null);
+        setActionMessage(t('Elemento spostato.'));
+        restoreFolderActionFocus();
+      } catch (error) {
+        console.error('[Nous][Library] Move failed.', error);
+        setActionError(t('Operazione non riuscita. Riprova.'));
+      } finally {
+        movePendingRef.current = false;
+        setPendingAction(null);
+      }
+    },
+    [draggedItem, onMoveFolder, onMoveProjects, restoreFolderActionFocus]
+  );
+
+  useEffect(() => {
+    if (!openFolderMenuId && !moveTarget) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      event.preventDefault();
+      if (moveTarget) {
+        closeMoveDialog();
+      } else {
+        closeFolderMenu();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [closeFolderMenu, closeMoveDialog, moveTarget, openFolderMenuId]);
 
   const resolveDisabledFolderIds = useCallback(
     (item: DraggedLibraryItem | null) => {
@@ -538,33 +645,13 @@ export default function LibraryTreeView({
   );
 
   useEffect(() => {
-    liveRef.current = { draggedFolderDisabledIds, onMoveFolder, onMoveProjects };
-  }, [draggedFolderDisabledIds, onMoveFolder, onMoveProjects]);
+    liveRef.current = { draggedFolderDisabledIds, moveItem: handleMoveDroppedItem };
+  }, [draggedFolderDisabledIds, handleMoveDroppedItem]);
 
   const moveTargetDisabledFolderIds = useMemo(
     () => resolveDisabledFolderIds(moveTarget),
     [moveTarget, resolveDisabledFolderIds]
   );
-
-  const handleMoveDroppedItem = async (
-    destinationFolderId: string | null,
-    item = draggedItem,
-    targetIndex?: number
-  ) => {
-    if (!item) {
-      return;
-    }
-
-    if (item.kind === 'folder') {
-      await onMoveFolder(item.id, destinationFolderId, targetIndex);
-    } else {
-      await onMoveProjects([item.id], destinationFolderId, targetIndex);
-    }
-
-    setDraggedItem(null);
-    setDropTarget(null);
-    setMoveTarget(null);
-  };
 
   const handleDrop = async (
     event: DragEvent<HTMLElement>,
@@ -598,9 +685,11 @@ export default function LibraryTreeView({
       />
       <button
         type="submit"
-        className="rounded-full bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white dark:bg-stone-100 dark:text-stone-900"
+        aria-busy={pendingAction === 'folder-save'}
+        disabled={pendingAction === 'folder-save'}
+        className="rounded-full bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900"
       >
-        {t('Salva')}
+        {pendingAction === 'folder-save' ? t('Salvataggio in corso...') : t('Salva')}
       </button>
       <button
         type="button"
@@ -627,9 +716,11 @@ export default function LibraryTreeView({
       />
       <button
         type="submit"
-        className="rounded-full bg-stone-900 px-2.5 py-1.5 text-xs font-semibold text-white dark:bg-stone-100 dark:text-stone-900"
+        aria-busy={pendingAction === 'folder-save'}
+        disabled={pendingAction === 'folder-save'}
+        className="rounded-full bg-stone-900 px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-wait disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900"
       >
-        {t('Salva')}
+        {pendingAction === 'folder-save' ? t('Salvataggio in corso...') : t('Salva')}
       </button>
       <button
         type="button"
@@ -838,11 +929,16 @@ export default function LibraryTreeView({
             </div>
           ) : null}
           <ProjectCard
+            isExporting={isExportingProject}
             isOpening={openingProjectId === node.id}
             project={node.project}
             onDelete={onDeleteProject}
             onExport={onExportProject}
-            onMove={projectId => setMoveTarget({ id: projectId, kind: 'project' })}
+            onMove={projectId => {
+              folderMenuTriggerRef.current =
+                document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
+              setMoveTarget({ id: projectId, kind: 'project' });
+            }}
             onOpen={onOpenProject}
           />
           {isDropAfter(node.id, 'project') ? (
@@ -935,6 +1031,12 @@ export default function LibraryTreeView({
           <button
             type="button"
             onClick={() => handleFolderExpansionToggle(node.id, isExpanded)}
+            aria-label={t(
+              isExpanded ? 'Chiudi cartella {folderName}' : 'Apri cartella {folderName}',
+              {
+                folderName: node.folder.name,
+              }
+            )}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
             title={isExpanded ? t('Chiudi cartella') : t('Apri cartella')}
           >
@@ -969,9 +1071,10 @@ export default function LibraryTreeView({
               onClick={e => {
                 e.stopPropagation();
                 if (openFolderMenuId === node.id) {
-                  setOpenFolderMenuId(null);
+                  closeFolderMenu();
                   return;
                 }
+                folderMenuTriggerRef.current = e.currentTarget;
                 const rect = e.currentTarget.getBoundingClientRect();
                 const estimatedMenuHeight = LIBRARY_FOLDER_MENU_ESTIMATED_HEIGHT_PX;
                 const spaceBelow = window.innerHeight - rect.bottom;
@@ -980,6 +1083,7 @@ export default function LibraryTreeView({
                 setFolderMenuPlacement(shouldFlipUp ? 'above' : 'below');
                 setOpenFolderMenuId(node.id);
               }}
+              aria-label={t('Azioni cartella {folderName}', { folderName: node.folder.name })}
               className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
               title={t('Azioni cartella')}
             >
@@ -1101,14 +1205,25 @@ export default function LibraryTreeView({
           type="button"
           aria-label={t('Chiudi menu cartella')}
           className="fixed inset-0 z-[55]"
-          onClick={() => setOpenFolderMenuId(null)}
-          onKeyDown={e => {
-            if (e.key === 'Escape') setOpenFolderMenuId(null);
-          }}
+          onClick={closeFolderMenu}
         />
       ) : null}
 
       {createTargetId === ROOT_CREATE_KEY ? renderFolderForm(ROOT_CREATE_KEY, 'create') : null}
+
+      {actionMessage ? (
+        <output className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/50 dark:text-emerald-200">
+          {actionMessage}
+        </output>
+      ) : null}
+      {actionError && !moveTarget ? (
+        <p
+          role="alert"
+          className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200"
+        >
+          {actionError}
+        </p>
+      ) : null}
 
       <ul
         aria-label={t('Albero corsi')}
@@ -1181,31 +1296,65 @@ export default function LibraryTreeView({
       </ul>
 
       {moveTarget ? (
-        <div className="fixed inset-0 z-[55] flex items-end bg-black/30 p-3 md:items-center md:justify-center">
-          <div className="w-full max-w-lg rounded-[1.8rem] border border-gray-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="fixed inset-0 z-[55] flex items-end p-3 md:items-center md:justify-center">
+          <button
+            type="button"
+            aria-label={t('Chiudi spostamento')}
+            className="absolute inset-0 bg-black/30"
+            onClick={closeMoveDialog}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-busy={pendingAction === 'move'}
+            aria-labelledby="library-move-dialog-title"
+            className="relative w-full max-w-lg rounded-[1.8rem] border border-gray-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+          >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400 dark:text-zinc-500">
                   {t('Sposta elemento')}
                 </p>
-                <h4 className="mt-1 text-lg font-semibold text-gray-900 dark:text-zinc-100">
+                <h4
+                  ref={moveDialogTitleRef}
+                  id="library-move-dialog-title"
+                  tabIndex={-1}
+                  className="mt-1 text-lg font-semibold text-gray-900 dark:text-zinc-100"
+                >
                   {t('Scegli la destinazione')}
                 </h4>
               </div>
               <button
                 type="button"
-                onClick={() => setMoveTarget(null)}
+                aria-label={t('Chiudi spostamento')}
+                disabled={pendingAction === 'move'}
+                onClick={closeMoveDialog}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
+            {actionError ? (
+              <p
+                role="alert"
+                className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200"
+              >
+                {actionError}
+              </p>
+            ) : null}
+            {pendingAction === 'move' ? (
+              <output className="mb-3 text-sm text-gray-500 dark:text-zinc-400">
+                {t('Spostamento in corso...')}
+              </output>
+            ) : null}
+
             <div className="space-y-2">
               <button
                 type="button"
+                disabled={pendingAction === 'move'}
                 onClick={() => void handleMoveDroppedItem(null, moveTarget)}
-                className="flex w-full items-center justify-between rounded-2xl border border-gray-200 px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
+                className="flex w-full items-center justify-between rounded-2xl border border-gray-200 px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
               >
                 <span className="font-medium text-gray-900 dark:text-zinc-100">
                   {t('Radice libreria')}
@@ -1223,7 +1372,7 @@ export default function LibraryTreeView({
                   <button
                     key={folderNode.id}
                     type="button"
-                    disabled={isDisabled}
+                    disabled={isDisabled || pendingAction === 'move'}
                     onClick={() => void handleMoveDroppedItem(folderNode.id, moveTarget)}
                     className="flex w-full items-center justify-between rounded-2xl border border-gray-200 px-4 py-3 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
                     style={{ paddingLeft: 16 + folderNode.depth * 18 }}

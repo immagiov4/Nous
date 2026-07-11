@@ -389,6 +389,7 @@ const buildLessonPlanContextBlock = (
 };
 
 const buildLessonDossierResearchPrompt = (args: {
+  coverageGaps?: string[];
   lesson: LearningSection;
   moduleTitle: string;
   profile: UserProfile | null;
@@ -407,6 +408,9 @@ const buildLessonDossierResearchPrompt = (args: {
     args.researchLesson
   );
   const sourceHints = buildSourceHintBlock(args.researchLesson);
+  const coverageGapBlock = args.coverageGaps?.length
+    ? `\nLacune rilevate nel materiale originale da colmare:\n- ${args.coverageGaps.join('\n- ')}\n`
+    : '';
   return `Ricerca approfondita su questa lezione specifica: "${lessonTitle}".
 
 Obiettivo della lezione: ${lessonGoal}
@@ -419,6 +423,7 @@ ${planContext}
 
 Fonti suggerite dal piano (puoi usarle o aggiungerne):
 ${sourceHints}
+${coverageGapBlock}
 
 Cosa includere nel brief (in prosa, ${language}):
 - Sintesi fattuale densa sul tema della lezione.
@@ -473,6 +478,7 @@ Return this JSON shape:
 };
 
 export const generateResearchLessonDossier = async (args: {
+  coverageGaps?: string[];
   lesson: LearningSection;
   moduleTitle: string;
   profile: UserProfile | null;
@@ -492,6 +498,7 @@ export const generateResearchLessonDossier = async (args: {
           {
             role: 'user',
             content: buildLessonDossierResearchPrompt({
+              coverageGaps: args.coverageGaps,
               lesson: args.lesson,
               moduleTitle: args.moduleTitle,
               profile: args.profile,
@@ -582,6 +589,21 @@ const formatVisibleResearchSources = (dossier: ResearchLessonDossier): string =>
   return `\n\n## Fonti essenziali\n\n${sourceList}`;
 };
 
+const appendCanonicalResearchSources = (
+  content: string,
+  dossier: ResearchLessonDossier
+): string => {
+  const sourceBlock = formatVisibleResearchSources(dossier);
+  if (!sourceBlock) {
+    return content;
+  }
+
+  const contentWithoutGeneratedSources = content
+    .replace(/(?:^|\n)##\s+Fonti essenziali\s*\n[\s\S]*$/iu, '')
+    .trimEnd();
+  return `${contentWithoutGeneratedSources}${sourceBlock}`;
+};
+
 export const generateResearchLessonContent = async (args: {
   lessonTitle: string;
   moduleTitle: string;
@@ -589,6 +611,7 @@ export const generateResearchLessonContent = async (args: {
   profile: UserProfile | null;
   syllabus: SyllabusItem[];
   researchDossier: ResearchLessonDossier;
+  originalSourceContext?: string;
   generationNotes?: string;
   onStatusUpdate: (status: string) => void;
   onReasoningUpdate?: (reasoning: string) => void;
@@ -607,6 +630,9 @@ export const generateResearchLessonContent = async (args: {
     language: DEFAULT_RESEARCH_LANGUAGE,
   };
   const userNotesBlock = buildUserGenerationNotesBlock(args.generationNotes);
+  const originalSourceBlock = args.originalSourceContext?.trim()
+    ? `\nMATERIALE ORIGINALE DEL CORSO:\n${args.originalSourceContext.trim()}\n`
+    : '';
   args.onStatusUpdate('Scrittura lezione da fonti...');
 
   const prompt = `${userNotesBlock}
@@ -621,9 +647,12 @@ ${args.contextPrompt || 'Spiega chiaramente questo argomento.'}
 
 DOSSIER DI RICERCA (materiale sorgente):
 ${formatResearchDossierForPrompt(args.researchDossier)}
+${originalSourceBlock}
 
 ISTRUZIONI:
 - Usa il dossier come fonte dei contenuti, ma NON copiarlo o riassumerlo punto per punto: rielaboralo come prosa di lezione.
+- Se e presente materiale originale, integra davvero entrambe le basi informative. Mantieni il lessico e le convenzioni del corso originale quando non confliggono con fonti online piu affidabili.
+- Non colmare lacune con supposizioni: usa solo contenuti sostenuti dal materiale originale o dal dossier di ricerca.
 - Il dossier è materiale grezzo strutturato in liste: il tuo compito è trasformarlo in PROSA DISCORSIVA. Il fatto che il dossier sia in bullet non autorizza la lezione a esserlo.
 - VINCOLO FORTE SULLA FORMA: il corpo della lezione deve essere paragrafi di prosa. I bullet sono ammessi solo in casi rari e davvero giustificati (un'enumerazione tassonomica corta, un comando con flag), non come modo di default per esporre concetti. Niente liste di "cosa significa", "cosa ottieni", "perché è utile". Quei contenuti vanno scritti come frasi piene dentro un paragrafo.
 - Niente sezione "In sintesi" o riepiloghi finali a bullet: la lezione si chiude con un paragrafo conclusivo se serve.
@@ -657,11 +686,7 @@ FORMATO: Markdown.`;
     .replace(/^Certamente.*?:\s*/i, '')
     .replace(/```json/g, '')
     .trim();
-  const sourceBlock = formatVisibleResearchSources(args.researchDossier);
-  const contentWithSources =
-    !sourceBlock || /##\s+Fonti essenziali/i.test(lessonContent)
-      ? lessonContent
-      : `${lessonContent}${sourceBlock}`;
+  const contentWithSources = appendCanonicalResearchSources(lessonContent, args.researchDossier);
 
   const [visualResult, learningAids] = await Promise.all([
     appendGeneratedVisualExample({

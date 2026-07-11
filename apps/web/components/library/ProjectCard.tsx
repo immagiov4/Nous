@@ -11,7 +11,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { createElement, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   LIBRARY_MENU_EDGE_PADDING_PX,
@@ -25,6 +25,7 @@ import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 
 interface ProjectCardProps {
   className?: string;
+  isExporting?: boolean;
   isOpening?: boolean;
   onMove?: (projectId: string) => void;
   project: SavedProjectMeta;
@@ -55,6 +56,7 @@ const getProjectCoverIcon = (sourceKind: SavedProjectMeta['sourceKind']) => {
 
 const ProjectCard = ({
   className,
+  isExporting = false,
   isOpening = false,
   onDelete,
   onExport,
@@ -71,6 +73,7 @@ const ProjectCard = ({
     top: null as number | null,
   });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const wasExportingRef = useRef(isExporting);
   const coverIcon = getProjectCoverIcon(project.sourceKind);
   const showSourceWarning = !project.hasSourceFile && project.sourceKind !== 'learn-mode';
 
@@ -114,6 +117,34 @@ const ProjectCard = ({
     setMenuOpen(true);
   };
 
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    queueMicrotask(() => menuButtonRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMenu();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [closeMenu, menuOpen]);
+
+  useEffect(() => {
+    if (wasExportingRef.current && !isExporting) {
+      closeMenu();
+    }
+    wasExportingRef.current = isExporting;
+  }, [closeMenu, isExporting]);
+
   const renderMenu = () => {
     if (!menuOpen) {
       return null;
@@ -125,10 +156,7 @@ const ProjectCard = ({
           type="button"
           aria-label={t('Chiudi menu progetto')}
           className="fixed inset-0 z-40"
-          onClick={() => setMenuOpen(false)}
-          onKeyDown={e => {
-            if (e.key === 'Escape') setMenuOpen(false);
-          }}
+          onClick={closeMenu}
         />
         <MotionPopover
           isOpen={menuOpen}
@@ -147,6 +175,7 @@ const ProjectCard = ({
               type="button"
               onClick={() => {
                 setMenuOpen(false);
+                menuButtonRef.current?.focus();
                 onMove(project.id);
               }}
               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
@@ -157,14 +186,19 @@ const ProjectCard = ({
           ) : null}
           <button
             type="button"
+            aria-busy={isExporting}
+            disabled={isExporting}
             onClick={() => {
-              setMenuOpen(false);
               onExport(project.id);
             }}
-            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-700"
           >
-            <Download className="h-4 w-4 shrink-0" />
-            {t('Esporta')}
+            {isExporting ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4 shrink-0" />
+            )}
+            {isExporting ? t('Esportazione...') : t('Esporta')}
           </button>
           <div className="border-t border-gray-100 dark:border-zinc-700" />
           <button
@@ -241,12 +275,13 @@ const ProjectCard = ({
           onClick={e => {
             e.stopPropagation();
             if (menuOpen) {
-              setMenuOpen(false);
+              closeMenu();
               return;
             }
 
             openMenu();
           }}
+          aria-label={t('Azioni corso {projectTitle}', { projectTitle: project.title })}
           className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-paper-dark dark:hover:text-zinc-200"
           title={t('Azioni')}
         >

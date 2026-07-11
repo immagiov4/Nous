@@ -1,4 +1,6 @@
+import type { CourseSourceDescriptor } from '../../types.ts';
 import { clipText, normalizeLineEndings } from '../../utils/text.ts';
+import { formatCourseSourceSetContext } from '../projects/courseSources.ts';
 import { decodeTextBase64Preview } from '../projects/projectSource.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
 import {
@@ -103,6 +105,24 @@ IMPORTANTE: questo messaggio contiene solo il materiale di riferimento e NON con
 
 Nota: non e stato possibile leggere un'anteprima affidabile della sorgente. Non assumere una struttura ideale del materiale e fai domande generiche di calibrazione.`,
     hasReliableSourceContext: Boolean(preview),
+  };
+};
+
+const buildAssessmentDocumentContextFromSourceSet = (
+  sources: readonly CourseSourceDescriptor[]
+): AssessmentDocumentContext => {
+  const usableSources = sources.filter(source => source.status !== 'error');
+  const hasReliableSourceContext = usableSources.some(
+    source => (source.documentIndex?.chunks.length || 0) > 0
+  );
+  return {
+    content: `Ho caricato ${sources.length} fonti per un unico corso. L'ordine alfabetico serve solo a rendere stabile la lettura: non usarlo come ordine didattico.
+
+IMPORTANTE: gli indici sono mappe strutturali, non dimostrano da soli che un argomento sia trattato bene. Non affermare copertura o qualita basandoti soltanto sui titoli.
+
+FONTI, INDICI E CAMPIONI MIRATI (una riga JSON per fonte):
+${formatCourseSourceSetContext(sources)}`,
+    hasReliableSourceContext,
   };
 };
 
@@ -262,6 +282,24 @@ export const createEmbeddedAssessmentChatFromTextSource = async (
   createSeededAssessmentSession(buildAssessmentDocumentContextFromTextSource(source), {
     seedAssistant: false,
   });
+
+export const createAssessmentChatFromSourceSet = async (
+  sources: readonly CourseSourceDescriptor[],
+  onStatusUpdate?: (status: string) => void
+): Promise<ChatSession> => {
+  onStatusUpdate?.(`Analisi di ${sources.length} fonti...`);
+  return createSeededAssessmentSession(buildAssessmentDocumentContextFromSourceSet(sources));
+};
+
+export const createEmbeddedAssessmentChatFromSourceSet = async (
+  sources: readonly CourseSourceDescriptor[],
+  onStatusUpdate?: (status: string) => void
+): Promise<ChatSession> => {
+  onStatusUpdate?.(`Analisi di ${sources.length} fonti...`);
+  return createSeededAssessmentSession(buildAssessmentDocumentContextFromSourceSet(sources), {
+    seedAssistant: false,
+  });
+};
 
 const FINALIZE_PROFILE_TOOL = {
   type: 'function',

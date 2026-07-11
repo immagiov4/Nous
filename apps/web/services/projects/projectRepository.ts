@@ -5,12 +5,14 @@ import type {
   ProjectExportData,
   ProjectId,
   ProjectPatch,
+  ProjectRevisionEvent,
   ProjectSnapshot,
+  ProjectWriteOptions,
   SavedProjectMeta,
 } from '../../types';
 
 export class ProjectStorageError extends Error {
-  code: 'quota-exceeded' | 'persistence-failed' | 'unknown';
+  code: 'persistence-failed' | 'quota-exceeded' | 'revision-conflict' | 'unknown';
 
   constructor(message: string, code: ProjectStorageError['code'] = 'unknown') {
     super(message);
@@ -39,8 +41,19 @@ export interface ProjectRepository {
     targetIndex?: number
   ) => Promise<LibraryPlacement[]>;
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
-  saveProject: (snapshot: ProjectSnapshot) => Promise<SavedProjectMeta>;
-  patchProject: (id: ProjectId, patch: ProjectPatch) => Promise<SavedProjectMeta>;
+  saveProject: (
+    snapshot: ProjectSnapshot,
+    options?: ProjectWriteOptions
+  ) => Promise<SavedProjectMeta>;
+  patchProject: (
+    id: ProjectId,
+    patch: ProjectPatch,
+    options?: ProjectWriteOptions
+  ) => Promise<SavedProjectMeta>;
+  subscribeToProjectRevisions: (
+    listener: (event: ProjectRevisionEvent) => void,
+    onReconnect: () => void
+  ) => () => void;
   deleteProject: (id: ProjectId) => Promise<void>;
   importProject: (data: unknown) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   exportProject: (id: ProjectId) => Promise<ProjectExportData | null>;

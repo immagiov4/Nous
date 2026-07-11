@@ -25,6 +25,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
 });
 
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
+import { appendGeneratedVisualExample } from '../../../services/openrouter/lessonImages.ts';
 import {
   generateLessonVisualExample,
   inferExplicitVisualType,
@@ -229,6 +230,33 @@ describe('visual planner latency profile', () => {
         mediaType: 'image/webp',
       },
     });
+  });
+
+  test('keeps the completed lesson when image generation is unavailable', async () => {
+    callOpenRouterMock.mockResolvedValueOnce(
+      JSON.stringify({
+        visual_type: 'illustrative_image',
+        concept: 'Aspetto degli strati di una barriera corallina.',
+        pedagogical_goal: 'build_intuition',
+        anchor_heading: 'Confronto',
+      })
+    );
+    requestGeneratedImageMock.mockRejectedValueOnce(new Error('provider unavailable'));
+    const statuses: string[] = [];
+
+    const result = await appendGeneratedVisualExample({
+      contentMarkdown: BASE_VISUAL_INPUT.lessonMarkdown,
+      hasPdfImages: false,
+      onStatusUpdate: status => statuses.push(status),
+      sectionDescription: BASE_VISUAL_INPUT.sectionDescription,
+      sectionTitle: BASE_VISUAL_INPUT.sectionTitle,
+    });
+
+    expect(result).toEqual({
+      content: BASE_VISUAL_INPUT.lessonMarkdown,
+      generatedVisuals: [],
+    });
+    expect(statuses.at(-1)).toBe('Esempio visivo non disponibile');
   });
 });
 

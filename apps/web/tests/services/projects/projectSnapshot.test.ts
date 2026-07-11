@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  buildCourseSourceDescriptors,
+  createProjectSourceFromDescriptors,
+} from '../../../services/projects/courseSources.ts';
+import {
   buildCoverLabel,
   exportProjectData,
   inferProjectSourceKind,
@@ -151,4 +155,38 @@ test('normalizeImportedProject still supports legacy file-only exports', () => {
     kind: 'pdf',
     file: pdfFile,
   });
+});
+
+test('normalizeImportedProject preserves multi-source identities, outlines, and chunk provenance', () => {
+  const descriptors = buildCourseSourceDescriptors([
+    {
+      name: 'second.txt',
+      mimeType: 'text/plain',
+      data: encodeTextBase64('Second source'),
+    },
+    {
+      name: 'first.md',
+      mimeType: 'text/markdown',
+      data: encodeTextBase64('# First\nFirst source'),
+    },
+  ]);
+  const source = createProjectSourceFromDescriptors(descriptors);
+  const imported = normalizeImportedProject({
+    version: '4.1',
+    source,
+    learningPlan: null,
+    isLearnMode: false,
+    userProfile: null,
+    syllabus: [],
+  });
+
+  assert.deepEqual(
+    imported.source?.sources?.map(item => ({ id: item.id, name: item.name, file: item.file })),
+    descriptors.map(item => ({ id: item.id, name: item.name, file: item.file }))
+  );
+  assert.deepEqual(
+    imported.source?.sources?.flatMap(item => item.documentIndex?.sourceIds || []),
+    descriptors.map(item => item.id)
+  );
+  assert.equal(imported.source?.sources?.[0]?.outline[0]?.title, 'First');
 });

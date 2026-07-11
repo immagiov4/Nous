@@ -14,6 +14,9 @@ apps/backend/dist/
 data
 *.local
 .env.*.local
+.env.production
+deploy/backups/
+deploy/supabase-project/
 nul
 
 # Editor directories and files

@@ -34,11 +34,21 @@ export const resolveLessonContextChunks = (
     .filter((chunk): chunk is PdfTextChunk => Boolean(chunk))
     .forEach(chunk => {
       orderedSequences.add(chunk.sequence);
-      if (orderedSequences.size < MAX_CONTEXT_CHUNKS) {
-        orderedSequences.add(Math.max(0, chunk.sequence - 1));
+      const previousChunk = documentIndex.chunks[chunk.sequence - 1];
+      if (
+        orderedSequences.size < MAX_CONTEXT_CHUNKS &&
+        previousChunk &&
+        (!chunk.sourceId || previousChunk.sourceId === chunk.sourceId)
+      ) {
+        orderedSequences.add(previousChunk.sequence);
       }
-      if (orderedSequences.size < MAX_CONTEXT_CHUNKS) {
-        orderedSequences.add(Math.min(documentIndex.chunks.length - 1, chunk.sequence + 1));
+      const nextChunk = documentIndex.chunks[chunk.sequence + 1];
+      if (
+        orderedSequences.size < MAX_CONTEXT_CHUNKS &&
+        nextChunk &&
+        (!chunk.sourceId || nextChunk.sourceId === chunk.sourceId)
+      ) {
+        orderedSequences.add(nextChunk.sequence);
       }
     });
 

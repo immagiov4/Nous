@@ -1,11 +1,29 @@
+import { getNousRuntimeConfig } from '../runtimeConfig.ts';
+
+export interface SupabaseAccount {
+  avatarUrl?: string;
+  displayName?: string;
+  email?: string;
+  id: string;
+  providers?: string[];
+}
+
 export interface SupabaseUserSession {
   accessToken: string;
   expiresAt?: number;
   refreshToken?: string;
-  user?: {
-    email?: string;
-    id: string;
+  user?: SupabaseAccount;
+}
+
+interface SupabaseAuthUserResponse {
+  app_metadata?: {
+    provider?: unknown;
+    providers?: unknown;
   };
+  email?: string;
+  id?: string;
+  identities?: Array<{ provider?: unknown }>;
+  user_metadata?: Record<string, unknown>;
 }
 
 interface SupabaseAuthResponse {
@@ -13,10 +31,7 @@ interface SupabaseAuthResponse {
   expires_at?: number;
   expires_in?: number;
   refresh_token?: string;
-  user?: {
-    email?: string;
-    id?: string;
-  };
+  user?: SupabaseAuthUserResponse;
 }
 
 const SUPABASE_SESSION_STORAGE_KEY = 'nousSupabaseSession';
@@ -29,7 +44,7 @@ let memorySession: string | null = null;
 let refreshSessionPromise: Promise<SupabaseUserSession | null> | null = null;
 
 export const getFrontendAuthMode = (): 'local-bypass' | 'supabase' | 'unconfigured' => {
-  const configuredMode = import.meta.env.VITE_AUTH_MODE?.trim();
+  const configuredMode = getNousRuntimeConfig().authMode || import.meta.env.VITE_AUTH_MODE?.trim();
   if (configuredMode === SUPABASE_AUTH_MODE || configuredMode === LOCAL_AUTH_MODE) {
     return configuredMode;
   }
@@ -92,8 +107,9 @@ export const resolveBrowserReachableSupabaseUrl = (
 };
 
 const getSupabaseAuthConfig = () => {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+  const runtimeConfig = getNousRuntimeConfig();
+  const supabaseUrl = runtimeConfig.supabaseUrl || import.meta.env.VITE_SUPABASE_URL?.trim();
+  const anonKey = runtimeConfig.supabaseAnonKey || import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 
   if (!supabaseUrl || !anonKey) {
     throw new Error('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required for Supabase Auth.');
@@ -104,6 +120,62 @@ const getSupabaseAuthConfig = () => {
     anonKey,
   };
 };
+
+const readMetadataString = (
+  metadata: Record<string, unknown> | undefined,
+  keys: string[]
+): string | undefined => {
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (typeof value === 'string') {
+      return value.trim() || undefined;
+    }
+  }
+  return undefined;
+};
+
+const normalizeSupabaseAccount = (
+  response: SupabaseAuthUserResponse,
+  previousAccount?: SupabaseAccount
+): SupabaseAccount => {
+  const id = response.id || previousAccount?.id;
+  if (!id) {
+    throw new Error('Supabase Auth did not return a user identifier.');
+  }
+
+  const providers = new Set<string>();
+  for (const identity of response.identities || []) {
+    if (typeof identity.provider === 'string') {
+      providers.add(identity.provider);
+    }
+  }
+  const appProviders = response.app_metadata?.providers;
+  if (Array.isArray(appProviders)) {
+    for (const provider of appProviders) {
+      if (typeof provider === 'string') {
+        providers.add(provider);
+      }
+    }
+  }
+  if (typeof response.app_metadata?.provider === 'string') {
+    providers.add(response.app_metadata.provider);
+  }
+
+  return {
+    avatarUrl:
+      readMetadataString(response.user_metadata, ['avatar_url', 'picture']) ||
+      previousAccount?.avatarUrl,
+    displayName:
+      readMetadataString(response.user_metadata, ['display_name', 'full_name', 'name']) ||
+      previousAccount?.displayName,
+    email: response.email || previousAccount?.email,
+    id,
+    providers: providers.size > 0 ? [...providers] : previousAccount?.providers,
+  };
+};
+
+export const isPasswordAccount = (account: SupabaseAccount | null): boolean =>
+  account?.providers?.includes('email') === true;
 
 const normalizeSession = (
   response: SupabaseAuthResponse,
@@ -122,10 +194,7 @@ const normalizeSession = (
         : previousSession?.expiresAt),
     refreshToken: response.refresh_token || previousSession?.refreshToken,
     user: response.user?.id
-      ? {
-          id: response.user.id,
-          email: response.user.email,
-        }
+      ? normalizeSupabaseAccount(response.user, previousSession?.user)
       : previousSession?.user,
   };
 };
@@ -339,6 +408,99 @@ export const subscribeToSupabaseSession = (
     window.removeEventListener(SUPABASE_SESSION_CHANGE_EVENT, handleSessionChange);
     window.removeEventListener('storage', handleStorageChange);
   };
+};
+
+const requestCurrentSupabaseAccount = async (
+  method: 'GET' | 'PUT',
+  body?: Record<string, unknown>
+): Promise<SupabaseAccount> => {
+  const session = await getValidSupabaseSession();
+  if (!session) {
+    throw new Error('An authenticated session is required.');
+  }
+
+  const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    method,
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearSupabaseSession();
+    }
+    throw new Error('Account update failed.');
+  }
+
+  const account = normalizeSupabaseAccount(
+    (await response.json()) as SupabaseAuthUserResponse,
+    session.user
+  );
+  saveSupabaseSession({ ...session, user: account });
+  return account;
+};
+
+export const loadSupabaseAccount = (): Promise<SupabaseAccount> =>
+  requestCurrentSupabaseAccount('GET');
+
+export const updateSupabaseProfile = (profile: {
+  avatarUrl: string;
+  displayName: string;
+}): Promise<SupabaseAccount> =>
+  requestCurrentSupabaseAccount('PUT', {
+    data: {
+      avatar_url: profile.avatarUrl.trim() || null,
+      display_name: profile.displayName.trim() || null,
+    },
+  });
+
+export const requestSupabaseEmailChange = (email: string): Promise<SupabaseAccount> =>
+  requestCurrentSupabaseAccount('PUT', { email: email.trim() });
+
+export const updateSupabasePassword = (password: string): Promise<SupabaseAccount> =>
+  requestCurrentSupabaseAccount('PUT', { password });
+
+export const sendPasswordRecovery = async (email: string): Promise<void> => {
+  const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
+  const response = await fetch(`${supabaseUrl}/auth/v1/recover`, {
+    method: 'POST',
+    headers: {
+      apikey: anonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email: email.trim() }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Password recovery failed.');
+  }
+};
+
+export const signOutSupabase = async (): Promise<void> => {
+  const session = readSupabaseSession();
+  if (!session) {
+    clearSupabaseSession();
+    return;
+  }
+
+  const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
+  const response = await fetch(`${supabaseUrl}/auth/v1/logout?scope=local`, {
+    method: 'POST',
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${session.accessToken}`,
+    },
+  });
+  if (!response.ok && response.status !== 401) {
+    throw new Error('Sign out failed.');
+  }
+
+  clearSupabaseSession();
 };
 
 export const signInWithPassword = async ({

@@ -16,21 +16,8 @@ describe('getProjectStore', () => {
   });
 
   test('defaults to the Postgres server store', () => {
-    process.env.PROJECT_STORAGE_DRIVER = '';
     process.env.DATABASE_URL = '';
 
-    expect(() => getProjectStore()).toThrow(
-      'DATABASE_URL is required when PROJECT_STORAGE_DRIVER=postgres.'
-    );
-  });
-
-  test('blocks the SQLite driver outside test or explicit local dev profile', () => {
-    process.env.PROJECT_STORAGE_DRIVER = 'sqlite';
-    process.env.NODE_ENV = 'production';
-    process.env.LOCAL_DEV_PROFILE = '';
-
-    expect(() => getProjectStore()).toThrow(
-      'PROJECT_STORAGE_DRIVER=sqlite is only allowed in test or local dev profile.'
-    );
+    expect(() => getProjectStore()).toThrow('DATABASE_URL is required for project storage.');
   });
 });

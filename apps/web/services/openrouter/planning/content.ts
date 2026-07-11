@@ -500,17 +500,19 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     };
   }
 
+  const mappedSourceContext = buildLessonChunkContext(documentIndex, primaryChunkIds);
   const prompt = buildLessonPrompt({
-    sourceContext: '',
+    sourcePrefix: mappedSourceContext ? ' usando solo gli estratti sorgente pertinenti' : '',
+    sourceContext: mappedSourceContext
+      ? `\nESTRATTI RILEVANTI DALLE FONTI PER QUESTA LEZIONE:\n${mappedSourceContext}\n`
+      : '',
     imagePlacementInstruction:
       '30. **IMMAGINI**: Per questa richiesta `imagePlacements` deve essere un array vuoto.',
   });
 
-  const userContent = await buildReasoningContentForFile(
-    file,
-    prompt,
-    MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS
-  );
+  const userContent = mappedSourceContext
+    ? prompt
+    : await buildReasoningContentForFile(file, prompt, MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS);
   onStatusUpdate?.('Strutturazione della lezione...');
   const parsed = await retryWithBackoff(async () => {
     const response = await callOpenRouter({
@@ -538,7 +540,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const repairedContentMarkdown = await repairLessonMarkdown(
     parsed.contentMarkdown || '',
     sectionTitle,
-    sectionDescription,
+    mappedSourceContext || sectionDescription,
     sectionDescription,
     generationNotes,
     onReasoningUpdate
@@ -555,7 +557,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     sectionTitle,
     sectionDescription,
     previousContext,
-    sourceContext: sectionDescription,
+    sourceContext: mappedSourceContext || sectionDescription,
     continuityRule,
     scopeRule,
     targetQuizCount,

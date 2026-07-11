@@ -2,6 +2,7 @@ import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import { markApplicationExercisePlanningFailed } from '../../../services/exercises/plan.ts';
+import { getCourseSourceDescriptors } from '../../../services/projects/courseSources.ts';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -23,7 +24,11 @@ import {
   type UserProfile,
 } from '../../../types.ts';
 import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
-import { loadProjectSourceFile, readSourceFileData } from './controllerContext.ts';
+import {
+  loadProjectSourceFile,
+  prepareUploadedCourseSource,
+  readSourceFileData,
+} from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -222,29 +227,38 @@ export const createAssessmentPlanningCommands = (
     ]);
   };
 
-  async function startAssessment({ file, textSource }: AssessmentSourceInput): Promise<void> {
+  async function startAssessment({
+    file,
+    sources,
+    textSource,
+  }: AssessmentSourceInput): Promise<void> {
     const requestId = state.beginWorkflow('assessment', t('Avvio Valutazione...'));
     state.setScreenState(AppState.ASSESSMENT);
     pushNousDebugTrace('assessment:start', {
       fileName: file?.name || null,
       hasFile: Boolean(file),
+      sourceCount: sources?.length || 0,
       hasTextSource: Boolean(textSource),
       requestId,
       textLength: textSource?.text.length || null,
     });
 
     try {
-      const session = textSource
-        ? await openRouter.createAssessmentChatFromTextSource(textSource, status => {
+      const session = sources?.length
+        ? await openRouter.createAssessmentChatFromSourceSet(sources, status => {
             state.setWorkflowMessage('assessment', requestId, status);
           })
-        : file
-          ? await openRouter.createAssessmentChat(file, status => {
+        : textSource
+          ? await openRouter.createAssessmentChatFromTextSource(textSource, status => {
               state.setWorkflowMessage('assessment', requestId, status);
             })
-          : (() => {
-              throw new Error('Missing source input for assessment');
-            })();
+          : file
+            ? await openRouter.createAssessmentChat(file, status => {
+                state.setWorkflowMessage('assessment', requestId, status);
+              })
+            : (() => {
+                throw new Error('Missing source input for assessment');
+              })();
       if (!state.isWorkflowCurrent('assessment', requestId)) {
         pushNousDebugTrace('assessment:stale-after-session', { requestId });
         return;
@@ -412,12 +426,21 @@ export const createAssessmentPlanningCommands = (
           await openRouter.validatePdfTextSource(sourceFile);
         }
 
-        const plan = await openRouter.generateLearningPlan(
-          sourceFile,
-          args.history || [],
-          reportStatus,
-          progressObserver.push
-        );
+        const sources = getCourseSourceDescriptors(domain.source);
+        const plan =
+          sources.length > 1
+            ? await openRouter.generateLearningPlanFromSourceSet(
+                sources,
+                args.history || [],
+                reportStatus,
+                progressObserver.push
+              )
+            : await openRouter.generateLearningPlan(
+                sourceFile,
+                args.history || [],
+                reportStatus,
+                progressObserver.push
+              );
 
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
           return;
@@ -510,19 +533,26 @@ export const createAssessmentPlanningCommands = (
   async function startHomeChat(args: {
     input: string;
     selectedFile?: File | null;
+    selectedFiles?: File[];
     toolPreferences?: HomeChatToolPreferences;
   }): Promise<{
     errorMessage?: string;
     outcome: 'assessment-complete' | 'continued' | 'failed' | 'imported' | 'noop' | 'planned';
+    sourceWarnings?: Array<{ message: string; name: string }>;
   }> {
     const trimmedInput = args.input.trim();
     if (!trimmedInput) {
       return { outcome: 'noop' };
     }
 
+    const selectedFiles = args.selectedFiles?.length
+      ? args.selectedFiles
+      : args.selectedFile
+        ? [args.selectedFile]
+        : [];
     const requestId = state.beginWorkflow(
       'assessment',
-      t(args.selectedFile ? 'Preparazione sorgente...' : 'Avvio conversazione...')
+      t(selectedFiles.length > 0 ? 'Preparazione sorgente...' : 'Avvio conversazione...')
     );
 
     try {
@@ -535,35 +565,67 @@ export const createAssessmentPlanningCommands = (
         | Awaited<ReturnType<typeof openRouter.createAssessmentChat>>
         | ReturnType<typeof openRouter.createEmbeddedLearnAssessmentChat>;
       let learnMode = false;
+      let sourceWarnings: Array<{ message: string; name: string }> = [];
 
-      if (args.selectedFile) {
+      if (selectedFiles.length > 0) {
         let nextSource = null;
         let nextFile: FileData | null = null;
 
-        if (isZipFileData({ name: args.selectedFile.name, mimeType: args.selectedFile.type })) {
-          const isBackupArchive = await isNousBackupArchive(args.selectedFile);
+        const zipFiles = selectedFiles.filter(file =>
+          isZipFileData({ name: file.name, mimeType: file.type })
+        );
+        if (zipFiles.length > 0 && selectedFiles.length !== 1) {
+          throw new Error('Gli archivi ZIP devono essere caricati da soli.');
+        }
+
+        if (zipFiles.length === 1) {
+          const selectedFile = zipFiles[0];
+          const isBackupArchive = await isNousBackupArchive(selectedFile);
 
           if (isBackupArchive) {
             state.setWorkflowMessage('assessment', requestId, t('Importazione backup...'));
-            await importProjectBackupFile(context, args.selectedFile);
+            await importProjectBackupFile(context, selectedFile);
             state.succeedWorkflow('assessment', requestId);
             return { outcome: 'imported' };
           }
 
           nextSource = await import('../../../utils/project/codebaseBundle.ts').then(module =>
-            module.createCodebaseBundleSourceFromZip(args.selectedFile as File)
+            module.createCodebaseBundleSourceFromZip(selectedFile)
           );
           nextFile = getProjectSourceFile(nextSource);
         } else {
-          nextFile = await readSourceFileData(args.selectedFile);
-          nextSource = createProjectSourceFromFile(nextFile);
+          if (selectedFiles.length === 1) {
+            nextFile = await readSourceFileData(selectedFiles[0]);
+            nextSource = createProjectSourceFromFile(nextFile);
+          } else {
+            const prepared = await prepareUploadedCourseSource(
+              context,
+              selectedFiles,
+              (completed, total) => {
+                state.setWorkflowMessage(
+                  'assessment',
+                  requestId,
+                  t('Preparazione fonti... {completed}/{total}', { completed, total })
+                );
+              }
+            );
+            nextSource = prepared.source;
+            nextFile = prepared.descriptors.find(source => source.status !== 'error')?.file || null;
+          }
         }
 
         if (!nextSource || !nextFile) {
           throw new Error('Unable to prepare project source');
         }
 
-        if (nextSource.kind === 'pdf') {
+        sourceWarnings = (nextSource.sources || [])
+          .filter(source => source.status === 'error')
+          .map(source => ({
+            message: source.errorMessage || 'Questa fonte non è utilizzabile.',
+            name: source.name,
+          }));
+
+        if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
           state.setWorkflowMessage('assessment', requestId, t('Verifica testo PDF...'));
           await openRouter.validatePdfTextSource(nextFile);
         }
@@ -573,14 +635,16 @@ export const createAssessmentPlanningCommands = (
         learnMode = false;
 
         session =
-          nextSource.kind === 'codebase-bundle'
-            ? await openRouter.createEmbeddedAssessmentChatFromTextSource({
-                name: nextSource.name,
-                text: nextSource.aggregatedText,
-              })
-            : await openRouter.createEmbeddedAssessmentChat(nextFile, status => {
-                state.setWorkflowMessage('assessment', requestId, status);
-              });
+          nextSource.sources && nextSource.sources.length > 1
+            ? await openRouter.createEmbeddedAssessmentChatFromSourceSet(nextSource.sources)
+            : nextSource.kind === 'codebase-bundle'
+              ? await openRouter.createEmbeddedAssessmentChatFromTextSource({
+                  name: nextSource.name,
+                  text: nextSource.aggregatedText,
+                })
+              : await openRouter.createEmbeddedAssessmentChat(nextFile, status => {
+                  state.setWorkflowMessage('assessment', requestId, status);
+                });
       } else {
         domain.setSource(null);
         domain.setIsLearnMode(true);
@@ -609,7 +673,7 @@ export const createAssessmentPlanningCommands = (
           state.succeedWorkflow('assessment', requestId);
           await sleep(1500);
           await runPlanGeneration({ mode: 'learn', profile });
-          return { outcome: 'planned' };
+          return { outcome: 'planned', sourceWarnings };
         }
 
         state.setAssessmentMessages(currentMessages => [
@@ -617,7 +681,7 @@ export const createAssessmentPlanningCommands = (
           { role: 'model', text: response.text || '' } satisfies Message,
         ]);
         state.succeedWorkflow('assessment', requestId);
-        return { outcome: 'continued' };
+        return { outcome: 'continued', sourceWarnings };
       }
 
       const modelText = response.text || '';
@@ -636,10 +700,10 @@ export const createAssessmentPlanningCommands = (
       state.succeedWorkflow('assessment', requestId);
 
       if (isAssessmentComplete) {
-        return { outcome: 'assessment-complete' as const };
+        return { outcome: 'assessment-complete' as const, sourceWarnings };
       }
 
-      return { outcome: 'continued' };
+      return { outcome: 'continued', sourceWarnings };
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('assessment', requestId, errorMessage);
@@ -653,6 +717,7 @@ export const createAssessmentPlanningCommands = (
   ): Promise<{
     errorMessage?: string;
     outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
+    sourceWarnings?: Array<{ message: string; name: string }>;
   }> {
     const trimmedInput = input.trim();
     const chatSession = state.getChatSession();

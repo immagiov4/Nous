@@ -7,6 +7,7 @@ import {
   loadServerConfig,
 } from './config/serverConfig.js';
 import { createApp } from './index.js';
+import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
 
 const app = createApp();
@@ -49,6 +50,7 @@ const shutdown = async (signal: 'SIGINT' | 'SIGTERM') => {
 
   isShuttingDown = true;
   console.log(`[Backend] ${signal} received, shutting down...`);
+  await closeManagedCodexAccountClient();
   server.close(() => {
     process.exit(0);
   });

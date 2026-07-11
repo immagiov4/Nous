@@ -72,6 +72,24 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
         ],
         pageCount: 12,
         sourceHash: 'hash-1',
+        outline: [
+          {
+            id: 'backend-outline-1',
+            title: 'Rendering differito',
+            level: 1,
+            page: 10,
+            children: [
+              {
+                id: 'backend-outline-2',
+                title: 'Decal',
+                level: 2,
+                page: 12,
+                children: [],
+              },
+            ],
+          },
+        ],
+        outlineOrigin: 'native',
       }),
     })
     .mockResolvedValueOnce({
@@ -114,6 +132,24 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
   const session = await getPdfAssetSession(pdfFile, { partialPages: [10, 11, 12] });
 
   assert.ok(session);
+  assert.equal(session.outlineOrigin, 'native');
+  assert.deepEqual(session.outline, [
+    {
+      id: 'source:outline:pdf-1',
+      title: 'Rendering differito',
+      level: 1,
+      page: 10,
+      children: [
+        {
+          id: 'source:outline:pdf-2',
+          title: 'Decal',
+          level: 2,
+          page: 12,
+          children: [],
+        },
+      ],
+    },
+  ]);
   assert.equal(fetchMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls.length, 3);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.model, 'nvidia/nemotron-nano-12b-v2-vl');

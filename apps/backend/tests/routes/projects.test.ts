@@ -141,6 +141,8 @@ describe('/api/projects', () => {
 
     const touchResponse = await request(app).post('/api/projects/projects/project-1/touch');
     expect(touchResponse.status).toBe(200);
+    const touchedListResponse = await request(app).get('/api/projects/projects');
+    expect(touchedListResponse.body.projects[0].revision).toBe(saveResponse.body.meta.revision);
 
     const deleteResponse = await request(app).delete('/api/projects/projects/project-1');
     expect(deleteResponse.status).toBe(200);
@@ -486,6 +488,36 @@ describe('/api/projects', () => {
     expect(loadResponse.body.project.learningPlan.sections[0].annotations).toEqual([
       { id: 'ann-1', text: 'note' },
     ]);
+  });
+
+  test('rejects a stale session revision without overwriting the accepted patch', async () => {
+    const app = createApp();
+    const saveResponse = await request(app)
+      .put('/api/projects/projects/shared-project')
+      .send({ snapshot: createSnapshot('shared-project', 'Corso condiviso') });
+    expect(saveResponse.body.meta.revision).toBe(1);
+
+    const acceptedPatch = await request(app)
+      .patch('/api/projects/projects/shared-project')
+      .send({
+        expectedRevision: 1,
+        patch: { activeSectionId: 'session-a' },
+      });
+    expect(acceptedPatch.status).toBe(200);
+    expect(acceptedPatch.body.meta.revision).toBe(2);
+
+    const stalePatch = await request(app)
+      .patch('/api/projects/projects/shared-project')
+      .send({
+        expectedRevision: 1,
+        patch: { activeSectionId: 'session-b' },
+      });
+    expect(stalePatch.status).toBe(409);
+
+    const loadResponse = await request(app).get('/api/projects/projects/shared-project');
+    expect(loadResponse.body.project.activeSectionId).toBe('session-a');
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects[0].revision).toBe(2);
   });
 
   test.skip('migrates inline documentIndex from snapshot_json into its own column', async () => {

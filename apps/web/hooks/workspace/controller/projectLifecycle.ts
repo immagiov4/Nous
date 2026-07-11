@@ -2,6 +2,11 @@ import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import {
+  createProjectSourceFromDescriptors,
+  getCourseSourceDescriptors,
+  mergeCourseSourceDescriptors,
+} from '../../../services/projects/courseSources.ts';
+import {
   createProjectId,
   createProjectSnapshot,
 } from '../../../services/projects/projectSnapshot.ts';
@@ -21,7 +26,7 @@ import {
   type LessonNode,
   type ProjectSource,
 } from '../../../types.ts';
-import { readSourceFileData } from './controllerContext.ts';
+import { prepareUploadedCourseSource, readSourceFileData } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -116,13 +121,25 @@ export const createProjectLifecycleCommands = (
   };
 
   async function handleSourceUpload(
-    selectedFile: File,
+    selectedFilesInput: File | File[],
     options?: { mode?: 'new-project' | 'reattach-source' }
-  ): Promise<{ errorMessage?: string; outcome: 'imported' | 'started-assessment' | 'reattached' }> {
+  ): Promise<{
+    errorMessage?: string;
+    outcome: 'imported' | 'started-assessment' | 'reattached';
+    sourceWarnings?: Array<{ message: string; name: string }>;
+  }> {
     const requestId = state.beginWorkflow('attachSource', t('Caricamento...'));
+    const selectedFiles = Array.isArray(selectedFilesInput)
+      ? selectedFilesInput
+      : [selectedFilesInput];
+    const selectedFile = selectedFiles[0];
+    if (!selectedFile) {
+      return { outcome: 'started-assessment', errorMessage: 'Nessuna fonte selezionata.' };
+    }
     pushNousDebugTrace('attach-source:start', {
       mode: options?.mode || 'new-project',
       name: selectedFile.name,
+      sourceCount: selectedFiles.length,
       requestId,
       size: selectedFile.size,
       type: selectedFile.type || null,
@@ -132,7 +149,14 @@ export const createProjectLifecycleCommands = (
       let nextSource: ProjectSource | null = null;
       let nextFile: FileData | null = null;
 
-      if (isZipFileData({ name: selectedFile.name, mimeType: selectedFile.type })) {
+      const zipFiles = selectedFiles.filter(file =>
+        isZipFileData({ name: file.name, mimeType: file.type })
+      );
+      if (zipFiles.length > 0 && selectedFiles.length !== 1) {
+        throw new Error('Gli archivi ZIP devono essere caricati da soli.');
+      }
+
+      if (zipFiles.length === 1) {
         const isBackupArchive = await isNousBackupArchive(selectedFile);
 
         if (isBackupArchive) {
@@ -158,15 +182,38 @@ export const createProjectLifecycleCommands = (
         );
         nextFile = getProjectSourceFile(nextSource);
       } else {
-        nextFile = await readSourceFileData(selectedFile);
-        nextSource = createProjectSourceFromFile(nextFile);
+        if (selectedFiles.length === 1) {
+          nextFile = await readSourceFileData(selectedFile);
+          nextSource = createProjectSourceFromFile(nextFile);
+        } else {
+          const prepared = await prepareUploadedCourseSource(
+            context,
+            selectedFiles,
+            (completed, total) => {
+              state.setWorkflowMessage(
+                'attachSource',
+                requestId,
+                t('Preparazione fonti... {completed}/{total}', { completed, total })
+              );
+            }
+          );
+          nextSource = prepared.source;
+          nextFile = prepared.descriptors.find(source => source.status !== 'error')?.file || null;
+        }
       }
 
       if (!nextSource || !nextFile) {
         throw new Error('Unable to prepare project source');
       }
 
-      if (nextSource.kind === 'pdf') {
+      const sourceWarnings = (nextSource.sources || [])
+        .filter(source => source.status === 'error')
+        .map(source => ({
+          message: source.errorMessage || 'Questa fonte non è utilizzabile.',
+          name: source.name,
+        }));
+
+      if (nextSource.kind === 'pdf' && !nextSource.sources?.length) {
         state.setWorkflowMessage('attachSource', requestId, t('Verifica testo PDF...'));
         await openRouter.validatePdfTextSource(nextFile);
       }
@@ -180,13 +227,20 @@ export const createProjectLifecycleCommands = (
       });
 
       if (options?.mode === 'reattach-source' && projectLibrary.currentProjectId) {
+        const replacementSources = getCourseSourceDescriptors(nextSource);
+        const existingSources = getCourseSourceDescriptors(domain.source);
+        if (replacementSources.length > 0 && existingSources.length > 0) {
+          nextSource = createProjectSourceFromDescriptors(
+            mergeCourseSourceDescriptors(existingSources, replacementSources)
+          );
+        }
         state.invalidateWorkflows([...REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE]);
         state.resetSessionState();
         domain.setSource(nextSource);
         projectLibrary.setProjectHydrated(true);
         await projectLibrary.saveCurrentProject({ source: nextSource });
         state.succeedWorkflow('attachSource', requestId);
-        return { outcome: 'reattached' };
+        return { outcome: 'reattached', sourceWarnings };
       }
 
       const nextProjectId = createProjectId();
@@ -211,16 +265,18 @@ export const createProjectLifecycleCommands = (
         sourceKind: nextSource.kind,
       });
       await startAssessment(
-        nextSource.kind === 'codebase-bundle'
-          ? {
-              textSource: {
-                name: nextSource.name,
-                text: nextSource.aggregatedText,
-              },
-            }
-          : { file: nextFile }
+        (nextSource.sources?.length || 0) > 1
+          ? { sources: nextSource.sources }
+          : nextSource.kind === 'codebase-bundle'
+            ? {
+                textSource: {
+                  name: nextSource.name,
+                  text: nextSource.aggregatedText,
+                },
+              }
+            : { file: nextFile }
       );
-      return { outcome: 'started-assessment' };
+      return { outcome: 'started-assessment', sourceWarnings };
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('attachSource', requestId, errorMessage);
@@ -382,7 +438,10 @@ export const createProjectLifecycleCommands = (
       refreshLibraryMetadataInBackground(projectId, requestId);
 
       if (!preparedSnapshot.learningPlan) {
-        if (preparedSnapshot.source?.kind === 'codebase-bundle') {
+        const assessmentSources = getCourseSourceDescriptors(preparedSnapshot.source);
+        if (assessmentSources.length > 1) {
+          await startAssessment({ sources: assessmentSources });
+        } else if (preparedSnapshot.source?.kind === 'codebase-bundle') {
           pushNousDebugTrace('open-project:start-text-assessment', {
             projectId,
             requestId,

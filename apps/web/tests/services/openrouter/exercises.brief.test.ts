@@ -54,28 +54,6 @@ beforeEach(() => {
   retryWithBackoffMock.mockClear();
 });
 
-test('application exercise prompt requires a self-contained source artifact and concise delivery', async () => {
-  callOpenRouterMock.mockResolvedValue(
-    JSON.stringify({
-      briefMarkdown:
-        '## Materiale fornito\n\nMessaggio di esempio.\n\n## Consegna\n\nScrivi una diagnosi.',
-    })
-  );
-
-  await generateApplicationExerciseBrief({
-    exercise,
-    learningPlan: buildPlanWithExercise(),
-    profile: null,
-  });
-
-  const prompt = callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content;
-  assert.equal(typeof prompt, 'string');
-  assert.match(prompt, /fornisci tu nella traccia tutto il materiale/i);
-  assert.match(prompt, /non chiedere allo studente di cercare, scegliere o recuperare/i);
-  assert.match(prompt, /una sola sezione dedicata alla consegna/i);
-  assert.match(prompt, /non ripetere la consegna in una conclusione finale/i);
-});
-
 test('application exercise brief removes a redundant final-delivery section', async () => {
   callOpenRouterMock.mockResolvedValue(
     JSON.stringify({

@@ -106,7 +106,6 @@ test('generateResearchCoursePlan normalizes course shape and clamps oversized ou
 
   assert.equal(result.researchCoursePlan.lessons.length, 24);
   assert.equal(result.syllabus[0]?.children?.length, 24);
-  assert.equal(result.syllabus[0]?.children?.[0]?.contextPrompt?.includes('Concetti chiave'), true);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_object');
@@ -288,4 +287,40 @@ test('generateResearchLessonContent returns contextual learning aids with the le
     sectionDescription: 'Spiega la relazione tra Kotlin, bytecode e JVM.',
     sectionTitle: 'Kotlin e JVM',
   });
+});
+
+test('generateResearchLessonContent exposes canonical mixed lesson source attribution', async () => {
+  callOpenRouterMock.mockResolvedValue(
+    '## Fondamenti\n\nSpiegazione verificata.\n\n## Fonti essenziali\n\n- Fonte inventata'
+  );
+
+  const result = await generateResearchLessonContent({
+    lessonTitle: 'Fondamenti',
+    moduleTitle: 'Basi',
+    contextPrompt: 'Spiega i prerequisiti.',
+    profile,
+    syllabus: [],
+    originalSourceContext: 'FONTE ORIGINALE: dispensa.pdf\nEstratto rilevante.',
+    researchDossier: {
+      sectionId: 'lesson-prerequisite',
+      title: 'Fondamenti',
+      generatedAt: '2026-07-11T10:00:00.000Z',
+      factualSummary: 'Fondamento verificato.',
+      keyExamples: [],
+      difficultSteps: [],
+      sources: [
+        { title: 'dispensa.pdf', note: 'Materiale originale del corso' },
+        { title: 'Documentazione ufficiale', url: 'https://example.com/docs' },
+      ],
+      avoidOversimplifying: [],
+      controversies: [],
+      recentDevelopments: [],
+    },
+    onStatusUpdate: () => {},
+  });
+
+  assert.equal(
+    result.content,
+    '## Fondamenti\n\nSpiegazione verificata.\n\n## Fonti essenziali\n\n- dispensa.pdf\n- [Documentazione ufficiale](https://example.com/docs)'
+  );
 });

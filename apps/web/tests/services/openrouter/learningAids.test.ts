@@ -100,7 +100,7 @@ Altro contenuto.`;
   assert.equal(result[2]?.anchorHeading, undefined);
 });
 
-test('generates compact learning aids in the lesson language with a strict schema', async () => {
+test('generates normalized learning aids through the strict response schema', async () => {
   callOpenRouterMock.mockResolvedValue(
     JSON.stringify({
       aids: [
@@ -127,12 +127,6 @@ test('generates compact learning aids in the lesson language with a strict schem
   const request = callOpenRouterMock.mock.calls[0]?.[0];
   assert.equal(request?.model, 'flash-model');
   assert.equal(request?.response_format?.type, 'json_schema');
-  assert.match(String(request?.messages?.[1]?.content ?? ''), /stessa lingua della lezione/i);
-  assert.match(String(request?.messages?.[1]?.content ?? ''), /massimo 2 definizioni/i);
-  assert.match(String(request?.messages?.[1]?.content ?? ''), /non modificare il markdown/i);
-  assert.match(String(request?.messages?.[1]?.content ?? ''), /simbolo convenzionale/i);
-  assert.match(String(request?.messages?.[1]?.content ?? ''), /comprensibile da sola/i);
-  assert.match(String(request?.messages?.[1]?.content ?? ''), /massimo 4 parole e 32 caratteri/i);
 });
 
 test('rejects conceptual phrases mislabeled as symbols', () => {

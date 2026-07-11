@@ -1,3 +1,4 @@
+import { addAiProviderPreferenceHeader } from '../ai/providerPreference.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl, MAX_OUTPUT_TOKENS, resolveOpenRouterModel } from './config.ts';
 import {
@@ -23,10 +24,11 @@ const OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH = '/api/openrouter/chat/completions
 const getOpenRouterProxyUrl = (): string =>
   `${getBackendUrl()}${OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH}`;
 
-const getHeaders = (modelSlot: ChatCompletionOptions['modelSlot'] = 'lesson') => ({
-  'Content-Type': 'application/json',
-  'X-Nous-Model-Slot': modelSlot,
-});
+const getHeaders = (modelSlot: ChatCompletionOptions['modelSlot'] = 'lesson') =>
+  addAiProviderPreferenceHeader({
+    'Content-Type': 'application/json',
+    'X-Nous-Model-Slot': modelSlot,
+  });
 
 const createPayloadTooLargeError = (details: string): HttpError => {
   const error = new Error(OPENROUTER_PAYLOAD_TOO_LARGE_MESSAGE) as HttpError;

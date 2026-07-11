@@ -40,8 +40,8 @@ export const normalizeMarkdownForRendering = (content: string): string => {
 
     const block = parseFencedBlockAt(lines, index);
     if (!block) {
-      markdownBuffer.push(...lines.slice(index));
-      break;
+      markdownBuffer.push(line.replace(/^(`{3,}|~{3,})/, '\\$1'));
+      continue;
     }
 
     const fencedBlockContent = lines.slice(index, block.lastIndex + 1).join('\n');

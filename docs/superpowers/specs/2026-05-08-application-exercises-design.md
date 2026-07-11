@@ -1,8 +1,7 @@
 # Application Exercises Intercalated in the Path — Design
 
 **Date:** 2026-05-08
-**Status:** Approved (brainstorming phase)
-**Branch:** `worktree-application-exercises-refactor`
+**Status:** Implemented; retained as the historical design record. Current terminology and architecture live in [`CONTEXT.md`](../../../CONTEXT.md) and [`docs/ARCHITECTURE.md`](../../ARCHITECTURE.md).
 
 ## Context
 

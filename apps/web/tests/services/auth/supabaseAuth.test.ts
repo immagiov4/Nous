@@ -3,13 +3,19 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   clearSupabaseSession,
   fetchWithSupabaseAuth,
+  getFrontendAuthMode,
   getSupabaseAuthHeaders,
   getValidSupabaseSession,
+  loadSupabaseAccount,
   mergeSupabaseAuthHeaders,
   readSupabaseSession,
+  requestSupabaseEmailChange,
   resolveBrowserReachableSupabaseUrl,
   saveSupabaseSession,
   scheduleSupabaseSessionRefresh,
+  signInWithPassword,
+  signOutSupabase,
+  updateSupabaseProfile,
 } from '../../../services/auth/supabaseAuth.ts';
 
 describe('Supabase auth session storage', () => {
@@ -47,6 +53,99 @@ describe('Supabase auth session storage', () => {
     });
   });
 
+  test('loads provider-backed profile data into the current session', async () => {
+    saveSupabaseSession({ accessToken: 'access-token', user: { id: 'user-123' } });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 'user-123',
+        email: 'student@example.com',
+        identities: [{ provider: 'email' }],
+        user_metadata: {
+          avatar_url: 'https://images.example/avatar.png',
+          display_name: 'Ada',
+        },
+      }),
+    });
+
+    const account = await loadSupabaseAccount();
+
+    expect(account).toEqual({
+      avatarUrl: 'https://images.example/avatar.png',
+      displayName: 'Ada',
+      email: 'student@example.com',
+      id: 'user-123',
+      providers: ['email'],
+    });
+    expect(readSupabaseSession()?.user).toEqual(account);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://supabase.test/auth/v1/user',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+        method: 'GET',
+      })
+    );
+  });
+
+  test('uses authenticated Supabase updates for profile and verified email changes', async () => {
+    saveSupabaseSession({
+      accessToken: 'access-token',
+      user: { email: 'old@example.com', id: 'user-123', providers: ['email'] },
+    });
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'user-123',
+          email: 'old@example.com',
+          identities: [{ provider: 'email' }],
+          user_metadata: { avatar_url: 'https://images.example/ada.png', display_name: 'Ada' },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'user-123',
+          email: 'old@example.com',
+          identities: [{ provider: 'email' }],
+          user_metadata: { avatar_url: 'https://images.example/ada.png', display_name: 'Ada' },
+        }),
+      });
+
+    await updateSupabaseProfile({
+      avatarUrl: 'https://images.example/ada.png',
+      displayName: 'Ada',
+    });
+    await requestSupabaseEmailChange('new@example.com');
+
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      data: {
+        avatar_url: 'https://images.example/ada.png',
+        display_name: 'Ada',
+      },
+    });
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toEqual({
+      email: 'new@example.com',
+    });
+    expect(fetchMock.mock.calls.map(call => call[1]?.method)).toEqual(['PUT', 'PUT']);
+  });
+
+  test('revokes the current Supabase session before clearing local credentials', async () => {
+    saveSupabaseSession({ accessToken: 'access-token', user: { id: 'user-123' } });
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 204 });
+
+    await signOutSupabase();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://supabase.test/auth/v1/logout?scope=local',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer access-token' }),
+        method: 'POST',
+      })
+    );
+    expect(readSupabaseSession()).toBeNull();
+  });
+
   test('uses the device-visible host for a loopback Supabase URL', () => {
     expect(
       resolveBrowserReachableSupabaseUrl('http://127.0.0.1:54321', {
@@ -58,6 +157,26 @@ describe('Supabase auth session storage', () => {
         hostname: '192.168.1.126',
       })
     ).toBe('https://cloud.supabase.co');
+  });
+
+  test('uses runtime deployment config for Supabase sign-in', async () => {
+    vi.stubGlobal('__NOUS_RUNTIME_CONFIG__', {
+      authMode: 'supabase',
+      supabaseAnonKey: 'runtime-key',
+      supabaseUrl: 'https://runtime.supabase.test',
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: 'runtime-access-token', user: { id: 'runtime-user' } }),
+    });
+
+    expect(getFrontendAuthMode()).toBe('supabase');
+    await signInWithPassword({ email: 'student@example.com', password: 'password' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://runtime.supabase.test/auth/v1/token?grant_type=password',
+      expect.objectContaining({ headers: expect.objectContaining({ apikey: 'runtime-key' }) })
+    );
   });
 
   test('falls back to memory when the runtime exposes incomplete localStorage', () => {

@@ -19,26 +19,68 @@ jobs:
         with:
           bun-version: 1.3.13
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install Root Dependencies
+      - name: Install Dependencies
         run: bun install --frozen-lockfile
-
-      - name: Install Backend Dependencies
-        run: bun install --frozen-lockfile
-        working-directory: apps/backend
 
       - name: Run Quality Checks (TypeScript + Biome)
-        run: npm run quality
+        run: bun run quality
 
       - name: Run Fallow Static Analysis (regression check)
-        run: npm run check:fallow:ci
+        run: bun run check:fallow:ci
 
       - name: Run Test Suite
-        run: npm test
+        run: bun run test
 
       - name: Run Coverage
-        run: npm run test:coverage
+        run: bun run test:coverage
+
+  supabase-contract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Start Local Supabase
+        run: bunx supabase start
+
+      - name: Run Canonical Auth/RLS Contract
+        run: bun run test:supabase-contract
+
+      - name: Stop Local Supabase
+        if: always()
+        run: bunx supabase stop --no-backup
+
+  managed-staging-contract:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.SUPABASE_STAGING_DATABASE_URL }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_STAGING_JWT_SECRET }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_STAGING_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install Dependencies
+        if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''
+        run: bun install --frozen-lockfile
+
+      - name: Run Canonical Contract Against Managed Staging
+        if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''
+        run: bun run test:supabase-contract

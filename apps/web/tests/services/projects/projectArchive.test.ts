@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import JSZip from 'jszip';
 import { test } from 'vitest';
 import {
+  buildCourseSourceDescriptors,
+  createProjectSourceFromDescriptors,
+} from '../../../services/projects/courseSources.ts';
+import {
   createProjectArchiveBlob,
   isProjectArchiveFile,
   readProjectImportData,
 } from '../../../services/projects/projectArchive.ts';
-import { encodeBytesBase64 } from '../../../services/projects/projectSource.ts';
+import { encodeBytesBase64, encodeTextBase64 } from '../../../services/projects/projectSource.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
@@ -74,6 +78,24 @@ test('createProjectArchiveBlob keeps pdf bytes outside the manifest and restores
 
   assert.deepEqual(imported.source, snapshot.source);
   assert.equal(flattenLessons(imported.learningPlan?.modules).length, 1);
+});
+
+test('multi-source archives preserve every file and derivative without embedding file bytes in the manifest', async () => {
+  const snapshot = buildPdfSnapshot();
+  const descriptors = buildCourseSourceDescriptors([
+    { name: 'b.txt', mimeType: 'text/plain', data: encodeTextBase64('Beta') },
+    { name: 'a.md', mimeType: 'text/markdown', data: encodeTextBase64('# Alpha') },
+  ]);
+  snapshot.source = createProjectSourceFromDescriptors(descriptors);
+
+  const archive = await createProjectArchiveBlob(snapshot);
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifestText = (await zip.file('project.json')?.async('string')) || '';
+  const imported = (await readProjectImportData(archive)) as ProjectSnapshot;
+
+  assert.equal(zip.file(/^source\//u).length, 2);
+  assert.equal(manifestText.includes(descriptors[0]?.file.data || ''), false);
+  assert.deepEqual(imported.source, snapshot.source);
 });
 
 test('isProjectArchiveFile rejects generic source zips and readProjectImportData reports a backup-specific error', async () => {

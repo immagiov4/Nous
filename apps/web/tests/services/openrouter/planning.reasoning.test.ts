@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test, vi } from 'vitest';
+import { buildCourseSourceDescriptors } from '../../../services/projects/courseSources.ts';
 import { encodeTextBase64 } from '../../../services/projects/projectSource.ts';
 import type { FileData } from '../../../types.ts';
 import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
@@ -17,7 +18,9 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   };
 });
 
-const { generateLearningPlan } = await import('../../../services/openrouter/planning/index.ts');
+const { generateLearningPlan, generateLearningPlanFromSourceSet } = await import(
+  '../../../services/openrouter/planning/index.ts'
+);
 
 beforeEach(() => {
   callOpenRouterMock.mockReset();
@@ -74,6 +77,52 @@ test('generateLearningPlan uses medium effort for both first draft and refinemen
     exclude: false,
   });
   assert.deepEqual(callOpenRouterMock.mock.calls[1]?.[0]?.reasoning, {
+    effort: 'medium',
+    exclude: false,
+  });
+});
+
+test('generateLearningPlanFromSourceSet plans across every source and deduplicates overlapping lessons', async () => {
+  callOpenRouterMock.mockResolvedValue(
+    JSON.stringify({
+      title: 'Percorso multifonte',
+      summary: 'Sintesi integrata',
+      sections: [
+        {
+          moduleTitle: 'Fondamenti',
+          title: 'Effetto fotoelettrico',
+          description: 'Spiega emissione elettronica, soglia di frequenza ed energia del fotone.',
+          type: 'core',
+        },
+        {
+          moduleTitle: 'Fondamenti',
+          title: 'Effetto fotoelettrico',
+          description: 'Spiega emissione elettronica, soglia di frequenza ed energia del fotone.',
+          type: 'core',
+        },
+      ],
+    })
+  );
+  const sources = buildCourseSourceDescriptors([
+    {
+      name: 'teoria.md',
+      mimeType: 'text/markdown',
+      data: encodeTextBase64('# Teoria\nEnergia dei fotoni e soglia di frequenza.'),
+    },
+    {
+      name: 'esperimenti.txt',
+      mimeType: 'text/plain',
+      data: encodeTextBase64('Misure sperimentali dell emissione elettronica.'),
+    },
+  ]);
+
+  const plan = await generateLearningPlanFromSourceSet(sources, []);
+  const requestContent = String(callOpenRouterMock.mock.calls[0]?.[0]?.messages[1]?.content || '');
+
+  assert.equal(callOpenRouterMock.mock.calls.length, 1);
+  assert.equal(flattenLessons(plan.modules).length, 1);
+  assert.ok(sources.every(source => requestContent.includes(source.id)));
+  assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.reasoning, {
     effort: 'medium',
     exclude: false,
   });
