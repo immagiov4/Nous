@@ -25,6 +25,11 @@ const generateLessonLearningAidsMock = vi.fn(
   ]
 );
 const generateStandaloneLessonQuizMock = vi.fn(async () => []);
+const getYouTubeResearchContextMock = vi.fn(async (_query: string, _language: string) => '');
+
+vi.mock('../../../services/openrouter/youtubeResearchClient.ts', () => ({
+  getYouTubeResearchContext: getYouTubeResearchContextMock,
+}));
 
 vi.mock('../../../services/openrouter/lessonImages.ts', () => ({
   appendGeneratedVisualExample: appendGeneratedVisualExampleMock,
@@ -69,6 +74,52 @@ beforeEach(() => {
   appendGeneratedVisualExampleMock.mockClear();
   generateLessonLearningAidsMock.mockClear();
   generateStandaloneLessonQuizMock.mockClear();
+  getYouTubeResearchContextMock.mockReset();
+  getYouTubeResearchContextMock.mockResolvedValue('');
+});
+
+test('course research evaluates automatic YouTube context', async () => {
+  getYouTubeResearchContextMock.mockResolvedValue(
+    'SOURCE Kotlin Course\nURL: https://www.youtube.com/watch?v=kotlin\n[00:10] JVM bytecode'
+  );
+  callOpenRouterMock.mockResolvedValueOnce('Brief con fonte YouTube.');
+  callOpenRouterMock.mockResolvedValueOnce(
+    JSON.stringify({
+      title: 'Kotlin',
+      summary: 'Corso',
+      lessonCountReason: 'Percorso essenziale',
+      modules: [
+        {
+          title: 'Fondamenti',
+          description: 'Base',
+          lessons: Array.from({ length: 8 }, (_, index) => ({
+            title: `Lezione ${index + 1}`,
+            description: 'Base',
+            prerequisites: [],
+            keyConcepts: [],
+            guidingQuestions: [],
+            miniLab: '',
+            sourceHints: [],
+            simplificationRisks: [],
+          })),
+        },
+      ],
+    })
+  );
+
+  await generateResearchCoursePlan(
+    profile,
+    () => {},
+    () => {}
+  );
+
+  assert.equal(getYouTubeResearchContextMock.mock.calls[0]?.[0], 'Kotlin Android');
+  assert.equal(
+    callOpenRouterMock.mock.calls[0]?.[0]?.messages[0]?.content.includes(
+      'https://www.youtube.com/watch?v=kotlin'
+    ),
+    true
+  );
 });
 
 test('generateResearchCoursePlan normalizes course shape and clamps oversized outlines', async () => {
@@ -221,6 +272,9 @@ test('buildLearningPlanFromResearchCourse leaves application exercises to the pl
 });
 
 test('generateResearchLessonDossier keeps sources optional and attaches the section id', async () => {
+  getYouTubeResearchContextMock.mockResolvedValue(
+    'SOURCE Kotlin lesson\nURL: https://www.youtube.com/watch?v=kotlin-lesson\n[00:10] JVM bytecode'
+  );
   callOpenRouterMock.mockResolvedValueOnce(
     'Kotlin gira sulla JVM. Esempio classico: hello world. Distinguere linguaggio e runtime e un punto delicato.'
   );
@@ -254,6 +308,12 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   assert.deepEqual(dossier.sources, []);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
+  assert.equal(
+    callOpenRouterMock.mock.calls[0]?.[0]?.messages[0]?.content.includes(
+      'https://www.youtube.com/watch?v=kotlin-lesson'
+    ),
+    true
+  );
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_schema');
 });
 

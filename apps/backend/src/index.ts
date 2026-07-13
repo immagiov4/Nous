@@ -17,6 +17,7 @@ import sttRouter from './routes/stt.js';
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
 import waitlistRouter from './routes/waitlist.js';
+import youtubeRouter from './routes/youtube.js';
 import { timestampIso } from './utils/time.js';
 
 const DEFAULT_FRONTEND_PORT = '5173';
@@ -131,6 +132,7 @@ export const createApp = () => {
   app.use('/api/status', statusRouter);
   app.use('/api/waitlist', waitlistRouter);
   app.use('/api/pdf', resolveCurrentUser, pdfRouter);
+  app.use('/api/youtube', resolveCurrentUser, youtubeRouter);
   app.use('/api/chat', resolveCurrentUser, chatRouter);
   app.use('/api/codex', resolveCurrentUser, codexRouter);
   app.use('/api/openrouter', resolveCurrentUser, openRouterProxyRouter);

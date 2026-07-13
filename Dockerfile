@@ -1,5 +1,7 @@
 ARG BUN_VERSION=1.3.13
 ARG CODEX_VERSION=0.144.3
+ARG YT_DLP_VERSION=2026.07.04
+ARG YOUTUBE_TRANSCRIPT_API_VERSION=1.2.4
 FROM oven/bun:${BUN_VERSION}-slim AS dependencies
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -35,9 +37,12 @@ COPY packages packages
 
 FROM oven/bun:${BUN_VERSION}-slim AS backend
 ARG CODEX_VERSION
+ARG YT_DLP_VERSION
+ARG YOUTUBE_TRANSCRIPT_API_VERSION
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates nodejs poppler-utils \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs poppler-utils python3 python3-pip \
+    && pip3 install --no-cache-dir --break-system-packages "yt-dlp==${YT_DLP_VERSION}" "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" \
     && BUN_INSTALL=/usr/local bun add --global "@openai/codex@${CODEX_VERSION}" \
     && mkdir -p /home/bun/.codex \
     && chown bun:bun /home/bun/.codex \

@@ -54,6 +54,64 @@ describe('generation progress observer', () => {
     expect(prompt.length).toBeLessThan(5_500);
   });
 
+  test('generates a language-aware generic step after a silent interval', async () => {
+    vi.useFakeTimers();
+    callOpenRouterMock.mockResolvedValue(
+      JSON.stringify({ sections: ['Metto a fuoco i concetti centrali'] })
+    );
+    const updates: Array<{ sections: string[] }> = [];
+    const observer = createGenerationProgressObserver({
+      idleObservationDelayMs: 12_000,
+      language: 'Italiano',
+      operation: 'lesson',
+      revealIntervalMs: 0,
+      subject: 'Generics in TypeScript',
+      onUpdate: update => updates.push(update),
+    });
+
+    await vi.advanceTimersByTimeAsync(11_999);
+    expect(callOpenRouterMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await observer.finish();
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
+    expect(updates.at(-1)?.sections).toContain('Metto a fuoco i concetti centrali');
+    const request = callOpenRouterMock.mock.calls[0]?.[0];
+    expect(request.messages[0].content).toContain('exactly one plausible but generic');
+    expect(request.messages[0].content).toContain('Every returned string MUST be in Italian');
+    expect(request.messages[1].content).toContain('SUBJECT: Generics in TypeScript');
+    expect(request.messages[1].content).toContain(
+      'PREVIOUS_POINTS:\n- Preparo il materiale della lezione.'
+    );
+    expect(request.messages[1].content).toContain('STREAM_DATA: not available yet');
+  });
+
+  test('resets the silent interval when partial reasoning arrives', async () => {
+    vi.useFakeTimers();
+    const observer = createGenerationProgressObserver({
+      idleObservationDelayMs: 12_000,
+      operation: 'plan',
+      revealIntervalMs: 0,
+      subject: 'Storia della filosofia',
+      onUpdate: vi.fn(),
+    });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    observer.push('Inizio a ordinare i temi');
+    await vi.advanceTimersByTimeAsync(11_999);
+    expect(callOpenRouterMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await observer.finish();
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
+    expect(callOpenRouterMock.mock.calls[0]?.[0]?.messages[1].content).toContain(
+      'Inizio a ordinare i temi'
+    );
+    expect(callOpenRouterMock.mock.calls[0]?.[0]?.messages[1].content).not.toContain(
+      'not available yet'
+    );
+  });
+
   test('only the orchestrator changes the macro stage', async () => {
     callOpenRouterMock.mockResolvedValue(JSON.stringify({ sections: ['Controllo coerenza'] }));
     const updates: Array<{ stage: string }> = [];
