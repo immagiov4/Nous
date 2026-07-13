@@ -46,6 +46,24 @@ const buildProps = (
 });
 
 describe('WorkspaceReaderSidebar', () => {
+  test('rounds the edge facing the reading content and keeps the scrollbar within it', () => {
+    const { container, rerender, unmount } = render(<WorkspaceReaderSidebar {...buildProps()} />);
+
+    expect(container.querySelector('aside')?.classList.contains('rounded-r-[2rem]')).toBe(true);
+    expect(container.querySelector('.reader-sidebar-scroll')?.classList.contains('mr-2')).toBe(
+      true
+    );
+    expect(container.querySelector('.reader-sidebar-scroll')?.classList.contains('mb-2')).toBe(
+      true
+    );
+
+    rerender(<WorkspaceReaderSidebar {...buildProps({ isMobileViewport: true })} />);
+
+    expect(container.querySelector('aside')?.classList.contains('rounded-r-[2rem]')).toBe(true);
+
+    unmount();
+  });
+
   test('adds hover tooltips to truncated module and lesson titles', () => {
     render(<WorkspaceReaderSidebar {...buildProps()} />);
 

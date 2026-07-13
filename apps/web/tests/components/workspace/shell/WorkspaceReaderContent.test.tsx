@@ -228,13 +228,31 @@ describe('WorkspaceReaderContent', () => {
       />
     );
 
-    expect(screen.getByRole('complementary', { name: 'Fonti della lezione' })).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'Fonti della sezione' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Documentazione ufficiale' })).toHaveAttribute(
       'href',
       'https://example.com/docs'
     );
     expect(screen.queryByRole('link', { name: 'Materiale originale' })).toBeNull();
     expect(screen.getByText('Lessico del corso.')).toBeInTheDocument();
+  });
+
+  test('renders legacy lesson bibliographies only through structured section sources', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          sectionContent:
+            '## Corpo della lezione\n\nSpiegazione.\n\n## Fonti essenziali\n\n- Vecchia fonte duplicata',
+          lessonSources: [{ title: 'Fonte canonica', url: 'https://example.com/source' }],
+        })}
+      />
+    );
+
+    expect(screen.getByText('Corpo della lezione')).toBeInTheDocument();
+    expect(screen.queryByText('Vecchia fonte duplicata')).toBeNull();
+    expect(screen.getByRole('complementary', { name: 'Fonti della sezione' })).toHaveTextContent(
+      'Fonte canonica'
+    );
   });
 
   test('enables lesson completion once all inline questions have been answered', () => {

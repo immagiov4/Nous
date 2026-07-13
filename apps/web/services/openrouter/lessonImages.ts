@@ -1,6 +1,6 @@
 import { getSearchKeywords, normalizeSearchText } from './planQuality.ts';
 import type { LessonGeneratedVisual, LessonImageRef, PdfDocumentAssets } from './types.ts';
-import { generateLessonVisualExample } from './visualExamples.ts';
+import { generateLessonVisualExamples } from './visualExamples.ts';
 
 const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
@@ -265,13 +265,13 @@ export const appendGeneratedVisualExample = async ({
   sectionDescription: string;
   sectionTitle: string;
 }): Promise<{ content: string; generatedVisuals: LessonGeneratedVisual[] }> => {
-  if (hasPdfImages || !contentMarkdown.trim()) {
+  if (!contentMarkdown.trim()) {
     return { content: contentMarkdown, generatedVisuals: [] };
   }
 
   try {
     onStatusUpdate?.('Generazione esempio visivo...');
-    const result = await generateLessonVisualExample({
+    const results = await generateLessonVisualExamples({
       generationNotes,
       hasPdfImages,
       lessonMarkdown: contentMarkdown,
@@ -279,19 +279,28 @@ export const appendGeneratedVisualExample = async ({
       sectionTitle,
     });
 
-    if (!result) {
+    if (results.length === 0) {
       onStatusUpdate?.('Lezione generata senza esempi visivi aggiuntivi');
       return { content: contentMarkdown, generatedVisuals: [] };
     }
 
-    onStatusUpdate?.('Esempio visivo integrato');
+    const content = results.reduceRight(
+      (currentContent, result) =>
+        insertGeneratedVisualExamplePlaceholder(
+          currentContent,
+          result.contentSuffix,
+          result.anchorHeading
+        ),
+      contentMarkdown
+    );
+    onStatusUpdate?.(
+      results.length === 1
+        ? 'Esempio visivo integrato'
+        : `${results.length} esempi visivi integrati`
+    );
     return {
-      content: insertGeneratedVisualExamplePlaceholder(
-        contentMarkdown,
-        result.contentSuffix,
-        result.anchorHeading
-      ),
-      generatedVisuals: [result.visual],
+      content,
+      generatedVisuals: results.map(result => result.visual),
     };
   } catch (error) {
     console.warn(

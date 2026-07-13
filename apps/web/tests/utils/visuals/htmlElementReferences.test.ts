@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import {
+  findMissingDirectlyDereferencedHtmlElementIds,
   findMissingStaticHtmlElementIds,
+  hasInvalidInlineJavaScript,
   hasUnsafeHtmlElementDereferences,
 } from '../../../utils/visuals/htmlElementReferences.ts';
 
@@ -30,6 +32,17 @@ describe('findMissingStaticHtmlElementIds', () => {
     expect(findMissingStaticHtmlElementIds(html)).toEqual(['missing-node']);
   });
 
+  test('does not mistake HTML strings inside scripts for mounted elements', () => {
+    const html = `
+      <script>
+        const markup = '<div id="not-mounted"></div>';
+        document.getElementById('not-mounted').textContent = markup;
+      </script>
+    `;
+
+    expect(findMissingStaticHtmlElementIds(html)).toEqual(['not-mounted']);
+  });
+
   test('detects direct DOM dereferences even when the ID is computed dynamically', () => {
     const unsafeHtml = `
       <script>
@@ -48,5 +61,52 @@ describe('findMissingStaticHtmlElementIds', () => {
 
     expect(hasUnsafeHtmlElementDereferences(unsafeHtml)).toBe(true);
     expect(hasUnsafeHtmlElementDereferences(guardedHtml)).toBe(false);
+    expect(
+      hasUnsafeHtmlElementDereferences(`
+        <div id="output-a"></div>
+        <script>document.getElementById('output-a').textContent = 'ok';</script>
+      `)
+    ).toBe(false);
+  });
+});
+
+describe('findMissingDirectlyDereferencedHtmlElementIds', () => {
+  test('blocks only missing IDs that are dereferenced without a null guard', () => {
+    const html = `
+      <script>
+        const optionalOutput = document.getElementById('optional-output');
+        if (optionalOutput) optionalOutput.textContent = 'ok';
+        document.getElementById('required-output').textContent = 'errore';
+      </script>
+    `;
+
+    expect(findMissingDirectlyDereferencedHtmlElementIds(html)).toEqual(['required-output']);
+  });
+
+  test('accepts a directly dereferenced element declared later in the document', () => {
+    const html = `
+      <script>document.getElementById('result').textContent = 'ok';</script>
+      <output id="result"></output>
+    `;
+
+    expect(findMissingDirectlyDereferencedHtmlElementIds(html)).toEqual([]);
+  });
+});
+
+describe('hasInvalidInlineJavaScript', () => {
+  test('rejects malformed executable scripts without running them', () => {
+    const html = '<div></div><script>const values = [1, 2, );</script>';
+
+    expect(hasInvalidInlineJavaScript(html)).toBe(true);
+  });
+
+  test('accepts valid classic and module scripts while ignoring data blocks', () => {
+    const html = `
+      <script>const draw = () => [1, 2, 3].map(value => value * 2);</script>
+      <script type="module">export const ready = true;</script>
+      <script type="application/json">{"invalid as JavaScript": true}</script>
+    `;
+
+    expect(hasInvalidInlineJavaScript(html)).toBe(false);
   });
 });

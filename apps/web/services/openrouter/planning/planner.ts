@@ -2,6 +2,7 @@ import type { CourseSourceDescriptor } from '../../../types.ts';
 import { groupSectionsIntoModules } from '../../learning/groupSectionsIntoModules.ts';
 import { formatCourseSourceSetContext } from '../../projects/courseSources.ts';
 import { MEDIUM_REASONING_CONFIG } from '../config.ts';
+import type { GenerationStatusReporter } from '../generationProgress.ts';
 import { buildReasoningContentForFile } from '../pdfReasoning.ts';
 import {
   buildAdaptivePlanGuidance,
@@ -25,6 +26,38 @@ import {
 } from '../shared.ts';
 
 const MAX_PLAN_SOURCE_CHARS = 180_000;
+const LEARNING_PLAN_RESPONSE_SCHEMA = {
+  name: 'learning_plan',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      title: { type: 'string' },
+      summary: { type: 'string' },
+      sections: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            moduleTitle: { type: 'string' },
+            title: { type: 'string' },
+            description: { type: 'string' },
+            type: {
+              type: 'string',
+              enum: ['prerequisite', 'core', 'summary', 'deep-dive'],
+            },
+            isCompleted: { type: 'boolean' },
+          },
+          required: ['id', 'moduleTitle', 'title', 'description', 'type', 'isCompleted'],
+        },
+      },
+    },
+    required: ['title', 'summary', 'sections'],
+  },
+} as const;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -159,7 +192,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         content: userContent,
       },
     ],
-    response_format: { type: 'json_object' },
+    response_format: { type: 'json_schema', json_schema: LEARNING_PLAN_RESPONSE_SCHEMA },
   });
 
   if (!response) {
@@ -232,7 +265,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         content: userContent,
       },
     ],
-    response_format: { type: 'json_object' },
+    response_format: { type: 'json_schema', json_schema: LEARNING_PLAN_RESPONSE_SCHEMA },
   });
 
   if (!response) {
@@ -247,14 +280,14 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 export const generateLearningPlan = async (
   file: FileData,
   assessmentHistory: Message[],
-  onStatusUpdate?: (status: string) => void,
+  onStatusUpdate?: GenerationStatusReporter,
   onReasoningUpdate?: (reasoning: string) => void
 ): Promise<LearningPlan> => {
   const assessmentSummary = buildAssessmentSummary(assessmentHistory);
   const sourceProfile = await resolvePlanningSourceProfile(file);
 
   return retryWithBackoff(async () => {
-    onStatusUpdate?.('Bozza indice...');
+    onStatusUpdate?.('Bozza indice...', 'structure');
     const initialPlan = await runInitialLearningPlan(
       file,
       assessmentSummary,
@@ -285,7 +318,7 @@ export const generateLearningPlan = async (
 export const generateLearningPlanFromSourceSet = async (
   sources: readonly CourseSourceDescriptor[],
   assessmentHistory: Message[],
-  onStatusUpdate?: (status: string) => void,
+  onStatusUpdate?: GenerationStatusReporter,
   onReasoningUpdate?: (reasoning: string) => void
 ): Promise<LearningPlan> => {
   const usableSources = sources.filter(source => source.status !== 'error');
@@ -339,7 +372,7 @@ Rispondi SOLO con un oggetto JSON valido:
 }`;
 
   return retryWithBackoff(async () => {
-    onStatusUpdate?.(`Organizzazione di ${usableSources.length} fonti...`);
+    onStatusUpdate?.(`Organizzazione di ${usableSources.length} fonti...`, 'structure');
     const response = await callOpenRouter({
       model: MODEL_REASONING,
       reasoning: MEDIUM_REASONING_CONFIG,
@@ -348,7 +381,7 @@ Rispondi SOLO con un oggetto JSON valido:
         { role: 'system', content: plannerInstruction },
         { role: 'user', content: prompt },
       ],
-      response_format: { type: 'json_object' },
+      response_format: { type: 'json_schema', json_schema: LEARNING_PLAN_RESPONSE_SCHEMA },
     });
     if (!response) {
       throw new Error('No multi-source plan generated');

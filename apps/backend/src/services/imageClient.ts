@@ -1,5 +1,6 @@
 import { DEFAULT_OPENAI_IMAGE_MODEL, getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { isRecord } from '../utils/validation.js';
+import { generateCodexAppServerImage } from './codexAppServer.js';
 import { getOpenAiJsonHeaders, OPENAI_API_BASE_URL } from './openAiApi.js';
 import {
   getOpenRouterJsonHeaders,
@@ -14,7 +15,7 @@ type GeneratedImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp';
 interface GenerateImageRequest {
   model?: string;
   prompt: string;
-  provider?: 'openai' | 'openrouter';
+  provider?: 'codex' | 'openai' | 'openrouter';
 }
 
 interface GeneratedImageResult {
@@ -56,6 +57,10 @@ const normalizeImageMediaType = (value: unknown): GeneratedImageMediaType | null
     : null;
 
 class ImageClient {
+  listOpenAiModels(): ImageGenerationModel[] {
+    return [...SUPPORTED_OPENAI_IMAGE_MODELS].map(id => ({ id, name: id }));
+  }
+
   async listModels(): Promise<ImageGenerationModel[]> {
     const response = await fetch(`${OPENROUTER_API_BASE_URL}/images/models`, {
       headers: getOpenRouterJsonHeaders(),
@@ -95,11 +100,25 @@ class ImageClient {
 
   async generateImage(request: GenerateImageRequest): Promise<GeneratedImageResult> {
     const modelConfig = await getResolvedGlobalModelConfig();
-    const provider = request.provider ?? modelConfig.aiProvider;
-    if (provider === 'codex') {
-      throw new Error('Generazione immagini non disponibile con il provider Codex.');
+    const requestedProvider = request.provider ?? modelConfig.aiProvider;
+    if (requestedProvider === 'codex') {
+      const result = await generateCodexAppServerImage({
+        model: request.model || modelConfig.codexArtifactModel,
+        prompt: request.prompt,
+      });
+      const imageBase64 = result.startsWith('data:image/png;base64,')
+        ? result.slice('data:image/png;base64,'.length)
+        : result;
+      if (!isValidImageBase64(imageBase64)) {
+        throw new Error('Codex non ha restituito un risultato immagine valido.');
+      }
+      return {
+        dataUrl: `data:image/png;base64,${imageBase64}`,
+        mediaType: 'image/png',
+      };
     }
-    const usesOpenAi = provider === 'openai';
+
+    const usesOpenAi = requestedProvider === 'openai';
     const model =
       request.model || (usesOpenAi ? modelConfig.openAiImageModel : modelConfig.imageModel);
     const response = await fetch(

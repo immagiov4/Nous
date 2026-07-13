@@ -1,4 +1,3 @@
-import { addAiProviderPreferenceHeader } from '../ai/providerPreference.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl, MAX_OUTPUT_TOKENS, resolveOpenRouterModel } from './config.ts';
 import {
@@ -20,15 +19,42 @@ interface HttpError extends Error {
 }
 
 const OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH = '/api/openrouter/chat/completions';
+const ARTIFACT_SETTINGS_PATH = '/api/openrouter/artifact-settings';
 
 const getOpenRouterProxyUrl = (): string =>
   `${getBackendUrl()}${OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH}`;
 
-const getHeaders = (modelSlot: ChatCompletionOptions['modelSlot'] = 'lesson') =>
-  addAiProviderPreferenceHeader({
-    'Content-Type': 'application/json',
-    'X-Nous-Model-Slot': modelSlot,
-  });
+export const getArtifactVisualReviewSettings = async (): Promise<{
+  enabled: boolean;
+  maxRounds: number;
+}> => {
+  try {
+    const response = await fetchWithSupabaseAuth(`${getBackendUrl()}${ARTIFACT_SETTINGS_PATH}`);
+    if (!response.ok) {
+      return { enabled: true, maxRounds: 1 };
+    }
+    const payload = (await response.json()) as {
+      visualReviewEnabled?: unknown;
+      visualReviewMaxRounds?: unknown;
+    };
+    const maxRounds = Number(payload.visualReviewMaxRounds);
+    return {
+      enabled: payload.visualReviewEnabled !== false,
+      maxRounds: Number.isInteger(maxRounds) && maxRounds >= 1 && maxRounds <= 4 ? maxRounds : 1,
+    };
+  } catch {
+    return { enabled: true, maxRounds: 1 };
+  }
+};
+
+const getHeaders = (
+  modelSlot: ChatCompletionOptions['modelSlot'] = 'lesson',
+  allowTextOnlyImageFallback = false
+) => ({
+  'Content-Type': 'application/json',
+  'X-Nous-Model-Slot': modelSlot,
+  ...(allowTextOnlyImageFallback ? { 'X-Nous-Allow-Text-Only-Image-Fallback': 'true' } : {}),
+});
 
 const createPayloadTooLargeError = (details: string): HttpError => {
   const error = new Error(OPENROUTER_PAYLOAD_TOO_LARGE_MESSAGE) as HttpError;
@@ -186,7 +212,7 @@ export const callOpenRouterRaw = async (
   });
   const response = await fetchWithSupabaseAuth(getOpenRouterProxyUrl(), {
     method: 'POST',
-    headers: getHeaders(options.modelSlot),
+    headers: getHeaders(options.modelSlot, options.allowTextOnlyImageFallback),
     body,
     signal: options.signal,
   });
@@ -217,7 +243,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
   });
   const response = await fetchWithSupabaseAuth(getOpenRouterProxyUrl(), {
     method: 'POST',
-    headers: getHeaders(options.modelSlot),
+    headers: getHeaders(options.modelSlot, options.allowTextOnlyImageFallback),
     body,
     signal: options.signal,
   });

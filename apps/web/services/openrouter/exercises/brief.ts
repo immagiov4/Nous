@@ -43,6 +43,32 @@ const MAX_FOCUS_LESSON_CHARS = 9000;
 const MAX_PREREQUISITE_CHARS = 4000;
 const MAX_SOURCE_CHARS = 12_000;
 const MAX_GROUNDING_SOURCES = 6;
+const EXERCISE_BRIEF_RESPONSE_SCHEMA = {
+  name: 'exercise_brief',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      briefMarkdown: { type: 'string' },
+      groundingSources: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string' },
+            url: { type: 'string' },
+            note: { type: 'string' },
+          },
+          required: ['title', 'url', 'note'],
+        },
+      },
+      plannerNotes: { type: 'string' },
+    },
+    required: ['briefMarkdown', 'groundingSources', 'plannerNotes'],
+  },
+} as const;
 const VISUAL_PLACEHOLDER_REGEX = /\{\{(?:PDF_IMAGE|VISUAL_EXAMPLE):[^}]+}}/g;
 const QUIZ_HEADING_REGEX =
   /(?:^|\n)#{1,6}\s+(?:quiz|verifica|domande|pausa attiva|esercizi di controllo)\b[\s\S]*$/i;
@@ -266,7 +292,7 @@ export const generateApplicationExerciseBrief = async (
           { role: 'system', content: teacherInstruction },
           { role: 'user', content: buildBriefPrompt(args) },
         ],
-        response_format: { type: 'json_object' },
+        response_format: { type: 'json_schema', json_schema: EXERCISE_BRIEF_RESPONSE_SCHEMA },
       }),
     2,
     1000

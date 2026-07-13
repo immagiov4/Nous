@@ -15,11 +15,44 @@ describe('global AI provider model mapping', () => {
 
   test('maps each provider to its own admin model while sharing workload reasoning', () => {
     const baseConfig = patchGlobalModelConfig({
+      artifactReasoningEffort: 'low',
+      artifactModel: 'openrouter-artifact',
+      artifactInteractiveModel: 'openrouter-interactive',
+      artifactInteractiveReasoningEffort: 'minimal',
       assessmentReasoningEffort: 'low',
+      codexArtifactModel: 'codex-artifact',
+      codexArtifactInteractiveModel: 'codex-interactive',
       codexAssessmentModel: 'codex-assessment',
+      openAiArtifactModel: 'openai-artifact',
+      openAiArtifactInteractiveModel: 'openai-interactive',
       openAiAssessmentModel: 'openai-assessment',
       assessmentModel: 'openrouter-assessment',
     });
+
+    expect(resolveTextModelConfig({ ...baseConfig, aiProvider: 'openrouter' }, 'artifact')).toEqual(
+      {
+        model: 'openrouter-artifact',
+        reasoningEffort: 'low',
+      }
+    );
+    expect(resolveTextModelConfig({ ...baseConfig, aiProvider: 'openai' }, 'artifact')).toEqual({
+      model: 'openai-artifact',
+      reasoningEffort: 'low',
+    });
+    expect(resolveTextModelConfig({ ...baseConfig, aiProvider: 'codex' }, 'artifact')).toEqual({
+      model: 'codex-artifact',
+      reasoningEffort: 'low',
+    });
+
+    expect(
+      resolveTextModelConfig({ ...baseConfig, aiProvider: 'openrouter' }, 'artifactInteractive')
+    ).toEqual({ model: 'openrouter-interactive', reasoningEffort: 'minimal' });
+    expect(
+      resolveTextModelConfig({ ...baseConfig, aiProvider: 'openai' }, 'artifactInteractive')
+    ).toEqual({ model: 'openai-interactive', reasoningEffort: 'minimal' });
+    expect(
+      resolveTextModelConfig({ ...baseConfig, aiProvider: 'codex' }, 'artifactInteractive')
+    ).toEqual({ model: 'codex-interactive', reasoningEffort: 'minimal' });
 
     expect(
       resolveTextModelConfig({ ...baseConfig, aiProvider: 'openrouter' }, 'assessment')

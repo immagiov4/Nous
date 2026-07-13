@@ -1,6 +1,7 @@
 // fallow-ignore-file unused-files
 import { Loader2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useState } from 'react';
+import logoUrl from '../../assets/logo.svg';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { GenerationProgressSnapshot } from '../../services/openrouter/generationProgress.ts';
 import GenerationProgress from './GenerationProgress.tsx';
@@ -75,7 +76,7 @@ const LoadingScreen = ({
         <>
           {!isEmbedded ? (
             <div className="absolute left-8 top-6 hidden items-center gap-3 sm:flex">
-              <img src="/icons/nous-icon.svg" alt="" className="h-9 w-9" />
+              <img src={logoUrl} alt="" className="h-9 w-9" />
               <span className="font-serif text-2xl text-stone-900 dark:text-zinc-100">Nous</span>
             </div>
           ) : null}

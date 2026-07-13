@@ -17,6 +17,7 @@ const createPrivateApp = () => {
   app.get('/private', resolveCurrentUser, (req, res) => {
     const currentUser = getCurrentUser(req);
     res.json({
+      aiProvider: currentUser.aiProvider,
       userId: currentUser.id,
       role: currentUser.role,
     });
@@ -57,6 +58,7 @@ describe('resolveCurrentUser', () => {
         sub: 'user-123',
         exp: Math.floor(Date.now() / 1000) + 60,
         app_metadata: {
+          ai_provider: 'codex',
           role: 'admin',
         },
       },
@@ -69,9 +71,32 @@ describe('resolveCurrentUser', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
+      aiProvider: 'codex',
       userId: 'user-123',
       role: 'admin',
     });
+  });
+
+  test('does not trust user-editable metadata for authorization', async () => {
+    process.env.AUTH_MODE = 'supabase';
+    process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    const token = signSupabaseJwt(
+      {
+        sub: 'user-123',
+        exp: Math.floor(Date.now() / 1000) + 60,
+        user_metadata: {
+          role: 'admin',
+        },
+      },
+      'test-secret'
+    );
+
+    const response = await request(createPrivateApp())
+      .get('/private')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ userId: 'user-123' });
   });
 
   test('accepts a valid Supabase ES256 access token from JWKS', async () => {

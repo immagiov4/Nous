@@ -1,4 +1,4 @@
-import { Bot, KeyRound, LogOut, ShieldCheck, UserRound, X } from 'lucide-react';
+import { KeyRound, LogOut, ShieldCheck, UserRound, X } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -15,10 +15,11 @@ import {
   updateSupabasePassword,
   updateSupabaseProfile,
 } from '../../services/auth/supabaseAuth.ts';
-import AiProviderSettings from './AiProviderSettings.tsx';
 
-type AccountSection = 'ai' | 'profile' | 'security';
+type AccountSection = 'profile' | 'security';
 type AccountAction = 'email' | 'logout' | 'password' | 'profile' | 'recovery';
+
+const SUCCESS_MESSAGE_DURATION_MS = 3_000;
 
 interface AccountPanelProps {
   account: SupabaseAccount;
@@ -56,6 +57,15 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
   }, [onClose]);
+
+  useEffect(() => {
+    if (!successMessage) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setSuccessMessage(''), SUCCESS_MESSAGE_DURATION_MS);
+    return () => window.clearTimeout(timeout);
+  }, [successMessage]);
 
   const beginAction = (action: AccountAction) => {
     setPendingAction(action);
@@ -157,11 +167,7 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
               tabIndex={-1}
               className="mt-1 text-2xl font-serif text-gray-950 outline-none dark:text-zinc-100"
             >
-              {activeSection === 'profile'
-                ? t('Profilo')
-                : activeSection === 'security'
-                  ? t('Account e sicurezza')
-                  : t('Provider AI')}
+              {activeSection === 'profile' ? t('Profilo') : t('Account e sicurezza')}
             </h2>
           </div>
           <button
@@ -191,18 +197,10 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
           >
             {t('Account e sicurezza')}
           </button>
-          <button
-            type="button"
-            aria-pressed={activeSection === 'ai'}
-            onClick={() => setActiveSection('ai')}
-            className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 transition-colors aria-pressed:bg-gray-950 aria-pressed:text-white dark:text-zinc-300 dark:aria-pressed:bg-zinc-100 dark:aria-pressed:text-zinc-950"
-          >
-            {t('Provider AI')}
-          </button>
         </div>
 
         {successMessage ? (
-          <output className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/70 dark:bg-emerald-950/50 dark:text-emerald-200">
+          <output className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 sm:fixed sm:right-6 sm:top-6 sm:z-[160] sm:mt-0 sm:shadow-lg dark:border-emerald-900/70 dark:bg-emerald-950/50 dark:text-emerald-200">
             {successMessage}
           </output>
         ) : null}
@@ -216,8 +214,11 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
         ) : null}
 
         {activeSection === 'profile' ? (
-          <form className="mt-5 space-y-4" onSubmit={handleProfileSave}>
-            <p className="text-sm leading-6 text-gray-600 dark:text-zinc-300">
+          <form
+            className="mt-5 space-y-4 sm:grid sm:grid-cols-[1fr_1fr_auto] sm:items-end sm:gap-3 sm:space-y-0"
+            onSubmit={handleProfileSave}
+          >
+            <p className="text-sm leading-6 text-gray-600 sm:col-span-3 dark:text-zinc-300">
               {t(
                 'Nome e avatar sono informazioni modificabili del profilo. Email e metodo di accesso provengono dal provider di autenticazione.'
               )}
@@ -246,13 +247,13 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
               type="submit"
               disabled={pendingAction !== null}
               aria-busy={pendingAction === 'profile'}
-              className="rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-950"
+              className="rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60 sm:self-end dark:bg-zinc-100 dark:text-zinc-950"
             >
               {pendingAction === 'profile' ? t('Salvataggio in corso...') : t('Salva profilo')}
             </button>
           </form>
         ) : activeSection === 'security' ? (
-          <div className="mt-5 space-y-6">
+          <div className="mt-5 space-y-6 sm:space-y-4">
             <div>
               <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
                 {t('Email attuale')}
@@ -269,8 +270,11 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
 
             {passwordAccount ? (
               <>
-                <form className="space-y-3" onSubmit={handleEmailChange}>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-zinc-200">
+                <form
+                  className="space-y-3 sm:flex sm:items-end sm:gap-2 sm:space-y-0"
+                  onSubmit={handleEmailChange}
+                >
+                  <label className="block text-sm font-medium text-gray-700 sm:flex-1 dark:text-zinc-200">
                     {t('Nuovo indirizzo email')}
                     <input
                       type="email"
@@ -292,10 +296,10 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
                 </form>
 
                 <form
-                  className="space-y-3 border-t border-gray-200 pt-5 dark:border-zinc-700"
+                  className="space-y-3 border-t border-gray-200 pt-5 sm:flex sm:items-end sm:gap-2 sm:space-y-0 sm:pt-4 dark:border-zinc-700"
                   onSubmit={handlePasswordChange}
                 >
-                  <label className="block text-sm font-medium text-gray-700 dark:text-zinc-200">
+                  <label className="block text-sm font-medium text-gray-700 sm:flex-1 dark:text-zinc-200">
                     {t('Nuova password')}
                     <input
                       type="password"
@@ -306,7 +310,7 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
                       className={fieldClassName}
                     />
                   </label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 sm:shrink-0">
                     <button
                       type="submit"
                       disabled={pendingAction !== null}
@@ -341,9 +345,7 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
               </div>
             )}
           </div>
-        ) : (
-          <AiProviderSettings />
-        )}
+        ) : null}
       </div>
     </div>,
     document.body
@@ -513,16 +515,6 @@ export default function AccountMenu() {
             >
               <KeyRound className="h-4 w-4" />
               {t('Account e sicurezza')}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              disabled={!account}
-              onClick={() => openPanel('ai')}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              <Bot className="h-4 w-4" />
-              {t('Provider AI')}
             </button>
             <button
               type="button"

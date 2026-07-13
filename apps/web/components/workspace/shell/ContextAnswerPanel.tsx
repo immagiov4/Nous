@@ -25,7 +25,6 @@ import {
 } from 'react';
 import { useMobileKeyboardOffset } from '../../../hooks/useMobileKeyboardOffset.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
-import { addAiProviderPreferenceHeader } from '../../../services/ai/providerPreference.ts';
 import { fetchWithSupabaseAuth } from '../../../services/auth/supabaseAuth.ts';
 import type { GeneratedLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
@@ -44,6 +43,7 @@ import {
   dedupeUiMessagesById,
   getUiMessageRenderableParts,
   getUiMessageText,
+  hasSuccessfulToolOutput,
 } from '../../../utils/uiChat.ts';
 import type {
   ChatArtifactActionRequest,
@@ -402,7 +402,7 @@ function ContextAnswerPanelSession({
           }
 
           return {
-            headers: addAiProviderPreferenceHeader(headers),
+            headers,
             body: {
               id,
               messages,
@@ -430,7 +430,9 @@ function ContextAnswerPanelSession({
     id: contextAnswer.id,
     transport,
     experimental_throttle: 96,
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    sendAutomaticallyWhen: options =>
+      !hasSuccessfulToolOutput(options.messages, 'tool-generateCurrentLessonArtifact') &&
+      lastAssistantMessageIsCompleteWithToolCalls(options),
     onToolCall: async ({ toolCall }) => {
       if (toolCall.dynamic) {
         return;
@@ -469,11 +471,7 @@ function ContextAnswerPanelSession({
           ...currentLessonArtifactPayloads,
           ...Object.values(artifactPayloadsByToolCallId).flat(),
         ];
-        const sourceArtifactId =
-          artifactInput?.sourceArtifactId ||
-          (artifactInput?.mode === 'replacement-draft'
-            ? latestGeneratedArtifactIdRef.current || undefined
-            : undefined);
+        const sourceArtifactId = artifactInput?.sourceArtifactId;
         const sourceArtifact = sourceArtifactId
           ? allArtifactPayloads.find(
               payload =>
@@ -529,6 +527,8 @@ function ContextAnswerPanelSession({
             sourceArtifact,
             sourceArtifactId,
           });
+        } catch (generationError) {
+          console.error('[Nous][Context artifact] Generation failed.', generationError);
         } finally {
           setGeneratingArtifactToolCallIds(prev => {
             if (!prev.has(toolCall.toolCallId)) return prev;
@@ -743,26 +743,6 @@ function ContextAnswerPanelSession({
       kind: 'generated-visual',
       title: payload.summary.title,
     } as const;
-    const currentState = contextRequestStateStore.get(requestStateKey);
-    const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
-    const runMutation = hasExistingNote ? onUpdateConversationNote : onSaveConversationNote;
-    const candidates = buildConversationNoteSaveCandidates({
-      anchor: selectionAnchorRef.current,
-      toolInput: {
-        artifactRefs: [artifactRef],
-        generatedVisuals: [visual],
-        note: currentState?.attachedAnnotationNote || '',
-        selectedText: selectionAnchorRef.current.selectedText,
-      },
-    });
-
-    for (const candidate of candidates) {
-      const result = await runMutation(candidate);
-      if (result.saved) {
-        return;
-      }
-    }
-
     if (onSaveArtifactToLesson) {
       await onSaveArtifactToLesson(visual, artifactRef);
     }
@@ -778,21 +758,27 @@ function ContextAnswerPanelSession({
     if (!payload || !('visual' in payload) || !contextAnswer.projectId || !draftLesson)
       return false;
 
-    const draft = await generateLessonArtifactDraft({
-      contextAfter: currentState?.contextAfter,
-      contextBefore: currentState?.contextBefore,
-      lesson: draftLesson,
-      mode: 'replacement-draft',
-      projectId: contextAnswer.projectId,
-      projectTitle: contextAnswer.projectTitle || t('Corso'),
-      prompt: t('Modifica l artefatto "{artifactTitle}".', {
-        artifactTitle: payload.summary.title,
-      }),
-      revisionInstructions: instructions,
-      selectedText: currentState?.selectedText,
-      sourceArtifact: payload,
-      sourceArtifactId: artifactId,
-    });
+    let draft: GeneratedLessonArtifactDraft | null;
+    try {
+      draft = await generateLessonArtifactDraft({
+        contextAfter: currentState?.contextAfter,
+        contextBefore: currentState?.contextBefore,
+        lesson: draftLesson,
+        mode: 'replacement-draft',
+        projectId: contextAnswer.projectId,
+        projectTitle: contextAnswer.projectTitle || t('Corso'),
+        prompt: t('Modifica l artefatto "{artifactTitle}".', {
+          artifactTitle: payload.summary.title,
+        }),
+        revisionInstructions: instructions,
+        selectedText: currentState?.selectedText,
+        sourceArtifact: payload,
+        sourceArtifactId: artifactId,
+      });
+    } catch (error) {
+      console.error('[Nous][Context artifact] Regeneration failed.', error);
+      return false;
+    }
     if (!draft) {
       return false;
     }

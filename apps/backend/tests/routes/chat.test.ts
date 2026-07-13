@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { createSupabaseTestToken } from '../helpers/auth.js';
+
 const aiMocks = vi.hoisted(() => ({
   convertToModelMessages: vi.fn(),
   pipeUIMessageStreamToResponse: vi.fn(),
@@ -29,6 +31,7 @@ const codexStreamMocks = vi.hoisted(() => ({
   createCodexChatStream: vi.fn(),
   SAFE_AI_STREAM_ERROR: 'Il servizio AI non ha completato la richiesta. Riprova tra poco.',
 }));
+const ORIGINAL_ENV = { ...process.env };
 
 vi.mock('ai', async importOriginal => {
   const actual = await importOriginal<typeof import('ai')>();
@@ -68,8 +71,15 @@ const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
   '../../src/config/modelConfig.js'
 );
 
+const authenticateProvider = (aiProvider: 'codex' | 'openai' | 'openrouter'): string => {
+  process.env.AUTH_MODE = 'supabase';
+  process.env.SUPABASE_JWT_SECRET = 'test-secret';
+  return createSupabaseTestToken({ aiProvider });
+};
+
 describe('POST /api/chat/context', () => {
   beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
     aiMocks.convertToModelMessages.mockReset();
     aiMocks.pipeUIMessageStreamToResponse.mockReset();
     aiMocks.streamText.mockReset();
@@ -83,7 +93,6 @@ describe('POST /api/chat/context', () => {
     codexStreamMocks.createCodexChatStream.mockReset();
     resetModelConfigForTesting();
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
-    process.env.CODEX_OWNER_USER_ID = 'local-user';
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
     chatConfigMocks.requireOpenAiApiKey.mockReturnValue('openai-test-key');
@@ -195,7 +204,7 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText.mock.calls[0][0].tools.saveConversationNote).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].tools.updateConversationNote).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toEqual({
-      openrouter: { reasoning: { effort: 'medium' } },
+      openrouter: { reasoning: { effort: 'medium', enabled: true } },
     });
     expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
     expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');
@@ -320,10 +329,11 @@ describe('POST /api/chat/context', () => {
       codexContextModel: 'gpt-codex-context',
       contextReasoningEffort: 'high',
     });
+    const token = authenticateProvider('codex');
 
     const response = await request(createApp())
       .post('/api/chat/context')
-      .set('X-Nous-AI-Provider', 'codex')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         selectedText: 'Puntatore',
         messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
@@ -348,21 +358,6 @@ describe('POST /api/chat/context', () => {
     expect(aiMocks.streamText).not.toHaveBeenCalled();
     expect(chatConfigMocks.requireOpenAiApiKey).not.toHaveBeenCalled();
     expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
-  });
-
-  test('rejects contextual Codex chat outside the configured local owner boundary', async () => {
-    process.env.CODEX_OWNER_USER_ID = 'another-user';
-
-    const response = await request(createApp())
-      .post('/api/chat/context')
-      .set('X-Nous-AI-Provider', 'codex')
-      .send({
-        selectedText: 'Puntatore',
-        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
-      });
-
-    expect(response.status).toBe(403);
-    expect(codexStreamMocks.createCodexChatStream).not.toHaveBeenCalled();
   });
 
   test('keeps contextual web search on the dedicated OpenRouter research model', async () => {
@@ -410,6 +405,7 @@ describe('POST /api/chat/context', () => {
 
 describe('POST /api/chat/library', () => {
   beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
     aiMocks.convertToModelMessages.mockReset();
     aiMocks.pipeUIMessageStreamToResponse.mockReset();
     aiMocks.streamText.mockReset();
@@ -423,7 +419,6 @@ describe('POST /api/chat/library', () => {
     codexStreamMocks.createCodexChatStream.mockReset();
     resetModelConfigForTesting();
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
-    process.env.CODEX_OWNER_USER_ID = 'local-user';
 
     chatConfigMocks.requireOpenRouterApiKey.mockReturnValue('test-key');
     chatConfigMocks.requireOpenAiApiKey.mockReturnValue('openai-test-key');
@@ -513,7 +508,7 @@ describe('POST /api/chat/library', () => {
       aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.required
     ).toBeUndefined();
     expect(aiMocks.streamText.mock.calls[0][0].providerOptions).toEqual({
-      openrouter: { reasoning: { effort: 'medium' } },
+      openrouter: { reasoning: { effort: 'medium', enabled: true } },
     });
     expect(aiMocks.streamText.mock.calls[0][0].stopWhen).toBeDefined();
     expect(typeof aiMocks.streamText.mock.calls[0][0].prepareStep).toBe('function');
@@ -652,6 +647,28 @@ describe('POST /api/chat/library', () => {
     expect(aiMocks.streamText.mock.calls[0][0]).toMatchObject({
       model: 'server/library-model',
     });
+  });
+
+  test('uses the authenticated user provider for library chat', async () => {
+    patchGlobalModelConfig({
+      aiProvider: 'openrouter',
+      openAiContextModel: 'gpt-user-library',
+    });
+    const token = authenticateProvider('openai');
+
+    const response = await request(createApp())
+      .post('/api/chat/library')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Nous-AI-Provider', 'codex')
+      .send({
+        messages: [{ id: '1', role: 'user', content: 'Riassumimi le note' }],
+      });
+
+    expect(response.status).toBe(200);
+    expect(openAiMocks.chat).toHaveBeenCalledWith('gpt-user-library');
+    expect(chatConfigMocks.requireOpenAiApiKey).toHaveBeenCalledTimes(1);
+    expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(codexStreamMocks.createCodexChatStream).not.toHaveBeenCalled();
   });
 
   test('uses the dedicated OpenRouter research model for library web search', async () => {

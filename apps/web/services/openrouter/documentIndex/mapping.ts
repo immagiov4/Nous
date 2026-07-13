@@ -569,15 +569,17 @@ const hasSuspiciousChunkMappings = (
   parsedMappings.missingLessonIdCount > 0;
 
 const requestChunkMappings = async ({
+  chunkIds,
+  lessonIds,
   maxTokens,
   model,
   prompt,
-  useJsonResponseFormat,
 }: {
+  chunkIds: string[];
+  lessonIds: string[];
   maxTokens: number;
   model: string;
   prompt: string;
-  useJsonResponseFormat: boolean;
 }): Promise<string> =>
   retryWithBackoff(
     () =>
@@ -585,7 +587,35 @@ const requestChunkMappings = async ({
         disableModelOverride: true,
         model,
         messages: [{ role: 'user', content: prompt }],
-        response_format: useJsonResponseFormat ? { type: 'json_object' } : undefined,
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'chunk_mappings',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                mappings: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      lessonId: { type: 'string', enum: lessonIds },
+                      chunkIds: {
+                        type: 'array',
+                        items: { type: 'string', enum: chunkIds },
+                      },
+                    },
+                    required: ['lessonId', 'chunkIds'],
+                  },
+                },
+              },
+              required: ['mappings'],
+            },
+          },
+        },
         max_tokens: maxTokens,
         temperature: MAPPING_REQUEST_TEMPERATURE,
       }),
@@ -677,10 +707,11 @@ const mapLessonsToChunkIds = async (
 
     try {
       let rawResponse = await requestChunkMappings({
+        chunkIds: chunkDescriptors.map(chunk => chunk.id),
+        lessonIds: lessonBatch.map(lesson => lesson.lessonId),
         maxTokens,
         model,
         prompt,
-        useJsonResponseFormat: true,
       });
       let parseFailurePayload = {
         ...batchDebugPayload,
@@ -707,10 +738,11 @@ const mapLessonsToChunkIds = async (
 
         try {
           const retryResponse = await requestChunkMappings({
+            chunkIds: chunkDescriptors.map(chunk => chunk.id),
+            lessonIds: lessonBatch.map(lesson => lesson.lessonId),
             maxTokens,
             model,
             prompt: retryPrompt,
-            useJsonResponseFormat: false,
           });
           const retryParseFailurePayload = {
             ...retryPayload,

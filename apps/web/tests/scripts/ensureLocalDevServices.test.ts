@@ -32,6 +32,7 @@ describe('ensureLocalDevServices', () => {
       false,
       true,
       true,
+      true,
     ]);
 
     await ensureLocalDevServices(
@@ -49,6 +50,7 @@ describe('ensureLocalDevServices', () => {
       ['bunx', 'supabase', 'status'],
       ['bunx', 'supabase', 'start', '--yes'],
       ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
     ]);
     expect(healthRequests).toEqual(['http://127.0.0.1:54321/auth/v1/health']);
   });
@@ -79,5 +81,26 @@ describe('ensureLocalDevServices', () => {
       ['docker', 'info'],
       ['docker', 'desktop', 'start', '--timeout', '120'],
     ]);
+  });
+
+  test('applies pending migrations when local Supabase is already running', async () => {
+    const { commands, runtime } = createRuntime([true, true, true]);
+
+    await ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime);
+
+    expect(commands).toEqual([
+      ['docker', 'info'],
+      ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
+    ]);
+  });
+
+  test('stops startup when pending migrations cannot be applied', async () => {
+    const { healthRequests, runtime } = createRuntime([true, true, false]);
+
+    await expect(
+      ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime)
+    ).rejects.toThrow('Local Supabase migrations could not be applied');
+    expect(healthRequests).toEqual([]);
   });
 });

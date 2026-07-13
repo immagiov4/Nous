@@ -108,7 +108,7 @@ test('generateResearchCoursePlan normalizes course shape and clamps oversized ou
   assert.equal(result.syllabus[0]?.children?.length, 24);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
-  assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_object');
+  assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_schema');
 });
 
 test('buildLearningPlanFromResearchCourse preserves research syllabus modules', () => {
@@ -254,7 +254,7 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   assert.deepEqual(dossier.sources, []);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
-  assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_object');
+  assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_schema');
 });
 
 test('generateResearchLessonContent returns contextual learning aids with the lesson', async () => {
@@ -289,7 +289,7 @@ test('generateResearchLessonContent returns contextual learning aids with the le
   });
 });
 
-test('generateResearchLessonContent exposes canonical mixed lesson source attribution', async () => {
+test('generateResearchLessonContent leaves structured source attribution out of lesson markdown', async () => {
   callOpenRouterMock.mockResolvedValue(
     '## Fondamenti\n\nSpiegazione verificata.\n\n## Fonti essenziali\n\n- Fonte inventata'
   );
@@ -319,8 +319,5 @@ test('generateResearchLessonContent exposes canonical mixed lesson source attrib
     onStatusUpdate: () => {},
   });
 
-  assert.equal(
-    result.content,
-    '## Fondamenti\n\nSpiegazione verificata.\n\n## Fonti essenziali\n\n- dispensa.pdf\n- [Documentazione ufficiale](https://example.com/docs)'
-  );
+  assert.equal(result.content, '## Fondamenti\n\nSpiegazione verificata.');
 });

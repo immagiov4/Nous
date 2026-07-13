@@ -200,23 +200,24 @@ describe('ContextMenu', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(props.onClose).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: /Inserisci una domanda/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /Invia domanda/i })).not.toBeInTheDocument();
     expect(screen.getByTitle(/Evidenzia il testo selezionato/i)).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Apri menu' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Dettatura test' })).toBeDisabled();
   });
 
-  test('inserts speech transcription without replacing existing text or submitting', async () => {
+  test('shows voice on empty desktop input and switches to send after transcription', async () => {
     const user = userEvent.setup();
     const props = buildProps();
 
     render(<ContextMenu {...props} />);
 
     const input = screen.getByPlaceholderText(/Chiedi a Nous/i);
-    await user.type(input, 'Domanda esistente');
     await user.click(screen.getByRole('button', { name: 'Dettatura test' }));
 
-    expect(input).toHaveValue('Domanda esistente testo trascritto');
+    expect(input).toHaveValue('testo trascritto');
+    expect(screen.queryByRole('button', { name: 'Dettatura test' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Invia domanda/i })).toBeInTheDocument();
     expect(props.onAsk).not.toHaveBeenCalled();
   });
 
@@ -245,6 +246,21 @@ describe('ContextMenu', () => {
     fireEvent.pointerDown(screen.getByPlaceholderText(/Chiedi a Nous/i));
     expect(screen.queryByRole('menu', { name: 'Apri menu' })).not.toBeInTheDocument();
     expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  test('keeps the note panel anchored while opening the rare-actions menu', async () => {
+    const user = userEvent.setup();
+
+    render(<ContextMenu {...buildProps()} />);
+
+    await user.click(screen.getByTitle(/Aggiungi una nota a questo passaggio/i));
+    const noteInput = screen.getByPlaceholderText(
+      /Scrivi la nota che vuoi lasciare su questo passaggio/i
+    );
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+
+    expect(noteInput).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: 'Crea lezione' })).toBeInTheDocument();
   });
 
   test('opens the rare-actions portal and lesson confirmation from the mobile sheet', async () => {
@@ -369,9 +385,9 @@ describe('ContextMenu', () => {
     ]);
   });
 
-  test('does not offer visuals already embedded in the lesson', async () => {
+  test('offers generated visuals but excludes images extracted from the source', async () => {
     const user = userEvent.setup();
-    const embeddedArtifact: LearningArtifactRenderPayload = {
+    const savedGeneratedArtifact: LearningArtifactRenderPayload = {
       ...annotationArtifact,
       summary: {
         ...annotationArtifact.summary,
@@ -379,14 +395,35 @@ describe('ContextMenu', () => {
       },
       visual: { ...annotationArtifact.visual, id: 'visual-001' },
     };
+    const sourceImageArtifact: LearningArtifactRenderPayload = {
+      summary: {
+        ...annotationArtifact.summary,
+        id: 'project-1:section-1:pdf-image:image-001',
+        kind: 'pdf-image',
+        title: 'Figura dal libro',
+      },
+      image: {
+        id: 'image-001',
+        mimeType: 'image/png',
+        dataUrl: 'data:image/png;base64,AA==',
+        textBefore: '',
+        textAfter: '',
+        sourceOrder: 1,
+      },
+    };
 
-    render(<ContextMenu {...buildProps()} artifactPayloads={[embeddedArtifact]} />);
+    render(
+      <ContextMenu
+        {...buildProps()}
+        artifactPayloads={[sourceImageArtifact, savedGeneratedArtifact]}
+      />
+    );
 
     await user.click(screen.getByTitle(/Aggiungi una nota a questo passaggio/i));
+    await user.click(screen.getByRole('button', { name: /Allega dagli artefatti/i }));
 
-    expect(
-      screen.queryByRole('button', { name: /Allega dagli artefatti/i })
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Allega Mappa salvata/i })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Figura dal libro/i })).not.toBeInTheDocument();
   });
 
   test('does not show remove inside the note editor for a highlight without a saved note', async () => {

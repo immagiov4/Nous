@@ -1,7 +1,7 @@
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 
-export type AdminReasoningEffort = 'none' | 'low' | 'medium' | 'high';
+export type AdminReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
 export type AdminAiProvider = 'codex' | 'openai' | 'openrouter';
 
 export interface AdminUser {
@@ -9,15 +9,38 @@ export interface AdminUser {
   email?: string;
   id: string;
   app_metadata?: {
+    ai_provider?: AdminAiProvider;
     role?: string;
   };
 }
 
+export interface AdminUserCreateInput {
+  aiProvider?: AdminAiProvider;
+  email: string;
+  password: string;
+  role: 'admin' | 'user';
+}
+
+export interface AdminUserPatch {
+  aiProvider?: AdminAiProvider | null;
+  disabled?: boolean;
+  password?: string;
+  role?: 'admin' | 'user';
+}
+
 export interface AdminModelConfig {
   aiProvider: AdminAiProvider;
+  artifactModel: string;
+  artifactInteractiveModel: string;
+  artifactInteractiveReasoningEffort: AdminReasoningEffort;
+  artifactReasoningEffort: AdminReasoningEffort;
+  artifactVisualReviewMaxRounds: number;
+  artifactVisualReviewEnabled: boolean;
   assessmentModel: string;
   assessmentReasoningEffort: AdminReasoningEffort;
   codexAssessmentModel: string;
+  codexArtifactModel: string;
+  codexArtifactInteractiveModel: string;
   codexContextModel: string;
   codexLessonModel: string;
   codexProgressModel: string;
@@ -28,6 +51,8 @@ export interface AdminModelConfig {
   lessonModel: string;
   lessonReasoningEffort: AdminReasoningEffort;
   openAiAssessmentModel: string;
+  openAiArtifactModel: string;
+  openAiArtifactInteractiveModel: string;
   openAiContextModel: string;
   openAiImageModel: string;
   openAiLessonModel: string;
@@ -45,9 +70,17 @@ export type AdminModelConfigPatch = Partial<
   Pick<
     AdminModelConfig,
     | 'aiProvider'
+    | 'artifactModel'
+    | 'artifactInteractiveModel'
+    | 'artifactInteractiveReasoningEffort'
+    | 'artifactReasoningEffort'
+    | 'artifactVisualReviewMaxRounds'
+    | 'artifactVisualReviewEnabled'
     | 'assessmentModel'
     | 'assessmentReasoningEffort'
     | 'codexAssessmentModel'
+    | 'codexArtifactModel'
+    | 'codexArtifactInteractiveModel'
     | 'codexContextModel'
     | 'codexLessonModel'
     | 'codexProgressModel'
@@ -58,6 +91,8 @@ export type AdminModelConfigPatch = Partial<
     | 'lessonModel'
     | 'lessonReasoningEffort'
     | 'openAiAssessmentModel'
+    | 'openAiArtifactModel'
+    | 'openAiArtifactInteractiveModel'
     | 'openAiContextModel'
     | 'openAiImageModel'
     | 'openAiLessonModel'
@@ -73,9 +108,17 @@ export type AdminModelConfigPatch = Partial<
 
 export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   aiProvider: 'openrouter',
+  artifactModel: 'openai/gpt-5.4-mini',
+  artifactInteractiveModel: 'openai/gpt-5.4-mini',
+  artifactInteractiveReasoningEffort: 'medium',
+  artifactReasoningEffort: 'medium',
+  artifactVisualReviewMaxRounds: 1,
+  artifactVisualReviewEnabled: true,
   assessmentModel: 'google/gemini-3.1-flash-lite',
   assessmentReasoningEffort: 'medium',
   codexAssessmentModel: 'gpt-5.6-luna',
+  codexArtifactModel: 'gpt-5.6-terra',
+  codexArtifactInteractiveModel: 'gpt-5.6-terra',
   codexContextModel: 'gpt-5.6-luna',
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
@@ -86,6 +129,8 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   lessonModel: 'openai/gpt-5.4-mini',
   lessonReasoningEffort: 'medium',
   openAiAssessmentModel: 'gpt-5.6-luna',
+  openAiArtifactModel: 'gpt-5.6-terra',
+  openAiArtifactInteractiveModel: 'gpt-5.6-terra',
   openAiContextModel: 'gpt-5.6-luna',
   openAiImageModel: 'gpt-image-2',
   openAiLessonModel: 'gpt-5.6-terra',
@@ -102,7 +147,13 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
 const readConfigValue = (value: unknown, fallback: string): string =>
   typeof value === 'string' && value.trim() ? value.trim() : fallback;
 
-const ADMIN_REASONING_EFFORTS = new Set<AdminReasoningEffort>(['none', 'low', 'medium', 'high']);
+const ADMIN_REASONING_EFFORTS = new Set<AdminReasoningEffort>([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+]);
 const ADMIN_AI_PROVIDERS = new Set<AdminAiProvider>(['codex', 'openai', 'openrouter']);
 
 const readAiProvider = (value: unknown): AdminAiProvider =>
@@ -122,6 +173,29 @@ const normalizeAdminModelConfig = (
   config: Partial<AdminModelConfig> | null | undefined
 ): AdminModelConfig => ({
   aiProvider: readAiProvider(config?.aiProvider),
+  artifactModel: readConfigValue(config?.artifactModel, DEFAULT_ADMIN_MODEL_CONFIG.artifactModel),
+  artifactInteractiveModel: readConfigValue(
+    config?.artifactInteractiveModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.artifactInteractiveModel
+  ),
+  artifactInteractiveReasoningEffort: readReasoningEffort(
+    config?.artifactInteractiveReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.artifactInteractiveReasoningEffort
+  ),
+  artifactReasoningEffort: readReasoningEffort(
+    config?.artifactReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.artifactReasoningEffort
+  ),
+  artifactVisualReviewEnabled:
+    typeof config?.artifactVisualReviewEnabled === 'boolean'
+      ? config.artifactVisualReviewEnabled
+      : DEFAULT_ADMIN_MODEL_CONFIG.artifactVisualReviewEnabled,
+  artifactVisualReviewMaxRounds:
+    Number.isInteger(config?.artifactVisualReviewMaxRounds) &&
+    Number(config?.artifactVisualReviewMaxRounds) >= 1 &&
+    Number(config?.artifactVisualReviewMaxRounds) <= 4
+      ? Number(config?.artifactVisualReviewMaxRounds)
+      : DEFAULT_ADMIN_MODEL_CONFIG.artifactVisualReviewMaxRounds,
   assessmentModel: readConfigValue(
     config?.assessmentModel,
     DEFAULT_ADMIN_MODEL_CONFIG.assessmentModel
@@ -133,6 +207,14 @@ const normalizeAdminModelConfig = (
   codexAssessmentModel: readConfigValue(
     config?.codexAssessmentModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexAssessmentModel
+  ),
+  codexArtifactModel: readConfigValue(
+    config?.codexArtifactModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexArtifactModel
+  ),
+  codexArtifactInteractiveModel: readConfigValue(
+    config?.codexArtifactInteractiveModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexArtifactInteractiveModel
   ),
   codexContextModel: readConfigValue(
     config?.codexContextModel,
@@ -164,6 +246,14 @@ const normalizeAdminModelConfig = (
   openAiAssessmentModel: readConfigValue(
     config?.openAiAssessmentModel,
     DEFAULT_ADMIN_MODEL_CONFIG.openAiAssessmentModel
+  ),
+  openAiArtifactModel: readConfigValue(
+    config?.openAiArtifactModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiArtifactModel
+  ),
+  openAiArtifactInteractiveModel: readConfigValue(
+    config?.openAiArtifactInteractiveModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiArtifactInteractiveModel
   ),
   openAiContextModel: readConfigValue(
     config?.openAiContextModel,
@@ -221,18 +311,10 @@ export const listAdminUsers = async (): Promise<AdminUser[]> => {
   return response.users || [];
 };
 
-export const createAdminUser = async ({
-  email,
-  password,
-  role,
-}: {
-  email: string;
-  password: string;
-  role: 'admin' | 'user';
-}): Promise<AdminUser> => {
+export const createAdminUser = async (input: AdminUserCreateInput): Promise<AdminUser> => {
   const response = await requestAdmin<{ user: AdminUser }>('/api/admin/users', {
     method: 'POST',
-    body: JSON.stringify({ email, password, role }),
+    body: JSON.stringify(input),
   });
   return response.user;
 };
@@ -245,7 +327,7 @@ export const sendAdminMagicLink = async (userId: string): Promise<void> => {
 
 export const updateAdminUser = async (
   userId: string,
-  patch: { disabled?: boolean; password?: string; role?: 'admin' | 'user' }
+  patch: AdminUserPatch
 ): Promise<AdminUser> => {
   const response = await requestAdmin<{ user: AdminUser }>(
     `/api/admin/users/${encodeURIComponent(userId)}`,

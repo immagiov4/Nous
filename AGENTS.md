@@ -229,6 +229,8 @@ For automated tests: test critical paths thoroughly, test utility modules more d
 
 Only add tests that can catch a meaningful regression in behavior, contracts, transformations, rendering, persistence, or user flows. Do not add tests that merely assert that source text contains a keyword, substring, letter, prompt sentence, label, or other implementation wording. Such tests freeze copy without proving that generated output or runtime behavior is correct, create false confidence, and add maintenance cost. Prompt tests must exercise a meaningful boundary whenever feasible, for example structured prompt composition, precedence between instruction layers, schema enforcement, parsing, validation, or an observable generation contract. If a behavior cannot be tested meaningfully without calling a nondeterministic external model, prefer no automated test over a tautological string-inclusion test; document the manual or evaluation-based verification instead.
 
+Do not infer semantic meaning, workflow state, user intent, generation phase, content quality, or language from literal regexes or keyword lists applied to nondeterministic model output. Regexes are appropriate for deterministic syntax and explicitly defined formats, not as a substitute for semantic classification. Use authoritative orchestrator events where the workflow owns the state; where a state exists only inside a model's reasoning or generated stream, use a structured model classification with an explicit schema and enforce invariants such as monotonic progression in code.
+
 For manual-only projects, explain what must be verified and where. If validation reveals unrelated pre-existing failures, mention them clearly instead of hiding them.
 
 ## Bug Fixing Methodology

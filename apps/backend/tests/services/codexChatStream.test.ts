@@ -30,7 +30,7 @@ describe('Codex UI message adapter', () => {
     codexMocks.runCodexAppServerTurn.mockReset();
   });
 
-  test('propagates client-executed dynamic tools without pretending the provider executed them', async () => {
+  test('propagates declared client tools as executable static tool calls', async () => {
     codexMocks.runCodexAppServerTurn.mockImplementation(async (turn: CodexTurnInput) => {
       expect(turn.tools).toEqual([
         expect.objectContaining({
@@ -66,7 +66,7 @@ describe('Codex UI message adapter', () => {
       toolCallId: 'call-note-1',
       toolName: 'requestAddToNotes',
       input: { noteDraft: 'Nota utile' },
-      dynamic: true,
+      dynamic: false,
     });
     expect(chunks.some(chunk => chunk.type === 'tool-output-available')).toBe(false);
     expect(chunks).toContainEqual({ type: 'finish', finishReason: 'tool-calls' });

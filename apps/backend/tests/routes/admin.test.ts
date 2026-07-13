@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { resetModelConfigForTesting } from '../../src/config/modelConfig.js';
+import { getGlobalModelConfig, resetModelConfigForTesting } from '../../src/config/modelConfig.js';
 import { createApp } from '../../src/index.js';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 
@@ -137,6 +137,8 @@ describe('/api/admin', () => {
       .patch('/api/admin/model-config')
       .set('Authorization', authHeader(adminToken))
       .send({
+        artifactInteractiveModel: 'server/interactive-model',
+        artifactInteractiveReasoningEffort: 'none',
         contextModel: 'server/context-model',
         contextReasoningEffort: 'low',
       });
@@ -157,6 +159,18 @@ describe('/api/admin', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
+        body: expect.stringContaining('"artifact_interactive_model":"server/interactive-model"'),
+      })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: expect.stringContaining('"artifact_interactive_reasoning_effort":"none"'),
+      })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
         body: expect.stringContaining('"context_model":"server/context-model"'),
       })
     );
@@ -166,6 +180,24 @@ describe('/api/admin', () => {
         body: expect.stringContaining('"context_reasoning_effort":"low"'),
       })
     );
+  });
+
+  test('does not activate a model configuration that Postgres rejected', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const previousContextModel = getGlobalModelConfig().contextModel;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('missing column', { status: 400 }))
+    );
+
+    const response = await request(app)
+      .patch('/api/admin/model-config')
+      .set('Authorization', authHeader(adminToken))
+      .send({ contextModel: 'server/rejected-model' });
+
+    expect(response.status).toBe(400);
+    expect(getGlobalModelConfig().contextModel).toBe(previousContextModel);
   });
 
   test('replaces an unavailable persisted TTS model with a working default', async () => {
@@ -218,6 +250,7 @@ describe('/api/admin', () => {
       .post('/api/admin/users')
       .set('Authorization', authHeader(adminToken))
       .send({
+        aiProvider: 'codex',
         email: 'student@example.com',
         password: 'correct horse battery staple',
         role: 'user',
@@ -242,6 +275,7 @@ describe('/api/admin', () => {
           password: 'correct horse battery staple',
           email_confirm: true,
           app_metadata: {
+            ai_provider: 'codex',
             role: 'user',
           },
         }),
@@ -318,7 +352,7 @@ describe('/api/admin', () => {
     );
   });
 
-  test('updates Supabase role and disabled state through explicit admin payloads', async () => {
+  test('updates Supabase role, provider, and disabled state through merged metadata', async () => {
     const app = createApp();
     const adminToken = createSupabaseTestToken({ role: 'admin' });
     const fetchMock = vi.fn(
@@ -333,6 +367,7 @@ describe('/api/admin', () => {
       .patch('/api/admin/users/user-1')
       .set('Authorization', authHeader(adminToken))
       .send({
+        aiProvider: 'openai',
         disabled: true,
         role: 'admin',
       });
@@ -341,9 +376,10 @@ describe('/api/admin', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'https://example.supabase.co/auth/v1/admin/users/user-1',
       expect.objectContaining({
-        method: 'PATCH',
+        method: 'PUT',
         body: JSON.stringify({
           app_metadata: {
+            ai_provider: 'openai',
             role: 'admin',
           },
           ban_duration: '876000h',
@@ -374,9 +410,39 @@ describe('/api/admin', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'https://example.supabase.co/auth/v1/admin/users/user-1',
       expect.objectContaining({
-        method: 'PATCH',
+        method: 'PUT',
         body: JSON.stringify({
           password: 'nuova-password',
+        }),
+      })
+    );
+  });
+
+  test('clears a user provider so the global default applies', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: 'user-1', email: 'student@example.com' }), {
+          status: 200,
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .patch('/api/admin/users/user-1')
+      .set('Authorization', authHeader(adminToken))
+      .send({ aiProvider: null });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.supabase.co/auth/v1/admin/users/user-1',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          app_metadata: {
+            ai_provider: null,
+          },
         }),
       })
     );

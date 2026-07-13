@@ -1,17 +1,27 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import AdminPanel from '../../../components/admin/AdminPanel.tsx';
 import {
   type AdminModelConfig,
+  createAdminUser,
   getAdminModelConfig,
   listAdminUsers,
   patchAdminModelConfig,
   updateAdminUser,
 } from '../../../services/admin/adminApi.ts';
+
+const codexApiMocks = vi.hoisted(() => ({
+  cancelCodexDeviceLogin: vi.fn(),
+  loadCodexProviderStatus: vi.fn(),
+  logoutCodexProvider: vi.fn(),
+  startCodexDeviceLogin: vi.fn(),
+}));
+
+vi.mock('../../../services/ai/codexAccountApi.ts', () => codexApiMocks);
 
 vi.mock('../../../services/admin/adminApi.ts', async importOriginal => {
   const actual = await importOriginal<typeof import('../../../services/admin/adminApi.ts')>();
@@ -28,9 +38,17 @@ vi.mock('../../../services/admin/adminApi.ts', async importOriginal => {
 
 const defaultModelConfig = {
   aiProvider: 'openrouter',
+  artifactModel: 'openai/gpt-5.4-mini',
+  artifactInteractiveModel: 'openai/gpt-5.4-mini',
+  artifactInteractiveReasoningEffort: 'medium' as const,
+  artifactReasoningEffort: 'medium' as const,
+  artifactVisualReviewEnabled: true,
+  artifactVisualReviewMaxRounds: 1,
   assessmentModel: 'google/gemini-3.1-flash-lite',
   assessmentReasoningEffort: 'medium' as const,
   codexAssessmentModel: 'gpt-5.6-luna',
+  codexArtifactModel: 'gpt-5.6-terra',
+  codexArtifactInteractiveModel: 'gpt-5.6-terra',
   codexContextModel: 'gpt-5.6-luna',
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
@@ -41,6 +59,8 @@ const defaultModelConfig = {
   lessonModel: 'openai/gpt-5.4-mini',
   lessonReasoningEffort: 'medium' as const,
   openAiAssessmentModel: 'gpt-5.6-luna',
+  openAiArtifactModel: 'gpt-5.6-terra',
+  openAiArtifactInteractiveModel: 'gpt-5.6-terra',
   openAiContextModel: 'gpt-5.6-luna',
   openAiImageModel: 'gpt-image-2',
   openAiLessonModel: 'gpt-5.6-terra',
@@ -57,6 +77,11 @@ const defaultModelConfig = {
 describe('AdminPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    codexApiMocks.loadCodexProviderStatus.mockResolvedValue({
+      account: null,
+      enabled: true,
+      models: [],
+    });
     vi.mocked(listAdminUsers).mockResolvedValue([
       {
         id: 'user-1',
@@ -75,23 +100,30 @@ describe('AdminPanel', () => {
       email: 'student@example.com',
       app_metadata: { role: 'user' },
     });
+    vi.mocked(createAdminUser).mockResolvedValue({
+      id: 'user-2',
+      email: 'new@example.com',
+      app_metadata: { ai_provider: 'openai', role: 'user' },
+    });
   });
 
   test('prefills model fields with backend defaults', async () => {
     render(<AdminPanel />);
 
-    expect(await screen.findByDisplayValue('openai/gpt-5.4-mini')).toBeInTheDocument();
+    expect(await screen.findAllByDisplayValue('openai/gpt-5.4-mini')).toHaveLength(3);
     expect(screen.getAllByDisplayValue('google/gemini-3.1-flash-lite')).toHaveLength(3);
     expect(screen.getByDisplayValue('x-ai/grok-voice-tts-1.0')).toBeInTheDocument();
     expect(screen.getByDisplayValue('google/gemini-3.1-flash-lite-image')).toBeInTheDocument();
     expect(screen.getByDisplayValue('perplexity/sonar-pro-search')).toBeInTheDocument();
     expect(screen.getByDisplayValue('gpt-image-2')).toBeInTheDocument();
-    expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(4);
+    expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(8);
     expect(screen.getByDisplayValue('Ara')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Ragionamento Lezioni' })).toHaveValue('medium');
-    expect(screen.getByRole('combobox', { name: 'Ragionamento Contesto' })).toHaveValue('medium');
-    expect(screen.getByRole('combobox', { name: 'Ragionamento Assessment' })).toHaveValue('medium');
-    expect(screen.getByRole('combobox', { name: 'Ragionamento Avanzamento' })).toHaveValue('low');
+    expect(screen.getAllByRole('combobox', { name: 'Ragionamento Lezioni' })).toHaveLength(3);
+    expect(screen.getAllByRole('combobox', { name: 'Ragionamento Contesto' })).toHaveLength(3);
+    expect(screen.getAllByRole('combobox', { name: 'Ragionamento Assessment' })).toHaveLength(3);
+    expect(screen.getAllByRole('combobox', { name: 'Ragionamento Avanzamento' })[0]).toHaveValue(
+      'low'
+    );
     expect(screen.queryByRole('combobox', { name: 'Ragionamento TTS' })).toBeNull();
   });
 
@@ -114,6 +146,101 @@ describe('AdminPanel', () => {
       })
     );
     expect(await screen.findByRole('status')).toHaveTextContent('Modelli aggiornati.');
+  });
+
+  test('configures artifact models and reasoning independently from lessons', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+
+    const artifactModelInputs = await screen.findAllByLabelText('Modello Artefatti visuali');
+    expect(artifactModelInputs).toHaveLength(3);
+    const [openRouterArtifactInput, openAiArtifactInput, codexArtifactInput] = artifactModelInputs;
+    if (!openRouterArtifactInput || !openAiArtifactInput || !codexArtifactInput) {
+      throw new Error('Artifact model inputs are missing.');
+    }
+    fireEvent.change(openRouterArtifactInput, { target: { value: 'openrouter/artifact-sol' } });
+    fireEvent.change(openAiArtifactInput, { target: { value: 'openai-artifact-sol' } });
+    fireEvent.change(codexArtifactInput, { target: { value: 'codex-artifact-sol' } });
+    const artifactReasoningSelects = screen.getAllByRole('combobox', {
+      name: 'Ragionamento Artefatti visuali',
+    });
+    const artifactReasoningSelect = artifactReasoningSelects[0];
+    if (!artifactReasoningSelect) {
+      throw new Error('Artifact reasoning select is missing.');
+    }
+    await user.selectOptions(artifactReasoningSelect, 'none');
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Round massimi di revisione' }), {
+      target: { value: '3' },
+    });
+    await user.click(screen.getByRole('checkbox', { name: 'Revisione visiva degli artefatti' }));
+    for (const select of artifactReasoningSelects) {
+      expect(select).toHaveValue('none');
+    }
+    await user.click(screen.getByRole('button', { name: 'Salva modelli' }));
+
+    await waitFor(() =>
+      expect(patchAdminModelConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          artifactModel: 'openrouter/artifact-sol',
+          artifactReasoningEffort: 'none',
+          artifactVisualReviewEnabled: false,
+          artifactVisualReviewMaxRounds: 3,
+          codexArtifactModel: 'codex-artifact-sol',
+          openAiArtifactModel: 'openai-artifact-sol',
+          lessonModel: defaultModelConfig.lessonModel,
+        })
+      )
+    );
+  });
+
+  test('creates a user with the selected AI provider', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+
+    fireEvent.change(await screen.findByLabelText('Email nuovo account'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText('Password nuovo account'), {
+      target: { value: 'g1ovann1' },
+    });
+    await user.selectOptions(screen.getByLabelText('Provider AI nuovo account'), 'openai');
+    await user.click(screen.getByRole('button', { name: 'Crea' }));
+
+    await waitFor(() =>
+      expect(createAdminUser).toHaveBeenCalledWith({
+        aiProvider: 'openai',
+        email: 'new@example.com',
+        password: 'g1ovann1',
+        role: 'user',
+      })
+    );
+  });
+
+  test('sets and clears a user-specific AI provider', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listAdminUsers).mockResolvedValue([
+      {
+        id: 'user-1',
+        email: 'student@example.com',
+        app_metadata: { ai_provider: 'openai', role: 'user' },
+      },
+    ]);
+    render(<AdminPanel />);
+
+    const providerSelect = await screen.findByRole('combobox', {
+      name: 'Provider AI per student@example.com',
+    });
+    expect(providerSelect).toHaveValue('openai');
+
+    await user.selectOptions(providerSelect, 'codex');
+    await waitFor(() =>
+      expect(updateAdminUser).toHaveBeenCalledWith('user-1', { aiProvider: 'codex' })
+    );
+
+    await user.selectOptions(providerSelect, 'default');
+    await waitFor(() =>
+      expect(updateAdminUser).toHaveBeenLastCalledWith('user-1', { aiProvider: null })
+    );
   });
 
   test('lets admins set a user password manually', async () => {

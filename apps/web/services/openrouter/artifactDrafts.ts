@@ -7,7 +7,7 @@ import type {
 } from '../../types.ts';
 import { createEntityId } from '../../utils/ids.ts';
 import { buildGeneratedVisualLearningArtifactPayload } from '../../utils/learning/artifacts.ts';
-import { generateLessonVisualExample, inferExplicitVisualType } from './visualExamples.ts';
+import { generateLessonVisualExample } from './visualExamples.ts';
 
 interface GenerateLessonArtifactDraftInput {
   contextAfter?: string;
@@ -116,7 +116,6 @@ export const generateLessonArtifactDraft = async ({
     lessonMarkdown,
     sectionDescription: `${lesson.description}\n\nRichiesta: ${prompt.trim()}`,
     sectionTitle: lesson.title,
-    visualTypeHint: inferExplicitVisualType(prompt),
   });
 
   if (!result) {

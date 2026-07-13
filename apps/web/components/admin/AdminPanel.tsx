@@ -1,10 +1,31 @@
-import { ArrowLeft, KeyRound, Link2, Plus, RefreshCw, Save, ShieldCheck } from 'lucide-react';
+import {
+  ArrowLeft,
+  BookOpen,
+  BrainCircuit,
+  ClipboardCheck,
+  Image,
+  KeyRound,
+  Link2,
+  type LucideIcon,
+  MessageSquareText,
+  Mic,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Shapes,
+  ShieldCheck,
+  TrendingUp,
+  Volume2,
+} from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
+  type AdminAiProvider,
   type AdminModelConfig,
   type AdminReasoningEffort,
   type AdminUser,
+  type AdminUserPatch,
   createAdminUser,
   DEFAULT_ADMIN_MODEL_CONFIG,
   getAdminModelConfig,
@@ -13,47 +34,174 @@ import {
   sendAdminMagicLink,
   updateAdminUser,
 } from '../../services/admin/adminApi.ts';
+import { readSupabaseSession, refreshSupabaseSession } from '../../services/auth/supabaseAuth.ts';
+import CodexConnectionSettings from './CodexConnectionSettings.tsx';
 
 const getUserRole = (user: AdminUser): 'admin' | 'user' =>
   user.app_metadata?.role === 'admin' ? 'admin' : 'user';
 
 const isDisabledUser = (user: AdminUser): boolean => Boolean(user.banned_until);
 
+const AI_PROVIDER_OPTIONS = [
+  ['openrouter', 'OpenRouter'],
+  ['openai', 'OpenAI API'],
+  ['codex', 'Codex app-server'],
+] as const satisfies ReadonlyArray<readonly [AdminAiProvider, string]>;
+
+type UserAiProviderSelection = AdminAiProvider | 'default';
+
+const readAiProvider = (value: string): AdminAiProvider =>
+  value === 'codex' ? 'codex' : value === 'openai' ? 'openai' : 'openrouter';
+
+const readUserAiProvider = (value: string): UserAiProviderSelection =>
+  value === 'default' ? 'default' : readAiProvider(value);
+
+const getUserAiProvider = (user: AdminUser): UserAiProviderSelection =>
+  user.app_metadata?.ai_provider || 'default';
+
 const REASONING_OPTIONS = [
-  ['none', 'Nessuno / non supportato'],
+  ['none', 'None'],
+  ['minimal', 'Minimal'],
   ['low', 'Low'],
   ['medium', 'Medium'],
   ['high', 'High'],
 ] as const satisfies ReadonlyArray<readonly [AdminReasoningEffort, string]>;
 
+type AdminTextModelKey =
+  | 'artifactModel'
+  | 'artifactInteractiveModel'
+  | 'assessmentModel'
+  | 'codexArtifactModel'
+  | 'codexArtifactInteractiveModel'
+  | 'codexAssessmentModel'
+  | 'codexContextModel'
+  | 'codexLessonModel'
+  | 'codexProgressModel'
+  | 'codexResearchModel'
+  | 'contextModel'
+  | 'lessonModel'
+  | 'openAiArtifactModel'
+  | 'openAiArtifactInteractiveModel'
+  | 'openAiAssessmentModel'
+  | 'openAiContextModel'
+  | 'openAiLessonModel'
+  | 'openAiProgressModel'
+  | 'openAiResearchModel'
+  | 'progressModel'
+  | 'researchModel';
+
+type AdminReasoningKey =
+  | 'artifactReasoningEffort'
+  | 'artifactInteractiveReasoningEffort'
+  | 'assessmentReasoningEffort'
+  | 'contextReasoningEffort'
+  | 'lessonReasoningEffort'
+  | 'progressReasoningEffort';
+
+const TEXT_MODEL_LABELS = {
+  artifacts: () => t('Artefatti visuali'),
+  interactiveArtifacts: () => t('Artefatti interattivi'),
+  assessment: () => 'Assessment',
+  context: () => t('Contesto'),
+  lessons: () => t('Lezioni'),
+  progress: () => t('Avanzamento'),
+  research: () => t('Ricerca'),
+} as const;
+
+const TEXT_MODEL_ROWS: ReadonlyArray<{
+  icon: LucideIcon;
+  labelKey: keyof typeof TEXT_MODEL_LABELS;
+  models: Record<AdminAiProvider, AdminTextModelKey>;
+  reasoning?: AdminReasoningKey;
+}> = [
+  {
+    icon: Shapes,
+    labelKey: 'artifacts',
+    models: {
+      openrouter: 'artifactModel',
+      openai: 'openAiArtifactModel',
+      codex: 'codexArtifactModel',
+    },
+    reasoning: 'artifactReasoningEffort',
+  },
+  {
+    icon: BrainCircuit,
+    labelKey: 'interactiveArtifacts',
+    models: {
+      openrouter: 'artifactInteractiveModel',
+      openai: 'openAiArtifactInteractiveModel',
+      codex: 'codexArtifactInteractiveModel',
+    },
+    reasoning: 'artifactInteractiveReasoningEffort',
+  },
+  {
+    icon: BookOpen,
+    labelKey: 'lessons',
+    models: {
+      openrouter: 'lessonModel',
+      openai: 'openAiLessonModel',
+      codex: 'codexLessonModel',
+    },
+    reasoning: 'lessonReasoningEffort',
+  },
+  {
+    icon: MessageSquareText,
+    labelKey: 'context',
+    models: {
+      openrouter: 'contextModel',
+      openai: 'openAiContextModel',
+      codex: 'codexContextModel',
+    },
+    reasoning: 'contextReasoningEffort',
+  },
+  {
+    icon: ClipboardCheck,
+    labelKey: 'assessment',
+    models: {
+      openrouter: 'assessmentModel',
+      openai: 'openAiAssessmentModel',
+      codex: 'codexAssessmentModel',
+    },
+    reasoning: 'assessmentReasoningEffort',
+  },
+  {
+    icon: TrendingUp,
+    labelKey: 'progress',
+    models: {
+      openrouter: 'progressModel',
+      openai: 'openAiProgressModel',
+      codex: 'codexProgressModel',
+    },
+    reasoning: 'progressReasoningEffort',
+  },
+  {
+    icon: Search,
+    labelKey: 'research',
+    models: {
+      openrouter: 'researchModel',
+      openai: 'openAiResearchModel',
+      codex: 'codexResearchModel',
+    },
+  },
+];
+
+const PROVIDER_SECTIONS: ReadonlyArray<{
+  id: AdminAiProvider;
+  label: string;
+}> = [
+  { id: 'openrouter', label: 'OpenRouter' },
+  { id: 'openai', label: 'OpenAI API' },
+  { id: 'codex', label: 'Codex app-server' },
+];
+
 export default function AdminPanel() {
-  const modelFields = [
-    ['lessonModel', 'lessonReasoningEffort', t('Lezioni')],
-    ['contextModel', 'contextReasoningEffort', t('Contesto')],
-    ['assessmentModel', 'assessmentReasoningEffort', 'Assessment'],
-    ['progressModel', 'progressReasoningEffort', t('Avanzamento')],
-  ] as const;
-  const openAiModelFields = [
-    ['openAiLessonModel', t('Lezioni')],
-    ['openAiContextModel', t('Contesto')],
-    ['openAiAssessmentModel', 'Assessment'],
-    ['openAiProgressModel', t('Avanzamento')],
-    ['openAiResearchModel', t('Ricerca')],
-    ['openAiImageModel', t('Immagini')],
-  ] as const;
-  const codexModelFields = [
-    ['codexLessonModel', t('Lezioni')],
-    ['codexContextModel', t('Contesto')],
-    ['codexAssessmentModel', 'Assessment'],
-    ['codexProgressModel', t('Avanzamento')],
-    ['codexResearchModel', t('Ricerca')],
-  ] as const;
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [modelConfig, setModelConfig] = useState<AdminModelConfig>(DEFAULT_ADMIN_MODEL_CONFIG);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
   const [passwordEditorUserId, setPasswordEditorUserId] = useState<string | null>(null);
+  const [newUserAiProvider, setNewUserAiProvider] = useState<UserAiProviderSelection>('default');
   const [role, setRole] = useState<'admin' | 'user'>('user');
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -89,9 +237,15 @@ export default function AdminPanel() {
     event.preventDefault();
     setErrorMessage('');
     try {
-      await createAdminUser({ email, password, role });
+      await createAdminUser({
+        email,
+        password,
+        role,
+        ...(newUserAiProvider === 'default' ? {} : { aiProvider: newUserAiProvider }),
+      });
       setEmail('');
       setPassword('');
+      setNewUserAiProvider('default');
       setRole('user');
       setStatusMessage(t('Account creato.'));
       await loadAdminData();
@@ -118,13 +272,13 @@ export default function AdminPanel() {
     }
   };
 
-  const handleUserPatch = async (
-    user: AdminUser,
-    patch: { disabled?: boolean; password?: string; role?: 'admin' | 'user' }
-  ) => {
+  const handleUserPatch = async (user: AdminUser, patch: AdminUserPatch) => {
     setErrorMessage('');
     try {
       await updateAdminUser(user.id, patch);
+      if ('aiProvider' in patch && readSupabaseSession()?.user?.id === user.id) {
+        await refreshSupabaseSession();
+      }
       await loadAdminData();
     } catch (error) {
       setErrorMessage(
@@ -145,6 +299,84 @@ export default function AdminPanel() {
     setPasswordEditorUserId(null);
     setStatusMessage(t('Password aggiornata.'));
   };
+
+  const renderTextModelRow = (provider: AdminAiProvider, row: (typeof TEXT_MODEL_ROWS)[number]) => {
+    const Icon = row.icon;
+    const label = TEXT_MODEL_LABELS[row.labelKey]();
+    const modelKey = row.models[provider];
+
+    return (
+      <div key={modelKey} className="border-b border-gray-100 py-3 last:border-b-0">
+        <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-800">
+          <Icon className="h-4 w-4 shrink-0 text-gray-500" />
+          <span>{label}</span>
+        </div>
+        <div className="grid grid-cols-[minmax(0,7fr)_minmax(6.5rem,3fr)] gap-2">
+          <label className="min-w-0">
+            <span className="sr-only">{t('Modello {modelSlot}', { modelSlot: label })}</span>
+            <input
+              value={modelConfig[modelKey]}
+              onChange={event =>
+                setModelConfig(current => ({ ...current, [modelKey]: event.target.value }))
+              }
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="min-w-0">
+            <span className="sr-only">{t('Ragionamento {modelSlot}', { modelSlot: label })}</span>
+            <select
+              aria-label={t('Ragionamento {modelSlot}', { modelSlot: label })}
+              value={row.reasoning ? modelConfig[row.reasoning] : 'none'}
+              disabled={!row.reasoning}
+              onChange={event => {
+                const reasoningKey = row.reasoning;
+                if (!reasoningKey) return;
+                setModelConfig(current => ({
+                  ...current,
+                  [reasoningKey]: event.target.value as AdminReasoningEffort,
+                }));
+              }}
+              className="w-full rounded-lg border border-gray-300 bg-white px-2 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+            >
+              {row.reasoning ? (
+                REASONING_OPTIONS.map(([value, optionLabel]) => (
+                  <option key={value} value={value}>
+                    {t(optionLabel)}
+                  </option>
+                ))
+              ) : (
+                <option value="none">{t('Nessuno')}</option>
+              )}
+            </select>
+          </label>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSingleModelRow = ({
+    icon: Icon,
+    label,
+    modelKey,
+  }: {
+    icon: LucideIcon;
+    label: string;
+    modelKey: 'imageModel' | 'openAiImageModel' | 'ttsModel' | 'ttsVoice';
+  }) => (
+    <label className="block border-b border-gray-100 py-3 last:border-b-0">
+      <span className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-800">
+        <Icon className="h-4 w-4 shrink-0 text-gray-500" />
+        {label}
+      </span>
+      <input
+        value={modelConfig[modelKey]}
+        onChange={event =>
+          setModelConfig(current => ({ ...current, [modelKey]: event.target.value }))
+        }
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+      />
+    </label>
+  );
 
   return (
     <main className="min-h-screen bg-[#f8f7f4] px-4 py-6 text-gray-950">
@@ -193,6 +425,29 @@ export default function AdminPanel() {
                     <p className="mt-1 text-xs text-gray-500">
                       {getUserRole(user)} · {t(isDisabledUser(user) ? 'disabilitato' : 'attivo')}
                     </p>
+                    <label className="mt-2 flex w-fit items-center gap-2 text-xs text-gray-500">
+                      <span>{t('Provider AI')}</span>
+                      <select
+                        aria-label={t('Provider AI per {userName}', {
+                          userName: user.email || user.id,
+                        })}
+                        value={getUserAiProvider(user)}
+                        onChange={event => {
+                          const provider = readUserAiProvider(event.target.value);
+                          void handleUserPatch(user, {
+                            aiProvider: provider === 'default' ? null : provider,
+                          });
+                        }}
+                        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700"
+                      >
+                        <option value="default">{t('Predefinito globale')}</option>
+                        {AI_PROVIDER_OPTIONS.map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -295,6 +550,19 @@ export default function AdminPanel() {
                 <option value="user">{t('Base')}</option>
                 <option value="admin">Admin</option>
               </select>
+              <select
+                aria-label={t('Provider AI nuovo account')}
+                value={newUserAiProvider}
+                onChange={event => setNewUserAiProvider(readUserAiProvider(event.target.value))}
+                className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+              >
+                <option value="default">{t('Predefinito globale')}</option>
+                {AI_PROVIDER_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
               <button
                 type="submit"
                 className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-4 py-2 text-sm font-semibold text-white"
@@ -304,10 +572,16 @@ export default function AdminPanel() {
               </button>
             </form>
 
+            <CodexConnectionSettings />
+
             <div className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="text-sm font-semibold">{t('Modelli globali')}</h2>
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <BrainCircuit className="h-4 w-4 text-gray-500" />
+                {t('Modelli globali')}
+              </h2>
               <label className="mt-4 block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                <span className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                  <Link2 className="h-4 w-4 text-gray-500" />
                   {t('Provider AI attivo')}
                 </span>
                 <select
@@ -315,153 +589,98 @@ export default function AdminPanel() {
                   onChange={event =>
                     setModelConfig(current => ({
                       ...current,
-                      aiProvider:
-                        event.target.value === 'codex'
-                          ? 'codex'
-                          : event.target.value === 'openai'
-                            ? 'openai'
-                            : 'openrouter',
+                      aiProvider: readAiProvider(event.target.value),
                     }))
                   }
                   className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="openrouter">OpenRouter</option>
-                  <option value="openai">OpenAI API</option>
-                  <option value="codex">Codex app-server</option>
+                  {AI_PROVIDER_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </label>
-              <h3 className="mt-5 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                OpenRouter
-              </h3>
-              {modelFields.map(([modelKey, reasoningKey, rawLabel]) => {
-                const label = rawLabel;
-                return (
-                  <div
-                    key={modelKey}
-                    className="mt-4 border-b border-gray-100 pb-4 last:border-b-0"
-                  >
-                    <label className="block">
-                      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                        {label}
-                      </span>
-                      <input
-                        value={modelConfig[modelKey]}
-                        onChange={event =>
-                          setModelConfig(current => ({
-                            ...current,
-                            [modelKey]: event.target.value,
-                          }))
-                        }
-                        className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                      />
-                    </label>
-                    <label className="mt-2 block">
-                      <span className="text-xs font-medium text-gray-500">
-                        {t('Forza di ragionamento')}
-                      </span>
-                      <select
-                        aria-label={t('Ragionamento {modelSlot}', { modelSlot: label })}
-                        value={modelConfig[reasoningKey]}
-                        onChange={event =>
-                          setModelConfig(current => ({
-                            ...current,
-                            [reasoningKey]: event.target.value as AdminReasoningEffort,
-                          }))
-                        }
-                        className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
-                      >
-                        {REASONING_OPTIONS.map(([value, optionLabel]) => (
-                          <option key={value} value={value}>
-                            {t(optionLabel)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+              <label className="mt-4 flex items-start gap-3 rounded-lg border border-gray-200 px-3 py-3">
+                <input
+                  type="checkbox"
+                  aria-label={t('Revisione visiva degli artefatti')}
+                  checked={modelConfig.artifactVisualReviewEnabled}
+                  onChange={event =>
+                    setModelConfig(current => ({
+                      ...current,
+                      artifactVisualReviewEnabled: event.target.checked,
+                    }))
+                  }
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                />
+                <span>
+                  <span className="block text-sm font-semibold text-gray-800">
+                    {t('Revisione visiva degli artefatti')}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-gray-500">
+                    {t('Aggiunge un secondo passaggio di controllo dopo la prima generazione.')}
+                  </span>
+                </span>
+              </label>
+              <label className="mt-3 block">
+                <span className="text-sm font-semibold text-gray-800">
+                  {t('Round massimi di revisione')}
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={4}
+                  disabled={!modelConfig.artifactVisualReviewEnabled}
+                  value={modelConfig.artifactVisualReviewMaxRounds}
+                  onChange={event =>
+                    setModelConfig(current => ({
+                      ...current,
+                      artifactVisualReviewMaxRounds: Math.min(
+                        4,
+                        Math.max(1, Number.parseInt(event.target.value, 10) || 1)
+                      ),
+                    }))
+                  }
+                  className="mt-1 w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                />
+              </label>
+              <div className="mt-5 border-t border-gray-200 pt-4">
+                {renderSingleModelRow({
+                  icon: Image,
+                  label: t('Immagini (Codex/OpenAI)'),
+                  modelKey: 'openAiImageModel',
+                })}
+              </div>
+              {PROVIDER_SECTIONS.map(({ id, label }) => (
+                <section key={id} className="mt-5 border-t border-gray-200 pt-4 first:border-t-0">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-950">
+                    <BrainCircuit className="h-4 w-4 text-gray-500" />
+                    {label}
+                  </h3>
+                  <div className="mt-1">
+                    {TEXT_MODEL_ROWS.map(row => renderTextModelRow(id, row))}
                   </div>
-                );
-              })}
-              <label className="mt-3 block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                  {t('Ricerca')}
-                </span>
-                <input
-                  value={modelConfig.researchModel}
-                  onChange={event =>
-                    setModelConfig(current => ({
-                      ...current,
-                      researchModel: event.target.value,
-                    }))
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="mt-3 block">
-                <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                  {t('Immagini OpenRouter')}
-                </span>
-                <input
-                  value={modelConfig.imageModel}
-                  onChange={event =>
-                    setModelConfig(current => ({
-                      ...current,
-                      imageModel: event.target.value,
-                    }))
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                />
-              </label>
-              {(
-                [
-                  ['ttsModel', t('TTS')],
-                  ['ttsVoice', t('Voce')],
-                ] as const satisfies ReadonlyArray<readonly ['ttsModel' | 'ttsVoice', string]>
-              ).map(([key, label]) => (
-                <label key={key} className="mt-3 block">
-                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                    {label}
-                  </span>
-                  <input
-                    value={modelConfig[key]}
-                    onChange={event =>
-                      setModelConfig(current => ({ ...current, [key]: event.target.value }))
-                    }
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                </label>
-              ))}
-              <h3 className="mt-5 border-t border-gray-100 pt-4 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                OpenAI API
-              </h3>
-              {openAiModelFields.map(([key, label]) => (
-                <label key={key} className="mt-3 block">
-                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                    {label}
-                  </span>
-                  <input
-                    value={modelConfig[key]}
-                    onChange={event =>
-                      setModelConfig(current => ({ ...current, [key]: event.target.value }))
-                    }
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                </label>
-              ))}
-              <h3 className="mt-5 border-t border-gray-100 pt-4 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                Codex app-server
-              </h3>
-              {codexModelFields.map(([key, label]) => (
-                <label key={key} className="mt-3 block">
-                  <span className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
-                    {label}
-                  </span>
-                  <input
-                    value={modelConfig[key]}
-                    onChange={event =>
-                      setModelConfig(current => ({ ...current, [key]: event.target.value }))
-                    }
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  />
-                </label>
+                  {id === 'openrouter' ? (
+                    <>
+                      {renderSingleModelRow({
+                        icon: Image,
+                        label: t('Immagini'),
+                        modelKey: 'imageModel',
+                      })}
+                      {renderSingleModelRow({
+                        icon: Volume2,
+                        label: t('TTS'),
+                        modelKey: 'ttsModel',
+                      })}
+                      {renderSingleModelRow({
+                        icon: Mic,
+                        label: t('Voce'),
+                        modelKey: 'ttsVoice',
+                      })}
+                    </>
+                  ) : null}
+                </section>
               ))}
               <p className="mt-2 text-xs leading-5 text-gray-500">
                 {t(

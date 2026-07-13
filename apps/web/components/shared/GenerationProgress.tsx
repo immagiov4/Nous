@@ -19,7 +19,7 @@ interface GenerationProgressProps {
   progress: GenerationProgressSnapshot;
 }
 
-type StageLabel = 'Fonti' | 'Pronta' | 'Quiz' | 'Stesura' | 'Struttura' | 'Verifica';
+type StageLabel = 'Fonti' | 'Pronta' | 'Pronto' | 'Quiz' | 'Stesura' | 'Struttura' | 'Verifica';
 
 const STAGES: ReadonlyArray<{
   id: GenerationStage;
@@ -79,6 +79,7 @@ export default function GenerationProgress({
     Math.max(0, Math.floor((Date.now() - progress.startedAt) / 1_000))
   );
   const activeStageIndex = STAGES.findIndex(stage => stage.id === progress.stage);
+  const isCourseGeneration = progress.operation === 'plan';
 
   useEffect(() => {
     const updateElapsedTime = () => {
@@ -95,7 +96,7 @@ export default function GenerationProgress({
       className={`mx-auto flex w-full max-w-5xl flex-col items-center py-2 text-center ${displayMode === 'page' ? 'my-auto' : ''}`}
     >
       <h2 className="whitespace-nowrap font-serif text-xl tracking-tight text-stone-950 sm:text-5xl dark:text-zinc-50">
-        {t('Lezione in cottura...')}
+        {t(isCourseGeneration ? 'Corso in preparazione...' : 'Lezione in cottura...')}
       </h2>
 
       <ol className="relative mt-5 grid w-full grid-cols-3 gap-x-2 gap-y-4 sm:mt-10 sm:grid-cols-6 sm:gap-0">
@@ -106,10 +107,11 @@ export default function GenerationProgress({
         {STAGES.map(({ id, icon: Icon, label }, index) => {
           const isComplete = index < activeStageIndex;
           const isActive = index === activeStageIndex;
+          const visibleLabel = isCourseGeneration && id === 'ready' ? 'Pronto' : label;
           return (
             <li key={id} className="relative z-10 flex min-w-0 flex-col items-center">
               <span
-                className={`flex h-10 w-10 items-center justify-center rounded-full border bg-[#fbfaf7] transition-colors dark:bg-zinc-950 ${
+                className={`flex h-10 w-10 items-center justify-center rounded-full border bg-white transition-colors dark:bg-zinc-950 ${
                   isActive
                     ? 'border-amber-500 bg-amber-500 text-white shadow-[0_0_0_7px_rgba(245,158,11,0.12)] dark:bg-amber-600'
                     : isComplete
@@ -122,7 +124,7 @@ export default function GenerationProgress({
               <span
                 className={`mt-2 truncate font-serif text-sm sm:text-base ${isActive ? 'text-stone-950 dark:text-white' : 'text-stone-500 dark:text-zinc-400'}`}
               >
-                {t(label)}
+                {t(visibleLabel)}
               </span>
             </li>
           );
@@ -136,8 +138,9 @@ export default function GenerationProgress({
         <PreviewSections progress={progress} />
       </section>
 
-      <p className="mt-3 text-xs text-stone-500 sm:mt-5 sm:text-sm dark:text-zinc-400">
-        {t('Tempo trascorso')}: {formatElapsedTime(elapsedSeconds)}
+      <p className="mt-3 flex items-center gap-2 text-xs text-stone-500 sm:mt-5 sm:text-sm dark:text-zinc-400">
+        <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+        {t('Elaborazione in corso')} · {t('Tempo trascorso')}: {formatElapsedTime(elapsedSeconds)}
       </p>
     </output>
   );

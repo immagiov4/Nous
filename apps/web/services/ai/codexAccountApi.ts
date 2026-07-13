@@ -3,7 +3,6 @@ import { getBackendUrl } from '../openrouter/config.ts';
 
 export interface CodexAccountStatus {
   email?: string;
-  planType?: string;
   requiresOpenaiAuth: boolean;
   type?: string;
 }

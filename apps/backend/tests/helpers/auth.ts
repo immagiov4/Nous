@@ -1,5 +1,7 @@
 import { createHmac } from 'node:crypto';
 
+import type { AiProvider } from '../../src/config/modelConfig.js';
+
 const base64UrlJson = (value: unknown): string =>
   Buffer.from(JSON.stringify(value)).toString('base64url');
 
@@ -12,10 +14,12 @@ export const signSupabaseJwt = (payload: Record<string, unknown>, secret: string
 };
 
 export const createSupabaseTestToken = ({
+  aiProvider,
   role = 'user',
   secret = 'test-secret',
   userId = 'user-123',
 }: {
+  aiProvider?: AiProvider;
   role?: string;
   secret?: string;
   userId?: string;
@@ -25,6 +29,7 @@ export const createSupabaseTestToken = ({
       sub: userId,
       exp: Math.floor(Date.now() / 1000) + 60,
       app_metadata: {
+        ...(aiProvider ? { ai_provider: aiProvider } : {}),
         role,
       },
     },

@@ -3,7 +3,10 @@ import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LessonGeneratedVisual } from '../../types.ts';
 import { isSafeGeneratedImageSource } from '../../utils/visuals/generatedImage.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
-import { findMissingStaticHtmlElementIds } from '../../utils/visuals/htmlElementReferences.ts';
+import {
+  findMissingDirectlyDereferencedHtmlElementIds,
+  hasUnsafeHtmlElementDereferences,
+} from '../../utils/visuals/htmlElementReferences.ts';
 
 interface GeneratedVisualFrameProps {
   className?: string;
@@ -36,7 +39,10 @@ const buildGeneratedVisualBootstrapScript = (visual: LessonGeneratedVisual): str
 const visualCode = ${toSafeScriptJson(visual.code)};
 const visualId = ${toSafeScriptJson(visual.id)};
 const visualTitle = ${toSafeScriptJson(visual.title)};
-const missingStaticElementIds = ${JSON.stringify(findMissingStaticHtmlElementIds(visual.code))};
+const missingStaticElementIds = ${JSON.stringify(
+  findMissingDirectlyDereferencedHtmlElementIds(visual.code)
+)};
+const hasUnsafeElementDereferences = ${JSON.stringify(hasUnsafeHtmlElementDereferences(visual.code))};
 const unknownVisualError = ${toSafeScriptJson(t('Errore nello script del visuale.'))};
 const partialVisualError = ${toSafeScriptJson(
   t("Una parte interattiva dell'artefatto ha avuto un errore. Puoi rigenerarlo o sostituirlo.")
@@ -88,6 +94,25 @@ function notifyGeneratedVisualReady() {
 function replayGeneratedVisualScript(script) {
   return new Promise(resolve => {
     const isExternalScript = Boolean(script.getAttribute('src'));
+    const scriptType = (script.getAttribute('type') || '').trim().toLowerCase();
+    const isClassicScript = !scriptType || scriptType === 'text/javascript' || scriptType === 'application/javascript';
+
+    if (!isExternalScript && !isClassicScript) {
+      showGeneratedVisualError(new Error('Unsupported generated visual script type.'));
+      resolve();
+      return;
+    }
+
+    if (!isExternalScript) {
+      try {
+        Function(script.textContent || '');
+      } catch (error) {
+        showGeneratedVisualError(error);
+        resolve();
+        return;
+      }
+    }
+
     const replayedScript = document.createElement('script');
     Array.from(script.attributes).forEach(attribute => {
       replayedScript.setAttribute(attribute.name, attribute.value);
@@ -129,6 +154,9 @@ async function replayGeneratedVisualScripts(container) {
     const template = document.createElement('template');
     template.innerHTML = visualCode;
     root?.appendChild(template.content.cloneNode(true));
+    if (missingStaticElementIds.length > 0 || hasUnsafeElementDereferences) {
+      throw new Error('Generated visual failed the DOM reference preflight.');
+    }
     if (root) {
       await replayGeneratedVisualScripts(root);
     }

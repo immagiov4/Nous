@@ -27,11 +27,12 @@ The client follows the stable transport lifecycle used by
 `turn/completed`. WebSocket transport is intentionally not used because the official app-server
 documentation marks it experimental and unsupported.
 
-Codex is opt-in through `CODEX_APP_SERVER_ENABLED=true` and requires `CODEX_OWNER_USER_ID`. Every
-Codex account and generation route verifies both that owner id and the socket's loopback address.
-The process is therefore unavailable to other Nous users and remote clients even if the feature is
-enabled accidentally. It is not enabled in the production container: supporting a shared topology
-would require an isolated process and `CODEX_HOME` per user.
+Codex is opt-in through `CODEX_APP_SERVER_ENABLED=true` on a self-hosted instance. One internal
+app-server session is shared only with administrators and users explicitly assigned to Codex. Every
+Codex account and generation routes verify the authenticated Nous role/provider assignment. Remote
+browsers may use the self-hosted Nous API, but the app-server process and its stdio transport remain
+private to the backend. The managed production deployment leaves Codex disabled: offering separate
+customer subscriptions would require isolated processes and `CODEX_HOME` directories per account.
 
 Official evidence:
 
@@ -53,9 +54,15 @@ Official evidence:
 | Image generation | OpenRouter Images API | OpenAI Images API | Not provided by Codex text adapter | OpenRouter/OpenAI image config remains separate |
 | STT and TTS | Existing services | Not switched | Not switched | Shared audio pipeline remains unchanged |
 
-The account area stores only the user's provider preference and sends it as an allowlisted request
-header. Models and reasoning levels remain centralized in the admin configuration. Switching the
-provider does not rewrite courses or other saved content.
+The admin assigns an optional provider to each user through Supabase `app_metadata.ai_provider`.
+The backend reads that authenticated claim and falls back to the global admin provider when the
+claim is absent or invalid; client storage and request headers cannot override it. Models and
+reasoning levels remain centralized in the admin configuration. Switching the provider does not
+rewrite courses or other saved content.
+
+Artifact planning, rendering, repair, and multimodal visual review use a dedicated `artifact`
+workload slot. Admins can choose its model independently for OpenRouter, OpenAI, and Codex, plus
+one shared reasoning level, without changing lesson generation.
 
 ## Adapter boundary
 

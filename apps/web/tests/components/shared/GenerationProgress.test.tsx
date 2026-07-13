@@ -50,6 +50,24 @@ describe('GenerationProgress', () => {
     expect(screen.getByText('6. Passaggio 6').closest('div')).toHaveStyle({ opacity: '1' });
   });
 
+  test('labels course generation as a course instead of a lesson', () => {
+    render(
+      <GenerationProgress
+        progress={{
+          operation: 'plan',
+          sections: ['Indice del corso', 'Verifica della struttura'],
+          stage: 'structure',
+          startedAt: Date.now(),
+          stepOffset: 0,
+          subject: 'Architettura dei game engine',
+        }}
+      />
+    );
+
+    expect(screen.getByRole('heading', { name: /Corso in preparazione/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Lezione in cottura/i })).not.toBeInTheDocument();
+  });
+
   test('keeps elapsed time tied to the generation when the view remounts', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-11T10:01:05Z'));

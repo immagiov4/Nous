@@ -21,6 +21,53 @@ import {
 
 export { CURRICULUM_PROPEDEUTIC_ORDER_RULES };
 
+const CURRICULUM_RESPONSE_SCHEMA = {
+  name: 'curriculum',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      modules: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string' },
+            description: { type: 'string' },
+            lessons: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  title: { type: 'string' },
+                  description: { type: 'string' },
+                  contextPrompt: { type: 'string' },
+                },
+                required: ['title', 'description', 'contextPrompt'],
+              },
+            },
+          },
+          required: ['title', 'description', 'lessons'],
+        },
+      },
+    },
+    required: ['modules'],
+  },
+} as const;
+const CURRICULUM_REVIEW_RESPONSE_SCHEMA = {
+  name: 'curriculum_review',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { valid: { type: 'boolean' } },
+    required: ['valid'],
+  },
+} as const;
+
 const runArchitect = async (
   profile: UserProfile,
   onReasoningUpdate?: (reasoning: string) => void
@@ -64,7 +111,7 @@ Return JSON with this structure:
     reasoning: MEDIUM_REASONING_CONFIG,
     onReasoningUpdate,
     messages: [{ role: 'user', content: prompt }],
-    response_format: { type: 'json_object' },
+    response_format: { type: 'json_schema', json_schema: CURRICULUM_RESPONSE_SCHEMA },
   });
 
   const data = JSON.parse(cleanJson(response || '{}')) as { modules?: ModuleBlueprint[] };
@@ -91,7 +138,7 @@ Return JSON: { "valid": true } or { "valid": false }`;
     model: MODEL_FLASH,
     reasoning: MEDIUM_REASONING_CONFIG,
     messages: [{ role: 'user', content: checkPrompt }],
-    response_format: { type: 'json_object' },
+    response_format: { type: 'json_schema', json_schema: CURRICULUM_REVIEW_RESPONSE_SCHEMA },
   });
 
   const result = JSON.parse(cleanJson(response || '{}')) as { valid?: boolean };
@@ -239,20 +286,8 @@ export const generateLearnLessonContent = async (
 
   const userNotesBlock = buildUserGenerationNotesBlock(generationNotes);
 
-  const prompt = `ROLE: World-Class Technical Author & Professor with a gift for making difficult ideas feel clear.
+  const systemPrompt = `ROLE: World-Class Technical Author & Professor with a gift for making difficult ideas feel clear.
 TONE: Direct, rigorous, accessible, narrative-driven.
-${userNotesBlock}
-LESSON: "${lessonTitle}" (Module: "${moduleTitle}")
-DESCRIPTION: "${currentLessonDescription}"
-
-STUDENT: ${resolvedProfile.context || 'General Learner'}
-LEVEL: ${resolvedProfile.experienceLevel || 'Intermediate'}
-LANG: ${resolvedProfile.language || 'Italian'}
-
-TECHNICAL CONTEXT: "${contextPrompt || 'Explain this clearly.'}"
-
-PAST TOPICS (already covered): ${pastContext || 'None - this is the first lesson'}
-FUTURE TOPICS (coming next): ${futureContext || 'End of curriculum'}
 
 CRITICAL WRITING RULES:
 1. Scrivi una lezione esaustiva in Markdown ricco, ma ad alta densita informativa: niente riempitivo, niente ripetizioni decorative, niente giri larghi per dire poco.
@@ -269,13 +304,29 @@ ${scopeRule}
 
 FORMAT: Markdown.`;
 
+  const userPrompt = `${userNotesBlock}
+LESSON: "${lessonTitle}" (Module: "${moduleTitle}")
+DESCRIPTION: "${currentLessonDescription}"
+
+STUDENT: ${resolvedProfile.context || 'General Learner'}
+LEVEL: ${resolvedProfile.experienceLevel || 'Intermediate'}
+LANG: ${resolvedProfile.language || 'Italian'}
+
+TECHNICAL CONTEXT: "${contextPrompt || 'Explain this clearly.'}"
+
+PAST TOPICS (already covered): ${pastContext || 'None - this is the first lesson'}
+FUTURE TOPICS (coming next): ${futureContext || 'End of curriculum'}`;
+
   const response = await retryWithBackoff(
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
         reasoning: MEDIUM_REASONING_CONFIG,
         onReasoningUpdate,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
       }),
     2,
     1000

@@ -131,3 +131,20 @@ export const dedupeUiMessagesById = <T extends UIMessage>(messages: T[]): T[] =>
     .sort((left, right) => left.index - right.index)
     .map(item => item.message);
 };
+
+export const hasSuccessfulToolOutput = (messages: UIMessage[], toolPartType: string): boolean => {
+  const lastMessage = messages.at(-1);
+  if (lastMessage?.role !== 'assistant') {
+    return false;
+  }
+
+  return lastMessage.parts.some(part => {
+    if (!isToolUIPart(part) || part.type !== toolPartType || part.state !== 'output-available') {
+      return false;
+    }
+    const output = part.output;
+    return Boolean(
+      output && typeof output === 'object' && 'artifactId' in output && output.artifactId
+    );
+  });
+};

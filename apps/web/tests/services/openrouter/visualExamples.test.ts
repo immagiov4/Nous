@@ -1,12 +1,19 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const { callOpenRouterMock, requestGeneratedImageMock } = vi.hoisted(() => ({
+const {
+  callOpenRouterMock,
+  getArtifactVisualReviewSettingsMock,
+  lintSvgMock,
+  requestGeneratedImageMock,
+} = vi.hoisted(() => ({
   callOpenRouterMock: vi.fn(),
+  getArtifactVisualReviewSettingsMock: vi.fn(),
+  lintSvgMock: vi.fn(),
   requestGeneratedImageMock: vi.fn(),
 }));
 
 vi.mock('../../../services/openrouter/svgReview.ts', () => ({
-  lintSvg: () => ['Possibile testo fuori dai bordi: "Nodo".'],
+  lintSvg: lintSvgMock,
   renderSvgPreview: () => Promise.resolve('data:image/png;base64,UFJFVklFVw=='),
 }));
 
@@ -19,6 +26,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   return {
     ...actual,
     callOpenRouter: callOpenRouterMock,
+    getArtifactVisualReviewSettings: getArtifactVisualReviewSettingsMock,
     MODEL_VISUAL_PLANNER: 'planner-model',
     MODEL_VISUAL_RENDERER: 'renderer-model',
   };
@@ -26,10 +34,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
 
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
 import { appendGeneratedVisualExample } from '../../../services/openrouter/lessonImages.ts';
-import {
-  generateLessonVisualExample,
-  inferExplicitVisualType,
-} from '../../../services/openrouter/visualExamples.ts';
+import { generateLessonVisualExample } from '../../../services/openrouter/visualExamples.ts';
 
 const BASE_VISUAL_INPUT = {
   hasPdfImages: false,
@@ -45,29 +50,36 @@ const VALID_CHART_RESPONSE = JSON.stringify({
     '<style>.chart{display:block}</style><div class="chart">20 · 40 · 60</div><script>window.__chartReady=true;</script>',
 });
 
-describe('explicit visual intent', () => {
+const CHART_PLAN_RESPONSE = JSON.stringify({
+  visual_type: 'chart_html',
+  concept: 'Confronto dei valori',
+  pedagogical_goal: 'show_data',
+});
+
+const IMAGE_PLAN_RESPONSE = JSON.stringify({
+  visual_type: 'illustrative_image',
+  concept: 'Struttura concreta di una cellula vegetale.',
+  pedagogical_goal: 'build_intuition',
+});
+
+describe('artifact generation', () => {
   beforeEach(() => {
     callOpenRouterMock.mockReset();
     requestGeneratedImageMock.mockReset();
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: true, maxRounds: 1 });
   });
 
-  test.each([
-    ['Crea un grafico a barre con questi dati', 'chart_html'],
-    ['Disegna un diagramma entità-relazione per utenti e corsi', 'mermaid_erd'],
-    ['Mostra un class diagram UML', 'mermaid_class'],
-    ['Costruisci un diagramma di flusso del processo', 'flowchart_svg'],
-    ['Rendilo un simulatore interattivo con uno slider', 'interactive_html'],
-    ['Crea un’illustrazione realistica di una cellula', 'illustrative_image'],
-  ] as const)('maps %s to %s without an LLM planner', (prompt, expectedType) => {
-    expect(inferExplicitVisualType(prompt)).toBe(expectedType);
-  });
-
-  test('keeps ambiguous requests on the planner path', () => {
-    expect(inferExplicitVisualType('Fammi una visuale utile per questa lezione')).toBeUndefined();
-  });
-
-  test('renders an explicit chart draft with one OpenRouter call', async () => {
-    callOpenRouterMock.mockResolvedValueOnce(VALID_CHART_RESPONSE);
+  test('rejects an unsafe widget and returns the repaired draft', async () => {
+    callOpenRouterMock
+      .mockResolvedValueOnce(CHART_PLAN_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          title: 'bozza_non_sicura',
+          widget_code:
+            '<style>.chart{display:block}</style><div id="chart"></div><script>document.getElementById("missing-output").textContent = "40";</script>',
+        })
+      )
+      .mockResolvedValueOnce(VALID_CHART_RESPONSE);
 
     const draft = await generateLessonArtifactDraft({
       lesson: {
@@ -83,19 +95,42 @@ describe('explicit visual intent', () => {
       prompt: 'Crea un grafico a barre con questi dati: 20, 40 e 60.',
     });
 
-    expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
-    expect(callOpenRouterMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'renderer-model',
-      })
-    );
-    expect(callOpenRouterMock.mock.calls[0]?.[0].messages[1].content).toContain(
-      '"visual_type": "chart_html"'
-    );
-    expect(draft?.visual.kind).toBe('html');
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(3);
+    expect(draft?.visual).toMatchObject({ kind: 'html', title: 'confronto_valori' });
+  });
+
+  test('rejects malformed widget JavaScript and returns the repaired draft', async () => {
+    callOpenRouterMock
+      .mockResolvedValueOnce(CHART_PLAN_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          title: 'bozza_sintassi_errata',
+          widget_code:
+            '<style>.chart{display:block}</style><div class="chart"></div><script>const values = [20, 40, );</script>',
+        })
+      )
+      .mockResolvedValueOnce(VALID_CHART_RESPONSE);
+
+    const draft = await generateLessonArtifactDraft({
+      lesson: {
+        id: 'lesson-1',
+        title: 'Confronto',
+        description: 'Confronta tre valori.',
+        type: 'core',
+        isCompleted: false,
+        content: BASE_VISUAL_INPUT.lessonMarkdown,
+      },
+      projectId: 'project-1',
+      projectTitle: 'Corso test',
+      prompt: 'Crea un grafico a barre con questi dati: 20, 40 e 60.',
+    });
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(3);
+    expect(draft?.visual).toMatchObject({ kind: 'html', title: 'confronto_valori' });
   });
 
   test('generates an explicit image draft without an extra LLM renderer call', async () => {
+    callOpenRouterMock.mockResolvedValueOnce(IMAGE_PLAN_RESPONSE);
     requestGeneratedImageMock.mockResolvedValueOnce({
       dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
       mediaType: 'image/png',
@@ -115,7 +150,7 @@ describe('explicit visual intent', () => {
       prompt: 'Crea un’illustrazione realistica di una cellula vegetale.',
     });
 
-    expect(callOpenRouterMock).not.toHaveBeenCalled();
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
     expect(requestGeneratedImageMock).toHaveBeenCalledTimes(1);
     expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain(
       'Struttura concreta di una cellula vegetale'
@@ -127,6 +162,7 @@ describe('explicit visual intent', () => {
     });
   });
   test('does not copy generated image bytes into a replacement prompt', async () => {
+    callOpenRouterMock.mockResolvedValueOnce(IMAGE_PLAN_RESPONSE);
     requestGeneratedImageMock.mockResolvedValueOnce({
       dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
       mediaType: 'image/png',
@@ -179,6 +215,7 @@ describe('visual planner latency profile', () => {
   beforeEach(() => {
     callOpenRouterMock.mockReset();
     requestGeneratedImageMock.mockReset();
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: true, maxRounds: 1 });
   });
 
   test('uses low reasoning only when the request still needs planning', async () => {
@@ -196,6 +233,7 @@ describe('visual planner latency profile', () => {
     expect(callOpenRouterMock).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'planner-model',
+        modelSlot: 'artifact',
         reasoning: {
           effort: 'low',
           exclude: true,
@@ -235,10 +273,14 @@ describe('visual planner latency profile', () => {
   test('keeps the completed lesson when image generation is unavailable', async () => {
     callOpenRouterMock.mockResolvedValueOnce(
       JSON.stringify({
-        visual_type: 'illustrative_image',
-        concept: 'Aspetto degli strati di una barriera corallina.',
-        pedagogical_goal: 'build_intuition',
-        anchor_heading: 'Confronto',
+        plans: [
+          {
+            visual_type: 'illustrative_image',
+            concept: 'Aspetto degli strati di una barriera corallina.',
+            pedagogical_goal: 'build_intuition',
+            anchor_heading: 'Confronto',
+          },
+        ],
       })
     );
     requestGeneratedImageMock.mockRejectedValueOnce(new Error('provider unavailable'));
@@ -258,11 +300,91 @@ describe('visual planner latency profile', () => {
     });
     expect(statuses.at(-1)).toBe('Esempio visivo non disponibile');
   });
+
+  test('starts at most three visual workers concurrently and preserves planner order', async () => {
+    callOpenRouterMock.mockResolvedValueOnce(
+      JSON.stringify({
+        plans: ['cellula', 'tessuto', 'organo', 'apparato'].map(concept => ({
+          visual_type: 'illustrative_image',
+          concept,
+          pedagogical_goal: 'build_intuition',
+          anchor_heading: 'Confronto',
+        })),
+      })
+    );
+    const imageResolvers: Array<(image: { dataUrl: string; mediaType: 'image/png' }) => void> = [];
+    requestGeneratedImageMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          imageResolvers.push(resolve);
+        })
+    );
+
+    const pendingResult = appendGeneratedVisualExample({
+      contentMarkdown: BASE_VISUAL_INPUT.lessonMarkdown,
+      hasPdfImages: false,
+      sectionDescription: BASE_VISUAL_INPUT.sectionDescription,
+      sectionTitle: BASE_VISUAL_INPUT.sectionTitle,
+    });
+
+    await vi.waitFor(() => expect(requestGeneratedImageMock).toHaveBeenCalledTimes(3));
+    imageResolvers[2]?.({ dataUrl: 'data:image/png;base64,Mw==', mediaType: 'image/png' });
+    imageResolvers[0]?.({ dataUrl: 'data:image/png;base64,MQ==', mediaType: 'image/png' });
+    imageResolvers[1]?.({ dataUrl: 'data:image/png;base64,Mg==', mediaType: 'image/png' });
+
+    const result = await pendingResult;
+    expect(result.generatedVisuals.map(visual => visual.id)).toEqual([
+      'visual-001',
+      'visual-002',
+      'visual-003',
+    ]);
+    expect(result.generatedVisuals.map(visual => visual.title)).toEqual([
+      'cellula',
+      'tessuto',
+      'organo',
+    ]);
+    expect(result.content.indexOf('{{VISUAL_EXAMPLE:visual-001|')).toBeLessThan(
+      result.content.indexOf('{{VISUAL_EXAMPLE:visual-002|')
+    );
+    expect(result.content.indexOf('{{VISUAL_EXAMPLE:visual-002|')).toBeLessThan(
+      result.content.indexOf('{{VISUAL_EXAMPLE:visual-003|')
+    );
+  });
+
+  test('keeps successful visual workers when another worker fails', async () => {
+    callOpenRouterMock.mockResolvedValueOnce(
+      JSON.stringify({
+        plans: [
+          { visual_type: 'illustrative_image', concept: 'primo' },
+          { visual_type: 'illustrative_image', concept: 'secondo' },
+        ],
+      })
+    );
+    requestGeneratedImageMock
+      .mockRejectedValueOnce(new Error('first provider request failed'))
+      .mockResolvedValueOnce({
+        dataUrl: 'data:image/png;base64,Mg==',
+        mediaType: 'image/png',
+      });
+
+    const result = await appendGeneratedVisualExample({
+      contentMarkdown: BASE_VISUAL_INPUT.lessonMarkdown,
+      hasPdfImages: false,
+      sectionDescription: BASE_VISUAL_INPUT.sectionDescription,
+      sectionTitle: BASE_VISUAL_INPUT.sectionTitle,
+    });
+
+    expect(result.generatedVisuals).toHaveLength(1);
+    expect(result.generatedVisuals[0]).toMatchObject({ id: 'visual-002', title: 'secondo' });
+  });
 });
 
 describe('SVG multimodal review', () => {
   beforeEach(() => {
     callOpenRouterMock.mockReset();
+    lintSvgMock.mockReset();
+    lintSvgMock.mockReturnValue(['Possibile testo fuori dai bordi: "Nodo".']);
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: true, maxRounds: 1 });
   });
 
   test('renders, reviews once, and returns the revised SVG', async () => {
@@ -286,6 +408,7 @@ describe('SVG multimodal review', () => {
     });
 
     expect(callOpenRouterMock).toHaveBeenCalledTimes(2);
+    expect(callOpenRouterMock.mock.calls[1]?.[0].allowTextOnlyImageFallback).toBe(true);
     expect(callOpenRouterMock.mock.calls[1]?.[0].messages.at(-1)?.content).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -303,5 +426,67 @@ describe('SVG multimodal review', () => {
       title: 'revisionato',
       code: expect.stringContaining('x="40"'),
     });
+  });
+
+  test('returns the first SVG without rendering a feedback pass when review is disabled', async () => {
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: false, maxRounds: 4 });
+    callOpenRouterMock.mockResolvedValueOnce(
+      JSON.stringify({
+        title: 'prima_boza',
+        svg_code: '<svg viewBox="0 0 680 120"><text x="40" y="40">Nodo</text></svg>',
+      })
+    );
+
+    const result = await generateLessonVisualExample({
+      ...BASE_VISUAL_INPUT,
+      visualTypeHint: 'flowchart_svg',
+    });
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
+    expect(result?.visual).toMatchObject({ kind: 'svg', title: 'prima_boza' });
+  });
+
+  test('stops before the configured maximum when warnings are resolved', async () => {
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: true, maxRounds: 3 });
+    lintSvgMock
+      .mockReturnValueOnce(['Possibile testo fuori dai bordi: "Nodo".'])
+      .mockReturnValueOnce([]);
+    callOpenRouterMock
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          title: 'bozza',
+          svg_code: '<svg viewBox="0 0 680 120"><text x="670" y="40">Nodo</text></svg>',
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          title: 'corretto',
+          svg_code: '<svg viewBox="0 0 680 120"><text x="40" y="40">Nodo</text></svg>',
+        })
+      );
+
+    await generateLessonVisualExample({
+      ...BASE_VISUAL_INPUT,
+      visualTypeHint: 'flowchart_svg',
+    });
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('never exceeds the configured feedback round maximum', async () => {
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: true, maxRounds: 3 });
+    callOpenRouterMock.mockResolvedValue(
+      JSON.stringify({
+        title: 'ancora_con_warning',
+        svg_code: '<svg viewBox="0 0 680 120"><text x="670" y="40">Nodo</text></svg>',
+      })
+    );
+
+    await generateLessonVisualExample({
+      ...BASE_VISUAL_INPUT,
+      visualTypeHint: 'flowchart_svg',
+    });
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(4);
   });
 });

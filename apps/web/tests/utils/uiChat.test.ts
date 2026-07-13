@@ -6,6 +6,7 @@ import {
   dedupeUiMessagesById,
   getUiMessageRenderableParts,
   getUiMessageText,
+  hasSuccessfulToolOutput,
 } from '../../utils/uiChat.ts';
 
 test('dedupeUiMessagesById keeps only the latest snapshot for each message id', () => {
@@ -80,4 +81,51 @@ test('getUiMessageText removes leaked model placeholders', () => {
   } as UIMessage;
 
   assert.equal(getUiMessageText(message), 'Prima  dopo  fine');
+});
+
+test('hasSuccessfulToolOutput recognizes a completed artifact generation result', () => {
+  const messages = [
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-generateCurrentLessonArtifact',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: { artifactId: 'artifact-1', renderedArtifactCount: 1 },
+        },
+      ],
+    },
+  ] as UIMessage[];
+
+  assert.equal(hasSuccessfulToolOutput(messages, 'tool-generateCurrentLessonArtifact'), true);
+});
+
+test('hasSuccessfulToolOutput rejects failed and unrelated tool results', () => {
+  const messages = [
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-generateCurrentLessonArtifact',
+          toolCallId: 'tool-1',
+          state: 'output-available',
+          input: {},
+          output: { artifact: null, error: 'generation failed' },
+        },
+        {
+          type: 'tool-getCurrentLessonArtifacts',
+          toolCallId: 'tool-2',
+          state: 'output-available',
+          input: {},
+          output: { artifactId: 'artifact-1' },
+        },
+      ],
+    },
+  ] as UIMessage[];
+
+  assert.equal(hasSuccessfulToolOutput(messages, 'tool-generateCurrentLessonArtifact'), false);
 });

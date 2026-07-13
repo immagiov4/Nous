@@ -44,6 +44,24 @@ test('callOpenRouterRaw forwards reasoning settings to OpenRouter', async () => 
   });
 });
 
+test('marks optional artifact previews for a text-only fallback', async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+  });
+
+  await callOpenRouterRaw({
+    allowTextOnlyImageFallback: true,
+    model: 'renderer-model',
+    modelSlot: 'artifact',
+    messages: [{ role: 'user', content: 'Euristica SVG' }],
+  });
+
+  const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+  assert.equal(headers.get('X-Nous-Allow-Text-Only-Image-Fallback'), 'true');
+  assert.equal(headers.get('X-Nous-Model-Slot'), 'artifact');
+});
+
 test('callOpenRouterRaw surfaces proxy payload limit failures with a clear message', async () => {
   fetchMock.mockResolvedValue({
     ok: false,

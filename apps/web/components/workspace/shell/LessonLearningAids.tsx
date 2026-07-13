@@ -30,7 +30,6 @@ const LEARNING_AID_CONTENT_MAX_LENGTH = 500;
 const LEARNING_AID_KIND_OPTIONS: ReadonlyArray<LessonLearningAidKind> = [
   'definition',
   'formula',
-  'symbol',
   'analogy',
 ];
 
@@ -151,110 +150,9 @@ function LearningAidList({
 
   return (
     <div className="space-y-3" aria-busy={isSaving}>
-      <div className="flex items-center justify-end">
-        <button
-          type="button"
-          onClick={beginCreate}
-          disabled={isSaving || draft !== null}
-          aria-label={t('Aggiungi concetto chiave')}
-          className="inline-flex min-h-9 items-center gap-2 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-white"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {t('Aggiungi')}
-        </button>
-      </div>
-
-      {draft ? (
-        <fieldset
-          aria-label={t(draft.id ? 'Modifica concetto chiave' : 'Nuovo concetto chiave')}
-          className="space-y-3 rounded-xl border border-orange-200 bg-orange-50/60 p-3 dark:border-orange-900/60 dark:bg-orange-950/20"
-        >
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
-              {t('Tipo')}
-            </span>
-            <select
-              aria-label={t('Tipo concetto chiave')}
-              value={draft.kind}
-              onChange={event =>
-                setDraft(current =>
-                  current
-                    ? { ...current, kind: event.target.value as LessonLearningAidKind }
-                    : current
-                )
-              }
-              className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-            >
-              {LEARNING_AID_KIND_OPTIONS.map(kind => (
-                <option key={kind} value={kind}>
-                  {getLearningAidKindLabel(kind)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
-              {t('Titolo')}
-            </span>
-            <input
-              value={draft.title}
-              maxLength={LEARNING_AID_TITLE_MAX_LENGTH}
-              onChange={event =>
-                setDraft(current => (current ? { ...current, title: event.target.value } : current))
-              }
-              className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
-              {t('Contenuto')}
-            </span>
-            <textarea
-              value={draft.content}
-              maxLength={LEARNING_AID_CONTENT_MAX_LENGTH}
-              rows={4}
-              onChange={event =>
-                setDraft(current =>
-                  current ? { ...current, content: event.target.value } : current
-                )
-              }
-              className="mt-1 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-5 text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-            />
-          </label>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(null);
-                setSaveError('');
-              }}
-              disabled={isSaving}
-              className="min-h-9 rounded-full px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-white/80 hover:text-gray-800 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            >
-              {t('Annulla')}
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveDraft()}
-              disabled={isSaving || !draft.title.trim() || !draft.content.trim()}
-              className="inline-flex min-h-9 items-center gap-2 rounded-full bg-gray-950 px-4 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-            >
-              <Check className="h-3.5 w-3.5" />
-              {t(isSaving ? 'Salvataggio in corso...' : 'Salva')}
-            </button>
-          </div>
-        </fieldset>
-      ) : null}
-
       {saveError ? (
         <p role="alert" className="text-xs leading-5 text-red-600 dark:text-red-300">
           {saveError}
-        </p>
-      ) : null}
-
-      {learningAids.length === 0 && !draft ? (
-        <p className="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-sm text-gray-500 dark:border-zinc-700 dark:text-zinc-400">
-          {t('Non ci sono ancora concetti chiave. Aggiungi quello che vuoi ricordare.')}
         </p>
       ) : null}
 
@@ -345,6 +243,107 @@ function LearningAidList({
           );
         })}
       </ol>
+
+      {!draft ? (
+        <button
+          type="button"
+          onClick={beginCreate}
+          disabled={isSaving}
+          aria-label={t('Aggiungi concetto chiave')}
+          className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 px-3 py-3 text-center text-sm text-gray-500 transition-colors hover:border-gray-400 hover:bg-gray-50 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        >
+          <Plus className="h-4 w-4" />
+          {learningAids.length === 0
+            ? t('Aggiungi quello che vuoi ricordare')
+            : t('Aggiungi un concetto chiave')}
+        </button>
+      ) : null}
+
+      {draft ? (
+        <fieldset
+          aria-label={t(draft.id ? 'Modifica concetto chiave' : 'Nuovo concetto chiave')}
+          className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/70"
+        >
+          <div className="grid grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)] gap-3">
+            <label className="block">
+              <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+                {t('Tipo')}
+              </span>
+              <select
+                aria-label={t('Tipo concetto chiave')}
+                value={draft.kind}
+                onChange={event =>
+                  setDraft(current =>
+                    current
+                      ? { ...current, kind: event.target.value as LessonLearningAidKind }
+                      : current
+                  )
+                }
+                className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              >
+                {LEARNING_AID_KIND_OPTIONS.map(kind => (
+                  <option key={kind} value={kind}>
+                    {getLearningAidKindLabel(kind)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+                {t('Titolo')}
+              </span>
+              <input
+                value={draft.title}
+                maxLength={LEARNING_AID_TITLE_MAX_LENGTH}
+                onChange={event =>
+                  setDraft(current =>
+                    current ? { ...current, title: event.target.value } : current
+                  )
+                }
+                className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+              />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+              {t('Contenuto')}
+            </span>
+            <textarea
+              value={draft.content}
+              maxLength={LEARNING_AID_CONTENT_MAX_LENGTH}
+              rows={4}
+              onChange={event =>
+                setDraft(current =>
+                  current ? { ...current, content: event.target.value } : current
+                )
+              }
+              className="mt-1 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-5 text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+            />
+          </label>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(null);
+                setSaveError('');
+              }}
+              disabled={isSaving}
+              className="min-h-9 rounded-full px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-white/80 hover:text-gray-800 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            >
+              {t('Annulla')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveDraft()}
+              disabled={isSaving || !draft.title.trim() || !draft.content.trim()}
+              className="inline-flex min-h-9 items-center gap-2 rounded-full bg-gray-950 px-4 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+            >
+              <Check className="h-3.5 w-3.5" />
+              {t(isSaving ? 'Salvataggio in corso...' : 'Salva')}
+            </button>
+          </div>
+        </fieldset>
+      ) : null}
     </div>
   );
 }

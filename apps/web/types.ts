@@ -517,6 +517,8 @@ export interface ProjectExportData {
 }
 
 export type OpenRouterModelSlot =
+  | 'artifact'
+  | 'artifactInteractive'
   | 'lesson'
   | 'assessment'
   | 'context'

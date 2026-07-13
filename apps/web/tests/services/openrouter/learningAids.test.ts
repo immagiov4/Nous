@@ -62,11 +62,6 @@ Altro contenuto.`;
           anchorHeading: 'Heading inesistente',
         },
         {
-          kind: 'symbol',
-          title: 'R',
-          content: 'Velocita di trasmissione espressa in bit al secondo.',
-        },
-        {
           kind: 'analogy',
           title: 'Buste dentro buste',
           content: "L'incapsulamento somiglia a inserire una busta dentro un'altra.",
@@ -81,10 +76,10 @@ Altro contenuto.`;
     lessonMarkdown
   );
 
-  assert.equal(result.length, 5);
+  assert.equal(result.length, 4);
   assert.deepEqual(
     result.map(aid => aid.kind),
-    ['definition', 'definition', 'formula', 'symbol', 'analogy']
+    ['definition', 'definition', 'formula', 'analogy']
   );
   assert.deepEqual(
     result.map(aid => aid.id),
@@ -92,7 +87,6 @@ Altro contenuto.`;
       'learning-aid-definition-protocollo',
       'learning-aid-definition-incapsulamento',
       'learning-aid-formula-tempo-di-trasmissione',
-      'learning-aid-symbol-r',
       'learning-aid-analogy-buste-dentro-buste',
     ]
   );
@@ -129,7 +123,7 @@ test('generates normalized learning aids through the strict response schema', as
   assert.equal(request?.response_format?.type, 'json_schema');
 });
 
-test('rejects conceptual phrases mislabeled as symbols', () => {
+test('does not accept symbol as a generated learning-aid kind', () => {
   const result = normalizeLessonLearningAids(
     {
       aids: [
@@ -150,10 +144,7 @@ test('rejects conceptual phrases mislabeled as symbols', () => {
     '# Code di rete'
   );
 
-  assert.deepEqual(
-    result.map(aid => aid.title),
-    ['λ']
-  );
+  assert.deepEqual(result, []);
 });
 
 test('learning-aid generation is optional and does not fail the lesson', async () => {

@@ -60,7 +60,7 @@ describe('Codex app-server protocol client', () => {
     delete process.env.CODEX_APP_SERVER_ENABLED;
   });
 
-  test('starts with only safe host environment and explicitly disables built-in capabilities', () => {
+  test('starts with only safe host environment and keeps unrelated built-in capabilities disabled', () => {
     const environment = buildCodexAppServerEnvironment({
       PATH: 'C:\\Windows\\System32',
       TEMP: 'C:\\Temp',
@@ -70,6 +70,7 @@ describe('Codex app-server protocol client', () => {
       SUPABASE_SERVICE_ROLE_KEY: 'must-not-reach-codex',
     });
     const command = buildCodexAppServerCommand('codex');
+    const imageCommand = buildCodexAppServerCommand('codex', { allowImageGeneration: true });
     const disabledFeatures = command.flatMap((argument, index) =>
       argument === '--disable' ? [command[index + 1]] : []
     );
@@ -87,18 +88,19 @@ describe('Codex app-server protocol client', () => {
         'image_generation',
         'plugins',
         'shell_tool',
-        'standalone_web_search',
         'unified_exec',
         'workspace_dependencies',
       ])
     );
     expect(command).toEqual(
-      expect.arrayContaining([
-        'tools.web_search=false',
-        'shell_environment_policy.inherit=none',
-        'mcp_servers={}',
-      ])
+      expect.arrayContaining(['shell_environment_policy.inherit=none', 'mcp_servers={}'])
     );
+    expect(disabledFeatures).not.toEqual(
+      expect.arrayContaining(['standalone_web_search', 'web_search_cached', 'web_search_request'])
+    );
+    const imageGenerationArgumentIndex = imageCommand.indexOf('image_generation');
+    expect(imageCommand[imageGenerationArgumentIndex - 1]).toBe('--enable');
+    expect(imageCommand).toEqual(expect.arrayContaining(['--disable', 'shell_tool']));
   });
 
   test('performs the mandatory handshake and reads paginated account/model contracts', async () => {
@@ -148,7 +150,6 @@ describe('Codex app-server protocol client', () => {
 
     expect(account).toEqual({
       email: 'reader@example.test',
-      planType: 'plus',
       requiresOpenaiAuth: true,
       type: 'chatgpt',
     });
@@ -227,6 +228,36 @@ describe('Codex app-server protocol client', () => {
       } else if (message.id === 'server-tool-2' && 'result' in message) {
         clientToolResponse = message;
         fakeProcess.send({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-nous',
+            turnId: 'turn-nous',
+            item: {
+              type: 'imageGeneration',
+              status: 'completed',
+              result: 'ZmFrZS1pbWFnZQ==',
+            },
+          },
+        });
+        fakeProcess.send({
+          method: 'item/reasoning/summaryTextDelta',
+          params: { threadId: 'thread-nous', turnId: 'turn-nous', delta: 'Analizzo.' },
+        });
+        fakeProcess.send({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-nous',
+            turnId: 'turn-nous',
+            item: {
+              type: 'reasoning',
+              summary: [
+                { type: 'summary_text', text: 'Analizzo.' },
+                { type: 'summary_text', text: 'Controllo la risposta.' },
+              ],
+            },
+          },
+        });
+        fakeProcess.send({
           method: 'item/agentMessage/delta',
           params: { threadId: 'other-thread', turnId: 'turn-other', delta: 'ignora' },
         });
@@ -262,12 +293,16 @@ describe('Codex app-server protocol client', () => {
 
     const client = await startCodexAppServerClient(() => fakeProcess as never);
     const deltas: string[] = [];
+    const imageResults: string[] = [];
+    const reasoningDeltas: string[] = [];
     const toolEvents: unknown[] = [];
     const result = await runCodexAppServerTurnWithClient(
       {
         developerInstructions: 'Rispondi come tutor.',
         input: [{ type: 'text', text: 'Spiega i grafi.' }],
         model: 'gpt-test-a',
+        onImageGenerated: image => imageResults.push(image),
+        onReasoningDelta: delta => reasoningDeltas.push(delta),
         onTextDelta: delta => deltas.push(delta),
         onToolEnd: (callId, output) => toolEvents.push({ callId, output }),
         onToolStart: (callId, name, input, execution) =>
@@ -297,6 +332,9 @@ describe('Codex app-server protocol client', () => {
       },
       client
     );
+
+    expect(reasoningDeltas).toEqual(['Analizzo.', '\nControllo la risposta.']);
+    expect(imageResults).toEqual(['ZmFrZS1pbWFnZQ==']);
 
     expect(result).toBe('Risposta\n\nfinale');
     expect(deltas).toEqual(['Risposta', '\n\n', 'finale']);
@@ -336,6 +374,7 @@ describe('Codex app-server protocol client', () => {
     expect(fakeProcess.received.find(message => message.method === 'thread/start')).toMatchObject({
       params: {
         approvalPolicy: 'never',
+        config: { web_search: 'disabled' },
         dynamicTools: [
           {
             type: 'function',
@@ -359,6 +398,56 @@ describe('Codex app-server protocol client', () => {
         sandboxPolicy: { type: 'readOnly' },
         threadId: 'thread-nous',
       },
+    });
+    client.close();
+  });
+
+  test('enables live web search only for an explicitly authorized turn', async () => {
+    let fakeProcess: FakeCodexProcess;
+    fakeProcess = new FakeCodexProcess(message => {
+      if (message.method === 'initialize') {
+        respond(fakeProcess, message, {});
+      } else if (message.method === 'account/read') {
+        respond(fakeProcess, message, {
+          account: { type: 'chatgpt', planType: 'plus' },
+          requiresOpenaiAuth: true,
+        });
+      } else if (message.method === 'thread/start') {
+        respond(fakeProcess, message, { thread: { id: 'thread-research' } });
+      } else if (message.method === 'turn/start') {
+        respond(fakeProcess, message, { turn: { id: 'turn-research' } });
+        fakeProcess.send({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-research',
+            turnId: 'turn-research',
+            item: { type: 'agentMessage', text: '{"sources":[]}' },
+          },
+        });
+        fakeProcess.send({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-research',
+            turn: { id: 'turn-research', status: 'completed' },
+          },
+        });
+      }
+    });
+
+    const client = await startCodexAppServerClient(() => fakeProcess as never);
+    await runCodexAppServerTurnWithClient(
+      {
+        allowWebSearch: true,
+        developerInstructions: 'Cerca fonti affidabili.',
+        input: [{ type: 'text', text: 'Ricerca i grafi.' }],
+        model: 'gpt-test-a',
+        reasoningEffort: 'medium',
+      },
+      client
+    );
+
+    expect(fakeProcess.received.find(message => message.method === 'thread/start')).toMatchObject({
+      params: { config: { web_search: 'live' } },
     });
     client.close();
   });

@@ -92,6 +92,10 @@ const ensureSupabase = async (runtime: LocalDevServicesRuntime): Promise<void> =
       throw new Error('Local Supabase started but did not become ready.');
     }
   }
+
+  if (!(await runtime.run(['bunx', 'supabase', 'migration', 'up', '--local', '--yes']))) {
+    throw new Error('Local Supabase migrations could not be applied. Check the migration output.');
+  }
 };
 
 export const ensureLocalDevServices = async (

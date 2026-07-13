@@ -98,9 +98,15 @@ describe('ChatArtifactRenderer', () => {
     expect(screen.getByRole('dialog', { name: /simulatore chiusura/i })).toBeInTheDocument();
   });
 
-  test('requires revision instructions before regenerating an artifact', async () => {
+  test('closes the overlay and reports regeneration progress in chat', async () => {
     const user = userEvent.setup();
-    const onRegenerateArtifact = vi.fn().mockResolvedValue(true);
+    let resolveRegeneration: ((value: boolean) => void) | undefined;
+    const onRegenerateArtifact = vi.fn(
+      () =>
+        new Promise<boolean>(resolve => {
+          resolveRegeneration = resolve;
+        })
+    );
     render(
       <ChatArtifactRenderer
         artifacts={[htmlArtifact]}
@@ -123,11 +129,17 @@ describe('ChatArtifactRenderer', () => {
     );
     await user.click(submitButton);
 
+    expect(screen.queryByRole('dialog', { name: /simulatore chiusura/i })).not.toBeInTheDocument();
     expect(onRegenerateArtifact).toHaveBeenCalledWith({
       artifactId: htmlArtifact.summary.id,
       instructions: 'Rendilo piu sintetico e leggibile.',
     });
-    expect(await screen.findByText('Rigenerazione richiesta.')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Richiesta ricevuta. Sto rigenerando l artefatto...'
+    );
+
+    resolveRegeneration?.(true);
+    expect(await screen.findByText('Nuova bozza pronta.')).toBeInTheDocument();
   });
 
   test('reports a failed regeneration without claiming that a new draft was created', async () => {
@@ -150,6 +162,7 @@ describe('ChatArtifactRenderer', () => {
     );
     await user.click(within(dialog).getByRole('button', { name: /Conferma rigenerazione/i }));
 
+    expect(screen.queryByRole('dialog', { name: /simulatore chiusura/i })).not.toBeInTheDocument();
     expect(
       await screen.findByText('Rigenerazione fallita. La bozza precedente non e stata modificata.')
     ).toBeInTheDocument();
@@ -177,7 +190,7 @@ describe('ChatArtifactRenderer', () => {
 
     await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: /Apri simulatore chiusura/i }));
-    await user.click(screen.getByRole('button', { name: /Salva artefatto nelle note/i }));
+    await user.click(screen.getByRole('button', { name: /Salva artefatto nella lezione/i }));
 
     expect(onSaveArtifact).toHaveBeenCalledWith({ artifactId: htmlArtifact.summary.id });
     expect(await screen.findByText('Salvato.')).toBeInTheDocument();
