@@ -112,4 +112,35 @@ describe('AccountMenu', () => {
 
     expect(screen.queryByRole('menuitem', { name: 'Provider AI' })).toBeNull();
   });
+
+  test('exports and imports the complete course backup from the account menu', async () => {
+    const user = userEvent.setup();
+    const onExportLibraryBackup = vi.fn().mockResolvedValue(2);
+    const onImportLibraryBackup = vi.fn().mockResolvedValue(2);
+    saveAccountSession(['email']);
+    fetchMock.mockResolvedValueOnce(accountResponse('email'));
+
+    render(
+      <AccountMenu
+        onExportLibraryBackup={onExportLibraryBackup}
+        onImportLibraryBackup={onImportLibraryBackup}
+      />
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'Dati e backup' }));
+    await user.click(screen.getByRole('button', { name: 'Esporta tutti i corsi' }));
+
+    expect(onExportLibraryBackup).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole('status')).toHaveTextContent('Backup di 2 corsi esportato.');
+
+    const backup = new File(['backup'], 'courses.nous-library.zip', {
+      type: 'application/zip',
+    });
+    await user.upload(screen.getByLabelText('Seleziona backup completo Nous'), backup);
+
+    expect(onImportLibraryBackup).toHaveBeenCalledWith(backup);
+    expect(await screen.findByRole('status')).toHaveTextContent('2 corsi importati.');
+  });
 });

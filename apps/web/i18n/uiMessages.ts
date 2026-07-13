@@ -48,6 +48,8 @@ const ENGLISH_UI_MESSAGES = {
   'Account Codex collegato': 'Codex account connected',
   'Aggiornamento profilo non riuscito. Riprova.': 'Could not update the profile. Try again.',
   'Area account': 'Account area',
+  'Backup completo dei corsi': 'Complete course backup',
+  'Backup di {courseCount} corsi esportato.': 'Backup of {courseCount} courses exported.',
   'Annullamento della connessione non riuscito. Riprova.':
     'Could not cancel the connection. Try again.',
   'Apri accesso OpenAI': 'Open OpenAI sign-in',
@@ -129,9 +131,16 @@ const ENGLISH_UI_MESSAGES = {
   Esporta: 'Export',
   'Esportazione...': 'Exporting...',
   'Esportazione non riuscita. Riprova.': 'Export failed. Try again.',
+  'Esportazione del backup completo non riuscita. Riprova.':
+    'Complete backup export failed. Try again.',
+  'Esportazione in corso...': 'Exporting...',
+  'Esporta tutti i corsi': 'Export all courses',
+  'Esporta tutti i corsi e le fonti in un unico file. Puoi importarlo in un altra installazione di Nous.':
+    'Export every course and its sources into one file. You can import it into another Nous installation.',
   'Corso esportato. Il download è iniziato.': 'Course exported. The download has started.',
   'Dati account temporaneamente non disponibili. Riprova.':
     'Account details are temporarily unavailable. Try again.',
+  'Dati e backup': 'Data and backup',
   'Disconnetti Codex': 'Disconnect Codex',
   'Disconnessione da Codex non riuscita. Riprova.': 'Could not disconnect from Codex. Try again.',
   'Email attuale': 'Current email',
@@ -147,6 +156,10 @@ const ENGLISH_UI_MESSAGES = {
   'Email per la waitlist': 'Waitlist email',
   'Entra nella waitlist': 'Join the waitlist',
   Importa: 'Import',
+  'Importa tutti i corsi': 'Import all courses',
+  'Importazione del backup completo non riuscita. Controlla il file e riprova.':
+    'Complete backup import failed. Check the file and try again.',
+  'Importazione in corso...': 'Importing...',
   'Il problema della comunicazione': 'The problem of communication',
   'Il protocollo è un accordo: stabilisce forma, ordine e significato dei messaggi.':
     'A protocol is an agreement: it defines the form, order, and meaning of messages.',
@@ -186,7 +199,9 @@ const ENGLISH_UI_MESSAGES = {
   'Password nuovo account': 'New account password',
   Profilo: 'Profile',
   'Profilo aggiornato.': 'Profile updated.',
+  'Seleziona backup completo Nous': 'Select a complete Nous backup',
   'Salva profilo': 'Save profile',
+  '{courseCount} corsi importati.': '{courseCount} courses imported.',
   'Spostamento in corso...': 'Moving...',
   'URL avatar': 'Avatar URL',
   'non disponibile': 'unavailable',

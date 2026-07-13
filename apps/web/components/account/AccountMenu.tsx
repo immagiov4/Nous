@@ -1,5 +1,14 @@
-import { KeyRound, LogOut, ShieldCheck, UserRound, X } from 'lucide-react';
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Archive,
+  Download,
+  KeyRound,
+  LogOut,
+  ShieldCheck,
+  Upload,
+  UserRound,
+  X,
+} from 'lucide-react';
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
@@ -16,8 +25,15 @@ import {
   updateSupabaseProfile,
 } from '../../services/auth/supabaseAuth.ts';
 
-type AccountSection = 'profile' | 'security';
-type AccountAction = 'email' | 'logout' | 'password' | 'profile' | 'recovery';
+type AccountSection = 'data' | 'profile' | 'security';
+type AccountAction =
+  | 'backup-export'
+  | 'backup-import'
+  | 'email'
+  | 'logout'
+  | 'password'
+  | 'profile'
+  | 'recovery';
 
 const SUCCESS_MESSAGE_DURATION_MS = 3_000;
 
@@ -26,12 +42,21 @@ interface AccountPanelProps {
   initialSection: AccountSection;
   onAccountChange: (account: SupabaseAccount) => void;
   onClose: () => void;
+  onExportLibraryBackup?: () => Promise<number>;
+  onImportLibraryBackup?: (file: File) => Promise<number>;
 }
 
 const fieldClassName =
   'mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-950 outline-none focus:border-gray-900 disabled:bg-gray-100 disabled:text-gray-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-500 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-400';
 
-const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: AccountPanelProps) => {
+const AccountPanel = ({
+  account,
+  initialSection,
+  onAccountChange,
+  onClose,
+  onExportLibraryBackup,
+  onImportLibraryBackup,
+}: AccountPanelProps) => {
   const [activeSection, setActiveSection] = useState<AccountSection>(initialSection);
   const [avatarUrl, setAvatarUrl] = useState(account.avatarUrl || '');
   const [displayName, setDisplayName] = useState(account.displayName || '');
@@ -41,6 +66,7 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const titleRef = useRef<HTMLHeadingElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const passwordAccount = isPasswordAccount(account);
 
   useEffect(() => {
@@ -142,6 +168,39 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
     }
   };
 
+  const handleBackupExport = async () => {
+    if (!onExportLibraryBackup) return;
+    beginAction('backup-export');
+    try {
+      const courseCount = await onExportLibraryBackup();
+      setSuccessMessage(t('Backup di {courseCount} corsi esportato.', { courseCount }));
+    } catch (error) {
+      console.error('[Nous][Account] Library backup export failed.', error);
+      setErrorMessage(t('Esportazione del backup completo non riuscita. Riprova.'));
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const handleBackupImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !onImportLibraryBackup) return;
+
+    beginAction('backup-import');
+    try {
+      const courseCount = await onImportLibraryBackup(file);
+      setSuccessMessage(t('{courseCount} corsi importati.', { courseCount }));
+    } catch (error) {
+      console.error('[Nous][Account] Library backup import failed.', error);
+      setErrorMessage(
+        t('Importazione del backup completo non riuscita. Controlla il file e riprova.')
+      );
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
   return createPortal(
     <div className="fixed inset-0 z-[150] flex items-end p-3 sm:items-center sm:justify-center">
       <button
@@ -167,7 +226,11 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
               tabIndex={-1}
               className="mt-1 text-2xl font-serif text-gray-950 outline-none dark:text-zinc-100"
             >
-              {activeSection === 'profile' ? t('Profilo') : t('Account e sicurezza')}
+              {activeSection === 'profile'
+                ? t('Profilo')
+                : activeSection === 'security'
+                  ? t('Account e sicurezza')
+                  : t('Dati e backup')}
             </h2>
           </div>
           <button
@@ -196,6 +259,14 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
             className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 transition-colors aria-pressed:bg-gray-950 aria-pressed:text-white dark:text-zinc-300 dark:aria-pressed:bg-zinc-100 dark:aria-pressed:text-zinc-950"
           >
             {t('Account e sicurezza')}
+          </button>
+          <button
+            type="button"
+            aria-pressed={activeSection === 'data'}
+            onClick={() => setActiveSection('data')}
+            className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 transition-colors aria-pressed:bg-gray-950 aria-pressed:text-white dark:text-zinc-300 dark:aria-pressed:bg-zinc-100 dark:aria-pressed:text-zinc-950"
+          >
+            {t('Dati e backup')}
           </button>
         </div>
 
@@ -345,6 +416,53 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
               </div>
             )}
           </div>
+        ) : activeSection === 'data' ? (
+          <div className="mt-5 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                {t('Backup completo dei corsi')}
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-gray-600 dark:text-zinc-300">
+                {t(
+                  'Esporta tutti i corsi e le fonti in un unico file. Puoi importarlo in un altra installazione di Nous.'
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 border-t border-gray-200 pt-4 dark:border-zinc-700">
+              <button
+                type="button"
+                disabled={pendingAction !== null || !onExportLibraryBackup}
+                aria-busy={pendingAction === 'backup-export'}
+                onClick={() => void handleBackupExport()}
+                className="inline-flex items-center gap-2 rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-950"
+              >
+                <Download className="h-4 w-4" />
+                {pendingAction === 'backup-export'
+                  ? t('Esportazione in corso...')
+                  : t('Esporta tutti i corsi')}
+              </button>
+              <input
+                ref={backupInputRef}
+                type="file"
+                className="hidden"
+                accept=".nous-library.zip,.zip,application/zip"
+                aria-label={t('Seleziona backup completo Nous')}
+                onChange={event => void handleBackupImport(event)}
+              />
+              <button
+                type="button"
+                disabled={pendingAction !== null || !onImportLibraryBackup}
+                aria-busy={pendingAction === 'backup-import'}
+                onClick={() => backupInputRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-800 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-100"
+              >
+                <Upload className="h-4 w-4" />
+                {pendingAction === 'backup-import'
+                  ? t('Importazione in corso...')
+                  : t('Importa tutti i corsi')}
+              </button>
+            </div>
+          </div>
         ) : null}
       </div>
     </div>,
@@ -352,7 +470,15 @@ const AccountPanel = ({ account, initialSection, onAccountChange, onClose }: Acc
   );
 };
 
-export default function AccountMenu() {
+interface AccountMenuProps {
+  onExportLibraryBackup?: () => Promise<number>;
+  onImportLibraryBackup?: (file: File) => Promise<number>;
+}
+
+export default function AccountMenu({
+  onExportLibraryBackup,
+  onImportLibraryBackup,
+}: AccountMenuProps = {}) {
   const [account, setAccount] = useState<SupabaseAccount | null>(
     () => readSupabaseSession()?.user || null
   );
@@ -516,6 +642,18 @@ export default function AccountMenu() {
               <KeyRound className="h-4 w-4" />
               {t('Account e sicurezza')}
             </button>
+            {onExportLibraryBackup && onImportLibraryBackup ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!account}
+                onClick={() => openPanel('data')}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                <Archive className="h-4 w-4" />
+                {t('Dati e backup')}
+              </button>
+            ) : null}
             <button
               type="button"
               role="menuitem"
@@ -537,6 +675,8 @@ export default function AccountMenu() {
           initialSection={panelSection}
           onAccountChange={setAccount}
           onClose={closePanel}
+          onExportLibraryBackup={onExportLibraryBackup}
+          onImportLibraryBackup={onImportLibraryBackup}
         />
       ) : null}
     </div>

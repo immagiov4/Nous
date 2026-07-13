@@ -161,8 +161,10 @@ export const LibraryScreenContainer = ({
       onExportProject={projectId => {
         void fileActions.handleExportProject(projectId);
       }}
+      onExportLibraryBackup={projectLibrary.downloadLibraryBackup}
       onHomeChatModeChange={setHomeChatMode}
       onImportJsonClick={fileActions.handleImportJsonClick}
+      onImportLibraryBackup={projectLibrary.importLibraryBackup}
       onLibraryAssistantSend={libraryAssistantChat.sendLibraryMessage}
       onLibraryArtifactNoteApprove={libraryAssistantChat.approveLearningArtifactNoteSave}
       onLibraryArtifactNoteReject={libraryAssistantChat.rejectLearningArtifactNoteSave}

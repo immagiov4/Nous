@@ -63,6 +63,7 @@ interface LibraryViewProps {
   onDeleteProject: (projectId: string) => void;
   onDeleteFolder: (folderId: string) => Promise<void>;
   onExportProject: (projectId: string) => void;
+  onExportLibraryBackup?: () => Promise<number>;
   onHomeChatModeChange: (mode: HomeChatMode) => void;
   onLibraryAssistantSend: (message: string) => void | Promise<void>;
   onLibraryArtifactNoteApprove: (
@@ -103,6 +104,7 @@ interface LibraryViewProps {
   onUploadSourceClick: () => void;
   onSourceFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onImportJsonClick: () => void;
+  onImportLibraryBackup?: (file: File) => Promise<number>;
 }
 
 const LibraryView = ({
@@ -142,6 +144,7 @@ const LibraryView = ({
   onDeleteProject,
   onDeleteFolder,
   onExportProject,
+  onExportLibraryBackup,
   onHomeChatModeChange,
   onLibraryAssistantSend,
   onLibraryArtifactNoteApprove,
@@ -163,6 +166,7 @@ const LibraryView = ({
   onUploadSourceClick,
   onSourceFileUpload,
   onImportJsonClick,
+  onImportLibraryBackup,
 }: LibraryViewProps) => {
   const [newFolderTrigger, setNewFolderTrigger] = useState(0);
   const currentLogoUrl = isDarkMode ? logoDarkModeUrl : logoUrl;
@@ -202,7 +206,10 @@ const LibraryView = ({
             >
               {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Pressable>
-            <AccountMenu />
+            <AccountMenu
+              onExportLibraryBackup={onExportLibraryBackup}
+              onImportLibraryBackup={onImportLibraryBackup}
+            />
           </div>
         </header>
 

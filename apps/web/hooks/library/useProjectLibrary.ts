@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
+import {
+  createLibraryArchiveBlob,
+  getLibraryArchiveExtension,
+  readLibraryArchiveProjects,
+} from '../../services/projects/libraryArchive.ts';
 import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
 import {
   createProjectArchiveBlob,
@@ -626,6 +631,38 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
     [currentProjectId, downloadBlob]
   );
 
+  const downloadLibraryBackup = useCallback(async (): Promise<number> => {
+    const projectMetas = await projectRepositoryRef.current.listProjects();
+    const projects: ProjectSnapshot[] = [];
+
+    for (const projectMeta of projectMetas) {
+      const exportData = await projectRepositoryRef.current.exportProject(projectMeta.id);
+      if (!exportData) {
+        throw new Error(`Il corso ${projectMeta.title} non può essere esportato.`);
+      }
+      projects.push(normalizeImportedProject(exportData));
+    }
+
+    const archive = await createLibraryArchiveBlob(projects);
+    downloadBlob(
+      archive,
+      `nous-library-backup-${timestampIso().slice(0, 10)}${getLibraryArchiveExtension()}`
+    );
+    return projects.length;
+  }, [downloadBlob]);
+
+  const importLibraryBackup = useCallback(
+    async (file: File): Promise<number> => {
+      const projects = await readLibraryArchiveProjects(file);
+      for (const project of projects) {
+        await projectRepositoryRef.current.importProject(project);
+      }
+      await refreshLibraryState();
+      return projects.length;
+    },
+    [refreshLibraryState]
+  );
+
   const processPendingRemoteRevision = useCallback(async (): Promise<void> => {
     const pendingEvent = pendingRemoteRevisionRef.current;
     const loadedProject = loadedProjectRevisionRef.current;
@@ -857,6 +894,8 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       await refreshLibraryOrganization();
     },
     downloadProject,
+    downloadLibraryBackup,
+    importLibraryBackup,
     importProjectData: async (data: unknown) => {
       const imported = await projectRepositoryRef.current.importProject(data);
       await refreshLibraryState();
