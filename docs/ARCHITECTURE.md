@@ -1,6 +1,6 @@
 # Nous Reader Architecture
 
-This document explains how Nous Reader is organized and where to make changes. The evidence ledger, removal decisions, and measured baseline live in [ARCHITECTURE_AUDIT.md](ARCHITECTURE_AUDIT.md); production operations live in [DEPLOYMENT.md](DEPLOYMENT.md).
+This document explains how Nous Reader is organized and where to make changes. Production operations live in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## What Nous Reader does
 

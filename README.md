@@ -7,7 +7,6 @@ Nous Reader turns uploaded documents and researched topics into personalized cou
 - [AI instructions](AGENTS.md)
 - [Domain glossary](CONTEXT.md)
 - [Architecture guide](docs/ARCHITECTURE.md)
-- [Architecture audit](docs/ARCHITECTURE_AUDIT.md)
 - [Production deployment](docs/DEPLOYMENT.md)
 - [OpenAI and Codex providers](docs/OPENAI_PROVIDER_SPIKE.md)
 - [UI style guide](docs/UI_STYLE_GUIDE.md)
