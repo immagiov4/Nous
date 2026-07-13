@@ -65,7 +65,8 @@ describe('production deployment boundaries', () => {
 
     expect(updates.app).toEqual({
       CORS_ALLOWED_ORIGINS: 'https://reader.acme.test',
-      DATABASE_URL: 'postgresql://postgres:generated-postgres-password@db:5432/postgres',
+      DATABASE_URL:
+        'postgresql://postgres:generated-postgres-password@db:5432/postgres?sslmode=disable',
       NOUS_SUPABASE_ANON_KEY: 'generated-publishable-key',
       SUPABASE_JWKS_URL: 'http://kong:8000/auth/v1/.well-known/jwks.json',
       SUPABASE_JWT_SECRET: 'generated-jwt-secret',
@@ -96,6 +97,36 @@ describe('production deployment boundaries', () => {
       )
     ).rejects.toThrow('backend health check returned HTTP 503.');
     expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  test('authenticates only the Supabase Auth smoke request', async () => {
+    const request = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+    await checkHealthEndpoints(
+      {
+        NOUS_SMOKE_FRONTEND_URL: 'http://frontend/health',
+        NOUS_SMOKE_BACKEND_URL: 'http://backend/health',
+        NOUS_SMOKE_SUPABASE_AUTH_URL: 'http://supabase/auth/v1/health',
+        NOUS_SUPABASE_ANON_KEY: 'publishable-key',
+      },
+      request
+    );
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      'http://frontend/health',
+      expect.objectContaining({ headers: undefined })
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      3,
+      'http://supabase/auth/v1/health',
+      expect.objectContaining({
+        headers: {
+          apikey: 'publishable-key',
+          Authorization: 'Bearer publishable-key',
+        },
+      })
+    );
   });
 
   test('serializes runtime browser configuration without allowing script injection', () => {

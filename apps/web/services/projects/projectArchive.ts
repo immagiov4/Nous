@@ -20,7 +20,17 @@ const INVALID_BACKUP_ARCHIVE_MESSAGE =
 const INVALID_BACKUP_FILE_MESSAGE = 'Il file selezionato non e un backup Nous valido.';
 const PROJECT_ARCHIVE_MAX_ENTRIES = 128;
 const PROJECT_ARCHIVE_MAX_MANIFEST_BYTES = 20_000_000;
-const PROJECT_ARCHIVE_MAX_ATTACHMENT_BYTES = 80_000_000;
+// Base64 expands bytes by about one third; this keeps the complete import body
+// below the backend's 300 MB JSON limit without imposing a per-file cutoff.
+const PROJECT_ARCHIVE_MAX_TOTAL_ATTACHMENT_BYTES = 200_000_000;
+
+const assertTotalAttachmentBytes = (totalBytes: number): void => {
+  if (totalBytes > PROJECT_ARCHIVE_MAX_TOTAL_ATTACHMENT_BYTES) {
+    throw new Error(
+      `Gli allegati del corso superano il limite totale di ${PROJECT_ARCHIVE_MAX_TOTAL_ATTACHMENT_BYTES} byte.`
+    );
+  }
+};
 
 interface ProjectArchiveAttachment {
   mimeType: string;
@@ -215,30 +225,27 @@ const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportDa
   const { manifest, zip } = await loadProjectArchive(bytes);
 
   if (manifest.attachments?.sourceFiles?.length && manifest.project.source?.sources?.length) {
-    const filesBySourceId = new Map(
-      await Promise.all(
-        manifest.attachments.sourceFiles.map(async attachment => {
-          const attachmentEntry = zip.file(attachment.path);
-          if (!attachmentEntry || !attachment.sourceId) {
-            throw new Error(`Archivio backup non valido: manca ${attachment.path}.`);
-          }
-          const fileBytes = await readZipEntryBytesWithinLimit(
-            attachmentEntry,
-            PROJECT_ARCHIVE_MAX_ATTACHMENT_BYTES,
-            INVALID_BACKUP_ARCHIVE_MESSAGE
-          );
-          return [
-            attachment.sourceId,
-            {
-              name: attachment.name,
-              mimeType: attachment.mimeType,
-              data: encodeBytesBase64(fileBytes),
-              sourceId: attachment.sourceId,
-            } satisfies FileData,
-          ] as const;
-        })
-      )
-    );
+    const filesBySourceId = new Map<string, FileData>();
+    let totalAttachmentBytes = 0;
+    for (const attachment of manifest.attachments.sourceFiles) {
+      const attachmentEntry = zip.file(attachment.path);
+      if (!attachmentEntry || !attachment.sourceId) {
+        throw new Error(`Archivio backup non valido: manca ${attachment.path}.`);
+      }
+      const fileBytes = await readZipEntryBytesWithinLimit(
+        attachmentEntry,
+        PROJECT_ARCHIVE_MAX_TOTAL_ATTACHMENT_BYTES,
+        INVALID_BACKUP_ARCHIVE_MESSAGE
+      );
+      totalAttachmentBytes += fileBytes.length;
+      assertTotalAttachmentBytes(totalAttachmentBytes);
+      filesBySourceId.set(attachment.sourceId, {
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        data: encodeBytesBase64(fileBytes),
+        sourceId: attachment.sourceId,
+      });
+    }
     const sources = manifest.project.source.sources.map(source => ({
       ...source,
       file: filesBySourceId.get(source.id) || source.file,
@@ -266,9 +273,10 @@ const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportDa
 
     const fileBytes = await readZipEntryBytesWithinLimit(
       attachmentEntry,
-      PROJECT_ARCHIVE_MAX_ATTACHMENT_BYTES,
+      PROJECT_ARCHIVE_MAX_TOTAL_ATTACHMENT_BYTES,
       INVALID_BACKUP_ARCHIVE_MESSAGE
     );
+    assertTotalAttachmentBytes(fileBytes.length);
 
     return {
       ...manifest.project,
@@ -313,6 +321,9 @@ export const isProjectArchiveFile = async (file: Blob): Promise<boolean> => {
 export const createProjectArchiveBlob = async (snapshot: ProjectSnapshot): Promise<Blob> => {
   const zip = new JSZip();
   const { attachments, manifest } = buildArchiveManifest(snapshot);
+  assertTotalAttachmentBytes(
+    (attachments || []).reduce((total, attachment) => total + attachment.bytes.length, 0)
+  );
 
   for (const attachment of attachments || []) {
     zip.file(attachment.entry.path, attachment.bytes, {

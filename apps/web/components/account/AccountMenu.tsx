@@ -24,6 +24,8 @@ import {
   updateSupabasePassword,
   updateSupabaseProfile,
 } from '../../services/auth/supabaseAuth.ts';
+import { LibraryArchiveError } from '../../services/projects/libraryArchive.ts';
+import { reportLibraryArchiveImportFailure } from '../../services/projects/libraryArchiveDiagnostics.ts';
 
 type AccountSection = 'data' | 'profile' | 'security';
 type AccountAction =
@@ -193,8 +195,15 @@ const AccountPanel = ({
       setSuccessMessage(t('{courseCount} corsi importati.', { courseCount }));
     } catch (error) {
       console.error('[Nous][Account] Library backup import failed.', error);
+      const correlationId = await reportLibraryArchiveImportFailure(error, file.size);
+      const message =
+        error instanceof LibraryArchiveError
+          ? error.message
+          : t('Importazione del backup completo non riuscita. Controlla il file e riprova.');
       setErrorMessage(
-        t('Importazione del backup completo non riuscita. Controlla il file e riprova.')
+        correlationId
+          ? `${message} ${t('Codice assistenza: {correlationId}.', { correlationId })}`
+          : message
       );
     } finally {
       setPendingAction(null);

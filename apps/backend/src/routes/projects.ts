@@ -25,6 +25,23 @@ const router = Router();
 
 const PROJECT_SOURCE_KINDS = new Set(['document', 'codebase', 'learn-mode', 'imported-json']);
 const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
+const LIBRARY_IMPORT_DIAGNOSTIC_CODES = new Set([
+  'LIBRARY_ARCHIVE_ENTRY_MISSING',
+  'LIBRARY_ARCHIVE_INVALID',
+  'LIBRARY_ARCHIVE_PROJECT_INVALID',
+  'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE',
+  'LIBRARY_ARCHIVE_SINGLE_PROJECT',
+  'LIBRARY_ARCHIVE_UNEXPECTED',
+  'LIBRARY_ARCHIVE_VERSION_UNSUPPORTED',
+  'LIBRARY_ARCHIVE_ZIP_UNREADABLE',
+]);
+const LIBRARY_IMPORT_DIAGNOSTIC_STAGES = new Set([
+  'manifest-read',
+  'nested-project-read',
+  'unknown',
+  'zip-open',
+]);
+const CORRELATION_ID_PATTERN = /^[0-9a-f-]{36}$/u;
 
 const getTargetIndex = (value: unknown): number | undefined => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -54,6 +71,9 @@ const readExpectedRevision = (body: Record<string, unknown>): number | undefined
   }
   return body.expectedRevision as number;
 };
+
+const readOptionalSafeInteger = (value: unknown): number | undefined =>
+  Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : undefined;
 
 const publishMetaRevision = (userId: string, meta: { id: string; revision?: number }): void => {
   if (typeof meta.revision === 'number') {
@@ -404,6 +424,39 @@ router.post('/import', async (req: Request, res: Response) => {
     res.json({ success: true, ...imported });
   } catch (error) {
     sendErrorResponse(res, 400, error, 'Failed to import project');
+  }
+});
+
+router.post('/import-diagnostics', (req: Request, res: Response) => {
+  try {
+    const body = getBodyRecord(req.body);
+    const correlationId = readOptionalString(body.correlationId);
+    const code = readOptionalString(body.code);
+    const stage = readOptionalString(body.stage);
+    if (
+      !correlationId ||
+      !CORRELATION_ID_PATTERN.test(correlationId) ||
+      !code ||
+      !LIBRARY_IMPORT_DIAGNOSTIC_CODES.has(code) ||
+      !stage ||
+      !LIBRARY_IMPORT_DIAGNOSTIC_STAGES.has(stage)
+    ) {
+      throw new Error('Diagnostica importazione non valida.');
+    }
+
+    console.warn('[Projects] Library backup import failed.', {
+      correlationId,
+      code,
+      stage,
+      userId: getCurrentUser(req).id,
+      fileBytes: readOptionalSafeInteger(body.fileBytes),
+      limitBytes: readOptionalSafeInteger(body.limitBytes),
+      projectCount: readOptionalSafeInteger(body.projectCount),
+      projectIndex: readOptionalSafeInteger(body.projectIndex),
+    });
+    res.status(204).end();
+  } catch (error) {
+    sendErrorResponse(res, 400, error, 'Failed to record import diagnostic');
   }
 });
 

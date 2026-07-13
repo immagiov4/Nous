@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
+import logoUrl from '../../assets/logo.svg';
 import {
   MARKETING_JOURNEY_COPY,
   translateMarketingMessage as t,
@@ -116,7 +117,7 @@ export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageP
           href="#inizio"
           aria-label={t('Nous Reader, torna all’inizio')}
         >
-          <img src="/assets/logo.svg" alt="" />
+          <img src={logoUrl} alt="" />
           <span>Nous Reader</span>
         </a>
 

@@ -1,17 +1,29 @@
 const HEALTH_ENDPOINTS = [
-  ['frontend', 'NOUS_SMOKE_FRONTEND_URL'],
-  ['backend', 'NOUS_SMOKE_BACKEND_URL'],
-  ['supabase-auth', 'NOUS_SMOKE_SUPABASE_AUTH_URL'],
+  ['frontend', 'NOUS_SMOKE_FRONTEND_URL', false],
+  ['backend', 'NOUS_SMOKE_BACKEND_URL', false],
+  ['supabase-auth', 'NOUS_SMOKE_SUPABASE_AUTH_URL', true],
 ];
 
 export const checkHealthEndpoints = async (env, request = fetch) => {
   const results = [];
-  for (const [name, key] of HEALTH_ENDPOINTS) {
+  for (const [name, key, requiresSupabaseKey] of HEALTH_ENDPOINTS) {
     const url = env[key];
     if (!url) {
       throw new Error(`Missing ${key}.`);
     }
-    const response = await request(url, { signal: AbortSignal.timeout(10_000) });
+    const headers = requiresSupabaseKey
+      ? {
+          apikey: env.NOUS_SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${env.NOUS_SUPABASE_ANON_KEY}`,
+        }
+      : undefined;
+    if (requiresSupabaseKey && !env.NOUS_SUPABASE_ANON_KEY) {
+      throw new Error('Missing NOUS_SUPABASE_ANON_KEY.');
+    }
+    const response = await request(url, {
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!response.ok) {
       throw new Error(`${name} health check returned HTTP ${response.status}.`);
     }

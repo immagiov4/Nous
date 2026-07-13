@@ -41,7 +41,7 @@ Set the three public URLs and external AI credentials. The browser receives only
 Check key names without printing values:
 
 ```bash
-deploy/nous.sh config
+sh deploy/nous.sh config
 # Windows: deploy/nous.ps1 config
 ```
 
@@ -72,12 +72,12 @@ Self-hosting makes the operator responsible for TLS, WebSockets, patches, monito
 Linux/macOS:
 
 ```bash
-deploy/nous.sh setup
-deploy/nous.sh status
-deploy/nous.sh logs backend
-deploy/nous.sh smoke
-deploy/nous.sh redeploy
-deploy/nous.sh down
+sh deploy/nous.sh setup
+sh deploy/nous.sh status
+sh deploy/nous.sh logs backend
+sh deploy/nous.sh smoke
+sh deploy/nous.sh redeploy
+sh deploy/nous.sh down
 ```
 
 Windows PowerShell exposes the same commands through `deploy/nous.ps1`.
@@ -90,12 +90,25 @@ Windows PowerShell exposes the same commands through `deploy/nous.ps1`.
 
 Frontend/backend health endpoints are `/health`. The official self-hosted gateway and database retain their upstream healthchecks. Reverse proxies point to stable host binds (defaults 8080 and 3301); Postgres, Studio, and administrative services must not be published to the internet.
 
+### Optional Codex app-server
+
+An operator-controlled private instance can use one Codex CLI account for administrators and users explicitly assigned to Codex. Set `CODEX_APP_SERVER_ENABLED=true` before `setup` or `redeploy`. The backend image contains the pinned CLI and CA trust store; the wrapper adds a private persistent `CODEX_HOME` volume only when Codex is enabled. The app-server remains a child process over stdio and exposes no container port.
+
+After the backend is healthy, start the official device-code flow:
+
+```bash
+sh deploy/nous.sh codex-login
+# Windows: deploy/nous.ps1 codex-login
+```
+
+Complete the displayed verification flow, then use the authenticated admin provider panel to verify account and model status. Recreating or redeploying the backend preserves the Codex-owned credentials in the named volume. Nous never reads or returns `auth.json`; disabling `CODEX_APP_SERVER_ENABLED` removes the volume mount and prevents the app-server process from starting.
+
 ## Canonical Auth/RLS contract
 
 Migrations in `supabase/migrations/` are the single schema path for both profiles. On a disposable self-hosted or staging environment with `SUPABASE_JWT_SECRET`, run:
 
 ```bash
-deploy/nous.sh contract
+sh deploy/nous.sh contract
 ```
 
 This runs the existing canonical integration case in a tooling container. It creates isolated temporary users, authenticates through Supabase Auth, saves projects through the real backend/Postgres store, proves cross-user backend isolation, attempts a forbidden cross-tenant PostgREST insert, and cleans its records. The managed production project is never selected automatically; point a separate env file at staging with `NOUS_ENV_FILE`.
@@ -107,7 +120,7 @@ CI always runs the unit/route suite. The Auth/RLS contract runs against local/se
 Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` only in the untracked deployment env, then run:
 
 ```bash
-deploy/nous.sh admin
+sh deploy/nous.sh admin
 ```
 
 The command creates or promotes that Supabase user through the Admin API and preserves existing app metadata. Migrations contain no account credentials.
@@ -117,7 +130,7 @@ The command creates or promotes that Supabase user through the Admin API and pre
 Create a custom-format Postgres backup:
 
 ```bash
-deploy/nous.sh backup
+sh deploy/nous.sh backup
 ```
 
 The command writes under ignored `deploy/backups/` and immediately parses the archive with `pg_restore --list`; a corrupt archive fails the command. This is an integrity check, not a restore proof.
@@ -128,9 +141,9 @@ For the required restore proof, use a disposable database or protected staging p
 cp .env.production .env.restore-proof
 # edit only DATABASE_URL to target the disposable empty database
 CONFIRM_RESTORE=nous-reader NOUS_ENV_FILE=.env.restore-proof \
-  deploy/nous.sh restore deploy/backups/<dump>.dump
-NOUS_ENV_FILE=.env.restore-proof deploy/nous.sh smoke
-NOUS_ENV_FILE=.env.restore-proof deploy/nous.sh contract
+  sh deploy/nous.sh restore deploy/backups/<dump>.dump
+NOUS_ENV_FILE=.env.restore-proof sh deploy/nous.sh smoke
+NOUS_ENV_FILE=.env.restore-proof sh deploy/nous.sh contract
 ```
 
 PowerShell sets the same values through `$env:CONFIRM_RESTORE` and `$env:NOUS_ENV_FILE`. Record the UTC date, source deployment, dump checksum, target identifier, restore exit status, `smoke`, and `contract` results in the operator's incident/backup log. Never prove restoration against the only production database.

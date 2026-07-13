@@ -57,7 +57,7 @@ bun run test:supabase-local
 
 ## Deploy
 
-Copy `deploy/.env.production.example` to `.env.production`, choose `SUPABASE_DEPLOYMENT=managed|self-hosted`, fill the public URLs and external credentials, then run `deploy/nous.sh setup` or `deploy/nous.ps1 setup`. See the [deployment guide](docs/DEPLOYMENT.md) for preflight, the pinned official self-hosted bundle, health/contract checks, reverse proxy, backup, restore proof, and rollback.
+Copy `deploy/.env.production.example` to `.env.production`, choose `SUPABASE_DEPLOYMENT=managed|self-hosted`, fill the public URLs and external credentials, then run `sh deploy/nous.sh setup` or `deploy/nous.ps1 setup`. See the [deployment guide](docs/DEPLOYMENT.md) for preflight, the pinned official self-hosted bundle, health/contract checks, reverse proxy, backup, restore proof, and rollback.
 
 ## What Lives Where
 

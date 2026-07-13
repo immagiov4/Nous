@@ -520,6 +520,31 @@ describe('/api/projects', () => {
     expect(listResponse.body.projects[0].revision).toBe(2);
   });
 
+  test('records sanitized library import diagnostics without archive content', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const response = await request(createApp()).post('/api/projects/import-diagnostics').send({
+      correlationId: '550e8400-e29b-41d4-a716-446655440000',
+      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+      stage: 'nested-project-read',
+      fileBytes: 173_398_950,
+      projectIndex: 1,
+      projectCount: 11,
+    });
+
+    expect(response.status).toBe(204);
+    expect(warning).toHaveBeenCalledWith('[Projects] Library backup import failed.', {
+      correlationId: '550e8400-e29b-41d4-a716-446655440000',
+      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+      stage: 'nested-project-read',
+      userId: 'local-user',
+      fileBytes: 173_398_950,
+      limitBytes: undefined,
+      projectCount: 11,
+      projectIndex: 1,
+    });
+    warning.mockRestore();
+  });
+
   test.skip('migrates inline documentIndex from snapshot_json into its own column', async () => {
     // Pre-create a row with the OLD schema shape: documentIndex inline in snapshot_json.
     const inlineSnapshot = {

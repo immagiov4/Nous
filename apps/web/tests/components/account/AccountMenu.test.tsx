@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import AccountMenu from '../../../components/account/AccountMenu.tsx';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
+import { LibraryArchiveError } from '../../../services/projects/libraryArchive.ts';
 
 const fetchMock = vi.fn();
 
@@ -142,5 +143,51 @@ describe('AccountMenu', () => {
 
     expect(onImportLibraryBackup).toHaveBeenCalledWith(backup);
     expect(await screen.findByRole('status')).toHaveTextContent('2 corsi importati.');
+  });
+
+  test('shows the archive cause and reports only sanitized import diagnostics', async () => {
+    const user = userEvent.setup();
+    const onImportLibraryBackup = vi
+      .fn()
+      .mockRejectedValue(
+        new LibraryArchiveError(
+          'Il corso 1 di 11 contiene un archivio non valido o non supportato.',
+          'LIBRARY_ARCHIVE_PROJECT_INVALID',
+          'nested-project-read',
+          1,
+          11
+        )
+      );
+    saveAccountSession(['email']);
+    fetchMock
+      .mockResolvedValueOnce(accountResponse('email'))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    render(
+      <AccountMenu
+        onExportLibraryBackup={vi.fn().mockResolvedValue(0)}
+        onImportLibraryBackup={onImportLibraryBackup}
+      />
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
+    await user.click(screen.getByRole('menuitem', { name: 'Dati e backup' }));
+    const backup = new File(['invalid'], 'courses.nous-library.zip', {
+      type: 'application/zip',
+    });
+    await user.upload(screen.getByLabelText('Seleziona backup completo Nous'), backup);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /Il corso 1 di 11 contiene un archivio non valido o non supportato\. Codice assistenza:/
+    );
+    const diagnosticRequest = fetchMock.mock.calls[1];
+    expect(diagnosticRequest?.[0]).toBe('http://localhost:3301/api/projects/import-diagnostics');
+    expect(JSON.parse(diagnosticRequest?.[1]?.body as string)).toMatchObject({
+      code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+      stage: 'nested-project-read',
+      fileBytes: backup.size,
+      projectIndex: 1,
+      projectCount: 11,
+    });
   });
 });

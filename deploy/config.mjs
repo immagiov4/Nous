@@ -48,6 +48,9 @@ export const validateDeploymentConfig = (env, { bootstrap = false } = {}) => {
   if (!DEPLOYMENT_PROFILES.has(profile)) {
     errors.push('SUPABASE_DEPLOYMENT must be managed or self-hosted.');
   }
+  if (env.CODEX_APP_SERVER_ENABLED && !['true', 'false'].includes(env.CODEX_APP_SERVER_ENABLED)) {
+    errors.push('CODEX_APP_SERVER_ENABLED must be true or false.');
+  }
 
   for (const key of REQUIRED_PUBLIC_KEYS) {
     if (isPlaceholder(env[key])) {
@@ -135,7 +138,7 @@ export const buildSelfHostedUpdates = (appEnv, supabaseEnv) => {
   return {
     app: {
       CORS_ALLOWED_ORIGINS: publicAppUrl,
-      DATABASE_URL: `postgresql://postgres:${encodedPassword}@db:${databasePort}/postgres`,
+      DATABASE_URL: `postgresql://postgres:${encodedPassword}@db:${databasePort}/postgres?sslmode=disable`,
       NOUS_SUPABASE_ANON_KEY: publishableKey,
       SUPABASE_JWKS_URL: 'http://kong:8000/auth/v1/.well-known/jwks.json',
       SUPABASE_JWT_SECRET: supabaseEnv.JWT_SECRET,

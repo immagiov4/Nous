@@ -1,0 +1,7 @@
+services:
+  backend:
+    volumes:
+      - codex-home:/home/bun/.codex
+
+volumes:
+  codex-home:

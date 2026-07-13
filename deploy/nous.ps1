@@ -1,6 +1,6 @@
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('config', 'setup', 'up', 'status', 'logs', 'redeploy', 'smoke', 'contract', 'down', 'admin', 'backup', 'restore')]
+  [ValidateSet('config', 'setup', 'up', 'status', 'logs', 'redeploy', 'smoke', 'contract', 'codex-login', 'down', 'admin', 'backup', 'restore')]
   [string]$Command = 'status',
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$Arguments
@@ -166,6 +166,9 @@ $Profile = Get-DeploymentProfile
 if ($Profile -eq 'self-hosted') {
   $ComposeArgs += @('-f', (Join-Path $Root 'deploy/compose.self-hosted.yml'))
 }
+if ((Get-EnvValue 'CODEX_APP_SERVER_ENABLED') -eq 'true') {
+  $ComposeArgs += @('-f', (Join-Path $Root 'deploy/compose.codex.yml'))
+}
 
 switch ($Command) {
   'config' {
@@ -221,6 +224,12 @@ switch ($Command) {
       throw 'The canonical Auth/RLS contract test requires SUPABASE_JWT_SECRET on a disposable self-hosted or staging environment.'
     }
     Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'contract-test')
+  }
+  'codex-login' {
+    if ((Get-EnvValue 'CODEX_APP_SERVER_ENABLED') -ne 'true') {
+      throw 'Set CODEX_APP_SERVER_ENABLED=true before starting Codex login.'
+    }
+    Invoke-Compose @('exec', 'backend', 'codex', 'login', '--device-auth')
   }
   'down' { Invoke-Compose @('down') }
   'admin' { Invoke-Compose @('--profile', 'tools', 'run', '--rm', 'admin-bootstrap') }

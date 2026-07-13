@@ -160,6 +160,7 @@ const ENGLISH_UI_MESSAGES = {
   'Importazione del backup completo non riuscita. Controlla il file e riprova.':
     'Complete backup import failed. Check the file and try again.',
   'Importazione in corso...': 'Importing...',
+  'Codice assistenza: {correlationId}.': 'Support code: {correlationId}.',
   'Il problema della comunicazione': 'The problem of communication',
   'Il protocollo è un accordo: stabilisce forma, ordine e significato dei messaggi.':
     'A protocol is an agreement: it defines the form, order, and meaning of messages.',

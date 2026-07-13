@@ -20,6 +20,31 @@ const LIBRARY_ARCHIVE_MAX_PROJECT_BYTES = 256_000_000;
 const INVALID_LIBRARY_ARCHIVE_MESSAGE =
   "Questo ZIP non contiene un backup completo Nous valido. Importa un file .nous-library.zip esportato dall'app.";
 
+export type LibraryArchiveErrorCode =
+  | 'LIBRARY_ARCHIVE_ENTRY_MISSING'
+  | 'LIBRARY_ARCHIVE_INVALID'
+  | 'LIBRARY_ARCHIVE_PROJECT_INVALID'
+  | 'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE'
+  | 'LIBRARY_ARCHIVE_SINGLE_PROJECT'
+  | 'LIBRARY_ARCHIVE_VERSION_UNSUPPORTED'
+  | 'LIBRARY_ARCHIVE_ZIP_UNREADABLE';
+
+export type LibraryArchiveErrorStage = 'manifest-read' | 'nested-project-read' | 'zip-open';
+
+export class LibraryArchiveError extends Error {
+  constructor(
+    message: string,
+    readonly code: LibraryArchiveErrorCode,
+    readonly stage: LibraryArchiveErrorStage,
+    readonly projectIndex?: number,
+    readonly projectCount?: number,
+    readonly limitBytes?: number
+  ) {
+    super(message);
+    this.name = 'LibraryArchiveError';
+  }
+}
+
 interface LibraryArchiveProjectEntry {
   id: string;
   path: string;
@@ -40,16 +65,46 @@ const sanitizeArchivePathSegment = (value: string): string => {
 const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
   const manifestEntry = zip.file(LIBRARY_ARCHIVE_MANIFEST_PATH);
   if (!manifestEntry) {
-    throw new Error(INVALID_LIBRARY_ARCHIVE_MESSAGE);
+    if (zip.file('project.json')) {
+      throw new LibraryArchiveError(
+        'Hai selezionato il backup di un singolo corso. Qui serve il backup completo della libreria.',
+        'LIBRARY_ARCHIVE_SINGLE_PROJECT',
+        'manifest-read'
+      );
+    }
+    throw new LibraryArchiveError(
+      'Nel backup manca il file library.json.',
+      'LIBRARY_ARCHIVE_INVALID',
+      'manifest-read'
+    );
   }
 
-  const parsed = JSON.parse(
-    await readZipEntryTextWithinLimit(
-      manifestEntry,
-      LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES,
-      INVALID_LIBRARY_ARCHIVE_MESSAGE
-    )
-  ) as unknown;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      await readZipEntryTextWithinLimit(
+        manifestEntry,
+        LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES,
+        `Il manifest del backup supera il limite di ${LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES} byte.`
+      )
+    ) as unknown;
+  } catch (error) {
+    if (error instanceof LibraryArchiveError) throw error;
+    throw new LibraryArchiveError(
+      'Il manifest library.json non è leggibile.',
+      'LIBRARY_ARCHIVE_INVALID',
+      'manifest-read'
+    );
+  }
+  if (isRecord(parsed) && parsed.format === LIBRARY_ARCHIVE_FORMAT) {
+    if (parsed.archiveVersion !== LIBRARY_ARCHIVE_VERSION) {
+      throw new LibraryArchiveError(
+        `La versione ${String(parsed.archiveVersion)} del backup non è supportata.`,
+        'LIBRARY_ARCHIVE_VERSION_UNSUPPORTED',
+        'manifest-read'
+      );
+    }
+  }
   if (
     !isRecord(parsed) ||
     parsed.format !== LIBRARY_ARCHIVE_FORMAT ||
@@ -57,7 +112,11 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
     !Array.isArray(parsed.projects) ||
     parsed.projects.length === 0
   ) {
-    throw new Error(INVALID_LIBRARY_ARCHIVE_MESSAGE);
+    throw new LibraryArchiveError(
+      INVALID_LIBRARY_ARCHIVE_MESSAGE,
+      'LIBRARY_ARCHIVE_INVALID',
+      'manifest-read'
+    );
   }
 
   const projects = parsed.projects.map(project => {
@@ -69,13 +128,21 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
       !project.path.startsWith(`${LIBRARY_ARCHIVE_PROJECTS_DIR}/`) ||
       !project.path.endsWith('.nous.zip')
     ) {
-      throw new Error(INVALID_LIBRARY_ARCHIVE_MESSAGE);
+      throw new LibraryArchiveError(
+        'Il manifest contiene una voce corso non valida.',
+        'LIBRARY_ARCHIVE_INVALID',
+        'manifest-read'
+      );
     }
     return { id: project.id, path: project.path, title: project.title };
   });
 
   if (new Set(projects.map(project => project.path)).size !== projects.length) {
-    throw new Error(INVALID_LIBRARY_ARCHIVE_MESSAGE);
+    throw new LibraryArchiveError(
+      'Il manifest contiene più volte lo stesso archivio corso.',
+      'LIBRARY_ARCHIVE_INVALID',
+      'manifest-read'
+    );
   }
 
   return {
@@ -122,26 +189,61 @@ export const createLibraryArchiveBlob = async (projects: ProjectSnapshot[]): Pro
 };
 
 export const readLibraryArchiveProjects = async (file: Blob): Promise<ProjectExportData[]> => {
-  const zip = await loadZipSafely(new Uint8Array(await file.arrayBuffer()), {
-    invalidArchiveMessage: INVALID_LIBRARY_ARCHIVE_MESSAGE,
-    maxEntries: LIBRARY_ARCHIVE_MAX_ENTRIES,
-  });
+  let zip: JSZip;
+  try {
+    zip = await loadZipSafely(new Uint8Array(await file.arrayBuffer()), {
+      invalidArchiveMessage: INVALID_LIBRARY_ARCHIVE_MESSAGE,
+      maxEntries: LIBRARY_ARCHIVE_MAX_ENTRIES,
+    });
+  } catch {
+    throw new LibraryArchiveError(
+      'Il file selezionato non è un archivio ZIP Nous leggibile.',
+      'LIBRARY_ARCHIVE_ZIP_UNREADABLE',
+      'zip-open'
+    );
+  }
   const manifest = await readManifest(zip);
+  const projects: ProjectExportData[] = [];
 
-  return Promise.all(
-    manifest.projects.map(async project => {
-      const entry = zip.file(project.path);
-      if (!entry) {
-        throw new Error(INVALID_LIBRARY_ARCHIVE_MESSAGE);
-      }
+  for (const [index, project] of manifest.projects.entries()) {
+    const projectIndex = index + 1;
+    const projectCount = manifest.projects.length;
+    const entry = zip.file(project.path);
+    if (!entry) {
+      throw new LibraryArchiveError(
+        `Nel backup manca il corso ${projectIndex} di ${projectCount}.`,
+        'LIBRARY_ARCHIVE_ENTRY_MISSING',
+        'nested-project-read',
+        projectIndex,
+        projectCount
+      );
+    }
+
+    try {
       const bytes = await readZipEntryBytesWithinLimit(
         entry,
         LIBRARY_ARCHIVE_MAX_PROJECT_BYTES,
-        INVALID_LIBRARY_ARCHIVE_MESSAGE
+        `Il corso ${projectIndex} di ${projectCount} supera il limite di ${LIBRARY_ARCHIVE_MAX_PROJECT_BYTES} byte.`
       );
-      return (await readProjectImportData(new Blob([new Uint8Array(bytes)]))) as ProjectExportData;
-    })
-  );
+      projects.push(
+        (await readProjectImportData(new Blob([new Uint8Array(bytes)]))) as ProjectExportData
+      );
+    } catch (error) {
+      const tooLarge = error instanceof Error && error.message.includes('limite');
+      throw new LibraryArchiveError(
+        tooLarge
+          ? error.message
+          : `Il corso ${projectIndex} di ${projectCount} contiene un archivio non valido o non supportato.`,
+        tooLarge ? 'LIBRARY_ARCHIVE_PROJECT_TOO_LARGE' : 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+        'nested-project-read',
+        projectIndex,
+        projectCount,
+        tooLarge ? LIBRARY_ARCHIVE_MAX_PROJECT_BYTES : undefined
+      );
+    }
+  }
+
+  return projects;
 };
 
 export const getLibraryArchiveExtension = () => LIBRARY_ARCHIVE_EXTENSION;

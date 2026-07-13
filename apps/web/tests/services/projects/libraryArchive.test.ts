@@ -63,6 +63,38 @@ test('library backup import rejects a single-course archive', async () => {
 
   await assert.rejects(
     () => readLibraryArchiveProjects(archive),
-    /Questo ZIP non contiene un backup completo Nous valido\./
+    /Hai selezionato il backup di un singolo corso\./
+  );
+});
+
+test('library backup import identifies an unsupported manifest version', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'library.json',
+    JSON.stringify({ format: 'nous-library-archive', archiveVersion: 99, projects: [] })
+  );
+  const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
+
+  await assert.rejects(
+    () => readLibraryArchiveProjects(archive),
+    /La versione 99 del backup non è supportata\./
+  );
+});
+
+test('library backup import reports the missing nested course position', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'library.json',
+    JSON.stringify({
+      format: 'nous-library-archive',
+      archiveVersion: 1,
+      projects: [{ id: 'missing', title: 'Corso', path: 'projects/missing.nous.zip' }],
+    })
+  );
+  const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
+
+  await assert.rejects(
+    () => readLibraryArchiveProjects(archive),
+    /Nel backup manca il corso 1 di 1\./
   );
 });

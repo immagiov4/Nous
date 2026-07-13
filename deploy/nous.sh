@@ -72,9 +72,17 @@ deployment_profile() {
 }
 
 compose() {
-  if [ "$PROFILE" = self-hosted ]; then
+  CODEX_ENABLED=$(env_value CODEX_APP_SERVER_ENABLED)
+  if [ "$PROFILE" = self-hosted ] && [ "$CODEX_ENABLED" = true ]; then
+    docker compose --project-name nous-reader --env-file "$ENV_FILE" \
+      -f "$ROOT/compose.yml" -f "$ROOT/deploy/compose.self-hosted.yml" \
+      -f "$ROOT/deploy/compose.codex.yml" "$@"
+  elif [ "$PROFILE" = self-hosted ]; then
     docker compose --project-name nous-reader --env-file "$ENV_FILE" \
       -f "$ROOT/compose.yml" -f "$ROOT/deploy/compose.self-hosted.yml" "$@"
+  elif [ "$CODEX_ENABLED" = true ]; then
+    docker compose --project-name nous-reader --env-file "$ENV_FILE" \
+      -f "$ROOT/compose.yml" -f "$ROOT/deploy/compose.codex.yml" "$@"
   else
     docker compose --project-name nous-reader --env-file "$ENV_FILE" -f "$ROOT/compose.yml" "$@"
   fi
@@ -215,6 +223,13 @@ case "$COMMAND" in
     }
     compose --profile tools run --rm contract-test
     ;;
+  codex-login)
+    [ "$(env_value CODEX_APP_SERVER_ENABLED)" = true ] || {
+      echo "Set CODEX_APP_SERVER_ENABLED=true before starting Codex login." >&2
+      exit 1
+    }
+    compose exec backend codex login --device-auth
+    ;;
   down)
     compose down
     ;;
@@ -237,7 +252,7 @@ case "$COMMAND" in
     compose --profile tools run --rm -T db-tools sh -c 'pg_restore --dbname="$DATABASE_URL" --clean --if-exists --no-owner' < "$BACKUP_PATH"
     ;;
   *)
-    echo "Usage: deploy/nous.sh config|setup|up|status|logs [service]|redeploy|smoke|contract|down|admin|backup|restore <dump>" >&2
+    echo "Usage: sh deploy/nous.sh config|setup|up|status|logs [service]|redeploy|smoke|contract|codex-login|down|admin|backup|restore <dump>" >&2
     exit 1
     ;;
 esac

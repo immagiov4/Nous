@@ -1,4 +1,5 @@
 ARG BUN_VERSION=1.3.13
+ARG CODEX_VERSION=0.144.3
 FROM oven/bun:${BUN_VERSION}-slim AS dependencies
 WORKDIR /app
 COPY package.json bun.lock ./
@@ -33,9 +34,13 @@ COPY apps/web/tests/setup.ts apps/web/tests/setup.ts
 COPY packages packages
 
 FROM oven/bun:${BUN_VERSION}-slim AS backend
+ARG CODEX_VERSION
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends poppler-utils \
+    && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
+    && BUN_INSTALL=/usr/local bun add --global "@openai/codex@${CODEX_VERSION}" \
+    && mkdir -p /home/bun/.codex \
+    && chown bun:bun /home/bun/.codex \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production \
