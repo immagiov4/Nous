@@ -102,21 +102,21 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   aiProvider: (['codex', 'openai', 'openrouter'].includes(process.env.AI_PROVIDER || '')
     ? process.env.AI_PROVIDER
     : 'openrouter') as AiProvider,
-  artifactModel: process.env.MODEL_ARTIFACT || 'openai/gpt-5.4-mini',
+  artifactModel: process.env.MODEL_ARTIFACT || 'deepseek/deepseek-v4-pro',
   artifactInteractiveModel:
-    process.env.MODEL_ARTIFACT_INTERACTIVE || process.env.MODEL_ARTIFACT || 'openai/gpt-5.4-mini',
-  artifactInteractiveReasoningEffort: 'medium',
-  artifactReasoningEffort: 'medium',
+    process.env.MODEL_ARTIFACT_INTERACTIVE || process.env.MODEL_ARTIFACT || 'openai/gpt-5.6-terra',
+  artifactInteractiveReasoningEffort: 'low',
+  artifactReasoningEffort: 'none',
   artifactVisualReviewMaxRounds: 1,
   artifactVisualReviewEnabled: true,
   assessmentModel: process.env.MODEL_ASSESSMENT || 'google/gemini-3.1-flash-lite',
   assessmentReasoningEffort: 'medium',
   codexAssessmentModel: process.env.CODEX_MODEL_ASSESSMENT || 'gpt-5.6-luna',
-  codexArtifactModel: process.env.CODEX_MODEL_ARTIFACT || 'gpt-5.6-terra',
+  codexArtifactModel: process.env.CODEX_MODEL_ARTIFACT || 'gpt-5.6-sol',
   codexArtifactInteractiveModel:
     process.env.CODEX_MODEL_ARTIFACT_INTERACTIVE ||
     process.env.CODEX_MODEL_ARTIFACT ||
-    'gpt-5.6-terra',
+    'gpt-5.6-sol',
   codexContextModel: process.env.CODEX_MODEL_CONTEXT || 'gpt-5.6-luna',
   codexLessonModel: process.env.CODEX_MODEL_LESSON || 'gpt-5.6-terra',
   codexProgressModel: process.env.CODEX_MODEL_PROGRESS || 'gpt-5.6-luna',
@@ -124,8 +124,8 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   contextModel: process.env.MODEL_CONTEXT || 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium',
   imageModel: process.env.MODEL_IMAGE || DEFAULT_IMAGE_MODEL,
-  lessonModel: process.env.MODEL_LESSON || 'openai/gpt-5.4-mini',
-  lessonReasoningEffort: 'medium',
+  lessonModel: process.env.MODEL_LESSON || 'openai/gpt-5.6-luna',
+  lessonReasoningEffort: 'high',
   openAiAssessmentModel: process.env.OPENAI_MODEL_ASSESSMENT || 'gpt-5.6-luna',
   openAiArtifactModel: process.env.OPENAI_MODEL_ARTIFACT || 'gpt-5.6-terra',
   openAiArtifactInteractiveModel:
