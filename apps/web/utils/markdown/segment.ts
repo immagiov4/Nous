@@ -3,6 +3,8 @@ import {
   countParenBalance,
   getCodeLanguageLabel,
   inferStandaloneCodeLanguage,
+  isCodeContinuationLine,
+  isOrphanedCodeContinuationLine,
   isStandaloneCodeLine,
   normalizeCodeFenceSpacing,
   parseInlineCodeLead,
@@ -15,8 +17,31 @@ import {
   normalizeMathMarkdownSegment,
 } from './mathNormalization.ts';
 
+const INDENTED_CODE_BLOCK_PREFIX_REGEX = /^(?: {4,}|\t+)/u;
+
+const removeAccidentalPlainTextIndentation = (segment: string): string =>
+  segment
+    .split('\n')
+    .map(line => {
+      if (!INDENTED_CODE_BLOCK_PREFIX_REGEX.test(line)) {
+        return line;
+      }
+
+      const unindentedLine = line.trimStart();
+      const isOrphanedArgumentLine =
+        /[,)]/u.test(unindentedLine) && isOrphanedCodeContinuationLine(unindentedLine);
+      return isStandaloneCodeLine(unindentedLine) ||
+        isCodeContinuationLine(unindentedLine) ||
+        isOrphanedArgumentLine
+        ? line
+        : unindentedLine;
+    })
+    .join('\n');
+
 export const processMarkdownSegment = (segment: string): string => {
-  const lines = normalizeMathMarkdownSegment(segment).replace(/\r/g, '').split('\n');
+  const lines = normalizeMathMarkdownSegment(removeAccidentalPlainTextIndentation(segment))
+    .replace(/\r/g, '')
+    .split('\n');
   const output: string[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {

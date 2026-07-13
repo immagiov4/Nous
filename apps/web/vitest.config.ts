@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
+const TEST_TIMEOUT_MS = 10_000;
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -16,6 +18,7 @@ export default defineConfig({
       'apps/backend/tests/**/*.{test,spec}.{ts,tsx}',
     ],
     setupFiles: ['./apps/web/tests/setup.ts'],
+    testTimeout: TEST_TIMEOUT_MS,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],

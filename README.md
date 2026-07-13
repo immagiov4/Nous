@@ -28,7 +28,7 @@ This starts the Vite frontend on `http://localhost:5173` and the Express backend
 
 When the configured Supabase or Postgres URL points to the local machine, `bun run dev` also verifies Docker, starts Docker Desktop on Windows or macOS when needed, starts the local Supabase stack, and checks Supabase Auth before launching the app. If those services cannot start, the command exits instead of leaving a frontend without its backend. Remote-only configurations skip this local infrastructure check.
 
-To use a local ChatGPT/Codex account without copying its credentials into Nous, install Codex CLI, then set `CODEX_APP_SERVER_ENABLED=true` and `CODEX_OWNER_USER_ID` to the sole Nous user allowed to use it. The backend accepts Codex requests only from that user over a loopback connection. The account area starts the official device-code flow through `codex app-server`; hosted/shared deployments leave this mode disabled.
+To use a ChatGPT/Codex account on a self-hosted Nous instance without copying its credentials into Nous, install Codex CLI and set `CODEX_APP_SERVER_ENABLED=true`. One internal `codex app-server` process serves the instance's authenticated administrators and the Nous users explicitly assigned to Codex in the admin panel; they share that single Codex account. Remote users reach Nous through its authenticated HTTPS API—the app-server itself remains private to the backend. Hosted/shared deployments leave this mode disabled and use OpenAI API or OpenRouter instead.
 
 ## Server-Only Storage
 

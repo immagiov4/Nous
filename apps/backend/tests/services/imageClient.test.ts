@@ -3,12 +3,17 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 const modelConfigMocks = vi.hoisted(() => ({
   getResolvedGlobalModelConfig: vi.fn(),
 }));
+const codexMocks = vi.hoisted(() => ({
+  generateCodexAppServerImage: vi.fn(),
+}));
 
 vi.mock('../../src/config/modelConfig.js', () => ({
   DEFAULT_IMAGE_MODEL: 'google/gemini-3.1-flash-lite-image',
   DEFAULT_OPENAI_IMAGE_MODEL: 'gpt-image-2',
   getResolvedGlobalModelConfig: modelConfigMocks.getResolvedGlobalModelConfig,
 }));
+
+vi.mock('../../src/services/codexAppServer.js', () => codexMocks);
 
 const { imageClient } = await import('../../src/services/imageClient.js');
 
@@ -20,6 +25,7 @@ describe('ImageClient', () => {
     modelConfigMocks.getResolvedGlobalModelConfig.mockReset();
     modelConfigMocks.getResolvedGlobalModelConfig.mockResolvedValue({
       aiProvider: 'openrouter',
+      codexArtifactModel: 'gpt-codex-artifact',
       imageModel: 'google/configured-image-model',
       openAiImageModel: 'gpt-image-2',
     });
@@ -123,5 +129,29 @@ describe('ImageClient', () => {
       quality: 'medium',
       size: '1536x1024',
     });
+  });
+
+  test('uses the authenticated Codex image capability without an API fetch', async () => {
+    modelConfigMocks.getResolvedGlobalModelConfig.mockResolvedValue({
+      aiProvider: 'codex',
+      codexArtifactModel: 'gpt-codex-artifact',
+      imageModel: 'google/configured-image-model',
+      openAiImageModel: 'gpt-image-2',
+    });
+    codexMocks.generateCodexAppServerImage.mockResolvedValueOnce('ZmFrZS1pbWFnZQ==');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await imageClient.generateImage({ prompt: 'Personaggio da più prospettive' });
+
+    expect(result).toEqual({
+      dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+      mediaType: 'image/png',
+    });
+    expect(codexMocks.generateCodexAppServerImage).toHaveBeenCalledWith({
+      model: 'gpt-codex-artifact',
+      prompt: 'Personaggio da più prospettive',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

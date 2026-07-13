@@ -377,7 +377,7 @@ const ArtifactOverlay = ({
                     onClick={() => void handleSaveArtifact()}
                     disabled={isSaving}
                     className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-4 py-2 text-xs font-semibold text-stone-50 transition-colors hover:bg-stone-700 disabled:opacity-60 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
-                    aria-label={t('Salva artefatto nelle note')}
+                    aria-label={t('Salva artefatto nella lezione')}
                   >
                     <Download className="h-3.5 w-3.5" />
                     <span>{isSaving ? t('Salvando...') : t('Salva')}</span>
@@ -407,6 +407,9 @@ const ChatArtifactRenderer = ({
   onSaveArtifact,
 }: ChatArtifactRendererProps) => {
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
+  const [regenerationState, setRegenerationState] = useState<
+    'idle' | 'working' | 'succeeded' | 'failed'
+  >('idle');
 
   // Deduplicate by artifact summary ID to avoid React key warnings.
   const deduplicatedArtifacts = useMemo(
@@ -424,6 +427,20 @@ const ChatArtifactRenderer = ({
     openArtifactIdOverride === undefined ? openArtifactId : openArtifactIdOverride;
   const openArtifact =
     deduplicatedArtifacts.find(artifact => artifact.summary.id === resolvedOpenArtifactId) || null;
+  const handleRegenerateFromOverlay = onRegenerateArtifact
+    ? async (request: ChatArtifactRegenerateRequest): Promise<boolean> => {
+        setOpenArtifactId(null);
+        setRegenerationState('working');
+        try {
+          const regenerated = await onRegenerateArtifact(request);
+          setRegenerationState(regenerated ? 'succeeded' : 'failed');
+          return regenerated;
+        } catch (error) {
+          setRegenerationState('failed');
+          throw error;
+        }
+      }
+    : undefined;
   const artifactOverlay = openArtifact ? (
     <ArtifactOverlay
       key={openArtifact.summary.id}
@@ -432,7 +449,7 @@ const ChatArtifactRenderer = ({
       isDarkMode={isDarkMode}
       onClose={() => setOpenArtifactId(null)}
       onDiscardArtifact={onDiscardArtifact}
-      onRegenerateArtifact={onRegenerateArtifact}
+      onRegenerateArtifact={handleRegenerateFromOverlay}
       onReplaceArtifact={onReplaceArtifact}
       onSaveArtifact={onSaveArtifact}
     />
@@ -444,6 +461,30 @@ const ChatArtifactRenderer = ({
 
   return (
     <div className={className}>
+      {regenerationState !== 'idle' ? (
+        <output
+          className={`col-span-full flex items-center gap-2 rounded-2xl border p-4 text-sm ${
+            regenerationState === 'failed'
+              ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
+              : 'border-stone-200/90 bg-white/85 text-stone-600 dark:border-zinc-700/80 dark:bg-stone-800/75 dark:text-zinc-300'
+          }`}
+        >
+          {regenerationState === 'working' ? (
+            <RefreshCw className="h-4 w-4 animate-spin" />
+          ) : regenerationState === 'failed' ? (
+            <AlertTriangle className="h-4 w-4" />
+          ) : (
+            <Check className="h-4 w-4" />
+          )}
+          <span>
+            {regenerationState === 'working'
+              ? t('Richiesta ricevuta. Sto rigenerando l artefatto...')
+              : regenerationState === 'failed'
+                ? ARTIFACT_ACTION_FEEDBACK.regenerationFailed()
+                : t('Nuova bozza pronta.')}
+          </span>
+        </output>
+      ) : null}
       {isLoading ? (
         <div className="col-span-full flex items-center gap-2 rounded-2xl border border-stone-200/90 bg-white/85 p-4 text-sm text-stone-500 dark:border-zinc-700/80 dark:bg-stone-800/75 dark:text-zinc-400">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />

@@ -39,6 +39,14 @@ const missingElementVisual: LessonGeneratedVisual = {
   title: 'Elemento mancante',
 };
 
+const invalidScriptVisual: LessonGeneratedVisual = {
+  code: '<div>Contenuto valido</div><script>const broken = );</script>',
+  createdAt: '2026-05-07T00:00:00.000Z',
+  id: 'visual-invalid-script',
+  kind: 'html',
+  title: 'Script non valido',
+};
+
 const rasterImageVisual = {
   altText: 'Sezione trasversale di una foglia',
   code: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
@@ -158,6 +166,28 @@ describe('GeneratedVisualFrame', () => {
     );
     expect(frame).toHaveAttribute('srcDoc', expect.stringContaining('visual-missing-element'));
     expect(frame).toHaveAttribute('srcDoc', expect.stringContaining('generated-visual-error'));
+    expect(frame).toHaveAttribute(
+      'srcDoc',
+      expect.stringContaining('Generated visual failed the DOM reference preflight.')
+    );
+  });
+
+  test('validates inline script syntax before inserting it into the iframe document', () => {
+    render(
+      <GeneratedVisualFrame
+        isDarkMode={false}
+        title="Script non valido"
+        visual={invalidScriptVisual}
+      />
+    );
+
+    const frame = screen.getByTitle('Script non valido');
+    const srcDoc = frame.getAttribute('srcDoc') ?? '';
+    const syntaxCheckIndex = srcDoc.indexOf("Function(script.textContent || '')");
+    const insertionIndex = srcDoc.indexOf('script.replaceWith(replayedScript)');
+
+    expect(syntaxCheckIndex).toBeGreaterThan(-1);
+    expect(insertionIndex).toBeGreaterThan(syntaxCheckIndex);
   });
 
   test('forwards iframe runtime diagnostics to the main console', () => {

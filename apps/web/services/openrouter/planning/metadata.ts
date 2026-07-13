@@ -12,6 +12,33 @@ import {
 } from '../shared.ts';
 
 const MAX_METADATA_SOURCE_CHARS = 32_000;
+const SUBCHAPTER_METADATA_RESPONSE_SCHEMA = {
+  name: 'subchapter_metadata',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      title: { type: 'string' },
+      description: { type: 'string' },
+    },
+    required: ['title', 'description'],
+  },
+} as const;
+const LEARN_SUBCHAPTER_METADATA_RESPONSE_SCHEMA = {
+  name: 'learn_subchapter_metadata',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      title: { type: 'string' },
+      description: { type: 'string' },
+      contextPrompt: { type: 'string' },
+    },
+    required: ['title', 'description', 'contextPrompt'],
+  },
+} as const;
 
 export const createSubChapterMetadata = async (
   file: FileData,
@@ -46,7 +73,10 @@ Rispondi SOLO con un oggetto JSON:
           content: userContent,
         },
       ],
-      response_format: { type: 'json_object' },
+      response_format: {
+        type: 'json_schema',
+        json_schema: SUBCHAPTER_METADATA_RESPONSE_SCHEMA,
+      },
     });
 
     if (!response) {
@@ -101,7 +131,10 @@ Rispondi SOLO con un oggetto JSON:
       model: MODEL_FLASH,
       reasoning: MEDIUM_REASONING_CONFIG,
       messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
+      response_format: {
+        type: 'json_schema',
+        json_schema: LEARN_SUBCHAPTER_METADATA_RESPONSE_SCHEMA,
+      },
     });
 
     if (!response) {

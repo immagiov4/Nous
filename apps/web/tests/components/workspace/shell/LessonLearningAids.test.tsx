@@ -42,6 +42,21 @@ function LearningAidsHarness({
 }
 
 describe('LessonLearningAids editing', () => {
+  test('opens a new key concept editor below the existing list', async () => {
+    const user = userEvent.setup();
+    render(
+      <LearningAidsHarness initialAids={[EXISTING_AID]} onPersist={vi.fn(async () => true)} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
+    await user.click(screen.getByRole('button', { name: 'Aggiungi concetto chiave' }));
+
+    const list = screen.getByRole('list');
+    const editor = screen.getByRole('group', { name: 'Nuovo concetto chiave' });
+
+    expect(list.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
   test('creates and then edits a key concept through explicit saves', async () => {
     const user = userEvent.setup();
     const onPersist = vi.fn(async () => true);

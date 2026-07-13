@@ -57,6 +57,7 @@ const readCreateUserBody = (body: unknown) => {
   }
 
   return {
+    aiProvider: readAiProviderPatch(body.aiProvider),
     email,
     password,
     role: readAdminRole(body.role),
@@ -75,7 +76,7 @@ const requestSupabaseAdmin = async ({
   path,
 }: {
   body?: unknown;
-  method: 'GET' | 'PATCH' | 'POST';
+  method: 'GET' | 'POST' | 'PUT';
   path: string;
 }) => {
   const { serviceRoleKey, supabaseUrl } = getSupabaseAdminConfig();
@@ -139,9 +140,25 @@ router.patch('/model-config', async (req: Request, res: Response) => {
 
     const patch: GlobalModelConfigPatch = {
       aiProvider: readAiProviderPatch(req.body.aiProvider),
+      artifactModel: readOptionalString(req.body.artifactModel),
+      artifactInteractiveModel: readOptionalString(req.body.artifactInteractiveModel),
+      artifactInteractiveReasoningEffort: readReasoningEffortPatch(
+        req.body.artifactInteractiveReasoningEffort
+      ),
+      artifactReasoningEffort: readReasoningEffortPatch(req.body.artifactReasoningEffort),
+      artifactVisualReviewEnabled:
+        typeof req.body.artifactVisualReviewEnabled === 'boolean'
+          ? req.body.artifactVisualReviewEnabled
+          : undefined,
+      artifactVisualReviewMaxRounds:
+        typeof req.body.artifactVisualReviewMaxRounds === 'number'
+          ? req.body.artifactVisualReviewMaxRounds
+          : undefined,
       assessmentModel: readOptionalString(req.body.assessmentModel),
       assessmentReasoningEffort: readReasoningEffortPatch(req.body.assessmentReasoningEffort),
       codexAssessmentModel: readOptionalString(req.body.codexAssessmentModel),
+      codexArtifactModel: readOptionalString(req.body.codexArtifactModel),
+      codexArtifactInteractiveModel: readOptionalString(req.body.codexArtifactInteractiveModel),
       codexContextModel: readOptionalString(req.body.codexContextModel),
       codexLessonModel: readOptionalString(req.body.codexLessonModel),
       codexProgressModel: readOptionalString(req.body.codexProgressModel),
@@ -152,6 +169,8 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       lessonModel: readOptionalString(req.body.lessonModel),
       lessonReasoningEffort: readReasoningEffortPatch(req.body.lessonReasoningEffort),
       openAiAssessmentModel: readOptionalString(req.body.openAiAssessmentModel),
+      openAiArtifactModel: readOptionalString(req.body.openAiArtifactModel),
+      openAiArtifactInteractiveModel: readOptionalString(req.body.openAiArtifactInteractiveModel),
       openAiContextModel: readOptionalString(req.body.openAiContextModel),
       openAiImageModel: readOptionalString(req.body.openAiImageModel),
       openAiLessonModel: readOptionalString(req.body.openAiLessonModel),
@@ -207,6 +226,7 @@ router.post('/users', async (req: Request, res: Response) => {
         password: body.password,
         email_confirm: true,
         app_metadata: {
+          ...(body.aiProvider ? { ai_provider: body.aiProvider } : {}),
           role: body.role,
         },
       },
@@ -259,16 +279,30 @@ router.patch('/users/:id', async (req: Request, res: Response) => {
 
     const userId = encodeURIComponent(getRouteParam(req.params.id));
     const role = readOptionalString(req.body.role);
+    const hasAiProviderPatch = Object.hasOwn(req.body, 'aiProvider');
+    const aiProvider =
+      req.body.aiProvider === null ? null : readAiProviderPatch(req.body.aiProvider);
+    if (hasAiProviderPatch && req.body.aiProvider !== null && !aiProvider) {
+      throw new Error('Provider AI non valido.');
+    }
     const password = readOptionalString(req.body.password);
     const disabled = typeof req.body.disabled === 'boolean' ? req.body.disabled : undefined;
+    const hasMetadataPatch = Boolean(role) || hasAiProviderPatch;
     const body = {
-      ...(role ? { app_metadata: { role: readAdminRole(role) } } : {}),
+      ...(hasMetadataPatch
+        ? {
+            app_metadata: {
+              ...(hasAiProviderPatch ? { ai_provider: aiProvider } : {}),
+              ...(role ? { role: readAdminRole(role) } : {}),
+            },
+          }
+        : {}),
       ...(password ? { password } : {}),
       ...(disabled === undefined ? {} : { ban_duration: disabled ? '876000h' : 'none' }),
     };
 
     const user = await requestSupabaseAdmin({
-      method: 'PATCH',
+      method: 'PUT',
       path: `${ADMIN_USER_CREATE_PATH}/${userId}`,
       body,
     });

@@ -12,6 +12,7 @@ import {
   withGeneratedExerciseBrief,
   withUpdatedExerciseDeliverable,
 } from '../../../services/exercises/plan.ts';
+import type { GenerationStatusReporter } from '../../../services/openrouter/generationProgress.ts';
 import { getCourseSourceDescriptors } from '../../../services/projects/courseSources.ts';
 import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
 import { mergeDocumentAssetsForPlan } from '../../../services/workspace/controller/documentAssets.ts';
@@ -400,8 +401,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       operation: 'lesson',
       subject: section.title,
     });
-    const reportStatus = (status: string) => {
+    const reportStatus: GenerationStatusReporter = (status, stage) => {
       state.setWorkflowMessage('loadSection', requestId, status);
+      if (stage) {
+        progressObserver.setStage(stage);
+      }
       progressObserver.updateStatus(status);
     };
 
@@ -475,13 +479,20 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 return { content: '', generatedVisuals: [], learningAids: [], quiz: [] };
               }
 
-              const learningAids = await openRouter.generateLessonLearningAids({
-                contentMarkdown: content,
-                sectionDescription: section.description,
-                sectionTitle: section.title,
-              });
+              const [learningAids, quiz] = await Promise.all([
+                openRouter.generateLessonLearningAids({
+                  contentMarkdown: content,
+                  sectionDescription: section.description,
+                  sectionTitle: section.title,
+                }),
+                openRouter.generateStandaloneLessonQuiz({
+                  contentMarkdown: content,
+                  sectionTitle: section.title,
+                  language: currentUserProfile?.language,
+                }),
+              ]);
 
-              return { content, generatedVisuals: [], learningAids, quiz: [] };
+              return { content, generatedVisuals: [], learningAids, quiz };
             })();
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {

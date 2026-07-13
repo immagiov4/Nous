@@ -11,6 +11,7 @@ import type {
   SyllabusItem,
   UserProfile,
 } from '../../types.ts';
+import { stripTerminalLessonSourcesSection } from '../../utils/markdown/lessonSources.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { groupSectionsIntoModules } from '../learning/groupSectionsIntoModules.ts';
 import {
@@ -20,6 +21,7 @@ import {
   MODEL_RESEARCH_PLANNER,
   teacherInstruction,
 } from './config.ts';
+import type { GenerationStatusReporter } from './generationProgress.ts';
 import { generateLessonLearningAids } from './learningAids.ts';
 import { appendGeneratedVisualExample } from './lessonImages.ts';
 import { generateStandaloneLessonQuiz } from './lessonMarkdownQuality/index.ts';
@@ -30,6 +32,95 @@ const MIN_RESEARCH_LESSONS = 8;
 const MAX_RESEARCH_LESSONS = 24;
 const DEFAULT_RESEARCH_LANGUAGE = 'Italiano';
 const SOURCE_LIST_LIMIT = 8;
+const SOURCE_REFERENCE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    title: { type: 'string' },
+    url: { type: 'string' },
+    note: { type: 'string' },
+  },
+  required: ['title', 'url', 'note'],
+} as const;
+const RESEARCH_COURSE_PLAN_RESPONSE_SCHEMA = {
+  name: 'research_course_plan',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      title: { type: 'string' },
+      summary: { type: 'string' },
+      lessonCountReason: { type: 'string' },
+      modules: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string' },
+            description: { type: 'string' },
+            lessons: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  title: { type: 'string' },
+                  description: { type: 'string' },
+                  prerequisites: { type: 'array', items: { type: 'string' } },
+                  keyConcepts: { type: 'array', items: { type: 'string' } },
+                  guidingQuestions: { type: 'array', items: { type: 'string' } },
+                  miniLab: { type: 'string' },
+                  sourceHints: { type: 'array', items: SOURCE_REFERENCE_SCHEMA },
+                  simplificationRisks: { type: 'array', items: { type: 'string' } },
+                },
+                required: [
+                  'title',
+                  'description',
+                  'prerequisites',
+                  'keyConcepts',
+                  'guidingQuestions',
+                  'miniLab',
+                  'sourceHints',
+                  'simplificationRisks',
+                ],
+              },
+            },
+          },
+          required: ['title', 'description', 'lessons'],
+        },
+      },
+    },
+    required: ['title', 'summary', 'lessonCountReason', 'modules'],
+  },
+} as const;
+const RESEARCH_LESSON_DOSSIER_RESPONSE_SCHEMA = {
+  name: 'research_lesson_dossier',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      factualSummary: { type: 'string' },
+      keyExamples: { type: 'array', items: { type: 'string' } },
+      difficultSteps: { type: 'array', items: { type: 'string' } },
+      sources: { type: 'array', items: SOURCE_REFERENCE_SCHEMA },
+      avoidOversimplifying: { type: 'array', items: { type: 'string' } },
+      controversies: { type: 'array', items: { type: 'string' } },
+      recentDevelopments: { type: 'array', items: { type: 'string' } },
+    },
+    required: [
+      'factualSummary',
+      'keyExamples',
+      'difficultSteps',
+      'sources',
+      'avoidOversimplifying',
+      'controversies',
+      'recentDevelopments',
+    ],
+  },
+} as const;
 
 interface ResearchLessonDraft {
   description?: string;
@@ -302,11 +393,11 @@ Return this JSON shape:
 
 export const generateResearchCoursePlan = async (
   profile: UserProfile,
-  onStatusUpdate: (message: string) => void,
+  onStatusUpdate: GenerationStatusReporter,
   onStructureUpdate: (items: SyllabusItem[]) => void,
   onReasoningUpdate?: (reasoning: string) => void
 ): Promise<ResearchCourseGenerationResult> => {
-  onStatusUpdate('Ricerca delle fonti...');
+  onStatusUpdate('Ricerca delle fonti...', 'sources');
 
   const researchBrief = await retryWithBackoff(
     () =>
@@ -319,7 +410,7 @@ export const generateResearchCoursePlan = async (
     1000
   );
 
-  onStatusUpdate('Strutturazione del corso...');
+  onStatusUpdate('Strutturazione del corso...', 'structure');
 
   const structuredResponse = await retryWithBackoff(
     () =>
@@ -333,7 +424,10 @@ export const generateResearchCoursePlan = async (
             content: buildCoursePlanStructuringPrompt(profile, researchBrief || ''),
           },
         ],
-        response_format: { type: 'json_object' },
+        response_format: {
+          type: 'json_schema',
+          json_schema: RESEARCH_COURSE_PLAN_RESPONSE_SCHEMA,
+        },
       }),
     2,
     1000
@@ -483,11 +577,11 @@ export const generateResearchLessonDossier = async (args: {
   moduleTitle: string;
   profile: UserProfile | null;
   researchCoursePlan: ResearchCoursePlan | null;
-  onStatusUpdate: (message: string) => void;
+  onStatusUpdate: GenerationStatusReporter;
   onReasoningUpdate?: (reasoning: string) => void;
 }): Promise<ResearchLessonDossier> => {
   const researchLesson = findResearchLesson(args.researchCoursePlan, args.lesson.id);
-  args.onStatusUpdate('Raccolta fonti della lezione...');
+  args.onStatusUpdate('Raccolta fonti della lezione...', 'sources');
 
   const researchBrief = await retryWithBackoff(
     () =>
@@ -512,7 +606,7 @@ export const generateResearchLessonDossier = async (args: {
     1000
   );
 
-  args.onStatusUpdate('Strutturazione del dossier...');
+  args.onStatusUpdate('Strutturazione del dossier...', 'structure');
 
   const structuredResponse = await retryWithBackoff(
     () =>
@@ -532,7 +626,10 @@ export const generateResearchLessonDossier = async (args: {
             }),
           },
         ],
-        response_format: { type: 'json_object' },
+        response_format: {
+          type: 'json_schema',
+          json_schema: RESEARCH_LESSON_DOSSIER_RESPONSE_SCHEMA,
+        },
       }),
     2,
     1000
@@ -576,34 +673,6 @@ const formatResearchDossierForPrompt = (dossier: ResearchLessonDossier): string 
     .filter(Boolean)
     .join('\n\n');
 
-const formatVisibleResearchSources = (dossier: ResearchLessonDossier): string => {
-  if (!dossier.sources.length) {
-    return '';
-  }
-
-  const sourceList = dossier.sources
-    .slice(0, SOURCE_LIST_LIMIT)
-    .map(source => `- ${source.url ? `[${source.title}](${source.url})` : source.title}`)
-    .join('\n');
-
-  return `\n\n## Fonti essenziali\n\n${sourceList}`;
-};
-
-const appendCanonicalResearchSources = (
-  content: string,
-  dossier: ResearchLessonDossier
-): string => {
-  const sourceBlock = formatVisibleResearchSources(dossier);
-  if (!sourceBlock) {
-    return content;
-  }
-
-  const contentWithoutGeneratedSources = content
-    .replace(/(?:^|\n)##\s+Fonti essenziali\s*\n[\s\S]*$/iu, '')
-    .trimEnd();
-  return `${contentWithoutGeneratedSources}${sourceBlock}`;
-};
-
 export const generateResearchLessonContent = async (args: {
   lessonTitle: string;
   moduleTitle: string;
@@ -613,7 +682,7 @@ export const generateResearchLessonContent = async (args: {
   researchDossier: ResearchLessonDossier;
   originalSourceContext?: string;
   generationNotes?: string;
-  onStatusUpdate: (status: string) => void;
+  onStatusUpdate: GenerationStatusReporter;
   onReasoningUpdate?: (reasoning: string) => void;
 }): Promise<{
   content: string;
@@ -633,7 +702,7 @@ export const generateResearchLessonContent = async (args: {
   const originalSourceBlock = args.originalSourceContext?.trim()
     ? `\nMATERIALE ORIGINALE DEL CORSO:\n${args.originalSourceContext.trim()}\n`
     : '';
-  args.onStatusUpdate('Scrittura lezione da fonti...');
+  args.onStatusUpdate('Scrittura lezione da fonti...', 'drafting');
 
   const prompt = `${userNotesBlock}
 
@@ -660,7 +729,7 @@ ISTRUZIONI:
 - Mantieni il focus stretto su questa lezione.
 - Non fingere che lo studente abbia un documento aperto.
 - Non usare diagrammi Mermaid.
-- Niente bibliografia lunga: una sezione "Fonti essenziali" breve in fondo basta.
+- Non aggiungere bibliografie o sezioni delle fonti nel corpo: le fonti vengono mostrate separatamente dall'interfaccia.
 - Se il dossier contiene "Sviluppi recenti", integra quei punti organicamente nel corpo della lezione (con date quando disponibili) dove sono pertinenti, invece di confinarli in una sezione separata. Non inventare aggiornamenti che non sono nel dossier.
 
 FORMATO: Markdown.`;
@@ -686,11 +755,11 @@ FORMATO: Markdown.`;
     .replace(/^Certamente.*?:\s*/i, '')
     .replace(/```json/g, '')
     .trim();
-  const contentWithSources = appendCanonicalResearchSources(lessonContent, args.researchDossier);
+  const contentWithoutSources = stripTerminalLessonSourcesSection(lessonContent);
 
   const [visualResult, learningAids] = await Promise.all([
     appendGeneratedVisualExample({
-      contentMarkdown: contentWithSources,
+      contentMarkdown: contentWithoutSources,
       generationNotes: args.generationNotes,
       hasPdfImages: false,
       onStatusUpdate: args.onStatusUpdate,
@@ -698,13 +767,13 @@ FORMATO: Markdown.`;
       sectionTitle: args.lessonTitle,
     }),
     generateLessonLearningAids({
-      contentMarkdown: contentWithSources,
+      contentMarkdown: contentWithoutSources,
       sectionDescription: args.contextPrompt || args.lessonTitle,
       sectionTitle: args.lessonTitle,
     }),
   ]);
 
-  args.onStatusUpdate('Generazione quiz...');
+  args.onStatusUpdate('Generazione quiz...', 'quiz');
   let quiz: QuizQuestion[] = [];
   try {
     quiz = await generateStandaloneLessonQuiz({

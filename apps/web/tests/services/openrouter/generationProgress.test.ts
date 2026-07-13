@@ -15,6 +15,7 @@ describe('generation progress observer', () => {
     callOpenRouterMock.mockReset();
     callOpenRouterMock.mockResolvedValue(
       JSON.stringify({
+        stage: 'sources',
         sections: ['Introduzione', 'Introduzione', 'Applicazioni'],
       })
     );
@@ -33,7 +34,7 @@ describe('generation progress observer', () => {
       onUpdate: update => updates.push(update),
     });
 
-    observer.push('a'.repeat(599));
+    observer.push('a'.repeat(159));
     expect(callOpenRouterMock).not.toHaveBeenCalled();
 
     observer.push(`a${'b'.repeat(6_000)}`);
@@ -53,7 +54,8 @@ describe('generation progress observer', () => {
     expect(prompt.length).toBeLessThan(5_500);
   });
 
-  test('uses real status events for deterministic stages', () => {
+  test('only the orchestrator changes the macro stage', async () => {
+    callOpenRouterMock.mockResolvedValue(JSON.stringify({ sections: ['Controllo coerenza'] }));
     const updates: Array<{ stage: string }> = [];
     const observer = createGenerationProgressObserver({
       operation: 'lesson',
@@ -63,13 +65,15 @@ describe('generation progress observer', () => {
     });
 
     observer.updateStatus('Verifica finale della lezione...');
-    observer.complete();
+    await observer.finish();
+    expect(updates.at(-1)?.stage).toBe('sources');
+
+    observer.setStage('verification');
 
     expect(updates.some(update => update.stage === 'verification')).toBe(true);
-    expect(updates.at(-1)?.stage).toBe('ready');
   });
 
-  test('never regresses a stage when a late status describes earlier work', () => {
+  test('applies orchestrator stages monotonically and ignores regressions', () => {
     const updates: Array<{ stage: string }> = [];
     const observer = createGenerationProgressObserver({
       operation: 'lesson',
@@ -78,12 +82,11 @@ describe('generation progress observer', () => {
       onUpdate: update => updates.push(update),
     });
 
-    observer.updateStatus('Strutturazione della lezione...');
-    observer.push('Inizio della stesura');
-    observer.updateStatus('Scrittura della lezione...');
-    observer.updateStatus('Analisi immagini... trovate 3');
-    observer.updateStatus('Organizzazione quiz...');
-    observer.updateStatus('Verifica finale...');
+    observer.setStage('structure');
+    observer.setStage('drafting');
+    observer.setStage('sources');
+    observer.setStage('quiz');
+    observer.setStage('verification');
 
     const stageSequence = updates
       .map(update => update.stage)
@@ -95,10 +98,11 @@ describe('generation progress observer', () => {
     callOpenRouterMock
       .mockResolvedValueOnce(
         JSON.stringify({
+          stage: 'sources',
           sections: ['Primo punto', 'Secondo punto', 'Terzo punto'],
         })
       )
-      .mockResolvedValueOnce(JSON.stringify({ sections: ['Sesto punto'] }));
+      .mockResolvedValueOnce(JSON.stringify({ stage: 'sources', sections: ['Sesto punto'] }));
     const updates: Array<{ sections: string[]; stepOffset: number }> = [];
     const observer = createGenerationProgressObserver({
       operation: 'lesson',
@@ -121,6 +125,7 @@ describe('generation progress observer', () => {
     vi.useFakeTimers();
     callOpenRouterMock.mockResolvedValue(
       JSON.stringify({
+        stage: 'sources',
         sections: ['Primo dettaglio', 'Secondo dettaglio', 'Terzo dettaglio'],
       })
     );
@@ -146,9 +151,7 @@ describe('generation progress observer', () => {
 
   test('uses a fresh observer budget after the pipeline changes phase', async () => {
     callOpenRouterMock.mockImplementation(async () =>
-      JSON.stringify({
-        sections: [`Dettaglio ${callOpenRouterMock.mock.calls.length}`],
-      })
+      JSON.stringify({ sections: [`Dettaglio ${callOpenRouterMock.mock.calls.length}`] })
     );
     const observer = createGenerationProgressObserver({
       operation: 'lesson',
@@ -165,17 +168,18 @@ describe('generation progress observer', () => {
     }
     expect(callOpenRouterMock).toHaveBeenCalledTimes(3);
 
+    observer.setStage('quiz');
     observer.updateStatus('Organizzazione quiz...');
     stream += 'q'.repeat(600);
     observer.push(stream);
     await observer.finish();
-    expect(callOpenRouterMock).toHaveBeenCalledTimes(4);
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(5);
   });
 
-  test('rejects observer text that does not use the selected language', async () => {
+  test('rejects a payload without usable progress points', async () => {
     callOpenRouterMock.mockResolvedValue(
       JSON.stringify({
-        sections: ['Handling JSON and LaTeX', 'Clarifying terms and definitions'],
+        sections: [null, '', 42],
       })
     );
     const updates: Array<{ sections: string[] }> = [];
@@ -193,7 +197,8 @@ describe('generation progress observer', () => {
     expect(updates.at(-1)?.sections).toEqual(['Preparo il materiale della lezione.']);
   });
 
-  test('classifies reasoning inside the current structure stage', async () => {
+  test('summarizes reasoning inside the stage selected by the orchestrator', async () => {
+    callOpenRouterMock.mockResolvedValue(JSON.stringify({ sections: ['Introduzione'] }));
     const updates: Array<{ sections: string[]; stage: string }> = [];
     const observer = createGenerationProgressObserver({
       operation: 'lesson',
@@ -202,11 +207,39 @@ describe('generation progress observer', () => {
       onUpdate: update => updates.push(update),
     });
 
+    observer.setStage('structure');
     observer.updateStatus('Strutturazione della lezione...');
     observer.push('a'.repeat(600));
     await observer.finish();
 
     expect(updates.at(-1)?.stage).toBe('structure');
     expect(updates.at(-1)?.sections).toContain('Introduzione');
+  });
+
+  test('processes an authoritative status queued while the observer is busy', async () => {
+    let resolveFirstRequest: ((value: string) => void) | undefined;
+    callOpenRouterMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>(resolve => {
+            resolveFirstRequest = resolve;
+          })
+      )
+      .mockResolvedValueOnce(JSON.stringify({ sections: ['Secondo stato'] }));
+    const observer = createGenerationProgressObserver({
+      operation: 'lesson',
+      revealIntervalMs: 0,
+      subject: 'Memoria',
+      onUpdate: vi.fn(),
+    });
+
+    observer.updateStatus('Primo stato');
+    observer.updateStatus('Secondo stato');
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(1);
+
+    resolveFirstRequest?.(JSON.stringify({ sections: ['Primo stato'] }));
+    await observer.finish();
+
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(2);
   });
 });

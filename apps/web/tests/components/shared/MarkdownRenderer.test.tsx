@@ -28,6 +28,7 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByText('Docs')).toHaveAttribute('href', 'https://example.com');
     expect(screen.getByText('Docs')).toHaveAttribute('target', '_blank');
     expect(screen.getByText('value').tagName.toLowerCase()).toBe('code');
+    expect(screen.getByText('value').closest('pre')).toBeNull();
     expect(container.querySelector('pre')).toHaveTextContent('const answer = 42;');
 
     const article = container.querySelector('article');
@@ -40,6 +41,57 @@ describe('MarkdownRenderer', () => {
     fireEvent.click(article);
     expect(onContextMenu).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  test('renders indented plain-text fragments without code blocks or invalid nested markup', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          'Testo introduttivo',
+          '',
+          '    Figura 3.3',
+          '',
+          '    chunk-022',
+          '',
+          '    /',
+          '',
+          'Usa `generateCurrentLessonArtifact` per continuare.',
+        ].join('\n')}
+      />
+    );
+
+    expect(container.querySelector('pre')).toBeNull();
+    expect(screen.getByText('Figura 3.3')).toBeInTheDocument();
+    expect(screen.getByText('chunk-022')).toBeInTheDocument();
+    expect(screen.getByText('generateCurrentLessonArtifact').closest('p')).not.toBeNull();
+    expect(container.querySelector('p pre')).toBeNull();
+  });
+
+  test('renders JSON with a missing opening fence as one code block', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={[
+          'Il server trova nello store:',
+          '',
+          '{',
+          '  "userId": "42",',
+          '  "role": "editor"',
+          '}',
+          '```',
+          '',
+          'La sessione resta sotto il controllo del server.',
+        ].join('\n')}
+      />
+    );
+
+    const codeBlocks = container.querySelectorAll('pre');
+    expect(codeBlocks).toHaveLength(1);
+    expect(codeBlocks[0]).toHaveTextContent('"userId": "42"');
+    expect(codeBlocks[0]).toHaveTextContent('"role": "editor"');
+    expect(screen.queryByText('```')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('La sessione resta sotto il controllo del server.')
+    ).toBeInTheDocument();
   });
 
   test('keeps malformed nested and unclosed fences from swallowing the rest of the lesson', () => {

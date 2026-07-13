@@ -11,7 +11,6 @@ import type {
   ChatArtifactReplaceRequest,
 } from '../../components/shared/ChatArtifactRenderer.tsx';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
-import { addAiProviderPreferenceHeader } from '../../services/ai/providerPreference.ts';
 import { fetchWithSupabaseAuth } from '../../services/auth/supabaseAuth.ts';
 import {
   executeLibraryAssistantTool,
@@ -35,6 +34,7 @@ import type {
 } from '../../types.ts';
 import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import { buildLibraryScopeSummary } from '../../utils/library/assistant.ts';
+import { hasSuccessfulToolOutput } from '../../utils/uiChat.ts';
 
 interface LibraryAssistantTools {
   [key: string]: {
@@ -257,7 +257,7 @@ export const useLibraryAssistantChat = ({
           } = requestState;
 
           return {
-            headers: addAiProviderPreferenceHeader(headers),
+            headers,
             body: {
               attachedContextRefs: currentAttachedContextRefs,
               id,
@@ -277,7 +277,9 @@ export const useLibraryAssistantChat = ({
       messages: [],
       transport,
       experimental_throttle: 96,
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+      sendAutomaticallyWhen: options =>
+        !hasSuccessfulToolOutput(options.messages, 'tool-generateLearningArtifact') &&
+        lastAssistantMessageIsCompleteWithToolCalls(options),
       onToolCall: async ({ toolCall }) => {
         if (toolCall.dynamic) {
           return;

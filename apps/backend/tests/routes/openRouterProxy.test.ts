@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { createSupabaseTestToken } from '../helpers/auth.js';
+
 const fetchMock = vi.hoisted(() => vi.fn());
 const codexMocks = vi.hoisted(() => ({
   runCodexAppServerTurn: vi.fn(),
@@ -33,11 +35,16 @@ const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
 );
 const { createApp } = await import('../../src/index.js');
 
+const authenticateProvider = (aiProvider: 'codex' | 'openai' | 'openrouter'): string => {
+  process.env.AUTH_MODE = 'supabase';
+  process.env.SUPABASE_JWT_SECRET = 'test-secret';
+  return createSupabaseTestToken({ aiProvider });
+};
+
 describe('/api/openrouter proxy', () => {
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV };
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
-    process.env.CODEX_OWNER_USER_ID = 'local-user';
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
     delete process.env.SUPABASE_URL;
     resetModelConfigForTesting();
@@ -54,6 +61,18 @@ describe('/api/openrouter proxy', () => {
   afterEach(() => {
     process.env = { ...ORIGINAL_ENV };
     vi.unstubAllGlobals();
+  });
+
+  test('returns the artifact visual feedback settings', async () => {
+    patchGlobalModelConfig({
+      artifactVisualReviewEnabled: false,
+      artifactVisualReviewMaxRounds: 3,
+    });
+
+    const response = await request(createApp()).get('/api/openrouter/artifact-settings');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ visualReviewEnabled: false, visualReviewMaxRounds: 3 });
   });
 
   test('overrides client-provided models with the backend global slot model', async () => {
@@ -74,6 +93,56 @@ describe('/api/openrouter proxy', () => {
     const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
     expect(fetchOptions?.body).toContain('"model":"server/assessment-model"');
     expect(fetchOptions?.body).not.toContain('client/ignored-model');
+  });
+
+  test('routes artifact passes through their dedicated model and reasoning slot', async () => {
+    patchGlobalModelConfig({
+      artifactModel: 'server/artifact-model',
+      artifactReasoningEffort: 'low',
+      lessonModel: 'server/lesson-model',
+    });
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'artifact')
+      .send({
+        model: 'client/ignored-model',
+        messages: [{ role: 'user', content: 'Crea un diagramma' }],
+        reasoning: { effort: 'high' },
+      });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      model?: string;
+      reasoning?: { effort?: string };
+    };
+    expect(body.model).toBe('server/artifact-model');
+    expect(body.reasoning?.effort).toBe('low');
+  });
+
+  test('routes interactive artifacts through their own model and reasoning slot', async () => {
+    patchGlobalModelConfig({
+      artifactInteractiveModel: 'server/interactive-artifact-model',
+      artifactInteractiveReasoningEffort: 'high',
+      artifactModel: 'server/visual-artifact-model',
+    });
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'artifactInteractive')
+      .send({
+        model: 'client/ignored-model',
+        messages: [{ role: 'user', content: 'Crea un simulatore' }],
+        reasoning: { effort: 'low' },
+      });
+
+    expect(response.status).toBe(200);
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      model?: string;
+      reasoning?: { effort?: string };
+    };
+    expect(body.model).toBe('server/interactive-artifact-model');
+    expect(body.reasoning?.effort).toBe('high');
   });
 
   test('overrides reasoning effort independently for each configured model slot', async () => {
@@ -154,19 +223,90 @@ describe('/api/openrouter proxy', () => {
     expect(body.reasoning).toBeUndefined();
   });
 
-  test('omits reasoning for models configured without reasoning support', async () => {
-    patchGlobalModelConfig({ lessonReasoningEffort: 'none' });
+  test('sends explicit none effort for artifact reasoning', async () => {
+    patchGlobalModelConfig({ artifactReasoningEffort: 'none' });
 
     await request(createApp())
       .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'artifact')
       .send({
-        messages: [{ role: 'user', content: 'Ciao' }],
+        messages: [{ role: 'user', content: 'Crea un diagramma' }],
         reasoning: { effort: 'medium', exclude: false },
       });
 
     const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
-    const body = JSON.parse(fetchOptions?.body || '{}') as { reasoning?: unknown };
-    expect(body.reasoning).toBeUndefined();
+    const body = JSON.parse(fetchOptions?.body || '{}') as {
+      reasoning?: { effort?: string; enabled?: boolean };
+    };
+    expect(body.reasoning).toEqual({ effort: 'none', enabled: true, exclude: false });
+  });
+
+  test('requests the economy service tier for OpenAI models routed through OpenRouter', async () => {
+    patchGlobalModelConfig({ lessonModel: 'openai/gpt-5.4-mini' });
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .send({ messages: [{ role: 'user', content: 'Crea una lezione' }] });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      service_tier?: string;
+    };
+    expect(body.service_tier).toBe('flex');
+  });
+
+  test('does not send an OpenAI service tier to other OpenRouter models', async () => {
+    patchGlobalModelConfig({ lessonModel: 'google/gemini-3.1-flash-lite' });
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .send({ messages: [{ role: 'user', content: 'Crea una lezione' }] });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      service_tier?: string;
+    };
+    expect(body.service_tier).toBeUndefined();
+  });
+
+  test('sends only artifact heuristics when the configured OpenRouter model is text-only', async () => {
+    patchGlobalModelConfig({ artifactModel: 'z-ai/glm-5.2' });
+    fetchMock
+      .mockResolvedValueOnce({
+        json: () =>
+          Promise.resolve({
+            data: { architecture: { input_modalities: ['text'] } },
+          }),
+        ok: true,
+      })
+      .mockResolvedValueOnce({
+        body: null,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        status: 200,
+      });
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'artifact')
+      .set('X-Nous-Allow-Text-Only-Image-Fallback', 'true')
+      .send({
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,PREVIEW' } },
+              { type: 'text', text: 'Euristica: possibile testo fuori dai bordi.' },
+            ],
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/model/z-ai/glm-5.2');
+    const body = JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string) as {
+      messages?: Array<{ content?: Array<{ text?: string; type?: string }> }>;
+    };
+    expect(body.messages?.[0]?.content).toEqual([
+      { type: 'text', text: 'Euristica: possibile testo fuori dai bordi.' },
+    ]);
   });
 
   test('maps the common model contract to OpenAI without forwarding OpenRouter-only fields', async () => {
@@ -205,16 +345,36 @@ describe('/api/openrouter proxy', () => {
     expect(body).not.toHaveProperty('reasoning');
   });
 
+  test('uses the authenticated user provider instead of a client header', async () => {
+    patchGlobalModelConfig({
+      aiProvider: 'openrouter',
+      openAiLessonModel: 'gpt-authenticated-user',
+    });
+    const token = authenticateProvider('openai');
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Nous-AI-Provider', 'codex')
+      .send({ messages: [{ role: 'user', content: 'Ciao' }] });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toContain('"model":"gpt-authenticated-user"');
+    expect(codexMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
+  });
+
   test('maps a non-streaming completion to an ephemeral Codex turn', async () => {
     patchGlobalModelConfig({
       codexLessonModel: 'gpt-codex-lesson',
       lessonReasoningEffort: 'high',
     });
     codexMocks.runCodexAppServerTurn.mockResolvedValue('Risposta Codex');
+    const token = authenticateProvider('codex');
 
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
-      .set('X-Nous-AI-Provider', 'codex')
+      .set('Authorization', `Bearer ${token}`)
       .send({
         messages: [
           { role: 'system', content: 'Spiega con precisione.' },
@@ -254,25 +414,51 @@ describe('/api/openrouter proxy', () => {
     );
   });
 
-  test('rejects Codex generation for a Nous user other than the configured local owner', async () => {
-    process.env.CODEX_OWNER_USER_ID = 'another-user';
+  test('authorizes Codex web search only for research and forwards its output schema', async () => {
+    patchGlobalModelConfig({ codexResearchModel: 'gpt-codex-research' });
+    codexMocks.runCodexAppServerTurn.mockResolvedValue('{"sources":[]}');
+    const token = authenticateProvider('codex');
 
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
-      .set('X-Nous-AI-Provider', 'codex')
-      .send({ messages: [{ role: 'user', content: 'Ciao' }] });
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Nous-Model-Slot', 'research')
+      .send({
+        messages: [{ role: 'user', content: 'Cerca fonti aggiornate.' }],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'research_sources',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              properties: { sources: { type: 'array', items: { type: 'string' } } },
+              required: ['sources'],
+            },
+          },
+        },
+      });
 
-    expect(response.status).toBe(403);
-    expect(response.body).toEqual({
-      success: false,
-      error: 'Codex non è disponibile per questo account.',
-    });
-    expect(codexMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(codexMocks.runCodexAppServerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowWebSearch: true,
+        model: 'gpt-codex-research',
+        outputSchema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { sources: { type: 'array', items: { type: 'string' } } },
+          required: ['sources'],
+        },
+      })
+    );
   });
 
   test('translates Codex deltas to the existing OpenAI-compatible SSE contract', async () => {
     patchGlobalModelConfig({ aiProvider: 'codex' });
     codexMocks.runCodexAppServerTurn.mockImplementation(async input => {
+      input.onReasoningDelta?.('Sto ragionando.');
       input.onTextDelta?.('Prima ');
       input.onTextDelta?.('parte');
       return 'Prima parte';
@@ -287,11 +473,45 @@ describe('/api/openrouter proxy', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(response.text).toContain('"reasoning":"Sto ragionando."');
     expect(response.text).toContain('"content":"Prima "');
     expect(response.text).toContain('"content":"parte"');
     expect(response.text).toContain('"finish_reason":"stop"');
     expect(response.text).toContain('data: [DONE]');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('streams the authoritative Codex result for structured output', async () => {
+    patchGlobalModelConfig({ aiProvider: 'codex' });
+    codexMocks.runCodexAppServerTurn.mockImplementation(async input => {
+      input.onReasoningDelta?.('Sto verificando la struttura.');
+      input.onTextDelta?.('{"lesson":"bozza incompleta');
+      return '{"lesson":"contenuto completo"}';
+    });
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .send({
+        messages: [{ role: 'user', content: 'Genera la lezione.' }],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'lesson',
+            schema: {
+              type: 'object',
+              properties: { lesson: { type: 'string' } },
+              required: ['lesson'],
+            },
+          },
+        },
+        stream: true,
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain('"reasoning":"Sto verificando la struttura."');
+    expect(response.text).toContain('"content":"{\\"lesson\\":\\"contenuto completo\\"}"');
+    expect(response.text).not.toContain('bozza incompleta');
+    expect(response.text).toContain('"finish_reason":"stop"');
   });
 
   test('returns Codex client tool calls through the Chat Completions contract', async () => {
@@ -311,10 +531,11 @@ describe('/api/openrouter proxy', () => {
       );
       return '';
     });
+    const token = authenticateProvider('codex');
 
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
-      .set('X-Nous-AI-Provider', 'codex')
+      .set('Authorization', `Bearer ${token}`)
       .set('X-Nous-Model-Slot', 'assessment')
       .send({
         messages: [{ role: 'user', content: 'Ho risposto a tutte le domande.' }],

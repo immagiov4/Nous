@@ -8,7 +8,12 @@ import type { ReasoningEffort } from '../config/modelConfig.js';
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
 const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
 const CODEX_BASE_INSTRUCTIONS =
-  'You are the Nous Reader text engine. Use only the dynamic tools explicitly supplied by Nous. Never inspect the host filesystem, environment, applications, browser, or network. If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result.';
+  'You are the Nous Reader text engine. Use only capabilities explicitly supplied by Nous. Never inspect the host filesystem, environment, applications, or browser. If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result.';
+const CODEX_OFFLINE_INSTRUCTION = 'Do not access the network.';
+const CODEX_WEB_RESEARCH_INSTRUCTION =
+  'Web search is available for this research request. Search and open enough relevant sources to support the requested result, and preserve source URLs in the structured output.';
+const CODEX_IMAGE_GENERATION_INSTRUCTION =
+  'The built-in image generation capability is available for this request. Use it exactly once to generate the requested PNG.';
 const CODEX_DELEGATED_TOOL_RESULT = JSON.stringify({ status: 'awaiting_client_result' });
 const CODEX_DISABLED_BUILTIN_FEATURES = [
   'apps',
@@ -27,12 +32,9 @@ const CODEX_DISABLED_BUILTIN_FEATURES = [
   'request_permissions_tool',
   'shell_tool',
   'skill_mcp_dependency_install',
-  'standalone_web_search',
   'tool_call_mcp_elicitation',
   'tool_suggest',
   'unified_exec',
-  'web_search_cached',
-  'web_search_request',
   'workspace_dependencies',
 ] as const;
 const CODEX_SAFE_ENVIRONMENT_VARIABLES = [
@@ -93,7 +95,6 @@ interface CodexProcess {
 
 export interface CodexAccountSummary {
   email?: string;
-  planType?: string;
   requiresOpenaiAuth: boolean;
   type?: string;
 }
@@ -114,9 +115,13 @@ export interface CodexTurnTool {
 export type CodexToolExecution = 'client' | 'server';
 
 export interface CodexTurnInput {
+  allowImageGeneration?: boolean;
+  allowWebSearch?: boolean;
   developerInstructions: string;
   input: Array<{ text: string; type: 'text' } | { type: 'image'; url: string }>;
   model: string;
+  onImageGenerated?: (result: string) => void;
+  onReasoningDelta?: (delta: string) => void;
   onTextDelta?: (delta: string) => void;
   onToolEnd?: (callId: string, output: unknown) => void;
   onToolStart?: (
@@ -341,17 +346,21 @@ export class CodexJsonRpcClient {
 export const isCodexAppServerEnabled = (): boolean =>
   process.env.CODEX_APP_SERVER_ENABLED === 'true';
 
-export const buildCodexAppServerCommand = (binary: string): string[] => [
+export const buildCodexAppServerCommand = (
+  binary: string,
+  options: { allowImageGeneration?: boolean } = {}
+): string[] => [
   binary,
   'app-server',
   '--stdio',
   '-c',
-  'tools.web_search=false',
-  '-c',
   'shell_environment_policy.inherit=none',
   '-c',
   'mcp_servers={}',
-  ...CODEX_DISABLED_BUILTIN_FEATURES.flatMap(feature => ['--disable', feature]),
+  ...CODEX_DISABLED_BUILTIN_FEATURES.filter(
+    feature => feature !== 'image_generation' || !options.allowImageGeneration
+  ).flatMap(feature => ['--disable', feature]),
+  ...(options.allowImageGeneration ? ['--enable', 'image_generation'] : []),
 ];
 
 export const buildCodexAppServerEnvironment = (
@@ -373,9 +382,9 @@ export const buildCodexAppServerEnvironment = (
   return environment;
 };
 
-const spawnCodexAppServer = (): CodexProcess => {
+const spawnCodexAppServer = (options: { allowImageGeneration?: boolean } = {}): CodexProcess => {
   const binary = process.env.CODEX_BINARY?.trim() || 'codex';
-  const subprocess = Bun.spawn(buildCodexAppServerCommand(binary), {
+  const subprocess = Bun.spawn(buildCodexAppServerCommand(binary, options), {
     cwd: process.env.CODEX_WORKING_DIRECTORY?.trim() || tmpdir(),
     env: buildCodexAppServerEnvironment(process.env),
     stdin: 'pipe',
@@ -469,7 +478,6 @@ const parseAccountSummary = (response: unknown): CodexAccountSummary => {
     ...(account
       ? {
           email: readString(account.email),
-          planType: readString(account.planType),
           type: readString(account.type),
         }
       : {}),
@@ -524,6 +532,32 @@ const readAgentMessageText = (params: unknown): string | undefined => {
   return readText(params.item.text);
 };
 
+const readCompletedReasoningSummary = (params: unknown): string | undefined => {
+  if (!isRecord(params) || !isRecord(params.item) || params.item.type !== 'reasoning') {
+    return undefined;
+  }
+
+  const summary = Array.isArray(params.item.summary)
+    ? params.item.summary
+        .map(part => (isRecord(part) ? readText(part.text) : undefined))
+        .filter((part): part is string => Boolean(part))
+        .join('\n')
+    : '';
+  return readText(summary);
+};
+
+const readCompletedImageResult = (params: unknown): string | undefined => {
+  if (
+    !isRecord(params) ||
+    !isRecord(params.item) ||
+    params.item.type !== 'imageGeneration' ||
+    params.item.status !== 'completed'
+  ) {
+    return undefined;
+  }
+  return readText(params.item.result);
+};
+
 const readTurnStatus = (params: unknown): string | undefined => {
   if (!isRecord(params) || !isRecord(params.turn)) {
     return undefined;
@@ -537,6 +571,8 @@ export const runCodexAppServerTurnWithClient = async (
 ): Promise<string> => {
   let completedText = '';
   let streamedText = '';
+  let hasStreamedReasoningText = false;
+  let streamedReasoningSummary = '';
 
   await requireAuthenticatedCodexAccount(client);
   const toolsByName = new Map((turn.tools || []).map(tool => [tool.name, tool]));
@@ -570,9 +606,15 @@ export const runCodexAppServerTurnWithClient = async (
     };
   });
 
+  const webSearchMode = turn.allowWebSearch ? 'live' : 'disabled';
   const threadResponse = await client.request('thread/start', {
     approvalPolicy: 'never',
-    baseInstructions: CODEX_BASE_INSTRUCTIONS,
+    baseInstructions: [
+      CODEX_BASE_INSTRUCTIONS,
+      turn.allowWebSearch ? CODEX_WEB_RESEARCH_INSTRUCTION : CODEX_OFFLINE_INSTRUCTION,
+      ...(turn.allowImageGeneration ? [CODEX_IMAGE_GENERATION_INSTRUCTION] : []),
+    ].join('\n'),
+    config: { web_search: webSearchMode },
     cwd: process.env.CODEX_WORKING_DIRECTORY?.trim() || tmpdir(),
     developerInstructions: turn.developerInstructions,
     dynamicTools: (turn.tools || []).map(tool => ({
@@ -615,7 +657,43 @@ export const runCodexAppServerTurnWithClient = async (
         return;
       }
 
+      if (method === 'item/reasoning/textDelta' && isRecord(params)) {
+        const delta = readText(params.delta);
+        if (delta) {
+          hasStreamedReasoningText = true;
+          turn.onReasoningDelta?.(delta);
+        }
+        return;
+      }
+
+      if (
+        method === 'item/reasoning/summaryTextDelta' &&
+        isRecord(params) &&
+        !hasStreamedReasoningText
+      ) {
+        const delta = readText(params.delta);
+        if (delta) {
+          streamedReasoningSummary += delta;
+          turn.onReasoningDelta?.(delta);
+        }
+        return;
+      }
+
       if (method === 'item/completed') {
+        const imageResult = readCompletedImageResult(params);
+        if (imageResult) {
+          turn.onImageGenerated?.(imageResult);
+        }
+        if (!hasStreamedReasoningText) {
+          const completedSummary = readCompletedReasoningSummary(params);
+          if (completedSummary && completedSummary !== streamedReasoningSummary) {
+            const missingSummary = completedSummary.startsWith(streamedReasoningSummary)
+              ? completedSummary.slice(streamedReasoningSummary.length)
+              : `\n${completedSummary}`;
+            streamedReasoningSummary = completedSummary;
+            turn.onReasoningDelta?.(missingSummary);
+          }
+        }
         completedText = readAgentMessageText(params) || completedText;
         return;
       }
@@ -644,6 +722,7 @@ export const runCodexAppServerTurnWithClient = async (
       input: turn.input,
       model: turn.model,
       effort: turn.reasoningEffort,
+      summary: turn.reasoningEffort === 'none' ? 'none' : 'detailed',
       sandboxPolicy: { type: 'readOnly' },
       ...(turn.outputSchema ? { outputSchema: turn.outputSchema } : {}),
     });
@@ -654,10 +733,37 @@ export const runCodexAppServerTurnWithClient = async (
 };
 
 export const runCodexAppServerTurn = async (turn: CodexTurnInput): Promise<string> => {
-  const client = await startCodexAppServerClient();
+  const client = await startCodexAppServerClient(() =>
+    spawnCodexAppServer({ allowImageGeneration: turn.allowImageGeneration })
+  );
   try {
     return await runCodexAppServerTurnWithClient(turn, client);
   } finally {
     client.close();
   }
+};
+
+export const generateCodexAppServerImage = async ({
+  model,
+  prompt,
+}: {
+  model: string;
+  prompt: string;
+}): Promise<string> => {
+  let imageResult = '';
+  await runCodexAppServerTurn({
+    allowImageGeneration: true,
+    developerInstructions:
+      'Generate the requested educational image with the built-in image generation capability. Do not use tools other than image generation and do not substitute SVG, HTML, Mermaid, or text art.',
+    input: [{ type: 'text', text: prompt }],
+    model,
+    onImageGenerated: result => {
+      imageResult = result;
+    },
+    reasoningEffort: 'low',
+  });
+  if (!imageResult) {
+    throw new CodexAppServerError('Codex did not return a generated image.', 'protocol');
+  }
+  return imageResult;
 };

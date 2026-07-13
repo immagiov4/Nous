@@ -2,6 +2,7 @@ import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
 import { markApplicationExercisePlanningFailed } from '../../../services/exercises/plan.ts';
+import type { GenerationStatusReporter } from '../../../services/openrouter/generationProgress.ts';
 import { getCourseSourceDescriptors } from '../../../services/projects/courseSources.ts';
 import {
   createProjectId,
@@ -339,8 +340,11 @@ export const createAssessmentPlanningCommands = (
         'Nuovo percorso',
     });
 
-    const reportStatus = (status: string) => {
+    const reportStatus: GenerationStatusReporter = (status, stage) => {
       state.setWorkflowMessage('generatePlan', requestId, status);
+      if (stage) {
+        progressObserver.setStage(stage);
+      }
       progressObserver.updateStatus(status);
     };
 

@@ -2,6 +2,8 @@
 import { createHmac, timingSafeEqual, webcrypto } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 
+import { type AiProvider, isAiProvider } from '../config/modelConfig.js';
+
 const DEFAULT_LOCAL_USER_ID = 'local-user';
 export const LOCAL_AUTH_MODE = 'local-bypass' as const;
 export const SUPABASE_AUTH_MODE = 'supabase' as const;
@@ -12,6 +14,7 @@ const JWKS_CACHE_MS = 5 * 60 * 1000;
 type AuthMode = typeof LOCAL_AUTH_MODE | typeof SUPABASE_AUTH_MODE;
 
 export interface CurrentUser {
+  aiProvider?: AiProvider;
   email?: string;
   id: string;
   role?: string;
@@ -179,14 +182,12 @@ const readString = (value: unknown): string | undefined =>
 
 const readRole = (payload: Record<string, unknown>): string | undefined => {
   const appMetadata = isRecord(payload.app_metadata) ? payload.app_metadata : undefined;
-  const userMetadata = isRecord(payload.user_metadata) ? payload.user_metadata : undefined;
+  return readString(appMetadata?.role) || readString(appMetadata?.user_role);
+};
 
-  return (
-    readString(appMetadata?.role) ||
-    readString(appMetadata?.user_role) ||
-    readString(userMetadata?.role) ||
-    readString(payload.role)
-  );
+const readAiProvider = (payload: Record<string, unknown>): AiProvider | undefined => {
+  const appMetadata = isRecord(payload.app_metadata) ? payload.app_metadata : undefined;
+  return isAiProvider(appMetadata?.ai_provider) ? appMetadata.ai_provider : undefined;
 };
 
 const assertTokenNotExpired = (payload: Record<string, unknown>): void => {
@@ -239,6 +240,7 @@ const resolveSupabaseJwtUser = async (token: string): Promise<CurrentUser> => {
   }
 
   return {
+    aiProvider: readAiProvider(payload),
     id: userId,
     email: readString(payload.email),
     role: readRole(payload),

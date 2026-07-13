@@ -41,7 +41,7 @@ export const createConfiguredTextModel = (
     model: openRouter.chat(modelName),
     modelName,
     providerOptions: {
-      openrouter: { reasoning: { effort: reasoningEffort } },
+      openrouter: { reasoning: { enabled: true, effort: reasoningEffort } },
     },
   };
 };

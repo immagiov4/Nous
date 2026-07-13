@@ -256,7 +256,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       ) : null}
 
       <aside
-        className={`${viewportPositionClassName} inset-y-0 left-0 z-[70] flex min-h-0 flex-col overflow-hidden border-r border-gray-200/80 bg-white transition-transform duration-300 dark:border-zinc-700/80 dark:bg-zinc-800 ${
+        className={`${viewportPositionClassName} inset-y-0 left-0 z-[70] flex min-h-0 flex-col overflow-hidden rounded-r-[2rem] border-r border-gray-200/80 bg-white transition-transform duration-300 dark:border-zinc-700/80 dark:bg-zinc-800 ${
           shouldShowSidebar ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{
@@ -334,7 +334,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
         </div>
 
         <div
-          className={`reader-sidebar-scroll custom-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-4 py-5 ${
+          className={`reader-sidebar-scroll custom-scrollbar mr-2 mb-2 min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain px-4 py-5 ${
             isMobileViewport ? 'reader-sidebar-scroll-mobile' : ''
           }`}
         >

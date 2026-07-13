@@ -3,15 +3,10 @@ import { isRecord } from '../../utils/records.ts';
 import { getMarkdownHeadings } from './lessonImages.ts';
 import { callOpenRouter, MODEL_FLASH, parseCleanJson } from './shared.ts';
 
-const LEARNING_AID_KINDS = new Set<LessonLearningAidKind>([
-  'definition',
-  'formula',
-  'symbol',
-  'analogy',
-]);
+const LEARNING_AID_KINDS = new Set<LessonLearningAidKind>(['definition', 'formula', 'analogy']);
 const MAX_DEFINITION_COUNT = 2;
 const MAX_OTHER_KIND_COUNT = 1;
-const MAX_LEARNING_AID_COUNT = 5;
+const MAX_LEARNING_AID_COUNT = 4;
 const MAX_LESSON_MARKDOWN_CHARS = 24_000;
 
 const LEARNING_AIDS_RESPONSE_SCHEMA = {
@@ -46,8 +41,6 @@ const LEARNING_AIDS_RESPONSE_SCHEMA = {
 
 const normalizeText = (value: unknown): string =>
   typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
-
-const isValidSymbolTitle = (title: string): boolean => title.length <= 16 && !/\s/u.test(title);
 
 const slugifyAidTitle = (value: string): string =>
   value
@@ -102,10 +95,6 @@ export const normalizeLessonLearningAids = (
     if (!title || !content) {
       continue;
     }
-    if (draft.kind === 'symbol' && !isValidSymbolTitle(title)) {
-      continue;
-    }
-
     const dedupeKey = `${draft.kind}:${title.toLocaleLowerCase()}`;
     if (seenAids.has(dedupeKey)) {
       continue;
@@ -155,8 +144,8 @@ DESCRIZIONE: ${sectionDescription}
 VINCOLI:
 - Scrivi nella stessa lingua della lezione.
 - Restituisci al massimo 2 definizioni importanti e specifiche del contesto.
-- Puoi aggiungere al massimo una formula, un simbolo e un'analogia, solo se sono realmente utili.
-- Usa "simbolo" esclusivamente per un simbolo convenzionale breve e letterale (per esempio λ, ∑, R), mai per un processo, una decisione, una frase o un concetto che appartiene alle definizioni.
+- Puoi aggiungere al massimo una formula e un'analogia, solo se sono realmente utili.
+- Usa formula solo per un'espressione matematica con quantità o simboli e una relazione utile da consultare e riutilizzare. Relazioni in prosa, equivalenze concettuali, regole mnemoniche e frasi che usano "=" come abbreviazione sono definizioni, non formule.
 - Mantieni titolo e contenuto compatti, autonomi e privi di riempitivo.
 - Il titolo è un'etichetta: massimo 4 parole e 32 caratteri. Scegli il nome più breve e riconoscibile del concetto, mai una frase descrittiva.
 - Ogni definizione deve essere comprensibile da sola per il richiamo immediato: usa parole comuni e non introdurre termini tecnici non spiegati; se un termine è indispensabile, chiariscilo nella stessa definizione.

@@ -2,6 +2,7 @@ import {
   type ComponentPropsWithoutRef,
   type CSSProperties,
   type HTMLAttributes,
+  isValidElement,
   type MouseEvent,
   memo,
   type ReactNode,
@@ -57,7 +58,6 @@ export interface MarkdownRendererProps {
 }
 
 interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
-  inline?: boolean;
   className?: string;
   children?: ReactNode;
 }
@@ -152,18 +152,32 @@ const buildMarkdownComponents = (
   isDarkMode: boolean,
   noteAnnotationIds: Set<string>
 ) => ({
-  code({ inline, className, children }: CodeRendererProps) {
-    const languageLabel = /language-([^\s]+)/.exec(className || '')?.[1].toLowerCase();
+  code({ className, children }: CodeRendererProps) {
+    if (className) {
+      return <code className={className}>{children}</code>;
+    }
+
+    return (
+      <code className="inherit-color rounded bg-black/5 px-1.5 py-0.5 text-sm font-mono font-bold dark:bg-white/10">
+        {children}
+      </code>
+    );
+  },
+  pre({ children }: { children?: ReactNode }) {
+    const codeElement = isValidElement<CodeRendererProps>(children) ? children : null;
+    const languageLabel = /language-([^\s]+)/
+      .exec(codeElement?.props.className || '')?.[1]
+      .toLowerCase();
     const language = languageLabel
       ? CODE_LANGUAGE_ALIASES[languageLabel] || languageLabel
       : undefined;
 
-    return !inline && language && SUPPORTED_CODE_LANGUAGES.has(language) ? (
+    return language && SUPPORTED_CODE_LANGUAGES.has(language) ? (
       <div className="my-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm dark:border-zinc-700/80">
         <SyntaxHighlighter
           style={syntaxTheme}
           language={language}
-          PreTag="div"
+          PreTag="pre"
           customStyle={{
             margin: 0,
             padding: '1.5rem',
@@ -171,16 +185,12 @@ const buildMarkdownComponents = (
             backgroundColor: isDarkMode ? '#18181b' : '#f9fafb',
           }}
         >
-          {String(children).replace(/\n$/, '')}
+          {String(codeElement?.props.children).replace(/\n$/, '')}
         </SyntaxHighlighter>
       </div>
-    ) : inline ? (
-      <code className="inherit-color rounded bg-black/5 px-1.5 py-0.5 text-sm font-mono font-bold dark:bg-white/10">
-        {children}
-      </code>
     ) : (
       <pre className="my-4 overflow-x-auto rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm dark:border-zinc-700/80 dark:bg-zinc-900">
-        <code>{children}</code>
+        {children}
       </pre>
     );
   },

@@ -492,7 +492,12 @@ test('preparePdfLessonMappings retries a strict single-lesson repair when the fi
   assert.deepEqual(resultLessons[8]?.primaryChunkIds, [buildChunkId(17)]);
   assert.deepEqual(resultLessons[9]?.primaryChunkIds, [buildChunkId(18)]);
   assert.equal(callOpenRouterMock.mock.calls.length, 5);
-  assert.equal(callOpenRouterMock.mock.calls[3]?.[0]?.response_format, undefined);
+  assert.equal(callOpenRouterMock.mock.calls[3]?.[0]?.response_format?.type, 'json_schema');
+  assert.deepEqual(
+    callOpenRouterMock.mock.calls[3]?.[0]?.response_format?.json_schema?.schema?.properties
+      ?.mappings?.items?.properties?.lessonId?.enum,
+    ['section-9']
+  );
   assert.match(
     String(callOpenRouterMock.mock.calls[3]?.[0]?.messages[0]?.content ?? ''),
     /VINCOLI TASSATIVI DI OUTPUT/i

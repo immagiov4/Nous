@@ -2,8 +2,11 @@ import { motion } from 'framer-motion';
 import {
   ArrowUp,
   BookPlus,
+  ChartNoAxesColumn,
+  CodeXml,
   Eraser,
   Highlighter,
+  Image as ImageIcon,
   LoaderCircle,
   MoreVertical,
   NotebookPen,
@@ -71,7 +74,7 @@ const CONTEXT_MENU_DESKTOP_MIN_WIDTH = 320;
 const CONTEXT_MENU_DESKTOP_CHROME_HEIGHT = 76;
 const CONTEXT_MENU_MOBILE_MAX_WIDTH = 384;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
-const MORE_ACTIONS_MENU_WIDTH = 208;
+const MORE_ACTIONS_MENU_WIDTH = 176;
 const MORE_ACTIONS_MENU_HEIGHT = 52;
 const MORE_ACTIONS_MENU_GAP = 8;
 
@@ -162,9 +165,8 @@ const ContextMenu = ({
     return artifactPayloads.filter(
       payload =>
         !attachedArtifactIds.has(payload.summary.id) &&
-        (payload.summary.kind !== 'generated-visual' ||
-          !('visual' in payload) ||
-          payload.visual.id.startsWith('visual-draft-'))
+        payload.summary.kind === 'generated-visual' &&
+        'visual' in payload
     );
   }, [activeAnnotationArtifactRefs, artifactPayloads]);
   const hasSavedAnnotationNote = annotationNote.trim().length > 0;
@@ -344,7 +346,6 @@ const ContextMenu = ({
           }
         : { left, top: triggerRect.bottom + MORE_ACTIONS_MENU_GAP }
     );
-    setIsNoteEditorOpen(false);
     setIsLessonConfirmOpen(false);
     setIsMoreActionsOpen(true);
   };
@@ -353,6 +354,7 @@ const ContextMenu = ({
     event.preventDefault();
     event.stopPropagation();
     setIsMoreActionsOpen(false);
+    setIsNoteEditorOpen(false);
     setIsLessonConfirmOpen(true);
     window.requestAnimationFrame(() => lessonCancelButtonRef.current?.focus());
   };
@@ -577,7 +579,7 @@ const ContextMenu = ({
 
   const moreActionsButtonClassName = isMobileSheet
     ? 'flex h-11 items-center justify-center gap-2 rounded-full border border-orange-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-orange-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-0 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600'
-    : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-stone-300/95 bg-white text-stone-700 shadow-[0_20px_34px_-18px_rgba(34,28,19,0.24),0_8px_14px_-12px_rgba(34,28,19,0.16)] transition-colors hover:border-orange-300 hover:bg-orange-50/70 focus-visible:border-orange-400 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-50 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:border-orange-700 dark:hover:bg-stone-600';
+    : 'flex h-10 w-8 shrink-0 items-center justify-center rounded-xl text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-300 disabled:opacity-50 dark:text-stone-400 dark:hover:bg-stone-600 dark:hover:text-stone-100';
 
   const noteButtonClassName = isMobileSheet
     ? 'flex h-11 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-3 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-100 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-0 dark:border-stone-400 dark:bg-stone-700 dark:text-stone-200 dark:hover:bg-stone-600'
@@ -681,28 +683,37 @@ const ContextMenu = ({
 
     return (
       <div
-        className="absolute bottom-[calc(100%+0.5rem)] right-0 z-30 w-[19rem] overflow-hidden rounded-[1.4rem] border border-stone-200 bg-white/95 p-2 shadow-[0_28px_80px_-40px_rgba(24,24,27,0.42)] backdrop-blur dark:border-stone-500 dark:bg-stone-800/95"
+        className="absolute bottom-[calc(100%+0.5rem)] right-0 z-30 w-[19rem] overflow-hidden rounded-[1.4rem] border border-stone-200 bg-white/95 p-1.5 shadow-[0_28px_80px_-40px_rgba(24,24,27,0.42)] backdrop-blur dark:border-stone-500 dark:bg-stone-800/95"
         role="menu"
       >
-        <div className="max-h-56 overflow-y-auto">
-          {attachableArtifactPayloads.map(artifact => (
-            <button
-              key={artifact.summary.id}
-              type="button"
-              onClick={() => handleAttachArtifact(artifact)}
-              className="flex w-full min-w-0 items-center gap-2 rounded-[1rem] px-3 py-2.5 text-left transition-colors hover:bg-orange-50/80 dark:hover:bg-stone-700/70"
-              title={artifact.summary.title}
-              aria-label={t('Allega {artifactTitle} alla nota', {
-                artifactTitle: artifact.summary.title,
-              })}
-              role="menuitem"
-            >
-              <Paperclip className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
-              <span className="min-w-0 flex-1 truncate text-sm font-medium text-stone-800 dark:text-stone-100">
-                {artifact.summary.title}
-              </span>
-            </button>
-          ))}
+        <div className="custom-scrollbar max-h-56 overflow-y-auto p-1 scroll-py-1">
+          {attachableArtifactPayloads.map(artifact => {
+            const ArtifactIcon =
+              'visual' in artifact && artifact.visual.kind === 'image'
+                ? ImageIcon
+                : 'visual' in artifact && artifact.visual.kind === 'html'
+                  ? CodeXml
+                  : ChartNoAxesColumn;
+
+            return (
+              <button
+                key={artifact.summary.id}
+                type="button"
+                onClick={() => handleAttachArtifact(artifact)}
+                className="flex w-full min-w-0 items-center gap-2 rounded-[1rem] px-3 py-2.5 text-left transition-colors hover:bg-stone-100 dark:hover:bg-stone-700/70"
+                title={artifact.summary.title}
+                aria-label={t('Allega {artifactTitle} alla nota', {
+                  artifactTitle: artifact.summary.title,
+                })}
+                role="menuitem"
+              >
+                <ArtifactIcon className="h-4 w-4 shrink-0 text-stone-500 dark:text-stone-300" />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-stone-800 dark:text-stone-100">
+                  {artifact.summary.title}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     );
@@ -878,7 +889,7 @@ const ContextMenu = ({
         className={moreActionsButtonClassName}
         title={t('Apri menu')}
       >
-        <MoreVertical className="h-4 w-4 shrink-0 text-orange-600" />
+        <MoreVertical className="h-4 w-4 shrink-0" />
       </button>
     ) : null;
 
@@ -888,12 +899,15 @@ const ContextMenu = ({
     }
 
     return createPortal(
-      <div
+      <motion.div
         ref={moreActionsMenuRef}
         data-nous-context-menu-portal
         role="menu"
         aria-label={t('Apri menu')}
-        className="fixed z-[70] w-52 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-[0_24px_64px_-24px_rgba(28,25,23,0.45)] dark:border-stone-500 dark:bg-stone-800"
+        initial={{ opacity: 0, scale: 0.96, y: 4 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.18, ease: 'easeOut' }}
+        className="fixed z-[70] w-44 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-[0_24px_64px_-24px_rgba(28,25,23,0.45)] dark:border-stone-500 dark:bg-stone-800"
         style={moreActionsMenuStyle}
       >
         <button
@@ -901,12 +915,12 @@ const ContextMenu = ({
           type="button"
           role="menuitem"
           onClick={handleCreateIntent}
-          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-orange-50 focus-visible:bg-orange-50 focus-visible:outline-none dark:text-stone-100 dark:hover:bg-stone-700 dark:focus-visible:bg-stone-700"
+          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 focus-visible:bg-stone-100 focus-visible:outline-none dark:text-stone-100 dark:hover:bg-stone-700 dark:focus-visible:bg-stone-700"
         >
-          <BookPlus className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-300" />
+          <BookPlus className="h-4 w-4 shrink-0 text-stone-500 dark:text-stone-300" />
           <span>{t('Crea lezione')}</span>
         </button>
-      </div>,
+      </motion.div>,
       moreActionsPortalTarget
     );
   };
@@ -953,26 +967,30 @@ const ContextMenu = ({
             />
           </div>
 
-          <SpeechInputButton
-            disabled={isLoading}
-            onTranscription={handleSpeechTranscription}
-            variant="compact"
-          />
-
-          <button
-            type="submit"
-            data-context-menu-target="submit"
-            aria-label={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
-            disabled={!trimmedInput || isLoading}
-            className={askButtonClassName}
-            title={t(trimmedInput ? 'Invia domanda' : 'Inserisci una domanda')}
-          >
-            {isLoading ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : (
-              <ArrowUp className="h-4 w-4" />
-            )}
-          </button>
+          {!trimmedInput ? (
+            <div className={isLessonMode ? 'mr-1.5' : ''}>
+              <SpeechInputButton
+                disabled={isLoading}
+                onTranscription={handleSpeechTranscription}
+                variant="compact"
+              />
+            </div>
+          ) : (
+            <button
+              type="submit"
+              data-context-menu-target="submit"
+              aria-label={t('Invia domanda')}
+              disabled={isLoading}
+              className={askButtonClassName}
+              title={t('Invia domanda')}
+            >
+              {isLoading ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowUp className="h-4 w-4" />
+              )}
+            </button>
+          )}
 
           {shouldShowToolbarNoteButton ? (
             <button
@@ -1060,11 +1078,13 @@ const ContextMenu = ({
             className="h-11 min-w-0 flex-1 border-0 bg-transparent px-2.5 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:opacity-60 dark:text-stone-100 dark:placeholder:text-stone-300"
             disabled={isLoading}
           />
-          <SpeechInputButton
-            disabled={isLoading}
-            onTranscription={handleSpeechTranscription}
-            variant="compact"
-          />
+          <div className={isLessonMode ? 'mr-1.5' : ''}>
+            <SpeechInputButton
+              disabled={isLoading}
+              onTranscription={handleSpeechTranscription}
+              variant="compact"
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {!isLessonMode ? (

@@ -499,3 +499,125 @@ test('normalizeMarkdownForRendering escapes an unclosed fence so following prose
   assert.match(output, /## Dopo il codice/);
   assert.match(output, /Testo leggibile\./);
 });
+
+test('normalizeMarkdownForRendering does not turn indented plain-text fragments into code blocks', () => {
+  const input = [
+    '1. **Definizione del modello:** Si stabilisce una funzione parametrica',
+    '',
+    '    y = f(x, φ)',
+    '',
+    '    f',
+    '',
+    '    Figura 3.3',
+    '',
+    '\tchunk-022',
+    '',
+    '    /',
+    '',
+    '    mono',
+  ].join('\n');
+
+  const output = normalizeMarkdownForRendering(input);
+
+  assert.doesNotMatch(output, /```/);
+  assert.match(output, /y = f\(x, φ\)/);
+  assert.match(output, /\nf\n/);
+  assert.match(output, /\nFigura 3\.3\n/);
+  assert.match(output, /\nchunk-022\n/);
+  assert.match(output, /\n\/\n/);
+  assert.match(output, /\nmono$/);
+});
+
+test('normalizeMarkdownForRendering restores a missing opening fence around valid JSON', () => {
+  const input = [
+    'Il server usa l’identificatore per trovare una voce nello store, ad esempio:',
+    '',
+    '{',
+    '  "userId": "42",',
+    '  "role": "editor",',
+    '  "createdAt": "2026-07-11T10:00:00.000Z"',
+    '}',
+    '```',
+    '',
+    'Il vantaggio difensivo è chiaro.',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      'Il server usa l’identificatore per trovare una voce nello store, ad esempio:',
+      '',
+      '```json',
+      '{',
+      '  "userId": "42",',
+      '  "role": "editor",',
+      '  "createdAt": "2026-07-11T10:00:00.000Z"',
+      '}',
+      '```',
+      '',
+      'Il vantaggio difensivo è chiaro.',
+    ].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering preserves a later fenced block after restoring JSON', () => {
+  const input = [
+    'Il record della sessione è:',
+    '',
+    '{',
+    '  "userId": "42",',
+    '  "role": "editor"',
+    '}',
+    '```',
+    '',
+    'Il server legge la sessione prima di eseguire:',
+    '',
+    '```js',
+    'const session = await store.get(sessionId);',
+    '```',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      'Il record della sessione è:',
+      '',
+      '```json',
+      '{',
+      '  "userId": "42",',
+      '  "role": "editor"',
+      '}',
+      '```',
+      '',
+      'Il server legge la sessione prima di eseguire:',
+      '',
+      '```js',
+      'const session = await store.get(sessionId);',
+      '```',
+    ].join('\n')
+  );
+});
+
+test('normalizeMarkdownForRendering restores a fence around single-line JSON', () => {
+  const input = [
+    'Il cookie non deve contenere dati autorevoli:',
+    '',
+    '{ "userId": 42, "role": "admin" }',
+    '```',
+    '',
+    'Il server conserva invece lo stato.',
+  ].join('\n');
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    [
+      'Il cookie non deve contenere dati autorevoli:',
+      '',
+      '```json',
+      '{ "userId": 42, "role": "admin" }',
+      '```',
+      '',
+      'Il server conserva invece lo stato.',
+    ].join('\n')
+  );
+});

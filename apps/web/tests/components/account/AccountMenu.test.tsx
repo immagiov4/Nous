@@ -1,18 +1,9 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import AccountMenu from '../../../components/account/AccountMenu.tsx';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
-
-const codexApiMocks = vi.hoisted(() => ({
-  cancelCodexDeviceLogin: vi.fn(),
-  loadCodexProviderStatus: vi.fn(),
-  logoutCodexProvider: vi.fn(),
-  startCodexDeviceLogin: vi.fn(),
-}));
-
-vi.mock('../../../services/ai/codexAccountApi.ts', () => codexApiMocks);
 
 const fetchMock = vi.fn();
 
@@ -44,15 +35,6 @@ describe('AccountMenu', () => {
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
     vi.stubGlobal('fetch', fetchMock);
     fetchMock.mockReset();
-    for (const mock of Object.values(codexApiMocks)) {
-      mock.mockReset();
-    }
-    codexApiMocks.loadCodexProviderStatus.mockResolvedValue({
-      account: null,
-      enabled: true,
-      models: [],
-    });
-    window.localStorage.removeItem('nous.ai-provider');
     clearSupabaseSession();
   });
 
@@ -69,8 +51,7 @@ describe('AccountMenu', () => {
     await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
     await user.click(screen.getByRole('menuitem', { name: 'Profilo' }));
     const displayNameInput = screen.getByRole('textbox', { name: 'Nome visualizzato' });
-    await user.clear(displayNameInput);
-    await user.type(displayNameInput, 'Ada Lovelace');
+    fireEvent.change(displayNameInput, { target: { value: 'Ada Lovelace' } });
     await user.click(screen.getByRole('button', { name: 'Salva profilo' }));
 
     expect(await screen.findByRole('status')).toHaveTextContent('Profilo aggiornato.');
@@ -120,7 +101,7 @@ describe('AccountMenu', () => {
     expect(screen.queryByRole('button', { name: 'Invia email di recupero' })).toBeNull();
   });
 
-  test('opens the accessible AI provider panel from the account menu', async () => {
+  test('keeps AI provider controls out of the end-user account menu', async () => {
     const user = userEvent.setup();
     saveAccountSession(['email']);
     fetchMock.mockResolvedValueOnce(accountResponse('email'));
@@ -128,13 +109,7 @@ describe('AccountMenu', () => {
     render(<AccountMenu />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
-    await user.click(screen.getByRole('menuitem', { name: 'Provider AI' }));
 
-    expect(await screen.findByRole('dialog', { name: 'Provider AI' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Provider AI per le attività testuali')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Provider AI' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
+    expect(screen.queryByRole('menuitem', { name: 'Provider AI' })).toBeNull();
   });
 });

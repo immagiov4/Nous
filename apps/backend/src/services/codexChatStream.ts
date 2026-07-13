@@ -19,7 +19,7 @@ interface CodexChatStreamInput {
 
 const CODEX_TEXT_PART_ID = 'codex-answer';
 const CODEX_CLIENT_TOOL_INSTRUCTIONS =
-  'If a dynamic tool returns status "awaiting_client_result", end the turn immediately without inventing its result. Nous will send the real client result in the next turn.';
+  'When calling a client tool, call it directly without announcing, narrating, or previewing the action in user-visible text. If it returns status "awaiting_client_result", end the turn immediately without inventing its result. Nous will send the real client result in the next turn. Continue from that result without repeating any text already sent in earlier turns.';
 export const SAFE_AI_STREAM_ERROR =
   'Il servizio AI non ha completato la richiesta. Riprova tra poco.';
 
@@ -146,7 +146,7 @@ export const createCodexChatStream = async ({
               toolCallId: callId,
               toolName: name,
               input,
-              dynamic: true,
+              dynamic: false,
               ...(execution === 'server' ? { providerExecuted: true } : {}),
             });
           },
@@ -155,7 +155,7 @@ export const createCodexChatStream = async ({
               type: 'tool-output-available',
               toolCallId: callId,
               output,
-              dynamic: true,
+              dynamic: false,
               providerExecuted: true,
             }),
         });

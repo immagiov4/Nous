@@ -1,6 +1,7 @@
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import { MEDIUM_REASONING_CONFIG } from '../config.ts';
 import { buildLessonChunkContext } from '../documentIndex/index.ts';
+import type { GenerationStatusReporter } from '../generationProgress.ts';
 import { generateLessonLearningAids } from '../learningAids.ts';
 import {
   appendGeneratedVisualExample,
@@ -131,7 +132,7 @@ export const generateSectionContent = async (
   previousContext: string,
   primaryChunkIds?: string[],
   documentIndex?: PdfTextIndex | null,
-  onStatusUpdate?: (status: string) => void,
+  onStatusUpdate?: GenerationStatusReporter,
   generationNotes?: string,
   onReasoningUpdate?: (reasoning: string) => void
 ): Promise<{
@@ -142,7 +143,7 @@ export const generateSectionContent = async (
   imageRefs: LessonImageRef[];
   documentAssets: PdfDocumentAssets | null;
 }> => {
-  onStatusUpdate?.('Preparazione materiale della lezione...');
+  onStatusUpdate?.('Preparazione materiale della lezione...', 'sources');
   const isFirstLesson = previousContext.trim().length === 0;
   const continuityRule = isFirstLesson
     ? "PRIMA LEZIONE: non citare lezioni precedenti, capitoli gia visti, 'come abbiamo accennato', 'come vedremo', o altre formule di continuita retroattiva."
@@ -326,7 +327,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       imagePlacementInstruction: `36. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.\n37. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.\n38. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "la figura mostra". Il paragrafo vicino deve dire al lettore che cosa guardare nell'immagine e perche e utile alla spiegazione.`,
     });
 
-    onStatusUpdate?.('Strutturazione della lezione...');
+    onStatusUpdate?.('Strutturazione della lezione...', 'drafting');
     const parsed = await retryWithBackoff(async () => {
       const response = await callOpenRouter({
         model: MODEL_REASONING,
@@ -350,7 +351,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     });
 
     traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
-    onStatusUpdate?.('Organizzazione quiz...');
+    onStatusUpdate?.('Organizzazione quiz...', 'quiz');
     const structuredQuiz = parseQuizPayload(parsed.quiz);
     const repairedContentMarkdown = await repairLessonMarkdown(
       parsed.contentMarkdown || '',
@@ -398,7 +399,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       imageSelectionMode: draftImageSelectionMode,
     });
 
-    onStatusUpdate?.('Verifica finale...');
+    onStatusUpdate?.('Verifica finale...', 'verification');
     const verifiedDraft = await verifyLessonDraft({
       sectionTitle,
       sectionDescription,
@@ -513,7 +514,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const userContent = mappedSourceContext
     ? prompt
     : await buildReasoningContentForFile(file, prompt, MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS);
-  onStatusUpdate?.('Strutturazione della lezione...');
+  onStatusUpdate?.('Strutturazione della lezione...', 'drafting');
   const parsed = await retryWithBackoff(async () => {
     const response = await callOpenRouter({
       model: MODEL_REASONING,
@@ -535,7 +536,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     return parseLessonContentPayload(response, sectionTitle);
   });
   traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
-  onStatusUpdate?.('Organizzazione quiz...');
+  onStatusUpdate?.('Organizzazione quiz...', 'quiz');
   const structuredQuiz = parseQuizPayload(parsed.quiz);
   const repairedContentMarkdown = await repairLessonMarkdown(
     parsed.contentMarkdown || '',
@@ -552,7 +553,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const targetQuizCount = estimateTargetQuizCount(repairedContentMarkdown);
   const draftQuiz = normalizeQuizLength(structuredQuiz, targetQuizCount);
 
-  onStatusUpdate?.('Verifica finale...');
+  onStatusUpdate?.('Verifica finale...', 'verification');
   const verifiedDraft = await verifyLessonDraft({
     sectionTitle,
     sectionDescription,

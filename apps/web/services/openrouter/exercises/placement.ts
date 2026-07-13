@@ -42,6 +42,32 @@ const PLACEMENT_INITIAL_RETRY_DELAY_MS = 1000;
 const PLACEMENT_RETRY_BACKOFF_MULTIPLIER = 1.5;
 const MAX_LESSON_DESCRIPTION_CHARS = 180;
 const MAX_DOSSIER_EXAMPLES = 3;
+const EXERCISE_PLACEMENT_RESPONSE_SCHEMA = {
+  name: 'exercise_placements',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      rationale: { type: 'string' },
+      placements: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            moduleId: { type: 'string' },
+            title: { type: 'string' },
+            description: { type: 'string' },
+            assessedObjective: { type: 'string' },
+          },
+          required: ['moduleId', 'title', 'description', 'assessedObjective'],
+        },
+      },
+    },
+    required: ['rationale', 'placements'],
+  },
+} as const;
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -185,7 +211,10 @@ const callPlacementModel = async (args: GenerateApplicationExercisePlacementsArg
       { role: 'system', content: teacherInstruction },
       { role: 'user', content: buildPlacementPrompt(args) },
     ],
-    response_format: { type: 'json_object' },
+    response_format: {
+      type: 'json_schema',
+      json_schema: EXERCISE_PLACEMENT_RESPONSE_SCHEMA,
+    },
   });
 
   args.onStatusUpdate?.('Verifico la pianificazione esercizi…');

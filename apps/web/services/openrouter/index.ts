@@ -23,9 +23,13 @@ export {
 } from './exercises/brief.ts';
 export { generateApplicationExerciseFeedback } from './exercises/evaluation.ts';
 export { generateApplicationExercisePlacements } from './exercises/placement.ts';
-export type { GenerationProgressSnapshot } from './generationProgress.ts';
+export type {
+  GenerationProgressSnapshot,
+  GenerationStatusReporter,
+} from './generationProgress.ts';
 export { createGenerationProgressObserver } from './generationProgress.ts';
 export { generateLessonLearningAids } from './learningAids.ts';
+export { generateStandaloneLessonQuiz } from './lessonMarkdownQuality/index.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,

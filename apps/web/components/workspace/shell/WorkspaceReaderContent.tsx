@@ -26,6 +26,7 @@ import type {
   SectionAnnotation,
 } from '../../../types.ts';
 import { getGeneratedVisualSourceLabel } from '../../../utils/learning/artifacts.ts';
+import { stripTerminalLessonSourcesSection } from '../../../utils/markdown/lessonSources.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
@@ -729,11 +730,11 @@ function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference
 
   return (
     <aside
-      aria-label={t('Fonti della lezione')}
+      aria-label={t('Fonti della sezione')}
       className="mt-10 border-t border-stone-200/80 pt-6 dark:border-stone-700"
     >
       <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
-        {t('Fonti della lezione')}
+        {t('Fonti della sezione')}
       </h2>
       <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-700 dark:text-stone-300">
         {sources.map((source, index) => {
@@ -817,15 +818,20 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     : 'max-w-[90rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
   const readingColumnClassName = isFocusMode ? 'mx-auto max-w-[76ch]' : 'mx-auto max-w-[82ch]';
   const lessonLayoutClassName = readingColumnClassName;
-  const renderedSectionContent = useMemo(
-    () =>
-      sectionContent && sourcePageRangeLabel
-        ? `${sectionContent.trim()}\n\n&nbsp;\n\n*${t('Fonte originale: {sourcePageRangeLabel}', {
+  const renderedSectionContent = useMemo(() => {
+    const contentWithoutDuplicateSources =
+      sectionContent && lessonSources.length > 0
+        ? stripTerminalLessonSourcesSection(sectionContent)
+        : sectionContent;
+    return contentWithoutDuplicateSources && sourcePageRangeLabel
+      ? `${contentWithoutDuplicateSources.trim()}\n\n&nbsp;\n\n*${t(
+          'Fonte originale: {sourcePageRangeLabel}',
+          {
             sourcePageRangeLabel,
-          })}*`
-        : sectionContent,
-    [sectionContent, sourcePageRangeLabel]
-  );
+          }
+        )}*`
+      : contentWithoutDuplicateSources;
+  }, [lessonSources.length, sectionContent, sourcePageRangeLabel]);
   const inlineQuizLayout = useMemo(
     () => buildInlineQuizLayout(renderedSectionContent || '', quiz.length),
     [quiz.length, renderedSectionContent]

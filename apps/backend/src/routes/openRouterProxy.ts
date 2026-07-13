@@ -4,9 +4,11 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 
 import { type Request, type Response, Router } from 'express';
 
+import { getCurrentUser } from '../auth/currentUser.js';
 import { requireOpenAiApiKey, requireOpenRouterApiKey } from '../config/chatConfig.js';
 import {
   type AiProvider,
+  getResolvedGlobalModelConfig,
   getResolvedModelConfigForProvider,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
@@ -19,8 +21,11 @@ import { type CodexTurnTool, runCodexAppServerTurn } from '../services/codexAppS
 import { isRecord } from '../utils/validation.js';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_MODEL_URL = 'https://openrouter.ai/api/v1/model';
 const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENROUTER_ECONOMY_SERVICE_TIER = 'flex';
 const AI_RESPONSE_HEADERS = ['content-type', 'cache-control'] as const;
+const openRouterImageSupportByModel = new Map<string, boolean>();
 const CODEX_PRODUCT_INSTRUCTIONS =
   'Opera solo come motore didattico di Nous Reader. Non ispezionare file locali, non eseguire comandi e non modificare il computer. Rispetta le istruzioni e i dati forniti nella richiesta.';
 
@@ -45,28 +50,97 @@ const getOpenAiHeaders = (): HeadersInit => ({
   Authorization: `Bearer ${requireOpenAiApiKey()}`,
 });
 
-type ModelSlot = 'assessment' | 'context' | 'lesson' | 'progress' | 'research';
+type ModelSlot =
+  | 'artifact'
+  | 'artifactInteractive'
+  | 'assessment'
+  | 'context'
+  | 'lesson'
+  | 'progress'
+  | 'research';
 
 const readModelSlot = (req: Request): ModelSlot => {
   const slot = req.get('x-nous-model-slot')?.trim();
-  return slot === 'assessment' || slot === 'context' || slot === 'progress' || slot === 'research'
+  return slot === 'artifact' ||
+    slot === 'artifactInteractive' ||
+    slot === 'assessment' ||
+    slot === 'context' ||
+    slot === 'progress' ||
+    slot === 'research'
     ? slot
     : 'lesson';
 };
 
 const resolveProxyConfig = async (req: Request) => {
-  const modelConfig = await getResolvedModelConfigForProvider(req.get('x-nous-ai-provider'));
+  const modelSlot = readModelSlot(req);
+  const modelConfig = await getResolvedModelConfigForProvider(getCurrentUser(req).aiProvider);
   return {
+    modelSlot,
     provider: modelConfig.aiProvider,
-    ...resolveTextModelConfig(modelConfig, readModelSlot(req)),
+    ...resolveTextModelConfig(modelConfig, modelSlot),
   };
 };
+
+const readOpenRouterImageSupport = async (model: string): Promise<boolean> => {
+  const cachedSupport = openRouterImageSupportByModel.get(model);
+  if (cachedSupport !== undefined) {
+    return cachedSupport;
+  }
+
+  try {
+    const response = await fetch(`${OPENROUTER_MODEL_URL}/${model}`, {
+      headers: { Authorization: `Bearer ${requireOpenRouterApiKey()}` },
+    });
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload = (await response.json()) as unknown;
+    const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null;
+    const architecture = data && isRecord(data.architecture) ? data.architecture : null;
+    const inputModalities = architecture?.input_modalities;
+    const supportsImages = Array.isArray(inputModalities) && inputModalities.includes('image');
+    openRouterImageSupportByModel.set(model, supportsImages);
+    return supportsImages;
+  } catch (error) {
+    console.warn('[Nous][OpenRouter] Model capabilities unavailable; using text-only fallback.', {
+      error,
+      model,
+    });
+    return false;
+  }
+};
+
+const removeImageInput = (requestBody: Record<string, unknown>): Record<string, unknown> => ({
+  ...requestBody,
+  messages: Array.isArray(requestBody.messages)
+    ? requestBody.messages.map(message => {
+        if (!isRecord(message) || !Array.isArray(message.content)) {
+          return message;
+        }
+
+        return {
+          ...message,
+          content: message.content.filter(part => !isRecord(part) || part.type !== 'image_url'),
+        };
+      })
+    : requestBody.messages,
+});
+
+const hasImageInput = (requestBody: Record<string, unknown>): boolean =>
+  Array.isArray(requestBody.messages) &&
+  requestBody.messages.some(
+    message =>
+      isRecord(message) &&
+      Array.isArray(message.content) &&
+      message.content.some(part => isRecord(part) && part.type === 'image_url')
+  );
 
 const buildProxyRequest = async (
   req: Request
 ): Promise<{ body: Record<string, unknown>; provider: AiProvider }> => {
   const requestBody = isRecord(req.body) ? req.body : {};
-  const { model, provider, reasoningEffort } = await resolveProxyConfig(req);
+  const { model, modelSlot, provider, reasoningEffort } = await resolveProxyConfig(req);
 
   if (provider === 'openai') {
     const {
@@ -94,25 +168,44 @@ const buildProxyRequest = async (
       provider,
       body: {
         ...portableBody,
+        nous_model_slot: modelSlot,
         model,
         reasoning_effort: reasoningEffort,
       },
     };
   }
 
-  if (reasoningEffort === 'none') {
-    const { reasoning: _ignoredReasoning, ...bodyWithoutReasoning } = requestBody;
-    return { provider, body: { ...bodyWithoutReasoning, model } };
+  const openRouterRequestBody =
+    req.get('x-nous-allow-text-only-image-fallback') === 'true' &&
+    hasImageInput(requestBody) &&
+    !(await readOpenRouterImageSupport(model))
+      ? removeImageInput(requestBody)
+      : requestBody;
+
+  if (readModelSlot(req) === 'research') {
+    const { reasoning: _ignoredReasoning, ...bodyWithoutReasoning } = openRouterRequestBody;
+    return {
+      provider,
+      body: {
+        ...bodyWithoutReasoning,
+        model,
+        ...(model.startsWith('openai/') ? { service_tier: OPENROUTER_ECONOMY_SERVICE_TIER } : {}),
+      },
+    };
   }
 
-  const reasoning = isRecord(requestBody.reasoning) ? requestBody.reasoning : {};
+  const reasoning = isRecord(openRouterRequestBody.reasoning)
+    ? openRouterRequestBody.reasoning
+    : {};
   return {
     provider,
     body: {
-      ...requestBody,
+      ...openRouterRequestBody,
       model,
+      ...(model.startsWith('openai/') ? { service_tier: OPENROUTER_ECONOMY_SERVICE_TIER } : {}),
       reasoning: {
         ...reasoning,
+        enabled: true,
         effort: reasoningEffort,
       },
     },
@@ -235,9 +328,12 @@ const sendCodexCompletion = async (body: Record<string, unknown>, res: Response)
   const tools = readCodexChatTools(body.tools);
   const toolCalls: CodexChatToolCall[] = [];
   const model = typeof body.model === 'string' ? body.model : '';
+  const allowWebSearch = body.nous_model_slot === 'research';
   const reasoningEffort =
     body.reasoning_effort === 'none' ||
+    body.reasoning_effort === 'minimal' ||
     body.reasoning_effort === 'low' ||
+    body.reasoning_effort === 'medium' ||
     body.reasoning_effort === 'high'
       ? body.reasoning_effort
       : 'medium';
@@ -247,13 +343,21 @@ const sendCodexCompletion = async (body: Record<string, unknown>, res: Response)
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    const bufferStructuredOutput = turnInput.outputSchema !== undefined;
     let streamed = false;
     const result = await runCodexAppServerTurn({
       ...turnInput,
+      allowWebSearch,
       model,
       reasoningEffort,
       tools,
+      onReasoningDelta: delta => {
+        writeCodexSseChunk(res, { reasoning: delta }, null);
+      },
       onTextDelta: delta => {
+        if (bufferStructuredOutput) {
+          return;
+        }
         streamed = true;
         writeCodexSseChunk(res, { content: delta }, null);
       },
@@ -276,7 +380,7 @@ const sendCodexCompletion = async (body: Record<string, unknown>, res: Response)
         );
       },
     });
-    if (!streamed && result) {
+    if ((bufferStructuredOutput || !streamed) && result) {
       writeCodexSseChunk(res, { content: result }, null);
     }
     writeCodexSseChunk(res, {}, toolCalls.length > 0 ? 'tool_calls' : 'stop');
@@ -287,6 +391,7 @@ const sendCodexCompletion = async (body: Record<string, unknown>, res: Response)
 
   const result = await runCodexAppServerTurn({
     ...turnInput,
+    allowWebSearch,
     model,
     reasoningEffort,
     tools,
@@ -336,6 +441,14 @@ const pipeAiResponse = (upstreamResponse: globalThis.Response, res: Response): v
 };
 
 const router = Router();
+
+router.get('/artifact-settings', async (_req: Request, res: Response) => {
+  const config = await getResolvedGlobalModelConfig();
+  res.json({
+    visualReviewEnabled: config.artifactVisualReviewEnabled,
+    visualReviewMaxRounds: config.artifactVisualReviewMaxRounds,
+  });
+});
 
 router.post('/chat/completions', async (req: Request, res: Response) => {
   try {

@@ -87,6 +87,10 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
             }
       }
     >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-white/80 backdrop-blur dark:bg-zinc-800/80"
+      />
       <WorkspaceReaderSidebar {...sidebarModel} />
 
       <div

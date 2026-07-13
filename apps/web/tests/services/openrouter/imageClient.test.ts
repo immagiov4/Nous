@@ -12,12 +12,10 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
 }));
 
 const { requestGeneratedImage } = await import('../../../services/openrouter/imageClient.ts');
-const { setAiProviderPreference } = await import('../../../services/ai/providerPreference.ts');
 
 describe('requestGeneratedImage', () => {
   beforeEach(() => {
     fetchWithSupabaseAuthMock.mockReset();
-    setAiProviderPreference(null);
   });
 
   test('requests an authenticated pedagogical image from the backend', async () => {
@@ -51,28 +49,6 @@ describe('requestGeneratedImage', () => {
       dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
       mediaType: 'image/png',
     });
-  });
-
-  test.each([
-    'codex',
-    'openai',
-  ] as const)('forwards the request-scoped %s provider preference', async provider => {
-    setAiProviderPreference(provider);
-    fetchWithSupabaseAuthMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          success: true,
-          dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
-          mediaType: 'image/png',
-        }),
-        { status: 200 }
-      )
-    );
-
-    await requestGeneratedImage('A focused educational image.');
-
-    const headers = new Headers(fetchWithSupabaseAuthMock.mock.calls[0]?.[1]?.headers);
-    expect(headers.get('X-Nous-AI-Provider')).toBe(provider);
   });
 
   test('rejects unsafe data URLs returned by the backend', async () => {

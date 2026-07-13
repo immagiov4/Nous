@@ -16,10 +16,14 @@ const ORIGINAL_ENV = { ...process.env };
 vi.mock('../../src/services/codexAppServer.js', () => codexMocks);
 
 const { createApp } = await import('../../src/index.js');
+const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
+  '../../src/config/modelConfig.js'
+);
 
 describe('Codex app-server account routes', () => {
   beforeEach(() => {
-    process.env = { ...ORIGINAL_ENV, CODEX_OWNER_USER_ID: 'local-user' };
+    process.env = { ...ORIGINAL_ENV };
+    patchGlobalModelConfig({ aiProvider: 'codex' });
     for (const mock of Object.values(codexMocks)) {
       mock.mockReset();
     }
@@ -29,6 +33,7 @@ describe('Codex app-server account routes', () => {
 
   afterEach(() => {
     process.env = { ...ORIGINAL_ENV };
+    resetModelConfigForTesting();
   });
 
   test('reports a disabled local provider without starting a process', async () => {
@@ -44,7 +49,6 @@ describe('Codex app-server account routes', () => {
   test('returns the authenticated account contract and available models', async () => {
     codexMocks.readCodexAccount.mockResolvedValue({
       email: 'reader@example.test',
-      planType: 'plus',
       requiresOpenaiAuth: true,
       type: 'chatgpt',
     });
@@ -62,13 +66,13 @@ describe('Codex app-server account routes', () => {
     expect(response.body).toMatchObject({
       success: true,
       enabled: true,
-      account: { type: 'chatgpt', planType: 'plus' },
+      account: { type: 'chatgpt' },
       models: [{ model: 'gpt-test', supportedReasoningEfforts: ['low', 'medium'] }],
     });
   });
 
-  test('does not expose the machine Codex account to another Nous user', async () => {
-    process.env.CODEX_OWNER_USER_ID = 'another-user';
+  test('does not expose the machine Codex account to a user not assigned to Codex', async () => {
+    patchGlobalModelConfig({ aiProvider: 'openrouter' });
 
     const response = await request(createApp()).get('/api/codex/status');
 

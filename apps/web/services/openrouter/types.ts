@@ -21,7 +21,7 @@ import type {
 } from '../../types.ts';
 
 export interface JsonSchemaFormat {
-  type: 'json_object' | 'json_schema';
+  type: 'json_schema';
   json_schema?: Record<string, unknown>;
 }
 
@@ -86,6 +86,7 @@ export interface OpenRouterReasoningOptions {
 export interface ChatCompletionOptions {
   model: string;
   modelSlot?: OpenRouterModelSlot;
+  allowTextOnlyImageFallback?: boolean;
   disableModelOverride?: boolean;
   messages: ChatMessage[];
   onReasoningUpdate?: (reasoningText: string) => void;

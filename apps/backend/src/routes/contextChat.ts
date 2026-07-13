@@ -9,6 +9,7 @@ import {
 } from 'ai';
 import { type Request, type Response, Router } from 'express';
 
+import { getCurrentUser } from '../auth/currentUser.js';
 import {
   getResolvedModelConfigForProvider,
   resolveTextModelConfig,
@@ -464,7 +465,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       return;
     }
 
-    const modelConfig = await getResolvedModelConfigForProvider(req.get('x-nous-ai-provider'));
+    const modelConfig = await getResolvedModelConfigForProvider(getCurrentUser(req).aiProvider);
     const contextModelConfig = resolveTextModelConfig(modelConfig, 'context');
 
     const contextSubject =
