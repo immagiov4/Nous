@@ -99,7 +99,9 @@ export type GlobalModelConfigPatch = Partial<
 >;
 
 const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
-  aiProvider: 'openrouter',
+  aiProvider: (['codex', 'openai', 'openrouter'].includes(process.env.AI_PROVIDER || '')
+    ? process.env.AI_PROVIDER
+    : 'openrouter') as AiProvider,
   artifactModel: process.env.MODEL_ARTIFACT || 'openai/gpt-5.4-mini',
   artifactInteractiveModel:
     process.env.MODEL_ARTIFACT_INTERACTIVE || process.env.MODEL_ARTIFACT || 'openai/gpt-5.4-mini',
