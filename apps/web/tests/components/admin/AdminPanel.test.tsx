@@ -38,17 +38,17 @@ vi.mock('../../../services/admin/adminApi.ts', async importOriginal => {
 
 const defaultModelConfig = {
   aiProvider: 'openrouter',
-  artifactModel: 'openai/gpt-5.4-mini',
-  artifactInteractiveModel: 'openai/gpt-5.4-mini',
-  artifactInteractiveReasoningEffort: 'medium' as const,
-  artifactReasoningEffort: 'medium' as const,
+  artifactModel: 'deepseek/deepseek-v4-pro',
+  artifactInteractiveModel: 'openai/gpt-5.6-terra',
+  artifactInteractiveReasoningEffort: 'low' as const,
+  artifactReasoningEffort: 'none' as const,
   artifactVisualReviewEnabled: true,
   artifactVisualReviewMaxRounds: 1,
   assessmentModel: 'google/gemini-3.1-flash-lite',
   assessmentReasoningEffort: 'medium' as const,
   codexAssessmentModel: 'gpt-5.6-luna',
-  codexArtifactModel: 'gpt-5.6-terra',
-  codexArtifactInteractiveModel: 'gpt-5.6-terra',
+  codexArtifactModel: 'gpt-5.6-sol',
+  codexArtifactInteractiveModel: 'gpt-5.6-sol',
   codexContextModel: 'gpt-5.6-luna',
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
@@ -56,8 +56,8 @@ const defaultModelConfig = {
   contextModel: 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium' as const,
   imageModel: 'google/gemini-3.1-flash-lite-image',
-  lessonModel: 'openai/gpt-5.4-mini',
-  lessonReasoningEffort: 'medium' as const,
+  lessonModel: 'openai/gpt-5.6-luna',
+  lessonReasoningEffort: 'high' as const,
   openAiAssessmentModel: 'gpt-5.6-luna',
   openAiArtifactModel: 'gpt-5.6-terra',
   openAiArtifactInteractiveModel: 'gpt-5.6-terra',
@@ -110,15 +110,38 @@ describe('AdminPanel', () => {
   test('prefills model fields with backend defaults', async () => {
     render(<AdminPanel />);
 
-    expect(await screen.findAllByDisplayValue('openai/gpt-5.4-mini')).toHaveLength(3);
+    expect(await screen.findByDisplayValue('deepseek/deepseek-v4-pro')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('openai/gpt-5.6-terra')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('openai/gpt-5.6-luna')).toBeInTheDocument();
     expect(screen.getAllByDisplayValue('google/gemini-3.1-flash-lite')).toHaveLength(3);
     expect(screen.getByDisplayValue('x-ai/grok-voice-tts-1.0')).toBeInTheDocument();
     expect(screen.getByDisplayValue('google/gemini-3.1-flash-lite-image')).toBeInTheDocument();
     expect(screen.getByDisplayValue('perplexity/sonar-pro-search')).toBeInTheDocument();
     expect(screen.getByDisplayValue('gpt-image-2')).toBeInTheDocument();
-    expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(8);
+    expect(screen.getAllByDisplayValue('gpt-5.6-sol')).toHaveLength(2);
+    expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(6);
     expect(screen.getByDisplayValue('Ara')).toBeInTheDocument();
-    expect(screen.getAllByRole('combobox', { name: 'Ragionamento Lezioni' })).toHaveLength(3);
+    const artifactReasoningSelects = screen.getAllByRole('combobox', {
+      name: 'Ragionamento Artefatti visuali',
+    });
+    expect(artifactReasoningSelects).toHaveLength(3);
+    artifactReasoningSelects.forEach(select => {
+      expect(select).toHaveValue('none');
+    });
+    const interactiveReasoningSelects = screen.getAllByRole('combobox', {
+      name: 'Ragionamento Artefatti interattivi',
+    });
+    expect(interactiveReasoningSelects).toHaveLength(3);
+    interactiveReasoningSelects.forEach(select => {
+      expect(select).toHaveValue('low');
+    });
+    const lessonReasoningSelects = screen.getAllByRole('combobox', {
+      name: 'Ragionamento Lezioni',
+    });
+    expect(lessonReasoningSelects).toHaveLength(3);
+    lessonReasoningSelects.forEach(select => {
+      expect(select).toHaveValue('high');
+    });
     expect(screen.getAllByRole('combobox', { name: 'Ragionamento Contesto' })).toHaveLength(3);
     expect(screen.getAllByRole('combobox', { name: 'Ragionamento Assessment' })).toHaveLength(3);
     expect(screen.getAllByRole('combobox', { name: 'Ragionamento Avanzamento' })[0]).toHaveValue(
@@ -142,7 +165,7 @@ describe('AdminPanel', () => {
         codexAssessmentModel: 'gpt-5.6-luna',
         codexLessonModel: 'gpt-5.6-terra',
         openAiLessonModel: 'gpt-5.6-terra',
-        lessonModel: 'openai/gpt-5.4-mini',
+        lessonModel: 'openai/gpt-5.6-luna',
       })
     );
     expect(await screen.findByRole('status')).toHaveTextContent('Modelli aggiornati.');
