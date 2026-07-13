@@ -57,6 +57,23 @@ describe('LessonLearningAids editing', () => {
     expect(list.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
   });
 
+  test('edits an existing key concept inside its original card', async () => {
+    const user = userEvent.setup();
+    render(
+      <LearningAidsHarness initialAids={[EXISTING_AID]} onPersist={vi.fn(async () => true)} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Apri concetti chiave' }));
+    const originalCard = screen.getByRole('button', { name: 'Espandi VLAN' }).closest('li');
+    await user.click(screen.getByRole('button', { name: 'Modifica VLAN' }));
+
+    const editor = screen.getByRole('group', { name: 'Modifica concetto chiave' });
+    expect(originalCard).not.toBeNull();
+    expect(originalCard).toContainElement(editor);
+    expect(screen.queryByRole('button', { name: 'Espandi VLAN' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+  });
+
   test('creates and then edits a key concept through explicit saves', async () => {
     const user = userEvent.setup();
     const onPersist = vi.fn(async () => true);

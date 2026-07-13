@@ -41,6 +41,15 @@ interface LearningAidDraft {
   content: string;
 }
 
+interface LearningAidEditorProps {
+  draft: LearningAidDraft;
+  isInline: boolean;
+  isSaving: boolean;
+  onCancel: () => void;
+  onChange: (draft: LearningAidDraft) => void;
+  onSave: () => void;
+}
+
 const getLearningAidKindLabel = (kind: LessonLearningAidKind): string => {
   switch (kind) {
     case 'definition':
@@ -66,6 +75,88 @@ const getLearningAidIcon = (kind: LessonLearningAidKind) => {
       return Lightbulb;
   }
 };
+
+function LearningAidEditor({
+  draft,
+  isInline,
+  isSaving,
+  onCancel,
+  onChange,
+  onSave,
+}: LearningAidEditorProps) {
+  return (
+    <fieldset
+      aria-label={t(draft.id ? 'Modifica concetto chiave' : 'Nuovo concetto chiave')}
+      className={`space-y-3 bg-gray-50 p-3 dark:bg-zinc-800/70 ${
+        isInline ? '' : 'rounded-xl border border-gray-200 dark:border-zinc-700'
+      }`}
+    >
+      <div className="grid grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)] gap-3">
+        <label className="block">
+          <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+            {t('Tipo')}
+          </span>
+          <select
+            aria-label={t('Tipo concetto chiave')}
+            value={draft.kind}
+            onChange={event =>
+              onChange({ ...draft, kind: event.target.value as LessonLearningAidKind })
+            }
+            className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+          >
+            {LEARNING_AID_KIND_OPTIONS.map(kind => (
+              <option key={kind} value={kind}>
+                {getLearningAidKindLabel(kind)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+            {t('Titolo')}
+          </span>
+          <input
+            value={draft.title}
+            maxLength={LEARNING_AID_TITLE_MAX_LENGTH}
+            onChange={event => onChange({ ...draft, title: event.target.value })}
+            className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+          />
+        </label>
+      </div>
+      <label className="block">
+        <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
+          {t('Contenuto')}
+        </span>
+        <textarea
+          value={draft.content}
+          maxLength={LEARNING_AID_CONTENT_MAX_LENGTH}
+          rows={4}
+          onChange={event => onChange({ ...draft, content: event.target.value })}
+          className="mt-1 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-5 text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+        />
+      </label>
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isSaving}
+          className="min-h-9 rounded-full px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-white/80 hover:text-gray-800 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        >
+          {t('Annulla')}
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={isSaving || !draft.title.trim() || !draft.content.trim()}
+          className="inline-flex min-h-9 items-center gap-2 rounded-full bg-gray-950 px-4 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+        >
+          <Check className="h-3.5 w-3.5" />
+          {t(isSaving ? 'Salvataggio in corso...' : 'Salva')}
+        </button>
+      </div>
+    </fieldset>
+  );
+}
 
 function LearningAidList({
   isDarkMode,
@@ -97,6 +188,11 @@ function LearningAidList({
   const beginEdit = (learningAid: LessonLearningAid) => {
     setSaveError('');
     setDraft({ ...learningAid });
+  };
+
+  const cancelDraft = () => {
+    setDraft(null);
+    setSaveError('');
   };
 
   const saveDraft = async () => {
@@ -158,6 +254,25 @@ function LearningAidList({
 
       <ol className="grid gap-2">
         {learningAids.map(learningAid => {
+          const isEditing = draft?.id === learningAid.id;
+          if (isEditing) {
+            return (
+              <li
+                key={learningAid.id}
+                className="overflow-hidden rounded-xl border border-gray-200 dark:border-zinc-700"
+              >
+                <LearningAidEditor
+                  draft={draft}
+                  isInline
+                  isSaving={isSaving}
+                  onCancel={cancelDraft}
+                  onChange={setDraft}
+                  onSave={() => void saveDraft()}
+                />
+              </li>
+            );
+          }
+
           const KindIcon = getLearningAidIcon(learningAid.kind);
           const isExpanded = expandedAidIds.has(learningAid.id);
           const disclosureLabel = t(
@@ -259,90 +374,15 @@ function LearningAidList({
         </button>
       ) : null}
 
-      {draft ? (
-        <fieldset
-          aria-label={t(draft.id ? 'Modifica concetto chiave' : 'Nuovo concetto chiave')}
-          className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/70"
-        >
-          <div className="grid grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)] gap-3">
-            <label className="block">
-              <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
-                {t('Tipo')}
-              </span>
-              <select
-                aria-label={t('Tipo concetto chiave')}
-                value={draft.kind}
-                onChange={event =>
-                  setDraft(current =>
-                    current
-                      ? { ...current, kind: event.target.value as LessonLearningAidKind }
-                      : current
-                  )
-                }
-                className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-              >
-                {LEARNING_AID_KIND_OPTIONS.map(kind => (
-                  <option key={kind} value={kind}>
-                    {getLearningAidKindLabel(kind)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
-                {t('Titolo')}
-              </span>
-              <input
-                value={draft.title}
-                maxLength={LEARNING_AID_TITLE_MAX_LENGTH}
-                onChange={event =>
-                  setDraft(current =>
-                    current ? { ...current, title: event.target.value } : current
-                  )
-                }
-                className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-              />
-            </label>
-          </div>
-          <label className="block">
-            <span className="text-xs font-semibold text-gray-600 dark:text-zinc-300">
-              {t('Contenuto')}
-            </span>
-            <textarea
-              value={draft.content}
-              maxLength={LEARNING_AID_CONTENT_MAX_LENGTH}
-              rows={4}
-              onChange={event =>
-                setDraft(current =>
-                  current ? { ...current, content: event.target.value } : current
-                )
-              }
-              className="mt-1 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-5 text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-            />
-          </label>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(null);
-                setSaveError('');
-              }}
-              disabled={isSaving}
-              className="min-h-9 rounded-full px-3 py-1.5 text-xs font-semibold text-gray-500 hover:bg-white/80 hover:text-gray-800 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            >
-              {t('Annulla')}
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveDraft()}
-              disabled={isSaving || !draft.title.trim() || !draft.content.trim()}
-              className="inline-flex min-h-9 items-center gap-2 rounded-full bg-gray-950 px-4 py-1.5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-            >
-              <Check className="h-3.5 w-3.5" />
-              {t(isSaving ? 'Salvataggio in corso...' : 'Salva')}
-            </button>
-          </div>
-        </fieldset>
+      {draft && !draft.id ? (
+        <LearningAidEditor
+          draft={draft}
+          isInline={false}
+          isSaving={isSaving}
+          onCancel={cancelDraft}
+          onChange={setDraft}
+          onSave={() => void saveDraft()}
+        />
       ) : null}
     </div>
   );
