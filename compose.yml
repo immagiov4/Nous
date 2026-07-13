@@ -5,7 +5,7 @@ services:
     build:
       context: .
       target: tooling
-    command: ["sh", "-c", "bunx supabase db push --db-url \"$$DATABASE_URL\""]
+    command: ["sh", "-c", "bunx supabase db push --debug --db-url \"$$DATABASE_URL\""]
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the deployment env file}
       SUPABASE_DEPLOYMENT: ${SUPABASE_DEPLOYMENT:?Set SUPABASE_DEPLOYMENT}
@@ -24,12 +24,14 @@ services:
         condition: service_completed_successfully
     environment:
       AUTH_MODE: supabase
+      AI_PROVIDER: ${AI_PROVIDER:-openrouter}
       BACKEND_HOST: 0.0.0.0
       BACKEND_PORT: 3301
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS}
       CODEX_APP_SERVER_ENABLED: ${CODEX_APP_SERVER_ENABLED:-false}
       CODEX_BINARY: ${CODEX_BINARY:-/usr/local/bin/codex}
       CODEX_HOME: ${CODEX_HOME:-/home/bun/.codex}
+      CODEX_WORKING_DIRECTORY: ${CODEX_WORKING_DIRECTORY:-/tmp}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
       MAX_OUTPUT_TOKENS: ${MAX_OUTPUT_TOKENS:-32000}
       MODEL_ASSESSMENT: ${MODEL_ASSESSMENT:-}

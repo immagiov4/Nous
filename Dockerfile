@@ -37,7 +37,7 @@ FROM oven/bun:${BUN_VERSION}-slim AS backend
 ARG CODEX_VERSION
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
+    && apt-get install -y --no-install-recommends ca-certificates nodejs poppler-utils \
     && BUN_INSTALL=/usr/local bun add --global "@openai/codex@${CODEX_VERSION}" \
     && mkdir -p /home/bun/.codex \
     && chown bun:bun /home/bun/.codex \
