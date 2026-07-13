@@ -13,11 +13,13 @@ const applyTestEnvironment = (): void => {
   Object.assign(process.env, TEST_ENVIRONMENT);
 };
 
-// Dotenv must not let a developer's local Supabase profile change the test contract.
-applyTestEnvironment();
+const shouldApplyTestEnvironment = process.env.RUN_SUPABASE_LOCAL_TESTS !== '1';
+
+// Dotenv must not let a developer's local Supabase profile change the default test contract.
+if (shouldApplyTestEnvironment) applyTestEnvironment();
 
 beforeEach(() => {
-  applyTestEnvironment();
+  if (shouldApplyTestEnvironment) applyTestEnvironment();
   vi.restoreAllMocks();
   if (typeof window !== 'undefined') {
     window.scrollTo = vi.fn();

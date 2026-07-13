@@ -229,6 +229,86 @@ describe('/api/projects', () => {
     );
     expect(importedSourceResponse.body.source.data).toBe(pdfData);
 
+    const chunkedImportData = {
+      ...exportResponse.body.data,
+      id: 'chunked-import-project',
+      documentIndex: { marker: 'before after' },
+    };
+    const serializedImport = JSON.stringify(chunkedImportData);
+    const uploadId = '123e4567-e89b-42d3-a456-426614174000';
+    const splitAt = serializedImport.indexOf('before after') + 'before '.length;
+    const lastChunkResponse = await request(app)
+      .post('/api/projects/import/chunks')
+      .send({
+        uploadId,
+        chunkIndex: 1,
+        chunkCount: 2,
+        chunk: serializedImport.slice(splitAt),
+      });
+    expect(lastChunkResponse.status).toBe(202);
+    expect(lastChunkResponse.body).toEqual({
+      success: true,
+      complete: false,
+      ready: false,
+      receivedCount: 1,
+    });
+
+    const duplicateChunkResponse = await request(app)
+      .post('/api/projects/import/chunks')
+      .send({
+        uploadId,
+        chunkIndex: 1,
+        chunkCount: 2,
+        chunk: serializedImport.slice(splitAt),
+      });
+    expect(duplicateChunkResponse.status).toBe(202);
+    expect(duplicateChunkResponse.body.receivedCount).toBe(1);
+
+    const changedDuplicateResponse = await request(app)
+      .post('/api/projects/import/chunks')
+      .send({ uploadId, chunkIndex: 1, chunkCount: 2, chunk: 'different data' });
+    expect(changedDuplicateResponse.status).toBe(400);
+
+    const prematureCompletionResponse = await request(app).post(
+      `/api/projects/import/chunks/${uploadId}/complete`
+    );
+    expect(prematureCompletionResponse.status).toBe(400);
+
+    const inconsistentChunkResponse = await request(app)
+      .post('/api/projects/import/chunks')
+      .send({ uploadId, chunkIndex: 0, chunkCount: 3, chunk: serializedImport.slice(0, splitAt) });
+    expect(inconsistentChunkResponse.status).toBe(400);
+
+    const firstChunkResponse = await request(app)
+      .post('/api/projects/import/chunks')
+      .send({
+        uploadId,
+        chunkIndex: 0,
+        chunkCount: 2,
+        chunk: serializedImport.slice(0, splitAt),
+      });
+    expect(firstChunkResponse.status).toBe(202);
+    expect(firstChunkResponse.body).toEqual({
+      success: true,
+      complete: false,
+      ready: true,
+      receivedCount: 2,
+    });
+
+    const finalChunkResponse = await request(app).post(
+      `/api/projects/import/chunks/${uploadId}/complete`
+    );
+    expect(finalChunkResponse.status).toBe(200);
+    expect(finalChunkResponse.body.snapshot).toMatchObject({ id: 'chunked-import-project' });
+    expect(finalChunkResponse.body.snapshot.documentIndex).toEqual({ marker: 'before after' });
+    expect(finalChunkResponse.body.snapshot.source.file.data).toBe('');
+
+    const retriedCompletionResponse = await request(app).post(
+      `/api/projects/import/chunks/${uploadId}/complete`
+    );
+    expect(retriedCompletionResponse.status).toBe(200);
+    expect(retriedCompletionResponse.body.snapshot.id).toBe('chunked-import-project');
+
     const database = (store as unknown as { database: import('bun:sqlite').Database }).database;
     const storedRow = database
       .prepare('select snapshot_json from project_snapshots where user_id = ? and id = ?')

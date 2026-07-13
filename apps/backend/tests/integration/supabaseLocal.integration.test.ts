@@ -77,8 +77,8 @@ const readJsonResponse = async <T>(response: Response): Promise<T> => {
 
 describeLocalSupabase('Supabase local integration', () => {
   const app = createApp();
-  const anonKey = createApiKey('anon');
-  const serviceRoleKey = createApiKey('service_role');
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || createApiKey('service_role');
+  const anonKey = process.env.SUPABASE_ANON_KEY || serviceRoleKey;
   const sql = postgres(LOCAL_DATABASE_URL, { max: 2 });
   const store = new PostgresProjectStore(LOCAL_DATABASE_URL);
   const adminAuthorization = `Bearer ${createBackendAdminToken()}`;

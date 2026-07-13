@@ -3,6 +3,11 @@ import { type Request, type Response, Router } from 'express';
 
 import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
 import { publishProjectRevision, subscribeToProjectRevisions } from '../projects/projectEvents.js';
+import {
+  completeProjectImportUpload,
+  ProjectImportInputError,
+  storeProjectImportChunk,
+} from '../projects/projectImportChunks.js';
 import { ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type {
@@ -424,6 +429,56 @@ router.post('/import', async (req: Request, res: Response) => {
     res.json({ success: true, ...imported });
   } catch (error) {
     sendErrorResponse(res, 400, error, 'Failed to import project');
+  }
+});
+
+router.post('/import/chunks', async (req: Request, res: Response) => {
+  try {
+    const userId = getCurrentUser(req).id;
+    const body = getBodyRecord(req.body);
+    const result = await storeProjectImportChunk({
+      userId,
+      uploadId: readOptionalString(body.uploadId) || '',
+      chunkIndex: readOptionalSafeInteger(body.chunkIndex) ?? -1,
+      chunkCount: readOptionalSafeInteger(body.chunkCount) ?? -1,
+      chunk: typeof body.chunk === 'string' ? body.chunk : '',
+    });
+    res.status(202).json({ success: true, complete: false, ...result });
+  } catch (error) {
+    sendErrorResponse(
+      res,
+      error instanceof ProjectImportInputError ? 400 : 500,
+      error,
+      'Failed to store project import chunk'
+    );
+  }
+});
+
+router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Response) => {
+  try {
+    const userId = getCurrentUser(req).id;
+    const store = getProjectStore();
+    const completed = await completeProjectImportUpload({
+      userId,
+      uploadId: getRouteParam(req.params.uploadId),
+      importData: async data => {
+        const imported = await store.importProject(userId, data);
+        publishMetaRevision(userId, imported.meta);
+        return { projectId: imported.meta.id, meta: imported.meta };
+      },
+    });
+    const snapshot = await store.loadProject(userId, completed.projectId);
+    if (!snapshot) {
+      throw new Error('Imported project could not be loaded.');
+    }
+    res.json({ success: true, complete: true, meta: completed.meta, snapshot });
+  } catch (error) {
+    sendErrorResponse(
+      res,
+      error instanceof ProjectImportInputError ? 400 : 500,
+      error,
+      'Failed to complete project import'
+    );
   }
 });
 

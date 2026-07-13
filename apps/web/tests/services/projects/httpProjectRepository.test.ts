@@ -241,6 +241,113 @@ test('HttpProjectRepository sends the expected revision and preserves a 409 conf
   });
 });
 
+test('HttpProjectRepository chunks imports that exceed the proxy request limit', async () => {
+  const importedSnapshot = buildPdfSnapshot();
+  const importTemplate = {
+    ...importedSnapshot,
+    documentIndex: { text: '' },
+  };
+  const serializedTemplate = JSON.stringify(importTemplate);
+  const textPrefix = serializedTemplate.indexOf('"text":""') + '"text":"'.length;
+  const beforeBoundaryEmoji = 4_000_000 - textPrefix - 1;
+  const largeImport = {
+    ...importTemplate,
+    documentIndex: {
+      text: `${'x'.repeat(beforeBoundaryEmoji)}😀${'x'.repeat(33_000_000 - beforeBoundaryEmoji)}`,
+    },
+  };
+  let completionAttempts = 0;
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    const isCompletion = url.includes('/complete');
+    const completionAttempt = isCompletion ? completionAttempts++ : -1;
+    if (completionAttempt === 0) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => {
+          throw new Error('connection lost while reading completion response');
+        },
+      };
+    }
+    const chunkBody = isCompletion
+      ? null
+      : (JSON.parse(String(init?.body)) as { chunkIndex: number; chunkCount: number });
+    return {
+      ok: true,
+      status: isCompletion ? 200 : 202,
+      statusText: 'OK',
+      json: async () =>
+        isCompletion
+          ? {
+              success: true,
+              complete: true,
+              meta: {
+                id: importedSnapshot.id,
+                title: 'Dispensa',
+                sourceKind: 'document',
+                createdAt: importedSnapshot.createdAt,
+                updatedAt: importedSnapshot.updatedAt,
+                lastOpenedAt: importedSnapshot.lastOpenedAt,
+                lessonCount: 0,
+                completedCount: 0,
+                exerciseCount: 0,
+                completedExercises: 0,
+                hasSourceFile: true,
+                coverLabel: 'dispensa.pdf',
+              },
+              snapshot: importedSnapshot,
+            }
+          : {
+              success: true,
+              complete: false,
+              ready: chunkBody?.chunkIndex === (chunkBody?.chunkCount || 0) - 1,
+              receivedCount: (chunkBody?.chunkIndex || 0) + 1,
+            },
+    };
+  });
+
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  await repository.importProject(largeImport);
+
+  expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
+  const chunkCalls = fetchMock.mock.calls.filter(call => !String(call[0]).includes('/complete'));
+  const completionCalls = fetchMock.mock.calls.filter(call =>
+    String(call[0]).includes('/complete')
+  );
+  const requests = chunkCalls.map((call: unknown[]) => ({
+    url: String(call[0]),
+    body: JSON.parse(String((call[1] as RequestInit).body)) as {
+      uploadId: string;
+      chunkIndex: number;
+      chunkCount: number;
+      chunk: string;
+    },
+  }));
+  expect(requests.every(request => request.url.endsWith('/api/projects/import/chunks'))).toBe(true);
+  expect(new Set(requests.map(request => request.body.uploadId)).size).toBe(1);
+  expect(requests.map(request => request.body.chunkIndex)).toEqual(
+    requests.map((_, index) => index)
+  );
+  expect(requests.every(request => new Blob([request.body.chunk]).size <= 20_000_000)).toBe(true);
+  for (let index = 0; index < requests.length - 1; index += 1) {
+    const left = requests[index]?.body.chunk || '';
+    const right = requests[index + 1]?.body.chunk || '';
+    const leftCodeUnit = left.charCodeAt(left.length - 1);
+    const rightCodeUnit = right.charCodeAt(0);
+    expect(
+      leftCodeUnit >= 0xd800 &&
+        leftCodeUnit <= 0xdbff &&
+        rightCodeUnit >= 0xdc00 &&
+        rightCodeUnit <= 0xdfff
+    ).toBe(false);
+  }
+  expect(requests.map(request => request.body.chunk).join('')).toBe(JSON.stringify(largeImport));
+  expect(completionCalls).toHaveLength(2);
+  expect(new Set(completionCalls.map(call => String(call[0]))).size).toBe(1);
+  expect(String(completionCalls[0]?.[0])).toMatch(/\/api\/projects\/import\/chunks\/.+\/complete$/);
+});
+
 test('consumeProjectRevisionStream emits only complete valid SSE events', async () => {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({

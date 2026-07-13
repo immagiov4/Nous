@@ -1,5 +1,10 @@
 import JSZip from 'jszip';
-import type { ProjectExportData, ProjectSnapshot } from '../../types.ts';
+import type {
+  LibraryFolder,
+  LibraryPlacement,
+  ProjectExportData,
+  ProjectSnapshot,
+} from '../../types.ts';
 import {
   loadZipSafely,
   readZipEntryBytesWithinLimit,
@@ -7,9 +12,10 @@ import {
 } from '../../utils/project/zipSafety.ts';
 import { isRecord } from '../../utils/records.ts';
 import { createProjectArchiveBlob, readProjectImportData } from './projectArchive.ts';
+import type { ProjectRepository } from './projectRepository.ts';
 
 const LIBRARY_ARCHIVE_FORMAT = 'nous-library-archive';
-const LIBRARY_ARCHIVE_VERSION = 1;
+const LIBRARY_ARCHIVE_VERSION = 2;
 const LIBRARY_ARCHIVE_EXTENSION = '.nous-library.zip';
 const LIBRARY_ARCHIVE_MANIFEST_PATH = 'library.json';
 const LIBRARY_ARCHIVE_PROJECTS_DIR = 'projects';
@@ -55,6 +61,19 @@ interface LibraryArchiveManifest {
   archiveVersion: number;
   format: typeof LIBRARY_ARCHIVE_FORMAT;
   projects: LibraryArchiveProjectEntry[];
+  folders: LibraryFolder[];
+  placements: LibraryPlacement[];
+}
+
+export interface LibraryArchiveData {
+  projects: ProjectExportData[];
+  folders: LibraryFolder[];
+  placements: LibraryPlacement[];
+}
+
+export interface LibraryArchiveOrganization {
+  folders: LibraryFolder[];
+  placements: LibraryPlacement[];
 }
 
 const sanitizeArchivePathSegment = (value: string): string => {
@@ -97,7 +116,7 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
     );
   }
   if (isRecord(parsed) && parsed.format === LIBRARY_ARCHIVE_FORMAT) {
-    if (parsed.archiveVersion !== LIBRARY_ARCHIVE_VERSION) {
+    if (parsed.archiveVersion !== 1 && parsed.archiveVersion !== LIBRARY_ARCHIVE_VERSION) {
       throw new LibraryArchiveError(
         `La versione ${String(parsed.archiveVersion)} del backup non è supportata.`,
         'LIBRARY_ARCHIVE_VERSION_UNSUPPORTED',
@@ -108,7 +127,7 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
   if (
     !isRecord(parsed) ||
     parsed.format !== LIBRARY_ARCHIVE_FORMAT ||
-    parsed.archiveVersion !== LIBRARY_ARCHIVE_VERSION ||
+    (parsed.archiveVersion !== 1 && parsed.archiveVersion !== LIBRARY_ARCHIVE_VERSION) ||
     !Array.isArray(parsed.projects) ||
     parsed.projects.length === 0
   ) {
@@ -123,6 +142,7 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
     if (
       !isRecord(project) ||
       typeof project.id !== 'string' ||
+      !project.id.trim() ||
       typeof project.title !== 'string' ||
       typeof project.path !== 'string' ||
       !project.path.startsWith(`${LIBRARY_ARCHIVE_PROJECTS_DIR}/`) ||
@@ -137,7 +157,10 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
     return { id: project.id, path: project.path, title: project.title };
   });
 
-  if (new Set(projects.map(project => project.path)).size !== projects.length) {
+  if (
+    new Set(projects.map(project => project.path)).size !== projects.length ||
+    new Set(projects.map(project => project.id)).size !== projects.length
+  ) {
     throw new LibraryArchiveError(
       'Il manifest contiene più volte lo stesso archivio corso.',
       'LIBRARY_ARCHIVE_INVALID',
@@ -145,16 +168,134 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
     );
   }
 
+  let folders: LibraryFolder[] = [];
+  let placements: LibraryPlacement[] = [];
+  if (parsed.archiveVersion === LIBRARY_ARCHIVE_VERSION) {
+    if (!Array.isArray(parsed.folders) || !Array.isArray(parsed.placements)) {
+      throw new LibraryArchiveError(
+        'Nel backup manca la struttura delle cartelle.',
+        'LIBRARY_ARCHIVE_INVALID',
+        'manifest-read'
+      );
+    }
+    folders = parsed.folders.map(folder => {
+      if (
+        !isRecord(folder) ||
+        typeof folder.id !== 'string' ||
+        typeof folder.name !== 'string' ||
+        (folder.parentFolderId !== null && typeof folder.parentFolderId !== 'string') ||
+        typeof folder.createdAt !== 'string' ||
+        typeof folder.updatedAt !== 'string' ||
+        typeof folder.order !== 'number' ||
+        !Number.isFinite(folder.order) ||
+        folder.order < 0
+      ) {
+        throw new LibraryArchiveError(
+          'Il manifest contiene una cartella non valida.',
+          'LIBRARY_ARCHIVE_INVALID',
+          'manifest-read'
+        );
+      }
+      return {
+        id: folder.id,
+        name: folder.name,
+        parentFolderId: folder.parentFolderId,
+        createdAt: folder.createdAt,
+        updatedAt: folder.updatedAt,
+        order: folder.order,
+      };
+    });
+    placements = parsed.placements.map(placement => {
+      if (
+        !isRecord(placement) ||
+        typeof placement.projectId !== 'string' ||
+        (placement.folderId !== null && typeof placement.folderId !== 'string') ||
+        typeof placement.updatedAt !== 'string' ||
+        typeof placement.order !== 'number' ||
+        !Number.isFinite(placement.order) ||
+        placement.order < 0
+      ) {
+        throw new LibraryArchiveError(
+          'Il manifest contiene un posizionamento non valido.',
+          'LIBRARY_ARCHIVE_INVALID',
+          'manifest-read'
+        );
+      }
+      return {
+        projectId: placement.projectId,
+        folderId: placement.folderId,
+        updatedAt: placement.updatedAt,
+        order: placement.order,
+      };
+    });
+
+    const folderIds = new Set(folders.map(folder => folder.id));
+    const projectIds = new Set(projects.map(project => project.id));
+    if (
+      folderIds.size !== folders.length ||
+      new Set(placements.map(placement => placement.projectId)).size !== placements.length ||
+      placements.length !== projects.length ||
+      folders.some(
+        folder => folder.parentFolderId !== null && !folderIds.has(folder.parentFolderId)
+      ) ||
+      placements.some(
+        placement =>
+          !projectIds.has(placement.projectId) ||
+          (placement.folderId !== null && !folderIds.has(placement.folderId))
+      )
+    ) {
+      throw new LibraryArchiveError(
+        'La struttura delle cartelle nel backup non è coerente.',
+        'LIBRARY_ARCHIVE_INVALID',
+        'manifest-read'
+      );
+    }
+
+    const folderById = new Map(folders.map(folder => [folder.id, folder]));
+    for (const folder of folders) {
+      const visited = new Set<string>();
+      let current: LibraryFolder | undefined = folder;
+      while (current?.parentFolderId) {
+        if (visited.has(current.id)) {
+          throw new LibraryArchiveError(
+            'La gerarchia delle cartelle nel backup contiene un ciclo.',
+            'LIBRARY_ARCHIVE_INVALID',
+            'manifest-read'
+          );
+        }
+        visited.add(current.id);
+        current = folderById.get(current.parentFolderId);
+      }
+    }
+  }
+
   return {
-    archiveVersion: LIBRARY_ARCHIVE_VERSION,
+    archiveVersion: parsed.archiveVersion,
     format: LIBRARY_ARCHIVE_FORMAT,
     projects,
+    folders,
+    placements,
   };
 };
 
-export const createLibraryArchiveBlob = async (projects: ProjectSnapshot[]): Promise<Blob> => {
+export const createLibraryArchiveBlob = async (
+  projects: ProjectSnapshot[],
+  organization: LibraryArchiveOrganization
+): Promise<Blob> => {
   if (projects.length === 0) {
     throw new Error('Non ci sono corsi da esportare.');
+  }
+  const projectIds = new Set(projects.map(project => project.id));
+  const placementProjectIds = new Set(
+    organization.placements.map(placement => placement.projectId)
+  );
+  if (
+    projectIds.size !== projects.length ||
+    placementProjectIds.size !== organization.placements.length ||
+    placementProjectIds.size !== projectIds.size ||
+    [...projectIds].some(projectId => !placementProjectIds.has(projectId))
+  ) {
+    throw new Error('La struttura della libreria non contiene un posizionamento per ogni corso.');
   }
 
   const zip = new JSZip();
@@ -175,6 +316,8 @@ export const createLibraryArchiveBlob = async (projects: ProjectSnapshot[]): Pro
     archiveVersion: LIBRARY_ARCHIVE_VERSION,
     format: LIBRARY_ARCHIVE_FORMAT,
     projects: manifestProjects,
+    folders: organization.folders,
+    placements: organization.placements,
   };
   zip.file(LIBRARY_ARCHIVE_MANIFEST_PATH, JSON.stringify(manifest), {
     compression: 'DEFLATE',
@@ -188,7 +331,7 @@ export const createLibraryArchiveBlob = async (projects: ProjectSnapshot[]): Pro
   return new Blob([new Uint8Array(bytes)], { type: LIBRARY_ARCHIVE_MIME_TYPE });
 };
 
-export const readLibraryArchiveProjects = async (file: Blob): Promise<ProjectExportData[]> => {
+export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData> => {
   let zip: JSZip;
   try {
     zip = await loadZipSafely(new Uint8Array(await file.arrayBuffer()), {
@@ -225,9 +368,19 @@ export const readLibraryArchiveProjects = async (file: Blob): Promise<ProjectExp
         LIBRARY_ARCHIVE_MAX_PROJECT_BYTES,
         `Il corso ${projectIndex} di ${projectCount} supera il limite di ${LIBRARY_ARCHIVE_MAX_PROJECT_BYTES} byte.`
       );
-      projects.push(
-        (await readProjectImportData(new Blob([new Uint8Array(bytes)]))) as ProjectExportData
-      );
+      const importedProject = (await readProjectImportData(
+        new Blob([new Uint8Array(bytes)])
+      )) as ProjectExportData;
+      if (importedProject.id !== project.id) {
+        throw new LibraryArchiveError(
+          `Il corso ${projectIndex} di ${projectCount} non corrisponde al manifest.`,
+          'LIBRARY_ARCHIVE_PROJECT_INVALID',
+          'nested-project-read',
+          projectIndex,
+          projectCount
+        );
+      }
+      projects.push(importedProject);
     } catch (error) {
       const tooLarge = error instanceof Error && error.message.includes('limite');
       throw new LibraryArchiveError(
@@ -243,7 +396,73 @@ export const readLibraryArchiveProjects = async (file: Blob): Promise<ProjectExp
     }
   }
 
-  return projects;
+  return {
+    projects,
+    folders: manifest.folders,
+    placements: manifest.placements,
+  };
+};
+
+export const readLibraryArchiveProjects = async (file: Blob): Promise<ProjectExportData[]> =>
+  (await readLibraryArchive(file)).projects;
+
+type LibraryOrganizationRepository = Pick<
+  ProjectRepository,
+  'createFolder' | 'moveFolder' | 'moveProjects'
+>;
+
+export const restoreLibraryArchiveOrganization = async (
+  repository: LibraryOrganizationRepository,
+  organization: LibraryArchiveOrganization,
+  projectIdMap: ReadonlyMap<string, string> = new Map()
+): Promise<void> => {
+  const folderIdMap = new Map<string, string>();
+  const pendingFolders = organization.folders
+    .slice()
+    .sort((left, right) => left.order - right.order);
+
+  while (pendingFolders.length > 0) {
+    const readyIndex = pendingFolders.findIndex(
+      folder => folder.parentFolderId === null || folderIdMap.has(folder.parentFolderId)
+    );
+    if (readyIndex < 0) {
+      throw new LibraryArchiveError(
+        'La gerarchia delle cartelle nel backup contiene un ciclo.',
+        'LIBRARY_ARCHIVE_INVALID',
+        'manifest-read'
+      );
+    }
+    const [folder] = pendingFolders.splice(readyIndex, 1);
+    if (!folder) continue;
+    const parentFolderId =
+      folder.parentFolderId === null ? null : folderIdMap.get(folder.parentFolderId) || null;
+    const created = await repository.createFolder({ name: folder.name, parentFolderId });
+    folderIdMap.set(folder.id, created.id);
+  }
+
+  const parentIds: Array<string | null> = [null, ...organization.folders.map(folder => folder.id)];
+  for (const parentId of parentIds) {
+    const siblings = [
+      ...organization.folders
+        .filter(folder => folder.parentFolderId === parentId)
+        .map(folder => ({ kind: 'folder' as const, order: folder.order, folder })),
+      ...organization.placements
+        .filter(placement => placement.folderId === parentId)
+        .map(placement => ({ kind: 'project' as const, order: placement.order, placement })),
+    ].sort((left, right) => left.order - right.order);
+
+    for (const [targetIndex, sibling] of siblings.entries()) {
+      const mappedParentId = parentId === null ? null : folderIdMap.get(parentId) || null;
+      if (sibling.kind === 'folder') {
+        const folderId = folderIdMap.get(sibling.folder.id);
+        if (folderId) await repository.moveFolder(folderId, mappedParentId, targetIndex);
+      } else {
+        const projectId =
+          projectIdMap.get(sibling.placement.projectId) || sibling.placement.projectId;
+        await repository.moveProjects([projectId], mappedParentId, targetIndex);
+      }
+    }
+  }
 };
 
 export const getLibraryArchiveExtension = () => LIBRARY_ARCHIVE_EXTENSION;

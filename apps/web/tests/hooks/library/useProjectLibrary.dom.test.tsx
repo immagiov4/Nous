@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import {
   AppState,
@@ -162,6 +163,41 @@ describe('useProjectLibrary', () => {
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
 
     expect(result.current.savedProjects.map(project => project.id)).toEqual(['newer', 'older']);
+  });
+
+  test('imports folders and placements from a complete library backup', async () => {
+    const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
+      folders: [
+        {
+          id: 'old-folder',
+          name: 'Matematica',
+          parentFolderId: null,
+          createdAt: '',
+          updatedAt: '',
+          order: 0,
+        },
+      ],
+      placements: [{ projectId: 'course-one', folderId: 'old-folder', order: 0, updatedAt: '' }],
+    });
+    const file = new File([archive], 'library.nous-library.zip');
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.importLibraryBackup(file);
+    });
+
+    expect(repositoryMocks.importProject).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.createFolder).toHaveBeenCalledWith({
+      name: 'Matematica',
+      parentFolderId: null,
+    });
+    expect(repositoryMocks.moveProjects).toHaveBeenCalledWith(['imported'], 'folder-1', 0);
   });
 
   test('clears a stale synchronization error after metadata refresh succeeds', async () => {

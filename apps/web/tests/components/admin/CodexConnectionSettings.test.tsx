@@ -34,7 +34,9 @@ describe('CodexConnectionSettings', () => {
     });
     render(<CodexConnectionSettings />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Collega Codex' }));
+    const connectButton = await screen.findByRole('button', { name: 'Collega Codex' });
+    await waitFor(() => expect(connectButton).toBeEnabled());
+    fireEvent.click(connectButton);
 
     expect(await screen.findByText('ABCD-1234')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Apri accesso OpenAI' })).toHaveAttribute(

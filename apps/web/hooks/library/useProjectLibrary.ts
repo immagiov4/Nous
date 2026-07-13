@@ -4,7 +4,8 @@ import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import {
   createLibraryArchiveBlob,
   getLibraryArchiveExtension,
-  readLibraryArchiveProjects,
+  readLibraryArchive,
+  restoreLibraryArchiveOrganization,
 } from '../../services/projects/libraryArchive.ts';
 import { buildAutosaveSignature } from '../../services/projects/persistenceSignature';
 import {
@@ -632,7 +633,11 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
   );
 
   const downloadLibraryBackup = useCallback(async (): Promise<number> => {
-    const projectMetas = await projectRepositoryRef.current.listProjects();
+    const [projectMetas, folders, placements] = await Promise.all([
+      projectRepositoryRef.current.listProjects(),
+      projectRepositoryRef.current.listFolders(),
+      projectRepositoryRef.current.listPlacements(),
+    ]);
     const projects: ProjectSnapshot[] = [];
 
     for (const projectMeta of projectMetas) {
@@ -643,7 +648,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       projects.push(normalizeImportedProject(exportData));
     }
 
-    const archive = await createLibraryArchiveBlob(projects);
+    const archive = await createLibraryArchiveBlob(projects, { folders, placements });
     downloadBlob(
       archive,
       `nous-library-backup-${timestampIso().slice(0, 10)}${getLibraryArchiveExtension()}`
@@ -653,12 +658,19 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
 
   const importLibraryBackup = useCallback(
     async (file: File): Promise<number> => {
-      const projects = await readLibraryArchiveProjects(file);
-      for (const project of projects) {
-        await projectRepositoryRef.current.importProject(project);
+      const archive = await readLibraryArchive(file);
+      const projectIdMap = new Map<string, string>();
+      for (const project of archive.projects) {
+        const originalProjectId = project.id;
+        if (!originalProjectId) {
+          throw new Error('Il backup contiene un corso senza identificatore.');
+        }
+        const imported = await projectRepositoryRef.current.importProject(project);
+        projectIdMap.set(originalProjectId, imported.snapshot.id || originalProjectId);
       }
+      await restoreLibraryArchiveOrganization(projectRepositoryRef.current, archive, projectIdMap);
       await refreshLibraryState();
-      return projects.length;
+      return archive.projects.length;
     },
     [refreshLibraryState]
   );

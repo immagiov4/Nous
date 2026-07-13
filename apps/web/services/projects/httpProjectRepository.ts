@@ -21,6 +21,8 @@ import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
 import { PROJECT_SYNC_READY } from './projectSyncState.ts';
 
 interface ApiResponse {
+  complete?: boolean;
+  ready?: boolean;
   success: boolean;
   error?: string;
   data?: ProjectExportData | null;
@@ -40,6 +42,31 @@ const PROJECT_SYNC_ERROR_MESSAGE =
 const PROJECT_SYNC_TIMEOUT_MESSAGE =
   'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
+const PROJECT_IMPORT_REQUEST_TIMEOUT_MS = 120_000;
+const PROJECT_IMPORT_DIRECT_MAX_CHARS = 20_000_000;
+const PROJECT_IMPORT_CHUNK_CHARS = 4_000_000;
+
+const splitProjectImport = (serialized: string): string[] => {
+  const chunks: string[] = [];
+  let start = 0;
+  while (start < serialized.length) {
+    let end = Math.min(start + PROJECT_IMPORT_CHUNK_CHARS, serialized.length);
+    const previousCodeUnit = serialized.charCodeAt(end - 1);
+    const nextCodeUnit = serialized.charCodeAt(end);
+    if (
+      end < serialized.length &&
+      previousCodeUnit >= 0xd800 &&
+      previousCodeUnit <= 0xdbff &&
+      nextCodeUnit >= 0xdc00 &&
+      nextCodeUnit <= 0xdfff
+    ) {
+      end -= 1;
+    }
+    chunks.push(serialized.slice(start, end));
+    start = end;
+  }
+  return chunks;
+};
 
 const createProjectSyncError = (error: unknown): ProjectStorageError => {
   console.warn('[Nous] Server project sync failed', error);
@@ -56,7 +83,8 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
 const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> => {
   try {
     return (await response.json()) as ApiResponse & T;
-  } catch {
+  } catch (error) {
+    if (response.ok) throw error;
     return {
       success: false,
       error: response.statusText || 'Risposta backend non valida.',
@@ -267,13 +295,40 @@ export class HttpProjectRepository implements ProjectRepository {
   async importProject(
     data: unknown
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
-    const response = await this.request<{
+    const serializedData = JSON.stringify(data);
+    let response: ApiResponse & {
       meta?: SavedProjectMeta;
       snapshot?: ProjectSnapshot;
-    }>('/api/projects/import', {
-      method: 'POST',
-      body: JSON.stringify({ data }),
-    });
+    };
+    if (serializedData.length <= PROJECT_IMPORT_DIRECT_MAX_CHARS) {
+      response = await this.request('/api/projects/import', {
+        method: 'POST',
+        body: JSON.stringify({ data }),
+      });
+    } else {
+      const uploadId = globalThis.crypto.randomUUID();
+      const chunks = splitProjectImport(serializedData);
+      const chunkCount = chunks.length;
+      response = { success: false };
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        response = await this.requestImportUpload('/api/projects/import/chunks', {
+          uploadId,
+          chunkIndex,
+          chunkCount,
+          chunk: chunks[chunkIndex],
+        });
+        if (response.complete !== false || (chunkIndex === chunkCount - 1 && !response.ready)) {
+          throw new ProjectStorageError(
+            'Il backend non ha confermato tutte le parti del backup.',
+            'persistence-failed'
+          );
+        }
+      }
+      response = await this.requestImportUpload(
+        `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
+        {}
+      );
+    }
     return {
       meta: {
         ...assertValue(response.meta, 'Il progetto sincronizzato non e stato importato.'),
@@ -297,6 +352,26 @@ export class HttpProjectRepository implements ProjectRepository {
     await this.request(`/api/projects/projects/${encodeURIComponent(id)}/touch`, {
       method: 'POST',
     });
+  }
+
+  private async requestImportUpload<T>(path: string, body: unknown): Promise<T> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.request<T>(path, {
+          method: 'POST',
+          signal: AbortSignal.timeout(PROJECT_IMPORT_REQUEST_TIMEOUT_MS),
+          body: JSON.stringify(body),
+        });
+      } catch (error) {
+        const isAmbiguousNetworkFailure =
+          error instanceof ProjectStorageError &&
+          (error.message === PROJECT_SYNC_ERROR_MESSAGE ||
+            error.message === PROJECT_SYNC_TIMEOUT_MESSAGE);
+        if (!isAmbiguousNetworkFailure || attempt === 2) throw error;
+        await new Promise(resolve => globalThis.setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+    throw new ProjectStorageError(PROJECT_SYNC_ERROR_MESSAGE, 'persistence-failed');
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {

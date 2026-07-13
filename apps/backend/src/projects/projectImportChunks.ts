@@ -1,0 +1,359 @@
+import { createHash } from 'node:crypto';
+import {
+  appendFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+
+import type { SavedProjectMeta } from './types.js';
+
+const IMPORT_ROOT_PREFIX = 'nous-project-imports-';
+const IMPORT_ROOT_PROMISE = mkdtemp(join(tmpdir(), IMPORT_ROOT_PREFIX));
+const IMPORT_UPLOAD_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const MAX_IMPORT_CHUNK_COUNT = 80;
+const MAX_IMPORT_CHUNK_BYTES = 20_000_000;
+const MAX_IMPORT_BYTES = 180_000_000;
+const MAX_ACTIVE_UPLOADS_PER_USER = 1;
+const MAX_ACTIVE_UPLOADS_GLOBAL = 3;
+const RECEIVING_UPLOAD_TTL_MS = 60 * 60 * 1000;
+const COMPLETED_UPLOAD_TTL_MS = 10 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+
+interface ProjectImportChunk {
+  chunk: string;
+  chunkCount: number;
+  chunkIndex: number;
+  uploadId: string;
+  userId: string;
+}
+
+interface StoredChunk {
+  bytes: number;
+  digest: string;
+}
+
+interface CompletedImport {
+  meta: SavedProjectMeta;
+  projectId: string;
+}
+
+interface UploadSession {
+  chunkCount: number;
+  chunks: Map<number, StoredChunk>;
+  completed?: CompletedImport;
+  completion?: Promise<CompletedImport>;
+  directory: string;
+  key: string;
+  lock: Promise<void>;
+  status: 'receiving' | 'finalizing' | 'completed';
+  totalBytes: number;
+  updatedAt: number;
+  uploadId: string;
+  userId: string;
+}
+
+export class ProjectImportInputError extends Error {}
+
+const sessions = new Map<string, UploadSession>();
+const pendingSessions = new Map<string, Promise<UploadSession>>();
+let finalizationQueue: Promise<void> = Promise.resolve();
+
+const getUserHash = (userId: string): string =>
+  createHash('sha256').update(userId).digest('hex').slice(0, 32);
+
+const getSessionKey = (userId: string, uploadId: string): string =>
+  `${getUserHash(userId)}-${uploadId}`;
+
+const safelyRemove = async (path: string): Promise<void> => {
+  try {
+    await rm(path, { recursive: true, force: true });
+  } catch (error) {
+    console.warn('[Projects] Failed to clean an import upload directory.', error);
+  }
+};
+
+const cleanupOrphanedRoots = async (now: number): Promise<void> => {
+  const currentRoot = await IMPORT_ROOT_PROMISE;
+  const entries = await readdir(tmpdir(), { withFileTypes: true });
+  await Promise.all(
+    entries
+      .filter(
+        entry => entry.name.startsWith(IMPORT_ROOT_PREFIX) && entry.name !== basename(currentRoot)
+      )
+      .map(async entry => {
+        const path = join(tmpdir(), entry.name);
+        try {
+          const stats = await lstat(path);
+          if (now - stats.mtimeMs > RECEIVING_UPLOAD_TTL_MS) await safelyRemove(path);
+        } catch {
+          // The directory may have disappeared between listing and inspection.
+        }
+      })
+  );
+};
+
+const cleanupExpiredSessions = async (): Promise<void> => {
+  const now = Date.now();
+  const cleanupTasks: Promise<void>[] = [];
+  for (const [key, session] of sessions) {
+    const ttl = session.status === 'completed' ? COMPLETED_UPLOAD_TTL_MS : RECEIVING_UPLOAD_TTL_MS;
+    if (session.status !== 'finalizing' && now - session.updatedAt > ttl) {
+      cleanupTasks.push(
+        withSessionLock(session, async () => {
+          const current = sessions.get(key);
+          const currentTtl =
+            session.status === 'completed' ? COMPLETED_UPLOAD_TTL_MS : RECEIVING_UPLOAD_TTL_MS;
+          if (
+            current !== session ||
+            session.status === 'finalizing' ||
+            Date.now() - session.updatedAt <= currentTtl
+          ) {
+            return;
+          }
+          sessions.delete(key);
+          await safelyRemove(session.directory);
+        })
+      );
+    }
+  }
+  await Promise.all(cleanupTasks);
+  await cleanupOrphanedRoots(now);
+};
+
+setInterval(() => {
+  void cleanupExpiredSessions();
+}, CLEANUP_INTERVAL_MS).unref();
+
+const validateChunk = ({ chunk, chunkCount, chunkIndex, uploadId }: ProjectImportChunk): number => {
+  if (!IMPORT_UPLOAD_ID_PATTERN.test(uploadId)) {
+    throw new ProjectImportInputError('Identificativo caricamento non valido.');
+  }
+  if (!Number.isSafeInteger(chunkCount) || chunkCount < 1 || chunkCount > MAX_IMPORT_CHUNK_COUNT) {
+    throw new ProjectImportInputError('Numero di parti del backup non valido.');
+  }
+  if (!Number.isSafeInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= chunkCount) {
+    throw new ProjectImportInputError('Indice della parte del backup non valido.');
+  }
+  const chunkBytes = Buffer.byteLength(chunk, 'utf8');
+  if (!chunk || chunkBytes > MAX_IMPORT_CHUNK_BYTES) {
+    throw new ProjectImportInputError('Parte del backup non valida o troppo grande.');
+  }
+  return chunkBytes;
+};
+
+const withSessionLock = async <T>(
+  session: UploadSession,
+  operation: () => Promise<T>
+): Promise<T> => {
+  const previousLock = session.lock;
+  let releaseLock = (): void => undefined;
+  session.lock = new Promise<void>(resolve => {
+    releaseLock = resolve;
+  });
+  await previousLock;
+  try {
+    return await operation();
+  } finally {
+    releaseLock();
+  }
+};
+
+const runFinalization = <T>(operation: () => Promise<T>): Promise<T> => {
+  const result = finalizationQueue.then(operation, operation);
+  finalizationQueue = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
+};
+
+const countActiveUserSessions = (userId: string): number =>
+  [...sessions.values()].filter(
+    session => session.userId === userId && session.status !== 'completed'
+  ).length;
+
+const createSession = async (input: ProjectImportChunk): Promise<UploadSession> => {
+  const root = await IMPORT_ROOT_PROMISE;
+  const key = getSessionKey(input.userId, input.uploadId);
+  const directory = join(root, key);
+  await mkdir(directory, { mode: 0o700 });
+  const session: UploadSession = {
+    chunkCount: input.chunkCount,
+    chunks: new Map(),
+    directory,
+    key,
+    lock: Promise.resolve(),
+    status: 'receiving',
+    totalBytes: 0,
+    updatedAt: Date.now(),
+    uploadId: input.uploadId,
+    userId: input.userId,
+  };
+  sessions.set(key, session);
+  return session;
+};
+
+const getOrCreateSession = async (input: ProjectImportChunk): Promise<UploadSession> => {
+  const key = getSessionKey(input.userId, input.uploadId);
+  const existing = sessions.get(key);
+  if (existing) {
+    return existing;
+  }
+  const pending = pendingSessions.get(key);
+  if (pending) {
+    return pending;
+  }
+  const userKeyPrefix = `${getUserHash(input.userId)}-`;
+  const pendingForUser = [...pendingSessions.keys()].filter(pendingKey =>
+    pendingKey.startsWith(userKeyPrefix)
+  ).length;
+  const activeGlobal = [...sessions.values()].filter(
+    session => session.status !== 'completed'
+  ).length;
+  if (activeGlobal + pendingSessions.size >= MAX_ACTIVE_UPLOADS_GLOBAL) {
+    throw new ProjectImportInputError(
+      'Il server sta gia elaborando troppi backup. Riprova piu tardi.'
+    );
+  }
+  if (countActiveUserSessions(input.userId) + pendingForUser >= MAX_ACTIVE_UPLOADS_PER_USER) {
+    throw new ProjectImportInputError(
+      'Ci sono gia troppi backup in caricamento. Riprova piu tardi.'
+    );
+  }
+  const creation = createSession(input).finally(() => {
+    pendingSessions.delete(key);
+  });
+  pendingSessions.set(key, creation);
+  return creation;
+};
+
+export const storeProjectImportChunk = async (
+  input: ProjectImportChunk
+): Promise<{ ready: boolean; receivedCount: number }> => {
+  const chunkBytes = validateChunk(input);
+  await cleanupExpiredSessions();
+  const session = await getOrCreateSession(input);
+
+  return withSessionLock(session, async () => {
+    if (session.status !== 'receiving') {
+      throw new ProjectImportInputError('Questo backup e gia stato elaborato.');
+    }
+    if (session.chunkCount !== input.chunkCount) {
+      throw new ProjectImportInputError('Il numero di parti del backup non e coerente.');
+    }
+
+    const digest = createHash('sha256').update(input.chunk).digest('hex');
+    const existingChunk = session.chunks.get(input.chunkIndex);
+    if (existingChunk) {
+      if (existingChunk.bytes !== chunkBytes || existingChunk.digest !== digest) {
+        throw new ProjectImportInputError('Una parte del backup e stata inviata con dati diversi.');
+      }
+      session.updatedAt = Date.now();
+      return {
+        ready: session.chunks.size === session.chunkCount,
+        receivedCount: session.chunks.size,
+      };
+    }
+
+    if (session.totalBytes + chunkBytes > MAX_IMPORT_BYTES) {
+      sessions.delete(session.key);
+      await safelyRemove(session.directory);
+      throw new ProjectImportInputError('Il backup supera il limite massimo di importazione.');
+    }
+
+    await writeFile(join(session.directory, `${input.chunkIndex}.part`), input.chunk, {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: 0o600,
+    });
+    session.chunks.set(input.chunkIndex, { bytes: chunkBytes, digest });
+    session.totalBytes += chunkBytes;
+    session.updatedAt = Date.now();
+    return {
+      ready: session.chunks.size === session.chunkCount,
+      receivedCount: session.chunks.size,
+    };
+  });
+};
+
+const assembleAndImport = async (
+  session: UploadSession,
+  importData: (data: unknown) => Promise<CompletedImport>
+): Promise<CompletedImport> => {
+  const assembledPath = join(session.directory, 'assembled.json');
+  await writeFile(assembledPath, '', { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  for (let index = 0; index < session.chunkCount; index += 1) {
+    const chunkPath = join(session.directory, `${index}.part`);
+    const chunk = await readFile(chunkPath);
+    await appendFile(assembledPath, chunk);
+    await unlink(chunkPath);
+  }
+
+  let serialized = await readFile(assembledPath, 'utf8');
+  let data: unknown;
+  try {
+    data = JSON.parse(serialized) as unknown;
+  } catch {
+    throw new ProjectImportInputError('Il contenuto del backup non e un JSON valido.');
+  } finally {
+    serialized = '';
+  }
+  return importData(data);
+};
+
+export const completeProjectImportUpload = async ({
+  importData,
+  uploadId,
+  userId,
+}: {
+  importData: (data: unknown) => Promise<CompletedImport>;
+  uploadId: string;
+  userId: string;
+}): Promise<CompletedImport> => {
+  if (!IMPORT_UPLOAD_ID_PATTERN.test(uploadId)) {
+    throw new ProjectImportInputError('Identificativo caricamento non valido.');
+  }
+  await cleanupExpiredSessions();
+  const session = sessions.get(getSessionKey(userId, uploadId));
+  if (!session) {
+    throw new ProjectImportInputError('Caricamento del backup non trovato o scaduto.');
+  }
+  if (session.completed) {
+    session.updatedAt = Date.now();
+    return session.completed;
+  }
+  if (session.completion) {
+    return session.completion;
+  }
+
+  session.completion = withSessionLock(session, async () => {
+    if (session.chunks.size !== session.chunkCount) {
+      session.completion = undefined;
+      throw new ProjectImportInputError('Non tutte le parti del backup sono state ricevute.');
+    }
+    session.status = 'finalizing';
+    session.updatedAt = Date.now();
+    try {
+      const completed = await runFinalization(() => assembleAndImport(session, importData));
+      session.completed = completed;
+      session.status = 'completed';
+      session.updatedAt = Date.now();
+      await safelyRemove(session.directory);
+      return completed;
+    } catch (error) {
+      sessions.delete(session.key);
+      await safelyRemove(session.directory);
+      throw error;
+    }
+  });
+  return session.completion;
+};
