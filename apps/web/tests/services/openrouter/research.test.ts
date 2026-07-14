@@ -122,6 +122,37 @@ test('course research evaluates automatic YouTube context', async () => {
   );
 });
 
+test('course research streams progress while gathering sources', async () => {
+  callOpenRouterMock.mockResolvedValueOnce('Brief con fonti.');
+  callOpenRouterMock.mockResolvedValueOnce(
+    JSON.stringify({
+      title: 'Kotlin',
+      summary: 'Corso',
+      lessonCountReason: 'Percorso essenziale',
+      modules: [
+        {
+          title: 'Fondamenti',
+          description: 'Base',
+          lessons: Array.from({ length: 8 }, (_, index) => ({
+            title: `Lezione ${index + 1}`,
+            description: 'Base',
+          })),
+        },
+      ],
+    })
+  );
+  const onReasoningUpdate = vi.fn();
+
+  await generateResearchCoursePlan(
+    profile,
+    () => {},
+    () => {},
+    onReasoningUpdate
+  );
+
+  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.onReasoningUpdate, onReasoningUpdate);
+});
+
 test('generateResearchCoursePlan normalizes course shape and clamps oversized outlines', async () => {
   callOpenRouterMock.mockResolvedValueOnce(
     'Brief: Kotlin runs on the JVM. Modules should cover fondamenti, GUI e tooling. Fonti: https://kotlinlang.org/docs/home.html.'
@@ -288,6 +319,7 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
     })
   );
 
+  const onReasoningUpdate = vi.fn();
   const dossier = await generateResearchLessonDossier({
     lesson: {
       id: 'lesson-1',
@@ -301,6 +333,7 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
     profile,
     researchCoursePlan: null,
     onStatusUpdate: () => {},
+    onReasoningUpdate,
   });
 
   assert.equal(dossier.sectionId, 'lesson-1');
@@ -308,6 +341,7 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   assert.deepEqual(dossier.sources, []);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
+  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.onReasoningUpdate, onReasoningUpdate);
   assert.equal(
     callOpenRouterMock.mock.calls[0]?.[0]?.messages[0]?.content.includes(
       'https://www.youtube.com/watch?v=kotlin-lesson'

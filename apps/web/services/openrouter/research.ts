@@ -417,6 +417,7 @@ export const generateResearchCoursePlan = async (
       callOpenRouter({
         model: MODEL_RESEARCH_PLANNER,
         modelSlot: 'research',
+        onReasoningUpdate,
         messages: [
           { role: 'user', content: buildCoursePlanResearchPrompt(profile, youtubeContext) },
         ],
@@ -610,6 +611,7 @@ export const generateResearchLessonDossier = async (args: {
       callOpenRouter({
         model: MODEL_RESEARCH_DOSSIER,
         modelSlot: 'research',
+        onReasoningUpdate: args.onReasoningUpdate,
         messages: [
           {
             role: 'user',
