@@ -18,6 +18,10 @@ import {
   resolveContextMenuSelection,
   resolveMobileContextMenuSyncAction,
 } from '../../utils/context/menuSelection';
+import {
+  findActiveSectionAnnotationHighlightHit,
+  getSectionAnnotationHighlightHit,
+} from '../../utils/learning/sectionAnnotationHighlights.ts';
 import { getSectionAnnotationText } from '../../utils/learning/sectionAnnotations.ts';
 import {
   CONTEXT_ANSWER_DEFAULT_SIZE,
@@ -458,10 +462,10 @@ export const useReaderContext = ({
       }
 
       const annotationElement = target.closest(ANNOTATION_MARK_SELECTOR);
-      if (
-        !(annotationElement instanceof HTMLElement) ||
-        !contentRef.current.contains(annotationElement)
-      ) {
+      const nativeHighlightHit = getSectionAnnotationHighlightHit(event.nativeEvent);
+      const hasLegacyAnnotationElement =
+        annotationElement instanceof HTMLElement && contentRef.current.contains(annotationElement);
+      if (!nativeHighlightHit && !hasLegacyAnnotationElement) {
         return;
       }
 
@@ -470,8 +474,12 @@ export const useReaderContext = ({
         return;
       }
 
-      const annotationData = (annotationElement as HTMLElement).dataset;
-      const annotationId = annotationData.nousAnnotationId || annotationData.luminaAnnotationId;
+      const annotationData =
+        annotationElement instanceof HTMLElement ? annotationElement.dataset : undefined;
+      const annotationId =
+        nativeHighlightHit?.annotationId ||
+        annotationData?.nousAnnotationId ||
+        annotationData?.luminaAnnotationId;
       if (!annotationId) {
         return;
       }
@@ -488,12 +496,14 @@ export const useReaderContext = ({
         lastAnnotationMenuTransitionRef.current = { at: now, sectionId: activeSectionId };
       }
 
-      const rect = annotationElement.getBoundingClientRect();
+      const rect =
+        nativeHighlightHit?.rect || (annotationElement as HTMLElement).getBoundingClientRect();
       const contentRect = contentRef.current.getBoundingClientRect();
       const selectedText =
-        getSectionAnnotationText(sectionContentRef.current, annotationId) ||
-        annotationElement.innerText.trim() ||
-        annotationElement.textContent?.trim() ||
+        nativeHighlightHit?.selectedText ||
+        getSectionAnnotationText(sectionContentRef.current, annotationId, sectionAnnotations) ||
+        (annotationElement instanceof HTMLElement ? annotationElement.innerText.trim() : '') ||
+        annotationElement?.textContent?.trim() ||
         '';
 
       if (!selectedText) {
@@ -739,10 +749,14 @@ export const useReaderContext = ({
       }
 
       const contentElement = contentRef.current;
+      const nativeHighlightHit = findActiveSectionAnnotationHighlightHit(
+        event.clientX,
+        event.clientY
+      );
       if (
-        target instanceof Element &&
-        target.closest(ANNOTATION_MARK_SELECTOR) &&
-        contentElement?.contains(target)
+        contentElement?.contains(target) &&
+        ((target instanceof Element && target.closest(ANNOTATION_MARK_SELECTOR)) ||
+          nativeHighlightHit)
       ) {
         return;
       }
@@ -773,10 +787,15 @@ export const useReaderContext = ({
     const handleSelectionEvent = (event?: Event) => {
       const target = event?.target;
       const contentElement = contentRef.current;
+      const nativeHighlightHit =
+        typeof PointerEvent !== 'undefined' && event instanceof PointerEvent
+          ? findActiveSectionAnnotationHighlightHit(event.clientX, event.clientY)
+          : null;
       if (
-        target instanceof Element &&
-        target.closest(ANNOTATION_MARK_SELECTOR) &&
-        contentElement?.contains(target)
+        target instanceof Node &&
+        contentElement?.contains(target) &&
+        ((target instanceof Element && target.closest(ANNOTATION_MARK_SELECTOR)) ||
+          nativeHighlightHit)
       ) {
         clearSelectionMenuTimeout();
         return;

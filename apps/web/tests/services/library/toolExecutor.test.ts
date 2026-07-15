@@ -108,10 +108,19 @@ const snapshots: ProjectSnapshot[] = [
           title: 'Tipi primitivi',
           description: 'String, number e boolean',
           isCompleted: true,
-          content:
-            'Introduzione <mark data-lumina-annotation-id="annotation-1">tipi primitivi</mark> in TypeScript.',
+          content: 'Introduzione tipi primitivi in TypeScript.',
           annotations: [
             {
+              anchor: {
+                kind: 'selection',
+                selector: {
+                  end: 27,
+                  exact: 'tipi primitivi',
+                  prefix: 'Introduzione',
+                  start: 13,
+                  suffix: 'in TypeScript.',
+                },
+              },
               id: 'annotation-1',
               note: 'Questo passaggio mi interessa per chiarire le differenze con JavaScript.',
               createdAt: '2026-04-02T10:00:00.000Z',

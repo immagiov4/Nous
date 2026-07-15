@@ -6,7 +6,10 @@ import {
   type MouseEvent,
   memo,
   type ReactNode,
+  useCallback,
+  useLayoutEffect,
   useMemo,
+  useRef,
 } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -41,6 +44,14 @@ import type {
   PdfImageAsset,
   SectionAnnotation,
 } from '../../types';
+import {
+  findSectionAnnotationHighlightHit,
+  registerSectionAnnotationHighlights,
+  resolveSectionAnnotationHighlightEntries,
+  type SectionAnnotationHighlightEntry,
+  setSectionAnnotationHighlightHit,
+  supportsSectionAnnotationHighlights,
+} from '../../utils/learning/sectionAnnotationHighlights.ts';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { parsePdfContentParts } from '../../utils/pdf/imagePlaceholders';
 import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
@@ -66,6 +77,8 @@ const EMPTY_GENERATED_VISUALS_BY_ID: Record<string, LessonGeneratedVisual> = {};
 const EMPTY_LESSON_ASSETS_BY_ID: Record<string, PdfImageAsset> = {};
 const EMPTY_LESSON_IMAGE_REFS_BY_ID: Record<string, LessonImageRef> = {};
 const EMPTY_SECTION_ANNOTATIONS: SectionAnnotation[] = [];
+const EMPTY_NOTE_ANNOTATION_IDS = new Set<string>();
+const ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX = 3;
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex, rehypeRaw];
 const NORMALIZED_MARKDOWN_CACHE_LIMIT = 80;
@@ -145,7 +158,7 @@ const getNormalizedMarkdownForRendering = (content: string): string => {
 };
 
 const articleClassName = (className: string) =>
-  `prose w-full min-w-0 max-w-none break-words [overflow-wrap:anywhere] marker:text-gray-500 dark:marker:text-zinc-400 [&_*]:max-w-full [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-2 [&_.katex-display]:overscroll-x-contain [&_.katex-display]:[-webkit-overflow-scrolling:touch] [&_.katex-display_.katex]:min-w-max max-sm:[&_.katex-display]:text-[0.94em] [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_li]:my-1 [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:rounded [&_mark]:mx-0.5 [&_mark]:decoration-clone [&_mark]:box-decoration-clone [&_mark[data-nous-annotation-id]]:cursor-pointer [&_mark[data-lumina-annotation-id]]:cursor-pointer [&_strong_mark]:font-semibold [&_mark_strong]:font-semibold [&_em_mark]:italic [&_mark_em]:italic dark:[&_mark]:bg-amber-700/50 dark:[&_mark]:text-amber-50 ${className}`;
+  `prose relative isolate w-full min-w-0 max-w-none break-words [overflow-wrap:anywhere] marker:text-gray-500 dark:marker:text-zinc-400 [&_*]:max-w-full [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex-display]:py-2 [&_.katex-display]:overscroll-x-contain [&_.katex-display]:[-webkit-overflow-scrolling:touch] [&_.katex-display_.katex]:min-w-max max-sm:[&_.katex-display]:text-[0.94em] [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-4 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-4 [&_li]:my-1 [&_figure]:not-prose [&_figure]:mx-0 [&_figure_img]:my-0 [&_mark]:bg-orange-200 [&_mark]:text-gray-900 [&_mark[data-nous-annotation-id]]:cursor-pointer [&_mark[data-lumina-annotation-id]]:cursor-pointer [&_strong_mark]:font-semibold [&_mark_strong]:font-semibold [&_em_mark]:italic [&_mark_em]:italic dark:[&_mark]:bg-amber-700/50 dark:[&_mark]:text-amber-50 ${className}`;
 
 const buildMarkdownComponents = (
   syntaxTheme: { [key: string]: CSSProperties },
@@ -221,16 +234,22 @@ const buildMarkdownComponents = (
 
     return (
       <mark
-        className="mx-0.5 rounded bg-orange-200 px-1 py-0.5 text-gray-900 decoration-clone box-decoration-clone dark:bg-amber-700/50 dark:text-amber-50"
+        className="bg-orange-200 text-gray-900 dark:bg-amber-700/50 dark:text-amber-50"
         style={{
+          border: 'none',
+          borderRadius: '0.14em',
+          boxDecorationBreak: 'clone',
           fontStyle: 'inherit',
           fontWeight: 'inherit',
+          lineHeight: 'inherit',
+          margin: 0,
+          padding: '0 3px',
+          WebkitBoxDecorationBreak: 'clone',
           ...(hasAttachedNote
             ? {
-                border: `1.5px dashed ${isDarkMode ? 'rgba(196, 151, 111, 0.9)' : '#8A5A34'}`,
-                paddingInline: '0.16em',
-                paddingBlock: '0.24em',
-                lineHeight: '2.35',
+                textDecorationLine: 'underline',
+                textDecorationStyle: 'dashed',
+                textUnderlineOffset: '0.18em',
               }
             : null),
         }}
@@ -332,6 +351,10 @@ const MarkdownRenderer = ({
   lessonImageRefsById = EMPTY_LESSON_IMAGE_REFS_BY_ID,
   sectionAnnotations = EMPTY_SECTION_ANNOTATIONS,
 }: MarkdownRendererProps) => {
+  const articleRef = useRef<HTMLElement>(null);
+  const annotationHighlightCapsRef = useRef<HTMLDivElement>(null);
+  const annotationHighlightEntriesRef = useRef<SectionAnnotationHighlightEntry[]>([]);
+  const usesNativeAnnotationHighlights = supportsSectionAnnotationHighlights();
   const syntaxTheme = useMemo(
     () =>
       isDarkMode
@@ -346,21 +369,94 @@ const MarkdownRenderer = ({
   );
   const noteAnnotationIds = useMemo(
     () =>
-      new Set(
-        sectionAnnotations
-          .filter(
-            annotation =>
-              annotation.note.trim().length > 0 || (annotation.artifactRefs?.length || 0) > 0
-          )
-          .map(annotation => annotation.id)
-      ),
-    [sectionAnnotations]
+      usesNativeAnnotationHighlights
+        ? EMPTY_NOTE_ANNOTATION_IDS
+        : new Set(
+            sectionAnnotations
+              .filter(
+                annotation =>
+                  annotation.note.trim().length > 0 || (annotation.artifactRefs?.length || 0) > 0
+              )
+              .map(annotation => annotation.id)
+          ),
+    [sectionAnnotations, usesNativeAnnotationHighlights]
   );
   const markdownComponents = useMemo(
     () => buildMarkdownComponents(syntaxTheme, isDarkMode, noteAnnotationIds),
     [syntaxTheme, isDarkMode, noteAnnotationIds]
   );
   const classNameValue = useMemo(() => articleClassName(className), [className]);
+  useLayoutEffect(() => {
+    const article = articleRef.current;
+    const capsContainer = annotationHighlightCapsRef.current;
+    if (!article || !capsContainer || !content.trim() || !usesNativeAnnotationHighlights) {
+      annotationHighlightEntriesRef.current = [];
+      return;
+    }
+
+    const entries = resolveSectionAnnotationHighlightEntries(article, sectionAnnotations);
+    annotationHighlightEntriesRef.current = entries;
+    const unregisterHighlights = registerSectionAnnotationHighlights(entries);
+    const renderHighlightCaps = () => {
+      const articleRect = article.getBoundingClientRect();
+      const fragment = document.createDocumentFragment();
+      for (const entry of entries) {
+        for (const range of entry.ranges) {
+          for (const rect of range.getClientRects()) {
+            if (rect.width <= 0 || rect.height <= 0) {
+              continue;
+            }
+
+            const leftCap = document.createElement('span');
+            leftCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-start';
+            leftCap.style.left = `${rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+            leftCap.style.top = `${rect.top - articleRect.top}px`;
+            leftCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+            leftCap.style.height = `${rect.height}px`;
+
+            const rightCap = document.createElement('span');
+            rightCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-end';
+            rightCap.style.left = `${rect.right - articleRect.left}px`;
+            rightCap.style.top = `${rect.top - articleRect.top}px`;
+            rightCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+            rightCap.style.height = `${rect.height}px`;
+
+            fragment.append(leftCap, rightCap);
+          }
+        }
+      }
+      capsContainer.replaceChildren(fragment);
+    };
+
+    renderHighlightCaps();
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(renderHighlightCaps);
+    resizeObserver?.observe(article);
+    return () => {
+      resizeObserver?.disconnect();
+      capsContainer.replaceChildren();
+      unregisterHighlights();
+      if (annotationHighlightEntriesRef.current === entries) {
+        annotationHighlightEntriesRef.current = [];
+      }
+    };
+  }, [content, sectionAnnotations, usesNativeAnnotationHighlights]);
+  const handleClick = useCallback(
+    (event: MouseEvent<HTMLElement>) => {
+      if (usesNativeAnnotationHighlights) {
+        const hit = findSectionAnnotationHighlightHit(
+          annotationHighlightEntriesRef.current,
+          event.clientX,
+          event.clientY
+        );
+        if (hit) {
+          setSectionAnnotationHighlightHit(event.nativeEvent, hit);
+        }
+      }
+      onClick?.(event);
+    },
+    [onClick, usesNativeAnnotationHighlights]
+  );
   const handleKeyDown = useMemo(
     () =>
       onClick
@@ -372,11 +468,17 @@ const MarkdownRenderer = ({
 
   return (
     <article
+      ref={articleRef}
       className={classNameValue}
-      onClick={onClick}
+      onClick={onClick ? handleClick : undefined}
       onKeyDown={handleKeyDown}
       onContextMenu={onContextMenu}
     >
+      <div
+        ref={annotationHighlightCapsRef}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10"
+      />
       {contentParts.map(part =>
         part.type === 'markdown' ? (
           <MarkdownPart key={part.key} content={part.content} components={markdownComponents} />

@@ -200,7 +200,8 @@ export const useWorkspaceReaderActions = ({
           clickedAnnotation && activeSection
             ? getSectionAnnotationText(
                 activeSection.content || sectionContent,
-                clickedAnnotation.id
+                clickedAnnotation.id,
+                activeSection.annotations
               )
             : attachedAnnotationMatch?.resolvedText,
         lessonContent: activeSection?.content || sectionContent,
@@ -292,11 +293,9 @@ export const useWorkspaceReaderActions = ({
 
     updateSection(activeSectionId, section => ({
       ...section,
-      content: result.content,
       annotations: result.annotations,
     }));
-    // Fire a lightweight PATCH for the section annotations — suppresses autosave
-    void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
+    void patchSectionAnnotations(activeSectionId, result.annotations);
     closeContextMenu();
     clearNativeSelection();
   }, [
@@ -343,10 +342,9 @@ export const useWorkspaceReaderActions = ({
 
         updateSection(activeSectionId, section => ({
           ...section,
-          content: result.content,
           annotations: result.annotations,
         }));
-        void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
+        void patchSectionAnnotations(activeSectionId, result.annotations);
         closeContextMenu();
         clearNativeSelection();
         return;
@@ -399,7 +397,6 @@ export const useWorkspaceReaderActions = ({
     const result = removeSectionAnnotation({
       annotationId: contextMenu.annotationId,
       annotations: currentSection.annotations,
-      content: currentSection.content || sectionContent,
     });
 
     if (!result.removed) {
@@ -409,10 +406,9 @@ export const useWorkspaceReaderActions = ({
 
     updateSection(activeSectionId, section => ({
       ...section,
-      content: result.content,
       annotations: result.annotations,
     }));
-    void patchSectionAnnotations(activeSectionId, result.annotations, result.content);
+    void patchSectionAnnotations(activeSectionId, result.annotations);
     closeContextMenu();
   }, [
     activeSectionId,
@@ -421,7 +417,6 @@ export const useWorkspaceReaderActions = ({
     getCurrentSection,
     notify,
     patchSectionAnnotations,
-    sectionContent,
     updateSection,
   ]);
 
@@ -575,14 +570,13 @@ export const useWorkspaceReaderActions = ({
 
       updateSection(activeSectionId, section => ({
         ...section,
-        content: result.content,
         annotations: result.annotations,
         generatedVisuals: nextGeneratedVisuals,
       }));
       void patchSectionAnnotations(
         activeSectionId,
         result.annotations,
-        result.content,
+        undefined,
         nextGeneratedVisuals
       );
 

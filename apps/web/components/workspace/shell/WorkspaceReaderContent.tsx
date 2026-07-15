@@ -26,6 +26,8 @@ import type {
   SectionAnnotation,
 } from '../../../types.ts';
 import { getGeneratedVisualSourceLabel } from '../../../utils/learning/artifacts.ts';
+import { materializeSectionAnnotationMarks } from '../../../utils/learning/sectionAnnotationAnchors.ts';
+import { supportsSectionAnnotationHighlights } from '../../../utils/learning/sectionAnnotationHighlights.ts';
 import { stripTerminalLessonSourcesSection } from '../../../utils/markdown/lessonSources.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
@@ -832,10 +834,16 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
         )}*`
       : contentWithoutDuplicateSources;
   }, [lessonSources.length, sectionContent, sourcePageRangeLabel]);
-  const inlineQuizLayout = useMemo(
-    () => buildInlineQuizLayout(renderedSectionContent || '', quiz.length),
-    [quiz.length, renderedSectionContent]
-  );
+  const usesNativeAnnotationHighlights = supportsSectionAnnotationHighlights();
+  const inlineQuizLayout = useMemo(() => {
+    const content = renderedSectionContent || '';
+    return buildInlineQuizLayout(
+      usesNativeAnnotationHighlights
+        ? content
+        : materializeSectionAnnotationMarks(content, sectionAnnotations),
+      quiz.length
+    );
+  }, [quiz.length, renderedSectionContent, sectionAnnotations, usesNativeAnnotationHighlights]);
   const lessonAnnotations = useMemo(
     () => (sectionAnnotations || []).filter(annotation => annotation.anchor?.kind === 'lesson'),
     [sectionAnnotations]

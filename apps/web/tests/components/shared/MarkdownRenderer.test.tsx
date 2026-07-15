@@ -1,9 +1,142 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import MarkdownRenderer from '../../../components/shared/MarkdownRenderer.tsx';
 
+const originalRangeGetClientRects = Range.prototype.getClientRects;
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  if (originalRangeGetClientRects) {
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: originalRangeGetClientRects,
+    });
+  } else {
+    Reflect.deleteProperty(Range.prototype, 'getClientRects');
+  }
+});
+
 describe('MarkdownRenderer', () => {
+  test('paints anchored annotations without inserting marks when CSS highlights are available', () => {
+    class TestHighlight extends Set<AbstractRange> {}
+
+    const highlights = new Map<string, TestHighlight>();
+    vi.stubGlobal('CSS', { highlights });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [{ bottom: 28, height: 18, left: 10, right: 80, top: 10, width: 70 }],
+    });
+
+    const annotation = {
+      anchor: {
+        kind: 'selection' as const,
+        selector: {
+          end: 27,
+          exact: 'Prima grassetto e finale.',
+          prefix: '',
+          start: 0,
+          suffix: '',
+        },
+      },
+      createdAt: '2026-07-15T10:00:00.000Z',
+      id: 'annotation-native',
+      note: 'Nota utile',
+      updatedAt: '2026-07-15T10:00:00.000Z',
+    };
+
+    const { container, rerender, unmount } = render(
+      <MarkdownRenderer
+        content={'Prima **grassetto** e finale.'}
+        sectionAnnotations={[annotation]}
+      />
+    );
+
+    expect(container.querySelector('mark')).toBeNull();
+    const paragraph = container.querySelector('p');
+    const annotationHighlight = highlights.get('nous-annotations');
+    const noteHighlight = highlights.get('nous-annotation-notes');
+    expect(annotationHighlight).toBeDefined();
+    expect(
+      Array.from(annotationHighlight || [])
+        .map(range => range.toString())
+        .join('')
+    ).toBe(annotation.anchor.selector.exact);
+    expect(noteHighlight?.size).toBe(annotationHighlight?.size);
+    const highlightCaps = container.querySelectorAll('.nous-annotation-highlight-cap');
+    expect(highlightCaps.length).toBe((annotationHighlight?.size || 0) * 2);
+    expect(Array.from(highlightCaps).every(cap => (cap as HTMLElement).style.width === '3px')).toBe(
+      true
+    );
+
+    rerender(
+      <MarkdownRenderer
+        content={'Prima **grassetto** e finale.'}
+        sectionAnnotations={[{ ...annotation, note: 'Nota aggiornata' }]}
+      />
+    );
+    expect(container.querySelector('p')).toBe(paragraph);
+    expect(container.querySelector('mark')).toBeNull();
+
+    unmount();
+    expect(highlights.get('nous-annotations')?.size).toBe(0);
+  });
+
+  test('renders one continuous mark while preserving nested inline formatting', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={
+          '<mark data-nous-annotation-id="annotation-inline">Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).</mark>'
+        }
+      />
+    );
+
+    const marks = container.querySelectorAll('mark');
+    expect(marks).toHaveLength(1);
+    expect(marks[0].querySelector('strong')).toHaveTextContent('grassetto');
+    expect(marks[0].querySelector('em')).toHaveTextContent('corsivo');
+    expect(marks[0].querySelector('a')).toHaveAttribute('href', 'https://example.com');
+  });
+
+  test('softens annotation edges with minimal horizontal spacing', () => {
+    const { container } = render(
+      <MarkdownRenderer
+        content={
+          '<mark data-nous-annotation-id="annotation-detached">Prima **grassetto** e [un link](https://example.com).</mark>'
+        }
+        sectionAnnotations={[
+          {
+            anchor: {
+              kind: 'selection',
+              selector: {
+                end: 48,
+                exact: 'Prima grassetto e un link.',
+                prefix: '',
+                start: 0,
+                suffix: '',
+              },
+            },
+            createdAt: '2026-07-14T10:00:00.000Z',
+            id: 'annotation-detached',
+            note: 'Nota utile',
+            updatedAt: '2026-07-14T10:00:00.000Z',
+          },
+        ]}
+      />
+    );
+
+    const mark = container.querySelector('mark[data-nous-annotation-id="annotation-detached"]');
+    expect(mark).toHaveTextContent('Prima grassetto e un link.');
+    expect(mark?.querySelector('strong')).toHaveTextContent('grassetto');
+    expect(mark?.querySelector('a')).toHaveAttribute('href', 'https://example.com');
+    expect(mark).toHaveStyle({ margin: '0', padding: '0px 3px' });
+    expect(mark?.getAttribute('style')).toContain('border-radius: 0.14em');
+    expect(mark?.getAttribute('style')).toContain('box-decoration-break: clone');
+    expect(mark?.getAttribute('style')).toContain('text-decoration-line: underline');
+    expect(mark?.getAttribute('style')).toContain('text-decoration-style: dashed');
+  });
+
   test('renders markdown lists as semantic lists with visible list styling classes', () => {
     const { container } = render(
       <MarkdownRenderer content={'### Strategia\n- Primo controllo\n- Secondo controllo'} />
@@ -198,7 +331,7 @@ describe('MarkdownRenderer', () => {
     ).toHaveTextContent('focus');
   });
 
-  test('adds a stronger dashed border only to annotated passages that have a saved note', () => {
+  test('adds a dashed underline only to annotated passages that have a saved note', () => {
     const { container } = render(
       <MarkdownRenderer
         content={
@@ -226,12 +359,12 @@ describe('MarkdownRenderer', () => {
 
     expect(noteMark).toHaveAttribute('data-nous-note-attached', 'true');
     expect(noteMark).toHaveStyle({
-      borderWidth: '1.5px',
-      borderStyle: 'dashed',
+      textDecorationLine: 'underline',
+      textDecorationStyle: 'dashed',
     });
     expect(plainMark).not.toHaveAttribute('data-nous-note-attached');
     expect(plainMark).not.toHaveStyle({
-      borderStyle: 'dashed',
+      textDecorationLine: 'underline',
     });
   });
 

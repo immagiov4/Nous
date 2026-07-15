@@ -120,6 +120,45 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByText('Prosegui')).toHaveAttribute('aria-disabled', 'true');
   });
 
+  test('materializes annotations before rendering lesson chunks', () => {
+    const sectionContent =
+      '# Lezione\n\nPrima **grassetto**, poi *corsivo* e [un link](https://example.com).';
+    const selectionStart = sectionContent.indexOf('Prima');
+    const { container } = render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          quiz: [],
+          quizAnswers: [],
+          sectionAnnotations: [
+            {
+              anchor: {
+                kind: 'selection',
+                selector: {
+                  end: sectionContent.length,
+                  exact: 'Prima grassetto, poi corsivo e un link.',
+                  prefix: 'Lezione',
+                  start: selectionStart,
+                  suffix: '',
+                },
+              },
+              createdAt: '2026-07-14T10:00:00.000Z',
+              id: 'annotation-detached',
+              note: '',
+              updatedAt: '2026-07-14T10:00:00.000Z',
+            },
+          ],
+          sectionContent,
+        })}
+      />
+    );
+
+    const mark = container.querySelector('mark[data-nous-annotation-id="annotation-detached"]');
+    expect(mark).toHaveTextContent('Prima grassetto, poi corsivo e un link.');
+    expect(mark?.querySelector('strong')).toHaveTextContent('grassetto');
+    expect(mark?.querySelector('em')).toHaveTextContent('corsivo');
+    expect(mark?.querySelector('a')).toHaveAttribute('href', 'https://example.com');
+  });
+
   test('keeps the desktop reading column centered when contextual learning aids exist', () => {
     render(
       <WorkspaceReaderContent

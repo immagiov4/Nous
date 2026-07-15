@@ -1,5 +1,12 @@
 /* fallow-ignore-file unused-files */
 
+/* biome-ignore lint/suspicious/noUnknownAtRules: Tailwind directives are compiled by PostCSS. */
+@tailwind base;
+/* biome-ignore lint/suspicious/noUnknownAtRules: Tailwind directives are compiled by PostCSS. */
+@tailwind components;
+/* biome-ignore lint/suspicious/noUnknownAtRules: Tailwind directives are compiled by PostCSS. */
+@tailwind utilities;
+
 /* ============================================================
    1. DESIGN TOKENS — CSS custom properties (light + dark)
    ============================================================ */
@@ -11,6 +18,7 @@
   --ink-primary: #1f1f1f;
   --ink-secondary: #4a4a4a;
   --accent: #d97757;
+  --annotation-highlight-color: #fed7aa;
 
   --border-subtle: rgba(229, 231, 235, 1);
   --border-strong: rgba(209, 213, 219, 1);
@@ -24,6 +32,7 @@
   --ink-primary: #e4e4e7;
   --ink-secondary: #a1a1aa;
   --accent: #fb923c;
+  --annotation-highlight-color: rgba(180, 83, 9, 0.5);
   --border-subtle: rgba(113, 113, 122, 0.6);
   --border-strong: rgba(161, 161, 170, 0.78);
   --panel-shadow: 0 16px 34px -14px rgba(0, 0, 0, 0.35), 0 30px 60px -24px rgba(0, 0, 0, 0.38);
@@ -448,6 +457,34 @@ mark {
 .dark mark {
   background-color: #fbbf24;
   color: #000;
+}
+
+::highlight(nous-annotations) {
+  background-color: var(--annotation-highlight-color);
+  color: #111827;
+}
+
+.nous-annotation-highlight-cap {
+  position: absolute;
+  background-color: var(--annotation-highlight-color);
+}
+
+.nous-annotation-highlight-cap-start {
+  border-radius: 0.14em 0 0 0.14em;
+}
+
+.nous-annotation-highlight-cap-end {
+  border-radius: 0 0.14em 0.14em 0;
+}
+
+::highlight(nous-annotation-notes) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 0.18em;
+}
+
+.dark ::highlight(nous-annotations) {
+  color: #fffbeb;
 }
 
 @keyframes popIn {

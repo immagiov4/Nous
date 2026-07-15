@@ -1535,33 +1535,38 @@ export const LandingProductVideoFrame = ({
   const annotationSaved = stage === 'lesson' && frame >= LESSON_NOTE_SAVED_FRAME;
   const artifactReady = stage === 'lesson' && frame >= LESSON_ARTIFACT_READY_FRAME;
   const artifactAttached = stage === 'lesson' && frame >= LESSON_NOTE_UPDATED_FRAME;
-  const sectionAnnotations: SectionAnnotation[] = annotationSaved
-    ? [
-        {
-          id: DEMO_ANNOTATION_ID,
-          anchor: { kind: 'selection' },
-          artifactRefs: artifactAttached
-            ? [
-                {
-                  artifactId: DEMO_ARTIFACT_ID,
-                  kind: 'generated-visual',
-                  title: artifactPayload.summary.title,
-                },
-              ]
-            : [],
-          note: noteText,
-          createdAt: '2026-07-10T12:00:00.000Z',
-          updatedAt: '2026-07-10T12:00:00.000Z',
-        },
-      ]
-    : [];
-  const baseSectionContent = stage === 'lesson' ? activeLesson.content || '' : '';
-  const sectionContent = annotationSaved
-    ? baseSectionContent.replace(
-        selectionSearchText,
-        `<mark data-nous-annotation-id="${DEMO_ANNOTATION_ID}">${selectionSearchText}</mark>`
-      )
-    : baseSectionContent;
+  const sectionContent = stage === 'lesson' ? activeLesson.content || '' : '';
+  const selectionStart = sectionContent.indexOf(selectionSearchText);
+  const sectionAnnotations: SectionAnnotation[] =
+    annotationSaved && selectionStart >= 0
+      ? [
+          {
+            id: DEMO_ANNOTATION_ID,
+            anchor: {
+              kind: 'selection',
+              selector: {
+                end: selectionStart + selectionSearchText.length,
+                exact: selectionSearchText,
+                prefix: '',
+                start: selectionStart,
+                suffix: '',
+              },
+            },
+            artifactRefs: artifactAttached
+              ? [
+                  {
+                    artifactId: DEMO_ARTIFACT_ID,
+                    kind: 'generated-visual',
+                    title: artifactPayload.summary.title,
+                  },
+                ]
+              : [],
+            note: noteText,
+            createdAt: '2026-07-10T12:00:00.000Z',
+            updatedAt: '2026-07-10T12:00:00.000Z',
+          },
+        ]
+      : [];
   const typedContextQuestion = getTimelineText(
     contextQuestion,
     frame,

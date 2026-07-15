@@ -554,7 +554,17 @@ export interface HorizontalViewportBounds {
 export type ContextMenuPlacement = 'desktop-floating' | 'mobile-sheet';
 export type ContextScope = 'annotation' | 'lesson' | 'selection';
 
-export type SectionAnnotationAnchor = { kind: 'lesson' } | { kind: 'selection' };
+export interface SectionAnnotationTextSelector {
+  end: number;
+  exact: string;
+  prefix: string;
+  start: number;
+  suffix: string;
+}
+
+export type SectionAnnotationAnchor =
+  | { kind: 'lesson' }
+  | { kind: 'selection'; selector: SectionAnnotationTextSelector };
 
 export interface SectionAnnotationArtifactRef {
   artifactId: string;

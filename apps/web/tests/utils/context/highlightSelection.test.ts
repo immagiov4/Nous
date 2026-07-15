@@ -34,7 +34,7 @@ test('keeps fuzzy highlighting for partial word selections', () => {
   assert.equal(updated, 'Questo <mark>problema</mark> richiede attenzione.');
 });
 
-test('highlights selections containing a colon without swallowing markdown emphasis', () => {
+test('highlights selections containing a colon across markdown emphasis', () => {
   const content = '**Termine:** definizione importante.';
   const updated = toggleHighlightInContent({
     content,
@@ -42,7 +42,7 @@ test('highlights selections containing a colon without swallowing markdown empha
     contextAfter: ' importante.',
   });
 
-  assert.equal(updated, '**<mark>Termine:</mark>** <mark>definizione</mark> importante.');
+  assert.equal(updated, '<mark>**Termine:** definizione</mark> importante.');
 });
 
 test('toggles colon selections across markdown emphasis cleanly', () => {
@@ -53,7 +53,7 @@ test('toggles colon selections across markdown emphasis cleanly', () => {
     contextAfter: ' importante.',
   });
 
-  assert.equal(highlighted, '**<mark>Termine:</mark>** <mark>definizione</mark> importante.');
+  assert.equal(highlighted, '<mark>**Termine:** definizione</mark> importante.');
 
   const unhighlighted = toggleHighlightInContent({
     content: highlighted || '',
@@ -62,6 +62,34 @@ test('toggles colon selections across markdown emphasis cleanly', () => {
   });
 
   assert.equal(unhighlighted, content);
+});
+
+test('keeps one highlight around a selection that crosses inline markdown', () => {
+  const content = 'Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).';
+  const selectedText = 'Prima grassetto, poi corsivo e infine un link.';
+  const highlighted = toggleHighlightInContent({ content, selectedText });
+
+  assert.equal(
+    highlighted,
+    '<mark>Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).</mark>'
+  );
+
+  const unhighlighted = toggleHighlightInContent({
+    content: highlighted || '',
+    selectedText,
+  });
+
+  assert.equal(unhighlighted, content);
+});
+
+test('keeps markdown valid when a selection starts inside emphasized text', () => {
+  const content = '**Termine importante:** definizione utile.';
+  const updated = toggleHighlightInContent({
+    content,
+    selectedText: 'importante: definizione',
+  });
+
+  assert.equal(updated, '**Termine <mark>importante:</mark>** <mark>definizione</mark> utile.');
 });
 
 test('does not inject mark tags inside inline code spans', () => {
@@ -110,7 +138,7 @@ test('falls back to loose normalized matching for accented and punctuated prose'
 
   assert.equal(
     updated,
-    '<mark>I nomi devono essere in snake_case,</mark> <mark>e ogni file deve includere tutto cio da cui dipende</mark>.'
+    '<mark>I nomi devono essere in snake_case, e ogni file deve includere tutto cio da cui dipende</mark>.'
   );
 });
 

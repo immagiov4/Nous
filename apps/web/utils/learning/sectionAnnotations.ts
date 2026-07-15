@@ -2,19 +2,16 @@ import type { SectionAnnotation, SectionAnnotationArtifactRef } from '../../type
 import { createEntityId } from '../ids.ts';
 import { timestampIso } from '../time.ts';
 import {
+  createSectionAnnotationSelector,
+  getSectionAnnotationText as getAnchoredAnnotationText,
+  isSelectionAnnotation,
+  resolveSectionAnnotationSegments,
+} from './sectionAnnotationAnchors.ts';
+import {
   annotationSegmentsOverlap,
-  buildAnnotationText,
-  buildGroupsById,
   getRangeOverlapLength,
-  groupLegacySegmentsByContent,
-  MARK_OPEN_WITH_ID,
   mergeRanges,
-  parseMarkSegments,
-  remapRangesAfterRemoving,
-  removeRangesFromContent,
   sortAnnotationsByDocumentOrder,
-  sortRanges,
-  wrapRangesWithAnnotation,
 } from './sectionAnnotationMarkup.ts';
 import { normalizeWhitespace, resolveSelectedSegments } from './sectionAnnotationProjection.ts';
 
@@ -36,14 +33,12 @@ interface ApplySectionAnnotationOptions {
 interface ApplySectionAnnotationResult {
   annotationId: string;
   annotations: SectionAnnotation[];
-  content: string;
   merged: boolean;
   resolvedText: string;
 }
 
 interface RemoveSectionAnnotationResult {
   annotations: SectionAnnotation[];
-  content: string;
   removed: boolean;
 }
 
@@ -55,12 +50,6 @@ interface UpdateSectionAnnotationNoteResult {
 interface CreateLessonSectionAnnotationResult {
   annotationId: string;
   annotations: SectionAnnotation[];
-}
-
-interface MigrateSectionAnnotationsResult {
-  annotations: SectionAnnotation[];
-  content: string;
-  didChange: boolean;
 }
 
 interface FindSectionAnnotationForSelectionResult {
@@ -89,14 +78,13 @@ const mergeAnnotationArtifactRefs = (
   return refsById.size > 0 ? Array.from(refsById.values()) : undefined;
 };
 
-export const getSectionAnnotationText = (content: string, annotationId: string): string => {
-  const groups = buildGroupsById(undefined, parseMarkSegments(content));
-  const group = groups.find(candidate => candidate.annotation.id === annotationId);
-  if (!group) {
-    return '';
-  }
-
-  return buildAnnotationText(content, group.segments);
+export const getSectionAnnotationText = (
+  content: string,
+  annotationId: string,
+  annotations?: SectionAnnotation[]
+): string => {
+  const annotation = (annotations || []).find(candidate => candidate.id === annotationId);
+  return annotation ? getAnchoredAnnotationText(content, annotation) : '';
 };
 
 export const findSectionAnnotationForSelection = ({
@@ -115,16 +103,21 @@ export const findSectionAnnotationForSelection = ({
     contextBefore,
     selectedText,
   });
-
   if (selectedSegments.length === 0) {
     return null;
   }
 
   const normalizedSelectedText = normalizeWhitespace(selectedText);
-  const annotationGroups = buildGroupsById(annotations, parseMarkSegments(content))
-    .map(group => ({
-      group,
-      overlapLength: group.segments.reduce(
+  const matches = (annotations || [])
+    .filter(isSelectionAnnotation)
+    .map(annotation => ({
+      annotation,
+      resolvedText: annotation.anchor.selector.exact,
+      segments: resolveSectionAnnotationSegments(content, annotation),
+    }))
+    .map(candidate => ({
+      ...candidate,
+      overlapLength: candidate.segments.reduce(
         (totalOverlap, annotationSegment) =>
           totalOverlap +
           selectedSegments.reduce(
@@ -134,116 +127,34 @@ export const findSectionAnnotationForSelection = ({
           ),
         0
       ),
-      resolvedText: buildAnnotationText(content, group.segments),
     }))
-    .filter(candidate => candidate.overlapLength > 0);
-
-  if (annotationGroups.length === 0) {
-    return null;
-  }
-
-  annotationGroups.sort((left, right) => {
-    const leftExact = normalizeWhitespace(left.resolvedText) === normalizedSelectedText;
-    const rightExact = normalizeWhitespace(right.resolvedText) === normalizedSelectedText;
-    if (leftExact !== rightExact) {
-      return rightExact ? 1 : -1;
-    }
-
-    const leftContains =
-      normalizeWhitespace(left.resolvedText).includes(normalizedSelectedText) ||
-      normalizedSelectedText.includes(normalizeWhitespace(left.resolvedText));
-    const rightContains =
-      normalizeWhitespace(right.resolvedText).includes(normalizedSelectedText) ||
-      normalizedSelectedText.includes(normalizeWhitespace(right.resolvedText));
-    if (leftContains !== rightContains) {
-      return rightContains ? 1 : -1;
-    }
-
-    if (left.overlapLength !== right.overlapLength) {
-      return right.overlapLength - left.overlapLength;
-    }
-
-    return left.group.segments[0].start - right.group.segments[0].start;
-  });
-
-  const bestMatch = annotationGroups[0];
-  return bestMatch
-    ? {
-        annotation: bestMatch.group.annotation,
-        resolvedText: bestMatch.resolvedText,
+    .filter(candidate => candidate.overlapLength > 0)
+    .sort((left, right) => {
+      const leftText = normalizeWhitespace(left.resolvedText);
+      const rightText = normalizeWhitespace(right.resolvedText);
+      const leftExact = leftText === normalizedSelectedText;
+      const rightExact = rightText === normalizedSelectedText;
+      if (leftExact !== rightExact) {
+        return rightExact ? 1 : -1;
       }
+
+      const leftContains =
+        leftText.includes(normalizedSelectedText) || normalizedSelectedText.includes(leftText);
+      const rightContains =
+        rightText.includes(normalizedSelectedText) || normalizedSelectedText.includes(rightText);
+      if (leftContains !== rightContains) {
+        return rightContains ? 1 : -1;
+      }
+
+      return (
+        right.overlapLength - left.overlapLength || left.segments[0].start - right.segments[0].start
+      );
+    });
+
+  const bestMatch = matches[0];
+  return bestMatch
+    ? { annotation: bestMatch.annotation, resolvedText: bestMatch.resolvedText }
     : null;
-};
-
-export const migrateSectionAnnotations = ({
-  annotations,
-  content,
-  createId = createAnnotationId,
-  now = timestampIso(),
-}: {
-  annotations?: SectionAnnotation[];
-  content: string;
-  createId?: () => string;
-  now?: string;
-}): MigrateSectionAnnotationsResult => {
-  const segments = parseMarkSegments(content);
-  const groupedAnnotations = buildGroupsById(annotations, segments);
-  const legacyGroups = groupLegacySegmentsByContent(
-    content,
-    segments.filter(segment => !segment.annotationId)
-  );
-
-  const tagReplacements = new Map<number, { end: number; replacement: string }>();
-
-  groupedAnnotations.forEach(group => {
-    group.segments.forEach(segment => {
-      tagReplacements.set(segment.openTagStart, {
-        end: segment.openTagEnd,
-        replacement: MARK_OPEN_WITH_ID(group.annotation.id),
-      });
-    });
-  });
-
-  const migratedLegacyAnnotations = legacyGroups.map(group => {
-    const annotationId = createId();
-    group.forEach(segment => {
-      tagReplacements.set(segment.openTagStart, {
-        end: segment.openTagEnd,
-        replacement: MARK_OPEN_WITH_ID(annotationId),
-      });
-    });
-
-    return {
-      annotation: {
-        id: annotationId,
-        note: '',
-        createdAt: now,
-        updatedAt: now,
-      },
-      segments: group,
-    };
-  });
-
-  let nextContent = content;
-  Array.from(tagReplacements.entries())
-    .sort((left, right) => right[0] - left[0])
-    .forEach(([start, { end, replacement }]) => {
-      nextContent = `${nextContent.slice(0, start)}${replacement}${nextContent.slice(end)}`;
-    });
-
-  const nextAnnotations = sortAnnotationsByDocumentOrder(
-    nextContent,
-    [...groupedAnnotations, ...migratedLegacyAnnotations].map(group => group.annotation)
-  );
-  const didChange =
-    nextContent !== content ||
-    JSON.stringify(nextAnnotations) !== JSON.stringify(annotations || []);
-
-  return {
-    annotations: nextAnnotations,
-    content: nextContent,
-    didChange,
-  };
 };
 
 export const applySectionAnnotation = ({
@@ -264,76 +175,70 @@ export const applySectionAnnotation = ({
     contextBefore,
     selectedText,
   });
-
   if (selectedSegments.length === 0) {
     return null;
   }
 
-  const annotationGroups = buildGroupsById(annotations, parseMarkSegments(content));
-  const absorbedGroups = annotationGroups.filter(group =>
-    group.segments.some(existingSegment =>
+  const anchoredAnnotations = (annotations || [])
+    .filter(isSelectionAnnotation)
+    .map(annotation => ({
+      annotation,
+      segments: resolveSectionAnnotationSegments(content, annotation),
+    }))
+    .filter(candidate => candidate.segments.length > 0);
+  const absorbedAnnotations = anchoredAnnotations.filter(candidate =>
+    candidate.segments.some(existingSegment =>
       selectedSegments.some(selectedSegment =>
         annotationSegmentsOverlap(existingSegment, selectedSegment)
       )
     )
   );
-
-  const absorbedAnnotationIds = new Set(absorbedGroups.map(group => group.annotation.id));
-  const combinedSegments = mergeRanges([
-    ...selectedSegments,
-    ...absorbedGroups.flatMap(group => group.segments),
-  ]);
-  const removedRanges = sortRanges(
-    absorbedGroups.flatMap(group =>
-      group.segments.flatMap(segment => [
-        { start: segment.openTagStart, end: segment.openTagEnd },
-        { start: segment.closeTagStart, end: segment.closeTagEnd },
-      ])
-    )
+  const selector = createSectionAnnotationSelector(
+    content,
+    mergeRanges([
+      ...selectedSegments,
+      ...absorbedAnnotations.flatMap(candidate => candidate.segments),
+    ])
   );
+  if (!selector) {
+    return null;
+  }
 
-  const annotationId =
-    preferredAnnotationId ||
-    absorbedGroups.find(group => group.annotation.id)?.annotation.id ||
-    createId();
-  const strippedContent = removeRangesFromContent(content, removedRanges);
-  const remappedSegments = remapRangesAfterRemoving(combinedSegments, removedRanges);
-  const nextContent = wrapRangesWithAnnotation(strippedContent, annotationId, remappedSegments);
-  const resolvedText = buildAnnotationText(strippedContent, remappedSegments);
-  const trimmedNote = note.trim();
-  const absorbedNotes = absorbedGroups
+  const absorbedIds = new Set(absorbedAnnotations.map(candidate => candidate.annotation.id));
+  const absorbedMetadata = absorbedAnnotations
     .sort((left, right) => left.segments[0].start - right.segments[0].start)
-    .map(group => group.annotation.note.trim())
-    .filter(Boolean);
-  const mergedNote = [trimmedNote, ...absorbedNotes].filter(Boolean).join(NOTE_MERGE_SEPARATOR);
+    .map(candidate => candidate.annotation);
+  const annotationId = preferredAnnotationId || absorbedMetadata[0]?.id || createId();
+  const mergedNote = [note.trim(), ...absorbedMetadata.map(annotation => annotation.note.trim())]
+    .filter(Boolean)
+    .join(NOTE_MERGE_SEPARATOR);
   const mergedArtifactRefs = mergeAnnotationArtifactRefs(undefined, [
     ...(artifactRefs || []),
-    ...absorbedGroups.flatMap(group => group.annotation.artifactRefs || []),
+    ...absorbedMetadata.flatMap(annotation => annotation.artifactRefs || []),
   ]);
-  const earliestCreatedAt =
-    absorbedGroups
-      .map(group => group.annotation.createdAt)
+  const createdAt =
+    absorbedMetadata
+      .map(annotation => annotation.createdAt)
       .sort((left, right) => left.localeCompare(right))[0] || now;
   const retainedAnnotations = (annotations || []).filter(
-    annotation => !absorbedAnnotationIds.has(annotation.id) && annotation.id !== annotationId
+    annotation => !absorbedIds.has(annotation.id) && annotation.id !== annotationId
   );
-  const nextAnnotations = sortAnnotationsByDocumentOrder(nextContent, [
-    ...retainedAnnotations,
-    {
-      ...(mergedArtifactRefs ? { artifactRefs: mergedArtifactRefs } : {}),
-      createdAt: earliestCreatedAt,
-      id: annotationId,
-      note: mergedNote,
-      updatedAt: now,
-    },
-  ]);
 
   return {
     annotationId,
-    annotations: nextAnnotations,
-    content: nextContent,
-    merged: absorbedGroups.length > 0,
-    resolvedText,
+    annotations: sortAnnotationsByDocumentOrder([
+      ...retainedAnnotations,
+      {
+        anchor: { kind: 'selection', selector },
+        ...(mergedArtifactRefs ? { artifactRefs: mergedArtifactRefs } : {}),
+        createdAt,
+        id: annotationId,
+        note: mergedNote,
+        updatedAt: now,
+      },
+    ]),
+    merged: absorbedAnnotations.length > 0,
+    resolvedText: selector.exact,
   };
 };
 
@@ -473,30 +378,15 @@ export const updateSectionAnnotationNote = ({
 export const removeSectionAnnotation = ({
   annotationId,
   annotations,
-  content,
 }: {
   annotationId: string;
   annotations?: SectionAnnotation[];
-  content: string;
 }): RemoveSectionAnnotationResult => {
-  const annotationGroups = buildGroupsById(annotations, parseMarkSegments(content));
-  const removedGroup = annotationGroups.find(group => group.annotation.id === annotationId);
-  if (!removedGroup) {
-    return {
-      annotations: annotations || [],
-      content,
-      removed: false,
-    };
-  }
-
-  const removedRanges = removedGroup.segments.flatMap(segment => [
-    { start: segment.openTagStart, end: segment.openTagEnd },
-    { start: segment.closeTagStart, end: segment.closeTagEnd },
-  ]);
-
+  const removed = (annotations || []).some(annotation => annotation.id === annotationId);
   return {
-    annotations: (annotations || []).filter(annotation => annotation.id !== annotationId),
-    content: removeRangesFromContent(content, removedRanges),
-    removed: true,
+    annotations: removed
+      ? (annotations || []).filter(annotation => annotation.id !== annotationId)
+      : annotations || [],
+    removed,
   };
 };

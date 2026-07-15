@@ -238,13 +238,23 @@ test('clicking the same annotation mark toggles its menu closed', () => {
               title: 'Mappa salvata',
             },
           ],
+          anchor: {
+            kind: 'selection',
+            selector: {
+              end: 10,
+              exact: 'beta',
+              prefix: 'Alpha',
+              start: 6,
+              suffix: 'gamma',
+            },
+          },
           id: 'annotation-1',
           note: 'Nota',
           createdAt: '',
           updatedAt: '',
         },
       ],
-      sectionContent: 'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma',
+      sectionContent: 'Alpha beta gamma',
     })
   );
 
@@ -294,8 +304,19 @@ test('mobile duplicate annotation clicks within 100 ms produce one stable transi
       activeSectionId: 'section-1',
       contentRef,
       isMobileViewport: true,
-      sectionAnnotations: [{ id: 'annotation-1', note: '', createdAt: '', updatedAt: '' }],
-      sectionContent: '<mark data-nous-annotation-id="annotation-1">beta</mark>',
+      sectionAnnotations: [
+        {
+          anchor: {
+            kind: 'selection',
+            selector: { end: 4, exact: 'beta', prefix: '', start: 0, suffix: '' },
+          },
+          id: 'annotation-1',
+          note: '',
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      sectionContent: 'beta',
     })
   );
 
@@ -350,10 +371,28 @@ test('mobile annotation taps close the current menu before another annotation ca
       contentRef,
       isMobileViewport: true,
       sectionAnnotations: [
-        { id: 'annotation-1', note: 'Nota', createdAt: '', updatedAt: '' },
-        { id: 'annotation-2', note: '', createdAt: '', updatedAt: '' },
+        {
+          anchor: {
+            kind: 'selection',
+            selector: { end: 4, exact: 'beta', prefix: '', start: 0, suffix: 'gamma' },
+          },
+          id: 'annotation-1',
+          note: 'Nota',
+          createdAt: '',
+          updatedAt: '',
+        },
+        {
+          anchor: {
+            kind: 'selection',
+            selector: { end: 10, exact: 'gamma', prefix: 'beta', start: 5, suffix: '' },
+          },
+          id: 'annotation-2',
+          note: '',
+          createdAt: '',
+          updatedAt: '',
+        },
       ],
-      sectionContent: container.innerHTML,
+      sectionContent: 'beta gamma',
     })
   );
 
