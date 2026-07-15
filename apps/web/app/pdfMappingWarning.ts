@@ -1,7 +1,5 @@
-// fallow-ignore-file unused-files
 import type { PdfTextIndex, ProjectSource } from '../types.ts';
 
-// fallow-ignore-next-line unused-exports — used by App.tsx
 export const resolvePdfMappingWarning = (
   source: ProjectSource | null,
   documentIndex: PdfTextIndex | null

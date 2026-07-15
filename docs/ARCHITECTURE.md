@@ -238,14 +238,14 @@ Main entries in `apps/backend/src/routes/`:
 
 Supporting modules:
 
-- `apps/backend/src/projects/` — `ProjectStore` interface, runtime `PostgresProjectStore`, test-only `SqliteProjectStore`, project meta and sibling-ordering helpers.
+- `apps/backend/src/projects/` — `ProjectStore` interface, runtime `PostgresProjectStore`, project patching and metadata helpers.
 - `apps/backend/src/services/` — `pdfTextExtractor` (delegates to `pdftotext`), `pdfImageExtractor`, `ttsClient`, `sttClient`, `voiceService`, `statusService`.
 - `apps/backend/src/auth/currentUser.ts` — auth resolution. Supabase is the product path. `LOCAL_AUTH_BYPASS=true` is accepted only in tests or with `LOCAL_DEV_PROFILE=true`.
 - `apps/backend/src/config/` — env loading and server config (host, port, backend URL).
 
 ### Project Storage
 
-The frontend always uses backend HTTP storage through `services/projects/projectRepositoryFactory.ts`. The backend always creates `PostgresProjectStore`; there is no runtime storage-mode switch. `SqliteProjectStore` is imported directly only by backend route tests so they can exercise the complete persistence contract without an external database.
+The frontend always uses backend HTTP storage through `HttpProjectRepository`. The backend always creates `PostgresProjectStore`; there is no runtime storage-mode switch. Backend route tests exercise the persistence contract through a dedicated in-memory `ProjectStore`, without carrying a second production-style database implementation.
 
 The frontend `ProjectRepository` and backend `ProjectStore` interfaces remain separate adapters, while their wire-level values are shared through `packages/shared-types/projectContract.ts` as described in [Shared types](#9-shared-types).
 

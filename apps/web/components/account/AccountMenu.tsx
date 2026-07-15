@@ -22,19 +22,17 @@ import {
   signOutSupabase,
   subscribeToSupabaseSession,
   updateSupabasePassword,
-  updateSupabaseProfile,
 } from '../../services/auth/supabaseAuth.ts';
 import { LibraryArchiveError } from '../../services/projects/libraryArchive.ts';
 import { reportLibraryArchiveImportFailure } from '../../services/projects/libraryArchiveDiagnostics.ts';
 
-type AccountSection = 'data' | 'profile' | 'security';
+type AccountSection = 'data' | 'security';
 type AccountAction =
   | 'backup-export'
   | 'backup-import'
   | 'email'
   | 'logout'
   | 'password'
-  | 'profile'
   | 'recovery';
 
 const SUCCESS_MESSAGE_DURATION_MS = 3_000;
@@ -60,8 +58,6 @@ const AccountPanel = ({
   onImportLibraryBackup,
 }: AccountPanelProps) => {
   const [activeSection, setActiveSection] = useState<AccountSection>(initialSection);
-  const [avatarUrl, setAvatarUrl] = useState(account.avatarUrl || '');
-  const [displayName, setDisplayName] = useState(account.displayName || '');
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [pendingAction, setPendingAction] = useState<AccountAction | null>(null);
@@ -99,21 +95,6 @@ const AccountPanel = ({
     setPendingAction(action);
     setErrorMessage('');
     setSuccessMessage('');
-  };
-
-  const handleProfileSave = async (event: FormEvent) => {
-    event.preventDefault();
-    beginAction('profile');
-    try {
-      const nextAccount = await updateSupabaseProfile({ avatarUrl, displayName });
-      onAccountChange(nextAccount);
-      setSuccessMessage(t('Profilo aggiornato.'));
-    } catch (error) {
-      console.error('[Nous][Account] Profile update failed.', error);
-      setErrorMessage(t('Aggiornamento profilo non riuscito. Riprova.'));
-    } finally {
-      setPendingAction(null);
-    }
   };
 
   const handleEmailChange = async (event: FormEvent) => {
@@ -235,11 +216,7 @@ const AccountPanel = ({
               tabIndex={-1}
               className="mt-1 text-2xl font-serif text-gray-950 outline-none dark:text-zinc-100"
             >
-              {activeSection === 'profile'
-                ? t('Profilo')
-                : activeSection === 'security'
-                  ? t('Account e sicurezza')
-                  : t('Dati e backup')}
+              {activeSection === 'security' ? t('Account e sicurezza') : t('Dati e backup')}
             </h2>
           </div>
           <button
@@ -253,14 +230,6 @@ const AccountPanel = ({
         </div>
 
         <div className="mt-5 flex flex-wrap gap-2 border-b border-gray-200 pb-4 dark:border-zinc-700">
-          <button
-            type="button"
-            aria-pressed={activeSection === 'profile'}
-            onClick={() => setActiveSection('profile')}
-            className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 transition-colors aria-pressed:bg-gray-950 aria-pressed:text-white dark:text-zinc-300 dark:aria-pressed:bg-zinc-100 dark:aria-pressed:text-zinc-950"
-          >
-            {t('Profilo')}
-          </button>
           <button
             type="button"
             aria-pressed={activeSection === 'security'}
@@ -293,46 +262,7 @@ const AccountPanel = ({
           </p>
         ) : null}
 
-        {activeSection === 'profile' ? (
-          <form
-            className="mt-5 space-y-4 sm:grid sm:grid-cols-[1fr_1fr_auto] sm:items-end sm:gap-3 sm:space-y-0"
-            onSubmit={handleProfileSave}
-          >
-            <p className="text-sm leading-6 text-gray-600 sm:col-span-3 dark:text-zinc-300">
-              {t(
-                'Nome e avatar sono informazioni modificabili del profilo. Email e metodo di accesso provengono dal provider di autenticazione.'
-              )}
-            </p>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-200">
-              {t('Nome visualizzato')}
-              <input
-                type="text"
-                autoComplete="name"
-                value={displayName}
-                onChange={event => setDisplayName(event.target.value)}
-                className={fieldClassName}
-              />
-            </label>
-            <label className="block text-sm font-medium text-gray-700 dark:text-zinc-200">
-              {t('URL avatar')}
-              <input
-                type="url"
-                autoComplete="photo"
-                value={avatarUrl}
-                onChange={event => setAvatarUrl(event.target.value)}
-                className={fieldClassName}
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={pendingAction !== null}
-              aria-busy={pendingAction === 'profile'}
-              className="rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60 sm:self-end dark:bg-zinc-100 dark:text-zinc-950"
-            >
-              {pendingAction === 'profile' ? t('Salvataggio in corso...') : t('Salva profilo')}
-            </button>
-          </form>
-        ) : activeSection === 'security' ? (
+        {activeSection === 'security' ? (
           <div className="mt-5 space-y-6 sm:space-y-4">
             <div>
               <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
@@ -580,7 +510,7 @@ export default function AccountMenu({
     }
   };
 
-  const accountLabel = account?.displayName || account?.email || t('Account utente');
+  const accountLabel = account?.email || t('Account utente');
 
   return (
     <div className="relative">
@@ -596,11 +526,7 @@ export default function AccountMenu({
         }}
         className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-gray-300 bg-white text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-950 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-300 dark:hover:border-zinc-400 dark:hover:text-white"
       >
-        {account?.avatarUrl ? (
-          <img src={account.avatarUrl} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <UserRound className="h-5 w-5" />
-        )}
+        <UserRound className="h-5 w-5" />
       </button>
 
       {isMenuOpen ? (
@@ -620,27 +546,12 @@ export default function AccountMenu({
               <p className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100">
                 {accountLabel}
               </p>
-              {account?.displayName && account.email ? (
-                <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-zinc-400">
-                  {account.email}
-                </p>
-              ) : null}
             </div>
             {menuError ? (
               <p role="alert" className="m-2 text-xs leading-5 text-red-600 dark:text-red-300">
                 {menuError}
               </p>
             ) : null}
-            <button
-              type="button"
-              role="menuitem"
-              disabled={!account}
-              onClick={() => openPanel('profile')}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              <UserRound className="h-4 w-4" />
-              {t('Profilo')}
-            </button>
             <button
               type="button"
               role="menuitem"

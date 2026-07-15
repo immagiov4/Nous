@@ -3,7 +3,6 @@ export {
   buildLessonChunkContext,
   resolveLessonContextChunks,
 } from './context.ts';
-// fallow-ignore-next-line unused-types — public barrel re-export
 export type { PdfPageTextLayout } from './layout.ts';
 export {
   buildPdfPageTextLayout,

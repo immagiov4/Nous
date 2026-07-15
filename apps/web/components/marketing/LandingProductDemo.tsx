@@ -8,19 +8,16 @@ interface LandingProductDemoProps {
   activeStage?: DemoStage;
 }
 
-const COMPACT_BREAKPOINT = 832;
 const VIDEO_ROOT = '/marketing/demos';
 const SEGMENT_END_TOLERANCE_SECONDS = 0.3;
 
-const getDemoVideoSource = (isCompact: boolean): string =>
-  `${VIDEO_ROOT}/journey-${isCompact ? 'compact' : 'wide'}-${getAppLocale()}.mp4`;
+const getDemoVideoSource = (): string => `${VIDEO_ROOT}/journey-wide-${getAppLocale()}.mp4`;
 
 export default function LandingProductDemo({
   activeStage = 'lesson',
 }: LandingProductDemoProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [isCompact] = useState(() => window.innerWidth <= COMPACT_BREAKPOINT);
   const [isInView, setIsInView] = useState(() => typeof IntersectionObserver === 'undefined');
 
   useEffect(() => {
@@ -112,7 +109,7 @@ export default function LandingProductDemo({
       aria-hidden="true"
       inert
       style={{
-        aspectRatio: isCompact ? '390 / 750' : '1200 / 800',
+        aspectRatio: '1200 / 800',
         position: 'relative',
       }}
     >
@@ -122,7 +119,7 @@ export default function LandingProductDemo({
         muted
         playsInline
         preload="metadata"
-        src={getDemoVideoSource(isCompact)}
+        src={getDemoVideoSource()}
         style={{
           display: 'block',
           width: '100%',

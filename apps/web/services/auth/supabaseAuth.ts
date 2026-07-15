@@ -1,8 +1,6 @@
 import { getNousRuntimeConfig } from '../runtimeConfig.ts';
 
 export interface SupabaseAccount {
-  avatarUrl?: string;
-  displayName?: string;
   email?: string;
   id: string;
   providers?: string[];
@@ -23,7 +21,6 @@ interface SupabaseAuthUserResponse {
   email?: string;
   id?: string;
   identities?: Array<{ provider?: unknown }>;
-  user_metadata?: Record<string, unknown>;
 }
 
 interface SupabaseAuthResponse {
@@ -121,19 +118,6 @@ const getSupabaseAuthConfig = () => {
   };
 };
 
-const readMetadataString = (
-  metadata: Record<string, unknown> | undefined,
-  keys: string[]
-): string | undefined => {
-  for (const key of keys) {
-    const value = metadata?.[key];
-    if (typeof value === 'string') {
-      return value.trim() || undefined;
-    }
-  }
-  return undefined;
-};
-
 const normalizeSupabaseAccount = (
   response: SupabaseAuthUserResponse,
   previousAccount?: SupabaseAccount
@@ -162,12 +146,6 @@ const normalizeSupabaseAccount = (
   }
 
   return {
-    avatarUrl:
-      readMetadataString(response.user_metadata, ['avatar_url', 'picture']) ||
-      previousAccount?.avatarUrl,
-    displayName:
-      readMetadataString(response.user_metadata, ['display_name', 'full_name', 'name']) ||
-      previousAccount?.displayName,
     email: response.email || previousAccount?.email,
     id,
     providers: providers.size > 0 ? [...providers] : previousAccount?.providers,
@@ -207,6 +185,19 @@ const isSessionExpired = (session: SupabaseUserSession): boolean => {
   return session.expiresAt <= Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SKEW_SECONDS;
 };
 
+const stripUnusedSessionFields = (session: SupabaseUserSession): SupabaseUserSession => ({
+  accessToken: session.accessToken,
+  expiresAt: session.expiresAt,
+  refreshToken: session.refreshToken,
+  user: session.user
+    ? {
+        email: session.user.email,
+        id: session.user.id,
+        providers: session.user.providers,
+      }
+    : undefined,
+});
+
 const notifySupabaseSessionChange = (): void => {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(SUPABASE_SESSION_CHANGE_EVENT));
@@ -227,7 +218,16 @@ export const readSupabaseSession = (): SupabaseUserSession | null => {
       return null;
     }
 
-    return parsed;
+    const sanitizedSession = stripUnusedSessionFields(parsed);
+    const sanitizedRawSession = JSON.stringify(sanitizedSession);
+    if (sanitizedRawSession !== rawSession) {
+      if (storage) {
+        storage.setItem(SUPABASE_SESSION_STORAGE_KEY, sanitizedRawSession);
+      } else {
+        memorySession = sanitizedRawSession;
+      }
+    }
+    return sanitizedSession;
   } catch {
     storage?.removeItem(SUPABASE_SESSION_STORAGE_KEY);
     memorySession = null;
@@ -236,7 +236,7 @@ export const readSupabaseSession = (): SupabaseUserSession | null => {
 };
 
 export const saveSupabaseSession = (session: SupabaseUserSession): void => {
-  const serializedSession = JSON.stringify(session);
+  const serializedSession = JSON.stringify(stripUnusedSessionFields(session));
   const storage = getStorage();
   if (storage) {
     storage.setItem(SUPABASE_SESSION_STORAGE_KEY, serializedSession);
@@ -447,17 +447,6 @@ const requestCurrentSupabaseAccount = async (
 
 export const loadSupabaseAccount = (): Promise<SupabaseAccount> =>
   requestCurrentSupabaseAccount('GET');
-
-export const updateSupabaseProfile = (profile: {
-  avatarUrl: string;
-  displayName: string;
-}): Promise<SupabaseAccount> =>
-  requestCurrentSupabaseAccount('PUT', {
-    data: {
-      avatar_url: profile.avatarUrl.trim() || null,
-      display_name: profile.displayName.trim() || null,
-    },
-  });
 
 export const requestSupabaseEmailChange = (email: string): Promise<SupabaseAccount> =>
   requestCurrentSupabaseAccount('PUT', { email: email.trim() });

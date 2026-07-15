@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-class-members — interface implementation methods
 import type {
   FileData,
   LibraryFolder,
@@ -18,7 +17,6 @@ import { detachStoredPrimarySource } from './courseSources.ts';
 import type { ProjectRepository } from './projectRepository';
 import { ProjectStorageError } from './projectRepository';
 import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
-import { PROJECT_SYNC_READY } from './projectSyncState.ts';
 
 interface ApiResponse {
   complete?: boolean;
@@ -35,6 +33,15 @@ interface ApiResponse {
   source?: FileData | null;
   sourceRef?: ProjectSourceRef;
   snapshot?: ProjectSnapshot;
+  uploadStatus?: 'receiving' | 'finalizing' | 'completed';
+}
+
+interface ProjectImportConfig {
+  directMaxBytes: number;
+  maxChunkBytes: number;
+  maxChunkCount: number;
+  maxSerializedBytes: number;
+  requestTimeoutMs: number;
 }
 
 const PROJECT_SYNC_ERROR_MESSAGE =
@@ -42,26 +49,48 @@ const PROJECT_SYNC_ERROR_MESSAGE =
 const PROJECT_SYNC_TIMEOUT_MESSAGE =
   'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
-const PROJECT_IMPORT_REQUEST_TIMEOUT_MS = 120_000;
-const PROJECT_IMPORT_DIRECT_MAX_CHARS = 20_000_000;
-const PROJECT_IMPORT_CHUNK_CHARS = 4_000_000;
+const PROJECT_IMPORT_STATUS_POLL_MS = 1_000;
+const getUtf8Bytes = (value: string): number => new Blob([value]).size;
 
-const splitProjectImport = (serialized: string): string[] => {
+const getCodePointUtf8Bytes = (codePoint: number): number => {
+  if (codePoint <= 0x7f) return 1;
+  if (codePoint <= 0x7ff) return 2;
+  if (codePoint <= 0xffff) return 3;
+  return 4;
+};
+
+const findChunkEnd = (serialized: string, start: number, maxBytes: number): number => {
+  let high = Math.min(serialized.length, start + maxBytes);
+  if (getUtf8Bytes(serialized.slice(start, high)) <= maxBytes) {
+    const lastCodeUnit = serialized.charCodeAt(high - 1);
+    if (high < serialized.length && lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) high -= 1;
+    return high;
+  }
+
+  let bytes = 0;
+  let end = start;
+  while (end < high) {
+    const codePoint = serialized.codePointAt(end);
+    if (codePoint === undefined) break;
+    const codePointBytes = getCodePointUtf8Bytes(codePoint);
+    if (bytes + codePointBytes > maxBytes) break;
+    bytes += codePointBytes;
+    end += codePoint > 0xffff ? 2 : 1;
+  }
+  if (end <= start) {
+    throw new ProjectStorageError(
+      'La dimensione configurata per le parti del backup e troppo piccola.',
+      'persistence-failed'
+    );
+  }
+  return end;
+};
+
+const splitProjectImport = (serialized: string, maxChunkBytes: number): string[] => {
   const chunks: string[] = [];
   let start = 0;
   while (start < serialized.length) {
-    let end = Math.min(start + PROJECT_IMPORT_CHUNK_CHARS, serialized.length);
-    const previousCodeUnit = serialized.charCodeAt(end - 1);
-    const nextCodeUnit = serialized.charCodeAt(end);
-    if (
-      end < serialized.length &&
-      previousCodeUnit >= 0xd800 &&
-      previousCodeUnit <= 0xdbff &&
-      nextCodeUnit >= 0xdc00 &&
-      nextCodeUnit <= 0xdfff
-    ) {
-      end -= 1;
-    }
+    const end = findChunkEnd(serialized, start, maxChunkBytes);
     chunks.push(serialized.slice(start, end));
     start = end;
   }
@@ -102,6 +131,7 @@ const assertValue = <T>(value: T | undefined, message: string): T => {
 
 export class HttpProjectRepository implements ProjectRepository {
   private readonly baseUrl: string;
+  private projectImportConfigPromise?: Promise<ProjectImportConfig>;
 
   constructor(baseUrl = getBackendUrl()) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -140,10 +170,7 @@ export class HttpProjectRepository implements ProjectRepository {
     const response = await this.request<{ projects?: SavedProjectMeta[] }>(
       '/api/projects/projects'
     );
-    return (response.projects || []).map(project => ({
-      ...project,
-      syncState: PROJECT_SYNC_READY,
-    }));
+    return response.projects || [];
   }
 
   async loadProject(id: ProjectId): Promise<ProjectSnapshot | null> {
@@ -251,10 +278,7 @@ export class HttpProjectRepository implements ProjectRepository {
         body: JSON.stringify({ snapshot: lightweightSnapshot, ...options }),
       }
     );
-    return {
-      ...assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.'),
-      syncState: PROJECT_SYNC_READY,
-    };
+    return assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.');
   }
 
   async patchProject(
@@ -269,10 +293,7 @@ export class HttpProjectRepository implements ProjectRepository {
         body: JSON.stringify({ patch, ...options }),
       }
     );
-    return {
-      ...assertValue(response.meta, 'Il progetto sincronizzato non e stato aggiornato.'),
-      syncState: PROJECT_SYNC_READY,
-    };
+    return assertValue(response.meta, 'Il progetto sincronizzato non e stato aggiornato.');
   }
 
   subscribeToProjectRevisions(
@@ -296,44 +317,80 @@ export class HttpProjectRepository implements ProjectRepository {
     data: unknown
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
     const serializedData = JSON.stringify(data);
+    if (serializedData === undefined) {
+      throw new ProjectStorageError('Il progetto da importare non e valido.', 'persistence-failed');
+    }
+    const importConfig = await this.getProjectImportConfig();
+    const serializedBytes = getUtf8Bytes(serializedData);
+    if (serializedBytes > importConfig.maxSerializedBytes) {
+      throw new ProjectStorageError(
+        'Il backup supera il limite massimo di importazione configurato sul server.',
+        'quota-exceeded'
+      );
+    }
     let response: ApiResponse & {
       meta?: SavedProjectMeta;
       snapshot?: ProjectSnapshot;
     };
-    if (serializedData.length <= PROJECT_IMPORT_DIRECT_MAX_CHARS) {
+    if (serializedBytes <= importConfig.directMaxBytes) {
       response = await this.request('/api/projects/import', {
         method: 'POST',
-        body: JSON.stringify({ data }),
+        body: `{"data":${serializedData}}`,
       });
     } else {
       const uploadId = globalThis.crypto.randomUUID();
-      const chunks = splitProjectImport(serializedData);
+      const chunks = splitProjectImport(serializedData, importConfig.maxChunkBytes);
       const chunkCount = chunks.length;
-      response = { success: false };
-      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-        response = await this.requestImportUpload('/api/projects/import/chunks', {
-          uploadId,
-          chunkIndex,
-          chunkCount,
-          chunk: chunks[chunkIndex],
-        });
-        if (response.complete !== false || (chunkIndex === chunkCount - 1 && !response.ready)) {
-          throw new ProjectStorageError(
-            'Il backend non ha confermato tutte le parti del backup.',
-            'persistence-failed'
-          );
-        }
+      if (chunkCount > importConfig.maxChunkCount) {
+        throw new ProjectStorageError(
+          'Il backup richiede piu parti di quante il server ne accetti.',
+          'quota-exceeded'
+        );
       }
-      response = await this.requestImportUpload(
-        `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
-        {}
-      );
+      try {
+        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+          const chunkResponse = await this.requestImportUpload<ApiResponse>(
+            `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/${chunkIndex}?chunkCount=${chunkCount}`,
+            {
+              body: chunks[chunkIndex],
+              headers: { 'Content-Type': 'text/plain' },
+              method: 'PUT',
+            },
+            importConfig.requestTimeoutMs
+          );
+          if (
+            chunkResponse.complete !== false ||
+            (chunkIndex === chunkCount - 1 && !chunkResponse.ready)
+          ) {
+            throw new ProjectStorageError(
+              'Il backend non ha confermato tutte le parti del backup.',
+              'persistence-failed'
+            );
+          }
+        }
+      } catch (error) {
+        await this.cancelProjectImportUpload(uploadId, importConfig.requestTimeoutMs);
+        throw error;
+      }
+      try {
+        response = await this.requestImportUpload(
+          `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
+          {
+            method: 'POST',
+          },
+          importConfig.requestTimeoutMs
+        );
+      } catch (error) {
+        const status = await this.waitForCompletedProjectImport(
+          uploadId,
+          importConfig.requestTimeoutMs
+        );
+        if (!status?.complete) throw error;
+        response = status;
+      }
     }
     return {
-      meta: {
-        ...assertValue(response.meta, 'Il progetto sincronizzato non e stato importato.'),
-        syncState: PROJECT_SYNC_READY,
-      },
+      meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato importato.'),
       snapshot: assertValue(response.snapshot, 'Il progetto sincronizzato non e stato importato.'),
     };
   }
@@ -354,21 +411,75 @@ export class HttpProjectRepository implements ProjectRepository {
     });
   }
 
-  private async requestImportUpload<T>(path: string, body: unknown): Promise<T> {
+  private getProjectImportConfig(): Promise<ProjectImportConfig> {
+    this.projectImportConfigPromise ??= this.request<{
+      config?: { import?: ProjectImportConfig };
+    }>('/api/projects/config')
+      .then(response =>
+        assertValue(response.config?.import, 'Configurazione importazione non disponibile.')
+      )
+      .catch(error => {
+        this.projectImportConfigPromise = undefined;
+        throw error;
+      });
+    return this.projectImportConfigPromise;
+  }
+
+  private async cancelProjectImportUpload(uploadId: string, timeoutMs: number): Promise<void> {
+    try {
+      await this.request(`/api/projects/import/chunks/${encodeURIComponent(uploadId)}`, {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      console.warn('[Nous] Failed to cancel an incomplete project import.', error);
+    }
+  }
+
+  private async waitForCompletedProjectImport(
+    uploadId: string,
+    timeoutMs: number
+  ): Promise<(ApiResponse & { meta?: SavedProjectMeta; snapshot?: ProjectSnapshot }) | undefined> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const status = await this.request<
+          ApiResponse & { meta?: SavedProjectMeta; snapshot?: ProjectSnapshot }
+        >(`/api/projects/import/chunks/${encodeURIComponent(uploadId)}`, {
+          signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+        });
+        if (status.complete) return status;
+        if (status.uploadStatus !== 'finalizing') {
+          await this.cancelProjectImportUpload(uploadId, Math.max(1, deadline - Date.now()));
+          return undefined;
+        }
+      } catch {
+        return undefined;
+      }
+      await new Promise(resolve => globalThis.setTimeout(resolve, PROJECT_IMPORT_STATUS_POLL_MS));
+    }
+    return undefined;
+  }
+
+  private async requestImportUpload<T>(
+    path: string,
+    init: RequestInit,
+    timeoutMs: number
+  ): Promise<T> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await this.request<T>(path, {
-          method: 'POST',
-          signal: AbortSignal.timeout(PROJECT_IMPORT_REQUEST_TIMEOUT_MS),
-          body: JSON.stringify(body),
+          ...init,
+          signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (error) {
         const isAmbiguousNetworkFailure =
           error instanceof ProjectStorageError &&
           (error.message === PROJECT_SYNC_ERROR_MESSAGE ||
-            error.message === PROJECT_SYNC_TIMEOUT_MESSAGE);
+            error.message === PROJECT_SYNC_TIMEOUT_MESSAGE ||
+            error.code === 'quota-exceeded');
         if (!isAmbiguousNetworkFailure || attempt === 2) throw error;
-        await new Promise(resolve => globalThis.setTimeout(resolve, 250 * (attempt + 1)));
+        await new Promise(resolve => globalThis.setTimeout(resolve, 1_000 * (attempt + 1)));
       }
     }
     throw new ProjectStorageError(PROJECT_SYNC_ERROR_MESSAGE, 'persistence-failed');
@@ -396,7 +507,11 @@ export class HttpProjectRepository implements ProjectRepository {
       if (!response.ok || data.success === false) {
         throw new ProjectStorageError(
           data.error || response.statusText || 'Richiesta server non riuscita.',
-          response.status === 409 ? 'revision-conflict' : 'persistence-failed'
+          response.status === 409
+            ? 'revision-conflict'
+            : response.status === 429
+              ? 'quota-exceeded'
+              : 'persistence-failed'
         );
       }
 

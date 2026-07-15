@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { translateUiMessage as t } from '../i18n/uiMessages.ts';
@@ -25,7 +24,6 @@ interface ConfirmationDialogRequest {
   title: string;
 }
 
-// fallow-ignore-next-line unused-exports — used by App.tsx
 export const useAppDialogs = () => {
   const [confirmationRequest, setConfirmationRequest] = useState<ConfirmationRequest | null>(null);
   const [notification, setNotification] = useState<NotificationState | null>(null);

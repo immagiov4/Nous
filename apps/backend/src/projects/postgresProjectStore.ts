@@ -1,18 +1,3 @@
-// fallow-ignore-file unused-class-members — interface implementation methods
-import postgres from 'postgres';
-
-import { createEntityId } from '../utils/ids.js';
-import { timestampIso } from '../utils/time.js';
-import { isRecord } from '../utils/validation.js';
-import { resolveAvailableFolderName } from './folderNames.js';
-import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
-import { ProjectRevisionConflictError } from './projectRevision.js';
-import {
-  attachProjectSource,
-  detachProjectSource,
-  prepareProjectSource,
-  readEmbeddedPdfSource,
-} from './projectSource.js';
 import {
   buildOrderedSiblingItems,
   collectFolderDescendantIds,
@@ -21,10 +6,21 @@ import {
   resolveNextPlacementOrder,
   SIBLING_ORDER_STEP,
   type SiblingItem,
-} from './siblingOrdering.js';
+} from '@shared/libraryOrdering';
+import postgres from 'postgres';
+import { createEntityId } from '../utils/ids.js';
+import { timestampIso } from '../utils/time.js';
+import { resolveAvailableFolderName } from './folderNames.js';
+import { buildProjectMeta, normalizeProjectSnapshot } from './projectMeta.js';
+import { applyProjectPatch } from './projectPatch.js';
+import { ProjectRevisionConflictError } from './projectRevision.js';
+import {
+  attachProjectSource,
+  detachProjectSource,
+  prepareProjectSource,
+  readEmbeddedPdfSource,
+} from './projectSource.js';
 import type {
-  LearningPlanNodeSnapshot,
-  LearningPlanSnapshot,
   LibraryFolder,
   LibraryPlacement,
   ProjectExportData,
@@ -36,7 +32,6 @@ import type {
   ProjectStore,
   ProjectWriteOptions,
   SavedProjectMeta,
-  SectionPatch,
 } from './types.js';
 
 type PostgresSql = ReturnType<typeof postgres>;
@@ -68,8 +63,6 @@ interface PlacementRow {
 }
 
 const createFolderId = (): string => createEntityId('folder');
-const LEARNING_PLAN_NOT_FOUND_ERROR = 'Learning plan non trovato';
-
 const toPostgresJson = (value: unknown): postgres.JSONValue => value as postgres.JSONValue;
 
 const stripProjectRevision = (meta: SavedProjectMeta): Omit<SavedProjectMeta, 'revision'> => {
@@ -85,60 +78,6 @@ const mergeProjectMetaRow = (row: ProjectMetaRow): SavedProjectMeta => ({
 const toEpochMillis = (value: string | undefined): number => {
   const timestamp = Date.parse(value || '');
   return Number.isFinite(timestamp) ? timestamp : 0;
-};
-
-const applySectionPatchToNode = (
-  node: LearningPlanNodeSnapshot,
-  sectionPatch: SectionPatch
-): LearningPlanNodeSnapshot => ({
-  ...node,
-  ...(sectionPatch.annotations !== undefined ? { annotations: sectionPatch.annotations } : {}),
-  ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
-  ...(sectionPatch.generatedVisuals !== undefined
-    ? { generatedVisuals: sectionPatch.generatedVisuals }
-    : {}),
-  ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
-  ...(sectionPatch.isCompleted !== undefined ? { isCompleted: sectionPatch.isCompleted } : {}),
-  ...(sectionPatch.learningAids !== undefined ? { learningAids: sectionPatch.learningAids } : {}),
-  ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
-});
-
-const patchLearningPlanSection = (
-  learningPlan: LearningPlanSnapshot | null | undefined,
-  sectionPatch: SectionPatch
-): LearningPlanSnapshot => {
-  if (!learningPlan) {
-    throw new Error(LEARNING_PLAN_NOT_FOUND_ERROR);
-  }
-
-  if (Array.isArray(learningPlan.modules)) {
-    return {
-      ...learningPlan,
-      modules: learningPlan.modules.map(module => ({
-        ...module,
-        children: Array.isArray(module.children)
-          ? module.children.map(child =>
-              isRecord(child) && child.id === sectionPatch.sectionId && child.kind !== 'exercise'
-                ? applySectionPatchToNode(child, sectionPatch)
-                : child
-            )
-          : module.children,
-      })),
-    };
-  }
-
-  if (Array.isArray(learningPlan.sections)) {
-    return {
-      ...learningPlan,
-      sections: learningPlan.sections.map(section =>
-        section.id === sectionPatch.sectionId
-          ? applySectionPatchToNode(section, sectionPatch)
-          : section
-      ),
-    };
-  }
-
-  throw new Error(LEARNING_PLAN_NOT_FOUND_ERROR);
 };
 
 const splitSnapshot = (snapshot: ProjectSnapshot) => {
@@ -165,13 +104,6 @@ export class PostgresProjectStore implements ProjectStore {
 
   async close(): Promise<void> {
     await this.sql.end({ timeout: 5 });
-  }
-
-  getConfig() {
-    return {
-      driver: 'postgres' as const,
-      isServerStorageEnabled: true,
-    };
   }
 
   async listProjects(userId: string): Promise<SavedProjectMeta[]> {
@@ -379,31 +311,7 @@ export class PostgresProjectStore implements ProjectStore {
       throw new Error(`Progetto ${id} non trovato per patch.`);
     }
 
-    const snapshot = { ...existing };
-    if (patch.activeSectionId !== undefined) snapshot.activeSectionId = patch.activeSectionId;
-    if (patch.state !== undefined) snapshot.state = patch.state;
-    if (patch.isLearnMode !== undefined) snapshot.isLearnMode = patch.isLearnMode;
-    if (patch.source !== undefined) snapshot.source = patch.source as ProjectSnapshot['source'];
-    if (patch.learningPlan !== undefined) {
-      snapshot.learningPlan = patch.learningPlan as ProjectSnapshot['learningPlan'];
-    }
-    if (patch.userProfile !== undefined) {
-      snapshot.userProfile = patch.userProfile as ProjectSnapshot['userProfile'];
-    }
-    if (patch.syllabus !== undefined) snapshot.syllabus = patch.syllabus;
-    if (patch.researchCoursePlan !== undefined) {
-      snapshot.researchCoursePlan = patch.researchCoursePlan;
-    }
-    if (patch.researchDossiersBySectionId !== undefined) {
-      snapshot.researchDossiersBySectionId = patch.researchDossiersBySectionId;
-    }
-    if (patch.documentAssets !== undefined) snapshot.documentAssets = patch.documentAssets;
-    if (patch.documentIndex !== undefined) snapshot.documentIndex = patch.documentIndex;
-    if (patch.section) {
-      snapshot.learningPlan = patchLearningPlanSection(snapshot.learningPlan, patch.section);
-    }
-
-    snapshot.updatedAt = patch.updatedAt || timestampIso();
+    const snapshot = applyProjectPatch(existing, patch, patch.updatedAt || timestampIso());
     return this.saveProject(userId, snapshot, options);
   }
 

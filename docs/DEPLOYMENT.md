@@ -45,6 +45,38 @@ sh deploy/nous.sh config
 # Windows: deploy/nous.ps1 config
 ```
 
+### Per-machine backup import capacity
+
+Backup import limits are startup configuration, not account or installation limits. The defaults
+allow two simultaneous uploads on a small VPS, while one finalization at a time performs the
+memory-heavy JSON parse and database import. A redeploy applies changed values.
+
+The browser reads the public transfer limits from `/api/projects/config`, splits serialized project
+data into UTF-8 `text/plain` chunks, unzips full-library backups locally, and sends projects one at a
+time. The server still validates byte counts, session ownership, chunk order, archive contents, and
+database writes. The 16 MB default chunk stays well below common reverse-proxy request limits while
+avoiding the request count produced by the former 4-million-character chunks.
+
+Tune these groups together in `.env.production`:
+
+- Container budget: `NOUS_BACKEND_MEMORY_LIMIT`, `NOUS_BACKEND_CPU_LIMIT`, and
+  `NOUS_BACKEND_TMPFS_SIZE`. Temporary storage must cover active chunk sets and one assembled copy;
+  the supplied two-upload configuration uses a 1 GB tmpfs.
+- Active work: `PROJECT_IMPORT_ACTIVE_UPLOADS_GLOBAL`,
+  `PROJECT_IMPORT_ACTIVE_UPLOADS_PER_USER`, and `PROJECT_IMPORT_FINALIZATIONS_GLOBAL`.
+- In-flight HTTP bodies: `PROJECT_IMPORT_REQUESTS_GLOBAL` and
+  `PROJECT_IMPORT_REQUESTS_PER_USER`. These limit concurrent chunk requests, not active sessions.
+- Transfer shape: `PROJECT_IMPORT_DIRECT_MAX_BYTES`, `PROJECT_IMPORT_MAX_CHUNK_BYTES`,
+  `PROJECT_IMPORT_MAX_CHUNK_COUNT`, and `PROJECT_IMPORT_MAX_SERIALIZED_BYTES`.
+- Lifecycle: `PROJECT_IMPORT_REQUEST_TIMEOUT_MS`, `PROJECT_IMPORT_RECEIVING_TTL_MS`,
+  `PROJECT_IMPORT_COMPLETED_TTL_MS`, and `PROJECT_IMPORT_CLEANUP_INTERVAL_MS`.
+
+The backend fails at startup when per-user limits exceed global limits, chunk capacity cannot cover
+the maximum serialized backup, finalization concurrency exceeds active uploads, or cleanup runs less
+often than the receiving-session TTL. The current in-memory admission/session registry assumes the
+validated single backend replica in `compose.yml`; multiple backend replicas require shared session
+coordination before scaling horizontally.
+
 ### Managed profile
 
 Fill `SUPABASE_URL`, `NOUS_SUPABASE_PUBLIC_URL`, `DATABASE_URL`, publishable/anon key, and service-role/secret key from one managed project. `config` rejects mismatched Supabase API origins and requires either the legacy JWT secret or a JWKS URL. It never rewrites remote credentials or generates managed-project secrets.

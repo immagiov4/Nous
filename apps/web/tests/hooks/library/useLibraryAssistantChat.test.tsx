@@ -86,7 +86,6 @@ describe('useLibraryAssistantChat', () => {
     completedExercises: 0,
     hasSourceFile: true,
     coverLabel: 'PDF',
-    syncState: 'local-only' as const,
   };
 
   const emptyTree = {
@@ -116,7 +115,6 @@ describe('useLibraryAssistantChat', () => {
       useLibraryAssistantChat({
         folders: stableFolders,
         loadProjectsById,
-        projectRepositoryMode: 'server',
         projects: stableProjects,
         tree: loadedTree,
       })
@@ -167,7 +165,6 @@ describe('useLibraryAssistantChat', () => {
         useLibraryAssistantChat({
           folders,
           loadProjectsById,
-          projectRepositoryMode: 'server',
           projects,
           tree,
         }),

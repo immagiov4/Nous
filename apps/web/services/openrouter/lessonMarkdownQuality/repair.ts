@@ -13,172 +13,18 @@ import {
   hasSplitTextPseudocodeFence,
   parseLabelBodyPair,
   parseStandaloneLabel,
-  stripMarkdownForSimilarity,
 } from './markdownHeuristics.ts';
+import {
+  findRedundantParagraphPairs,
+  isBlockishParagraph,
+  normalizeParagraphForDetection,
+} from './repetition.ts';
 
 // ── Constants ──────────────────────────────────────────────────────────
-
-const BLOCKISH_PARAGRAPH_PREFIX = /^(#{1,6}\s|[-*+]\s|>\s|```|~~~|\|.*\||\{\{PDF_IMAGE:)/;
-const _MAX_LIST_LABEL_WORDS = 12;
-const REPETITION_SIMILARITY_THRESHOLD = 0.72;
-const REPETITION_SECONDARY_KEYWORD_THRESHOLD = 0.2;
-const REPETITION_FULL_WORD_OVERLAP_THRESHOLD = 0.45;
-const REPETITION_MIN_SHARED_KEYWORDS = 3;
-const REPETITION_RECENT_PARAGRAPH_WINDOW = 4;
-const REPETITION_MIN_KEYWORD_COUNT = 8;
-const PARAGRAPH_REPETITION_STOP_WORDS = new Set([
-  'alla',
-  'alle',
-  'anche',
-  'avere',
-  'come',
-  'core',
-  'cosa',
-  'cui',
-  'dalla',
-  'dalle',
-  'della',
-  'delle',
-  'dello',
-  'dentro',
-  'dopo',
-  'essere',
-  'framework',
-  'function',
-  'functions',
-  'hanno',
-  'loro',
-  'nelle',
-  'nella',
-  'non',
-  'organization',
-  'organizzazione',
-  'organizzazioni',
-  'partire',
-  'perche',
-  'pero',
-  'questa',
-  'queste',
-  'questi',
-  'questo',
-  'quindi',
-  'risultati',
-  'risultato',
-  'sono',
-  'solo',
-  'stessa',
-  'stesso',
-  'subcategories',
-  'subcategory',
-  'tutte',
-  'tutti',
-]);
 
 const LESSON_CONCLUSION_HEADING_REGEX = /(^|\n)#{1,6}\s+Conclusione\b/i;
 const LESSON_ABORTED_ENDING_REGEX =
   /(include|includono|comprende|comprendono|principali sono|si dividono in|origini includono)\s*:\s*$/i;
-
-// ── Helper functions ───────────────────────────────────────────────────
-
-const normalizeParagraphForDetection = (paragraph: string): string =>
-  paragraph
-    .replace(/\n+/g, ' ')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-
-const normalizeSimilarityWord = (word: string): string =>
-  word
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '');
-
-const extractParagraphKeywords = (paragraph: string): string[] =>
-  Array.from(
-    new Set(
-      stripMarkdownForSimilarity(paragraph)
-        .split(/\s+/)
-        .map(normalizeSimilarityWord)
-        .filter(word => word.length >= 4 && !PARAGRAPH_REPETITION_STOP_WORDS.has(word))
-    )
-  );
-
-const extractParagraphWords = (paragraph: string): string[] =>
-  Array.from(
-    new Set(
-      stripMarkdownForSimilarity(paragraph)
-        .split(/\s+/)
-        .map(normalizeSimilarityWord)
-        .filter(word => word.length >= 2)
-    )
-  );
-
-interface ParagraphSimilarityMetrics {
-  fullWordOverlap: number;
-  keywordOverlap: number;
-  sharedKeywordCount: number;
-}
-
-const computeParagraphSimilarity = (left: string, right: string): ParagraphSimilarityMetrics => {
-  const leftKeywords = extractParagraphKeywords(left);
-  const rightKeywords = extractParagraphKeywords(right);
-  const leftWords = extractParagraphWords(left);
-  const rightWords = extractParagraphWords(right);
-  const rightWordSet = new Set(rightWords);
-  const sharedWordCount = leftWords.filter(word => rightWordSet.has(word)).length;
-  const rightKeywordSet = new Set(rightKeywords);
-  const sharedKeywordCount = leftKeywords.filter(keyword => rightKeywordSet.has(keyword)).length;
-
-  return {
-    fullWordOverlap: sharedWordCount / Math.max(1, Math.min(leftWords.length, rightWords.length)),
-    keywordOverlap:
-      leftKeywords.length < REPETITION_MIN_KEYWORD_COUNT ||
-      rightKeywords.length < REPETITION_MIN_KEYWORD_COUNT
-        ? 0
-        : sharedKeywordCount / Math.max(1, Math.min(leftKeywords.length, rightKeywords.length)),
-    sharedKeywordCount,
-  };
-};
-
-const isRedundantParagraphMatch = (metrics: ParagraphSimilarityMetrics): boolean =>
-  metrics.keywordOverlap >= REPETITION_SIMILARITY_THRESHOLD ||
-  (metrics.sharedKeywordCount >= REPETITION_MIN_SHARED_KEYWORDS &&
-    metrics.keywordOverlap >= REPETITION_SECONDARY_KEYWORD_THRESHOLD &&
-    metrics.fullWordOverlap >= REPETITION_FULL_WORD_OVERLAP_THRESHOLD);
-
-const isMeaningfulParagraphForRepetitionCheck = (paragraph: string): boolean => {
-  const normalized = normalizeParagraphForDetection(paragraph);
-  if (!normalized || BLOCKISH_PARAGRAPH_PREFIX.test(normalized)) return false;
-  return extractParagraphKeywords(paragraph).length >= REPETITION_MIN_KEYWORD_COUNT;
-};
-
-interface RepetitionHit {
-  currentIndex: number;
-  previousIndex: number;
-  similarity: number;
-}
-
-const findRedundantParagraphPairs = (paragraphs: string[]): RepetitionHit[] => {
-  const hits: RepetitionHit[] = [];
-  paragraphs.forEach((paragraph, index) => {
-    if (!isMeaningfulParagraphForRepetitionCheck(paragraph)) return;
-    const startIndex = Math.max(0, index - REPETITION_RECENT_PARAGRAPH_WINDOW);
-    for (let previousIndex = startIndex; previousIndex < index; previousIndex += 1) {
-      const previousParagraph = paragraphs[previousIndex];
-      if (!isMeaningfulParagraphForRepetitionCheck(previousParagraph)) continue;
-      const similarity = computeParagraphSimilarity(previousParagraph, paragraph);
-      if (isRedundantParagraphMatch(similarity)) {
-        hits.push({
-          currentIndex: index,
-          previousIndex,
-          similarity: Math.max(similarity.keywordOverlap, similarity.fullWordOverlap),
-        });
-        break;
-      }
-    }
-  });
-  return hits;
-};
 
 // ── Issue detection ────────────────────────────────────────────────────
 
@@ -200,7 +46,7 @@ const getLessonMarkdownIssues = (contentMarkdown: string): string[] => {
   const labelLikeParagraphs = paragraphs.filter(paragraph => {
     const normalized = normalizeParagraphForDetection(paragraph);
     return (
-      !BLOCKISH_PARAGRAPH_PREFIX.test(normalized) &&
+      !isBlockishParagraph(normalized) &&
       (parseLabelBodyPair(normalized) !== null || parseStandaloneLabel(normalized) !== null)
     );
   }).length;

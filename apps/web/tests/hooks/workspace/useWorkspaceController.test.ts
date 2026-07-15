@@ -381,7 +381,6 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     loadStoredProjectSource: async () => null,
     moveFolder: async () => null,
     moveProjects: async () => [],
-    projectRepositoryMode: 'server',
     persistSnapshot: async snapshot => {
       persistedSnapshots.push(snapshot);
       return buildMeta(snapshot.id);

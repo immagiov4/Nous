@@ -6,6 +6,7 @@ import express from 'express';
 import { resolveCurrentUser } from './auth/currentUser.js';
 import { getBackendServerConfig, loadServerConfig } from './config/serverConfig.js';
 import { admitProjectImportRequest } from './projects/projectImportAdmission.js';
+import { projectImportConfig } from './projects/projectImportConfig.js';
 import adminRouter from './routes/admin.js';
 import chatRouter from './routes/chat.js';
 import codexRouter from './routes/codex.js';
@@ -30,7 +31,6 @@ const DEFAULT_JSON_BODY_LIMIT = '50mb';
 const OPENROUTER_JSON_BODY_LIMIT = '80mb';
 const PDF_JSON_BODY_LIMIT = '160mb';
 const PROJECTS_JSON_BODY_LIMIT = '300mb';
-const PROJECT_IMPORT_CHUNK_JSON_BODY_LIMIT = '24mb';
 const STT_JSON_BODY_LIMIT = '20mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
 
@@ -114,10 +114,16 @@ export const createApp = () => {
   app.use('/api/openrouter', express.json({ limit: OPENROUTER_JSON_BODY_LIMIT }));
   app.use('/api/pdf', express.json({ limit: PDF_JSON_BODY_LIMIT }));
   app.use('/api/projects', resolveCurrentUser);
-  app.use('/api/projects/import/chunks', admitProjectImportRequest);
-  app.use(
-    '/api/projects/import/chunks',
-    express.json({ limit: PROJECT_IMPORT_CHUNK_JSON_BODY_LIMIT })
+  app.put(
+    '/api/projects/import/chunks/:uploadId/:chunkIndex',
+    admitProjectImportRequest,
+    express.text({ limit: projectImportConfig.maxChunkBytes, type: 'text/plain' })
+  );
+  app.post('/api/projects/import/chunks/:uploadId/complete', admitProjectImportRequest);
+  app.post(
+    '/api/projects/import',
+    admitProjectImportRequest,
+    express.json({ limit: projectImportConfig.directMaxBytes + 1_024 })
   );
   app.use('/api/projects', express.json({ limit: PROJECTS_JSON_BODY_LIMIT }));
   app.use('/api/stt', express.json({ limit: STT_JSON_BODY_LIMIT }));
@@ -185,5 +191,4 @@ export const createApp = () => {
   return app;
 };
 
-// fallow-ignore-next-line unused-exports — imported as named export by server.ts and tests
 export default createApp;

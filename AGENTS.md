@@ -4,12 +4,53 @@ IMPORTANT: these guidelines are your bible, read them all completely, do not inf
 
 ## graphify
 
-This project has a graphify knowledge graph at graphify-out/. It also has an MCP to query it. Use it.
+This project has a Graphify knowledge graph at `graphify-out/` and an MCP that
+can query it. Use it selectively when relationships across files or modules are
+the question, not as a mandatory prelude to every code task.
 
-Rules:
-- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure. If the file is too big, use graphify cmd tool or MCP.
-- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
-- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
+Use Graphify for:
+- cross-module ownership and dependency questions;
+- component-to-controller-to-service-to-persistence paths;
+- blast-radius and affected-code analysis;
+- unclear architectural boundaries or subsystem relationships.
+
+Do not use Graphify for local symbol lookup, exact-text search, a change already
+confined to known files, or as a substitute for reading the implementation.
+
+Workflow:
+1. At the start of graph work, run `graphify reflect --if-stale` and read
+   `graphify-out/reflections/LESSONS.md` when it exists.
+2. Check freshness before querying. If relevant tracked or untracked code has
+   changed since the graph was built and the watcher is not known to be healthy,
+   run `graphify update .` just in time and wait for it to succeed. Do not run a
+   blocking update merely because a task modified code or is ending.
+3. Ask one bounded graph question with `graphify query`, `graphify path`,
+   `graphify affected`, or `graphify explain`. Read `GRAPH_REPORT.md` or the wiki
+   only when community structure or broad subsystem orientation is relevant.
+4. Verify graph-derived claims in the cited source files before relying on them.
+5. Save the result with `graphify save-result` and an honest `--outcome`:
+   `useful` only when it materially narrowed the investigation or added a correct
+   insight, `dead_end` when it did not help, and `corrected` with `--correction`
+   when source inspection disproved it.
+
+Freshness and failure rules:
+- The background watcher is the normal way to cover uncommitted code changes;
+  post-commit and post-checkout hooks are best-effort maintenance only.
+- Before starting a watcher, check whether one already targets this repository;
+  keep exactly one watcher process. Its logs belong under
+  `~/.cache/graphify-watch-lumina*.log`; hook rebuilds use
+  `~/.cache/graphify-rebuild.log`.
+- Watcher and hook rebuilds must remain asynchronous and non-blocking. Their
+  lock and pending-change queue prevent concurrent rebuilds from piling up.
+- If a just-in-time update or query fails, say that the graph may be stale,
+  inspect the Graphify log, and fall back to `rg` plus direct source inspection.
+  Never silently answer from a graph known to be stale or broken.
+- `graphify update . --no-cluster` is acceptable only for a deliberately narrow
+  dependency/path query. It does not refresh community data or
+  `GRAPH_REPORT.md`, so do not use it before community or architecture-summary
+  work.
+- If `graphify-out/wiki/index.md` exists, prefer it over opening generated wiki
+  files indiscriminately.
 
 ## Quick Map
 Core Philosophy → Context Before Code → Simplicity → Naming → Single Source of Truth → Magic Numbers → Configuration Constants → Modularity & Helpers → Parameters → Error Handling → Comments → Code Style → Runtime Assumptions → Localization → UI Design → Event Handling → Data Ordering → Security → Testing → Bug Fixing → Change Discipline → Confirmation → Version Control → Performance → State & Side Effects → Dead Code → Tradeoffs → Output Style → Final Checklist

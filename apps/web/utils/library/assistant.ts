@@ -1,4 +1,3 @@
-import type { ProjectRepositoryMode } from '../../services/projects/projectRepositoryFactory.ts';
 import type {
   LessonNode,
   LibraryContextRef,
@@ -87,13 +86,11 @@ const resolveProjectTitle = ({
 export const buildLibraryScopeSummary = ({
   attachedContextRefs,
   folders,
-  projectRepositoryMode: _projectRepositoryMode,
   projects,
   tree,
 }: {
   attachedContextRefs: LibraryContextRef[];
   folders: LibraryFolder[];
-  projectRepositoryMode: ProjectRepositoryMode;
   projects: SavedProjectMeta[];
   tree: LibraryTree;
 }): LibraryScopeSummary => {
@@ -213,7 +210,6 @@ export const buildProjectOverviewPayload = ({
       lessonCount: meta?.lessonCount || flattenLessons(snapshot?.learningPlan?.modules).length || 0,
       noteCount: snapshot ? countProjectNotes(snapshot) : 0,
       sourceKind: meta?.sourceKind || snapshot?.sourceKind || 'document',
-      syncState: meta?.syncState || 'local-only',
       title: meta?.title || snapshot?.learningPlan?.title || 'Corso',
       createdAt: meta?.createdAt || snapshot?.createdAt || '',
       updatedAt: meta?.updatedAt || snapshot?.updatedAt || '',

@@ -29,7 +29,6 @@ const project: SavedProjectMeta = {
   completedExercises: 0,
   hasSourceFile: true,
   coverLabel: 'PDF',
-  syncState: 'local-only',
 };
 
 const folder: LibraryFolder = {
@@ -195,6 +194,10 @@ describe('HomeChatPanel', () => {
     if (!(scrollContainer instanceof HTMLDivElement)) {
       throw new Error('Expected the home chat scroll container.');
     }
+    const messagesContent = scrollContainer.firstElementChild;
+    if (!(messagesContent instanceof HTMLDivElement)) {
+      throw new Error('Expected the home chat messages content.');
+    }
 
     Object.defineProperties(scrollContainer, {
       clientHeight: { configurable: true, value: 200 },
@@ -202,17 +205,16 @@ describe('HomeChatPanel', () => {
     });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={0.5} />);
 
-    expect(scrollContainer.scrollTop).toBe(120);
-    expect(scrollContainer.firstElementChild).not.toHaveStyle({ position: 'relative' });
-    expect(scrollContainer.firstElementChild).not.toHaveStyle({ top: '-300px' });
+    expect(scrollContainer.scrollTop).toBe(0);
+    expect(messagesContent).toHaveStyle({ transform: 'translateY(-120px)' });
 
     Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 1200 });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={1} />);
-    expect(scrollContainer.scrollTop).toBe(1000);
+    expect(messagesContent).toHaveStyle({ transform: 'translateY(-1000px)' });
 
     Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: 120 });
     rerender(<HomeChatPanel {...props} scrollProgressOverride={0.75} />);
-    expect(scrollContainer.scrollTop).toBe(0);
+    expect(messagesContent).toHaveStyle({ transform: 'translateY(-0px)' });
   });
 
   test('shows a compact count and the stable source list for a multi-file course', () => {

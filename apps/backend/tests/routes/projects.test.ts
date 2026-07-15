@@ -1,17 +1,12 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { createApp } from '../../src/index.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
-import { SqliteProjectStore } from '../../src/projects/sqliteProjectStore.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
+import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 
-let tempDir = '';
-let store: SqliteProjectStore;
+let store: InMemoryProjectStore;
 let previousLocalUserId: string | undefined;
 
 const createSnapshot = (id: string, title: string, updatedAt = '2026-04-26T10:00:00.000Z') =>
@@ -82,32 +77,30 @@ const createModuleSnapshot = (id: string, title: string, updatedAt = '2026-04-26
 describe('/api/projects', () => {
   beforeEach(() => {
     previousLocalUserId = process.env.LOCAL_USER_ID;
-    tempDir = mkdtempSync(join(tmpdir(), 'nous-projects-'));
-    store = new SqliteProjectStore(join(tempDir, 'projects.sqlite'));
+    store = new InMemoryProjectStore();
     setProjectStoreForTesting(store);
   });
 
-  afterEach(async () => {
-    store.close();
+  afterEach(() => {
     setProjectStoreForTesting(null);
     if (previousLocalUserId === undefined) {
       delete process.env.LOCAL_USER_ID;
     } else {
       process.env.LOCAL_USER_ID = previousLocalUserId;
     }
-    // bun:sqlite memory-maps WAL/SHM files; force a GC so Windows releases the locks.
-    if (typeof Bun !== 'undefined' && typeof Bun.gc === 'function') {
-      Bun.gc(true);
-    }
-    for (let attempt = 0; attempt < 10; attempt++) {
-      try {
-        rmSync(tempDir, { recursive: true, force: true });
-        return;
-      } catch (error) {
-        if (attempt === 9) throw error;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    }
+  });
+
+  test('exposes the configured project import transfer contract', async () => {
+    const response = await request(createApp()).get('/api/projects/config');
+
+    expect(response.status).toBe(200);
+    expect(response.body.config.import).toMatchObject({
+      directMaxBytes: 20_000_000,
+      maxChunkBytes: 16_000_000,
+      maxChunkCount: 32,
+      maxSerializedBytes: 280_000_000,
+      requestTimeoutMs: 120_000,
+    });
   });
 
   test('saves, lists, loads, exports, touches, and deletes projects', async () => {
@@ -124,7 +117,6 @@ describe('/api/projects', () => {
       title: 'Corso server',
       lessonCount: 2,
       completedCount: 1,
-      syncState: 'sync-ready',
     });
 
     const listResponse = await request(app).get('/api/projects/projects');
@@ -238,13 +230,9 @@ describe('/api/projects', () => {
     const uploadId = '123e4567-e89b-42d3-a456-426614174000';
     const splitAt = serializedImport.indexOf('before after') + 'before '.length;
     const lastChunkResponse = await request(app)
-      .post('/api/projects/import/chunks')
-      .send({
-        uploadId,
-        chunkIndex: 1,
-        chunkCount: 2,
-        chunk: serializedImport.slice(splitAt),
-      });
+      .put(`/api/projects/import/chunks/${uploadId}/1?chunkCount=2`)
+      .set('Content-Type', 'text/plain')
+      .send(serializedImport.slice(splitAt));
     expect(lastChunkResponse.status).toBe(202);
     expect(lastChunkResponse.body).toEqual({
       success: true,
@@ -254,19 +242,16 @@ describe('/api/projects', () => {
     });
 
     const duplicateChunkResponse = await request(app)
-      .post('/api/projects/import/chunks')
-      .send({
-        uploadId,
-        chunkIndex: 1,
-        chunkCount: 2,
-        chunk: serializedImport.slice(splitAt),
-      });
+      .put(`/api/projects/import/chunks/${uploadId}/1?chunkCount=2`)
+      .set('Content-Type', 'text/plain')
+      .send(serializedImport.slice(splitAt));
     expect(duplicateChunkResponse.status).toBe(202);
     expect(duplicateChunkResponse.body.receivedCount).toBe(1);
 
     const changedDuplicateResponse = await request(app)
-      .post('/api/projects/import/chunks')
-      .send({ uploadId, chunkIndex: 1, chunkCount: 2, chunk: 'different data' });
+      .put(`/api/projects/import/chunks/${uploadId}/1?chunkCount=2`)
+      .set('Content-Type', 'text/plain')
+      .send('different data');
     expect(changedDuplicateResponse.status).toBe(400);
 
     const prematureCompletionResponse = await request(app).post(
@@ -275,18 +260,15 @@ describe('/api/projects', () => {
     expect(prematureCompletionResponse.status).toBe(400);
 
     const inconsistentChunkResponse = await request(app)
-      .post('/api/projects/import/chunks')
-      .send({ uploadId, chunkIndex: 0, chunkCount: 3, chunk: serializedImport.slice(0, splitAt) });
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=3`)
+      .set('Content-Type', 'text/plain')
+      .send(serializedImport.slice(0, splitAt));
     expect(inconsistentChunkResponse.status).toBe(400);
 
     const firstChunkResponse = await request(app)
-      .post('/api/projects/import/chunks')
-      .send({
-        uploadId,
-        chunkIndex: 0,
-        chunkCount: 2,
-        chunk: serializedImport.slice(0, splitAt),
-      });
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=2`)
+      .set('Content-Type', 'text/plain')
+      .send(serializedImport.slice(0, splitAt));
     expect(firstChunkResponse.status).toBe(202);
     expect(firstChunkResponse.body).toEqual({
       success: true,
@@ -309,11 +291,18 @@ describe('/api/projects', () => {
     expect(retriedCompletionResponse.status).toBe(200);
     expect(retriedCompletionResponse.body.snapshot.id).toBe('chunked-import-project');
 
-    const database = (store as unknown as { database: import('bun:sqlite').Database }).database;
-    const storedRow = database
-      .prepare('select snapshot_json from project_snapshots where user_id = ? and id = ?')
-      .get('local-user', 'pdf-project') as { snapshot_json: string };
-    expect(storedRow.snapshot_json).not.toContain(pdfData);
+    const completedStatusResponse = await request(app).get(
+      `/api/projects/import/chunks/${uploadId}`
+    );
+    expect(completedStatusResponse.status).toBe(200);
+    expect(completedStatusResponse.body).toMatchObject({
+      complete: true,
+      uploadStatus: 'completed',
+    });
+
+    expect(JSON.stringify(store.readStoredSnapshot('local-user', 'pdf-project'))).not.toContain(
+      pdfData
+    );
   });
 
   test('migrates a legacy embedded PDF once when the project is first loaded', async () => {
@@ -330,34 +319,17 @@ describe('/api/projects', () => {
         },
       },
     } satisfies ProjectSnapshot;
-    const database = (store as unknown as { database: import('bun:sqlite').Database }).database;
-    database
-      .prepare(
-        `insert into project_snapshots
-           (user_id, id, snapshot_json, updated_at, server_updated_at)
-         values (?, ?, ?, ?, ?)`
-      )
-      .run(
-        'local-user',
-        snapshot.id,
-        JSON.stringify(snapshot),
-        snapshot.updatedAt,
-        snapshot.updatedAt
-      );
+    store.seedStoredSnapshot('local-user', snapshot);
 
     const firstLoad = await request(app).get('/api/projects/projects/legacy-pdf');
     const secondLoad = await request(app).get('/api/projects/projects/legacy-pdf');
 
     expect(firstLoad.body.project.source.file.data).toBe('');
     expect(secondLoad.body.project.source.ref).toEqual(firstLoad.body.project.source.ref);
-    const sourceCount = database
-      .prepare('select count(*) as count from project_sources where project_id = ?')
-      .get(snapshot.id) as { count: number };
-    expect(sourceCount.count).toBe(1);
-    const storedSnapshot = database
-      .prepare('select snapshot_json from project_snapshots where id = ?')
-      .get(snapshot.id) as { snapshot_json: string };
-    expect(storedSnapshot.snapshot_json).not.toContain(pdfData);
+    expect(store.countStoredSources('local-user')).toBe(1);
+    expect(JSON.stringify(store.readStoredSnapshot('local-user', snapshot.id))).not.toContain(
+      pdfData
+    );
   });
 
   test('counts module-shaped lessons in server project metadata', async () => {
@@ -395,7 +367,6 @@ describe('/api/projects', () => {
 
     await request(app).put('/api/projects/projects/stale-module-project').send({ snapshot });
 
-    const database = (store as unknown as { database: import('bun:sqlite').Database }).database;
     const staleMeta = {
       id: 'stale-module-project',
       title: 'Corso con meta vecchi',
@@ -409,11 +380,9 @@ describe('/api/projects', () => {
       completedExercises: 0,
       hasSourceFile: false,
       coverLabel: 'Bozza sincronizzata',
-      syncState: 'sync-ready',
-    };
-    database
-      .prepare('update projects set meta_json = ? where user_id = ? and id = ?')
-      .run(JSON.stringify(staleMeta), 'local-user', 'stale-module-project');
+      revision: 1,
+    } as const;
+    store.replaceProjectMeta('local-user', 'stale-module-project', staleMeta);
 
     const listResponse = await request(app).get('/api/projects/projects');
     expect(listResponse.body.projects[0]).toMatchObject({
@@ -541,12 +510,7 @@ describe('/api/projects', () => {
     } as unknown as ProjectSnapshot;
 
     await request(app).put('/api/projects/projects/heavy-project').send({ snapshot });
-    const storeInternals = store as unknown as {
-      readSnapshot: (userId: string, id: string) => ProjectSnapshot | null;
-      saveProject: SqliteProjectStore['saveProject'];
-    };
-    const readSnapshotSpy = vi.spyOn(storeInternals, 'readSnapshot');
-    const saveProjectSpy = vi.spyOn(storeInternals, 'saveProject');
+    const fullSaveCountBeforePatch = store.fullSaveCount;
 
     const patchResponse = await request(app)
       .patch('/api/projects/projects/heavy-project')
@@ -557,10 +521,7 @@ describe('/api/projects', () => {
       });
 
     expect(patchResponse.status).toBe(200);
-    expect(readSnapshotSpy).not.toHaveBeenCalled();
-    expect(saveProjectSpy).not.toHaveBeenCalled();
-    readSnapshotSpy.mockRestore();
-    saveProjectSpy.mockRestore();
+    expect(store.fullSaveCount).toBe(fullSaveCountBeforePatch);
 
     // Reload — documentIndex must survive the PATCH unchanged
     const loadResponse = await request(app).get('/api/projects/projects/heavy-project');
@@ -623,53 +584,5 @@ describe('/api/projects', () => {
       projectIndex: 1,
     });
     warning.mockRestore();
-  });
-
-  test.skip('migrates inline documentIndex from snapshot_json into its own column', async () => {
-    // Pre-create a row with the OLD schema shape: documentIndex inline in snapshot_json.
-    const inlineSnapshot = {
-      ...createSnapshot('legacy-project', 'Legacy'),
-      documentIndex: { pages: [{ page: 1, text: 'inline' }] },
-    } as unknown as ProjectSnapshot;
-
-    // Simulate the legacy state: write snapshot WITH documentIndex into snapshot_json
-    // and leave document_index_json NULL.
-    const legacyDb = (store as unknown as { database: import('bun:sqlite').Database }).database;
-    legacyDb
-      .prepare(
-        `insert into project_snapshots (user_id, id, snapshot_json, document_index_json, updated_at, server_updated_at)
-         values (?, ?, ?, NULL, ?, ?)`
-      )
-      .run(
-        'local-user',
-        'legacy-project',
-        JSON.stringify(inlineSnapshot),
-        inlineSnapshot.updatedAt,
-        inlineSnapshot.updatedAt
-      );
-
-    // Reopen the store — migrate() runs on construction and should backfill the column.
-    store.close();
-    const dbPath = legacyDb.name;
-    store = new SqliteProjectStore(dbPath);
-    setProjectStoreForTesting(store);
-
-    // After migration: document_index_json populated, snapshot_json no longer contains the field.
-    const row = (store as unknown as { database: import('bun:sqlite').Database }).database
-      .prepare(
-        `select snapshot_json, document_index_json from project_snapshots where user_id = ? and id = ?`
-      )
-      .get('local-user', 'legacy-project') as {
-      snapshot_json: string;
-      document_index_json: string | null;
-    };
-
-    expect(row.document_index_json).toBeTruthy();
-    expect(JSON.parse(row.snapshot_json).documentIndex).toBeUndefined();
-
-    // Read path must transparently merge the two columns.
-    const app = createApp();
-    const loadResponse = await request(app).get('/api/projects/projects/legacy-project');
-    expect(loadResponse.body.project.documentIndex.pages[0].text).toBe('inline');
   });
 });

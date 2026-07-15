@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { useState } from 'react';
 import type { useLibraryAssistantChat } from '../../hooks/library/useLibraryAssistantChat.ts';
 import type { useProjectLibrary } from '../../hooks/library/useProjectLibrary.ts';
@@ -33,7 +32,6 @@ interface LibraryScreenContainerProps {
   }) => Promise<boolean>;
 }
 
-// fallow-ignore-next-line unused-exports — used by App.tsx
 export const LibraryScreenContainer = ({
   controller,
   readerState,

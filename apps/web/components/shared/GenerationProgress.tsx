@@ -16,6 +16,7 @@ import type {
 
 interface GenerationProgressProps {
   displayMode?: 'embedded' | 'page';
+  elapsedSecondsOverride?: number;
   progress: GenerationProgressSnapshot;
 }
 
@@ -73,6 +74,7 @@ const PreviewSections = ({ progress }: { progress: GenerationProgressSnapshot })
 
 export default function GenerationProgress({
   displayMode = 'page',
+  elapsedSecondsOverride,
   progress,
 }: GenerationProgressProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(() =>
@@ -82,13 +84,19 @@ export default function GenerationProgress({
   const isCourseGeneration = progress.operation === 'plan';
 
   useEffect(() => {
+    if (elapsedSecondsOverride !== undefined) {
+      return;
+    }
+
     const updateElapsedTime = () => {
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - progress.startedAt) / 1_000)));
     };
     updateElapsedTime();
     const intervalId = window.setInterval(updateElapsedTime, 1_000);
     return () => window.clearInterval(intervalId);
-  }, [progress.startedAt]);
+  }, [elapsedSecondsOverride, progress.startedAt]);
+
+  const visibleElapsedSeconds = elapsedSecondsOverride ?? elapsedSeconds;
 
   return (
     <output
@@ -111,12 +119,12 @@ export default function GenerationProgress({
           return (
             <li key={id} className="relative z-10 flex min-w-0 flex-col items-center">
               <span
-                className={`flex h-10 w-10 items-center justify-center rounded-full border bg-white transition-colors dark:bg-zinc-950 ${
+                className={`flex h-10 w-10 items-center justify-center rounded-full border transition-colors ${
                   isActive
                     ? 'border-amber-500 bg-amber-500 text-white shadow-[0_0_0_7px_rgba(245,158,11,0.12)] dark:bg-amber-600'
                     : isComplete
-                      ? 'border-amber-300 text-stone-900 dark:border-amber-700 dark:text-zinc-100'
-                      : 'border-stone-300 text-stone-400 dark:border-zinc-700 dark:text-zinc-500'
+                      ? 'border-amber-300 bg-white text-stone-900 dark:border-amber-700 dark:bg-zinc-950 dark:text-zinc-100'
+                      : 'border-stone-300 bg-white text-stone-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-500'
                 }`}
               >
                 {isComplete ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
@@ -140,7 +148,8 @@ export default function GenerationProgress({
 
       <p className="mt-3 flex items-center gap-2 text-xs text-stone-500 sm:mt-5 sm:text-sm dark:text-zinc-400">
         <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-        {t('Elaborazione in corso')} · {t('Tempo trascorso')}: {formatElapsedTime(elapsedSeconds)}
+        {t('Elaborazione in corso')} · {t('Tempo trascorso')}:{' '}
+        {formatElapsedTime(visibleElapsedSeconds)}
       </p>
     </output>
   );

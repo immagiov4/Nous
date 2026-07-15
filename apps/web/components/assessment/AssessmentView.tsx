@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { ArrowLeft, BrainCircuit, Sparkles } from 'lucide-react';
 import type { FormEvent, RefObject } from 'react';
 import { ASSESSMENT_MIN_TURNS } from '../../constants';
@@ -185,5 +184,4 @@ const AssessmentView = ({
   );
 };
 
-// fallow-ignore-next-line unused-exports — imported by App.tsx as default
 export default AssessmentView;

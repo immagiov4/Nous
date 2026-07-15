@@ -173,7 +173,6 @@ export interface TtsModelsResponse {
   success: boolean;
 }
 
-// fallow-ignore-next-line unused-exports — barrel re-export consumed via shared.ts
 export type {
   FileData,
   LearningPlan,

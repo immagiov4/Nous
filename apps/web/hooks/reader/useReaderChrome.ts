@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { READER_MOBILE_LAYOUT_BREAKPOINT_PX } from '../../constants/layout.ts';
@@ -24,7 +23,6 @@ interface MobileSidebarState {
   sectionId: string | null;
 }
 
-// fallow-ignore-next-line unused-exports — used by useWorkspaceReaderState.ts
 export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChromeArgs) => {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(readInitialDarkMode);

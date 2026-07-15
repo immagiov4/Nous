@@ -1,3 +1,4 @@
+import { buildOrderedSiblingItems } from '@shared/libraryOrdering';
 import JSZip from 'jszip';
 import type {
   LibraryFolder,
@@ -25,6 +26,7 @@ const LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES = 1_000_000;
 const LIBRARY_ARCHIVE_MAX_PROJECT_BYTES = 256_000_000;
 const INVALID_LIBRARY_ARCHIVE_MESSAGE =
   "Questo ZIP non contiene un backup completo Nous valido. Importa un file .nous-library.zip esportato dall'app.";
+const LIBRARY_PROJECT_PATH_PATTERN = /^projects\/[^/]+\.nous\.zip$/u;
 
 export type LibraryArchiveErrorCode =
   | 'LIBRARY_ARCHIVE_ENTRY_MISSING'
@@ -51,6 +53,15 @@ export class LibraryArchiveError extends Error {
   }
 }
 
+export class LibraryArchiveRollbackError extends Error {
+  constructor() {
+    super(
+      'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.'
+    );
+    this.name = 'LibraryArchiveRollbackError';
+  }
+}
+
 interface LibraryArchiveProjectEntry {
   id: string;
   path: string;
@@ -64,6 +75,12 @@ interface LibraryArchiveManifest {
   folders: LibraryFolder[];
   placements: LibraryPlacement[];
 }
+
+const isValidTimestamp = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0 && Number.isFinite(Date.parse(value));
+
+const isValidOrder = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) >= 0;
 
 export interface LibraryArchiveData {
   projects: ProjectExportData[];
@@ -144,9 +161,9 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
       typeof project.id !== 'string' ||
       !project.id.trim() ||
       typeof project.title !== 'string' ||
+      !project.title.trim() ||
       typeof project.path !== 'string' ||
-      !project.path.startsWith(`${LIBRARY_ARCHIVE_PROJECTS_DIR}/`) ||
-      !project.path.endsWith('.nous.zip')
+      !LIBRARY_PROJECT_PATH_PATTERN.test(project.path)
     ) {
       throw new LibraryArchiveError(
         'Il manifest contiene una voce corso non valida.',
@@ -182,13 +199,14 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
       if (
         !isRecord(folder) ||
         typeof folder.id !== 'string' ||
+        !folder.id.trim() ||
         typeof folder.name !== 'string' ||
-        (folder.parentFolderId !== null && typeof folder.parentFolderId !== 'string') ||
-        typeof folder.createdAt !== 'string' ||
-        typeof folder.updatedAt !== 'string' ||
-        typeof folder.order !== 'number' ||
-        !Number.isFinite(folder.order) ||
-        folder.order < 0
+        !folder.name.trim() ||
+        (folder.parentFolderId !== null &&
+          (typeof folder.parentFolderId !== 'string' || !folder.parentFolderId.trim())) ||
+        !isValidTimestamp(folder.createdAt) ||
+        !isValidTimestamp(folder.updatedAt) ||
+        !isValidOrder(folder.order)
       ) {
         throw new LibraryArchiveError(
           'Il manifest contiene una cartella non valida.',
@@ -209,11 +227,11 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
       if (
         !isRecord(placement) ||
         typeof placement.projectId !== 'string' ||
-        (placement.folderId !== null && typeof placement.folderId !== 'string') ||
-        typeof placement.updatedAt !== 'string' ||
-        typeof placement.order !== 'number' ||
-        !Number.isFinite(placement.order) ||
-        placement.order < 0
+        !placement.projectId.trim() ||
+        (placement.folderId !== null &&
+          (typeof placement.folderId !== 'string' || !placement.folderId.trim())) ||
+        !isValidTimestamp(placement.updatedAt) ||
+        !isValidOrder(placement.order)
       ) {
         throw new LibraryArchiveError(
           'Il manifest contiene un posizionamento non valido.',
@@ -408,7 +426,7 @@ export const readLibraryArchiveProjects = async (file: Blob): Promise<ProjectExp
 
 type LibraryOrganizationRepository = Pick<
   ProjectRepository,
-  'createFolder' | 'moveFolder' | 'moveProjects'
+  'createFolder' | 'deleteFolder' | 'moveFolder' | 'moveProjects'
 >;
 
 export const restoreLibraryArchiveOrganization = async (
@@ -417,51 +435,73 @@ export const restoreLibraryArchiveOrganization = async (
   projectIdMap: ReadonlyMap<string, string> = new Map()
 ): Promise<void> => {
   const folderIdMap = new Map<string, string>();
+  const createdFolderIds: string[] = [];
   const pendingFolders = organization.folders
     .slice()
     .sort((left, right) => left.order - right.order);
 
-  while (pendingFolders.length > 0) {
-    const readyIndex = pendingFolders.findIndex(
-      folder => folder.parentFolderId === null || folderIdMap.has(folder.parentFolderId)
-    );
-    if (readyIndex < 0) {
-      throw new LibraryArchiveError(
-        'La gerarchia delle cartelle nel backup contiene un ciclo.',
-        'LIBRARY_ARCHIVE_INVALID',
-        'manifest-read'
+  try {
+    while (pendingFolders.length > 0) {
+      const readyIndex = pendingFolders.findIndex(
+        folder => folder.parentFolderId === null || folderIdMap.has(folder.parentFolderId)
       );
+      if (readyIndex < 0) {
+        throw new LibraryArchiveError(
+          'La gerarchia delle cartelle nel backup contiene un ciclo.',
+          'LIBRARY_ARCHIVE_INVALID',
+          'manifest-read'
+        );
+      }
+      const [folder] = pendingFolders.splice(readyIndex, 1);
+      if (!folder) continue;
+      const parentFolderId =
+        folder.parentFolderId === null ? null : folderIdMap.get(folder.parentFolderId) || null;
+      const created = await repository.createFolder({ name: folder.name, parentFolderId });
+      folderIdMap.set(folder.id, created.id);
+      createdFolderIds.push(created.id);
     }
-    const [folder] = pendingFolders.splice(readyIndex, 1);
-    if (!folder) continue;
-    const parentFolderId =
-      folder.parentFolderId === null ? null : folderIdMap.get(folder.parentFolderId) || null;
-    const created = await repository.createFolder({ name: folder.name, parentFolderId });
-    folderIdMap.set(folder.id, created.id);
-  }
 
-  const parentIds: Array<string | null> = [null, ...organization.folders.map(folder => folder.id)];
-  for (const parentId of parentIds) {
-    const siblings = [
-      ...organization.folders
-        .filter(folder => folder.parentFolderId === parentId)
-        .map(folder => ({ kind: 'folder' as const, order: folder.order, folder })),
-      ...organization.placements
-        .filter(placement => placement.folderId === parentId)
-        .map(placement => ({ kind: 'project' as const, order: placement.order, placement })),
-    ].sort((left, right) => left.order - right.order);
+    const parentIds: Array<string | null> = [
+      null,
+      ...organization.folders.map(folder => folder.id),
+    ];
+    for (const parentId of parentIds) {
+      const siblings = buildOrderedSiblingItems(
+        organization.folders,
+        organization.placements,
+        parentId
+      );
 
-    for (const [targetIndex, sibling] of siblings.entries()) {
-      const mappedParentId = parentId === null ? null : folderIdMap.get(parentId) || null;
-      if (sibling.kind === 'folder') {
-        const folderId = folderIdMap.get(sibling.folder.id);
-        if (folderId) await repository.moveFolder(folderId, mappedParentId, targetIndex);
-      } else {
-        const projectId =
-          projectIdMap.get(sibling.placement.projectId) || sibling.placement.projectId;
-        await repository.moveProjects([projectId], mappedParentId, targetIndex);
+      for (const [targetIndex, sibling] of siblings.entries()) {
+        const mappedParentId = parentId === null ? null : folderIdMap.get(parentId) || null;
+        if (sibling.kind === 'folder') {
+          const folderId = folderIdMap.get(sibling.value.id);
+          if (folderId) await repository.moveFolder(folderId, mappedParentId, targetIndex);
+        } else {
+          const projectId = projectIdMap.get(sibling.value.projectId);
+          if (!projectId) {
+            throw new LibraryArchiveError(
+              'Il backup contiene un corso senza corrispondenza durante il ripristino.',
+              'LIBRARY_ARCHIVE_INVALID',
+              'manifest-read'
+            );
+          }
+          await repository.moveProjects([projectId], mappedParentId, targetIndex);
+        }
       }
     }
+  } catch (error) {
+    let rollbackFailed = false;
+    for (const folderId of createdFolderIds.reverse()) {
+      try {
+        await repository.deleteFolder(folderId);
+      } catch (cleanupError) {
+        rollbackFailed = true;
+        console.warn('[Nous] Failed to roll back an imported library folder.', cleanupError);
+      }
+    }
+    if (rollbackFailed) throw new LibraryArchiveRollbackError();
+    throw error;
   }
 };
 

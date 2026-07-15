@@ -17,7 +17,6 @@ const PROJECT_META: SavedProjectMeta = {
   completedExercises: 0,
   hasSourceFile: true,
   coverLabel: '23 lezioni',
-  syncState: 'sync-ready',
 };
 
 describe('PostgresProjectStore', () => {

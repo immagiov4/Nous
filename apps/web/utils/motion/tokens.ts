@@ -36,7 +36,6 @@ const SPRING_SOFT_POP: Transition = {
 /**
  * Tap press — buttons/cards active feedback.
  */
-// fallow-ignore-next-line unused-exports — used by primitives.tsx
 export const SPRING_TAP: Transition = {
   duration: 0.08,
   ease: MOTION_EASING.standard,
@@ -53,7 +52,6 @@ const TRANSITION_FADE: Transition = {
 /**
  * Dialog content pop: appears at ~0.96 scale with a soft spring.
  */
-// fallow-ignore-next-line unused-exports — used by primitives.tsx
 export const VARIANTS_DIALOG: Variants = {
   hidden: { opacity: 0, scale: 0.96, y: 8 },
   visible: {
@@ -73,7 +71,6 @@ export const VARIANTS_DIALOG: Variants = {
 /**
  * Backdrop fade for modal overlays.
  */
-// fallow-ignore-next-line unused-exports — used by primitives.tsx
 export const VARIANTS_BACKDROP: Variants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: TRANSITION_FADE },
@@ -83,5 +80,4 @@ export const VARIANTS_BACKDROP: Variants = {
 /**
  * Tap scale target used with `whileTap` on pressable elements.
  */
-// fallow-ignore-next-line unused-exports — used by primitives.tsx
 export const TAP_SCALE = 0.96;

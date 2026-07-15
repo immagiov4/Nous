@@ -37,7 +37,7 @@ Nous now uses authenticated server storage as the product path.
 - Frontend auth should use `VITE_AUTH_MODE=supabase`.
 - Development can use `AUTH_MODE=local-bypass` only in tests or with `LOCAL_DEV_PROFILE=true` plus `LOCAL_AUTH_BYPASS=true`; projects still use the server HTTP repository.
 - Supabase Auth requires the backend URL and service-role key plus the frontend URL and publishable/anon key. HS256 installations also set `SUPABASE_JWT_SECRET`; asymmetric JWT installations use Supabase JWKS discovery or `SUPABASE_JWKS_URL`.
-- `SqliteProjectStore` exists only as a fast backend route-test fixture; it is not a runtime option.
+- Backend route tests use an in-memory `ProjectStore`; PostgreSQL is the only runtime project store.
 
 The public production origin must be listed explicitly with `CORS_ALLOWED_ORIGINS`.
 

@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { Loader2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useState } from 'react';
 import logoUrl from '../../assets/logo.svg';
@@ -9,6 +8,7 @@ import ThinkingStream from './ThinkingStream.tsx';
 
 interface LoadingScreenProps {
   displayMode?: 'embedded' | 'page';
+  elapsedSecondsOverride?: number;
   isDarkMode?: boolean;
   message: string;
   progress?: GenerationProgressSnapshot;
@@ -18,6 +18,7 @@ interface LoadingScreenProps {
 
 const LoadingScreen = ({
   displayMode = 'page',
+  elapsedSecondsOverride,
   isDarkMode = false,
   message,
   progress,
@@ -57,6 +58,10 @@ const LoadingScreen = ({
   }, [isEmbedded]);
 
   useEffect(() => {
+    if (progress || elapsedSecondsOverride !== undefined) {
+      return;
+    }
+
     const intervalId = window.setInterval(() => {
       setElapsedSeconds(seconds => seconds + 1);
     }, 1000);
@@ -64,9 +69,9 @@ const LoadingScreen = ({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [elapsedSecondsOverride, progress]);
 
-  const waitingHint = getWaitingHint(elapsedSeconds);
+  const waitingHint = getWaitingHint(elapsedSecondsOverride ?? elapsedSeconds);
 
   return (
     <div
@@ -80,7 +85,11 @@ const LoadingScreen = ({
               <span className="font-serif text-2xl text-stone-900 dark:text-zinc-100">Nous</span>
             </div>
           ) : null}
-          <GenerationProgress displayMode={displayMode} progress={progress} />
+          <GenerationProgress
+            displayMode={displayMode}
+            elapsedSecondsOverride={elapsedSecondsOverride}
+            progress={progress}
+          />
         </>
       ) : null}
       {!progress ? (
@@ -191,5 +200,4 @@ const getWaitingHint = (elapsedSeconds: number): string | null => {
   return null;
 };
 
-// fallow-ignore-next-line unused-exports — imported by App.tsx as default
 export default LoadingScreen;

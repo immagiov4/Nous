@@ -6,7 +6,6 @@ export type {
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSourceKind,
-  ProjectSyncState,
   ProjectWriteOptions,
   SavedProjectMeta,
   SectionPatch,
@@ -96,7 +95,6 @@ export interface ProjectStore {
   deleteFolder: (userId: string, folderId: string) => Promise<void>;
   deleteProject: (userId: string, id: ProjectId) => Promise<void>;
   exportProject: (userId: string, id: ProjectId) => Promise<ProjectExportData | null>;
-  getConfig: () => { driver: 'postgres' | 'sqlite'; isServerStorageEnabled: boolean };
   importProject: (
     userId: string,
     data: unknown

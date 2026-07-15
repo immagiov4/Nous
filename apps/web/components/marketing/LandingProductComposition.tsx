@@ -1,14 +1,6 @@
 import type { UIMessage } from 'ai';
-import { MousePointer2 } from 'lucide-react';
-import {
-  type RefObject,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { MotionConfig } from 'framer-motion';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AbsoluteFill,
   continueRender,
@@ -42,7 +34,53 @@ import LibraryView from '../library/LibraryView.tsx';
 import LoadingScreen from '../shared/LoadingScreen.tsx';
 import type { ContextAnswerState, WorkspaceReaderShellProps } from '../workspace/shell/types.ts';
 import WorkspaceReaderShell from '../workspace/WorkspaceReaderShell.tsx';
-import type { DemoStage } from './landingDemoTimeline.ts';
+import LandingDemoCursor from './LandingDemoCursor.tsx';
+import { getScrollOffset, getScrollRange, keepTextInputEndVisible } from './landingDemoMotion.ts';
+import {
+  DEMO_FPS,
+  type DemoStage,
+  LESSON_ANSWER_END_FRAME,
+  LESSON_ANSWER_START_FRAME,
+  LESSON_ARTIFACT_DISMISS_FRAME,
+  LESSON_ARTIFACT_LOADING_FRAME,
+  LESSON_ARTIFACT_PREVIEW_FRAME,
+  LESSON_ARTIFACT_READY_FRAME,
+  LESSON_ATTACH_DRAFT_END_FRAME,
+  LESSON_ATTACH_DRAFT_START_FRAME,
+  LESSON_ATTACH_REPLY_END_FRAME,
+  LESSON_ATTACH_REPLY_START_FRAME,
+  LESSON_ATTACH_SEND_FRAME,
+  LESSON_FINAL_ARTIFACT_PREVIEW_FRAME,
+  LESSON_FINAL_NOTE_OPEN_FRAME,
+  LESSON_FINAL_NOTE_SCROLL_END_FRAME,
+  LESSON_FINAL_NOTE_SCROLL_START_FRAME,
+  LESSON_FIRST_ANNOTATION_CLICK_FRAME,
+  LESSON_FIRST_CHAT_DISMISS_FRAME,
+  LESSON_GRAPH_DRAFT_END_FRAME,
+  LESSON_GRAPH_DRAFT_START_FRAME,
+  LESSON_GRAPH_REPLY_END_FRAME,
+  LESSON_GRAPH_REPLY_START_FRAME,
+  LESSON_GRAPH_SEND_FRAME,
+  LESSON_NOTE_DRAFT_END_FRAME,
+  LESSON_NOTE_DRAFT_START_FRAME,
+  LESSON_NOTE_REPLY_END_FRAME,
+  LESSON_NOTE_REPLY_START_FRAME,
+  LESSON_NOTE_SAVED_FRAME,
+  LESSON_NOTE_SEND_FRAME,
+  LESSON_NOTE_TOOL_FRAME,
+  LESSON_NOTE_UPDATED_FRAME,
+  LESSON_QUESTION_END_FRAME,
+  LESSON_QUESTION_START_FRAME,
+  LESSON_SECOND_CHAT_DISMISS_FRAME,
+  LESSON_SECOND_CHAT_OPEN_FRAME,
+  LESSON_SELECTION_CLICK_FRAME,
+  LESSON_SEND_CLICK_FRAME,
+  LESSON_UPDATE_NOTE_TOOL_FRAME,
+  LIBRARY_ARTIFACT_FRAME,
+  LIBRARY_ARTIFACT_PREVIEW_FRAME,
+  LIBRARY_FIRST_SEND_FRAME,
+  LIBRARY_SECOND_SEND_FRAME,
+} from './landingDemoTimeline.ts';
 
 export type { DemoStage } from './landingDemoTimeline.ts';
 
@@ -62,6 +100,17 @@ const ENGLISH_COURSE_TITLE = 'Cognitive psychology: memory and attention';
 const DEMO_ANNOTATION_ID = 'demo-attention-note';
 const DEMO_ARTIFACT_ID = 'demo-attention-switching';
 const SVG_IMAGE_DATA_URL_PREFIX = 'data:image/svg+xml;charset=utf-8,';
+const REMOTION_STABILITY_CSS = `
+  [data-remotion-render-root],
+  [data-remotion-render-root] *,
+  [data-remotion-render-root] *::before,
+  [data-remotion-render-root] *::after {
+    animation: none !important;
+    caret-color: transparent !important;
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+`;
 type GeneratedVisualArtifactPayload = Extract<
   LearningArtifactRenderPayload,
   { visual: LessonGeneratedVisual }
@@ -358,56 +407,6 @@ const DEMO_PROJECT_ID = 'marketing-preview-cognitive-psychology';
 const DEMO_NETWORKS_PROJECT_ID = 'marketing-preview-networks';
 const DEMO_FOLDER_ID = 'marketing-preview-folder';
 const DEMO_DATE = '2026-07-10T12:00:00.000Z';
-const LIBRARY_FIRST_SEND_FRAME = 135;
-const LIBRARY_SECOND_SEND_FRAME = 410;
-const LIBRARY_ARTIFACT_FRAME = 500;
-const LIBRARY_ARTIFACT_PREVIEW_FRAME = 610;
-const LESSON_SELECTION_CLICK_FRAME = 48;
-const LESSON_QUESTION_START_FRAME = 78;
-const LESSON_QUESTION_END_FRAME = 132;
-const LESSON_SEND_CLICK_FRAME = 158;
-const LESSON_ANSWER_START_FRAME = 174;
-const LESSON_ANSWER_END_FRAME = 226;
-const LESSON_NOTE_DRAFT_START_FRAME = 250;
-const LESSON_NOTE_DRAFT_END_FRAME = 318;
-const LESSON_NOTE_SEND_FRAME = 330;
-const LESSON_NOTE_REPLY_START_FRAME = 345;
-const LESSON_NOTE_REPLY_END_FRAME = 395;
-const LESSON_NOTE_TOOL_FRAME = 405;
-const LESSON_NOTE_APPROVE_FRAME = 450;
-const LESSON_NOTE_SAVED_FRAME = 462;
-const LESSON_FIRST_CHAT_CLOSE_FRAME = 510;
-const LESSON_FIRST_CHAT_DISMISS_FRAME = 522;
-const LESSON_FIRST_ANNOTATION_CLICK_FRAME = 550;
-const LESSON_GRAPH_DRAFT_START_FRAME = 585;
-const LESSON_GRAPH_DRAFT_END_FRAME = 680;
-const LESSON_GRAPH_SEND_FRAME = 700;
-const LESSON_SECOND_CHAT_OPEN_FRAME = 708;
-const LESSON_GRAPH_REPLY_START_FRAME = 730;
-const LESSON_GRAPH_REPLY_END_FRAME = 790;
-const LESSON_ARTIFACT_LOADING_FRAME = 800;
-const LESSON_ARTIFACT_READY_FRAME = 870;
-const LESSON_ARTIFACT_OPEN_FRAME = 920;
-const LESSON_ARTIFACT_PREVIEW_FRAME = 928;
-const LESSON_ARTIFACT_SAVE_FRAME = 1010;
-const LESSON_ARTIFACT_CLOSE_FRAME = 1045;
-const LESSON_ARTIFACT_DISMISS_FRAME = 1053;
-const LESSON_ATTACH_DRAFT_START_FRAME = 1070;
-const LESSON_ATTACH_DRAFT_END_FRAME = 1140;
-const LESSON_ATTACH_SEND_FRAME = 1160;
-const LESSON_ATTACH_REPLY_START_FRAME = 1175;
-const LESSON_ATTACH_REPLY_END_FRAME = 1195;
-const LESSON_UPDATE_NOTE_TOOL_FRAME = 1200;
-const LESSON_UPDATE_NOTE_APPROVE_FRAME = 1260;
-const LESSON_NOTE_UPDATED_FRAME = 1270;
-const LESSON_SECOND_CHAT_CLOSE_FRAME = 1320;
-const LESSON_SECOND_CHAT_DISMISS_FRAME = 1332;
-const LESSON_FINAL_ANNOTATION_CLICK_FRAME = 1350;
-const LESSON_FINAL_NOTE_OPEN_FRAME = 1360;
-const LESSON_FINAL_NOTE_SCROLL_START_FRAME = 1390;
-const LESSON_FINAL_NOTE_SCROLL_END_FRAME = 1460;
-const LESSON_FINAL_ARTIFACT_OPEN_FRAME = 1490;
-const LESSON_FINAL_ARTIFACT_PREVIEW_FRAME = 1498;
 
 const buildDemoProjects = (isItalian: boolean): SavedProjectMeta[] => {
   const sharedProject = {
@@ -417,7 +416,6 @@ const buildDemoProjects = (isItalian: boolean): SavedProjectMeta[] => {
     lastOpenedAt: DEMO_DATE,
     hasSourceFile: true,
     coverLabel: 'PDF',
-    syncState: 'sync-ready' as const,
   };
 
   return [
@@ -515,14 +513,12 @@ const resolvedTrue = async () => true;
 const DemoLibraryView = ({
   frame,
   height,
-  isCompact,
   isItalian,
   portalContainer,
   stage,
 }: {
   frame: number;
   height: number;
-  isCompact: boolean;
   isItalian: boolean;
   portalContainer?: HTMLElement | null;
   stage: 'library' | 'plan';
@@ -712,8 +708,8 @@ const DemoLibraryView = ({
           extrapolateLeft: 'clamp',
           extrapolateRight: 'clamp',
         })
-      : stage === 'plan' && isCompact
-        ? interpolate(frame, [170, 635], [0, 1], {
+      : stage === 'plan'
+        ? interpolate(frame, [170, 655], [0, 1], {
             extrapolateLeft: 'clamp',
             extrapolateRight: 'clamp',
           })
@@ -864,437 +860,13 @@ const buildGenerationProgress = (frame: number, isItalian: boolean): GenerationP
   const stepOffset = Math.max(0, revealedStepCount - 3);
 
   return {
-    operation: 'lesson',
+    operation: 'plan',
     sections: progressSteps.slice(stepOffset, revealedStepCount),
     stage,
     startedAt: Date.now() - Math.round((frame / 30) * 1_000),
     stepOffset,
     subject: isItalian ? 'Perché l’attenzione è limitata' : 'Why attention is limited',
   };
-};
-
-type CursorTargetId =
-  | 'annotation-mark'
-  | 'artifact-close'
-  | 'artifact-open'
-  | 'artifact-save'
-  | 'context-answer-close'
-  | 'context-answer-input'
-  | 'context-answer-submit'
-  | 'course-card'
-  | 'library-heading'
-  | 'lesson-input'
-  | 'lesson-selection'
-  | 'lesson-submit'
-  | 'note-approve'
-  | 'plan-attachment'
-  | 'plan-objective'
-  | 'plan-submit';
-
-interface CursorPoint {
-  left: number;
-  top: number;
-}
-
-interface CursorTargetDefinition {
-  id: CursorTargetId;
-  selector?: string;
-  text?: string;
-}
-
-interface CursorWaypoint {
-  frame: number;
-  target: CursorTargetId;
-}
-
-interface CursorClick {
-  frame: number;
-  target: CursorTargetId;
-}
-
-const areCursorPointsEqual = (
-  current: Partial<Record<CursorTargetId, CursorPoint>>,
-  next: Partial<Record<CursorTargetId, CursorPoint>>
-) => {
-  const targetIds = new Set([...Object.keys(current), ...Object.keys(next)] as CursorTargetId[]);
-  return [...targetIds].every(targetId => {
-    const currentPoint = current[targetId];
-    const nextPoint = next[targetId];
-    if (!currentPoint || !nextPoint) {
-      return currentPoint === nextPoint;
-    }
-    return (
-      Math.abs(currentPoint.left - nextPoint.left) < 0.25 &&
-      Math.abs(currentPoint.top - nextPoint.top) < 0.25
-    );
-  });
-};
-
-const findTextRect = (root: HTMLElement, searchText: string): DOMRect | null => {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const normalizedSearchText = searchText.toLocaleLowerCase();
-  let node = walker.nextNode();
-
-  while (node) {
-    const text = node.textContent || '';
-    const startIndex = text.toLocaleLowerCase().indexOf(normalizedSearchText);
-    if (startIndex >= 0) {
-      const range = document.createRange();
-      range.setStart(node, startIndex);
-      range.setEnd(node, startIndex + searchText.length);
-      const rect = range.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        return rect;
-      }
-    }
-    node = walker.nextNode();
-  }
-
-  return null;
-};
-
-const measureCursorTarget = (
-  root: HTMLDivElement,
-  definition: CursorTargetDefinition,
-  scale: number
-): CursorPoint | null => {
-  const targetRect = definition.selector
-    ? root.querySelector<HTMLElement>(definition.selector)?.getBoundingClientRect()
-    : definition.text
-      ? findTextRect(root, definition.text)
-      : null;
-  if (!targetRect) {
-    return null;
-  }
-
-  const rootRect = root.getBoundingClientRect();
-  return {
-    left: (targetRect.left - rootRect.left + targetRect.width / 2) / scale,
-    top: (targetRect.top - rootRect.top + targetRect.height / 2) / scale,
-  };
-};
-
-const getCursorWaypoints = (stage: DemoStage): CursorWaypoint[] => {
-  if (stage === 'plan') {
-    return [
-      { frame: 12, target: 'plan-attachment' },
-      { frame: 48, target: 'plan-attachment' },
-      { frame: 70, target: 'plan-objective' },
-      { frame: 145, target: 'plan-objective' },
-      { frame: 165, target: 'plan-submit' },
-      { frame: 180, target: 'plan-submit' },
-      { frame: 275, target: 'plan-objective' },
-      { frame: 340, target: 'plan-objective' },
-      { frame: 360, target: 'plan-submit' },
-      { frame: 374, target: 'plan-submit' },
-      { frame: 465, target: 'plan-objective' },
-      { frame: 525, target: 'plan-objective' },
-      { frame: 545, target: 'plan-submit' },
-      { frame: 560, target: 'plan-submit' },
-    ];
-  }
-
-  if (stage === 'lesson') {
-    return [
-      { frame: 12, target: 'lesson-selection' },
-      { frame: LESSON_SELECTION_CLICK_FRAME, target: 'lesson-selection' },
-      { frame: 78, target: 'lesson-input' },
-      { frame: 144, target: 'lesson-input' },
-      { frame: LESSON_SEND_CLICK_FRAME, target: 'lesson-submit' },
-      { frame: 184, target: 'lesson-submit' },
-      { frame: 240, target: 'context-answer-input' },
-      { frame: LESSON_NOTE_DRAFT_END_FRAME, target: 'context-answer-input' },
-      { frame: LESSON_NOTE_SEND_FRAME, target: 'context-answer-submit' },
-      { frame: 350, target: 'context-answer-submit' },
-      { frame: 410, target: 'note-approve' },
-      { frame: LESSON_NOTE_APPROVE_FRAME, target: 'note-approve' },
-      { frame: 470, target: 'note-approve' },
-      { frame: 490, target: 'context-answer-close' },
-      { frame: LESSON_FIRST_CHAT_CLOSE_FRAME, target: 'context-answer-close' },
-      { frame: 535, target: 'annotation-mark' },
-      { frame: LESSON_FIRST_ANNOTATION_CLICK_FRAME, target: 'annotation-mark' },
-      { frame: 565, target: 'annotation-mark' },
-      { frame: LESSON_GRAPH_DRAFT_START_FRAME, target: 'lesson-input' },
-      { frame: LESSON_GRAPH_DRAFT_END_FRAME, target: 'lesson-input' },
-      { frame: LESSON_GRAPH_SEND_FRAME, target: 'lesson-submit' },
-      { frame: 720, target: 'lesson-submit' },
-      { frame: 880, target: 'artifact-open' },
-      { frame: LESSON_ARTIFACT_OPEN_FRAME, target: 'artifact-open' },
-      { frame: 970, target: 'artifact-save' },
-      { frame: LESSON_ARTIFACT_SAVE_FRAME, target: 'artifact-save' },
-      { frame: 1025, target: 'artifact-save' },
-      { frame: 1032, target: 'artifact-close' },
-      { frame: LESSON_ARTIFACT_CLOSE_FRAME, target: 'artifact-close' },
-      { frame: 1060, target: 'context-answer-input' },
-      { frame: LESSON_ATTACH_DRAFT_END_FRAME, target: 'context-answer-input' },
-      { frame: LESSON_ATTACH_SEND_FRAME, target: 'context-answer-submit' },
-      { frame: 1175, target: 'context-answer-submit' },
-      { frame: 1210, target: 'note-approve' },
-      { frame: LESSON_UPDATE_NOTE_APPROVE_FRAME, target: 'note-approve' },
-      { frame: 1280, target: 'note-approve' },
-      { frame: 1300, target: 'context-answer-close' },
-      { frame: LESSON_SECOND_CHAT_CLOSE_FRAME, target: 'context-answer-close' },
-      { frame: 1340, target: 'annotation-mark' },
-      { frame: LESSON_FINAL_ANNOTATION_CLICK_FRAME, target: 'annotation-mark' },
-      { frame: LESSON_FINAL_NOTE_SCROLL_END_FRAME, target: 'artifact-open' },
-      { frame: LESSON_FINAL_ARTIFACT_OPEN_FRAME, target: 'artifact-open' },
-    ];
-  }
-
-  return [
-    { frame: 18, target: 'plan-objective' },
-    { frame: 112, target: 'plan-objective' },
-    { frame: LIBRARY_FIRST_SEND_FRAME, target: 'plan-submit' },
-    { frame: 150, target: 'plan-submit' },
-    { frame: 320, target: 'plan-objective' },
-    { frame: 392, target: 'plan-objective' },
-    { frame: LIBRARY_SECOND_SEND_FRAME, target: 'plan-submit' },
-    { frame: 432, target: 'plan-submit' },
-    { frame: 540, target: 'artifact-open' },
-    { frame: LIBRARY_ARTIFACT_PREVIEW_FRAME, target: 'artifact-open' },
-    { frame: 640, target: 'artifact-close' },
-  ];
-};
-
-const getCursorClicks = (stage: DemoStage): CursorClick[] => {
-  if (stage === 'plan') {
-    return [
-      { frame: 48, target: 'plan-attachment' },
-      { frame: 165, target: 'plan-submit' },
-      { frame: 360, target: 'plan-submit' },
-      { frame: 545, target: 'plan-submit' },
-    ];
-  }
-  if (stage === 'lesson') {
-    return [
-      { frame: LESSON_SELECTION_CLICK_FRAME, target: 'lesson-selection' },
-      { frame: LESSON_SEND_CLICK_FRAME, target: 'lesson-submit' },
-      { frame: LESSON_NOTE_SEND_FRAME, target: 'context-answer-submit' },
-      { frame: LESSON_NOTE_APPROVE_FRAME, target: 'note-approve' },
-      { frame: LESSON_FIRST_CHAT_CLOSE_FRAME, target: 'context-answer-close' },
-      { frame: LESSON_FIRST_ANNOTATION_CLICK_FRAME, target: 'annotation-mark' },
-      { frame: LESSON_GRAPH_SEND_FRAME, target: 'lesson-submit' },
-      { frame: LESSON_ARTIFACT_OPEN_FRAME, target: 'artifact-open' },
-      { frame: LESSON_ARTIFACT_SAVE_FRAME, target: 'artifact-save' },
-      { frame: LESSON_ARTIFACT_CLOSE_FRAME, target: 'artifact-close' },
-      { frame: LESSON_ATTACH_SEND_FRAME, target: 'context-answer-submit' },
-      { frame: LESSON_UPDATE_NOTE_APPROVE_FRAME, target: 'note-approve' },
-      { frame: LESSON_SECOND_CHAT_CLOSE_FRAME, target: 'context-answer-close' },
-      { frame: LESSON_FINAL_ANNOTATION_CLICK_FRAME, target: 'annotation-mark' },
-      { frame: LESSON_FINAL_ARTIFACT_OPEN_FRAME, target: 'artifact-open' },
-    ];
-  }
-  return [
-    { frame: LIBRARY_FIRST_SEND_FRAME, target: 'plan-submit' },
-    { frame: LIBRARY_SECOND_SEND_FRAME, target: 'plan-submit' },
-    { frame: LIBRARY_ARTIFACT_PREVIEW_FRAME, target: 'artifact-open' },
-  ];
-};
-
-const resolveCursorPoint = (
-  frame: number,
-  points: Partial<Record<CursorTargetId, CursorPoint>>,
-  waypoints: CursorWaypoint[]
-): CursorPoint | null => {
-  const firstPoint = points[waypoints[0].target];
-  if (frame <= waypoints[0].frame) {
-    return firstPoint || null;
-  }
-
-  for (let index = 1; index < waypoints.length; index += 1) {
-    const previousWaypoint = waypoints[index - 1];
-    const nextWaypoint = waypoints[index];
-    if (frame > nextWaypoint.frame) {
-      continue;
-    }
-
-    const previousPoint = points[previousWaypoint.target] || points[nextWaypoint.target];
-    const nextPoint = points[nextWaypoint.target] || previousPoint;
-    if (!previousPoint || !nextPoint) {
-      return null;
-    }
-
-    const interpolationOptions = {
-      easing: Easing.bezier(0.16, 1, 0.3, 1),
-      extrapolateLeft: 'clamp' as const,
-      extrapolateRight: 'clamp' as const,
-    };
-    return {
-      left: interpolate(
-        frame,
-        [previousWaypoint.frame, nextWaypoint.frame],
-        [previousPoint.left, nextPoint.left],
-        interpolationOptions
-      ),
-      top: interpolate(
-        frame,
-        [previousWaypoint.frame, nextWaypoint.frame],
-        [previousPoint.top, nextPoint.top],
-        interpolationOptions
-      ),
-    };
-  }
-
-  return points[waypoints.at(-1)?.target || waypoints[0].target] || null;
-};
-
-const DemoCursor = ({
-  frame,
-  rootRef,
-  selectionSearchText,
-  stage,
-}: {
-  frame: number;
-  rootRef: RefObject<HTMLDivElement | null>;
-  selectionSearchText: string;
-  stage: DemoStage;
-}) => {
-  const scale = useCurrentScale();
-  const [points, setPoints] = useState<Partial<Record<CursorTargetId, CursorPoint>>>({});
-  const definitions = useMemo<CursorTargetDefinition[]>(
-    () => [
-      {
-        id: 'annotation-mark',
-        selector: `[data-nous-annotation-id="${DEMO_ANNOTATION_ID}"]`,
-      },
-      { id: 'artifact-close', selector: '[data-artifact-target="close"]' },
-      {
-        id: 'artifact-open',
-        selector: `[data-artifact-target="open-${DEMO_ARTIFACT_ID}"]`,
-      },
-      { id: 'artifact-save', selector: '[data-artifact-target="save"]' },
-      {
-        id: 'context-answer-close',
-        selector: '[data-context-answer-target="close"]',
-      },
-      {
-        id: 'context-answer-input',
-        selector: '[data-chat-composer-target="context-answer-input"]',
-      },
-      {
-        id: 'context-answer-submit',
-        selector: '[data-chat-composer-target="context-answer-submit"]',
-      },
-      { id: 'plan-attachment', selector: '[data-home-chat-target="attachment"]' },
-      { id: 'plan-objective', selector: '[data-home-chat-target="objective"]' },
-      { id: 'plan-submit', selector: '[data-home-chat-target="submit"]' },
-      { id: 'lesson-selection', text: selectionSearchText },
-      { id: 'lesson-input', selector: '[data-context-menu-target="input"]' },
-      { id: 'lesson-submit', selector: '[data-context-menu-target="submit"]' },
-      { id: 'note-approve', selector: '[data-context-answer-target="note-approve"]' },
-      { id: 'library-heading', selector: '[data-library-target="heading"]' },
-      { id: 'course-card', selector: `[data-drag-id="${DEMO_PROJECT_ID}"] article` },
-    ],
-    [selectionSearchText]
-  );
-
-  useLayoutEffect(() => {
-    if (frame < 0 || stage === 'generation') {
-      return;
-    }
-    const root = rootRef.current;
-    if (!root) {
-      return;
-    }
-
-    const nextPoints: Partial<Record<CursorTargetId, CursorPoint>> = {};
-    definitions.forEach(definition => {
-      const point = measureCursorTarget(root, definition, scale);
-      if (point) {
-        nextPoints[definition.id] = point;
-      }
-    });
-    setPoints(currentPoints =>
-      areCursorPointsEqual(currentPoints, nextPoints) ? currentPoints : nextPoints
-    );
-  }, [definitions, frame, rootRef, scale, stage]);
-
-  if (stage === 'generation') {
-    return null;
-  }
-
-  const waypoints = getCursorWaypoints(stage);
-  const position = resolveCursorPoint(frame, points, waypoints);
-  const clicks = getCursorClicks(stage);
-  if (!position) {
-    return null;
-  }
-
-  const closestClickDistance = Math.min(...clicks.map(click => Math.abs(frame - click.frame)));
-  const cursorScale = interpolate(closestClickDistance, [0, 5], [0.78, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-
-  return (
-    <>
-      {clicks.map(click => {
-        const rippleAge = frame - click.frame;
-        if (rippleAge < 0 || rippleAge > 20) {
-          return null;
-        }
-        const clickPoint = points[click.target];
-        if (!clickPoint) {
-          return null;
-        }
-        const rippleScale = interpolate(rippleAge, [0, 20], [0.7, 2.8], {
-          extrapolateLeft: 'clamp',
-          extrapolateRight: 'clamp',
-        });
-        const rippleOpacity = interpolate(rippleAge, [0, 20], [0.85, 0], {
-          extrapolateLeft: 'clamp',
-          extrapolateRight: 'clamp',
-        });
-        return (
-          <span
-            key={`${click.frame}-${click.target}`}
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              zIndex: 79,
-              left: clickPoint.left,
-              top: clickPoint.top,
-              width: 28,
-              height: 28,
-              border: '2.5px solid rgb(217 150 109)',
-              borderRadius: '999px',
-              opacity: rippleOpacity,
-              scale: rippleScale,
-              translate: '-50% -50%',
-            }}
-          />
-        );
-      })}
-      <MousePointer2
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-          zIndex: 80,
-          left: position.left,
-          top: position.top,
-          width: 30,
-          height: 30,
-          color: '#171614',
-          filter: 'drop-shadow(0 2px 2px rgb(255 255 255 / 85%))',
-          opacity: interpolate(
-            frame,
-            stage === 'library'
-              ? [70, 88, 194, 218]
-              : stage === 'plan'
-                ? [0, 12, 560, 588]
-                : [0, 12, 1420, 1450],
-            [0, 1, 1, 0],
-            {
-              extrapolateLeft: 'clamp',
-              extrapolateRight: 'clamp',
-            }
-          ),
-          scale: cursorScale,
-          transformOrigin: 'top left',
-        }}
-      />
-    </>
-  );
 };
 
 const buildOutlineLesson = (id: string, title: string): LessonNode => ({
@@ -1384,6 +956,7 @@ export const LandingProductVideoFrame = ({
 }: LandingProductVideoFrameProps) => {
   const [fontRenderHandle] = useState(() => delayRender('Waiting for product UI fonts'));
   const frame = useCurrentFrame();
+  const remotionScale = useCurrentScale();
   useLayoutEffect(() => {
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
@@ -1431,6 +1004,8 @@ export const LandingProductVideoFrame = ({
   const contextAnswerResizePreviewRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const demoRootRef = useRef<HTMLDivElement>(null);
+  const [contextAnswerMessagesScrollRange, setContextAnswerMessagesScrollRange] = useState(0);
+  const [notePreviewScrollRange, setNotePreviewScrollRange] = useState(0);
   const [demoRootElement, setDemoRootElement] = useState<HTMLDivElement | null>(null);
   const setDemoRoot = useCallback((element: HTMLDivElement | null) => {
     demoRootRef.current = element;
@@ -1501,23 +1076,26 @@ export const LandingProductVideoFrame = ({
     ? 'Quando due compiti chiedono la stessa risorsa nello stesso momento'
     : 'When two tasks need the same resource at the same time';
   const contextQuestion = isItalian
-    ? 'Perché il multitasking rallenta?'
-    : 'Why is multitasking slower?';
+    ? 'Puoi cercare online un esempio contemporaneo di cosa succede quando due attività competono per la stessa attenzione?'
+    : 'Can you search online for a contemporary example of what happens when two tasks compete for the same attention?';
   const contextResponse = isItalian
-    ? 'I due compiti competono per un’attenzione limitata. Passare dall’uno all’altro aggiunge ritardo ed errori.'
-    : 'Both tasks compete for limited attention. Switching between them adds delay and errors.';
+    ? 'Ho verificato online: nelle giornate di studio e lavoro, alternare un’attività complessa a notifiche e chat crea un residuo di attenzione sul compito precedente. Ritrovare il filo richiede tempo e aumenta gli errori.'
+    : 'I checked online: during study and work, switching between a complex task, notifications, and chats leaves some attention on the previous task. Regaining focus takes time and increases errors.';
   const noteRequest = isItalian
-    ? 'Ah, perfetto, ora ho capito meglio. Salva una nota al riguardo.'
-    : 'Perfect, I understand it better now. Save a note about this.';
+    ? 'Ah, chiaro. Aggiungi alla nota questo collegamento con notifiche e chat.'
+    : 'That makes sense. Add this connection with notifications and chats to the note.';
   const noteReply = isItalian
-    ? 'Certo. Ti propongo una nota breve che conserva il punto importante e il costo del cambio di attività.'
-    : 'Of course. Here is a concise note that preserves the key idea and the cost of switching tasks.';
+    ? 'Certo. Ti propongo una nota che collega il costo di commutazione a questo esempio contemporaneo.'
+    : 'Of course. Here is a note connecting switching cost with this contemporary example.';
   const noteText = isItalian
-    ? 'Il multitasking rallenta perché due compiti competono per una capacità attentiva limitata. Ogni cambio di attività aggiunge un costo di commutazione: tempo perso e più errori.'
-    : 'Multitasking is slower because two tasks compete for limited attentional capacity. Every switch adds a switching cost: lost time and more errors.';
+    ? 'Il multitasking rallenta perché due compiti competono per una capacità attentiva limitata. Negli ambienti contemporanei, alternare un’attività complessa a notifiche e chat lascia un residuo di attenzione sul compito precedente: ritrovare il filo richiede tempo e aumenta gli errori.'
+    : 'Multitasking is slower because two tasks compete for limited attentional capacity. In contemporary environments, switching between a complex task, notifications, and chats leaves attention on the previous task: regaining focus takes time and increases errors.';
+  const webSearchQuery = isItalian
+    ? 'esempio contemporaneo residuo di attenzione notifiche chat cambio di attività'
+    : 'contemporary example attention residue notifications chats task switching';
   const graphRequest = isItalian
-    ? 'Me l’ero dimenticato: puoi creare un piccolo grafico che mostri cosa succede quando l’attenzione passa continuamente tra due compiti?'
-    : 'I had forgotten: can you create a small chart showing what happens when attention keeps switching between two tasks?';
+    ? 'A proposito, puoi creare un piccolo grafico che mostri cosa succede quando l’attenzione passa continuamente tra due compiti?'
+    : 'By the way, can you create a small chart showing what happens when attention keeps switching between two tasks?';
   const graphReply = isItalian
     ? 'Sì. Metto a confronto il lavoro utile con il costo di commutazione e l’aumento degli errori.'
     : 'Yes. I will compare useful work with switching cost and the increase in errors.';
@@ -1588,6 +1166,61 @@ export const LandingProductVideoFrame = ({
     ((frame >= LESSON_FIRST_ANNOTATION_CLICK_FRAME + 5 && frame < LESSON_SECOND_CHAT_OPEN_FRAME) ||
       frame >= LESSON_FINAL_NOTE_OPEN_FRAME);
   const contextMenuVisible = initialContextMenuVisible || annotationContextMenuVisible;
+  const contextMenuOpenFrame = initialContextMenuVisible
+    ? LESSON_SELECTION_CLICK_FRAME
+    : annotationContextMenuVisible
+      ? frame < LESSON_SECOND_CHAT_OPEN_FRAME
+        ? LESSON_FIRST_ANNOTATION_CLICK_FRAME + 5
+        : LESSON_FINAL_NOTE_OPEN_FRAME
+      : null;
+  const contextMenuMotionProgress =
+    contextMenuOpenFrame === null
+      ? undefined
+      : interpolate(frame, [contextMenuOpenFrame, contextMenuOpenFrame + 8], [0, 1], {
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+          extrapolateLeft: 'clamp',
+          extrapolateRight: 'clamp',
+        });
+
+  useLayoutEffect(() => {
+    if (!annotationContextMenuVisible || !demoRootElement) {
+      return;
+    }
+
+    const notePreview = demoRootElement.querySelector<HTMLElement>(
+      '[data-context-menu-target="note-preview-scroll"]'
+    );
+    if (!notePreview) {
+      return;
+    }
+
+    const measuredRange = getScrollRange({
+      clientHeight: notePreview.clientHeight,
+      renderedClientHeight: notePreview.getBoundingClientRect().height,
+      remotionScale,
+      scrollHeight: notePreview.scrollHeight,
+    });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- The render must react to the measured DOM scroll range.
+    setNotePreviewScrollRange(currentRange =>
+      Math.abs(currentRange - measuredRange) < 0.25 ? currentRange : measuredRange
+    );
+  }, [annotationContextMenuVisible, demoRootElement, remotionScale]);
+
+  useLayoutEffect(() => {
+    if (frame < 0 || !demoRootElement) {
+      return;
+    }
+
+    demoRootElement
+      .querySelectorAll<HTMLInputElement>(
+        [
+          'input[data-home-chat-target="objective"]',
+          'input[data-context-menu-target="input"]',
+          'input[data-chat-composer-target="context-answer-input"]',
+        ].join(',')
+      )
+      .forEach(keepTextInputEndVisible);
+  }, [demoRootElement, frame]);
   const firstContextAnswerVisible =
     stage === 'lesson' &&
     frame >= LESSON_SEND_CLICK_FRAME + 8 &&
@@ -1656,6 +1289,26 @@ export const LandingProductVideoFrame = ({
                 id: 'marketing-answer',
                 role: 'assistant' as const,
                 parts: [
+                  asUiMessagePart({
+                    type: 'tool-searchWeb',
+                    toolCallId: 'marketing-search-contemporary-attention-example',
+                    state: 'output-available',
+                    input: {
+                      query: webSearchQuery,
+                    },
+                    output: {
+                      query: webSearchQuery,
+                      sources: [
+                        {
+                          title:
+                            'Effects of task interruptions caused by notifications from communication applications on strain and performance',
+                          url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10244611/',
+                        },
+                      ],
+                      summary: contextResponse,
+                      webSearchRequests: 1,
+                    },
+                  }),
                   {
                     type: 'text' as const,
                     state:
@@ -1701,8 +1354,8 @@ export const LandingProductVideoFrame = ({
                           input: {
                             noteDraft: noteText,
                             rationale: isItalian
-                              ? 'Conserva la spiegazione che ha chiarito il dubbio.'
-                              : 'Keep the explanation that resolved the question.',
+                              ? 'Conserva l’esempio contemporaneo che collega il limite attentivo a notifiche e chat.'
+                              : 'Keep the contemporary example that connects limited attention with notifications and chats.',
                             selectedTextDraft: selectionSearchText,
                           },
                           ...(frame >= LESSON_NOTE_SAVED_FRAME
@@ -1849,6 +1502,45 @@ export const LandingProductVideoFrame = ({
           LESSON_ATTACH_DRAFT_END_FRAME
         )
       : '';
+  useLayoutEffect(() => {
+    if (!contextAnswer || !demoRootElement) {
+      return;
+    }
+
+    const messagesContainer = demoRootElement.querySelector<HTMLElement>(
+      '[data-context-answer-target="messages-scroll"]'
+    );
+    if (!messagesContainer) {
+      return;
+    }
+
+    const measuredRange = getScrollRange({
+      clientHeight: messagesContainer.clientHeight,
+      renderedClientHeight: messagesContainer.getBoundingClientRect().height,
+      remotionScale,
+      scrollHeight: messagesContainer.scrollHeight,
+    });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- The render must react to the measured DOM scroll range.
+    setContextAnswerMessagesScrollRange(currentRange =>
+      Math.abs(currentRange - measuredRange) < 0.25 ? currentRange : measuredRange
+    );
+  }, [contextAnswer, demoRootElement, remotionScale]);
+  const contextAnswerScrollProgress = firstContextAnswerVisible
+    ? interpolate(frame, [LESSON_NOTE_SEND_FRAME, LESSON_NOTE_TOOL_FRAME + 15], [0, 1], {
+        easing: Easing.inOut(Easing.cubic),
+        extrapolateLeft: 'clamp',
+        extrapolateRight: 'clamp',
+      })
+    : secondContextAnswerVisible
+      ? interpolate(frame, [LESSON_GRAPH_REPLY_START_FRAME, LESSON_ARTIFACT_READY_FRAME], [0, 1], {
+          easing: Easing.inOut(Easing.cubic),
+          extrapolateLeft: 'clamp',
+          extrapolateRight: 'clamp',
+        })
+      : 0;
+  const contextAnswerMessagesScrollTopOverride = contextAnswer
+    ? getScrollOffset(contextAnswerMessagesScrollRange, contextAnswerScrollProgress)
+    : undefined;
   const contextMenuAskInputValue = initialContextMenuVisible
     ? typedContextQuestion
     : annotationContextMenuVisible && frame < LESSON_GRAPH_SEND_FRAME
@@ -2009,6 +1701,7 @@ export const LandingProductVideoFrame = ({
       contextAnswer,
       contextAnswerDisplayMessages,
       contextAnswerInputValue,
+      contextAnswerMessagesScrollTopOverride,
       contextAnswerPanelRef,
       contextAnswerResizePreviewRef,
       contextAnswerSize: { width: 500, height: 600 },
@@ -2060,13 +1753,21 @@ export const LandingProductVideoFrame = ({
       contextMenuArtifactPreviewIdOverride:
         frame >= LESSON_FINAL_ARTIFACT_PREVIEW_FRAME ? DEMO_ARTIFACT_ID : null,
       contextMenuArtifactPortalContainer: demoRootElement,
+      contextMenuMotionProgressOverride: contextMenuMotionProgress,
       contextMenuNotePreviewScrollTopOverride:
         frame >= LESSON_FINAL_NOTE_SCROLL_START_FRAME
-          ? interpolate(
-              frame,
-              [LESSON_FINAL_NOTE_SCROLL_START_FRAME, LESSON_FINAL_NOTE_SCROLL_END_FRAME],
-              [0, 150],
-              { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
+          ? getScrollOffset(
+              notePreviewScrollRange,
+              interpolate(
+                frame,
+                [LESSON_FINAL_NOTE_SCROLL_START_FRAME, LESSON_FINAL_NOTE_SCROLL_END_FRAME],
+                [0, 1],
+                {
+                  easing: Easing.inOut(Easing.cubic),
+                  extrapolateLeft: 'clamp',
+                  extrapolateRight: 'clamp',
+                }
+              )
             )
           : undefined,
       contextMenuRef,
@@ -2113,42 +1814,49 @@ export const LandingProductVideoFrame = ({
   };
 
   return (
-    <AbsoluteFill
-      ref={setDemoRoot}
-      style={{
-        backgroundColor: '#fcfaf7',
-        overflow: 'hidden',
-        transform: 'translateZ(0)',
-      }}
-    >
-      {stage === 'plan' || stage === 'library' ? (
-        <DemoLibraryView
+    <MotionConfig reducedMotion="always" transition={{ duration: 0 }}>
+      <AbsoluteFill
+        ref={setDemoRoot}
+        data-remotion-render-root="true"
+        style={{
+          backgroundColor: '#fcfaf7',
+          overflow: 'hidden',
+          transform: 'translateZ(0)',
+        }}
+      >
+        <style>{REMOTION_STABILITY_CSS}</style>
+        {stage === 'plan' || stage === 'library' ? (
+          <DemoLibraryView
+            frame={frame}
+            height={isCompact ? DEMO_MOBILE_HEIGHT : DEMO_HEIGHT}
+            isItalian={isItalian}
+            portalContainer={demoRootElement}
+            stage={stage}
+          />
+        ) : stage === 'generation' ? (
+          <LoadingScreen
+            displayMode="embedded"
+            elapsedSecondsOverride={Math.floor(frame / DEMO_FPS)}
+            isDarkMode={false}
+            message={t('Generazione della lezione')}
+            progress={generationProgress}
+          />
+        ) : (
+          <div style={{ width: '100%', height: '100%' }}>
+            <WorkspaceReaderShell {...shellProps} />
+          </div>
+        )}
+
+        <LandingDemoCursor
+          annotationId={DEMO_ANNOTATION_ID}
+          artifactId={DEMO_ARTIFACT_ID}
           frame={frame}
-          height={isCompact ? DEMO_MOBILE_HEIGHT : DEMO_HEIGHT}
-          isCompact={isCompact}
-          isItalian={isItalian}
-          portalContainer={demoRootElement}
+          projectId={DEMO_PROJECT_ID}
+          rootRef={demoRootRef}
+          selectionSearchText={selectionSearchText}
           stage={stage}
         />
-      ) : stage === 'generation' ? (
-        <LoadingScreen
-          displayMode="embedded"
-          isDarkMode={false}
-          message={t('Generazione della lezione')}
-          progress={generationProgress}
-        />
-      ) : (
-        <div style={{ width: '100%', height: '100%' }}>
-          <WorkspaceReaderShell {...shellProps} />
-        </div>
-      )}
-
-      <DemoCursor
-        frame={frame}
-        rootRef={demoRootRef}
-        selectionSearchText={selectionSearchText}
-        stage={stage}
-      />
-    </AbsoluteFill>
+      </AbsoluteFill>
+    </MotionConfig>
   );
 };

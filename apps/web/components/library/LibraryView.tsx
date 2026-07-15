@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import type { UIMessage } from 'ai';
 import { Download, Moon, Plus, Sun } from 'lucide-react';
 import { type ChangeEvent, useState } from 'react';
@@ -317,5 +316,4 @@ const LibraryView = ({
   );
 };
 
-// fallow-ignore-next-line unused-exports — imported by App.tsx as default
 export default LibraryView;

@@ -505,6 +505,31 @@ describe('ContextMenu', () => {
     expect(screen.queryByRole('button', { name: /Apri Mappa salvata/i })).not.toBeInTheDocument();
   });
 
+  test('applies a deterministic scroll position to an annotation preview', () => {
+    const props = {
+      ...buildProps(),
+      annotationNote: 'Una nota abbastanza lunga da poter essere fatta scorrere nel video.',
+      notePreviewScrollTopOverride: 0,
+      type: 'annotation' as const,
+    };
+
+    const { container, rerender } = render(<ContextMenu {...props} />);
+    const preview = container.querySelector<HTMLElement>(
+      '[data-context-menu-target="note-preview-scroll"]'
+    );
+    const topFade = container.querySelector<HTMLElement>(
+      '[data-context-menu-target="note-preview-top-fade"]'
+    );
+
+    expect(preview?.scrollTop).toBe(0);
+    expect(topFade).toHaveStyle({ opacity: '0' });
+
+    rerender(<ContextMenu {...props} notePreviewScrollTopOverride={72} />);
+
+    expect(preview?.scrollTop).toBe(72);
+    expect(topFade).toHaveStyle({ opacity: '1' });
+  });
+
   test('can attach an existing artifact to an annotation note', () => {
     const onAttachArtifactToAnnotation = vi.fn();
     const props = {

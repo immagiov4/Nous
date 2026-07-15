@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import type { ChangeEvent } from 'react';
 import { useCallback, useId, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -29,7 +28,6 @@ const clickInputById = (inputId: string) => {
   input?.click();
 };
 
-// fallow-ignore-next-line unused-exports — used by App.tsx
 export const useWorkspaceFileActions = ({
   confirmProjectDelete,
   deleteProject,

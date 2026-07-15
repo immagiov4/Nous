@@ -178,7 +178,6 @@ test('HttpProjectRepository uploads a new PDF once and saves a lightweight snaps
           completedExercises: 0,
           hasSourceFile: true,
           coverLabel: 'dispensa.pdf',
-          syncState: 'synced',
         },
       }),
     });
@@ -249,7 +248,7 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
   };
   const serializedTemplate = JSON.stringify(importTemplate);
   const textPrefix = serializedTemplate.indexOf('"text":""') + '"text":"'.length;
-  const beforeBoundaryEmoji = 4_000_000 - textPrefix - 1;
+  const beforeBoundaryEmoji = 16_000_000 - textPrefix - 1;
   const largeImport = {
     ...importTemplate,
     documentIndex: {
@@ -257,7 +256,26 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
     },
   };
   let completionAttempts = 0;
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url.endsWith('/api/projects/config')) {
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({
+          success: true,
+          config: {
+            import: {
+              directMaxBytes: 20_000_000,
+              maxChunkBytes: 16_000_000,
+              maxChunkCount: 32,
+              maxSerializedBytes: 280_000_000,
+              requestTimeoutMs: 120_000,
+            },
+          },
+        }),
+      };
+    }
     const isCompletion = url.includes('/complete');
     const completionAttempt = isCompletion ? completionAttempts++ : -1;
     if (completionAttempt === 0) {
@@ -270,9 +288,9 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
         },
       };
     }
-    const chunkBody = isCompletion
-      ? null
-      : (JSON.parse(String(init?.body)) as { chunkIndex: number; chunkCount: number });
+    const chunkMatch = /\/chunks\/[^/]+\/(\d+)\?chunkCount=(\d+)$/u.exec(url);
+    const chunkIndex = Number(chunkMatch?.[1]);
+    const chunkCount = Number(chunkMatch?.[2]);
     return {
       ok: true,
       status: isCompletion ? 200 : 202,
@@ -301,8 +319,8 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
           : {
               success: true,
               complete: false,
-              ready: chunkBody?.chunkIndex === (chunkBody?.chunkCount || 0) - 1,
-              receivedCount: (chunkBody?.chunkIndex || 0) + 1,
+              ready: chunkIndex === chunkCount - 1,
+              receivedCount: chunkIndex + 1,
             },
     };
   });
@@ -311,28 +329,23 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
   await repository.importProject(largeImport);
 
   expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
-  const chunkCalls = fetchMock.mock.calls.filter(call => !String(call[0]).includes('/complete'));
+  const chunkCalls = fetchMock.mock.calls.filter(call =>
+    /\/chunks\/[^/]+\/\d+\?chunkCount=\d+$/u.test(String(call[0]))
+  );
   const completionCalls = fetchMock.mock.calls.filter(call =>
     String(call[0]).includes('/complete')
   );
   const requests = chunkCalls.map((call: unknown[]) => ({
     url: String(call[0]),
-    body: JSON.parse(String((call[1] as RequestInit).body)) as {
-      uploadId: string;
-      chunkIndex: number;
-      chunkCount: number;
-      chunk: string;
-    },
+    chunk: String((call[1] as RequestInit).body),
   }));
-  expect(requests.every(request => request.url.endsWith('/api/projects/import/chunks'))).toBe(true);
-  expect(new Set(requests.map(request => request.body.uploadId)).size).toBe(1);
-  expect(requests.map(request => request.body.chunkIndex)).toEqual(
+  expect(requests.map(request => Number(/\/chunks\/[^/]+\/(\d+)/u.exec(request.url)?.[1]))).toEqual(
     requests.map((_, index) => index)
   );
-  expect(requests.every(request => new Blob([request.body.chunk]).size <= 20_000_000)).toBe(true);
+  expect(requests.every(request => new Blob([request.chunk]).size <= 16_000_000)).toBe(true);
   for (let index = 0; index < requests.length - 1; index += 1) {
-    const left = requests[index]?.body.chunk || '';
-    const right = requests[index + 1]?.body.chunk || '';
+    const left = requests[index]?.chunk || '';
+    const right = requests[index + 1]?.chunk || '';
     const leftCodeUnit = left.charCodeAt(left.length - 1);
     const rightCodeUnit = right.charCodeAt(0);
     expect(
@@ -342,7 +355,7 @@ test('HttpProjectRepository chunks imports that exceed the proxy request limit',
         rightCodeUnit <= 0xdfff
     ).toBe(false);
   }
-  expect(requests.map(request => request.body.chunk).join('')).toBe(JSON.stringify(largeImport));
+  expect(requests.map(request => request.chunk).join('')).toBe(JSON.stringify(largeImport));
   expect(completionCalls).toHaveLength(2);
   expect(new Set(completionCalls.map(call => String(call[0]))).size).toBe(1);
   expect(String(completionCalls[0]?.[0])).toMatch(/\/api\/projects\/import\/chunks\/.+\/complete$/);

@@ -4,7 +4,7 @@
 // rich domain model lives only on the frontend.
 //
 // What is shared:
-//   - Identifier and enum aliases (ProjectId, ProjectSourceKind, ProjectSyncState)
+//   - Identifier and enum aliases (ProjectId, ProjectSourceKind)
 //   - Library tree wire shapes (LibraryFolder, LibraryPlacement)
 //   - Project listing wire shape (SavedProjectMeta)
 //   - The PATCH contract used by the repository / store (ProjectPatch, SectionPatch)
@@ -19,8 +19,6 @@
 export type ProjectId = string;
 
 export type ProjectSourceKind = 'document' | 'codebase' | 'learn-mode' | 'imported-json';
-
-export type ProjectSyncState = 'local-only' | 'sync-ready' | 'sync-error';
 
 export interface LibraryFolder {
   id: string;
@@ -53,7 +51,6 @@ export interface SavedProjectMeta {
   coverLabel: string;
   /** Monotonic server-side version used for optimistic concurrency and cross-session sync. */
   revision?: number;
-  syncState: ProjectSyncState;
 }
 
 export interface ProjectRevisionEvent {

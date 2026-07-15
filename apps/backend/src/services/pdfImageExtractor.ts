@@ -1,9 +1,9 @@
 // Extracts rendered PDF page images for backend processing.
-import { PDFParse } from 'pdf-parse';
 
+import { sanitizePartialPages } from '@shared/sanitizePartialPages';
+import { PDFParse } from 'pdf-parse';
 import { buildSha256HexDigest } from '../utils/hash.js';
 import { decodePdfDataUrl } from '../utils/pdfDataUrl.js';
-import { sanitizePartialPages } from '../utils/sanitizePartialPages.js';
 import { normalizeLineEndings } from '../utils/text.js';
 
 const MIN_IMAGE_BYTES = 2_000;

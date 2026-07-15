@@ -43,7 +43,6 @@ export const useWorkspaceController = ({
     openingProjectId: controllerState.openingProjectId,
     patchSectionLessonContent: projectLibrary.patchSectionLessonContent,
     patchSectionAnnotations: projectLibrary.patchSectionAnnotations,
-    projectRepositoryMode: projectLibrary.projectRepositoryMode,
     savedProjects: projectLibrary.savedProjects,
     screenState: controllerState.screenState,
     storageError: projectLibrary.storageError,

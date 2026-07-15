@@ -1,9 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { getCurrentUser } from '../auth/currentUser.js';
-
-const MAX_IN_FLIGHT_IMPORT_REQUESTS_PER_USER = 1;
-const MAX_IN_FLIGHT_IMPORT_REQUESTS_GLOBAL = 3;
+import { projectImportConfig } from './projectImportConfig.js';
 
 const inFlightByUser = new Map<string, number>();
 let inFlightGlobal = 0;
@@ -16,10 +14,11 @@ export const admitProjectImportRequest = (
   const userId = getCurrentUser(req).id;
   const inFlightForUser = inFlightByUser.get(userId) || 0;
   if (
-    inFlightForUser >= MAX_IN_FLIGHT_IMPORT_REQUESTS_PER_USER ||
-    inFlightGlobal >= MAX_IN_FLIGHT_IMPORT_REQUESTS_GLOBAL
+    inFlightForUser >= projectImportConfig.requestsPerUser ||
+    inFlightGlobal >= projectImportConfig.requestsGlobal
   ) {
     req.resume();
+    res.set('Retry-After', '1');
     res.status(429).json({
       success: false,
       error: 'Ci sono troppe parti del backup in trasferimento. Riprova tra poco.',

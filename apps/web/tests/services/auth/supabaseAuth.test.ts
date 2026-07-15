@@ -15,7 +15,6 @@ import {
   scheduleSupabaseSessionRefresh,
   signInWithPassword,
   signOutSupabase,
-  updateSupabaseProfile,
 } from '../../../services/auth/supabaseAuth.ts';
 
 describe('Supabase auth session storage', () => {
@@ -53,7 +52,7 @@ describe('Supabase auth session storage', () => {
     });
   });
 
-  test('loads provider-backed profile data into the current session', async () => {
+  test('loads only account data used by the product into the current session', async () => {
     saveSupabaseSession({ accessToken: 'access-token', user: { id: 'user-123' } });
     fetchMock.mockResolvedValueOnce({
       ok: true,
@@ -71,8 +70,6 @@ describe('Supabase auth session storage', () => {
     const account = await loadSupabaseAccount();
 
     expect(account).toEqual({
-      avatarUrl: 'https://images.example/avatar.png',
-      displayName: 'Ada',
       email: 'student@example.com',
       id: 'user-123',
       providers: ['email'],
@@ -87,47 +84,26 @@ describe('Supabase auth session storage', () => {
     );
   });
 
-  test('uses authenticated Supabase updates for profile and verified email changes', async () => {
+  test('uses an authenticated Supabase update for verified email changes', async () => {
     saveSupabaseSession({
       accessToken: 'access-token',
       user: { email: 'old@example.com', id: 'user-123', providers: ['email'] },
     });
-    fetchMock
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          id: 'user-123',
-          email: 'old@example.com',
-          identities: [{ provider: 'email' }],
-          user_metadata: { avatar_url: 'https://images.example/ada.png', display_name: 'Ada' },
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          id: 'user-123',
-          email: 'old@example.com',
-          identities: [{ provider: 'email' }],
-          user_metadata: { avatar_url: 'https://images.example/ada.png', display_name: 'Ada' },
-        }),
-      });
-
-    await updateSupabaseProfile({
-      avatarUrl: 'https://images.example/ada.png',
-      displayName: 'Ada',
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 'user-123',
+        email: 'old@example.com',
+        identities: [{ provider: 'email' }],
+        user_metadata: { avatar_url: 'https://images.example/ada.png', display_name: 'Ada' },
+      }),
     });
     await requestSupabaseEmailChange('new@example.com');
 
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
-      data: {
-        avatar_url: 'https://images.example/ada.png',
-        display_name: 'Ada',
-      },
-    });
-    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toEqual({
       email: 'new@example.com',
     });
-    expect(fetchMock.mock.calls.map(call => call[1]?.method)).toEqual(['PUT', 'PUT']);
+    expect(fetchMock.mock.calls.map(call => call[1]?.method)).toEqual(['PUT']);
   });
 
   test('revokes the current Supabase session before clearing local credentials', async () => {

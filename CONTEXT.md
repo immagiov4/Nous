@@ -53,8 +53,8 @@ The frontend has two AI infrastructures by design. See `docs/ARCHITECTURE.md#two
 
 ## Persistence
 
-- **`ProjectRepository`**: the frontend interface for project + library-tree CRUD. The supported product adapter is `HttpProjectRepository`; `projectRepositoryFactory` always selects server storage.
-- **`ProjectStore`**: the backend interface for the same operations, scoped by `userId`. `PostgresProjectStore` is the only runtime implementation. `SqliteProjectStore` is imported directly by backend route tests as a fast behavioral fixture.
+- **`ProjectRepository`**: the frontend interface for project + library-tree CRUD. The product directly uses `HttpProjectRepository`; there is no storage-mode switch.
+- **`ProjectStore`**: the backend interface for the same operations, scoped by `userId`. `PostgresProjectStore` is the only runtime implementation. Backend route tests use a dedicated in-memory implementation.
 - **Wire contract** (`packages/shared-types/projectContract.ts`): the type-only contract shared between frontend and backend, imported via the `@shared/*` alias. Holds project and library identifiers, metadata, revision events, write preconditions, and PATCH shapes. The two sides keep separate `ProjectSnapshot` definitions because the frontend models the rich domain (`LearningPlan`, `ProjectSource`, …) and persistence treats deep snapshot fields as JSON.
 - **Autosave signature** (`buildAutosaveSignature`): a string summarizing persisted workspace state while representing the immutable `source` through a reference-identity token. It lets the autosave loop detect changes without serializing the PDF on every render.
 - **Project revision**: the server-owned monotonic version in `SavedProjectMeta`. Existing-project writes carry `expectedRevision`; stale writes receive HTTP 409. Authenticated revision events invalidate library metadata and reload the open snapshot only after local writes and dirty autosave state have settled.

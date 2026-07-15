@@ -398,6 +398,7 @@ export default function HomeChatPanel({
   const [toolMenuAlign, setToolMenuAlign] = useState<MenuAlign>('start');
   const [attachmentMenuAlign, setAttachmentMenuAlign] = useState<MenuAlign>('start');
   const [attachmentSubmenuSide, setAttachmentSubmenuSide] = useState<SubmenuSide>('right');
+  const [scrollOffsetOverride, setScrollOffsetOverride] = useState(0);
 
   const toolMenuButtonRef = useRef<HTMLButtonElement>(null);
   const attachmentButtonRef = useRef<HTMLButtonElement>(null);
@@ -421,24 +422,6 @@ export default function HomeChatPanel({
     [visibleLibraryMessages]
   );
 
-  useLayoutEffect(() => {
-    if (scrollProgressOverride === undefined || !messagesScrollRef.current) {
-      return;
-    }
-
-    const applyScrollOverride = () => {
-      const scrollContainer = messagesScrollRef.current;
-      if (!scrollContainer) {
-        return;
-      }
-      const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
-      const progress = Math.min(1, Math.max(0, scrollProgressOverride));
-      scrollContainer.scrollTop = maxScrollTop * progress;
-    };
-    applyScrollOverride();
-    const animationFrameId = window.requestAnimationFrame(applyScrollOverride);
-    return () => window.cancelAnimationFrame(animationFrameId);
-  }, [scrollProgressOverride]);
   const currentDraft = draftValueOverride ?? draftByMode[homeChatMode];
   const activeMessages =
     homeChatMode === 'new-course' ? assessmentMessages : visibleLibraryMessages;
@@ -451,6 +434,34 @@ export default function HomeChatPanel({
     !visibleLibraryMessages.some(message => message.role === 'assistant');
   const hasLibraryComposerMeta =
     libraryAttachedContextRefs.length > 0 || libraryWebSearch || libraryGenerateArtifacts;
+  const activeMessagesContentLength =
+    homeChatMode === 'new-course'
+      ? assessmentMessages.reduce((totalLength, message) => totalLength + message.text.length, 0)
+      : visibleLibraryMessages.reduce(
+          (totalLength, message) => totalLength + getUiMessageText(message).length,
+          0
+        );
+  const scrollMeasurementKey = `${activeMessages.length}:${activeMessagesContentLength}:${assessmentComplete}:${isLoading}`;
+
+  useLayoutEffect(() => {
+    if (
+      !scrollMeasurementKey ||
+      scrollProgressOverride === undefined ||
+      !messagesScrollRef.current
+    ) {
+      return;
+    }
+
+    const maxScrollTop = Math.max(
+      0,
+      messagesScrollRef.current.scrollHeight - messagesScrollRef.current.clientHeight
+    );
+    const progress = Math.min(1, Math.max(0, scrollProgressOverride));
+    const nextOffset = Math.round(maxScrollTop * progress);
+    setScrollOffsetOverride(currentOffset =>
+      currentOffset === nextOffset ? currentOffset : nextOffset
+    );
+  }, [scrollMeasurementKey, scrollProgressOverride]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -481,11 +492,11 @@ export default function HomeChatPanel({
   }, [activeMessages, assessmentComplete, isLoading, scrollProgressOverride]);
 
   useEffect(() => {
-    if (isMobileViewport) {
+    if (isMobileViewport || draftValueOverride !== undefined) {
       return;
     }
     inputRef.current?.focus();
-  }, [isMobileViewport]);
+  }, [draftValueOverride, isMobileViewport]);
 
   useEffect(() => {
     if (!activeSurface) {
@@ -1105,15 +1116,18 @@ export default function HomeChatPanel({
       <div
         ref={node => {
           messagesScrollRef.current = node;
-          if (node && scrollProgressOverride !== undefined) {
-            const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
-            const progress = Math.min(1, Math.max(0, scrollProgressOverride));
-            node.scrollTop = maxScrollTop * progress;
-          }
         }}
         className="home-chat-scrollbar h-[14rem] overflow-y-auto px-4 py-4 min-[640px]:h-[24rem] sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1"
+        style={scrollProgressOverride === undefined ? undefined : { overflowY: 'hidden' }}
       >
-        <div className="space-y-3.5">
+        <div
+          className={`space-y-3.5 ${scrollProgressOverride === undefined ? '' : 'pb-20'}`}
+          style={
+            scrollProgressOverride === undefined
+              ? undefined
+              : { transform: `translateY(-${scrollOffsetOverride}px)` }
+          }
+        >
           {!hasMessages ? renderEmptyState() : null}
 
           {homeChatMode === 'new-course'
@@ -1222,6 +1236,7 @@ export default function HomeChatPanel({
               </p>
               <div className="flex items-center gap-3">
                 <button
+                  data-home-chat-target="confirm-generate"
                   type="button"
                   onClick={onConfirmGenerate}
                   className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"

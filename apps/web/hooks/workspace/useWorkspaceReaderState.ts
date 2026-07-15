@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 /* @refresh reset */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -39,7 +38,6 @@ const areSettingsSectionsEqual = (
   currentSections.length === nextSections.length &&
   currentSections.every((sectionId, index) => sectionId === nextSections[index]);
 
-// fallow-ignore-next-line unused-exports — used by App.tsx
 export const useWorkspaceReaderState = ({
   activeSection,
   activeSectionId,

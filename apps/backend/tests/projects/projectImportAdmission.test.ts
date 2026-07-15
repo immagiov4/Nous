@@ -15,9 +15,11 @@ const createResponse = (): Response => {
   const response = new EventEmitter() as EventEmitter & {
     status: ReturnType<typeof vi.fn>;
     json: ReturnType<typeof vi.fn>;
+    set: ReturnType<typeof vi.fn>;
   };
   response.status = vi.fn(() => response);
   response.json = vi.fn(() => response);
+  response.set = vi.fn(() => response);
   return response as unknown as Response;
 };
 
@@ -36,6 +38,7 @@ test('project import admission rejects a concurrent body before parsing it', () 
   expect(duplicateNext).not.toHaveBeenCalled();
   expect(duplicateRequest.resume).toHaveBeenCalledOnce();
   expect(duplicateResponse.status).toHaveBeenCalledWith(429);
+  expect(duplicateResponse.set).toHaveBeenCalledWith('Retry-After', '1');
 
   firstResponse.emit('finish');
   const retryResponse = createResponse();

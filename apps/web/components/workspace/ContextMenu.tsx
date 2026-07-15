@@ -21,6 +21,7 @@ import {
   type RefObject,
   type TouchEvent,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -54,6 +55,7 @@ interface ContextMenuProps {
   horizontalBounds?: HorizontalViewportBounds;
   isDarkMode?: boolean;
   isLoading: boolean;
+  motionProgressOverride?: number;
   notePreviewScrollTopOverride?: number;
   onAttachArtifactToAnnotation?: (artifactRef: SectionAnnotationArtifactRef) => void;
   onAsk: (question: string) => void;
@@ -104,6 +106,7 @@ const ContextMenu = ({
   horizontalBounds,
   isDarkMode = false,
   isLoading,
+  motionProgressOverride,
   notePreviewScrollTopOverride,
   onAttachArtifactToAnnotation,
   onAsk,
@@ -606,9 +609,23 @@ const ContextMenu = ({
   const notePreviewClassName = `custom-scrollbar max-h-52 overflow-y-auto ${
     isMobileSheet ? 'px-0 pb-16 pt-3' : 'px-4 pb-16 pt-3'
   } text-sm leading-6 text-stone-800 dark:text-stone-100`;
+  const noteEditorBodyClassName = isAnnotationPreviewMode
+    ? isMobileSheet
+      ? 'm-2 max-h-[calc(min(34rem,calc(100dvh-2rem))-1rem)] overflow-hidden px-4 py-4'
+      : 'm-2 max-h-[calc(min(34rem,var(--context-menu-note-max-height))-1rem)] overflow-hidden px-4 py-3'
+    : isMobileSheet
+      ? 'custom-scrollbar m-2 max-h-[calc(min(34rem,calc(100dvh-2rem))-1rem)] space-y-3 overflow-y-auto px-4 py-4'
+      : 'custom-scrollbar m-2 max-h-[calc(min(34rem,var(--context-menu-note-max-height))-1rem)] space-y-3 overflow-y-auto px-4 py-3';
   const notePreviewFadeColor = isDarkMode ? '#292524' : '#fafaf9';
+  const isNotePreviewFadeVisible =
+    notePreviewScrollTopOverride === undefined
+      ? isNotePreviewScrolled
+      : notePreviewScrollTopOverride > 0;
 
   const handleNotePreviewScroll = () => {
+    if (notePreviewScrollTopOverride !== undefined) {
+      return;
+    }
     const el = notePreviewRef.current;
     if (!el) {
       return;
@@ -616,13 +633,12 @@ const ContextMenu = ({
     setIsNotePreviewScrolled(el.scrollTop > 0);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (notePreviewScrollTopOverride === undefined || !notePreviewRef.current) {
       return;
     }
 
     notePreviewRef.current.scrollTop = notePreviewScrollTopOverride;
-    setIsNotePreviewScrolled(notePreviewScrollTopOverride > 0);
   }, [notePreviewScrollTopOverride]);
 
   const handleAttachArtifact = (artifact: LearningArtifactRenderPayload) => {
@@ -721,14 +737,13 @@ const ContextMenu = ({
 
   const renderRenderedNotePreview = () => (
     <div className="relative" data-context-menu-target="note-preview">
-      <div ref={notePreviewRef} onScroll={handleNotePreviewScroll} className={notePreviewClassName}>
-        <div
-          style={
-            notePreviewScrollTopOverride === undefined
-              ? undefined
-              : { position: 'relative', top: -notePreviewScrollTopOverride }
-          }
-        >
+      <div
+        ref={notePreviewRef}
+        data-context-menu-target="note-preview-scroll"
+        onScroll={handleNotePreviewScroll}
+        className={notePreviewClassName}
+      >
+        <div>
           {normalizedNotePreview.trim() ? (
             <MarkdownRenderer
               content={normalizedNotePreview}
@@ -740,9 +755,12 @@ const ContextMenu = ({
         </div>
       </div>
       <div
-        className="pointer-events-none absolute left-0 right-0 top-0 h-6 transition-opacity duration-200"
+        data-context-menu-target="note-preview-top-fade"
+        className={`pointer-events-none absolute left-0 right-0 top-0 h-6 ${
+          notePreviewScrollTopOverride === undefined ? 'transition-opacity duration-200' : ''
+        }`}
         style={{
-          opacity: isNotePreviewScrolled ? 1 : 0,
+          opacity: isNotePreviewFadeVisible ? 1 : 0,
           background: `linear-gradient(to bottom, ${notePreviewFadeColor}, transparent)`,
         }}
       />
@@ -760,14 +778,8 @@ const ContextMenu = ({
 
     return (
       <div className={noteEditorClassName} aria-hidden={!isNoteEditorOpen && !isAnnotationMode}>
-        <div
-          className={
-            isMobileSheet
-              ? 'custom-scrollbar m-2 max-h-[calc(min(34rem,calc(100dvh-2rem))-1rem)] space-y-3 overflow-y-auto px-4 py-4'
-              : 'custom-scrollbar m-2 max-h-[calc(min(34rem,var(--context-menu-note-max-height))-1rem)] space-y-3 overflow-y-auto px-4 py-3'
-          }
-        >
-          <div className="space-y-1">
+        <div className={noteEditorBodyClassName}>
+          <div className={isAnnotationPreviewMode ? 'mb-3 space-y-1' : 'space-y-1'}>
             <p className="text-sm font-semibold text-stone-900 text-center dark:text-stone-100">
               {notePanelTitle}
             </p>
@@ -804,7 +816,7 @@ const ContextMenu = ({
           <div
             className={`relative flex flex-wrap items-center justify-end gap-2 ${
               isAnnotationPreviewMode
-                ? 'sticky bottom-0 z-10 -mx-1 bg-stone-50 px-1 py-1 dark:bg-stone-800'
+                ? 'z-10 -mx-1 -mt-16 bg-gradient-to-t from-stone-50 via-stone-50 to-transparent px-1 pb-1 pt-8 dark:from-stone-800 dark:via-stone-800'
                 : ''
             }`}
           >
@@ -1191,6 +1203,19 @@ const ContextMenu = ({
   );
 
   const shouldAnimate = useShouldAnimate();
+  const deterministicMotionStyle =
+    motionProgressOverride === undefined
+      ? null
+      : isMobileSheet
+        ? {
+            opacity: motionProgressOverride,
+            x: '-50%',
+            y: (1 - motionProgressOverride) * 12,
+          }
+        : {
+            opacity: motionProgressOverride,
+            scale: 0.94 + motionProgressOverride * 0.06,
+          };
 
   return (
     <>
@@ -1211,22 +1236,33 @@ const ContextMenu = ({
           transformOrigin,
           willChange: 'transform, opacity',
           ...(isMobileSheet ? { x: '-50%' } : null),
+          ...deterministicMotionStyle,
         }}
         initial={
-          shouldAnimate
-            ? isMobileSheet
-              ? { opacity: 0, y: 12 }
-              : { opacity: 0, scale: 0.94 }
-            : false
+          motionProgressOverride !== undefined
+            ? false
+            : shouldAnimate
+              ? isMobileSheet
+                ? { opacity: 0, y: 12 }
+                : { opacity: 0, scale: 0.94 }
+              : false
         }
-        animate={isMobileSheet ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1 }}
+        animate={
+          motionProgressOverride !== undefined
+            ? undefined
+            : isMobileSheet
+              ? { opacity: 1, y: 0 }
+              : { opacity: 1, scale: 1 }
+        }
         transition={
-          isMobileSheet
-            ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }
-            : {
-                opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] },
-                scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
-              }
+          motionProgressOverride !== undefined
+            ? { duration: 0 }
+            : isMobileSheet
+              ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }
+              : {
+                  opacity: { duration: 0.1, ease: [0.2, 0.85, 0.25, 1] },
+                  scale: { duration: 0.12, ease: [0.2, 0.85, 0.25, 1] },
+                }
         }
         onPointerDown={handleContainerPointerDown}
       >

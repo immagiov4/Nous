@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { useEffect } from 'react';
 import { resolvePdfMappingWarning } from '../../app/pdfMappingWarning.ts';
 import { useInitialSectionAutoOpen } from '../../app/useInitialSectionAutoOpen.ts';
@@ -27,7 +26,6 @@ interface ReadingScreenContainerProps {
   screenState: AppState;
 }
 
-// fallow-ignore-next-line unused-exports — used by App.tsx
 export const ReadingScreenContainer = ({
   controller,
   readerState,

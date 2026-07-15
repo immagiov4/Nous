@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { useWorkspaceAssessmentScreen } from '../../hooks/workspace/useWorkspaceAssessmentScreen.ts';
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
@@ -23,7 +22,6 @@ interface AssessmentScreenContainerProps {
   }>;
 }
 
-// fallow-ignore-next-line unused-exports — used by App.tsx
 export const AssessmentScreenContainer = ({
   assessmentMessages,
   isLoading,

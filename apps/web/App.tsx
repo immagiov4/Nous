@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { lazy, Suspense } from 'react';
 import AuthGate from './components/auth/AuthGate.tsx';
 
@@ -17,5 +16,4 @@ const App = () => (
   </AuthGate>
 );
 
-// fallow-ignore-next-line unused-exports — Vite entry point component
 export default App;

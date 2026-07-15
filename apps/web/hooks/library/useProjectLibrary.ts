@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
+import { HttpProjectRepository } from '../../services/projects/httpProjectRepository.ts';
 import {
   createLibraryArchiveBlob,
   getLibraryArchiveExtension,
+  LibraryArchiveRollbackError,
   readLibraryArchive,
   restoreLibraryArchiveOrganization,
 } from '../../services/projects/libraryArchive.ts';
@@ -14,10 +16,7 @@ import {
 } from '../../services/projects/projectArchive.ts';
 import { ProjectStorageError } from '../../services/projects/projectRepository';
 import {
-  createProjectRepository,
-  type ProjectRepositoryMode,
-} from '../../services/projects/projectRepositoryFactory';
-import {
+  createProjectId,
   createProjectSnapshot,
   normalizeImportedProject,
 } from '../../services/projects/projectSnapshot';
@@ -55,7 +54,6 @@ const sortProjects = (projects: SavedProjectMeta[]) =>
     .sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime());
 
 export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLibraryArgs) => {
-  const projectRepositoryMode: ProjectRepositoryMode = 'server';
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [libraryFolders, setLibraryFolders] = useState<LibraryFolder[]>([]);
   const [libraryPlacements, setLibraryPlacements] = useState<LibraryPlacement[]>([]);
@@ -85,7 +83,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
   });
   const currentProjectIdRef = useRef<string | null>(null);
 
-  const projectRepository = useMemo(() => createProjectRepository(), []);
+  const projectRepository = useMemo(() => new HttpProjectRepository(), []);
   const projectRepositoryRef = useRef(projectRepository);
 
   useEffect(() => {
@@ -660,15 +658,55 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
     async (file: File): Promise<number> => {
       const archive = await readLibraryArchive(file);
       const projectIdMap = new Map<string, string>();
-      for (const project of archive.projects) {
-        const originalProjectId = project.id;
-        if (!originalProjectId) {
-          throw new Error('Il backup contiene un corso senza identificatore.');
+      const importedProjectIds: string[] = [];
+      try {
+        for (const project of archive.projects) {
+          const originalProjectId = project.id;
+          if (!originalProjectId) {
+            throw new Error('Il backup contiene un corso senza identificatore.');
+          }
+          const importedProjectId = createProjectId();
+          importedProjectIds.push(importedProjectId);
+          const imported = await projectRepositoryRef.current.importProject({
+            ...project,
+            id: importedProjectId,
+          });
+          if (imported.snapshot.id !== importedProjectId) {
+            throw new Error('Il server ha restituito un identificatore corso inatteso.');
+          }
+          projectIdMap.set(originalProjectId, importedProjectId);
         }
-        const imported = await projectRepositoryRef.current.importProject(project);
-        projectIdMap.set(originalProjectId, imported.snapshot.id || originalProjectId);
+        await restoreLibraryArchiveOrganization(
+          projectRepositoryRef.current,
+          archive,
+          projectIdMap
+        );
+      } catch (error) {
+        let rollbackFailed = error instanceof LibraryArchiveRollbackError;
+        for (const projectId of importedProjectIds.reverse()) {
+          try {
+            await projectRepositoryRef.current.deleteProject(projectId);
+          } catch (cleanupError) {
+            rollbackFailed = true;
+            console.warn('[Nous] Failed to roll back an imported library project.', cleanupError);
+          }
+        }
+        if (rollbackFailed) {
+          try {
+            await refreshLibraryState();
+          } catch (refreshError) {
+            console.warn(
+              '[Nous] Failed to refresh the library after an incomplete rollback.',
+              refreshError
+            );
+          }
+          throw new ProjectStorageError(
+            'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.',
+            'persistence-failed'
+          );
+        }
+        throw error;
       }
-      await restoreLibraryArchiveOrganization(projectRepositoryRef.current, archive, projectIdMap);
       await refreshLibraryState();
       return archive.projects.length;
     },
@@ -964,7 +1002,6 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
         void processPendingRemoteRevisionRef.current();
       }
     },
-    projectRepositoryMode,
     storageError,
     touchStoredProject: (projectId: string) => projectRepositoryRef.current.touchProject(projectId),
   };

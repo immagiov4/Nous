@@ -23,7 +23,6 @@ import {
   searchLibraryContent,
 } from '../../utils/library/assistant.ts';
 import { isRecord } from '../../utils/records.ts';
-import type { ProjectRepositoryMode } from '../projects/projectRepositoryFactory.ts';
 
 export const LIBRARY_ASSISTANT_TOOL_NAMES = [
   'listLibraryTree',
@@ -42,7 +41,6 @@ interface LibraryAssistantDataSource {
   attachedContextRefs: LibraryContextRef[];
   folders: LibraryFolder[];
   loadProjectsById: (ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
-  projectRepositoryMode: ProjectRepositoryMode;
   projects: SavedProjectMeta[];
   scopeSummary?: LibraryScopeSummary;
   tree: LibraryTree;
@@ -127,19 +125,13 @@ const buildScopeViolationError = ({
 const resolveScopeSummary = (
   dataSource: Pick<
     LibraryAssistantDataSource,
-    | 'attachedContextRefs'
-    | 'folders'
-    | 'projectRepositoryMode'
-    | 'projects'
-    | 'scopeSummary'
-    | 'tree'
+    'attachedContextRefs' | 'folders' | 'projects' | 'scopeSummary' | 'tree'
   >
 ) =>
   dataSource.scopeSummary ||
   buildLibraryScopeSummary({
     attachedContextRefs: dataSource.attachedContextRefs,
     folders: dataSource.folders,
-    projectRepositoryMode: dataSource.projectRepositoryMode,
     projects: dataSource.projects,
     tree: dataSource.tree,
   });

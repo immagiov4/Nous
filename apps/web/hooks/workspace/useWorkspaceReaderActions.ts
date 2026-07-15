@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { useCallback } from 'react';
 import type {
   SaveConversationNoteInput,
@@ -113,7 +112,6 @@ const mergeGeneratedVisuals = (
   return visualById.size > 0 ? Array.from(visualById.values()) : undefined;
 };
 
-// fallow-ignore-next-line unused-exports — used by App.tsx
 export const useWorkspaceReaderActions = ({
   activeSectionId,
   advanceActiveSection,

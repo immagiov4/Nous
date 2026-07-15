@@ -19,6 +19,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -244,6 +245,7 @@ interface ContextAnswerPanelProps {
   isDarkMode: boolean;
   inputValueOverride?: string;
   isMobileViewport: boolean;
+  messagesScrollTopOverride?: number;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   onClose: () => void;
   onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
@@ -287,6 +289,7 @@ function ContextAnswerPanelSession({
   isDarkMode,
   inputValueOverride,
   isMobileViewport,
+  messagesScrollTopOverride,
   currentLessonArtifactPayloads = [],
   onClose,
   onSaveConversationNote,
@@ -300,6 +303,7 @@ function ContextAnswerPanelSession({
   const [, setIsChatScrolled] = useState(false);
   const [isChatNotAtBottom, setIsChatNotAtBottom] = useState(false);
   const handleChatScroll = () => {
+    if (messagesScrollTopOverride !== undefined) return;
     const el = messagesContainerRef.current;
     if (!el) return;
     const scrolled = el.scrollTop > 0;
@@ -953,10 +957,11 @@ function ContextAnswerPanelSession({
     toolPreferences.annotate || toolPreferences.generateArtifacts || toolPreferences.webSearch;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages.length triggers scroll on new arrival
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!messagesContainerRef.current) return;
-    messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
-  }, [autoScrollKey, messages.length]);
+    messagesContainerRef.current.scrollTop =
+      messagesScrollTopOverride === undefined ? messagesContainerRef.current.scrollHeight : 0;
+  }, [autoScrollKey, messages.length, messagesScrollTopOverride]);
 
   const handleSubmit = () => {
     if (isComposerDisabled) {
@@ -1223,10 +1228,19 @@ function ContextAnswerPanelSession({
       <div className="relative min-h-0 flex-1">
         <div
           ref={messagesContainerRef}
+          data-context-answer-target="messages-scroll"
           onScroll={handleChatScroll}
           className="custom-scrollbar absolute inset-0 overflow-y-auto overflow-x-hidden pr-2"
+          style={messagesScrollTopOverride === undefined ? undefined : { overflowY: 'hidden' }}
         >
-          <div className="space-y-6 pb-5">
+          <div
+            className="space-y-6 pb-5"
+            style={
+              messagesScrollTopOverride === undefined
+                ? undefined
+                : { transform: `translateY(-${Math.round(messagesScrollTopOverride)}px)` }
+            }
+          >
             {visibleMessages.map(message => {
               if (message.role === 'user') {
                 return (

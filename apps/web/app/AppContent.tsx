@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { AssessmentScreenContainer } from '../components/assessment/AssessmentScreenContainer.tsx';
-import StylePreviewLab from '../components/dev/StylePreviewLab.tsx';
 import { LibraryScreenContainer } from '../components/library/LibraryScreenContainer.tsx';
 import LoadingScreen from '../components/shared/LoadingScreen';
 import { ReadingScreenContainer } from '../components/workspace/ReadingScreenContainer.tsx';
@@ -44,7 +43,6 @@ const AppContent = () => {
   const libraryAssistantChat = useLibraryAssistantChat({
     folders: projectLibrary.libraryFolders,
     loadProjectsById: projectLibrary.loadProjectsById,
-    projectRepositoryMode: projectLibrary.projectRepositoryMode,
     projects: projectLibrary.savedProjects,
     replaceLessonGeneratedVisual: projectLibrary.replaceLessonGeneratedVisual,
     saveLessonArtifactNote: projectLibrary.saveLessonArtifactNote,
@@ -105,24 +103,9 @@ const AppContent = () => {
   const loadingStatus = controller.blockingMessage || t('Caricamento...');
   const loadingReasoningText = selectBlockingReasoning(workflowState);
   const loadingProgress = selectBlockingProgress(workflowState);
-  const shouldShowStyleLab =
-    typeof window !== 'undefined' && window.location.hash.startsWith('#style-lab');
-  const shouldShowLoadingPreview =
-    typeof window !== 'undefined' && window.location.hash === '#preview-loading';
-  const [previewStartedAt] = useState(() => Date.now() - 67_000);
-  const previewProgress = {
-    operation: 'lesson' as const,
-    sections: ['I sistemi di memoria', 'Come si forma un ricordo', 'Applicazioni pratiche'],
-    stage: 'drafting' as const,
-    startedAt: previewStartedAt,
-    stepOffset: 4,
-    subject: 'Come funziona la memoria',
-  };
-
   return (
     <>
-      {shouldShowStyleLab ? <StylePreviewLab /> : null}
-      {!shouldShowStyleLab && !shouldShowLoadingPreview && screenState === AppState.LIBRARY && (
+      {screenState === AppState.LIBRARY && (
         <LibraryScreenContainer
           controller={controller}
           readerState={readerState}
@@ -134,7 +117,7 @@ const AppContent = () => {
           requestConfirmation={requestConfirmation}
         />
       )}
-      {!shouldShowStyleLab && screenState === AppState.ASSESSMENT && (
+      {screenState === AppState.ASSESSMENT && (
         <AssessmentScreenContainer
           assessmentMessages={controller.assessmentMessages}
           isLoading={isLoading}
@@ -147,15 +130,7 @@ const AppContent = () => {
           submitAssessment={controller.submitAssessment}
         />
       )}
-      {!shouldShowStyleLab && typeof window !== 'undefined' && shouldShowLoadingPreview && (
-        <LoadingScreen
-          message={t('Analisi Volume in Corso...')}
-          isDarkMode={readerState.readerChrome.isDarkMode}
-          progress={previewProgress}
-          subMessage={t('Strutturazione semantica del piano di studi...')}
-        />
-      )}
-      {!shouldShowStyleLab && !shouldShowLoadingPreview && screenState === AppState.PLANNING && (
+      {screenState === AppState.PLANNING && (
         <LoadingScreen
           message={t('Analisi Volume in Corso...')}
           isDarkMode={readerState.readerChrome.isDarkMode}
@@ -164,7 +139,7 @@ const AppContent = () => {
           subMessage={loadingStatus || t('Costruzione piano...')}
         />
       )}
-      {!shouldShowStyleLab && !shouldShowLoadingPreview && screenState === AppState.READING && (
+      {screenState === AppState.READING && (
         <ReadingScreenContainer
           controller={controller}
           readerState={readerState}
@@ -174,7 +149,7 @@ const AppContent = () => {
           screenState={screenState}
         />
       )}
-      {!shouldShowStyleLab && appOverlays}
+      {appOverlays}
     </>
   );
 };

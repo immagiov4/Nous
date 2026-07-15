@@ -39,6 +39,5 @@ export const buildTestProjectMeta = (
   completedExercises: 0,
   hasSourceFile: true,
   coverLabel: 'PDF',
-  syncState: 'local-only',
   ...overrides,
 });

@@ -123,6 +123,59 @@ test('library backup import rejects a nested project whose id differs from the m
   await assert.rejects(() => readLibraryArchive(malformed), /non valido|non corrisponde/iu);
 });
 
+test('library backup v2 accepts duplicate sibling orders used by the current stores', async () => {
+  const timestamp = '2026-07-13T00:00:00.000Z';
+  const archive = await createLibraryArchiveBlob([buildSnapshot('course-one', 'Corso uno')], {
+    folders: [
+      {
+        id: 'folder-one',
+        name: 'Materie',
+        parentFolderId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        order: 0,
+      },
+    ],
+    placements: [{ projectId: 'course-one', folderId: null, order: 1, updatedAt: timestamp }],
+  });
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifestEntry = zip.file('library.json');
+  assert.ok(manifestEntry);
+  const manifest = JSON.parse(await manifestEntry.async('string')) as {
+    placements: Array<{ order: number }>;
+  };
+  if (manifest.placements[0]) manifest.placements[0].order = 0;
+  zip.file('library.json', JSON.stringify(manifest));
+  const validArchive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
+
+  const imported = await readLibraryArchive(validArchive);
+
+  assert.equal(imported.folders[0]?.order, 0);
+  assert.equal(imported.placements[0]?.order, 0);
+});
+
+test('legacy library backup v1 imports projects at root without organization metadata', async () => {
+  const timestamp = '2026-07-13T00:00:00.000Z';
+  const archive = await createLibraryArchiveBlob([buildSnapshot('course-one', 'Corso uno')], {
+    folders: [],
+    placements: [{ projectId: 'course-one', folderId: null, order: 0, updatedAt: timestamp }],
+  });
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifestEntry = zip.file('library.json');
+  assert.ok(manifestEntry);
+  const manifest = JSON.parse(await manifestEntry.async('string')) as Record<string, unknown>;
+  manifest.archiveVersion = 1;
+  delete manifest.folders;
+  delete manifest.placements;
+  zip.file('library.json', JSON.stringify(manifest));
+  const legacyArchive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
+
+  const imported = await readLibraryArchive(legacyArchive);
+
+  assert.deepEqual(imported.folders, []);
+  assert.deepEqual(imported.placements, []);
+});
+
 test('library backup restore recreates nested folders and project placements', async () => {
   const calls: string[] = [];
   const repository = {
@@ -143,6 +196,9 @@ test('library backup restore recreates nested folders and project placements', a
         updatedAt: '',
         order: 0,
       };
+    },
+    deleteFolder: async (folderId: string) => {
+      calls.push(`delete:${folderId}`);
     },
     moveFolder: async (folderId: string, parentFolderId: string | null, targetIndex?: number) => {
       calls.push(`folder:${folderId}:${parentFolderId ?? 'root'}:${targetIndex}`);
@@ -177,7 +233,7 @@ test('library backup restore recreates nested folders and project placements', a
       ],
       placements: [
         { projectId: 'course-one', folderId: 'old-child', order: 0, updatedAt: '' },
-        { projectId: 'course-two', folderId: null, order: 1, updatedAt: '' },
+        { projectId: 'course-two', folderId: null, order: 0, updatedAt: '' },
       ],
     },
     new Map([
@@ -194,6 +250,52 @@ test('library backup restore recreates nested folders and project placements', a
     'folder:new-child:new-parent:0',
     'project:imported-course-one:new-child:0',
   ]);
+});
+
+test('library backup restore removes folders created before a placement failure', async () => {
+  const deletedFolders: string[] = [];
+  const repository = {
+    createFolder: async () => ({
+      id: 'new-folder',
+      name: 'Materie',
+      parentFolderId: null,
+      createdAt: '',
+      updatedAt: '',
+      order: 0,
+    }),
+    deleteFolder: async (folderId: string) => {
+      deletedFolders.push(folderId);
+    },
+    moveFolder: async () => null,
+    moveProjects: async () => {
+      throw new Error('placement failed');
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      restoreLibraryArchiveOrganization(
+        repository,
+        {
+          folders: [
+            {
+              id: 'old-folder',
+              name: 'Materie',
+              parentFolderId: null,
+              createdAt: '',
+              updatedAt: '',
+              order: 0,
+            },
+          ],
+          placements: [
+            { projectId: 'course-one', folderId: 'old-folder', order: 0, updatedAt: '' },
+          ],
+        },
+        new Map([['course-one', 'new-course']])
+      ),
+    /placement failed/iu
+  );
+  assert.deepEqual(deletedFolders, ['new-folder']);
 });
 
 test('library backup import rejects a single-course archive', async () => {
@@ -222,6 +324,7 @@ test('library backup import identifies an unsupported manifest version', async (
 });
 
 test('library backup import rejects cyclic folder hierarchies before importing projects', async () => {
+  const timestamp = '2026-07-13T00:00:00.000Z';
   const zip = new JSZip();
   zip.file(
     'library.json',
@@ -234,20 +337,20 @@ test('library backup import rejects cyclic folder hierarchies before importing p
           id: 'folder-a',
           name: 'A',
           parentFolderId: 'folder-b',
-          createdAt: '',
-          updatedAt: '',
+          createdAt: timestamp,
+          updatedAt: timestamp,
           order: 0,
         },
         {
           id: 'folder-b',
           name: 'B',
           parentFolderId: 'folder-a',
-          createdAt: '',
-          updatedAt: '',
+          createdAt: timestamp,
+          updatedAt: timestamp,
           order: 0,
         },
       ],
-      placements: [{ projectId: 'course', folderId: 'folder-a', order: 0, updatedAt: '' }],
+      placements: [{ projectId: 'course', folderId: 'folder-a', order: 1, updatedAt: timestamp }],
     })
   );
   const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);

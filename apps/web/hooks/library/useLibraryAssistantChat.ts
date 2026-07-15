@@ -19,7 +19,6 @@ import {
 } from '../../services/library/toolExecutor.ts';
 import { generateLessonArtifactDraft } from '../../services/openrouter/artifactDrafts.ts';
 import { getBackendUrl } from '../../services/openrouter/config.ts';
-import type { ProjectRepositoryMode } from '../../services/projects/projectRepositoryFactory.ts';
 import type {
   HomeChatToolPreferences,
   LearningArtifactRenderPayload,
@@ -84,7 +83,6 @@ type LibraryAssistantMessage = UIMessage<unknown, Record<string, never>, Library
 interface UseLibraryAssistantChatArgs {
   folders: LibraryFolder[];
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
-  projectRepositoryMode: ProjectRepositoryMode;
   projects: SavedProjectMeta[];
   saveLessonArtifactNote?: (input: {
     artifactRefs?: SectionAnnotationArtifactRef[];
@@ -171,7 +169,6 @@ const LIBRARY_REPLACEMENT_DRAFT_PREFIX = 'library-replacement-draft';
 export const useLibraryAssistantChat = ({
   folders,
   loadProjectsById,
-  projectRepositoryMode,
   projects,
   replaceLessonGeneratedVisual,
   saveLessonArtifactNote,
@@ -206,11 +203,10 @@ export const useLibraryAssistantChat = ({
       buildLibraryScopeSummary({
         attachedContextRefs,
         folders,
-        projectRepositoryMode,
         projects,
         tree,
       }),
-    [attachedContextRefs, folders, projectRepositoryMode, projects, tree]
+    [attachedContextRefs, folders, projects, tree]
   );
 
   const toolPreferences = useMemo<HomeChatToolPreferences>(
@@ -389,7 +385,6 @@ export const useLibraryAssistantChat = ({
             attachedContextRefs,
             folders,
             loadProjectsById,
-            projectRepositoryMode,
             projects,
             scopeSummary,
             tree,

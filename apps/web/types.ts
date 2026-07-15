@@ -146,7 +146,6 @@ export type {
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSourceKind,
-  ProjectSyncState,
   ProjectWriteOptions,
   SavedProjectMeta,
   SectionPatch,

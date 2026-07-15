@@ -137,7 +137,6 @@ export const buildProjectMeta = (
     completedExercises: exercises.filter(exercise => exercise.isCompleted).length,
     hasSourceFile: Boolean(snapshot.source),
     coverLabel: buildCoverLabel(snapshot, sourceKind),
-    syncState: previousMeta?.syncState || 'local-only',
   };
 };
 

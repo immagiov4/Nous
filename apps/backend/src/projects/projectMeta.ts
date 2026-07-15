@@ -10,8 +10,6 @@ import type {
 } from './types.js';
 
 const DEFAULT_PROJECT_VERSION = '4.1';
-export const PROJECT_SYNC_READY = 'sync-ready' as const;
-
 const createProjectId = (): string => createEntityId('project');
 
 const ensureString = (value: unknown, fallback = ''): string => {
@@ -75,7 +73,7 @@ const getProjectTitle = (snapshot: ProjectSnapshot): string => {
   return snapshot.isLearnMode ? 'Nuovo percorso AI' : 'Nuovo progetto';
 };
 
-export const getLearningPlanLessons = (
+const getLearningPlanLessons = (
   learningPlan: ProjectSnapshot['learningPlan']
 ): LearningPlanNodeSnapshot[] => {
   if (!learningPlan) {
@@ -93,7 +91,7 @@ export const getLearningPlanLessons = (
   return Array.isArray(learningPlan.sections) ? learningPlan.sections : [];
 };
 
-export const getLearningPlanExercises = (
+const getLearningPlanExercises = (
   learningPlan: ProjectSnapshot['learningPlan']
 ): LearningPlanNodeSnapshot[] => {
   if (!learningPlan || !Array.isArray(learningPlan.modules)) {
@@ -107,7 +105,7 @@ export const getLearningPlanExercises = (
   );
 };
 
-export const getLearningPlanLessonStats = (
+const getLearningPlanLessonStats = (
   learningPlan: ProjectSnapshot['learningPlan']
 ): { completedCount: number; lessonCount: number } => {
   const lessons = getLearningPlanLessons(learningPlan);
@@ -118,7 +116,7 @@ export const getLearningPlanLessonStats = (
   };
 };
 
-export const getLearningPlanExerciseStats = (
+const getLearningPlanExerciseStats = (
   learningPlan: ProjectSnapshot['learningPlan']
 ): { completedExercises: number; exerciseCount: number } => {
   const exercises = getLearningPlanExercises(learningPlan);
@@ -196,6 +194,5 @@ export const buildProjectMeta = (
     completedExercises,
     hasSourceFile: Boolean(snapshot.source),
     coverLabel: buildCoverLabel(snapshot, sourceKind),
-    syncState: PROJECT_SYNC_READY,
   };
 };

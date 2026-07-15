@@ -20,7 +20,6 @@ const project: SavedProjectMeta = {
   completedExercises: 0,
   hasSourceFile: true,
   coverLabel: 'Game_Engine_Architecture-en.pdf',
-  syncState: 'local-only',
 };
 
 const originalInnerHeight = window.innerHeight;

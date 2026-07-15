@@ -1,3 +1,4 @@
+import { sanitizePartialPages } from '@shared/sanitizePartialPages';
 import type {
   LessonImageRef,
   PdfDocumentAssets,
@@ -5,7 +6,6 @@ import type {
   PdfTextPage,
   SourceOutlineNode,
 } from '../../types.ts';
-import { sanitizePartialPages } from '../../utils/pdf/sanitizePartialPages.ts';
 import { normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';

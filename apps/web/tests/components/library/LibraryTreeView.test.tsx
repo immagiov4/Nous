@@ -26,7 +26,6 @@ const project: SavedProjectMeta = {
   completedExercises: 0,
   hasSourceFile: true,
   coverLabel: 'PDF',
-  syncState: 'local-only',
 };
 
 const tree: LibraryTree = {
@@ -90,7 +89,6 @@ const desktopProject: SavedProjectMeta = {
   completedExercises: 0,
   hasSourceFile: true,
   coverLabel: 'PDF',
-  syncState: 'local-only',
 };
 
 const desktopTree: LibraryTree = {

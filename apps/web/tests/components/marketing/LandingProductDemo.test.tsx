@@ -31,13 +31,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test('uses one media decoder and seeks between concatenated stage segments', () => {
+test('uses one media decoder and seeks between journey scene segments', () => {
   const { container, rerender } = render(<LandingProductDemo activeStage="plan" />);
   const video = container.querySelector('video');
 
   expect(video).not.toBeNull();
   expect(container.querySelectorAll('video')).toHaveLength(1);
-  expect(video).toHaveAttribute('preload', 'metadata');
+  expect(video?.getAttribute('preload')).toBe('metadata');
   expect(video?.getAttribute('src')).toMatch(/journey-wide-(it|en)\.mp4$/);
 
   rerender(<LandingProductDemo activeStage="generation" />);
@@ -49,4 +49,15 @@ test('uses one media decoder and seeks between concatenated stage segments', () 
   }
   fireEvent.timeUpdate(video as HTMLVideoElement);
   expect(video?.currentTime).toBe(25);
+});
+
+test('uses the desktop journey video and aspect ratio on narrow screens', () => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+
+  const { container } = render(<LandingProductDemo activeStage="lesson" />);
+  const demo = container.querySelector('.marketing-product-demo') as HTMLElement;
+  const video = container.querySelector('video');
+
+  expect(video?.getAttribute('src')).toMatch(/journey-wide-(it|en)\.mp4$/);
+  expect(demo.style.aspectRatio).toBe('1200 / 800');
 });

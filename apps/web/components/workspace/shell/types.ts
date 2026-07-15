@@ -240,10 +240,12 @@ export interface WorkspaceReaderOverlaysModel {
   contextAnswerResizePreviewRef: RefObject<HTMLDivElement | null>;
   contextAnswerSize: ContextAnswerSize;
   contextAnswerInputValue?: string;
+  contextAnswerMessagesScrollTopOverride?: number;
   contextMenu: ContextMenuState;
   contextMenuAskInputValue?: string;
   contextMenuArtifactPreviewIdOverride?: string | null;
   contextMenuArtifactPortalContainer?: HTMLElement | null;
+  contextMenuMotionProgressOverride?: number;
   contextMenuNotePreviewScrollTopOverride?: number;
   contextMenuRef: RefObject<HTMLDivElement | null>;
   handleContextAnswerResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;

@@ -35,8 +35,10 @@ const repositoryMocks = vi.hoisted(() => ({
 let revisionListener: ((event: { projectId: string; revision: number }) => void) | null = null;
 let revisionReconnect: (() => void) | null = null;
 
-vi.mock('../../../services/projects/projectRepositoryFactory', () => ({
-  createProjectRepository: () => repositoryMocks,
+vi.mock('../../../services/projects/httpProjectRepository.ts', () => ({
+  HttpProjectRepository: vi.fn(function HttpProjectRepositoryMock() {
+    return repositoryMocks;
+  }),
 }));
 
 const { useProjectLibrary } = await import('../../../hooks/library/useProjectLibrary.ts');
@@ -55,7 +57,6 @@ const buildMeta = (id: string, lastOpenedAt: string, revision = 1): SavedProject
   hasSourceFile: true,
   coverLabel: 'PDF',
   revision,
-  syncState: 'local-only',
 });
 
 const buildSnapshot = (id: string, overrides: Partial<ProjectSnapshot> = {}): ProjectSnapshot => ({
@@ -132,10 +133,10 @@ describe('useProjectLibrary', () => {
       buildMeta(snapshot.id, snapshot.updatedAt)
     );
     repositoryMocks.loadProject.mockResolvedValue(null);
-    repositoryMocks.importProject.mockResolvedValue({
-      meta: buildMeta('imported', '2026-04-02T10:00:00.000Z'),
-      snapshot: buildSnapshot('imported'),
-    });
+    repositoryMocks.importProject.mockImplementation(async (project: ProjectSnapshot) => ({
+      meta: buildMeta(project.id, '2026-04-02T10:00:00.000Z'),
+      snapshot: buildSnapshot(project.id),
+    }));
     revisionListener = null;
     revisionReconnect = null;
     repositoryMocks.subscribeToProjectRevisions.mockImplementation(
@@ -166,18 +167,21 @@ describe('useProjectLibrary', () => {
   });
 
   test('imports folders and placements from a complete library backup', async () => {
+    const timestamp = '2026-04-02T10:00:00.000Z';
     const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
       folders: [
         {
           id: 'old-folder',
           name: 'Matematica',
           parentFolderId: null,
-          createdAt: '',
-          updatedAt: '',
+          createdAt: timestamp,
+          updatedAt: timestamp,
           order: 0,
         },
       ],
-      placements: [{ projectId: 'course-one', folderId: 'old-folder', order: 0, updatedAt: '' }],
+      placements: [
+        { projectId: 'course-one', folderId: 'old-folder', order: 0, updatedAt: timestamp },
+      ],
     });
     const file = new File([archive], 'library.nous-library.zip');
     const { result } = renderHook(() =>
@@ -193,11 +197,60 @@ describe('useProjectLibrary', () => {
     });
 
     expect(repositoryMocks.importProject).toHaveBeenCalledTimes(1);
+    const importedProjectId = repositoryMocks.importProject.mock.calls[0]?.[0].id;
+    expect(importedProjectId).not.toBe('course-one');
     expect(repositoryMocks.createFolder).toHaveBeenCalledWith({
       name: 'Matematica',
       parentFolderId: null,
     });
-    expect(repositoryMocks.moveProjects).toHaveBeenCalledWith(['imported'], 'folder-1', 0);
+    expect(repositoryMocks.moveProjects).toHaveBeenCalledWith([importedProjectId], 'folder-1', 0);
+  });
+
+  test('rolls back imported projects when restoring a library backup fails', async () => {
+    const timestamp = '2026-04-02T10:00:00.000Z';
+    const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
+      folders: [],
+      placements: [{ projectId: 'course-one', folderId: null, order: 0, updatedAt: timestamp }],
+    });
+    repositoryMocks.moveProjects.mockRejectedValueOnce(new Error('placement failed'));
+    const file = new File([archive], 'library.nous-library.zip');
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await expect(result.current.importLibraryBackup(file)).rejects.toThrow('placement failed');
+
+    expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(
+      repositoryMocks.importProject.mock.calls[0]?.[0].id
+    );
+  });
+
+  test('reports an incomplete rollback and refreshes visible library state', async () => {
+    const timestamp = '2026-04-02T10:00:00.000Z';
+    const archive = await createLibraryArchiveBlob([buildSnapshot('course-one')], {
+      folders: [],
+      placements: [{ projectId: 'course-one', folderId: null, order: 0, updatedAt: timestamp }],
+    });
+    repositoryMocks.moveProjects.mockRejectedValueOnce(new Error('placement failed'));
+    repositoryMocks.deleteProject.mockRejectedValueOnce(new Error('cleanup failed'));
+    const file = new File([archive], 'library.nous-library.zip');
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await expect(result.current.importLibraryBackup(file)).rejects.toThrow(
+      /alcuni elementi potrebbero essere rimasti/iu
+    );
+
+    expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2);
   });
 
   test('clears a stale synchronization error after metadata refresh succeeds', async () => {

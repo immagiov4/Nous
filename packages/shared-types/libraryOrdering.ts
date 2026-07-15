@@ -1,5 +1,4 @@
-// Computes stable sibling ordering keys for library records.
-import type { LibraryFolder, LibraryPlacement } from './types.js';
+import type { LibraryFolder, LibraryPlacement } from './projectContract';
 
 export const SIBLING_ORDER_STEP = 1024;
 
@@ -7,10 +6,6 @@ export type SiblingItem =
   | { id: string; kind: 'folder'; value: LibraryFolder }
   | { id: string; kind: 'project'; value: LibraryPlacement };
 
-/**
- * Build a sorted list of sibling items (folders + project placements)
- * sharing the same parent folder.
- */
 export const buildOrderedSiblingItems = (
   folders: LibraryFolder[],
   placements: LibraryPlacement[],
@@ -31,18 +26,12 @@ export const buildOrderedSiblingItems = (
     if (left.value.order !== right.value.order) {
       return left.value.order - right.value.order;
     }
-
     if (left.kind !== right.kind) {
       return left.kind === 'folder' ? -1 : 1;
     }
-
     return left.id.localeCompare(right.id, 'it', { sensitivity: 'base' });
   });
 
-/**
- * Compute the stable insertion index when moving items to a new parent,
- * accounting for already-moved items that are temporarily removed from the list.
- */
 const resolveInsertionIndex = (
   originalSiblingItems: Array<{ id: string }>,
   movingIds: Set<string>,
@@ -60,14 +49,9 @@ const resolveInsertionIndex = (
   const removedBeforeTarget = originalSiblingItems
     .slice(0, boundedTargetIndex)
     .filter(item => movingIds.has(item.id)).length;
-
   return Math.max(0, Math.min(filteredSiblingCount, boundedTargetIndex - removedBeforeTarget));
 };
 
-/**
- * Insert moved items into the destination sibling list at the resolved index,
- * returning a new array.
- */
 export const insertMovedSiblingItems = (
   destinationItems: SiblingItem[],
   movingIds: Set<string>,
@@ -81,20 +65,13 @@ export const insertMovedSiblingItems = (
     targetIndex,
     retainedItems.length
   );
-
   retainedItems.splice(insertionIndex, 0, ...movedItems);
   return retainedItems;
 };
 
-/**
- * Compute the next free order value for a new folder or placement.
- */
 const resolveNextOrder = (siblingOrders: number[], step = SIBLING_ORDER_STEP): number =>
   (Math.max(0, ...siblingOrders) || 0) + step;
 
-/**
- * Compute the next placement order from a list of existing placements.
- */
 export const resolveNextPlacementOrder = (
   placements: LibraryPlacement[],
   folderId: string | null,
@@ -107,9 +84,6 @@ export const resolveNextPlacementOrder = (
     step
   );
 
-/**
- * Compute the next folder order from a list of existing folders.
- */
 export const resolveNextFolderOrder = (
   folders: LibraryFolder[],
   parentFolderId: string | null,
@@ -120,16 +94,11 @@ export const resolveNextFolderOrder = (
     step
   );
 
-/**
- * Collect all descendant folder IDs via BFS from a root folder,
- * given the full folder list.
- */
 export const collectFolderDescendantIds = (
   folders: LibraryFolder[],
   folderId: string
 ): Set<string> => {
   const childFolderIdsByParent = new Map<string, string[]>();
-
   for (const folder of folders) {
     const parentFolderId = folder.parentFolderId || '';
     const childIds = childFolderIdsByParent.get(parentFolderId) || [];
@@ -139,13 +108,11 @@ export const collectFolderDescendantIds = (
 
   const descendantIds = new Set<string>();
   const queue = [folderId];
-
   while (queue.length > 0) {
     const currentFolderId = queue.shift();
     if (!currentFolderId || descendantIds.has(currentFolderId)) {
       continue;
     }
-
     descendantIds.add(currentFolderId);
     for (const childFolderId of childFolderIdsByParent.get(currentFolderId) || []) {
       if (!descendantIds.has(childFolderId)) {
@@ -153,6 +120,5 @@ export const collectFolderDescendantIds = (
       }
     }
   }
-
   return descendantIds;
 };

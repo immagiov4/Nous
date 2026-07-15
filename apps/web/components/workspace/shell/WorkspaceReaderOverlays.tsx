@@ -14,10 +14,12 @@ function WorkspaceReaderOverlays({
   contextAnswerResizePreviewRef,
   contextAnswerSize,
   contextAnswerInputValue,
+  contextAnswerMessagesScrollTopOverride,
   contextMenu,
   contextMenuAskInputValue,
   contextMenuArtifactPreviewIdOverride,
   contextMenuArtifactPortalContainer,
+  contextMenuMotionProgressOverride,
   contextMenuNotePreviewScrollTopOverride,
   contextMenuRef,
   handleContextAnswerResizeStart,
@@ -58,6 +60,7 @@ function WorkspaceReaderOverlays({
             isDarkMode={isDarkMode}
             inputValueOverride={contextAnswerInputValue}
             isMobileViewport={isMobileViewport}
+            messagesScrollTopOverride={contextAnswerMessagesScrollTopOverride}
             onClose={onCloseContextAnswer}
             onSaveConversationNote={onSaveConversationNote}
             onUpdateConversationNote={onUpdateConversationNote}
@@ -83,6 +86,7 @@ function WorkspaceReaderOverlays({
           artifactPayloads={currentLessonArtifactPayloads}
           containerRef={contextMenuRef}
           isDarkMode={isDarkMode}
+          motionProgressOverride={contextMenuMotionProgressOverride}
           notePreviewScrollTopOverride={contextMenuNotePreviewScrollTopOverride}
           onClose={onCloseContextMenu}
           onAttachArtifactToAnnotation={onAttachArtifactToAnnotation}

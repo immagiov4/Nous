@@ -1,4 +1,3 @@
-// fallow-ignore-file unused-files
 import { useCallback, useMemo } from 'react';
 import type { WorkspaceReaderShellProps } from '../components/workspace/shell/types.ts';
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
@@ -33,7 +32,6 @@ interface UseReaderShellPropsArgs {
   syncState: 'saved' | 'saving' | 'error';
 }
 
-// fallow-ignore-next-line unused-exports — used by ReadingScreenContainer
 export const useReaderShellProps = ({
   controller,
   handleAttachSourceFile,

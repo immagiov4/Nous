@@ -1,5 +1,4 @@
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
-import type { ProjectRepositoryMode } from '../../../services/projects/projectRepositoryFactory.ts';
 import type {
   WorkspaceWorkflowId,
   WorkspaceWorkflowState,
@@ -115,7 +114,6 @@ export interface WorkspaceProjectLibraryAdapter {
     folderId: string | null,
     targetIndex?: number
   ) => Promise<LibraryPlacement[]>;
-  projectRepositoryMode: ProjectRepositoryMode;
   persistSnapshot: (snapshot: ProjectSnapshot) => Promise<SavedProjectMeta | null>;
   refreshLibraryOrganization: () => Promise<void>;
   refreshLibraryState: () => Promise<void>;

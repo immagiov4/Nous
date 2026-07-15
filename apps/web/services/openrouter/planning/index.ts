@@ -8,7 +8,6 @@ export {
   buildPdfChunkUsageDebugPayload,
   estimateRelevantPdfImagePages,
 } from '../pdfLessonContext.ts';
-// fallow-ignore-next-line unused-types — type re-export used externally
 export type { PlanningSourceProfile, PlanningSourceSizeTier } from '../planQuality.ts';
 export {
   buildAdaptivePlanGuidance,

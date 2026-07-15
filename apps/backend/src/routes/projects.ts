@@ -4,10 +4,14 @@ import { type Request, type Response, Router } from 'express';
 import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
 import { publishProjectRevision, subscribeToProjectRevisions } from '../projects/projectEvents.js';
 import {
+  cancelProjectImportUpload,
   completeProjectImportUpload,
+  getProjectImportUploadStatus,
+  ProjectImportCapacityError,
   ProjectImportInputError,
   storeProjectImportChunk,
 } from '../projects/projectImportChunks.js';
+import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js';
 import { ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type {
@@ -192,8 +196,8 @@ router.get('/config', (req: Request, res: Response) => {
     res.json({
       success: true,
       config: {
-        ...getProjectStore().getConfig(),
         authMode: getAuthMode(),
+        import: getPublicProjectImportConfig(),
         userId: currentUser.id,
       },
     });
@@ -432,24 +436,75 @@ router.post('/import', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/import/chunks', async (req: Request, res: Response) => {
+router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Response) => {
   try {
     const userId = getCurrentUser(req).id;
-    const body = getBodyRecord(req.body);
     const result = await storeProjectImportChunk({
       userId,
-      uploadId: readOptionalString(body.uploadId) || '',
-      chunkIndex: readOptionalSafeInteger(body.chunkIndex) ?? -1,
-      chunkCount: readOptionalSafeInteger(body.chunkCount) ?? -1,
-      chunk: typeof body.chunk === 'string' ? body.chunk : '',
+      uploadId: getRouteParam(req.params.uploadId),
+      chunkIndex: readOptionalSafeInteger(Number(getRouteParam(req.params.chunkIndex))) ?? -1,
+      chunkCount: readOptionalSafeInteger(Number(req.query.chunkCount)) ?? -1,
+      chunk: typeof req.body === 'string' ? req.body : '',
     });
     res.status(202).json({ success: true, complete: false, ...result });
+  } catch (error) {
+    if (error instanceof ProjectImportCapacityError) res.set('Retry-After', '1');
+    sendErrorResponse(
+      res,
+      error instanceof ProjectImportCapacityError
+        ? 429
+        : error instanceof ProjectImportInputError
+          ? 400
+          : 500,
+      error,
+      'Failed to store project import chunk'
+    );
+  }
+});
+
+router.delete('/import/chunks/:uploadId', async (req: Request, res: Response) => {
+  try {
+    await cancelProjectImportUpload(getCurrentUser(req).id, getRouteParam(req.params.uploadId));
+    res.status(204).end();
   } catch (error) {
     sendErrorResponse(
       res,
       error instanceof ProjectImportInputError ? 400 : 500,
       error,
-      'Failed to store project import chunk'
+      'Failed to cancel project import'
+    );
+  }
+});
+
+router.get('/import/chunks/:uploadId', async (req: Request, res: Response) => {
+  try {
+    const userId = getCurrentUser(req).id;
+    const upload = getProjectImportUploadStatus(userId, getRouteParam(req.params.uploadId));
+    if (!upload) {
+      res
+        .status(404)
+        .json({ success: false, error: 'Caricamento del backup non trovato o scaduto.' });
+      return;
+    }
+    if (!upload.completed) {
+      res.status(202).json({ success: true, uploadStatus: upload.status });
+      return;
+    }
+    const snapshot = await getProjectStore().loadProject(userId, upload.completed.projectId);
+    if (!snapshot) throw new Error('Imported project could not be loaded.');
+    res.json({
+      success: true,
+      complete: true,
+      meta: upload.completed.meta,
+      snapshot,
+      uploadStatus: upload.status,
+    });
+  } catch (error) {
+    sendErrorResponse(
+      res,
+      error instanceof ProjectImportInputError ? 400 : 500,
+      error,
+      'Failed to read project import status'
     );
   }
 });
