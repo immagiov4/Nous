@@ -11,6 +11,7 @@ RUN bun install --frozen-lockfile
 FROM dependencies AS web-build
 COPY apps/web apps/web
 COPY packages packages
+COPY tailwind.config.cjs tailwind.config.cjs
 RUN bun run build
 
 FROM oven/bun:${BUN_VERSION}-slim AS frontend
