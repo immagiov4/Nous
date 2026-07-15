@@ -88,6 +88,12 @@ describe('useLibraryAssistantChat', () => {
     coverLabel: 'PDF',
   };
 
+  const secondProject = {
+    ...project,
+    id: 'project-2',
+    title: 'Corso React',
+  };
+
   const emptyTree = {
     descendantProjectIdsByFolderId: {},
     folderById: {},
@@ -208,5 +214,59 @@ describe('useLibraryAssistantChat', () => {
         }),
       },
     });
+  });
+
+  test('folder selection replaces descendant refs and deselection clears the whole subtree', () => {
+    const treeWithTwoProjects = {
+      ...loadedTree,
+      descendantProjectIdsByFolderId: {
+        [folder.id]: [project.id, secondProject.id],
+      },
+    };
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [folder],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [project, secondProject],
+        tree: treeWithTwoProjects,
+      })
+    );
+
+    act(() => {
+      result.current.toggleAttachedContextRef({
+        id: project.id,
+        kind: 'project',
+        label: project.title,
+      });
+      result.current.toggleAttachedContextRef({
+        id: folder.id,
+        kind: 'folder',
+        label: folder.name,
+      });
+    });
+
+    expect(result.current.attachedContextRefs).toEqual([
+      {
+        id: folder.id,
+        kind: 'folder',
+        label: folder.name,
+      },
+    ]);
+    expect(result.current.scopeSummary.scopeProjectIds).toEqual([project.id, secondProject.id]);
+
+    act(() => {
+      result.current.toggleAttachedContextRef({
+        id: project.id,
+        kind: 'project',
+        label: project.title,
+      });
+      result.current.toggleAttachedContextRef({
+        id: folder.id,
+        kind: 'folder',
+        label: folder.name,
+      });
+    });
+
+    expect(result.current.attachedContextRefs).toEqual([]);
   });
 });

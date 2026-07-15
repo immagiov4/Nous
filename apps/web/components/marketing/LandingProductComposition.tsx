@@ -38,6 +38,7 @@ import LandingDemoCursor from './LandingDemoCursor.tsx';
 import { getScrollOffset, getScrollRange, keepTextInputEndVisible } from './landingDemoMotion.ts';
 import {
   DEMO_FPS,
+  DEMO_HEIGHT,
   type DemoStage,
   LESSON_ANSWER_END_FRAME,
   LESSON_ANSWER_START_FRAME,
@@ -90,8 +91,6 @@ export interface LandingProductVideoFrameProps extends Record<string, unknown> {
   stage: DemoStage;
 }
 
-export const DEMO_WIDTH = 1200;
-export const DEMO_HEIGHT = 800;
 export const DEMO_MOBILE_WIDTH = 390;
 export const DEMO_MOBILE_HEIGHT = 750;
 
@@ -783,7 +782,6 @@ const DemoLibraryView = ({
           onMoveProjects={resolvedVoid}
           onOpenProject={() => {}}
           onPlanUpload={() => {}}
-          onRemoveLibraryContextRef={() => {}}
           onRenameFolder={resolvedVoid}
           onSendAssessmentMessage={resolvedVoid}
           onToggleDarkMode={() => {}}
@@ -811,19 +809,31 @@ const getTimelineText = (text: string, frame: number, startFrame: number, endFra
 const asUiMessagePart = (part: Record<string, unknown>): UIMessage['parts'][number] =>
   part as UIMessage['parts'][number];
 
+const GENERATION_PROGRESS_TIMELINE = [
+  { frame: 0, stage: 'sources', revealedStepCount: 1 },
+  { frame: 40, stage: 'structure', revealedStepCount: 2 },
+  { frame: 82, stage: 'drafting', revealedStepCount: 3 },
+  { frame: 97, stage: 'drafting', revealedStepCount: 4 },
+  { frame: 112, stage: 'drafting', revealedStepCount: 5 },
+  { frame: 127, stage: 'drafting', revealedStepCount: 6 },
+  { frame: 140, stage: 'quiz', revealedStepCount: 7 },
+  { frame: 178, stage: 'verification', revealedStepCount: 8 },
+  { frame: 218, stage: 'ready', revealedStepCount: 9 },
+] as const satisfies ReadonlyArray<{
+  frame: number;
+  revealedStepCount: number;
+  stage: GenerationProgressSnapshot['stage'];
+}>;
+
 const buildGenerationProgress = (frame: number, isItalian: boolean): GenerationProgressSnapshot => {
-  const stage =
-    frame >= 218
-      ? 'ready'
-      : frame >= 178
-        ? 'verification'
-        : frame >= 140
-          ? 'quiz'
-          : frame >= 82
-            ? 'drafting'
-            : frame >= 40
-              ? 'structure'
-              : 'sources';
+  let currentProgress: (typeof GENERATION_PROGRESS_TIMELINE)[number] =
+    GENERATION_PROGRESS_TIMELINE[0];
+  for (const progressPoint of GENERATION_PROGRESS_TIMELINE) {
+    if (frame < progressPoint.frame) {
+      break;
+    }
+    currentProgress = progressPoint;
+  }
   const progressSteps = isItalian
     ? [
         'Raccolta dei concetti principali',
@@ -847,16 +857,7 @@ const buildGenerationProgress = (frame: number, isItalian: boolean): GenerationP
         'Study applications',
         'Final review',
       ];
-  const revealedStepCount = Math.max(
-    1,
-    Math.round(
-      interpolate(frame, [10, 218], [1, progressSteps.length], {
-        easing: Easing.bezier(0.16, 1, 0.3, 1),
-        extrapolateLeft: 'clamp',
-        extrapolateRight: 'clamp',
-      })
-    )
-  );
+  const { revealedStepCount, stage } = currentProgress;
   const stepOffset = Math.max(0, revealedStepCount - 3);
 
   return {

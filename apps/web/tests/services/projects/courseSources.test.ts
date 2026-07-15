@@ -101,3 +101,27 @@ test('legacy single-source projects migrate logically and reattaching one source
   assert.equal(merged[0]?.documentIndex?.chunks[0]?.text, 'new A');
   assert.equal(merged[1]?.documentIndex?.chunks[0]?.text, 'keep B');
 });
+
+test('detached legacy PDFs remain discoverable through their stored source reference', () => {
+  const descriptors = getCourseSourceDescriptors({
+    file: {
+      data: '',
+      mimeType: 'application/pdf',
+      name: 'dispensa.pdf',
+    },
+    kind: 'pdf',
+    ref: {
+      byteSize: 1024,
+      hash: 'stored-hash',
+      id: 'stored-source-id',
+      mimeType: 'application/pdf',
+      name: 'dispensa.pdf',
+    },
+  });
+
+  assert.equal(descriptors.length, 1);
+  assert.equal(descriptors[0]?.id, 'stored-source-id');
+  assert.equal(descriptors[0]?.hash, 'stored-hash');
+  assert.equal(descriptors[0]?.file.sourceId, 'stored-source-id');
+  assert.equal(descriptors[0]?.file.data, '');
+});

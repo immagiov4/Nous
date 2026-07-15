@@ -183,7 +183,6 @@ html:has(.marketing-page) {
 }
 
 .marketing-hero-kicker,
-.marketing-journey-intro > p,
 .marketing-study-flow-heading > p {
   margin: 0 0 1.2rem;
   color: var(--marketing-accent-dark);
@@ -229,31 +228,6 @@ html:has(.marketing-page) {
   color: var(--marketing-ink);
   font-size: 0.82rem;
   font-weight: 700;
-}
-
-.marketing-hero-quote {
-  display: flex;
-  margin: 1.35rem 0 0;
-  align-items: baseline;
-  color: #756f68;
-  gap: 0.55rem;
-}
-
-.marketing-hero-quote p,
-.marketing-hero-quote cite {
-  margin: 0;
-  font-size: 0.74rem;
-  line-height: 1.45;
-}
-
-.marketing-hero-quote p {
-  font-family: var(--marketing-serif);
-  font-style: italic;
-}
-
-.marketing-hero-quote cite {
-  color: #9a9289;
-  font-style: normal;
 }
 
 .marketing-waitlist-form {
@@ -310,106 +284,11 @@ html:has(.marketing-page) {
   color: #2f5f36;
 }
 
-.marketing-material-scene {
-  position: relative;
-  min-height: 24rem;
-  isolation: isolate;
-}
-
-.marketing-material-scene::before {
-  position: absolute;
-  z-index: -1;
-  border: 1px solid #dfd6cb;
-  border-radius: 50%;
-  content: "";
-  inset: 1rem 0.5rem 1.5rem 1rem;
-}
-
-.marketing-material-sheet {
-  position: absolute;
-  border: 1px solid #d7cec3;
-  border-radius: 1rem;
-  background: #fff;
-  box-shadow: 0 1.5rem 3.5rem -2.6rem rgb(52 37 24 / 35%);
-}
-
-.marketing-material-sheet-slide {
-  top: 1rem;
-  right: 4%;
-  width: 70%;
-  min-height: 12rem;
-  padding: 1.4rem;
-  transform: rotate(3deg);
-}
-
-.marketing-material-sheet-slide > span,
-.marketing-material-sheet-notes > span,
-.marketing-material-sheet-book > span {
-  color: #857c73;
-  font-size: 0.68rem;
-}
-
-.marketing-material-sheet-slide strong {
+.marketing-hero-visual {
   display: block;
-  margin: 2rem 0 0.7rem;
-  font-family: var(--marketing-serif);
-  font-size: 1.35rem;
-  font-weight: 600;
-}
-
-.marketing-material-sheet-slide p {
-  margin: 0 0 1rem;
-  color: var(--marketing-muted);
-  font-size: 0.75rem;
-}
-
-.marketing-material-sheet-slide i {
-  display: block;
-  width: 88%;
-  height: 0.36rem;
-  margin-top: 0.45rem;
-  background: #ded8d1;
-}
-
-.marketing-material-sheet-slide i:nth-of-type(2) {
-  width: 67%;
-}
-
-.marketing-material-sheet-slide i:nth-of-type(3) {
-  width: 77%;
-}
-
-.marketing-material-sheet-notes {
-  top: 6.5rem;
-  left: 1%;
-  width: 48%;
-  min-height: 9rem;
-  padding: 1.25rem;
-  transform: rotate(-5deg);
-}
-
-.marketing-material-sheet-notes svg,
-.marketing-material-sheet-book svg {
-  width: 1.2rem;
-  margin-right: 0.5rem;
-  color: var(--marketing-accent-dark);
-  vertical-align: middle;
-}
-
-.marketing-material-sheet-notes p {
-  margin: 1.8rem 0 0;
-  color: #3f3a35;
-  font-family: var(--marketing-serif);
-  font-size: 1rem;
-  font-style: italic;
-}
-
-.marketing-material-sheet-book {
-  top: 14.5rem;
-  right: 8%;
-  width: 54%;
-  padding: 1.2rem;
-  transform: rotate(1deg);
+  width: min(100%, 48rem);
+  height: auto;
+  justify-self: end;
 }
 
 .marketing-journey-intro h2,
@@ -516,14 +395,15 @@ html:has(.marketing-page) {
 .marketing-journey-demo {
   position: sticky;
   top: 2rem;
-  height: min(76vh, 44rem);
-  overflow: hidden;
-  border-radius: 1rem;
-  color: var(--marketing-ink);
+  display: grid;
+  height: calc(100dvh - 4rem);
+  place-items: center;
 }
 
 :where(.marketing-journey-demo) .marketing-product-demo {
-  height: 100%;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
   overflow: hidden;
 }
 
@@ -649,7 +529,7 @@ html:has(.marketing-page) {
 }
 
 .marketing-product-video {
-  height: 100%;
+  width: 100%;
   overflow: hidden;
   pointer-events: none;
   user-select: none;
@@ -1552,7 +1432,7 @@ html:has(.marketing-page) {
     border: 0;
   }
 
-  .marketing-material-scene {
+  .marketing-hero-visual {
     display: none;
   }
 
@@ -1646,9 +1526,7 @@ html:has(.marketing-page) {
 
   .marketing-contact {
     padding: 1.25rem 0;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 0.5rem;
+    gap: 1rem;
   }
 }
 
@@ -1668,30 +1546,6 @@ html:has(.marketing-page) {
 
   .marketing-product-section {
     width: 100%;
-  }
-
-  .marketing-material-scene {
-    min-height: 21rem;
-  }
-
-  .marketing-material-scene::before {
-    inset: 1rem 0.5rem 1rem;
-  }
-
-  .marketing-material-sheet-slide {
-    right: 1%;
-    width: 72%;
-  }
-
-  .marketing-material-sheet-notes {
-    left: 0;
-    width: 55%;
-  }
-
-  .marketing-material-sheet-book {
-    top: 12.5rem;
-    right: 2%;
-    width: 62%;
   }
 
   .marketing-final-actions {

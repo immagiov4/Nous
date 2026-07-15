@@ -600,6 +600,37 @@ export const useLibraryAssistantChat = ({
             currentReference.id === reference.id && currentReference.kind === reference.kind
         );
 
+        if (reference.kind === 'folder') {
+          const descendantProjectIds = new Set(
+            tree.descendantProjectIdsByFolderId[reference.id] || []
+          );
+          const refsOutsideFolder = currentRefs.filter(currentReference => {
+            if (currentReference.kind === 'project') {
+              return !descendantProjectIds.has(currentReference.id);
+            }
+
+            if (currentReference.id === reference.id) {
+              return false;
+            }
+
+            const nestedProjectIds = tree.descendantProjectIdsByFolderId[currentReference.id] || [];
+            return (
+              nestedProjectIds.length === 0 ||
+              !nestedProjectIds.every(projectId => descendantProjectIds.has(projectId))
+            );
+          });
+
+          return existingRef
+            ? refsOutsideFolder
+            : [
+                ...refsOutsideFolder,
+                {
+                  ...reference,
+                  label: resolveContextRefLabel({ folders, projects, reference }),
+                },
+              ];
+        }
+
         if (existingRef) {
           return currentRefs.filter(
             currentReference =>

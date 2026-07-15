@@ -305,6 +305,29 @@ describe('/api/projects', () => {
     );
   });
 
+  test('stores raster course covers separately from project snapshots', async () => {
+    const app = createApp();
+    const cover = {
+      data: 'iVBORw0KGgo=',
+      mimeType: 'image/png',
+      name: 'project-cover.png',
+    };
+
+    const saveResponse = await request(app)
+      .post('/api/projects/projects/project-1/cover')
+      .send({ cover });
+    expect(saveResponse.status).toBe(200);
+
+    const loadResponse = await request(app).get('/api/projects/projects/project-1/cover');
+    expect(loadResponse.status).toBe(200);
+    expect(loadResponse.body.cover).toEqual(cover);
+
+    const invalidResponse = await request(app)
+      .post('/api/projects/projects/project-1/cover')
+      .send({ cover: { ...cover, mimeType: 'image/svg+xml' } });
+    expect(invalidResponse.status).toBe(400);
+  });
+
   test('migrates a legacy embedded PDF once when the project is first loaded', async () => {
     const app = createApp();
     const pdfData = 'JVBERi0xLjQKbGVnYWN5';

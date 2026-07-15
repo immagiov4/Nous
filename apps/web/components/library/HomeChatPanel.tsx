@@ -2,7 +2,6 @@ import { isToolUIPart, type UIMessage } from 'ai';
 import { motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import {
-  ArrowLeft,
   ArrowUp,
   BookOpen,
   BookPlus,
@@ -32,6 +31,8 @@ import {
   useRef,
   useState,
 } from 'react';
+import logoUrl from '@/assets/logo.svg';
+import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import { useMobileKeyboardOffset } from '../../hooks/useMobileKeyboardOffset.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -83,7 +84,18 @@ interface HomeChatPanelProps {
   pendingFileName: string | null;
   pendingFileNames?: string[];
   draftValueOverride?: string;
+  draftTemplate?: {
+    id: string;
+    mode?: HomeChatMode;
+    selection?: { end: number; start: number };
+    value: string;
+  };
   scrollProgressOverride?: number;
+  compactWhenEmpty?: boolean;
+  hideHeaderCopy?: boolean;
+  hideModeSelector?: boolean;
+  inputPlaceholder?: string;
+  showChatAvatars?: boolean;
   onClearPendingFile: () => void;
   onClearLibraryMessages?: () => void;
   onContinueAssessment?: () => void;
@@ -108,17 +120,18 @@ interface HomeChatPanelProps {
   onLibraryArtifactReplace?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   onLibraryWebSearchChange: (value: boolean) => void;
   onLibraryGenerateArtifactsChange: (value: boolean) => void;
-  onRemoveLibraryContextRef: (reference: LibraryContextRef) => void;
   onSendAssessmentMessage: (message: string) => Promise<void>;
   onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
   onUploadSourceClick: () => void;
 }
 
 type SurfaceState = null | 'attachment-menu' | 'tool-menu';
-type AttachmentStep = 'root' | 'picker';
 type MenuAlign = 'start' | 'end';
-type SubmenuSide = 'left' | 'right';
+type MenuVerticalPlacement = 'above' | 'below';
 type LibraryToolPart = Extract<UIMessage['parts'][number], { type: `tool-${string}` }>;
+
+const FLOATING_MENU_GAP_PX = 12;
+const FLOATING_MENU_VIEWPORT_MARGIN_PX = 16;
 
 interface RequestSaveLearningArtifactNoteInput {
   artifactIds: string[];
@@ -148,6 +161,25 @@ const isRequestSaveLearningArtifactNoteInput = (
 
 const readIsMobileViewport = () =>
   typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+
+const getMenuVerticalPlacement = (
+  anchorRect: DOMRect,
+  menuHeight: number,
+  viewportHeight: number
+): MenuVerticalPlacement => {
+  const spaceAbove = anchorRect.top - FLOATING_MENU_GAP_PX - FLOATING_MENU_VIEWPORT_MARGIN_PX;
+  const spaceBelow =
+    viewportHeight - anchorRect.bottom - FLOATING_MENU_GAP_PX - FLOATING_MENU_VIEWPORT_MARGIN_PX;
+
+  if (spaceAbove >= menuHeight) {
+    return 'above';
+  }
+  if (spaceBelow >= menuHeight) {
+    return 'below';
+  }
+
+  return spaceBelow > spaceAbove ? 'below' : 'above';
+};
 
 const isVisibleLibraryToolState = (state: LibraryToolPart['state']) =>
   state === 'input-streaming' ||
@@ -356,7 +388,13 @@ export default function HomeChatPanel({
   pendingFileName,
   pendingFileNames,
   draftValueOverride,
+  draftTemplate,
   scrollProgressOverride,
+  compactWhenEmpty = false,
+  hideHeaderCopy = false,
+  hideModeSelector = false,
+  inputPlaceholder,
+  showChatAvatars = false,
   onClearPendingFile,
   onClearLibraryMessages,
   onContinueAssessment,
@@ -365,12 +403,10 @@ export default function HomeChatPanel({
   onLibraryMessageSend,
   onLibraryArtifactNoteApprove = async () => {},
   onLibraryArtifactNoteReject = () => {},
-  onLibraryArtifactDiscard = () => {},
   onLibraryArtifactRegenerate = () => false,
   onLibraryArtifactReplace = () => {},
   onLibraryWebSearchChange,
   onLibraryGenerateArtifactsChange,
-  onRemoveLibraryContextRef,
   onSendAssessmentMessage,
   onToggleLibraryContextRef,
   onUploadSourceClick,
@@ -387,21 +423,25 @@ export default function HomeChatPanel({
     return { key: `${name}-${occurrence}`, name };
   });
   const [draftByMode, setDraftByMode] = useState<Record<HomeChatMode, string>>({
-    'library-query': '',
-    'new-course': '',
+    'library-query': homeChatMode === 'library-query' ? draftTemplate?.value || '' : '',
+    'new-course': homeChatMode === 'new-course' ? draftTemplate?.value || '' : '',
   });
   const { expandedFolderIds, toggleFolderExpansion } =
     usePersistedLibraryFolderExpansion(libraryTree);
   const [activeSurface, setActiveSurface] = useState<SurfaceState>(null);
-  const [attachmentStep, setAttachmentStep] = useState<AttachmentStep>('root');
   const [isMobileViewport, setIsMobileViewport] = useState(readIsMobileViewport);
   const [toolMenuAlign, setToolMenuAlign] = useState<MenuAlign>('start');
   const [attachmentMenuAlign, setAttachmentMenuAlign] = useState<MenuAlign>('start');
-  const [attachmentSubmenuSide, setAttachmentSubmenuSide] = useState<SubmenuSide>('right');
+  const [toolMenuVerticalPlacement, setToolMenuVerticalPlacement] =
+    useState<MenuVerticalPlacement>('above');
+  const [attachmentMenuVerticalPlacement, setAttachmentMenuVerticalPlacement] =
+    useState<MenuVerticalPlacement>('above');
   const [scrollOffsetOverride, setScrollOffsetOverride] = useState(0);
 
   const toolMenuButtonRef = useRef<HTMLButtonElement>(null);
   const attachmentButtonRef = useRef<HTMLButtonElement>(null);
+  const toolMenuRef = useRef<HTMLDivElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const surfaceRootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -421,6 +461,23 @@ export default function HomeChatPanel({
     () => groupLibraryAssistantTurns(visibleLibraryMessages),
     [visibleLibraryMessages]
   );
+  const attachedContextProjectIds = useMemo(() => {
+    const projectIds = new Set<string>();
+
+    libraryAttachedContextRefs.forEach(reference => {
+      if (reference.kind === 'project') {
+        projectIds.add(reference.id);
+        return;
+      }
+
+      libraryTree.descendantProjectIdsByFolderId[reference.id]?.forEach(projectId => {
+        projectIds.add(projectId);
+      });
+    });
+
+    return projectIds;
+  }, [libraryAttachedContextRefs, libraryTree.descendantProjectIdsByFolderId]);
+  const activeLibraryToolCount = Number(libraryWebSearch) + Number(libraryGenerateArtifacts);
 
   const currentDraft = draftValueOverride ?? draftByMode[homeChatMode];
   const activeMessages =
@@ -432,8 +489,6 @@ export default function HomeChatPanel({
     homeChatMode === 'library-query' &&
     isLoading &&
     !visibleLibraryMessages.some(message => message.role === 'assistant');
-  const hasLibraryComposerMeta =
-    libraryAttachedContextRefs.length > 0 || libraryWebSearch || libraryGenerateArtifacts;
   const activeMessagesContentLength =
     homeChatMode === 'new-course'
       ? assessmentMessages.reduce((totalLength, message) => totalLength + message.text.length, 0)
@@ -442,6 +497,26 @@ export default function HomeChatPanel({
           0
         );
   const scrollMeasurementKey = `${activeMessages.length}:${activeMessagesContentLength}:${assessmentComplete}:${isLoading}`;
+  const showHeader =
+    !hideHeaderCopy ||
+    !hideModeSelector ||
+    (homeChatMode === 'library-query' &&
+      visibleLibraryMessages.length > 0 &&
+      Boolean(onClearLibraryMessages));
+  const assistantAvatar = showChatAvatars ? (
+    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white dark:border-white/10 dark:bg-stone-900">
+      <img
+        src={isDarkMode ? logoDarkModeUrl : logoUrl}
+        alt="Assistente Nous"
+        className="h-5 w-5 object-contain"
+      />
+    </span>
+  ) : null;
+  const userAvatar = showChatAvatars ? (
+    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-200 text-xs font-semibold text-stone-700 dark:bg-stone-700 dark:text-stone-100">
+      G
+    </span>
+  ) : null;
 
   useLayoutEffect(() => {
     if (
@@ -492,37 +567,81 @@ export default function HomeChatPanel({
   }, [activeMessages, assessmentComplete, isLoading, scrollProgressOverride]);
 
   useEffect(() => {
+    if (!draftTemplate) {
+      return;
+    }
+    const targetMode = draftTemplate.mode ?? homeChatMode;
+    if (targetMode !== homeChatMode) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      if (draftTemplate.selection) {
+        inputRef.current?.setSelectionRange(
+          draftTemplate.selection.start,
+          draftTemplate.selection.end
+        );
+      }
+    });
+  }, [draftTemplate, homeChatMode]);
+
+  useEffect(() => {
     if (isMobileViewport || draftValueOverride !== undefined) {
       return;
     }
     inputRef.current?.focus();
   }, [draftValueOverride, isMobileViewport]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!activeSurface) {
+      return;
+    }
+
+    const menuContentMeasurementKey =
+      activeSurface === 'attachment-menu'
+        ? `${isLibraryLoading}:${libraryTree.rootNodes.length}`
+        : activeSurface;
+    if (!menuContentMeasurementKey) {
       return;
     }
 
     const anchor =
       activeSurface === 'tool-menu' ? toolMenuButtonRef.current : attachmentButtonRef.current;
-
-    const anchorRect = anchor?.getBoundingClientRect();
-    if (!anchorRect) {
+    const menu = activeSurface === 'tool-menu' ? toolMenuRef.current : attachmentMenuRef.current;
+    if (!anchor || !menu) {
       return;
     }
 
-    const align: MenuAlign = anchorRect.left > window.innerWidth * 0.62 ? 'end' : 'start';
+    const updateMenuPlacement = () => {
+      const anchorRect = anchor.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const align: MenuAlign = anchorRect.left > window.innerWidth * 0.62 ? 'end' : 'start';
+      const verticalPlacement = getMenuVerticalPlacement(
+        anchorRect,
+        menuRect.height,
+        window.innerHeight
+      );
 
-    if (activeSurface === 'tool-menu') {
-      setToolMenuAlign(align);
-      return;
-    }
+      if (activeSurface === 'tool-menu') {
+        setToolMenuAlign(currentAlign => (currentAlign === align ? currentAlign : align));
+        setToolMenuVerticalPlacement(currentPlacement =>
+          currentPlacement === verticalPlacement ? currentPlacement : verticalPlacement
+        );
+        return;
+      }
 
-    setAttachmentMenuAlign(align);
-    const spaceOnRight = window.innerWidth - anchorRect.right;
-    const spaceOnLeft = anchorRect.left;
-    setAttachmentSubmenuSide(spaceOnRight >= 344 || spaceOnRight >= spaceOnLeft ? 'right' : 'left');
-  }, [activeSurface]);
+      setAttachmentMenuAlign(currentAlign => (currentAlign === align ? currentAlign : align));
+      setAttachmentMenuVerticalPlacement(currentPlacement =>
+        currentPlacement === verticalPlacement ? currentPlacement : verticalPlacement
+      );
+    };
+
+    updateMenuPlacement();
+    window.addEventListener('resize', updateMenuPlacement);
+    return () => {
+      window.removeEventListener('resize', updateMenuPlacement);
+    };
+  }, [activeSurface, isLibraryLoading, libraryTree.rootNodes.length]);
 
   useEffect(() => {
     if (!activeSurface) {
@@ -536,7 +655,6 @@ export default function HomeChatPanel({
       }
 
       setActiveSurface(null);
-      setAttachmentStep('root');
     };
 
     document.addEventListener('pointerdown', handlePointerDown, true);
@@ -569,7 +687,6 @@ export default function HomeChatPanel({
 
   const closeMenus = () => {
     setActiveSurface(null);
-    setAttachmentStep('root');
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -594,9 +711,7 @@ export default function HomeChatPanel({
     const paddingLeft = 12 + depth * 18;
 
     if (node.kind === 'project') {
-      const isSelected = libraryAttachedContextRefs.some(
-        reference => reference.id === node.id && reference.kind === 'project'
-      );
+      const isSelected = attachedContextProjectIds.has(node.id);
 
       return (
         <label
@@ -604,18 +719,31 @@ export default function HomeChatPanel({
           className="flex cursor-pointer items-start gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/70"
           style={{ paddingLeft }}
         >
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() =>
-              onToggleLibraryContextRef({
-                id: node.id,
-                kind: 'project',
-                label: node.project.title,
-              })
-            }
-            className="mt-1 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500 dark:border-zinc-600"
-          />
+          <span className="relative mt-0.5 h-5 w-5 shrink-0 rounded-md has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-orange-400">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              aria-label={node.project.title}
+              onChange={() =>
+                onToggleLibraryContextRef({
+                  id: node.id,
+                  kind: 'project',
+                  label: node.project.title,
+                })
+              }
+              className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 focus-visible:outline-none"
+            />
+            <span
+              aria-hidden="true"
+              className={`flex h-full w-full items-center justify-center rounded-md border transition-colors ${
+                isSelected
+                  ? 'border-[#b45c28] bg-[#b45c28] text-white dark:border-[#e4a477] dark:bg-[#e4a477] dark:text-stone-950'
+                  : 'border-stone-300 bg-white text-transparent dark:border-zinc-500 dark:bg-stone-800'
+              }`}
+            >
+              <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+            </span>
+          </span>
           <span className="min-w-0">
             <span className="block truncate text-sm font-medium text-gray-900 dark:text-zinc-100">
               {node.project.title}
@@ -632,9 +760,12 @@ export default function HomeChatPanel({
     }
 
     const isExpanded = expandedFolderIds.has(node.id);
-    const isSelected = libraryAttachedContextRefs.some(
-      reference => reference.id === node.id && reference.kind === 'folder'
-    );
+    const isSelected =
+      libraryAttachedContextRefs.some(
+        reference => reference.id === node.id && reference.kind === 'folder'
+      ) ||
+      (node.descendantProjectIds.length > 0 &&
+        node.descendantProjectIds.every(projectId => attachedContextProjectIds.has(projectId)));
 
     return (
       <div key={`folder-${node.id}`}>
@@ -642,10 +773,11 @@ export default function HomeChatPanel({
           className="flex items-start rounded-2xl transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/70"
           style={{ paddingLeft }}
         >
-          <label className="flex shrink-0 cursor-pointer py-2 pl-0 pr-2">
+          <span className="relative my-2 mr-2 h-5 w-5 shrink-0 rounded-md has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-orange-400">
             <input
               type="checkbox"
               checked={isSelected}
+              aria-label={node.folder.name}
               onChange={() =>
                 onToggleLibraryContextRef({
                   id: node.id,
@@ -653,9 +785,19 @@ export default function HomeChatPanel({
                   label: node.folder.name,
                 })
               }
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500 dark:border-zinc-600"
+              className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 focus-visible:outline-none"
             />
-          </label>
+            <span
+              aria-hidden="true"
+              className={`flex h-full w-full items-center justify-center rounded-md border transition-colors ${
+                isSelected
+                  ? 'border-[#b45c28] bg-[#b45c28] text-white dark:border-[#e4a477] dark:bg-[#e4a477] dark:text-stone-950'
+                  : 'border-stone-300 bg-white text-transparent dark:border-zinc-500 dark:bg-stone-800'
+              }`}
+            >
+              <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+            </span>
+          </span>
           <button
             type="button"
             className="flex min-w-0 flex-1 items-start gap-3 py-2 pr-2 text-left"
@@ -746,7 +888,6 @@ export default function HomeChatPanel({
         isDarkMode={isDarkMode}
         openArtifactIdOverride={libraryArtifactPreviewIdOverride}
         portalContainer={libraryArtifactPortalContainer}
-        onDiscardArtifact={onLibraryArtifactDiscard}
         onRegenerateArtifact={onLibraryArtifactRegenerate}
         onReplaceArtifact={onLibraryArtifactReplace}
       />
@@ -860,72 +1001,46 @@ export default function HomeChatPanel({
 
   const renderDesktopAttachmentMenu = () => (
     <div
-      className={`absolute bottom-[calc(100%+0.75rem)] z-30 hidden md:block ${
-        attachmentMenuAlign === 'end' ? 'right-0' : 'left-0'
-      }`}
+      ref={attachmentMenuRef}
+      className={`absolute z-30 hidden w-[22rem] overflow-hidden rounded-[1.4rem] border border-gray-200 bg-white/95 shadow-[0_28px_80px_-40px_rgba(24,24,27,0.42)] backdrop-blur md:block dark:border-zinc-600 dark:bg-stone-800/95 ${
+        attachmentMenuVerticalPlacement === 'above'
+          ? 'bottom-[calc(100%+0.75rem)]'
+          : 'top-[calc(100%+0.75rem)]'
+      } ${attachmentMenuAlign === 'end' ? 'right-0' : 'left-0'}`}
       role="menu"
     >
-      <div className="relative">
-        <div className="w-[19rem] overflow-hidden rounded-[1.4rem] border border-gray-200 bg-white/95 p-2 shadow-[0_28px_80px_-40px_rgba(24,24,27,0.42)] backdrop-blur dark:border-zinc-600 dark:bg-stone-800/95">
-          <button
-            type="button"
-            onClick={() => setAttachmentStep('picker')}
-            className="flex w-full items-center justify-between rounded-[1rem] px-3 py-3 text-left transition-colors hover:bg-gray-100/80 dark:hover:bg-stone-700/70"
-          >
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-gray-900 dark:text-zinc-100">
-                {t('Scegli corsi o cartelle')}
-              </span>
-              <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                {t('Multi-selezione mista con cartelle annidate e corsi singoli.')}
-              </span>
-            </span>
-            <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
-          </button>
+      <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-zinc-700/70">
+        <div>
+          <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+            {t('Contesto libreria')}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-zinc-400">
+            {t('Seleziona cartelle e corsi da allegare.')}
+          </p>
         </div>
-
-        {attachmentStep === 'picker' ? (
-          <div
-            className={`absolute top-0 z-10 w-[21.5rem] overflow-hidden rounded-[1.4rem] border border-gray-200 bg-white/95 shadow-[0_28px_80px_-40px_rgba(24,24,27,0.42)] backdrop-blur dark:border-zinc-600 dark:bg-stone-800/95 ${
-              attachmentSubmenuSide === 'left'
-                ? 'right-[calc(100%+0.75rem)]'
-                : 'left-[calc(100%+0.75rem)]'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-zinc-700/70">
-              <div>
-                <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                  {t('Contesto libreria')}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-zinc-400">
-                  {t('Seleziona cartelle e corsi da allegare.')}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAttachmentStep('root')}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-                title={t('Chiudi selettore contesto')}
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </button>
+        <button
+          type="button"
+          onClick={closeMenus}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+          title={t('Chiudi selettore contesto')}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="p-2 pr-1.5">
+        <div className="custom-scrollbar max-h-[22rem] overflow-y-auto pr-2">
+          {isLibraryLoading ? (
+            <div className="px-3 py-6 text-sm text-gray-500 dark:text-zinc-400">
+              {t('Caricamento libreria...')}
             </div>
-
-            <div className="max-h-[22rem] overflow-y-auto px-2 py-2">
-              {isLibraryLoading ? (
-                <div className="px-3 py-6 text-sm text-gray-500 dark:text-zinc-400">
-                  {t('Caricamento libreria...')}
-                </div>
-              ) : libraryTree.rootNodes.length > 0 ? (
-                libraryTree.rootNodes.map(node => renderAttachmentTreeNode(node))
-              ) : (
-                <div className="px-3 py-6 text-sm text-gray-500 dark:text-zinc-400">
-                  {t('Nessun corso disponibile da allegare.')}
-                </div>
-              )}
+          ) : libraryTree.rootNodes.length > 0 ? (
+            libraryTree.rootNodes.map(node => renderAttachmentTreeNode(node))
+          ) : (
+            <div className="px-3 py-6 text-sm text-gray-500 dark:text-zinc-400">
+              {t('Nessun corso disponibile da allegare.')}
             </div>
-          </div>
-        ) : null}
+          )}
+        </div>
       </div>
     </div>
   );
@@ -950,7 +1065,7 @@ export default function HomeChatPanel({
               {t('Allega contesto')}
             </p>
             <h4 className="mt-1 text-lg font-semibold text-gray-900 dark:text-zinc-100">
-              {t(attachmentStep === 'root' ? 'Scegli il contesto' : 'Scegli corsi o cartelle')}
+              {t('Contesto libreria')}
             </h4>
           </div>
 
@@ -963,50 +1078,19 @@ export default function HomeChatPanel({
           </button>
         </div>
 
-        {attachmentStep === 'root' ? (
-          <div className="space-y-3">
-            <button
-              type="button"
-              onClick={() => setAttachmentStep('picker')}
-              className="flex w-full items-center justify-between rounded-[1.2rem] border border-gray-200 px-4 py-4 text-left transition-colors hover:border-gray-300 hover:bg-gray-50 dark:border-zinc-700 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-            >
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-gray-900 dark:text-zinc-100">
-                  {t('Scegli corsi o cartelle')}
-                </span>
-                <span className="mt-1 block text-xs leading-5 text-gray-500 dark:text-zinc-400">
-                  {t("Apri l'esploratore contesto senza rischi di clipping laterale.")}
-                </span>
-              </span>
-              <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
-            </button>
-          </div>
-        ) : (
-          <div>
-            <button
-              type="button"
-              onClick={() => setAttachmentStep('root')}
-              className="mb-3 inline-flex items-center gap-2 rounded-full px-2 py-1 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {t('Indietro')}
-            </button>
-
-            <div className="max-h-[52vh] overflow-y-auto">
-              {isLibraryLoading ? (
-                <div className="px-1 py-6 text-sm text-gray-500 dark:text-zinc-400">
-                  {t('Caricamento libreria...')}
-                </div>
-              ) : libraryTree.rootNodes.length > 0 ? (
-                libraryTree.rootNodes.map(node => renderAttachmentTreeNode(node))
-              ) : (
-                <div className="px-1 py-6 text-sm text-gray-500 dark:text-zinc-400">
-                  {t('Nessun corso disponibile da allegare.')}
-                </div>
-              )}
+        <div className="custom-scrollbar mr-1 max-h-[52vh] overflow-y-auto pr-3">
+          {isLibraryLoading ? (
+            <div className="px-1 py-6 text-sm text-gray-500 dark:text-zinc-400">
+              {t('Caricamento libreria...')}
             </div>
-          </div>
-        )}
+          ) : libraryTree.rootNodes.length > 0 ? (
+            libraryTree.rootNodes.map(node => renderAttachmentTreeNode(node))
+          ) : (
+            <div className="px-1 py-6 text-sm text-gray-500 dark:text-zinc-400">
+              {t('Nessun corso disponibile da allegare.')}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1020,104 +1104,116 @@ export default function HomeChatPanel({
           : undefined
       }
     >
-      <div className="rounded-t-[2rem] border-b border-gray-200/55 px-5 py-4 dark:border-zinc-700/40 sm:px-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div data-testid="home-chat-mode-copy" className="min-h-[6rem] sm:min-h-[4.5rem]">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="font-serif text-2xl text-gray-900 dark:text-zinc-100">
-                {homeChatMode === 'new-course'
-                  ? t('Imposta un nuovo corso')
-                  : t('Consulta la tua libreria')}
-              </h2>
-            </div>
-            <p className="mt-1.5 max-w-2xl text-sm leading-6 text-gray-600 dark:text-zinc-400">
-              {homeChatMode === 'new-course'
-                ? t(
-                    'Bastano poche righe: obiettivo, livello di partenza, scadenza e materiale disponibile.'
-                  )
-                : t('Interroga corsi, lezioni, note e highlight della libreria.')}
-            </p>
-          </div>
+      {showHeader ? (
+        <div className="rounded-t-[2rem] border-b border-gray-200/55 px-5 py-4 dark:border-zinc-700/40 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            {!hideHeaderCopy ? (
+              <div data-testid="home-chat-mode-copy" className="min-h-[6rem] sm:min-h-[4.5rem]">
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="font-serif text-2xl text-gray-900 dark:text-zinc-100">
+                    {homeChatMode === 'new-course'
+                      ? t('Imposta un nuovo corso')
+                      : t('Consulta la tua libreria')}
+                  </h2>
+                </div>
+                <p className="mt-1.5 max-w-2xl text-sm leading-6 text-gray-600 dark:text-zinc-400">
+                  {homeChatMode === 'new-course'
+                    ? t(
+                        'Bastano poche righe: obiettivo, livello di partenza, scadenza e materiale disponibile.'
+                      )
+                    : t('Interroga corsi, lezioni, note e highlight della libreria.')}
+                </p>
+              </div>
+            ) : (
+              <div />
+            )}
 
-          <div className="flex self-start items-center gap-2">
-            {homeChatMode === 'library-query' &&
-            visibleLibraryMessages.length > 0 &&
-            onClearLibraryMessages ? (
-              <button
-                type="button"
-                onClick={onClearLibraryMessages}
-                disabled={isLoading}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-300/80 bg-white text-gray-500 shadow-[0_1px_2px_rgba(24,24,27,0.04)] transition-colors hover:border-gray-400 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-stone-900/80 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-100"
-                title={t('Pulisci questa chat')}
-                aria-label={t('Pulisci questa chat')}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            ) : null}
+            <div className="flex self-start items-center gap-2">
+              {homeChatMode === 'library-query' &&
+              visibleLibraryMessages.length > 0 &&
+              onClearLibraryMessages ? (
+                <button
+                  type="button"
+                  onClick={onClearLibraryMessages}
+                  disabled={isLoading}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-300/80 bg-white text-gray-500 shadow-[0_1px_2px_rgba(24,24,27,0.04)] transition-colors hover:border-gray-400 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-stone-900/80 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-100"
+                  title={t('Pulisci questa chat')}
+                  aria-label={t('Pulisci questa chat')}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              ) : null}
 
-            <div
-              className="relative inline-flex rounded-full border border-gray-300/80 bg-white p-1 shadow-[0_1px_2px_rgba(24,24,27,0.04)] dark:border-white/10 dark:bg-stone-900/80"
-              role="tablist"
-              aria-label={t('Modalità home chat')}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={homeChatMode === 'new-course'}
-                onClick={() => handleModeChange('new-course')}
-                className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
-                  homeChatMode === 'new-course'
-                    ? 'text-white dark:text-stone-900'
-                    : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
-                }`}
-              >
-                {homeChatMode === 'new-course' ? (
-                  <motion.span
-                    layoutId="home-chat-mode-pill"
-                    className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
-                    transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
-                    aria-hidden="true"
-                  />
-                ) : null}
-                <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
-                  <BookPlus className="h-4 w-4" />
-                  {t('Nuovo corso')}
-                </span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={homeChatMode === 'library-query'}
-                onClick={() => handleModeChange('library-query')}
-                className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
-                  homeChatMode === 'library-query'
-                    ? 'text-white dark:text-stone-900'
-                    : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
-                }`}
-              >
-                {homeChatMode === 'library-query' ? (
-                  <motion.span
-                    layoutId="home-chat-mode-pill"
-                    className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
-                    transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
-                    aria-hidden="true"
-                  />
-                ) : null}
-                <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
-                  <Folder className="h-4 w-4" />
-                  {t('Consulta libreria')}
-                </span>
-              </button>
+              {!hideModeSelector ? (
+                <div
+                  className="relative inline-flex rounded-full border border-gray-300/80 bg-white p-1 shadow-[0_1px_2px_rgba(24,24,27,0.04)] dark:border-white/10 dark:bg-stone-900/80"
+                  role="tablist"
+                  aria-label={t('Modalità home chat')}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={homeChatMode === 'new-course'}
+                    onClick={() => handleModeChange('new-course')}
+                    className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
+                      homeChatMode === 'new-course'
+                        ? 'text-white dark:text-stone-900'
+                        : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+                    }`}
+                  >
+                    {homeChatMode === 'new-course' ? (
+                      <motion.span
+                        layoutId="home-chat-mode-pill"
+                        className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
+                        transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
+                      <BookPlus className="h-4 w-4" />
+                      {t('Nuovo corso')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={homeChatMode === 'library-query'}
+                    onClick={() => handleModeChange('library-query')}
+                    className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium transition-colors sm:gap-2 sm:px-5 sm:py-2.5 sm:text-sm ${
+                      homeChatMode === 'library-query'
+                        ? 'text-white dark:text-stone-900'
+                        : 'text-gray-500 hover:text-gray-800 dark:text-zinc-400 dark:hover:text-zinc-100'
+                    }`}
+                  >
+                    {homeChatMode === 'library-query' ? (
+                      <motion.span
+                        layoutId="home-chat-mode-pill"
+                        className="absolute inset-0 rounded-full bg-stone-900 dark:bg-stone-100"
+                        transition={{ duration: 0.15, ease: [0.2, 0.85, 0.25, 1] }}
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
+                      <Folder className="h-4 w-4" />
+                      {t('Consulta libreria')}
+                    </span>
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       <div
         ref={node => {
           messagesScrollRef.current = node;
         }}
-        className="home-chat-scrollbar h-[14rem] overflow-y-auto px-4 py-4 min-[640px]:h-[24rem] sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1"
+        className={`home-chat-scrollbar overflow-y-auto px-4 sm:px-5 max-[640px]:min-h-0 max-[640px]:flex-1 ${
+          compactWhenEmpty && !hasMessages && !isLoading
+            ? 'hidden h-0 py-0'
+            : 'h-[14rem] py-4 min-[640px]:h-[24rem]'
+        }`}
         style={scrollProgressOverride === undefined ? undefined : { overflowY: 'hidden' }}
       >
         <div
@@ -1134,13 +1230,14 @@ export default function HomeChatPanel({
             ? assessmentMessages.map((message, index) => (
                 <div
                   key={assessmentMessageKeys[index]}
-                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  className="flex items-start justify-start gap-2.5"
                 >
+                  {message.role === 'model' ? assistantAvatar : userAvatar}
                   <div
-                    className={`max-w-[88%] text-sm leading-6 ${
+                    className={`max-w-[min(82%,76ch)] rounded-2xl px-4 py-3 text-sm leading-6 ${
                       message.role === 'user'
-                        ? 'user-chat-bubble rounded-2xl rounded-br-md bg-stone-900 px-4 py-3 text-white dark:bg-stone-100 dark:text-stone-900'
-                        : 'border-l border-stone-300/80 pl-3.5 text-gray-800 dark:border-stone-600/80 dark:text-zinc-100'
+                        ? 'user-chat-bubble rounded-tl-md bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900'
+                        : 'rounded-tl-md border border-stone-200/80 bg-white/80 text-gray-800 shadow-sm dark:border-white/10 dark:bg-white/[0.055] dark:text-zinc-100'
                     }`}
                   >
                     <MarkdownRenderer
@@ -1158,8 +1255,9 @@ export default function HomeChatPanel({
             : visibleLibraryTurns.map(turn => {
                 if (!isLibraryAssistantTurn(turn)) {
                   return (
-                    <div key={turn.id} className="flex justify-end">
-                      <div className="user-chat-bubble max-w-[88%] rounded-2xl rounded-br-md bg-stone-900 px-4 py-3 text-sm leading-6 text-white dark:bg-stone-100 dark:text-stone-900">
+                    <div key={turn.id} className="flex items-start justify-start gap-2.5">
+                      {userAvatar}
+                      <div className="user-chat-bubble max-w-[min(82%,76ch)] rounded-2xl rounded-tl-md bg-stone-900 px-4 py-3 text-sm leading-6 text-white dark:bg-stone-100 dark:text-stone-900">
                         <MarkdownRenderer
                           content={getUiMessageText(turn)}
                           isDarkMode={isDarkMode}
@@ -1173,23 +1271,26 @@ export default function HomeChatPanel({
                 const mergedAssistantText = getMergedLibraryAssistantText(turn.messages);
 
                 return (
-                  <div key={turn.key} className="!mt-5 space-y-2.5">
-                    {renderLibraryToolStrip(turn.parts, turn.key)}
-                    {mergedAssistantText ? (
-                      <div
-                        data-testid="library-assistant-turn-bubble"
-                        className="max-w-[82ch] border-l border-stone-300/80 pl-3.5 text-sm leading-7 text-gray-800 dark:border-stone-600/80 dark:text-zinc-100"
-                      >
-                        <StreamingMarkdownRenderer
-                          content={mergedAssistantText.text}
-                          isStreaming={mergedAssistantText.isStreaming}
-                          isDarkMode={isDarkMode}
-                          className="prose-sm max-w-none dark:prose-invert"
-                        />
-                      </div>
-                    ) : null}
-                    {renderLibraryArtifactTools(turn.parts)}
-                    {renderLearningArtifactNoteRequests(turn.parts, turn.key)}
+                  <div key={turn.key} className="!mt-5 flex items-start gap-2.5">
+                    {assistantAvatar}
+                    <div className="min-w-0 flex-1 space-y-2.5">
+                      {renderLibraryToolStrip(turn.parts, turn.key)}
+                      {mergedAssistantText ? (
+                        <div
+                          data-testid="library-assistant-turn-bubble"
+                          className="max-w-[min(86%,82ch)] rounded-2xl rounded-tl-md border border-stone-200/80 bg-white/80 px-4 py-3 text-sm leading-7 text-gray-800 shadow-sm dark:border-white/10 dark:bg-white/[0.055] dark:text-zinc-100"
+                        >
+                          <StreamingMarkdownRenderer
+                            content={mergedAssistantText.text}
+                            isStreaming={mergedAssistantText.isStreaming}
+                            isDarkMode={isDarkMode}
+                            className="prose-sm max-w-none dark:prose-invert"
+                          />
+                        </div>
+                      ) : null}
+                      {renderLibraryArtifactTools(turn.parts)}
+                      {renderLearningArtifactNoteRequests(turn.parts, turn.key)}
+                    </div>
                   </div>
                 );
               })}
@@ -1198,7 +1299,6 @@ export default function HomeChatPanel({
             <ChatArtifactRenderer
               artifacts={libraryFloatingArtifactPayloads}
               isDarkMode={isDarkMode}
-              onDiscardArtifact={onLibraryArtifactDiscard}
               onRegenerateArtifact={onLibraryArtifactRegenerate}
               onReplaceArtifact={onLibraryArtifactReplace}
             />
@@ -1303,49 +1403,6 @@ export default function HomeChatPanel({
           </div>
         ) : null}
 
-        {homeChatMode === 'library-query' && hasLibraryComposerMeta ? (
-          <div data-testid="library-chat-context-bar" className="mb-3 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              {libraryAttachedContextRefs.map(reference => (
-                <span
-                  key={`${reference.kind}-${reference.id}`}
-                  className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50/80 px-3 py-1.5 text-xs font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200"
-                >
-                  {reference.kind === 'folder' ? (
-                    <Folder className="h-3.5 w-3.5" />
-                  ) : (
-                    <Check className="h-3.5 w-3.5" />
-                  )}
-                  <span className="max-w-[12rem] truncate">{reference.label}</span>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveLibraryContextRef(reference)}
-                    className="inline-flex h-4 w-4 items-center justify-center rounded-full text-orange-500 transition-colors hover:bg-orange-100 hover:text-orange-700 dark:hover:bg-orange-500/15 dark:hover:text-orange-100"
-                    aria-label={t('Rimuovi {referenceLabel}', {
-                      referenceLabel: reference.label,
-                    })}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-
-              {libraryWebSearch ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-stone-100/80 px-3 py-1.5 text-xs font-medium text-stone-700 dark:border-stone-500/40 dark:bg-stone-700/50 dark:text-stone-200">
-                  <Globe className="h-3.5 w-3.5" />
-                  {t('Cerca sul web attiva')}
-                </span>
-              ) : null}
-              {libraryGenerateArtifacts ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-stone-100/80 px-3 py-1.5 text-xs font-medium text-stone-700 dark:border-stone-500/40 dark:bg-stone-700/50 dark:text-stone-200">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {t('Artefatti visuali attivi')}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
         <div className="relative">
           <form
             onSubmit={handleSubmit}
@@ -1364,10 +1421,9 @@ export default function HomeChatPanel({
                 setActiveSurface(currentValue =>
                   currentValue === 'attachment-menu' ? null : 'attachment-menu'
                 );
-                setAttachmentStep('root');
               }}
               disabled={homeChatMode === 'new-course' ? assessmentMessages.length > 0 : false}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-200/60 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300"
+              className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-colors hover:bg-gray-200/60 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300"
               title={
                 homeChatMode === 'new-course'
                   ? t('Allega un file sorgente (PDF, ZIP, testo)')
@@ -1379,6 +1435,11 @@ export default function HomeChatPanel({
               }
             >
               <Paperclip className="h-[1.1rem] w-[1.1rem]" />
+              {homeChatMode === 'library-query' && attachedContextProjectIds.size > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#b45c28] px-1 text-[0.6rem] font-semibold leading-none text-white dark:bg-[#e4a477] dark:text-stone-950">
+                  {attachedContextProjectIds.size}
+                </span>
+              ) : null}
             </button>
 
             {homeChatMode === 'library-query' ? (
@@ -1390,7 +1451,7 @@ export default function HomeChatPanel({
                     currentValue === 'tool-menu' ? null : 'tool-menu'
                   )
                 }
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
+                className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
                   libraryWebSearch || libraryGenerateArtifacts
                     ? 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-500/15 dark:text-orange-200 dark:hover:bg-orange-500/25'
                     : 'text-gray-400 hover:bg-gray-200/60 hover:text-gray-600 dark:text-zinc-500 dark:hover:bg-zinc-600/60 dark:hover:text-zinc-300'
@@ -1400,6 +1461,11 @@ export default function HomeChatPanel({
                 aria-haspopup="menu"
               >
                 <Plus className="h-[1.1rem] w-[1.1rem]" />
+                {activeLibraryToolCount > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#b45c28] px-1 text-[0.6rem] font-semibold leading-none text-white dark:bg-[#e4a477] dark:text-stone-950">
+                    {activeLibraryToolCount}
+                  </span>
+                ) : null}
               </button>
             ) : null}
 
@@ -1417,13 +1483,14 @@ export default function HomeChatPanel({
                 }
               }}
               placeholder={
-                homeChatMode === 'new-course'
+                inputPlaceholder ||
+                (homeChatMode === 'new-course'
                   ? assessmentComplete
                     ? t('Aggiungi dettagli o requisiti...')
                     : t(
                         "Descrivi l'obiettivo del corso o allega un file: cosa prepari, livello attuale, scadenza..."
                       )
-                  : t('Chiedi progressi, riassunti, note o confronti tra corsi...')
+                  : t('Chiedi progressi, riassunti, note o confronti tra corsi...'))
               }
               className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-zinc-100 dark:placeholder:text-zinc-500"
               disabled={isLoading}
@@ -1456,9 +1523,12 @@ export default function HomeChatPanel({
             activeSurface === 'tool-menu' &&
             !isMobileViewport ? (
               <div
-                className={`absolute bottom-[calc(100%+0.75rem)] z-30 w-[19rem] overflow-hidden rounded-[1.4rem] border border-gray-200 bg-white/95 p-2 shadow-[0_28px_80px_-40px_rgba(24,24,27,0.42)] backdrop-blur dark:border-zinc-600 dark:bg-stone-800/95 ${
-                  toolMenuAlign === 'end' ? 'right-0' : 'left-0'
-                }`}
+                ref={toolMenuRef}
+                className={`absolute z-30 w-[19rem] overflow-hidden rounded-[1.4rem] border border-gray-200 bg-white/95 p-2 shadow-[0_28px_80px_-40px_rgba(24,24,27,0.42)] backdrop-blur dark:border-zinc-600 dark:bg-stone-800/95 ${
+                  toolMenuVerticalPlacement === 'above'
+                    ? 'bottom-[calc(100%+0.75rem)]'
+                    : 'top-[calc(100%+0.75rem)]'
+                } ${toolMenuAlign === 'end' ? 'right-0' : 'left-0'}`}
                 role="menu"
               >
                 <button

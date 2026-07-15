@@ -33,7 +33,7 @@ const scheduleHydrationWithMicrotask = (callback: () => void) => {
 };
 
 export const loadProjectSourceFile = async (
-  context: Pick<WorkspaceControllerContext, 'domain' | 'projectLibrary'>
+  context: Pick<WorkspaceControllerContext, 'domain' | 'projectLibrary' | 'state'>
 ): Promise<FileData | null> => {
   const currentFile = context.domain.file?.data
     ? context.domain.file
@@ -50,9 +50,11 @@ export const loadProjectSourceFile = async (
 
   const loadedFile = await context.projectLibrary.loadStoredProjectSource(projectId);
   if (!loadedFile) {
+    context.state.setMissingSourceProjectId(projectId);
     return null;
   }
 
+  context.state.setMissingSourceProjectId(null);
   context.domain.setSource(attachStoredPrimarySource(source, loadedFile));
   return loadedFile;
 };

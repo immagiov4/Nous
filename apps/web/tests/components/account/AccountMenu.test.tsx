@@ -42,6 +42,19 @@ describe('AccountMenu', () => {
     clearSupabaseSession();
   });
 
+  test('offers the combined account menu from the settings row', async () => {
+    const user = userEvent.setup();
+    saveAccountSession(['email']);
+    fetchMock.mockResolvedValueOnce(accountResponse('email'));
+
+    render(<AccountMenu triggerVariant="settings" />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
+    expect(screen.getByRole('menuitem', { name: 'Account e sicurezza' })).toBeInTheDocument();
+    expect(screen.getByText('student@example.com')).toBeInTheDocument();
+  });
+
   test('keeps unused profile metadata out of the account UI', async () => {
     const user = userEvent.setup();
     saveAccountSession(['email']);

@@ -371,6 +371,14 @@ body {
   background: #71717a;
 }
 
+.new-home-filter-scroll {
+  scrollbar-width: none;
+}
+
+.new-home-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .dark .home-chat-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #a1a1aa;
 }

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { resolvePdfMappingWarning } from '../../app/pdfMappingWarning.ts';
 import { useInitialSectionAutoOpen } from '../../app/useInitialSectionAutoOpen.ts';
 import { useReaderShellProps } from '../../app/useReaderShellProps.ts';
+import { useStudyTimeTracking } from '../../hooks/library/useLearningActivity.ts';
 import { useSyncIndicator } from '../../hooks/workspace/useSyncIndicator.ts';
 import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspaceFileActions.ts';
@@ -34,6 +35,8 @@ export const ReadingScreenContainer = ({
   notify,
   screenState,
 }: ReadingScreenContainerProps) => {
+  useStudyTimeTracking();
+
   const {
     activeSection,
     activeSectionId,

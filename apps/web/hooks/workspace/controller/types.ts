@@ -158,6 +158,7 @@ export interface WorkspaceControllerStateAdapter {
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
   setGeneratingSectionId: (sectionId: string | null) => void;
+  setMissingSourceProjectId: (projectId: string | null) => void;
   setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
   setWorkflowReasoning: (
     workflowId: WorkspaceWorkflowId,

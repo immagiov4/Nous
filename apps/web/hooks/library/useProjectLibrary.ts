@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { readSupabaseSession } from '../../services/auth/supabaseAuth.ts';
 import { getErrorMessage } from '../../services/core/errorMessage.ts';
+import { ensureProjectCover } from '../../services/projects/courseCover.ts';
 import { HttpProjectRepository } from '../../services/projects/httpProjectRepository.ts';
+import { recoverLegacyAnnotations } from '../../services/projects/legacyAnnotationRecovery.ts';
 import {
   createLibraryArchiveBlob,
   getLibraryArchiveExtension,
@@ -24,6 +27,7 @@ import { markSyncError, markSyncSaved, markSyncSaving } from '../../services/pro
 import { prepareSnapshotForHydration } from '../../services/workspace/controller/snapshotHydration.ts';
 import { resolvePersistedAppState } from '../../services/workspace/persistence';
 import type {
+  FileData,
   LearningSection,
   LibraryFolder,
   LibraryPlacement,
@@ -297,6 +301,17 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
         if (pendingWriteCountRef.current === 0 && !trackedWriteBatchFailedRef.current) {
           setStorageError(null);
           lastPersistedSignatureRef.current = buildAutosaveSignature(snapshot);
+        }
+        if (!matchingMeta) {
+          void ensureProjectCover({
+            loadCover: projectId => projectRepositoryRef.current.loadProjectCover(projectId),
+            projectId: meta.id,
+            saveCover: (projectId, cover) =>
+              projectRepositoryRef.current.saveProjectCover(projectId, cover),
+            title: meta.title,
+          }).catch(error => {
+            console.warn('[Nous] Course cover generation deferred.', error);
+          });
         }
         void requestPersistentStorage();
         return meta;
@@ -866,14 +881,55 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       } finally {
         setIsLibraryLoading(false);
       }
+
+      const userId = readSupabaseSession()?.user?.id;
+      if (!userId) {
+        return;
+      }
+
+      try {
+        const recoveredCount = await recoverLegacyAnnotations({
+          isUserActive: () => readSupabaseSession()?.user?.id === userId,
+          projectMetas: savedProjectsRef.current,
+          repository: projectRepositoryRef.current,
+          userId,
+        });
+        if (recoveredCount > 0) {
+          await refreshSavedProjects();
+        }
+      } catch (error) {
+        console.warn('[Nous] Legacy annotations could not be recovered.', error);
+      }
     };
 
     void loadInitialState();
-  }, [refreshLibraryState]);
+  }, [refreshLibraryState, refreshSavedProjects]);
 
   const currentPersistenceSignature = useMemo(
     () => buildAutosaveSignature(domainState),
     [domainState]
+  );
+
+  const loadProjectsById = useCallback(
+    (ids: string[]) => projectRepositoryRef.current.loadProjectsById(ids),
+    []
+  );
+  const loadStoredProject = useCallback(
+    (projectId: string) => projectRepositoryRef.current.loadProject(projectId),
+    []
+  );
+  const loadStoredProjectCover = useCallback(
+    (projectId: string) => projectRepositoryRef.current.loadProjectCover(projectId),
+    []
+  );
+  const loadStoredProjectSource = useCallback(
+    (projectId: string) => projectRepositoryRef.current.loadProjectSource(projectId),
+    []
+  );
+  const saveStoredProjectCover = useCallback(
+    (projectId: string, cover: FileData) =>
+      projectRepositoryRef.current.saveProjectCover(projectId, cover),
+    []
   );
 
   // Autosave: full snapshot PUT — safety net for any domain change that wasn't
@@ -956,10 +1012,10 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
     libraryFolders,
     libraryPlacements,
     libraryTree,
-    loadProjectsById: (ids: string[]) => projectRepositoryRef.current.loadProjectsById(ids),
-    loadStoredProject: (projectId: string) => projectRepositoryRef.current.loadProject(projectId),
-    loadStoredProjectSource: (projectId: string) =>
-      projectRepositoryRef.current.loadProjectSource(projectId),
+    loadProjectsById,
+    loadStoredProject,
+    loadStoredProjectCover,
+    loadStoredProjectSource,
     moveFolder: async (folderId: string, parentFolderId: string | null, targetIndex?: number) => {
       const nextFolder = await projectRepositoryRef.current.moveFolder(
         folderId,
@@ -987,6 +1043,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       await refreshLibraryOrganization();
       return nextFolder;
     },
+    saveStoredProjectCover,
     saveCurrentProject,
     saveLessonArtifactNote,
     replaceLessonGeneratedVisual,

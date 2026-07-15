@@ -15,6 +15,7 @@ import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js
 import { ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import type {
+  ProjectCoverFile,
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSnapshot,
@@ -34,6 +35,9 @@ const router = Router();
 
 const PROJECT_SOURCE_KINDS = new Set(['document', 'codebase', 'learn-mode', 'imported-json']);
 const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
+const PROJECT_COVER_MAX_BYTES = 6 * 1024 * 1024;
+const PROJECT_COVER_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const BASE64_DATA_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const LIBRARY_IMPORT_DIAGNOSTIC_CODES = new Set([
   'LIBRARY_ARCHIVE_ENTRY_MISSING',
   'LIBRARY_ARCHIVE_INVALID',
@@ -190,6 +194,24 @@ const requireProjectSourceFile = (body: unknown): ProjectSourceFile => {
   };
 };
 
+const requireProjectCoverFile = (body: unknown): ProjectCoverFile => {
+  const cover = getBodyRecord(body).cover;
+  if (
+    !isRecord(cover) ||
+    typeof cover.name !== 'string' ||
+    typeof cover.mimeType !== 'string' ||
+    !PROJECT_COVER_MIME_TYPES.has(cover.mimeType) ||
+    typeof cover.data !== 'string' ||
+    !BASE64_DATA_PATTERN.test(cover.data)
+  ) {
+    throw new Error('Copertina progetto mancante o non valida.');
+  }
+  if (Buffer.from(cover.data, 'base64').byteLength > PROJECT_COVER_MAX_BYTES) {
+    throw new Error('La copertina del progetto supera la dimensione massima consentita.');
+  }
+  return { name: cover.name, mimeType: cover.mimeType, data: cover.data };
+};
+
 router.get('/config', (req: Request, res: Response) => {
   try {
     const currentUser = getCurrentUser(req);
@@ -271,6 +293,31 @@ router.get('/projects/:id/source', async (req: Request, res: Response) => {
     res.json({ success: true, source });
   } catch (error) {
     sendErrorResponse(res, 500, error, 'Failed to load project source');
+  }
+});
+
+router.get('/projects/:id/cover', async (req: Request, res: Response) => {
+  try {
+    const cover = await getProjectStore().loadProjectCover(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id)
+    );
+    res.json({ success: true, cover });
+  } catch (error) {
+    sendErrorResponse(res, 500, error, 'Failed to load project cover');
+  }
+});
+
+router.post('/projects/:id/cover', async (req: Request, res: Response) => {
+  try {
+    await getProjectStore().saveProjectCover(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id),
+      requireProjectCoverFile(req.body)
+    );
+    res.json({ success: true });
+  } catch (error) {
+    sendErrorResponse(res, 400, error, 'Failed to save project cover');
   }
 });
 

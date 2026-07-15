@@ -19,6 +19,7 @@ export const useWorkspaceControllerState = () => {
     createWorkspaceWorkflowState
   );
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
+  const [missingSourceProjectId, setMissingSourceProjectId] = useState<string | null>(null);
 
   const assessmentMessagesRef = useRef(assessmentMessages);
   const chatSessionRef = useRef(chatSession);
@@ -102,6 +103,7 @@ export const useWorkspaceControllerState = () => {
         chatSessionRef.current = null;
         openingProjectIdRef.current = null;
         setOpeningProjectId(null);
+        setMissingSourceProjectId(null);
       },
       setAssessmentMessages: nextMessages => {
         setAssessmentMessages(currentMessages => {
@@ -122,6 +124,7 @@ export const useWorkspaceControllerState = () => {
         openingProjectIdRef.current = projectId;
         setOpeningProjectId(projectId);
       },
+      setMissingSourceProjectId,
       setScreenState,
       setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => {
         const currentState = workflowStateRef.current;
@@ -195,6 +198,7 @@ export const useWorkspaceControllerState = () => {
       },
     } satisfies WorkspaceControllerStateAdapter,
     generatingSectionId,
+    missingSourceProjectId,
     workflowState,
   };
 };

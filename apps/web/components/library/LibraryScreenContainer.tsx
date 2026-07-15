@@ -8,6 +8,7 @@ import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspace
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
+import { NewHomeView } from '../newHome/NewHomeView.tsx';
 import LibraryView from './LibraryView.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
@@ -32,6 +33,12 @@ interface LibraryScreenContainerProps {
   }) => Promise<boolean>;
 }
 
+const isNewHomePath = (pathname: string): boolean =>
+  pathname === '/' ||
+  pathname === '/library' ||
+  pathname.startsWith('/newhome') ||
+  pathname.startsWith('/library/');
+
 export const LibraryScreenContainer = ({
   controller,
   readerState,
@@ -43,7 +50,11 @@ export const LibraryScreenContainer = ({
   requestConfirmation,
 }: LibraryScreenContainerProps) => {
   const [assessmentComplete, setAssessmentComplete] = useState(false);
-  const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>('new-course');
+  const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>(() =>
+    typeof window !== 'undefined' && isNewHomePath(window.location.pathname)
+      ? 'library-query'
+      : 'new-course'
+  );
   const [pendingHomeSourceFiles, setPendingHomeSourceFiles] = useState<File[]>([]);
 
   const {
@@ -113,6 +124,87 @@ export const LibraryScreenContainer = ({
     }
   };
 
+  const isNewHomeRoute = typeof window !== 'undefined' && isNewHomePath(window.location.pathname);
+
+  if (isNewHomeRoute) {
+    return (
+      <NewHomeView
+        chatProps={{
+          assessmentComplete,
+          assessmentMessages,
+          homeChatMode,
+          isDarkMode: readerState.readerChrome.isDarkMode,
+          isLibraryLoading,
+          isLibraryModeLoading: libraryAssistantChat.isLoading,
+          isNewCourseLoading: controller.workflowState.assessment.status === 'pending',
+          libraryAttachedContextRefs: libraryAssistantChat.attachedContextRefs,
+          libraryArtifactPayloadsByToolCallId: libraryAssistantChat.artifactPayloadsByToolCallId,
+          libraryFloatingArtifactPayloads: libraryAssistantChat.replacementDraftPayloads,
+          libraryErrorMessage: libraryAssistantChat.error?.message || null,
+          libraryMessages: libraryAssistantChat.messages,
+          libraryTree: projectLibrary.libraryTree,
+          libraryWebSearch: libraryAssistantChat.webSearch,
+          libraryGenerateArtifacts: libraryAssistantChat.generateArtifacts,
+          newCourseLoadingStatus:
+            controller.workflowState.assessment.message || t('Caricamento...'),
+          pendingFileName: pendingHomeSourceFiles[0]?.name || null,
+          pendingFileNames: pendingHomeSourceFiles.map(file => file.name),
+          onClearPendingFile: () => setPendingHomeSourceFiles([]),
+          onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
+          onContinueAssessment: () => setAssessmentComplete(false),
+          onConfirmGenerate: handleConfirmGenerate,
+          onHomeChatModeChange: setHomeChatMode,
+          onLibraryMessageSend: libraryAssistantChat.sendLibraryMessage,
+          onLibraryArtifactNoteApprove: libraryAssistantChat.approveLearningArtifactNoteSave,
+          onLibraryArtifactNoteReject: libraryAssistantChat.rejectLearningArtifactNoteSave,
+          onLibraryArtifactDiscard: libraryAssistantChat.discardLearningArtifact,
+          onLibraryArtifactRegenerate: libraryAssistantChat.regenerateLearningArtifact,
+          onLibraryArtifactReplace: libraryAssistantChat.replaceLearningArtifact,
+          onLibraryWebSearchChange: libraryAssistantChat.setWebSearch,
+          onLibraryGenerateArtifactsChange: libraryAssistantChat.setGenerateArtifacts,
+          onSendAssessmentMessage: handleNewCourseMessage,
+          onToggleLibraryContextRef: libraryAssistantChat.toggleAttachedContextRef,
+          onUploadSourceClick: fileActions.handleUploadSourceClick,
+        }}
+        isDarkMode={readerState.readerChrome.isDarkMode}
+        isLibraryLoading={isLibraryLoading}
+        libraryFolders={projectLibrary.libraryFolders}
+        libraryTree={projectLibrary.libraryTree}
+        loadProjectCover={projectLibrary.loadStoredProjectCover}
+        loadProjectSource={projectLibrary.loadStoredProjectSource}
+        loadProjectsById={projectLibrary.loadProjectsById}
+        onCreateFolder={projectLibrary.createFolder}
+        onConfirmDeleteFolder={folderName =>
+          requestConfirmation({
+            title: t('Eliminare cartella'),
+            message: t(
+              'Eliminare la cartella "{folderName}"? I corsi e le sottocartelle verranno riportati al livello superiore.',
+              { folderName }
+            ),
+            confirmLabel: t('Elimina'),
+          })
+        }
+        onDeleteFolder={projectLibrary.deleteFolder}
+        onDeleteProject={fileActions.handleDeleteProject}
+        onExportLibraryBackup={projectLibrary.downloadLibraryBackup}
+        onExportProject={projectId => {
+          void fileActions.handleExportProject(projectId);
+        }}
+        onImportLibraryBackup={projectLibrary.importLibraryBackup}
+        onOpenProject={projectId => {
+          void navigation.handleOpenProject(projectId, { source: 'library' });
+        }}
+        openingProjectId={openingProjectId}
+        onRenameFolder={projectLibrary.renameFolder}
+        onToggleDarkMode={() =>
+          readerState.readerChrome.setIsDarkMode(!readerState.readerChrome.isDarkMode)
+        }
+        projects={savedProjects}
+        saveProjectCover={projectLibrary.saveStoredProjectCover}
+      />
+    );
+  }
+
   return (
     <LibraryView
       assessmentComplete={assessmentComplete}
@@ -179,7 +271,6 @@ export const LibraryScreenContainer = ({
       onPlanUpload={event => {
         void fileActions.handlePlanUpload(event);
       }}
-      onRemoveLibraryContextRef={libraryAssistantChat.removeAttachedContextRef}
       onRenameFolder={projectLibrary.renameFolder}
       onSendAssessmentMessage={handleNewCourseMessage}
       onSourceFileUpload={handleHomeSourceFileUpload}

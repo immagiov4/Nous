@@ -1,6 +1,9 @@
 export type DemoStage = 'plan' | 'generation' | 'lesson' | 'library';
 
 export const DEMO_FPS = 30;
+export const DEMO_WIDTH = 1200;
+export const DEMO_HEIGHT = 800;
+export const DEMO_ASPECT_RATIO = `${DEMO_WIDTH} / ${DEMO_HEIGHT}`;
 export const DEFAULT_DEMO_DURATION_IN_FRAMES = 240;
 export const LESSON_DEMO_DURATION_IN_FRAMES = 1650;
 export const LIBRARY_DEMO_DURATION_IN_FRAMES = 660;

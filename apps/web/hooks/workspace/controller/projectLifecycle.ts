@@ -26,7 +26,11 @@ import {
   type LessonNode,
   type ProjectSource,
 } from '../../../types.ts';
-import { prepareUploadedCourseSource, readSourceFileData } from './controllerContext.ts';
+import {
+  loadProjectSourceFile,
+  prepareUploadedCourseSource,
+  readSourceFileData,
+} from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -475,7 +479,7 @@ export const createProjectLifecycleCommands = (
             const sourceFile =
               nextSnapshotFile ??
               (preparedSnapshot.source?.kind === 'pdf'
-                ? await projectLibrary.loadStoredProjectSource(projectId)
+                ? await loadProjectSourceFile(context)
                 : null);
             await openSection(nextSection, {
               allowWhileBlocking: true,

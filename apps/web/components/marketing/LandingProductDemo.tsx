@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAppLocale } from '../../i18n/uiMessages.ts';
-import { DEMO_STAGE_SEGMENTS, type DemoStage } from './landingDemoTimeline.ts';
+import { DEMO_ASPECT_RATIO, DEMO_STAGE_SEGMENTS, type DemoStage } from './landingDemoTimeline.ts';
 
 export type { DemoStage } from './landingDemoTimeline.ts';
 
@@ -109,7 +109,7 @@ export default function LandingProductDemo({
       aria-hidden="true"
       inert
       style={{
-        aspectRatio: '1200 / 800',
+        aspectRatio: DEMO_ASPECT_RATIO,
         position: 'relative',
       }}
     >

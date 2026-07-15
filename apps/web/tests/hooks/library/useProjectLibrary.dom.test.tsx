@@ -21,6 +21,7 @@ const repositoryMocks = vi.hoisted(() => ({
   listPlacements: vi.fn(),
   listProjects: vi.fn(),
   loadProject: vi.fn(),
+  loadProjectCover: vi.fn(),
   loadProjectSource: vi.fn(),
   loadProjectsById: vi.fn(),
   moveFolder: vi.fn(),
@@ -28,6 +29,7 @@ const repositoryMocks = vi.hoisted(() => ({
   patchProject: vi.fn(),
   renameFolder: vi.fn(),
   saveProject: vi.fn(),
+  saveProjectCover: vi.fn(),
   subscribeToProjectRevisions: vi.fn(),
   touchProject: vi.fn(),
 }));
@@ -102,12 +104,14 @@ describe('useProjectLibrary', () => {
     repositoryMocks.listPlacements.mockReset();
     repositoryMocks.listProjects.mockReset();
     repositoryMocks.loadProject.mockReset();
+    repositoryMocks.loadProjectCover.mockReset();
     repositoryMocks.loadProjectSource.mockReset();
     repositoryMocks.loadProjectsById.mockReset();
     repositoryMocks.moveFolder.mockReset();
     repositoryMocks.moveProjects.mockReset();
     repositoryMocks.renameFolder.mockReset();
     repositoryMocks.saveProject.mockReset();
+    repositoryMocks.saveProjectCover.mockReset();
     repositoryMocks.patchProject.mockReset();
     repositoryMocks.subscribeToProjectRevisions.mockReset();
     repositoryMocks.touchProject.mockReset();
@@ -164,6 +168,32 @@ describe('useProjectLibrary', () => {
     await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
 
     expect(result.current.savedProjects.map(project => project.id)).toEqual(['newer', 'older']);
+  });
+
+  test('keeps snapshot and source loaders stable across workspace rerenders', async () => {
+    const { rerender, result } = renderHook(
+      ({ domainState }: { domainState: WorkspaceDomainState }) =>
+        useProjectLibrary({ domainState, hydrateSnapshot: vi.fn() }),
+      { initialProps: { domainState: createEmptyWorkspaceDomainState() } }
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    const initialLoaders = {
+      loadProjectsById: result.current.loadProjectsById,
+      loadStoredProject: result.current.loadStoredProject,
+      loadStoredProjectCover: result.current.loadStoredProjectCover,
+      loadStoredProjectSource: result.current.loadStoredProjectSource,
+      saveStoredProjectCover: result.current.saveStoredProjectCover,
+    };
+
+    rerender({ domainState: createEmptyWorkspaceDomainState() });
+
+    expect({
+      loadProjectsById: result.current.loadProjectsById,
+      loadStoredProject: result.current.loadStoredProject,
+      loadStoredProjectCover: result.current.loadStoredProjectCover,
+      loadStoredProjectSource: result.current.loadStoredProjectSource,
+      saveStoredProjectCover: result.current.saveStoredProjectCover,
+    }).toEqual(initialLoaders);
   });
 
   test('imports folders and placements from a complete library backup', async () => {

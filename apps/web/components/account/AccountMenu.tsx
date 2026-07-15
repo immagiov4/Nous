@@ -3,6 +3,7 @@ import {
   Download,
   KeyRound,
   LogOut,
+  Settings,
   ShieldCheck,
   Upload,
   UserRound,
@@ -412,11 +413,15 @@ const AccountPanel = ({
 interface AccountMenuProps {
   onExportLibraryBackup?: () => Promise<number>;
   onImportLibraryBackup?: (file: File) => Promise<number>;
+  triggerText?: string;
+  triggerVariant?: 'avatar' | 'settings';
 }
 
 export default function AccountMenu({
   onExportLibraryBackup,
   onImportLibraryBackup,
+  triggerText,
+  triggerVariant = 'avatar',
 }: AccountMenuProps = {}) {
   const [account, setAccount] = useState<SupabaseAccount | null>(
     () => readSupabaseSession()?.user || null
@@ -524,9 +529,24 @@ export default function AccountMenu({
           setMenuError('');
           setIsMenuOpen(current => !current);
         }}
-        className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-gray-300 bg-white text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-950 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-300 dark:hover:border-zinc-400 dark:hover:text-white"
+        className={
+          triggerVariant === 'settings'
+            ? 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-stone-600 transition-colors hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-white/5'
+            : 'inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-gray-300 bg-white text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-950 dark:border-zinc-500/60 dark:bg-paper-surface dark:text-zinc-300 dark:hover:border-zinc-400 dark:hover:text-white'
+        }
       >
-        <UserRound className="h-5 w-5" />
+        {triggerVariant === 'settings' ? (
+          <>
+            <Settings className="h-4 w-4" />
+            {t('Impostazioni')}
+          </>
+        ) : triggerText ? (
+          <span className="text-sm font-semibold" aria-hidden="true">
+            {triggerText}
+          </span>
+        ) : (
+          <UserRound className="h-5 w-5" />
+        )}
       </button>
 
       {isMenuOpen ? (
@@ -540,7 +560,9 @@ export default function AccountMenu({
           <div
             role="menu"
             aria-label={t('Menu account')}
-            className="absolute right-0 top-12 z-[80] w-64 overflow-hidden rounded-2xl border border-gray-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            className={`absolute z-[80] w-64 overflow-hidden rounded-2xl border border-gray-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 ${
+              triggerVariant === 'settings' ? 'bottom-12 left-0' : 'right-0 top-12'
+            }`}
           >
             <div className="border-b border-gray-100 px-3 py-2.5 dark:border-zinc-800">
               <p className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100">

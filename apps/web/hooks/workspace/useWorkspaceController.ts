@@ -40,6 +40,12 @@ export const useWorkspaceController = ({
     isBlocking: selectIsBlocking(controllerState.workflowState),
     isContextBusy: selectIsContextBusy(controllerState.workflowState),
     isLibraryLoading: projectLibrary.isLibraryLoading,
+    needsSourceFile:
+      domain.needsSourceFile ||
+      Boolean(
+        controllerState.missingSourceProjectId &&
+          controllerState.missingSourceProjectId === projectLibrary.currentProjectId
+      ),
     openingProjectId: controllerState.openingProjectId,
     patchSectionLessonContent: projectLibrary.patchSectionLessonContent,
     patchSectionAnnotations: projectLibrary.patchSectionAnnotations,

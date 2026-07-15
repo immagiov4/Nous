@@ -20,6 +20,7 @@ import {
 import type {
   LibraryFolder,
   LibraryPlacement,
+  ProjectCoverFile,
   ProjectExportData,
   ProjectId,
   ProjectPatch,
@@ -52,6 +53,7 @@ const toEpochMillis = (value: string | undefined): number => {
 export class InMemoryProjectStore implements ProjectStore {
   private readonly projectsByUser = new Map<string, Map<ProjectId, ProjectRecord>>();
   private readonly sourcesByUser = new Map<string, Map<ProjectId, ProjectSourceFile>>();
+  private readonly coversByUser = new Map<string, Map<ProjectId, ProjectCoverFile>>();
   private readonly foldersByUser = new Map<string, Map<string, LibraryFolder>>();
   private readonly placementsByUser = new Map<string, Map<ProjectId, LibraryPlacement>>();
 
@@ -89,6 +91,15 @@ export class InMemoryProjectStore implements ProjectStore {
   async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {
     const source = this.getSources(userId).get(id);
     return source ? clone(source) : null;
+  }
+
+  async loadProjectCover(userId: string, id: ProjectId): Promise<ProjectCoverFile | null> {
+    const cover = this.getCovers(userId).get(id);
+    return cover ? clone(cover) : null;
+  }
+
+  async saveProjectCover(userId: string, id: ProjectId, cover: ProjectCoverFile): Promise<void> {
+    this.getCovers(userId).set(id, clone(cover));
   }
 
   async saveProjectSource(
@@ -172,6 +183,7 @@ export class InMemoryProjectStore implements ProjectStore {
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
     this.getProjects(userId).delete(id);
     this.getSources(userId).delete(id);
+    this.getCovers(userId).delete(id);
     this.getPlacements(userId).delete(id);
   }
 
@@ -442,6 +454,10 @@ export class InMemoryProjectStore implements ProjectStore {
 
   private getSources(userId: string): Map<ProjectId, ProjectSourceFile> {
     return this.getUserMap(this.sourcesByUser, userId);
+  }
+
+  private getCovers(userId: string): Map<ProjectId, ProjectCoverFile> {
+    return this.getUserMap(this.coversByUser, userId);
   }
 
   private getFolders(userId: string): Map<string, LibraryFolder> {

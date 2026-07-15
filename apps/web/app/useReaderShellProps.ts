@@ -199,6 +199,7 @@ export const useReaderShellProps = ({
           void handleExportProject();
         },
         pdfMappingWarning,
+        sourceKind: controller.source?.kind,
         storageError: controller.storageError,
       },
       content: {
@@ -377,6 +378,7 @@ export const useReaderShellProps = ({
       controller.quiz,
       controller.researchDossiersBySectionId,
       controller.sectionContent,
+      controller.source,
       controller.setGenerationNotes,
       controller.setMusicUrl,
       controller.storageError,

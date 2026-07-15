@@ -79,6 +79,8 @@ export interface ProjectSourceFile {
   name: string;
 }
 
+export type ProjectCoverFile = ProjectSourceFile;
+
 export interface ProjectSourceRef {
   byteSize: number;
   hash: string;
@@ -103,6 +105,7 @@ export interface ProjectStore {
   listPlacements: (userId: string) => Promise<LibraryPlacement[]>;
   listProjects: (userId: string) => Promise<SavedProjectMeta[]>;
   loadProject: (userId: string, id: ProjectId) => Promise<ProjectSnapshot | null>;
+  loadProjectCover: (userId: string, id: ProjectId) => Promise<ProjectCoverFile | null>;
   loadProjectSource: (userId: string, id: ProjectId) => Promise<ProjectSourceFile | null>;
   loadProjectsById: (userId: string, ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
   moveFolder: (
@@ -123,6 +126,7 @@ export interface ProjectStore {
     snapshot: ProjectSnapshot,
     options?: ProjectWriteOptions
   ) => Promise<SavedProjectMeta>;
+  saveProjectCover: (userId: string, id: ProjectId, cover: ProjectCoverFile) => Promise<void>;
   saveProjectSource: (
     userId: string,
     id: ProjectId,

@@ -116,6 +116,7 @@ export interface WorkspaceReaderBannersModel {
   onAttachSourceFile: () => void;
   onBackToLibrary: () => void;
   onExportProject: () => void;
+  sourceKind?: ProjectSource['kind'];
   storageError: string | null;
 }
 

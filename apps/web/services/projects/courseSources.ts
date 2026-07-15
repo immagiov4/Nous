@@ -271,6 +271,23 @@ export const getCourseSourceDescriptors = (
   if (source.sources?.length) {
     return normalizeCourseSourceOrder(source.sources);
   }
+  if (source.kind === 'pdf') {
+    const [descriptor] = buildCourseSourceDescriptors([source.file]);
+    if (!descriptor) {
+      return [];
+    }
+    if (!source.ref) {
+      return [descriptor];
+    }
+    return [
+      {
+        ...descriptor,
+        file: { ...descriptor.file, sourceId: source.ref.id },
+        hash: source.ref.hash,
+        id: source.ref.id,
+      },
+    ];
+  }
   const legacyFile = getProjectSourceFile(source);
   return legacyFile ? buildCourseSourceDescriptors([legacyFile]) : [];
 };

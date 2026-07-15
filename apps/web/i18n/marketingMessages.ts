@@ -3,8 +3,6 @@ import { getAppLocale, translateUiMessage, type UiMessage } from './uiMessages.t
 const ENGLISH_MARKETING_MESSAGES = {
   'IL CORSO CHE MANCAVA AI TUOI MATERIALI': 'THE COURSE YOUR MATERIALS WERE MISSING',
   'Un corso intero. Un passo alla volta.': 'A whole course. One step at a time.',
-  'Slide sopravvissute a tre versioni di PowerPoint? Un libro che spiega tutto, tranne quello che chiederà all’esame?':
-    'Slides that survived three versions of PowerPoint? A book that explains everything except what will be on the exam?',
   'Carica un PDF o un archivio di materiali. Nous costruisce lezioni leggibili, domande, note e audio, sempre dal punto in cui eri rimasto.':
     'Upload a PDF or an archive of materials. Nous builds readable lessons, questions, notes, and audio, always from where you left off.',
   'Carica un PDF o un archivio di materiali. Nous prepara lezioni, domande ed esercizi per te.':
@@ -17,21 +15,13 @@ const ENGLISH_MARKETING_MESSAGES = {
   'Richiedi accesso all’anteprima': 'Request access to the preview',
   'Accesso all’anteprima': 'Preview access',
   'Sei già tester? Usa Accedi in alto.': 'Already a tester? Use Sign in above.',
-  'Materiali di studio disordinati': 'Disorganized study materials',
-  'Architetture di rete': 'Network architectures',
-  'Psicologia cognitiva': 'Cognitive psychology',
-  'attenzione · memoria · apprendimento': 'attention · memory · learning',
-  'psicologia_cognitiva.pdf': 'cognitive_psychology.pdf',
-  'Psicologia · 640 pagine': 'Psychology · 640 pages',
-  'dispense_finale_v7.pdf': 'course_notes_final_v7.pdf',
-  '“Importante per l’esame”': '“Important for the exam”',
-  'Libro · 684 pagine': 'Book · 684 pages',
+  'Materiali di studio trasformati in un corso su tablet':
+    'Study materials transformed into a course on a tablet',
   'Il tuo corso': 'Your course',
   'Reti e Internet': 'Networks and the Internet',
   '2 lezioni completate · riprendi dalla 3': '2 lessons complete · resume from 3',
   'Il materiale non dovrebbe essere un secondo esame.':
     'The material should not feel like a second exam.',
-  '— Giovanni, creatore di Nous': '— Giovanni, creator of Nous',
   'Finalmente il materiale diventa studiabile.':
     'Finally, the material becomes something you can study.',
   'Non sei tu che devi ricostruire il filo tra slide, libro, appunti e cinque chat diverse.':
@@ -40,30 +30,31 @@ const ENGLISH_MARKETING_MESSAGES = {
   'Scorri. Guarda il materiale diventare studiabile.':
     'Scroll. Watch the material become something you can study.',
   'Metti tutto sul tavolo.': 'Put everything on the table.',
-  'Carica il PDF del corso oppure uno ZIP con più file. Nous parte dal materiale che devi davvero studiare.':
-    'Upload the course PDF or a ZIP containing multiple files. Nous starts from the material you actually have to study.',
+  'Carica il PDF del corso oppure uno ZIP con più file. Nous parte dal materiale sopravvissuto a sei versioni di PowerPoint.':
+    'Upload the course PDF or a ZIP containing multiple files. Nous starts from material that has survived six versions of PowerPoint.',
   'PDF, testi e archivi ZIP': 'PDFs, text files, and ZIP archives',
-  'Le fonti restano collegate al corso': 'Sources stay connected to the course',
+  'Le fonti originali restano consultabili': 'The original sources remain available',
   'Il libro, le slide vecchie, le dispense del corso. Non devi scegliere una fonte perfetta: Nous parte da quello che devi davvero studiare.':
     'The book, the old slides, the course notes. You do not need to choose one perfect source: Nous starts from what you actually have to study.',
-  'Nous ricostruisce il filo.': 'Nous reconstructs the thread.',
+  'Nous organizza il corso.': 'Nous organizes the course.',
   'Prima prepara il piano. Poi genera una lezione alla volta, abbastanza chiara da farti orientare senza riscrivere il libro.':
     'First it prepares the plan. Then it generates one lesson at a time, clear enough to guide you without rewriting the book.',
   'Moduli, lezioni e attività': 'Modules, lessons, and activities',
   'Il progresso viene salvato': 'Progress is saved',
   'Prima crea il piano. Poi trasforma le fonti in moduli e lezioni che spiegano abbastanza da permetterti di orientarti nell’argomento.':
     'First it creates the plan. Then it turns the sources into modules and lessons that explain enough for you to find your way through the subject.',
-  'Studi senza uscire dal contesto.': 'Study without leaving the context.',
-  'Se un passaggio non è chiaro, chiedi lì. La risposta conosce la lezione e le fonti: niente copia e incolla in un’altra chat.':
-    'If a passage is unclear, ask right there. The answer knows the lesson and its sources: no copying and pasting into another chat.',
-  'Salva note, esempi e sottolezioni': 'Save notes, examples, and follow-up lessons',
+  'Chiedi mentre studi.': 'Ask while you study.',
+  'Se un passaggio non è chiaro, chiedi lì. La risposta conosce la lezione e le fonti, e può creare immagini, schemi, grafici ed esempi interattivi da salvare nelle note.':
+    'If a passage is unclear, ask right there. The answer knows the lesson and its sources, and can create images, diagrams, charts, and interactive examples to save in your notes.',
+  'Salva note, immagini ed esempi': 'Save notes, images, and examples',
   'Se un passaggio non è chiaro, chiedi lì. Puoi salvare una nota, ottenere un esempio visivo o aprire una sottolezione senza ricominciare da zero in un’altra chat.':
     'If a passage is unclear, ask right there. Save a note, get a visual example, or open a follow-up lesson without starting over in another chat.',
-  'Chiudi. Torna. Riparti da lì.': 'Close it. Come back. Pick up there.',
-  'Lezioni, evidenziazioni e note restano insieme. Puoi riprendere dal computer o dal telefono, leggendo oppure ascoltando.':
-    'Lessons, highlights, and notes stay together. Continue on your computer or phone, reading or listening.',
+  'Un assistente per tutto il corso.': 'One assistant for the whole course.',
+  'Dalla home puoi fare domande su tutto il corso, preparare il ripasso per l’esame e creare flashcard da ciò che hai studiato.':
+    'From the home page, you can ask questions about the whole course, prepare for the exam, and create flashcards from what you studied.',
   'Testo, audio e musica per concentrarti': 'Text, audio, and music to help you focus',
-  'Tutto disponibile sui tuoi dispositivi': 'Everything available across your devices',
+  'Ripassi, flashcard e domande su tutto il corso':
+    'Reviews, flashcards, and questions about the whole course',
   'Progressi, evidenziazioni, note e lezioni restano insieme. Dal computer o dal telefono, il prossimo passo è già pronto.':
     'Progress, highlights, notes, and lessons stay together. On your computer or phone, the next step is already ready.',
   'Un solo posto per studiare': 'One place to study',
@@ -114,25 +105,25 @@ export const MARKETING_JOURNEY_COPY = [
     number: '01',
     title: 'Metti tutto sul tavolo.',
     description:
-      'Carica il PDF del corso oppure uno ZIP con più file. Nous parte dal materiale che devi davvero studiare.',
+      'Carica il PDF del corso oppure uno ZIP con più file. Nous parte dal materiale sopravvissuto a sei versioni di PowerPoint.',
   },
   {
     number: '02',
-    title: 'Nous ricostruisce il filo.',
+    title: 'Nous organizza il corso.',
     description:
       'Prima prepara il piano. Poi genera una lezione alla volta, abbastanza chiara da farti orientare senza riscrivere il libro.',
   },
   {
     number: '03',
-    title: 'Studi senza uscire dal contesto.',
+    title: 'Chiedi mentre studi.',
     description:
-      'Se un passaggio non è chiaro, chiedi lì. La risposta conosce la lezione e le fonti: niente copia e incolla in un’altra chat.',
+      'Se un passaggio non è chiaro, chiedi lì. La risposta conosce la lezione e le fonti, e può creare immagini, schemi, grafici ed esempi interattivi da salvare nelle note.',
   },
   {
     number: '04',
-    title: 'Chiudi. Torna. Riparti da lì.',
+    title: 'Un assistente per tutto il corso.',
     description:
-      'Lezioni, evidenziazioni e note restano insieme. Puoi riprendere dal computer o dal telefono, leggendo oppure ascoltando.',
+      'Dalla home puoi fare domande su tutto il corso, preparare il ripasso per l’esame e creare flashcard da ciò che hai studiato.',
   },
 ] as const;
 

@@ -4,10 +4,8 @@ import './landingDemos.tailwind.generated.css';
 import '../styles/app.css';
 import '../components/marketing/marketing.css';
 import {
-  DEMO_HEIGHT,
   DEMO_MOBILE_HEIGHT,
   DEMO_MOBILE_WIDTH,
-  DEMO_WIDTH,
   LandingProductVideoFrame,
   type LandingProductVideoFrameProps,
 } from '../components/marketing/LandingProductComposition.tsx';
@@ -16,8 +14,10 @@ import LandingProductJourney, {
 } from '../components/marketing/LandingProductJourney.tsx';
 import {
   DEMO_FPS,
+  DEMO_HEIGHT,
   DEMO_JOURNEY_DURATION_IN_FRAMES,
   DEMO_STAGE_CONFIG,
+  DEMO_WIDTH,
 } from '../components/marketing/landingDemoTimeline.ts';
 
 const LOCALES = ['it', 'en'] as const;

@@ -436,6 +436,7 @@ const createStateAdapter = () => {
     assessmentMessages: [] as Message[],
     chatSession: null as WorkspaceChatSession | null,
     generatingSectionId: null as string | null,
+    missingSourceProjectId: null as string | null,
     openingProjectId: null as string | null,
     screenState: AppState.LIBRARY as AppState,
     workflowState: createWorkspaceWorkflowState(),
@@ -486,6 +487,7 @@ const createStateAdapter = () => {
       internalState.assessmentMessages = [];
       internalState.chatSession = null;
       internalState.openingProjectId = null;
+      internalState.missingSourceProjectId = null;
     },
     setAssessmentMessages: nextMessages => {
       internalState.assessmentMessages =
@@ -501,6 +503,9 @@ const createStateAdapter = () => {
     },
     setOpeningProjectId: projectId => {
       internalState.openingProjectId = projectId;
+    },
+    setMissingSourceProjectId: projectId => {
+      internalState.missingSourceProjectId = projectId;
     },
     setScreenState: screenState => {
       internalState.screenState = screenState;
@@ -1423,6 +1428,7 @@ test('handleSourceUpload reattach clears transient session state and invalidates
     sendMessage: async () => ({ text: 'unused' }),
   };
   state.internalState.openingProjectId = 'project-opening';
+  state.internalState.missingSourceProjectId = 'project-reattach';
   const staleLoadSectionRequestId = state.adapter.beginWorkflow(
     'loadSection',
     'Analisi contenuti...'
@@ -1439,6 +1445,7 @@ test('handleSourceUpload reattach clears transient session state and invalidates
   assert.deepEqual(state.internalState.assessmentMessages, []);
   assert.equal(state.internalState.chatSession, null);
   assert.equal(state.internalState.openingProjectId, null);
+  assert.equal(state.internalState.missingSourceProjectId, null);
   assert.equal(state.internalState.workflowState.loadSection.status, 'idle');
   assert.equal(state.adapter.isWorkflowCurrent('loadSection', staleLoadSectionRequestId), false);
   assert.equal(state.internalState.workflowState.attachSource.status, 'succeeded');
@@ -1965,6 +1972,70 @@ test('openSection downloads detached PDF bytes only when an uncached lesson need
   assert.equal(outcome, 'loaded');
   assert.equal(sourceLoadCalls, 1);
   assert.deepEqual(generatedWithFile, pdfFile);
+});
+
+test('openSection reports a detached PDF whose stored bytes are missing without starting generation', async () => {
+  const uncachedPlan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-missing-source',
+        title: 'Lezione senza fonte',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+      },
+    ],
+  });
+  const detachedSource = {
+    kind: 'pdf' as const,
+    file: {
+      name: pdfFile.name,
+      mimeType: pdfFile.mimeType,
+      data: '',
+    },
+    ref: {
+      id: 'source-missing',
+      hash: 'hash-missing',
+      byteSize: 4,
+      name: pdfFile.name,
+      mimeType: pdfFile.mimeType,
+    },
+  };
+  let generationCalls = 0;
+  const { controller, state } = createControllerHarness({
+    domain: {
+      file: null,
+      learningPlan: uncachedPlan,
+      source: detachedSource,
+      domainState: {
+        source: detachedSource,
+        learningPlan: uncachedPlan,
+        documentAssets: null,
+        documentIndex: null,
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: null,
+      },
+    },
+    projectLibrary: {
+      currentProjectId: 'project-missing-source',
+      loadStoredProjectSource: async () => null,
+    },
+    openRouter: {
+      generateSectionContent: async () => {
+        generationCalls += 1;
+        throw new Error('Generation must not start without the PDF source.');
+      },
+    },
+  });
+
+  const outcome = await controller.openSection(getLessons(uncachedPlan)[0]);
+
+  assert.equal(outcome, 'blocked-missing-source');
+  assert.equal(generationCalls, 0);
+  assert.equal(state.internalState.generatingSectionId, null);
+  assert.equal(state.internalState.missingSourceProjectId, 'project-missing-source');
 });
 
 test('openSection generates and caches research dossiers for research-backed learn lessons', async () => {

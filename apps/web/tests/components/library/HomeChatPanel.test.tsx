@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UIMessage } from 'ai';
+import { useState } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import HomeChatPanel from '../../../components/library/HomeChatPanel.tsx';
 import type {
   LearningArtifactRenderPayload,
@@ -150,6 +152,19 @@ const setViewportWidth = (width: number) => {
   window.dispatchEvent(new Event('resize'));
 };
 
+const createDomRect = (top: number, height: number): DOMRect =>
+  ({
+    bottom: top + height,
+    height,
+    left: 0,
+    right: 40,
+    top,
+    width: 40,
+    x: 0,
+    y: top,
+    toJSON: () => ({}),
+  }) as DOMRect;
+
 const buildProps = () => ({
   assessmentComplete: false,
   assessmentMessages: [{ role: 'model' as const, text: 'Messaggio assessment' }],
@@ -173,7 +188,6 @@ const buildProps = () => ({
   onLibraryMessageSend: vi.fn(async () => {}),
   onLibraryWebSearchChange: vi.fn(),
   onLibraryGenerateArtifactsChange: vi.fn(),
-  onRemoveLibraryContextRef: vi.fn(),
   onSendAssessmentMessage: vi.fn(async () => {}),
   onToggleLibraryContextRef: vi.fn(),
   onUploadSourceClick: vi.fn(),
@@ -294,6 +308,41 @@ describe('HomeChatPanel', () => {
     );
   });
 
+  test('replaces the current draft and selects the editable course name', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      assessmentMessages: [],
+      homeChatMode: 'library-query' as const,
+    };
+    const { rerender } = render(<HomeChatPanel {...props} compactWhenEmpty />);
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    await user.type(input, 'Testo precedente da sostituire');
+
+    rerender(
+      <HomeChatPanel
+        key="review-1"
+        {...props}
+        compactWhenEmpty
+        draftTemplate={{
+          id: 'review-1',
+          mode: 'library-query',
+          selection: { start: 29, end: 44 },
+          value: 'Aiutami a ripassare il corso nome del corso, partendo dalle mie note.',
+        }}
+      />
+    );
+
+    await waitFor(() => {
+      const templatedInput = screen.getByRole('textbox') as HTMLInputElement;
+      expect(templatedInput).toHaveValue(
+        'Aiutami a ripassare il corso nome del corso, partendo dalle mie note.'
+      );
+      expect(templatedInput.selectionStart).toBe(29);
+      expect(templatedInput.selectionEnd).toBe(44);
+    });
+  });
+
   test('opens a mobile attachment sheet in library mode and lets the user select context', async () => {
     setViewportWidth(390);
     const user = userEvent.setup();
@@ -306,9 +355,7 @@ describe('HomeChatPanel', () => {
 
     await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
 
-    expect(screen.getByText(/Scegli il contesto/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /Scegli corsi o cartelle/i }));
+    expect(screen.getByText(/Contesto libreria/i)).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: /Corso TypeScript/i }));
 
     expect(props.onToggleLibraryContextRef).toHaveBeenCalledWith({
@@ -316,6 +363,48 @@ describe('HomeChatPanel', () => {
       kind: 'project',
       label: 'Corso TypeScript',
     });
+  });
+
+  test('round-trips folder selection through controlled state and updates the context badge', async () => {
+    const user = userEvent.setup();
+
+    const ControlledPanel = () => {
+      const [attachedContextRefs, setAttachedContextRefs] = useState<LibraryContextRef[]>([]);
+
+      return (
+        <HomeChatPanel
+          {...buildProps()}
+          assessmentMessages={[]}
+          homeChatMode="library-query"
+          libraryAttachedContextRefs={attachedContextRefs}
+          onToggleLibraryContextRef={reference =>
+            setAttachedContextRefs(currentRefs =>
+              currentRefs.some(
+                currentRef => currentRef.id === reference.id && currentRef.kind === reference.kind
+              )
+                ? []
+                : [reference]
+            )
+          }
+        />
+      );
+    };
+
+    render(<ControlledPanel />);
+
+    const attachmentButton = screen.getByTitle(/Apri esploratore contesto libreria/i);
+    await user.click(attachmentButton);
+    const folderCheckbox = screen.getByRole('checkbox', { name: folder.name });
+
+    await user.click(folderCheckbox);
+
+    expect(folderCheckbox).toBeChecked();
+    expect(attachmentButton).toHaveTextContent('1');
+
+    await user.click(folderCheckbox);
+
+    expect(folderCheckbox).not.toBeChecked();
+    expect(attachmentButton).not.toHaveTextContent('1');
   });
 
   test('closes the mobile attachment sheet before switching back to new-course mode', async () => {
@@ -328,14 +417,14 @@ describe('HomeChatPanel', () => {
     const { rerender } = render(<HomeChatPanel {...props} />);
 
     await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
-    expect(screen.getByText(/Scegli il contesto/i)).toBeInTheDocument();
+    expect(screen.getByText(/Contesto libreria/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /Nuovo corso/i }));
     expect(props.onHomeChatModeChange).toHaveBeenCalledWith('new-course');
 
     rerender(<HomeChatPanel {...props} homeChatMode="new-course" />);
 
-    expect(screen.queryByText(/Scegli il contesto/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Contesto libreria/i)).not.toBeInTheDocument();
   });
 
   test('toggles web search from the library tools menu', async () => {
@@ -360,6 +449,78 @@ describe('HomeChatPanel', () => {
     expect(props.onLibraryWebSearchChange).toHaveBeenCalledWith(true);
   });
 
+  test('counts enabled library tools on the plus button', () => {
+    render(
+      <HomeChatPanel
+        {...buildProps()}
+        homeChatMode="library-query"
+        libraryGenerateArtifacts
+        libraryWebSearch
+      />
+    );
+
+    expect(screen.getByTitle(/Apri strumenti libreria/i)).toHaveTextContent('2');
+  });
+
+  test('selecting a folder selects its descendant courses and counts unique courses', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      libraryAttachedContextRefs: [
+        {
+          id: folder.id,
+          kind: 'folder' as const,
+          label: folder.name,
+        },
+        {
+          id: project.id,
+          kind: 'project' as const,
+          label: project.title,
+        },
+      ],
+      libraryTree: {
+        ...libraryTree,
+        descendantProjectIdsByFolderId: {
+          [folder.id]: [project.id, 'project-2'],
+        },
+      },
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    expect(screen.getByTitle(/Apri esploratore contesto libreria/i)).toHaveTextContent('2');
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+    expect(screen.getByRole('checkbox', { name: /Corso TypeScript/i })).toBeChecked();
+  });
+
+  test('opens the desktop tools menu below the composer when it would clip above', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, 'innerHeight', {
+      configurable: true,
+      value: 700,
+      writable: true,
+    });
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute('role') === 'menu') {
+          return createDomRect(0, 260);
+        }
+        if (this.getAttribute('title')?.match(/Apri strumenti libreria/i)) {
+          return createDomRect(180, 40);
+        }
+        return createDomRect(0, 0);
+      });
+
+    render(<HomeChatPanel {...buildProps()} homeChatMode="library-query" />);
+    await user.click(screen.getByTitle(/Apri strumenti libreria/i));
+
+    expect(screen.getByRole('menu')).toHaveClass('top-[calc(100%+0.75rem)]');
+    expect(screen.getByRole('menu')).not.toHaveClass('bottom-[calc(100%+0.75rem)]');
+    rectSpy.mockRestore();
+  });
+
   test('does not reserve empty composer space in library mode without context chips', () => {
     const props = {
       ...buildProps(),
@@ -371,7 +532,7 @@ describe('HomeChatPanel', () => {
     expect(screen.queryByTestId('library-chat-context-bar')).not.toBeInTheDocument();
   });
 
-  test('renders the composer context bar when web search is active', () => {
+  test('does not shift the composer when web search is active', () => {
     const props = {
       ...buildProps(),
       homeChatMode: 'library-query' as const,
@@ -380,8 +541,7 @@ describe('HomeChatPanel', () => {
 
     render(<HomeChatPanel {...props} />);
 
-    expect(screen.getByTestId('library-chat-context-bar')).toBeInTheDocument();
-    expect(screen.getByText(/Cerca sul web attiva/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('library-chat-context-bar')).not.toBeInTheDocument();
   });
 
   test('renders the web-search tool chip for library assistant tool parts', () => {
@@ -551,10 +711,12 @@ describe('HomeChatPanel', () => {
 
   test('passes shared artifact actions to library artifact cards', async () => {
     const user = userEvent.setup();
+    const onLibraryArtifactDiscard = vi.fn();
     const onLibraryArtifactRegenerate = vi.fn();
     const props = {
       ...buildProps(),
       homeChatMode: 'library-query' as const,
+      onLibraryArtifactDiscard,
       onLibraryArtifactRegenerate,
       libraryArtifactPayloadsByToolCallId: {
         'tool-artifacts-1': [generatedArtifactPayload],
@@ -586,6 +748,7 @@ describe('HomeChatPanel', () => {
     render(<HomeChatPanel {...props} />);
 
     await user.click(screen.getByRole('button', { name: /Apri Mappa ER/i }));
+    expect(screen.queryByRole('button', { name: /Scarta artefatto/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
     await user.type(
       screen.getByLabelText(/Istruzioni rigenerazione/i),
@@ -597,6 +760,18 @@ describe('HomeChatPanel', () => {
       artifactId: generatedArtifactPayload.summary.id,
       instructions: 'Rendi il diagramma piu leggibile.',
     });
+    expect(onLibraryArtifactDiscard).not.toHaveBeenCalled();
+  });
+
+  test('uses the light owl asset for assistant avatars in dark mode', () => {
+    render(
+      <HomeChatPanel {...buildProps()} homeChatMode="library-query" isDarkMode showChatAvatars />
+    );
+
+    expect(screen.getByRole('img', { name: /Assistente Nous/i })).toHaveAttribute(
+      'src',
+      logoDarkModeUrl
+    );
   });
 
   test('renders a confirmation card for saving generated artifacts into lesson notes', async () => {
@@ -751,8 +926,8 @@ describe('HomeChatPanel', () => {
 
     expect(screen.getByRole('menu')).toBeInTheDocument();
 
-    // Click on an item inside the menu
-    await user.click(screen.getByText(/Scegli corsi o cartelle/i));
+    // Select context inside the menu
+    await user.click(screen.getByRole('checkbox', { name: /Corso TypeScript/i }));
 
     // Menu should still be open
     expect(screen.getByRole('menu')).toBeInTheDocument();

@@ -28,6 +28,7 @@ export interface ProjectRepository {
   listPlacements: () => Promise<LibraryPlacement[]>;
   listProjects: () => Promise<SavedProjectMeta[]>;
   loadProject: (id: ProjectId) => Promise<ProjectSnapshot | null>;
+  loadProjectCover: (id: ProjectId) => Promise<FileData | null>;
   loadProjectSource: (id: ProjectId) => Promise<FileData | null>;
   loadProjectsById: (ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
   moveFolder: (
@@ -45,6 +46,7 @@ export interface ProjectRepository {
     snapshot: ProjectSnapshot,
     options?: ProjectWriteOptions
   ) => Promise<SavedProjectMeta>;
+  saveProjectCover: (id: ProjectId, cover: FileData) => Promise<void>;
   patchProject: (
     id: ProjectId,
     patch: ProjectPatch,

@@ -23,6 +23,7 @@ import {
 import type {
   LibraryFolder,
   LibraryPlacement,
+  ProjectCoverFile,
   ProjectExportData,
   ProjectId,
   ProjectPatch,
@@ -53,6 +54,8 @@ interface ProjectSourceRow {
   mime_type: string;
   name: string;
 }
+
+type ProjectCoverRow = ProjectSourceRow;
 
 interface FolderRow {
   folder: LibraryFolder;
@@ -164,6 +167,33 @@ export class PostgresProjectStore implements ProjectStore {
           data: Buffer.from(row.data).toString('base64'),
         }
       : null;
+  }
+
+  async loadProjectCover(userId: string, id: ProjectId): Promise<ProjectCoverFile | null> {
+    const rows = await this.sql<ProjectCoverRow[]>`
+      select name, mime_type, data
+      from public.project_covers
+      where user_id = ${userId} and project_id = ${id}
+      limit 1
+    `;
+    const row = rows[0];
+    return row
+      ? { name: row.name, mimeType: row.mime_type, data: Buffer.from(row.data).toString('base64') }
+      : null;
+  }
+
+  async saveProjectCover(userId: string, id: ProjectId, cover: ProjectCoverFile): Promise<void> {
+    const bytes = Buffer.from(cover.data, 'base64');
+    await this.sql`
+      insert into public.project_covers (user_id, project_id, name, mime_type, byte_size, data, updated_at)
+      values (${userId}, ${id}, ${cover.name}, ${cover.mimeType}, ${bytes.byteLength}, ${bytes}, now())
+      on conflict (user_id, project_id) do update set
+        name = excluded.name,
+        mime_type = excluded.mime_type,
+        byte_size = excluded.byte_size,
+        data = excluded.data,
+        updated_at = excluded.updated_at
+    `;
   }
 
   async saveProjectSource(
@@ -316,6 +346,10 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
+    await this.sql`
+      delete from public.project_covers
+      where user_id = ${userId} and project_id = ${id}
+    `;
     await this.sql`
       delete from public.project_sources
       where user_id = ${userId} and project_id = ${id}

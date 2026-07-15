@@ -20,6 +20,7 @@ import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
 
 interface ApiResponse {
   complete?: boolean;
+  cover?: FileData | null;
   ready?: boolean;
   success: boolean;
   error?: string;
@@ -180,6 +181,13 @@ export class HttpProjectRepository implements ProjectRepository {
     return response.project || null;
   }
 
+  async loadProjectCover(id: ProjectId): Promise<FileData | null> {
+    const response = await this.request<{ cover?: FileData | null }>(
+      `/api/projects/projects/${encodeURIComponent(id)}/cover`
+    );
+    return response.cover || null;
+  }
+
   async loadProjectSource(id: ProjectId): Promise<FileData | null> {
     const response = await this.request<{ source?: FileData | null }>(
       `/api/projects/projects/${encodeURIComponent(id)}/source`
@@ -279,6 +287,13 @@ export class HttpProjectRepository implements ProjectRepository {
       }
     );
     return assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.');
+  }
+
+  async saveProjectCover(id: ProjectId, cover: FileData): Promise<void> {
+    await this.request(`/api/projects/projects/${encodeURIComponent(id)}/cover`, {
+      method: 'POST',
+      body: JSON.stringify({ cover }),
+    });
   }
 
   async patchProject(
