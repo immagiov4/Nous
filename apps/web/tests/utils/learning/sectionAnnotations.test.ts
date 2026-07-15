@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
+import { materializeSectionAnnotationMarks } from '../../../utils/learning/sectionAnnotationAnchors.ts';
 import {
   applySectionAnnotation,
   createLessonSectionAnnotation,
   findSectionAnnotationForSelection,
-  migrateSectionAnnotations,
+  getSectionAnnotationText,
   NOTE_MERGE_SEPARATOR,
   removeSectionAnnotation,
   removeSectionAnnotationArtifactRef,
@@ -12,7 +13,143 @@ import {
   upsertSectionAnnotationArtifactRefs,
 } from '../../../utils/learning/sectionAnnotations.ts';
 
-test('applySectionAnnotation creates a persistent highlight with a stable annotation id', () => {
+test('applySectionAnnotation stores a selector without changing the Markdown', () => {
+  const content = 'Alpha beta gamma delta.';
+  const result = applySectionAnnotation({
+    annotations: [],
+    content,
+    createId: () => 'annotation-detached',
+    now: '2026-07-14T10:00:00.000Z',
+    selectedText: 'beta',
+  });
+
+  assert.ok(result);
+  assert.deepEqual(result.annotations, [
+    {
+      anchor: {
+        kind: 'selection',
+        selector: {
+          end: 10,
+          exact: 'beta',
+          prefix: 'Alpha',
+          start: 6,
+          suffix: 'gamma delta.',
+        },
+      },
+      createdAt: '2026-07-14T10:00:00.000Z',
+      id: 'annotation-detached',
+      note: '',
+      updatedAt: '2026-07-14T10:00:00.000Z',
+    },
+  ]);
+  assert.equal(
+    materializeSectionAnnotationMarks(content, result.annotations),
+    'Alpha <mark data-nous-annotation-id="annotation-detached">beta</mark> gamma delta.'
+  );
+  assert.equal(
+    getSectionAnnotationText(content, 'annotation-detached', result.annotations),
+    'beta'
+  );
+  assert.equal(
+    findSectionAnnotationForSelection({
+      annotations: result.annotations,
+      content,
+      selectedText: 'beta',
+    })?.annotation.id,
+    'annotation-detached'
+  );
+});
+
+test('detached annotations re-anchor by quote and context after content shifts', () => {
+  const created = applySectionAnnotation({
+    annotations: [],
+    content: 'Alpha beta gamma delta.',
+    createId: () => 'annotation-detached',
+    selectedText: 'beta gamma',
+  });
+
+  assert.ok(created);
+  assert.equal(
+    materializeSectionAnnotationMarks(
+      'Introduzione nuova. Alpha beta gamma delta.',
+      created.annotations
+    ),
+    'Introduzione nuova. Alpha <mark data-nous-annotation-id="annotation-detached">beta gamma</mark> delta.'
+  );
+});
+
+test('detached annotations stay orphaned when an ambiguous quote has no matching context', () => {
+  const content = 'Beta uno. Beta due.';
+  const annotations = [
+    {
+      anchor: {
+        kind: 'selection' as const,
+        selector: {
+          end: 104,
+          exact: 'Beta',
+          prefix: 'Contesto scomparso',
+          start: 100,
+          suffix: 'Altro contesto scomparso',
+        },
+      },
+      createdAt: '2026-07-14T10:00:00.000Z',
+      id: 'annotation-orphaned',
+      note: '',
+      updatedAt: '2026-07-14T10:00:00.000Z',
+    },
+  ];
+
+  assert.equal(materializeSectionAnnotationMarks(content, annotations), content);
+});
+
+test('materialized annotations preserve inline Markdown as one highlight', () => {
+  const content = 'Prima **grassetto**, poi *corsivo* e [un link](https://example.com).';
+  const created = applySectionAnnotation({
+    annotations: [],
+    content,
+    createId: () => 'annotation-inline-detached',
+    selectedText: 'Prima grassetto, poi corsivo e un link.',
+  });
+
+  assert.ok(created);
+  assert.equal(
+    materializeSectionAnnotationMarks(content, created.annotations),
+    '<mark data-nous-annotation-id="annotation-inline-detached">Prima **grassetto**, poi *corsivo* e [un link](https://example.com).</mark>'
+  );
+});
+
+test('applySectionAnnotation merges overlapping notes', () => {
+  const content = 'Alpha beta gamma delta.';
+  const initial = applySectionAnnotation({
+    annotations: [],
+    content,
+    createId: () => 'annotation-detached',
+    note: 'Nota piccola',
+    selectedText: 'beta',
+  });
+
+  assert.ok(initial);
+  const merged = applySectionAnnotation({
+    annotations: initial.annotations,
+    content,
+    createId: () => 'unused-id',
+    note: 'Nota grande',
+    selectedText: 'beta gamma',
+  });
+
+  assert.ok(merged);
+  assert.equal(merged.annotationId, 'annotation-detached');
+  assert.equal(merged.annotations.length, 1);
+  assert.equal(merged.annotations[0]?.note, `Nota grande${NOTE_MERGE_SEPARATOR}Nota piccola`);
+  assert.equal(
+    merged.annotations[0]?.anchor?.kind === 'selection'
+      ? merged.annotations[0].anchor.selector.exact
+      : '',
+    'beta gamma'
+  );
+});
+
+test('applySectionAnnotation creates an anchored highlight with a stable annotation id', () => {
   const result = applySectionAnnotation({
     annotations: [],
     content: 'Alpha beta gamma delta.',
@@ -22,13 +159,19 @@ test('applySectionAnnotation creates a persistent highlight with a stable annota
   });
 
   assert.ok(result);
-  assert.equal(
-    result.content,
-    'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma delta.'
-  );
   assert.equal(result.annotationId, 'annotation-1');
   assert.deepEqual(result.annotations, [
     {
+      anchor: {
+        kind: 'selection',
+        selector: {
+          end: 10,
+          exact: 'beta',
+          prefix: 'Alpha',
+          start: 6,
+          suffix: 'gamma delta.',
+        },
+      },
       id: 'annotation-1',
       note: '',
       createdAt: '2026-04-02T10:00:00.000Z',
@@ -185,36 +328,6 @@ test('removeSectionAnnotationArtifactRef removes artifactRefs when the last atta
   assert.equal(result.annotation.note, '');
 });
 
-test('applySectionAnnotation stores a note and merges overlapping notes into the larger selection', () => {
-  const initial = applySectionAnnotation({
-    annotations: [],
-    content: 'Alpha beta gamma delta.',
-    createId: () => 'annotation-1',
-    note: 'Nota piccola',
-    now: '2026-04-02T10:00:00.000Z',
-    selectedText: 'beta',
-  });
-
-  assert.ok(initial);
-
-  const merged = applySectionAnnotation({
-    annotations: initial.annotations,
-    content: initial.content,
-    createId: () => 'annotation-2',
-    note: 'Nota grande',
-    now: '2026-04-02T11:00:00.000Z',
-    selectedText: 'beta gamma',
-  });
-
-  assert.ok(merged);
-  assert.equal(
-    merged.content,
-    'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> <mark data-nous-annotation-id="annotation-1">gamma</mark> delta.'
-  );
-  assert.equal(merged.merged, true);
-  assert.equal(merged.annotations[0]?.note, `Nota grande${NOTE_MERGE_SEPARATOR}Nota piccola`);
-});
-
 test('updateSectionAnnotationNote can clear a note without removing the highlight', () => {
   const updated = updateSectionAnnotationNote({
     annotationId: 'annotation-1',
@@ -249,7 +362,7 @@ test('findSectionAnnotationForSelection resolves the existing annotation for the
 
   const match = findSectionAnnotationForSelection({
     annotations: created.annotations,
-    content: created.content,
+    content: 'Alpha beta gamma delta.',
     selectedText: 'beta gamma',
   });
 
@@ -260,9 +373,10 @@ test('findSectionAnnotationForSelection resolves the existing annotation for the
 });
 
 test('applySectionAnnotation preserves inline math markdown while annotating the surrounding prose', () => {
+  const content = 'Ridurre soprattutto $T_{\\text{cluster}}$ e $T_{\\text{update}}$ accelera.';
   const result = applySectionAnnotation({
     annotations: [],
-    content: 'Ridurre soprattutto $T_{\\text{cluster}}$ e $T_{\\text{update}}$ accelera.',
+    content,
     createId: () => 'annotation-math',
     now: '2026-04-02T10:00:00.000Z',
     selectedText:
@@ -271,17 +385,43 @@ test('applySectionAnnotation preserves inline math markdown while annotating the
 
   assert.ok(result);
   assert.equal(
-    result.content,
+    materializeSectionAnnotationMarks(content, result.annotations),
     '<mark data-nous-annotation-id="annotation-math">Ridurre soprattutto</mark> $T_{\\text{cluster}}$ <mark data-nous-annotation-id="annotation-math">e</mark> $T_{\\text{update}}$ <mark data-nous-annotation-id="annotation-math">accelera.</mark>'
   );
-  assert.equal(result.resolvedText, 'Ridurre soprattutto e accelera.');
+  assert.equal(result.resolvedText, 'Ridurre soprattutto Tcluster e Tupdate accelera.');
+});
+
+test('applySectionAnnotation keeps one persistent highlight across inline markdown', () => {
+  const content = 'Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).';
+  const result = applySectionAnnotation({
+    annotations: [],
+    content,
+    createId: () => 'annotation-inline',
+    now: '2026-04-02T10:00:00.000Z',
+    selectedText: 'Prima grassetto, poi corsivo e infine un link.',
+  });
+
+  assert.ok(result);
+  assert.equal(
+    materializeSectionAnnotationMarks(content, result.annotations),
+    '<mark data-nous-annotation-id="annotation-inline">Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).</mark>'
+  );
+
+  const removed = removeSectionAnnotation({
+    annotationId: 'annotation-inline',
+    annotations: result.annotations,
+  });
+
+  assert.equal(removed.removed, true);
+  assert.deepEqual(removed.annotations, []);
 });
 
 test('applySectionAnnotation can anchor a note across display math selected via KaTeX-projected text', () => {
+  const content =
+    'Un modello analitico produce la soluzione:\n\n$$y(t)=\\frac{1}{2}gt^2+v_0t+y_0$$\n\nma il videogioco procede per passi.';
   const result = applySectionAnnotation({
     annotations: [],
-    content:
-      'Un modello analitico produce la soluzione:\n\n$$y(t)=\\frac{1}{2}gt^2+v_0t+y_0$$\n\nma il videogioco procede per passi.',
+    content,
     createId: () => 'annotation-display-math',
     now: '2026-04-03T10:00:00.000Z',
     selectedText:
@@ -290,53 +430,30 @@ test('applySectionAnnotation can anchor a note across display math selected via 
 
   assert.ok(result);
   assert.equal(
-    result.content,
+    materializeSectionAnnotationMarks(content, result.annotations),
     '<mark data-nous-annotation-id="annotation-display-math">Un modello analitico produce la soluzione:</mark>\n\n$$y(t)=\\frac{1}{2}gt^2+v_0t+y_0$$\n\n<mark data-nous-annotation-id="annotation-display-math">ma il videogioco procede per passi.</mark>'
   );
   assert.equal(
     result.resolvedText,
-    'Un modello analitico produce la soluzione: ma il videogioco procede per passi.'
+    'Un modello analitico produce la soluzione: y(t)=frac12gt2+v0t+y0 ma il videogioco procede per passi.'
   );
 });
 
-test('removeSectionAnnotation removes both metadata and markup', () => {
+test('removeSectionAnnotation deletes anchored metadata', () => {
+  const content = 'Alpha beta gamma.';
+  const created = applySectionAnnotation({
+    annotations: [],
+    content,
+    createId: () => 'annotation-detached',
+    selectedText: 'beta',
+  });
+
+  assert.ok(created);
   const removed = removeSectionAnnotation({
-    annotationId: 'annotation-1',
-    annotations: [
-      {
-        id: 'annotation-1',
-        note: 'Nota',
-        createdAt: '2026-04-02T10:00:00.000Z',
-        updatedAt: '2026-04-02T10:00:00.000Z',
-      },
-    ],
-    content: 'Alpha <mark data-nous-annotation-id="annotation-1">beta</mark> gamma.',
+    annotationId: 'annotation-detached',
+    annotations: created.annotations,
   });
 
   assert.equal(removed.removed, true);
-  assert.equal(removed.content, 'Alpha beta gamma.');
   assert.deepEqual(removed.annotations, []);
-});
-
-test('migrateSectionAnnotations converts legacy plain marks into persistent annotations', () => {
-  const migrated = migrateSectionAnnotations({
-    annotations: [],
-    content: 'Alpha <mark>beta</mark> <mark>gamma</mark> delta.',
-    createId: () => 'annotation-legacy',
-    now: '2026-04-02T10:00:00.000Z',
-  });
-
-  assert.equal(migrated.didChange, true);
-  assert.equal(
-    migrated.content,
-    'Alpha <mark data-nous-annotation-id="annotation-legacy">beta</mark> <mark data-nous-annotation-id="annotation-legacy">gamma</mark> delta.'
-  );
-  assert.deepEqual(migrated.annotations, [
-    {
-      id: 'annotation-legacy',
-      note: '',
-      createdAt: '2026-04-02T10:00:00.000Z',
-      updatedAt: '2026-04-02T10:00:00.000Z',
-    },
-  ]);
 });

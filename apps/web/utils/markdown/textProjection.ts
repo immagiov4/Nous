@@ -28,6 +28,7 @@ export interface LooseProjection {
 
 const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
 const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
+const INLINE_FORMAT_DELIMITERS = ['***', '___', '**', '__', '~~', '*', '_'];
 
 export const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -382,12 +383,196 @@ const excludeProtectedRanges = (
   return fragments;
 };
 
+interface InlineMarkdownSyntaxBalance {
+  formatDelimiterCounts: Map<string, number>;
+  linkDepth: number;
+}
+
+const parseInlineMarkdownSyntax = (
+  value: string,
+  balance: InlineMarkdownSyntaxBalance
+): boolean => {
+  let index = 0;
+
+  while (index < value.length) {
+    if (value[index] === '\n' || value[index] === '\r') {
+      return false;
+    }
+
+    if (/\s/u.test(value[index])) {
+      index += 1;
+      continue;
+    }
+
+    if (value[index] === '[') {
+      balance.linkDepth += 1;
+      index += 1;
+      continue;
+    }
+
+    if (value.startsWith('](', index)) {
+      const destinationEnd = value.indexOf(')', index + 2);
+      if (destinationEnd === -1) {
+        return false;
+      }
+
+      balance.linkDepth -= 1;
+      index = destinationEnd + 1;
+      continue;
+    }
+
+    if (value[index] === '\\') {
+      index += 1;
+      continue;
+    }
+
+    const delimiter = INLINE_FORMAT_DELIMITERS.find(candidate =>
+      value.startsWith(candidate, index)
+    );
+    if (!delimiter) {
+      return false;
+    }
+
+    balance.formatDelimiterCounts.set(
+      delimiter,
+      (balance.formatDelimiterCounts.get(delimiter) || 0) + 1
+    );
+    index += delimiter.length;
+  }
+
+  return true;
+};
+
+const expandInlineMarkdownStart = (content: string, start: number): number => {
+  let expandedStart = start;
+
+  while (expandedStart > 0) {
+    if (content[expandedStart - 1] === '[') {
+      expandedStart -= 1;
+      continue;
+    }
+
+    const delimiter = INLINE_FORMAT_DELIMITERS.find(
+      candidate =>
+        expandedStart >= candidate.length &&
+        content.slice(expandedStart - candidate.length, expandedStart) === candidate
+    );
+    if (!delimiter) {
+      break;
+    }
+
+    expandedStart -= delimiter.length;
+  }
+
+  return expandedStart;
+};
+
+const expandInlineMarkdownEnd = (content: string, end: number): number => {
+  let expandedEnd = end;
+
+  while (expandedEnd < content.length) {
+    if (content.startsWith('](', expandedEnd)) {
+      const destinationEnd = content.indexOf(')', expandedEnd + 2);
+      if (destinationEnd === -1) {
+        break;
+      }
+
+      expandedEnd = destinationEnd + 1;
+      continue;
+    }
+
+    const delimiter = INLINE_FORMAT_DELIMITERS.find(candidate =>
+      content.startsWith(candidate, expandedEnd)
+    );
+    if (!delimiter) {
+      break;
+    }
+
+    expandedEnd += delimiter.length;
+  }
+
+  return expandedEnd;
+};
+
+const canBridgeInlineMarkdownGap = (
+  content: string,
+  left: MarkdownRange,
+  right: MarkdownRange,
+  protectedRanges: MarkdownRange[]
+): boolean => {
+  const gap = { start: left.end, end: right.start };
+  if (overlapsProtectedRange(gap, protectedRanges)) {
+    return false;
+  }
+
+  return parseInlineMarkdownSyntax(content.slice(gap.start, gap.end), {
+    formatDelimiterCounts: new Map(),
+    linkDepth: 0,
+  });
+};
+
+const mergeInlineMarkdownRun = (content: string, segments: MarkdownRange[]): MarkdownRange[] => {
+  const firstSegment = segments[0];
+  const lastSegment = segments[segments.length - 1];
+  const start = expandInlineMarkdownStart(content, firstSegment.start);
+  const end = expandInlineMarkdownEnd(content, lastSegment.end);
+  const balance: InlineMarkdownSyntaxBalance = {
+    formatDelimiterCounts: new Map(),
+    linkDepth: 0,
+  };
+  const syntaxRanges = [
+    { start, end: firstSegment.start },
+    ...segments.slice(0, -1).map((segment, index) => ({
+      start: segment.end,
+      end: segments[index + 1].start,
+    })),
+    { start: lastSegment.end, end },
+  ];
+  const hasValidSyntax = syntaxRanges.every(range =>
+    parseInlineMarkdownSyntax(content.slice(range.start, range.end), balance)
+  );
+  const hasBalancedFormatting = Array.from(balance.formatDelimiterCounts.values()).every(
+    count => count % 2 === 0
+  );
+
+  return hasValidSyntax && balance.linkDepth === 0 && hasBalancedFormatting
+    ? [{ start, end }]
+    : segments;
+};
+
+const mergeInlineMarkdownSegments = (
+  content: string,
+  segments: MarkdownRange[],
+  protectedRanges: MarkdownRange[]
+): MarkdownRange[] => {
+  if (segments.length === 0) {
+    return [];
+  }
+
+  const runs: MarkdownRange[][] = [[segments[0]]];
+
+  for (let index = 1; index < segments.length; index += 1) {
+    const currentRun = runs[runs.length - 1];
+    const currentSegment = segments[index];
+    const previousSegment = currentRun[currentRun.length - 1];
+
+    if (canBridgeInlineMarkdownGap(content, previousSegment, currentSegment, protectedRanges)) {
+      currentRun.push(currentSegment);
+      continue;
+    }
+
+    runs.push([currentSegment]);
+  }
+
+  return runs.flatMap(run => mergeInlineMarkdownRun(content, run));
+};
+
 export const buildMarkableSegments = (
   content: string,
   segments: MarkdownRange[],
   protectedRanges: MarkdownRange[]
 ): MarkdownRange[] =>
-  segments
+  mergeInlineMarkdownSegments(content, segments, protectedRanges)
     .flatMap(segment => splitSegmentOnParagraphBreaks(content, segment))
     .flatMap(segment => {
       const trimmedSegment = trimSegmentWhitespace(content, segment);

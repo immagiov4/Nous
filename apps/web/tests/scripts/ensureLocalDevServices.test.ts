@@ -12,7 +12,7 @@ const createRuntime = (commandResults: boolean[], platform: NodeJS.Platform = 'w
     platform,
     run: async command => {
       commands.push([...command]);
-      return commandResults.shift() ?? true;
+      return (commandResults.shift() ?? true) ? null : `failed: ${command.join(' ')}`;
     },
     requestHealth: async url => {
       healthRequests.push(url);
@@ -93,6 +93,28 @@ describe('ensureLocalDevServices', () => {
       ['bunx', 'supabase', 'status'],
       ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
     ]);
+  });
+
+  test('accepts a healthy stack when supabase start exits with an error', async () => {
+    const { commands, runtime } = createRuntime([true, false, false, true, true]);
+
+    await ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime);
+
+    expect(commands).toEqual([
+      ['docker', 'info'],
+      ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'start', '--yes'],
+      ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
+    ]);
+  });
+
+  test('reports the real supabase start failure', async () => {
+    const { runtime } = createRuntime([true, false, false, false]);
+
+    await expect(
+      ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime)
+    ).rejects.toThrow('failed: bunx supabase start --yes');
   });
 
   test('stops startup when pending migrations cannot be applied', async () => {

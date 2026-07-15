@@ -59,7 +59,7 @@ const getSectionAnnotations = (section: LessonNode) =>
   (section.annotations || []).map(annotation => {
     const highlightedText =
       section.content && annotation.id
-        ? getSectionAnnotationText(section.content, annotation.id)
+        ? getSectionAnnotationText(section.content, annotation.id, section.annotations)
         : '';
 
     return {

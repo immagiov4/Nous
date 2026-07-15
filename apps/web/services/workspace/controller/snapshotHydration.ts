@@ -11,7 +11,6 @@ import {
   flattenLessons,
   flattenPathNodes,
 } from '../../../utils/learning/pathNodes.ts';
-import { migrateSectionAnnotations } from '../../../utils/learning/sectionAnnotations.ts';
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 import { restoreLegacyPdfImagePlaceholders } from '../../../utils/pdf/imagePlaceholders.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
@@ -158,14 +157,10 @@ const normalizeLessonContent = (lesson: LessonNode): LessonNode => {
   const normalizedContent = normalizeMarkdownForRendering(
     restoreLegacyPdfImagePlaceholders(lesson.content)
   );
-  const migrated = migrateSectionAnnotations({
-    annotations: lesson.annotations,
-    content: normalizedContent,
-  });
-  if (!migrated.didChange && normalizedContent === lesson.content) {
+  if (normalizedContent === lesson.content) {
     return lesson;
   }
-  return { ...lesson, content: migrated.content, annotations: migrated.annotations };
+  return { ...lesson, content: normalizedContent };
 };
 
 const normalizeLearningPlanContent = (plan: LearningPlan | null): LearningPlan | null => {

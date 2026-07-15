@@ -6,6 +6,7 @@ const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 const LOCAL_DEPENDENCY_KEYS = ['SUPABASE_URL', 'VITE_SUPABASE_URL', 'DATABASE_URL'] as const;
 const LOCAL_AUTH_KEYS = ['SUPABASE_URL', 'VITE_SUPABASE_URL'] as const;
 const DEFAULT_LOCAL_AUTH_URL = 'http://127.0.0.1:54321';
+const COMMAND_ERROR_MAX_LENGTH = 600;
 const execFileAsync = promisify(execFile);
 
 type Environment = Record<string, string | undefined>;
@@ -13,17 +14,30 @@ type Environment = Record<string, string | undefined>;
 export interface LocalDevServicesRuntime {
   platform: NodeJS.Platform;
   requestHealth(url: string): Promise<boolean>;
-  run(command: readonly string[]): Promise<boolean>;
+  run(command: readonly string[]): Promise<string | null>;
   writeStatus(message: string): void;
 }
 
-const runCommand = async (command: readonly string[]): Promise<boolean> => {
+const getCommandErrorDetail = (error: unknown): string => {
+  const stderr =
+    typeof error === 'object' && error && 'stderr' in error && typeof error.stderr === 'string'
+      ? error.stderr.trim()
+      : '';
+  const detail = stderr || (error instanceof Error ? error.message : 'Unknown command failure.');
+  return detail
+    .replace(/(postgres(?:ql)?:\/\/)[^@\s]+@/giu, '$1[redacted]@')
+    .replace(/\b(?:eyJ|sb_(?:secret|publishable)_)[A-Za-z0-9._-]+\b/gu, '[redacted]')
+    .replace(/\s+/gu, ' ')
+    .slice(0, COMMAND_ERROR_MAX_LENGTH);
+};
+
+const runCommand = async (command: readonly string[]): Promise<string | null> => {
   const [executable, ...args] = command;
   try {
     await execFileAsync(executable, args, { windowsHide: true });
-    return true;
-  } catch {
-    return false;
+    return null;
+  } catch (error) {
+    return getCommandErrorDetail(error);
   }
 };
 
@@ -59,7 +73,7 @@ const getLocalUrls = (environment: Environment, keys: readonly string[]): URL[] 
   keys.map(key => parseUrl(environment[key])).filter(isLoopbackUrl);
 
 const ensureDocker = async (runtime: LocalDevServicesRuntime): Promise<void> => {
-  if (await runtime.run(['docker', 'info'])) {
+  if ((await runtime.run(['docker', 'info'])) === null) {
     return;
   }
 
@@ -68,33 +82,43 @@ const ensureDocker = async (runtime: LocalDevServicesRuntime): Promise<void> => 
   }
 
   runtime.writeStatus('[dev] Docker is not running. Starting Docker Desktop...');
-  if (!(await runtime.run(['docker', 'desktop', 'start', '--timeout', '120']))) {
+  const startError = await runtime.run(['docker', 'desktop', 'start', '--timeout', '120']);
+  if (startError) {
     throw new Error(
-      'Docker Desktop could not be started. Install or start Docker Desktop, then run bun run dev again.'
+      `Docker Desktop could not be started. Install or start Docker Desktop, then run bun run dev again. ${startError}`
     );
   }
 
-  if (!(await runtime.run(['docker', 'info']))) {
+  const engineError = await runtime.run(['docker', 'info']);
+  if (engineError) {
     throw new Error(
-      'Docker Desktop started, but its engine is not reachable. Open Docker Desktop and retry.'
+      `Docker Desktop started, but its engine is not reachable. Open Docker Desktop and retry. ${engineError}`
     );
   }
 };
 
 const ensureSupabase = async (runtime: LocalDevServicesRuntime): Promise<void> => {
-  if (!(await runtime.run(['bunx', 'supabase', 'status']))) {
+  if (await runtime.run(['bunx', 'supabase', 'status'])) {
     runtime.writeStatus('[dev] Starting local Supabase...');
-    if (!(await runtime.run(['bunx', 'supabase', 'start', '--yes']))) {
-      throw new Error('Local Supabase could not be started. Check Docker Desktop and retry.');
-    }
+    const startError = await runtime.run(['bunx', 'supabase', 'start', '--yes']);
+    const readinessError = await runtime.run(['bunx', 'supabase', 'status']);
 
-    if (!(await runtime.run(['bunx', 'supabase', 'status']))) {
-      throw new Error('Local Supabase started but did not become ready.');
+    if (readinessError) {
+      const detail = startError || readinessError;
+      throw new Error(`Local Supabase could not be started: ${detail}`);
     }
   }
 
-  if (!(await runtime.run(['bunx', 'supabase', 'migration', 'up', '--local', '--yes']))) {
-    throw new Error('Local Supabase migrations could not be applied. Check the migration output.');
+  const migrationError = await runtime.run([
+    'bunx',
+    'supabase',
+    'migration',
+    'up',
+    '--local',
+    '--yes',
+  ]);
+  if (migrationError) {
+    throw new Error(`Local Supabase migrations could not be applied: ${migrationError}`);
   }
 };
 

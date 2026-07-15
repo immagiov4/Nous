@@ -110,43 +110,6 @@ test('prepareSnapshotForHydration normalizes persisted lesson markdown code bloc
   );
 });
 
-test('prepareSnapshotForHydration migrates legacy highlight marks into persistent annotations', () => {
-  const snapshot: ProjectSnapshot = {
-    id: 'project-annotations',
-    version: '1',
-    sourceKind: 'document',
-    state: AppState.READING,
-    source: null,
-    learningPlan: buildTestLearningPlan(
-      [
-        buildTestLesson({
-          id: 'section-1',
-          title: 'Ownership',
-          description: 'Dettagli',
-          content: 'Testo con <mark>focus</mark> persistente.',
-        }),
-      ],
-      { title: 'Percorso', summary: 'Test' }
-    ),
-    isLearnMode: false,
-    userProfile: null,
-    syllabus: [],
-    activeSectionId: 'section-1',
-    createdAt: '2026-03-23T10:00:00.000Z',
-    updatedAt: '2026-03-23T10:00:00.000Z',
-    lastOpenedAt: '2026-03-23T10:00:00.000Z',
-    documentAssets: null,
-    documentIndex: null,
-  };
-
-  const prepared = prepareSnapshotForHydration(snapshot);
-  const migratedSection = flattenLessons(prepared.learningPlan?.modules)[0];
-
-  assert.match(migratedSection?.content || '', /<mark data-nous-annotation-id="annotation-/);
-  assert.equal(migratedSection?.annotations?.length, 1);
-  assert.equal(migratedSection?.annotations?.[0]?.note, '');
-});
-
 test('prepareSnapshotForHydration drops legacy laboratory payloads that miss the guided support fields', () => {
   const snapshot = {
     id: 'project-lab-legacy',
