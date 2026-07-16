@@ -65,13 +65,14 @@ test('toggles colon selections across markdown emphasis cleanly', () => {
 });
 
 test('keeps one highlight around a selection that crosses inline markdown', () => {
-  const content = 'Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).';
+  const content =
+    'Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com "Titolo con ) parentesi").';
   const selectedText = 'Prima grassetto, poi corsivo e infine un link.';
   const highlighted = toggleHighlightInContent({ content, selectedText });
 
   assert.equal(
     highlighted,
-    '<mark>Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).</mark>'
+    '<mark>Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com "Titolo con ) parentesi").</mark>'
   );
 
   const unhighlighted = toggleHighlightInContent({

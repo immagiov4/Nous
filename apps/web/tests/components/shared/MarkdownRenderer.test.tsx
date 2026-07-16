@@ -87,7 +87,7 @@ describe('MarkdownRenderer', () => {
     const { container } = render(
       <MarkdownRenderer
         content={
-          '<mark data-nous-annotation-id="annotation-inline">Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com/percorso_(test))</mark>.'
+          '<mark data-nous-annotation-id="annotation-inline">Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com/percorso_(test) "Titolo con ) parentesi")</mark>.'
         }
       />
     );
