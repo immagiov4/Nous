@@ -26,6 +26,15 @@ enable_signup = true
 double_confirm_changes = true
 enable_confirmations = true
 
+[auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 587
+user = "resend"
+pass = "env(SUPABASE_AUTH_SMTP_PASS)"
+admin_email = "no-reply@auth.giovbox.com"
+sender_name = "Nous"
+
 [auth.email.template.confirmation]
 subject = "Conferma il tuo account Nous"
 content_path = "./supabase/templates/confirmation.html"

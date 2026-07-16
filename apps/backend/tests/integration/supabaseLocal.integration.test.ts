@@ -18,6 +18,8 @@ const LOCAL_JWT_SECRET =
 const LOCAL_JWT_EXPIRY = 1_983_812_996;
 const TEST_EMAIL_PREFIX = 'integration-nous-reader';
 const TEST_PASSWORD = 'Integration-password-2026!';
+const MAGIC_LINK_TEST_EMAIL = process.env.SUPABASE_MAGIC_LINK_TEST_EMAIL?.trim();
+const testMagicLinkSmtp = MAGIC_LINK_TEST_EMAIL ? test : test.skip;
 const ORIGINAL_ENV = { ...process.env };
 
 const createApiKey = (role: 'anon' | 'service_role'): string =>
@@ -115,8 +117,8 @@ describeLocalSupabase('Supabase local integration', () => {
     process.env = { ...ORIGINAL_ENV };
   });
 
-  const createUser = async (suffix: string) => {
-    const email = `${TEST_EMAIL_PREFIX}-${suffix}-${Date.now()}@nous.local`;
+  const createUser = async (suffix: string, explicitEmail?: string) => {
+    const email = explicitEmail || `${TEST_EMAIL_PREFIX}-${suffix}-${Date.now()}@nous.local`;
     createdEmails.push(email);
 
     const response = await request(app)
@@ -233,9 +235,7 @@ describeLocalSupabase('Supabase local integration', () => {
     expect(forbiddenInsertResponse.status).toBe(403);
   });
 
-  test('persists model config and sends a local magic-link email', async () => {
-    const user = await createUser('magic-link');
-
+  test('persists model config', async () => {
     const configResponse = await request(app)
       .patch('/api/admin/model-config')
       .set('Authorization', adminAuthorization)
@@ -258,6 +258,10 @@ describeLocalSupabase('Supabase local integration', () => {
       lesson_model: 'integration/lesson-model',
       context_model: 'integration/context-model',
     });
+  });
+
+  testMagicLinkSmtp('submits a magic-link email to the configured local SMTP server', async () => {
+    const user = await createUser('magic-link', MAGIC_LINK_TEST_EMAIL);
 
     const magicLinkResponse = await request(app)
       .post(`/api/admin/users/${user.id}/magic-link`)
@@ -265,10 +269,5 @@ describeLocalSupabase('Supabase local integration', () => {
       .send();
     expect(magicLinkResponse.status).toBe(200);
     expect(magicLinkResponse.body).toMatchObject({ success: true, sent: true });
-
-    const mailpitResponse = await fetch('http://127.0.0.1:54324/api/v1/messages');
-    expect(mailpitResponse.status).toBe(200);
-    const mailpitBody = await readJsonResponse<{ messages?: unknown[] }>(mailpitResponse);
-    expect(JSON.stringify(mailpitBody)).toContain(user.email);
   });
 });

@@ -189,6 +189,36 @@ See the official [Supabase custom SMTP guide](https://supabase.com/docs/guides/a
 [Resend SMTP settings](https://resend.com/docs/send-with-smtp), and
 [Resend domain verification](https://resend.com/docs/dashboard/domains/introduction).
 
+### Supabase CLI local stack
+
+The checked-in `supabase/config.toml` sends local Auth email through Resend on port 587 with sender
+`Nous <no-reply@auth.giovbox.com>`. Put the dedicated Resend API key in ignored `.env.local`:
+
+```dotenv
+SUPABASE_AUTH_SMTP_PASS=<dedicated Resend API key>
+```
+
+`bunx` loads `.env.local` through Bun and passes the value to the CLI; `config.toml` only contains
+`env(SUPABASE_AUTH_SMTP_PASS)`. Restart the local stack after changing SMTP configuration or the
+key:
+
+```bash
+bunx supabase stop --no-backup
+bunx supabase start
+```
+
+This replaces Mailpit delivery for Auth messages in the local stack. To include the real SMTP case
+in the local integration suite, opt in with an inbox you control:
+
+```dotenv
+SUPABASE_MAGIC_LINK_TEST_EMAIL=<real test inbox>
+```
+
+Then run `bun run test:supabase-local` and verify the message in that inbox and in Resend logs. When
+the recipient variable is absent, the external-email case is skipped so routine tests never send
+mail. The Supabase CLI requires a stop/start, not only an application restart, to apply changes to
+`[auth.email.smtp]`.
+
 ### Managed Supabase
 
 In the project's Auth settings:
@@ -259,9 +289,10 @@ Use a real test address on a disposable user, not a Resend synthetic bounce addr
 6. sign out, request one more link after the cooldown, and confirm the newer link works;
 7. check Supabase Auth logs and Nous backend logs if either request fails.
 
-For deterministic development delivery, `bun run test:supabase-local` exercises the same admin
-endpoint against local Supabase and verifies that Mailpit receives the message. The external inbox,
-DNS authentication, redirect, and one-time-link checks above remain the production proof.
+With `SUPABASE_MAGIC_LINK_TEST_EMAIL` configured, `bun run test:supabase-local` exercises the same
+admin endpoint against local Supabase and verifies that its configured SMTP server accepts the
+message. The external inbox, DNS authentication, redirect, and one-time-link checks above remain
+the delivery proof.
 
 ## Backup, restore, and proof
 
