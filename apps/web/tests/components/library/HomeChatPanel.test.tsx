@@ -264,7 +264,7 @@ describe('HomeChatPanel', () => {
     expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 
-  test('shows the latest tool on mobile and the latest three tools on desktop', async () => {
+  test('keeps a pending tool visible within the mobile and desktop limits', async () => {
     setViewportWidth(390);
     const props = {
       ...buildProps(),
@@ -284,22 +284,21 @@ describe('HomeChatPanel', () => {
             {
               type: 'tool-getProjectStructures',
               toolCallId: 'tool-2',
-              state: 'output-available',
-              input: {},
-              output: {},
+              state: 'input-available',
+              input: { projectIds: ['project-1'] },
             },
             {
               type: 'tool-searchLibrary',
               toolCallId: 'tool-3',
-              state: 'output-available',
-              input: {},
-              output: {},
+              state: 'input-available',
+              input: { query: 'strumento ancora attivo' },
             },
             {
               type: 'tool-searchWeb',
               toolCallId: 'tool-4',
-              state: 'input-available',
-              input: { query: 'ultimo strumento' },
+              state: 'output-available',
+              input: { query: 'strumento completato più recente' },
+              output: {},
             },
           ],
         } as UIMessage,
@@ -307,8 +306,8 @@ describe('HomeChatPanel', () => {
     };
     const { rerender } = render(<HomeChatPanel {...props} />);
 
-    expect(screen.getByText('Ricerca web')).toBeInTheDocument();
-    expect(screen.queryByText('Ricerca contenuti')).not.toBeInTheDocument();
+    expect(screen.getByText('Ricerca contenuti')).toBeInTheDocument();
+    expect(screen.queryByText('Ricerca web')).not.toBeInTheDocument();
     expect(screen.queryByText('Struttura corsi')).not.toBeInTheDocument();
     expect(screen.getByText('…')).toBeInTheDocument();
 
