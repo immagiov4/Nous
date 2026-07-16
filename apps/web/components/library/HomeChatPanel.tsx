@@ -857,10 +857,22 @@ export default function HomeChatPanel({
     const toolParts = parts.filter(isToolUIPart).filter(p => isVisibleLibraryToolState(p.state));
     if (!toolParts.length) return null;
 
-    const hasInProgress = toolParts.some(p => isPendingLibraryToolState(p.state));
     const maxTools = isMobileViewport ? 1 : 3;
+    const latestPendingToolIndex = toolParts
+      .map(toolPart => isPendingLibraryToolState(toolPart.state))
+      .lastIndexOf(true);
+    const visibleToolIndexes = new Set<number>();
+    if (latestPendingToolIndex >= 0) visibleToolIndexes.add(latestPendingToolIndex);
+    for (
+      let index = toolParts.length - 1;
+      index >= 0 && visibleToolIndexes.size < maxTools;
+      index -= 1
+    ) {
+      visibleToolIndexes.add(index);
+    }
+    const hasInProgress = latestPendingToolIndex >= 0;
     const truncated = toolParts.length > maxTools;
-    const visibleTools = truncated ? toolParts.slice(-maxTools) : toolParts;
+    const visibleTools = toolParts.filter((_, index) => visibleToolIndexes.has(index));
 
     return (
       <div className="flex min-w-0 flex-nowrap items-center gap-x-2 overflow-hidden py-1.5 text-xs text-gray-600 dark:text-zinc-300">
