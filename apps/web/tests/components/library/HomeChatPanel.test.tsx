@@ -152,6 +152,15 @@ const setViewportWidth = (width: number) => {
   window.dispatchEvent(new Event('resize'));
 };
 
+const setViewportHeight = (height: number) => {
+  Object.defineProperty(window, 'innerHeight', {
+    configurable: true,
+    value: height,
+    writable: true,
+  });
+  window.dispatchEvent(new Event('resize'));
+};
+
 const createDomRect = (top: number, height: number): DOMRect =>
   ({
     bottom: top + height,
@@ -198,6 +207,155 @@ describe('HomeChatPanel', () => {
   beforeEach(() => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
     setViewportWidth(1280);
+    setViewportHeight(800);
+  });
+
+  test('allocates the active mobile chat height from the visible viewport', async () => {
+    setViewportWidth(390);
+    const props = { ...buildProps(), assessmentMessages: [] };
+    const { container, rerender } = render(
+      <HomeChatPanel {...props} compactWhenEmpty hideHeaderCopy hideModeSelector />
+    );
+    const chat = container.querySelector('section');
+    expect(chat).not.toHaveStyle({ height: '600px' });
+
+    rerender(
+      <HomeChatPanel
+        {...props}
+        assessmentMessages={[{ role: 'user', text: 'Inizia la conversazione' }]}
+        compactWhenEmpty
+        hideHeaderCopy
+        hideModeSelector
+      />
+    );
+
+    await waitFor(() => expect(chat).toHaveStyle({ height: '600px' }));
+    expect(chat).toContainElement(screen.getByRole('textbox'));
+  });
+
+  test('follows streaming growth inside the messages viewport without scrolling the page', () => {
+    setViewportWidth(390);
+    const props = buildProps();
+    const { container, rerender } = render(<HomeChatPanel {...props} />);
+    const messagesViewport = container.querySelector('.home-chat-scrollbar');
+    if (!(messagesViewport instanceof HTMLDivElement)) {
+      throw new Error('Expected the home chat scroll container.');
+    }
+    Object.defineProperty(messagesViewport, 'scrollHeight', {
+      configurable: true,
+      value: 720,
+    });
+    messagesViewport.scrollTop = 0;
+    vi.mocked(HTMLElement.prototype.scrollIntoView).mockClear();
+
+    rerender(
+      <HomeChatPanel
+        {...props}
+        assessmentMessages={[
+          {
+            role: 'model',
+            text: 'Messaggio assessment con nuovi token in streaming',
+          },
+        ]}
+      />
+    );
+
+    expect(messagesViewport.scrollTop).toBe(720);
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  test('shows the latest tool on mobile and the latest three tools on desktop', async () => {
+    setViewportWidth(390);
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+      libraryMessages: [
+        {
+          id: 'assistant-tools',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-listLibraryTree',
+              toolCallId: 'tool-1',
+              state: 'output-available',
+              input: {},
+              output: {},
+            },
+            {
+              type: 'tool-getProjectStructures',
+              toolCallId: 'tool-2',
+              state: 'output-available',
+              input: {},
+              output: {},
+            },
+            {
+              type: 'tool-searchLibrary',
+              toolCallId: 'tool-3',
+              state: 'output-available',
+              input: {},
+              output: {},
+            },
+            {
+              type: 'tool-searchWeb',
+              toolCallId: 'tool-4',
+              state: 'input-available',
+              input: { query: 'ultimo strumento' },
+            },
+          ],
+        } as UIMessage,
+      ],
+    };
+    const { rerender } = render(<HomeChatPanel {...props} />);
+
+    expect(screen.getByText('Ricerca web')).toBeInTheDocument();
+    expect(screen.queryByText('Ricerca contenuti')).not.toBeInTheDocument();
+    expect(screen.queryByText('Struttura corsi')).not.toBeInTheDocument();
+    expect(screen.getByText('…')).toBeInTheDocument();
+
+    setViewportWidth(1280);
+    rerender(<HomeChatPanel {...props} />);
+
+    await waitFor(() => expect(screen.getByText('Ricerca contenuti')).toBeInTheDocument());
+    expect(screen.getByText('Struttura corsi')).toBeInTheDocument();
+    expect(screen.getByText('Ricerca web')).toBeInTheDocument();
+    expect(screen.queryByText('Indice libreria')).not.toBeInTheDocument();
+  });
+
+  test('reserves message space for the clear-chat overlay only while the header is hidden', async () => {
+    setViewportWidth(390);
+    const user = userEvent.setup();
+    const onClearLibraryMessages = vi.fn();
+    const { container, rerender } = render(
+      <HomeChatPanel
+        {...buildProps()}
+        homeChatMode="library-query"
+        hideHeaderCopy
+        hideModeSelector
+        onClearLibraryMessages={onClearLibraryMessages}
+      />
+    );
+
+    const clearButton = screen.getByRole('button', { name: /Pulisci questa chat/i });
+    const messagesViewport = container.querySelector('.home-chat-scrollbar');
+    expect(screen.queryByTestId('home-chat-mode-copy')).not.toBeInTheDocument();
+    expect(clearButton.parentElement).toBe(container.querySelector('section'));
+    expect(messagesViewport).toHaveClass('pb-4', 'pt-16');
+    expect(messagesViewport).not.toHaveClass('py-4');
+
+    await user.click(clearButton);
+    expect(onClearLibraryMessages).toHaveBeenCalledOnce();
+
+    rerender(
+      <HomeChatPanel
+        {...buildProps()}
+        homeChatMode="library-query"
+        onClearLibraryMessages={onClearLibraryMessages}
+      />
+    );
+
+    expect(screen.getByTestId('home-chat-mode-copy')).toBeInTheDocument();
+    expect(messagesViewport).toHaveClass('py-4');
+    expect(messagesViewport).not.toHaveClass('pt-16');
   });
 
   test('maps scroll progress to the actual overflow for short, medium, and long chats', () => {
