@@ -486,6 +486,8 @@ mark {
 ::highlight(nous-annotation-notes) {
   text-decoration-line: underline;
   text-decoration-style: dashed;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, currentColor 65%, transparent);
   text-underline-offset: 0.18em;
 }
 
