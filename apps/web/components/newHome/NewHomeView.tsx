@@ -389,10 +389,11 @@ const ResumeSection = ({
           return (
             <Pressable
               key={project.id}
+              quiet
               onClick={() => onOpenProject(project.id)}
               disabled={isOpening}
               aria-busy={isOpening}
-              className="relative overflow-hidden rounded-2xl border border-stone-200/90 bg-white text-left transition-shadow hover:shadow-[0_16px_40px_-30px_rgba(48,35,22,0.65)] disabled:cursor-wait dark:border-white/10 dark:bg-white/5"
+              className="relative overflow-hidden rounded-2xl border border-stone-200/90 bg-white text-left transition-[border-color,box-shadow] hover:border-stone-300 hover:shadow-sm active:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-500 disabled:cursor-wait dark:border-white/10 dark:bg-white/5 dark:hover:border-white/20 dark:focus-visible:ring-stone-300"
             >
               <div className="aspect-[16/7]">
                 <CourseCover
