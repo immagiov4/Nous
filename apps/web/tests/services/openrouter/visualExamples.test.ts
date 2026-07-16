@@ -62,6 +62,18 @@ const IMAGE_PLAN_RESPONSE = JSON.stringify({
   pedagogical_goal: 'build_intuition',
 });
 
+const DIAGRAM_PLAN_RESPONSE = JSON.stringify({
+  visual_type: 'flowchart_svg',
+  concept: 'Trasformazione dell energia durante la fotosintesi.',
+  pedagogical_goal: 'show_process',
+});
+
+const DIAGRAM_RENDER_RESPONSE = JSON.stringify({
+  title: 'processo_fotosintesi',
+  svg_code:
+    '<svg viewBox="0 0 680 160"><rect x="40" y="40" width="180" height="80"/><text x="70" y="85">Luce</text><path d="M220 80 H400"/><rect x="400" y="40" width="220" height="80"/><text x="430" y="85">Energia chimica</text></svg>',
+});
+
 describe('artifact generation', () => {
   beforeEach(() => {
     callOpenRouterMock.mockReset();
@@ -161,6 +173,48 @@ describe('artifact generation', () => {
       mediaType: 'image/png',
     });
   });
+
+  test('routes a later raster request through image generation after creating a diagram', async () => {
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: false, maxRounds: 1 });
+    callOpenRouterMock
+      .mockResolvedValueOnce(DIAGRAM_PLAN_RESPONSE)
+      .mockResolvedValueOnce(DIAGRAM_RENDER_RESPONSE);
+    requestGeneratedImageMock.mockResolvedValueOnce({
+      dataUrl: 'data:image/png;base64,Zm90b3NpbnRlc2k=',
+      mediaType: 'image/png',
+    });
+
+    const lesson = {
+      id: 'lesson-photosynthesis',
+      title: 'La fotosintesi',
+      description: 'Trasformazione dell energia durante la fotosintesi.',
+      type: 'core' as const,
+      isCompleted: false,
+      content: '## Processo\n\nLa luce viene trasformata in energia chimica.',
+    };
+    const diagramDraft = await generateLessonArtifactDraft({
+      lesson,
+      projectId: 'project-biology',
+      projectTitle: 'Biologia',
+      prompt: 'Crea un diagramma del processo.',
+    });
+    const rasterDraft = await generateLessonArtifactDraft({
+      lesson,
+      projectId: 'project-biology',
+      projectTitle: 'Biologia',
+      prompt: 'Ora genera lo stesso concetto come immagine raster.',
+      rasterImageRequested: true,
+    });
+
+    expect(diagramDraft?.visual.kind).toBe('svg');
+    expect(rasterDraft?.visual).toMatchObject({
+      kind: 'image',
+      mediaType: 'image/png',
+    });
+    expect(callOpenRouterMock).toHaveBeenCalledTimes(2);
+    expect(requestGeneratedImageMock).toHaveBeenCalledTimes(1);
+  });
+
   test('does not copy generated image bytes into a replacement prompt', async () => {
     callOpenRouterMock.mockResolvedValueOnce(IMAGE_PLAN_RESPONSE);
     requestGeneratedImageMock.mockResolvedValueOnce({

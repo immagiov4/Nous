@@ -95,6 +95,7 @@ interface CurrentLessonArtifactsToolInput {
 interface GenerateCurrentLessonArtifactInput {
   mode?: 'new' | 'replacement-draft';
   prompt: string;
+  rasterImageRequested?: boolean;
   revisionInstructions?: string;
   sourceArtifactId?: string;
 }
@@ -167,6 +168,7 @@ const readGenerateCurrentLessonArtifactInput = (
     ? {
         mode: candidate.mode === 'replacement-draft' ? 'replacement-draft' : 'new',
         prompt: candidate.prompt.trim(),
+        rasterImageRequested: candidate.rasterImageRequested === true,
         revisionInstructions:
           typeof candidate.revisionInstructions === 'string'
             ? candidate.revisionInstructions.trim()
@@ -526,6 +528,7 @@ function ContextAnswerPanelSession({
             projectId: contextAnswer.projectId,
             projectTitle: contextAnswer.projectTitle || t('Corso'),
             prompt: artifactInput.prompt,
+            rasterImageRequested: artifactInput.rasterImageRequested,
             revisionInstructions: artifactInput.revisionInstructions,
             selectedText: currentState.selectedText,
             sourceArtifact,
