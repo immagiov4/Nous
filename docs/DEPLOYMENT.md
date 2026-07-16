@@ -289,6 +289,12 @@ SMTP_PASS=<dedicated Resend API key>
 SMTP_SENDER_NAME=Nous
 ```
 
+The self-hosted Compose override starts an internal, read-only `email-templates` service from the
+repository's `supabase/templates/` directory. Supabase Auth waits for that service to become healthy
+and uses it for the confirmation, invitation, Magic Link, and recovery HTML and subjects. Template
+reloading is enabled, so a deployed template-file update is used by the next email without exposing
+the files publicly.
+
 `setup` derives `SITE_URL` and `ADDITIONAL_REDIRECT_URLS` from `NOUS_PUBLIC_URL` and writes
 `DISABLE_SIGNUP=true` into the official Supabase env. Re-run `setup` after upgrading an older
 deployment, then recreate Auth after changing Auth or SMTP values:
@@ -299,6 +305,16 @@ docker compose --project-name nous-reader-supabase \
   -f deploy/supabase-project/docker-compose.yml \
   -f deploy/supabase.override.yml \
   up -d --force-recreate auth
+```
+
+When adopting branded templates on an existing VPS, include their internal server in the recreate:
+
+```bash
+docker compose --project-name nous-reader-supabase \
+  --env-file deploy/supabase-project/.env \
+  -f deploy/supabase-project/docker-compose.yml \
+  -f deploy/supabase.override.yml \
+  up -d --force-recreate email-templates auth
 ```
 
 Supabase Auth retains its own per-recipient email cooldown. The admin UI disables duplicate sends

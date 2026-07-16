@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, test, vi } from 'vitest';
+import { parse } from 'yaml';
 
 import { buildSelfHostedUpdates, validateDeploymentConfig } from '../../../../deploy/config.mjs';
 import { checkHealthEndpoints } from '../../../../deploy/health-smoke.mjs';
@@ -18,6 +20,12 @@ const DEPLOYMENT_ENV = {
   NOUS_SUPABASE_PUBLIC_URL: 'https://auth.example.com/',
   SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
   SUPABASE_URL: 'https://auth-internal.example.com/',
+};
+
+const SELF_HOSTED_OVERRIDE = parse(
+  readFileSync(resolve('deploy/supabase.override.yml'), 'utf8').replaceAll('!override', '')
+) as {
+  services: Record<string, Record<string, unknown>>;
 };
 
 describe('production deployment boundaries', () => {
@@ -79,6 +87,32 @@ describe('production deployment boundaries', () => {
       SITE_URL: 'https://reader.acme.test',
       SUPABASE_PUBLIC_URL: 'https://auth.acme.test',
     });
+  });
+
+  test('serves branded Auth email templates inside the self-hosted Supabase network', () => {
+    const auth = SELF_HOSTED_OVERRIDE.services.auth as {
+      depends_on: Record<string, { condition: string }>;
+      environment: Record<string, string>;
+    };
+    const templateServer = SELF_HOSTED_OVERRIDE.services['email-templates'] as {
+      healthcheck: { test: string[] };
+      volumes: string[];
+    };
+
+    expect(auth.depends_on['email-templates']).toEqual({ condition: 'service_healthy' });
+    expect(auth.environment).toMatchObject({
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: 'Conferma il tuo account Nous',
+      GOTRUE_MAILER_SUBJECTS_INVITE: 'Il tuo invito a Nous',
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: 'Accedi a Nous',
+      GOTRUE_MAILER_SUBJECTS_RECOVERY: 'Reimposta la password Nous',
+      GOTRUE_MAILER_TEMPLATE_RELOADING_ENABLED: 'true',
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: 'http://email-templates/confirmation.html',
+      GOTRUE_MAILER_TEMPLATES_INVITE: 'http://email-templates/invite.html',
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: 'http://email-templates/magic-link.html',
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: 'http://email-templates/recovery.html',
+    });
+    expect(templateServer.volumes).toContain('../../supabase/templates:/usr/share/nginx/html:ro');
+    expect(templateServer.healthcheck.test).toContain('http://127.0.0.1/magic-link.html');
   });
 
   test('fails the stack smoke contract on the first unhealthy dependency', async () => {

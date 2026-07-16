@@ -1,4 +1,28 @@
 services:
+  auth:
+    depends_on:
+      email-templates:
+        condition: service_healthy
+    environment:
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: Conferma il tuo account Nous
+      GOTRUE_MAILER_SUBJECTS_INVITE: Il tuo invito a Nous
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: Accedi a Nous
+      GOTRUE_MAILER_SUBJECTS_RECOVERY: Reimposta la password Nous
+      GOTRUE_MAILER_TEMPLATE_RELOADING_ENABLED: "true"
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: http://email-templates/confirmation.html
+      GOTRUE_MAILER_TEMPLATES_INVITE: http://email-templates/invite.html
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: http://email-templates/magic-link.html
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: http://email-templates/recovery.html
+  email-templates:
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    restart: unless-stopped
+    volumes:
+      - ../../supabase/templates:/usr/share/nginx/html:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/magic-link.html"]
+      timeout: 5s
+      interval: 10s
+      retries: 3
   kong:
     ports: !override
       - "127.0.0.1:${KONG_HTTP_PORT:-8000}:8000/tcp"
