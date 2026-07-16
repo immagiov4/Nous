@@ -13,6 +13,7 @@ import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
 
 const ADMIN_REQUIRED_MESSAGE = 'Solo un amministratore puo eseguire questa operazione.';
+const ADMIN_MAGIC_LINK_FAILED_MESSAGE = 'Invio del link di accesso non riuscito.';
 const ADMIN_USER_CREATE_PATH = '/auth/v1/admin/users';
 
 const router = Router();
@@ -267,7 +268,11 @@ router.post('/users/:id/magic-link', async (req: Request, res: Response) => {
       sent: true,
     });
   } catch (error) {
-    sendErrorResponse(res, 400, error, 'Failed to generate Supabase magic link');
+    console.error('[Nous][Admin] Failed to send a Supabase magic link.', error);
+    res.status(502).json({
+      success: false,
+      error: ADMIN_MAGIC_LINK_FAILED_MESSAGE,
+    });
   }
 });
 

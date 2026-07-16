@@ -22,6 +22,7 @@ describe('/api/admin', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     process.env = { ...ORIGINAL_ENV };
     resetModelConfigForTesting();
@@ -349,6 +350,36 @@ describe('/api/admin', () => {
           email: 'student@example.com',
         }),
       })
+    );
+  });
+
+  test('logs magic-link delivery failures without exposing provider details to the admin', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'user-1', email: 'student@example.com' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('provider-secret-diagnostic', { status: 503 }));
+    const consoleErrorMock = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .post('/api/admin/users/user-1/magic-link')
+      .set('Authorization', authHeader(adminToken));
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Invio del link di accesso non riuscito.',
+    });
+    expect(JSON.stringify(response.body)).not.toContain('provider-secret-diagnostic');
+    expect(consoleErrorMock).toHaveBeenCalledWith(
+      '[Nous][Admin] Failed to send a Supabase magic link.',
+      expect.any(Error)
     );
   });
 

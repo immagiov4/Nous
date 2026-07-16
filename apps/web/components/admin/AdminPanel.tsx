@@ -206,6 +206,7 @@ export default function AdminPanel() {
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [magicLinkUserId, setMagicLinkUserId] = useState<string | null>(null);
   const [isSavingModels, setIsSavingModels] = useState(false);
 
   const loadAdminData = useCallback(async () => {
@@ -284,6 +285,24 @@ export default function AdminPanel() {
       setErrorMessage(
         error instanceof Error ? error.message : t('Aggiornamento utente non riuscito.')
       );
+    }
+  };
+
+  const handleMagicLinkSend = async (user: AdminUser) => {
+    setErrorMessage('');
+    setStatusMessage('');
+    setMagicLinkUserId(user.id);
+    try {
+      await sendAdminMagicLink(user.id);
+      setStatusMessage(
+        t('Link di accesso inviato a {userEmail}.', {
+          userEmail: user.email || user.id,
+        })
+      );
+    } catch {
+      setErrorMessage(t('Invio magic link non riuscito.'));
+    } finally {
+      setMagicLinkUserId(null);
     }
   };
 
@@ -452,11 +471,17 @@ export default function AdminPanel() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => void sendAdminMagicLink(user.id)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 px-3 py-1.5 text-xs font-semibold"
+                      aria-label={t('Invia link di accesso a {userEmail}', {
+                        userEmail: user.email || user.id,
+                      })}
+                      disabled={magicLinkUserId !== null}
+                      onClick={() => void handleMagicLinkSend(user)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 px-3 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-60"
                     >
                       <Link2 className="h-3.5 w-3.5" />
-                      Magic link
+                      {magicLinkUserId === user.id
+                        ? t('Invio in corso…')
+                        : t('Invia link di accesso')}
                     </button>
                     <button
                       type="button"

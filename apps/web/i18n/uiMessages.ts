@@ -246,6 +246,8 @@ const ENGLISH_UI_MESSAGES = {
   Invia: 'Send',
   'Inserisci una password.': 'Enter a password.',
   'Invio magic link non riuscito.': 'Could not send the magic link.',
+  'Invia link di accesso': 'Send sign-in link',
+  'Invia link di accesso a {userEmail}': 'Send sign-in link to {userEmail}',
   'Invia email di recupero': 'Send recovery email',
   'Invio email di recupero non riuscito. Riprova.': 'Could not send the recovery email. Try again.',
   'Interroga e verifica': 'Ask and check your understanding',
@@ -269,6 +271,7 @@ const ENGLISH_UI_MESSAGES = {
   'Spostamento in corso...': 'Moving...',
   'non disponibile': 'unavailable',
   'Magic link inviato. Controlla la tua email.': 'Magic link sent. Check your email.',
+  'Link di accesso inviato a {userEmail}.': 'Sign-in link sent to {userEmail}.',
   'Navigazione principale': 'Main navigation',
   'Non un riassunto. Non una chat generica.': 'Not a summary. Not a generic chat.',
   'Non sono riuscito a generare l’audio. Riprova tra poco.':

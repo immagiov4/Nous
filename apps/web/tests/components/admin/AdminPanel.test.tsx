@@ -11,6 +11,7 @@ import {
   getAdminModelConfig,
   listAdminUsers,
   patchAdminModelConfig,
+  sendAdminMagicLink,
   updateAdminUser,
 } from '../../../services/admin/adminApi.ts';
 
@@ -105,6 +106,7 @@ describe('AdminPanel', () => {
       email: 'new@example.com',
       app_metadata: { ai_provider: 'openai', role: 'user' },
     });
+    vi.mocked(sendAdminMagicLink).mockResolvedValue();
   });
 
   test('prefills model fields with backend defaults', async () => {
@@ -276,5 +278,46 @@ describe('AdminPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Salva password' }));
 
     expect(updateAdminUser).toHaveBeenCalledWith('user-1', { password: 'g1ovann1' });
+  });
+
+  test('shows the magic-link destination and prevents duplicate sends while pending', async () => {
+    const user = userEvent.setup();
+    let resolveSend: (() => void) | undefined;
+    vi.mocked(sendAdminMagicLink).mockReturnValue(
+      new Promise<void>(resolve => {
+        resolveSend = resolve;
+      })
+    );
+    render(<AdminPanel />);
+
+    const button = await screen.findByRole('button', {
+      name: 'Invia link di accesso a student@example.com',
+    });
+    await user.click(button);
+
+    expect(sendAdminMagicLink).toHaveBeenCalledWith('user-1');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('Invio in corso…');
+
+    resolveSend?.();
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Link di accesso inviato a student@example.com.'
+    );
+    expect(button).toBeEnabled();
+  });
+
+  test('shows a stable error when magic-link delivery fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sendAdminMagicLink).mockRejectedValue(new Error('provider detail'));
+    render(<AdminPanel />);
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Invia link di accesso a student@example.com',
+      })
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invio magic link non riuscito.');
+    expect(screen.queryByText('provider detail')).not.toBeInTheDocument();
   });
 });
