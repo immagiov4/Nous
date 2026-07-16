@@ -18,9 +18,10 @@ import {
   TrendingUp,
   Volume2,
 } from 'lucide-react';
-import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { type SyntheticEvent, useCallback, useEffect, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
+  type AdminAccessEmailDelivery,
   type AdminAiProvider,
   type AdminModelConfig,
   type AdminReasoningEffort,
@@ -31,6 +32,7 @@ import {
   getAdminModelConfig,
   listAdminUsers,
   patchAdminModelConfig,
+  sendAdminAccessEmail,
   sendAdminMagicLink,
   updateAdminUser,
 } from '../../services/admin/adminApi.ts';
@@ -41,6 +43,39 @@ const getUserRole = (user: AdminUser): 'admin' | 'user' =>
   user.app_metadata?.role === 'admin' ? 'admin' : 'user';
 
 const isDisabledUser = (user: AdminUser): boolean => Boolean(user.banned_until);
+
+const getUserAccessEmailActionLabel = (user: AdminUser, includeDestination = false): string => {
+  const pendingSetup = user.app_metadata?.password_setup_required === true;
+  if (includeDestination) {
+    return t(
+      pendingSetup
+        ? 'Invia link per completare l’account a {userEmail}'
+        : 'Invia link di accesso a {userEmail}',
+      { userEmail: user.email || user.id }
+    );
+  }
+  return t(pendingSetup ? 'Invia link per completare l’account' : 'Invia link di accesso');
+};
+
+const getAccessEmailStatusMessage = (
+  delivery: AdminAccessEmailDelivery,
+  destination: string
+): string => {
+  if (delivery === 'invitation') {
+    return t('Invito inviato a {userEmail}. Dovrà scegliere una password prima di entrare.', {
+      userEmail: destination,
+    });
+  }
+  if (delivery === 'setup') {
+    return t(
+      'Link per completare l’account inviato a {userEmail}. Dovrà scegliere una password prima di entrare.',
+      { userEmail: destination }
+    );
+  }
+  return t('Link di accesso inviato a {userEmail}. La password esistente non è stata modificata.', {
+    userEmail: destination,
+  });
+};
 
 const AI_PROVIDER_OPTIONS = [
   ['openrouter', 'OpenRouter'],
@@ -197,6 +232,7 @@ const PROVIDER_SECTIONS: ReadonlyArray<{
 export default function AdminPanel() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [modelConfig, setModelConfig] = useState<AdminModelConfig>(DEFAULT_ADMIN_MODEL_CONFIG);
+  const [accessEmail, setAccessEmail] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -206,6 +242,8 @@ export default function AdminPanel() {
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [magicLinkUserId, setMagicLinkUserId] = useState<string | null>(null);
+  const [isSendingAccessEmail, setIsSendingAccessEmail] = useState(false);
   const [isSavingModels, setIsSavingModels] = useState(false);
 
   const loadAdminData = useCallback(async () => {
@@ -233,8 +271,7 @@ export default function AdminPanel() {
     });
   }, [loadAdminData]);
 
-  const handleCreateUser = async (event: FormEvent) => {
-    event.preventDefault();
+  const createUser = async () => {
     setErrorMessage('');
     try {
       await createAdminUser({
@@ -254,6 +291,39 @@ export default function AdminPanel() {
         error instanceof Error ? error.message : t('Creazione account non riuscita.')
       );
     }
+  };
+
+  const handleCreateUser = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void createUser();
+  };
+
+  const sendAccessEmail = async () => {
+    const destination = accessEmail.trim();
+    if (!destination) {
+      return;
+    }
+
+    setErrorMessage('');
+    setStatusMessage('');
+    setIsSendingAccessEmail(true);
+    try {
+      const delivery = await sendAdminAccessEmail(destination);
+      setAccessEmail('');
+      setStatusMessage(getAccessEmailStatusMessage(delivery, destination));
+      if (delivery === 'invitation') {
+        await loadAdminData();
+      }
+    } catch {
+      setErrorMessage(t("Invio dell'email di accesso non riuscito."));
+    } finally {
+      setIsSendingAccessEmail(false);
+    }
+  };
+
+  const handleAccessEmailSend = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void sendAccessEmail();
   };
 
   const handleModelSave = async () => {
@@ -284,6 +354,20 @@ export default function AdminPanel() {
       setErrorMessage(
         error instanceof Error ? error.message : t('Aggiornamento utente non riuscito.')
       );
+    }
+  };
+
+  const handleMagicLinkSend = async (user: AdminUser) => {
+    setErrorMessage('');
+    setStatusMessage('');
+    setMagicLinkUserId(user.id);
+    try {
+      const delivery = await sendAdminMagicLink(user.id);
+      setStatusMessage(getAccessEmailStatusMessage(delivery, user.email || user.id));
+    } catch {
+      setErrorMessage(t('Invio magic link non riuscito.'));
+    } finally {
+      setMagicLinkUserId(null);
     }
   };
 
@@ -452,11 +536,15 @@ export default function AdminPanel() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => void sendAdminMagicLink(user.id)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 px-3 py-1.5 text-xs font-semibold"
+                      aria-label={getUserAccessEmailActionLabel(user, true)}
+                      disabled={magicLinkUserId !== null}
+                      onClick={() => void handleMagicLinkSend(user)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 px-3 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-60"
                     >
                       <Link2 className="h-3.5 w-3.5" />
-                      Magic link
+                      {magicLinkUserId === user.id
+                        ? t('Invio in corso…')
+                        : getUserAccessEmailActionLabel(user)}
                     </button>
                     <button
                       type="button"
@@ -518,6 +606,36 @@ export default function AdminPanel() {
           </div>
 
           <aside className="space-y-6">
+            <form
+              onSubmit={handleAccessEmailSend}
+              className="rounded-lg border border-gray-200 bg-white p-4"
+            >
+              <h2 className="text-sm font-semibold">{t('Invita o invia accesso')}</h2>
+              <p className="mt-2 text-xs leading-5 text-gray-500">
+                {t(
+                  'Un nuovo indirizzo riceve un link per completare l’account. Un account ancora in attesa riceve di nuovo il completamento; un account completo riceve un link di accesso.'
+                )}
+              </p>
+              <input
+                type="email"
+                aria-label={t('Email per invito o accesso')}
+                placeholder="email"
+                value={accessEmail}
+                onChange={event => setAccessEmail(event.target.value)}
+                className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                required
+              />
+              <button
+                type="submit"
+                disabled={isSendingAccessEmail}
+                aria-busy={isSendingAccessEmail}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+              >
+                <Link2 className="h-4 w-4" />
+                {t(isSendingAccessEmail ? 'Invio in corso…' : 'Invia email')}
+              </button>
+            </form>
+
             <form
               onSubmit={handleCreateUser}
               className="rounded-lg border border-gray-200 bg-white p-4"

@@ -1,20 +1,29 @@
+import { getBackendUrl } from '../openrouter/config.ts';
 import { getNousRuntimeConfig } from '../runtimeConfig.ts';
 
 export interface SupabaseAccount {
   email?: string;
   id: string;
+  passwordSetupRequired?: boolean;
   providers?: string[];
 }
 
 export interface SupabaseUserSession {
   accessToken: string;
+  authAction?: 'invite' | 'recovery';
   expiresAt?: number;
   refreshToken?: string;
   user?: SupabaseAccount;
 }
 
+export type SupabaseAuthCallbackResult =
+  | { status: 'none'; session: SupabaseUserSession | null }
+  | { status: 'success'; session: SupabaseUserSession }
+  | { status: 'error'; session: null };
+
 interface SupabaseAuthUserResponse {
   app_metadata?: {
+    password_setup_required?: unknown;
     provider?: unknown;
     providers?: unknown;
   };
@@ -23,11 +32,20 @@ interface SupabaseAuthUserResponse {
   identities?: Array<{ provider?: unknown }>;
 }
 
+export type SupabasePasswordSetupErrorReason = 'expired' | 'retryable' | 'weak-password';
+
+export class SupabasePasswordSetupError extends Error {
+  constructor(public readonly reason: SupabasePasswordSetupErrorReason) {
+    super(reason);
+  }
+}
+
 interface SupabaseAuthResponse {
   access_token?: string;
   expires_at?: number;
   expires_in?: number;
   refresh_token?: string;
+  type?: unknown;
   user?: SupabaseAuthUserResponse;
 }
 
@@ -118,6 +136,41 @@ const getSupabaseAuthConfig = () => {
   };
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const decodeJwtPayload = (accessToken: string): Record<string, unknown> | null => {
+  try {
+    const encodedPayload = accessToken.split('.')[1];
+    if (!encodedPayload) {
+      return null;
+    }
+    const normalizedPayload = encodedPayload.replaceAll('-', '+').replaceAll('_', '/');
+    const binary = globalThis.atob(
+      normalizedPayload.padEnd(Math.ceil(normalizedPayload.length / 4) * 4, '=')
+    );
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    const payload = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return isRecord(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+};
+
+const readAccountFromAccessToken = (accessToken: string): SupabaseAuthUserResponse | null => {
+  const payload = decodeJwtPayload(accessToken);
+  const id = payload && typeof payload.sub === 'string' ? payload.sub : undefined;
+  if (!payload || !id) {
+    return null;
+  }
+
+  return {
+    app_metadata: isRecord(payload.app_metadata) ? payload.app_metadata : undefined,
+    email: typeof payload.email === 'string' ? payload.email : undefined,
+    id,
+  };
+};
+
 const normalizeSupabaseAccount = (
   response: SupabaseAuthUserResponse,
   previousAccount?: SupabaseAccount
@@ -145,9 +198,14 @@ const normalizeSupabaseAccount = (
     providers.add(response.app_metadata.provider);
   }
 
+  const passwordSetupRequired = response.app_metadata
+    ? response.app_metadata.password_setup_required === true
+    : previousAccount?.passwordSetupRequired;
+
   return {
     email: response.email || previousAccount?.email,
     id,
+    ...(passwordSetupRequired === undefined ? {} : { passwordSetupRequired }),
     providers: providers.size > 0 ? [...providers] : previousAccount?.providers,
   };
 };
@@ -163,17 +221,26 @@ const normalizeSession = (
     throw new Error('Supabase Auth did not return an access token.');
   }
 
+  const accountFromToken = readAccountFromAccessToken(response.access_token);
+  const responseAccount = response.user?.id
+    ? normalizeSupabaseAccount(response.user, previousSession?.user)
+    : previousSession?.user;
+
   return {
     accessToken: response.access_token,
+    authAction:
+      response.type === 'invite' || response.type === 'recovery'
+        ? response.type
+        : previousSession?.authAction,
     expiresAt:
       response.expires_at ||
       (response.expires_in
         ? Math.floor(Date.now() / 1000) + response.expires_in
         : previousSession?.expiresAt),
     refreshToken: response.refresh_token || previousSession?.refreshToken,
-    user: response.user?.id
-      ? normalizeSupabaseAccount(response.user, previousSession?.user)
-      : previousSession?.user,
+    user: accountFromToken
+      ? normalizeSupabaseAccount(accountFromToken, responseAccount)
+      : responseAccount,
   };
 };
 
@@ -187,12 +254,14 @@ const isSessionExpired = (session: SupabaseUserSession): boolean => {
 
 const stripUnusedSessionFields = (session: SupabaseUserSession): SupabaseUserSession => ({
   accessToken: session.accessToken,
+  authAction: session.authAction,
   expiresAt: session.expiresAt,
   refreshToken: session.refreshToken,
   user: session.user
     ? {
         email: session.user.email,
         id: session.user.id,
+        passwordSetupRequired: session.user.passwordSetupRequired,
         providers: session.user.providers,
       }
     : undefined,
@@ -219,6 +288,10 @@ export const readSupabaseSession = (): SupabaseUserSession | null => {
     }
 
     const sanitizedSession = stripUnusedSessionFields(parsed);
+    const accountFromToken = readAccountFromAccessToken(sanitizedSession.accessToken);
+    if (accountFromToken) {
+      sanitizedSession.user = normalizeSupabaseAccount(accountFromToken, sanitizedSession.user);
+    }
     const sanitizedRawSession = JSON.stringify(sanitizedSession);
     if (sanitizedRawSession !== rawSession) {
       if (storage) {
@@ -441,7 +514,10 @@ const requestCurrentSupabaseAccount = async (
     (await response.json()) as SupabaseAuthUserResponse,
     session.user
   );
-  saveSupabaseSession({ ...session, user: account });
+  saveSupabaseSession({
+    ...session,
+    user: account,
+  });
   return account;
 };
 
@@ -454,18 +530,144 @@ export const requestSupabaseEmailChange = (email: string): Promise<SupabaseAccou
 export const updateSupabasePassword = (password: string): Promise<SupabaseAccount> =>
   requestCurrentSupabaseAccount('PUT', { password });
 
+const readPasswordSetupFailure = async (
+  response: Response
+): Promise<SupabasePasswordSetupErrorReason | null> => {
+  if (response.ok) {
+    return null;
+  }
+  if (response.status === 401) {
+    return 'expired';
+  }
+  if (response.status === 422) {
+    const body = (await response.json().catch(() => ({}))) as {
+      code?: unknown;
+      error_code?: unknown;
+    };
+    if (body.code === 'weak_password' || body.error_code === 'weak_password') {
+      return 'weak-password';
+    }
+  }
+  return 'retryable';
+};
+
+const completeSupabaseRecoveryPassword = async (
+  session: SupabaseUserSession,
+  password: string
+): Promise<void> => {
+  const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
+  let response: Response;
+  try {
+    response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ password }),
+    });
+  } catch {
+    throw new SupabasePasswordSetupError('retryable');
+  }
+
+  const failureReason = await readPasswordSetupFailure(response);
+  if (failureReason === 'expired') {
+    clearSupabaseSession();
+    throw new SupabasePasswordSetupError('expired');
+  }
+  if (failureReason) {
+    throw new SupabasePasswordSetupError(failureReason);
+  }
+
+  const account = normalizeSupabaseAccount(
+    (await response.json()) as SupabaseAuthUserResponse,
+    session.user
+  );
+  saveSupabaseSession({ ...session, authAction: undefined, user: account });
+};
+
+export const completeSupabasePasswordSetup = async (password: string): Promise<void> => {
+  const session = await getValidSupabaseSession();
+  if (!session) {
+    throw new SupabasePasswordSetupError('expired');
+  }
+  if (!session.user?.passwordSetupRequired) {
+    await completeSupabaseRecoveryPassword(session, password);
+    return;
+  }
+
+  let response: Response;
+  try {
+    response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/auth/password-setup`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+  } catch {
+    throw new SupabasePasswordSetupError('retryable');
+  }
+
+  const failureReason = await readPasswordSetupFailure(response);
+  if (failureReason === 'expired') {
+    clearSupabaseSession();
+    throw new SupabasePasswordSetupError('expired');
+  }
+  if (failureReason) {
+    throw new SupabasePasswordSetupError(failureReason);
+  }
+
+  const email = session.user?.email;
+  if (!email) {
+    clearSupabaseSession();
+    throw new SupabasePasswordSetupError('expired');
+  }
+
+  try {
+    await signInWithPassword({ email, password });
+  } catch {
+    throw new SupabasePasswordSetupError('retryable');
+  }
+};
+
+const ACCOUNT_NEUTRAL_EMAIL_ERROR_CODES = new Set(['otp_disabled', 'user_not_found']);
+
+const isAccountNeutralEmailRejection = async (
+  operation: 'magic-link' | 'password-recovery',
+  response: Response
+): Promise<boolean> => {
+  const body = (await response.json().catch(() => ({}))) as {
+    code?: unknown;
+    error_code?: unknown;
+  };
+  const providerCode = body.error_code ?? body.code;
+  const errorCode = typeof providerCode === 'string' ? providerCode : undefined;
+  console.warn(`[Nous][Auth] ${operation} request rejected.`, {
+    errorCode,
+    status: response.status,
+  });
+  return Boolean(errorCode && ACCOUNT_NEUTRAL_EMAIL_ERROR_CODES.has(errorCode));
+};
+
 export const sendPasswordRecovery = async (email: string): Promise<void> => {
   const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
+  const redirectTo = globalThis.window ? `${globalThis.window.location.origin}/` : '';
   const response = await fetch(`${supabaseUrl}/auth/v1/recover`, {
     method: 'POST',
     headers: {
       apikey: anonKey,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ email: email.trim() }),
+    body: JSON.stringify({
+      email: email.trim(),
+      ...(redirectTo ? { redirect_to: redirectTo } : {}),
+    }),
   });
 
   if (!response.ok) {
+    if (await isAccountNeutralEmailRejection('password-recovery', response)) {
+      return;
+    }
     throw new Error('Password recovery failed.');
   }
 };
@@ -515,13 +717,15 @@ export const signInWithPassword = async ({
 
   const session = normalizeSession((await response.json()) as SupabaseAuthResponse);
   saveSupabaseSession(session);
+  if (globalThis.window?.location.pathname === '/landing') {
+    globalThis.window.history.replaceState(null, document.title, '/');
+  }
   return session;
 };
 
 export const sendMagicLink = async (email: string): Promise<void> => {
   const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
-  const emailRedirectTo =
-    typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
+  const emailRedirectTo = globalThis.window ? `${globalThis.window.location.origin}/` : '';
   const response = await fetch(`${supabaseUrl}/auth/v1/otp`, {
     method: 'POST',
     headers: {
@@ -529,38 +733,70 @@ export const sendMagicLink = async (email: string): Promise<void> => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      email,
+      create_user: false,
+      email: email.trim(),
       type: 'magiclink',
-      options: emailRedirectTo ? { email_redirect_to: emailRedirectTo } : undefined,
+      ...(emailRedirectTo ? { redirect_to: emailRedirectTo } : {}),
     }),
   });
 
   if (!response.ok) {
+    if (await isAccountNeutralEmailRejection('magic-link', response)) {
+      return;
+    }
     throw new Error('Invio magic link non riuscito.');
   }
 };
 
-export const consumeSupabaseSessionFromUrl = (): SupabaseUserSession | null => {
-  if (typeof window === 'undefined') {
-    return null;
+export const readSupabaseAuthCallbackFromUrl = (): SupabaseAuthCallbackResult => {
+  if (globalThis.window === undefined) {
+    return { status: 'none', session: null };
   }
 
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const params = new URLSearchParams(globalThis.window.location.hash.replace(/^#/, ''));
+  if (params.has('error') || params.has('error_code')) {
+    return { status: 'error', session: null };
+  }
+
   const accessToken = params.get('access_token');
   if (!accessToken) {
-    return readSupabaseSession();
+    return { status: 'none', session: readSupabaseSession() };
   }
+
+  const callbackType = params.get('type');
+  const expiresAt = Number.parseInt(params.get('expires_at') || '', 10);
+  const expiresIn = Number.parseInt(params.get('expires_in') || '', 10);
 
   const session: SupabaseUserSession = {
     accessToken,
+    authAction: callbackType === 'invite' || callbackType === 'recovery' ? callbackType : undefined,
     refreshToken: params.get('refresh_token') || undefined,
-    expiresAt: Number.parseInt(params.get('expires_at') || '', 10) || undefined,
+    expiresAt: expiresAt || (expiresIn ? Math.floor(Date.now() / 1000) + expiresIn : undefined),
+    user: (() => {
+      const account = readAccountFromAccessToken(accessToken);
+      return account ? normalizeSupabaseAccount(account) : undefined;
+    })(),
   };
-  saveSupabaseSession(session);
-  window.history.replaceState(
+  return { status: 'success', session };
+};
+
+export const consumeSupabaseAuthCallbackFromUrl = (): SupabaseAuthCallbackResult => {
+  const callback = readSupabaseAuthCallbackFromUrl();
+  if (callback.status === 'none' || globalThis.window === undefined) {
+    return callback;
+  }
+
+  if (callback.status === 'error') {
+    clearSupabaseSession();
+  } else {
+    saveSupabaseSession(callback.session);
+  }
+  const callbackPath =
+    globalThis.window.location.pathname === '/landing' ? '/' : globalThis.window.location.pathname;
+  globalThis.window.history.replaceState(
     null,
     document.title,
-    window.location.pathname + window.location.search
+    `${callbackPath}${globalThis.window.location.search}`
   );
-  return session;
+  return callback;
 };

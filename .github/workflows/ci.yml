@@ -50,6 +50,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Start Local Supabase
+        env:
+          SUPABASE_AUTH_SMTP_PASS: ci-placeholder-not-used
         run: bunx supabase start
 
       - name: Run Canonical Auth/RLS Contract

@@ -2,6 +2,7 @@
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { expect, test, vi } from 'vitest';
 
 import LandingPage from '../../../components/marketing/LandingPage.tsx';
@@ -23,13 +24,29 @@ test('presents the course transformation and keeps tester login secondary', asyn
   expect(screen.queryByText(/sviluppo visibile/i)).toBeNull();
   expect(screen.queryByText('Area tester')).toBeNull();
 
-  await user.click(screen.getByRole('button', { name: 'Accedi' }));
+  const loginTrigger = screen.getByRole('button', { name: 'Accedi' });
+  await user.click(loginTrigger);
 
   expect(screen.getByRole('dialog')).toBeInTheDocument();
   expect(screen.getByText('Area tester')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Accesso all’anteprima' })).toHaveFocus();
 
   await user.click(screen.getByRole('button', { name: 'Chiudi accesso' }));
   expect(screen.queryByRole('dialog')).toBeNull();
+  expect(loginTrigger).toHaveFocus();
+});
+
+test('auto-open remains modal and focused under StrictMode', () => {
+  const showModalSpy = vi.spyOn(HTMLDialogElement.prototype, 'showModal');
+  render(
+    <StrictMode>
+      <LandingPage loginInitiallyOpen loginPanel={<p>Area tester</p>} />
+    </StrictMode>
+  );
+
+  expect(showModalSpy).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('dialog')).toHaveAttribute('open');
+  expect(screen.getByRole('heading', { name: 'Accesso all’anteprima' })).toHaveFocus();
 });
 
 test('connects the scroll journey to the Remotion product sequence', () => {

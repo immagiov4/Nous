@@ -1,39 +1,151 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, type SyntheticEvent, useEffect, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
-  consumeSupabaseSessionFromUrl,
+  completeSupabasePasswordSetup,
+  consumeSupabaseAuthCallbackFromUrl,
   getValidSupabaseSession,
   isLocalAuthBypassEnabled,
   isSupabaseAuthEnabled,
-  readSupabaseSession,
+  readSupabaseAuthCallbackFromUrl,
   refreshSupabaseSession,
   SUPABASE_SESSION_REFRESH_RETRY_MS,
+  SupabasePasswordSetupError,
   type SupabaseUserSession,
   scheduleSupabaseSessionRefresh,
   sendMagicLink,
+  sendPasswordRecovery,
   signInWithPassword,
   subscribeToSupabaseSession,
 } from '../../services/auth/supabaseAuth.ts';
 import LandingPage from '../marketing/LandingPage.tsx';
 
 interface AuthGateProps {
-  children: ReactNode;
+  readonly children: ReactNode;
 }
 
-type AuthStatus = 'idle' | 'loading' | 'magic-link-sent' | 'error';
+type AuthStatus = 'idle' | 'loading' | 'magic-link-sent' | 'recovery-sent' | 'error';
+
+const PasswordSetupPanel = ({
+  action,
+  onSessionExpired,
+}: {
+  readonly action: 'invite' | 'recovery';
+  readonly onSessionExpired: () => void;
+}) => {
+  const [password, setPassword] = useState('');
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const savePassword = async () => {
+    setErrorMessage('');
+    if (password !== passwordConfirmation) {
+      setErrorMessage(t('Le password non coincidono.'));
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await completeSupabasePasswordSetup(password);
+    } catch (error) {
+      if (error instanceof SupabasePasswordSetupError && error.reason === 'expired') {
+        onSessionExpired();
+        return;
+      }
+      if (error instanceof SupabasePasswordSetupError && error.reason === 'weak-password') {
+        setErrorMessage(t('La password è troppo debole. Scegline una più lunga e difficile.'));
+        setIsSaving(false);
+        return;
+      }
+      setErrorMessage(t('Non è stato possibile salvare la password. Riprova tra poco.'));
+      setIsSaving(false);
+    }
+  };
+
+  const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void savePassword();
+  };
+
+  const isAccountSetup = action === 'invite';
+  let submitLabel = isAccountSetup ? t('Imposta password ed entra') : t('Salva la nuova password');
+  if (isSaving) {
+    submitLabel = t('Salvataggio…');
+  }
+
+  return (
+    <div className="marketing-login-panel">
+      <h2 className="font-serif text-2xl text-gray-950">
+        {t(isAccountSetup ? 'Completa il tuo account' : 'Scegli una nuova password')}
+      </h2>
+      <p className="mt-3 text-sm leading-6 text-gray-600">
+        {t(
+          isAccountSetup
+            ? 'Il link ha confermato il tuo indirizzo email. Scegli una password per completare l’account e continuare.'
+            : 'Il link di recupero ti ha autenticato. La password cambierà solo quando confermi quella nuova.'
+        )}
+      </p>
+
+      <form className="mt-6 space-y-4" onSubmit={handleSubmit} aria-busy={isSaving}>
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+            {t('Nuova password')}
+          </span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={event => setPassword(event.target.value)}
+            className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-950 outline-none focus:border-gray-900"
+            required
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
+            {t('Conferma password')}
+          </span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={passwordConfirmation}
+            onChange={event => setPasswordConfirmation(event.target.value)}
+            className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-950 outline-none focus:border-gray-900"
+            required
+          />
+        </label>
+
+        {errorMessage ? (
+          <p role="alert" className="text-sm text-red-600">
+            {errorMessage}
+          </p>
+        ) : null}
+        {isSaving ? <output className="sr-only">{t('Salvataggio…')}</output> : null}
+
+        <button
+          type="submit"
+          disabled={isSaving}
+          className="inline-flex w-full items-center justify-center rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {submitLabel}
+        </button>
+      </form>
+    </div>
+  );
+};
 
 const LoginPanel = ({
+  callbackError,
   onAuthenticated,
 }: {
-  onAuthenticated: (session: SupabaseUserSession) => void;
+  readonly callbackError?: boolean;
+  readonly onAuthenticated: (session: SupabaseUserSession) => void;
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<AuthStatus>('idle');
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handlePasswordLogin = async (event: FormEvent) => {
-    event.preventDefault();
+  const signIn = async () => {
     setStatus('loading');
     setErrorMessage('');
 
@@ -44,6 +156,11 @@ const LoginPanel = ({
       setStatus('error');
       setErrorMessage(t('Accesso non riuscito.'));
     }
+  };
+
+  const handlePasswordLogin = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void signIn();
   };
 
   const handleMagicLink = async () => {
@@ -59,13 +176,35 @@ const LoginPanel = ({
     }
   };
 
+  const handlePasswordRecovery = async () => {
+    setStatus('loading');
+    setErrorMessage('');
+
+    try {
+      await sendPasswordRecovery(email);
+      setStatus('recovery-sent');
+    } catch {
+      setStatus('error');
+      setErrorMessage(t('Richiesta di recupero non riuscita. Riprova.'));
+    }
+  };
+
   return (
     <div className="marketing-login-panel">
       <p className="text-sm leading-6 text-gray-600">
         {t('Accedi al tuo spazio di studio per sincronizzare corsi, note e progressi.')}
       </p>
+      {callbackError ? (
+        <p role="alert" className="mt-4 text-sm text-red-600">
+          {t('Il link non è valido o è scaduto. Richiedine uno nuovo.')}
+        </p>
+      ) : null}
 
-      <form className="mt-6 space-y-4" onSubmit={handlePasswordLogin}>
+      <form
+        className="mt-6 space-y-4"
+        onSubmit={handlePasswordLogin}
+        aria-busy={status === 'loading'}
+      >
         <label className="block">
           <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
             Email
@@ -93,11 +232,34 @@ const LoginPanel = ({
           />
         </label>
 
-        {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
-        {status === 'magic-link-sent' ? (
-          <p className="text-sm text-gray-600">
-            {t('Magic link inviato. Controlla la tua email.')}
+        <button
+          type="button"
+          disabled={!email || status === 'loading'}
+          onClick={handlePasswordRecovery}
+          className="text-sm font-semibold text-gray-600 underline-offset-4 hover:underline disabled:opacity-50"
+        >
+          {t('Password dimenticata?')}
+        </button>
+
+        {errorMessage ? (
+          <p role="alert" className="text-sm text-red-600">
+            {errorMessage}
           </p>
+        ) : null}
+        {status === 'magic-link-sent' ? (
+          <output className="block text-sm text-gray-600">
+            {t('Se esiste un account per questa email, riceverai un link di accesso.')}
+          </output>
+        ) : null}
+        {status === 'recovery-sent' ? (
+          <output className="block text-sm text-gray-600">
+            {t(
+              'Se esiste un account per questa email, riceverai un link per scegliere una nuova password.'
+            )}
+          </output>
+        ) : null}
+        {status === 'loading' ? (
+          <output className="block text-sm text-gray-600">{t('Operazione in corso…')}</output>
         ) : null}
 
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -122,14 +284,29 @@ const LoginPanel = ({
   );
 };
 
+interface AuthGateState {
+  callbackError: boolean;
+  session: SupabaseUserSession | null;
+}
+
+const readInitialAuthGateState = (): AuthGateState => {
+  if (isSupabaseAuthEnabled()) {
+    const callback = readSupabaseAuthCallbackFromUrl();
+    return {
+      callbackError: callback.status === 'error',
+      session: callback.session,
+    };
+  }
+
+  return {
+    callbackError: false,
+    session: isLocalAuthBypassEnabled() ? { accessToken: 'local-bypass' } : null,
+  };
+};
+
 export default function AuthGate({ children }: AuthGateProps) {
-  const [session, setSession] = useState<SupabaseUserSession | null>(() =>
-    isSupabaseAuthEnabled()
-      ? readSupabaseSession()
-      : isLocalAuthBypassEnabled()
-        ? { accessToken: 'local-bypass' }
-        : null
-  );
+  const [authState, setAuthState] = useState<AuthGateState>(readInitialAuthGateState);
+  const { callbackError, session } = authState;
 
   useEffect(() => {
     if (!isSupabaseAuthEnabled()) {
@@ -153,7 +330,7 @@ export default function AuthGate({ children }: AuthGateProps) {
       }
 
       cancelScheduledRefresh();
-      setSession(nextSession);
+      setAuthState(current => ({ ...current, session: nextSession }));
       cancelScheduledRefresh = nextSession
         ? scheduleSupabaseSessionRefresh(nextSession, async () => {
             try {
@@ -167,7 +344,15 @@ export default function AuthGate({ children }: AuthGateProps) {
 
     const synchronizeSession = async () => {
       try {
-        consumeSupabaseSessionFromUrl();
+        const callback = consumeSupabaseAuthCallbackFromUrl();
+        if (callback.status === 'error') {
+          if (!isActive) {
+            return;
+          }
+          cancelScheduledRefresh();
+          setAuthState({ callbackError: true, session: null });
+          return;
+        }
         applySession(await getValidSupabaseSession());
       } catch {
         scheduleSynchronizationRetry();
@@ -176,9 +361,6 @@ export default function AuthGate({ children }: AuthGateProps) {
 
     const unsubscribe = subscribeToSupabaseSession(nextSession => {
       applySession(nextSession);
-      if (nextSession?.refreshToken) {
-        void synchronizeSession();
-      }
     });
     queueMicrotask(() => {
       void synchronizeSession();
@@ -195,7 +377,35 @@ export default function AuthGate({ children }: AuthGateProps) {
     typeof window !== 'undefined' && window.location.pathname === '/landing';
 
   if (shouldShowPublicLanding) {
-    return <LandingPage loginPanel={<LoginPanel onAuthenticated={setSession} />} />;
+    return (
+      <LandingPage
+        loginInitiallyOpen={callbackError}
+        loginPanel={
+          <LoginPanel
+            callbackError={callbackError}
+            onAuthenticated={nextSession =>
+              setAuthState({ callbackError: false, session: nextSession })
+            }
+          />
+        }
+      />
+    );
+  }
+
+  const passwordSetupAction = session?.user?.passwordSetupRequired ? 'invite' : session?.authAction;
+
+  if (!isLocalAuthBypassEnabled() && passwordSetupAction) {
+    return (
+      <LandingPage
+        loginInitiallyOpen
+        loginPanel={
+          <PasswordSetupPanel
+            action={passwordSetupAction}
+            onSessionExpired={() => setAuthState({ callbackError: true, session: null })}
+          />
+        }
+      />
+    );
   }
 
   if (isLocalAuthBypassEnabled() || session) {
@@ -218,5 +428,17 @@ export default function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  return <LandingPage loginPanel={<LoginPanel onAuthenticated={setSession} />} />;
+  return (
+    <LandingPage
+      loginInitiallyOpen={callbackError}
+      loginPanel={
+        <LoginPanel
+          callbackError={callbackError}
+          onAuthenticated={nextSession =>
+            setAuthState({ callbackError: false, session: nextSession })
+          }
+        />
+      }
+    />
+  );
 }

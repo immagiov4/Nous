@@ -213,6 +213,7 @@ const ENGLISH_UI_MESSAGES = {
   'Disconnetti Codex': 'Disconnect Codex',
   'Disconnessione da Codex non riuscita. Riprova.': 'Could not disconnect from Codex. Try again.',
   'Email attuale': 'Current email',
+  'Email per invito o accesso': 'Email for invitation or sign-in',
   'Email nuovo account': 'New account email',
   'Email di recupero inviata.': 'Recovery email sent.',
   'Email e password si gestiscono presso il provider usato per accedere. Nous non mostra azioni non applicabili a questo account.':
@@ -240,18 +241,32 @@ const ENGLISH_UI_MESSAGES = {
     'Learn a whole subject without losing the thread.',
   'Indice del corso': 'Course outline',
   'Inserisci un indirizzo email valido.': 'Enter a valid email address.',
+  'Imposta password ed entra': 'Set password and continue',
+  'Non è stato possibile salvare la password. Riprova; se il link è scaduto, richiedine uno nuovo.':
+    'Could not save the password. Try again; if the link expired, request a new one.',
+  'Non è stato possibile salvare la password. Riprova tra poco.':
+    'Could not save the password. Try again shortly.',
   'Invio in corso…': 'Sending…',
   'Importa backup Nous (.nous.zip, formato legacy o JSON legacy)':
     'Import Nous backup (.nous.zip, legacy format, or legacy JSON)',
   Invia: 'Send',
+  'Invia email': 'Send email',
   'Inserisci una password.': 'Enter a password.',
+  "Invio dell'email di accesso non riuscito.": 'Could not send the access email.',
   'Invio magic link non riuscito.': 'Could not send the magic link.',
+  'Invia link di accesso': 'Send sign-in link',
+  'Invia link di accesso a {userEmail}': 'Send sign-in link to {userEmail}',
+  'Invia link per completare l’account': 'Send account setup link',
+  'Invia link per completare l’account a {userEmail}': 'Send account setup link to {userEmail}',
   'Invia email di recupero': 'Send recovery email',
   'Invio email di recupero non riuscito. Riprova.': 'Could not send the recovery email. Try again.',
   'Interroga e verifica': 'Ask and check your understanding',
   'La richiesta non è disponibile in questo momento. Riprova più tardi.':
     'The request is unavailable right now. Try again later.',
+  'La password è troppo debole. Scegline una più lunga e difficile.':
+    'The password is too weak. Choose a longer, harder-to-guess password.',
   'La tua email': 'Your email',
+  'Le password non coincidono.': 'Passwords do not match.',
   lezioni: 'lessons',
   Libreria: 'Library',
   Logout: 'Sign out',
@@ -260,15 +275,42 @@ const ENGLISH_UI_MESSAGES = {
   'Menu account': 'Account menu',
   'Metodo di accesso: {providers}': 'Sign-in method: {providers}',
   'Nuova password': 'New password',
+  'Conferma password': 'Confirm password',
   'Nuovo indirizzo email': 'New email address',
   'Operazione non riuscita. Riprova.': 'The operation failed. Try again.',
+  'Operazione in corso…': 'Working…',
   'Password aggiornata.': 'Password updated.',
+  'Password dimenticata?': 'Forgot password?',
   'Password nuovo account': 'New account password',
   'Seleziona backup completo Nous': 'Select a complete Nous backup',
   '{courseCount} corsi importati.': '{courseCount} courses imported.',
   'Spostamento in corso...': 'Moving...',
   'non disponibile': 'unavailable',
   'Magic link inviato. Controlla la tua email.': 'Magic link sent. Check your email.',
+  'Completa il tuo account': 'Complete your account',
+  'Scegli una nuova password': 'Choose a new password',
+  'Salva la nuova password': 'Save the new password',
+  'Salvataggio…': 'Saving…',
+  'Il link ha confermato il tuo indirizzo email. Scegli una password per completare l’account e continuare.':
+    'The link confirmed your email address. Choose a password to complete the account and continue.',
+  'Il link di recupero ti ha autenticato. La password cambierà solo quando confermi quella nuova.':
+    'The recovery link signed you in. Your password changes only after you confirm the new one.',
+  'Il link non è valido o è scaduto. Richiedine uno nuovo.':
+    'The link is invalid or has expired. Request a new one.',
+  'Richiesta di recupero non riuscita. Riprova.': 'Could not request password recovery. Try again.',
+  'Se esiste un account per questa email, riceverai un link per scegliere una nuova password.':
+    'If an account exists for this email, you will receive a link to choose a new password.',
+  'Se esiste un account per questa email, riceverai un link di accesso.':
+    'If an account exists for this email, you will receive a sign-in link.',
+  'Invita o invia accesso': 'Invite or send sign-in link',
+  'Un nuovo indirizzo riceve un link per completare l’account. Un account ancora in attesa riceve di nuovo il completamento; un account completo riceve un link di accesso.':
+    'A new address receives an account setup link. A pending account receives setup again; a completed account receives a sign-in link.',
+  'Invito inviato a {userEmail}. Dovrà scegliere una password prima di entrare.':
+    'Invitation sent to {userEmail}. They must choose a password before continuing.',
+  'Link di accesso inviato a {userEmail}. La password esistente non è stata modificata.':
+    'Sign-in link sent to {userEmail}. The existing password was not changed.',
+  'Link per completare l’account inviato a {userEmail}. Dovrà scegliere una password prima di entrare.':
+    'Account setup link sent to {userEmail}. They must choose a password before continuing.',
   'Navigazione principale': 'Main navigation',
   'Non un riassunto. Non una chat generica.': 'Not a summary. Not a generic chat.',
   'Non sono riuscito a generare l’audio. Riprova tra poco.':

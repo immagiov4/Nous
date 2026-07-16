@@ -148,6 +148,7 @@ export const buildSelfHostedUpdates = (appEnv, supabaseEnv) => {
     supabase: {
       ADDITIONAL_REDIRECT_URLS: `${publicAppUrl}/**`,
       API_EXTERNAL_URL: `${publicSupabaseUrl}/auth/v1`,
+      DISABLE_SIGNUP: 'true',
       POOLER_TENANT_ID: 'nous-reader',
       SITE_URL: publicAppUrl,
       SUPABASE_PUBLIC_URL: publicSupabaseUrl,

@@ -22,6 +22,7 @@ describe('/api/admin', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     process.env = { ...ORIGINAL_ENV };
     resetModelConfigForTesting();
@@ -312,6 +313,164 @@ describe('/api/admin', () => {
     );
   });
 
+  test('sends an access-only link when the admin email already belongs to an Auth user', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ users: [{ id: 'user-1', email: 'student@example.com' }] }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .post('/api/admin/users/access-email')
+      .set('Authorization', authHeader(adminToken))
+      .send({ email: 'STUDENT@example.com' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, delivery: 'access' });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://example.supabase.co/auth/v1/admin/users?page=1&per_page=1000',
+      expect.objectContaining({ method: 'GET' })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://example.supabase.co/auth/v1/otp',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          create_user: false,
+          email: 'student@example.com',
+          type: 'magiclink',
+        }),
+      })
+    );
+  });
+
+  test('sends recovery when an existing invited account still requires setup', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            users: [
+              {
+                id: 'pending-user',
+                email: 'pending@example.com',
+                app_metadata: { password_setup_required: true },
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .post('/api/admin/users/access-email')
+      .set('Authorization', authHeader(adminToken))
+      .send({ email: 'pending@example.com' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, delivery: 'setup' });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://example.supabase.co/auth/v1/recover',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ email: 'pending@example.com' }),
+      })
+    );
+  });
+
+  test('creates an invited Auth user when the admin email is new', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ users: [] }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'invited-user', email: 'new@example.com' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .post('/api/admin/users/access-email')
+      .set('Authorization', authHeader(adminToken))
+      .send({ email: 'new@example.com' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, delivery: 'invitation' });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://example.supabase.co/auth/v1/admin/users',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          email: 'new@example.com',
+          email_confirm: true,
+          app_metadata: { password_setup_required: true },
+        }),
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'https://example.supabase.co/auth/v1/otp',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          create_user: false,
+          email: 'new@example.com',
+          type: 'magiclink',
+        }),
+      })
+    );
+  });
+
+  test('rolls back a pre-marked user when its setup email cannot be sent', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ users: [] }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'unmarked-user', email: 'new@example.com' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('delivery failure', { status: 503 }))
+      .mockResolvedValueOnce(new Response('', { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .post('/api/admin/users/access-email')
+      .set('Authorization', authHeader(adminToken))
+      .send({ email: 'new@example.com' });
+
+    expect(response.status).toBe(502);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      'https://example.supabase.co/auth/v1/admin/users/unmarked-user',
+      expect.objectContaining({ method: 'DELETE' })
+    );
+  });
+
   test('sends a magic link for a Supabase user id without exposing service credentials', async () => {
     const app = createApp();
     const adminToken = createSupabaseTestToken({ role: 'admin' });
@@ -331,6 +490,7 @@ describe('/api/admin', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
+      delivery: 'access',
       success: true,
       sent: true,
     });
@@ -345,10 +505,41 @@ describe('/api/admin', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          type: 'magiclink',
+          create_user: false,
           email: 'student@example.com',
+          type: 'magiclink',
         }),
       })
+    );
+  });
+
+  test('logs magic-link delivery failures without exposing provider details to the admin', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'user-1', email: 'student@example.com' }), {
+          status: 200,
+        })
+      )
+      .mockResolvedValueOnce(new Response('provider-secret-diagnostic', { status: 503 }));
+    const consoleErrorMock = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .post('/api/admin/users/user-1/magic-link')
+      .set('Authorization', authHeader(adminToken));
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      success: false,
+      error: 'Invio del link di accesso non riuscito.',
+    });
+    expect(JSON.stringify(response.body)).not.toContain('provider-secret-diagnostic');
+    expect(consoleErrorMock).toHaveBeenCalledWith(
+      '[Nous][Admin] Failed to send a Supabase magic link.',
+      expect.any(Error)
     );
   });
 
@@ -412,6 +603,9 @@ describe('/api/admin', () => {
       expect.objectContaining({
         method: 'PUT',
         body: JSON.stringify({
+          app_metadata: {
+            password_setup_required: null,
+          },
           password: 'nuova-password',
         }),
       })

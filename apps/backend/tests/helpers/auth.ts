@@ -15,11 +15,13 @@ export const signSupabaseJwt = (payload: Record<string, unknown>, secret: string
 
 export const createSupabaseTestToken = ({
   aiProvider,
+  passwordSetupRequired = false,
   role = 'user',
   secret = 'test-secret',
   userId = 'user-123',
 }: {
   aiProvider?: AiProvider;
+  passwordSetupRequired?: boolean;
   role?: string;
   secret?: string;
   userId?: string;
@@ -30,6 +32,7 @@ export const createSupabaseTestToken = ({
       exp: Math.floor(Date.now() / 1000) + 60,
       app_metadata: {
         ...(aiProvider ? { ai_provider: aiProvider } : {}),
+        ...(passwordSetupRequired ? { password_setup_required: true } : {}),
         role,
       },
     },

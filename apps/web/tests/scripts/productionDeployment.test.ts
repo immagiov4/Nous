@@ -75,6 +75,7 @@ describe('production deployment boundaries', () => {
     });
     expect(updates.supabase).toMatchObject({
       API_EXTERNAL_URL: 'https://auth.acme.test/auth/v1',
+      DISABLE_SIGNUP: 'true',
       SITE_URL: 'https://reader.acme.test',
       SUPABASE_PUBLIC_URL: 'https://auth.acme.test',
     });

@@ -10,7 +10,9 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
   getBackendUrl: () => 'http://localhost:3301',
 }));
 
-const { createAdminUser, updateAdminUser } = await import('../../../services/admin/adminApi.ts');
+const { createAdminUser, sendAdminAccessEmail, updateAdminUser } = await import(
+  '../../../services/admin/adminApi.ts'
+);
 
 describe('admin user provider payloads', () => {
   beforeEach(() => {
@@ -59,6 +61,21 @@ describe('admin user provider payloads', () => {
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({ aiProvider: null }),
+      })
+    );
+  });
+
+  test('returns the authoritative admin access-email delivery kind', async () => {
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ delivery: 'invitation' }), { status: 200 })
+    );
+
+    await expect(sendAdminAccessEmail('new@example.com')).resolves.toBe('invitation');
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
+      'http://localhost:3301/api/admin/users/access-email',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ email: 'new@example.com' }),
       })
     );
   });

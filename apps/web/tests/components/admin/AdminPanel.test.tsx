@@ -11,6 +11,8 @@ import {
   getAdminModelConfig,
   listAdminUsers,
   patchAdminModelConfig,
+  sendAdminAccessEmail,
+  sendAdminMagicLink,
   updateAdminUser,
 } from '../../../services/admin/adminApi.ts';
 
@@ -31,6 +33,7 @@ vi.mock('../../../services/admin/adminApi.ts', async importOriginal => {
     getAdminModelConfig: vi.fn(),
     listAdminUsers: vi.fn(),
     patchAdminModelConfig: vi.fn(),
+    sendAdminAccessEmail: vi.fn(),
     sendAdminMagicLink: vi.fn(),
     updateAdminUser: vi.fn(),
   };
@@ -105,6 +108,8 @@ describe('AdminPanel', () => {
       email: 'new@example.com',
       app_metadata: { ai_provider: 'openai', role: 'user' },
     });
+    vi.mocked(sendAdminMagicLink).mockResolvedValue('access');
+    vi.mocked(sendAdminAccessEmail).mockResolvedValue('access');
   });
 
   test('prefills model fields with backend defaults', async () => {
@@ -239,6 +244,20 @@ describe('AdminPanel', () => {
     );
   });
 
+  test('sends an invitation for a new address and explains the required password step', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sendAdminAccessEmail).mockResolvedValue('invitation');
+    render(<AdminPanel />);
+
+    await user.type(await screen.findByLabelText('Email per invito o accesso'), 'new@example.com');
+    await user.click(screen.getByRole('button', { name: 'Invia email' }));
+
+    await waitFor(() => expect(sendAdminAccessEmail).toHaveBeenCalledWith('new@example.com'));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Invito inviato a new@example.com. Dovrà scegliere una password prima di entrare.'
+    );
+  });
+
   test('sets and clears a user-specific AI provider', async () => {
     const user = userEvent.setup();
     vi.mocked(listAdminUsers).mockResolvedValue([
@@ -276,5 +295,69 @@ describe('AdminPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Salva password' }));
 
     expect(updateAdminUser).toHaveBeenCalledWith('user-1', { password: 'g1ovann1' });
+  });
+
+  test('shows the magic-link destination and prevents duplicate sends while pending', async () => {
+    const user = userEvent.setup();
+    let resolveSend: (() => void) | undefined;
+    vi.mocked(sendAdminMagicLink).mockReturnValue(
+      new Promise<'access'>(resolve => {
+        resolveSend = () => resolve('access');
+      })
+    );
+    render(<AdminPanel />);
+
+    const button = await screen.findByRole('button', {
+      name: 'Invia link di accesso a student@example.com',
+    });
+    await user.click(button);
+
+    expect(sendAdminMagicLink).toHaveBeenCalledWith('user-1');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('Invio in corso…');
+
+    resolveSend?.();
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Link di accesso inviato a student@example.com. La password esistente non è stata modificata.'
+    );
+    expect(button).toBeEnabled();
+  });
+
+  test('labels and reports setup delivery truthfully for a pending invited user', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listAdminUsers).mockResolvedValue([
+      {
+        id: 'pending-user',
+        email: 'pending@example.com',
+        app_metadata: { password_setup_required: true, role: 'user' },
+      },
+    ]);
+    vi.mocked(sendAdminMagicLink).mockResolvedValue('setup');
+    render(<AdminPanel />);
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Invia link per completare l’account a pending@example.com',
+      })
+    );
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Link per completare l’account inviato a pending@example.com. Dovrà scegliere una password prima di entrare.'
+    );
+  });
+
+  test('shows a stable error when magic-link delivery fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sendAdminMagicLink).mockRejectedValue(new Error('provider detail'));
+    render(<AdminPanel />);
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Invia link di accesso a student@example.com',
+      })
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invio magic link non riuscito.');
+    expect(screen.queryByText('provider detail')).not.toBeInTheDocument();
   });
 });
