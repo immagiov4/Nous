@@ -1,26 +1,33 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   clearSupabaseSession,
+  consumeSupabaseAuthCallbackFromUrl,
   fetchWithSupabaseAuth,
   getFrontendAuthMode,
   getSupabaseAuthHeaders,
   getValidSupabaseSession,
   loadSupabaseAccount,
   mergeSupabaseAuthHeaders,
+  readSupabaseAuthCallbackFromUrl,
   readSupabaseSession,
   requestSupabaseEmailChange,
   resolveBrowserReachableSupabaseUrl,
   saveSupabaseSession,
   scheduleSupabaseSessionRefresh,
+  sendMagicLink,
+  sendPasswordRecovery,
   signInWithPassword,
   signOutSupabase,
+  updateSupabasePassword,
 } from '../../../services/auth/supabaseAuth.ts';
 
 describe('Supabase auth session storage', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
+    window.history.replaceState({}, '', '/');
     clearSupabaseSession();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
@@ -365,5 +372,127 @@ describe('Supabase auth session storage', () => {
     vi.advanceTimersByTime(1);
     expect(refresh).toHaveBeenCalledTimes(1);
     cancel();
+  });
+
+  test('preserves an invite callback action and derives expiry before scrubbing the URL', () => {
+    vi.setSystemTime(new Date('2026-07-16T18:00:00.000Z'));
+    window.history.replaceState(
+      {},
+      '',
+      '/#access_token=invite-token&refresh_token=refresh-token&expires_in=3600&type=invite'
+    );
+
+    expect(readSupabaseAuthCallbackFromUrl()).toEqual({
+      status: 'success',
+      session: {
+        accessToken: 'invite-token',
+        authAction: 'invite',
+        expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        refreshToken: 'refresh-token',
+      },
+    });
+    expect(window.location.hash).toContain('type=invite');
+    expect(readSupabaseSession()).toBeNull();
+
+    expect(consumeSupabaseAuthCallbackFromUrl().status).toBe('success');
+    expect(window.location.hash).toBe('');
+    expect(readSupabaseSession()).toMatchObject({
+      accessToken: 'invite-token',
+      authAction: 'invite',
+    });
+  });
+
+  test('an invalid callback clears a stored account instead of falling back to it', () => {
+    saveSupabaseSession({ accessToken: 'old-account-token' });
+    window.history.replaceState(
+      {},
+      '',
+      '/#error=access_denied&error_code=otp_expired&error_description=expired'
+    );
+
+    expect(readSupabaseAuthCallbackFromUrl()).toEqual({ status: 'error', session: null });
+    expect(readSupabaseSession()?.accessToken).toBe('old-account-token');
+
+    expect(consumeSupabaseAuthCallbackFromUrl()).toEqual({ status: 'error', session: null });
+    expect(readSupabaseSession()).toBeNull();
+    expect(window.location.hash).toBe('');
+  });
+
+  test('completes invite or recovery only after the authenticated password update succeeds', async () => {
+    saveSupabaseSession({
+      accessToken: 'recovery-token',
+      authAction: 'recovery',
+      user: { id: 'user-123', email: 'student@example.com' },
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 'user-123',
+        email: 'student@example.com',
+        identities: [{ provider: 'email' }],
+      }),
+    });
+
+    await updateSupabasePassword('new-password');
+
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      password: 'new-password',
+    });
+    expect(readSupabaseSession()).toMatchObject({
+      accessToken: 'recovery-token',
+      user: { id: 'user-123' },
+    });
+    expect(readSupabaseSession()?.authAction).toBeUndefined();
+  });
+
+  test('keeps the password gate active when the authenticated update fails', async () => {
+    saveSupabaseSession({
+      accessToken: 'invite-token',
+      authAction: 'invite',
+      user: { id: 'invited-user' },
+    });
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 401 });
+
+    await expect(updateSupabasePassword('rejected-password')).rejects.toThrow(
+      'Account update failed.'
+    );
+
+    expect(readSupabaseSession()).toMatchObject({
+      accessToken: 'invite-token',
+      authAction: 'invite',
+    });
+  });
+
+  test('sends password recovery to the native endpoint with a root redirect', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true });
+
+    await sendPasswordRecovery(' student@example.com ');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://supabase.test/auth/v1/recover',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          email: 'student@example.com',
+          redirect_to: `${window.location.origin}/`,
+        }),
+      })
+    );
+  });
+
+  test('keeps public magic-link responses generic when Auth reports an unknown account', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ error_code: 'otp_disabled' }),
+    });
+
+    await expect(sendMagicLink(' unknown@example.com ')).resolves.toBeUndefined();
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      create_user: false,
+      email: 'unknown@example.com',
+      type: 'magiclink',
+      redirect_to: `${window.location.origin}/`,
+    });
   });
 });

@@ -18,6 +18,8 @@ const LOCAL_JWT_SECRET =
 const LOCAL_JWT_EXPIRY = 1_983_812_996;
 const TEST_EMAIL_PREFIX = 'integration-nous-reader';
 const TEST_PASSWORD = 'Integration-password-2026!';
+const INVITE_PASSWORD = 'Integration-invite-2026!';
+const RECOVERY_PASSWORD = 'Integration-recovery-2026!';
 const MAGIC_LINK_TEST_EMAIL = process.env.SUPABASE_MAGIC_LINK_TEST_EMAIL?.trim();
 const testMagicLinkSmtp = MAGIC_LINK_TEST_EMAIL ? test : test.skip;
 const ORIGINAL_ENV = { ...process.env };
@@ -136,6 +138,14 @@ describeLocalSupabase('Supabase local integration', () => {
   };
 
   const login = async (email: string): Promise<string> => {
+    const { body, response } = await requestPasswordGrant(email, TEST_PASSWORD);
+
+    expect(response.status).toBe(200);
+    expect(body.access_token).toEqual(expect.any(String));
+    return body.access_token as string;
+  };
+
+  const requestPasswordGrant = async (email: string, password: string) => {
     const response = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: {
@@ -144,14 +154,11 @@ describeLocalSupabase('Supabase local integration', () => {
       },
       body: JSON.stringify({
         email,
-        password: TEST_PASSWORD,
+        password,
       }),
     });
     const body = await readJsonResponse<{ access_token?: string; error?: string }>(response);
-
-    expect(response.status).toBe(200);
-    expect(body.access_token).toEqual(expect.any(String));
-    return body.access_token as string;
+    return { body, response };
   };
 
   const fetchProjectsViaPostgrest = async (accessToken: string) => {
@@ -258,6 +265,149 @@ describeLocalSupabase('Supabase local integration', () => {
       lesson_model: 'integration/lesson-model',
       context_model: 'integration/context-model',
     });
+  });
+
+  test('keeps signup closed and preserves one-time invite and recovery callback types', async () => {
+    const inviteEmail = `${TEST_EMAIL_PREFIX}-invite-${Date.now()}@nous.local`;
+    const unknownEmail = `${TEST_EMAIL_PREFIX}-unknown-${Date.now()}@nous.local`;
+    createdEmails.push(inviteEmail);
+    const authHeaders = {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      'Content-Type': 'application/json',
+    };
+
+    const listResponse = await fetch(
+      `${LOCAL_SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1000`,
+      { headers: authHeaders }
+    );
+    expect(listResponse.status).toBe(200);
+    expect(Array.isArray((await readJsonResponse<{ users?: unknown }>(listResponse)).users)).toBe(
+      true
+    );
+
+    const inviteLinkResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/admin/generate_link`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ type: 'invite', email: inviteEmail }),
+    });
+    const inviteLink = await readJsonResponse<{
+      action_link?: string;
+      verification_type?: string;
+    }>(inviteLinkResponse);
+    expect(inviteLinkResponse.status).toBe(200);
+    expect(inviteLink.verification_type).toBe('invite');
+    expect(inviteLink.action_link).toEqual(expect.any(String));
+
+    const inviteCallback = await fetch(inviteLink.action_link as string, { redirect: 'manual' });
+    expect(inviteCallback.status).toBe(303);
+    const inviteCallbackParams = new URLSearchParams(
+      new URL(inviteCallback.headers.get('location') || '').hash.replace(/^#/, '')
+    );
+    expect(inviteCallbackParams.get('type')).toBe('invite');
+    const inviteAccessToken = inviteCallbackParams.get('access_token');
+    expect(inviteAccessToken).toEqual(expect.any(String));
+
+    const invitePasswordResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${inviteAccessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ password: INVITE_PASSWORD }),
+    });
+    expect(invitePasswordResponse.status).toBe(200);
+    expect((await requestPasswordGrant(inviteEmail, INVITE_PASSWORD)).response.status).toBe(200);
+
+    const reusedInviteCallback = await fetch(inviteLink.action_link as string, {
+      redirect: 'manual',
+    });
+    expect(reusedInviteCallback.status).toBe(303);
+    expect(new URL(reusedInviteCallback.headers.get('location') || '').hash).toContain(
+      'error_code=otp_expired'
+    );
+
+    const recoveryUser = await createUser('recovery-link');
+    const recoveryLinkResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/admin/generate_link`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ type: 'recovery', email: recoveryUser.email }),
+    });
+    const recoveryLink = await readJsonResponse<{
+      action_link?: string;
+      verification_type?: string;
+    }>(recoveryLinkResponse);
+    expect(recoveryLinkResponse.status).toBe(200);
+    expect(recoveryLink.verification_type).toBe('recovery');
+
+    const recoveryCallback = await fetch(recoveryLink.action_link as string, {
+      redirect: 'manual',
+    });
+    expect(recoveryCallback.status).toBe(303);
+    const recoveryCallbackParams = new URLSearchParams(
+      new URL(recoveryCallback.headers.get('location') || '').hash.replace(/^#/, '')
+    );
+    expect(recoveryCallbackParams.get('type')).toBe('recovery');
+    const recoveryAccessToken = recoveryCallbackParams.get('access_token');
+    expect(recoveryAccessToken).toEqual(expect.any(String));
+
+    const recoveryPasswordResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/user`, {
+      method: 'PUT',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${recoveryAccessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ password: RECOVERY_PASSWORD }),
+    });
+    expect(recoveryPasswordResponse.status).toBe(200);
+    expect(
+      (await requestPasswordGrant(recoveryUser.email, RECOVERY_PASSWORD)).response.status
+    ).toBe(200);
+    expect((await requestPasswordGrant(recoveryUser.email, TEST_PASSWORD)).response.ok).toBe(false);
+
+    const signupResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/signup`, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email: unknownEmail, password: TEST_PASSWORD }),
+    });
+    expect(signupResponse.ok).toBe(false);
+
+    const unknownOtpResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/otp`, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        create_user: false,
+        email: unknownEmail,
+        type: 'magiclink',
+      }),
+    });
+    expect(unknownOtpResponse.status).toBe(422);
+    expect(await readJsonResponse<{ error_code?: string }>(unknownOtpResponse)).toMatchObject({
+      error_code: 'otp_disabled',
+    });
+
+    const unknownRecoveryResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/recover`, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email: unknownEmail }),
+    });
+    expect(unknownRecoveryResponse.status).toBe(200);
+
+    const unknownRows = await sql<Array<{ count: number }>>`
+      select count(*)::int as count from auth.users where email = ${unknownEmail}
+    `;
+    expect(unknownRows[0]?.count).toBe(0);
   });
 
   testMagicLinkSmtp('submits a magic-link email to the configured local SMTP server', async () => {

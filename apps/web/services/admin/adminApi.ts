@@ -28,6 +28,8 @@ export interface AdminUserPatch {
   role?: 'admin' | 'user';
 }
 
+export type AdminAccessEmailDelivery = 'access' | 'invitation';
+
 export interface AdminModelConfig {
   aiProvider: AdminAiProvider;
   artifactModel: string;
@@ -323,6 +325,17 @@ export const sendAdminMagicLink = async (userId: string): Promise<void> => {
   await requestAdmin(`/api/admin/users/${encodeURIComponent(userId)}/magic-link`, {
     method: 'POST',
   });
+};
+
+export const sendAdminAccessEmail = async (email: string): Promise<AdminAccessEmailDelivery> => {
+  const response = await requestAdmin<{ delivery: AdminAccessEmailDelivery }>(
+    '/api/admin/users/access-email',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }
+  );
+  return response.delivery;
 };
 
 export const updateAdminUser = async (

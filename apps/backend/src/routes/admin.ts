@@ -13,8 +13,10 @@ import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
 
 const ADMIN_REQUIRED_MESSAGE = 'Solo un amministratore puo eseguire questa operazione.';
+const ADMIN_ACCESS_EMAIL_FAILED_MESSAGE = "Invio dell'email di accesso non riuscito.";
 const ADMIN_MAGIC_LINK_FAILED_MESSAGE = 'Invio del link di accesso non riuscito.';
 const ADMIN_USER_CREATE_PATH = '/auth/v1/admin/users';
+const ADMIN_USER_LIST_PAGE_SIZE = 1000;
 
 const router = Router();
 
@@ -65,6 +67,18 @@ const readCreateUserBody = (body: unknown) => {
   };
 };
 
+const readAccessEmailBody = (body: unknown): string => {
+  if (!isRecord(body)) {
+    throw new Error('Corpo della richiesta non valido.');
+  }
+
+  const email = readOptionalString(body.email)?.toLowerCase();
+  if (!email) {
+    throw new Error('Email obbligatoria.');
+  }
+  return email;
+};
+
 const buildSupabaseAdminHeaders = (serviceRoleKey: string) => ({
   apikey: serviceRoleKey,
   Authorization: `Bearer ${serviceRoleKey}`,
@@ -94,6 +108,42 @@ const requestSupabaseAdmin = async ({
   const text = await response.text();
   return text ? (JSON.parse(text) as Record<string, unknown>) : {};
 };
+
+const readSupabaseUsers = (data: Record<string, unknown>): Array<Record<string, unknown>> =>
+  Array.isArray(data.users) ? data.users.filter(isRecord) : [];
+
+const findSupabaseUserByEmail = async (email: string): Promise<Record<string, unknown> | null> => {
+  let page = 1;
+
+  while (true) {
+    const data = await requestSupabaseAdmin({
+      method: 'GET',
+      path: `${ADMIN_USER_CREATE_PATH}?page=${page}&per_page=${ADMIN_USER_LIST_PAGE_SIZE}`,
+    });
+    const users = readSupabaseUsers(data);
+    const matchingUser = users.find(
+      user => readOptionalString(user.email)?.toLowerCase() === email
+    );
+    if (matchingUser) {
+      return matchingUser;
+    }
+    if (users.length < ADMIN_USER_LIST_PAGE_SIZE) {
+      return null;
+    }
+    page += 1;
+  }
+};
+
+const sendSupabaseMagicLink = (email: string) =>
+  requestSupabaseAdmin({
+    method: 'POST',
+    path: '/auth/v1/otp',
+    body: {
+      create_user: false,
+      email,
+      type: 'magiclink',
+    },
+  });
 
 const getRouteParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value[0] || '' : value || '';
@@ -242,6 +292,32 @@ router.post('/users', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/users/access-email', async (req: Request, res: Response) => {
+  try {
+    const email = readAccessEmailBody(req.body);
+    const existingUser = await findSupabaseUserByEmail(email);
+
+    if (existingUser) {
+      await sendSupabaseMagicLink(email);
+      res.json({ success: true, delivery: 'access' });
+      return;
+    }
+
+    await requestSupabaseAdmin({
+      method: 'POST',
+      path: '/auth/v1/invite',
+      body: { email },
+    });
+    res.json({ success: true, delivery: 'invitation' });
+  } catch (error) {
+    console.error('[Nous][Admin] Failed to send a Supabase access email.', error);
+    res.status(502).json({
+      success: false,
+      error: ADMIN_ACCESS_EMAIL_FAILED_MESSAGE,
+    });
+  }
+});
+
 router.post('/users/:id/magic-link', async (req: Request, res: Response) => {
   try {
     const userId = encodeURIComponent(getRouteParam(req.params.id));
@@ -254,14 +330,7 @@ router.post('/users/:id/magic-link', async (req: Request, res: Response) => {
       throw new Error('Supabase user email is required to generate a magic link.');
     }
 
-    await requestSupabaseAdmin({
-      method: 'POST',
-      path: '/auth/v1/otp',
-      body: {
-        type: 'magiclink',
-        email,
-      },
-    });
+    await sendSupabaseMagicLink(email);
 
     res.json({
       success: true,

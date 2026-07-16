@@ -31,6 +31,7 @@ import {
   getAdminModelConfig,
   listAdminUsers,
   patchAdminModelConfig,
+  sendAdminAccessEmail,
   sendAdminMagicLink,
   updateAdminUser,
 } from '../../services/admin/adminApi.ts';
@@ -197,6 +198,7 @@ const PROVIDER_SECTIONS: ReadonlyArray<{
 export default function AdminPanel() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [modelConfig, setModelConfig] = useState<AdminModelConfig>(DEFAULT_ADMIN_MODEL_CONFIG);
+  const [accessEmail, setAccessEmail] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -207,6 +209,7 @@ export default function AdminPanel() {
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [magicLinkUserId, setMagicLinkUserId] = useState<string | null>(null);
+  const [isSendingAccessEmail, setIsSendingAccessEmail] = useState(false);
   const [isSavingModels, setIsSavingModels] = useState(false);
 
   const loadAdminData = useCallback(async () => {
@@ -254,6 +257,39 @@ export default function AdminPanel() {
       setErrorMessage(
         error instanceof Error ? error.message : t('Creazione account non riuscita.')
       );
+    }
+  };
+
+  const handleAccessEmailSend = async (event: FormEvent) => {
+    event.preventDefault();
+    const destination = accessEmail.trim();
+    if (!destination) {
+      return;
+    }
+
+    setErrorMessage('');
+    setStatusMessage('');
+    setIsSendingAccessEmail(true);
+    try {
+      const delivery = await sendAdminAccessEmail(destination);
+      setAccessEmail('');
+      setStatusMessage(
+        delivery === 'invitation'
+          ? t('Invito inviato a {userEmail}. Dovrà scegliere una password prima di entrare.', {
+              userEmail: destination,
+            })
+          : t(
+              'Link di accesso inviato a {userEmail}. La password esistente non è stata modificata.',
+              { userEmail: destination }
+            )
+      );
+      if (delivery === 'invitation') {
+        await loadAdminData();
+      }
+    } catch {
+      setErrorMessage(t("Invio dell'email di accesso non riuscito."));
+    } finally {
+      setIsSendingAccessEmail(false);
     }
   };
 
@@ -543,6 +579,36 @@ export default function AdminPanel() {
           </div>
 
           <aside className="space-y-6">
+            <form
+              onSubmit={handleAccessEmailSend}
+              className="rounded-lg border border-gray-200 bg-white p-4"
+            >
+              <h2 className="text-sm font-semibold">{t('Invita o invia accesso')}</h2>
+              <p className="mt-2 text-xs leading-5 text-gray-500">
+                {t(
+                  'Un nuovo indirizzo riceve un invito e sceglie la password. Un account esistente riceve solo un link di accesso.'
+                )}
+              </p>
+              <input
+                type="email"
+                aria-label={t('Email per invito o accesso')}
+                placeholder="email"
+                value={accessEmail}
+                onChange={event => setAccessEmail(event.target.value)}
+                className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                required
+              />
+              <button
+                type="submit"
+                disabled={isSendingAccessEmail}
+                aria-busy={isSendingAccessEmail}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gray-950 px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+              >
+                <Link2 className="h-4 w-4" />
+                {t(isSendingAccessEmail ? 'Invio in corso…' : 'Invia email')}
+              </button>
+            </form>
+
             <form
               onSubmit={handleCreateUser}
               className="rounded-lg border border-gray-200 bg-white p-4"

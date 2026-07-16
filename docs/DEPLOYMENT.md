@@ -157,11 +157,18 @@ sh deploy/nous.sh admin
 
 The command creates or promotes that Supabase user through the Admin API and preserves existing app metadata. Migrations contain no account credentials.
 
-## Magic Link email with Resend
+## Auth email with Resend
 
-The admin action sends a passwordless sign-in email through Supabase Auth. Nous does not call
-Resend directly and needs no Resend secret in `.env.production`: SMTP credentials belong to the
-managed Supabase project or the ignored self-hosted Supabase env.
+The admin email action checks Supabase Auth before sending: a new address receives an invitation,
+while an existing account receives a passwordless sign-in link that does not reset its password.
+The login screen also uses Supabase Auth's native recovery endpoint. Nous does not call Resend
+directly and needs no Resend secret in `.env.production`: SMTP credentials belong to the managed
+Supabase project or the ignored self-hosted Supabase env.
+
+Invite and recovery callbacks return with `type=invite` or `type=recovery`. The frontend preserves
+that action until the authenticated user chooses and confirms a password; the application remains
+closed behind the password form. Public signup stays disabled. Public Magic Link requests use
+`create_user: false`, and every public email-request confirmation is account-neutral.
 
 Use a dedicated sending subdomain and sender:
 
@@ -230,8 +237,9 @@ In the project's Auth settings:
 4. keep the initial Auth email rate limit at 30 messages per hour unless measured use requires a
    deliberate change.
 
-The admin endpoint does not supply a per-request redirect, so the Magic Link returns to the Auth
-Site URL. Do not use a localhost Site URL in production.
+Admin invitation and access emails return to the Auth Site URL. Password recovery explicitly
+returns to its root. Do not use a localhost Site URL in production, and keep that root in the
+redirect allow list.
 
 The repository owns the email templates under `supabase/templates/`. Check and apply them to a
 managed project without storing the management token:
@@ -245,6 +253,10 @@ SUPABASE_ACCESS_TOKEN=<personal management token> \
 SUPABASE_PROJECT_REF=<project ref> \
   bun run supabase:templates:sync
 ```
+
+The invitation, sign-in, and recovery templates use the public Nous PNG icon at
+`https://nous.giovbox.com/icons/nous-app-icon-192.png`. Keep that URL publicly readable or replace
+it in all three templates before syncing.
 
 ### Self-hosted Supabase on the VPS
 
@@ -260,8 +272,9 @@ SMTP_PASS=<dedicated Resend API key>
 SMTP_SENDER_NAME=Nous
 ```
 
-`setup` already derives `SITE_URL` and `ADDITIONAL_REDIRECT_URLS` from `NOUS_PUBLIC_URL`. Recreate
-Auth after changing SMTP values:
+`setup` derives `SITE_URL` and `ADDITIONAL_REDIRECT_URLS` from `NOUS_PUBLIC_URL` and writes
+`DISABLE_SIGNUP=true` into the official Supabase env. Re-run `setup` after upgrading an older
+deployment, then recreate Auth after changing Auth or SMTP values:
 
 ```bash
 docker compose --project-name nous-reader-supabase \
@@ -271,23 +284,26 @@ docker compose --project-name nous-reader-supabase \
   up -d --force-recreate auth
 ```
 
-Supabase Auth retains its own per-recipient email cooldown. The admin UI also disables all Magic
-Link actions while a send is pending, preventing accidental duplicate clicks. Do not add a second
-SMTP client or copy `SMTP_PASS` into the Nous application env.
+Supabase Auth retains its own per-recipient email cooldown. The admin UI disables duplicate sends
+while an invitation or access email is pending. Do not add a second SMTP client or copy
+`SMTP_PASS` into the Nous application env.
 
 ### Delivery and sign-in proof
 
 Use a real test address on a disposable user, not a Resend synthetic bounce address:
 
-1. sign in as an admin and send the user's sign-in link from the user list;
+1. sign in as an admin and enter a new disposable address in `Invita o invia accesso`;
 2. confirm that the UI names the destination and Resend records `Delivered` rather than only
    `Sent`;
 3. inspect the received headers for SPF, DKIM, and DMARC pass results;
-4. open the link in a private browser session and confirm it lands on `NOUS_PUBLIC_URL` with the
-   test user authenticated;
+4. open the invitation in a private browser session and confirm Nous requires matching password
+   fields before it renders the application;
 5. open the same link again and confirm the one-time token is rejected;
-6. sign out, request one more link after the cooldown, and confirm the newer link works;
-7. check Supabase Auth logs and Nous backend logs if either request fails.
+6. send the same address again and confirm it now receives an access-only email and opens Nous
+   without changing that password;
+7. sign out, use `Password dimenticata?`, and confirm the recovery link requires a new password;
+8. submit an unknown address and confirm the UI remains generic and Auth creates no user;
+9. check Supabase Auth logs and Nous backend logs if any request fails.
 
 With `SUPABASE_MAGIC_LINK_TEST_EMAIL` configured, `bun run test:supabase-local` exercises the same
 admin endpoint against local Supabase and verifies that its configured SMTP server accepts the

@@ -11,6 +11,7 @@ import {
   getAdminModelConfig,
   listAdminUsers,
   patchAdminModelConfig,
+  sendAdminAccessEmail,
   sendAdminMagicLink,
   updateAdminUser,
 } from '../../../services/admin/adminApi.ts';
@@ -32,6 +33,7 @@ vi.mock('../../../services/admin/adminApi.ts', async importOriginal => {
     getAdminModelConfig: vi.fn(),
     listAdminUsers: vi.fn(),
     patchAdminModelConfig: vi.fn(),
+    sendAdminAccessEmail: vi.fn(),
     sendAdminMagicLink: vi.fn(),
     updateAdminUser: vi.fn(),
   };
@@ -107,6 +109,7 @@ describe('AdminPanel', () => {
       app_metadata: { ai_provider: 'openai', role: 'user' },
     });
     vi.mocked(sendAdminMagicLink).mockResolvedValue();
+    vi.mocked(sendAdminAccessEmail).mockResolvedValue('access');
   });
 
   test('prefills model fields with backend defaults', async () => {
@@ -238,6 +241,20 @@ describe('AdminPanel', () => {
         password: 'g1ovann1',
         role: 'user',
       })
+    );
+  });
+
+  test('sends an invitation for a new address and explains the required password step', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sendAdminAccessEmail).mockResolvedValue('invitation');
+    render(<AdminPanel />);
+
+    await user.type(await screen.findByLabelText('Email per invito o accesso'), 'new@example.com');
+    await user.click(screen.getByRole('button', { name: 'Invia email' }));
+
+    await waitFor(() => expect(sendAdminAccessEmail).toHaveBeenCalledWith('new@example.com'));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Invito inviato a new@example.com. Dovrà scegliere una password prima di entrare.'
     );
   });
 

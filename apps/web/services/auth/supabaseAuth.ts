@@ -8,10 +8,16 @@ export interface SupabaseAccount {
 
 export interface SupabaseUserSession {
   accessToken: string;
+  authAction?: 'invite' | 'recovery';
   expiresAt?: number;
   refreshToken?: string;
   user?: SupabaseAccount;
 }
+
+export type SupabaseAuthCallbackResult =
+  | { status: 'none'; session: SupabaseUserSession | null }
+  | { status: 'success'; session: SupabaseUserSession }
+  | { status: 'error'; session: null };
 
 interface SupabaseAuthUserResponse {
   app_metadata?: {
@@ -28,6 +34,7 @@ interface SupabaseAuthResponse {
   expires_at?: number;
   expires_in?: number;
   refresh_token?: string;
+  type?: unknown;
   user?: SupabaseAuthUserResponse;
 }
 
@@ -165,6 +172,10 @@ const normalizeSession = (
 
   return {
     accessToken: response.access_token,
+    authAction:
+      response.type === 'invite' || response.type === 'recovery'
+        ? response.type
+        : previousSession?.authAction,
     expiresAt:
       response.expires_at ||
       (response.expires_in
@@ -187,6 +198,7 @@ const isSessionExpired = (session: SupabaseUserSession): boolean => {
 
 const stripUnusedSessionFields = (session: SupabaseUserSession): SupabaseUserSession => ({
   accessToken: session.accessToken,
+  authAction: session.authAction,
   expiresAt: session.expiresAt,
   refreshToken: session.refreshToken,
   user: session.user
@@ -412,7 +424,8 @@ export const subscribeToSupabaseSession = (
 
 const requestCurrentSupabaseAccount = async (
   method: 'GET' | 'PUT',
-  body?: Record<string, unknown>
+  body?: Record<string, unknown>,
+  completesAuthAction = false
 ): Promise<SupabaseAccount> => {
   const session = await getValidSupabaseSession();
   if (!session) {
@@ -431,7 +444,7 @@ const requestCurrentSupabaseAccount = async (
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && !completesAuthAction) {
       clearSupabaseSession();
     }
     throw new Error('Account update failed.');
@@ -441,7 +454,11 @@ const requestCurrentSupabaseAccount = async (
     (await response.json()) as SupabaseAuthUserResponse,
     session.user
   );
-  saveSupabaseSession({ ...session, user: account });
+  saveSupabaseSession({
+    ...session,
+    authAction: completesAuthAction ? undefined : session.authAction,
+    user: account,
+  });
   return account;
 };
 
@@ -452,17 +469,21 @@ export const requestSupabaseEmailChange = (email: string): Promise<SupabaseAccou
   requestCurrentSupabaseAccount('PUT', { email: email.trim() });
 
 export const updateSupabasePassword = (password: string): Promise<SupabaseAccount> =>
-  requestCurrentSupabaseAccount('PUT', { password });
+  requestCurrentSupabaseAccount('PUT', { password }, true);
 
 export const sendPasswordRecovery = async (email: string): Promise<void> => {
   const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
+  const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/` : '';
   const response = await fetch(`${supabaseUrl}/auth/v1/recover`, {
     method: 'POST',
     headers: {
       apikey: anonKey,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ email: email.trim() }),
+    body: JSON.stringify({
+      email: email.trim(),
+      ...(redirectTo ? { redirect_to: redirectTo } : {}),
+    }),
   });
 
   if (!response.ok) {
@@ -529,38 +550,68 @@ export const sendMagicLink = async (email: string): Promise<void> => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      email,
+      create_user: false,
+      email: email.trim(),
       type: 'magiclink',
-      options: emailRedirectTo ? { email_redirect_to: emailRedirectTo } : undefined,
+      ...(emailRedirectTo ? { redirect_to: emailRedirectTo } : {}),
     }),
   });
 
   if (!response.ok) {
+    const error = (await response.json().catch(() => ({}))) as { error_code?: unknown };
+    if (error.error_code === 'otp_disabled') {
+      return;
+    }
     throw new Error('Invio magic link non riuscito.');
   }
 };
 
-export const consumeSupabaseSessionFromUrl = (): SupabaseUserSession | null => {
+export const readSupabaseAuthCallbackFromUrl = (): SupabaseAuthCallbackResult => {
   if (typeof window === 'undefined') {
-    return null;
+    return { status: 'none', session: null };
   }
 
   const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  if (params.has('error') || params.has('error_code')) {
+    return { status: 'error', session: null };
+  }
+
   const accessToken = params.get('access_token');
   if (!accessToken) {
-    return readSupabaseSession();
+    return { status: 'none', session: readSupabaseSession() };
   }
+
+  const callbackType = params.get('type');
+  const expiresAt = Number.parseInt(params.get('expires_at') || '', 10);
+  const expiresIn = Number.parseInt(params.get('expires_in') || '', 10);
 
   const session: SupabaseUserSession = {
     accessToken,
+    authAction: callbackType === 'invite' || callbackType === 'recovery' ? callbackType : undefined,
     refreshToken: params.get('refresh_token') || undefined,
-    expiresAt: Number.parseInt(params.get('expires_at') || '', 10) || undefined,
+    expiresAt: expiresAt || (expiresIn ? Math.floor(Date.now() / 1000) + expiresIn : undefined),
   };
-  saveSupabaseSession(session);
+  return { status: 'success', session };
+};
+
+export const consumeSupabaseAuthCallbackFromUrl = (): SupabaseAuthCallbackResult => {
+  const callback = readSupabaseAuthCallbackFromUrl();
+  if (callback.status === 'none' || typeof window === 'undefined') {
+    return callback;
+  }
+
+  if (callback.status === 'error') {
+    clearSupabaseSession();
+  } else {
+    saveSupabaseSession(callback.session);
+  }
   window.history.replaceState(
     null,
     document.title,
     window.location.pathname + window.location.search
   );
-  return session;
+  return callback;
 };
+
+export const consumeSupabaseSessionFromUrl = (): SupabaseUserSession | null =>
+  consumeSupabaseAuthCallbackFromUrl().session;

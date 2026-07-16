@@ -20,14 +20,19 @@ import './marketing.css';
 import WaitlistForm from './WaitlistForm.tsx';
 
 interface LandingPageProps {
+  loginInitiallyOpen?: boolean;
   loginPanel: ReactNode;
   onJoinWaitlist?: (email: string) => Promise<void>;
 }
 
 const JOURNEY_STAGES = ['plan', 'generation', 'lesson', 'library'] as const satisfies DemoStage[];
 const MOBILE_JOURNEY_MEDIA_QUERY = '(max-width: 52rem)';
-export default function LandingPage({ loginPanel, onJoinWaitlist }: LandingPageProps) {
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
+export default function LandingPage({
+  loginInitiallyOpen = false,
+  loginPanel,
+  onJoinWaitlist,
+}: LandingPageProps) {
+  const [isLoginOpen, setIsLoginOpen] = useState(loginInitiallyOpen);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeJourneyStep, setActiveJourneyStep] = useState(0);
   const [isMobileJourney, setIsMobileJourney] = useState(
