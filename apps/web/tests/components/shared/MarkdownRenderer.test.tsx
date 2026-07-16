@@ -87,7 +87,7 @@ describe('MarkdownRenderer', () => {
     const { container } = render(
       <MarkdownRenderer
         content={
-          '<mark data-nous-annotation-id="annotation-inline">Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com).</mark>'
+          '<mark data-nous-annotation-id="annotation-inline">Prima **grassetto**, poi *corsivo* e infine [un link](https://example.com/percorso_(test))</mark>.'
         }
       />
     );
@@ -96,7 +96,10 @@ describe('MarkdownRenderer', () => {
     expect(marks).toHaveLength(1);
     expect(marks[0].querySelector('strong')).toHaveTextContent('grassetto');
     expect(marks[0].querySelector('em')).toHaveTextContent('corsivo');
-    expect(marks[0].querySelector('a')).toHaveAttribute('href', 'https://example.com');
+    expect(marks[0].querySelector('a')).toHaveAttribute(
+      'href',
+      'https://example.com/percorso_(test)'
+    );
   });
 
   test('softens annotation edges with minimal horizontal spacing', () => {

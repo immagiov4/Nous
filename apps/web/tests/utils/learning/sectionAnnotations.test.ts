@@ -103,18 +103,19 @@ test('detached annotations stay orphaned when an ambiguous quote has no matching
 });
 
 test('materialized annotations preserve inline Markdown as one highlight', () => {
-  const content = 'Prima **grassetto**, poi *corsivo* e [un link](https://example.com).';
+  const content =
+    'Prima **grassetto**, poi *corsivo* e [un link](https://example.com/percorso_(test)).';
   const created = applySectionAnnotation({
     annotations: [],
     content,
     createId: () => 'annotation-inline-detached',
-    selectedText: 'Prima grassetto, poi corsivo e un link.',
+    selectedText: 'Prima grassetto, poi corsivo e un link',
   });
 
   assert.ok(created);
   assert.equal(
     materializeSectionAnnotationMarks(content, created.annotations),
-    '<mark data-nous-annotation-id="annotation-inline-detached">Prima **grassetto**, poi *corsivo* e [un link](https://example.com).</mark>'
+    '<mark data-nous-annotation-id="annotation-inline-detached">Prima **grassetto**, poi *corsivo* e [un link](https://example.com/percorso_(test))</mark>.'
   );
 });
 
