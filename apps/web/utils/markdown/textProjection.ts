@@ -30,6 +30,37 @@ const PARAGRAPH_BREAK_REGEX = /\n(?:[ \t]*\n)+/gu;
 const MARKDOWN_TOKENS = ['***', '___', '**', '__', '~~', '`', '*', '_', '$'];
 const INLINE_FORMAT_DELIMITERS = ['***', '___', '**', '__', '~~', '*', '_'];
 
+const findInlineLinkDestinationEnd = (value: string, openingParenthesisIndex: number): number => {
+  if (value[openingParenthesisIndex] !== '(') {
+    return -1;
+  }
+
+  let depth = 0;
+
+  for (let index = openingParenthesisIndex; index < value.length; index += 1) {
+    if (value[index] === '\\') {
+      index += 1;
+      continue;
+    }
+
+    if (value[index] === '(') {
+      depth += 1;
+      continue;
+    }
+
+    if (value[index] !== ')') {
+      continue;
+    }
+
+    depth -= 1;
+    if (depth === 0) {
+      return index;
+    }
+  }
+
+  return -1;
+};
+
 export const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
@@ -146,7 +177,7 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
 
     if (currentCharacter === '[' || currentCharacter === ']') {
       if (currentCharacter === ']' && content[index + 1] === '(') {
-        const linkEnd = content.indexOf(')', index + 2);
+        const linkEnd = findInlineLinkDestinationEnd(content, index + 1);
         if (linkEnd !== -1) {
           index = linkEnd + 1;
           continue;
@@ -411,7 +442,7 @@ const parseInlineMarkdownSyntax = (
     }
 
     if (value.startsWith('](', index)) {
-      const destinationEnd = value.indexOf(')', index + 2);
+      const destinationEnd = findInlineLinkDestinationEnd(value, index + 1);
       if (destinationEnd === -1) {
         return false;
       }
@@ -472,7 +503,7 @@ const expandInlineMarkdownEnd = (content: string, end: number): number => {
 
   while (expandedEnd < content.length) {
     if (content.startsWith('](', expandedEnd)) {
-      const destinationEnd = content.indexOf(')', expandedEnd + 2);
+      const destinationEnd = findInlineLinkDestinationEnd(content, expandedEnd + 1);
       if (destinationEnd === -1) {
         break;
       }
