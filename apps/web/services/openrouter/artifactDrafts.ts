@@ -18,6 +18,7 @@ interface GenerateLessonArtifactDraftInput {
   projectId: ProjectId;
   projectTitle: string;
   prompt: string;
+  rasterImageRequested?: boolean;
   revisionInstructions?: string;
   selectedText?: string;
   sourceArtifact?: LearningArtifactRenderPayload;
@@ -94,6 +95,7 @@ export const generateLessonArtifactDraft = async ({
   projectId,
   projectTitle,
   prompt,
+  rasterImageRequested,
   revisionInstructions,
   selectedText,
   sourceArtifact,
@@ -116,6 +118,7 @@ export const generateLessonArtifactDraft = async ({
     lessonMarkdown,
     sectionDescription: `${lesson.description}\n\nRichiesta: ${prompt.trim()}`,
     sectionTitle: lesson.title,
+    visualTypeHint: rasterImageRequested ? 'illustrative_image' : undefined,
   });
 
   if (!result) {

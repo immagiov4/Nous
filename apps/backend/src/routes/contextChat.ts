@@ -136,10 +136,11 @@ const createContextSearchWebTool = ({
 const contextChatTools = {
   generateCurrentLessonArtifact: tool({
     description:
-      'Genera un nuovo artefatto visuale temporaneo per la lezione corrente in base alla richiesta dell utente. Usalo per mappe concettuali, grafici, diagrammi o widget HTML interattivi richiesti sul momento. Dopo averlo mostrato, se l utente chiede di salvarlo chiama requestAddToNotes includendo artifactIds.',
+      'Genera un nuovo artefatto visuale temporaneo per la lezione corrente in base alla richiesta dell utente. Usalo per immagini raster, mappe concettuali, grafici, diagrammi o widget HTML interattivi richiesti sul momento. Una richiesta raster successiva a un diagramma precedente deve creare un nuovo artefatto con rasterImageRequested true. Dopo averlo mostrato, se l utente chiede di salvarlo chiama requestAddToNotes includendo artifactIds.',
     inputSchema: jsonSchema<{
       mode?: 'new' | 'replacement-draft';
       prompt: string;
+      rasterImageRequested?: boolean;
       revisionInstructions?: string;
       sourceArtifactId?: string;
     }>({
@@ -156,6 +157,11 @@ const contextChatTools = {
           type: 'string',
           description:
             'Richiesta visuale precisa da soddisfare, includendo concetto, taglio didattico e tipo di artefatto desiderato se indicato.',
+        },
+        rasterImageRequested: {
+          type: 'boolean',
+          description:
+            'Imposta true quando l utente chiede esplicitamente una nuova immagine o illustrazione raster, anche se un turno precedente ha gia prodotto un diagramma o SVG dello stesso concetto.',
         },
         revisionInstructions: {
           type: 'string',
