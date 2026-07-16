@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 
-import { trimSegmentWhitespace } from '../../../utils/markdown/textProjection.ts';
+import {
+  buildVisibleProjection,
+  trimSegmentWhitespace,
+} from '../../../utils/markdown/textProjection.ts';
+
+test('buildVisibleProjection skips closing parentheses inside quoted link titles', () => {
+  const projection = buildVisibleProjection(
+    'Prima [un link](https://example.com "Titolo con ) parentesi") dopo.'
+  );
+
+  assert.equal(projection.text, 'Prima un link dopo.');
+});
 
 test('trimSegmentWhitespace trims source ranges without changing inner text', () => {
   const content = 'Intro\n\n  testo da segnare\t\n\nFine';

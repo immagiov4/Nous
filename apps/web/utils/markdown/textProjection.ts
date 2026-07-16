@@ -36,19 +36,34 @@ const findInlineLinkDestinationEnd = (value: string, openingParenthesisIndex: nu
   }
 
   let depth = 0;
+  let activeTitleQuote: '"' | "'" | null = null;
 
   for (let index = openingParenthesisIndex; index < value.length; index += 1) {
-    if (value[index] === '\\') {
+    const character = value[index];
+
+    if (character === '\\') {
       index += 1;
       continue;
     }
 
-    if (value[index] === '(') {
+    if (activeTitleQuote) {
+      if (character === activeTitleQuote) {
+        activeTitleQuote = null;
+      }
+      continue;
+    }
+
+    if (depth === 1 && (character === '"' || character === "'") && /\s/u.test(value[index - 1])) {
+      activeTitleQuote = character;
+      continue;
+    }
+
+    if (character === '(') {
       depth += 1;
       continue;
     }
 
-    if (value[index] !== ')') {
+    if (character !== ')') {
       continue;
     }
 
