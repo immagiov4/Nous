@@ -36,9 +36,14 @@ describe('Supabase auth template sync helpers', () => {
       const html = template?.html || '';
       const actionLinks = html.match(/<a\b[^>]*href="{{ \.ConfirmationURL }}"[^>]*>/g) || [];
       const images = html.match(/<img\b[^>]*>/g) || [];
+      const viewportTags =
+        html.match(
+          /<meta\b(?=[^>]*name="viewport")(?=[^>]*content="width=device-width, initial-scale=1\.0")[^>]*>/g
+        ) || [];
 
       expect(actionLinks).toHaveLength(1);
       expect(images).toHaveLength(1);
+      expect(viewportTags).toHaveLength(1);
       expect(images[0]).toMatch(/src="https:\/\/[^\s"]+\.png"/);
       expect(images[0]).toMatch(/alt="Nous"/);
       expect(images[0]).toMatch(/width="\d+"/);

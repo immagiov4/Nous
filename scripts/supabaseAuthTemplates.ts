@@ -21,7 +21,7 @@ const TEMPLATE_SUBJECTS: Record<SupabaseAuthTemplateKind, string> = {
   confirmation: 'Conferma il tuo account Nous',
   invite: 'Il tuo invito a Nous',
   magic_link: 'Accedi a Nous',
-  recovery: 'Reimposta la password Nous',
+  recovery: 'Scegli una password per Nous',
 };
 
 const TEMPLATE_FILENAMES: Record<SupabaseAuthTemplateKind, string> = {

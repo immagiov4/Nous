@@ -10,6 +10,7 @@ export interface AdminUser {
   id: string;
   app_metadata?: {
     ai_provider?: AdminAiProvider;
+    password_setup_required?: boolean;
     role?: string;
   };
 }
@@ -28,7 +29,7 @@ export interface AdminUserPatch {
   role?: 'admin' | 'user';
 }
 
-export type AdminAccessEmailDelivery = 'access' | 'invitation';
+export type AdminAccessEmailDelivery = 'access' | 'invitation' | 'setup';
 
 export interface AdminModelConfig {
   aiProvider: AdminAiProvider;
@@ -321,10 +322,12 @@ export const createAdminUser = async (input: AdminUserCreateInput): Promise<Admi
   return response.user;
 };
 
-export const sendAdminMagicLink = async (userId: string): Promise<void> => {
-  await requestAdmin(`/api/admin/users/${encodeURIComponent(userId)}/magic-link`, {
-    method: 'POST',
-  });
+export const sendAdminMagicLink = async (userId: string): Promise<AdminAccessEmailDelivery> => {
+  const response = await requestAdmin<{ delivery: AdminAccessEmailDelivery }>(
+    `/api/admin/users/${encodeURIComponent(userId)}/magic-link`,
+    { method: 'POST' }
+  );
+  return response.delivery;
 };
 
 export const sendAdminAccessEmail = async (email: string): Promise<AdminAccessEmailDelivery> => {

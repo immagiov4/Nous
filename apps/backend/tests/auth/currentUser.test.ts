@@ -3,7 +3,11 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { getCurrentUser, resolveCurrentUser } from '../../src/auth/currentUser.js';
+import {
+  getCurrentUser,
+  resolveCurrentUser,
+  resolveCurrentUserForPasswordSetup,
+} from '../../src/auth/currentUser.js';
 import { signSupabaseJwt } from '../helpers/auth.js';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -21,6 +25,9 @@ const createPrivateApp = () => {
       userId: currentUser.id,
       role: currentUser.role,
     });
+  });
+  app.get('/password-setup', resolveCurrentUserForPasswordSetup, (req, res) => {
+    res.json(getCurrentUser(req));
   });
 
   return app;
@@ -97,6 +104,38 @@ describe('resolveCurrentUser', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ userId: 'user-123' });
+  });
+
+  test('allows a pending account only through the password-setup resolver', async () => {
+    process.env.AUTH_MODE = 'supabase';
+    process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    const token = signSupabaseJwt(
+      {
+        sub: 'pending-user',
+        exp: Math.floor(Date.now() / 1000) + 60,
+        app_metadata: { password_setup_required: true, role: 'user' },
+      },
+      'test-secret'
+    );
+
+    const protectedResponse = await request(createPrivateApp())
+      .get('/private')
+      .set('Authorization', `Bearer ${token}`);
+    expect(protectedResponse.status).toBe(403);
+    expect(protectedResponse.body).toEqual({
+      success: false,
+      code: 'password_setup_required',
+      error: 'Completa la configurazione della password.',
+    });
+
+    const setupResponse = await request(createPrivateApp())
+      .get('/password-setup')
+      .set('Authorization', `Bearer ${token}`);
+    expect(setupResponse.status).toBe(200);
+    expect(setupResponse.body).toMatchObject({
+      id: 'pending-user',
+      passwordSetupRequired: true,
+    });
   });
 
   test('accepts a valid Supabase ES256 access token from JWKS', async () => {

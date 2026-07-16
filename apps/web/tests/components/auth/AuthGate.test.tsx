@@ -8,6 +8,26 @@ import { clearSupabaseSession, saveSupabaseSession } from '../../../services/aut
 
 const fetchMock = vi.fn();
 
+const createAccessToken = ({
+  passwordSetupRequired = false,
+  userId = 'user-123',
+}: {
+  passwordSetupRequired?: boolean;
+  userId?: string;
+} = {}): string => {
+  const encode = (value: unknown) =>
+    btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return `${encode({ alg: 'none' })}.${encode({
+    sub: userId,
+    email: `${userId}@example.com`,
+    app_metadata: {
+      provider: 'email',
+      providers: ['email'],
+      ...(passwordSetupRequired ? { password_setup_required: true } : {}),
+    },
+  })}.signature`;
+};
+
 beforeEach(() => {
   window.history.replaceState({}, '', '/');
   vi.stubEnv('VITE_AUTH_MODE', 'supabase');
@@ -135,20 +155,22 @@ test('an invalid callback never renders the stored account and shows a stable er
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
-test('an invite callback forces matching password confirmation before opening the app', async () => {
+test('a pre-marked magic-link callback forces password setup before opening the app', async () => {
+  const inviteToken = createAccessToken({ passwordSetupRequired: true, userId: 'invited-user' });
+  const completedToken = createAccessToken({ userId: 'invited-user' });
   window.history.replaceState(
     {},
     '',
-    '/#access_token=invite-token&refresh_token=refresh-token&expires_in=3600&type=invite'
+    `/#access_token=${inviteToken}&refresh_token=refresh-token&expires_in=3600&type=magiclink`
   );
-  fetchMock.mockResolvedValueOnce({
-    ok: true,
-    json: async () => ({
-      id: 'invited-user',
-      email: 'invited@example.com',
-      identities: [{ provider: 'email' }],
-    }),
-  });
+  fetchMock
+    .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ access_token: completedToken, refresh_token: 'new-refresh-token' }),
+        { status: 200 }
+      )
+    );
 
   render(
     <AuthGate>
@@ -176,16 +198,18 @@ test('an invite callback forces matching password confirmation before opening th
   fireEvent.click(screen.getByRole('button', { name: 'Imposta password ed entra' }));
 
   await waitFor(() => expect(screen.getByText('Area autenticata')).toBeInTheDocument());
+  expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:3301/api/auth/password-setup');
   expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
     password: 'password-one',
   });
 });
 
 test('a magic-link callback opens the app without asking for a password', async () => {
+  const magicToken = createAccessToken();
   window.history.replaceState(
     {},
     '',
-    '/#access_token=magic-token&refresh_token=refresh-token&expires_in=3600&type=magiclink'
+    `/#access_token=${magicToken}&refresh_token=refresh-token&expires_in=3600&type=magiclink`
   );
 
   render(
@@ -201,11 +225,12 @@ test('a magic-link callback opens the app without asking for a password', async 
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
-test('a recovery callback keeps the app gated until the new password succeeds', async () => {
+test('a final recovery 401 clears the session and returns to an expired-link login', async () => {
+  const recoveryToken = createAccessToken({ userId: 'recovered-user' });
   window.history.replaceState(
     {},
     '',
-    '/#access_token=recovery-token&refresh_token=refresh-token&expires_in=3600&type=recovery'
+    `/#access_token=${recoveryToken}&expires_in=3600&type=recovery`
   );
   fetchMock.mockResolvedValueOnce({
     ok: false,
@@ -230,22 +255,55 @@ test('a recovery callback keeps the app gated until the new password succeeds', 
   fireEvent.click(screen.getByRole('button', { name: 'Salva la nuova password' }));
 
   expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Non è stato possibile salvare la password. Riprova; se il link è scaduto, richiedine uno nuovo.'
+    'Il link non è valido o è scaduto. Richiedine uno nuovo.'
   );
   expect(screen.queryByText('Area autenticata')).toBeNull();
+  expect(screen.queryByLabelText('Nuova password')).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
 
-  fetchMock.mockResolvedValueOnce({
-    ok: true,
-    json: async () => ({
-      id: 'recovered-user',
-      email: 'recovered@example.com',
-      identities: [{ provider: 'email' }],
-    }),
+test.each([
+  {
+    body: { error_code: 'weak_password' },
+    expectedMessage: 'La password è troppo debole. Scegline una più lunga e difficile.',
+    status: 422,
+  },
+  {
+    body: null,
+    expectedMessage: 'Non è stato possibile salvare la password. Riprova tra poco.',
+    status: 503,
+  },
+])('keeps the recovery gate retryable after a $status response', async ({
+  body,
+  expectedMessage,
+  status,
+}) => {
+  const recoveryToken = createAccessToken({ userId: 'recovered-user' });
+  window.history.replaceState(
+    {},
+    '',
+    `/#access_token=${recoveryToken}&expires_in=3600&type=recovery`
+  );
+  fetchMock.mockResolvedValueOnce(new Response(body ? JSON.stringify(body) : '', { status }));
+
+  render(
+    <AuthGate>
+      <p>Area autenticata</p>
+    </AuthGate>
+  );
+
+  await waitFor(() => expect(window.location.hash).toBe(''));
+  fireEvent.change(screen.getByLabelText('Nuova password'), {
+    target: { value: 'password-one' },
   });
-
+  fireEvent.change(screen.getByLabelText('Conferma password'), {
+    target: { value: 'password-one' },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Salva la nuova password' }));
 
-  await waitFor(() => expect(screen.getByText('Area autenticata')).toBeInTheDocument());
+  expect(await screen.findByRole('alert')).toHaveTextContent(expectedMessage);
+  expect(screen.getByRole('heading', { name: 'Scegli una nuova password' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Salva la nuova password' })).toBeEnabled();
 });
 
 test('forgot password always shows the same account-neutral confirmation', async () => {
@@ -271,4 +329,31 @@ test('forgot password always shows the same account-neutral confirmation', async
     'https://supabase.test/auth/v1/recover',
     expect.objectContaining({ method: 'POST' })
   );
+});
+
+test('announces public email delivery while the request is pending', async () => {
+  let resolveRequest: ((response: Response) => void) | undefined;
+  fetchMock.mockReturnValueOnce(
+    new Promise<Response>(resolve => {
+      resolveRequest = resolve;
+    })
+  );
+  render(
+    <AuthGate>
+      <p>Area autenticata</p>
+    </AuthGate>
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Accedi' }));
+  const emailInput = screen.getByLabelText('Email');
+  fireEvent.change(emailInput, { target: { value: 'student@example.com' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Magic link' }));
+
+  expect(emailInput.closest('form')).toHaveAttribute('aria-busy', 'true');
+  expect(screen.getByRole('status')).toHaveTextContent('Operazione in corso…');
+
+  act(() => resolveRequest?.(new Response('', { status: 200 })));
+  expect(
+    await screen.findByText('Se esiste un account per questa email, riceverai un link di accesso.')
+  ).toBeInTheDocument();
 });

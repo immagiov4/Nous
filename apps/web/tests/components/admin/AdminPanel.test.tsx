@@ -108,7 +108,7 @@ describe('AdminPanel', () => {
       email: 'new@example.com',
       app_metadata: { ai_provider: 'openai', role: 'user' },
     });
-    vi.mocked(sendAdminMagicLink).mockResolvedValue();
+    vi.mocked(sendAdminMagicLink).mockResolvedValue('access');
     vi.mocked(sendAdminAccessEmail).mockResolvedValue('access');
   });
 
@@ -301,8 +301,8 @@ describe('AdminPanel', () => {
     const user = userEvent.setup();
     let resolveSend: (() => void) | undefined;
     vi.mocked(sendAdminMagicLink).mockReturnValue(
-      new Promise<void>(resolve => {
-        resolveSend = resolve;
+      new Promise<'access'>(resolve => {
+        resolveSend = () => resolve('access');
       })
     );
     render(<AdminPanel />);
@@ -318,9 +318,32 @@ describe('AdminPanel', () => {
 
     resolveSend?.();
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'Link di accesso inviato a student@example.com.'
+      'Link di accesso inviato a student@example.com. La password esistente non è stata modificata.'
     );
     expect(button).toBeEnabled();
+  });
+
+  test('labels and reports setup delivery truthfully for a pending invited user', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listAdminUsers).mockResolvedValue([
+      {
+        id: 'pending-user',
+        email: 'pending@example.com',
+        app_metadata: { password_setup_required: true, role: 'user' },
+      },
+    ]);
+    vi.mocked(sendAdminMagicLink).mockResolvedValue('setup');
+    render(<AdminPanel />);
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Invia link per completare l’account a pending@example.com',
+      })
+    );
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Link per completare l’account inviato a pending@example.com. Dovrà scegliere una password prima di entrare.'
+    );
   });
 
   test('shows a stable error when magic-link delivery fails', async () => {

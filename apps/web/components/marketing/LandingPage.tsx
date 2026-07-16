@@ -8,7 +8,7 @@ import {
   NotebookPen,
   X,
 } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import logoUrl from '../../assets/logo.svg';
 import {
   MARKETING_JOURNEY_COPY,
@@ -20,9 +20,9 @@ import './marketing.css';
 import WaitlistForm from './WaitlistForm.tsx';
 
 interface LandingPageProps {
-  loginInitiallyOpen?: boolean;
-  loginPanel: ReactNode;
-  onJoinWaitlist?: (email: string) => Promise<void>;
+  readonly loginInitiallyOpen?: boolean;
+  readonly loginPanel: ReactNode;
+  readonly onJoinWaitlist?: (email: string) => Promise<void>;
 }
 
 const JOURNEY_STAGES = ['plan', 'generation', 'lesson', 'library'] as const satisfies DemoStage[];
@@ -34,6 +34,9 @@ export default function LandingPage({
 }: LandingPageProps) {
   const [isLoginOpen, setIsLoginOpen] = useState(loginInitiallyOpen);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const loginDialogRef = useRef<HTMLDialogElement>(null);
+  const loginTitleRef = useRef<HTMLHeadingElement>(null);
+  const loginTriggerRef = useRef<HTMLElement | null>(null);
   const [activeJourneyStep, setActiveJourneyStep] = useState(0);
   const [isMobileJourney, setIsMobileJourney] = useState(
     () =>
@@ -57,18 +60,15 @@ export default function LandingPage({
   }, []);
 
   useEffect(() => {
-    if (!isLoginOpen) {
+    const dialog = loginDialogRef.current;
+    if (!isLoginOpen || !dialog) {
       return;
     }
 
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsLoginOpen(false);
-      }
-    };
-
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    loginTitleRef.current?.focus();
   }, [isLoginOpen]);
 
   useEffect(() => {
@@ -104,9 +104,27 @@ export default function LandingPage({
     return () => observer.disconnect();
   }, [isMobileJourney]);
 
-  const openLogin = () => {
+  const openLogin = (trigger: HTMLElement) => {
+    loginTriggerRef.current = trigger;
     setIsMenuOpen(false);
     setIsLoginOpen(true);
+  };
+
+  const closeLogin = () => {
+    if (loginDialogRef.current?.open) {
+      loginDialogRef.current.close();
+      return;
+    }
+    setIsLoginOpen(false);
+  };
+
+  const handleLoginClosed = () => {
+    setIsLoginOpen(false);
+    const trigger = loginTriggerRef.current;
+    loginTriggerRef.current = null;
+    if (trigger?.isConnected) {
+      trigger.focus();
+    }
   };
 
   const scrollToSection = (sectionId: string) => {
@@ -133,7 +151,11 @@ export default function LandingPage({
           <button type="button" onClick={() => scrollToSection('journey')}>
             {t('Come funziona')}
           </button>
-          <button className="marketing-login-button" type="button" onClick={openLogin}>
+          <button
+            className="marketing-login-button"
+            type="button"
+            onClick={event => openLogin(event.currentTarget)}
+          >
             {t('Accedi')}
           </button>
           <button
@@ -283,29 +305,25 @@ export default function LandingPage({
       </div>
 
       {isLoginOpen ? (
-        <div className="marketing-dialog-backdrop">
-          <section
-            className="marketing-login-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="preview-login-title"
-          >
-            <div className="marketing-dialog-heading">
-              <div>
-                <p className="marketing-eyebrow">{t('SOLO SU INVITO')}</p>
-                <h2 id="preview-login-title">{t('Accesso all’anteprima')}</h2>
-              </div>
-              <button
-                type="button"
-                aria-label={t('Chiudi accesso')}
-                onClick={() => setIsLoginOpen(false)}
-              >
-                <X aria-hidden="true" />
-              </button>
+        <dialog
+          ref={loginDialogRef}
+          className="marketing-login-dialog"
+          aria-labelledby="preview-login-title"
+          onClose={handleLoginClosed}
+        >
+          <div className="marketing-dialog-heading">
+            <div>
+              <p className="marketing-eyebrow">{t('SOLO SU INVITO')}</p>
+              <h2 ref={loginTitleRef} id="preview-login-title" tabIndex={-1}>
+                {t('Accesso all’anteprima')}
+              </h2>
             </div>
-            {loginPanel}
-          </section>
-        </div>
+            <button type="button" aria-label={t('Chiudi accesso')} onClick={closeLogin}>
+              <X aria-hidden="true" />
+            </button>
+          </div>
+          {loginPanel}
+        </dialog>
       ) : null}
     </main>
   );

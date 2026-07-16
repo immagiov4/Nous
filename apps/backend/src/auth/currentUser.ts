@@ -9,6 +9,7 @@ export const LOCAL_AUTH_MODE = 'local-bypass' as const;
 export const SUPABASE_AUTH_MODE = 'supabase' as const;
 const AUTH_REQUIRED_MESSAGE = 'Accesso richiesto.';
 const INVALID_AUTH_MESSAGE = 'Sessione non valida. Accedi di nuovo.';
+const PASSWORD_SETUP_REQUIRED_MESSAGE = 'Completa la configurazione della password.';
 const JWKS_CACHE_MS = 5 * 60 * 1000;
 
 type AuthMode = typeof LOCAL_AUTH_MODE | typeof SUPABASE_AUTH_MODE;
@@ -17,6 +18,7 @@ export interface CurrentUser {
   aiProvider?: AiProvider;
   email?: string;
   id: string;
+  passwordSetupRequired: boolean;
   role?: string;
 }
 
@@ -190,6 +192,11 @@ const readAiProvider = (payload: Record<string, unknown>): AiProvider | undefine
   return isAiProvider(appMetadata?.ai_provider) ? appMetadata.ai_provider : undefined;
 };
 
+const readPasswordSetupRequired = (payload: Record<string, unknown>): boolean => {
+  const appMetadata = isRecord(payload.app_metadata) ? payload.app_metadata : undefined;
+  return appMetadata?.password_setup_required === true;
+};
+
 const assertTokenNotExpired = (payload: Record<string, unknown>): void => {
   if (typeof payload.exp !== 'number') {
     return;
@@ -243,18 +250,21 @@ const resolveSupabaseJwtUser = async (token: string): Promise<CurrentUser> => {
     aiProvider: readAiProvider(payload),
     id: userId,
     email: readString(payload.email),
+    passwordSetupRequired: readPasswordSetupRequired(payload),
     role: readRole(payload),
   };
 };
 
-export const resolveCurrentUser = async (
+const resolveAuthenticatedUser = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
+  allowPasswordSetup: boolean
 ): Promise<void> => {
   if (isLocalAuthBypassEnabled()) {
     (req as RequestWithCurrentUser).currentUser = {
       id: process.env.LOCAL_USER_ID?.trim() || DEFAULT_LOCAL_USER_ID,
+      passwordSetupRequired: false,
     };
     next();
     return;
@@ -270,7 +280,16 @@ export const resolveCurrentUser = async (
   }
 
   try {
-    (req as RequestWithCurrentUser).currentUser = await resolveSupabaseJwtUser(token);
+    const currentUser = await resolveSupabaseJwtUser(token);
+    if (currentUser.passwordSetupRequired && !allowPasswordSetup) {
+      res.status(403).json({
+        success: false,
+        code: 'password_setup_required',
+        error: PASSWORD_SETUP_REQUIRED_MESSAGE,
+      });
+      return;
+    }
+    (req as RequestWithCurrentUser).currentUser = currentUser;
     next();
   } catch (error) {
     console.warn('[Auth] Supabase JWT rejected:', error);
@@ -280,6 +299,18 @@ export const resolveCurrentUser = async (
     });
   }
 };
+
+export const resolveCurrentUser = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => resolveAuthenticatedUser(req, res, next, false);
+
+export const resolveCurrentUserForPasswordSetup = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => resolveAuthenticatedUser(req, res, next, true);
 
 export const getCurrentUser = (req: Request): CurrentUser => {
   const currentUser = (req as RequestWithCurrentUser).currentUser;

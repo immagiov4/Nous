@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   clearSupabaseSession,
+  completeSupabasePasswordSetup,
   consumeSupabaseAuthCallbackFromUrl,
   fetchWithSupabaseAuth,
   getFrontendAuthMode,
@@ -22,6 +23,26 @@ import {
   signOutSupabase,
   updateSupabasePassword,
 } from '../../../services/auth/supabaseAuth.ts';
+
+const createAccessToken = ({
+  passwordSetupRequired = false,
+  userId = 'user-123',
+}: {
+  passwordSetupRequired?: boolean;
+  userId?: string;
+} = {}): string => {
+  const encode = (value: unknown) =>
+    btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return `${encode({ alg: 'none' })}.${encode({
+    sub: userId,
+    email: `${userId}@example.com`,
+    app_metadata: {
+      provider: 'email',
+      providers: ['email'],
+      ...(passwordSetupRequired ? { password_setup_required: true } : {}),
+    },
+  })}.signature`;
+};
 
 describe('Supabase auth session storage', () => {
   const fetchMock = vi.fn();
@@ -56,6 +77,19 @@ describe('Supabase auth session storage', () => {
     expect(mergeSupabaseAuthHeaders({ 'X-Existing-Header': 'kept' })).toEqual({
       Authorization: 'Bearer access-token-123',
       'x-existing-header': 'kept',
+    });
+  });
+
+  test('derives the pending setup marker from the access token on every read', () => {
+    const accessToken = createAccessToken({ passwordSetupRequired: true, userId: 'pending-user' });
+    saveSupabaseSession({
+      accessToken,
+      user: { id: 'pending-user', passwordSetupRequired: false },
+    });
+
+    expect(readSupabaseSession()?.user).toMatchObject({
+      id: 'pending-user',
+      passwordSetupRequired: true,
     });
   });
 
@@ -160,6 +194,18 @@ describe('Supabase auth session storage', () => {
       'https://runtime.supabase.test/auth/v1/token?grant_type=password',
       expect.objectContaining({ headers: expect.objectContaining({ apikey: 'runtime-key' }) })
     );
+  });
+
+  test('password sign-in leaves the public landing for the app root', async () => {
+    window.history.replaceState({}, '', '/landing');
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ access_token: createAccessToken(), user: { id: 'user-123' } }),
+    });
+
+    await signInWithPassword({ email: 'student@example.com', password: 'password' });
+
+    expect(window.location.pathname).toBe('/');
   });
 
   test('falls back to memory when the runtime exposes incomplete localStorage', () => {
@@ -376,19 +422,29 @@ describe('Supabase auth session storage', () => {
 
   test('preserves an invite callback action and derives expiry before scrubbing the URL', () => {
     vi.setSystemTime(new Date('2026-07-16T18:00:00.000Z'));
+    const inviteToken = createAccessToken({
+      passwordSetupRequired: true,
+      userId: 'invited-user',
+    });
     window.history.replaceState(
       {},
       '',
-      '/#access_token=invite-token&refresh_token=refresh-token&expires_in=3600&type=invite'
+      `/landing#access_token=${inviteToken}&refresh_token=refresh-token&expires_in=3600&type=invite`
     );
 
     expect(readSupabaseAuthCallbackFromUrl()).toEqual({
       status: 'success',
       session: {
-        accessToken: 'invite-token',
+        accessToken: inviteToken,
         authAction: 'invite',
         expiresAt: Math.floor(Date.now() / 1000) + 3600,
         refreshToken: 'refresh-token',
+        user: {
+          email: 'invited-user@example.com',
+          id: 'invited-user',
+          passwordSetupRequired: true,
+          providers: ['email'],
+        },
       },
     });
     expect(window.location.hash).toContain('type=invite');
@@ -396,10 +452,23 @@ describe('Supabase auth session storage', () => {
 
     expect(consumeSupabaseAuthCallbackFromUrl().status).toBe('success');
     expect(window.location.hash).toBe('');
+    expect(window.location.pathname).toBe('/');
     expect(readSupabaseSession()).toMatchObject({
-      accessToken: 'invite-token',
+      accessToken: inviteToken,
       authAction: 'invite',
+      user: { passwordSetupRequired: true },
     });
+  });
+
+  test('scrubs a callback without moving a non-landing route', () => {
+    const accessToken = createAccessToken();
+    window.history.replaceState({}, '', `/reader?course=one#access_token=${accessToken}`);
+
+    expect(consumeSupabaseAuthCallbackFromUrl().status).toBe('success');
+
+    expect(window.location.pathname).toBe('/reader');
+    expect(window.location.search).toBe('?course=one');
+    expect(window.location.hash).toBe('');
   });
 
   test('an invalid callback clears a stored account instead of falling back to it', () => {
@@ -418,7 +487,7 @@ describe('Supabase auth session storage', () => {
     expect(window.location.hash).toBe('');
   });
 
-  test('completes invite or recovery only after the authenticated password update succeeds', async () => {
+  test('keeps ordinary account password changes on the user-scoped endpoint', async () => {
     saveSupabaseSession({
       accessToken: 'recovery-token',
       authAction: 'recovery',
@@ -442,24 +511,138 @@ describe('Supabase auth session storage', () => {
       accessToken: 'recovery-token',
       user: { id: 'user-123' },
     });
+    expect(readSupabaseSession()?.authAction).toBe('recovery');
+  });
+
+  test('completes recovery for a non-pending account through the user-scoped endpoint', async () => {
+    const accessToken = createAccessToken({ userId: 'recovered-user' });
+    saveSupabaseSession({ accessToken, authAction: 'recovery' });
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'recovered-user',
+          email: 'recovered-user@example.com',
+          app_metadata: { provider: 'email', providers: ['email'] },
+        }),
+        { status: 200 }
+      )
+    );
+
+    await completeSupabasePasswordSetup('new-password');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://supabase.test/auth/v1/user',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({ password: 'new-password' }),
+      })
+    );
     expect(readSupabaseSession()?.authAction).toBeUndefined();
   });
 
-  test('keeps the password gate active when the authenticated update fails', async () => {
-    saveSupabaseSession({
-      accessToken: 'invite-token',
-      authAction: 'invite',
-      user: { id: 'invited-user' },
-    });
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 401 });
-
-    await expect(updateSupabasePassword('rejected-password')).rejects.toThrow(
-      'Account update failed.'
+  test.each([
+    { code: 'weak_password', reason: 'weak-password' },
+    { code: 'validation_failed', reason: 'retryable' },
+  ] as const)('classifies recovery 422 code $code precisely', async ({ code, reason }) => {
+    const accessToken = createAccessToken({ userId: 'recovered-user' });
+    saveSupabaseSession({ accessToken, authAction: 'recovery' });
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error_code: code }), { status: 422 })
     );
 
-    expect(readSupabaseSession()).toMatchObject({
-      accessToken: 'invite-token',
+    await expect(completeSupabasePasswordSetup('new-password')).rejects.toMatchObject({ reason });
+    expect(readSupabaseSession()?.authAction).toBe('recovery');
+  });
+
+  test('clears the password gate only after atomic pending setup and a password grant', async () => {
+    const pendingToken = createAccessToken({
+      passwordSetupRequired: true,
+      userId: 'invited-user',
+    });
+    const completedToken = createAccessToken({ userId: 'invited-user' });
+    saveSupabaseSession({
+      accessToken: pendingToken,
       authAction: 'invite',
+      refreshToken: 'refresh-token',
+    });
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: completedToken,
+            refresh_token: 'rotated-refresh-token',
+          }),
+          { status: 200 }
+        )
+      );
+
+    await completeSupabasePasswordSetup('new-password');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:3301/api/auth/password-setup');
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({
+      password: 'new-password',
+    });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      'https://supabase.test/auth/v1/token?grant_type=password'
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toEqual({
+      email: 'invited-user@example.com',
+      password: 'new-password',
+    });
+    expect(readSupabaseSession()).toMatchObject({
+      accessToken: completedToken,
+      user: { id: 'invited-user', passwordSetupRequired: false },
+    });
+    expect(readSupabaseSession()?.authAction).toBeUndefined();
+  });
+
+  test('a final setup 401 clears the session instead of retrying the same token', async () => {
+    const firstToken = createAccessToken({ passwordSetupRequired: true });
+    const refreshedToken = createAccessToken({ passwordSetupRequired: true });
+    saveSupabaseSession({
+      accessToken: firstToken,
+      authAction: 'invite',
+      refreshToken: 'refresh-token',
+    });
+    fetchMock
+      .mockResolvedValueOnce(new Response('', { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: refreshedToken, refresh_token: 'rotated-refresh-token' }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(new Response('', { status: 401 }));
+
+    await expect(completeSupabasePasswordSetup('new-password')).rejects.toMatchObject({
+      reason: 'expired',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(readSupabaseSession()).toBeNull();
+  });
+
+  test.each([
+    { body: { code: 'weak_password' }, status: 422, reason: 'weak-password' },
+    { body: { code: 'validation_failed' }, status: 422, reason: 'retryable' },
+    { body: null, status: 503, reason: 'retryable' },
+  ] as const)('preserves a pending gate after a $status setup response', async ({
+    body,
+    reason,
+    status,
+  }) => {
+    const accessToken = createAccessToken({ passwordSetupRequired: true });
+    saveSupabaseSession({ accessToken, authAction: 'invite' });
+    fetchMock.mockResolvedValueOnce(new Response(body ? JSON.stringify(body) : '', { status }));
+
+    await expect(completeSupabasePasswordSetup('new-password')).rejects.toMatchObject({ reason });
+
+    expect(readSupabaseSession()).toMatchObject({
+      accessToken,
+      authAction: 'invite',
+      user: { passwordSetupRequired: true },
     });
   });
 
@@ -478,6 +661,56 @@ describe('Supabase auth session storage', () => {
         }),
       })
     );
+  });
+
+  test('normalizes only account-absence rejections for public email requests', async () => {
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error_code: 'user_not_found', message: 'private detail' }), {
+          status: 404,
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error_code: 'otp_disabled' }), { status: 422 })
+      );
+
+    await expect(sendPasswordRecovery('unknown@example.com')).resolves.toBeUndefined();
+    await expect(sendMagicLink('unknown@example.com')).resolves.toBeUndefined();
+
+    expect(warningSpy).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(warningSpy.mock.calls)).not.toContain('private detail');
+  });
+
+  test('reports provider HTTP failures without exposing their raw message', async () => {
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error_code: 'provider_failure', message: 'private detail' }), {
+        status: 503,
+      })
+    );
+
+    await expect(sendMagicLink('student@example.com')).rejects.toThrow(
+      'Invio magic link non riuscito.'
+    );
+    expect(JSON.stringify(warningSpy.mock.calls)).not.toContain('private detail');
+  });
+
+  test('reports recovery rate limits as retryable failures', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error_code: 'over_request_rate_limit' }), { status: 429 })
+    );
+
+    await expect(sendPasswordRecovery('student@example.com')).rejects.toThrow(
+      'Password recovery failed.'
+    );
+  });
+
+  test('still reports network failures for public email requests', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+
+    await expect(sendMagicLink('student@example.com')).rejects.toThrow('offline');
   });
 
   test('keeps public magic-link responses generic when Auth reports an unknown account', async () => {

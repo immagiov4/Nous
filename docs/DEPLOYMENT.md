@@ -160,15 +160,32 @@ The command creates or promotes that Supabase user through the Admin API and pre
 ## Auth email with Resend
 
 The admin email action checks Supabase Auth before sending: a new address receives an invitation,
-while an existing account receives a passwordless sign-in link that does not reset its password.
+an existing account that still requires setup receives a recovery link, and a completed account
+receives a passwordless sign-in link that does not reset its password.
 The login screen also uses Supabase Auth's native recovery endpoint. Nous does not call Resend
 directly and needs no Resend secret in `.env.production`: SMTP credentials belong to the managed
 Supabase project or the ignored self-hosted Supabase env.
 
-Invite and recovery callbacks return with `type=invite` or `type=recovery`. The frontend preserves
-that action until the authenticated user chooses and confirms a password; the application remains
-closed behind the password form. Public signup stays disabled. Public Magic Link requests use
-`create_user: false`, and every public email-request confirmation is account-neutral.
+New invited users are created through the Admin API with the server-owned app metadata marker
+`password_setup_required=true` before Nous requests their setup email. If email delivery fails,
+Nous deletes that new account. The marker is present in the callback JWT and the backend rejects
+every normal protected route while it remains set. Only `PUT /api/auth/password-setup` accepts that
+pending session; it sets the password and removes the marker in one Supabase Admin update, after
+which the browser immediately performs a password grant with the chosen credentials before opening
+the application. This explicit grant is required because the Admin password update invalidates the
+original callback refresh token. A later recovery or Magic Link cannot bypass this gate. Recovery
+for an already completed account stays on Supabase's user-scoped password endpoint.
+
+Setup and recovery callbacks return with `type=magiclink` or `type=recovery`, and all email links
+return to the application root. The server-owned marker, not the callback type, decides whether
+password setup is required. Public signup stays disabled. Public Magic Link requests use
+`create_user: false`. Expected account-absence responses keep the same account-neutral
+confirmation; rate limits, provider failures, and network failures show a stable retryable error.
+Provider status and safe error codes may be logged, but raw provider messages are never rendered.
+
+During password completion, a final `401` clears the local session and returns to login with the
+expired-link message. Only provider code `weak_password` produces weak-password guidance; other
+`422` responses, provider `5xx`, and network failures keep the gate open and allow retry.
 
 Use a dedicated sending subdomain and sender:
 
@@ -237,9 +254,9 @@ In the project's Auth settings:
 4. keep the initial Auth email rate limit at 30 messages per hour unless measured use requires a
    deliberate change.
 
-Admin invitation and access emails return to the Auth Site URL. Password recovery explicitly
-returns to its root. Do not use a localhost Site URL in production, and keep that root in the
-redirect allow list.
+Admin invitation and access emails use the Auth Site URL, while browser-requested Magic Link and
+password recovery explicitly return to its root. Do not use a localhost Site URL in production,
+and keep that root in the redirect allow list.
 
 The repository owns the email templates under `supabase/templates/`. Check and apply them to a
 managed project without storing the management token:

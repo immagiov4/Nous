@@ -3,11 +3,12 @@ import './config/env.js';
 
 import cors from 'cors';
 import express from 'express';
-import { resolveCurrentUser } from './auth/currentUser.js';
+import { resolveCurrentUser, resolveCurrentUserForPasswordSetup } from './auth/currentUser.js';
 import { getBackendServerConfig, loadServerConfig } from './config/serverConfig.js';
 import { admitProjectImportRequest } from './projects/projectImportAdmission.js';
 import { projectImportConfig } from './projects/projectImportConfig.js';
 import adminRouter from './routes/admin.js';
+import authRouter from './routes/auth.js';
 import chatRouter from './routes/chat.js';
 import codexRouter from './routes/codex.js';
 import imagesRouter from './routes/images.js';
@@ -140,6 +141,7 @@ export const createApp = () => {
   });
 
   app.use('/api/tts', resolveCurrentUser, ttsRouter);
+  app.use('/api/auth', resolveCurrentUserForPasswordSetup, authRouter);
   app.use('/api/stt', resolveCurrentUser, sttRouter);
   app.use('/api/images', resolveCurrentUser, imagesRouter);
   app.use('/api/voices', voicesRouter);

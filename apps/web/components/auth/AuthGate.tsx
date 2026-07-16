@@ -1,6 +1,7 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, type SyntheticEvent, useEffect, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
+  completeSupabasePasswordSetup,
   consumeSupabaseAuthCallbackFromUrl,
   getValidSupabaseSession,
   isLocalAuthBypassEnabled,
@@ -8,30 +9,35 @@ import {
   readSupabaseAuthCallbackFromUrl,
   refreshSupabaseSession,
   SUPABASE_SESSION_REFRESH_RETRY_MS,
+  SupabasePasswordSetupError,
   type SupabaseUserSession,
   scheduleSupabaseSessionRefresh,
   sendMagicLink,
   sendPasswordRecovery,
   signInWithPassword,
   subscribeToSupabaseSession,
-  updateSupabasePassword,
 } from '../../services/auth/supabaseAuth.ts';
 import LandingPage from '../marketing/LandingPage.tsx';
 
 interface AuthGateProps {
-  children: ReactNode;
+  readonly children: ReactNode;
 }
 
 type AuthStatus = 'idle' | 'loading' | 'magic-link-sent' | 'recovery-sent' | 'error';
 
-const PasswordSetupPanel = ({ action }: { action: 'invite' | 'recovery' }) => {
+const PasswordSetupPanel = ({
+  action,
+  onSessionExpired,
+}: {
+  readonly action: 'invite' | 'recovery';
+  readonly onSessionExpired: () => void;
+}) => {
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
+  const savePassword = async () => {
     setErrorMessage('');
     if (password !== passwordConfirmation) {
       setErrorMessage(t('Le password non coincidono.'));
@@ -40,33 +46,47 @@ const PasswordSetupPanel = ({ action }: { action: 'invite' | 'recovery' }) => {
 
     setIsSaving(true);
     try {
-      await updateSupabasePassword(password);
-    } catch {
-      setErrorMessage(
-        t(
-          'Non è stato possibile salvare la password. Riprova; se il link è scaduto, richiedine uno nuovo.'
-        )
-      );
+      await completeSupabasePasswordSetup(password);
+    } catch (error) {
+      if (error instanceof SupabasePasswordSetupError && error.reason === 'expired') {
+        onSessionExpired();
+        return;
+      }
+      if (error instanceof SupabasePasswordSetupError && error.reason === 'weak-password') {
+        setErrorMessage(t('La password è troppo debole. Scegline una più lunga e difficile.'));
+        setIsSaving(false);
+        return;
+      }
+      setErrorMessage(t('Non è stato possibile salvare la password. Riprova tra poco.'));
       setIsSaving(false);
     }
   };
 
-  const isInvitation = action === 'invite';
+  const handleSubmit = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void savePassword();
+  };
+
+  const isAccountSetup = action === 'invite';
+  let submitLabel = isAccountSetup ? t('Imposta password ed entra') : t('Salva la nuova password');
+  if (isSaving) {
+    submitLabel = t('Salvataggio…');
+  }
 
   return (
     <div className="marketing-login-panel">
       <h2 className="font-serif text-2xl text-gray-950">
-        {t(isInvitation ? 'Completa il tuo account' : 'Scegli una nuova password')}
+        {t(isAccountSetup ? 'Completa il tuo account' : 'Scegli una nuova password')}
       </h2>
       <p className="mt-3 text-sm leading-6 text-gray-600">
         {t(
-          isInvitation
-            ? 'L’invito ha confermato il tuo indirizzo email. Scegli una password per completare l’account e continuare.'
+          isAccountSetup
+            ? 'Il link ha confermato il tuo indirizzo email. Scegli una password per completare l’account e continuare.'
             : 'Il link di recupero ti ha autenticato. La password cambierà solo quando confermi quella nuova.'
         )}
       </p>
 
-      <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+      <form className="mt-6 space-y-4" onSubmit={handleSubmit} aria-busy={isSaving}>
         <label className="block">
           <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
             {t('Nuova password')}
@@ -99,13 +119,14 @@ const PasswordSetupPanel = ({ action }: { action: 'invite' | 'recovery' }) => {
             {errorMessage}
           </p>
         ) : null}
+        {isSaving ? <output className="sr-only">{t('Salvataggio…')}</output> : null}
 
         <button
           type="submit"
           disabled={isSaving}
           className="inline-flex w-full items-center justify-center rounded-full bg-gray-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {t(isInvitation ? 'Imposta password ed entra' : 'Salva la nuova password')}
+          {submitLabel}
         </button>
       </form>
     </div>
@@ -116,16 +137,15 @@ const LoginPanel = ({
   callbackError,
   onAuthenticated,
 }: {
-  callbackError?: boolean;
-  onAuthenticated: (session: SupabaseUserSession) => void;
+  readonly callbackError?: boolean;
+  readonly onAuthenticated: (session: SupabaseUserSession) => void;
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<AuthStatus>('idle');
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handlePasswordLogin = async (event: FormEvent) => {
-    event.preventDefault();
+  const signIn = async () => {
     setStatus('loading');
     setErrorMessage('');
 
@@ -136,6 +156,11 @@ const LoginPanel = ({
       setStatus('error');
       setErrorMessage(t('Accesso non riuscito.'));
     }
+  };
+
+  const handlePasswordLogin = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void signIn();
   };
 
   const handleMagicLink = async () => {
@@ -175,7 +200,11 @@ const LoginPanel = ({
         </p>
       ) : null}
 
-      <form className="mt-6 space-y-4" onSubmit={handlePasswordLogin}>
+      <form
+        className="mt-6 space-y-4"
+        onSubmit={handlePasswordLogin}
+        aria-busy={status === 'loading'}
+      >
         <label className="block">
           <span className="text-xs font-semibold uppercase tracking-[0.14em] text-gray-500">
             Email
@@ -212,18 +241,25 @@ const LoginPanel = ({
           {t('Password dimenticata?')}
         </button>
 
-        {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
-        {status === 'magic-link-sent' ? (
-          <p className="text-sm text-gray-600">
-            {t('Se esiste un account per questa email, riceverai un link di accesso.')}
+        {errorMessage ? (
+          <p role="alert" className="text-sm text-red-600">
+            {errorMessage}
           </p>
         ) : null}
+        {status === 'magic-link-sent' ? (
+          <output className="block text-sm text-gray-600">
+            {t('Se esiste un account per questa email, riceverai un link di accesso.')}
+          </output>
+        ) : null}
         {status === 'recovery-sent' ? (
-          <p className="text-sm text-gray-600">
+          <output className="block text-sm text-gray-600">
             {t(
               'Se esiste un account per questa email, riceverai un link per scegliere una nuova password.'
             )}
-          </p>
+          </output>
+        ) : null}
+        {status === 'loading' ? (
+          <output className="block text-sm text-gray-600">{t('Operazione in corso…')}</output>
         ) : null}
 
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -356,11 +392,18 @@ export default function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  if (!isLocalAuthBypassEnabled() && session?.authAction) {
+  const passwordSetupAction = session?.user?.passwordSetupRequired ? 'invite' : session?.authAction;
+
+  if (!isLocalAuthBypassEnabled() && passwordSetupAction) {
     return (
       <LandingPage
         loginInitiallyOpen
-        loginPanel={<PasswordSetupPanel action={session.authAction} />}
+        loginPanel={
+          <PasswordSetupPanel
+            action={passwordSetupAction}
+            onSessionExpired={() => setAuthState({ callbackError: true, session: null })}
+          />
+        }
       />
     );
   }

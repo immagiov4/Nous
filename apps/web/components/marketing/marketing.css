@@ -1279,17 +1279,6 @@ html:has(.marketing-page) {
   color: var(--marketing-ink);
 }
 
-.marketing-dialog-backdrop {
-  position: fixed;
-  z-index: 120;
-  inset: 0;
-  display: grid;
-  padding: 1.25rem;
-  place-items: center;
-  background: rgb(26 25 23 / 58%);
-  backdrop-filter: blur(6px);
-}
-
 .marketing-login-dialog {
   width: min(100%, 30rem);
   max-height: calc(100dvh - 2.5rem);
@@ -1299,6 +1288,13 @@ html:has(.marketing-page) {
   border-radius: 0.9rem;
   background: var(--marketing-paper);
   box-shadow: 0 2rem 6rem -2rem rgb(0 0 0 / 52%);
+  color: inherit;
+  margin: auto;
+}
+
+.marketing-login-dialog::backdrop {
+  background: rgb(26 25 23 / 58%);
+  backdrop-filter: blur(6px);
 }
 
 .marketing-dialog-heading {

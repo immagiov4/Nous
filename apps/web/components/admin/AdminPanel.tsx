@@ -18,9 +18,10 @@ import {
   TrendingUp,
   Volume2,
 } from 'lucide-react';
-import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { type SyntheticEvent, useCallback, useEffect, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import {
+  type AdminAccessEmailDelivery,
   type AdminAiProvider,
   type AdminModelConfig,
   type AdminReasoningEffort,
@@ -42,6 +43,39 @@ const getUserRole = (user: AdminUser): 'admin' | 'user' =>
   user.app_metadata?.role === 'admin' ? 'admin' : 'user';
 
 const isDisabledUser = (user: AdminUser): boolean => Boolean(user.banned_until);
+
+const getUserAccessEmailActionLabel = (user: AdminUser, includeDestination = false): string => {
+  const pendingSetup = user.app_metadata?.password_setup_required === true;
+  if (includeDestination) {
+    return t(
+      pendingSetup
+        ? 'Invia link per completare l’account a {userEmail}'
+        : 'Invia link di accesso a {userEmail}',
+      { userEmail: user.email || user.id }
+    );
+  }
+  return t(pendingSetup ? 'Invia link per completare l’account' : 'Invia link di accesso');
+};
+
+const getAccessEmailStatusMessage = (
+  delivery: AdminAccessEmailDelivery,
+  destination: string
+): string => {
+  if (delivery === 'invitation') {
+    return t('Invito inviato a {userEmail}. Dovrà scegliere una password prima di entrare.', {
+      userEmail: destination,
+    });
+  }
+  if (delivery === 'setup') {
+    return t(
+      'Link per completare l’account inviato a {userEmail}. Dovrà scegliere una password prima di entrare.',
+      { userEmail: destination }
+    );
+  }
+  return t('Link di accesso inviato a {userEmail}. La password esistente non è stata modificata.', {
+    userEmail: destination,
+  });
+};
 
 const AI_PROVIDER_OPTIONS = [
   ['openrouter', 'OpenRouter'],
@@ -237,8 +271,7 @@ export default function AdminPanel() {
     });
   }, [loadAdminData]);
 
-  const handleCreateUser = async (event: FormEvent) => {
-    event.preventDefault();
+  const createUser = async () => {
     setErrorMessage('');
     try {
       await createAdminUser({
@@ -260,8 +293,12 @@ export default function AdminPanel() {
     }
   };
 
-  const handleAccessEmailSend = async (event: FormEvent) => {
+  const handleCreateUser = (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
+    void createUser();
+  };
+
+  const sendAccessEmail = async () => {
     const destination = accessEmail.trim();
     if (!destination) {
       return;
@@ -273,16 +310,7 @@ export default function AdminPanel() {
     try {
       const delivery = await sendAdminAccessEmail(destination);
       setAccessEmail('');
-      setStatusMessage(
-        delivery === 'invitation'
-          ? t('Invito inviato a {userEmail}. Dovrà scegliere una password prima di entrare.', {
-              userEmail: destination,
-            })
-          : t(
-              'Link di accesso inviato a {userEmail}. La password esistente non è stata modificata.',
-              { userEmail: destination }
-            )
-      );
+      setStatusMessage(getAccessEmailStatusMessage(delivery, destination));
       if (delivery === 'invitation') {
         await loadAdminData();
       }
@@ -291,6 +319,11 @@ export default function AdminPanel() {
     } finally {
       setIsSendingAccessEmail(false);
     }
+  };
+
+  const handleAccessEmailSend = (event: SyntheticEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void sendAccessEmail();
   };
 
   const handleModelSave = async () => {
@@ -329,12 +362,8 @@ export default function AdminPanel() {
     setStatusMessage('');
     setMagicLinkUserId(user.id);
     try {
-      await sendAdminMagicLink(user.id);
-      setStatusMessage(
-        t('Link di accesso inviato a {userEmail}.', {
-          userEmail: user.email || user.id,
-        })
-      );
+      const delivery = await sendAdminMagicLink(user.id);
+      setStatusMessage(getAccessEmailStatusMessage(delivery, user.email || user.id));
     } catch {
       setErrorMessage(t('Invio magic link non riuscito.'));
     } finally {
@@ -507,9 +536,7 @@ export default function AdminPanel() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      aria-label={t('Invia link di accesso a {userEmail}', {
-                        userEmail: user.email || user.id,
-                      })}
+                      aria-label={getUserAccessEmailActionLabel(user, true)}
                       disabled={magicLinkUserId !== null}
                       onClick={() => void handleMagicLinkSend(user)}
                       className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 px-3 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-60"
@@ -517,7 +544,7 @@ export default function AdminPanel() {
                       <Link2 className="h-3.5 w-3.5" />
                       {magicLinkUserId === user.id
                         ? t('Invio in corso…')
-                        : t('Invia link di accesso')}
+                        : getUserAccessEmailActionLabel(user)}
                     </button>
                     <button
                       type="button"
@@ -586,7 +613,7 @@ export default function AdminPanel() {
               <h2 className="text-sm font-semibold">{t('Invita o invia accesso')}</h2>
               <p className="mt-2 text-xs leading-5 text-gray-500">
                 {t(
-                  'Un nuovo indirizzo riceve un invito e sceglie la password. Un account esistente riceve solo un link di accesso.'
+                  'Un nuovo indirizzo riceve un link per completare l’account. Un account ancora in attesa riceve di nuovo il completamento; un account completo riceve un link di accesso.'
                 )}
               </p>
               <input

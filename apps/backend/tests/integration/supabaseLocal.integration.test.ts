@@ -79,6 +79,14 @@ const readJsonResponse = async <T>(response: Response): Promise<T> => {
   return (text ? JSON.parse(text) : {}) as T;
 };
 
+const readJwtPayload = (accessToken: string): Record<string, unknown> => {
+  const encodedPayload = accessToken.split('.')[1] || '';
+  return JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as Record<
+    string,
+    unknown
+  >;
+};
+
 describeLocalSupabase('Supabase local integration', () => {
   const app = createApp();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || createApiKey('service_role');
@@ -267,7 +275,7 @@ describeLocalSupabase('Supabase local integration', () => {
     });
   });
 
-  test('keeps signup closed and preserves one-time invite and recovery callback types', async () => {
+  test('keeps signup closed and enforces server-owned invite setup through refreshed claims', async () => {
     const inviteEmail = `${TEST_EMAIL_PREFIX}-invite-${Date.now()}@nous.local`;
     const unknownEmail = `${TEST_EMAIL_PREFIX}-unknown-${Date.now()}@nous.local`;
     createdEmails.push(inviteEmail);
@@ -286,17 +294,30 @@ describeLocalSupabase('Supabase local integration', () => {
       true
     );
 
+    const createInvitedUserResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        email: inviteEmail,
+        email_confirm: true,
+        app_metadata: { password_setup_required: true },
+      }),
+    });
+    const invitedUser = await readJsonResponse<{ id?: string }>(createInvitedUserResponse);
+    expect(createInvitedUserResponse.status).toBe(200);
+    expect(invitedUser.id).toEqual(expect.any(String));
+
     const inviteLinkResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/admin/generate_link`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ type: 'invite', email: inviteEmail }),
+      body: JSON.stringify({ type: 'magiclink', email: inviteEmail }),
     });
     const inviteLink = await readJsonResponse<{
       action_link?: string;
       verification_type?: string;
     }>(inviteLinkResponse);
     expect(inviteLinkResponse.status).toBe(200);
-    expect(inviteLink.verification_type).toBe('invite');
+    expect(inviteLink.verification_type).toBe('magiclink');
     expect(inviteLink.action_link).toEqual(expect.any(String));
 
     const inviteCallback = await fetch(inviteLink.action_link as string, { redirect: 'manual' });
@@ -304,21 +325,76 @@ describeLocalSupabase('Supabase local integration', () => {
     const inviteCallbackParams = new URLSearchParams(
       new URL(inviteCallback.headers.get('location') || '').hash.replace(/^#/, '')
     );
-    expect(inviteCallbackParams.get('type')).toBe('invite');
+    expect(inviteCallbackParams.get('type')).toBe('magiclink');
     const inviteAccessToken = inviteCallbackParams.get('access_token');
+    const inviteRefreshToken = inviteCallbackParams.get('refresh_token');
     expect(inviteAccessToken).toEqual(expect.any(String));
+    expect(inviteRefreshToken).toEqual(expect.any(String));
 
-    const invitePasswordResponse = await fetch(`${LOCAL_SUPABASE_URL}/auth/v1/user`, {
-      method: 'PUT',
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${inviteAccessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ password: INVITE_PASSWORD }),
-    });
+    const blockedProjectsResponse = await request(app)
+      .get('/api/projects/projects')
+      .set('Authorization', `Bearer ${inviteAccessToken}`);
+    expect(blockedProjectsResponse.status).toBe(403);
+    expect(blockedProjectsResponse.body).toMatchObject({ code: 'password_setup_required' });
+
+    const invitePasswordResponse = await request(app)
+      .put('/api/auth/password-setup')
+      .set('Authorization', `Bearer ${inviteAccessToken}`)
+      .send({ password: INVITE_PASSWORD });
     expect(invitePasswordResponse.status).toBe(200);
-    expect((await requestPasswordGrant(inviteEmail, INVITE_PASSWORD)).response.status).toBe(200);
+
+    const refreshResponse = await fetch(
+      `${LOCAL_SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: anonKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refresh_token: inviteRefreshToken }),
+      }
+    );
+    expect(refreshResponse.status).toBe(400);
+
+    const completedInviteSession = await requestPasswordGrant(inviteEmail, INVITE_PASSWORD);
+    expect(completedInviteSession.response.status).toBe(200);
+    expect(completedInviteSession.body.access_token).toEqual(expect.any(String));
+    const completedInviteMetadata = readJwtPayload(
+      completedInviteSession.body.access_token as string
+    ).app_metadata as Record<string, unknown>;
+    expect(completedInviteMetadata.password_setup_required).toBeUndefined();
+
+    const admittedProjectsResponse = await request(app)
+      .get('/api/projects/projects')
+      .set('Authorization', `Bearer ${completedInviteSession.body.access_token}`);
+    expect(admittedProjectsResponse.status).toBe(200);
+
+    const laterMagicLinkResponse = await fetch(
+      `${LOCAL_SUPABASE_URL}/auth/v1/admin/generate_link`,
+      {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ type: 'magiclink', email: inviteEmail }),
+      }
+    );
+    const laterMagicLink = await readJsonResponse<{ action_link?: string }>(laterMagicLinkResponse);
+    expect(laterMagicLinkResponse.status).toBe(200);
+    const laterMagicCallback = await fetch(laterMagicLink.action_link as string, {
+      redirect: 'manual',
+    });
+    const laterMagicParams = new URLSearchParams(
+      new URL(laterMagicCallback.headers.get('location') || '').hash.replace(/^#/, '')
+    );
+    const laterMagicAccessToken = laterMagicParams.get('access_token');
+    expect(laterMagicParams.get('type')).toBe('magiclink');
+    expect(laterMagicAccessToken).toEqual(expect.any(String));
+    const laterMagicMetadata = readJwtPayload(laterMagicAccessToken as string)
+      .app_metadata as Record<string, unknown>;
+    expect(laterMagicMetadata.password_setup_required).toBeUndefined();
+    const laterMagicProjectsResponse = await request(app)
+      .get('/api/projects/projects')
+      .set('Authorization', `Bearer ${laterMagicAccessToken}`);
+    expect(laterMagicProjectsResponse.status).toBe(200);
 
     const reusedInviteCallback = await fetch(inviteLink.action_link as string, {
       redirect: 'manual',

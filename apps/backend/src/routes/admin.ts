@@ -9,13 +9,13 @@ import {
   patchAndPersistGlobalModelConfig,
 } from '../config/modelConfig.js';
 import { imageClient } from '../services/imageClient.js';
+import { requestSupabaseAdmin, SUPABASE_ADMIN_USERS_PATH } from '../services/supabaseAdmin.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
 
 const ADMIN_REQUIRED_MESSAGE = 'Solo un amministratore puo eseguire questa operazione.';
 const ADMIN_ACCESS_EMAIL_FAILED_MESSAGE = "Invio dell'email di accesso non riuscito.";
 const ADMIN_MAGIC_LINK_FAILED_MESSAGE = 'Invio del link di accesso non riuscito.';
-const ADMIN_USER_CREATE_PATH = '/auth/v1/admin/users';
 const ADMIN_USER_LIST_PAGE_SIZE = 1000;
 
 const router = Router();
@@ -30,20 +30,6 @@ const requireAdminUser = (req: Request, res: Response, next: NextFunction): void
     success: false,
     error: ADMIN_REQUIRED_MESSAGE,
   });
-};
-
-const getSupabaseAdminConfig = () => {
-  const supabaseUrl = process.env.SUPABASE_URL?.trim();
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for admin actions.');
-  }
-
-  return {
-    supabaseUrl: supabaseUrl.replace(/\/$/, ''),
-    serviceRoleKey,
-  };
 };
 
 const readAdminRole = (value: unknown): 'admin' | 'user' => (value === 'admin' ? 'admin' : 'user');
@@ -79,34 +65,30 @@ const readAccessEmailBody = (body: unknown): string => {
   return email;
 };
 
-const buildSupabaseAdminHeaders = (serviceRoleKey: string) => ({
-  apikey: serviceRoleKey,
-  Authorization: `Bearer ${serviceRoleKey}`,
-  'Content-Type': 'application/json',
-});
-
-const requestSupabaseAdmin = async ({
-  body,
-  method,
-  path,
-}: {
-  body?: unknown;
-  method: 'GET' | 'POST' | 'PUT';
-  path: string;
-}) => {
-  const { serviceRoleKey, supabaseUrl } = getSupabaseAdminConfig();
-  const response = await fetch(`${supabaseUrl}${path}`, {
-    method,
-    headers: buildSupabaseAdminHeaders(serviceRoleKey),
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Supabase admin request failed with status ${response.status}.`);
+const readAdminUserPatch = (body: Record<string, unknown>) => {
+  const role = readOptionalString(body.role);
+  const hasAiProviderPatch = Object.hasOwn(body, 'aiProvider');
+  const aiProvider = body.aiProvider === null ? null : readAiProviderPatch(body.aiProvider);
+  if (hasAiProviderPatch && body.aiProvider !== null && !aiProvider) {
+    throw new Error('Provider AI non valido.');
   }
 
-  const text = await response.text();
-  return text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  const password = readOptionalString(body.password);
+  const disabled = typeof body.disabled === 'boolean' ? body.disabled : undefined;
+  const hasMetadataPatch = Boolean(role) || hasAiProviderPatch || Boolean(password);
+  return {
+    ...(hasMetadataPatch
+      ? {
+          app_metadata: {
+            ...(hasAiProviderPatch ? { ai_provider: aiProvider } : {}),
+            ...(role ? { role: readAdminRole(role) } : {}),
+            ...(password ? { password_setup_required: null } : {}),
+          },
+        }
+      : {}),
+    ...(password ? { password } : {}),
+    ...(disabled === undefined ? {} : { ban_duration: disabled ? '876000h' : 'none' }),
+  };
 };
 
 const readSupabaseUsers = (data: Record<string, unknown>): Array<Record<string, unknown>> =>
@@ -118,7 +100,7 @@ const findSupabaseUserByEmail = async (email: string): Promise<Record<string, un
   while (true) {
     const data = await requestSupabaseAdmin({
       method: 'GET',
-      path: `${ADMIN_USER_CREATE_PATH}?page=${page}&per_page=${ADMIN_USER_LIST_PAGE_SIZE}`,
+      path: `${SUPABASE_ADMIN_USERS_PATH}?page=${page}&per_page=${ADMIN_USER_LIST_PAGE_SIZE}`,
     });
     const users = readSupabaseUsers(data);
     const matchingUser = users.find(
@@ -144,6 +126,16 @@ const sendSupabaseMagicLink = (email: string) =>
       type: 'magiclink',
     },
   });
+
+const sendSupabaseRecoveryLink = (email: string) =>
+  requestSupabaseAdmin({
+    method: 'POST',
+    path: '/auth/v1/recover',
+    body: { email },
+  });
+
+const requiresPasswordSetup = (user: Record<string, unknown>): boolean =>
+  isRecord(user.app_metadata) && user.app_metadata.password_setup_required === true;
 
 const getRouteParam = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value[0] || '' : value || '';
@@ -254,7 +246,7 @@ router.get('/users', async (_req: Request, res: Response) => {
   try {
     const data = await requestSupabaseAdmin({
       method: 'GET',
-      path: ADMIN_USER_CREATE_PATH,
+      path: SUPABASE_ADMIN_USERS_PATH,
     });
 
     res.json({
@@ -271,7 +263,7 @@ router.post('/users', async (req: Request, res: Response) => {
     const body = readCreateUserBody(req.body);
     const user = await requestSupabaseAdmin({
       method: 'POST',
-      path: ADMIN_USER_CREATE_PATH,
+      path: SUPABASE_ADMIN_USERS_PATH,
       body: {
         email: body.email,
         password: body.password,
@@ -298,16 +290,43 @@ router.post('/users/access-email', async (req: Request, res: Response) => {
     const existingUser = await findSupabaseUserByEmail(email);
 
     if (existingUser) {
-      await sendSupabaseMagicLink(email);
-      res.json({ success: true, delivery: 'access' });
+      const passwordSetupRequired = requiresPasswordSetup(existingUser);
+      await (passwordSetupRequired
+        ? sendSupabaseRecoveryLink(email)
+        : sendSupabaseMagicLink(email));
+      res.json({ success: true, delivery: passwordSetupRequired ? 'setup' : 'access' });
       return;
     }
 
-    await requestSupabaseAdmin({
+    const invitedUser = await requestSupabaseAdmin({
       method: 'POST',
-      path: '/auth/v1/invite',
-      body: { email },
+      path: SUPABASE_ADMIN_USERS_PATH,
+      body: {
+        email,
+        email_confirm: true,
+        app_metadata: { password_setup_required: true },
+      },
     });
+    const invitedUserId = readOptionalString(invitedUser.id);
+    if (!invitedUserId) {
+      throw new Error('Supabase invite did not return a user identifier.');
+    }
+    try {
+      await sendSupabaseMagicLink(email);
+    } catch (error) {
+      try {
+        await requestSupabaseAdmin({
+          method: 'DELETE',
+          path: `${SUPABASE_ADMIN_USERS_PATH}/${encodeURIComponent(invitedUserId)}`,
+        });
+      } catch (rollbackError) {
+        console.error(
+          '[Nous][Admin] Failed to roll back an undelivered invited user.',
+          rollbackError
+        );
+      }
+      throw error;
+    }
     res.json({ success: true, delivery: 'invitation' });
   } catch (error) {
     console.error('[Nous][Admin] Failed to send a Supabase access email.', error);
@@ -323,17 +342,19 @@ router.post('/users/:id/magic-link', async (req: Request, res: Response) => {
     const userId = encodeURIComponent(getRouteParam(req.params.id));
     const user = await requestSupabaseAdmin({
       method: 'GET',
-      path: `${ADMIN_USER_CREATE_PATH}/${userId}`,
+      path: `${SUPABASE_ADMIN_USERS_PATH}/${userId}`,
     });
     const email = readOptionalString(user.email);
     if (!email) {
       throw new Error('Supabase user email is required to generate a magic link.');
     }
 
-    await sendSupabaseMagicLink(email);
+    const passwordSetupRequired = requiresPasswordSetup(user);
+    await (passwordSetupRequired ? sendSupabaseRecoveryLink(email) : sendSupabaseMagicLink(email));
 
     res.json({
       success: true,
+      delivery: passwordSetupRequired ? 'setup' : 'access',
       sent: true,
     });
   } catch (error) {
@@ -351,34 +372,10 @@ router.patch('/users/:id', async (req: Request, res: Response) => {
       throw new Error('Corpo della richiesta non valido.');
     }
 
-    const userId = encodeURIComponent(getRouteParam(req.params.id));
-    const role = readOptionalString(req.body.role);
-    const hasAiProviderPatch = Object.hasOwn(req.body, 'aiProvider');
-    const aiProvider =
-      req.body.aiProvider === null ? null : readAiProviderPatch(req.body.aiProvider);
-    if (hasAiProviderPatch && req.body.aiProvider !== null && !aiProvider) {
-      throw new Error('Provider AI non valido.');
-    }
-    const password = readOptionalString(req.body.password);
-    const disabled = typeof req.body.disabled === 'boolean' ? req.body.disabled : undefined;
-    const hasMetadataPatch = Boolean(role) || hasAiProviderPatch;
-    const body = {
-      ...(hasMetadataPatch
-        ? {
-            app_metadata: {
-              ...(hasAiProviderPatch ? { ai_provider: aiProvider } : {}),
-              ...(role ? { role: readAdminRole(role) } : {}),
-            },
-          }
-        : {}),
-      ...(password ? { password } : {}),
-      ...(disabled === undefined ? {} : { ban_duration: disabled ? '876000h' : 'none' }),
-    };
-
     const user = await requestSupabaseAdmin({
       method: 'PUT',
-      path: `${ADMIN_USER_CREATE_PATH}/${userId}`,
-      body,
+      path: `${SUPABASE_ADMIN_USERS_PATH}/${encodeURIComponent(getRouteParam(req.params.id))}`,
+      body: readAdminUserPatch(req.body),
     });
 
     res.json({
