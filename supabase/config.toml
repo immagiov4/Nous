@@ -19,6 +19,9 @@ additional_redirect_urls = ["http://127.0.0.1:5173"]
 jwt_expiry = 3600
 enable_signup = false
 
+[auth.rate_limit]
+email_sent = 30
+
 [auth.email]
 # Keep the email provider enabled for password and magic-link login. Closed access
 # is enforced by [auth].enable_signup = false, so public signup remains disabled.

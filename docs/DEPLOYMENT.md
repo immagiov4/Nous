@@ -203,7 +203,7 @@ SUPABASE_AUTH_SMTP_PASS=<dedicated Resend API key>
 key:
 
 ```bash
-bunx supabase stop --no-backup
+bunx supabase stop
 bunx supabase start
 ```
 
