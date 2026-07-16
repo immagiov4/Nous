@@ -321,11 +321,11 @@ describe('HomeChatPanel', () => {
     expect(screen.queryByText('Indice libreria')).not.toBeInTheDocument();
   });
 
-  test('keeps clear chat in the chat corner without restoring the hidden header', async () => {
+  test('reserves message space for the clear-chat overlay only while the header is hidden', async () => {
     setViewportWidth(390);
     const user = userEvent.setup();
     const onClearLibraryMessages = vi.fn();
-    const { container } = render(
+    const { container, rerender } = render(
       <HomeChatPanel
         {...buildProps()}
         homeChatMode="library-query"
@@ -336,11 +336,26 @@ describe('HomeChatPanel', () => {
     );
 
     const clearButton = screen.getByRole('button', { name: /Pulisci questa chat/i });
+    const messagesViewport = container.querySelector('.home-chat-scrollbar');
     expect(screen.queryByTestId('home-chat-mode-copy')).not.toBeInTheDocument();
     expect(clearButton.parentElement).toBe(container.querySelector('section'));
+    expect(messagesViewport).toHaveClass('pb-4', 'pt-16');
+    expect(messagesViewport).not.toHaveClass('py-4');
 
     await user.click(clearButton);
     expect(onClearLibraryMessages).toHaveBeenCalledOnce();
+
+    rerender(
+      <HomeChatPanel
+        {...buildProps()}
+        homeChatMode="library-query"
+        onClearLibraryMessages={onClearLibraryMessages}
+      />
+    );
+
+    expect(screen.getByTestId('home-chat-mode-copy')).toBeInTheDocument();
+    expect(messagesViewport).toHaveClass('py-4');
+    expect(messagesViewport).not.toHaveClass('pt-16');
   });
 
   test('maps scroll progress to the actual overflow for short, medium, and long chats', () => {

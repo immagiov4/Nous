@@ -503,6 +503,7 @@ export default function HomeChatPanel({
     homeChatMode === 'library-query' &&
     visibleLibraryMessages.length > 0 &&
     Boolean(onClearLibraryMessages);
+  const reserveClearButtonSpace = showClearLibraryMessages && !showHeader;
   const mobileChatStyle =
     isMobileViewport && viewportHeight != null
       ? hasActiveChat
@@ -1231,7 +1232,7 @@ export default function HomeChatPanel({
         className={`home-chat-scrollbar overflow-y-auto px-4 sm:px-5 max-md:min-h-0 max-md:flex-1 ${
           compactWhenEmpty && !hasMessages && !isLoading
             ? 'hidden h-0 py-0'
-            : 'h-[14rem] py-4 md:h-[24rem]'
+            : `h-[14rem] md:h-[24rem] ${reserveClearButtonSpace ? 'pb-4 pt-16' : 'py-4'}`
         }`}
         style={scrollProgressOverride === undefined ? undefined : { overflowY: 'hidden' }}
       >
