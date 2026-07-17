@@ -11,6 +11,7 @@ import {
   List,
   LoaderCircle,
   MousePointerClick,
+  Play,
   Trash2,
   Upload,
   X,
@@ -18,6 +19,7 @@ import {
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
+import { getYouTubeVideoClipsEnabled } from '../../../services/openrouter/youtubeResearchClient.ts';
 import type {
   ApplicationExerciseNode,
   LearningArtifactRenderPayload,
@@ -30,6 +32,7 @@ import { materializeSectionAnnotationMarks } from '../../../utils/learning/secti
 import { supportsSectionAnnotationHighlights } from '../../../utils/learning/sectionAnnotationHighlights.ts';
 import { stripTerminalLessonSourcesSection } from '../../../utils/markdown/lessonSources.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
+import { buildYouTubeClipEmbedUrl } from '../../../utils/youtube.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
@@ -725,7 +728,71 @@ const getSafeSourceUrl = (url: string | undefined): string | null => {
   }
 };
 
+const formatClipTime = (seconds: number): string => {
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+};
+
+function YouTubeLessonClip({ source }: { source: ResearchSourceReference }) {
+  const [isPlayerVisible, setIsPlayerVisible] = useState(false);
+  const clip = source.videoClip;
+  const embedUrl = clip
+    ? buildYouTubeClipEmbedUrl(source.url || '', clip.startSeconds, clip.endSeconds)
+    : null;
+  if (!clip || !embedUrl) {
+    return null;
+  }
+
+  const timeRange = `${formatClipTime(clip.startSeconds)}–${formatClipTime(clip.endSeconds)}`;
+  return (
+    <figure className="overflow-hidden rounded-[1.2rem] border border-stone-200/80 bg-white/80 dark:border-stone-700 dark:bg-stone-900/35">
+      {isPlayerVisible ? (
+        <iframe
+          src={embedUrl}
+          title={t('Dimostrazione video: {sourceTitle}', { sourceTitle: source.title })}
+          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          loading="lazy"
+          referrerPolicy="strict-origin-when-cross-origin"
+          className="aspect-video w-full border-0"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsPlayerVisible(true)}
+          className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-stone-100 px-6 text-stone-800 transition-colors hover:bg-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-orange-600 dark:bg-stone-950 dark:text-stone-100 dark:hover:bg-stone-900"
+        >
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-600 text-white">
+            <Play className="ml-0.5 h-5 w-5" fill="currentColor" />
+          </span>
+          <span className="text-sm font-semibold">
+            {t('Riproduci la dimostrazione ({timeRange})', { timeRange })}
+          </span>
+        </button>
+      )}
+      <figcaption className="px-4 py-3 text-sm leading-6 text-stone-600 dark:text-stone-300">
+        <span className="font-semibold text-stone-900 dark:text-stone-100">{source.title}</span>
+        {source.note ? <span> — {source.note}</span> : null}
+      </figcaption>
+    </figure>
+  );
+}
+
 function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference[] }) {
+  const [videoClipsEnabled, setVideoClipsEnabled] = useState(false);
+  const hasVideoClips = sources.some(source => source.videoClip);
+
+  useEffect(() => {
+    if (!hasVideoClips) return;
+    let active = true;
+    void getYouTubeVideoClipsEnabled().then(enabled => {
+      if (active) setVideoClipsEnabled(enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, [hasVideoClips]);
+
   if (sources.length === 0) {
     return null;
   }
@@ -738,6 +805,13 @@ function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference
       <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
         {t('Fonti della sezione')}
       </h2>
+      {hasVideoClips && videoClipsEnabled ? (
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {sources.map((source, index) => (
+            <YouTubeLessonClip key={`clip:${source.url || index}`} source={source} />
+          ))}
+        </div>
+      ) : null}
       <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-700 dark:text-stone-300">
         {sources.map((source, index) => {
           const safeUrl = getSafeSourceUrl(source.url);

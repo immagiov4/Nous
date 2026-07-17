@@ -183,13 +183,47 @@ describe('/api/admin', () => {
     );
   });
 
+  test('preserves persisted review rounds when patching another setting after restart', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([{ id: 'global', artifact_visual_review_max_rounds: 2 }]), {
+          status: 200,
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .patch('/api/admin/model-config')
+      .set('Authorization', authHeader(adminToken))
+      .send({ contextModel: 'server/context-after-restart' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.config).toMatchObject({
+      artifactVisualReviewMaxRounds: 2,
+      contextModel: 'server/context-after-restart',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.supabase.co/rest/v1/model_config?on_conflict=id',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"artifact_visual_review_max_rounds":2'),
+      })
+    );
+  });
+
   test('does not activate a model configuration that Postgres rejected', async () => {
     const app = createApp();
     const adminToken = createSupabaseTestToken({ role: 'admin' });
     const previousContextModel = getGlobalModelConfig().contextModel;
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response('missing column', { status: 400 }))
+      vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+        init?.method === 'POST'
+          ? new Response('missing column', { status: 400 })
+          : new Response(JSON.stringify([{ id: 'global' }]), { status: 200 })
+      )
     );
 
     const response = await request(app)
@@ -296,13 +330,14 @@ describe('/api/admin', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app)
-      .get('/api/admin/users')
+      .get('/api/admin/users?page=2&pageSize=2')
       .set('Authorization', authHeader(adminToken));
 
     expect(response.status).toBe(200);
     expect(response.body.users).toEqual([{ id: 'user-1', email: 'a@example.com' }]);
+    expect(response.body).toMatchObject({ hasMore: false, page: 2, pageSize: 2 });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://example.supabase.co/auth/v1/admin/users',
+      'https://example.supabase.co/auth/v1/admin/users?page=2&per_page=2',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({

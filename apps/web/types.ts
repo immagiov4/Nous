@@ -21,6 +21,10 @@ export interface ResearchSourceReference {
   title: string;
   url?: string;
   note?: string;
+  videoClip?: {
+    endSeconds: number;
+    startSeconds: number;
+  };
 }
 
 export interface ResearchLessonPlan {
@@ -479,6 +483,7 @@ export interface ApplicationExercisePlanningError {
 export interface ProjectSnapshot {
   id: ProjectId;
   version: string;
+  title?: string;
   sourceKind: ProjectSourceKind;
   state: AppState;
   source: ProjectSource | null;
@@ -499,6 +504,7 @@ export interface ProjectSnapshot {
 export interface ProjectExportData {
   id?: ProjectId;
   version: string;
+  title?: string;
   state?: AppState;
   file?: FileData | null; // Legacy import fallback for older exports
   source?: ProjectSource | null;

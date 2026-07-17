@@ -75,6 +75,7 @@ export interface SectionPatch {
 }
 
 export interface ProjectPatch {
+  title?: string;
   activeSectionId?: string | null;
   state?: string;
   isLearnMode?: boolean;

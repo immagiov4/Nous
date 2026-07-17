@@ -96,6 +96,7 @@ interface LibraryViewProps {
   onOpenProject: (projectId: string) => void;
   onPlanUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
+  onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
   onSendAssessmentMessage: (message: string) => Promise<void>;
   onToggleDarkMode: () => void;
   onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
@@ -157,6 +158,7 @@ const LibraryView = ({
   onOpenProject,
   onPlanUpload,
   onRenameFolder,
+  onRenameProject,
   onSendAssessmentMessage,
   onToggleDarkMode,
   onToggleLibraryContextRef,
@@ -304,6 +306,7 @@ const LibraryView = ({
               onMoveProjects={onMoveProjects}
               onOpenProject={onOpenProject}
               onRenameFolder={onRenameFolder}
+              onRenameProject={onRenameProject}
               tree={libraryTree}
             />
           ) : null}

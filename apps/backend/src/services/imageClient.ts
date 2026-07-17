@@ -37,6 +37,7 @@ const ALLOWED_IMAGE_MEDIA_TYPES = new Set<GeneratedImageMediaType>([
 ]);
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_GENERATED_IMAGE_BYTES = 12 * 1024 * 1024;
+const IMAGE_GENERATION_TIMEOUT_MS = 90_000;
 const SUPPORTED_OPENAI_IMAGE_MODELS = new Set([
   DEFAULT_OPENAI_IMAGE_MODEL,
   'gpt-image-1.5',
@@ -127,6 +128,7 @@ class ImageClient {
         : `${OPENROUTER_API_BASE_URL}/images`,
       {
         method: 'POST',
+        signal: AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS),
         headers: usesOpenAi ? getOpenAiJsonHeaders() : getOpenRouterJsonHeaders(),
         body: JSON.stringify(
           usesOpenAi

@@ -17,6 +17,8 @@ data
 .env.production
 deploy/backups/
 deploy/supabase-project/
+deploy/secrets/*
+!deploy/secrets/.gitkeep
 nul
 
 # Editor directories and files
@@ -51,3 +53,5 @@ multitasking-context-switch.svg
 
 .venv/
 .temp/
+deploy/secrets/*
+!deploy/secrets/.gitkeep

@@ -22,7 +22,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { ComponentProps } from 'react';
+import type { ComponentProps, FormEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import logoUrl from '@/assets/logo.svg';
@@ -102,6 +102,7 @@ interface NewHomeViewProps {
   onOpenProject: (projectId: string) => void;
   openingProjectId: string | null;
   onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
+  onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
   onToggleDarkMode: () => void;
   projects: SavedProjectMeta[];
   saveProjectCover: (projectId: string, cover: FileData) => Promise<void>;
@@ -436,15 +437,19 @@ const ResumeSection = ({
 };
 
 interface FolderDialogState {
-  folderId?: string;
   initialName: string;
-  mode: 'create' | 'rename';
 }
 
 interface FloatingMenuState {
   id: string;
   left: number;
   top: number;
+}
+
+interface InlineRenameTarget {
+  id: string;
+  kind: 'folder' | 'project';
+  name: string;
 }
 
 const getFloatingMenuState = (
@@ -495,7 +500,7 @@ const FolderNameDialog = ({
         }}
       >
         <h3 className="font-serif text-xl text-stone-950 dark:text-stone-50">
-          {dialog.mode === 'create' ? t('Nuova cartella') : t('Rinomina cartella')}
+          {t('Nuova cartella')}
         </h3>
         <label className="mt-5 block text-xs font-medium text-stone-500 dark:text-stone-400">
           {t('Nome')}
@@ -541,6 +546,7 @@ const CourseList = ({
   onOpenProject,
   openingProjectId,
   onRenameFolder,
+  onRenameProject,
   onToggleFavorite,
   onQueryChange,
   projects,
@@ -560,6 +566,7 @@ const CourseList = ({
   onOpenProject: (projectId: string) => void;
   openingProjectId: string | null;
   onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
+  onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
   onToggleFavorite: (projectId: string) => void;
   onQueryChange: (query: string) => void;
   projects: SavedProjectMeta[];
@@ -570,14 +577,125 @@ const CourseList = ({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [dialog, setDialog] = useState<FolderDialogState | null>(null);
+  const [renameTarget, setRenameTarget] = useState<InlineRenameTarget | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [renameError, setRenameError] = useState('');
   const [openFolderMenu, setOpenFolderMenu] = useState<FloatingMenuState | null>(null);
   const [openCourseMenu, setOpenCourseMenu] = useState<FloatingMenuState | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const renameRequestIdRef = useRef(0);
   const [collapsedSpecialGroupIds, setCollapsedSpecialGroupIds] = useState<Set<string>>(
     () => new Set()
   );
   const { expandedFolderIds, toggleFolderExpansion } =
     usePersistedLibraryFolderExpansion(libraryTree);
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
+
+  const startInlineRename = (target: InlineRenameTarget) => {
+    renameRequestIdRef.current += 1;
+    setOpenFolderMenu(null);
+    setOpenCourseMenu(null);
+    setRenameTarget(target);
+    setNameDraft(target.name);
+    setIsSavingName(false);
+    setRenameError('');
+  };
+
+  const cancelInlineRename = () => {
+    renameRequestIdRef.current += 1;
+    setRenameTarget(null);
+    setNameDraft('');
+    setIsSavingName(false);
+    setRenameError('');
+  };
+
+  const submitInlineRename = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!renameTarget || isSavingName) {
+      return;
+    }
+
+    const name = nameDraft.trim();
+    const rename = renameTarget.kind === 'folder' ? onRenameFolder : onRenameProject;
+    if (!name || !rename) {
+      return;
+    }
+    if (name === renameTarget.name) {
+      cancelInlineRename();
+      return;
+    }
+
+    const requestId = renameRequestIdRef.current + 1;
+    renameRequestIdRef.current = requestId;
+    const target = renameTarget;
+    setIsSavingName(true);
+    setRenameError('');
+    try {
+      await rename(target.id, name);
+      if (renameRequestIdRef.current === requestId) {
+        setRenameTarget(null);
+        setNameDraft('');
+        setRenameError('');
+      }
+    } catch (error) {
+      console.error('[Nous][Library] Inline rename failed.', error);
+      if (renameRequestIdRef.current === requestId) {
+        setRenameError(t('Operazione non riuscita. Riprova.'));
+      }
+    } finally {
+      if (renameRequestIdRef.current === requestId) {
+        setIsSavingName(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (renameTarget) {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    }
+  }, [renameTarget]);
+
+  const renderInlineRenameForm = (kind: InlineRenameTarget['kind']) => (
+    <form
+      className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+      onSubmit={submitInlineRename}
+    >
+      <input
+        ref={nameInputRef}
+        value={nameDraft}
+        onChange={event => setNameDraft(event.target.value)}
+        onKeyDown={event => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            cancelInlineRename();
+          }
+        }}
+        aria-label={t(kind === 'folder' ? 'Rinomina cartella' : 'Rinomina corso')}
+        className="h-9 min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-2 text-sm text-stone-900 outline-none focus:border-stone-500 dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
+      />
+      <button
+        type="submit"
+        disabled={!nameDraft.trim() || isSavingName}
+        className="text-xs font-medium text-stone-700 disabled:opacity-50 dark:text-stone-200"
+      >
+        {isSavingName ? t('Salvataggio...') : t('Salva')}
+      </button>
+      <button
+        type="button"
+        onClick={cancelInlineRename}
+        className="text-xs text-stone-500 dark:text-stone-400"
+      >
+        {t('Annulla')}
+      </button>
+      {renameError ? (
+        <span role="alert" className="basis-full text-xs text-red-600 dark:text-red-400">
+          {renameError}
+        </span>
+      ) : null}
+    </form>
+  );
   const folders = useMemo(
     () => [...libraryFolders].sort((left, right) => left.order - right.order),
     [libraryFolders]
@@ -661,7 +779,7 @@ const CourseList = ({
           {t('I tuoi corsi')}
         </h2>
         <Pressable
-          onClick={() => setDialog({ initialName: '', mode: 'create' })}
+          onClick={() => setDialog({ initialName: '' })}
           className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 hover:border-stone-300 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
         >
           <Plus className="h-3.5 w-3.5" /> {t('Nuova cartella')}
@@ -778,9 +896,20 @@ const CourseList = ({
                   )}
                 </button>
                 <Folder className="h-4 w-4 text-[#c67531] dark:text-[#f1c6a8]" />
-                <h3 className="text-sm font-medium text-stone-800 dark:text-stone-100">
-                  {group.label}
-                </h3>
+                {renameTarget?.kind === 'folder' && renameTarget.id === group.id ? (
+                  renderInlineRenameForm('folder')
+                ) : (
+                  <h3
+                    onDoubleClick={() => {
+                      if (isLibraryFolder && onRenameFolder) {
+                        startInlineRename({ id: group.id, kind: 'folder', name: group.label });
+                      }
+                    }}
+                    className="text-sm font-medium text-stone-800 dark:text-stone-100"
+                  >
+                    {group.label}
+                  </h3>
+                )}
                 <span className="text-xs text-stone-400">
                   {t('{courseCount} corsi', { courseCount: group.projects.length })}
                 </span>
@@ -817,37 +946,78 @@ const CourseList = ({
                         key={project.id}
                         className="group relative flex items-center gap-4 border-b border-stone-100 px-4 py-3 last:border-b-0 dark:border-white/10"
                       >
-                        <button
-                          type="button"
-                          onClick={() => onOpenProject(project.id)}
-                          disabled={isOpening}
-                          aria-busy={isOpening}
-                          className="flex min-w-0 flex-1 items-center gap-4 text-left disabled:cursor-wait"
-                        >
-                          <div className="relative h-11 w-16 shrink-0 overflow-hidden rounded-lg">
-                            {isOpening ? (
-                              <span className="absolute inset-0 z-10 flex items-center justify-center bg-[#f3eee6] dark:bg-stone-800">
-                                <Loader2 className="h-5 w-5 animate-spin text-[#a95828] dark:text-[#f1c6a8]" />
-                              </span>
+                        <div className="flex min-w-0 flex-1 items-center gap-4 text-left">
+                          <button
+                            type="button"
+                            onClick={() => onOpenProject(project.id)}
+                            disabled={isOpening}
+                            aria-busy={isOpening}
+                            className="relative h-11 w-16 shrink-0 overflow-hidden rounded-lg disabled:cursor-wait"
+                          >
+                            <div className="relative h-11 w-16 shrink-0 overflow-hidden rounded-lg">
+                              {isOpening ? (
+                                <span className="absolute inset-0 z-10 flex items-center justify-center bg-[#f3eee6] dark:bg-stone-800">
+                                  <Loader2 className="h-5 w-5 animate-spin text-[#a95828] dark:text-[#f1c6a8]" />
+                                </span>
+                              ) : (
+                                <CourseCover
+                                  imageUrl={getCourseCoverUrl(project, coverImages)}
+                                  title={project.title}
+                                />
+                              )}
+                            </div>
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            {renameTarget?.kind === 'project' && renameTarget.id === project.id ? (
+                              renderInlineRenameForm('project')
                             ) : (
-                              <CourseCover
-                                imageUrl={getCourseCoverUrl(project, coverImages)}
-                                title={project.title}
-                              />
+                              <>
+                                <p className="line-clamp-2 font-serif text-sm leading-snug text-stone-900 dark:text-stone-100">
+                                  <button
+                                    type="button"
+                                    onClick={event => {
+                                      if (!onRenameProject) {
+                                        onOpenProject(project.id);
+                                        return;
+                                      }
+                                      // Keep pointer title clicks available for a native double-click rename.
+                                      // Keyboard activation still opens; cover and metadata remain pointer targets.
+                                      if (event.detail === 0) {
+                                        onOpenProject(project.id);
+                                      }
+                                    }}
+                                    onDoubleClick={event => {
+                                      if (!onRenameProject) {
+                                        return;
+                                      }
+                                      event.preventDefault();
+                                      startInlineRename({
+                                        id: project.id,
+                                        kind: 'project',
+                                        name: project.title,
+                                      });
+                                    }}
+                                    className="text-left"
+                                  >
+                                    {project.title}
+                                  </button>
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenProject(project.id)}
+                                  disabled={isOpening}
+                                  aria-busy={isOpening}
+                                  className="mt-1 text-[0.68rem] text-stone-400 disabled:cursor-wait"
+                                >
+                                  {t('{lessonCount} lezioni · {lastOpenedDate}', {
+                                    lessonCount: project.lessonCount,
+                                    lastOpenedDate: formatCourseDate(project.lastOpenedAt),
+                                  })}
+                                </button>
+                              </>
                             )}
                           </div>
-                          <div className="min-w-0">
-                            <p className="line-clamp-2 font-serif text-sm leading-snug text-stone-900 dark:text-stone-100">
-                              {project.title}
-                            </p>
-                            <p className="mt-1 text-[0.68rem] text-stone-400">
-                              {t('{lessonCount} lezioni · {lastOpenedDate}', {
-                                lessonCount: project.lessonCount,
-                                lastOpenedDate: formatCourseDate(project.lastOpenedAt),
-                              })}
-                            </p>
-                          </div>
-                        </button>
+                        </div>
                         <div className="hidden sm:block">
                           <CourseProgress value={progress} />
                         </div>
@@ -879,7 +1049,7 @@ const CourseList = ({
                             setOpenCourseMenu(current =>
                               current?.id === project.id
                                 ? null
-                                : getFloatingMenuState(project.id, anchor, 192, 172)
+                                : getFloatingMenuState(project.id, anchor, 192, 212)
                             );
                           }}
                           disabled={isOpening}
@@ -906,20 +1076,21 @@ const CourseList = ({
                   className="fixed z-[80] w-44 rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#211f1e]"
                   style={{ left: openFolderMenu.left, top: openFolderMenu.top }}
                 >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenFolderMenu(null);
-                      setDialog({
-                        folderId: folderMenuGroup.id,
-                        initialName: folderMenuGroup.label,
-                        mode: 'rename',
-                      });
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-white/5"
-                  >
-                    <Pencil className="h-4 w-4" /> {t('Rinomina')}
-                  </button>
+                  {onRenameFolder ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        startInlineRename({
+                          id: folderMenuGroup.id,
+                          kind: 'folder',
+                          name: folderMenuGroup.label,
+                        })
+                      }
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-white/5"
+                    >
+                      <Pencil className="h-4 w-4" /> {t('Rinomina')}
+                    </button>
+                  ) : null}
                   {onDeleteFolder ? (
                     <button
                       type="button"
@@ -956,6 +1127,21 @@ const CourseList = ({
                   className="fixed z-[80] w-48 rounded-xl border border-stone-200 bg-white p-1.5 shadow-xl dark:border-white/10 dark:bg-[#211f1e]"
                   style={{ left: openCourseMenu.left, top: openCourseMenu.top }}
                 >
+                  {onRenameProject ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        startInlineRename({
+                          id: courseMenuProject.id,
+                          kind: 'project',
+                          name: courseMenuProject.title,
+                        })
+                      }
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-stone-700 hover:bg-stone-100 dark:text-stone-200 dark:hover:bg-white/5"
+                    >
+                      <Pencil className="h-4 w-4" /> {t('Rinomina')}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => {
@@ -1008,11 +1194,7 @@ const CourseList = ({
           dialog={dialog}
           onClose={() => setDialog(null)}
           onSubmit={async name => {
-            if (dialog.mode === 'create') {
-              await onCreateFolder({ name });
-            } else if (dialog.folderId && onRenameFolder) {
-              await onRenameFolder(dialog.folderId, name);
-            }
+            await onCreateFolder({ name });
             setDialog(null);
           }}
         />
@@ -1036,6 +1218,7 @@ const HomePage = ({
   onOpenProject,
   openingProjectId,
   onRenameFolder,
+  onRenameProject,
   onToggleFavorite,
   projects,
 }: {
@@ -1053,6 +1236,7 @@ const HomePage = ({
   onOpenProject: (projectId: string) => void;
   openingProjectId: string | null;
   onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
+  onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
   onToggleFavorite: (projectId: string) => void;
   projects: SavedProjectMeta[];
 }) => {
@@ -1176,6 +1360,7 @@ const HomePage = ({
             openingProjectId={openingProjectId}
             onQueryChange={setQuery}
             onRenameFolder={onRenameFolder}
+            onRenameProject={onRenameProject}
             onToggleFavorite={onToggleFavorite}
             projects={projects}
             query={query}
@@ -1414,6 +1599,7 @@ export const NewHomeView = ({
   onOpenProject,
   openingProjectId,
   onRenameFolder,
+  onRenameProject,
   onToggleDarkMode,
   projects,
   saveProjectCover,
@@ -1499,6 +1685,7 @@ export const NewHomeView = ({
               onOpenProject={onOpenProject}
               openingProjectId={openingProjectId}
               onRenameFolder={onRenameFolder}
+              onRenameProject={onRenameProject}
               onToggleFavorite={toggleFavoriteProject}
               projects={projects}
             />

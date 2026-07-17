@@ -170,6 +170,41 @@ describe('useProjectLibrary', () => {
     expect(result.current.savedProjects.map(project => project.id)).toEqual(['newer', 'older']);
   });
 
+  test('renames a project with a granular title patch and syncs the visible metadata', async () => {
+    const originalMeta = buildMeta('course', '2026-04-02T10:00:00.000Z', 4);
+    repositoryMocks.listProjects.mockResolvedValue([originalMeta]);
+    repositoryMocks.patchProject.mockResolvedValue({
+      ...originalMeta,
+      title: 'Titolo nuovo',
+      revision: 5,
+    });
+
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    act(() => result.current.setCurrentProjectId('course'));
+    expect(result.current.getCurrentProjectId()).toBe('course');
+
+    await act(async () => {
+      await result.current.renameProject('course', 'Titolo nuovo');
+    });
+
+    expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
+      'course',
+      { title: 'Titolo nuovo', updatedAt: expect.any(String) },
+      { expectedRevision: 4 }
+    );
+    expect(result.current.savedProjects[0]).toMatchObject({
+      title: 'Titolo nuovo',
+      revision: 5,
+    });
+  });
+
   test('keeps snapshot and source loaders stable across workspace rerenders', async () => {
     const { rerender, result } = renderHook(
       ({ domainState }: { domainState: WorkspaceDomainState }) =>

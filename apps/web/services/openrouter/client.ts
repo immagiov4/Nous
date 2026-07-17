@@ -6,6 +6,7 @@ import {
   OPENROUTER_SAFE_JSON_BODY_BYTES,
 } from './payloadLimits.ts';
 import type {
+  ChatAnnotation,
   ChatCompletionOptions,
   ChatMessageContent,
   OpenRouterMessageContent,
@@ -94,6 +95,58 @@ const extractTextContent = (content: OpenRouterMessageContent | undefined): stri
     )
     .map(part => part.text)
     .join('\n');
+};
+
+interface NormalizedUrlCitation {
+  content?: string;
+  title?: string;
+  url: string;
+}
+
+const collectUrlCitations = (
+  target: Map<string, NormalizedUrlCitation>,
+  annotations: ChatAnnotation[] | undefined
+): void => {
+  for (const annotation of annotations || []) {
+    if (annotation.type !== 'url_citation') continue;
+    const citation = annotation.url_citation;
+    try {
+      const url = new URL(citation.url);
+      if (!['http:', 'https:'].includes(url.protocol) || target.has(url.href)) continue;
+      target.set(url.href, {
+        url: url.href,
+        ...(citation.title?.trim() ? { title: citation.title.trim().slice(0, 300) } : {}),
+        ...(citation.content?.trim() ? { content: citation.content.trim().slice(0, 2_000) } : {}),
+      });
+    } catch {
+      // Ignore malformed external citation URLs.
+    }
+  }
+};
+
+const appendUrlCitationAppendix = (
+  content: string,
+  citations: Map<string, NormalizedUrlCitation>,
+  enabled: boolean | undefined
+): string => {
+  if (!enabled || citations.size === 0) return content;
+  const sources = [...citations.values()].map(citation => {
+    const excerpt = citation.content ? `\n  Estratto: ${citation.content}` : '';
+    return `- ${citation.title || citation.url}: ${citation.url}${excerpt}`;
+  });
+  return `${content}\n\nFONTI WEB RESTITUITE DAL PROVIDER:\n${sources.join('\n')}`;
+};
+
+const logWebSearchUsage = (
+  options: ChatCompletionOptions,
+  usage: OpenRouterResponse['usage'] | undefined
+): void => {
+  const requestCount = usage?.server_tool_use?.web_search_requests;
+  if (!Number.isFinite(requestCount) || requestCount === undefined) return;
+  console.info('[Nous][Research] OpenRouter web search usage', {
+    modelSlot: options.modelSlot || 'lesson',
+    requests: requestCount,
+  });
 };
 
 const appendReadableReasoningValue = (
@@ -240,6 +293,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     response_format: options.response_format,
     tools: options.tools,
     plugins: options.plugins,
+    stream_options: { include_usage: true },
   });
   const response = await fetchWithSupabaseAuth(getOpenRouterProxyUrl(), {
     method: 'POST',
@@ -263,6 +317,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
   let reasoning = '';
   let receivedAnyDelta = false;
   let streamError: HttpError | null = null;
+  const urlCitations = new Map<string, NormalizedUrlCitation>();
 
   const buildStreamError = (payload: Record<string, unknown>, rawDetails: string): HttpError => {
     const errorRecord =
@@ -316,15 +371,19 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     const choices = parsed.choices as
       | Array<{
           delta?: {
+            annotations?: ChatAnnotation[];
             content?: ChatMessageContent;
             reasoning?: string;
             reasoning_details?: unknown[];
           };
           finish_reason?: string | null;
+          message?: { annotations?: ChatAnnotation[] };
         }>
       | undefined;
     const choice = choices?.[0];
     const delta = choice?.delta;
+    collectUrlCitations(urlCitations, delta?.annotations || choice?.message?.annotations);
+    logWebSearchUsage(options, parsed.usage as OpenRouterResponse['usage'] | undefined);
     if (!delta) {
       return;
     }
@@ -376,7 +435,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     throw error;
   }
 
-  return content;
+  return appendUrlCitationAppendix(content, urlCitations, options.includeUrlCitationsInText);
 };
 
 export const callOpenRouter = async (options: ChatCompletionOptions): Promise<string> => {
@@ -385,5 +444,12 @@ export const callOpenRouter = async (options: ChatCompletionOptions): Promise<st
   }
 
   const data = await callOpenRouterRaw(options);
-  return extractTextContent(data.choices?.[0]?.message?.content);
+  logWebSearchUsage(options, data.usage);
+  const urlCitations = new Map<string, NormalizedUrlCitation>();
+  collectUrlCitations(urlCitations, data.choices?.[0]?.message?.annotations);
+  return appendUrlCitationAppendix(
+    extractTextContent(data.choices?.[0]?.message?.content),
+    urlCitations,
+    options.includeUrlCitationsInText
+  );
 };

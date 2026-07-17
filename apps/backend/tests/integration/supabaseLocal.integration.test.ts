@@ -1,10 +1,13 @@
 import postgres from 'postgres';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { resetModelConfigForTesting } from '../../src/config/modelConfig.js';
 import { createApp } from '../../src/index.js';
 import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
+import { setFeedbackServiceForTesting } from '../../src/services/feedbackService.js';
+import { PostgresFeedbackStore } from '../../src/services/feedbackStore.js';
 import { signSupabaseJwt } from '../helpers/auth.js';
 
 const RUN_LOCAL_SUPABASE_TESTS = process.env.RUN_SUPABASE_LOCAL_TESTS === '1';
@@ -23,6 +26,12 @@ const RECOVERY_PASSWORD = 'Integration-recovery-2026!';
 const MAGIC_LINK_TEST_EMAIL = process.env.SUPABASE_MAGIC_LINK_TEST_EMAIL?.trim();
 const testMagicLinkSmtp = MAGIC_LINK_TEST_EMAIL ? test : test.skip;
 const ORIGINAL_ENV = { ...process.env };
+
+interface PersistedModelConfigProjection {
+  artifact_visual_review_max_rounds: number;
+  context_model: string;
+  lesson_model: string;
+}
 
 const createApiKey = (role: 'anon' | 'service_role'): string =>
   signSupabaseJwt(
@@ -96,16 +105,49 @@ describeLocalSupabase('Supabase local integration', () => {
   const adminAuthorization = `Bearer ${createBackendAdminToken()}`;
   const createdEmails: string[] = [];
 
+  const readModelConfigSnapshot = async (): Promise<Record<string, unknown> | null> => {
+    const rows = await sql<Array<{ config: string }>>`
+      select to_jsonb(model_config)::text as config
+      from public.model_config
+      where id = 'global'
+    `;
+    return rows[0] ? (JSON.parse(rows[0].config) as Record<string, unknown>) : null;
+  };
+
+  const restoreModelConfigSnapshot = async (snapshot: Record<string, unknown> | null) => {
+    await sql.begin(async transaction => {
+      await transaction`
+        delete from public.model_config
+        where id = 'global' and lesson_model like 'integration/%'
+      `;
+      if (snapshot) {
+        await transaction`
+          insert into public.model_config
+          select (jsonb_populate_record(
+            null::public.model_config,
+            ${transaction.json(snapshot)}
+          )).*
+          on conflict (id) do nothing
+        `;
+      }
+    });
+  };
+
   const applyLocalSupabaseEnvironment = () => {
     process.env.AUTH_MODE = 'supabase';
+    process.env.DATABASE_URL = LOCAL_DATABASE_URL;
     process.env.SUPABASE_JWT_SECRET = LOCAL_JWT_SECRET;
     process.env.SUPABASE_URL = LOCAL_SUPABASE_URL;
     process.env.SUPABASE_SERVICE_ROLE_KEY = serviceRoleKey;
+    delete process.env.GITHUB_FEEDBACK_REPOSITORY;
+    delete process.env.GITHUB_FEEDBACK_TOKEN;
   };
 
   beforeAll(async () => {
     applyLocalSupabaseEnvironment();
     setProjectStoreForTesting(store);
+    setFeedbackServiceForTesting(null);
+    await sql`delete from public.feedback_reports where reporter_email like ${`${TEST_EMAIL_PREFIX}-%@nous.local`}`;
     await sql`delete from auth.users where email like ${`${TEST_EMAIL_PREFIX}-%@nous.local`}`;
   });
 
@@ -114,15 +156,13 @@ describeLocalSupabase('Supabase local integration', () => {
   });
 
   afterAll(async () => {
+    await sql`delete from public.feedback_reports where reporter_email like ${`${TEST_EMAIL_PREFIX}-%@nous.local`}`;
     if (createdEmails.length > 0) {
       await sql`delete from auth.users where email in ${sql(createdEmails)}`;
     }
-    await sql`
-      delete from public.model_config
-      where id = 'global' and lesson_model like 'integration/%'
-    `;
     await store.close();
     setProjectStoreForTesting(null);
+    setFeedbackServiceForTesting(null);
     await sql.end({ timeout: 5 });
     process.env = { ...ORIGINAL_ENV };
   });
@@ -251,28 +291,267 @@ describeLocalSupabase('Supabase local integration', () => {
   });
 
   test('persists model config', async () => {
-    const configResponse = await request(app)
-      .patch('/api/admin/model-config')
-      .set('Authorization', adminAuthorization)
-      .send({
+    const originalConfig = await readModelConfigSnapshot();
+    try {
+      const configResponse = await request(app)
+        .patch('/api/admin/model-config')
+        .set('Authorization', adminAuthorization)
+        .send({
+          lessonModel: 'integration/lesson-model',
+          contextModel: 'integration/context-model',
+          artifactVisualReviewMaxRounds: 2,
+        });
+      expect(configResponse.status).toBe(200);
+      expect(configResponse.body.config).toMatchObject({
         lessonModel: 'integration/lesson-model',
         contextModel: 'integration/context-model',
+        artifactVisualReviewMaxRounds: 2,
       });
-    expect(configResponse.status).toBe(200);
-    expect(configResponse.body.config).toMatchObject({
-      lessonModel: 'integration/lesson-model',
-      contextModel: 'integration/context-model',
+
+      resetModelConfigForTesting();
+      const patchAfterRestartResponse = await request(app)
+        .patch('/api/admin/model-config')
+        .set('Authorization', adminAuthorization)
+        .send({ contextModel: 'integration/context-after-restart' });
+      expect(patchAfterRestartResponse.status).toBe(200);
+      expect(patchAfterRestartResponse.body.config).toMatchObject({
+        artifactVisualReviewMaxRounds: 2,
+        contextModel: 'integration/context-after-restart',
+      });
+
+      resetModelConfigForTesting();
+      const reloadedConfigResponse = await request(app)
+        .get('/api/admin/model-config')
+        .set('Authorization', adminAuthorization);
+      expect(reloadedConfigResponse.status).toBe(200);
+      expect(reloadedConfigResponse.body.config).toMatchObject({
+        artifactVisualReviewMaxRounds: 2,
+        contextModel: 'integration/context-after-restart',
+      });
+
+      const persistedRows = await sql<PersistedModelConfigProjection[]>`
+        select artifact_visual_review_max_rounds, context_model, lesson_model
+        from public.model_config
+        where id = 'global'
+      `;
+      expect(persistedRows[0]).toMatchObject({
+        artifact_visual_review_max_rounds: 2,
+        lesson_model: 'integration/lesson-model',
+        context_model: 'integration/context-after-restart',
+      });
+    } finally {
+      await restoreModelConfigSnapshot(originalConfig);
+      resetModelConfigForTesting();
+    }
+  });
+
+  test('persists authenticated feedback while keeping the inbox private through RLS', async () => {
+    const user = await createUser('feedback');
+    const accessToken = await login(user.email);
+    const clientRequestId = `feedback-${Date.now()}`;
+
+    const submitResponse = await request(app)
+      .post('/api/feedback')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        category: 'bug',
+        clientRequestId,
+        description: 'Il salvataggio non completa il corso.',
+        diagnostics: {
+          correlationIds: ['integration-job-1'],
+          pageUrl: 'http://localhost:5173/course/private-course-id',
+        },
+      });
+
+    expect(submitResponse.status).toBe(201);
+    expect(submitResponse.body.feedback).toMatchObject({ status: 'pending' });
+    const feedbackId = submitResponse.body.feedback.id as string;
+
+    const rows = await sql<
+      Array<{
+        category: string;
+        client_request_id: string;
+        reporter_email: string;
+        status: string;
+        user_id: string;
+      }>
+    >`
+      select category, client_request_id, reporter_email, status, user_id
+      from public.feedback_reports
+      where id = ${feedbackId}
+    `;
+    expect(rows[0]).toMatchObject({
+      category: 'bug',
+      client_request_id: clientRequestId,
+      reporter_email: user.email,
+      status: 'pending',
+      user_id: user.id,
     });
 
-    const persistedRows = await sql<Array<{ lesson_model: string; context_model: string }>>`
-      select lesson_model, context_model
-      from public.model_config
-      where id = 'global'
+    const directUserRead = await fetch(
+      `${LOCAL_SUPABASE_URL}/rest/v1/feedback_reports?select=id&id=eq.${feedbackId}`,
+      {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    expect([401, 403]).toContain(directUserRead.status);
+
+    const githubIssueNumber = 900_000_000 + (Date.now() % 10_000_000);
+    const feedbackStore = new PostgresFeedbackStore(LOCAL_DATABASE_URL);
+    await feedbackStore.upsertGithubIssues([
+      {
+        body: 'Corpo autorevole aggiornato su GitHub.',
+        createdAt: '2026-07-16T10:00:00.000Z',
+        feedbackId,
+        labels: ['bug', 'source:user-feedback'],
+        number: githubIssueNumber,
+        state: 'closed',
+        title: 'Titolo autorevole GitHub',
+        updatedAt: '2026-07-16T12:00:00.000Z',
+        url: `https://github.com/example/nous-reader/issues/${githubIssueNumber}`,
+      },
+    ]);
+    await expect(
+      feedbackStore.markSubmitted(
+        feedbackId,
+        githubIssueNumber,
+        `https://github.com/example/nous-reader/issues/${githubIssueNumber}`
+      )
+    ).resolves.toBeUndefined();
+    const issueNumberRows = await sql<Array<{ count: number }>>`
+      select count(*)::integer as count
+      from public.feedback_reports
+      where github_issue_number = ${githubIssueNumber}
     `;
-    expect(persistedRows[0]).toMatchObject({
-      lesson_model: 'integration/lesson-model',
-      context_model: 'integration/context-model',
+    expect(issueNumberRows[0]?.count).toBe(1);
+
+    const synchronizedRows = await sql<
+      Array<{
+        diagnostics: { correlationIds?: string[] };
+        github_issue_state: string;
+        github_issue_title: string;
+        source: string;
+      }>
+    >`
+      select diagnostics, github_issue_state, github_issue_title, source
+      from public.feedback_reports
+      where id = ${feedbackId}
+    `;
+    expect(synchronizedRows[0]).toMatchObject({
+      diagnostics: { correlationIds: ['integration-job-1'] },
+      github_issue_state: 'closed',
+      github_issue_title: 'Titolo autorevole GitHub',
+      source: 'app',
     });
+
+    const adminListResponse = await request(app)
+      .get('/api/feedback/admin?page=1&pageSize=10')
+      .set('Authorization', adminAuthorization);
+    expect(adminListResponse.status).toBe(200);
+    expect(adminListResponse.body.reports).toContainEqual(
+      expect.objectContaining({
+        description: 'Corpo autorevole aggiornato su GitHub.',
+        githubIssueState: 'closed',
+        id: feedbackId,
+        reporterEmail: user.email,
+        title: 'Titolo autorevole GitHub',
+      })
+    );
+
+    await feedbackStore.upsertGithubIssues([
+      {
+        body: 'Corpo autorevole senza etichetta categoria.',
+        createdAt: '2026-07-16T10:00:00.000Z',
+        feedbackId,
+        labels: ['source:user-feedback'],
+        number: githubIssueNumber,
+        state: 'closed',
+        title: 'Titolo senza etichetta categoria',
+        updatedAt: '2026-07-16T12:05:00.000Z',
+        url: `https://github.com/example/nous-reader/issues/${githubIssueNumber}`,
+      },
+    ]);
+    const categoryRows = await sql<Array<{ category: string }>>`
+      select category from public.feedback_reports where id = ${feedbackId}
+    `;
+    expect(categoryRows[0]?.category).toBe('bug');
+
+    await feedbackStore.upsertGithubIssues([]);
+    const missingIssueRows = await sql<
+      Array<{
+        description: string;
+        diagnostics: { correlationIds?: string[] };
+        github_issue_number: string | null;
+        github_issue_state: string | null;
+        status: string;
+      }>
+    >`
+      select description, diagnostics, github_issue_number, github_issue_state, status
+      from public.feedback_reports
+      where id = ${feedbackId}
+    `;
+    expect(missingIssueRows[0]).toMatchObject({
+      description: 'Il salvataggio non completa il corso.',
+      diagnostics: { correlationIds: ['integration-job-1'] },
+      github_issue_number: String(githubIssueNumber),
+      github_issue_state: 'missing',
+      status: 'submitted',
+    });
+  });
+
+  test('imports direct GitHub issues idempotently and mirrors later closure', async () => {
+    const githubIssueNumber = 910_000_000 + (Date.now() % 10_000_000);
+    const feedbackStore = new PostgresFeedbackStore(LOCAL_DATABASE_URL);
+    const issue = {
+      body: 'Issue creata direttamente nel repository.',
+      createdAt: '2026-07-16T10:00:00.000Z',
+      labels: ['documentation'],
+      number: githubIssueNumber,
+      state: 'open' as const,
+      title: 'Issue GitHub diretta',
+      updatedAt: '2026-07-16T11:00:00.000Z',
+      url: `https://github.com/example/nous-reader/issues/${githubIssueNumber}`,
+    };
+
+    try {
+      await feedbackStore.upsertGithubIssues([issue]);
+      await feedbackStore.upsertGithubIssues([
+        {
+          ...issue,
+          state: 'closed',
+          title: 'Issue GitHub diretta aggiornata',
+          updatedAt: '2026-07-16T12:00:00.000Z',
+        },
+      ]);
+
+      const rows = await sql<
+        Array<{ category: string; github_issue_state: string; source: string; title: string }>
+      >`
+        select category, github_issue_state, source, github_issue_title as title
+        from public.feedback_reports
+        where github_issue_number = ${githubIssueNumber}
+      `;
+      expect(rows).toEqual([
+        {
+          category: 'other',
+          github_issue_state: 'closed',
+          source: 'github',
+          title: 'Issue GitHub diretta aggiornata',
+        },
+      ]);
+
+      await feedbackStore.upsertGithubIssues([]);
+      await feedbackStore.upsertGithubIssues([]);
+      const removedRows = await sql`
+        select id from public.feedback_reports where github_issue_number = ${githubIssueNumber}
+      `;
+      expect(removedRows).toHaveLength(0);
+    } finally {
+      await sql`delete from public.feedback_reports where github_issue_number = ${githubIssueNumber}`;
+    }
   });
 
   test('keeps signup closed and enforces server-owned invite setup through refreshed claims', async () => {

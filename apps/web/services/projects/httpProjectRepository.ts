@@ -17,6 +17,7 @@ import { detachStoredPrimarySource } from './courseSources.ts';
 import type { ProjectRepository } from './projectRepository';
 import { ProjectStorageError } from './projectRepository';
 import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
+import { normalizeStoredProject } from './projectSnapshot.ts';
 
 interface ApiResponse {
   complete?: boolean;
@@ -178,7 +179,7 @@ export class HttpProjectRepository implements ProjectRepository {
     const response = await this.request<{ project?: ProjectSnapshot | null }>(
       `/api/projects/projects/${encodeURIComponent(id)}`
     );
-    return response.project || null;
+    return response.project ? normalizeStoredProject(response.project) : null;
   }
 
   async loadProjectCover(id: ProjectId): Promise<FileData | null> {
@@ -203,7 +204,7 @@ export class HttpProjectRepository implements ProjectRepository {
         body: JSON.stringify({ ids }),
       }
     );
-    return response.projects || [];
+    return (response.projects || []).map(normalizeStoredProject);
   }
 
   async moveFolder(

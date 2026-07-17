@@ -93,4 +93,36 @@ describe('ProjectCard', () => {
       maxHeight: '288px',
     });
   });
+
+  test('renames from a title double click without opening the project', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const onRename = vi.fn(async () => {});
+
+    render(
+      <ProjectCard
+        onDelete={vi.fn()}
+        onExport={vi.fn()}
+        onOpen={onOpen}
+        onRename={onRename}
+        project={project}
+      />
+    );
+
+    await user.dblClick(screen.getByRole('button', { name: project.title }));
+
+    const input = screen.getByRole('textbox', { name: /Rinomina corso|Rename course/ });
+    expect(input).toHaveFocus();
+    await user.clear(input);
+    await user.type(input, 'Architettura dei giochi{Enter}');
+
+    expect(onRename).toHaveBeenCalledWith(project.id, 'Architettura dei giochi');
+    expect(onOpen).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: project.title }));
+    expect(onOpen).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /lezioni/i }));
+    expect(onOpen).toHaveBeenCalledWith(project.id);
+  });
 });

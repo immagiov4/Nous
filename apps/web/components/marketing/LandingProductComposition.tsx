@@ -30,7 +30,7 @@ import {
   type VoiceProfileId,
 } from '../../types.ts';
 import type { SidebarGroup } from '../../utils/reader/workspaceReader.ts';
-import LibraryView from '../library/LibraryView.tsx';
+import { NewHomeView } from '../newHome/NewHomeView.tsx';
 import LoadingScreen from '../shared/LoadingScreen.tsx';
 import type { ContextAnswerState, WorkspaceReaderShellProps } from '../workspace/shell/types.ts';
 import WorkspaceReaderShell from '../workspace/WorkspaceReaderShell.tsx';
@@ -99,6 +99,11 @@ const ENGLISH_COURSE_TITLE = 'Cognitive psychology: memory and attention';
 const DEMO_ANNOTATION_ID = 'demo-attention-note';
 const DEMO_ARTIFACT_ID = 'demo-attention-switching';
 const SVG_IMAGE_DATA_URL_PREFIX = 'data:image/svg+xml;charset=utf-8,';
+const DEMO_CONTEXT_MENU_ANCHOR_X = 800;
+const DEMO_CONTEXT_SELECTION_RECT = { top: 248, left: 720, width: 260, height: 44 };
+const DEMO_CONTEXT_MENU_ANCHOR_Y =
+  DEMO_CONTEXT_SELECTION_RECT.top + DEMO_CONTEXT_SELECTION_RECT.height;
+const DEMO_CONTEXT_HORIZONTAL_BOUNDS = { left: 440, right: 1040 };
 const REMOTION_STABILITY_CSS = `
   [data-remotion-render-root],
   [data-remotion-render-root] *,
@@ -508,8 +513,13 @@ const buildDemoLibraryTree = (projects: SavedProjectMeta[], isItalian: boolean):
 const resolvedVoid = async () => undefined;
 const resolvedFalse = async () => false;
 const resolvedTrue = async () => true;
+const resolvedNull = async () => null;
+const resolvedEmptyArray = async () => [];
+const rejectDemoCoverLoad = async (): Promise<never> => {
+  throw new Error('Course cover storage is unavailable while rendering the product demo.');
+};
 
-const DemoLibraryView = ({
+const DemoNewHomeView = ({
   frame,
   height,
   isItalian,
@@ -723,72 +733,73 @@ const DemoLibraryView = ({
           transformOrigin: 'center top',
         }}
       >
-        <LibraryView
-          assessmentComplete={isAssessmentComplete}
-          assessmentMessages={assessmentMessages}
-          homeChatMode={stage === 'library' ? 'library-query' : 'new-course'}
-          openingProjectId={null}
+        <NewHomeView
+          chatProps={{
+            assessmentComplete: isAssessmentComplete,
+            assessmentMessages,
+            homeChatMode: stage === 'library' ? 'library-query' : 'new-course',
+            isDarkMode: false,
+            isLibraryLoading: false,
+            isLibraryModeLoading:
+              stage === 'library' &&
+              ((frame >= LIBRARY_FIRST_SEND_FRAME && frame < 155) ||
+                (frame >= LIBRARY_SECOND_SEND_FRAME && frame < 435)),
+            isNewCourseLoading: isAssessmentLoading,
+            libraryAttachedContextRefs: [],
+            libraryArtifactPayloadsByToolCallId:
+              stage === 'library' && frame >= LIBRARY_ARTIFACT_FRAME
+                ? { 'library-saved-attention-artifact': [libraryArtifact] }
+                : {},
+            libraryArtifactPreviewIdOverride:
+              stage === 'library' && frame >= LIBRARY_ARTIFACT_PREVIEW_FRAME
+                ? DEMO_ARTIFACT_ID
+                : null,
+            libraryArtifactPortalContainer: portalContainer,
+            libraryFloatingArtifactPayloads: [],
+            libraryErrorMessage: null,
+            libraryMessages,
+            libraryTree,
+            libraryWebSearch: false,
+            libraryGenerateArtifacts: false,
+            newCourseLoadingStatus: t('Valutazione risposta...'),
+            draftValueOverride: objectiveDraft,
+            scrollProgressOverride: homeChatScrollProgressOverride,
+            pendingFileName,
+            onClearPendingFile: () => {},
+            onClearLibraryMessages: () => {},
+            onContinueAssessment: () => {},
+            onConfirmGenerate: () => {},
+            onHomeChatModeChange: () => {},
+            onLibraryMessageSend: resolvedVoid,
+            onLibraryArtifactNoteApprove: resolvedVoid,
+            onLibraryArtifactNoteReject: () => {},
+            onLibraryArtifactDiscard: () => {},
+            onLibraryArtifactRegenerate: resolvedFalse,
+            onLibraryArtifactReplace: resolvedVoid,
+            onLibraryWebSearchChange: () => {},
+            onLibraryGenerateArtifactsChange: () => {},
+            onSendAssessmentMessage: resolvedVoid,
+            onToggleLibraryContextRef: () => {},
+            onUploadSourceClick: () => {},
+          }}
           isDarkMode={false}
           isLibraryLoading={false}
-          isLibraryQueryLoading={
-            stage === 'library' &&
-            ((frame >= LIBRARY_FIRST_SEND_FRAME && frame < 155) ||
-              (frame >= LIBRARY_SECOND_SEND_FRAME && frame < 435))
-          }
-          isNewCourseLoading={isAssessmentLoading}
-          libraryAttachedContextRefs={[]}
-          libraryArtifactPayloadsByToolCallId={
-            stage === 'library' && frame >= LIBRARY_ARTIFACT_FRAME
-              ? { 'library-saved-attention-artifact': [libraryArtifact] }
-              : {}
-          }
-          libraryArtifactPreviewIdOverride={
-            stage === 'library' && frame >= LIBRARY_ARTIFACT_PREVIEW_FRAME ? DEMO_ARTIFACT_ID : null
-          }
-          libraryArtifactPortalContainer={portalContainer}
-          libraryFloatingArtifactPayloads={[]}
-          libraryErrorMessage={null}
-          libraryMessages={libraryMessages}
+          libraryFolders={Object.values(libraryTree.folderById)}
           libraryTree={libraryTree}
-          libraryWebSearch={false}
-          libraryGenerateArtifacts={false}
-          newCourseLoadingStatus={t('Valutazione risposta...')}
-          homeChatDraftValue={objectiveDraft}
-          homeChatScrollProgressOverride={homeChatScrollProgressOverride}
-          planFileInputId="marketing-plan-file"
-          projects={projects}
-          pendingHomeFileName={pendingFileName}
-          sourceFileInputId="marketing-source-file"
-          storageError={null}
-          onClearPendingHomeFile={() => {}}
-          onClearLibraryMessages={() => {}}
-          onContinueAssessment={() => {}}
-          onConfirmGenerate={() => {}}
+          loadProjectCover={rejectDemoCoverLoad}
+          loadProjectSource={resolvedNull}
+          loadProjectsById={resolvedEmptyArray}
           onCreateFolder={resolvedVoid}
           onConfirmDeleteFolder={resolvedTrue}
-          onDeleteProject={() => {}}
           onDeleteFolder={resolvedVoid}
+          onDeleteProject={() => {}}
           onExportProject={() => {}}
-          onHomeChatModeChange={() => {}}
-          onLibraryAssistantSend={resolvedVoid}
-          onLibraryArtifactNoteApprove={resolvedVoid}
-          onLibraryArtifactNoteReject={() => {}}
-          onLibraryArtifactDiscard={() => {}}
-          onLibraryArtifactRegenerate={resolvedFalse}
-          onLibraryArtifactReplace={resolvedVoid}
-          onLibraryWebSearchChange={() => {}}
-          onLibraryGenerateArtifactsChange={() => {}}
-          onMoveFolder={resolvedVoid}
-          onMoveProjects={resolvedVoid}
           onOpenProject={() => {}}
-          onPlanUpload={() => {}}
+          openingProjectId={null}
           onRenameFolder={resolvedVoid}
-          onSendAssessmentMessage={resolvedVoid}
           onToggleDarkMode={() => {}}
-          onToggleLibraryContextRef={() => {}}
-          onUploadSourceClick={() => {}}
-          onSourceFileUpload={() => {}}
-          onImportJsonClick={() => {}}
+          projects={projects}
+          saveProjectCover={resolvedVoid}
         />
       </div>
     </div>
@@ -1723,10 +1734,10 @@ export const LandingProductVideoFrame = ({
                 ]
               : [],
             annotationNote: noteText,
-            anchorX: 800,
-            anchorY: 330,
-            horizontalBounds: { left: 440, right: 1040 },
-            selectionRect: { top: 270, left: 720, width: 260, height: 44 },
+            anchorX: DEMO_CONTEXT_MENU_ANCHOR_X,
+            anchorY: DEMO_CONTEXT_MENU_ANCHOR_Y,
+            horizontalBounds: DEMO_CONTEXT_HORIZONTAL_BOUNDS,
+            selectionRect: DEMO_CONTEXT_SELECTION_RECT,
             contextBefore: isItalian
               ? 'Il sistema ha capacità limitata. '
               : 'The system has limited capacity. ',
@@ -1739,10 +1750,10 @@ export const LandingProductVideoFrame = ({
             placement: isCompact ? 'mobile-sheet' : 'desktop-floating',
             selectedText,
             visible: contextMenuVisible,
-            anchorX: 800,
-            anchorY: 330,
-            horizontalBounds: { left: 440, right: 1040 },
-            selectionRect: { top: 270, left: 720, width: 260, height: 44 },
+            anchorX: DEMO_CONTEXT_MENU_ANCHOR_X,
+            anchorY: DEMO_CONTEXT_MENU_ANCHOR_Y,
+            horizontalBounds: DEMO_CONTEXT_HORIZONTAL_BOUNDS,
+            selectionRect: DEMO_CONTEXT_SELECTION_RECT,
             contextBefore: isItalian
               ? 'Il sistema ha capacità limitata. '
               : 'The system has limited capacity. ',
@@ -1827,7 +1838,7 @@ export const LandingProductVideoFrame = ({
       >
         <style>{REMOTION_STABILITY_CSS}</style>
         {stage === 'plan' || stage === 'library' ? (
-          <DemoLibraryView
+          <DemoNewHomeView
             frame={frame}
             height={isCompact ? DEMO_MOBILE_HEIGHT : DEMO_HEIGHT}
             isItalian={isItalian}

@@ -62,16 +62,17 @@
     "framer-motion": "^12.38.0",
     "jszip": "3.10.1",
     "lucide-react": "^0.563.0",
+    "playwright-core": "^1.55.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.0",
     "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
-    "remotion": "4.0.487",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
-    "remark-math": "^6.0.0"
+    "remark-math": "^6.0.0",
+    "remotion": "4.0.487"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",

@@ -157,6 +157,13 @@ const decodeJwtPayload = (accessToken: string): Record<string, unknown> | null =
   }
 };
 
+export const readSupabaseAccessRole = (accessToken: string): 'admin' | 'user' | null => {
+  const payload = decodeJwtPayload(accessToken);
+  const appMetadata = payload && isRecord(payload.app_metadata) ? payload.app_metadata : null;
+  if (!appMetadata || typeof appMetadata.role !== 'string') return null;
+  return appMetadata.role === 'admin' ? 'admin' : 'user';
+};
+
 const readAccountFromAccessToken = (accessToken: string): SupabaseAuthUserResponse | null => {
   const payload = decodeJwtPayload(accessToken);
   const id = payload && typeof payload.sub === 'string' ? payload.sub : undefined;

@@ -24,6 +24,7 @@ import type {
   LibraryFolder,
   LibraryPlacement,
   ProjectCoverFile,
+  ProjectCoverWriteOptions,
   ProjectExportData,
   ProjectId,
   ProjectPatch,
@@ -182,18 +183,32 @@ export class PostgresProjectStore implements ProjectStore {
       : null;
   }
 
-  async saveProjectCover(userId: string, id: ProjectId, cover: ProjectCoverFile): Promise<void> {
+  async saveProjectCover(
+    userId: string,
+    id: ProjectId,
+    cover: ProjectCoverFile,
+    { expectedRevision }: ProjectCoverWriteOptions = {}
+  ): Promise<boolean> {
     const bytes = Buffer.from(cover.data, 'base64');
-    await this.sql`
-      insert into public.project_covers (user_id, project_id, name, mime_type, byte_size, data, updated_at)
-      values (${userId}, ${id}, ${cover.name}, ${cover.mimeType}, ${bytes.byteLength}, ${bytes}, now())
+    const rows = await this.sql<Array<{ project_id: string }>>`
+      insert into public.project_covers
+        (user_id, project_id, name, mime_type, byte_size, data, updated_at)
+      select
+        ${userId}, ${id}, ${cover.name}, ${cover.mimeType}, ${bytes.byteLength}, ${bytes}, now()
+      from public.projects
+      where user_id = ${userId}
+        and id = ${id}
+        and (${expectedRevision ?? null}::bigint is null or revision = ${expectedRevision ?? null})
+      for key share
       on conflict (user_id, project_id) do update set
         name = excluded.name,
         mime_type = excluded.mime_type,
         byte_size = excluded.byte_size,
         data = excluded.data,
         updated_at = excluded.updated_at
+      returning project_id
     `;
+    return Boolean(rows[0]);
   }
 
   async saveProjectSource(
@@ -346,18 +361,26 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
-    await this.sql`
-      delete from public.project_covers
-      where user_id = ${userId} and project_id = ${id}
-    `;
-    await this.sql`
-      delete from public.project_sources
-      where user_id = ${userId} and project_id = ${id}
-    `;
-    await this.sql`
-      delete from public.projects
-      where user_id = ${userId} and id = ${id}
-    `;
+    await this.sql.begin(async sql => {
+      await sql`
+        select id
+        from public.projects
+        where user_id = ${userId} and id = ${id}
+        for update
+      `;
+      await sql`
+        delete from public.project_covers
+        where user_id = ${userId} and project_id = ${id}
+      `;
+      await sql`
+        delete from public.project_sources
+        where user_id = ${userId} and project_id = ${id}
+      `;
+      await sql`
+        delete from public.projects
+        where user_id = ${userId} and id = ${id}
+      `;
+    });
   }
 
   async importProject(

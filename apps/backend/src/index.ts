@@ -11,6 +11,7 @@ import adminRouter from './routes/admin.js';
 import authRouter from './routes/auth.js';
 import chatRouter from './routes/chat.js';
 import codexRouter from './routes/codex.js';
+import feedbackRouter from './routes/feedback.js';
 import imagesRouter from './routes/images.js';
 import openRouterProxyRouter from './routes/openRouterProxy.js';
 import pdfRouter from './routes/pdf.js';
@@ -33,6 +34,7 @@ const OPENROUTER_JSON_BODY_LIMIT = '80mb';
 const PDF_JSON_BODY_LIMIT = '160mb';
 const PROJECTS_JSON_BODY_LIMIT = '300mb';
 const STT_JSON_BODY_LIMIT = '20mb';
+const FEEDBACK_JSON_BODY_LIMIT = '2mb';
 const QUIET_SUCCESS_GET_PATHS = new Set(['/api/status', '/api/voices']);
 
 const isPrivateIpv4Address = (hostname: string): boolean => {
@@ -128,6 +130,7 @@ export const createApp = () => {
   );
   app.use('/api/projects', express.json({ limit: PROJECTS_JSON_BODY_LIMIT }));
   app.use('/api/stt', express.json({ limit: STT_JSON_BODY_LIMIT }));
+  app.use('/api/feedback', express.json({ limit: FEEDBACK_JSON_BODY_LIMIT }));
   app.use(express.json({ limit: DEFAULT_JSON_BODY_LIMIT }));
 
   app.use((req, res, next) => {
@@ -151,6 +154,7 @@ export const createApp = () => {
   app.use('/api/youtube', resolveCurrentUser, youtubeRouter);
   app.use('/api/chat', resolveCurrentUser, chatRouter);
   app.use('/api/codex', resolveCurrentUser, codexRouter);
+  app.use('/api/feedback', resolveCurrentUser, feedbackRouter);
   app.use('/api/openrouter', resolveCurrentUser, openRouterProxyRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/admin', resolveCurrentUser, adminRouter);

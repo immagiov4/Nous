@@ -51,6 +51,18 @@ export const validateDeploymentConfig = (env, { bootstrap = false } = {}) => {
   if (env.CODEX_APP_SERVER_ENABLED && !['true', 'false'].includes(env.CODEX_APP_SERVER_ENABLED)) {
     errors.push('CODEX_APP_SERVER_ENABLED must be true or false.');
   }
+  if (
+    env.YOUTUBE_VIDEO_CLIPS_ENABLED &&
+    !['true', 'false'].includes(env.YOUTUBE_VIDEO_CLIPS_ENABLED)
+  ) {
+    errors.push('YOUTUBE_VIDEO_CLIPS_ENABLED must be true or false.');
+  }
+  if (
+    env.YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED &&
+    !['true', 'false'].includes(env.YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED)
+  ) {
+    errors.push('YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED must be true or false.');
+  }
 
   for (const key of REQUIRED_PUBLIC_KEYS) {
     if (isPlaceholder(env[key])) {
@@ -62,6 +74,24 @@ export const validateDeploymentConfig = (env, { bootstrap = false } = {}) => {
 
   if (isPlaceholder(env.OPENROUTER_API_KEY)) {
     errors.push('OPENROUTER_API_KEY is missing or still contains an example value.');
+  }
+  if (
+    env.GITHUB_FEEDBACK_REPOSITORY &&
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.GITHUB_FEEDBACK_REPOSITORY)
+  ) {
+    errors.push('GITHUB_FEEDBACK_REPOSITORY must use the owner/repository format.');
+  }
+  if (Boolean(env.GITHUB_FEEDBACK_REPOSITORY) !== Boolean(env.GITHUB_FEEDBACK_TOKEN)) {
+    errors.push(
+      'GITHUB_FEEDBACK_REPOSITORY and GITHUB_FEEDBACK_TOKEN must both be set to enable GitHub feedback.'
+    );
+  }
+  if (
+    env.GITHUB_FEEDBACK_REPOSITORY &&
+    env.GITHUB_FEEDBACK_TOKEN &&
+    (isPlaceholder(env.GITHUB_FEEDBACK_REPOSITORY) || isPlaceholder(env.GITHUB_FEEDBACK_TOKEN))
+  ) {
+    errors.push('GitHub feedback settings must not contain placeholder values.');
   }
 
   if (!bootstrap || profile === 'managed') {

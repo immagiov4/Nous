@@ -45,6 +45,79 @@ sh deploy/nous.sh config
 # Windows: deploy/nous.ps1 config
 ```
 
+### In-app feedback delivery
+
+This integration is optional: leave both GitHub settings empty to keep reports only in the private
+admin inbox. To enable it, set `GITHUB_FEEDBACK_REPOSITORY` to the destination in
+`owner/repository` form and keep `GITHUB_FEEDBACK_TOKEN` only in `.env.production`. Use a
+fine-grained token restricted to that repository with Issues read/write permission. Compose passes both values only to the backend;
+screenshots remain in the private database and are never published as public assets.
+The destination repository must contain the `source:user-feedback` and `triage:unreviewed`
+labels; Nous also applies the standard `bug` or `enhancement` label selected by the user.
+The backend mirrors every repository issue (excluding pull requests) on startup and then every
+five minutes. Admins can also trigger the same paginated synchronization from Reports; GitHub
+remains authoritative for issue title, body, labels, and open/closed state. Reports whose issue is
+absent from a complete mirror are marked as missing without discarding their private diagnostics;
+GitHub-only rows are removed only after two consecutive complete mirrors.
+
+### Timestamped YouTube demonstrations
+
+`YOUTUBE_VIDEO_CLIPS_ENABLED=false` is the default. Set it to `true` only on deployments where
+the operator wants transcript-validated practical segments embedded in lessons. Nous uses the
+official privacy-enhanced YouTube player with bounded `start`/`end` parameters; it does not
+download, trim, or rehost videos. The player is mounted only after the learner presses Play.
+
+YouTube sometimes blocks transcript requests from datacenter IPs. A private deployment can opt in
+to the authenticated Chromium fallback used by normal course and lesson generation:
+
+```dotenv
+YOUTUBE_VIDEO_CLIPS_ENABLED=true
+YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED=true
+YOUTUBE_BROWSER_TRANSCRIPT_TIMEOUT_MS=60000
+```
+
+The backend image includes headless Chromium and runs at most the existing two transcript lookups
+in parallel. The regular lightweight transcript client remains first; Chromium starts only when
+that client cannot return a transcript. The timeout applies only to Chromium and does not slow or
+change `yt-dlp` calls.
+
+Create the YouTube browser session on a desktop machine, using the dedicated account intended for
+this deployment. This opens a separate Chrome window and never reads another Chrome profile:
+
+```powershell
+node scripts/fetch-youtube-browser-transcript.mjs --capture-auth `
+  --executable "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+  --auth-state deploy/secrets/youtube-auth-state.json
+```
+
+Sign in, then press Enter in the terminal. Treat the resulting file like a password: it contains
+session cookies, is ignored by Git and must never be pasted into logs or committed. Copy it to the
+same ignored path on the Ubuntu VPS and make it readable only by root and the container user:
+
+```bash
+mkdir -p deploy/secrets
+scp youtube-auth-state.json deployer@reader.example.com:/path/to/Nous/deploy/secrets/
+sudo chown root:1000 deploy/secrets/youtube-auth-state.json
+sudo chmod 640 deploy/secrets/youtube-auth-state.json
+sh deploy/nous.sh redeploy
+```
+
+Compose mounts `deploy/secrets/` read-only at `/run/secrets/nous/`; neither the session nor an
+account password enters the image or deployment env. Test the extractor from a terminal before
+enabling it:
+
+```bash
+docker compose --env-file .env.production run --rm --no-deps backend \
+  node scripts/fetch-youtube-browser-transcript.mjs \
+  --video-id VIDEO_ID --language it \
+  --auth-state /run/secrets/nous/youtube-auth-state.json
+```
+
+Successful output is the timestamped JSON contract consumed by the backend. Empty output or a
+non-zero exit leaves the lesson on the existing text-only fallback. Rotate the session by repeating
+the desktop capture and `redeploy`; do this immediately if the file is exposed or the account is
+revoked.
+
 ### Per-machine backup import capacity
 
 Backup import limits are startup configuration, not account or installation limits. The defaults
@@ -121,6 +194,55 @@ Windows PowerShell exposes the same commands through `deploy/nous.ps1`.
 - `down` stops only Nous Reader. It deliberately does not stop or delete the separate self-hosted database project and never uses `down -v`.
 
 Frontend/backend health endpoints are `/health`. The official self-hosted gateway and database retain their upstream healthchecks. Reverse proxies point to stable host binds (defaults 8080 and 3301); Postgres, Studio, and administrative services must not be published to the internet.
+
+### Regenerate course covers
+
+An authenticated user can regenerate all covers for courses they own through the public backend origin configured as `NOUS_BACKEND_PUBLIC_URL`:
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer $NOUS_ACCESS_TOKEN" \
+  -H "Accept: application/json" \
+  https://api.reader.example.com/api/projects/covers/regenerate
+```
+
+Replace the host with the deployed `NOUS_BACKEND_PUBLIC_URL` and supply a current Supabase access token. The frontend origin does not proxy `/api`; production returns HTTP 404 for `/api` paths sent to `NOUS_PUBLIC_URL`. In local development the direct backend URL is `http://127.0.0.1:3301/api/projects/covers/regenerate`. The route returns `Cache-Control: no-store`, never accesses another user's courses, and returns the job immediately with HTTP 202 while it is running.
+
+Poll the status-only route; unlike the start route, it never creates a new job:
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer $NOUS_ACCESS_TOKEN" \
+  -H "Accept: application/json" \
+  https://api.reader.example.com/api/projects/covers/regenerate/status
+```
+
+The backend runs at most four cover operations globally and schedules users fairly. Simultaneous start calls for one user share the running job, and a completed job is reused for 15 minutes. Results are `regenerated`, `skipped`, or `failed`; every non-success leaves the previous cover untouched. A response looks like:
+
+```json
+{
+  "success": true,
+  "job": {
+    "id": "course-cover-p2-job-id",
+    "promptVersion": 2,
+    "status": "running",
+    "startedAt": "2026-07-17T00:00:00.000Z",
+    "updatedAt": "2026-07-17T00:00:00.000Z",
+    "results": [],
+    "summary": {
+      "total": 4,
+      "pending": 4,
+      "regenerated": 0,
+      "skipped": 0,
+      "failed": 0
+    }
+  }
+}
+```
+
+Job state and the 15-minute cooldown are in memory because the supported Compose deployment runs one backend replica. Restarting or redeploying the backend clears that state; already persisted covers are not removed. The admin configuration screen provides authenticated start and polling controls, so operators do not need to copy browser tokens into a command.
+
+`LOCAL_AUTH_BYPASS=true` removes the bearer-token requirement only for the explicitly enabled local development profile; production and VPS deployments must always send the authenticated session token.
 
 ### Optional Codex app-server
 

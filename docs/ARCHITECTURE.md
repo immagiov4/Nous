@@ -251,6 +251,10 @@ The frontend `ProjectRepository` and backend `ProjectStore` interfaces remain se
 
 Every project metadata response includes the server-owned monotonic `revision`. Existing-project PUT and PATCH requests send `expectedRevision`; a stale request receives HTTP 409 and never updates the snapshot. Authenticated server-sent events at `/api/projects/events` carry only `{ projectId, revision }`. `useProjectLibrary` refreshes metadata on an event, reconnect, foreground, or network recovery, and reloads the active snapshot only when the revision advanced and no local write or dirty autosave state is pending.
 
+`GET /api/projects/covers/regenerate` starts or resumes a non-cacheable background job for every course owned by the authenticated user and returns immediately. `GET /api/projects/covers/regenerate/status` reads that user's current job without starting one, so the admin UI can safely restore and poll progress. Jobs use an in-memory per-user registry with a 15-minute completed cooldown and a fair per-user scheduler capped at four global operations. A backend restart loses job status and cooldown, but persisted covers remain intact.
+
+The configured provider must produce a valid visual direction before image generation; planning failure does not overwrite a good cover. Before saving, the backend rechecks the project title and timestamp and performs an atomic expected-revision write. Deleted, renamed, or concurrently updated projects are reported as `skipped`; provider failures are `failed`. Raw provider output is stored with its prompt version and is normalized to the frontend's optimized WebP storage version on first display.
+
 ## TTS
 
 Frontend audio playback calls the backend `/api/tts` route, and that route uses OpenRouter's `audio/speech` endpoint. There is no local TTS runtime in the app flow.
@@ -270,6 +274,8 @@ Provider details stay in server logs; the frontend receives stable Italian error
 The visual planner can select `illustrative_image` only for concrete appearance, texture, physical objects, organisms, places, historical scenes, or natural phenomena where a schematic representation would lose essential information. Processes, structures, comparisons, and quantitative data continue to use SVG, Mermaid, or interactive HTML.
 
 The frontend sends the pedagogical image prompt to the authenticated `/api/images/generate` route. The backend calls OpenRouter's dedicated `/images` endpoint with a server-owned model, defaulting to `google/gemini-3.1-flash-lite-image` and configurable through `MODEL_IMAGE`. Only PNG, JPEG, and WebP base64 responses are accepted and persisted; generated raster data URLs are never embedded in later LLM revision prompts.
+
+Course cover generation uses the shared versioned prompt in `packages/shared-types/courseCoverPrompt.ts` from both the automatic frontend flow and the authenticated backend batch route. This keeps provider planning, fallback direction, and image instructions aligned across new courses and operator-triggered regeneration.
 
 ## Where to make changes
 

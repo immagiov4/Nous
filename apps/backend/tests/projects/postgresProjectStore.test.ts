@@ -20,6 +20,56 @@ const PROJECT_META: SavedProjectMeta = {
 };
 
 describe('PostgresProjectStore', () => {
+  test('saves a cover only while the project revision still matches', async () => {
+    const statements: string[] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        statements.push(strings.join('?'));
+        return Promise.resolve([]);
+      }),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const store = new PostgresProjectStore(undefined, sqlClient as never);
+
+    const saved = await store.saveProjectCover(
+      'user-1',
+      PROJECT_META.id,
+      { data: 'ZmFrZQ==', mimeType: 'image/png', name: 'cover-p2.png' },
+      { expectedRevision: 3 }
+    );
+
+    expect(saved).toBe(false);
+    expect(statements[0]).toContain('from public.projects');
+    expect(statements[0]).toContain('revision =');
+    expect(statements[0]).toContain('for key share');
+  });
+
+  test('locks project deletion against an in-flight conditional cover save', async () => {
+    const transactionStatements: string[] = [];
+    const transactionSql = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        transactionStatements.push(strings.join('?'));
+        return Promise.resolve([]);
+      }),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sqlClient = Object.assign(vi.fn(), {
+      begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+        operation(transactionSql)
+      ),
+      json: vi.fn((value: unknown) => value),
+    });
+    const store = new PostgresProjectStore(undefined, sqlClient as never);
+
+    await store.deleteProject('user-1', PROJECT_META.id);
+
+    expect(sqlClient.begin).toHaveBeenCalledTimes(1);
+    expect(transactionStatements).toHaveLength(4);
+    expect(transactionStatements[0]).toContain('for update');
+    expect(transactionStatements[1]).toContain('delete from public.project_covers');
+    expect(transactionStatements[3]).toContain('delete from public.projects');
+  });
+
   test('touchProject updates metadata without loading the project snapshot', async () => {
     const statements: string[] = [];
     const sqlClient = Object.assign(

@@ -8,11 +8,14 @@ import {
 } from './config/serverConfig.js';
 import { createApp } from './index.js';
 import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
+import { startFeedbackOutboxWorker, stopFeedbackOutboxWorker } from './services/feedbackService.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
 
 const app = createApp();
 const config = loadServerConfig();
 const backendConfig = getBackendServerConfig(config);
+
+startFeedbackOutboxWorker();
 
 const server = app.listen(backendConfig.backendPort, backendConfig.backendHost, () => {
   const backendUrl = buildBackendServerUrl(backendConfig, { displayHost: true });
@@ -50,6 +53,7 @@ const shutdown = async (signal: 'SIGINT' | 'SIGTERM') => {
 
   isShuttingDown = true;
   console.log(`[Backend] ${signal} received, shutting down...`);
+  stopFeedbackOutboxWorker();
   await closeManagedCodexAccountClient();
   server.close(() => {
     process.exit(0);

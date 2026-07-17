@@ -3,9 +3,9 @@ import {
   ChevronRight,
   ClipboardCheck,
   Copy,
-  Download,
   LibraryBig,
   Loader2,
+  MessageSquareWarning,
   Minus,
   SidebarClose,
   X,
@@ -15,6 +15,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { READER_SIDEBAR_WIDTH_PX } from '../../../constants/layout.ts';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { ApplicationExerciseNode, LessonNode, PathNode } from '../../../types.ts';
+import FeedbackDialog from '../../feedback/FeedbackDialog.tsx';
 import type { WorkspaceReaderSidebarModel } from './types.ts';
 
 const LAB_CONTEXT_MENU_VIEWPORT_PADDING = 12;
@@ -145,7 +146,6 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
   placement = 'viewport',
   repairApplicationExercisesLabel,
   onBackToLibrary,
-  onExportProject,
   onModuleToggle,
   onRepairApplicationExercises,
   onSelectExercise,
@@ -161,7 +161,9 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
     x: number;
     y: number;
   }>(null);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const lessonContextMenuRef = useRef<HTMLDivElement>(null);
+  const feedbackTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!lessonContextMenu) {
@@ -213,6 +215,12 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
     } catch (error) {
       console.error('[Nous][Debug] Failed to copy lesson markdown.', error);
     }
+  };
+
+  const closeFeedback = () => {
+    setIsFeedbackOpen(false);
+    if (isMobileViewport) onSetIsMobileSidebarOpen(true);
+    queueMicrotask(() => feedbackTriggerRef.current?.focus());
   };
 
   const lessonContextMenuStyle = (() => {
@@ -291,7 +299,7 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-[0.82fr_1.18fr] gap-2">
             <button
               type="button"
               onClick={onBackToLibrary}
@@ -300,14 +308,16 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
               <LibraryBig className="h-4 w-4" /> {t('Libreria')}
             </button>
             <button
+              ref={feedbackTriggerRef}
               type="button"
-              onClick={onExportProject}
-              disabled={isLoading}
-              className={`flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600 ${
-                isLoading ? 'cursor-not-allowed opacity-50' : ''
-              }`}
+              onClick={() => {
+                setIsFeedbackOpen(true);
+                if (isMobileViewport) onSetIsMobileSidebarOpen(false);
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50/80 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-700 transition-colors hover:bg-gray-100 dark:border-zinc-600/50 dark:bg-zinc-700/80 dark:text-gray-200 dark:hover:bg-zinc-600"
             >
-              <Download className="h-4 w-4" /> {t('Esporta')}
+              <MessageSquareWarning className="h-4 w-4 shrink-0" />
+              <span className="whitespace-nowrap">{t('Segnala problema')}</span>
             </button>
           </div>
 
@@ -476,6 +486,8 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
           </p>
         </div>
       ) : null}
+
+      {isFeedbackOpen ? <FeedbackDialog onClose={closeFeedback} /> : null}
     </>
   );
 });

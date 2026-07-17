@@ -68,10 +68,23 @@ export interface FileAnnotation {
   };
 }
 
+export interface UrlCitationAnnotation {
+  type: 'url_citation';
+  url_citation: {
+    content?: string;
+    end_index?: number;
+    start_index?: number;
+    title?: string;
+    url: string;
+  };
+}
+
+export type ChatAnnotation = FileAnnotation | UrlCitationAnnotation;
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: ChatMessageContent;
-  annotations?: FileAnnotation[];
+  annotations?: ChatAnnotation[];
 }
 
 export type OpenRouterReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
@@ -96,6 +109,7 @@ export interface ChatCompletionOptions {
   response_format?: JsonSchemaFormat;
   tools?: Record<string, unknown>[];
   plugins?: Record<string, unknown>[];
+  includeUrlCitationsInText?: boolean;
   signal?: AbortSignal;
 }
 
@@ -111,13 +125,18 @@ export interface OpenRouterToolCall {
 export interface OpenRouterChoice {
   message?: {
     content?: OpenRouterMessageContent;
-    annotations?: FileAnnotation[];
+    annotations?: ChatAnnotation[];
     tool_calls?: OpenRouterToolCall[];
   };
 }
 
 export interface OpenRouterResponse {
   choices?: OpenRouterChoice[];
+  usage?: {
+    server_tool_use?: {
+      web_search_requests?: number;
+    };
+  };
 }
 
 export type OpenRouterMessageContent = ChatMessageContent;

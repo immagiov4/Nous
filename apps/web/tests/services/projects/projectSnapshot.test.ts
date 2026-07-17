@@ -6,6 +6,7 @@ import {
 } from '../../../services/projects/courseSources.ts';
 import {
   buildCoverLabel,
+  createProjectSnapshot,
   exportProjectData,
   inferProjectSourceKind,
   normalizeImportedProject,
@@ -29,6 +30,23 @@ test('createProjectSourceFromFile upgrades legacy zip payloads into structured c
   assert.match(source.aggregatedText, /src\/index\.ts/);
 });
 
+test('an explicit project title survives normalization and stays aligned with the learning plan', () => {
+  const snapshot = createProjectSnapshot({
+    id: 'renamed-project',
+    title: 'Titolo scelto',
+    learningPlan: {
+      title: 'Titolo generato',
+      summary: 'Sintesi',
+      modules: [],
+      applicationExercisePlanningStatus: 'not-run',
+    },
+  });
+
+  assert.equal(snapshot.title, 'Titolo scelto');
+  assert.equal(snapshot.learningPlan?.title, 'Titolo scelto');
+  assert.equal(exportProjectData(snapshot).title, 'Titolo scelto');
+});
+
 test('getProjectSourceFile preserves a round-trip legacy file payload for codebase bundles', () => {
   const source = createProjectSourceFromFile({
     name: 'repo.zip',
@@ -41,6 +59,37 @@ test('getProjectSourceFile preserves a round-trip legacy file payload for codeba
   assert.equal(file?.name, 'repo.zip');
   assert.equal(file?.mimeType, 'text/plain');
   assert.equal(decodeTextBase64(file?.data || ''), 'console.log("hi");');
+});
+
+test('normalizeImportedProject preserves only bounded YouTube clip metadata', () => {
+  const imported = normalizeImportedProject({
+    id: 'video-course',
+    isLearnMode: true,
+    researchDossiersBySectionId: {
+      lesson: {
+        sectionId: 'lesson',
+        title: 'Ombreggiatura',
+        sources: [
+          {
+            title: 'Dimostrazione valida',
+            url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+            videoClip: { startSeconds: 65.8, endSeconds: 92.2 },
+          },
+          {
+            title: 'Intervallo eccessivo',
+            url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+            videoClip: { startSeconds: 10, endSeconds: 400 },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.deepEqual(imported.researchDossiersBySectionId?.lesson?.sources[0]?.videoClip, {
+    startSeconds: 65,
+    endSeconds: 92,
+  });
+  assert.equal(imported.researchDossiersBySectionId?.lesson?.sources[1]?.videoClip, undefined);
 });
 
 test('detached PDF snapshots retain their source reference without pretending bytes are loaded', () => {

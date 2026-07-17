@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test, vi } from 'vitest';
+import type { YouTubeResearchContext } from '../../../services/openrouter/youtubeResearchClient.ts';
 import type { UserProfile } from '../../../types.ts';
 
 const callOpenRouterMock = vi.fn();
@@ -25,11 +26,22 @@ const generateLessonLearningAidsMock = vi.fn(
   ]
 );
 const generateStandaloneLessonQuizMock = vi.fn(async () => []);
-const getYouTubeResearchContextMock = vi.fn(async (_query: string, _language: string) => '');
+const getYouTubeResearchContextMock = vi.fn(
+  async (_query: string, _language: string): Promise<YouTubeResearchContext> => ({
+    context: '',
+    videoCandidates: [],
+    videoClipsEnabled: false,
+  })
+);
 
-vi.mock('../../../services/openrouter/youtubeResearchClient.ts', () => ({
-  getYouTubeResearchContext: getYouTubeResearchContextMock,
-}));
+vi.mock('../../../services/openrouter/youtubeResearchClient.ts', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../services/openrouter/youtubeResearchClient.ts')>();
+  return {
+    ...actual,
+    getYouTubeResearchContext: getYouTubeResearchContextMock,
+  };
+});
 
 vi.mock('../../../services/openrouter/lessonImages.ts', () => ({
   appendGeneratedVisualExample: appendGeneratedVisualExampleMock,
@@ -54,6 +66,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
 
 const {
   buildLearningPlanFromResearchCourse,
+  evaluateYouTubeResearchLab,
   generateResearchCoursePlan,
   generateResearchLessonContent,
   generateResearchLessonDossier,
@@ -75,13 +88,20 @@ beforeEach(() => {
   generateLessonLearningAidsMock.mockClear();
   generateStandaloneLessonQuizMock.mockClear();
   getYouTubeResearchContextMock.mockReset();
-  getYouTubeResearchContextMock.mockResolvedValue('');
+  getYouTubeResearchContextMock.mockResolvedValue({
+    context: '',
+    videoCandidates: [],
+    videoClipsEnabled: false,
+  });
 });
 
 test('course research evaluates automatic YouTube context', async () => {
-  getYouTubeResearchContextMock.mockResolvedValue(
-    'SOURCE Kotlin Course\nURL: https://www.youtube.com/watch?v=kotlin\n[00:10] JVM bytecode'
-  );
+  getYouTubeResearchContextMock.mockResolvedValue({
+    context:
+      'SOURCE Kotlin Course\nURL: https://www.youtube.com/watch?v=kotlin\n[00:10] JVM bytecode',
+    videoCandidates: [],
+    videoClipsEnabled: false,
+  });
   callOpenRouterMock.mockResolvedValueOnce('Brief con fonte YouTube.');
   callOpenRouterMock.mockResolvedValueOnce(
     JSON.stringify({
@@ -120,6 +140,184 @@ test('course research evaluates automatic YouTube context', async () => {
     ),
     true
   );
+});
+
+test('course research keeps only bounded YouTube clip metadata when backend policy allows it', async () => {
+  getYouTubeResearchContextMock.mockResolvedValue({
+    context:
+      'SOURCE Drawing demo\nURL: https://www.youtube.com/watch?v=M7lc1UVf-VE\n[01:05-01:32] Traccio le linee di ombra.',
+    videoCandidates: [
+      {
+        ranges: [{ startSeconds: 65, endSeconds: 93 }],
+        url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+      },
+    ],
+    videoClipsEnabled: true,
+  });
+  callOpenRouterMock.mockResolvedValueOnce('Brief con una dimostrazione pratica verificata.');
+  callOpenRouterMock.mockResolvedValueOnce(
+    JSON.stringify({
+      title: 'Disegno',
+      summary: 'Corso pratico',
+      lessonCountReason: 'Percorso essenziale',
+      modules: [
+        {
+          title: 'Fondamenti',
+          description: 'Base',
+          lessons: Array.from({ length: 8 }, (_, index) => ({
+            title: `Lezione ${index + 1}`,
+            description: 'Base',
+            prerequisites: [],
+            keyConcepts: [],
+            guidingQuestions: [],
+            miniLab: '',
+            sourceHints:
+              index === 0
+                ? [
+                    {
+                      title: 'Ombreggiatura',
+                      url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+                      note: 'Mostra il movimento della matita.',
+                      videoStartSeconds: 65.8,
+                      videoEndSeconds: 92.2,
+                    },
+                    {
+                      title: 'Clip eccessivo',
+                      url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+                      note: '',
+                      videoStartSeconds: 0,
+                      videoEndSeconds: 500,
+                    },
+                  ]
+                : [],
+            simplificationRisks: [],
+          })),
+        },
+      ],
+    })
+  );
+
+  const result = await generateResearchCoursePlan(
+    { ...profile, topic: 'Disegno' },
+    () => {},
+    () => {}
+  );
+
+  assert.deepEqual(result.researchCoursePlan.lessons[0]?.sourceHints[0]?.videoClip, {
+    startSeconds: 65,
+    endSeconds: 92,
+  });
+  assert.equal(result.researchCoursePlan.lessons[0]?.sourceHints[1]?.videoClip, undefined);
+});
+
+test('YouTube lab runs the production lesson pipeline and preserves only evidenced clips', async () => {
+  callOpenRouterMock.mockResolvedValueOnce('Brief che valuta due candidati YouTube.');
+  callOpenRouterMock.mockResolvedValueOnce(
+    JSON.stringify({
+      factualSummary: 'Le diagonali a gradini costruiscono curve leggibili.',
+      keyExamples: [],
+      difficultSteps: [],
+      sources: [
+        {
+          title: 'Pixel art curves',
+          url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+          note: 'Mostra la costruzione della curva sul canvas.',
+          videoStartSeconds: 65,
+          videoEndSeconds: 92,
+        },
+        {
+          title: 'Intervallo non supportato',
+          url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+          note: 'Fuori dal transcript disponibile.',
+          videoStartSeconds: 200,
+          videoEndSeconds: 240,
+        },
+      ],
+      avoidOversimplifying: [],
+      controversies: [],
+      recentDevelopments: [],
+      youtubeCandidateDecisions: [
+        {
+          url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+          decision: 'selected-clip',
+          reason: 'Mostra la costruzione pratica della curva.',
+        },
+      ],
+    })
+  );
+
+  const result = await evaluateYouTubeResearchLab({
+    language: 'Italiano',
+    lessonGoal: 'Bordi, curve e sfumature',
+    topic: 'Pixel art',
+    youtubeResearch: {
+      context: '[01:05-01:32] Traccio una curva a gradini sul canvas.',
+      videoCandidates: [
+        {
+          ranges: [{ startSeconds: 65, endSeconds: 93 }],
+          url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+        },
+      ],
+      videoClipsEnabled: true,
+    },
+  });
+
+  assert.equal(callOpenRouterMock.mock.calls.length, 2);
+  assert.match(
+    callOpenRouterMock.mock.calls[1]?.[0]?.messages[0]?.content || '',
+    /YOUTUBE CANDIDATES TO CLASSIFY:[\s\S]*M7lc1UVf-VE/
+  );
+  assert.deepEqual(result.model.attempts, { research: 1, structuring: 1, total: 2 });
+  assert.equal(result.researchBrief, 'Brief che valuta due candidati YouTube.');
+  assert.equal(
+    result.youtubeCandidateDecisions[0]?.reason,
+    'Mostra la costruzione pratica della curva.'
+  );
+  assert.deepEqual(result.dossier.sources[0]?.videoClip, {
+    startSeconds: 65,
+    endSeconds: 92,
+  });
+  assert.equal(result.dossier.sources[1]?.videoClip, undefined);
+});
+
+test('YouTube lab reports the effective attempts for both model stages', async () => {
+  retryWithBackoffMock
+    .mockImplementationOnce(async operation => {
+      await operation().catch(() => undefined);
+      return operation();
+    })
+    .mockImplementationOnce(async operation => {
+      await operation().catch(() => undefined);
+      return operation();
+    });
+  callOpenRouterMock
+    .mockRejectedValueOnce(new Error('research retry'))
+    .mockResolvedValueOnce('Brief riuscito al secondo tentativo.')
+    .mockRejectedValueOnce(new Error('structuring retry'))
+    .mockResolvedValueOnce(
+      JSON.stringify({
+        avoidOversimplifying: [],
+        controversies: [],
+        difficultSteps: [],
+        factualSummary: 'Sintesi.',
+        keyExamples: [],
+        recentDevelopments: [],
+        sources: [],
+        youtubeCandidateDecisions: [],
+      })
+    );
+
+  const result = await evaluateYouTubeResearchLab({
+    language: 'Italiano',
+    topic: 'Pixel art',
+    youtubeResearch: {
+      context: '[00:10-00:20] Esempio.',
+      videoCandidates: [],
+      videoClipsEnabled: true,
+    },
+  });
+
+  assert.deepEqual(result.model.attempts, { research: 2, structuring: 2, total: 4 });
 });
 
 test('course research streams progress while gathering sources', async () => {
@@ -191,6 +389,61 @@ test('generateResearchCoursePlan normalizes course shape and clamps oversized ou
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_schema');
+});
+
+test('lesson YouTube discovery includes practical plan details in its bounded query', async () => {
+  callOpenRouterMock.mockResolvedValueOnce('Brief con fonti video pratiche.');
+  callOpenRouterMock.mockResolvedValueOnce(
+    JSON.stringify({
+      factualSummary: 'Le curve pixel art usano gradini regolari.',
+      keyExamples: [],
+      difficultSteps: [],
+      avoidOversimplifying: [],
+      controversies: [],
+      recentDevelopments: [],
+      sources: [],
+    })
+  );
+
+  await generateResearchLessonDossier({
+    lesson: {
+      id: 'pixel-curves',
+      title: 'Bordi e curve',
+      description: 'Costruire curve, sfumature e texture leggibili',
+      isCompleted: false,
+      type: 'core',
+    },
+    moduleTitle: 'Tecniche',
+    profile: { ...profile, topic: 'Pixel art' },
+    researchCoursePlan: {
+      generatedAt: '2026-07-17T00:00:00.000Z',
+      lessonCountReason: 'Percorso pratico',
+      lessons: [
+        {
+          description: 'Costruire forme leggibili',
+          guidingQuestions: ['Come si evitano diagonali irregolari?'],
+          id: 'pixel-curves',
+          keyConcepts: ['sfumature', 'texture'],
+          miniLab: 'Disegnare una curva a gradini',
+          moduleId: 'techniques',
+          moduleTitle: 'Tecniche',
+          prerequisites: [],
+          simplificationRisks: [],
+          sourceHints: [{ title: 'Tutorial shading', note: 'Dimostrazione sul canvas' }],
+          title: 'Bordi e curve',
+        },
+      ],
+      summary: 'Corso di pixel art',
+      title: 'Pixel art',
+    },
+    onStatusUpdate: () => {},
+  });
+
+  const query = getYouTubeResearchContextMock.mock.calls[0]?.[0] || '';
+  assert.equal(query.includes('Bordi e curve Pixel art'), true);
+  assert.equal(query.includes('sfumature texture'), true);
+  assert.equal(query.includes('Disegnare una curva a gradini'), true);
+  assert.equal(query.length <= 500, true);
 });
 
 test('buildLearningPlanFromResearchCourse preserves research syllabus modules', () => {
@@ -303,9 +556,12 @@ test('buildLearningPlanFromResearchCourse leaves application exercises to the pl
 });
 
 test('generateResearchLessonDossier keeps sources optional and attaches the section id', async () => {
-  getYouTubeResearchContextMock.mockResolvedValue(
-    'SOURCE Kotlin lesson\nURL: https://www.youtube.com/watch?v=kotlin-lesson\n[00:10] JVM bytecode'
-  );
+  getYouTubeResearchContextMock.mockResolvedValue({
+    context:
+      'SOURCE Kotlin lesson\nURL: https://www.youtube.com/watch?v=kotlin-lesson\n[00:10] JVM bytecode',
+    videoCandidates: [],
+    videoClipsEnabled: false,
+  });
   callOpenRouterMock.mockResolvedValueOnce(
     'Kotlin gira sulla JVM. Esempio classico: hello world. Distinguere linguaggio e runtime e un punto delicato.'
   );
@@ -341,6 +597,7 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   assert.deepEqual(dossier.sources, []);
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
+  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.tools, undefined);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.onReasoningUpdate, onReasoningUpdate);
   assert.equal(
     callOpenRouterMock.mock.calls[0]?.[0]?.messages[0]?.content.includes(
@@ -349,6 +606,43 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
     true
   );
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_schema');
+});
+
+test('generateResearchLessonDossier searches with the lesson model only for coverage gaps', async () => {
+  callOpenRouterMock.mockResolvedValueOnce('Brief supplementare con fonti web.');
+  callOpenRouterMock.mockResolvedValueOnce(
+    JSON.stringify({
+      factualSummary: 'Il dossier integra soltanto i prerequisiti mancanti.',
+      keyExamples: [],
+      difficultSteps: [],
+      avoidOversimplifying: [],
+      controversies: [],
+      recentDevelopments: [],
+      sources: [],
+    })
+  );
+
+  await generateResearchLessonDossier({
+    coverageGaps: ['Ipotesi matematiche', 'Limiti del metodo'],
+    lesson: {
+      id: 'lesson-with-gaps',
+      title: 'Metodo numerico',
+      description: 'Applicare il metodo',
+      isCompleted: false,
+      type: 'core',
+      contextPrompt: 'Spiega il metodo',
+    },
+    moduleTitle: 'Metodi',
+    profile,
+    researchCoursePlan: null,
+    onStatusUpdate: () => {},
+  });
+
+  const researchRequest = callOpenRouterMock.mock.calls[0]?.[0];
+  assert.equal(researchRequest?.modelSlot, 'lesson');
+  assert.deepEqual(researchRequest?.tools, [{ type: 'openrouter:web_search' }]);
+  assert.equal(researchRequest?.messages[0]?.content.includes('Ipotesi matematiche'), true);
+  assert.equal(researchRequest?.messages[0]?.content.includes('Limiti del metodo'), true);
 });
 
 test('generateResearchLessonContent returns contextual learning aids with the lesson', async () => {

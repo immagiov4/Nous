@@ -223,6 +223,52 @@ describe('/api/openrouter proxy', () => {
     expect(body.reasoning).toBeUndefined();
   });
 
+  test('uses the lesson model with OpenRouter web search for supplemental source research', async () => {
+    patchGlobalModelConfig({
+      lessonModel: 'openrouter/configured-lesson',
+      researchModel: 'perplexity/deep-research',
+    });
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
+      .send({
+        messages: [{ role: 'user', content: 'Colma soltanto la lacuna indicata.' }],
+        tools: [{ type: 'openrouter:web_search' }],
+      });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      model?: string;
+      tools?: Array<{ type?: string }>;
+    };
+    expect(body.model).toBe('openrouter/configured-lesson');
+    expect(body.tools).toEqual([{ type: 'openrouter:web_search' }]);
+  });
+
+  test('keeps non-OpenRouter supplemental research on the research slot', async () => {
+    patchGlobalModelConfig({
+      openAiLessonModel: 'openai/configured-lesson',
+      openAiResearchModel: 'openai/configured-research',
+    });
+    const token = authenticateProvider('openai');
+
+    await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Nous-Model-Slot', 'lesson')
+      .send({
+        messages: [{ role: 'user', content: 'Colma soltanto la lacuna indicata.' }],
+        tools: [{ type: 'openrouter:web_search' }],
+      });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+      model?: string;
+      tools?: unknown;
+    };
+    expect(body.model).toBe('openai/configured-research');
+    expect(body.tools).toBeUndefined();
+  });
+
   test('sends explicit none effort for artifact reasoning', async () => {
     patchGlobalModelConfig({ artifactReasoningEffort: 'none' });
 

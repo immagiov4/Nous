@@ -23,6 +23,7 @@ import { isRecord } from '../utils/validation.js';
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_MODEL_URL = 'https://openrouter.ai/api/v1/model';
 const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENROUTER_WEB_SEARCH_TOOL_TYPE = 'openrouter:web_search';
 const OPENROUTER_ECONOMY_SERVICE_TIER = 'flex';
 const AI_RESPONSE_HEADERS = ['content-type', 'cache-control'] as const;
 const openRouterImageSupportByModel = new Map<string, boolean>();
@@ -71,9 +72,31 @@ const readModelSlot = (req: Request): ModelSlot => {
     : 'lesson';
 };
 
+const hasOpenRouterWebSearchTool = (value: unknown): boolean =>
+  Array.isArray(value) &&
+  value.some(tool => isRecord(tool) && tool.type === OPENROUTER_WEB_SEARCH_TOOL_TYPE);
+
+const removeOpenRouterWebSearchTool = (value: unknown): unknown => {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  const portableTools = value.filter(
+    tool => !isRecord(tool) || tool.type !== OPENROUTER_WEB_SEARCH_TOOL_TYPE
+  );
+  return portableTools.length > 0 ? portableTools : undefined;
+};
+
 const resolveProxyConfig = async (req: Request) => {
-  const modelSlot = readModelSlot(req);
+  const requestedModelSlot = readModelSlot(req);
   const modelConfig = await getResolvedModelConfigForProvider(getCurrentUser(req).aiProvider);
+  const requestedTools = isRecord(req.body) ? req.body.tools : undefined;
+  const modelSlot =
+    requestedModelSlot === 'lesson' &&
+    modelConfig.aiProvider !== 'openrouter' &&
+    hasOpenRouterWebSearchTool(requestedTools)
+      ? 'research'
+      : requestedModelSlot;
   return {
     modelSlot,
     provider: modelConfig.aiProvider,
@@ -148,6 +171,7 @@ const buildProxyRequest = async (
       plugins: _ignoredPlugins,
       provider: _ignoredProvider,
       reasoning: _ignoredReasoning,
+      tools,
       transforms: _ignoredTransforms,
       ...portableBody
     } = requestBody;
@@ -157,6 +181,7 @@ const buildProxyRequest = async (
         ...portableBody,
         model,
         reasoning_effort: reasoningEffort,
+        tools: removeOpenRouterWebSearchTool(tools),
         ...(typeof maxTokens === 'number' ? { max_completion_tokens: maxTokens } : {}),
       },
     };
@@ -182,7 +207,7 @@ const buildProxyRequest = async (
       ? removeImageInput(requestBody)
       : requestBody;
 
-  if (readModelSlot(req) === 'research') {
+  if (modelSlot === 'research') {
     const { reasoning: _ignoredReasoning, ...bodyWithoutReasoning } = openRouterRequestBody;
     return {
       provider,

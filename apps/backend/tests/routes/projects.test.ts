@@ -307,6 +307,9 @@ describe('/api/projects', () => {
 
   test('stores raster course covers separately from project snapshots', async () => {
     const app = createApp();
+    await request(app)
+      .put('/api/projects/projects/project-1')
+      .send({ snapshot: createSnapshot('project-1', 'Course with cover') });
     const cover = {
       data: 'iVBORw0KGgo=',
       mimeType: 'image/png',
@@ -467,6 +470,55 @@ describe('/api/projects', () => {
     expect(loadResponse.body.project.learningPlan.modules[0].children[1]).toMatchObject({
       id: 'exercise-1',
       kind: 'exercise',
+    });
+  });
+
+  test('renames a project without replacing the rest of its learning plan', async () => {
+    const app = createApp();
+    const snapshot = createModuleSnapshot('rename-project', 'Titolo originale');
+
+    await request(app).put('/api/projects/projects/rename-project').send({ snapshot });
+
+    const patchResponse = await request(app)
+      .patch('/api/projects/projects/rename-project')
+      .send({ patch: { title: 'Titolo rinominato' } });
+
+    expect(patchResponse.status).toBe(200);
+    expect(patchResponse.body.meta).toMatchObject({ title: 'Titolo rinominato' });
+
+    const loadResponse = await request(app).get('/api/projects/projects/rename-project');
+    expect(loadResponse.body.project.learningPlan).toMatchObject({
+      title: 'Titolo rinominato',
+      summary: snapshot.learningPlan.summary,
+      modules: snapshot.learningPlan.modules,
+    });
+    expect(loadResponse.body.project.title).toBe('Titolo rinominato');
+  });
+
+  test('renames a project before its learning plan has been generated', async () => {
+    const app = createApp();
+    const snapshot = {
+      ...createSnapshot('rename-draft-project', 'Titolo temporaneo'),
+      learningPlan: null,
+      userProfile: {
+        topic: 'Psicologia cognitiva',
+      },
+    } satisfies ProjectSnapshot;
+
+    await request(app).put('/api/projects/projects/rename-draft-project').send({ snapshot });
+
+    const patchResponse = await request(app)
+      .patch('/api/projects/projects/rename-draft-project')
+      .send({ patch: { title: 'Titolo scelto' } });
+
+    expect(patchResponse.status).toBe(200);
+    expect(patchResponse.body.meta).toMatchObject({ title: 'Titolo scelto' });
+
+    const loadResponse = await request(app).get('/api/projects/projects/rename-draft-project');
+    expect(loadResponse.body.project).toMatchObject({
+      title: 'Titolo scelto',
+      learningPlan: null,
+      userProfile: snapshot.userProfile,
     });
   });
 

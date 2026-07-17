@@ -120,8 +120,12 @@ test('callOpenRouter streams reasoning chunks without paragraph-splitting duplic
   });
 
   const request = fetchMock.mock.calls[0]?.[1];
-  const body = JSON.parse(String(request?.body || '{}')) as { stream?: boolean };
+  const body = JSON.parse(String(request?.body || '{}')) as {
+    stream?: boolean;
+    stream_options?: { include_usage?: boolean };
+  };
   assert.equal(body.stream, true);
+  assert.equal(body.stream_options?.include_usage, true);
   assert.equal(response, '{"ok":true}');
   assert.deepEqual(reasoningUpdates, ['I', "I'm considering"]);
 });
@@ -197,4 +201,40 @@ test('callOpenRouter uses streamed content when a provider exposes no reasoning'
   });
 
   assert.deepEqual(progressUpdates, ['First', 'First section']);
+});
+
+test('callOpenRouter preserves provider URL citations for the research structurer', async () => {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      choices: [
+        {
+          message: {
+            content: 'Brief grounded.',
+            annotations: [
+              {
+                type: 'url_citation',
+                url_citation: {
+                  content: 'Evidence excerpt',
+                  title: 'Official source',
+                  url: 'https://example.com/source',
+                },
+              },
+            ],
+          },
+        },
+      ],
+      usage: { server_tool_use: { web_search_requests: 2 } },
+    }),
+  });
+
+  const response = await callOpenRouter({
+    includeUrlCitationsInText: true,
+    model: 'openai/gpt-5.4-mini',
+    messages: [{ role: 'user', content: 'Research' }],
+  });
+
+  assert.match(response, /FONTI WEB RESTITUITE DAL PROVIDER/);
+  assert.match(response, /Official source: https:\/\/example\.com\/source/);
+  assert.match(response, /Evidence excerpt/);
 });

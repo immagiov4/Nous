@@ -485,6 +485,48 @@ describe('LibraryTreeView', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Cartella creata.');
   });
 
+  test('renames a folder from a name double click without collapsing it', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    const onRenameFolder = vi.fn(async () => {});
+
+    render(
+      <LibraryTreeView
+        openingProjectId={null}
+        onCreateFolder={vi.fn(async () => {})}
+        onConfirmDeleteFolder={vi.fn(async () => true)}
+        onDeleteFolder={vi.fn(async () => {})}
+        onDeleteProject={vi.fn()}
+        onExportProject={vi.fn()}
+        onMoveFolder={vi.fn(async () => {})}
+        onMoveProjects={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onRenameFolder={onRenameFolder}
+        tree={tree}
+      />
+    );
+
+    await user.dblClick(screen.getByText('Frontend'));
+
+    let input = screen.getByPlaceholderText('Rinomina cartella...');
+    expect(input).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByPlaceholderText('Rinomina cartella...')).not.toBeInTheDocument();
+    expect(onRenameFolder).not.toHaveBeenCalled();
+
+    await user.dblClick(screen.getByText('Frontend'));
+    await user.keyboard('{Enter}');
+    expect(screen.queryByPlaceholderText('Rinomina cartella...')).not.toBeInTheDocument();
+    expect(onRenameFolder).not.toHaveBeenCalled();
+
+    await user.dblClick(screen.getByText('Frontend'));
+    input = screen.getByPlaceholderText('Rinomina cartella...');
+    await user.clear(input);
+    await user.type(input, 'Interfacce{Enter}');
+
+    expect(onRenameFolder).toHaveBeenCalledWith('folder-1', 'Interfacce');
+    expect(screen.getByTitle('Chiudi cartella')).toBeInTheDocument();
+  });
+
   test('closes the folder menu with Escape and restores focus to its trigger', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     render(

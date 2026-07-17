@@ -1,5 +1,6 @@
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
+import type { YouTubeTranscriptOverride } from '../openrouter/youtubeResearchClient.ts';
 
 export type AdminReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
 export type AdminAiProvider = 'codex' | 'openai' | 'openrouter';
@@ -29,7 +30,182 @@ export interface AdminUserPatch {
   role?: 'admin' | 'user';
 }
 
+export interface AdminUserPage {
+  hasMore: boolean;
+  page: number;
+  pageSize: number;
+  users: AdminUser[];
+}
+
 export type AdminAccessEmailDelivery = 'access' | 'invitation' | 'setup';
+
+export type AdminFeedbackStatus = 'failed' | 'pending' | 'processing' | 'submitted';
+
+export interface AdminFeedbackConsoleEntry {
+  level: 'debug' | 'error' | 'info' | 'warn';
+  message: string;
+  timestamp?: string;
+}
+
+export interface AdminFeedbackDiagnostics {
+  appVersion?: string;
+  consoleEntries?: AdminFeedbackConsoleEntry[];
+  correlationIds?: string[];
+  pageUrl?: string;
+  requestId?: string;
+  userAgent?: string;
+}
+
+export interface AdminFeedbackReport {
+  attemptCount: number;
+  category: 'bug' | 'enhancement' | 'other';
+  createdAt: string;
+  description: string;
+  diagnostics: AdminFeedbackDiagnostics;
+  githubIssueNumber?: number;
+  githubIssueState?: 'closed' | 'missing' | 'open';
+  githubIssueUrl?: string;
+  githubLabels: string[];
+  hasScreenshot: boolean;
+  id: string;
+  reporterEmail?: string;
+  source: 'app' | 'github';
+  status: AdminFeedbackStatus;
+  title?: string;
+  updatedAt: string;
+  userId?: string;
+}
+
+export interface AdminFeedbackPage {
+  page: number;
+  pageSize: number;
+  reports: AdminFeedbackReport[];
+  total: number;
+}
+
+export interface AdminFeedbackSyncResult {
+  issueCount: number;
+  synchronizedAt: string;
+}
+
+export type CourseCoverRegenerationResultStatus = 'failed' | 'regenerated' | 'skipped';
+
+export interface CourseCoverRegenerationJob {
+  completedAt?: string;
+  error?: string;
+  id: string;
+  promptVersion: number;
+  results: Array<{
+    coverName?: string;
+    message?: string;
+    projectId: string;
+    status: CourseCoverRegenerationResultStatus;
+    title: string;
+  }>;
+  startedAt: string;
+  status: 'completed' | 'failed' | 'running';
+  summary: {
+    failed: number;
+    pending: number;
+    regenerated: number;
+    skipped: number;
+    total: number;
+  };
+  updatedAt: string;
+}
+
+export type AdminYouTubeResearchDecision =
+  | 'context-included'
+  | 'no-transcript'
+  | 'playlist-expanded'
+  | 'playlist-expansion-failed'
+  | 'transcript-budget'
+  | 'transcript-not-requested';
+
+export interface AdminYouTubeResearchCandidate {
+  channelTitle: string;
+  channelVerified: boolean;
+  decision: AdminYouTubeResearchDecision;
+  durationSeconds?: number;
+  estimatedTokens?: number;
+  id: string;
+  kind: 'playlist' | 'video';
+  origins: Array<'playlist' | 'search'>;
+  playlistId?: string;
+  playlistPosition?: number;
+  rankScore: number;
+  includedTokens?: number;
+  title: string;
+  transcript?: {
+    characterCount: number;
+    kind: 'automatic' | 'manual' | 'translated';
+    language: string;
+    ranges: Array<{ endSeconds: number; startSeconds: number }>;
+    segmentCount: number;
+    text: string;
+  };
+  transcriptAttempts: AdminYouTubeTranscriptAttempt[];
+  transcriptCached?: boolean;
+  transcriptLookupMs?: number;
+  url: string;
+  viewCount?: number;
+}
+
+export interface AdminYouTubeTranscriptAttempt {
+  durationMs: number;
+  kind: 'automatic' | 'manual' | 'translated';
+  language: string;
+  outcome: 'available' | 'empty' | 'ip-blocked' | 'unavailable';
+}
+
+export type AdminYouTubeTranscriptOverride = YouTubeTranscriptOverride;
+
+export interface AdminYouTubeResearchLabResult {
+  diagnostic: {
+    budget: {
+      contextWindowTokens: number;
+      nonYouTubePromptTokens: number;
+      perTranscriptMaxTokens: number;
+      remainingTokens: number;
+      reservedOutputTokens: number;
+      residualTokens: number;
+      transcriptBudgetTokens: number;
+      usedTokens: number;
+    };
+    bundle: {
+      context: string;
+      videoCandidates: Array<{
+        ranges: Array<{ endSeconds: number; startSeconds: number }>;
+        url: string;
+      }>;
+    };
+    candidates: AdminYouTubeResearchCandidate[];
+    circuitOpened: boolean;
+    circuitReason: 'ip-blocked' | null;
+    errors: Array<'playlist-expansion-failed'>;
+    limits: {
+      discoveryVideos: number;
+      playlistResults: number;
+      playlistVideos: number;
+      transcriptConcurrency: number;
+    };
+    operations: {
+      discoveryCommands: number;
+      playlistExpansionCommands: number;
+      transcriptCommandAttempts: number;
+      transcriptLookups: number;
+    };
+    preferredLanguages: string[];
+    query: string;
+    timings: {
+      discoveryMs: number;
+      playlistExpansionMs: number;
+      totalMs: number;
+      transcriptsMs: number;
+    };
+  };
+  productionVideoClipsEnabled: boolean;
+}
 
 export interface AdminModelConfig {
   aiProvider: AdminAiProvider;
@@ -309,10 +485,63 @@ const requestAdmin = async <T>(path: string, init: RequestInit = {}): Promise<T>
     })
   );
 
-export const listAdminUsers = async (): Promise<AdminUser[]> => {
-  const response = await requestAdmin<{ users: AdminUser[] }>('/api/admin/users');
-  return response.users || [];
+export const listAdminUsers = async (page = 1, pageSize = 8): Promise<AdminUserPage> =>
+  requestAdmin<AdminUserPage>(
+    `/api/admin/users?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`
+  );
+
+export const listAdminFeedback = async (
+  page: number,
+  pageSize: number
+): Promise<AdminFeedbackPage> =>
+  requestAdmin<AdminFeedbackPage>(
+    `/api/feedback/admin?page=${encodeURIComponent(page)}&pageSize=${encodeURIComponent(pageSize)}`
+  );
+
+export const loadAdminFeedbackScreenshot = async (feedbackId: string): Promise<Blob> => {
+  const response = await fetchWithSupabaseAuth(
+    `${getBackendUrl()}/api/feedback/admin/${encodeURIComponent(feedbackId)}/screenshot`
+  );
+  if (!response.ok) throw new Error('Screenshot non disponibile.');
+  return response.blob();
 };
+
+export const retryAdminFeedback = async (feedbackId: string): Promise<void> => {
+  await requestAdmin(`/api/feedback/admin/${encodeURIComponent(feedbackId)}/retry`, {
+    method: 'POST',
+  });
+};
+
+export const syncAdminFeedback = async (): Promise<AdminFeedbackSyncResult> =>
+  requestAdmin<AdminFeedbackSyncResult>('/api/feedback/admin/sync', { method: 'POST' });
+
+export const loadCourseCoverRegenerationStatus =
+  async (): Promise<CourseCoverRegenerationJob | null> => {
+    const response = await requestAdmin<{ job: CourseCoverRegenerationJob | null }>(
+      '/api/projects/covers/regenerate/status'
+    );
+    return response.job;
+  };
+
+export const startCourseCoverRegeneration = async (): Promise<CourseCoverRegenerationJob> => {
+  const response = await requestAdmin<{ job: CourseCoverRegenerationJob }>(
+    '/api/projects/covers/regenerate'
+  );
+  return response.job;
+};
+
+export const runAdminYouTubeResearchLab = async (input: {
+  contextWindowTokens: number;
+  language: string;
+  nonYouTubePromptTokens: number;
+  query: string;
+  reservedOutputTokens: number;
+  transcriptOverrides?: AdminYouTubeTranscriptOverride[];
+}): Promise<AdminYouTubeResearchLabResult> =>
+  requestAdmin<AdminYouTubeResearchLabResult>('/api/youtube/admin/research-lab', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 
 export const createAdminUser = async (input: AdminUserCreateInput): Promise<AdminUser> => {
   const response = await requestAdmin<{ user: AdminUser }>('/api/admin/users', {

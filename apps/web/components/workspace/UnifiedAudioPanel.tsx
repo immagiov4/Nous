@@ -16,6 +16,7 @@ import {
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { VoiceProfileId } from '../../types';
+import { extractYouTubeVideoId } from '../../utils/youtube.ts';
 import type { WorkspaceReaderTtsModel, WorkspaceReaderVoiceOption } from './shell/types.ts';
 
 interface UnifiedAudioPanelProps {
@@ -74,13 +75,7 @@ const YOUTUBE_PLAYER_STATE = {
   PAUSED: 2,
   BUFFERING: 3,
 } as const;
-const SOURCE_VIDEO_ID_LENGTH = 11;
-const YOUTUBE_HOSTNAMES = new Set(['m.youtube.com', 'www.youtube.com', 'youtube.com', 'youtu.be']);
-
 type AudioTab = 'voce' | 'ambiente';
-
-const normalizeVideoId = (value: string | null | undefined): string | null =>
-  value?.length === SOURCE_VIDEO_ID_LENGTH ? value : null;
 
 const getVoiceTabClassName = (isDisabled: boolean, activeTab: AudioTab): string => {
   const baseClassName =
@@ -155,41 +150,6 @@ const formatPlaybackRateLabel = (value: number): string => {
 
   const trimmedFraction = fractionalPart.slice(0, endIndex);
   return trimmedFraction ? `${integerPart}.${trimmedFraction}` : integerPart;
-};
-
-const extractYouTubeVideoId = (rawUrl: string): string | null => {
-  if (!rawUrl) {
-    return null;
-  }
-
-  try {
-    const parsedUrl = new URL(rawUrl);
-    const hostname = parsedUrl.hostname.toLowerCase();
-    if (!YOUTUBE_HOSTNAMES.has(hostname)) {
-      return null;
-    }
-
-    if (hostname === 'youtu.be') {
-      return normalizeVideoId(parsedUrl.pathname.split('/').filter(Boolean)[0]);
-    }
-
-    const searchVideoId = parsedUrl.searchParams.get('v');
-    if (searchVideoId) {
-      return normalizeVideoId(searchVideoId);
-    }
-
-    const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
-    const videoSegmentIndex = pathSegments.findIndex(segment =>
-      ['embed', 'shorts', 'u', 'v'].includes(segment)
-    );
-    if (videoSegmentIndex >= 0) {
-      return normalizeVideoId(pathSegments[videoSegmentIndex + 1]);
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
 };
 
 const UnifiedAudioPanel = ({

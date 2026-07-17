@@ -9,8 +9,12 @@ import {
   type AdminModelConfig,
   createAdminUser,
   getAdminModelConfig,
+  listAdminFeedback,
   listAdminUsers,
+  loadAdminFeedbackScreenshot,
+  loadCourseCoverRegenerationStatus,
   patchAdminModelConfig,
+  retryAdminFeedback,
   sendAdminAccessEmail,
   sendAdminMagicLink,
   updateAdminUser,
@@ -31,10 +35,15 @@ vi.mock('../../../services/admin/adminApi.ts', async importOriginal => {
     ...actual,
     createAdminUser: vi.fn(),
     getAdminModelConfig: vi.fn(),
+    listAdminFeedback: vi.fn(),
     listAdminUsers: vi.fn(),
+    loadCourseCoverRegenerationStatus: vi.fn(),
+    loadAdminFeedbackScreenshot: vi.fn(),
     patchAdminModelConfig: vi.fn(),
+    retryAdminFeedback: vi.fn(),
     sendAdminAccessEmail: vi.fn(),
     sendAdminMagicLink: vi.fn(),
+    startCourseCoverRegeneration: vi.fn(),
     updateAdminUser: vi.fn(),
   };
 });
@@ -77,6 +86,17 @@ const defaultModelConfig = {
   updatedAt: '2026-07-07T00:00:00.000Z',
 } satisfies AdminModelConfig;
 
+const openConfiguration = async (user: ReturnType<typeof userEvent.setup>) => {
+  await screen.findByText('student@example.com');
+  await user.click(screen.getByRole('button', { name: 'Configurazione' }));
+};
+
+const openProviderSections = async (user: ReturnType<typeof userEvent.setup>) => {
+  for (const provider of ['OpenRouter', 'OpenAI API', 'Codex app-server']) {
+    await user.click(screen.getByText(provider, { selector: 'summary span.flex-1' }));
+  }
+};
+
 describe('AdminPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -85,14 +105,28 @@ describe('AdminPanel', () => {
       enabled: true,
       models: [],
     });
-    vi.mocked(listAdminUsers).mockResolvedValue([
-      {
-        id: 'user-1',
-        email: 'student@example.com',
-        app_metadata: { role: 'user' },
-      },
-    ]);
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      hasMore: false,
+      page: 1,
+      pageSize: 8,
+      users: [
+        {
+          id: 'user-1',
+          email: 'student@example.com',
+          app_metadata: { role: 'user' },
+        },
+      ],
+    });
     vi.mocked(getAdminModelConfig).mockResolvedValue(defaultModelConfig);
+    vi.mocked(listAdminFeedback).mockResolvedValue({
+      page: 1,
+      pageSize: 10,
+      reports: [],
+      total: 0,
+    });
+    vi.mocked(loadAdminFeedbackScreenshot).mockResolvedValue(new Blob(['image']));
+    vi.mocked(loadCourseCoverRegenerationStatus).mockResolvedValue(null);
+    vi.mocked(retryAdminFeedback).mockResolvedValue();
     vi.mocked(patchAdminModelConfig).mockImplementation(async patch => ({
       ...defaultModelConfig,
       ...patch,
@@ -113,7 +147,10 @@ describe('AdminPanel', () => {
   });
 
   test('prefills model fields with backend defaults', async () => {
+    const user = userEvent.setup();
     render(<AdminPanel />);
+    await openConfiguration(user);
+    await openProviderSections(user);
 
     expect(await screen.findByDisplayValue('deepseek/deepseek-v4-pro')).toBeInTheDocument();
     expect(screen.getByDisplayValue('openai/gpt-5.6-terra')).toBeInTheDocument();
@@ -127,37 +164,40 @@ describe('AdminPanel', () => {
     expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(6);
     expect(screen.getByDisplayValue('Ara')).toBeInTheDocument();
     const artifactReasoningSelects = screen.getAllByRole('combobox', {
-      name: 'Ragionamento Artefatti visuali',
+      name: /Ragionamento Artefatti visuali per/,
     });
     expect(artifactReasoningSelects).toHaveLength(3);
     artifactReasoningSelects.forEach(select => {
       expect(select).toHaveValue('none');
     });
     const interactiveReasoningSelects = screen.getAllByRole('combobox', {
-      name: 'Ragionamento Artefatti interattivi',
+      name: /Ragionamento Artefatti interattivi per/,
     });
     expect(interactiveReasoningSelects).toHaveLength(3);
     interactiveReasoningSelects.forEach(select => {
       expect(select).toHaveValue('low');
     });
     const lessonReasoningSelects = screen.getAllByRole('combobox', {
-      name: 'Ragionamento Lezioni',
+      name: /Ragionamento Lezioni per/,
     });
     expect(lessonReasoningSelects).toHaveLength(3);
     lessonReasoningSelects.forEach(select => {
       expect(select).toHaveValue('high');
     });
-    expect(screen.getAllByRole('combobox', { name: 'Ragionamento Contesto' })).toHaveLength(3);
-    expect(screen.getAllByRole('combobox', { name: 'Ragionamento Assessment' })).toHaveLength(3);
-    expect(screen.getAllByRole('combobox', { name: 'Ragionamento Avanzamento' })[0]).toHaveValue(
-      'low'
+    expect(screen.getAllByRole('combobox', { name: /Ragionamento Contesto per/ })).toHaveLength(3);
+    expect(screen.getAllByRole('combobox', { name: /Ragionamento Assessment per/ })).toHaveLength(
+      3
     );
+    expect(
+      screen.getAllByRole('combobox', { name: /Ragionamento Avanzamento per/ })[0]
+    ).toHaveValue('low');
     expect(screen.queryByRole('combobox', { name: 'Ragionamento TTS' })).toBeNull();
   });
 
   test('saves the selected provider together with the provider-specific model mappings', async () => {
     const user = userEvent.setup();
     render(<AdminPanel />);
+    await openConfiguration(user);
 
     const providerSelect = await screen.findByRole('combobox', { name: 'Provider AI attivo' });
     await user.selectOptions(providerSelect, 'codex');
@@ -173,24 +213,47 @@ describe('AdminPanel', () => {
         lessonModel: 'openai/gpt-5.6-luna',
       })
     );
-    expect(await screen.findByRole('status')).toHaveTextContent('Modelli aggiornati.');
+    expect(await screen.findByText('Modelli aggiornati.')).toBeInTheDocument();
+  });
+
+  test('does not allow saving model defaults before persisted configuration loads', async () => {
+    const user = userEvent.setup();
+    let resolveConfig: ((config: AdminModelConfig) => void) | undefined;
+    vi.mocked(getAdminModelConfig).mockReturnValue(
+      new Promise(resolve => {
+        resolveConfig = resolve;
+      })
+    );
+    render(<AdminPanel />);
+
+    await user.click(screen.getByRole('button', { name: 'Configurazione' }));
+    expect(screen.getByRole('button', { name: 'Salva modelli' })).toBeDisabled();
+    expect(patchAdminModelConfig).not.toHaveBeenCalled();
+
+    resolveConfig?.(defaultModelConfig);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Salva modelli' })).toBeEnabled()
+    );
   });
 
   test('configures artifact models and reasoning independently from lessons', async () => {
     const user = userEvent.setup();
     render(<AdminPanel />);
+    await openConfiguration(user);
+    await openProviderSections(user);
 
-    const artifactModelInputs = await screen.findAllByLabelText('Modello Artefatti visuali');
-    expect(artifactModelInputs).toHaveLength(3);
-    const [openRouterArtifactInput, openAiArtifactInput, codexArtifactInput] = artifactModelInputs;
-    if (!openRouterArtifactInput || !openAiArtifactInput || !codexArtifactInput) {
-      throw new Error('Artifact model inputs are missing.');
-    }
+    const openRouterArtifactInput = await screen.findByLabelText(
+      'Modello Artefatti visuali per OpenRouter'
+    );
+    const openAiArtifactInput = screen.getByLabelText('Modello Artefatti visuali per OpenAI API');
+    const codexArtifactInput = screen.getByLabelText(
+      'Modello Artefatti visuali per Codex app-server'
+    );
     fireEvent.change(openRouterArtifactInput, { target: { value: 'openrouter/artifact-sol' } });
     fireEvent.change(openAiArtifactInput, { target: { value: 'openai-artifact-sol' } });
     fireEvent.change(codexArtifactInput, { target: { value: 'codex-artifact-sol' } });
     const artifactReasoningSelects = screen.getAllByRole('combobox', {
-      name: 'Ragionamento Artefatti visuali',
+      name: /Ragionamento Artefatti visuali per/,
     });
     const artifactReasoningSelect = artifactReasoningSelects[0];
     if (!artifactReasoningSelect) {
@@ -260,13 +323,18 @@ describe('AdminPanel', () => {
 
   test('sets and clears a user-specific AI provider', async () => {
     const user = userEvent.setup();
-    vi.mocked(listAdminUsers).mockResolvedValue([
-      {
-        id: 'user-1',
-        email: 'student@example.com',
-        app_metadata: { ai_provider: 'openai', role: 'user' },
-      },
-    ]);
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      hasMore: false,
+      page: 1,
+      pageSize: 8,
+      users: [
+        {
+          id: 'user-1',
+          email: 'student@example.com',
+          app_metadata: { ai_provider: 'openai', role: 'user' },
+        },
+      ],
+    });
     render(<AdminPanel />);
 
     const providerSelect = await screen.findByRole('combobox', {
@@ -297,6 +365,45 @@ describe('AdminPanel', () => {
     expect(updateAdminUser).toHaveBeenCalledWith('user-1', { password: 'g1ovann1' });
   });
 
+  test('keeps the password editor open and does not report success when the update fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(updateAdminUser).mockRejectedValue(new Error('Aggiornamento rifiutato.'));
+    render(<AdminPanel />);
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Imposta password per student@example.com' })
+    );
+    await user.type(screen.getByLabelText('Nuova password per student@example.com'), 'g1ovann1');
+    await user.click(screen.getByRole('button', { name: 'Salva password' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Aggiornamento rifiutato.');
+    expect(screen.getByLabelText('Nuova password per student@example.com')).toHaveValue('g1ovann1');
+    expect(screen.queryByText('Password aggiornata.')).toBeNull();
+  });
+
+  test('preserves an unsaved model draft after updating a user', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+    await openConfiguration(user);
+    await openProviderSections(user);
+
+    const lessonModel = screen.getByLabelText('Modello Lezioni per OpenRouter');
+    await user.clear(lessonModel);
+    await user.type(lessonModel, 'draft/lesson-model');
+    await user.click(screen.getByRole('button', { name: 'Utenti' }));
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Ruolo per student@example.com' }),
+      'admin'
+    );
+    await waitFor(() => expect(updateAdminUser).toHaveBeenCalledWith('user-1', { role: 'admin' }));
+
+    await user.click(screen.getByRole('button', { name: 'Configurazione' }));
+    await openProviderSections(user);
+    expect(screen.getByLabelText('Modello Lezioni per OpenRouter')).toHaveValue(
+      'draft/lesson-model'
+    );
+  });
+
   test('shows the magic-link destination and prevents duplicate sends while pending', async () => {
     const user = userEvent.setup();
     let resolveSend: (() => void) | undefined;
@@ -325,13 +432,18 @@ describe('AdminPanel', () => {
 
   test('labels and reports setup delivery truthfully for a pending invited user', async () => {
     const user = userEvent.setup();
-    vi.mocked(listAdminUsers).mockResolvedValue([
-      {
-        id: 'pending-user',
-        email: 'pending@example.com',
-        app_metadata: { password_setup_required: true, role: 'user' },
-      },
-    ]);
+    vi.mocked(listAdminUsers).mockResolvedValue({
+      hasMore: false,
+      page: 1,
+      pageSize: 8,
+      users: [
+        {
+          id: 'pending-user',
+          email: 'pending@example.com',
+          app_metadata: { password_setup_required: true, role: 'user' },
+        },
+      ],
+    });
     vi.mocked(sendAdminMagicLink).mockResolvedValue('setup');
     render(<AdminPanel />);
 
@@ -359,5 +471,118 @@ describe('AdminPanel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Invio magic link non riuscito.');
     expect(screen.queryByText('provider detail')).not.toBeInTheDocument();
+  });
+
+  test('paginates users without hiding their management actions', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listAdminUsers)
+      .mockResolvedValueOnce({
+        hasMore: true,
+        page: 1,
+        pageSize: 8,
+        users: Array.from({ length: 8 }, (_, index) => ({
+          id: `user-${index + 1}`,
+          email: `student${index + 1}@example.com`,
+          app_metadata: { role: 'user' },
+        })),
+      })
+      .mockResolvedValueOnce({
+        hasMore: false,
+        page: 2,
+        pageSize: 8,
+        users: [
+          {
+            id: 'user-9',
+            email: 'student9@example.com',
+            app_metadata: { role: 'user' },
+          },
+        ],
+      });
+    render(<AdminPanel />);
+
+    expect(await screen.findByText('student1@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('student9@example.com')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Pagina successiva' }));
+
+    expect(await screen.findByText('student9@example.com')).toBeInTheDocument();
+    expect(listAdminUsers).toHaveBeenLastCalledWith(2, 8);
+    expect(screen.getByRole('button', { name: /Invia link di accesso a student9/ })).toBeEnabled();
+  });
+
+  test('shows feedback diagnostics and retries failed GitHub delivery', async () => {
+    const user = userEvent.setup();
+    vi.mocked(listAdminFeedback).mockResolvedValue({
+      page: 1,
+      pageSize: 10,
+      total: 1,
+      reports: [
+        {
+          attemptCount: 2,
+          category: 'bug',
+          createdAt: '2026-07-16T10:00:00.000Z',
+          description: 'La lezione si blocca dopo il salvataggio.',
+          diagnostics: {
+            consoleEntries: [
+              { level: 'error', message: '[Nous] save failed', timestamp: '2026-07-16T10:00:00Z' },
+            ],
+            pageUrl: 'https://nous.test/course/123',
+            requestId: 'request-123',
+          },
+          githubLabels: [],
+          hasScreenshot: false,
+          id: 'feedback-1',
+          reporterEmail: 'student@example.com',
+          source: 'app',
+          status: 'failed',
+          updatedAt: '2026-07-16T10:05:00.000Z',
+        },
+      ],
+    });
+    render(<AdminPanel />);
+    await screen.findByText('student@example.com');
+
+    await user.click(screen.getByRole('button', { name: 'Segnalazioni' }));
+    expect(
+      (await screen.findAllByText('La lezione si blocca dopo il salvataggio.')).length
+    ).toBeGreaterThan(0);
+    expect(screen.getByText('request-123')).toBeInTheDocument();
+    await user.click(screen.getByText(/Log della console/));
+    expect(screen.getByText(/save failed/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Riprova pubblicazione' }));
+
+    await waitFor(() => expect(retryAdminFeedback).toHaveBeenCalledWith('feedback-1'));
+    expect(await screen.findByRole('status')).toHaveTextContent('Segnalazione rimessa in coda.');
+  });
+
+  test('shows a stable screenshot error instead of an endless placeholder', async () => {
+    const user = userEvent.setup();
+    vi.mocked(loadAdminFeedbackScreenshot).mockRejectedValue(new Error('private storage detail'));
+    vi.mocked(listAdminFeedback).mockResolvedValue({
+      page: 1,
+      pageSize: 10,
+      total: 1,
+      reports: [
+        {
+          attemptCount: 0,
+          category: 'bug',
+          createdAt: '2026-07-16T10:00:00.000Z',
+          description: 'La pagina si rompe.',
+          diagnostics: {},
+          githubLabels: [],
+          hasScreenshot: true,
+          id: 'feedback-with-screenshot',
+          source: 'app',
+          status: 'pending',
+          updatedAt: '2026-07-16T10:00:00.000Z',
+        },
+      ],
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    render(<AdminPanel />);
+
+    await user.click(await screen.findByRole('button', { name: 'Segnalazioni' }));
+
+    expect(await screen.findByText('Screenshot non disponibile.')).toBeInTheDocument();
+    expect(screen.queryByText('private storage detail')).toBeNull();
   });
 });

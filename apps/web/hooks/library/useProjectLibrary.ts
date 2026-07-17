@@ -82,10 +82,22 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
   const domainStateRef = useRef<WorkspaceDomainState>(domainState);
   const hydrateSnapshotRef = useRef(hydrateSnapshot);
   const savedProjectsRef = useRef<SavedProjectMeta[]>([]);
+  const explicitProjectTitlesRef = useRef(new Map<string, string>());
   const loadedProjectRevisionRef = useRef<{ projectId: string | null; revision?: number }>({
     projectId: null,
   });
   const currentProjectIdRef = useRef<string | null>(null);
+
+  const rememberExplicitProjectTitle = useCallback(
+    (project: Pick<ProjectSnapshot, 'id' | 'title'>) => {
+      if (project.title) {
+        explicitProjectTitlesRef.current.set(project.id, project.title);
+      } else {
+        explicitProjectTitlesRef.current.delete(project.id);
+      }
+    },
+    []
+  );
 
   const projectRepository = useMemo(() => new HttpProjectRepository(), []);
   const projectRepositoryRef = useRef(projectRepository);
@@ -237,6 +249,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
 
       return createProjectSnapshot({
         id: projectId,
+        title: overrides?.title ?? explicitProjectTitlesRef.current.get(projectId),
         version: overrides?.version,
         sourceKind: overrides?.sourceKind || currentProjectMeta?.sourceKind || undefined,
         state: overrides?.state || resolvePersistedAppState(domainState),
@@ -766,6 +779,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       if (!snapshot || pendingWriteCountRef.current > 0) {
         return;
       }
+      rememberExplicitProjectTitle(snapshot);
       if (buildAutosaveSignature(domainStateRef.current) !== lastPersistedSignatureRef.current) {
         return;
       }
@@ -788,7 +802,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
     } finally {
       isApplyingRemoteRevisionRef.current = false;
     }
-  }, []);
+  }, [rememberExplicitProjectTitle]);
 
   useEffect(() => {
     processPendingRemoteRevisionRef.current = processPendingRemoteRevision;
@@ -911,12 +925,24 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
   );
 
   const loadProjectsById = useCallback(
-    (ids: string[]) => projectRepositoryRef.current.loadProjectsById(ids),
-    []
+    async (ids: string[]) => {
+      const projects = await projectRepositoryRef.current.loadProjectsById(ids);
+      for (const project of projects) {
+        rememberExplicitProjectTitle(project);
+      }
+      return projects;
+    },
+    [rememberExplicitProjectTitle]
   );
   const loadStoredProject = useCallback(
-    (projectId: string) => projectRepositoryRef.current.loadProject(projectId),
-    []
+    async (projectId: string) => {
+      const project = await projectRepositoryRef.current.loadProject(projectId);
+      if (project) {
+        rememberExplicitProjectTitle(project);
+      }
+      return project;
+    },
+    [rememberExplicitProjectTitle]
   );
   const loadStoredProjectCover = useCallback(
     (projectId: string) => projectRepositoryRef.current.loadProjectCover(projectId),
@@ -930,6 +956,23 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
     (projectId: string, cover: FileData) =>
       projectRepositoryRef.current.saveProjectCover(projectId, cover),
     []
+  );
+
+  const renameProject = useCallback(
+    async (projectId: string, title: string) => {
+      const meta = await runTrackedProjectWrite(
+        () =>
+          projectRepositoryRef.current.patchProject(
+            projectId,
+            { title, updatedAt: timestampIso() },
+            { expectedRevision: getExpectedRevision(projectId) }
+          ),
+        false
+      );
+      explicitProjectTitlesRef.current.set(projectId, title);
+      return meta;
+    },
+    [getExpectedRevision, runTrackedProjectWrite]
   );
 
   // Autosave: full snapshot PUT — safety net for any domain change that wasn't
@@ -991,6 +1034,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       return folder;
     },
     currentProjectId,
+    getCurrentProjectId: () => currentProjectIdRef.current,
     deleteStoredProject: async (projectId: string) => {
       await projectRepositoryRef.current.deleteProject(projectId);
       await refreshLibraryState();
@@ -1043,6 +1087,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       await refreshLibraryOrganization();
       return nextFolder;
     },
+    renameProject,
     saveStoredProjectCover,
     saveCurrentProject,
     saveLessonArtifactNote,

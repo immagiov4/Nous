@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderSidebarModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderSidebar from '../../../../components/workspace/shell/WorkspaceReaderSidebar.tsx';
@@ -153,6 +153,22 @@ describe('WorkspaceReaderSidebar', () => {
     );
 
     expect(screen.getByRole('button', { name: /Pianificazione esercizi/i })).toBeDisabled();
+  });
+
+  test('opens course feedback directly without duplicating the external course actions', async () => {
+    render(<WorkspaceReaderSidebar {...buildProps()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Segnala problema' }));
+    const feedbackDialog = screen.getByRole('dialog', { name: 'Segnala un problema' });
+    expect(feedbackDialog).toBeInTheDocument();
+
+    fireEvent.click(within(feedbackDialog).getByRole('button', { name: 'Chiudi segnalazione' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Segnala problema' })).toHaveFocus()
+    );
+
+    expect(screen.queryByLabelText(/Azioni corso/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Esporta' })).not.toBeInTheDocument();
   });
 
   test('hides the repair action once no repair is needed and no planning is running', () => {

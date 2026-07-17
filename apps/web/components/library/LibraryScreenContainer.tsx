@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { useLibraryAssistantChat } from '../../hooks/library/useLibraryAssistantChat.ts';
 import type { useProjectLibrary } from '../../hooks/library/useProjectLibrary.ts';
 import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceController.ts';
@@ -9,7 +9,6 @@ import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { NewHomeView } from '../newHome/NewHomeView.tsx';
-import LibraryView from './LibraryView.tsx';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
@@ -33,11 +32,36 @@ interface LibraryScreenContainerProps {
   }) => Promise<boolean>;
 }
 
-const isNewHomePath = (pathname: string): boolean =>
+const isLibraryQueryPath = (pathname: string): boolean =>
   pathname === '/' ||
   pathname === '/library' ||
   pathname.startsWith('/newhome') ||
   pathname.startsWith('/library/');
+
+interface RenameProjectAndSyncLoadedPlanArgs {
+  getCurrentLearningPlan: () => WorkspaceController['learningPlan'];
+  getCurrentProjectId: () => string | null;
+  projectId: string;
+  renameProject: WorkspaceProjectLibrary['renameProject'];
+  setLearningPlan: WorkspaceController['setLearningPlan'];
+  title: string;
+}
+
+export const renameProjectAndSyncLoadedPlan = async ({
+  getCurrentLearningPlan,
+  getCurrentProjectId,
+  projectId,
+  renameProject,
+  setLearningPlan,
+  title,
+}: RenameProjectAndSyncLoadedPlanArgs) => {
+  const renamedProject = await renameProject(projectId, title);
+  const learningPlan = getCurrentLearningPlan();
+  if (getCurrentProjectId() === projectId && learningPlan) {
+    setLearningPlan({ ...learningPlan, title });
+  }
+  return renamedProject;
+};
 
 export const LibraryScreenContainer = ({
   controller,
@@ -49,9 +73,13 @@ export const LibraryScreenContainer = ({
   notify,
   requestConfirmation,
 }: LibraryScreenContainerProps) => {
+  const learningPlanRef = useRef(controller.learningPlan);
+  useEffect(() => {
+    learningPlanRef.current = controller.learningPlan;
+  }, [controller.learningPlan]);
   const [assessmentComplete, setAssessmentComplete] = useState(false);
   const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>(() =>
-    typeof window !== 'undefined' && isNewHomePath(window.location.pathname)
+    typeof window !== 'undefined' && isLibraryQueryPath(window.location.pathname)
       ? 'library-query'
       : 'new-course'
   );
@@ -65,7 +93,6 @@ export const LibraryScreenContainer = ({
     savedProjects,
     startHomeChat,
     submitAssessment,
-    storageError,
   } = controller;
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -124,10 +151,28 @@ export const LibraryScreenContainer = ({
     }
   };
 
-  const isNewHomeRoute = typeof window !== 'undefined' && isNewHomePath(window.location.pathname);
+  const handleRenameProject = async (projectId: string, title: string) => {
+    return renameProjectAndSyncLoadedPlan({
+      getCurrentLearningPlan: () => learningPlanRef.current,
+      getCurrentProjectId: projectLibrary.getCurrentProjectId,
+      projectId,
+      renameProject: projectLibrary.renameProject,
+      setLearningPlan: controller.setLearningPlan,
+      title,
+    });
+  };
 
-  if (isNewHomeRoute) {
-    return (
+  return (
+    <>
+      <input
+        id={fileActions.sourceFileInputId}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={event => {
+          void handleHomeSourceFileUpload(event);
+        }}
+      />
       <NewHomeView
         chatProps={{
           assessmentComplete,
@@ -196,89 +241,13 @@ export const LibraryScreenContainer = ({
         }}
         openingProjectId={openingProjectId}
         onRenameFolder={projectLibrary.renameFolder}
+        onRenameProject={handleRenameProject}
         onToggleDarkMode={() =>
           readerState.readerChrome.setIsDarkMode(!readerState.readerChrome.isDarkMode)
         }
         projects={savedProjects}
         saveProjectCover={projectLibrary.saveStoredProjectCover}
       />
-    );
-  }
-
-  return (
-    <LibraryView
-      assessmentComplete={assessmentComplete}
-      assessmentMessages={assessmentMessages}
-      homeChatMode={homeChatMode}
-      isDarkMode={readerState.readerChrome.isDarkMode}
-      isExportingProject={fileActions.isExportingProject}
-      isLibraryLoading={isLibraryLoading}
-      isLibraryQueryLoading={libraryAssistantChat.isLoading}
-      isNewCourseLoading={controller.workflowState.assessment.status === 'pending'}
-      libraryAttachedContextRefs={libraryAssistantChat.attachedContextRefs}
-      libraryArtifactPayloadsByToolCallId={libraryAssistantChat.artifactPayloadsByToolCallId}
-      libraryFloatingArtifactPayloads={libraryAssistantChat.replacementDraftPayloads}
-      libraryErrorMessage={libraryAssistantChat.error?.message || null}
-      libraryMessages={libraryAssistantChat.messages}
-      libraryTree={projectLibrary.libraryTree}
-      libraryWebSearch={libraryAssistantChat.webSearch}
-      libraryGenerateArtifacts={libraryAssistantChat.generateArtifacts}
-      newCourseLoadingStatus={controller.workflowState.assessment.message || t('Caricamento...')}
-      openingProjectId={openingProjectId}
-      planFileInputId={fileActions.planFileInputId}
-      projects={savedProjects}
-      pendingHomeFileName={pendingHomeSourceFiles[0]?.name || null}
-      pendingHomeFileNames={pendingHomeSourceFiles.map(file => file.name)}
-      sourceFileInputId={fileActions.sourceFileInputId}
-      storageError={storageError}
-      onClearPendingHomeFile={() => setPendingHomeSourceFiles([])}
-      onClearLibraryMessages={libraryAssistantChat.clearLibraryMessages}
-      onContinueAssessment={() => setAssessmentComplete(false)}
-      onConfirmGenerate={handleConfirmGenerate}
-      onCreateFolder={projectLibrary.createFolder}
-      onConfirmDeleteFolder={folderName =>
-        requestConfirmation({
-          title: t('Eliminare cartella'),
-          message: t(
-            'Eliminare la cartella "{folderName}"? I corsi e le sottocartelle verranno riportati al livello superiore.',
-            { folderName }
-          ),
-          confirmLabel: t('Elimina'),
-        })
-      }
-      onDeleteFolder={projectLibrary.deleteFolder}
-      onDeleteProject={fileActions.handleDeleteProject}
-      onExportProject={projectId => {
-        void fileActions.handleExportProject(projectId);
-      }}
-      onExportLibraryBackup={projectLibrary.downloadLibraryBackup}
-      onHomeChatModeChange={setHomeChatMode}
-      onImportJsonClick={fileActions.handleImportJsonClick}
-      onImportLibraryBackup={projectLibrary.importLibraryBackup}
-      onLibraryAssistantSend={libraryAssistantChat.sendLibraryMessage}
-      onLibraryArtifactNoteApprove={libraryAssistantChat.approveLearningArtifactNoteSave}
-      onLibraryArtifactNoteReject={libraryAssistantChat.rejectLearningArtifactNoteSave}
-      onLibraryArtifactDiscard={libraryAssistantChat.discardLearningArtifact}
-      onLibraryArtifactRegenerate={libraryAssistantChat.regenerateLearningArtifact}
-      onLibraryArtifactReplace={libraryAssistantChat.replaceLearningArtifact}
-      onLibraryWebSearchChange={libraryAssistantChat.setWebSearch}
-      onLibraryGenerateArtifactsChange={libraryAssistantChat.setGenerateArtifacts}
-      onMoveFolder={projectLibrary.moveFolder}
-      onMoveProjects={projectLibrary.moveProjects}
-      onOpenProject={projectId => {
-        void navigation.handleOpenProject(projectId, { source: 'library' });
-      }}
-      onPlanUpload={event => {
-        void fileActions.handlePlanUpload(event);
-      }}
-      onRenameFolder={projectLibrary.renameFolder}
-      onSendAssessmentMessage={handleNewCourseMessage}
-      onSourceFileUpload={handleHomeSourceFileUpload}
-      onToggleDarkMode={() =>
-        readerState.readerChrome.setIsDarkMode(!readerState.readerChrome.isDarkMode)
-      }
-      onToggleLibraryContextRef={libraryAssistantChat.toggleAttachedContextRef}
-      onUploadSourceClick={fileActions.handleUploadSourceClick}
-    />
+    </>
   );
 };

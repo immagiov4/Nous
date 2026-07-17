@@ -22,6 +22,10 @@ import type {
   ProjectSourceFile,
   SectionPatch,
 } from '../projects/types.js';
+import {
+  getCourseCoverRegenerationStatus,
+  startOrResumeCourseCoverRegeneration,
+} from '../services/courseCoverRegeneration.js';
 import { sendErrorResponse } from '../utils/httpResponses.js';
 import { timestampIso } from '../utils/time.js';
 import {
@@ -55,6 +59,8 @@ const LIBRARY_IMPORT_DIAGNOSTIC_STAGES = new Set([
   'zip-open',
 ]);
 const CORRELATION_ID_PATTERN = /^[0-9a-f-]{36}$/u;
+const COURSE_COVER_JOB_STATUS_ROUTE_ERROR = 'Unable to read course cover regeneration status.';
+const COURSE_COVER_JOB_START_ROUTE_ERROR = 'Unable to start course cover regeneration.';
 
 const getTargetIndex = (value: unknown): number | undefined => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -262,6 +268,31 @@ router.get('/projects', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/covers/regenerate/status', (req: Request, res: Response) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('Pragma', 'no-cache');
+  try {
+    const currentUser = getCurrentUser(req);
+    res.json({ success: true, job: getCourseCoverRegenerationStatus(currentUser.id) });
+  } catch (error) {
+    console.error('[Nous][CourseCover] Status route failed.', { error });
+    res.status(500).json({ success: false, error: COURSE_COVER_JOB_STATUS_ROUTE_ERROR });
+  }
+});
+
+router.get('/covers/regenerate', (req: Request, res: Response) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('Pragma', 'no-cache');
+  try {
+    const currentUser = getCurrentUser(req);
+    const job = startOrResumeCourseCoverRegeneration(currentUser.id, currentUser.aiProvider);
+    res.status(job.status === 'running' ? 202 : 200).json({ success: true, job });
+  } catch (error) {
+    console.error('[Nous][CourseCover] Start route failed.', { error });
+    res.status(500).json({ success: false, error: COURSE_COVER_JOB_START_ROUTE_ERROR });
+  }
+});
+
 router.post('/projects/by-id', async (req: Request, res: Response) => {
   try {
     const ids = readStringArray(getBodyRecord(req.body).ids);
@@ -310,11 +341,18 @@ router.get('/projects/:id/cover', async (req: Request, res: Response) => {
 
 router.post('/projects/:id/cover', async (req: Request, res: Response) => {
   try {
-    await getProjectStore().saveProjectCover(
+    const saved = await getProjectStore().saveProjectCover(
       getCurrentUser(req).id,
       getRouteParam(req.params.id),
       requireProjectCoverFile(req.body)
     );
+    if (!saved) {
+      res.status(409).json({
+        success: false,
+        error: 'Il corso è cambiato prima del salvataggio della cover.',
+      });
+      return;
+    }
     res.json({ success: true });
   } catch (error) {
     sendErrorResponse(res, 400, error, 'Failed to save project cover');
@@ -392,6 +430,7 @@ const requireProjectPatch = (body: unknown, _routeProjectId: string): ProjectPat
   }
 
   return {
+    title: readOptionalString(patchRecord.title),
     activeSectionId: readNullableString(patchRecord.activeSectionId),
     state: readOptionalString(patchRecord.state),
     isLearnMode: typeof patchRecord.isLearnMode === 'boolean' ? patchRecord.isLearnMode : undefined,

@@ -31,10 +31,10 @@ const VISUAL_PLANNER_PROMPT = `SYSTEM:
 Sei un pianificatore pedagogico di esempi visivi per Nous Reader.
 Dato il testo finale di una lezione, decidi quali rappresentazioni visive generate servono davvero.
 
-Scegli esattamente un tipo:
-- illustrative_image: icone, figure, forme organiche, personaggi, pose, oggetti raffigurati, scene, panorami, anatomia, gesti oppure aspetto reale di oggetti, organismi, materiali, luoghi e fenomeni naturali.
-- flowchart_svg: processo, pipeline, sequenza, albero decisionale.
-- structural_svg: contenimento, architettura, strati, parti dentro un sistema.
+Scegli esattamente un tipo per ciascun piano:
+- illustrative_image: illustrazione raster per realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, anatomia, gesti, oggetti, scene, luoghi e fenomeni. Puo anche avere una composizione diagrammatica con frecce ed etichette quando queste aiutano a leggere l'immagine.
+- flowchart_svg: solo schema informativo semplice di processo, pipeline, sequenza o albero decisionale.
+- structural_svg: solo schema informativo semplice di contenimento, architettura, strati o parti dentro un sistema.
 - interactive_html: variabile manipolabile o esplorazione passo-passo.
 - chart_html: dati quantitativi, confronti numerici, distribuzioni, trend.
 - mermaid_erd: solo schema entita-relazioni.
@@ -43,13 +43,14 @@ Scegli esattamente un tipo:
 
 Regole:
 - Per una richiesta esplicita pianifica un solo artefatto. Per la generazione automatica pianifica normalmente zero o un artefatto, due solo se rispondono a domande pedagogiche diverse e complementari, tre solo se sono tutti indispensabili. Mai produrre varianti estetiche dello stesso contenuto.
-- Ogni piano deve essere indipendente e generabile separatamente. Se servono sia "che aspetto ha?" sia "come funziona?", puoi scegliere un'immagine raster e uno schema SVG distinti.
+- La varieta dei formati non e mai un obiettivo o un vincolo. Scegli ogni formato soltanto in base al contenuto che deve insegnare: due o tre immagini raster sono corrette quando sono la soluzione pedagogica migliore. Non inserire SVG, HTML o Mermaid per diversificare un insieme di artefatti.
+- Ogni piano deve essere indipendente e generabile separatamente. Se servono sia "che aspetto ha?" sia "come funziona?", scegli separatamente il formato piu adatto a ciascuna domanda, anche ripetendo illustrative_image.
 - La richiesta esplicita dell'utente sul formato e autoritativa. Se chiede un'immagine o un'illustrazione, scegli illustrative_image. Se chiede un SVG, usalo soltanto se il contenuto e davvero uno schema strutturale o un flusso astratto; altrimenti non fingere che un disegno sia uno schema. Non sostituire mai un'immagine richiesta con SVG, HTML o Mermaid.
-- SVG significa esclusivamente schema astratto composto da nodi, box, linee, frecce, etichette e forme geometriche semplici che rappresentano processi, relazioni, contenimento, gerarchie, strati o architetture. SVG non puo raffigurare icone, figure, forme organiche, persone, personaggi, pose, anatomia, gesti, oggetti concreti, scene, paesaggi o panorami. Quando uno di questi elementi e informazione pedagogica, scegli illustrative_image.
+- SVG significa esclusivamente riepilogo schematico informativo semplice, composto da pochi nodi, box, linee, frecce, etichette e forme geometriche che rappresentano relazioni astratte. Non usarlo per raffigurare realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, illustrazioni o qualunque scena visivamente complessa. In questi casi scegli illustrative_image, anche quando la composizione utile include etichette, frecce o una struttura da schema.
 - Inferisci la lingua dal testo finale della lezione. La visuale deve usare la stessa lingua della lezione.
 - Preferisci una visuale quando mancano immagini del PDF e il concetto contiene relazioni, flussi, struttura o variabili.
 - Non generare visuali decorative. La visuale deve insegnare qualcosa che il testo da solo rende piu faticoso.
-- Usa illustrative_image solo quando aspetto, texture o scena concreta sono informazione indispensabile, mai per decorazione. Per processi, strutture, dati e confronti usa i tipi schematici.
+- Usa illustrative_image quando aspetto, struttura visiva, texture, luce, volume, spazio o scena sono informazione utile, mai per decorazione. Usa i tipi schematici solo quando il contenuto e davvero semplice, astratto e informativo; un processo o una struttura fisica non diventano automaticamente un SVG.
 - Se "Immagini PDF gia integrate" e "si", trattale come materiale visivo primario. Aggiungi una visuale generata solo se risponde a una domanda pedagogica distinta che le immagini della fonte non coprono; altrimenti non pianificare nulla.
 - Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
 - **Copertura completa di elementi co-presenti.** Se la lezione presenta un insieme di elementi equivalenti (es. un elenco di N regole, N principi, N caratteristiche, N passaggi, N tipologie), la visuale deve rappresentarli TUTTI in un unico grafico. Non e accettabile scegliere un solo sottoelemento e ignorare gli altri. L'unica eccezione e quando un elemento e oggettivamente molto piu complesso degli altri e necessita una visuale dedicata mentre gli altri sono banali e auto-esplicativi; in quel caso la scelta deve essere giustificata nel campo "reason".
@@ -108,7 +109,7 @@ Output SOLO JSON:
 }
 
 Regole SVG obbligatorie:
-- SVG e riservato a schemi astratti: nodi, box, linee, frecce, etichette, relazioni, gerarchie, strati, contenimento e architetture. Sono vietati in tutto l'SVG icone, figure, forme organiche, persone, personaggi, pose, anatomia, gesti, oggetti raffigurati, scene, paesaggi e panorami. Non approssimarli con omini stilizzati o disegni geometrici.
+- SVG e riservato a riepiloghi schematici informativi semplici: pochi nodi, box, linee, frecce ed etichette per relazioni, gerarchie, contenimento e architetture astratte. Sono vietati realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, illustrazioni, forme organiche, persone, anatomia, gesti, oggetti raffigurati e scene. Non approssimare questi soggetti con box, omini stilizzati o disegni geometrici: richiedono un'immagine raster.
 - **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", la visuale SVG deve rappresentare TUTTI gli elementi dell'insieme in un unico grafico. Non puoi sceglierne solo uno. Usa layout a griglia o a colonne per distribuirli bilanciatamente.
 - Tutto il testo visibile dentro l'SVG deve essere nella stessa lingua della lezione fornita. Non tradurre in inglese se la lezione non e in inglese.
 - svg_code deve essere un singolo elemento <svg>, senza wrapper, DOCTYPE o tag HTML.
@@ -711,7 +712,8 @@ const buildImageGenerationPrompt = (
     'Illustrazione educativa precisa, leggibile, visivamente coerente e non decorativa. Materiali, luce, anatomia, prospettiva e relazioni spaziali devono essere plausibili per il soggetto.',
     '',
     'VINCOLI',
-    '- Nessun testo, lettera, numero, didascalia, logo o watermark dentro l’immagine.',
+    '- Usa testo, numeri, etichette o frecce solo quando sono necessari per leggere il contenuto pedagogico; mantienili brevi, corretti e nella lingua della lezione.',
+    '- Nessun logo, watermark, didascalia narrativa o testo decorativo.',
     '- Nessuna interfaccia grafica, cornice decorativa o elemento estraneo.',
     '- Non trasformare il soggetto in un diagramma di blocchi: questa richiesta è raster perché il suo aspetto concreto o la sua complessità spaziale sono informativi.',
     '',

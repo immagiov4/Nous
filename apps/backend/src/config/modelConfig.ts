@@ -279,8 +279,11 @@ export const getResolvedModelConfigForProvider = async (
   return isAiProvider(requestedProvider) ? { ...config, aiProvider: requestedProvider } : config;
 };
 
-const buildPatchedGlobalModelConfig = (patch: GlobalModelConfigPatch): GlobalModelConfig => ({
-  ...activeModelConfig,
+const buildPatchedGlobalModelConfig = (
+  currentConfig: GlobalModelConfig,
+  patch: GlobalModelConfigPatch
+): GlobalModelConfig => ({
+  ...currentConfig,
   ...(isAiProvider(patch.aiProvider) ? { aiProvider: patch.aiProvider } : {}),
   ...(readConfigValue(patch.artifactModel)
     ? { artifactModel: readConfigValue(patch.artifactModel) }
@@ -381,7 +384,7 @@ const buildPatchedGlobalModelConfig = (patch: GlobalModelConfigPatch): GlobalMod
 });
 
 export const patchGlobalModelConfig = (patch: GlobalModelConfigPatch): GlobalModelConfig => {
-  activeModelConfig = buildPatchedGlobalModelConfig(patch);
+  activeModelConfig = buildPatchedGlobalModelConfig(activeModelConfig, patch);
   return activeModelConfig;
 };
 
@@ -552,13 +555,15 @@ export const loadPersistedGlobalModelConfig = async (): Promise<GlobalModelConfi
 export const patchAndPersistGlobalModelConfig = async (
   patch: GlobalModelConfigPatch
 ): Promise<GlobalModelConfig> => {
-  const config = buildPatchedGlobalModelConfig(patch);
   if (!isPersistentModelConfigEnabled()) {
+    const config = buildPatchedGlobalModelConfig(activeModelConfig, patch);
     activeModelConfig = config;
     persistedModelConfigPromise = null;
     return config;
   }
 
+  const persistedConfig = await loadPersistedGlobalModelConfig();
+  const config = buildPatchedGlobalModelConfig(persistedConfig, patch);
   const { serviceRoleKey, supabaseUrl } = getSupabaseRestConfig();
   const response = await fetch(`${supabaseUrl}/rest/v1/model_config?on_conflict=id`, {
     method: 'POST',

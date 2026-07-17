@@ -228,7 +228,10 @@ export const selectPrerequisiteSourceCoverage = async (
 };
 
 const normalizeSourceKey = (source: ResearchSourceReference): string => {
-  const url = source.url?.trim().replace(/\/+$/u, '').toLowerCase();
+  let url = source.url?.trim().toLowerCase();
+  while (url?.endsWith('/')) {
+    url = url.slice(0, -1);
+  }
   return url || source.title.trim().normalize('NFKC').toLowerCase();
 };
 
@@ -244,10 +247,12 @@ export const mergePrerequisiteDossierSources = (
       return;
     }
     const existing = sourcesByKey.get(key);
+    const videoClip = existing?.videoClip || source.videoClip;
     sourcesByKey.set(key, {
       title: existing?.title || source.title,
       url: existing?.url || source.url,
       note: existing?.note || source.note,
+      ...(videoClip ? { videoClip } : {}),
     });
   });
 

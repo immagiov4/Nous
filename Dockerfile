@@ -42,7 +42,7 @@ ARG YT_DLP_VERSION
 ARG YOUTUBE_TRANSCRIPT_API_VERSION
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates nodejs poppler-utils python3 python3-pip \
+    && apt-get install -y --no-install-recommends ca-certificates chromium fonts-liberation nodejs poppler-utils python3 python3-pip \
     && pip3 install --no-cache-dir --break-system-packages "yt-dlp==${YT_DLP_VERSION}" "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" \
     && BUN_INSTALL=/usr/local bun add --global "@openai/codex@${CODEX_VERSION}" \
     && mkdir -p /home/bun/.codex \
@@ -57,6 +57,7 @@ COPY --chown=bun:bun apps/backend/package.json apps/backend/package.json
 COPY --chown=bun:bun apps/backend/src apps/backend/src
 COPY --chown=bun:bun apps/backend/tsconfig.json apps/backend/tsconfig.json
 COPY --chown=bun:bun packages packages
+COPY --chown=bun:bun scripts/fetch-youtube-browser-transcript.mjs scripts/fetch-youtube-browser-transcript.mjs
 COPY --chown=bun:bun server.config.json server.config.json
 USER bun
 EXPOSE 3301

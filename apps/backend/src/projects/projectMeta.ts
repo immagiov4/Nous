@@ -42,6 +42,11 @@ const inferProjectSourceKind = (snapshot: ProjectSnapshot, imported = false): Pr
 };
 
 const getProjectTitle = (snapshot: ProjectSnapshot): string => {
+  const explicitTitle = snapshot.title?.trim();
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
   const planTitle = snapshot.learningPlan?.title?.trim();
   if (planTitle) {
     return planTitle;
@@ -165,9 +170,21 @@ export const normalizeProjectSnapshot = (data: unknown, imported = false): Proje
     lastOpenedAt: ensureString(record.lastOpenedAt, now),
   } as ProjectSnapshot;
 
-  return {
+  const normalizedSnapshot = {
     ...snapshot,
     sourceKind: inferProjectSourceKind(snapshot, imported),
+  };
+  const explicitTitle = ensureString(snapshot.title);
+  if (!explicitTitle) {
+    return normalizedSnapshot;
+  }
+
+  return {
+    ...normalizedSnapshot,
+    title: explicitTitle,
+    learningPlan: normalizedSnapshot.learningPlan
+      ? { ...normalizedSnapshot.learningPlan, title: explicitTitle }
+      : normalizedSnapshot.learningPlan,
   };
 };
 

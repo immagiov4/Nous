@@ -14,6 +14,7 @@ import {
 import {
   type DragEvent,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -51,6 +52,7 @@ interface LibraryTreeViewProps {
   ) => Promise<unknown>;
   onOpenProject: (projectId: string) => void;
   onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
+  onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
   tree: LibraryTree;
 }
 
@@ -278,6 +280,7 @@ export default function LibraryTreeView({
   onMoveProjects,
   onOpenProject,
   onRenameFolder,
+  onRenameProject,
   tree,
 }: LibraryTreeViewProps) {
   const [createTargetId, setCreateTargetId] = useState<string | null>(null);
@@ -516,6 +519,15 @@ export default function LibraryTreeView({
     if (!trimmedName || pendingAction === 'folder-save') {
       return;
     }
+    if (
+      args.mode === 'rename' &&
+      args.folderId &&
+      tree.folderById[args.folderId]?.name.trim() === trimmedName
+    ) {
+      setEditingFolderId(null);
+      setFolderDraftName('');
+      return;
+    }
 
     setPendingAction('folder-save');
     setActionError('');
@@ -550,6 +562,20 @@ export default function LibraryTreeView({
     setCreateTargetId(null);
     setEditingFolderId(null);
     setFolderDraftName('');
+  };
+
+  const handleFolderInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape' && pendingAction !== 'folder-save') {
+      event.preventDefault();
+      cancelFolderEditing();
+    }
+  };
+
+  const startFolderRenaming = (folderId: string, name: string) => {
+    setOpenFolderMenuId(null);
+    setEditingFolderId(folderId);
+    setCreateTargetId(null);
+    setFolderDraftName(name);
   };
 
   const restoreFolderActionFocus = useCallback(() => {
@@ -680,6 +706,7 @@ export default function LibraryTreeView({
         type="text"
         value={folderDraftName}
         onChange={event => setFolderDraftName(event.target.value)}
+        onKeyDown={handleFolderInputKeyDown}
         placeholder={mode === 'create' ? t('Nome cartella...') : t('Rinomina cartella...')}
         className="min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 dark:text-zinc-100 dark:placeholder:text-zinc-500"
       />
@@ -711,6 +738,7 @@ export default function LibraryTreeView({
         type="text"
         value={folderDraftName}
         onChange={event => setFolderDraftName(event.target.value)}
+        onKeyDown={handleFolderInputKeyDown}
         placeholder={t('Rinomina cartella...')}
         className="min-w-0 flex-1 rounded-xl border border-gray-300 bg-white/90 px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-gray-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
       />
@@ -940,6 +968,7 @@ export default function LibraryTreeView({
               setMoveTarget({ id: projectId, kind: 'project' });
             }}
             onOpen={onOpenProject}
+            onRename={onRenameProject}
           />
           {isDropAfter(node.id, 'project') ? (
             <div className="absolute -bottom-px right-0 z-20" style={{ left: paddingLeft }}>
@@ -1056,7 +1085,13 @@ export default function LibraryTreeView({
               renderFolderInlineRenameForm(node.id)
             ) : (
               <div className="flex items-center gap-2">
-                <p className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100">
+                <p
+                  onDoubleClick={event => {
+                    event.stopPropagation();
+                    startFolderRenaming(node.id, node.folder.name);
+                  }}
+                  className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100"
+                >
                   {node.folder.name}
                 </p>
                 <span className="hidden sm:inline rounded-full border border-amber-200 bg-amber-50/80 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
@@ -1112,10 +1147,7 @@ export default function LibraryTreeView({
               <button
                 type="button"
                 onClick={() => {
-                  setOpenFolderMenuId(null);
-                  setEditingFolderId(node.id);
-                  setCreateTargetId(null);
-                  setFolderDraftName(node.folder.name);
+                  startFolderRenaming(node.id, node.folder.name);
                 }}
                 className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-700"
               >

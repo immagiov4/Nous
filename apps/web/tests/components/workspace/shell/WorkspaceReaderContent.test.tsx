@@ -1,12 +1,18 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { WorkspaceReaderContentModel } from '../../../../components/workspace/shell/types.ts';
 import WorkspaceReaderContent from '../../../../components/workspace/shell/WorkspaceReaderContent.tsx';
 import type { ApplicationExerciseNode, LearningArtifactRenderPayload } from '../../../../types.ts';
+
+const youtubePolicyMocks = vi.hoisted(() => ({
+  getYouTubeVideoClipsEnabled: vi.fn(async () => true),
+}));
+
+vi.mock('../../../../services/openrouter/youtubeResearchClient.ts', () => youtubePolicyMocks);
 
 const buildProps = (
   overrides: Partial<WorkspaceReaderContentModel> = {}
@@ -93,6 +99,7 @@ const savedSelectionArtifact: LearningArtifactRenderPayload = {
 describe('WorkspaceReaderContent', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    youtubePolicyMocks.getYouTubeVideoClipsEnabled.mockResolvedValue(true);
   });
 
   test('shows a lesson generation skeleton when the selected lesson is not ready yet', () => {
@@ -274,6 +281,56 @@ describe('WorkspaceReaderContent', () => {
     );
     expect(screen.queryByRole('link', { name: 'Materiale originale' })).toBeNull();
     expect(screen.getByText('Lessico del corso.')).toBeInTheDocument();
+  });
+
+  test('loads a validated timestamped YouTube demonstration only after user intent', async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          lessonSources: [
+            {
+              title: 'Ombreggiatura a tratteggio',
+              url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+              note: 'Mostra il movimento della matita durante il passaggio pratico.',
+              videoClip: { startSeconds: 65, endSeconds: 92 },
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(container.querySelector('iframe')).toBeNull();
+    await user.click(
+      await screen.findByRole('button', { name: 'Riproduci la dimostrazione (1:05–1:32)' })
+    );
+
+    const frame = screen.getByTitle('Dimostrazione video: Ombreggiatura a tratteggio');
+    expect(frame).toHaveAttribute(
+      'src',
+      'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?autoplay=0&controls=1&end=92&playsinline=1&rel=0&start=65'
+    );
+    expect(frame).toHaveAttribute('loading', 'lazy');
+  });
+
+  test('keeps persisted YouTube clips hidden when the backend policy is disabled', async () => {
+    youtubePolicyMocks.getYouTubeVideoClipsEnabled.mockResolvedValue(false);
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          lessonSources: [
+            {
+              title: 'Ombreggiatura a tratteggio',
+              url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+              videoClip: { startSeconds: 65, endSeconds: 92 },
+            },
+          ],
+        })}
+      />
+    );
+
+    await waitFor(() => expect(youtubePolicyMocks.getYouTubeVideoClipsEnabled).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /Riproduci la dimostrazione/ })).toBeNull();
   });
 
   test('renders legacy lesson bibliographies only through structured section sources', () => {

@@ -77,6 +77,12 @@ export const applyProjectPatch = (
   if (patch.learningPlan !== undefined) {
     snapshot.learningPlan = patch.learningPlan as ProjectSnapshot['learningPlan'];
   }
+  if (patch.title !== undefined) {
+    snapshot.title = patch.title;
+    if (snapshot.learningPlan) {
+      snapshot.learningPlan = { ...snapshot.learningPlan, title: patch.title };
+    }
+  }
   if (patch.userProfile !== undefined) {
     snapshot.userProfile = patch.userProfile as ProjectSnapshot['userProfile'];
   }

@@ -50,6 +50,7 @@ export interface LearningPlanSnapshot {
 export interface ProjectSnapshot {
   id: ProjectId;
   version: string;
+  title?: string;
   sourceKind?: ProjectSourceKind;
   state?: string;
   source?: unknown;
@@ -80,6 +81,10 @@ export interface ProjectSourceFile {
 }
 
 export type ProjectCoverFile = ProjectSourceFile;
+
+export interface ProjectCoverWriteOptions {
+  expectedRevision?: number;
+}
 
 export interface ProjectSourceRef {
   byteSize: number;
@@ -126,7 +131,12 @@ export interface ProjectStore {
     snapshot: ProjectSnapshot,
     options?: ProjectWriteOptions
   ) => Promise<SavedProjectMeta>;
-  saveProjectCover: (userId: string, id: ProjectId, cover: ProjectCoverFile) => Promise<void>;
+  saveProjectCover: (
+    userId: string,
+    id: ProjectId,
+    cover: ProjectCoverFile,
+    options?: ProjectCoverWriteOptions
+  ) => Promise<boolean>;
   saveProjectSource: (
     userId: string,
     id: ProjectId,

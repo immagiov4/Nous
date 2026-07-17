@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import AccountMenu from '../../../components/account/AccountMenu.tsx';
@@ -53,6 +53,27 @@ describe('AccountMenu', () => {
     await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
     expect(screen.getByRole('menuitem', { name: 'Account e sicurezza' })).toBeInTheDocument();
     expect(screen.getByText('student@example.com')).toBeInTheDocument();
+  });
+
+  test('opens authenticated in-app feedback directly above account settings', async () => {
+    const user = userEvent.setup();
+    saveAccountSession(['email']);
+    fetchMock.mockResolvedValueOnce(accountResponse('email'));
+
+    render(<AccountMenu triggerVariant="settings" />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: 'Segnala problema' }));
+
+    const feedbackDialog = screen.getByRole('dialog', { name: 'Segnala un problema' });
+    expect(feedbackDialog).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Problema' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+
+    await user.click(within(feedbackDialog).getByRole('button', { name: 'Chiudi segnalazione' }));
+    await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
+    expect(screen.queryByRole('menuitem', { name: 'Segnala un problema' })).toBeNull();
   });
 
   test('keeps unused profile metadata out of the account UI', async () => {

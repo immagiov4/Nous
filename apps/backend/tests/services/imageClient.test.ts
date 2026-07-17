@@ -64,6 +64,9 @@ describe('ImageClient', () => {
     const requestBody = JSON.parse(
       String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body)
     ) as Record<string, unknown>;
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.signal).toBeInstanceOf(
+      AbortSignal
+    );
     expect(requestBody).toMatchObject({
       model: 'google/configured-image-model',
       prompt: 'Schema didattico',

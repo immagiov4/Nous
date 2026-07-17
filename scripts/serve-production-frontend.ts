@@ -69,6 +69,21 @@ export const resolveStaticFilePath = (
     : null;
 };
 
+export const getFrontendApiMisrouteResponse = (requestPath: string): Response | null => {
+  if (requestPath !== '/api' && !requestPath.startsWith('/api/')) return null;
+
+  return Response.json(
+    {
+      success: false,
+      error: 'API requests must use the configured backend URL.',
+    },
+    {
+      status: 404,
+      headers: { 'Cache-Control': 'no-store' },
+    }
+  );
+};
+
 const startServer = (environment: Environment = process.env): void => {
   const publicDirectory = resolve(
     dirname(fileURLToPath(import.meta.url)),
@@ -99,6 +114,9 @@ const startServer = (environment: Environment = process.env): void => {
           },
         });
       }
+
+      const apiMisrouteResponse = getFrontendApiMisrouteResponse(url.pathname);
+      if (apiMisrouteResponse) return apiMisrouteResponse;
 
       const filePath = resolveStaticFilePath(publicDirectory, url.pathname);
       if (filePath) {

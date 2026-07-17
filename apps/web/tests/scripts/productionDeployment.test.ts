@@ -9,6 +9,7 @@ import { checkHealthEndpoints } from '../../../../deploy/health-smoke.mjs';
 import { bootstrapAdmin } from '../../../../scripts/bootstrap-admin.ts';
 import {
   buildRuntimeConfigScript,
+  getFrontendApiMisrouteResponse,
   resolveStaticFilePath,
 } from '../../../../scripts/serve-production-frontend.ts';
 
@@ -27,6 +28,9 @@ const SELF_HOSTED_OVERRIDE = parse(
 ) as {
   services: Record<string, Record<string, unknown>>;
 };
+const APP_COMPOSE = parse(readFileSync(resolve('compose.yml'), 'utf8')) as {
+  services: Record<string, { environment?: Record<string, string> }>;
+};
 
 describe('production deployment boundaries', () => {
   test('validates the deployment profile and managed project origin', () => {
@@ -38,10 +42,14 @@ describe('production deployment boundaries', () => {
       NOUS_SUPABASE_ANON_KEY: 'publishable-key',
       SUPABASE_URL: 'https://different.supabase.co',
       DATABASE_URL: 'postgresql://postgres:secret@aws-0-eu.pooler.supabase.com:5432/postgres',
+      GITHUB_FEEDBACK_REPOSITORY: 'example/nous-reader',
+      GITHUB_FEEDBACK_TOKEN: 'github-test-token',
       OPENROUTER_API_KEY: 'openrouter-test-key',
       SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
       SUPABASE_JWKS_URL: 'https://alpha-ref.supabase.co/auth/v1/.well-known/jwks.json',
       CORS_ALLOWED_ORIGINS: 'https://reader.acme.test',
+      YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED: 'false',
+      YOUTUBE_VIDEO_CLIPS_ENABLED: 'false',
     };
 
     expect(validateDeploymentConfig({ ...baseConfig, SUPABASE_DEPLOYMENT: 'hybrid' })).toContain(
@@ -53,6 +61,43 @@ describe('production deployment boundaries', () => {
     expect(
       validateDeploymentConfig({ ...baseConfig, SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL })
     ).toEqual([]);
+    expect(
+      validateDeploymentConfig({
+        ...baseConfig,
+        SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL,
+        YOUTUBE_VIDEO_CLIPS_ENABLED: 'TRUE',
+      })
+    ).toContain('YOUTUBE_VIDEO_CLIPS_ENABLED must be true or false.');
+    expect(
+      validateDeploymentConfig({
+        ...baseConfig,
+        SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL,
+        YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED: 'TRUE',
+      })
+    ).toContain('YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED must be true or false.');
+
+    const githubOptionalConfig = {
+      ...baseConfig,
+      SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL,
+      GITHUB_FEEDBACK_REPOSITORY: '',
+      GITHUB_FEEDBACK_TOKEN: '',
+    };
+    expect(validateDeploymentConfig(githubOptionalConfig)).toEqual([]);
+    expect(
+      validateDeploymentConfig({
+        ...githubOptionalConfig,
+        GITHUB_FEEDBACK_REPOSITORY: 'example/nous-reader',
+      })
+    ).toContain(
+      'GITHUB_FEEDBACK_REPOSITORY and GITHUB_FEEDBACK_TOKEN must both be set to enable GitHub feedback.'
+    );
+    expect(
+      validateDeploymentConfig({
+        ...githubOptionalConfig,
+        GITHUB_FEEDBACK_REPOSITORY: 'example/nous-reader',
+        GITHUB_FEEDBACK_TOKEN: 'replace_with_fine_grained_github_token',
+      })
+    ).toContain('GitHub feedback settings must not contain placeholder values.');
   });
 
   test('derives self-hosted application credentials from the official generated env', () => {
@@ -113,6 +158,14 @@ describe('production deployment boundaries', () => {
     });
     expect(templateServer.volumes).toContain('../../supabase/templates:/usr/share/nginx/html:ro');
     expect(templateServer.healthcheck.test).toContain('http://127.0.0.1/magic-link.html');
+  });
+
+  test('passes private GitHub feedback credentials only to the backend', () => {
+    expect(APP_COMPOSE.services.backend?.environment).toMatchObject({
+      GITHUB_FEEDBACK_REPOSITORY: `\${GITHUB_FEEDBACK_REPOSITORY:-}`,
+      GITHUB_FEEDBACK_TOKEN: `\${GITHUB_FEEDBACK_TOKEN:-}`,
+    });
+    expect(APP_COMPOSE.services.frontend?.environment).not.toHaveProperty('GITHUB_FEEDBACK_TOKEN');
   });
 
   test('fails the stack smoke contract on the first unhealthy dependency', async () => {
@@ -188,6 +241,19 @@ describe('production deployment boundaries', () => {
       resolve(publicDirectory, 'assets/app.js')
     );
     expect(resolveStaticFilePath(publicDirectory, '/%2e%2e/private.txt')).toBeNull();
+  });
+
+  test('rejects API paths at the frontend origin instead of serving the SPA', async () => {
+    expect(getFrontendApiMisrouteResponse('/library')).toBeNull();
+
+    const response = getFrontendApiMisrouteResponse('/api/projects/covers/regenerate');
+    expect(response).not.toBeNull();
+    expect(response?.status).toBe(404);
+    expect(response?.headers.get('cache-control')).toBe('no-store');
+    await expect(response?.json()).resolves.toEqual({
+      success: false,
+      error: 'API requests must use the configured backend URL.',
+    });
   });
 
   test('promotes an existing account without discarding its app metadata', async () => {

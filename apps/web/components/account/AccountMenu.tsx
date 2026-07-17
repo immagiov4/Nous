@@ -3,6 +3,7 @@ import {
   Download,
   KeyRound,
   LogOut,
+  MessageSquareWarning,
   Settings,
   ShieldCheck,
   Upload,
@@ -26,6 +27,7 @@ import {
 } from '../../services/auth/supabaseAuth.ts';
 import { LibraryArchiveError } from '../../services/projects/libraryArchive.ts';
 import { reportLibraryArchiveImportFailure } from '../../services/projects/libraryArchiveDiagnostics.ts';
+import FeedbackDialog from '../feedback/FeedbackDialog.tsx';
 
 type AccountSection = 'data' | 'security';
 type AccountAction =
@@ -428,9 +430,11 @@ export default function AccountMenu({
   );
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [panelSection, setPanelSection] = useState<AccountSection | null>(null);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [menuError, setMenuError] = useState('');
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const feedbackTriggerRef = useRef<HTMLButtonElement>(null);
 
   const closeMenu = useCallback(() => {
     setIsMenuOpen(false);
@@ -440,6 +444,11 @@ export default function AccountMenu({
   const closePanel = useCallback(() => {
     setPanelSection(null);
     queueMicrotask(() => triggerRef.current?.focus());
+  }, []);
+
+  const closeFeedback = useCallback(() => {
+    setIsFeedbackOpen(false);
+    queueMicrotask(() => (feedbackTriggerRef.current || triggerRef.current)?.focus());
   }, []);
 
   useEffect(() => {
@@ -518,7 +527,22 @@ export default function AccountMenu({
   const accountLabel = account?.email || t('Account utente');
 
   return (
-    <div className="relative">
+    <div className={triggerVariant === 'settings' ? 'relative space-y-1' : 'relative'}>
+      {triggerVariant === 'settings' ? (
+        <button
+          ref={feedbackTriggerRef}
+          type="button"
+          disabled={!account}
+          onClick={() => {
+            setIsMenuOpen(false);
+            setIsFeedbackOpen(true);
+          }}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-stone-600 transition-colors hover:bg-stone-100 disabled:opacity-50 dark:text-stone-400 dark:hover:bg-white/5"
+        >
+          <MessageSquareWarning className="h-4 w-4 shrink-0" />
+          <span className="whitespace-nowrap">{t('Segnala problema')}</span>
+        </button>
+      ) : null}
       <button
         ref={triggerRef}
         type="button"
@@ -596,6 +620,21 @@ export default function AccountMenu({
                 {t('Dati e backup')}
               </button>
             ) : null}
+            {triggerVariant !== 'settings' ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!account}
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  setIsFeedbackOpen(true);
+                }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                <MessageSquareWarning className="h-4 w-4" />
+                {t('Segnala un problema')}
+              </button>
+            ) : null}
             <button
               type="button"
               role="menuitem"
@@ -621,6 +660,8 @@ export default function AccountMenu({
           onImportLibraryBackup={onImportLibraryBackup}
         />
       ) : null}
+
+      {isFeedbackOpen && account ? <FeedbackDialog onClose={closeFeedback} /> : null}
     </div>
   );
 }

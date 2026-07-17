@@ -17,6 +17,8 @@ const ADMIN_REQUIRED_MESSAGE = 'Solo un amministratore puo eseguire questa opera
 const ADMIN_ACCESS_EMAIL_FAILED_MESSAGE = "Invio dell'email di accesso non riuscito.";
 const ADMIN_MAGIC_LINK_FAILED_MESSAGE = 'Invio del link di accesso non riuscito.';
 const ADMIN_USER_LIST_PAGE_SIZE = 1000;
+const DEFAULT_ADMIN_USER_PAGE_SIZE = 8;
+const MAX_ADMIN_USER_PAGE_SIZE = 100;
 
 const router = Router();
 
@@ -93,6 +95,14 @@ const readAdminUserPatch = (body: Record<string, unknown>) => {
 
 const readSupabaseUsers = (data: Record<string, unknown>): Array<Record<string, unknown>> =>
   Array.isArray(data.users) ? data.users.filter(isRecord) : [];
+
+const readPositiveInteger = (value: unknown, fallback: number, maximum?: number): number => {
+  const parsed = typeof value === 'string' ? Number.parseInt(value, 10) : Number.NaN;
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return fallback;
+  }
+  return maximum ? Math.min(parsed, maximum) : parsed;
+};
 
 const findSupabaseUserByEmail = async (email: string): Promise<Record<string, unknown> | null> => {
   let page = 1;
@@ -242,16 +252,26 @@ router.patch('/model-config', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/users', async (_req: Request, res: Response) => {
+router.get('/users', async (req: Request, res: Response) => {
+  const page = readPositiveInteger(req.query.page, 1);
+  const pageSize = readPositiveInteger(
+    req.query.pageSize,
+    DEFAULT_ADMIN_USER_PAGE_SIZE,
+    MAX_ADMIN_USER_PAGE_SIZE
+  );
   try {
     const data = await requestSupabaseAdmin({
       method: 'GET',
-      path: SUPABASE_ADMIN_USERS_PATH,
+      path: `${SUPABASE_ADMIN_USERS_PATH}?page=${page}&per_page=${pageSize}`,
     });
+    const users = readSupabaseUsers(data);
 
     res.json({
       success: true,
-      users: data.users || [],
+      hasMore: users.length === pageSize,
+      page,
+      pageSize,
+      users,
     });
   } catch (error) {
     sendErrorResponse(res, 400, error, 'Failed to list Supabase users');

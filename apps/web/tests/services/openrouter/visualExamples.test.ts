@@ -355,7 +355,7 @@ describe('visual planner latency profile', () => {
     expect(statuses.at(-1)).toBe('Esempio visivo non disponibile');
   });
 
-  test('starts at most three visual workers concurrently and preserves planner order', async () => {
+  test('accepts several raster plans without forcing format variety and preserves planner order', async () => {
     callOpenRouterMock.mockResolvedValueOnce(
       JSON.stringify({
         plans: ['cellula', 'tessuto', 'organo', 'apparato'].map(concept => ({
@@ -387,6 +387,7 @@ describe('visual planner latency profile', () => {
     imageResolvers[1]?.({ dataUrl: 'data:image/png;base64,Mg==', mediaType: 'image/png' });
 
     const result = await pendingResult;
+    expect(result.generatedVisuals.map(visual => visual.kind)).toEqual(['image', 'image', 'image']);
     expect(result.generatedVisuals.map(visual => visual.id)).toEqual([
       'visual-001',
       'visual-002',

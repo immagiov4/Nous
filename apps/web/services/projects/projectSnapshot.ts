@@ -21,6 +21,7 @@ import { createEntityId } from '../../utils/ids.ts';
 import { flattenLessons, flattenPathNodes } from '../../utils/learning/pathNodes.ts';
 import { isRecord } from '../../utils/records.ts';
 import { timestampIso } from '../../utils/time.ts';
+import { normalizeYouTubeClipInterval } from '../../utils/youtube.ts';
 import { groupSectionsIntoModules } from '../learning/groupSectionsIntoModules.ts';
 import { normalizeCourseSourceOrder } from './courseSources.ts';
 import {
@@ -63,8 +64,16 @@ export const inferProjectSourceKind = (
 };
 
 const getProjectTitle = (
-  snapshot: Pick<ProjectSnapshot, 'learningPlan' | 'source' | 'userProfile' | 'isLearnMode'>
+  snapshot: Pick<
+    ProjectSnapshot,
+    'title' | 'learningPlan' | 'source' | 'userProfile' | 'isLearnMode'
+  >
 ): string => {
+  const explicitTitle = snapshot.title?.trim();
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+
   const planTitle = snapshot.learningPlan?.title?.trim();
   if (planTitle) {
     return planTitle;
@@ -142,30 +151,40 @@ export const buildProjectMeta = (
 
 export const createProjectSnapshot = (
   partial: Partial<ProjectSnapshot> & Pick<ProjectSnapshot, 'id'>
-): ProjectSnapshot => ({
-  id: partial.id,
-  version: partial.version || CURRENT_PROJECT_VERSION,
-  sourceKind:
-    partial.sourceKind ||
-    inferProjectSourceKind({
-      source: partial.source || null,
-      isLearnMode: partial.isLearnMode || false,
-    }),
-  state: partial.state || AppState.LIBRARY,
-  source: partial.source || null,
-  learningPlan: partial.learningPlan || null,
-  isLearnMode: partial.isLearnMode || false,
-  userProfile: partial.userProfile || null,
-  syllabus: partial.syllabus || [],
-  researchCoursePlan: partial.researchCoursePlan ?? null,
-  researchDossiersBySectionId: partial.researchDossiersBySectionId ?? {},
-  activeSectionId: partial.activeSectionId || null,
-  createdAt: partial.createdAt || timestampIso(),
-  updatedAt: partial.updatedAt || timestampIso(),
-  lastOpenedAt: partial.lastOpenedAt || timestampIso(),
-  documentAssets: partial.documentAssets ?? null,
-  documentIndex: partial.documentIndex ?? null,
-});
+): ProjectSnapshot => {
+  const title = partial.title?.trim() || undefined;
+  const learningPlan = partial.learningPlan
+    ? title
+      ? { ...partial.learningPlan, title }
+      : partial.learningPlan
+    : null;
+
+  return {
+    id: partial.id,
+    version: partial.version || CURRENT_PROJECT_VERSION,
+    ...(title ? { title } : {}),
+    sourceKind:
+      partial.sourceKind ||
+      inferProjectSourceKind({
+        source: partial.source || null,
+        isLearnMode: partial.isLearnMode || false,
+      }),
+    state: partial.state || AppState.LIBRARY,
+    source: partial.source || null,
+    learningPlan,
+    isLearnMode: partial.isLearnMode || false,
+    userProfile: partial.userProfile || null,
+    syllabus: partial.syllabus || [],
+    researchCoursePlan: partial.researchCoursePlan ?? null,
+    researchDossiersBySectionId: partial.researchDossiersBySectionId ?? {},
+    activeSectionId: partial.activeSectionId || null,
+    createdAt: partial.createdAt || timestampIso(),
+    updatedAt: partial.updatedAt || timestampIso(),
+    lastOpenedAt: partial.lastOpenedAt || timestampIso(),
+    documentAssets: partial.documentAssets ?? null,
+    documentIndex: partial.documentIndex ?? null,
+  };
+};
 
 const parseFileData = (value: unknown): FileData | null => {
   if (!isRecord(value)) {
@@ -482,15 +501,30 @@ const parseSyllabus = (value: unknown): SyllabusItem[] =>
 const parseStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.map(item => ensureString(item)).filter(Boolean) : [];
 
+const parseResearchVideoClip = (source: Record<string, unknown>, url: string | undefined) => {
+  if (!isRecord(source.videoClip) || !url) {
+    return undefined;
+  }
+  return (
+    normalizeYouTubeClipInterval(url, source.videoClip.startSeconds, source.videoClip.endSeconds) ||
+    undefined
+  );
+};
+
 const parseResearchSourceReferences = (value: unknown) =>
   Array.isArray(value)
     ? value
         .filter(isRecord)
-        .map(source => ({
-          title: ensureString(source.title),
-          url: ensureString(source.url) || undefined,
-          note: ensureString(source.note) || undefined,
-        }))
+        .map(source => {
+          const url = ensureString(source.url) || undefined;
+          const videoClip = parseResearchVideoClip(source, url);
+          return {
+            title: ensureString(source.title),
+            url,
+            note: ensureString(source.note) || undefined,
+            ...(videoClip ? { videoClip } : {}),
+          };
+        })
         .filter(source => source.title || source.url)
     : [];
 
@@ -585,6 +619,7 @@ const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapsh
   return createProjectSnapshot({
     id: isString(data.id) ? data.id : nextId,
     version: ensureString(data.version, CURRENT_PROJECT_VERSION),
+    title: ensureString(data.title) || undefined,
     state: learningPlan ? AppState.READING : AppState.LIBRARY,
     sourceKind:
       explicitSourceKind ||
@@ -617,6 +652,7 @@ export const normalizeImportedProject = (data: unknown): ProjectSnapshot =>
 export const exportProjectData = (snapshot: ProjectSnapshot): ProjectExportData => ({
   id: snapshot.id,
   version: snapshot.version,
+  title: snapshot.title,
   state: snapshot.state,
   source: snapshot.source,
   learningPlan: snapshot.learningPlan,

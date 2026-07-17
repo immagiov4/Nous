@@ -21,6 +21,7 @@ import type {
   LibraryFolder,
   LibraryPlacement,
   ProjectCoverFile,
+  ProjectCoverWriteOptions,
   ProjectExportData,
   ProjectId,
   ProjectPatch,
@@ -98,8 +99,18 @@ export class InMemoryProjectStore implements ProjectStore {
     return cover ? clone(cover) : null;
   }
 
-  async saveProjectCover(userId: string, id: ProjectId, cover: ProjectCoverFile): Promise<void> {
+  async saveProjectCover(
+    userId: string,
+    id: ProjectId,
+    cover: ProjectCoverFile,
+    { expectedRevision }: ProjectCoverWriteOptions = {}
+  ): Promise<boolean> {
+    const record = this.getProjects(userId).get(id);
+    if (!record || (expectedRevision !== undefined && record.meta.revision !== expectedRevision)) {
+      return false;
+    }
     this.getCovers(userId).set(id, clone(cover));
+    return true;
   }
 
   async saveProjectSource(

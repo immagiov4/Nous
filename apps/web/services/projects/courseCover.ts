@@ -1,3 +1,13 @@
+import {
+  buildCourseCoverDirectionUserPrompt,
+  buildCourseCoverPrompt,
+  buildFallbackCourseCoverVisualDirection,
+  COURSE_COVER_DIRECTION_RESPONSE_FORMAT,
+  COURSE_COVER_DIRECTION_SYSTEM_PROMPT,
+  COURSE_COVER_PROMPT_VERSION,
+  type CourseCoverVisualDirection,
+  formatCourseCoverVisualDirection,
+} from '@shared/courseCoverPrompt';
 import type { FileData } from '../../types.ts';
 import { optimizeCourseCoverDataUrl } from '../../utils/visuals/courseCoverImage.ts';
 import { callOpenRouter } from '../openrouter/client.ts';
@@ -6,7 +16,6 @@ import { requestGeneratedImage } from '../openrouter/imageClient.ts';
 import { parseCleanJson } from '../openrouter/json.ts';
 
 const coverGenerationByProjectId = new Map<string, Promise<string>>();
-const COURSE_COVER_PROMPT_VERSION = 2;
 const COURSE_COVER_STORAGE_VERSION = 3;
 
 type CoverLoader = (projectId: string) => Promise<FileData | null>;
@@ -44,27 +53,6 @@ const assertCoverStorageAvailable = async (
   await circuit.probe;
 };
 
-interface CourseCoverVisualDirection {
-  composition: string;
-  distinctiveDetails: string;
-  subject: string;
-}
-
-const COURSE_COVER_DIRECTION_SCHEMA = {
-  name: 'course_cover_visual_direction',
-  strict: true,
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      subject: { type: 'string' },
-      composition: { type: 'string' },
-      distinctiveDetails: { type: 'string' },
-    },
-    required: ['subject', 'composition', 'distinctiveDetails'],
-  },
-} as const;
-
 const planCourseCoverVisualDirection = async (title: string, context?: string): Promise<string> => {
   try {
     const response = await callOpenRouter({
@@ -74,36 +62,27 @@ const planCourseCoverVisualDirection = async (title: string, context?: string): 
       messages: [
         {
           role: 'system',
-          content: `You are an editorial art director. Turn a course title and its short metadata into one highly specific, immediately recognizable cover concept.
-
-Choose a concrete subject or material metaphor that genuinely belongs to the topic. Describe the camera/viewpoint and composition, then add distinctive physical details that separate this course from unrelated courses. Avoid generic floating cubes, abstract networks, glowing nodes, random waves, and decorative geometry unless they are inherently relevant to the subject. Do not include words, letters, logos, watermarks, or UI. Do not prescribe a visual style or color palette; the renderer applies the publication style.`,
+          content: COURSE_COVER_DIRECTION_SYSTEM_PROMPT,
         },
         {
           role: 'user',
-          content: `Course title: ${title}\nShort project context: ${context?.trim() || 'Not available'}`,
+          content: buildCourseCoverDirectionUserPrompt(title, context),
         },
       ],
       response_format: {
         type: 'json_schema',
-        json_schema: COURSE_COVER_DIRECTION_SCHEMA,
+        json_schema: COURSE_COVER_DIRECTION_RESPONSE_FORMAT,
       },
     });
     const direction = parseCleanJson<CourseCoverVisualDirection>(response);
-    const parts = [direction.subject, direction.composition, direction.distinctiveDetails]
-      .map(part => part?.trim())
-      .filter(Boolean);
-    if (parts.length === 3) {
-      return parts.join(' ');
-    }
+    const formattedDirection = formatCourseCoverVisualDirection(direction);
+    if (formattedDirection) return formattedDirection;
   } catch {
     // Image generation can still produce a useful fallback if visual planning is unavailable.
   }
 
-  return `A concrete, subject-specific scene or material metaphor that is unmistakably about ${title}, with topic-specific objects and details rather than generic abstract technology symbols.`;
+  return buildFallbackCourseCoverVisualDirection(title);
 };
-
-const buildCourseCoverPrompt = (title: string, visualDirection: string): string =>
-  `Create a refined editorial course cover for "${title}". Visual direction: ${visualDirection} Landscape 16:7 composition, elegant warm ivory and charcoal palette with one muted copper accent, high-end educational publishing style, restrained tactile materials, generous negative space, subtle depth, no text, no letters, no logos, no UI, no watermark.`;
 
 const isCoverAtVersion = (cover: FileData, version: number): boolean =>
   cover.name.includes(`-cover-v${version}.`);

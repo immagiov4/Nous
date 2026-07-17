@@ -857,22 +857,10 @@ export default function HomeChatPanel({
     const toolParts = parts.filter(isToolUIPart).filter(p => isVisibleLibraryToolState(p.state));
     if (!toolParts.length) return null;
 
-    const maxTools = isMobileViewport ? 1 : 3;
-    const latestPendingToolIndex = toolParts
-      .map(toolPart => isPendingLibraryToolState(toolPart.state))
-      .lastIndexOf(true);
-    const visibleToolIndexes = new Set<number>();
-    if (latestPendingToolIndex >= 0) visibleToolIndexes.add(latestPendingToolIndex);
-    for (
-      let index = toolParts.length - 1;
-      index >= 0 && visibleToolIndexes.size < maxTools;
-      index -= 1
-    ) {
-      visibleToolIndexes.add(index);
-    }
-    const hasInProgress = latestPendingToolIndex >= 0;
+    const maxTools = isMobileViewport ? 2 : 4;
+    const hasInProgress = toolParts.some(toolPart => isPendingLibraryToolState(toolPart.state));
     const truncated = toolParts.length > maxTools;
-    const visibleTools = toolParts.filter((_, index) => visibleToolIndexes.has(index));
+    const visibleTools = toolParts.slice(-maxTools);
 
     return (
       <div className="flex min-w-0 flex-nowrap items-center gap-x-2 overflow-hidden py-1.5 text-xs text-gray-600 dark:text-zinc-300">
@@ -885,7 +873,7 @@ export default function HomeChatPanel({
           return (
             <span
               key={`${messageId}-${p.toolCallId}`}
-              className="inline-flex min-w-0 flex-1 items-center gap-x-1.5"
+              className="inline-flex min-w-0 max-w-full flex-[0_1_auto] items-center gap-x-1.5"
             >
               {needSep && (
                 <span className="shrink-0 text-gray-300 dark:text-zinc-600">&#8594;</span>
