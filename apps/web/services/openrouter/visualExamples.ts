@@ -37,12 +37,18 @@ export const MAX_GENERATED_VISUALS_PER_LESSON = 3;
 export const INTERACTIVE_VISUAL_VALUE_RULE =
   'Tratta interactive_html come un formato costoso: usalo solo quando l’utente deve esplorare, modificare o confrontare stati e questa interazione produce una comprensione importante che testo, video o una o due immagini statiche non possono offrire altrettanto bene. Non usarlo per dimostrazioni cosmetiche, controlli banali o esempi statici travestiti da interattivi; se l’interazione non è essenziale, scegli il formato più semplice.';
 export const VISUAL_FORMAT_SELECTION_RULE =
-  'Imposta requiresDepiction=true quando lo studente deve vedere l’aspetto di un oggetto, stato, scena, risultato grafico o trasformazione visiva, inclusi passaggi che mostrano come cambia un soggetto. In quel caso usa illustrative_image: un processo visivo non è un flowchart. SVG è consentito soltanto con requiresDepiction=false per relazioni astratte fra brevi etichette testuali, box generici e frecce; i nodi non possono contenere disegni, sagome, pixel art, oggetti, scene o esempi del risultato.';
+  'Imposta requiresDepiction=true quando lo studente deve vedere l’aspetto di un oggetto, stato, scena, risultato grafico o trasformazione visiva, inclusi passaggi che mostrano come cambia un soggetto. In quel caso usa illustrative_image: un processo visivo non è un flowchart. SVG è consentito soltanto con requiresDepiction=false per relazioni astratte fra brevi etichette testuali, box generici e frecce; i nodi non possono contenere disegni, sagome, pixel art, oggetti, scene o esempi del risultato. Se la visuale deve mostrare esempi programmabili — inclusi pixel art, shader semplici, pattern generativi, confronti di filtri o effetti — usa interactive_html anche quando non richiede controlli; il formato può essere una dimostrazione HTML/JavaScript passiva. Usa interactive_html con controlli solo quando la manipolazione aggiunge valore didattico essenziale. Per una visuale programmabile passiva, imposta interaction_justification=null.';
+export const NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT = `CONTRATTO VISIVO NOUS:
+- Base calda e neutra: avorio/carta, pietra e antracite; superfici sobrie, bordi leggeri, ombre minime e tipografia editoriale.
+- Usa un solo accento coerente col soggetto, scelto tra rosso smorzato, borgogna, verde terroso e rame/arancio smorzato.
+- Vietate palette SaaS blu/viola, neon, glow, gradienti decorativi e ombre sovradimensionate, salvo colore semanticamente necessario al contenuto.
+- Il medium segue lo scopo pedagogico: illustrazioni 2D editoriali sono pienamente ammesse; non usare oggetti o render 3D come default decorativo.
+- In HTML e SVG usa le variabili CSS dell'host (--bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong) invece di colori tema hard-coded e mantieni leggibili tema chiaro e scuro.`;
 const GENERATED_IMAGE_PREVIEW_DATA_URL =
   'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 9%22%3E%3Crect width=%2216%22 height=%229%22 fill=%22%23eeeae4%22/%3E%3C/svg%3E';
 
 const buildArtifactSystemPrompt = (prompt: string, isVerification = false): string =>
-  `${prompt}\n\n${
+  `${prompt}\n\n${NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT}\n\n${
     isVerification ? INTERNAL_REASONING_EFFICIENCY_INSTRUCTION : INTERNAL_FAST_TASK_INSTRUCTION
   }`;
 
@@ -857,6 +863,7 @@ const buildImageGenerationPrompt = (
     '',
     'STILE',
     'Illustrazione educativa precisa, leggibile, visivamente coerente e non decorativa. Materiali, luce, anatomia, prospettiva e relazioni spaziali devono essere plausibili per il soggetto.',
+    NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
     '',
     'VINCOLI',
     '- Usa testo, numeri, etichette o frecce solo quando sono necessari per leggere il contenuto pedagogico; mantienili brevi, corretti e nella lingua della lezione.',
@@ -884,6 +891,8 @@ const buildEmbeddedImageGenerationPrompt = (
     'COERENZA DIDATTICA',
     `Lezione: ${input.sectionTitle}. ${input.sectionDescription}`,
     `Artefatto: ${plan.concept || 'esempio visuale interattivo'}`,
+    '',
+    NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
     '',
     'VINCOLI',
     '- L’immagine deve essere autonoma, accurata e immediatamente leggibile nel widget.',

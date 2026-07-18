@@ -164,6 +164,7 @@ const ENGLISH_UI_MESSAGES = {
   'Vedi tutti': 'View all',
   'Voglio che tu crei un corso su': 'I want you to create a course about',
   '{courseCount} corsi': '{courseCount} courses',
+  '{sourceCount} fonti': '{sourceCount} sources',
   '{lessonCount} lezioni · {lastOpenedDate}': '{lessonCount} lessons · {lastOpenedDate}',
   '{streakDays} giorni': '{streakDays} days',
   ', prestando particolare attenzione a ciò che ho annotato e sottolineato.':

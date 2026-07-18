@@ -289,10 +289,14 @@ const NewHomeSidebar = ({
 const MobileHeader = ({
   activePage,
   isDarkMode,
+  onExportLibraryBackup,
+  onImportLibraryBackup,
   onNavigate,
 }: {
   activePage: NewHomePage;
   isDarkMode: boolean;
+  onExportLibraryBackup?: () => Promise<number>;
+  onImportLibraryBackup?: (file: File) => Promise<number>;
   onNavigate: (page: NewHomePage) => void;
 }) => (
   <header className="sticky top-0 z-30 flex items-center justify-between border-b border-stone-200/80 bg-[#fdfbf7]/95 px-4 py-2.5 backdrop-blur md:hidden dark:border-white/10 dark:bg-[#252526]/95">
@@ -320,6 +324,10 @@ const MobileHeader = ({
         {t('Libreria')}
       </button>
     </nav>
+    <AccountMenu
+      onExportLibraryBackup={onExportLibraryBackup}
+      onImportLibraryBackup={onImportLibraryBackup}
+    />
   </header>
 );
 
@@ -1507,14 +1515,33 @@ const SourceLibraryPage = ({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<SourceFilter>('all');
   const [openingItemId, setOpeningItemId] = useState<string | null>(null);
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
   const [viewer, setViewer] = useState<{ file: FileData; item: SourceLibraryItem } | null>(null);
-  const filteredItems = items.filter(item => {
-    const matchesType = filter === 'all' || item.kind === filter;
-    return (
-      matchesType &&
-      (matchesSearch(item.file.name, query) || matchesSearch(item.projectTitle, query))
-    );
-  });
+  const filteredItems = useMemo(
+    () =>
+      items.filter(item => {
+        const matchesType = filter === 'all' || item.kind === filter;
+        return (
+          matchesType &&
+          (matchesSearch(item.file.name, query) || matchesSearch(item.projectTitle, query))
+        );
+      }),
+    [filter, items, query]
+  );
+  const sourceGroups = useMemo(() => {
+    const groups = new Map<string, { id: string; items: SourceLibraryItem[]; title: string }>();
+    for (const item of filteredItems) {
+      const group = groups.get(item.projectId);
+      if (group) group.items.push(item);
+      else
+        groups.set(item.projectId, {
+          id: item.projectId,
+          items: [item],
+          title: item.projectTitle,
+        });
+    }
+    return [...groups.values()];
+  }, [filteredItems]);
 
   return (
     <>
@@ -1564,49 +1591,96 @@ const SourceLibraryPage = ({
             {t('Nessuna fonte corrisponde a questa ricerca.')}
           </p>
         ) : (
-          filteredItems.map(item => {
-            const Icon = getSourceIcon(item.kind);
-            const isOpening = openingItemId === item.id;
+          sourceGroups.map(group => {
+            const isExpanded = query.trim().length > 0 || expandedProjectIds.has(group.id);
             return (
-              <button
-                key={item.id}
-                type="button"
-                disabled={!item.isAvailable || isOpening}
-                aria-busy={isOpening}
-                onClick={() => {
-                  setOpeningItemId(item.id);
-                  void resolveSourceLibraryItemFile(item, loadProjectSource)
-                    .then(file => {
-                      if (file) setViewer({ file, item });
-                    })
-                    .finally(() => setOpeningItemId(null));
-                }}
-                className="flex w-full items-center gap-4 border-b border-stone-100 px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-[#fbf8f3] disabled:cursor-not-allowed disabled:opacity-55 dark:border-white/8 dark:hover:bg-white/[0.04]"
+              <div
+                key={group.id}
+                className="border-b border-stone-100 last:border-b-0 dark:border-white/8"
               >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#f3eee6] text-[#a95828] dark:bg-white/10 dark:text-[#f1c6a8]">
-                  <Icon className="h-5 w-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-serif text-[0.98rem] text-stone-900 dark:text-stone-100">
-                    {item.file.name}
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  onClick={() =>
+                    setExpandedProjectIds(current => {
+                      const next = new Set(current);
+                      if (next.has(group.id)) next.delete(group.id);
+                      else next.add(group.id);
+                      return next;
+                    })
+                  }
+                  className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-[#fbf8f3] dark:hover:bg-white/[0.04]"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f3eee6] text-[#a95828] dark:bg-white/10 dark:text-[#f1c6a8]">
+                    <Folder className="h-5 w-5" />
                   </span>
-                  <span className="mt-1 block truncate text-xs text-stone-400">
-                    {item.projectTitle} ·{' '}
-                    {item.isAvailable
-                      ? item.kind === 'pdf'
-                        ? 'PDF'
-                        : item.kind === 'markdown'
-                          ? 'Markdown'
-                          : t('Testo')
-                      : t('File originale non disponibile')}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-serif text-[0.98rem] text-stone-900 dark:text-stone-100">
+                      {group.title}
+                    </span>
+                    <span className="mt-1 block text-xs text-stone-400">
+                      {t('{sourceCount} fonti', { sourceCount: group.items.length })}
+                    </span>
                   </span>
-                </span>
-                {isOpening ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-[#a95828] dark:text-[#f1c6a8]" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 text-stone-400" />
-                )}
-              </button>
+                  <ChevronDown
+                    className={`h-4 w-4 text-stone-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                <div
+                  className={`grid transition-[grid-template-rows] duration-300 ease-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+                >
+                  <div
+                    className="overflow-hidden"
+                    aria-hidden={!isExpanded}
+                    inert={!isExpanded || undefined}
+                  >
+                    {group.items.map(item => {
+                      const Icon = getSourceIcon(item.kind);
+                      const isOpening = openingItemId === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={!item.isAvailable || isOpening}
+                          aria-busy={isOpening}
+                          onClick={() => {
+                            setOpeningItemId(item.id);
+                            void resolveSourceLibraryItemFile(item, loadProjectSource)
+                              .then(file => {
+                                if (file) setViewer({ file, item });
+                              })
+                              .finally(() => setOpeningItemId(null));
+                          }}
+                          className="flex w-full items-center gap-4 border-t border-stone-100 px-5 py-4 pl-9 text-left transition-colors hover:bg-[#fbf8f3] disabled:cursor-not-allowed disabled:opacity-55 dark:border-white/8 dark:hover:bg-white/[0.04]"
+                        >
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500 dark:bg-white/5 dark:text-stone-300">
+                            <Icon className="h-5 w-5" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-serif text-[0.98rem] text-stone-900 dark:text-stone-100">
+                              {item.file.name}
+                            </span>
+                            <span className="mt-1 block truncate text-xs text-stone-400">
+                              {item.isAvailable
+                                ? item.kind === 'pdf'
+                                  ? 'PDF'
+                                  : item.kind === 'markdown'
+                                    ? 'Markdown'
+                                    : t('Testo')
+                                : t('File originale non disponibile')}
+                            </span>
+                          </span>
+                          {isOpening ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-[#a95828] dark:text-[#f1c6a8]" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-stone-400" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             );
           })
         )}
@@ -1708,7 +1782,13 @@ export const NewHomeView = ({
         streakDays={streakDays}
         studyTimeLabel={studyTimeLabel}
       />
-      <MobileHeader activePage={activePage} isDarkMode={isDarkMode} onNavigate={navigate} />
+      <MobileHeader
+        activePage={activePage}
+        isDarkMode={isDarkMode}
+        onExportLibraryBackup={onExportLibraryBackup}
+        onImportLibraryBackup={onImportLibraryBackup}
+        onNavigate={navigate}
+      />
       <main className="px-4 pb-20 pt-3 sm:px-6 sm:pt-5 md:ml-[13.25rem] md:px-8 md:pt-6 lg:px-12">
         <div className="mx-auto max-w-[76rem]">
           {activePage === 'library' ? (

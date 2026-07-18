@@ -543,7 +543,7 @@ export default function FeedbackDialog({ onClose }: FeedbackDialogProps) {
   return createPortal(
     <div
       ref={layerRef}
-      className="fixed inset-0 z-[170] flex items-end p-3 sm:items-center sm:justify-center"
+      className="fixed inset-0 z-[170] flex h-[100dvh] items-stretch sm:items-center sm:justify-center sm:p-3"
     >
       <button
         type="button"
@@ -557,7 +557,7 @@ export default function FeedbackDialog({ onClose }: FeedbackDialogProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="feedback-dialog-title"
-        className="relative max-h-[calc(100vh-1.5rem)] w-full max-w-xl overflow-y-auto rounded-[1.8rem] border border-stone-200 bg-white p-5 shadow-2xl sm:p-6 dark:border-zinc-700 dark:bg-zinc-900"
+        className="relative min-h-0 w-full max-w-xl overflow-y-auto overscroll-contain border border-stone-200 bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-h-[calc(100dvh-1.5rem)] sm:rounded-[1.8rem] sm:p-6 dark:border-zinc-700 dark:bg-zinc-900"
       >
         {content}
       </section>

@@ -114,6 +114,9 @@ describe('artifact generation', () => {
 
     expect(callOpenRouterMock).toHaveBeenCalledTimes(3);
     expect(draft?.visual).toMatchObject({ kind: 'html', title: 'confronto_valori' });
+    expect(callOpenRouterMock.mock.calls[1]?.[0].messages[0]?.content).toContain(
+      'CONTRATTO VISIVO NOUS'
+    );
   });
 
   test('rejects malformed widget JavaScript and returns the repaired draft', async () => {
@@ -172,6 +175,7 @@ describe('artifact generation', () => {
     expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain(
       'Struttura concreta di una cellula vegetale'
     );
+    expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain('CONTRATTO VISIVO NOUS');
     expect(draft?.visual).toMatchObject({
       altText: 'Struttura concreta di una cellula vegetale.',
       kind: 'image',
@@ -491,15 +495,13 @@ describe('HTML multimodal review', () => {
   });
 
   test('reviews executable code together with its rendered result', async () => {
-    callOpenRouterMock
-      .mockResolvedValueOnce(VALID_CHART_RESPONSE)
-      .mockResolvedValueOnce(
-        JSON.stringify({
-          title: 'confronto_revisionato',
-          widget_code:
-            '<style>.chart{display:block}</style><div class="chart">20 · 40 · 60</div><script>window.__chartReady=true;</script>',
-        })
-      );
+    callOpenRouterMock.mockResolvedValueOnce(VALID_CHART_RESPONSE).mockResolvedValueOnce(
+      JSON.stringify({
+        title: 'confronto_revisionato',
+        widget_code:
+          '<style>.chart{display:block}</style><div class="chart">20 · 40 · 60</div><script>window.__chartReady=true;</script>',
+      })
+    );
 
     const result = await generateLessonVisualExample({
       ...BASE_VISUAL_INPUT,
@@ -544,9 +546,7 @@ describe('HTML multimodal review', () => {
         ],
       })
     );
-    const imageResolvers: Array<
-      (image: { dataUrl: string; mediaType: 'image/png' }) => void
-    > = [];
+    const imageResolvers: Array<(image: { dataUrl: string; mediaType: 'image/png' }) => void> = [];
     requestGeneratedImageMock.mockImplementation(
       () =>
         new Promise(resolve => {
@@ -567,9 +567,7 @@ describe('HTML multimodal review', () => {
     expect(result?.visual.code).toContain('data:image/png;base64,TU9SQklEQQ==');
     expect(result?.visual.code).toContain('data:image/png;base64,RFVSQQ==');
     expect(result?.visual.code).not.toContain('{{GENERATED_IMAGE:');
-    expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain(
-      'Una sfera con ombra morbida'
-    );
+    expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain('Una sfera con ombra morbida');
     expect(requestGeneratedImageMock.mock.calls[1]?.[0]).toContain(
       'La stessa sfera con ombra dura'
     );

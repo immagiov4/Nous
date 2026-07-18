@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { NewHomeView } from '../../../components/newHome/NewHomeView.tsx';
-import type { LibraryTree, SavedProjectMeta } from '../../../types.ts';
+import type { LibraryTree, ProjectSnapshot, SavedProjectMeta } from '../../../types.ts';
 
 const project: SavedProjectMeta = {
   id: 'project-1',
@@ -195,5 +195,63 @@ describe('NewHomeView library rename', () => {
     expect(
       screen.getByRole('textbox', { name: /Rinomina cartella|Rename folder/ })
     ).toBeInTheDocument();
+  });
+
+  test('groups course sources in a collapsed folder', async () => {
+    window.history.replaceState({}, '', '/library');
+    const user = userEvent.setup();
+    const file = {
+      data: 'ZmlsZQ==',
+      mimeType: 'application/pdf',
+      name: 'dispensa.pdf',
+      sourceId: 'source-1',
+    };
+    const snapshot = {
+      id: project.id,
+      source: {
+        file,
+        kind: 'pdf',
+        sources: [
+          {
+            file,
+            hash: 'hash-source-1',
+            id: 'source-1',
+            kind: 'pdf',
+            name: file.name,
+            outline: [],
+            outlineOrigin: 'none',
+            position: 0,
+            status: 'ready',
+          },
+        ],
+      },
+    } as unknown as ProjectSnapshot;
+
+    render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isLibraryLoading={false}
+        libraryFolders={[folder]}
+        libraryTree={tree}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => file)}
+        loadProjectsById={vi.fn(async () => [snapshot])}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[project]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    const sourceFolder = await screen.findByRole('button', { name: /Corso Mobile/ });
+    expect(sourceFolder).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: /dispensa.pdf/ })).toBeNull();
+
+    await user.click(sourceFolder);
+    expect(sourceFolder).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /dispensa.pdf/ })).toBeInTheDocument();
   });
 });
