@@ -2,6 +2,11 @@
 
 import { clipText } from '../../utils/text.ts';
 
+export const INTERNAL_REASONING_EFFICIENCY_INSTRUCTION =
+  'Use tokens efficiently in your internal reasoning and spend them only on decisions that affect correctness. This never authorizes shortening, flattening, or omitting user-facing output.';
+
+export const INTERNAL_FAST_TASK_INSTRUCTION = `${INTERNAL_REASONING_EFFICIENCY_INSTRUCTION} Do not overthink this non-verification task; satisfy the requested contract directly.`;
+
 export const FORMULA_RELEVANCE_RULE =
   'Usa formule matematiche solo quando sono naturali per la materia o quando il materiale originale le usa e sono necessarie per comprenderlo. Non trasformare concetti qualitativi, umanistici o discorsivi in equazioni inventate o decorative: se la formula non aggiunge precisione reale, spiega il concetto in prosa.';
 
@@ -48,6 +53,7 @@ PRINCIPI PEDAGOGICI FONDAMENTALI DA RISPETTARE:
 3. ESEMPI E INTERATTIVITÀ:
    - Quando aiutano davvero, associa ai concetti chiave esempi concreti.
    - Usa analogie solo per chiarire concetti davvero ostici, non una per ogni paragrafo.
+   - Non simulare mai un esempio visivo con ASCII art, righe di caratteri ripetuti, lettere usate come pixel, blocchi monospace o tabelle di simboli. Scrivi la lezione in prosa: gli esempi visivi programmabili vengono creati separatamente come artefatti HTML/CSS/JavaScript.
    - ${FORMULA_RELEVANCE_RULE}
    - Usa Markdown e LaTeX per la formattazione.
 

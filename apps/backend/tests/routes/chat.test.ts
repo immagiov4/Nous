@@ -503,6 +503,7 @@ describe('POST /api/chat/library', () => {
       getProjectStructures: expect.any(Object),
       getLessonDetails: expect.any(Object),
       searchLibrary: expect.any(Object),
+      startCourseAssessment: expect.any(Object),
     });
     expect(
       aiMocks.streamText.mock.calls[0][0].tools.getProjectStructures.inputSchema.required
@@ -525,6 +526,7 @@ describe('POST /api/chat/library', () => {
         'getProjectStructures',
         'getLessonDetails',
         'searchLibrary',
+        'startCourseAssessment',
       ]),
     });
 
@@ -627,6 +629,7 @@ describe('POST /api/chat/library', () => {
         'getProjectStructures',
         'getLessonDetails',
         'searchLibrary',
+        'startCourseAssessment',
       ]),
     });
   });

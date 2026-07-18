@@ -331,6 +331,26 @@ const libraryChatTools = {
     }),
     outputSchema: genericLibraryToolOutputSchema,
   }),
+  startCourseAssessment: tool({
+    description:
+      'Passa dalla ricerca nella libreria all intervista agentica per creare un nuovo corso. Usalo quando searchLibrary ha dimostrato che l argomento che l utente vuole imparare non e presente nello scope corrente. La decisione deve derivare dal significato della richiesta completa e dai risultati del tool, non da keyword isolate. Non usarlo per una normale domanda informativa o quando esiste gia un corso pertinente.',
+    inputSchema: jsonSchema<{
+      topic: string;
+    }>({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        topic: {
+          type: 'string',
+          minLength: 1,
+          description:
+            'Argomento specifico che l utente vuole imparare, formulato senza aggiungere un syllabus o dettagli inventati.',
+        },
+      },
+      required: ['topic'],
+    }),
+    outputSchema: genericLibraryToolOutputSchema,
+  }),
   getLessonDetails: tool({
     description:
       'Recupera una o piu lezioni complete con contenuto integrale, highlight, note e aiuti didattici contestuali (definizioni, formule, simboli e analogie) per corso e lessonIds specifici. Usalo anche per richieste di glossario.',

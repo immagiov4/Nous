@@ -63,6 +63,7 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 - Do not introduce unrelated refactors in the same patch.
 - Remove dead code and duplicate logic introduced by the change.
 - Keep names specific and semantically clear.
+- Do not introduce a project-specific heuristic for ranking, classification, ordering, placement, filtering, fallback selection, or semantic inference without explicit developer approval. When proposing one, label the question clearly as `EURISTICA PROPOSTA` and explain its decision rule and failure modes so it cannot be mistaken for a routine clarification. Established standard algorithms and deterministic validation of an explicit contract do not require this extra approval.
 
 ## Product Manifesto
 

@@ -44,6 +44,8 @@ const formatDate = (value: string): string =>
     year: 'numeric',
   }).format(new Date(value));
 
+const TITLE_OPEN_DELAY_MS = 180;
+
 const getProjectCoverIcon = (sourceKind: SavedProjectMeta['sourceKind']) => {
   if (sourceKind === 'codebase') {
     return FileArchive;
@@ -81,9 +83,25 @@ const ProjectCard = ({
   });
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const titleOpenTimeoutRef = useRef<number | null>(null);
   const wasExportingRef = useRef(isExporting);
   const coverIcon = getProjectCoverIcon(project.sourceKind);
   const showSourceWarning = !project.hasSourceFile && project.sourceKind !== 'learn-mode';
+
+  const cancelScheduledTitleOpen = () => {
+    if (titleOpenTimeoutRef.current !== null) {
+      window.clearTimeout(titleOpenTimeoutRef.current);
+      titleOpenTimeoutRef.current = null;
+    }
+  };
+
+  const scheduleTitleOpen = () => {
+    cancelScheduledTitleOpen();
+    titleOpenTimeoutRef.current = window.setTimeout(() => {
+      titleOpenTimeoutRef.current = null;
+      onOpen(project.id);
+    }, TITLE_OPEN_DELAY_MS);
+  };
 
   const startRenaming = () => {
     if (isSavingName) {
@@ -203,6 +221,8 @@ const ProjectCard = ({
     wasExportingRef.current = isExporting;
   }, [closeMenu, isExporting]);
 
+  useEffect(() => cancelScheduledTitleOpen, []);
+
   const renderMenu = () => {
     if (!menuOpen) {
       return null;
@@ -290,10 +310,18 @@ const ProjectCard = ({
     <article
       className={`group flex items-center gap-3 rounded-xl border border-gray-300 bg-white px-3.5 py-3 transition-colors hover:border-gray-400 sm:gap-4 sm:rounded-2xl sm:px-4 sm:py-3.5 dark:border-white/10 dark:bg-paper-surface dark:hover:border-zinc-600 ${className || ''}`}
       style={style}
+      onClick={() => {
+        if (!isRenaming) {
+          onOpen(project.id);
+        }
+      }}
     >
       {/* Icon */}
       <Pressable
-        onClick={() => onOpen(project.id)}
+        onClick={event => {
+          event.stopPropagation();
+          onOpen(project.id);
+        }}
         aria-busy={isOpening}
         className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 sm:h-10 sm:w-10 sm:rounded-xl dark:bg-paper-dark dark:text-zinc-300 dark:hover:bg-zinc-700/50"
         title={t('Apri progetto')}
@@ -309,7 +337,11 @@ const ProjectCard = ({
       <div className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left">
         <div className="flex w-full items-center gap-2">
           {isRenaming ? (
-            <form className="flex min-w-0 flex-1 items-center gap-2" onSubmit={submitRename}>
+            <form
+              className="flex min-w-0 flex-1 items-center gap-2"
+              onClick={event => event.stopPropagation()}
+              onSubmit={submitRename}
+            >
               <input
                 ref={nameInputRef}
                 value={nameDraft}
@@ -345,22 +377,20 @@ const ProjectCard = ({
                 type="button"
                 aria-busy={isOpening}
                 onClick={event => {
-                  if (!onRename) {
+                  event.stopPropagation();
+                  if (event.detail === 0 || !onRename) {
                     onOpen(project.id);
                     return;
                   }
-                  // Pointer clicks on the title are reserved for the browser-native double-click.
-                  // Keyboard activation still opens the course; the adjacent metadata opens by pointer.
-                  if (event.detail === 0) {
-                    onOpen(project.id);
-                  }
+                  scheduleTitleOpen();
                 }}
                 onDoubleClick={event => {
-                  if (!onRename) {
-                    return;
-                  }
                   event.preventDefault();
-                  startRenaming();
+                  event.stopPropagation();
+                  cancelScheduledTitleOpen();
+                  if (onRename) {
+                    startRenaming();
+                  }
                 }}
                 className="max-w-full truncate text-left"
               >
@@ -379,7 +409,10 @@ const ProjectCard = ({
         ) : null}
         <button
           type="button"
-          onClick={() => onOpen(project.id)}
+          onClick={event => {
+            event.stopPropagation();
+            onOpen(project.id);
+          }}
           aria-busy={isOpening}
           className="flex w-full items-center gap-2 text-[11px] text-gray-500 sm:text-xs dark:text-zinc-500"
         >

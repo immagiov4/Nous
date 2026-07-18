@@ -58,5 +58,6 @@ export {
   MODEL_RESEARCH_DOSSIER,
   MODEL_RESEARCH_PLANNER,
 } from './shared.ts';
+export { finalizeSourceFreeLesson } from './sourceFreeLessonFinalization.ts';
 export { checkTTSStatus, generateSpeech, getTTSModels, getTTSVoices } from './tts.ts';
 export { generateLessonVisualExample } from './visualExamples.ts';

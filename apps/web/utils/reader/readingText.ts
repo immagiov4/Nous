@@ -57,6 +57,7 @@ const PROSE_READABLE_TEXT_SELECTOR = READABLE_TEXT_SELECTOR.split(', ')
   .map(selector => `.prose ${selector}`)
   .join(', ');
 const VISUAL_EXAMPLE_PLACEHOLDER_PREFIX = '{{VISUAL_EXAMPLE:';
+const YOUTUBE_CLIP_PLACEHOLDER_PREFIX = '{{YOUTUBE_CLIP_SOURCE:';
 const HTML_SPACE_ENTITY = '&nbsp;';
 const HTML_TAGS_TO_DROP_WITH_CONTENT = ['figure', 'picture', 'figcaption'] as const;
 const HTML_TAGS_TO_STRIP = new Set(['mark', 'span']);
@@ -368,8 +369,8 @@ export interface ReadableTextElement {
 
 export const prepareMarkdownForSpeech = (content: string): string => {
   const placeholderStrippedContent = stripPlaceholderToken(
-    stripPdfImagePlaceholders(content),
-    VISUAL_EXAMPLE_PLACEHOLDER_PREFIX
+    stripPlaceholderToken(stripPdfImagePlaceholders(content), VISUAL_EXAMPLE_PLACEHOLDER_PREFIX),
+    YOUTUBE_CLIP_PLACEHOLDER_PREFIX
   );
   const markdownProtectedContent = replaceMarkdownProtectedRanges(placeholderStrippedContent);
   const htmlContentRemoved = HTML_TAGS_TO_DROP_WITH_CONTENT.reduce(

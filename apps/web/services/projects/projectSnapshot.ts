@@ -518,10 +518,31 @@ const parseResearchSourceReferences = (value: unknown) =>
         .map(source => {
           const url = ensureString(source.url) || undefined;
           const videoClip = parseResearchVideoClip(source, url);
+          const youtubeTranscript = isRecord(source.youtubeTranscript)
+            ? {
+                text: ensureString(source.youtubeTranscript.text),
+                ranges: Array.isArray(source.youtubeTranscript.ranges)
+                  ? source.youtubeTranscript.ranges.flatMap(range => {
+                      if (!isRecord(range)) return [];
+                      const startSeconds = Number(range.startSeconds);
+                      const endSeconds = Number(range.endSeconds);
+                      return Number.isFinite(startSeconds) &&
+                        Number.isFinite(endSeconds) &&
+                        startSeconds >= 0 &&
+                        endSeconds > startSeconds
+                        ? [{ endSeconds, startSeconds }]
+                        : [];
+                    })
+                  : [],
+              }
+            : undefined;
           return {
             title: ensureString(source.title),
             url,
             note: ensureString(source.note) || undefined,
+            ...(youtubeTranscript?.text && youtubeTranscript.ranges.length
+              ? { youtubeTranscript }
+              : {}),
             ...(videoClip ? { videoClip } : {}),
           };
         })
@@ -581,6 +602,37 @@ const parseResearchDossiers = (value: unknown): ProjectSnapshot['researchDossier
           avoidOversimplifying: parseStringArray(dossier.avoidOversimplifying),
           controversies: parseStringArray(dossier.controversies),
           sources: parseResearchSourceReferences(dossier.sources),
+          ...(isRecord(dossier.youtubeResearch)
+            ? {
+                youtubeResearch: {
+                  rationale: ensureString(dossier.youtubeResearch.rationale),
+                  outcome: dossier.youtubeResearch.outcome === 'failed' ? 'failed' : 'completed',
+                  candidateDecisions: Array.isArray(dossier.youtubeResearch.candidateDecisions)
+                    ? dossier.youtubeResearch.candidateDecisions
+                        .filter(isRecord)
+                        .flatMap(decision => {
+                          const url = ensureString(decision.url);
+                          const reason = ensureString(decision.reason);
+                          const outcome = ensureString(decision.decision);
+                          if (
+                            !url ||
+                            !reason ||
+                            !['rejected', 'selected-source'].includes(outcome)
+                          ) {
+                            return [];
+                          }
+                          return [
+                            {
+                              url,
+                              reason,
+                              decision: outcome as 'rejected' | 'selected-source',
+                            },
+                          ];
+                        })
+                    : [],
+                },
+              }
+            : {}),
         },
       ])
   );

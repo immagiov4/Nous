@@ -125,9 +125,12 @@ type AdminTextModelKey =
   | 'codexArtifactInteractiveModel'
   | 'codexAssessmentModel'
   | 'codexContextModel'
+  | 'codexDraftingModel'
   | 'codexLessonModel'
   | 'codexProgressModel'
   | 'codexResearchModel'
+  | 'codexStructureModel'
+  | 'codexVerificationModel'
   | 'contextModel'
   | 'lessonModel'
   | 'openAiArtifactModel'
@@ -234,6 +237,27 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
     },
   },
 ];
+
+const CODEX_GENERATION_PHASES = [
+  {
+    label: () => 'Strutturazione',
+    modelKey: 'codexStructureModel',
+    reasoningKey: 'structureReasoningEffort',
+    slot: 'structure',
+  },
+  {
+    label: () => t('Stesura'),
+    modelKey: 'codexDraftingModel',
+    reasoningKey: 'draftingReasoningEffort',
+    slot: 'drafting',
+  },
+  {
+    label: () => t('Verifica'),
+    modelKey: 'codexVerificationModel',
+    reasoningKey: 'verificationReasoningEffort',
+    slot: 'verification',
+  },
+] as const;
 
 const PROVIDER_SECTIONS: ReadonlyArray<{
   id: AdminAiProvider;
@@ -535,6 +559,69 @@ export default function AdminPanel() {
       />
     </label>
   );
+
+  const renderCodexGenerationPhase = ({
+    label,
+    modelKey,
+    reasoningKey,
+    slot,
+  }: (typeof CODEX_GENERATION_PHASES)[number]) => {
+    const phaseLabel = label();
+    const isFast = modelConfig.codexFastModelSlots.includes(slot);
+    return (
+      <div
+        key={slot}
+        className="border-b border-stone-100 py-3 last:border-b-0 dark:border-zinc-800"
+      >
+        <span className="block text-sm font-semibold text-stone-800 dark:text-zinc-200">
+          {phaseLabel}
+        </span>
+        <div className="mt-2 grid grid-cols-[minmax(0,7fr)_minmax(6.5rem,3fr)] gap-2">
+          <input
+            aria-label={`Modello per ${phaseLabel}`}
+            value={modelConfig[modelKey]}
+            onChange={event =>
+              setModelConfig(current => ({ ...current, [modelKey]: event.target.value }))
+            }
+            className={adminFieldClassName}
+          />
+          <select
+            aria-label={`Ragionamento per ${phaseLabel}`}
+            value={modelConfig[reasoningKey]}
+            onChange={event =>
+              setModelConfig(current => ({
+                ...current,
+                [reasoningKey]: event.target.value as AdminReasoningEffort,
+              }))
+            }
+            className={adminFieldClassName}
+          >
+            {REASONING_OPTIONS.map(([value, optionLabel]) => (
+              <option key={value} value={value}>
+                {t(optionLabel)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <label className="mt-2 flex items-center gap-2 text-sm text-stone-600 dark:text-zinc-300">
+          <input
+            type="checkbox"
+            checked={isFast}
+            onChange={event =>
+              setModelConfig(current => ({
+                ...current,
+                codexFastModelSlots: event.target.checked
+                  ? [...current.codexFastModelSlots, slot]
+                  : current.codexFastModelSlots.filter(currentSlot => currentSlot !== slot),
+              }))
+            }
+            className="h-4 w-4 rounded border-stone-300"
+          />
+          Modalità Fast
+        </label>
+      </div>
+    );
+  };
 
   return (
     <main className="min-h-screen bg-[#f8f7f4] px-3 py-4 text-stone-950 sm:px-5 sm:py-6 dark:bg-zinc-950 dark:text-zinc-100">
@@ -984,9 +1071,22 @@ export default function AdminPanel() {
                       }
                     >
                       {id === 'codex' ? (
-                        <div className="mb-5 [&>section]:border-0 [&>section]:bg-transparent [&>section]:p-0">
-                          <CodexConnectionSettings />
-                        </div>
+                        <>
+                          <div className="mb-5 [&>section]:border-0 [&>section]:bg-transparent [&>section]:p-0">
+                            <CodexConnectionSettings />
+                          </div>
+                          <div className="mb-3 overflow-hidden rounded-xl border border-stone-200 dark:border-zinc-700">
+                            <AdminDisclosure
+                              icon={BookOpen}
+                              title="Fasi di generazione"
+                              status="3 fasi"
+                            >
+                              <div className="mt-1">
+                                {CODEX_GENERATION_PHASES.map(renderCodexGenerationPhase)}
+                              </div>
+                            </AdminDisclosure>
+                          </div>
+                        </>
                       ) : null}
                       <div className="mt-1">
                         {TEXT_MODEL_ROWS.map(row => renderTextModelRow(id, row))}

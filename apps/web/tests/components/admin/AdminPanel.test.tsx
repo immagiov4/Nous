@@ -62,11 +62,16 @@ const defaultModelConfig = {
   codexArtifactModel: 'gpt-5.6-sol',
   codexArtifactInteractiveModel: 'gpt-5.6-sol',
   codexContextModel: 'gpt-5.6-luna',
+  codexDraftingModel: 'gpt-5.6-luna',
+  codexFastModelSlots: ['artifact', 'artifactInteractive', 'drafting', 'structure'],
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
   codexResearchModel: 'gpt-5.6-terra',
+  codexStructureModel: 'gpt-5.6-luna',
+  codexVerificationModel: 'gpt-5.6-terra',
   contextModel: 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium' as const,
+  draftingReasoningEffort: 'high' as const,
   imageModel: 'google/gemini-3.1-flash-lite-image',
   lessonModel: 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high' as const,
@@ -81,9 +86,11 @@ const defaultModelConfig = {
   progressModel: 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low' as const,
   researchModel: 'perplexity/sonar-pro-search',
+  structureReasoningEffort: 'medium' as const,
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   ttsVoice: 'Ara',
   updatedAt: '2026-07-07T00:00:00.000Z',
+  verificationReasoningEffort: 'high' as const,
 } satisfies AdminModelConfig;
 
 const openConfiguration = async (user: ReturnType<typeof userEvent.setup>) => {

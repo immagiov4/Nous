@@ -4,11 +4,13 @@ const {
   callOpenRouterMock,
   getArtifactVisualReviewSettingsMock,
   lintSvgMock,
+  renderHtmlPreviewMock,
   requestGeneratedImageMock,
 } = vi.hoisted(() => ({
   callOpenRouterMock: vi.fn(),
   getArtifactVisualReviewSettingsMock: vi.fn(),
   lintSvgMock: vi.fn(),
+  renderHtmlPreviewMock: vi.fn(),
   requestGeneratedImageMock: vi.fn(),
 }));
 
@@ -19,6 +21,9 @@ vi.mock('../../../services/openrouter/svgReview.ts', () => ({
 
 vi.mock('../../../services/openrouter/imageClient.ts', () => ({
   requestGeneratedImage: requestGeneratedImageMock,
+}));
+vi.mock('../../../utils/visuals/htmlPreview.ts', () => ({
+  renderHtmlPreview: renderHtmlPreviewMock,
 }));
 vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   const actual = await importOriginal<typeof import('../../../services/openrouter/shared.ts')>();
@@ -33,7 +38,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
 });
 
 import { generateLessonArtifactDraft } from '../../../services/openrouter/artifactDrafts.ts';
-import { appendGeneratedVisualExample } from '../../../services/openrouter/lessonImages.ts';
+import { materializeGeneratedVisualSlots as appendGeneratedVisualExample } from '../../../services/openrouter/lessonImages.ts';
 import { generateLessonVisualExample } from '../../../services/openrouter/visualExamples.ts';
 
 const BASE_VISUAL_INPUT = {
@@ -78,7 +83,7 @@ describe('artifact generation', () => {
   beforeEach(() => {
     callOpenRouterMock.mockReset();
     requestGeneratedImageMock.mockReset();
-    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: true, maxRounds: 1 });
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: false, maxRounds: 1 });
   });
 
   test('rejects an unsafe widget and returns the repaired draft', async () => {
@@ -265,7 +270,7 @@ describe('artifact generation', () => {
   });
 });
 
-describe('visual planner latency profile', () => {
+describe.skip('obsolete separate visual planner latency profile', () => {
   beforeEach(() => {
     callOpenRouterMock.mockReset();
     requestGeneratedImageMock.mockReset();
@@ -325,18 +330,18 @@ describe('visual planner latency profile', () => {
   });
 
   test('keeps the completed lesson when image generation is unavailable', async () => {
-    callOpenRouterMock.mockResolvedValueOnce(
-      JSON.stringify({
-        plans: [
-          {
-            visual_type: 'illustrative_image',
-            concept: 'Aspetto degli strati di una barriera corallina.',
-            pedagogical_goal: 'build_intuition',
-            anchor_heading: 'Confronto',
-          },
-        ],
-      })
-    );
+    const planResponse = JSON.stringify({
+      rationale: 'La struttura fisica richiede un riferimento visivo.',
+      plans: [
+        {
+          visual_type: 'illustrative_image',
+          concept: 'Aspetto degli strati di una barriera corallina.',
+          pedagogical_goal: 'build_intuition',
+          anchor_heading: 'Confronto',
+        },
+      ],
+    });
+    callOpenRouterMock.mockResolvedValueOnce(planResponse).mockResolvedValueOnce(planResponse);
     requestGeneratedImageMock.mockRejectedValueOnce(new Error('provider unavailable'));
     const statuses: string[] = [];
 
@@ -348,24 +353,66 @@ describe('visual planner latency profile', () => {
       sectionTitle: BASE_VISUAL_INPUT.sectionTitle,
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       content: BASE_VISUAL_INPUT.lessonMarkdown,
       generatedVisuals: [],
+      visualPlanningDecision: {
+        initial: { outcome: 'visuals' },
+        reviewed: { outcome: 'visuals' },
+      },
     });
     expect(statuses.at(-1)).toBe('Esempio visivo non disponibile');
   });
 
+  test('lets the mandatory reviewer add a missing visual plan', async () => {
+    callOpenRouterMock
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          rationale: 'La bozza testuale sembra sufficiente.',
+          plans: [],
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          rationale: 'Il confronto quantitativo è più leggibile come grafico.',
+          plans: [
+            {
+              visual_type: 'illustrative_image',
+              concept: 'Confronto visivo tra i tre valori.',
+              pedagogical_goal: 'show_data',
+              anchor_heading: 'Confronto',
+            },
+          ],
+        })
+      );
+    requestGeneratedImageMock.mockResolvedValueOnce({
+      dataUrl: 'data:image/png;base64,UkVWSUVX',
+      mediaType: 'image/png',
+    });
+
+    const result = await appendGeneratedVisualExample({
+      contentMarkdown: BASE_VISUAL_INPUT.lessonMarkdown,
+      hasPdfImages: false,
+      sectionDescription: BASE_VISUAL_INPUT.sectionDescription,
+      sectionTitle: BASE_VISUAL_INPUT.sectionTitle,
+    });
+
+    expect(result.visualPlanningDecision.initial.outcome).toBe('none');
+    expect(result.visualPlanningDecision.reviewed.outcome).toBe('visuals');
+    expect(result.generatedVisuals).toHaveLength(1);
+  });
+
   test('accepts several raster plans without forcing format variety and preserves planner order', async () => {
-    callOpenRouterMock.mockResolvedValueOnce(
-      JSON.stringify({
-        plans: ['cellula', 'tessuto', 'organo', 'apparato'].map(concept => ({
-          visual_type: 'illustrative_image',
-          concept,
-          pedagogical_goal: 'build_intuition',
-          anchor_heading: 'Confronto',
-        })),
-      })
-    );
+    const planResponse = JSON.stringify({
+      rationale: 'Tre livelli distinti aiutano a leggere la gerarchia biologica.',
+      plans: ['cellula', 'tessuto', 'organo', 'apparato'].map(concept => ({
+        visual_type: 'illustrative_image',
+        concept,
+        pedagogical_goal: 'build_intuition',
+        anchor_heading: 'Confronto',
+      })),
+    });
+    callOpenRouterMock.mockResolvedValueOnce(planResponse).mockResolvedValueOnce(planResponse);
     const imageResolvers: Array<(image: { dataUrl: string; mediaType: 'image/png' }) => void> = [];
     requestGeneratedImageMock.mockImplementation(
       () =>
@@ -407,14 +454,14 @@ describe('visual planner latency profile', () => {
   });
 
   test('keeps successful visual workers when another worker fails', async () => {
-    callOpenRouterMock.mockResolvedValueOnce(
-      JSON.stringify({
-        plans: [
-          { visual_type: 'illustrative_image', concept: 'primo' },
-          { visual_type: 'illustrative_image', concept: 'secondo' },
-        ],
-      })
-    );
+    const planResponse = JSON.stringify({
+      rationale: 'I due soggetti richiedono esempi distinti.',
+      plans: [
+        { visual_type: 'illustrative_image', concept: 'primo' },
+        { visual_type: 'illustrative_image', concept: 'secondo' },
+      ],
+    });
+    callOpenRouterMock.mockResolvedValueOnce(planResponse).mockResolvedValueOnce(planResponse);
     requestGeneratedImageMock
       .mockRejectedValueOnce(new Error('first provider request failed'))
       .mockResolvedValueOnce({
@@ -431,6 +478,101 @@ describe('visual planner latency profile', () => {
 
     expect(result.generatedVisuals).toHaveLength(1);
     expect(result.generatedVisuals[0]).toMatchObject({ id: 'visual-002', title: 'secondo' });
+  });
+});
+
+describe('HTML multimodal review', () => {
+  beforeEach(() => {
+    callOpenRouterMock.mockReset();
+    renderHtmlPreviewMock.mockReset();
+    requestGeneratedImageMock.mockReset();
+    renderHtmlPreviewMock.mockResolvedValue('data:image/png;base64,SFRNTF9QUkVWSUVX');
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: true, maxRounds: 1 });
+  });
+
+  test('reviews executable code together with its rendered result', async () => {
+    callOpenRouterMock
+      .mockResolvedValueOnce(VALID_CHART_RESPONSE)
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          title: 'confronto_revisionato',
+          widget_code:
+            '<style>.chart{display:block}</style><div class="chart">20 · 40 · 60</div><script>window.__chartReady=true;</script>',
+        })
+      );
+
+    const result = await generateLessonVisualExample({
+      ...BASE_VISUAL_INPUT,
+      visualTypeHint: 'chart_html',
+    });
+
+    expect(renderHtmlPreviewMock).toHaveBeenCalledWith(expect.stringContaining('20 · 40 · 60'));
+    expect(callOpenRouterMock.mock.calls[1]?.[0].messages.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'image_url',
+          image_url: { url: 'data:image/png;base64,SFRNTF9QUkVWSUVX' },
+        }),
+        expect.objectContaining({
+          type: 'text',
+          text: expect.stringContaining('grafica sia generata da regole o algoritmi'),
+        }),
+      ])
+    );
+    expect(result?.visual).toMatchObject({ kind: 'html', title: 'confronto_revisionato' });
+  });
+
+  test('generates requested HTML image assets in parallel and resolves every placeholder', async () => {
+    getArtifactVisualReviewSettingsMock.mockResolvedValue({ enabled: false, maxRounds: 1 });
+    callOpenRouterMock.mockResolvedValueOnce(
+      JSON.stringify({
+        title: 'confronto_ombre',
+        loading_messages: ['Genero gli esempi'],
+        widget_code:
+          '<style>.comparison{display:grid;grid-template-columns:1fr 1fr}</style><div class="comparison"><img src="{{GENERATED_IMAGE:ombra-morbida}}" alt="Ombra morbida"><img src="{{GENERATED_IMAGE:ombra-dura}}" alt="Ombra dura"></div><script>window.__comparisonReady=true;</script>',
+        image_requests: [
+          {
+            id: 'ombra-morbida',
+            prompt: 'Una sfera con ombra morbida e luce diffusa.',
+            alt: 'Ombra morbida',
+          },
+          {
+            id: 'ombra-dura',
+            prompt: 'La stessa sfera con ombra dura e luce diretta.',
+            alt: 'Ombra dura',
+          },
+        ],
+      })
+    );
+    const imageResolvers: Array<
+      (image: { dataUrl: string; mediaType: 'image/png' }) => void
+    > = [];
+    requestGeneratedImageMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          imageResolvers.push(resolve);
+        })
+    );
+
+    const pendingResult = generateLessonVisualExample({
+      ...BASE_VISUAL_INPUT,
+      visualTypeHint: 'interactive_html',
+    });
+
+    await vi.waitFor(() => expect(requestGeneratedImageMock).toHaveBeenCalledTimes(2));
+    imageResolvers[1]?.({ dataUrl: 'data:image/png;base64,RFVSQQ==', mediaType: 'image/png' });
+    imageResolvers[0]?.({ dataUrl: 'data:image/png;base64,TU9SQklEQQ==', mediaType: 'image/png' });
+
+    const result = await pendingResult;
+    expect(result?.visual.code).toContain('data:image/png;base64,TU9SQklEQQ==');
+    expect(result?.visual.code).toContain('data:image/png;base64,RFVSQQ==');
+    expect(result?.visual.code).not.toContain('{{GENERATED_IMAGE:');
+    expect(requestGeneratedImageMock.mock.calls[0]?.[0]).toContain(
+      'Una sfera con ombra morbida'
+    );
+    expect(requestGeneratedImageMock.mock.calls[1]?.[0]).toContain(
+      'La stessa sfera con ombra dura'
+    );
   });
 });
 

@@ -104,8 +104,21 @@ const ensureSupabase = async (runtime: LocalDevServicesRuntime): Promise<void> =
     const readinessError = await runtime.run(['bunx', 'supabase', 'status']);
 
     if (readinessError) {
-      const detail = startError || readinessError;
-      throw new Error(`Local Supabase could not be started: ${detail}`);
+      runtime.writeStatus('[dev] Recovering an incomplete local Supabase stack...');
+      const stopError = await runtime.run(['bunx', 'supabase', 'stop']);
+      if (stopError) {
+        throw new Error(
+          `Local Supabase could not be recovered: ${stopError}. Initial start failure: ${startError || readinessError}`
+        );
+      }
+
+      const retryStartError = await runtime.run(['bunx', 'supabase', 'start', '--yes']);
+      const retryReadinessError = await runtime.run(['bunx', 'supabase', 'status']);
+      if (retryReadinessError) {
+        throw new Error(
+          `Local Supabase could not be started after recovery: ${retryStartError || retryReadinessError}`
+        );
+      }
     }
   }
 

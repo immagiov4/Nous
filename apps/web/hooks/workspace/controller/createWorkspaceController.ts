@@ -20,6 +20,7 @@ export const createWorkspaceController = (
   return {
     ...sectionCommands,
     ...projectLifecycleCommands,
+    cancelAssessment: assessmentCommands.cancelAssessment,
     confirmPlanGeneration: assessmentCommands.confirmPlanGeneration,
     exportProject: context.projectLibrary.downloadProject,
     startHomeChat: assessmentCommands.startHomeChat,

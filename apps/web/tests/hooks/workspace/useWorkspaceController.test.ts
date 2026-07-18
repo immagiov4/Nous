@@ -747,6 +747,17 @@ const createOpenRouterMock = (
       }),
     generateLearningPlan: async () => buildPlan(),
     generateLearnLessonContent: async () => '# Lezione generata',
+    finalizeSourceFreeLesson: async ({ contentMarkdown }: { contentMarkdown: string }) => ({
+      content: contentMarkdown,
+      generatedVisuals: [],
+      learningAids: [],
+      quiz: [],
+      visualPlanningDecision: {
+        initial: { outcome: 'none' as const, plans: [], rationale: 'Nessuna visuale utile.' },
+        reviewed: { outcome: 'none' as const, plans: [], rationale: 'Decisione confermata.' },
+        reviewedAt: '2026-07-17T12:00:00.000Z',
+      },
+    }),
     generateLessonLearningAids: async () => [],
     generateResearchLessonDossier: async (args: { lesson: LearningSection }) => ({
       sectionId: args.lesson.id,
@@ -1715,6 +1726,42 @@ test('submitAssessment forwards the Nuovo corso preference to the active chat se
   assert.equal(state.internalState.assessmentMessages.at(-1)?.text, 'Profilazione');
 });
 
+test('submitAssessment lets the assessment agent abandon an accidental course flow', async () => {
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    domain: {
+      isLearnMode: true,
+      domainState: {
+        source: null,
+        learningPlan: null,
+        documentAssets: null,
+        documentIndex: null,
+        isLearnMode: true,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: null,
+      },
+    },
+    projectLibrary: {
+      currentProjectId: 'accidental-course',
+    },
+  });
+  state.adapter.setAssessmentMessages([{ role: 'model', text: 'Prima domanda' }]);
+  state.adapter.setChatSession({
+    sendMessage: async () => ({
+      text: '',
+      functionCalls: [{ name: 'abandonAssessment', args: {} }],
+    }),
+  });
+
+  const result = await controller.submitAssessment('Sono entrato qui per sbaglio');
+
+  assert.equal(result.outcome, 'abandoned');
+  assert.deepEqual(state.internalState.assessmentMessages, []);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.equal(projectLibrary.adapter.currentProjectId, null);
+  assert.equal(domain.isLearnMode, false);
+});
+
 test('submitAssessment in document mode generates the plan after the minimum number of turns', async () => {
   const { controller, domain, state } = createControllerHarness({
     domain: {
@@ -2153,6 +2200,11 @@ test('openSection generates and caches research dossiers for research-backed lea
   assert.equal(secondOutcome, 'loaded');
   assert.equal(dossierCalls, 1);
   assert.equal(contentCalls, 2);
+
+  const fullRegenerationOutcome = await controller.regenerateActiveSection();
+  assert.equal(fullRegenerationOutcome, 'loaded');
+  assert.equal(dossierCalls, 2);
+  assert.equal(contentCalls, 3);
 });
 
 test('openSection keeps a covered prerequisite on the original document pipeline', async () => {
@@ -2408,6 +2460,42 @@ test('openSection ignores user navigation while another blocking workflow is pen
   const result = await controller.openSection(getLessons(uncachedPlan)[0]);
 
   assert.equal(result, 'ignored-busy');
+});
+
+test('openSection never starts a second lesson generation', async () => {
+  const uncachedPlan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Lezione 1',
+        description: 'Intro',
+        isCompleted: false,
+        type: 'core',
+      },
+    ],
+  });
+  let generationCalls = 0;
+  const { controller, state } = createControllerHarness({
+    domain: {
+      file: pdfFile,
+      learningPlan: uncachedPlan,
+      source: createProjectSourceFromFile(pdfFile),
+    },
+    openRouter: {
+      generateSectionContent: async () => {
+        generationCalls += 1;
+        throw new Error('A concurrent generation must not start');
+      },
+    },
+  });
+
+  state.adapter.beginWorkflow('loadSection', 'Generazione lezione...');
+  const result = await controller.openSection(getLessons(uncachedPlan)[0], {
+    allowWhileBlocking: true,
+  });
+
+  assert.equal(result, 'ignored-busy');
+  assert.equal(generationCalls, 0);
 });
 
 test('createLessonFromSelection inserts the deep dive after the parent subtree and opens it', async () => {
@@ -2750,8 +2838,12 @@ test('goToLibrary returns the UX to library and stops active audio playback', as
   const { controller, state, stopAudioCalls } = createControllerHarness();
 
   state.adapter.setScreenState(AppState.READING);
+  const lessonRequestId = state.adapter.beginWorkflow('loadSection');
+  const questionRequestId = state.adapter.beginWorkflow('contextQuestion');
   await controller.goToLibrary();
 
   assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.deepEqual(stopAudioCalls, [true]);
+  assert.equal(state.adapter.isWorkflowCurrent('loadSection', lessonRequestId), true);
+  assert.equal(state.adapter.isWorkflowCurrent('contextQuestion', questionRequestId), false);
 });

@@ -247,11 +247,13 @@ export const mergePrerequisiteDossierSources = (
       return;
     }
     const existing = sourcesByKey.get(key);
-    const videoClip = existing?.videoClip || source.videoClip;
+    const videoClip = source.videoClip || existing?.videoClip;
+    const youtubeTranscript = source.youtubeTranscript || existing?.youtubeTranscript;
     sourcesByKey.set(key, {
       title: existing?.title || source.title,
       url: existing?.url || source.url,
       note: existing?.note || source.note,
+      ...(youtubeTranscript ? { youtubeTranscript } : {}),
       ...(videoClip ? { videoClip } : {}),
     });
   });

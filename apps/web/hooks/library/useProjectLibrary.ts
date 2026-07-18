@@ -486,7 +486,12 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       patchValue: Partial<
         Pick<
           LearningSection,
-          'content' | 'generatedVisuals' | 'imageRefs' | 'learningAids' | 'quiz'
+          | 'content'
+          | 'generatedVisuals'
+          | 'imageRefs'
+          | 'learningAids'
+          | 'quiz'
+          | 'visualPlanningDecision'
         >
       >,
       projectPatch: Partial<ProjectSnapshot> = {}

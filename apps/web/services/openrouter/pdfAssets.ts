@@ -23,7 +23,7 @@ import {
 
 const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession | null>>();
 const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
-const PDF_ASSET_CACHE_VERSION = 'resolution-filter-v2';
+const PDF_ASSET_CACHE_VERSION = 'resolution-metadata-v3';
 const IMAGE_ID_PREFIX = 'pdf-img-';
 const MAX_BACKEND_EXTRACTED_IMAGES = 36;
 const PDF_TEXT_QUALITY = {
@@ -306,6 +306,9 @@ ${sourceContext.promptContext}`
     id: image.id || `${IMAGE_ID_PREFIX}${String(index + 1).padStart(3, '0')}`,
     mimeType: image.mimeType || 'image/png',
     dataUrl: image.dataUrl,
+    intrinsicWidth: image.intrinsicWidth,
+    intrinsicHeight: image.intrinsicHeight,
+    sizeBytes: image.sizeBytes,
     caption: normalizedCaption || undefined,
     textBefore: sourceContext.textBefore,
     textCurrent: sourceContext.textCurrent,

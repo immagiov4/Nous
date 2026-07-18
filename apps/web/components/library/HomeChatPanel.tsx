@@ -98,6 +98,7 @@ interface HomeChatPanelProps {
   showChatAvatars?: boolean;
   onClearPendingFile: () => void;
   onClearLibraryMessages?: () => void;
+  onCancelNewCourse?: () => void;
   onContinueAssessment?: () => void;
   onConfirmGenerate: () => void;
   onHomeChatModeChange: (mode: HomeChatMode) => void;
@@ -303,6 +304,7 @@ const LIBRARY_TOOL_META: Record<string, { icon: LucideIcon; getLabel: () => stri
   requestSaveLearningArtifactNote: { icon: FileText, getLabel: () => t('Salva nota') },
   searchLibrary: { icon: Search, getLabel: () => t('Ricerca contenuti') },
   searchWeb: { icon: Globe, getLabel: () => t('Ricerca web') },
+  startCourseAssessment: { icon: BookOpen, getLabel: () => t('Avvio nuovo corso') },
 };
 
 const getToolMeta = (part: UIMessage['parts'][number]) => {
@@ -345,6 +347,11 @@ const getToolArgHint = (part: LibraryToolPart): string | null => {
       const query = input.query as string | undefined;
       if (!query) return null;
       return query.length > 30 ? `${query.slice(0, 30)}\u2026` : query;
+    }
+    case 'startCourseAssessment': {
+      const topic = input.topic as string | undefined;
+      if (!topic) return null;
+      return topic.length > 30 ? `${topic.slice(0, 30)}\u2026` : topic;
     }
     default:
       return null;
@@ -398,6 +405,7 @@ export default function HomeChatPanel({
   showChatAvatars = false,
   onClearPendingFile,
   onClearLibraryMessages,
+  onCancelNewCourse,
   onContinueAssessment,
   onConfirmGenerate,
   onHomeChatModeChange,
@@ -499,11 +507,12 @@ export default function HomeChatPanel({
         );
   const scrollMeasurementKey = `${activeMessages.length}:${activeMessagesContentLength}:${assessmentComplete}:${isLoading}`;
   const showHeader = !hideHeaderCopy || !hideModeSelector;
-  const showClearLibraryMessages =
-    homeChatMode === 'library-query' &&
-    visibleLibraryMessages.length > 0 &&
-    Boolean(onClearLibraryMessages);
-  const reserveClearButtonSpace = showClearLibraryMessages && !showHeader;
+  const showClearChat =
+    (homeChatMode === 'library-query' &&
+      visibleLibraryMessages.length > 0 &&
+      Boolean(onClearLibraryMessages)) ||
+    (homeChatMode === 'new-course' && assessmentMessages.length > 0 && Boolean(onCancelNewCourse));
+  const reserveClearButtonSpace = showClearChat && !showHeader;
   const mobileChatStyle =
     isMobileViewport && viewportHeight != null
       ? hasActiveChat
@@ -1126,14 +1135,20 @@ export default function HomeChatPanel({
       className={`relative rounded-[2rem] bg-[rgba(248,245,240,0.96)] shadow-[inset_0_1px_3px_rgba(24,24,27,0.05),inset_0_0_0_1px_rgba(88,64,32,0.04)] dark:bg-[rgba(46,40,36,0.94)] dark:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] max-md:flex max-md:flex-col ${hasActiveChat ? 'max-md:h-[75dvh] max-md:overflow-hidden' : ''}`}
       style={mobileChatStyle}
     >
-      {showClearLibraryMessages ? (
+      {showClearChat ? (
         <button
           type="button"
-          onClick={() => onClearLibraryMessages?.()}
+          onClick={() =>
+            homeChatMode === 'new-course' ? onCancelNewCourse?.() : onClearLibraryMessages?.()
+          }
           disabled={isLoading}
           className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-300/80 bg-white text-gray-500 shadow-[0_1px_2px_rgba(24,24,27,0.04)] transition-colors hover:border-gray-400 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-500 disabled:cursor-not-allowed disabled:opacity-50 sm:right-4 sm:top-4 dark:border-white/10 dark:bg-stone-900/80 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-100 dark:focus-visible:ring-stone-300"
-          title={t('Pulisci questa chat')}
-          aria-label={t('Pulisci questa chat')}
+          title={
+            homeChatMode === 'new-course' ? t('Annulla creazione corso') : t('Pulisci questa chat')
+          }
+          aria-label={
+            homeChatMode === 'new-course' ? t('Annulla creazione corso') : t('Pulisci questa chat')
+          }
         >
           <Trash2 className="h-4 w-4" />
         </button>

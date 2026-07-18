@@ -1,185 +1,139 @@
 import { describe, expect, test } from 'vitest';
 import {
-  buildYouTubeResearchBundle,
   buildYouTubeResearchDiagnostic,
-  type CommandRunner,
+  buildYouTubeResearchOutcome,
+  DecodoDiscoveryProvider,
+  DecodoTranscriptProvider,
   type YouTubeCandidate,
   type YouTubeDiscoveryProvider,
-  YouTubeTranscriptFallbackProvider,
-  YouTubeTranscriptOverrideProvider,
   type YouTubeTranscriptProvider,
-  YoutubeBrowserTranscriptProvider,
-  YoutubeTranscriptCliProvider,
-  YtDlpDiscoveryProvider,
 } from '../../src/services/youtubeResearch.js';
 
 describe('YouTube research', () => {
-  test('reads the browser transcript command output using the requested language', async () => {
-    const calls: Array<{ args: string[]; command: string }> = [];
-    const provider = new YoutubeBrowserTranscriptProvider(
-      {
-        run: async (command, args) => {
-          calls.push({ args, command });
-          return JSON.stringify([[{ duration: 3, start: 12, text: 'Browser transcript' }]]);
-        },
-      },
-      'scripts/browser-transcript.mjs',
-      '/run/secrets/youtube-auth-state.json'
-    );
+  test('discovers YouTube candidates through Decodo without local semantic ranking', async () => {
+    const calls: Array<{ body: string; url: string }> = [];
+    const provider = new DecodoDiscoveryProvider('secret', async (input, init) => {
+      calls.push({ body: String(init?.body), url: String(input) });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              content: JSON.stringify([
+                {
+                  videoId: 'unrelated',
+                  title: { runs: [{ text: 'Una celebrità racconta la propria vita' }] },
+                  viewCountText: { simpleText: '50,000,000 views' },
+                },
+                {
+                  lengthText: { simpleText: '25:00' },
+                  longBylineText: { runs: [{ text: 'Film school' }] },
+                  title: { runs: [{ text: 'Storia del cinema mondiale' }] },
+                  videoId: 'cinema',
+                  viewCountText: { simpleText: '10K views' },
+                },
+              ]),
+            },
+          ],
+        })
+      );
+    });
 
-    const lookup = await provider.getTranscriptDiagnostic('video-1', ['it']);
+    const candidates = await provider.search('storia del cinema mondiale');
 
     expect(calls).toEqual([
       {
-        command: 'node',
-        args: [
-          'scripts/browser-transcript.mjs',
-          '--video-id',
-          'video-1',
-          '--language',
-          'it',
-          '--auth-state',
-          '/run/secrets/youtube-auth-state.json',
-        ],
+        body: JSON.stringify({
+          query: 'storia del cinema mondiale',
+          target: 'youtube_search',
+        }),
+        url: 'https://scraper-api.decodo.com/v2/scrape',
       },
     ]);
-    expect(lookup.transcript).toEqual({
-      kind: 'automatic',
+    expect(candidates.map(candidate => candidate.id)).toEqual(['unrelated', 'cinema']);
+    expect(candidates[0]).toMatchObject({
+      title: 'Una celebrità racconta la propria vita',
+      viewCount: 50_000_000,
+    });
+  });
+
+  test('loads all Decodo subtitle variants in one request and prefers manual captions', async () => {
+    const calls: Array<{ body: string; url: string }> = [];
+    const provider = new DecodoTranscriptProvider('secret', async (input, init) => {
+      calls.push({ body: String(init?.body), url: String(input) });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              content: {
+                auto_generated: {
+                  it: {
+                    events: [
+                      {
+                        dDurationMs: 2_000,
+                        segs: [{ tOffsetMs: 0, utf8: 'Automatico' }],
+                        tStartMs: 0,
+                      },
+                    ],
+                  },
+                },
+                uploader_provided: {
+                  it: {
+                    events: [
+                      {
+                        dDurationMs: 2_000,
+                        segs: [{ utf8: 'Sottotitolo manuale' }],
+                        tStartMs: 1_000,
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        })
+      );
+    });
+
+    const first = await provider.getTranscriptDiagnostic('video-1', ['it', 'en']);
+    const cached = await provider.getTranscriptDiagnostic('video-1', ['it', 'en']);
+
+    expect(calls).toEqual([
+      {
+        body: JSON.stringify({ query: 'video-1', target: 'youtube_subtitles' }),
+        url: 'https://scraper-api.decodo.com/v2/scrape',
+      },
+    ]);
+    expect(first.transcript).toEqual({
+      kind: 'manual',
       language: 'it',
-      segments: [{ durationSeconds: 3, startSeconds: 12, text: 'Browser transcript' }],
+      segments: [{ durationSeconds: 2, startSeconds: 1, text: 'Sottotitolo manuale' }],
     });
+    expect(cached.cached).toBe(true);
   });
 
-  test('falls back to the browser after the lightweight provider is IP-blocked', async () => {
-    const provider = new YouTubeTranscriptFallbackProvider(
-      {
-        getTranscript: async () => null,
-        getTranscriptDiagnostic: async () => ({
-          attempts: [
-            {
-              durationMs: 5,
-              kind: 'manual',
-              language: 'it',
-              outcome: 'ip-blocked',
-            },
-          ],
-          circuitOpened: true,
-          circuitReason: 'ip-blocked',
-          transcript: null,
-        }),
-      },
-      {
-        getTranscript: async () => ({
-          kind: 'automatic',
-          language: 'it',
-          segments: [{ durationSeconds: 2, startSeconds: 1, text: 'Dal browser' }],
-        }),
-        getTranscriptDiagnostic: async () => ({
-          attempts: [
-            {
-              durationMs: 20,
-              kind: 'automatic',
-              language: 'it',
-              outcome: 'available',
-            },
-          ],
-          transcript: {
-            kind: 'automatic',
-            language: 'it',
-            segments: [{ durationSeconds: 2, startSeconds: 1, text: 'Dal browser' }],
-          },
-        }),
-      }
+  test('preserves provider caption-event boundaries without local timing heuristics', async () => {
+    const events = Array.from({ length: 15 }, (_, index) => ({
+      dDurationMs: 500,
+      segs: [{ tOffsetMs: 0, utf8: `word${index}` }],
+      tStartMs: index * 400,
+    }));
+    const provider = new DecodoTranscriptProvider(
+      'secret',
+      async () =>
+        new Response(
+          JSON.stringify({
+            results: [{ content: { auto_generated: { en: { events } } } }],
+          })
+        )
     );
 
-    const lookup = await provider.getTranscriptDiagnostic('video-1', ['it']);
+    const transcript = await provider.getTranscript('video-2', ['en']);
 
-    expect(lookup.transcript?.segments[0]?.text).toBe('Dal browser');
-    expect(lookup.circuitOpened).toBeUndefined();
-    expect(lookup.attempts.map(attempt => attempt.outcome)).toEqual(['ip-blocked', 'available']);
-  });
-
-  test('uses browser transcript overrides and falls back for other videos', async () => {
-    const fallbackRequests: string[] = [];
-    const provider = new YouTubeTranscriptOverrideProvider(
-      [
-        {
-          language: 'it',
-          videoId: 'browser-video',
-          segments: [{ durationSeconds: 2, startSeconds: 4, text: 'Dal browser' }],
-        },
-      ],
-      {
-        getTranscript: async videoId => {
-          fallbackRequests.push(videoId);
-          return null;
-        },
-      }
-    );
-
-    const overrideLookup = await provider.getTranscriptDiagnostic('browser-video', ['it']);
-    const missingLookup = await provider.getTranscriptDiagnostic('other-video', ['it']);
-
-    expect(overrideLookup).toMatchObject({
-      attempts: [{ kind: 'automatic', language: 'it', outcome: 'available' }],
-      transcript: { segments: [{ text: 'Dal browser' }] },
-    });
-    expect(missingLookup.transcript).toBeNull();
-    expect(fallbackRequests).toEqual(['other-video']);
-  });
-
-  test('ranks title relevance ahead of unrelated popularity', async () => {
-    const runner: CommandRunner = {
-      run: async (_command, args) => {
-        if (args.at(-1)?.startsWith('ytsearch')) {
-          return JSON.stringify({
-            entries: [
-              {
-                channel: 'Popular channel',
-                duration: 4_000,
-                id: 'unrelated',
-                title: 'Una celebrità racconta la propria vita',
-                url: 'https://www.youtube.com/watch?v=unrelated',
-                view_count: 50_000_000,
-              },
-              {
-                channel: 'Film school',
-                duration: 1_500,
-                id: 'cinema',
-                title: 'Storia del cinema mondiale',
-                url: 'https://www.youtube.com/watch?v=cinema',
-                view_count: 10_000,
-              },
-            ],
-          });
-        }
-        return JSON.stringify({ entries: [] });
-      },
-    };
-
-    const candidates = await new YtDlpDiscoveryProvider(runner).search(
-      'storia del cinema mondiale'
-    );
-
-    expect(candidates.map(candidate => candidate.id)).toEqual(['cinema', 'unrelated']);
-  });
-
-  test('encodes the YouTube playlist filter exactly once', async () => {
-    const requestedUrls: string[] = [];
-    const runner: CommandRunner = {
-      run: async (_command, args) => {
-        const target = args.at(-1) || '';
-        requestedUrls.push(target);
-        return JSON.stringify({ entries: [] });
-      },
-    };
-
-    await new YtDlpDiscoveryProvider(runner).search('pixel art');
-
-    const playlistSearchUrl = requestedUrls.find(url => url.startsWith('https://www.youtube.com'));
-    expect(playlistSearchUrl).toBeDefined();
-    expect(new URL(playlistSearchUrl as string).searchParams.get('sp')).toBe('EgIQAw==');
-    expect(playlistSearchUrl).not.toContain('%253D');
+    expect(transcript?.kind).toBe('automatic');
+    expect(transcript?.segments).toHaveLength(15);
+    expect(transcript?.segments[0]?.text).toBe('word0');
+    expect(JSON.stringify(transcript)).not.toContain('tStartMs');
+    expect(JSON.stringify(transcript)).not.toContain('segs');
   });
 
   test('combines deduplicated videos and playlist entries with timestamped transcripts', async () => {
@@ -225,171 +179,31 @@ describe('YouTube research', () => {
       },
     };
 
-    const research = await buildYouTubeResearchBundle('argomento', 'Italiano', {
+    const research = await buildYouTubeResearchOutcome('argomento', 'Italiano', {
       discovery,
       transcripts,
     });
 
     expect(requestedIds).toEqual(['video-1', 'video-2']);
     expect(research.context).toContain('[01:05-01:09] Concetto verificabile');
+    expect(research.rationale).toBe(
+      '2 video con transcript disponibile inclusi su 2 candidati valutati.'
+    );
     expect(research.context).toContain('playlist playlist-1, posizione 2');
     expect(research.videoCandidates).toEqual([
-      { ranges: [{ endSeconds: 69, startSeconds: 65 }], url: video.url },
       {
         ranges: [{ endSeconds: 69, startSeconds: 65 }],
+        title: 'Course lecture',
+        transcript: '[01:05-01:09] Concetto verificabile',
+        url: video.url,
+      },
+      {
+        ranges: [{ endSeconds: 69, startSeconds: 65 }],
+        title: 'Second lecture',
+        transcript: '[01:05-01:09] Concetto verificabile',
         url: 'https://www.youtube.com/watch?v=video-2',
       },
     ]);
-  });
-
-  test('prefers an automatic course-language transcript over a manual fallback language', async () => {
-    const calls: string[][] = [];
-    const runner: CommandRunner = {
-      run: async (_command, args) => {
-        calls.push(args);
-        if (args.includes('it') && args.includes('--exclude-manually-created')) {
-          return JSON.stringify([[{ duration: 2, start: 0, text: 'Trascrizione italiana' }]]);
-        }
-        throw new Error('Transcript unavailable');
-      },
-    };
-
-    const transcript = await new YoutubeTranscriptCliProvider(runner).getTranscript('video-1', [
-      'it',
-      'en',
-    ]);
-
-    expect(transcript?.kind).toBe('automatic');
-    expect(transcript?.language).toBe('it');
-    expect(calls).toHaveLength(2);
-    expect(calls[0]).toContain('--exclude-generated');
-    expect(calls[1]).toContain('--exclude-manually-created');
-  });
-
-  test('drops negative and zero-duration transcript segments at the CLI boundary', async () => {
-    const runner: CommandRunner = {
-      run: async () =>
-        JSON.stringify([
-          [
-            { duration: 2, start: -1, text: 'Prima del video' },
-            { duration: 0, start: 2, text: 'Segmento vuoto' },
-            { duration: 3, start: 4, text: 'Segmento valido' },
-          ],
-        ]),
-    };
-
-    const transcript = await new YoutubeTranscriptCliProvider(runner).getTranscript('video-1', [
-      'it',
-    ]);
-
-    expect(transcript?.segments).toEqual([
-      { durationSeconds: 3, startSeconds: 4, text: 'Segmento valido' },
-    ]);
-  });
-
-  test('reports blocked transcript attempts without exposing raw command errors', async () => {
-    const runner: CommandRunner = {
-      run: async () => {
-        throw Object.assign(new Error('Command failed'), {
-          stderr: 'YouTube is blocking requests from your IP. RequestBlocked',
-        });
-      },
-    };
-
-    const lookup = await new YoutubeTranscriptCliProvider(runner).getTranscriptDiagnostic(
-      'video-1',
-      ['it', 'en']
-    );
-
-    expect(lookup.transcript).toBeNull();
-    expect(lookup.attempts).toHaveLength(1);
-    expect(lookup.attempts.every(attempt => attempt.outcome === 'ip-blocked')).toBe(true);
-    expect(lookup).toMatchObject({ circuitOpened: true, circuitReason: 'ip-blocked' });
-    expect(JSON.stringify(lookup)).not.toContain('Command failed');
-  });
-
-  test('classifies exit-zero CLI diagnostics before attempting JSON parsing', async () => {
-    const runner: CommandRunner = {
-      run: async (_command, args) =>
-        args.includes('--exclude-generated')
-          ? `Could not retrieve a transcript for the video.
-No transcripts were found for any of the requested language codes: ['en']`
-          : `Could not retrieve a transcript for the video.
-YouTube is blocking requests from your IP. RequestBlocked`,
-    };
-
-    const lookup = await new YoutubeTranscriptCliProvider(runner).getTranscriptDiagnostic(
-      'video-exit-zero',
-      ['en']
-    );
-
-    expect(lookup.attempts.map(attempt => attempt.outcome)).toEqual(['empty', 'ip-blocked']);
-    expect(lookup).toMatchObject({ circuitOpened: true, circuitReason: 'ip-blocked' });
-  });
-
-  test('opens the global circuit after the first blocked batch and schedules no later videos', async () => {
-    const videos = Array.from(
-      { length: 12 },
-      (_, index): YouTubeCandidate => ({
-        channelTitle: 'Blocked channel',
-        channelVerified: false,
-        id: `blocked-${index}`,
-        kind: 'video',
-        title: `Blocked tutorial ${index}`,
-        url: `https://www.youtube.com/watch?v=blocked-${index}`,
-      })
-    );
-    let commands = 0;
-    let inFlight = 0;
-    let maxInFlight = 0;
-    const runner: CommandRunner = {
-      run: async () => {
-        commands += 1;
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        await Promise.resolve();
-        inFlight -= 1;
-        return 'YouTube is blocking requests from your IP. IpBlocked';
-      },
-    };
-
-    const diagnostic = await buildYouTubeResearchDiagnostic('pixel art', 'English', {
-      discovery: { expandPlaylist: async () => [], search: async () => videos },
-      transcripts: new YoutubeTranscriptCliProvider(runner),
-    });
-
-    expect(diagnostic).toMatchObject({ circuitOpened: true, circuitReason: 'ip-blocked' });
-    expect(diagnostic.operations.transcriptLookups).toBeLessThanOrEqual(2);
-    expect(diagnostic.operations.transcriptCommandAttempts).toBeLessThanOrEqual(2);
-    expect(commands).toBeLessThanOrEqual(2);
-    expect(maxInFlight).toBeLessThanOrEqual(2);
-    expect(
-      diagnostic.candidates
-        .slice(2)
-        .every(candidate => candidate.decision === 'transcript-not-requested')
-    ).toBe(true);
-  });
-
-  test('deduplicates concurrent transcript lookups and reuses the bounded provider cache', async () => {
-    let commandCount = 0;
-    const runner: CommandRunner = {
-      run: async () => {
-        commandCount += 1;
-        return JSON.stringify([[{ duration: 2, start: 0, text: 'Cached transcript' }]]);
-      },
-    };
-    const provider = new YoutubeTranscriptCliProvider(runner);
-
-    const [first, concurrent] = await Promise.all([
-      provider.getTranscriptDiagnostic('cached-video', ['en']),
-      provider.getTranscriptDiagnostic('cached-video', ['en']),
-    ]);
-    const later = await provider.getTranscriptDiagnostic('cached-video', ['en']);
-
-    expect(first.transcript?.segments[0]?.text).toBe('Cached transcript');
-    expect(concurrent.cached).toBe(true);
-    expect(later.cached).toBe(true);
-    expect(commandCount).toBe(1);
   });
 
   test('neutralizes transcript boundary tags before building the model context', async () => {
@@ -471,7 +285,133 @@ YouTube is blocking requests from your IP. RequestBlocked`,
     expect(diagnostic.limits.transcriptConcurrency).toBe(2);
   });
 
-  test('chunks an oversized transcript into query-relevant windows within the token budget', async () => {
+  test('requests transcripts for the first six provider-ordered videos', async () => {
+    const videos = Array.from(
+      { length: 10 },
+      (_, index): YouTubeCandidate => ({
+        channelTitle: 'Pixel school',
+        channelVerified: false,
+        id: `video-${index}`,
+        kind: 'video',
+        title: `Pixel art tutorial ${index}`,
+        url: `https://www.youtube.com/watch?v=video-${index}`,
+        viewCount: 10_000 - index,
+      })
+    );
+    const requestedIds: string[] = [];
+
+    const diagnostic = await buildYouTubeResearchDiagnostic('pixel art', 'English', {
+      discovery: { expandPlaylist: async () => [], search: async () => videos },
+      transcripts: {
+        getTranscript: async videoId => {
+          requestedIds.push(videoId);
+          return {
+            kind: 'manual',
+            language: 'en',
+            segments: [{ durationSeconds: 2, startSeconds: 0, text: 'Pixel art' }],
+          };
+        },
+      },
+    });
+
+    expect(requestedIds).toHaveLength(6);
+    expect(diagnostic.operations.transcriptLookups).toBe(6);
+    expect(diagnostic.limits.discoveryVideos).toBe(6);
+    expect(diagnostic.candidates.filter(candidate => candidate.kind === 'video')).toHaveLength(6);
+  });
+
+  test('expands playlists in provider order instead of pushing them behind direct videos', async () => {
+    const directVideos = Array.from(
+      { length: 6 },
+      (_, index): YouTubeCandidate => ({
+        channelTitle: 'Direct channel',
+        channelVerified: false,
+        id: `direct-${index}`,
+        kind: 'video',
+        title: `Direct video ${index}`,
+        url: `https://www.youtube.com/watch?v=direct-${index}`,
+      })
+    );
+    const playlist: YouTubeCandidate = {
+      channelTitle: 'Playlist channel',
+      channelVerified: false,
+      id: 'playlist',
+      kind: 'playlist',
+      title: 'Structured playlist',
+      url: 'https://www.youtube.com/playlist?list=playlist',
+    };
+    const playlistVideo: YouTubeCandidate = {
+      channelTitle: 'Playlist channel',
+      channelVerified: false,
+      id: 'playlist-video',
+      kind: 'video',
+      playlistId: playlist.id,
+      playlistPosition: 1,
+      title: 'Playlist lesson',
+      url: 'https://www.youtube.com/watch?v=playlist-video',
+    };
+    const requestedIds: string[] = [];
+    const firstDirectVideo = directVideos[0];
+    if (!firstDirectVideo) throw new Error('Missing direct video fixture.');
+
+    await buildYouTubeResearchDiagnostic('topic', 'English', {
+      discovery: {
+        expandPlaylist: async () => [playlistVideo],
+        search: async () => [firstDirectVideo, playlist, ...directVideos.slice(1)],
+      },
+      transcripts: {
+        getTranscript: async videoId => {
+          requestedIds.push(videoId);
+          return {
+            kind: 'manual',
+            language: 'en',
+            segments: [{ durationSeconds: 2, startSeconds: 0, text: 'Lesson' }],
+          };
+        },
+      },
+    });
+
+    expect(requestedIds).toEqual([
+      'direct-0',
+      'playlist-video',
+      'direct-1',
+      'direct-2',
+      'direct-3',
+      'direct-4',
+    ]);
+  });
+
+  test('expands at most two playlists even with a custom discovery provider', async () => {
+    const playlists = Array.from(
+      { length: 4 },
+      (_, index): YouTubeCandidate => ({
+        channelTitle: 'Playlist school',
+        channelVerified: false,
+        id: `playlist-${index}`,
+        kind: 'playlist',
+        title: `Pixel art playlist ${index}`,
+        url: `https://www.youtube.com/playlist?list=playlist-${index}`,
+      })
+    );
+    const expandedIds: string[] = [];
+
+    const diagnostic = await buildYouTubeResearchDiagnostic('pixel art', 'English', {
+      discovery: {
+        expandPlaylist: async playlist => {
+          expandedIds.push(playlist.id);
+          return [];
+        },
+        search: async () => playlists,
+      },
+      transcripts: { getTranscript: async () => null },
+    });
+
+    expect(expandedIds).toEqual(['playlist-0', 'playlist-1']);
+    expect(diagnostic.operations.playlistPreviewsExpanded).toBe(2);
+    expect(diagnostic.limits.playlistResults).toBe(2);
+  });
+
+  test('rejects an oversized transcript without keyword-based chunk selection', async () => {
     const video: YouTubeCandidate = {
       channelTitle: 'Pixel school',
       channelVerified: false,
@@ -514,14 +454,10 @@ YouTube is blocking requests from your IP. RequestBlocked`,
     });
 
     const candidate = diagnostic.candidates[0];
-    expect(candidate?.decision).toBe('context-included');
-    expect(candidate?.includedTokens).toBeLessThanOrEqual(
-      diagnostic.budget.perTranscriptMaxTokens + 100
-    );
-    expect(candidate?.transcript?.text).toContain('pixel art curves and shading');
-    expect(candidate?.transcript?.text.length).toBeLessThan(36 * 120);
-    expect(diagnostic.budget.usedTokens).toBeLessThanOrEqual(
-      diagnostic.budget.transcriptBudgetTokens
-    );
+    expect(candidate?.decision).toBe('transcript-budget');
+    expect(candidate?.includedTokens).toBe(0);
+    expect(candidate?.transcript?.text).toBe('');
+    expect(diagnostic.bundle.videoCandidates).toEqual([]);
+    expect(diagnostic.budget.usedTokens).toBe(0);
   });
 });

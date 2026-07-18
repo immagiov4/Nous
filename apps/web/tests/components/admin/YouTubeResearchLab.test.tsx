@@ -1,27 +1,25 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { setRenderingLocaleOverride } from '../../../i18n/uiMessages.ts';
 
 const runAdminYouTubeResearchLabMock = vi.hoisted(() => vi.fn());
 const evaluateYouTubeResearchLabMock = vi.hoisted(() => vi.fn());
+const planYouTubeSearchQueryMock = vi.hoisted(() => vi.fn());
 const readSupabaseSessionMock = vi.hoisted(() => vi.fn());
 const readSupabaseAccessRoleMock = vi.hoisted(() => vi.fn());
-const localStorageValues = new Map<string, string>();
-const localStorageMock = {
-  clear: () => localStorageValues.clear(),
-  getItem: (key: string) => localStorageValues.get(key) ?? null,
-  setItem: (key: string, value: string) => localStorageValues.set(key, value),
-};
-
 vi.mock('../../../services/admin/adminApi.ts', () => ({
   runAdminYouTubeResearchLab: runAdminYouTubeResearchLabMock,
 }));
 
 vi.mock('../../../services/openrouter/research.ts', () => ({
   evaluateYouTubeResearchLab: evaluateYouTubeResearchLabMock,
+}));
+
+vi.mock('../../../services/openrouter/youtubeSearchQuery.ts', () => ({
+  planYouTubeSearchQuery: planYouTubeSearchQueryMock,
 }));
 
 vi.mock('../../../services/auth/supabaseAuth.ts', () => ({
@@ -51,6 +49,8 @@ const researchResult = {
       videoCandidates: [
         {
           ranges: [{ startSeconds: 65, endSeconds: 93 }],
+          title: 'Pixel art curves',
+          transcript: '[01:05-01:33] Draw the curve.',
           url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
         },
       ],
@@ -64,7 +64,6 @@ const researchResult = {
         id: 'M7lc1UVf-VE',
         kind: 'video',
         origins: ['search'],
-        rankScore: 14,
         title: 'Pixel art curves',
         transcript: {
           characterCount: 48,
@@ -87,19 +86,16 @@ const researchResult = {
         viewCount: 120_000,
       },
     ],
-    circuitOpened: false,
-    circuitReason: null,
     errors: [],
     limits: {
-      discoveryVideos: 12,
-      playlistResults: 4,
-      playlistVideos: 4,
+      discoveryVideos: 6,
+      playlistResults: 2,
       transcriptConcurrency: 2,
     },
     operations: {
-      discoveryCommands: 2,
-      playlistExpansionCommands: 0,
-      transcriptCommandAttempts: 1,
+      discoveryRequests: 1,
+      playlistPreviewsExpanded: 0,
+      transcriptRequests: 1,
       transcriptLookups: 1,
     },
     preferredLanguages: ['en'],
@@ -112,14 +108,13 @@ const researchResult = {
 describe('YouTubeResearchLab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('localStorage', localStorageMock);
-    localStorage.clear();
     setRenderingLocaleOverride('en');
     readSupabaseSessionMock.mockReturnValue({
       accessToken: 'admin-token',
     });
     readSupabaseAccessRoleMock.mockReturnValue('admin');
     runAdminYouTubeResearchLabMock.mockResolvedValue(researchResult);
+    planYouTubeSearchQueryMock.mockResolvedValue('pixel art curves step by step tutorial');
     evaluateYouTubeResearchLabMock.mockResolvedValue({
       dossier: {
         avoidOversimplifying: [],
@@ -147,7 +142,7 @@ describe('YouTubeResearchLab', () => {
       researchBrief: 'The first candidate is useful as a practical demonstration.',
       youtubeCandidateDecisions: [
         {
-          decision: 'selected-clip',
+          decision: 'selected-source',
           reason: 'The timestamp shows the curve being drawn step by step.',
           url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
         },
@@ -172,7 +167,7 @@ describe('YouTubeResearchLab', () => {
         contextWindowTokens: 128_000,
         language: 'Italiano',
         nonYouTubePromptTokens: 8_000,
-        query: 'Bordi e curve Pixel art',
+        query: 'pixel art curves step by step tutorial',
         reservedOutputTokens: 32_000,
       })
     );
@@ -183,73 +178,16 @@ describe('YouTubeResearchLab', () => {
         youtubeResearch: expect.objectContaining({ videoClipsEnabled: true }),
       })
     );
-    expect(await screen.findByText('Selected clips')).toBeInTheDocument();
+    expect(await screen.findByText('Video preview')).toBeInTheDocument();
+    expect(screen.getAllByTitle('Pixel art curves')).toHaveLength(1);
     expect(screen.getByTitle('Pixel art curves')).toHaveAttribute(
       'src',
-      'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?autoplay=0&controls=1&end=92&playsinline=1&rel=0&start=65'
+      'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?autoplay=0&controls=1&end=93&playsinline=1&rel=0&start=65'
     );
     expect(
-      screen.getByText('The timestamp shows the curve being drawn step by step.')
-    ).toBeInTheDocument();
+      screen.getAllByText('The timestamp shows the curve being drawn step by step.')
+    ).toHaveLength(2);
     expect(screen.getByText('Model attempts').parentElement).toHaveTextContent('2');
-  });
-
-  test('saves a pasted browser transcript for normal course and lesson generation', async () => {
-    const user = userEvent.setup();
-    render(<YouTubeResearchLab />);
-
-    await user.type(screen.getByLabelText('Course topic'), 'Pixel art');
-    await user.click(screen.getByText('Browser transcript (optional)'));
-    fireEvent.change(screen.getByLabelText(/Paste a JSON array/), {
-      target: {
-        value: JSON.stringify([
-          {
-            videoId: 'M7lc1UVf-VE',
-            language: 'en',
-            segments: [{ text: 'Draw the curve.', startSeconds: 65, durationSeconds: 27 }],
-          },
-        ]),
-      },
-    });
-    await user.click(screen.getByRole('button', { name: 'Run the actual pipeline' }));
-
-    await waitFor(() =>
-      expect(runAdminYouTubeResearchLabMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          transcriptOverrides: [
-            {
-              videoId: 'M7lc1UVf-VE',
-              language: 'en',
-              segments: [{ text: 'Draw the curve.', startSeconds: 65, durationSeconds: 27 }],
-            },
-          ],
-        })
-      )
-    );
-    expect(JSON.parse(localStorage.getItem('nous:youtube-transcript-overrides') || '[]')).toEqual([
-      {
-        videoId: 'M7lc1UVf-VE',
-        language: 'en',
-        segments: [{ text: 'Draw the curve.', startSeconds: 65, durationSeconds: 27 }],
-      },
-    ]);
-  });
-
-  test('rejects malformed transcript JSON without making a request', async () => {
-    const user = userEvent.setup();
-    render(<YouTubeResearchLab />);
-
-    await user.type(screen.getByLabelText('Course topic'), 'Pixel art');
-    await user.click(screen.getByText('Browser transcript (optional)'));
-    fireEvent.change(screen.getByLabelText(/Paste a JSON array/), {
-      target: { value: '[{"videoId":"missing segments"}]' },
-    });
-    await user.click(screen.getByRole('button', { name: 'Run the actual pipeline' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'The transcript JSON is invalid. Check videoId and segments.'
-    );
-    expect(runAdminYouTubeResearchLabMock).not.toHaveBeenCalled();
   });
 
   test('shows the structured rejection reason for a model-evaluated candidate', async () => {
@@ -285,23 +223,21 @@ describe('YouTubeResearchLab', () => {
     await user.type(screen.getByLabelText('Course topic'), 'Pixel art');
     await user.click(screen.getByRole('button', { name: 'Run the actual pipeline' }));
 
-    expect(await screen.findByText('Rejected by the model')).toBeInTheDocument();
+    expect(await screen.findAllByText('Rejected by the model')).toHaveLength(2);
     expect(
-      screen.getByText(
+      screen.getAllByText(
         'It explains tools broadly but never demonstrates the requested curve technique.'
       )
-    ).toBeInTheDocument();
+    ).toHaveLength(2);
   });
 
-  test('shows IP blocking and skips model evaluation when no transcript enters context', async () => {
+  test('skips model evaluation when Decodo returns no transcript context', async () => {
     const user = userEvent.setup();
     runAdminYouTubeResearchLabMock.mockResolvedValueOnce({
       ...researchResult,
       diagnostic: {
         ...researchResult.diagnostic,
         bundle: { context: '', videoCandidates: [] },
-        circuitOpened: true,
-        circuitReason: 'ip-blocked',
         candidates: [
           {
             ...researchResult.diagnostic.candidates[0],
@@ -312,7 +248,7 @@ describe('YouTubeResearchLab', () => {
                 durationMs: 20,
                 kind: 'manual',
                 language: 'en',
-                outcome: 'ip-blocked',
+                outcome: 'unavailable',
               },
             ],
           },
@@ -325,11 +261,8 @@ describe('YouTubeResearchLab', () => {
     await user.click(screen.getByRole('button', { name: 'Run the actual pipeline' }));
 
     expect(
-      await screen.findByText('YouTube blocked transcripts for 1 candidates.')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        'Transcript circuit opened: IP block detected. Later candidates were not queried.'
+      await screen.findByText(
+        'No transcript entered the context. Model evaluation was skipped to avoid two useless calls.'
       )
     ).toBeInTheDocument();
     expect(evaluateYouTubeResearchLabMock).not.toHaveBeenCalled();
@@ -361,7 +294,6 @@ describe('YouTubeResearchLab', () => {
             id: 'playlist-1',
             kind: 'playlist',
             origins: ['search'],
-            rankScore: 8,
             title: 'Pixel art playlist',
             transcriptAttempts: [],
             url: 'https://www.youtube.com/playlist?list=playlist-1',
@@ -413,7 +345,7 @@ describe('YouTubeResearchLab', () => {
     await user.type(screen.getByLabelText('Course topic'), 'Pixel art');
     await user.click(screen.getByRole('button', { name: 'Run the actual pipeline' }));
 
-    expect(await screen.findByText('Pixel art curves')).toBeInTheDocument();
+    expect(await screen.findAllByText('Pixel art curves')).toHaveLength(2);
     expect(screen.getByRole('alert')).toHaveTextContent('YouTube lab is unavailable.');
     expect(screen.getByRole('alert')).not.toHaveTextContent('private provider failure');
     warn.mockRestore();

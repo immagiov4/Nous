@@ -32,7 +32,12 @@ import { materializeSectionAnnotationMarks } from '../../../utils/learning/secti
 import { supportsSectionAnnotationHighlights } from '../../../utils/learning/sectionAnnotationHighlights.ts';
 import { stripTerminalLessonSourcesSection } from '../../../utils/markdown/lessonSources.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
-import { buildYouTubeClipEmbedUrl } from '../../../utils/youtube.ts';
+import {
+  buildYouTubeClipEmbedUrl,
+  isYouTubeClipWithinTranscriptBounds,
+  normalizeYouTubeClipInterval,
+  type YouTubeClipInterval,
+} from '../../../utils/youtube.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
@@ -43,6 +48,54 @@ import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
 import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
+const YOUTUBE_CLIP_SOURCE_PLACEHOLDER_REGEX =
+  /\{\{YOUTUBE_CLIP_SOURCE:(\d+)(?:\|START:(\d+)\|END:(\d+))?}}/g;
+
+type InlineLessonPart =
+  | { content: string; key: string; type: 'markdown' }
+  | {
+      clipOverride?: YouTubeClipInterval;
+      key: string;
+      sourceIndex: number;
+      type: 'youtube';
+    };
+
+const splitInlineLessonParts = (content: string): InlineLessonPart[] => {
+  const parts: InlineLessonPart[] = [];
+  let lastIndex = 0;
+  YOUTUBE_CLIP_SOURCE_PLACEHOLDER_REGEX.lastIndex = 0;
+  for (const match of content.matchAll(YOUTUBE_CLIP_SOURCE_PLACEHOLDER_REGEX)) {
+    const matchIndex = match.index ?? 0;
+    if (matchIndex > lastIndex) {
+      parts.push({
+        content: content.slice(lastIndex, matchIndex),
+        key: `markdown:${lastIndex}:${matchIndex}`,
+        type: 'markdown',
+      });
+    }
+    parts.push({
+      clipOverride:
+        match[2] && match[3]
+          ? {
+              endSeconds: Number.parseInt(match[3], 10),
+              startSeconds: Number.parseInt(match[2], 10),
+            }
+          : undefined,
+      key: `youtube:${matchIndex}`,
+      sourceIndex: Number.parseInt(match[1] || '', 10),
+      type: 'youtube',
+    });
+    lastIndex = matchIndex + match[0].length;
+  }
+  if (lastIndex < content.length) {
+    parts.push({
+      content: content.slice(lastIndex),
+      key: `markdown:${lastIndex}:${content.length}`,
+      type: 'markdown',
+    });
+  }
+  return parts;
+};
 
 const createFallbackVisualArtifactPayload = ({
   activeSectionTitle,
@@ -733,9 +786,15 @@ const formatClipTime = (seconds: number): string => {
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
 };
 
-function YouTubeLessonClip({ source }: { source: ResearchSourceReference }) {
+function YouTubeLessonClip({
+  clipOverride,
+  source,
+}: {
+  clipOverride?: YouTubeClipInterval;
+  source: ResearchSourceReference;
+}) {
   const [isPlayerVisible, setIsPlayerVisible] = useState(false);
-  const clip = source.videoClip;
+  const clip = clipOverride || source.videoClip;
   const embedUrl = clip
     ? buildYouTubeClipEmbedUrl(source.url || '', clip.startSeconds, clip.endSeconds)
     : null;
@@ -779,20 +838,6 @@ function YouTubeLessonClip({ source }: { source: ResearchSourceReference }) {
 }
 
 function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference[] }) {
-  const [videoClipsEnabled, setVideoClipsEnabled] = useState(false);
-  const hasVideoClips = sources.some(source => source.videoClip);
-
-  useEffect(() => {
-    if (!hasVideoClips) return;
-    let active = true;
-    void getYouTubeVideoClipsEnabled().then(enabled => {
-      if (active) setVideoClipsEnabled(enabled);
-    });
-    return () => {
-      active = false;
-    };
-  }, [hasVideoClips]);
-
   if (sources.length === 0) {
     return null;
   }
@@ -805,13 +850,6 @@ function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference
       <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
         {t('Fonti della sezione')}
       </h2>
-      {hasVideoClips && videoClipsEnabled ? (
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          {sources.map((source, index) => (
-            <YouTubeLessonClip key={`clip:${source.url || index}`} source={source} />
-          ))}
-        </div>
-      ) : null}
       <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-700 dark:text-stone-300">
         {sources.map((source, index) => {
           const safeUrl = getSafeSourceUrl(source.url);
@@ -889,6 +927,21 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     }
     return window.localStorage.getItem(CONTEXT_MENU_HINT_STORAGE_KEY) === 'true';
   });
+  const hasVideoClips = lessonSources.some(source => source.videoClip || source.youtubeTranscript);
+  const [videoClipsEnabled, setVideoClipsEnabled] = useState(false);
+  useEffect(() => {
+    if (!hasVideoClips) {
+      setVideoClipsEnabled(false);
+      return;
+    }
+    let active = true;
+    void getYouTubeVideoClipsEnabled().then(enabled => {
+      if (active) setVideoClipsEnabled(enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, [hasVideoClips]);
   const readingShellClassName = isFocusMode
     ? 'max-w-[72rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-12 xl:px-16'
     : 'max-w-[90rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
@@ -915,9 +968,9 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       usesNativeAnnotationHighlights
         ? content
         : materializeSectionAnnotationMarks(content, sectionAnnotations),
-      quiz.length
+      quiz
     );
-  }, [quiz.length, renderedSectionContent, sectionAnnotations, usesNativeAnnotationHighlights]);
+  }, [quiz, renderedSectionContent, sectionAnnotations, usesNativeAnnotationHighlights]);
   const lessonAnnotations = useMemo(
     () => (sectionAnnotations || []).filter(annotation => annotation.anchor?.kind === 'lesson'),
     [sectionAnnotations]
@@ -1092,23 +1145,51 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                 ) : null}
                 {inlineQuizLayout.map(chunk => (
                   <div key={`${chunk.questionIndexes.join('-')}::${chunk.markdown.slice(0, 64)}`}>
-                    <MarkdownRenderer
-                      content={chunk.markdown}
-                      generatedVisualsById={activeSectionGeneratedVisualsById}
-                      isDarkMode={isDarkMode}
-                      lessonAssetsById={activeSectionAssetsById}
-                      lessonImageRefsById={activeSectionImageRefsById}
-                      onClick={onContentClick}
-                      sectionAnnotations={sectionAnnotations}
-                      className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
-                      prose-p:text-gray-800 dark:prose-p:text-gray-200
-                      prose-headings:font-serif prose-headings:font-normal
-                      prose-headings:text-gray-900 dark:prose-headings:text-white
-                      prose-strong:font-semibold
-                      prose-strong:text-orange-800 dark:prose-strong:text-orange-400
-                      ${isDarkMode ? 'prose-invert' : ''}
-                    `}
-                    />
+                    {splitInlineLessonParts(chunk.markdown).map(part => {
+                      if (part.type === 'youtube') {
+                        const source = lessonSources[part.sourceIndex];
+                        const clip = source?.url
+                          ? normalizeYouTubeClipInterval(
+                              source.url,
+                              part.clipOverride?.startSeconds ?? source.videoClip?.startSeconds,
+                              part.clipOverride?.endSeconds ?? source.videoClip?.endSeconds
+                            )
+                          : null;
+                        const hasTranscriptCoverage = Boolean(
+                          clip &&
+                            source?.youtubeTranscript &&
+                            isYouTubeClipWithinTranscriptBounds(
+                              clip,
+                              source.youtubeTranscript.ranges
+                            )
+                        );
+                        return videoClipsEnabled && source && clip && hasTranscriptCoverage ? (
+                          <div key={part.key} className="my-8" data-nous-speech="ignore">
+                            <YouTubeLessonClip clipOverride={clip} source={source} />
+                          </div>
+                        ) : null;
+                      }
+                      return (
+                        <MarkdownRenderer
+                          key={part.key}
+                          content={part.content}
+                          generatedVisualsById={activeSectionGeneratedVisualsById}
+                          isDarkMode={isDarkMode}
+                          lessonAssetsById={activeSectionAssetsById}
+                          lessonImageRefsById={activeSectionImageRefsById}
+                          onClick={onContentClick}
+                          sectionAnnotations={sectionAnnotations}
+                          className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
+                          prose-p:text-gray-800 dark:prose-p:text-gray-200
+                          prose-headings:font-serif prose-headings:font-normal
+                          prose-headings:text-gray-900 dark:prose-headings:text-white
+                          prose-strong:font-semibold
+                          prose-strong:text-orange-800 dark:prose-strong:text-orange-400
+                          ${isDarkMode ? 'prose-invert' : ''}
+                        `}
+                        />
+                      );
+                    })}
 
                     {chunk.questionIndexes.map(questionIndex => {
                       const question = quiz[questionIndex];

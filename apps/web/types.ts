@@ -21,6 +21,13 @@ export interface ResearchSourceReference {
   title: string;
   url?: string;
   note?: string;
+  youtubeTranscript?: {
+    ranges: Array<{
+      endSeconds: number;
+      startSeconds: number;
+    }>;
+    text: string;
+  };
   videoClip?: {
     endSeconds: number;
     startSeconds: number;
@@ -60,6 +67,15 @@ export interface ResearchLessonDossier {
   sectionId: string;
   sources: ResearchSourceReference[];
   title: string;
+  youtubeResearch?: {
+    candidateDecisions: Array<{
+      decision: 'rejected' | 'selected-source';
+      reason: string;
+      url: string;
+    }>;
+    outcome: 'completed' | 'failed';
+    rationale: string;
+  };
 }
 
 export type ResearchDossiersBySectionId = Record<string, ResearchLessonDossier>;
@@ -233,6 +249,7 @@ export const ACTIVE_PAUSE_EXERCISE_TYPES = [
 export type ActivePauseExerciseType = (typeof ACTIVE_PAUSE_EXERCISE_TYPES)[number];
 
 export interface QuizQuestion {
+  anchorExcerpt?: string;
   exerciseType?: ActivePauseExerciseType;
   question: string;
   options: string[];
@@ -322,6 +339,9 @@ export interface PdfImageAsset {
   id: string;
   mimeType: string;
   dataUrl: string;
+  intrinsicWidth?: number;
+  intrinsicHeight?: number;
+  sizeBytes?: number;
   caption?: string;
   textBefore: string;
   textCurrent?: string;
@@ -380,6 +400,36 @@ export interface LessonSourceReference {
   sourceId: string;
 }
 
+export type LessonVisualPlanType =
+  | 'chart_html'
+  | 'flowchart_svg'
+  | 'illustrative_image'
+  | 'interactive_html'
+  | 'mermaid_class'
+  | 'mermaid_erd'
+  | 'structural_svg';
+
+export interface LessonVisualPlan {
+  anchorExcerpt?: null | string;
+  anchorHeading: null | string;
+  concept: string;
+  pedagogicalGoal: string;
+  reason: string;
+  visualType: LessonVisualPlanType;
+}
+
+export interface LessonVisualPlanningPass {
+  outcome: 'failed' | 'none' | 'visuals';
+  plans: LessonVisualPlan[];
+  rationale: string;
+}
+
+export interface LessonVisualPlanningDecision {
+  initial: LessonVisualPlanningPass;
+  reviewed: LessonVisualPlanningPass;
+  reviewedAt: string;
+}
+
 export interface LearningSection {
   id: string;
   moduleTitle?: string;
@@ -392,6 +442,7 @@ export interface LearningSection {
   quiz?: QuizQuestion[]; // The generated quiz (persisted)
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
   generatedVisuals?: LessonGeneratedVisual[]; // Generated pedagogical visuals for missing examples
+  visualPlanningDecision?: LessonVisualPlanningDecision; // Planner and reviewer verdicts
   learningAids?: LessonLearningAid[]; // Compact definitions, formulas, symbols, and analogies
   contextPrompt?: string; // For Learn Mode
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
@@ -524,11 +575,14 @@ export interface ProjectExportData {
 export type OpenRouterModelSlot =
   | 'artifact'
   | 'artifactInteractive'
+  | 'drafting'
   | 'lesson'
   | 'assessment'
   | 'context'
   | 'progress'
   | 'research'
+  | 'structure'
+  | 'verification'
   | 'tts';
 export type SettingsPanelSectionId = 'course-notes';
 

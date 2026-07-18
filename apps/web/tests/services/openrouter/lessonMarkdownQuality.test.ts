@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   hasBrokenDisplayMathBracketBlock,
   hasSplitTextPseudocodeFence,
-  parseLabelBodyPair,
-  parseStandaloneLabel,
   stripMarkdownForSimilarity,
 } from '../../../services/openrouter/lessonMarkdownQuality/markdownHeuristics.ts';
 import { sanitizeLessonMarkdownContent } from '../../../services/openrouter/lessonMarkdownQuality/quality.ts';
@@ -16,19 +14,6 @@ describe('lessonMarkdownQuality markdown heuristics', () => {
     );
 
     expect(normalized).toBe('Intro fine');
-  });
-
-  it('parses bold and plain label/body pairs', () => {
-    expect(parseLabelBodyPair('**Definizione**: Corpo')).toEqual({
-      body: 'Corpo',
-      label: 'Definizione',
-    });
-    expect(parseLabelBodyPair('Tema:')).toBeNull();
-  });
-
-  it('parses standalone labels and ignores non-label paragraphs', () => {
-    expect(parseStandaloneLabel('**Riepilogo**:')).toBe('Riepilogo');
-    expect(parseStandaloneLabel('testo normale senza due punti')).toBeNull();
   });
 
   it('detects broken display math bracket blocks', () => {
@@ -67,8 +52,7 @@ describe('lessonMarkdownQuality markdown heuristics', () => {
 
   it('adds heading spacing and trims trailing line whitespace without regex-only formatting', () => {
     const normalized = sanitizeLessonMarkdownContent(
-      'Prima frase utile   \n## Titolo\nTesto sotto heading   ',
-      []
+      'Prima frase utile   \n## Titolo\nTesto sotto heading   '
     );
 
     expect(normalized).toContain('Prima frase utile\n\n## Titolo');

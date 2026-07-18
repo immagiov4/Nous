@@ -5,9 +5,12 @@ export type TextModelSlot =
   | 'artifactInteractive'
   | 'assessment'
   | 'context'
+  | 'drafting'
   | 'lesson'
   | 'progress'
-  | 'research';
+  | 'research'
+  | 'structure'
+  | 'verification';
 
 export const DEFAULT_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
 export const DEFAULT_TTS_VOICE = 'Ara';
@@ -34,11 +37,16 @@ export interface GlobalModelConfig {
   codexArtifactModel: string;
   codexArtifactInteractiveModel: string;
   codexContextModel: string;
+  codexDraftingModel: string;
+  codexFastModelSlots: TextModelSlot[];
   codexLessonModel: string;
   codexProgressModel: string;
   codexResearchModel: string;
+  codexStructureModel: string;
+  codexVerificationModel: string;
   contextModel: string;
   contextReasoningEffort: ReasoningEffort;
+  draftingReasoningEffort: ReasoningEffort;
   imageModel: string;
   lessonModel: string;
   lessonReasoningEffort: ReasoningEffort;
@@ -53,9 +61,11 @@ export interface GlobalModelConfig {
   progressModel: string;
   progressReasoningEffort: ReasoningEffort;
   researchModel: string;
+  structureReasoningEffort: ReasoningEffort;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
+  verificationReasoningEffort: ReasoningEffort;
 }
 
 export type GlobalModelConfigPatch = Partial<
@@ -74,11 +84,16 @@ export type GlobalModelConfigPatch = Partial<
     | 'codexArtifactModel'
     | 'codexArtifactInteractiveModel'
     | 'codexContextModel'
+    | 'codexDraftingModel'
+    | 'codexFastModelSlots'
     | 'codexLessonModel'
     | 'codexProgressModel'
     | 'codexResearchModel'
+    | 'codexStructureModel'
+    | 'codexVerificationModel'
     | 'contextModel'
     | 'contextReasoningEffort'
+    | 'draftingReasoningEffort'
     | 'imageModel'
     | 'lessonModel'
     | 'lessonReasoningEffort'
@@ -93,8 +108,10 @@ export type GlobalModelConfigPatch = Partial<
     | 'progressModel'
     | 'progressReasoningEffort'
     | 'researchModel'
+    | 'structureReasoningEffort'
     | 'ttsModel'
     | 'ttsVoice'
+    | 'verificationReasoningEffort'
   >
 >;
 
@@ -118,11 +135,16 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
     process.env.CODEX_MODEL_ARTIFACT ||
     'gpt-5.6-sol',
   codexContextModel: process.env.CODEX_MODEL_CONTEXT || 'gpt-5.6-luna',
+  codexDraftingModel: process.env.CODEX_MODEL_DRAFTING || 'gpt-5.6-luna',
+  codexFastModelSlots: ['artifact', 'artifactInteractive', 'drafting', 'structure'],
   codexLessonModel: process.env.CODEX_MODEL_LESSON || 'gpt-5.6-terra',
   codexProgressModel: process.env.CODEX_MODEL_PROGRESS || 'gpt-5.6-luna',
   codexResearchModel: process.env.CODEX_MODEL_RESEARCH || 'gpt-5.6-terra',
+  codexStructureModel: process.env.CODEX_MODEL_STRUCTURE || 'gpt-5.6-luna',
+  codexVerificationModel: process.env.CODEX_MODEL_VERIFICATION || 'gpt-5.6-terra',
   contextModel: process.env.MODEL_CONTEXT || 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium',
+  draftingReasoningEffort: 'high',
   imageModel: process.env.MODEL_IMAGE || DEFAULT_IMAGE_MODEL,
   lessonModel: process.env.MODEL_LESSON || 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high',
@@ -140,8 +162,10 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   progressModel: process.env.MODEL_PROGRESS || 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low',
   researchModel: process.env.MODEL_RESEARCH_PLANNER || 'perplexity/sonar-pro-search',
+  structureReasoningEffort: 'medium',
   ttsModel: process.env.MODEL_TTS || DEFAULT_TTS_MODEL,
   ttsVoice: process.env.TTS_VOICE || DEFAULT_TTS_VOICE,
+  verificationReasoningEffort: 'high',
 };
 
 let activeModelConfig: GlobalModelConfig = {
@@ -165,11 +189,16 @@ interface PersistedModelConfigRow {
   codex_artifact_model?: string;
   codex_artifact_interactive_model?: string;
   codex_context_model?: string;
+  codex_drafting_model?: string;
+  codex_fast_model_slots?: unknown;
   codex_lesson_model?: string;
   codex_progress_model?: string;
   codex_research_model?: string;
+  codex_structure_model?: string;
+  codex_verification_model?: string;
   context_model?: string;
   context_reasoning_effort?: string;
+  drafting_reasoning_effort?: string;
   image_model?: string;
   lesson_model?: string;
   lesson_reasoning_effort?: string;
@@ -184,9 +213,11 @@ interface PersistedModelConfigRow {
   progress_model?: string;
   progress_reasoning_effort?: string;
   research_model?: string;
+  structure_reasoning_effort?: string;
   tts_model?: string;
   tts_voice?: string;
   updated_at?: string;
+  verification_reasoning_effort?: string;
 }
 
 const readConfigValue = (value: unknown): string | undefined =>
@@ -194,6 +225,18 @@ const readConfigValue = (value: unknown): string | undefined =>
 
 const REASONING_EFFORTS = new Set<ReasoningEffort>(['none', 'minimal', 'low', 'medium', 'high']);
 const AI_PROVIDERS = new Set<AiProvider>(['codex', 'openai', 'openrouter']);
+const TEXT_MODEL_SLOTS = new Set<TextModelSlot>([
+  'artifact',
+  'artifactInteractive',
+  'assessment',
+  'context',
+  'drafting',
+  'lesson',
+  'progress',
+  'research',
+  'structure',
+  'verification',
+]);
 
 export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
   typeof value === 'string' && REASONING_EFFORTS.has(value as ReasoningEffort);
@@ -201,8 +244,19 @@ export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
 export const isAiProvider = (value: unknown): value is AiProvider =>
   typeof value === 'string' && AI_PROVIDERS.has(value as AiProvider);
 
+export const isTextModelSlot = (value: unknown): value is TextModelSlot =>
+  typeof value === 'string' && TEXT_MODEL_SLOTS.has(value as TextModelSlot);
+
 const readReasoningEffort = (value: unknown, fallback: ReasoningEffort): ReasoningEffort =>
   isReasoningEffort(value) ? value : fallback;
+
+const readFastModelSlots = (value: unknown, fallback: TextModelSlot[]): TextModelSlot[] =>
+  Array.isArray(value)
+    ? value.filter(
+        (slot, index): slot is TextModelSlot =>
+          isTextModelSlot(slot) && value.indexOf(slot) === index
+      )
+    : fallback;
 
 export const getGlobalModelConfig = (): GlobalModelConfig => activeModelConfig;
 
@@ -212,27 +266,36 @@ const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof Glob
     artifactInteractive: 'codexArtifactInteractiveModel',
     assessment: 'codexAssessmentModel',
     context: 'codexContextModel',
+    drafting: 'codexDraftingModel',
     lesson: 'codexLessonModel',
     progress: 'codexProgressModel',
     research: 'codexResearchModel',
+    structure: 'codexStructureModel',
+    verification: 'codexVerificationModel',
   },
   openai: {
     artifact: 'openAiArtifactModel',
     artifactInteractive: 'openAiArtifactInteractiveModel',
     assessment: 'openAiAssessmentModel',
     context: 'openAiContextModel',
+    drafting: 'openAiLessonModel',
     lesson: 'openAiLessonModel',
     progress: 'openAiProgressModel',
     research: 'openAiResearchModel',
+    structure: 'openAiLessonModel',
+    verification: 'openAiLessonModel',
   },
   openrouter: {
     artifact: 'artifactModel',
     artifactInteractive: 'artifactInteractiveModel',
     assessment: 'assessmentModel',
     context: 'contextModel',
+    drafting: 'lessonModel',
     lesson: 'lessonModel',
     progress: 'progressModel',
     research: 'researchModel',
+    structure: 'lessonModel',
+    verification: 'lessonModel',
   },
 };
 
@@ -244,8 +307,11 @@ const REASONING_EFFORT_FIELDS: Record<
   artifactInteractive: 'artifactInteractiveReasoningEffort',
   assessment: 'assessmentReasoningEffort',
   context: 'contextReasoningEffort',
+  drafting: 'draftingReasoningEffort',
   lesson: 'lessonReasoningEffort',
   progress: 'progressReasoningEffort',
+  structure: 'structureReasoningEffort',
+  verification: 'verificationReasoningEffort',
 };
 
 export const resolveTextModelConfig = (
@@ -323,6 +389,12 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.codexContextModel)
     ? { codexContextModel: readConfigValue(patch.codexContextModel) }
     : {}),
+  ...(readConfigValue(patch.codexDraftingModel)
+    ? { codexDraftingModel: readConfigValue(patch.codexDraftingModel) }
+    : {}),
+  ...(Array.isArray(patch.codexFastModelSlots)
+    ? { codexFastModelSlots: readFastModelSlots(patch.codexFastModelSlots, []) }
+    : {}),
   ...(readConfigValue(patch.codexLessonModel)
     ? { codexLessonModel: readConfigValue(patch.codexLessonModel) }
     : {}),
@@ -332,11 +404,20 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.codexResearchModel)
     ? { codexResearchModel: readConfigValue(patch.codexResearchModel) }
     : {}),
+  ...(readConfigValue(patch.codexStructureModel)
+    ? { codexStructureModel: readConfigValue(patch.codexStructureModel) }
+    : {}),
+  ...(readConfigValue(patch.codexVerificationModel)
+    ? { codexVerificationModel: readConfigValue(patch.codexVerificationModel) }
+    : {}),
   ...(readConfigValue(patch.contextModel)
     ? { contextModel: readConfigValue(patch.contextModel) }
     : {}),
   ...(isReasoningEffort(patch.contextReasoningEffort)
     ? { contextReasoningEffort: patch.contextReasoningEffort }
+    : {}),
+  ...(isReasoningEffort(patch.draftingReasoningEffort)
+    ? { draftingReasoningEffort: patch.draftingReasoningEffort }
     : {}),
   ...(readConfigValue(patch.imageModel) ? { imageModel: readConfigValue(patch.imageModel) } : {}),
   ...(readConfigValue(patch.lessonModel)
@@ -378,8 +459,14 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.researchModel)
     ? { researchModel: readConfigValue(patch.researchModel) }
     : {}),
+  ...(isReasoningEffort(patch.structureReasoningEffort)
+    ? { structureReasoningEffort: patch.structureReasoningEffort }
+    : {}),
   ...(readConfigValue(patch.ttsModel) ? { ttsModel: readConfigValue(patch.ttsModel) } : {}),
   ...(readConfigValue(patch.ttsVoice) ? { ttsVoice: readConfigValue(patch.ttsVoice) } : {}),
+  ...(isReasoningEffort(patch.verificationReasoningEffort)
+    ? { verificationReasoningEffort: patch.verificationReasoningEffort }
+    : {}),
   updatedAt: new Date().toISOString(),
 });
 
@@ -412,11 +499,16 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   codex_artifact_model: config.codexArtifactModel,
   codex_artifact_interactive_model: config.codexArtifactInteractiveModel,
   codex_context_model: config.codexContextModel,
+  codex_drafting_model: config.codexDraftingModel,
+  codex_fast_model_slots: config.codexFastModelSlots,
   codex_lesson_model: config.codexLessonModel,
   codex_progress_model: config.codexProgressModel,
   codex_research_model: config.codexResearchModel,
+  codex_structure_model: config.codexStructureModel,
+  codex_verification_model: config.codexVerificationModel,
   context_model: config.contextModel,
   context_reasoning_effort: config.contextReasoningEffort,
+  drafting_reasoning_effort: config.draftingReasoningEffort,
   image_model: config.imageModel,
   lesson_model: config.lessonModel,
   lesson_reasoning_effort: config.lessonReasoningEffort,
@@ -431,9 +523,11 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   progress_model: config.progressModel,
   progress_reasoning_effort: config.progressReasoningEffort,
   research_model: config.researchModel,
+  structure_reasoning_effort: config.structureReasoningEffort,
   tts_model: config.ttsModel,
   tts_voice: config.ttsVoice,
   updated_at: config.updatedAt,
+  verification_reasoning_effort: config.verificationReasoningEffort,
 });
 
 const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConfig => {
@@ -479,15 +573,29 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       activeModelConfig.codexArtifactInteractiveModel,
     codexContextModel:
       readConfigValue(row.codex_context_model) || activeModelConfig.codexContextModel,
+    codexDraftingModel:
+      readConfigValue(row.codex_drafting_model) || activeModelConfig.codexDraftingModel,
+    codexFastModelSlots: readFastModelSlots(
+      row.codex_fast_model_slots,
+      activeModelConfig.codexFastModelSlots
+    ),
     codexLessonModel: readConfigValue(row.codex_lesson_model) || activeModelConfig.codexLessonModel,
     codexProgressModel:
       readConfigValue(row.codex_progress_model) || activeModelConfig.codexProgressModel,
     codexResearchModel:
       readConfigValue(row.codex_research_model) || activeModelConfig.codexResearchModel,
+    codexStructureModel:
+      readConfigValue(row.codex_structure_model) || activeModelConfig.codexStructureModel,
+    codexVerificationModel:
+      readConfigValue(row.codex_verification_model) || activeModelConfig.codexVerificationModel,
     contextModel: readConfigValue(row.context_model) || activeModelConfig.contextModel,
     contextReasoningEffort: readReasoningEffort(
       row.context_reasoning_effort,
       activeModelConfig.contextReasoningEffort
+    ),
+    draftingReasoningEffort: readReasoningEffort(
+      row.drafting_reasoning_effort,
+      activeModelConfig.draftingReasoningEffort
     ),
     imageModel: readConfigValue(row.image_model) || activeModelConfig.imageModel,
     lessonModel: readConfigValue(row.lesson_model) || activeModelConfig.lessonModel,
@@ -517,6 +625,10 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       activeModelConfig.progressReasoningEffort
     ),
     researchModel: readConfigValue(row.research_model) || activeModelConfig.researchModel,
+    structureReasoningEffort: readReasoningEffort(
+      row.structure_reasoning_effort,
+      activeModelConfig.structureReasoningEffort
+    ),
     ttsModel: usesUnavailableTtsModel
       ? DEFAULT_TTS_MODEL
       : persistedTtsModel || activeModelConfig.ttsModel,
@@ -524,6 +636,10 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       ? DEFAULT_TTS_VOICE
       : readConfigValue(row.tts_voice) || activeModelConfig.ttsVoice,
     updatedAt: readConfigValue(row.updated_at) || activeModelConfig.updatedAt,
+    verificationReasoningEffort: readReasoningEffort(
+      row.verification_reasoning_effort,
+      activeModelConfig.verificationReasoningEffort
+    ),
   };
 };
 

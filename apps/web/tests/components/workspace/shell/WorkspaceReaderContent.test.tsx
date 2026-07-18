@@ -288,11 +288,17 @@ describe('WorkspaceReaderContent', () => {
     const { container } = render(
       <WorkspaceReaderContent
         {...buildProps({
+          sectionContent:
+            '## Tecnica\n\nOsserva il movimento.\n\n{{YOUTUBE_CLIP_SOURCE:0}}\n\nProva il passaggio.',
           lessonSources: [
             {
               title: 'Ombreggiatura a tratteggio',
               url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
               note: 'Mostra il movimento della matita durante il passaggio pratico.',
+              youtubeTranscript: {
+                ranges: [{ startSeconds: 65, endSeconds: 93 }],
+                text: '[01:05-01:33] Traccio le linee di ombra.',
+              },
               videoClip: { startSeconds: 65, endSeconds: 92 },
             },
           ],
@@ -311,6 +317,62 @@ describe('WorkspaceReaderContent', () => {
       'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?autoplay=0&controls=1&end=92&playsinline=1&rel=0&start=65'
     );
     expect(frame).toHaveAttribute('loading', 'lazy');
+  });
+
+  test('renders a validated YouTube clip at the model-selected inline marker', async () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          sectionContent:
+            '## Tecnica\n\nOsserva il movimento nel video seguente.\n\n{{YOUTUBE_CLIP_SOURCE:0}}\n\nPoi prova lo stesso passaggio.',
+          lessonSources: [
+            {
+              title: 'Ombreggiatura a tratteggio',
+              url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+              youtubeTranscript: {
+                ranges: [{ startSeconds: 65, endSeconds: 93 }],
+                text: '[01:05-01:33] Traccio le linee di ombra.',
+              },
+              videoClip: { startSeconds: 65, endSeconds: 92 },
+            },
+          ],
+        })}
+      />
+    );
+
+    await screen.findByRole('button', { name: 'Riproduci la dimostrazione (1:05–1:32)' });
+    const pageText = document.body.textContent || '';
+    expect(pageText.indexOf('Osserva il movimento')).toBeLessThan(
+      pageText.indexOf('Riproduci la dimostrazione')
+    );
+    expect(pageText.indexOf('Riproduci la dimostrazione')).toBeLessThan(
+      pageText.indexOf('Poi prova')
+    );
+    expect(screen.getAllByRole('button', { name: /Riproduci la dimostrazione/ })).toHaveLength(1);
+  });
+
+  test('uses the writer-selected transcript-backed interval in an inline marker', async () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          sectionContent:
+            'Osserva il passaggio.\n\n{{YOUTUBE_CLIP_SOURCE:0|START:70|END:88}}\n\nPoi applicalo.',
+          lessonSources: [
+            {
+              title: 'Ombreggiatura a tratteggio',
+              url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+              youtubeTranscript: {
+                ranges: [{ startSeconds: 65, endSeconds: 93 }],
+                text: '[01:05-01:33] Traccio le linee di ombra.',
+              },
+              videoClip: { startSeconds: 65, endSeconds: 92 },
+            },
+          ],
+        })}
+      />
+    );
+
+    await screen.findByRole('button', { name: 'Riproduci la dimostrazione (1:10–1:28)' });
   });
 
   test('keeps persisted YouTube clips hidden when the backend policy is disabled', async () => {

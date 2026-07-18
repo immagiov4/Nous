@@ -3,11 +3,9 @@ import { test } from 'vitest';
 import {
   buildVisibleImageLabel,
   injectImagePlaceholders,
-  insertGeneratedVisualExamplePlaceholder,
 } from '../../../services/openrouter/lessonImages.ts';
 import {
   buildPdfChunkUsageDebugPayload,
-  collapseRedundantParagraphs,
   dedupeLearningPlanSections,
   estimateRelevantPdfImagePages,
   estimateTargetQuizCount,
@@ -114,23 +112,6 @@ test('LESSON_RESPONSE_SCHEMA marks all image placement keys as required for stri
   assert.deepEqual(imagePlacementSchema.properties.anchorHeading, {
     type: ['string', 'null'],
   });
-});
-
-test('collapseRedundantParagraphs removes nearby paraphrases of the same concept', () => {
-  const content = `## Come leggere il Core
-
-Nel Core del framework la struttura va letta come una gerarchia di risultati attesi, non come un elenco di compiti da spuntare. Le sottocategorie descrivono outcome specifici e non una sequenza operativa obbligatoria.
-
-Nel Core non bisogna interpretare le sottocategorie come una checklist di attivita da eseguire in ordine. La logica corretta e quella di una gerarchia di outcome, cioe di risultati che l'organizzazione deve saper raggiungere.
-
-La funzione piu utile di questa gerarchia e collegare obiettivi strategici e risultati osservabili senza imporre un unico metodo operativo.`;
-
-  const collapsed = collapseRedundantParagraphs(content);
-
-  assert.match(collapsed, /gerarchia di risultati attesi/i);
-  assert.match(collapsed, /collegare obiettivi strategici/i);
-  assert.doesNotMatch(collapsed, /checklist di attivita da eseguire in ordine/i);
-  assert.equal(collapsed.split(/\n{2,}/).length, 3);
 });
 
 test('estimateTargetQuizCount scales pauses conservatively with lesson density', () => {
@@ -328,32 +309,6 @@ test('injectImagePlaceholders places figures after the first local explanation b
     result,
     /densita\.\n\n\{\{PDF_IMAGE:pdf-img-001\|alt=Schema della compressione parallela\|caption=Percorso dry e compresso affiancati\}\}\n\nQuesto testo continua/
   );
-});
-
-test('insertGeneratedVisualExamplePlaceholder places generated visuals near their anchor heading', () => {
-  const content = [
-    '## Concetto principale',
-    '',
-    'Introduzione generale.',
-    '',
-    '## Grafico dei costi',
-    '',
-    'Questo paragrafo introduce il confronto quantitativo che il grafico rende piu leggibile.',
-    '',
-    'Il testo prosegue con le implicazioni.',
-  ].join('\n');
-
-  const result = insertGeneratedVisualExamplePlaceholder(
-    content,
-    '\n\n{{VISUAL_EXAMPLE:visual-001|title=grafico_dei_costi}}',
-    'Grafico dei costi'
-  );
-
-  assert.match(
-    result,
-    /piu leggibile\.\n\n\{\{VISUAL_EXAMPLE:visual-001\|title=grafico_dei_costi\}\}\n\nIl testo prosegue/
-  );
-  assert.doesNotMatch(result, /Il testo prosegue[\s\S]*VISUAL_EXAMPLE/);
 });
 
 test('buildVisibleImageLabel keeps only the first meaningful clause from PDF captions', () => {

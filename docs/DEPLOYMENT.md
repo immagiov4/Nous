@@ -62,61 +62,24 @@ GitHub-only rows are removed only after two consecutive complete mirrors.
 
 ### Timestamped YouTube demonstrations
 
-`YOUTUBE_VIDEO_CLIPS_ENABLED=false` is the default. Set it to `true` only on deployments where
-the operator wants transcript-validated practical segments embedded in lessons. Nous uses the
-official privacy-enhanced YouTube player with bounded `start`/`end` parameters; it does not
+Timestamped practical segments are enabled automatically whenever Decodo is configured. Nous uses
+the official privacy-enhanced YouTube player with bounded `start`/`end` parameters; it does not
 download, trim, or rehost videos. The player is mounted only after the learner presses Play.
 
-YouTube sometimes blocks transcript requests from datacenter IPs. A private deployment can opt in
-to the authenticated Chromium fallback used by normal course and lesson generation:
+YouTube often blocks direct transcript requests from datacenter IPs. For a VPS, configure Decodo's
+YouTube Search and YouTube Subtitles targets. Candidate discovery and transcript retrieval use
+Decodo exclusively. The backend sends one search request followed by at most six subtitle requests,
+one per selected video. Each subtitle response contains all available languages and subtitle
+origins, which are selected and compacted locally. At most two playlist results and four preview
+videos per playlist are considered:
 
 ```dotenv
-YOUTUBE_VIDEO_CLIPS_ENABLED=true
-YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED=true
-YOUTUBE_BROWSER_TRANSCRIPT_TIMEOUT_MS=60000
+DECODO_SCRAPING_API_KEY=replace_with_decodo_api_key
 ```
 
-The backend image includes headless Chromium and runs at most the existing two transcript lookups
-in parallel. The regular lightweight transcript client remains first; Chromium starts only when
-that client cannot return a transcript. The timeout applies only to Chromium and does not slow or
-change `yt-dlp` calls.
-
-Create the YouTube browser session on a desktop machine, using the dedicated account intended for
-this deployment. This opens a separate Chrome window and never reads another Chrome profile:
-
-```powershell
-node scripts/fetch-youtube-browser-transcript.mjs --capture-auth `
-  --executable "C:\Program Files\Google\Chrome\Application\chrome.exe" `
-  --auth-state deploy/secrets/youtube-auth-state.json
-```
-
-Sign in, then press Enter in the terminal. Treat the resulting file like a password: it contains
-session cookies, is ignored by Git and must never be pasted into logs or committed. Copy it to the
-same ignored path on the Ubuntu VPS and make it readable only by root and the container user:
-
-```bash
-mkdir -p deploy/secrets
-scp youtube-auth-state.json deployer@reader.example.com:/path/to/Nous/deploy/secrets/
-sudo chown root:1000 deploy/secrets/youtube-auth-state.json
-sudo chmod 640 deploy/secrets/youtube-auth-state.json
-sh deploy/nous.sh redeploy
-```
-
-Compose mounts `deploy/secrets/` read-only at `/run/secrets/nous/`; neither the session nor an
-account password enters the image or deployment env. Test the extractor from a terminal before
-enabling it:
-
-```bash
-docker compose --env-file .env.production run --rm --no-deps backend \
-  node scripts/fetch-youtube-browser-transcript.mjs \
-  --video-id VIDEO_ID --language it \
-  --auth-state /run/secrets/nous/youtube-auth-state.json
-```
-
-Successful output is the timestamped JSON contract consumed by the backend. Empty output or a
-non-zero exit leaves the lesson on the existing text-only fallback. Rotate the session by repeating
-the desktop capture and `redeploy`; do this immediately if the file is exposed or the account is
-revoked.
+Keep the key only in `.env.production`; Compose passes it to the backend and never includes it in
+the frontend or image. Successful transcripts are cached for six hours, including concurrent
+requests for the same video. Failed lookups are cached for 15 minutes.
 
 ### Per-machine backup import capacity
 

@@ -1,104 +1,76 @@
+import type { QuizQuestion } from '../../types.ts';
+
 export interface InlineQuizChunk {
   markdown: string;
   questionIndexes: number[];
 }
 
-const HEADING_LINE_REGEX = /^(#{1,6})\s+/;
+const QUIZ_MARKER_PREFIX = '{{INLINE_QUIZ:';
+const QUIZ_MARKER_REGEX = /\{\{INLINE_QUIZ:(\d+)}}/g;
 
-const trimChunk = (value: string): string => value.trim();
+const findParagraphEndOffset = (content: string, excerptEndOffset: number): number => {
+  const paragraphBreakOffset = content.indexOf('\n\n', excerptEndOffset);
+  return paragraphBreakOffset >= 0 ? paragraphBreakOffset : content.length;
+};
 
-const splitMarkdownByHeadings = (content: string): string[] => {
-  const lines = content.split('\n');
-  const chunks: string[] = [];
-  let currentLines: string[] = [];
-
-  const flushCurrent = () => {
-    const chunk = trimChunk(currentLines.join('\n'));
-    if (chunk) {
-      chunks.push(chunk);
-    }
-    currentLines = [];
-  };
-
-  lines.forEach(line => {
-    if (
-      HEADING_LINE_REGEX.test(line) &&
-      currentLines.some(currentLine => currentLine.trim().length > 0)
-    ) {
-      flushCurrent();
-    }
-
-    currentLines.push(line);
+const materializeQuizMarkers = (content: string, questions: QuizQuestion[]): string => {
+  const insertions = questions.map((question, questionIndex) => {
+    const excerpt = question.anchorExcerpt?.trim();
+    const excerptOffset = excerpt ? content.indexOf(excerpt) : -1;
+    return {
+      offset:
+        excerptOffset >= 0
+          ? findParagraphEndOffset(content, excerptOffset + (excerpt?.length || 0))
+          : content.length,
+      questionIndex,
+    };
   });
 
-  flushCurrent();
-  return chunks;
-};
-
-const groupParagraphsIntoChunks = (paragraphs: string[], targetChunkCount: number): string[] => {
-  if (paragraphs.length === 0) {
-    return [];
-  }
-
-  const chunkCount = Math.max(1, Math.min(targetChunkCount, paragraphs.length));
-  const chunks: string[] = [];
-
-  for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-    const startIndex = Math.floor((chunkIndex * paragraphs.length) / chunkCount);
-    const endIndex = Math.floor(((chunkIndex + 1) * paragraphs.length) / chunkCount);
-    const chunk = trimChunk(paragraphs.slice(startIndex, endIndex).join('\n\n'));
-    if (chunk) {
-      chunks.push(chunk);
-    }
-  }
-
-  return chunks;
-};
-
-const splitMarkdownIntoChunks = (content: string, questionCount: number): string[] => {
-  const normalizedContent = trimChunk(content);
-  if (!normalizedContent) {
-    return [];
-  }
-
-  const headingChunks = splitMarkdownByHeadings(normalizedContent);
-  if (headingChunks.length >= Math.min(Math.max(questionCount, 1), 2)) {
-    return headingChunks;
-  }
-
-  const paragraphs = normalizedContent
-    .split(/\n{2,}/)
-    .map(paragraph => trimChunk(paragraph))
-    .filter(Boolean);
-
-  if (paragraphs.length <= 1) {
-    return headingChunks.length > 0 ? headingChunks : [normalizedContent];
-  }
-
-  return groupParagraphsIntoChunks(paragraphs, Math.max(2, questionCount || 1));
+  return insertions
+    .sort((left, right) => right.offset - left.offset || right.questionIndex - left.questionIndex)
+    .reduce(
+      (current, insertion) =>
+        `${current.slice(0, insertion.offset)}\n\n${QUIZ_MARKER_PREFIX}${insertion.questionIndex}}}\n\n${current.slice(insertion.offset)}`,
+      content.trim()
+    )
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 };
 
 export const buildInlineQuizLayout = (
   content: string,
-  questionCount: number
+  questionsOrCount: QuizQuestion[] | number
 ): InlineQuizChunk[] => {
-  const contentChunks = splitMarkdownIntoChunks(content, questionCount);
-  if (contentChunks.length === 0) {
-    return [];
+  const questions =
+    typeof questionsOrCount === 'number'
+      ? Array.from({ length: questionsOrCount }, () => ({
+          correctIndex: 0,
+          options: [],
+          question: '',
+        }))
+      : questionsOrCount;
+  const markedContent = materializeQuizMarkers(content, questions);
+  const chunks: InlineQuizChunk[] = [];
+  let lastIndex = 0;
+  QUIZ_MARKER_REGEX.lastIndex = 0;
+
+  for (const match of markedContent.matchAll(QUIZ_MARKER_REGEX)) {
+    const matchIndex = match.index ?? 0;
+    const markdown = markedContent.slice(lastIndex, matchIndex).trim();
+    if (markdown) {
+      chunks.push({ markdown, questionIndexes: [] });
+    }
+    const questionIndex = Number.parseInt(match[1] || '', 10);
+    const targetChunk = chunks.at(-1);
+    if (targetChunk && Number.isInteger(questionIndex)) {
+      targetChunk.questionIndexes.push(questionIndex);
+    }
+    lastIndex = matchIndex + match[0].length;
   }
 
-  const layout: InlineQuizChunk[] = contentChunks.map(markdown => ({
-    markdown,
-    questionIndexes: [] as number[],
-  }));
-
-  for (let questionIndex = 0; questionIndex < questionCount; questionIndex += 1) {
-    const targetChunkIndex = Math.min(
-      layout.length - 1,
-      Math.floor(((questionIndex + 1) * layout.length) / (questionCount + 1))
-    );
-    layout[targetChunkIndex]?.questionIndexes.push(questionIndex);
+  const trailingMarkdown = markedContent.slice(lastIndex).trim();
+  if (trailingMarkdown) {
+    chunks.push({ markdown: trailingMarkdown, questionIndexes: [] });
   }
-
-  return layout;
+  return chunks;
 };

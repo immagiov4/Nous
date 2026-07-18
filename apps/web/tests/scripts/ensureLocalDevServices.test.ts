@@ -110,11 +110,55 @@ describe('ensureLocalDevServices', () => {
   });
 
   test('reports the real supabase start failure', async () => {
-    const { runtime } = createRuntime([true, false, false, false]);
+    const { commands, runtime } = createRuntime([true, false, false, false, true, false, false]);
 
     await expect(
       ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime)
-    ).rejects.toThrow('failed: bunx supabase start --yes');
+    ).rejects.toThrow('Local Supabase could not be started after recovery');
+    expect(commands).toEqual([
+      ['docker', 'info'],
+      ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'start', '--yes'],
+      ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'stop'],
+      ['bunx', 'supabase', 'start', '--yes'],
+      ['bunx', 'supabase', 'status'],
+    ]);
+  });
+
+  test('recovers an incomplete Supabase stack without deleting its data volume', async () => {
+    const { commands, runtime } = createRuntime([
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+    ]);
+
+    await ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime);
+
+    expect(commands).toEqual([
+      ['docker', 'info'],
+      ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'start', '--yes'],
+      ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'stop'],
+      ['bunx', 'supabase', 'start', '--yes'],
+      ['bunx', 'supabase', 'status'],
+      ['bunx', 'supabase', 'migration', 'up', '--local', '--yes'],
+    ]);
+  });
+
+  test('reports a failed recovery before retrying the stack', async () => {
+    const { commands, runtime } = createRuntime([true, false, false, false, false]);
+
+    await expect(
+      ensureLocalDevServices({ SUPABASE_URL: 'http://localhost:54321' }, runtime)
+    ).rejects.toThrow('Local Supabase could not be recovered');
+    expect(commands.at(-1)).toEqual(['bunx', 'supabase', 'stop']);
   });
 
   test('stops startup when pending migrations cannot be applied', async () => {

@@ -72,6 +72,7 @@ export interface SectionPatch {
   isCompleted?: boolean;
   learningAids?: unknown[];
   quiz?: unknown[];
+  visualPlanningDecision?: unknown;
 }
 
 export interface ProjectPatch {

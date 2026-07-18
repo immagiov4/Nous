@@ -4,11 +4,11 @@ import { buildLessonChunkContext } from '../documentIndex/index.ts';
 import type { GenerationStatusReporter } from '../generationProgress.ts';
 import { generateLessonLearningAids } from '../learningAids.ts';
 import {
-  appendGeneratedVisualExample,
   buildFallbackImageRefs,
   buildVisibleImageLabel,
   getMarkdownHeadings,
   injectImagePlaceholders,
+  materializeGeneratedVisualSlots,
   normalizeImagePlacements,
   selectCandidatePdfImages,
 } from '../lessonImages.ts';
@@ -49,6 +49,7 @@ import {
   type LessonGeneratedVisual,
   type LessonImageRef,
   type LessonLearningAid,
+  type LessonVisualPlanningDecision,
   MODEL_REASONING,
   type PdfDocumentAssets,
   type PdfTextIndex,
@@ -56,6 +57,11 @@ import {
   retryWithBackoff,
   teacherInstruction,
 } from '../shared.ts';
+import {
+  INTERACTIVE_VISUAL_VALUE_RULE,
+  MAX_GENERATED_VISUALS_PER_LESSON,
+  VISUAL_FORMAT_SELECTION_RULE,
+} from '../visualExamples.ts';
 
 const MAX_PDF_FALLBACK_LESSON_SOURCE_CHARS = 36_000;
 const PDF_ASSET_SESSION_TIMEOUT_MS = 60_000;
@@ -140,6 +146,7 @@ export const generateSectionContent = async (
   generatedVisuals: LessonGeneratedVisual[];
   learningAids: LessonLearningAid[];
   quiz: QuizQuestion[];
+  visualPlanningDecision?: LessonVisualPlanningDecision;
   imageRefs: LessonImageRef[];
   documentAssets: PdfDocumentAssets | null;
 }> => {
@@ -197,6 +204,7 @@ ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 33. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
 34. **POSIZIONA OGNI PAUSA DOPO LE INFORMAZIONI NECESSARIE:** ogni pausa attiva deve arrivare DOPO che il contenuto necessario per rispondere e gia stato spiegato nel testo della lezione. In particolare, se la pausa e di tipo confronto (compare-contrast), non inserirla subito dopo il primo concetto: deve essere posizionata DOPO che ENTRAMBI i concetti / elementi da confrontare sono stati presentati e spiegati. Lo stesso vale per micro-sintesi, classificazione e previsione: il lettore deve avere tutti gli elementi per rispondere.
 35. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
+35a. Per ogni pausa, \`anchorExcerpt\` deve copiare un breve estratto ESATTO dell'ultimo paragrafo che lo studente deve leggere prima della pausa. Questo decide il punto editoriale preciso: non anticipare la pausa e non affidarti al solo heading.
 ${imagePlacementInstruction}
 37. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
 38. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
@@ -206,16 +214,22 @@ ${imagePlacementInstruction}
 42. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
 43. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
 44. Se inserisci formule, assicurati che il Markdown sia compatibile con KaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe isolate con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non aprire una formula con un delimitatore e chiuderla con un altro, e chiudi sempre correttamente graffe e delimitatori.
+45. Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} punti in cui un esempio visuale generato migliorerebbe davvero la comprensione. Inserisci direttamente nel testo il tag \`{{VISUAL_SLOT:slot-001}}\` nel punto editoriale esatto e aggiungi il piano corrispondente in \`visualPlanning.plans\`. Il tag e la posizione: non fornire heading o estratti da cercare dopo.
+46. Ogni piano deve avere esattamente un tag e ogni tag esattamente un piano. Usa identificatori sequenziali. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE} Per HTML interattivo, la grafica deve essere prodotta da regole o algoritmi, non disegnata a mano.
 ${candidateImagesPayload}
 Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
   "contentMarkdown": "Lezione completa in markdown",
   "quiz": [
-    { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+    { "anchorExcerpt": "estratto esatto del paragrafo precedente", "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
   ],
   "imagePlacements": [
     { "assetId": "pdf-img-001", "alt": "Descrizione breve", "caption": "Caption opzionale", "anchorHeading": "Analisi Approfondita" }
-  ]
+  ],
+  "visualPlanning": {
+    "rationale": "Motivazione sintetica",
+    "plans": []
+  }
 }`;
   };
 
@@ -306,6 +320,13 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       visibleLabel: buildVisibleImageLabel(image, sectionTitle, sectionDescription),
       caption: image.caption,
       sourceOrder: image.sourceOrder,
+      intrinsicWidth: image.intrinsicWidth ?? null,
+      intrinsicHeight: image.intrinsicHeight ?? null,
+      aspectRatio:
+        image.intrinsicWidth && image.intrinsicHeight
+          ? image.intrinsicWidth / image.intrinsicHeight
+          : null,
+      sizeBytes: image.sizeBytes ?? null,
     }));
     const visibleLabelByAssetId = new Map(
       candidateImagePayload.map(image => [image.assetId.toLowerCase(), image.visibleLabel])
@@ -318,12 +339,14 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 20. Se usi un'immagine, \`anchorHeading\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`, senza i simboli #. Scegli il heading della sezione in cui il primo blocco di testo spiega proprio cio che l'immagine mostra; se il testo vicino non la usa, non inserirla li.
 21. Se il materiale parla chiaramente di anatomia, strutture o meccanica visivamente spiegabili e tra le candidate c'e una figura pertinente, preferisci includerne almeno una.
 22. Usa solo immagini visivamente chiare, autosufficienti e distinguibili. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper di sezione, riquadri ornamentali o frammenti di figura.
-23. Non usare il contesto testuale per indovinare una figura poco chiara: se l'immagine non si capisce da sola, non usarla.`;
+23. L'immagine originale e prioritaria quando e chiara, pertinente e specifica della fonte: schermate di un programma, oggetti o casi propri del documento, diagrammi complessi con label specifiche e relazioni non ricreabili vanno conservati anche se non perfetti.
+24. Valuta anche intrinsicWidth, intrinsicHeight, aspectRatio e sizeBytes. Se una figura generica e piccola, poco leggibile, con proporzioni estremamente insolite, o la caption visiva diverge dal contesto vicino, non usarla: restituisci imagePlacements vuoto, cosi un esempio visuale piu chiaro puo occupare quello slot. Non scartare invece una figura specifica solo per la sua risoluzione.
+25. Non usare il contesto testuale per indovinare una figura poco chiara: se l'immagine non si capisce da sola, non usarla.`;
     const prompt = buildLessonPrompt({
       sourcePrefix: ' a partire da un PDF gia analizzato',
       sourceContext: `\nESTRATTI RILEVANTI DAL PDF PER QUESTA LEZIONE:\n${lessonSourceContext || pdfSession.extractedText.slice(0, 12000)}\n`,
       imageRules,
-      candidateImagesPayload: `45. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Usa solo \`caption\`, \`visibleLabel\` e il contesto della lezione per decidere se l'immagine e pertinente: non inventare dettagli non esplicitati dalla descrizione. La caption finale deve essere coerente con il paragrafo vicino, non una descrizione isolata.\n\nIMMAGINI CANDIDATE:\n${JSON.stringify(candidateImagePayload, null, 2)}`,
+      candidateImagesPayload: `45. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Usa \`caption\`, \`visibleLabel\`, metadata dimensionali e il contesto della lezione per decidere se l'immagine e pertinente: non inventare dettagli non esplicitati dalla descrizione. La caption finale deve essere coerente con il paragrafo vicino, non una descrizione isolata.\n\nIMMAGINI CANDIDATE:\n${JSON.stringify(candidateImagePayload, null, 2)}`,
       imagePlacementInstruction: `36. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.\n37. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.\n38. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "la figura mostra". Il paragrafo vicino deve dire al lettore che cosa guardare nell'immagine e perche e utile alla spiegazione.`,
     });
 
@@ -331,6 +354,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     const parsed = await retryWithBackoff(async () => {
       const response = await callOpenRouter({
         model: MODEL_REASONING,
+        modelSlot: 'drafting',
         reasoning: MEDIUM_REASONING_CONFIG,
         onReasoningUpdate,
         messages: [
@@ -414,6 +438,10 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         contentMarkdown: repairedContentMarkdown,
         quiz: draftQuiz,
         imagePlacements: draftImageRefs,
+        visualPlanning: parsed.visualPlanning ?? {
+          plans: [],
+          rationale: 'La stesura non ha proposto esempi visuali generati.',
+        },
       },
       candidateImages: candidateImagePayload,
       generationNotes,
@@ -427,6 +455,10 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         contentMarkdown: repairedContentMarkdown,
         quiz: draftQuiz,
         imagePlacements: draftImageRefs,
+        visualPlanning: parsed.visualPlanning ?? {
+          plans: [],
+          rationale: 'La verifica visuale non è stata completata.',
+        },
       } satisfies LessonVerificationDraft;
     });
     traceLessonMarkdownStage('verified', sectionTitle, verifiedDraft.contentMarkdown || '');
@@ -470,19 +502,19 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
     const cleanedContentMarkdown = sanitizeLessonMarkdownContent(
       verifiedDraft.contentMarkdown,
-      verifiedDraft.quiz,
       visibleLabelByAssetId
     );
     traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown || '');
     const contentWithPdfImages = injectImagePlaceholders(cleanedContentMarkdown, imageRefs);
     const [visualResult, learningAids] = await Promise.all([
-      appendGeneratedVisualExample({
+      materializeGeneratedVisualSlots({
         contentMarkdown: contentWithPdfImages,
         generationNotes,
         hasPdfImages: imageRefs.length > 0,
         onStatusUpdate,
         sectionDescription,
         sectionTitle,
+        visualPlanning: verifiedDraft.visualPlanning,
       }),
       generateLessonLearningAids({
         contentMarkdown: cleanedContentMarkdown,
@@ -496,6 +528,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       generatedVisuals: visualResult.generatedVisuals,
       learningAids,
       quiz: normalizeQuizLength(verifiedDraft.quiz, targetQuizCount),
+      visualPlanningDecision: visualResult.visualPlanningDecision,
       imageRefs,
       documentAssets: buildStoredPdfDocumentAssets(pdfSession, imageRefs),
     };
@@ -518,6 +551,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const parsed = await retryWithBackoff(async () => {
     const response = await callOpenRouter({
       model: MODEL_REASONING,
+      modelSlot: 'drafting',
       reasoning: MEDIUM_REASONING_CONFIG,
       onReasoningUpdate,
       messages: [
@@ -566,6 +600,10 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       contentMarkdown: repairedContentMarkdown.trim(),
       quiz: draftQuiz,
       imagePlacements: [],
+      visualPlanning: parsed.visualPlanning ?? {
+        plans: [],
+        rationale: 'La stesura non ha proposto esempi visuali generati.',
+      },
     },
     candidateImages: [],
     generationNotes,
@@ -579,23 +617,27 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       contentMarkdown: repairedContentMarkdown.trim(),
       quiz: draftQuiz,
       imagePlacements: [],
+      visualPlanning: parsed.visualPlanning ?? {
+        plans: [],
+        rationale: 'La verifica visuale non è stata completata.',
+      },
     } satisfies LessonVerificationDraft;
   });
   traceLessonMarkdownStage('verified', sectionTitle, verifiedDraft.contentMarkdown || '');
 
   const cleanedContentMarkdown = sanitizeLessonMarkdownContent(
-    verifiedDraft.contentMarkdown.trim(),
-    verifiedDraft.quiz
+    verifiedDraft.contentMarkdown.trim()
   );
   traceLessonMarkdownStage('cleaned', sectionTitle, cleanedContentMarkdown);
   const [visualResult, learningAids] = await Promise.all([
-    appendGeneratedVisualExample({
+    materializeGeneratedVisualSlots({
       contentMarkdown: cleanedContentMarkdown,
       generationNotes,
       hasPdfImages: false,
       onStatusUpdate,
       sectionDescription,
       sectionTitle,
+      visualPlanning: verifiedDraft.visualPlanning,
     }),
     generateLessonLearningAids({
       contentMarkdown: cleanedContentMarkdown,
@@ -609,6 +651,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     generatedVisuals: visualResult.generatedVisuals,
     learningAids,
     quiz: normalizeQuizLength(verifiedDraft.quiz, targetQuizCount),
+    visualPlanningDecision: visualResult.visualPlanningDecision,
     imageRefs: [],
     documentAssets: null,
   };

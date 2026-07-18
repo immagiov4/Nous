@@ -112,7 +112,8 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
   while (index < content.length) {
     if (
       content.startsWith('{{PDF_IMAGE:', index) ||
-      content.startsWith('{{VISUAL_EXAMPLE:', index)
+      content.startsWith('{{VISUAL_EXAMPLE:', index) ||
+      content.startsWith('{{YOUTUBE_CLIP_SOURCE:', index)
     ) {
       const placeholderEnd = content.indexOf('}}', index);
       index = placeholderEnd === -1 ? content.length : placeholderEnd + 2;

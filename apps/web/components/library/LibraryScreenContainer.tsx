@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { useLibraryAssistantChat } from '../../hooks/library/useLibraryAssistantChat.ts';
 import type { useProjectLibrary } from '../../hooks/library/useProjectLibrary.ts';
 import type { useWorkspaceController } from '../../hooks/workspace/useWorkspaceController.ts';
@@ -87,6 +87,7 @@ export const LibraryScreenContainer = ({
 
   const {
     assessmentMessages,
+    cancelAssessment,
     confirmPlanGeneration,
     isLibraryLoading,
     openingProjectId,
@@ -94,6 +95,7 @@ export const LibraryScreenContainer = ({
     startHomeChat,
     submitAssessment,
   } = controller;
+  const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     setPendingHomeSourceFiles(sortSourceFiles(Array.from(event.target.files || [])));
@@ -102,46 +104,87 @@ export const LibraryScreenContainer = ({
     }
   };
 
-  const handleNewCourseMessage = async (message: string) => {
-    const toolPreferences: HomeChatToolPreferences = {
-      addingAssessmentDetails: assessmentComplete,
-      mode: 'new-course',
-      newCourse: true,
+  const handleNewCourseMessage = useCallback(
+    async (message: string) => {
+      const toolPreferences: HomeChatToolPreferences = {
+        addingAssessmentDetails: assessmentComplete,
+        mode: 'new-course',
+        newCourse: true,
+      };
+      if (assessmentComplete) {
+        setAssessmentComplete(false);
+      }
+      const result = assessmentMessages.length
+        ? await submitAssessment(message, toolPreferences)
+        : await startHomeChat({
+            input: message,
+            selectedFiles: pendingHomeSourceFiles,
+            toolPreferences,
+          });
+
+      if (result.outcome === 'assessment-complete') {
+        setAssessmentComplete(true);
+      } else if (result.outcome === 'abandoned') {
+        setAssessmentComplete(false);
+        setHomeChatMode('library-query');
+      } else if (result.outcome === 'continued') {
+        setAssessmentComplete(false);
+      } else if (result.outcome === 'imported') {
+        setAssessmentComplete(false);
+      }
+
+      if (result.outcome !== 'failed' && result.outcome !== 'noop') {
+        setPendingHomeSourceFiles([]);
+      }
+
+      if (result.errorMessage) {
+        notify(result.errorMessage);
+      }
+      if (result.sourceWarnings?.length) {
+        notify(
+          t('Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.', {
+            sourceNames: result.sourceWarnings.map(warning => warning.name).join(', '),
+          })
+        );
+      }
+    },
+    [
+      assessmentComplete,
+      assessmentMessages.length,
+      notify,
+      pendingHomeSourceFiles,
+      startHomeChat,
+      submitAssessment,
+    ]
+  );
+
+  const cancelNewCourse = useCallback(() => {
+    cancelAssessment();
+    setAssessmentComplete(false);
+    setPendingHomeSourceFiles([]);
+    setHomeChatMode('library-query');
+  }, [cancelAssessment]);
+
+  useEffect(() => {
+    if (!courseAssessmentRequest) {
+      return;
+    }
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+      consumeCourseAssessmentRequest();
+      setAssessmentComplete(false);
+      setHomeChatMode('new-course');
+      void handleNewCourseMessage(courseAssessmentRequest.topic);
+    });
+
+    return () => {
+      cancelled = true;
     };
-    if (assessmentComplete) {
-      setAssessmentComplete(false);
-    }
-    const result = assessmentMessages.length
-      ? await submitAssessment(message, toolPreferences)
-      : await startHomeChat({
-          input: message,
-          selectedFiles: pendingHomeSourceFiles,
-          toolPreferences,
-        });
-
-    if (result.outcome === 'assessment-complete') {
-      setAssessmentComplete(true);
-    } else if (result.outcome === 'continued') {
-      setAssessmentComplete(false);
-    } else if (result.outcome === 'imported') {
-      setAssessmentComplete(false);
-    }
-
-    if (result.outcome !== 'failed' && result.outcome !== 'noop') {
-      setPendingHomeSourceFiles([]);
-    }
-
-    if (result.errorMessage) {
-      notify(result.errorMessage);
-    }
-    if (result.sourceWarnings?.length) {
-      notify(
-        t('Alcune fonti non sono state usate: {sourceNames}. Il corso continua con le altre.', {
-          sourceNames: result.sourceWarnings.map(warning => warning.name).join(', '),
-        })
-      );
-    }
-  };
+  }, [consumeCourseAssessmentRequest, courseAssessmentRequest, handleNewCourseMessage]);
 
   const handleConfirmGenerate = async () => {
     setAssessmentComplete(false);
@@ -196,6 +239,7 @@ export const LibraryScreenContainer = ({
           pendingFileNames: pendingHomeSourceFiles.map(file => file.name),
           onClearPendingFile: () => setPendingHomeSourceFiles([]),
           onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
+          onCancelNewCourse: cancelNewCourse,
           onContinueAssessment: () => setAssessmentComplete(false),
           onConfirmGenerate: handleConfirmGenerate,
           onHomeChatModeChange: setHomeChatMode,

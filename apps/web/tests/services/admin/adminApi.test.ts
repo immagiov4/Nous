@@ -211,13 +211,6 @@ describe('admin user provider payloads', () => {
         nonYouTubePromptTokens: 8_000,
         query: 'Bordi e curve Pixel art',
         reservedOutputTokens: 32_000,
-        transcriptOverrides: [
-          {
-            videoId: 'M7lc1UVf-VE',
-            language: 'en',
-            segments: [{ text: 'Draw the curve.', startSeconds: 65, durationSeconds: 27 }],
-          },
-        ],
       })
     ).resolves.toMatchObject({ productionVideoClipsEnabled: false });
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
@@ -230,13 +223,6 @@ describe('admin user provider payloads', () => {
           nonYouTubePromptTokens: 8_000,
           query: 'Bordi e curve Pixel art',
           reservedOutputTokens: 32_000,
-          transcriptOverrides: [
-            {
-              videoId: 'M7lc1UVf-VE',
-              language: 'en',
-              segments: [{ text: 'Draw the curve.', startSeconds: 65, durationSeconds: 27 }],
-            },
-          ],
         }),
       })
     );

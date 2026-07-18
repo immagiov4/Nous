@@ -1,12 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const fetchWithSupabaseAuthMock = vi.hoisted(() => vi.fn());
-const localStorageValues = new Map<string, string>();
-const localStorageMock = {
-  clear: () => localStorageValues.clear(),
-  getItem: (key: string) => localStorageValues.get(key) ?? null,
-  setItem: (key: string, value: string) => localStorageValues.set(key, value),
-};
 
 vi.mock('../../../services/auth/supabaseAuth.ts', () => ({
   fetchWithSupabaseAuth: fetchWithSupabaseAuthMock,
@@ -16,35 +10,12 @@ vi.mock('../../../services/openrouter/config.ts', () => ({
   getBackendUrl: () => 'http://localhost:3301',
 }));
 
-const { buildLessonYouTubeResearchQuery, getYouTubeResearchContext, getYouTubeVideoClipsEnabled } =
+const { getYouTubeResearchContext, getYouTubeVideoClipsEnabled, mergeYouTubeResearchContexts } =
   await import('../../../services/openrouter/youtubeResearchClient.ts');
 
 describe('getYouTubeResearchContext', () => {
   beforeEach(() => {
     fetchWithSupabaseAuthMock.mockReset();
-    vi.stubGlobal('localStorage', localStorageMock);
-    localStorage.clear();
-  });
-
-  test('builds the same lesson and course query used by production research', () => {
-    expect(
-      buildLessonYouTubeResearchQuery({
-        courseTitle: ' Pixel art ',
-        keyConcepts: ['sfumature', 'texture'],
-        lessonDescription: 'Costruire curve con bordi leggibili',
-        lessonTitle: ' Bordi e curve ',
-      })
-    ).toBe('Bordi e curve Pixel art Costruire curve con bordi leggibili sfumature texture');
-    expect(buildLessonYouTubeResearchQuery({ courseTitle: '', lessonTitle: 'Pixel art' })).toBe(
-      'Pixel art'
-    );
-    expect(
-      buildLessonYouTubeResearchQuery({
-        courseTitle: 'Corso',
-        contextPrompt: 'x'.repeat(600),
-        lessonTitle: 'Lezione',
-      })
-    ).toHaveLength(500);
   });
 
   test('keeps the backend clip policy separate from transcript content', async () => {
@@ -53,9 +24,12 @@ describe('getYouTubeResearchContext', () => {
         JSON.stringify({
           success: true,
           context: '[00:12-00:18] Traccio la prima linea.',
+          rationale: 'Un transcript pertinente incluso.',
           videoCandidates: [
             {
               ranges: [{ startSeconds: 12, endSeconds: 18 }],
+              title: 'Prima linea',
+              transcript: '[00:12-00:18] Traccio la prima linea.',
               url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
             },
           ],
@@ -67,9 +41,12 @@ describe('getYouTubeResearchContext', () => {
 
     await expect(getYouTubeResearchContext('ombreggiatura', 'Italiano')).resolves.toEqual({
       context: '[00:12-00:18] Traccio la prima linea.',
+      rationale: 'Un transcript pertinente incluso.',
       videoCandidates: [
         {
           ranges: [{ startSeconds: 12, endSeconds: 18 }],
+          title: 'Prima linea',
+          transcript: '[00:12-00:18] Traccio la prima linea.',
           url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
         },
       ],
@@ -77,17 +54,7 @@ describe('getYouTubeResearchContext', () => {
     });
   });
 
-  test('sends saved browser transcripts through the normal generation request', async () => {
-    localStorage.setItem(
-      'nous:youtube-transcript-overrides',
-      JSON.stringify([
-        {
-          language: 'it',
-          videoId: 'light-demo',
-          segments: [{ startSeconds: 12, text: 'Ora ombreggio il piano laterale.' }],
-        },
-      ])
-    );
+  test('sends only the research query to the shared backend pipeline', async () => {
     fetchWithSupabaseAuthMock.mockResolvedValue(
       Response.json({ success: true, context: '', videoClipsEnabled: false })
     );
@@ -98,13 +65,6 @@ describe('getYouTubeResearchContext', () => {
     expect(JSON.parse(request[1].body)).toEqual({
       language: 'Italiano',
       query: 'luce e volume',
-      transcriptOverrides: [
-        {
-          language: 'it',
-          videoId: 'light-demo',
-          segments: [{ startSeconds: 12, text: 'Ora ombreggio il piano laterale.' }],
-        },
-      ],
     });
   });
 
@@ -113,6 +73,7 @@ describe('getYouTubeResearchContext', () => {
 
     await expect(getYouTubeResearchContext('disegno', 'Italiano')).resolves.toEqual({
       context: '',
+      rationale: 'La ricerca YouTube non è stata completata.',
       videoCandidates: [],
       videoClipsEnabled: false,
     });
@@ -127,5 +88,50 @@ describe('getYouTubeResearchContext', () => {
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledWith(
       'http://localhost:3301/api/youtube/config'
     );
+  });
+
+  test('merges complementary course searches and deduplicates videos by URL', () => {
+    expect(
+      mergeYouTubeResearchContexts([
+        {
+          context: 'Fondamenti.',
+          rationale: 'Ricerca generale.',
+          videoCandidates: [
+            {
+              ranges: [{ startSeconds: 1, endSeconds: 4 }],
+              title: 'Fondamenti',
+              transcript: 'Introduzione.',
+              url: 'https://youtube.test/shared',
+            },
+          ],
+          videoClipsEnabled: true,
+        },
+        {
+          context: 'Percorso pratico.',
+          rationale: 'Ricerca applicata.',
+          videoCandidates: [
+            {
+              ranges: [{ startSeconds: 5, endSeconds: 9 }],
+              title: 'Percorso pratico',
+              transcript: 'Duplicato.',
+              url: 'https://youtube.test/shared',
+            },
+          ],
+          videoClipsEnabled: true,
+        },
+      ])
+    ).toEqual({
+      context: 'Fondamenti.\n\nPercorso pratico.',
+      rationale: 'Ricerca generale. Ricerca applicata.',
+      videoCandidates: [
+        {
+          ranges: [{ startSeconds: 1, endSeconds: 4 }],
+          title: 'Fondamenti',
+          transcript: 'Introduzione.',
+          url: 'https://youtube.test/shared',
+        },
+      ],
+      videoClipsEnabled: true,
+    });
   });
 });

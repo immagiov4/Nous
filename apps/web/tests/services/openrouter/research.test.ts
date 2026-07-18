@@ -5,10 +5,15 @@ import type { UserProfile } from '../../../types.ts';
 
 const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async <T>(operation: () => Promise<T>) => await operation());
-const appendGeneratedVisualExampleMock = vi.fn(
+const materializeGeneratedVisualSlotsMock = vi.fn(
   async ({ contentMarkdown }: { contentMarkdown: string }) => ({
     content: contentMarkdown,
     generatedVisuals: [],
+    visualPlanningDecision: {
+      initial: { outcome: 'none' as const, plans: [], rationale: 'Nessuna visuale utile.' },
+      reviewed: { outcome: 'none' as const, plans: [], rationale: 'Decisione confermata.' },
+      reviewedAt: '2026-07-17T12:00:00.000Z',
+    },
   })
 );
 const generateLessonLearningAidsMock = vi.fn(
@@ -26,13 +31,23 @@ const generateLessonLearningAidsMock = vi.fn(
   ]
 );
 const generateStandaloneLessonQuizMock = vi.fn(async () => []);
+const verifyLessonDraftMock = vi.fn(async ({ draft }: { draft: unknown }) => draft);
 const getYouTubeResearchContextMock = vi.fn(
   async (_query: string, _language: string): Promise<YouTubeResearchContext> => ({
     context: '',
+    rationale: 'Nessun candidato disponibile.',
     videoCandidates: [],
     videoClipsEnabled: false,
   })
 );
+const planYouTubeSearchQueryMock = vi.fn(
+  async (_input: unknown) => 'pixel art curve shading tutorial'
+);
+const planCourseYouTubeSearchQueriesMock = vi.fn(async (_input: unknown) => [
+  'kotlin fundamentals course',
+  'kotlin complete playlist',
+  'kotlin android practical tutorial',
+]);
 
 vi.mock('../../../services/openrouter/youtubeResearchClient.ts', async importOriginal => {
   const actual =
@@ -43,17 +58,42 @@ vi.mock('../../../services/openrouter/youtubeResearchClient.ts', async importOri
   };
 });
 
+vi.mock('../../../services/openrouter/youtubeSearchQuery.ts', () => ({
+  planCourseYouTubeSearchQueries: planCourseYouTubeSearchQueriesMock,
+  planYouTubeSearchQuery: planYouTubeSearchQueryMock,
+}));
+
 vi.mock('../../../services/openrouter/lessonImages.ts', () => ({
-  appendGeneratedVisualExample: appendGeneratedVisualExampleMock,
+  materializeGeneratedVisualSlots: materializeGeneratedVisualSlotsMock,
 }));
 
 vi.mock('../../../services/openrouter/learningAids.ts', () => ({
   generateLessonLearningAids: generateLessonLearningAidsMock,
 }));
 
-vi.mock('../../../services/openrouter/lessonMarkdownQuality/index.ts', () => ({
-  generateStandaloneLessonQuiz: generateStandaloneLessonQuizMock,
-}));
+vi.mock('../../../services/openrouter/lessonMarkdownQuality/index.ts', async importOriginal => {
+  const actual =
+    await importOriginal<
+      typeof import('../../../services/openrouter/lessonMarkdownQuality/index.ts')
+    >();
+  return {
+    ...actual,
+    estimateTargetQuizCount: () => 1,
+    generateStandaloneLessonQuiz: generateStandaloneLessonQuizMock,
+    normalizeQuizLength: (quiz: unknown[]) => quiz,
+    repairLessonMarkdown: async (content: string) => content,
+    sanitizeLessonMarkdownContent: (content: string) => content,
+  };
+});
+
+vi.mock('../../../services/openrouter/lessonVerification.ts', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../services/openrouter/lessonVerification.ts')>();
+  return {
+    ...actual,
+    verifyLessonDraft: verifyLessonDraftMock,
+  };
+});
 
 vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   const actual = await importOriginal<typeof import('../../../services/openrouter/shared.ts')>();
@@ -84,12 +124,16 @@ const profile: UserProfile = {
 beforeEach(() => {
   callOpenRouterMock.mockReset();
   retryWithBackoffMock.mockClear();
-  appendGeneratedVisualExampleMock.mockClear();
+  materializeGeneratedVisualSlotsMock.mockClear();
   generateLessonLearningAidsMock.mockClear();
   generateStandaloneLessonQuizMock.mockClear();
+  verifyLessonDraftMock.mockClear();
   getYouTubeResearchContextMock.mockReset();
+  planCourseYouTubeSearchQueriesMock.mockClear();
+  planYouTubeSearchQueryMock.mockClear();
   getYouTubeResearchContextMock.mockResolvedValue({
     context: '',
+    rationale: 'Nessun candidato disponibile.',
     videoCandidates: [],
     videoClipsEnabled: false,
   });
@@ -99,8 +143,16 @@ test('course research evaluates automatic YouTube context', async () => {
   getYouTubeResearchContextMock.mockResolvedValue({
     context:
       'SOURCE Kotlin Course\nURL: https://www.youtube.com/watch?v=kotlin\n[00:10] JVM bytecode',
-    videoCandidates: [],
-    videoClipsEnabled: false,
+    rationale: 'Un transcript incluso.',
+    videoCandidates: [
+      {
+        ranges: [{ startSeconds: 10, endSeconds: 20 }],
+        title: 'Kotlin Course',
+        transcript: '[00:10-00:20] JVM bytecode',
+        url: 'https://www.youtube.com/watch?v=kotlin-lesson',
+      },
+    ],
+    videoClipsEnabled: true,
   });
   callOpenRouterMock.mockResolvedValueOnce('Brief con fonte YouTube.');
   callOpenRouterMock.mockResolvedValueOnce(
@@ -133,22 +185,34 @@ test('course research evaluates automatic YouTube context', async () => {
     () => {}
   );
 
-  assert.equal(getYouTubeResearchContextMock.mock.calls[0]?.[0], 'Kotlin Android');
+  assert.deepEqual(
+    getYouTubeResearchContextMock.mock.calls.map(call => call[0]),
+    ['kotlin fundamentals course', 'kotlin complete playlist', 'kotlin android practical tutorial']
+  );
   assert.equal(
-    callOpenRouterMock.mock.calls[0]?.[0]?.messages[0]?.content.includes(
-      'https://www.youtube.com/watch?v=kotlin'
+    callOpenRouterMock.mock.calls[0]?.[0]?.messages.some((message: { content: string }) =>
+      message.content.includes('https://www.youtube.com/watch?v=kotlin')
+    ),
+    false
+  );
+  assert.equal(
+    callOpenRouterMock.mock.calls[1]?.[0]?.messages.some((message: { content: string }) =>
+      message.content.includes('https://www.youtube.com/watch?v=kotlin')
     ),
     true
   );
 });
 
-test('course research keeps only bounded YouTube clip metadata when backend policy allows it', async () => {
+test('course research keeps useful YouTube videos as source hints without choosing clips', async () => {
   getYouTubeResearchContextMock.mockResolvedValue({
     context:
       'SOURCE Drawing demo\nURL: https://www.youtube.com/watch?v=M7lc1UVf-VE\n[01:05-01:32] Traccio le linee di ombra.',
+    rationale: 'Un transcript incluso.',
     videoCandidates: [
       {
         ranges: [{ startSeconds: 65, endSeconds: 93 }],
+        title: 'Drawing demo',
+        transcript: '[01:05-01:33] Traccio le linee di ombra.',
         url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
       },
     ],
@@ -178,15 +242,6 @@ test('course research keeps only bounded YouTube clip metadata when backend poli
                       title: 'Ombreggiatura',
                       url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
                       note: 'Mostra il movimento della matita.',
-                      videoStartSeconds: 65.8,
-                      videoEndSeconds: 92.2,
-                    },
-                    {
-                      title: 'Clip eccessivo',
-                      url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
-                      note: '',
-                      videoStartSeconds: 0,
-                      videoEndSeconds: 500,
                     },
                   ]
                 : [],
@@ -203,14 +258,14 @@ test('course research keeps only bounded YouTube clip metadata when backend poli
     () => {}
   );
 
-  assert.deepEqual(result.researchCoursePlan.lessons[0]?.sourceHints[0]?.videoClip, {
-    startSeconds: 65,
-    endSeconds: 92,
-  });
-  assert.equal(result.researchCoursePlan.lessons[0]?.sourceHints[1]?.videoClip, undefined);
+  assert.equal(
+    result.researchCoursePlan.lessons[0]?.sourceHints[0]?.url,
+    'https://www.youtube.com/watch?v=M7lc1UVf-VE'
+  );
+  assert.equal(result.researchCoursePlan.lessons[0]?.sourceHints[0]?.videoClip, undefined);
 });
 
-test('YouTube lab runs the production lesson pipeline and preserves only evidenced clips', async () => {
+test('YouTube lab passes selected video transcripts to the lesson writer without choosing clips', async () => {
   callOpenRouterMock.mockResolvedValueOnce('Brief che valuta due candidati YouTube.');
   callOpenRouterMock.mockResolvedValueOnce(
     JSON.stringify({
@@ -222,15 +277,6 @@ test('YouTube lab runs the production lesson pipeline and preserves only evidenc
           title: 'Pixel art curves',
           url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
           note: 'Mostra la costruzione della curva sul canvas.',
-          videoStartSeconds: 65,
-          videoEndSeconds: 92,
-        },
-        {
-          title: 'Intervallo non supportato',
-          url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
-          note: 'Fuori dal transcript disponibile.',
-          videoStartSeconds: 200,
-          videoEndSeconds: 240,
         },
       ],
       avoidOversimplifying: [],
@@ -239,7 +285,7 @@ test('YouTube lab runs the production lesson pipeline and preserves only evidenc
       youtubeCandidateDecisions: [
         {
           url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
-          decision: 'selected-clip',
+          decision: 'selected-source',
           reason: 'Mostra la costruzione pratica della curva.',
         },
       ],
@@ -252,9 +298,12 @@ test('YouTube lab runs the production lesson pipeline and preserves only evidenc
     topic: 'Pixel art',
     youtubeResearch: {
       context: '[01:05-01:32] Traccio una curva a gradini sul canvas.',
+      rationale: 'Un transcript incluso.',
       videoCandidates: [
         {
           ranges: [{ startSeconds: 65, endSeconds: 93 }],
+          title: 'Curve a gradini',
+          transcript: '[01:05-01:33] Traccio una curva a gradini sul canvas.',
           url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
         },
       ],
@@ -264,7 +313,9 @@ test('YouTube lab runs the production lesson pipeline and preserves only evidenc
 
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.match(
-    callOpenRouterMock.mock.calls[1]?.[0]?.messages[0]?.content || '',
+    callOpenRouterMock.mock.calls[1]?.[0]?.messages
+      .map((message: { content: string }) => message.content)
+      .join('\n') || '',
     /YOUTUBE CANDIDATES TO CLASSIFY:[\s\S]*M7lc1UVf-VE/
   );
   assert.deepEqual(result.model.attempts, { research: 1, structuring: 1, total: 2 });
@@ -273,11 +324,11 @@ test('YouTube lab runs the production lesson pipeline and preserves only evidenc
     result.youtubeCandidateDecisions[0]?.reason,
     'Mostra la costruzione pratica della curva.'
   );
-  assert.deepEqual(result.dossier.sources[0]?.videoClip, {
-    startSeconds: 65,
-    endSeconds: 92,
+  assert.deepEqual(result.dossier.sources[0]?.youtubeTranscript, {
+    ranges: [{ startSeconds: 65, endSeconds: 93 }],
+    text: '[01:05-01:33] Traccio una curva a gradini sul canvas.',
   });
-  assert.equal(result.dossier.sources[1]?.videoClip, undefined);
+  assert.equal(result.dossier.sources[0]?.videoClip, undefined);
 });
 
 test('YouTube lab reports the effective attempts for both model stages', async () => {
@@ -312,6 +363,7 @@ test('YouTube lab reports the effective attempts for both model stages', async (
     topic: 'Pixel art',
     youtubeResearch: {
       context: '[00:10-00:20] Esempio.',
+      rationale: 'Nessun candidato con intervalli utilizzabili.',
       videoCandidates: [],
       videoClipsEnabled: true,
     },
@@ -391,8 +443,17 @@ test('generateResearchCoursePlan normalizes course shape and clamps oversized ou
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.response_format?.type, 'json_schema');
 });
 
-test('lesson YouTube discovery includes practical plan details in its bounded query', async () => {
-  callOpenRouterMock.mockResolvedValueOnce('Brief con fonti video pratiche.');
+test('lesson YouTube discovery delegates the search query to the LLM planner', async () => {
+  let resolveResearchBrief!: (value: string) => void;
+  let resolveYouTubeResearch!: (value: YouTubeResearchContext) => void;
+  const researchBriefPromise = new Promise<string>(resolve => {
+    resolveResearchBrief = resolve;
+  });
+  const youtubeResearchPromise = new Promise<YouTubeResearchContext>(resolve => {
+    resolveYouTubeResearch = resolve;
+  });
+  getYouTubeResearchContextMock.mockReturnValueOnce(youtubeResearchPromise);
+  callOpenRouterMock.mockReturnValueOnce(researchBriefPromise);
   callOpenRouterMock.mockResolvedValueOnce(
     JSON.stringify({
       factualSummary: 'Le curve pixel art usano gradini regolari.',
@@ -405,7 +466,7 @@ test('lesson YouTube discovery includes practical plan details in its bounded qu
     })
   );
 
-  await generateResearchLessonDossier({
+  const generation = generateResearchLessonDossier({
     lesson: {
       id: 'pixel-curves',
       title: 'Bordi e curve',
@@ -439,11 +500,32 @@ test('lesson YouTube discovery includes practical plan details in its bounded qu
     onStatusUpdate: () => {},
   });
 
-  const query = getYouTubeResearchContextMock.mock.calls[0]?.[0] || '';
-  assert.equal(query.includes('Bordi e curve Pixel art'), true);
-  assert.equal(query.includes('sfumature texture'), true);
-  assert.equal(query.includes('Disegnare una curva a gradini'), true);
-  assert.equal(query.length <= 500, true);
+  await vi.waitFor(() => {
+    assert.equal(getYouTubeResearchContextMock.mock.calls.length, 1);
+    assert.equal(callOpenRouterMock.mock.calls.length, 1);
+  });
+  resolveResearchBrief('Brief con fonti video pratiche.');
+  resolveYouTubeResearch({
+    context: '',
+    rationale: 'Nessun candidato disponibile.',
+    videoCandidates: [],
+    videoClipsEnabled: false,
+  });
+  await generation;
+
+  assert.deepEqual(planYouTubeSearchQueryMock.mock.calls[0]?.[0], {
+    context: undefined,
+    courseTitle: 'Pixel art',
+    keyConcepts: ['sfumature', 'texture'],
+    language: 'Italiano',
+    lessonDescription: 'Costruire curve, sfumature e texture leggibili',
+    lessonTitle: 'Bordi e curve',
+    practicalTask: 'Disegnare una curva a gradini',
+  });
+  assert.equal(
+    getYouTubeResearchContextMock.mock.calls[0]?.[0],
+    'pixel art curve shading tutorial'
+  );
 });
 
 test('buildLearningPlanFromResearchCourse preserves research syllabus modules', () => {
@@ -559,6 +641,7 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   getYouTubeResearchContextMock.mockResolvedValue({
     context:
       'SOURCE Kotlin lesson\nURL: https://www.youtube.com/watch?v=kotlin-lesson\n[00:10] JVM bytecode',
+    rationale: 'Un transcript incluso.',
     videoCandidates: [],
     videoClipsEnabled: false,
   });
@@ -572,6 +655,15 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
       difficultSteps: ['Distinguere linguaggio e runtime'],
       avoidOversimplifying: ['Non ridurre Kotlin a Java corto'],
       controversies: [],
+      recentDevelopments: [],
+      sources: [],
+      youtubeCandidateDecisions: [
+        {
+          url: 'https://www.youtube.com/watch?v=kotlin-lesson',
+          decision: 'rejected',
+          reason: 'Il transcript nomina il bytecode ma non mostra un passaggio utile.',
+        },
+      ],
     })
   );
 
@@ -595,13 +687,24 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   assert.equal(dossier.sectionId, 'lesson-1');
   assert.equal(dossier.factualSummary.includes('JVM'), true);
   assert.deepEqual(dossier.sources, []);
+  assert.equal(dossier.youtubeResearch?.rationale, 'Un transcript incluso.');
+  assert.equal(
+    dossier.youtubeResearch?.candidateDecisions[0]?.reason,
+    'Il transcript nomina il bytecode ma non mostra un passaggio utile.'
+  );
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.tools, undefined);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.onReasoningUpdate, onReasoningUpdate);
   assert.equal(
-    callOpenRouterMock.mock.calls[0]?.[0]?.messages[0]?.content.includes(
-      'https://www.youtube.com/watch?v=kotlin-lesson'
+    callOpenRouterMock.mock.calls[0]?.[0]?.messages.some((message: { content: string }) =>
+      message.content.includes('https://www.youtube.com/watch?v=kotlin-lesson')
+    ),
+    false
+  );
+  assert.equal(
+    callOpenRouterMock.mock.calls[1]?.[0]?.messages.some((message: { content: string }) =>
+      message.content.includes('https://www.youtube.com/watch?v=kotlin-lesson')
     ),
     true
   );
@@ -641,12 +744,29 @@ test('generateResearchLessonDossier searches with the lesson model only for cove
   const researchRequest = callOpenRouterMock.mock.calls[0]?.[0];
   assert.equal(researchRequest?.modelSlot, 'lesson');
   assert.deepEqual(researchRequest?.tools, [{ type: 'openrouter:web_search' }]);
-  assert.equal(researchRequest?.messages[0]?.content.includes('Ipotesi matematiche'), true);
-  assert.equal(researchRequest?.messages[0]?.content.includes('Limiti del metodo'), true);
+  assert.equal(
+    researchRequest?.messages.some((message: { content: string }) =>
+      message.content.includes('Ipotesi matematiche')
+    ),
+    true
+  );
+  assert.equal(
+    researchRequest?.messages.some((message: { content: string }) =>
+      message.content.includes('Limiti del metodo')
+    ),
+    true
+  );
 });
 
 test('generateResearchLessonContent returns contextual learning aids with the lesson', async () => {
-  callOpenRouterMock.mockResolvedValue('## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.');
+  callOpenRouterMock.mockResolvedValue(
+    JSON.stringify({
+      contentMarkdown: '## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.',
+      imagePlacements: [],
+      quiz: [],
+      visualPlanning: { plans: [], rationale: 'Non serve un visuale.' },
+    })
+  );
 
   const result = await generateResearchLessonContent({
     lessonTitle: 'Kotlin e JVM',
@@ -670,6 +790,8 @@ test('generateResearchLessonContent returns contextual learning aids with the le
   });
 
   assert.equal(result.learningAids[0]?.title, 'Bytecode');
+  assert.equal(verifyLessonDraftMock.mock.calls.length, 1);
+  assert.equal(generateStandaloneLessonQuizMock.mock.calls.length, 0);
   assert.deepEqual(generateLessonLearningAidsMock.mock.calls[0]?.[0], {
     contentMarkdown: '## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.',
     sectionDescription: 'Spiega la relazione tra Kotlin, bytecode e JVM.',
@@ -679,7 +801,13 @@ test('generateResearchLessonContent returns contextual learning aids with the le
 
 test('generateResearchLessonContent leaves structured source attribution out of lesson markdown', async () => {
   callOpenRouterMock.mockResolvedValue(
-    '## Fondamenti\n\nSpiegazione verificata.\n\n## Fonti essenziali\n\n- Fonte inventata'
+    JSON.stringify({
+      contentMarkdown:
+        '## Fondamenti\n\nSpiegazione verificata.\n\n## Fonti essenziali\n\n- Fonte inventata',
+      imagePlacements: [],
+      quiz: [],
+      visualPlanning: { plans: [], rationale: 'Non serve un visuale.' },
+    })
   );
 
   const result = await generateResearchLessonContent({
@@ -699,6 +827,14 @@ test('generateResearchLessonContent leaves structured source attribution out of 
       sources: [
         { title: 'dispensa.pdf', note: 'Materiale originale del corso' },
         { title: 'Documentazione ufficiale', url: 'https://example.com/docs' },
+        {
+          title: 'Dimostrazione pratica',
+          url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+          youtubeTranscript: {
+            ranges: [{ startSeconds: 65, endSeconds: 93 }],
+            text: '[01:05-01:33] Traccio una curva a gradini sul canvas.',
+          },
+        },
       ],
       avoidOversimplifying: [],
       controversies: [],
@@ -708,4 +844,7 @@ test('generateResearchLessonContent leaves structured source attribution out of 
   });
 
   assert.equal(result.content, '## Fondamenti\n\nSpiegazione verificata.');
+  const draftingPrompt = callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || '';
+  assert.match(draftingPrompt, /\[01:05-01:33] Traccio una curva a gradini/);
+  assert.match(draftingPrompt, /\{\{YOUTUBE_CLIP_SOURCE:2\|START:<seconds>\|END:<seconds>}}/);
 });

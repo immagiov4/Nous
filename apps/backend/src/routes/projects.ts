@@ -418,6 +418,9 @@ const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefin
     isCompleted: typeof value.isCompleted === 'boolean' ? value.isCompleted : undefined,
     learningAids: Array.isArray(value.learningAids) ? value.learningAids : undefined,
     quiz: Array.isArray(value.quiz) ? value.quiz : undefined,
+    visualPlanningDecision: isRecord(value.visualPlanningDecision)
+      ? value.visualPlanningDecision
+      : undefined,
   };
 };
 

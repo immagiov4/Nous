@@ -215,7 +215,7 @@ describe('course cover regeneration jobs', () => {
       waitForTerminalJob('fair-user-b'),
     ]);
 
-    expect(maxActiveImages).toBe(4);
+    expect(maxActiveImages).toBe(6);
     expect(starts.indexOf('Course b-0')).toBeLessThanOrEqual(5);
     expect(jobA.summary.regenerated).toBe(8);
     expect(jobB.summary.regenerated).toBe(1);

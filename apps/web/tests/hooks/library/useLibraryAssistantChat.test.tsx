@@ -4,6 +4,7 @@ import type { UIMessage } from 'ai';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const useChatMock = vi.fn();
+const addToolOutputMock = vi.fn();
 
 class MockDefaultChatTransport<UI_MESSAGE extends UIMessage> {
   api: string;
@@ -55,8 +56,9 @@ const { useLibraryAssistantChat } = await import(
 describe('useLibraryAssistantChat', () => {
   beforeEach(() => {
     useChatMock.mockReset();
+    addToolOutputMock.mockReset();
     useChatMock.mockReturnValue({
-      addToolOutput: vi.fn(),
+      addToolOutput: addToolOutputMock,
       error: undefined,
       messages: [],
       sendMessage: vi.fn(),
@@ -268,5 +270,44 @@ describe('useLibraryAssistantChat', () => {
     });
 
     expect(result.current.attachedContextRefs).toEqual([]);
+  });
+
+  test('exposes a semantic new-course handoff requested by the library model', async () => {
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [folder],
+        loadProjectsById: vi.fn(async () => []),
+        projects: [project],
+        tree: loadedTree,
+      })
+    );
+    const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: { topic: 'pixel art' },
+          toolCallId: 'course-assessment-1',
+          toolName: 'startCourseAssessment',
+        },
+      });
+    });
+
+    expect(result.current.courseAssessmentRequest).toEqual({ topic: 'pixel art' });
+    expect(addToolOutputMock).toHaveBeenCalledWith({
+      tool: 'startCourseAssessment',
+      toolCallId: 'course-assessment-1',
+      output: {
+        handoffRequested: true,
+        topic: 'pixel art',
+      },
+    });
+
+    act(() => {
+      result.current.consumeCourseAssessmentRequest();
+    });
+
+    expect(result.current.courseAssessmentRequest).toBeNull();
   });
 });

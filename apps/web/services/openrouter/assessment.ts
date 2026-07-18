@@ -339,6 +339,20 @@ const FINALIZE_PROFILE_TOOL = {
   },
 } as const satisfies Record<string, unknown>;
 
+const ABANDON_ASSESSMENT_TOOL = {
+  type: 'function',
+  function: {
+    name: 'abandonAssessment',
+    description:
+      'Exit the course-creation interview when the user clearly says they entered it by mistake, no longer wants to create a course, or wants to return to their library. Decide from the full conversational meaning, never from isolated keywords. Do not use this merely because an answer is vague.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    },
+  },
+} as const satisfies Record<string, unknown>;
+
 const isFinalizeProfileArgs = (
   value: Record<string, unknown>
 ): value is {
@@ -378,7 +392,7 @@ const extractAssistantText = (content: unknown): string => {
 const createLearnAssessmentSession = (
   language: string,
   options?: { seedOpeningExchange?: boolean }
-): ChatSession<UserProfile> => {
+): ChatSession<UserProfile | Record<string, never>> => {
   const systemInstruction = `You are an Expert Curriculum Designer and Profiler.
 
 CRITICAL INSTRUCTION: You MUST speak in ${language}.
@@ -401,6 +415,7 @@ Protocol:
 
 How to finalize:
 - When (and ONLY when) you have enough information, call the tool "finalizeProfile" with the structured fields. Do NOT write JSON or the profile in chat — emit it strictly through the tool call.
+- If the user clearly communicates that this course-creation flow was opened by mistake, that they want to stop it, or that they want to return to the library, call "abandonAssessment". Infer this from the meaning of the full conversation, not from keyword matching. Do not continue interviewing and do not call "finalizeProfile".
 - Until you call the tool, your job is to ask one focused question per turn.
 - Never generate the course itself in chat; downstream code will do that after the profile is finalized.`;
 
@@ -422,13 +437,17 @@ How to finalize:
         model: MODEL_ASSESSMENT,
         modelSlot: 'assessment',
         messages: history,
-        tools: [FINALIZE_PROFILE_TOOL as unknown as Record<string, unknown>],
+        tools: [
+          FINALIZE_PROFILE_TOOL as unknown as Record<string, unknown>,
+          ABANDON_ASSESSMENT_TOOL as unknown as Record<string, unknown>,
+        ],
       });
 
       const choiceMessage = raw.choices?.[0]?.message;
       const rawText = extractAssistantText(choiceMessage?.content);
       const toolCall = choiceMessage?.tool_calls?.find(
-        call => call.function?.name === 'finalizeProfile'
+        call =>
+          call.function?.name === 'finalizeProfile' || call.function?.name === 'abandonAssessment'
       );
 
       console.info('[Nous][LearnAssessment] response', {
@@ -441,6 +460,17 @@ How to finalize:
         console.info('[Nous][LearnAssessment] tool call raw arguments', {
           arguments: toolCall.function.arguments,
         });
+        if (toolCall.function.name === 'abandonAssessment') {
+          history.push({
+            role: 'assistant',
+            content: rawText || 'Va bene, torno alla libreria.',
+          });
+          return {
+            text: rawText,
+            functionCalls: [{ name: 'abandonAssessment', args: {} }],
+          };
+        }
+
         let parsedArgs: Record<string, unknown> = {};
         try {
           parsedArgs = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
@@ -492,8 +522,11 @@ How to finalize:
   };
 };
 
-export const createLearnAssessmentChat = (language: string): ChatSession<UserProfile> =>
-  createLearnAssessmentSession(language);
+export const createLearnAssessmentChat = (
+  language: string
+): ChatSession<UserProfile | Record<string, never>> => createLearnAssessmentSession(language);
 
-export const createEmbeddedLearnAssessmentChat = (language: string): ChatSession<UserProfile> =>
+export const createEmbeddedLearnAssessmentChat = (
+  language: string
+): ChatSession<UserProfile | Record<string, never>> =>
   createLearnAssessmentSession(language, { seedOpeningExchange: false });

@@ -591,7 +591,15 @@ describe('/api/projects', () => {
       .patch('/api/projects/projects/heavy-project')
       .send({
         patch: {
-          section: { sectionId: 'sec-1', annotations: [{ id: 'ann-1', text: 'note' }] },
+          section: {
+            sectionId: 'sec-1',
+            annotations: [{ id: 'ann-1', text: 'note' }],
+            visualPlanningDecision: {
+              initial: { outcome: 'none', plans: [], rationale: 'Testo sufficiente.' },
+              reviewed: { outcome: 'visuals', plans: [], rationale: 'Revisione completata.' },
+              reviewedAt: '2026-07-17T12:00:00.000Z',
+            },
+          },
         },
       });
 
@@ -604,6 +612,9 @@ describe('/api/projects', () => {
     expect(loadResponse.body.project.learningPlan.sections[0].annotations).toEqual([
       { id: 'ann-1', text: 'note' },
     ]);
+    expect(
+      loadResponse.body.project.learningPlan.sections[0].visualPlanningDecision.reviewed.outcome
+    ).toBe('visuals');
   });
 
   test('rejects a stale session revision without overwriting the accepted patch', async () => {

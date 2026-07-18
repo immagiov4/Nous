@@ -42,7 +42,6 @@ import type {
 } from './types.ts';
 
 const READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN: WorkspaceWorkflowId[] = [
-  'loadSection',
   'contextQuestion',
   'createLesson',
   'completeSection',
@@ -362,8 +361,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     // clicks and rate-limit contention). Only one generation at a time.
     const isLoadingSection = state.getWorkflowState().loadSection.status === 'pending';
     if (
-      !options.allowWhileBlocking &&
-      (selectIsBlocking(state.getWorkflowState()) || isLoadingSection)
+      isLoadingSection ||
+      (!options.allowWhileBlocking && selectIsBlocking(state.getWorkflowState()))
     ) {
       return 'ignored-busy';
     }
@@ -439,7 +438,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 }));
 
               if (!state.isWorkflowCurrent('loadSection', requestId)) {
-                return { content: '', generatedVisuals: [], learningAids: [], quiz: [] };
+                return null;
               }
 
               if (!cachedResearchDossier) {
@@ -476,30 +475,28 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 progressObserver.push
               );
               if (!state.isWorkflowCurrent('loadSection', requestId)) {
-                return { content: '', generatedVisuals: [], learningAids: [], quiz: [] };
+                return null;
               }
 
-              const [learningAids, quiz] = await Promise.all([
-                openRouter.generateLessonLearningAids({
-                  contentMarkdown: content,
-                  sectionDescription: section.description,
-                  sectionTitle: section.title,
-                }),
-                openRouter.generateStandaloneLessonQuiz({
-                  contentMarkdown: content,
-                  sectionTitle: section.title,
-                  language: currentUserProfile?.language,
-                }),
-              ]);
-
-              return { content, generatedVisuals: [], learningAids, quiz };
+              return openRouter.finalizeSourceFreeLesson({
+                contentMarkdown: content,
+                generationNotes: currentPlan.generationNotes,
+                language: currentUserProfile?.language,
+                onReasoningUpdate: progressObserver.push,
+                onStatusUpdate: reportStatus,
+                previousContext: completedTitles,
+                sectionDescription: section.description,
+                sectionTitle: section.title,
+                sourceContext: section.contextPrompt || anchorLessonContextPrompt,
+              });
             })();
 
-        if (!state.isWorkflowCurrent('loadSection', requestId)) {
+        if (!state.isWorkflowCurrent('loadSection', requestId) || !learnLessonResult) {
           return 'ignored-busy';
         }
 
-        const { content, generatedVisuals, learningAids, quiz } = learnLessonResult;
+        const { content, generatedVisuals, learningAids, quiz, visualPlanningDecision } =
+          learnLessonResult;
 
         domain.updateSection(section.id, section => ({
           ...section,
@@ -508,6 +505,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           imageRefs: [],
           generatedVisuals,
           learningAids,
+          visualPlanningDecision,
         }));
         const mergedDocumentAssets = mergeDocumentAssetsForPlan(
           domain.learningPlan ?? currentPlan,
@@ -523,6 +521,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             imageRefs: [],
             learningAids,
             quiz,
+            visualPlanningDecision,
           },
           {
             documentAssets: mergedDocumentAssets,
@@ -637,6 +636,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           imageRefs,
           learningAids,
           quiz,
+          visualPlanningDecision,
         } = lessonResult;
 
         if (!state.isWorkflowCurrent('loadSection', requestId)) {
@@ -650,6 +650,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           imageRefs,
           learningAids,
           generatedVisuals,
+          visualPlanningDecision,
         }));
         const mergedDocumentAssets = mergeDocumentAssetsForPlan(
           domain.learningPlan ?? currentPlan,
@@ -665,6 +666,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             imageRefs,
             learningAids,
             quiz,
+            visualPlanningDecision,
           },
           {
             documentAssets: mergedDocumentAssets,
@@ -697,7 +699,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'ignored-busy';
     }
 
-    return openSection(domain.activeSection, { forceRegenerate: true });
+    const researchDossiersBySectionId = { ...domain.researchDossiersBySectionId };
+    delete researchDossiersBySectionId[domain.activeSection.id];
+
+    return openSection(domain.activeSection, {
+      currentResearchDossiersBySectionId: researchDossiersBySectionId,
+      forceRegenerate: true,
+    });
   }
 
   async function askContextQuestion(args: {
@@ -959,7 +967,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
   async function goToLibrary(): Promise<void> {
     stopAudio(true);
-    state.setGeneratingSectionId(null);
     state.invalidateWorkflows(READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN);
     state.resetSessionState();
     state.setScreenState(AppState.LIBRARY);

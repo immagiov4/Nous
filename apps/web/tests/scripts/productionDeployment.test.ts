@@ -48,8 +48,7 @@ describe('production deployment boundaries', () => {
       SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
       SUPABASE_JWKS_URL: 'https://alpha-ref.supabase.co/auth/v1/.well-known/jwks.json',
       CORS_ALLOWED_ORIGINS: 'https://reader.acme.test',
-      YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED: 'false',
-      YOUTUBE_VIDEO_CLIPS_ENABLED: 'false',
+      DECODO_SCRAPING_API_KEY: 'decodo-test-key',
     };
 
     expect(validateDeploymentConfig({ ...baseConfig, SUPABASE_DEPLOYMENT: 'hybrid' })).toContain(
@@ -61,21 +60,6 @@ describe('production deployment boundaries', () => {
     expect(
       validateDeploymentConfig({ ...baseConfig, SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL })
     ).toEqual([]);
-    expect(
-      validateDeploymentConfig({
-        ...baseConfig,
-        SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL,
-        YOUTUBE_VIDEO_CLIPS_ENABLED: 'TRUE',
-      })
-    ).toContain('YOUTUBE_VIDEO_CLIPS_ENABLED must be true or false.');
-    expect(
-      validateDeploymentConfig({
-        ...baseConfig,
-        SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL,
-        YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED: 'TRUE',
-      })
-    ).toContain('YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED must be true or false.');
-
     const githubOptionalConfig = {
       ...baseConfig,
       SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL,
@@ -160,11 +144,15 @@ describe('production deployment boundaries', () => {
     expect(templateServer.healthcheck.test).toContain('http://127.0.0.1/magic-link.html');
   });
 
-  test('passes private GitHub feedback credentials only to the backend', () => {
+  test('passes private integration credentials only to the backend', () => {
     expect(APP_COMPOSE.services.backend?.environment).toMatchObject({
+      DECODO_SCRAPING_API_KEY: `\${DECODO_SCRAPING_API_KEY:-}`,
       GITHUB_FEEDBACK_REPOSITORY: `\${GITHUB_FEEDBACK_REPOSITORY:-}`,
       GITHUB_FEEDBACK_TOKEN: `\${GITHUB_FEEDBACK_TOKEN:-}`,
     });
+    expect(APP_COMPOSE.services.frontend?.environment).not.toHaveProperty(
+      'DECODO_SCRAPING_API_KEY'
+    );
     expect(APP_COMPOSE.services.frontend?.environment).not.toHaveProperty('GITHUB_FEEDBACK_TOKEN');
   });
 

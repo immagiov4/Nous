@@ -3,6 +3,7 @@ import { getBackendUrl } from './config.ts';
 
 interface YouTubeResearchResponse {
   context?: unknown;
+  rationale?: unknown;
   success?: unknown;
   videoCandidates?: unknown;
   videoClipsEnabled?: unknown;
@@ -15,78 +16,68 @@ export interface YouTubeTranscriptRange {
 
 export interface YouTubeVideoEvidence {
   ranges: YouTubeTranscriptRange[];
+  title: string;
+  transcript: string;
   url: string;
 }
 
 export interface YouTubeResearchContext {
   context: string;
+  failed?: boolean;
+  rationale: string;
   videoCandidates: YouTubeVideoEvidence[];
   videoClipsEnabled: boolean;
 }
 
-export interface YouTubeTranscriptOverride {
-  language?: string;
-  segments: Array<{
-    durationSeconds?: number;
-    startSeconds: number;
-    text: string;
-  }>;
-  videoId: string;
-}
+export const mergeYouTubeResearchContexts = (
+  contexts: YouTubeResearchContext[]
+): YouTubeResearchContext => {
+  const videoCandidates = new Map<string, YouTubeVideoEvidence>();
+  for (const context of contexts) {
+    for (const candidate of context.videoCandidates) {
+      if (!videoCandidates.has(candidate.url)) {
+        videoCandidates.set(candidate.url, candidate);
+      }
+    }
+  }
+
+  return {
+    context: [...new Set(contexts.map(item => item.context.trim()).filter(Boolean))].join('\n\n'),
+    failed: contexts.every(item => item.failed === true),
+    rationale: [...new Set(contexts.map(item => item.rationale.trim()).filter(Boolean))].join(' '),
+    videoCandidates: [...videoCandidates.values()],
+    videoClipsEnabled: contexts.some(item => item.videoClipsEnabled),
+  };
+};
 
 const EMPTY_YOUTUBE_RESEARCH: YouTubeResearchContext = {
   context: '',
+  failed: true,
+  rationale: 'La ricerca YouTube non è stata completata.',
   videoCandidates: [],
   videoClipsEnabled: false,
-};
-
-const MAX_YOUTUBE_RESEARCH_QUERY_CHARS = 500;
-const TRANSCRIPT_OVERRIDES_STORAGE_KEY = 'nous:youtube-transcript-overrides';
-
-export const readYouTubeTranscriptOverrides = (): YouTubeTranscriptOverride[] => {
-  try {
-    const value = localStorage.getItem(TRANSCRIPT_OVERRIDES_STORAGE_KEY);
-    return value ? (JSON.parse(value) as YouTubeTranscriptOverride[]) : [];
-  } catch {
-    return [];
-  }
-};
-
-export const saveYouTubeTranscriptOverrides = (overrides: YouTubeTranscriptOverride[]): void => {
-  localStorage.setItem(TRANSCRIPT_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
-};
-
-export const buildLessonYouTubeResearchQuery = (input: {
-  contextPrompt?: string;
-  courseTitle: string;
-  guidingQuestions?: string[];
-  keyConcepts?: string[];
-  lessonDescription?: string;
-  lessonTitle: string;
-  miniLab?: string;
-  sourceHints?: string[];
-}): string => {
-  const parts = [
-    input.lessonTitle,
-    input.courseTitle,
-    input.lessonDescription,
-    input.contextPrompt,
-    ...(input.keyConcepts || []),
-    ...(input.guidingQuestions || []),
-    input.miniLab,
-    ...(input.sourceHints || []),
-  ]
-    .map(value => value?.trim())
-    .filter((value): value is string => Boolean(value));
-  return [...new Set(parts)].join(' ').slice(0, MAX_YOUTUBE_RESEARCH_QUERY_CHARS).trim();
 };
 
 const normalizeVideoCandidates = (value: unknown): YouTubeVideoEvidence[] =>
   Array.isArray(value)
     ? value.flatMap(candidate => {
         if (typeof candidate !== 'object' || candidate === null) return [];
-        const record = candidate as { ranges?: unknown; url?: unknown };
-        if (typeof record.url !== 'string' || !Array.isArray(record.ranges)) return [];
+        const record = candidate as {
+          ranges?: unknown;
+          title?: unknown;
+          transcript?: unknown;
+          url?: unknown;
+        };
+        if (
+          typeof record.url !== 'string' ||
+          typeof record.title !== 'string' ||
+          !record.title.trim() ||
+          typeof record.transcript !== 'string' ||
+          !record.transcript.trim() ||
+          !Array.isArray(record.ranges)
+        ) {
+          return [];
+        }
         const ranges = record.ranges.flatMap(range => {
           if (typeof range !== 'object' || range === null) return [];
           const values = range as { endSeconds?: unknown; startSeconds?: unknown };
@@ -99,7 +90,16 @@ const normalizeVideoCandidates = (value: unknown): YouTubeVideoEvidence[] =>
             ? [{ endSeconds: values.endSeconds, startSeconds: values.startSeconds }]
             : [];
         });
-        return ranges.length ? [{ ranges, url: record.url }] : [];
+        return ranges.length
+          ? [
+              {
+                ranges,
+                title: record.title.trim(),
+                transcript: record.transcript.trim(),
+                url: record.url,
+              },
+            ]
+          : [];
       })
     : [];
 
@@ -108,7 +108,6 @@ export const getYouTubeResearchContext = async (
   language: string
 ): Promise<YouTubeResearchContext> => {
   try {
-    const transcriptOverrides = readYouTubeTranscriptOverrides();
     const response = await fetchWithSupabaseAuth(
       `${getBackendUrl()}/api/youtube/research-context`,
       {
@@ -117,27 +116,33 @@ export const getYouTubeResearchContext = async (
         body: JSON.stringify({
           language,
           query,
-          ...(transcriptOverrides.length ? { transcriptOverrides } : {}),
         }),
       }
     );
     if (!response.ok) {
+      console.error('[Nous] Errore tecnico durante la procedura YouTube.');
       return EMPTY_YOUTUBE_RESEARCH;
     }
 
     const payload = (await response.json()) as YouTubeResearchResponse;
-    return payload.success === true && typeof payload.context === 'string'
-      ? {
-          context: payload.context,
-          videoCandidates:
-            payload.videoClipsEnabled === true
-              ? normalizeVideoCandidates(payload.videoCandidates)
-              : [],
-          videoClipsEnabled: payload.videoClipsEnabled === true,
-        }
-      : EMPTY_YOUTUBE_RESEARCH;
-  } catch (error) {
-    console.warn('[Nous] YouTube research unavailable:', error);
+    if (payload.success !== true || typeof payload.context !== 'string') {
+      console.error('[Nous] Errore tecnico durante la procedura YouTube.');
+      return EMPTY_YOUTUBE_RESEARCH;
+    }
+
+    const result = {
+      context: payload.context,
+      rationale:
+        typeof payload.rationale === 'string' && payload.rationale.trim()
+          ? payload.rationale.trim()
+          : 'Il backend non ha restituito una motivazione.',
+      videoCandidates:
+        payload.videoClipsEnabled === true ? normalizeVideoCandidates(payload.videoCandidates) : [],
+      videoClipsEnabled: payload.videoClipsEnabled === true,
+    };
+    return result;
+  } catch {
+    console.error('[Nous] Errore tecnico durante la procedura YouTube.');
     return EMPTY_YOUTUBE_RESEARCH;
   }
 };
@@ -145,10 +150,14 @@ export const getYouTubeResearchContext = async (
 export const getYouTubeVideoClipsEnabled = async (): Promise<boolean> => {
   try {
     const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/youtube/config`);
-    if (!response.ok) return false;
+    if (!response.ok) {
+      console.error('[Nous] Impossibile leggere la configurazione delle clip YouTube.');
+      return false;
+    }
     const payload = (await response.json()) as YouTubeResearchResponse;
     return payload.success === true && payload.videoClipsEnabled === true;
   } catch {
+    console.error('[Nous] Impossibile leggere la configurazione delle clip YouTube.');
     return false;
   }
 };

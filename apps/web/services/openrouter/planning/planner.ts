@@ -183,6 +183,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
+    modelSlot: 'structure',
     reasoning: MEDIUM_REASONING_CONFIG,
     onReasoningUpdate,
     messages: [
@@ -256,6 +257,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
 
   const response = await callOpenRouter({
     model: MODEL_REASONING,
+    modelSlot: 'structure',
     reasoning: MEDIUM_REASONING_CONFIG,
     onReasoningUpdate,
     messages: [
@@ -375,6 +377,7 @@ Rispondi SOLO con un oggetto JSON valido:
     onStatusUpdate?.(`Organizzazione di ${usableSources.length} fonti...`, 'structure');
     const response = await callOpenRouter({
       model: MODEL_REASONING,
+      modelSlot: 'structure',
       reasoning: MEDIUM_REASONING_CONFIG,
       onReasoningUpdate,
       messages: [

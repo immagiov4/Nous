@@ -585,12 +585,22 @@ const CourseList = ({
   const [openCourseMenu, setOpenCourseMenu] = useState<FloatingMenuState | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const renameRequestIdRef = useRef(0);
+  const pendingProjectOpenRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [collapsedSpecialGroupIds, setCollapsedSpecialGroupIds] = useState<Set<string>>(
     () => new Set()
   );
   const { expandedFolderIds, toggleFolderExpansion } =
     usePersistedLibraryFolderExpansion(libraryTree);
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
+
+  useEffect(
+    () => () => {
+      if (pendingProjectOpenRef.current) {
+        clearTimeout(pendingProjectOpenRef.current);
+      }
+    },
+    []
+  );
 
   const startInlineRename = (target: InlineRenameTarget) => {
     renameRequestIdRef.current += 1;
@@ -944,12 +954,20 @@ const CourseList = ({
                     return (
                       <div
                         key={project.id}
-                        className="group relative flex items-center gap-4 border-b border-stone-100 px-4 py-3 last:border-b-0 dark:border-white/10"
+                        onClick={() => {
+                          if (renameTarget?.id !== project.id) {
+                            onOpenProject(project.id);
+                          }
+                        }}
+                        className="group relative flex cursor-pointer items-center gap-4 border-b border-stone-100 px-4 py-3 last:border-b-0 dark:border-white/10"
                       >
                         <div className="flex min-w-0 flex-1 items-center gap-4 text-left">
                           <button
                             type="button"
-                            onClick={() => onOpenProject(project.id)}
+                            onClick={event => {
+                              event.stopPropagation();
+                              onOpenProject(project.id);
+                            }}
                             disabled={isOpening}
                             aria-busy={isOpening}
                             className="relative h-11 w-16 shrink-0 overflow-hidden rounded-lg disabled:cursor-wait"
@@ -976,21 +994,33 @@ const CourseList = ({
                                   <button
                                     type="button"
                                     onClick={event => {
+                                      event.stopPropagation();
                                       if (!onRenameProject) {
                                         onOpenProject(project.id);
                                         return;
                                       }
-                                      // Keep pointer title clicks available for a native double-click rename.
-                                      // Keyboard activation still opens; cover and metadata remain pointer targets.
                                       if (event.detail === 0) {
                                         onOpenProject(project.id);
+                                        return;
                                       }
+                                      if (pendingProjectOpenRef.current) {
+                                        clearTimeout(pendingProjectOpenRef.current);
+                                      }
+                                      pendingProjectOpenRef.current = setTimeout(
+                                        () => onOpenProject(project.id),
+                                        180
+                                      );
                                     }}
                                     onDoubleClick={event => {
+                                      event.stopPropagation();
                                       if (!onRenameProject) {
                                         return;
                                       }
                                       event.preventDefault();
+                                      if (pendingProjectOpenRef.current) {
+                                        clearTimeout(pendingProjectOpenRef.current);
+                                        pendingProjectOpenRef.current = null;
+                                      }
                                       startInlineRename({
                                         id: project.id,
                                         kind: 'project',
@@ -1004,7 +1034,10 @@ const CourseList = ({
                                 </p>
                                 <button
                                   type="button"
-                                  onClick={() => onOpenProject(project.id)}
+                                  onClick={event => {
+                                    event.stopPropagation();
+                                    onOpenProject(project.id);
+                                  }}
                                   disabled={isOpening}
                                   aria-busy={isOpening}
                                   className="mt-1 text-[0.68rem] text-stone-400 disabled:cursor-wait"
@@ -1033,7 +1066,10 @@ const CourseList = ({
                                 })
                           }
                           aria-pressed={isFavorite}
-                          onClick={() => onToggleFavorite(project.id)}
+                          onClick={event => {
+                            event.stopPropagation();
+                            onToggleFavorite(project.id);
+                          }}
                           disabled={isOpening}
                           className="rounded-full p-2 text-stone-400 hover:bg-stone-100 hover:text-[#b45c28] aria-pressed:text-[#b45c28] dark:hover:bg-white/5 dark:hover:text-[#f1c6a8] dark:aria-pressed:text-[#f1c6a8]"
                         >
@@ -1045,6 +1081,7 @@ const CourseList = ({
                             courseTitle: project.title,
                           })}
                           onClick={event => {
+                            event.stopPropagation();
                             const anchor = event.currentTarget.getBoundingClientRect();
                             setOpenCourseMenu(current =>
                               current?.id === project.id

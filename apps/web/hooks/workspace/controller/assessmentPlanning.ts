@@ -534,6 +534,14 @@ export const createAssessmentPlanningCommands = (
     }
   }
 
+  function cancelAssessment(): void {
+    domain.resetDomain();
+    state.resetSessionState();
+    projectLibrary.setCurrentProjectId(null);
+    projectLibrary.setProjectHydrated(true);
+    state.setScreenState(AppState.LIBRARY);
+  }
+
   async function startHomeChat(args: {
     input: string;
     selectedFile?: File | null;
@@ -541,7 +549,14 @@ export const createAssessmentPlanningCommands = (
     toolPreferences?: HomeChatToolPreferences;
   }): Promise<{
     errorMessage?: string;
-    outcome: 'assessment-complete' | 'continued' | 'failed' | 'imported' | 'noop' | 'planned';
+    outcome:
+      | 'abandoned'
+      | 'assessment-complete'
+      | 'continued'
+      | 'failed'
+      | 'imported'
+      | 'noop'
+      | 'planned';
     sourceWarnings?: Array<{ message: string; name: string }>;
   }> {
     const trimmedInput = args.input.trim();
@@ -666,6 +681,12 @@ export const createAssessmentPlanningCommands = (
       if (learnMode) {
         const call = response.functionCalls?.[0];
 
+        if (call?.name === 'abandonAssessment') {
+          cancelAssessment();
+          state.succeedWorkflow('assessment', requestId);
+          return { outcome: 'abandoned', sourceWarnings };
+        }
+
         if (call && call.name === 'finalizeProfile') {
           const profileArgs = (call.args ?? {}) as Partial<UserProfile>;
           const profile = {
@@ -720,7 +741,7 @@ export const createAssessmentPlanningCommands = (
     toolPreferences?: HomeChatToolPreferences
   ): Promise<{
     errorMessage?: string;
-    outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
+    outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
     sourceWarnings?: Array<{ message: string; name: string }>;
   }> {
     const trimmedInput = input.trim();
@@ -740,6 +761,12 @@ export const createAssessmentPlanningCommands = (
           message: buildHomeChatMessageForModel(trimmedInput, toolPreferences),
         });
         const call = response.functionCalls?.[0];
+
+        if (call?.name === 'abandonAssessment') {
+          cancelAssessment();
+          state.succeedWorkflow('assessment', requestId);
+          return { outcome: 'abandoned' };
+        }
 
         if (call && call.name === 'finalizeProfile') {
           const profileArgs = (call.args ?? {}) as Partial<UserProfile>;
@@ -822,6 +849,7 @@ export const createAssessmentPlanningCommands = (
   }
 
   return {
+    cancelAssessment,
     confirmPlanGeneration,
     startHomeChat,
     startAssessment,

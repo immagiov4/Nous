@@ -13,10 +13,15 @@ const COURSE_COVER_STATUS_ERROR = 'Stato della rigenerazione cover non disponibi
 const getJobStatusText = (job: CourseCoverRegenerationJob | null): string => {
   if (!job) return t('Nessuna rigenerazione cover avviata.');
   if (job.status === 'running') {
-    return t('{completed} di {total} cover completate.', {
-      completed: job.summary.total - job.summary.pending,
-      total: job.summary.total,
-    });
+    return t(
+      '{regenerated} di {total} cover rigenerate, {failed} non riuscite, {pending} in attesa.',
+      {
+        failed: job.summary.failed,
+        pending: job.summary.pending,
+        regenerated: job.summary.regenerated,
+        total: job.summary.total,
+      }
+    );
   }
   if (job.status === 'failed') return t('La rigenerazione cover non è partita.');
   return t('{regenerated} cover rigenerate, {skipped} saltate e {failed} non riuscite.', {

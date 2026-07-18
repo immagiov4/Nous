@@ -13,6 +13,7 @@ const REQUIRED_RUNTIME_KEYS = [
   'DATABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
   'CORS_ALLOWED_ORIGINS',
+  'DECODO_SCRAPING_API_KEY',
 ];
 
 const parseEnv = text =>
@@ -51,19 +52,6 @@ export const validateDeploymentConfig = (env, { bootstrap = false } = {}) => {
   if (env.CODEX_APP_SERVER_ENABLED && !['true', 'false'].includes(env.CODEX_APP_SERVER_ENABLED)) {
     errors.push('CODEX_APP_SERVER_ENABLED must be true or false.');
   }
-  if (
-    env.YOUTUBE_VIDEO_CLIPS_ENABLED &&
-    !['true', 'false'].includes(env.YOUTUBE_VIDEO_CLIPS_ENABLED)
-  ) {
-    errors.push('YOUTUBE_VIDEO_CLIPS_ENABLED must be true or false.');
-  }
-  if (
-    env.YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED &&
-    !['true', 'false'].includes(env.YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED)
-  ) {
-    errors.push('YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED must be true or false.');
-  }
-
   for (const key of REQUIRED_PUBLIC_KEYS) {
     if (isPlaceholder(env[key])) {
       errors.push(`${key} is missing or still contains an example value.`);

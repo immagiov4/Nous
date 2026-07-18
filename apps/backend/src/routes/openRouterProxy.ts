@@ -56,9 +56,12 @@ type ModelSlot =
   | 'artifactInteractive'
   | 'assessment'
   | 'context'
+  | 'drafting'
   | 'lesson'
   | 'progress'
-  | 'research';
+  | 'research'
+  | 'structure'
+  | 'verification';
 
 const readModelSlot = (req: Request): ModelSlot => {
   const slot = req.get('x-nous-model-slot')?.trim();
@@ -66,8 +69,11 @@ const readModelSlot = (req: Request): ModelSlot => {
     slot === 'artifactInteractive' ||
     slot === 'assessment' ||
     slot === 'context' ||
+    slot === 'drafting' ||
     slot === 'progress' ||
-    slot === 'research'
+    slot === 'research' ||
+    slot === 'structure' ||
+    slot === 'verification'
     ? slot
     : 'lesson';
 };
@@ -98,6 +104,7 @@ const resolveProxyConfig = async (req: Request) => {
       ? 'research'
       : requestedModelSlot;
   return {
+    codexFast: modelConfig.codexFastModelSlots.includes(modelSlot),
     modelSlot,
     provider: modelConfig.aiProvider,
     ...resolveTextModelConfig(modelConfig, modelSlot),
@@ -163,7 +170,7 @@ const buildProxyRequest = async (
   req: Request
 ): Promise<{ body: Record<string, unknown>; provider: AiProvider }> => {
   const requestBody = isRecord(req.body) ? req.body : {};
-  const { model, modelSlot, provider, reasoningEffort } = await resolveProxyConfig(req);
+  const { codexFast, model, modelSlot, provider, reasoningEffort } = await resolveProxyConfig(req);
 
   if (provider === 'openai') {
     const {
@@ -194,6 +201,7 @@ const buildProxyRequest = async (
       body: {
         ...portableBody,
         nous_model_slot: modelSlot,
+        nous_service_tier: codexFast ? 'fast' : undefined,
         model,
         reasoning_effort: reasoningEffort,
       },
@@ -354,6 +362,7 @@ const sendCodexCompletion = async (body: Record<string, unknown>, res: Response)
   const toolCalls: CodexChatToolCall[] = [];
   const model = typeof body.model === 'string' ? body.model : '';
   const allowWebSearch = body.nous_model_slot === 'research';
+  const serviceTier = body.nous_service_tier === 'fast' ? 'fast' : undefined;
   const reasoningEffort =
     body.reasoning_effort === 'none' ||
     body.reasoning_effort === 'minimal' ||
@@ -375,6 +384,7 @@ const sendCodexCompletion = async (body: Record<string, unknown>, res: Response)
       allowWebSearch,
       model,
       reasoningEffort,
+      serviceTier,
       tools,
       onReasoningDelta: delta => {
         writeCodexSseChunk(res, { reasoning: delta }, null);
@@ -419,6 +429,7 @@ const sendCodexCompletion = async (body: Record<string, unknown>, res: Response)
     allowWebSearch,
     model,
     reasoningEffort,
+    serviceTier,
     tools,
     onToolStart: (callId, name, input, execution) => {
       if (execution === 'client') {

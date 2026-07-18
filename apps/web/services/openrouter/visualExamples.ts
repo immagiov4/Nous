@@ -1,11 +1,22 @@
-import type { LessonGeneratedVisual } from '../../types.ts';
+import type {
+  LessonGeneratedVisual,
+  LessonVisualPlan,
+  LessonVisualPlanningDecision,
+  LessonVisualPlanningPass,
+} from '../../types.ts';
 import { timestampIso } from '../../utils/time.ts';
 import {
   findMissingStaticHtmlElementIds,
   hasInvalidInlineJavaScript,
   hasUnsafeHtmlElementDereferences,
 } from '../../utils/visuals/htmlElementReferences.ts';
+import { renderHtmlPreview } from '../../utils/visuals/htmlPreview.ts';
+import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { requestGeneratedImage } from './imageClient.ts';
+import {
+  INTERNAL_FAST_TASK_INSTRUCTION,
+  INTERNAL_REASONING_EFFICIENCY_INSTRUCTION,
+} from './prompts.ts';
 import {
   callOpenRouter,
   getArtifactVisualReviewSettings,
@@ -20,12 +31,20 @@ import { lintSvg, renderSvgPreview } from './svgReview.ts';
 import type { ChatMessage } from './types.ts';
 
 const VISUAL_ID_PREFIX = 'visual-';
+const GENERATED_IMAGE_PLACEHOLDER_PATTERN = /\{\{GENERATED_IMAGE:([a-z][a-z0-9_-]{0,63})\}\}/g;
 const MAX_VISUAL_LESSON_CHARS = 12000;
-const MAX_GENERATED_VISUALS_PER_LESSON = 3;
-const ARTIFACT_TOKEN_EFFICIENCY_INSTRUCTION = 'BE VERY TOKEN EFFICIENT.';
+export const MAX_GENERATED_VISUALS_PER_LESSON = 3;
+export const INTERACTIVE_VISUAL_VALUE_RULE =
+  'Tratta interactive_html come un formato costoso: usalo solo quando l’utente deve esplorare, modificare o confrontare stati e questa interazione produce una comprensione importante che testo, video o una o due immagini statiche non possono offrire altrettanto bene. Non usarlo per dimostrazioni cosmetiche, controlli banali o esempi statici travestiti da interattivi; se l’interazione non è essenziale, scegli il formato più semplice.';
+export const VISUAL_FORMAT_SELECTION_RULE =
+  'Imposta requiresDepiction=true quando lo studente deve vedere l’aspetto di un oggetto, stato, scena, risultato grafico o trasformazione visiva, inclusi passaggi che mostrano come cambia un soggetto. In quel caso usa illustrative_image: un processo visivo non è un flowchart. SVG è consentito soltanto con requiresDepiction=false per relazioni astratte fra brevi etichette testuali, box generici e frecce; i nodi non possono contenere disegni, sagome, pixel art, oggetti, scene o esempi del risultato.';
+const GENERATED_IMAGE_PREVIEW_DATA_URL =
+  'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 9%22%3E%3Crect width=%2216%22 height=%229%22 fill=%22%23eeeae4%22/%3E%3C/svg%3E';
 
-const buildArtifactSystemPrompt = (prompt: string): string =>
-  `${prompt}\n\n${ARTIFACT_TOKEN_EFFICIENCY_INSTRUCTION}`;
+const buildArtifactSystemPrompt = (prompt: string, isVerification = false): string =>
+  `${prompt}\n\n${
+    isVerification ? INTERNAL_REASONING_EFFICIENCY_INSTRUCTION : INTERNAL_FAST_TASK_INSTRUCTION
+  }`;
 
 const VISUAL_PLANNER_PROMPT = `SYSTEM:
 Sei un pianificatore pedagogico di esempi visivi per Nous Reader.
@@ -33,26 +52,29 @@ Dato il testo finale di una lezione, decidi quali rappresentazioni visive genera
 
 Scegli esattamente un tipo per ciascun piano:
 - illustrative_image: illustrazione raster per realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, anatomia, gesti, oggetti, scene, luoghi e fenomeni. Puo anche avere una composizione diagrammatica con frecce ed etichette quando queste aiutano a leggere l'immagine.
-- flowchart_svg: solo schema informativo semplice di processo, pipeline, sequenza o albero decisionale.
+- flowchart_svg: solo relazioni astratte tra passaggi testuali di un processo, pipeline o albero decisionale. I nodi non possono raffigurare gli stati visivi prodotti dai passaggi.
 - structural_svg: solo schema informativo semplice di contenimento, architettura, strati o parti dentro un sistema.
-- interactive_html: variabile manipolabile o esplorazione passo-passo.
+- interactive_html: laboratorio HTML/CSS/JavaScript in cui l'interazione reale e indispensabile per esplorare, modificare o confrontare il concetto.
 - chart_html: dati quantitativi, confronti numerici, distribuzioni, trend.
 - mermaid_erd: solo schema entita-relazioni.
 - mermaid_class: solo classi, ereditarieta, interfacce, associazioni.
 - none: nessuna visuale utile, oppure la lezione e gia sufficientemente visuale.
 
 Regole:
+- ${INTERACTIVE_VISUAL_VALUE_RULE}
 - Per una richiesta esplicita pianifica un solo artefatto. Per la generazione automatica pianifica normalmente zero o un artefatto, due solo se rispondono a domande pedagogiche diverse e complementari, tre solo se sono tutti indispensabili. Mai produrre varianti estetiche dello stesso contenuto.
 - La varieta dei formati non e mai un obiettivo o un vincolo. Scegli ogni formato soltanto in base al contenuto che deve insegnare: due o tre immagini raster sono corrette quando sono la soluzione pedagogica migliore. Non inserire SVG, HTML o Mermaid per diversificare un insieme di artefatti.
-- Ogni piano deve essere indipendente e generabile separatamente. Se servono sia "che aspetto ha?" sia "come funziona?", scegli separatamente il formato piu adatto a ciascuna domanda, anche ripetendo illustrative_image.
-- La richiesta esplicita dell'utente sul formato e autoritativa. Se chiede un'immagine o un'illustrazione, scegli illustrative_image. Se chiede un SVG, usalo soltanto se il contenuto e davvero uno schema strutturale o un flusso astratto; altrimenti non fingere che un disegno sia uno schema. Non sostituire mai un'immagine richiesta con SVG, HTML o Mermaid.
-- SVG significa esclusivamente riepilogo schematico informativo semplice, composto da pochi nodi, box, linee, frecce, etichette e forme geometriche che rappresentano relazioni astratte. Non usarlo per raffigurare realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, illustrazioni o qualunque scena visivamente complessa. In questi casi scegli illustrative_image, anche quando la composizione utile include etichette, frecce o una struttura da schema.
+- **Decisione obbligatoria, in quest'ordine.** (1) Se lo studente deve vedere l'aspetto di un oggetto, stato, scena, risultato grafico o trasformazione visiva, imposta "requires_depiction": true e scegli illustrative_image oppure un video pertinente. (2) Se una regola o simulazione verificabile deve essere manipolata dallo studente, scegli interactive_html. (3) Se servono dati quantitativi, scegli chart_html. (4) Scegli SVG soltanto per relazioni astratte fra etichette testuali: nodi, box e frecce generici, senza raffigurare oggetti o risultati visivi. (5) Altrimenti scegli none.
+- "requires_depiction" e true anche quando una sequenza mostra come cambia visivamente un soggetto a ogni passaggio. Un processo visivo non diventa un flowchart: se i nodi dovrebbero contenere disegni, sagome, pixel art, icone illustrative, scene o esempi del risultato, SVG e vietato.
+- interactive_html e valido soltanto quando l'interazione aggiunge valore essenziale e la grafica deriva da una regola o algoritmo verificabile. Non disegnare a mano scene, oggetti complessi o pixel art; per asset artistici usa immagini generate.
+- Non simulare immagini con ASCII art, testo monospace, celle, coordinate, box geometrici o SVG. Se l'aspetto concreto conta, usa illustrative_image.
 - Inferisci la lingua dal testo finale della lezione. La visuale deve usare la stessa lingua della lezione.
-- Preferisci una visuale quando mancano immagini del PDF e il concetto contiene relazioni, flussi, struttura o variabili.
 - Non generare visuali decorative. La visuale deve insegnare qualcosa che il testo da solo rende piu faticoso.
-- Usa illustrative_image quando aspetto, struttura visiva, texture, luce, volume, spazio o scena sono informazione utile, mai per decorazione. Usa i tipi schematici solo quando il contenuto e davvero semplice, astratto e informativo; un processo o una struttura fisica non diventano automaticamente un SVG.
 - Se "Immagini PDF gia integrate" e "si", trattale come materiale visivo primario. Aggiungi una visuale generata solo se risponde a una domanda pedagogica distinta che le immagini della fonte non coprono; altrimenti non pianificare nulla.
 - Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
+- In "anchor_excerpt" copia un breve estratto ESATTO dell'ultimo paragrafo che lo studente deve leggere prima della visuale. Questo estratto decide la posizione tra i paragrafi; il codice non la reinterpretara. Usa null solo se non esiste un punto locale sensato.
+- **Un piano, una sezione locale.** Il contenuto della visuale deve derivare soltanto dalla sezione identificata da "anchor_heading" e dal suo testo, fino al heading successivo. Non anticipare concetti introdotti in sezioni successive e non fondere argomenti lontani solo per riempire il widget. Se il valore pedagogico nasce da un concetto successivo, usa il heading successivo corretto oppure crea un piano separato.
+- **Comprensibile senza decifrazione.** Lo studente deve capire in pochi secondi cosa sta guardando e perche. Usa soltanto termini naturali gia introdotti nel testo vicino oppure definizioni immediatamente comprensibili. Vietati gergo inventato, etichette esoteriche, formule nominali ambigue e controlli il cui effetto non sia osservabile. Se il concetto richiede molte spiegazioni dentro la visuale per avere senso, semplificalo o scegli none.
 - **Copertura completa di elementi co-presenti.** Se la lezione presenta un insieme di elementi equivalenti (es. un elenco di N regole, N principi, N caratteristiche, N passaggi, N tipologie), la visuale deve rappresentarli TUTTI in un unico grafico. Non e accettabile scegliere un solo sottoelemento e ignorare gli altri. L'unica eccezione e quando un elemento e oggettivamente molto piu complesso degli altri e necessita una visuale dedicata mentre gli altri sono banali e auto-esplicativi; in quel caso la scelta deve essere giustificata nel campo "reason".
 - **La visuale deve aggiungere valore informativo, non riassumere.** Se la visuale si limiterebbe a elencare visivamente cio che il testo dice gia chiaramente (es. un elenco puntato di concetti semplici gia ben descritti), scegli "none": la visuale deve insegnare qualcosa che il testo da solo rende piu faticoso da capire, non decorare ne parafrasare.
 - **Niente narrazione, takeaway, "moral of the story", riepiloghi.** La visuale non e un'estensione del testo della lezione: e un grafico didattico. Non deve contenere paragrafi narrativi, sintesi finali, "cambio di paradigma", "concetto chiave", "punto fondamentale", "in una frase". Quei contenuti vanno nel testo della lezione, non nella visuale.
@@ -67,9 +89,11 @@ Regole:
 const SINGLE_VISUAL_PLANNER_OUTPUT_INSTRUCTION = `Rispondi SOLO con JSON:
 {
   "visual_type": "...",
+  "requires_depiction": true | false,
   "concept": "una frase sul soggetto visuale",
   "pedagogical_goal": "build_intuition | show_process | show_structure | enable_exploration | show_data",
   "anchor_heading": "heading esatto della lezione oppure null",
+  "anchor_excerpt": "breve estratto testuale esatto dopo cui inserire la visuale oppure null",
   "interaction_level": "none | low | high",
   "complexity": "simple | moderate | complex",
   "coverage": "all_elements | single_complex | complete_synthesis | none",
@@ -79,12 +103,15 @@ const SINGLE_VISUAL_PLANNER_OUTPUT_INSTRUCTION = `Rispondi SOLO con JSON:
 
 const MULTI_VISUAL_PLANNER_OUTPUT_INSTRUCTION = `Per la generazione automatica della lezione rispondi SOLO con JSON:
 {
+  "rationale": "motivazione sintetica della decisione complessiva, obbligatoria anche quando plans e vuoto",
   "plans": [
     {
       "visual_type": "...",
+      "requires_depiction": true | false,
       "concept": "soggetto distinto e autosufficiente",
       "pedagogical_goal": "build_intuition | show_process | show_structure | enable_exploration | show_data",
       "anchor_heading": "heading esatto della lezione oppure null",
+      "anchor_excerpt": "breve estratto testuale esatto dopo cui inserire la visuale oppure null",
       "interaction_level": "none | low | high",
       "complexity": "simple | moderate | complex",
       "coverage": "all_elements | single_complex | complete_synthesis | none",
@@ -96,6 +123,14 @@ const MULTI_VISUAL_PLANNER_OUTPUT_INSTRUCTION = `Per la generazione automatica d
   ]
 }
 L'array contiene da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} piani. Non usare visual_type none dentro l'array: se non serve nulla restituisci plans vuoto.`;
+
+const VISUAL_PLAN_REVIEW_INSTRUCTION = `Sei il revisore finale della pianificazione visuale.
+Controlla la decisione iniziale contro l'intera lezione e correggila quando serve.
+Valuta in particolare se l'assenza di visuali lascia senza supporto concetti spaziali, fisici, visivi, comparativi o sequenziali, senza forzare artefatti decorativi o poco pertinenti.
+Rifiuta o riposiziona ogni piano che anticipa contenuti di un heading successivo, mescola sezioni diverse o usa un anchor_heading il cui testo locale non spiega direttamente cio che la visuale mostra.
+Rifiuta o semplifica ogni piano che richiederebbe etichette oscure, gergo inventato o controlli non autoesplicativi. La visuale deve essere leggibile in pochi secondi usando il lessico naturale della lezione.
+Puoi aggiungere, rimuovere, sostituire o riposizionare piani. Non applicare regole meccaniche o keyword: giudica il valore pedagogico concreto.
+Restituisci una motivazione sintetica e la decisione finale nello stesso formato JSON richiesto al pianificatore.`;
 
 const RENDERER_SVG_PROMPT = `SYSTEM:
 Sei un generatore esperto di schemi SVG didattici per Nous Reader.
@@ -110,8 +145,10 @@ Output SOLO JSON:
 
 Regole SVG obbligatorie:
 - SVG e riservato a riepiloghi schematici informativi semplici: pochi nodi, box, linee, frecce ed etichette per relazioni, gerarchie, contenimento e architetture astratte. Sono vietati realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, illustrazioni, forme organiche, persone, anatomia, gesti, oggetti raffigurati e scene. Non approssimare questi soggetti con box, omini stilizzati o disegni geometrici: richiedono un'immagine raster.
+- Le tue capacita di disegnare a mano asset grafici sono quelle di un bambino di seconda elementare non particolarmente dotato. Se quel livello non sarebbe accettabile, non tentare di rappresentare il soggetto in SVG: questo renderer deve produrre soltanto schemi astratti semplici e deterministici.
 - **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", la visuale SVG deve rappresentare TUTTI gli elementi dell'insieme in un unico grafico. Non puoi sceglierne solo uno. Usa layout a griglia o a colonne per distribuirli bilanciatamente.
 - Tutto il testo visibile dentro l'SVG deve essere nella stessa lingua della lezione fornita. Non tradurre in inglese se la lezione non e in inglese.
+- Usa soltanto termini naturali gia presenti nel testo locale della lezione. Ogni etichetta deve indicare senza ambiguita un'entita, uno stato o una relazione visibile; non inventare gergo, categorie o sintesi che il testo vicino non introduce.
 - svg_code deve essere un singolo elemento <svg>, senza wrapper, DOCTYPE o tag HTML.
 - viewBox sempre "0 0 680 H"; larghezza 680 obbligatoria. width="100%".
 - Sfondo trasparente. Nessun rettangolo esterno di background.
@@ -135,19 +172,27 @@ Regole SVG obbligatorie:
 - **Vietate frasi complete di prosa.** Niente periodi che iniziano con "Il...", "La...", "Quando...", "Mentre...", "Perche...", "In Rust...", "Nei linguaggi...", o costruzioni soggetto-verbo-complemento estese. Le label sono nominali e telegrafiche, non discorsive.`;
 
 const RENDERER_HTML_PROMPT = `SYSTEM:
-Sei un generatore esperto di widget HTML interattivi per Nous Reader.
-Genera un frammento HTML auto-contenuto che insegna tramite interazione diretta.
+Sei un generatore esperto di visuali programmate HTML per Nous Reader.
+Genera un frammento HTML auto-contenuto che insegna tramite una visualizzazione prodotta dal browser. Può avere controlli quando aiutano, oppure essere una dimostrazione passiva e animata o statica.
 
 Output SOLO JSON:
 {
   "title": "snake_case_title",
   "loading_messages": ["uno", "due", "tre"],
-  "widget_code": "<style>...</style>\\n...HTML...\\n<script>...</script>"
+  "widget_code": "<style>...</style>\\n...HTML...\\n<script>...</script>",
+  "image_requests": [
+    {
+      "id": "asset-id-univoco",
+      "prompt": "descrizione autonoma e precisa dell'immagine da generare",
+      "alt": "testo alternativo nella lingua della lezione"
+    }
+  ]
 }
 
 Regole:
 - **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", il widget deve rappresentare TUTTI gli elementi dell'insieme, non solo uno. Usa schede, stepper, pannelli o layout a griglia per distribuirli.
 - Tutto il testo visibile nel widget deve essere nella stessa lingua della lezione fornita. Non tradurre in inglese se la lezione non e in inglese.
+- Il widget deve spiegarsi in pochi secondi. Titoli, label, badge e controlli usano soltanto termini naturali gia introdotti nel testo locale della lezione; non inventare gergo o descrizioni astratte. Ogni controllo deve dichiarare un effetto osservabile e produrre davvero quell'effetto.
 - Nessun DOCTYPE, <html>, <head>, <body>.
 - Ordine immutabile: <style> prima, HTML in mezzo, <script> ultimo.
 - Ogni ID usato in document.getElementById deve esistere letteralmente nell'HTML prima dello script. Non creare quegli elementi via JavaScript.
@@ -161,7 +206,15 @@ Regole:
 - Numeri mostrati sempre arrotondati/formattati.
 - CDN consentiti solo: cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com, esm.sh.
 - Non creare pulsanti finti per link esterni o chat.
-- Interazione appropriata: calculator, stepper, comparison, state-machine, layered-view, simulation o chart.
+- Usa HTML/CSS/JavaScript per ciò che è naturalmente programmabile: griglie di pixel/pixel art, pattern generativi, confronti visivi CSS, simulazioni, stati, trasformazioni e shader semplici compatibili con il browser. Non renderizzare ASCII art, mosaici di caratteri o pseudo-pixel con testo monospace.
+- Ragiona come programmatore, non come illustratore: il JavaScript deve generare la grafica da una legge o procedura verificabile. Per un bordo pixel, crea una silhouette elementare e calcola il bordo dai vicini; per un pattern, calcola ogni elemento dalla formula. Non codificare a mano illustrazioni, modelli 3D o pixel art complessa come array di coordinate/celle/colori. Se il soggetto richiede giudizio artistico o comprensione spaziale reale, il formato corretto è illustrative_image, non HTML.
+- Le tue capacita di disegnare a mano asset grafici nel codice sono quelle di un bambino di seconda elementare non particolarmente dotato. Applica questo test letteralmente: se quel risultato non sarebbe accettabile, non disegnarlo con coordinate, CSS, celle, canvas o SVG improvvisati.
+- Quando il widget ha davvero bisogno di asset artistici, usa image_requests. Inserisci ogni asset nel widget esclusivamente come <img src="{{GENERATED_IMAGE:asset-id-univoco}}" alt="...">; la pipeline generera le immagini in parallelo e sostituira i placeholder prima del salvataggio.
+- Ogni placeholder deve avere una image_request con lo stesso id e ogni image_request deve essere usata nel widget. Gli id usano solo minuscole, numeri, trattini e underscore e iniziano con una lettera.
+- I prompt delle immagini devono essere autonomi, concreti e coerenti tra loro quando mostrano varianti o confronti. Non usare riferimenti vaghi come "come sopra".
+- Fai economia: non esiste un limite numerico artificiale, ma ogni richiesta costa tempo e denaro. Richiedi soltanto le immagini indispensabili; se una sola immagine composita comunica bene il concetto, preferiscila.
+- Se non servono immagini generate, restituisci image_requests come array vuoto. Non usare URL esterni, base64 inventati o placeholder diversi dal formato prescritto.
+- Interazione appropriata quando serve: calculator, stepper, comparison, state-machine, layered-view, simulation o chart. Se l'esplorazione non aggiunge valore, non aggiungere controlli finti: una dimostrazione passiva è valida.
 - **Gestione dello spazio:** il container e width:100% ma non devi riempirlo tutto. Usa lo spazio in modo parsimonioso. Preferisci colonne verticali a righe orizzontali quando ci sono molti elementi.
 - **Aria tra sezioni:** aggiungi margin-bottom e padding generosi. Non accostare elementi senza spazio intermedio.
 - **Titoli compatti:** usa titoli brevi (1-3 parole). Il testo lungo va in descrizioni sotto il titolo, non nel titolo stesso.
@@ -206,6 +259,7 @@ type VisualType =
 type GeneratedVisualType = Exclude<VisualType, 'none'>;
 
 interface VisualPlan {
+  anchor_excerpt?: null | string;
   anchor_heading?: null | string;
   complexity?: 'simple' | 'moderate' | 'complex';
   concept?: string;
@@ -215,12 +269,29 @@ interface VisualPlan {
   interaction_level?: 'none' | 'low' | 'high';
   pedagogical_goal?: string;
   reason?: string;
+  requires_depiction?: boolean;
   visual_direction?: string;
   visual_type?: VisualType;
 }
 
 interface VisualPlansResponse {
+  rationale?: string;
   plans?: VisualPlan[];
+}
+
+export interface VerifiedVisualSlotPlan {
+  slotId: string;
+  complexity: 'simple' | 'moderate' | 'complex';
+  concept: string;
+  coverage: 'all_elements' | 'single_complex' | 'complete_synthesis' | 'none';
+  coverageRationale: string;
+  factualRequirements: string[];
+  interactionLevel: 'none' | 'low' | 'high';
+  pedagogicalGoal: string;
+  reason: string;
+  requiresDepiction: boolean;
+  visualDirection: string;
+  visualType: GeneratedVisualType;
 }
 
 interface SvgVisualResponse {
@@ -230,9 +301,21 @@ interface SvgVisualResponse {
 }
 
 interface HtmlVisualResponse {
+  image_requests?: unknown;
   loading_messages?: unknown;
   title?: unknown;
   widget_code?: unknown;
+}
+
+interface HtmlImageRequest {
+  alt: string;
+  id: string;
+  prompt: string;
+}
+
+interface RenderedVisualDraft {
+  imageRequests: HtmlImageRequest[];
+  visual: LessonGeneratedVisual;
 }
 
 interface MermaidVisualResponse {
@@ -248,6 +331,7 @@ const VISUAL_PLAN_RESPONSE_SCHEMA = {
     type: 'object',
     additionalProperties: false,
     properties: {
+      anchor_excerpt: { type: ['string', 'null'] },
       anchor_heading: { type: ['string', 'null'] },
       complexity: { type: 'string', enum: ['simple', 'moderate', 'complex'] },
       concept: { type: 'string' },
@@ -259,6 +343,7 @@ const VISUAL_PLAN_RESPONSE_SCHEMA = {
       interaction_level: { type: 'string', enum: ['none', 'low', 'high'] },
       pedagogical_goal: { type: 'string' },
       reason: { type: 'string' },
+      requires_depiction: { type: 'boolean' },
       visual_type: {
         type: 'string',
         enum: [
@@ -274,6 +359,7 @@ const VISUAL_PLAN_RESPONSE_SCHEMA = {
       },
     },
     required: [
+      'anchor_excerpt',
       'anchor_heading',
       'complexity',
       'concept',
@@ -282,6 +368,7 @@ const VISUAL_PLAN_RESPONSE_SCHEMA = {
       'interaction_level',
       'pedagogical_goal',
       'reason',
+      'requires_depiction',
       'visual_type',
     ],
   },
@@ -291,6 +378,7 @@ const VISUAL_PLAN_ITEM_RESPONSE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    anchor_excerpt: { type: ['string', 'null'] },
     anchor_heading: { type: ['string', 'null'] },
     complexity: { type: 'string', enum: ['simple', 'moderate', 'complex'] },
     concept: { type: 'string' },
@@ -303,6 +391,7 @@ const VISUAL_PLAN_ITEM_RESPONSE_SCHEMA = {
     interaction_level: { type: 'string', enum: ['none', 'low', 'high'] },
     pedagogical_goal: { type: 'string' },
     reason: { type: 'string' },
+    requires_depiction: { type: 'boolean' },
     visual_direction: { type: 'string' },
     visual_type: {
       type: 'string',
@@ -318,6 +407,7 @@ const VISUAL_PLAN_ITEM_RESPONSE_SCHEMA = {
     },
   },
   required: [
+    'anchor_excerpt',
     'anchor_heading',
     'complexity',
     'concept',
@@ -327,6 +417,7 @@ const VISUAL_PLAN_ITEM_RESPONSE_SCHEMA = {
     'interaction_level',
     'pedagogical_goal',
     'reason',
+    'requires_depiction',
     'visual_direction',
     'visual_type',
   ],
@@ -339,13 +430,14 @@ const MULTI_VISUAL_PLAN_RESPONSE_SCHEMA = {
     type: 'object',
     additionalProperties: false,
     properties: {
+      rationale: { type: 'string' },
       plans: {
         type: 'array',
         maxItems: MAX_GENERATED_VISUALS_PER_LESSON,
         items: VISUAL_PLAN_ITEM_RESPONSE_SCHEMA,
       },
     },
-    required: ['plans'],
+    required: ['rationale', 'plans'],
   },
 } as const;
 const SVG_VISUAL_RESPONSE_SCHEMA = {
@@ -372,8 +464,21 @@ const HTML_VISUAL_RESPONSE_SCHEMA = {
       title: { type: 'string' },
       loading_messages: { type: 'array', items: { type: 'string' } },
       widget_code: { type: 'string' },
+      image_requests: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            prompt: { type: 'string' },
+            alt: { type: 'string' },
+          },
+          required: ['id', 'prompt', 'alt'],
+        },
+      },
     },
-    required: ['title', 'loading_messages', 'widget_code'],
+    required: ['title', 'loading_messages', 'widget_code', 'image_requests'],
   },
 } as const;
 const MERMAID_VISUAL_RESPONSE_SCHEMA = {
@@ -477,6 +582,40 @@ const normalizeLoadingMessages = (messages: unknown): string[] =>
     ? messages.filter((message): message is string => typeof message === 'string').slice(0, 3)
     : [];
 
+const normalizeHtmlImageRequests = (requests: unknown, code: string): HtmlImageRequest[] | null => {
+  const placeholderIds = new Set(
+    Array.from(code.matchAll(GENERATED_IMAGE_PLACEHOLDER_PATTERN), match => match[1])
+  );
+  const normalized: HtmlImageRequest[] = [];
+  const requestIds = new Set<string>();
+
+  for (const request of Array.isArray(requests) ? requests : []) {
+    if (!request || typeof request !== 'object') {
+      return null;
+    }
+    const record = request as Record<string, unknown>;
+    const id = typeof record.id === 'string' ? record.id.trim() : '';
+    const prompt = typeof record.prompt === 'string' ? record.prompt.trim() : '';
+    const alt = typeof record.alt === 'string' ? record.alt.trim() : '';
+    if (
+      !/^[a-z][a-z0-9_-]{0,63}$/.test(id) ||
+      !prompt ||
+      !alt ||
+      requestIds.has(id) ||
+      !placeholderIds.has(id)
+    ) {
+      return null;
+    }
+    requestIds.add(id);
+    normalized.push({ alt, id, prompt });
+  }
+
+  const hasMalformedPlaceholder = code
+    .replace(GENERATED_IMAGE_PLACEHOLDER_PATTERN, '')
+    .includes('{{GENERATED_IMAGE:');
+  return !hasMalformedPlaceholder && placeholderIds.size === requestIds.size ? normalized : null;
+};
+
 const hasFullHtmlDocument = (code: string): boolean =>
   /<!doctype|<html\b|<head\b|<body\b/i.test(code);
 
@@ -535,11 +674,13 @@ const normalizeSvgVisual = (
 const normalizeHtmlVisual = (
   response: HtmlVisualResponse,
   id: string
-): LessonGeneratedVisual | null => {
+): RenderedVisualDraft | null => {
   const code =
     typeof response.widget_code === 'string' ? stripFence(response.widget_code, 'html') : '';
+  const imageRequests = normalizeHtmlImageRequests(response.image_requests, code);
   if (
     !code ||
+    !imageRequests ||
     hasFullHtmlDocument(code) ||
     !/^\s*<style[\s>]/i.test(code) ||
     !/<script[\s>]/i.test(code) ||
@@ -551,12 +692,15 @@ const normalizeHtmlVisual = (
   }
 
   return {
-    id,
-    title: sanitizeTitle(response.title, 'esempio_interattivo'),
-    kind: 'html',
-    code,
-    loadingMessages: normalizeLoadingMessages(response.loading_messages),
-    createdAt: timestampIso(),
+    imageRequests,
+    visual: {
+      id,
+      title: sanitizeTitle(response.title, 'esempio_interattivo'),
+      kind: 'html',
+      code,
+      loadingMessages: normalizeLoadingMessages(response.loading_messages),
+      createdAt: timestampIso(),
+    },
   };
 };
 
@@ -615,20 +759,22 @@ const normalizeRenderedVisual = (
   visualType: VisualType,
   rendererResponse: string,
   id: string
-): LessonGeneratedVisual | null => {
+): RenderedVisualDraft | null => {
   const parsed = parseCleanJson<SvgVisualResponse | HtmlVisualResponse | MermaidVisualResponse>(
     rendererResponse
   );
 
   if (visualType.includes('svg')) {
-    return normalizeSvgVisual(parsed as SvgVisualResponse, id);
+    const visual = normalizeSvgVisual(parsed as SvgVisualResponse, id);
+    return visual ? { imageRequests: [], visual } : null;
   }
 
   if (visualType === 'interactive_html' || visualType === 'chart_html') {
     return normalizeHtmlVisual(parsed as HtmlVisualResponse, id);
   }
 
-  return normalizeMermaidVisual(parsed as MermaidVisualResponse, id);
+  const visual = normalizeMermaidVisual(parsed as MermaidVisualResponse, id);
+  return visual ? { imageRequests: [], visual } : null;
 };
 
 const buildPlannerRequest = ({
@@ -675,6 +821,7 @@ const buildExplicitVisualPlan = (
   coverage: 'complete_synthesis',
   coverage_rationale: 'Il formato visuale è stato richiesto esplicitamente dall’utente.',
   reason: 'Il tipo è inequivocabile, quindi il planner LLM non è necessario.',
+  requires_depiction: visualType === 'illustrative_image',
 });
 
 const getImageSubject = (plan: VisualPlan, input: GenerateLessonVisualExampleInput): string => {
@@ -721,6 +868,57 @@ const buildImageGenerationPrompt = (
   ].join('\n');
 };
 
+const buildEmbeddedImageGenerationPrompt = (
+  request: HtmlImageRequest,
+  plan: VisualPlan,
+  input: GenerateLessonVisualExampleInput
+): string =>
+  [
+    'SCOPO',
+    'Genera un singolo asset raster che verra inserito dentro un artefatto didattico HTML.',
+    '',
+    'ASSET RICHIESTO',
+    request.prompt,
+    `Testo alternativo previsto: ${request.alt}`,
+    '',
+    'COERENZA DIDATTICA',
+    `Lezione: ${input.sectionTitle}. ${input.sectionDescription}`,
+    `Artefatto: ${plan.concept || 'esempio visuale interattivo'}`,
+    '',
+    'VINCOLI',
+    '- L’immagine deve essere autonoma, accurata e immediatamente leggibile nel widget.',
+    '- Nessuna interfaccia, cornice, watermark, logo o decorazione estranea.',
+    '- Non aggiungere testo salvo quando esplicitamente necessario nel prompt; in quel caso usa la lingua della lezione.',
+    '- Mantieni il soggetto principale ben dentro i bordi e lascia margine sufficiente per eventuali ritagli responsive.',
+    '',
+    `CONTESTO FATTUALE DELLA LEZIONE\n${input.lessonMarkdown.slice(0, 3_000)}`,
+  ].join('\n');
+
+const buildHtmlReviewPreviewCode = (code: string): string =>
+  code.replace(GENERATED_IMAGE_PLACEHOLDER_PATTERN, GENERATED_IMAGE_PREVIEW_DATA_URL);
+
+const materializeHtmlImages = async (
+  visual: LessonGeneratedVisual,
+  requests: HtmlImageRequest[],
+  plan: VisualPlan,
+  input: GenerateLessonVisualExampleInput
+): Promise<LessonGeneratedVisual> => {
+  const generatedImages = await Promise.all(
+    requests.map(async request => ({
+      id: request.id,
+      image: await requestGeneratedImage(buildEmbeddedImageGenerationPrompt(request, plan, input)),
+    }))
+  );
+  let code = visual.code;
+  for (const { id, image } of generatedImages) {
+    code = code.split(`{{GENERATED_IMAGE:${id}}}`).join(image.dataUrl);
+  }
+  if (code.includes('{{GENERATED_IMAGE:')) {
+    throw new Error('Un placeholder immagine dell’artefatto non è stato risolto.');
+  }
+  return { ...visual, code };
+};
+
 const generateImageVisual = async (
   plan: VisualPlan,
   input: GenerateLessonVisualExampleInput,
@@ -745,6 +943,7 @@ const buildGeneratedImageResult = (
   plan: VisualPlan,
   visual: LessonGeneratedVisual
 ) => ({
+  anchorExcerpt: plan.anchor_excerpt?.trim() || undefined,
   anchorHeading: resolvePlannedAnchorHeading(
     plan.anchor_heading,
     getMarkdownHeadingTitles(input.lessonMarkdown)
@@ -778,9 +977,73 @@ const requestVisualPlan = async (input: GenerateLessonVisualExampleInput): Promi
   return parseCleanJson<VisualPlan>(response || '{}');
 };
 
-const requestVisualPlans = async (
-  input: GenerateLessonVisualExampleInput
-): Promise<VisualPlan[]> => {
+const enforceVisualTypeContract = (plan: VisualPlan): VisualPlan =>
+  plan.requires_depiction &&
+  (plan.visual_type === 'flowchart_svg' || plan.visual_type === 'structural_svg')
+    ? { ...plan, visual_type: 'illustrative_image' }
+    : plan;
+
+export const enforceVerifiedVisualTypeContract = (
+  plan: VerifiedVisualSlotPlan
+): VerifiedVisualSlotPlan =>
+  plan.requiresDepiction &&
+  (plan.visualType === 'flowchart_svg' || plan.visualType === 'structural_svg')
+    ? { ...plan, visualType: 'illustrative_image' }
+    : plan;
+
+const toStoredVisualPlan = (rawPlan: VisualPlan): LessonVisualPlan => {
+  const plan = enforceVisualTypeContract(rawPlan);
+  return {
+    anchorExcerpt: plan.anchor_excerpt?.trim() || null,
+    anchorHeading: plan.anchor_heading ?? null,
+    concept: plan.concept || '',
+    pedagogicalGoal: plan.pedagogical_goal || '',
+    reason: plan.reason || '',
+    visualType: plan.visual_type as LessonVisualPlan['visualType'],
+  };
+};
+
+const normalizeVisualPlanningPass = (
+  response: VisualPlansResponse,
+  fallbackRationale: string
+): LessonVisualPlanningPass => {
+  const plans = Array.isArray(response.plans)
+    ? response.plans
+        .filter(
+          (plan): plan is VisualPlan & { visual_type: LessonVisualPlan['visualType'] } =>
+            Boolean(plan.visual_type) && plan.visual_type !== 'none'
+        )
+        .slice(0, MAX_GENERATED_VISUALS_PER_LESSON)
+    : [];
+
+  return {
+    outcome: plans.length > 0 ? 'visuals' : 'none',
+    plans: plans.map(toStoredVisualPlan),
+    rationale: response.rationale?.trim() || fallbackRationale,
+  };
+};
+
+const toExecutablePlans = (response: VisualPlansResponse): VisualPlan[] =>
+  Array.isArray(response.plans)
+    ? response.plans
+        .filter(plan => Boolean(plan.visual_type) && plan.visual_type !== 'none')
+        .map(enforceVisualTypeContract)
+        .slice(0, MAX_GENERATED_VISUALS_PER_LESSON)
+    : [];
+
+const requestVisualPlanningPass = async (
+  input: GenerateLessonVisualExampleInput,
+  initialDecision?: VisualPlansResponse
+): Promise<VisualPlansResponse> => {
+  const systemInstruction = initialDecision
+    ? `${VISUAL_PLANNER_PROMPT}\n\n${VISUAL_PLAN_REVIEW_INSTRUCTION}\n\n${MULTI_VISUAL_PLANNER_OUTPUT_INSTRUCTION}`
+    : `${VISUAL_PLANNER_PROMPT}\n\n${MULTI_VISUAL_PLANNER_OUTPUT_INSTRUCTION}`;
+  const userContent = initialDecision
+    ? `${buildPlannerRequest(input)}
+
+DECISIONE INIZIALE DA REVISIONARE:
+${JSON.stringify(initialDecision, null, 2)}`
+    : buildPlannerRequest(input);
   const response = await retryWithBackoff(
     () =>
       callOpenRouter({
@@ -789,26 +1052,34 @@ const requestVisualPlans = async (
         messages: [
           {
             role: 'system',
-            content: buildArtifactSystemPrompt(
-              `${VISUAL_PLANNER_PROMPT}\n\n${MULTI_VISUAL_PLANNER_OUTPUT_INSTRUCTION}`
-            ),
+            content: buildArtifactSystemPrompt(systemInstruction, Boolean(initialDecision)),
           },
-          { role: 'user', content: buildPlannerRequest(input) },
+          { role: 'user', content: userContent },
         ],
-        reasoning: LOW_REASONING_CONFIG,
+        reasoning: initialDecision ? MEDIUM_REASONING_CONFIG : LOW_REASONING_CONFIG,
         response_format: { type: 'json_schema', json_schema: MULTI_VISUAL_PLAN_RESPONSE_SCHEMA },
         temperature: 0.2,
       }),
     1,
     500
   );
-  const parsed = parseCleanJson<VisualPlansResponse>(response || '{}');
-  return Array.isArray(parsed.plans) ? parsed.plans.slice(0, MAX_GENERATED_VISUALS_PER_LESSON) : [];
+  return parseCleanJson<VisualPlansResponse>(response || '{}');
 };
 
 export interface GeneratedLessonVisualResult {
+  anchorExcerpt?: string;
   anchorHeading?: string;
   contentSuffix: string;
+  visual: LessonGeneratedVisual;
+}
+
+export interface GeneratedLessonVisualsResult {
+  decision: LessonVisualPlanningDecision;
+  results: GeneratedLessonVisualResult[];
+}
+
+export interface GeneratedVerifiedVisualSlot {
+  slotId: string;
   visual: LessonGeneratedVisual;
 }
 
@@ -833,11 +1104,9 @@ const generateVisualFromPlan = async (
     return null;
   }
 
-  const rendererMessages: ChatMessage[] = [
-    { role: 'system' as const, content: buildArtifactSystemPrompt(rendererPrompt) },
-    {
-      role: 'user' as const,
-      content: `Lesson title: ${input.sectionTitle}
+  const rendererUserMessage: ChatMessage = {
+    role: 'user' as const,
+    content: `Lesson title: ${input.sectionTitle}
 Lesson description: ${input.sectionDescription}
 Target language: infer it from the lesson excerpt. Every visible label, caption, control, button, axis, state, relation, field name, and explanatory phrase in the generated visual must use that same language.
 Planner output:
@@ -845,7 +1114,17 @@ ${JSON.stringify(plan, null, 2)}
 
 Relevant lesson excerpt:
 ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`,
+  };
+  const rendererMessages: ChatMessage[] = [
+    { role: 'system' as const, content: buildArtifactSystemPrompt(rendererPrompt) },
+    rendererUserMessage,
+  ];
+  const rendererReviewMessages: ChatMessage[] = [
+    {
+      role: 'system' as const,
+      content: buildArtifactSystemPrompt(rendererPrompt, true),
     },
+    rendererUserMessage,
   ];
   const rendererModelSlot =
     visualType === 'interactive_html' || visualType === 'chart_html'
@@ -871,25 +1150,26 @@ ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`,
     );
   const rendererResponse = await requestRenderedVisual(rendererMessages);
 
-  let visual = normalizeRenderedVisual(visualType, rendererResponse || '{}', visualId);
-  if (!visual) {
+  let draft = normalizeRenderedVisual(visualType, rendererResponse || '{}', visualId);
+  if (!draft) {
     const repairedResponse = await requestRenderedVisual([
-      ...rendererMessages,
+      ...rendererReviewMessages,
       { role: 'assistant', content: rendererResponse || '{}' },
       {
         role: 'user',
         content:
-          'La bozza precedente non e valida o contiene accessi DOM non sicuri. Rigenerala correggendo ogni riferimento a elementi mancanti: nessun document.getElementById(...) puo essere dereferenziato direttamente e ogni lookup deve gestire null. Restituisci nuovamente solo il JSON richiesto.',
+          'La bozza precedente non e valida, contiene accessi DOM non sicuri oppure ha image_requests e placeholder incoerenti. Rigenerala correggendo ogni riferimento a elementi mancanti: nessun document.getElementById(...) puo essere dereferenziato direttamente e ogni lookup deve gestire null. Ogni {{GENERATED_IMAGE:id}} deve corrispondere esattamente a una image_request. Restituisci nuovamente solo il JSON richiesto.',
       },
     ]);
-    visual = normalizeRenderedVisual(visualType, repairedResponse || '{}', visualId);
+    draft = normalizeRenderedVisual(visualType, repairedResponse || '{}', visualId);
   }
-  if (!visual) {
+  if (!draft) {
     return null;
   }
+  let { imageRequests, visual } = draft;
 
+  const reviewSettings = await getArtifactVisualReviewSettings();
   if (visual.kind === 'svg') {
-    const reviewSettings = await getArtifactVisualReviewSettings();
     for (let round = 0; reviewSettings.enabled && round < reviewSettings.maxRounds; round += 1) {
       const lintIssues = lintSvg(visual.code);
       if (lintIssues.length === 0) {
@@ -897,7 +1177,7 @@ ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`,
       }
       const preview = await renderSvgPreview(visual.code);
       const reviewedResponse = await requestRenderedVisual([
-        ...rendererMessages,
+        ...rendererReviewMessages,
         { role: 'assistant', content: JSON.stringify({ svg_code: visual.code }) },
         {
           role: 'user',
@@ -910,19 +1190,61 @@ ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`,
           ],
         },
       ]);
-      const reviewedVisual = normalizeRenderedVisual(
-        visualType,
-        reviewedResponse || '{}',
-        visualId
-      );
-      if (!reviewedVisual || reviewedVisual.kind !== 'svg') {
+      const reviewedDraft = normalizeRenderedVisual(visualType, reviewedResponse || '{}', visualId);
+      if (!reviewedDraft || reviewedDraft.visual.kind !== 'svg') {
         break;
       }
-      visual = reviewedVisual;
+      visual = reviewedDraft.visual;
     }
   }
 
+  if (visual.kind === 'html') {
+    for (let round = 0; reviewSettings.enabled && round < reviewSettings.maxRounds; round += 1) {
+      let preview: string | null = null;
+      try {
+        preview = await renderHtmlPreview(buildHtmlReviewPreviewCode(visual.code));
+      } catch (error) {
+        console.warn(
+          '[Nous][Lesson] Interactive visual preview failed; reviewing code only.',
+          error
+        );
+      }
+      const reviewText =
+        'Verifica questa bozza HTML come software didattico, analizzando sia il codice sia il risultato visivo quando allegato. Controlla che venga eseguita senza errori, che ogni controllo produca davvero il cambiamento dichiarato e che la grafica sia generata da regole o algoritmi verificabili. Le capacita del renderer di disegnare a mano asset nel codice sono quelle di un bambino di seconda elementare non particolarmente dotato: se quel livello non sarebbe accettabile, usa image_requests invece di coordinate, celle, canvas o CSS improvvisati. Mantieni una corrispondenza esatta tra image_requests e placeholder {{GENERATED_IMAGE:id}}, richiedendo solo gli asset indispensabili. Correggi qualunque discrepanza tra etichette e risultato. Restituisci il JSON completo richiesto con il widget revisionato.';
+      const reviewedResponse = await requestRenderedVisual([
+        ...rendererReviewMessages,
+        {
+          role: 'assistant',
+          content: JSON.stringify({
+            widget_code: visual.code,
+            image_requests: imageRequests,
+          }),
+        },
+        {
+          role: 'user',
+          content: preview
+            ? [
+                { type: 'image_url', image_url: { url: preview } },
+                { type: 'text', text: reviewText },
+              ]
+            : reviewText,
+        },
+      ]);
+      const reviewedDraft = normalizeRenderedVisual(visualType, reviewedResponse || '{}', visualId);
+      if (!reviewedDraft || reviewedDraft.visual.kind !== 'html') {
+        break;
+      }
+      visual = reviewedDraft.visual;
+      imageRequests = reviewedDraft.imageRequests;
+    }
+  }
+
+  if (visual.kind === 'html' && imageRequests.length > 0) {
+    visual = await materializeHtmlImages(visual, imageRequests, plan, input);
+  }
+
   return {
+    anchorExcerpt: plan.anchor_excerpt?.trim() || undefined,
     anchorHeading: resolvePlannedAnchorHeading(
       plan.anchor_heading,
       getMarkdownHeadingTitles(input.lessonMarkdown)
@@ -943,8 +1265,41 @@ export const generateLessonVisualExample = async (
 
 export const generateLessonVisualExamples = async (
   input: GenerateLessonVisualExampleInput
-): Promise<GeneratedLessonVisualResult[]> => {
-  const plans = await requestVisualPlans(input);
+): Promise<GeneratedLessonVisualsResult> => {
+  const initialResponse = await requestVisualPlanningPass(input);
+  const initial = normalizeVisualPlanningPass(
+    initialResponse,
+    'Il pianificatore non ha fornito una motivazione.'
+  );
+  let reviewedResponse: VisualPlansResponse;
+  let reviewed: LessonVisualPlanningPass;
+  try {
+    reviewedResponse = await requestVisualPlanningPass(input, initialResponse);
+    reviewed = normalizeVisualPlanningPass(
+      reviewedResponse,
+      'Il revisore non ha fornito una motivazione.'
+    );
+  } catch (error) {
+    console.warn('[Nous][Lesson] Visual planning review failed; using initial decision.', error);
+    reviewedResponse = initialResponse;
+    reviewed = {
+      outcome: 'failed',
+      plans: initial.plans,
+      rationale: 'Revisione visuale non completata; applicata la decisione iniziale.',
+    };
+  }
+  const decision: LessonVisualPlanningDecision = {
+    initial,
+    reviewed,
+    reviewedAt: timestampIso(),
+  };
+  console.info('[Nous][Lesson] Visual planning decision.', decision);
+  pushNousDebugTrace('lesson:visual-planning-decision', {
+    decision,
+    sectionTitle: input.sectionTitle,
+  });
+
+  const plans = toExecutablePlans(reviewedResponse);
   const settledResults = await Promise.allSettled(
     plans.map((plan, index) => generateVisualFromPlan(input, plan, index))
   );
@@ -960,7 +1315,47 @@ export const generateLessonVisualExamples = async (
     return [];
   });
   if (plans.length > 0 && generatedVisuals.length === 0) {
-    throw new Error('Nessun worker visuale ha prodotto un artefatto valido.');
+    console.warn('[Nous][Lesson] No visual worker produced a valid artifact.', {
+      decision,
+      plannedVisualCount: plans.length,
+    });
   }
-  return generatedVisuals;
+  return { decision, results: generatedVisuals };
+};
+
+export const generateVerifiedVisualSlots = async (
+  input: GenerateLessonVisualExampleInput,
+  plans: VerifiedVisualSlotPlan[]
+): Promise<GeneratedVerifiedVisualSlot[]> => {
+  const settledResults = await Promise.allSettled(
+    plans.map((plan, index) =>
+      generateVisualFromPlan(
+        input,
+        {
+          complexity: plan.complexity,
+          concept: plan.concept,
+          coverage: plan.coverage,
+          coverage_rationale: plan.coverageRationale,
+          factual_requirements: plan.factualRequirements,
+          interaction_level: plan.interactionLevel,
+          pedagogical_goal: plan.pedagogicalGoal,
+          reason: plan.reason,
+          visual_direction: plan.visualDirection,
+          visual_type: plan.visualType,
+        },
+        index
+      )
+    )
+  );
+
+  return settledResults.flatMap((result, index) => {
+    if (result.status === 'fulfilled') {
+      return result.value ? [{ slotId: plans[index].slotId, visual: result.value.visual }] : [];
+    }
+    console.warn('[Nous][Lesson] Inline visual worker failed.', {
+      slotId: plans[index].slotId,
+      error: result.reason,
+    });
+    return [];
+  });
 };

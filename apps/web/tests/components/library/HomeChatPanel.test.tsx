@@ -192,6 +192,7 @@ const buildProps = () => ({
   libraryGenerateArtifacts: false,
   newCourseLoadingStatus: 'Caricamento...',
   onClearPendingFile: vi.fn(),
+  onCancelNewCourse: vi.fn(),
   onConfirmGenerate: vi.fn(),
   onHomeChatModeChange: vi.fn(),
   onLibraryMessageSend: vi.fn(async () => {}),
@@ -231,6 +232,19 @@ describe('HomeChatPanel', () => {
 
     await waitFor(() => expect(chat).toHaveStyle({ height: '600px' }));
     expect(chat).toContainElement(screen.getByRole('textbox'));
+  });
+
+  test('can cancel an active new-course interview from the trash action', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<HomeChatPanel {...props} compactWhenEmpty hideHeaderCopy hideModeSelector />);
+
+    await user.click(
+      screen.getByRole('button', { name: /Cancel course creation|Annulla creazione corso/i })
+    );
+
+    expect(props.onCancelNewCourse).toHaveBeenCalledOnce();
   });
 
   test('follows streaming growth inside the messages viewport without scrolling the page', () => {

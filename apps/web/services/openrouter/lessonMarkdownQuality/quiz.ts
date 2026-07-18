@@ -120,6 +120,7 @@ const unwrapWholeQuizCodeFormatting = (value: string): string => {
 };
 
 const sanitizeQuizQuestion = (question: QuizQuestion): QuizQuestion => ({
+  ...(question.anchorExcerpt?.trim() ? { anchorExcerpt: question.anchorExcerpt.trim() } : {}),
   exerciseType: normalizeActivePauseExerciseType(question.exerciseType),
   question: unwrapWholeQuizCodeFormatting(question.question),
   options: question.options.map(option => unwrapWholeQuizCodeFormatting(option)),

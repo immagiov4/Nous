@@ -33,6 +33,7 @@ services:
       CODEX_HOME: ${CODEX_HOME:-/home/bun/.codex}
       CODEX_WORKING_DIRECTORY: ${CODEX_WORKING_DIRECTORY:-/tmp}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      DECODO_SCRAPING_API_KEY: ${DECODO_SCRAPING_API_KEY:-}
       GITHUB_FEEDBACK_REPOSITORY: ${GITHUB_FEEDBACK_REPOSITORY:-}
       GITHUB_FEEDBACK_TOKEN: ${GITHUB_FEEDBACK_TOKEN:-}
       MAX_OUTPUT_TOKENS: ${MAX_OUTPUT_TOKENS:-32000}
@@ -69,11 +70,6 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
       SUPABASE_DEPLOYMENT: ${SUPABASE_DEPLOYMENT:?Set SUPABASE_DEPLOYMENT}
       TTS_VOICE: ${TTS_VOICE:-coral}
-      YOUTUBE_VIDEO_CLIPS_ENABLED: ${YOUTUBE_VIDEO_CLIPS_ENABLED:-false}
-      YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED: ${YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED:-false}
-      YOUTUBE_BROWSER_EXECUTABLE: /usr/bin/chromium
-      YOUTUBE_BROWSER_AUTH_STATE_PATH: /run/secrets/nous/youtube-auth-state.json
-      YOUTUBE_BROWSER_TRANSCRIPT_TIMEOUT_MS: ${YOUTUBE_BROWSER_TRANSCRIPT_TIMEOUT_MS:-60000}
     ports:
       - "${NOUS_BACKEND_BIND:-127.0.0.1}:${NOUS_BACKEND_PORT:-3301}:3301"
     extra_hosts:
@@ -95,8 +91,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=${NOUS_BACKEND_TMPFS_SIZE:-1g}
-    volumes:
-      - ./deploy/secrets:/run/secrets/nous:ro
     security_opt:
       - no-new-privileges:true
 

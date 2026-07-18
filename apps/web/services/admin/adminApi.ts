@@ -1,6 +1,5 @@
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
-import type { YouTubeTranscriptOverride } from '../openrouter/youtubeResearchClient.ts';
 
 export type AdminReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
 export type AdminAiProvider = 'codex' | 'openai' | 'openrouter';
@@ -133,7 +132,6 @@ export interface AdminYouTubeResearchCandidate {
   origins: Array<'playlist' | 'search'>;
   playlistId?: string;
   playlistPosition?: number;
-  rankScore: number;
   includedTokens?: number;
   title: string;
   transcript?: {
@@ -155,10 +153,8 @@ export interface AdminYouTubeTranscriptAttempt {
   durationMs: number;
   kind: 'automatic' | 'manual' | 'translated';
   language: string;
-  outcome: 'available' | 'empty' | 'ip-blocked' | 'unavailable';
+  outcome: 'available' | 'empty' | 'unavailable';
 }
-
-export type AdminYouTubeTranscriptOverride = YouTubeTranscriptOverride;
 
 export interface AdminYouTubeResearchLabResult {
   diagnostic: {
@@ -176,23 +172,22 @@ export interface AdminYouTubeResearchLabResult {
       context: string;
       videoCandidates: Array<{
         ranges: Array<{ endSeconds: number; startSeconds: number }>;
+        title: string;
+        transcript: string;
         url: string;
       }>;
     };
     candidates: AdminYouTubeResearchCandidate[];
-    circuitOpened: boolean;
-    circuitReason: 'ip-blocked' | null;
     errors: Array<'playlist-expansion-failed'>;
     limits: {
       discoveryVideos: number;
       playlistResults: number;
-      playlistVideos: number;
       transcriptConcurrency: number;
     };
     operations: {
-      discoveryCommands: number;
-      playlistExpansionCommands: number;
-      transcriptCommandAttempts: number;
+      discoveryRequests: number;
+      playlistPreviewsExpanded: number;
+      transcriptRequests: number;
       transcriptLookups: number;
     };
     preferredLanguages: string[];
@@ -221,11 +216,27 @@ export interface AdminModelConfig {
   codexArtifactModel: string;
   codexArtifactInteractiveModel: string;
   codexContextModel: string;
+  codexDraftingModel: string;
+  codexFastModelSlots: Array<
+    | 'artifact'
+    | 'artifactInteractive'
+    | 'assessment'
+    | 'context'
+    | 'drafting'
+    | 'lesson'
+    | 'progress'
+    | 'research'
+    | 'structure'
+    | 'verification'
+  >;
   codexLessonModel: string;
   codexProgressModel: string;
   codexResearchModel: string;
+  codexStructureModel: string;
+  codexVerificationModel: string;
   contextModel: string;
   contextReasoningEffort: AdminReasoningEffort;
+  draftingReasoningEffort: AdminReasoningEffort;
   imageModel: string;
   lessonModel: string;
   lessonReasoningEffort: AdminReasoningEffort;
@@ -240,9 +251,11 @@ export interface AdminModelConfig {
   progressModel: string;
   progressReasoningEffort: AdminReasoningEffort;
   researchModel: string;
+  structureReasoningEffort: AdminReasoningEffort;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
+  verificationReasoningEffort: AdminReasoningEffort;
 }
 
 export type AdminModelConfigPatch = Partial<
@@ -261,11 +274,16 @@ export type AdminModelConfigPatch = Partial<
     | 'codexArtifactModel'
     | 'codexArtifactInteractiveModel'
     | 'codexContextModel'
+    | 'codexDraftingModel'
+    | 'codexFastModelSlots'
     | 'codexLessonModel'
     | 'codexProgressModel'
     | 'codexResearchModel'
+    | 'codexStructureModel'
+    | 'codexVerificationModel'
     | 'contextModel'
     | 'contextReasoningEffort'
+    | 'draftingReasoningEffort'
     | 'imageModel'
     | 'lessonModel'
     | 'lessonReasoningEffort'
@@ -280,8 +298,10 @@ export type AdminModelConfigPatch = Partial<
     | 'progressModel'
     | 'progressReasoningEffort'
     | 'researchModel'
+    | 'structureReasoningEffort'
     | 'ttsModel'
     | 'ttsVoice'
+    | 'verificationReasoningEffort'
   >
 >;
 
@@ -299,11 +319,16 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   codexArtifactModel: 'gpt-5.6-sol',
   codexArtifactInteractiveModel: 'gpt-5.6-sol',
   codexContextModel: 'gpt-5.6-luna',
+  codexDraftingModel: 'gpt-5.6-luna',
+  codexFastModelSlots: ['artifact', 'artifactInteractive', 'drafting', 'structure'],
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
   codexResearchModel: 'gpt-5.6-terra',
+  codexStructureModel: 'gpt-5.6-luna',
+  codexVerificationModel: 'gpt-5.6-terra',
   contextModel: 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium',
+  draftingReasoningEffort: 'high',
   imageModel: 'google/gemini-3.1-flash-lite-image',
   lessonModel: 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high',
@@ -318,9 +343,11 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   progressModel: 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low',
   researchModel: 'perplexity/sonar-pro-search',
+  structureReasoningEffort: 'medium',
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   ttsVoice: 'Ara',
   updatedAt: '',
+  verificationReasoningEffort: 'high',
 };
 
 const readConfigValue = (value: unknown, fallback: string): string =>
@@ -399,6 +426,13 @@ const normalizeAdminModelConfig = (
     config?.codexContextModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexContextModel
   ),
+  codexDraftingModel: readConfigValue(
+    config?.codexDraftingModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexDraftingModel
+  ),
+  codexFastModelSlots: Array.isArray(config?.codexFastModelSlots)
+    ? config.codexFastModelSlots
+    : DEFAULT_ADMIN_MODEL_CONFIG.codexFastModelSlots,
   codexLessonModel: readConfigValue(
     config?.codexLessonModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexLessonModel
@@ -411,10 +445,22 @@ const normalizeAdminModelConfig = (
     config?.codexResearchModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexResearchModel
   ),
+  codexStructureModel: readConfigValue(
+    config?.codexStructureModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexStructureModel
+  ),
+  codexVerificationModel: readConfigValue(
+    config?.codexVerificationModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexVerificationModel
+  ),
   contextModel: readConfigValue(config?.contextModel, DEFAULT_ADMIN_MODEL_CONFIG.contextModel),
   contextReasoningEffort: readReasoningEffort(
     config?.contextReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.contextReasoningEffort
+  ),
+  draftingReasoningEffort: readReasoningEffort(
+    config?.draftingReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.draftingReasoningEffort
   ),
   imageModel: readConfigValue(config?.imageModel, DEFAULT_ADMIN_MODEL_CONFIG.imageModel),
   lessonModel: readConfigValue(config?.lessonModel, DEFAULT_ADMIN_MODEL_CONFIG.lessonModel),
@@ -460,9 +506,17 @@ const normalizeAdminModelConfig = (
     DEFAULT_ADMIN_MODEL_CONFIG.progressReasoningEffort
   ),
   researchModel: readConfigValue(config?.researchModel, DEFAULT_ADMIN_MODEL_CONFIG.researchModel),
+  structureReasoningEffort: readReasoningEffort(
+    config?.structureReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.structureReasoningEffort
+  ),
   ttsModel: readConfigValue(config?.ttsModel, DEFAULT_ADMIN_MODEL_CONFIG.ttsModel),
   ttsVoice: readConfigValue(config?.ttsVoice, DEFAULT_ADMIN_MODEL_CONFIG.ttsVoice),
   updatedAt: readConfigValue(config?.updatedAt, DEFAULT_ADMIN_MODEL_CONFIG.updatedAt),
+  verificationReasoningEffort: readReasoningEffort(
+    config?.verificationReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.verificationReasoningEffort
+  ),
 });
 
 const readAdminResponse = async <T>(response: Response): Promise<T> => {
@@ -536,7 +590,6 @@ export const runAdminYouTubeResearchLab = async (input: {
   nonYouTubePromptTokens: number;
   query: string;
   reservedOutputTokens: number;
-  transcriptOverrides?: AdminYouTubeTranscriptOverride[];
 }): Promise<AdminYouTubeResearchLabResult> =>
   requestAdmin<AdminYouTubeResearchLabResult>('/api/youtube/admin/research-lab', {
     method: 'POST',

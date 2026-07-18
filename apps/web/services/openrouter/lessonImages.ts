@@ -1,6 +1,18 @@
+import type {
+  LessonGeneratedVisual,
+  LessonImageRef,
+  LessonVisualPlan,
+  LessonVisualPlanningDecision,
+  LessonVisualPlanningPass,
+  PdfDocumentAssets,
+} from '../../types.ts';
+import { timestampIso } from '../../utils/time.ts';
 import { getSearchKeywords, normalizeSearchText } from './planQuality.ts';
-import type { LessonGeneratedVisual, LessonImageRef, PdfDocumentAssets } from './types.ts';
-import { generateLessonVisualExamples } from './visualExamples.ts';
+import {
+  enforceVerifiedVisualTypeContract,
+  generateVerifiedVisualSlots,
+  type VerifiedVisualSlotPlan,
+} from './visualExamples.ts';
 
 const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
@@ -250,13 +262,40 @@ const buildPdfImagePlaceholder = (imageRef: LessonImageRef): string => {
     : `${PDF_PLACEHOLDER_PREFIX}${imageRef.assetId}|alt=${alt}}}`;
 };
 
-export const appendGeneratedVisualExample = async ({
+const buildStoredVisualPlan = (plan: VerifiedVisualSlotPlan): LessonVisualPlan => ({
+  anchorHeading: null,
+  concept: plan.concept,
+  pedagogicalGoal: plan.pedagogicalGoal,
+  reason: plan.reason,
+  visualType: plan.visualType,
+});
+
+const buildVisualPlanningPass = (
+  plans: VerifiedVisualSlotPlan[],
+  rationale: string
+): LessonVisualPlanningPass => ({
+  outcome: plans.length > 0 ? 'visuals' : 'none',
+  plans: plans.map(buildStoredVisualPlan),
+  rationale,
+});
+
+const removeVisualSlotMarkers = (contentMarkdown: string): string =>
+  contentMarkdown
+    .replace(/\{\{VISUAL_SLOT:[^}]+}}/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+export const materializeGeneratedVisualSlots = async ({
   contentMarkdown,
   generationNotes,
   hasPdfImages,
   onStatusUpdate,
   sectionDescription,
   sectionTitle,
+  visualPlanning = {
+    plans: [],
+    rationale: 'Nessuna pianificazione visuale fornita.',
+  },
 }: {
   contentMarkdown: string;
   generationNotes?: string;
@@ -264,35 +303,87 @@ export const appendGeneratedVisualExample = async ({
   onStatusUpdate?: (status: string) => void;
   sectionDescription: string;
   sectionTitle: string;
-}): Promise<{ content: string; generatedVisuals: LessonGeneratedVisual[] }> => {
+  visualPlanning?: {
+    plans: VerifiedVisualSlotPlan[];
+    rationale: string;
+  };
+}): Promise<{
+  content: string;
+  generatedVisuals: LessonGeneratedVisual[];
+  visualPlanningDecision: LessonVisualPlanningDecision;
+}> => {
+  const failedDecision = (rationale: string): LessonVisualPlanningDecision => ({
+    initial: { outcome: 'failed', plans: [], rationale },
+    reviewed: { outcome: 'failed', plans: [], rationale },
+    reviewedAt: timestampIso(),
+  });
+  const validPlans = visualPlanning.plans
+    .filter(plan => {
+      const marker = `{{VISUAL_SLOT:${plan.slotId}}}`;
+      return (
+        plan.slotId.trim().length > 0 &&
+        contentMarkdown.indexOf(marker) >= 0 &&
+        contentMarkdown.indexOf(marker) === contentMarkdown.lastIndexOf(marker)
+      );
+    })
+    .map(enforceVerifiedVisualTypeContract);
+  const reviewedPass = buildVisualPlanningPass(validPlans, visualPlanning.rationale);
+  const decision: LessonVisualPlanningDecision = {
+    initial: reviewedPass,
+    reviewed: reviewedPass,
+    reviewedAt: timestampIso(),
+  };
   if (!contentMarkdown.trim()) {
-    return { content: contentMarkdown, generatedVisuals: [] };
+    return {
+      content: contentMarkdown,
+      generatedVisuals: [],
+      visualPlanningDecision: failedDecision(
+        'La pianificazione visuale non può valutare una lezione vuota.'
+      ),
+    };
+  }
+
+  if (validPlans.length === 0) {
+    return {
+      content: removeVisualSlotMarkers(contentMarkdown),
+      generatedVisuals: [],
+      visualPlanningDecision: decision,
+    };
   }
 
   try {
     onStatusUpdate?.('Generazione esempio visivo...');
-    const results = await generateLessonVisualExamples({
-      generationNotes,
-      hasPdfImages,
-      lessonMarkdown: contentMarkdown,
-      sectionDescription,
-      sectionTitle,
-    });
+    const results = await generateVerifiedVisualSlots(
+      {
+        generationNotes,
+        hasPdfImages,
+        lessonMarkdown: contentMarkdown,
+        sectionDescription,
+        sectionTitle,
+      },
+      validPlans
+    );
 
     if (results.length === 0) {
-      onStatusUpdate?.('Lezione generata senza esempi visivi aggiuntivi');
-      return { content: contentMarkdown, generatedVisuals: [] };
+      onStatusUpdate?.('Esempio visivo non disponibile');
+      return {
+        content: removeVisualSlotMarkers(contentMarkdown),
+        generatedVisuals: [],
+        visualPlanningDecision: decision,
+      };
     }
 
-    const content = results.reduceRight(
-      (currentContent, result) =>
-        insertGeneratedVisualExamplePlaceholder(
-          currentContent,
-          result.contentSuffix,
-          result.anchorHeading
-        ),
-      contentMarkdown
-    );
+    const visualBySlotId = new Map(results.map(result => [result.slotId, result.visual]));
+    let content = contentMarkdown;
+    for (const plan of validPlans) {
+      const marker = `{{VISUAL_SLOT:${plan.slotId}}}`;
+      const visual = visualBySlotId.get(plan.slotId);
+      const replacement = visual
+        ? `{{VISUAL_EXAMPLE:${visual.id}|title=${sanitizePlaceholderValue(visual.title)}}}`
+        : '';
+      content = content.replace(marker, replacement);
+    }
+    content = removeVisualSlotMarkers(content);
     onStatusUpdate?.(
       results.length === 1
         ? 'Esempio visivo integrato'
@@ -301,6 +392,7 @@ export const appendGeneratedVisualExample = async ({
     return {
       content,
       generatedVisuals: results.map(result => result.visual),
+      visualPlanningDecision: decision,
     };
   } catch (error) {
     console.warn(
@@ -308,7 +400,13 @@ export const appendGeneratedVisualExample = async ({
       error
     );
     onStatusUpdate?.('Esempio visivo non disponibile');
-    return { content: contentMarkdown, generatedVisuals: [] };
+    return {
+      content: removeVisualSlotMarkers(contentMarkdown),
+      generatedVisuals: [],
+      visualPlanningDecision: failedDecision(
+        'La pianificazione o la generazione visuale non è stata completata.'
+      ),
+    };
   }
 };
 
@@ -383,47 +481,6 @@ const findFirstReadableBlockEndIndex = (lines: string[], headingIndex: number): 
   }
 
   return blockEndIndex;
-};
-
-export const insertGeneratedVisualExamplePlaceholder = (
-  contentMarkdown: string,
-  contentSuffix: string,
-  anchorHeading?: string
-): string => {
-  const placeholder = contentSuffix.trim();
-  const trimmedContent = contentMarkdown.trim();
-  if (!trimmedContent || !placeholder) {
-    return trimmedContent;
-  }
-
-  const lines = trimmedContent.split('\n');
-  const headingIndexes = lines
-    .map((line, index) => ({ line, index }))
-    .filter(item => HEADING_LINE_REGEX.test(item.line));
-
-  const headingIndexByName = new Map(
-    headingIndexes.map(item => [normalizeHeading(item.line), item.index])
-  );
-  const headingIndex = anchorHeading
-    ? headingIndexByName.get(normalizeHeading(anchorHeading))
-    : undefined;
-
-  if (headingIndex === undefined) {
-    return `${trimmedContent}\n\n${placeholder}`;
-  }
-
-  const insertAfterIndex = findFirstReadableBlockEndIndex(lines, headingIndex);
-  const baseInsertionIndex = Math.min(insertAfterIndex + 1, lines.length);
-  const insertionIndex =
-    (lines[baseInsertionIndex] || '').trim() === ''
-      ? Math.min(baseInsertionIndex + 1, lines.length)
-      : baseInsertionIndex;
-  lines.splice(insertionIndex, 0, '', placeholder, '');
-
-  return lines
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
 };
 
 export const injectImagePlaceholders = (

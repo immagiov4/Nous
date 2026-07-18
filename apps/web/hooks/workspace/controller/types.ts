@@ -130,7 +130,15 @@ export interface WorkspaceProjectLibraryAdapter {
   patchSectionLessonContent: (
     sectionId: string,
     patch: Partial<
-      Pick<LessonNode, 'content' | 'generatedVisuals' | 'imageRefs' | 'learningAids' | 'quiz'>
+      Pick<
+        LessonNode,
+        | 'content'
+        | 'generatedVisuals'
+        | 'imageRefs'
+        | 'learningAids'
+        | 'quiz'
+        | 'visualPlanningDecision'
+      >
     >,
     projectPatch?: Partial<ProjectSnapshot>
   ) => Promise<boolean>;
@@ -225,6 +233,7 @@ export interface WorkspaceControllerContext {
 }
 
 export interface WorkspaceControllerCommands {
+  cancelAssessment: () => void;
   askContextQuestion: (args: {
     contextAfter?: string;
     contextBefore?: string;
@@ -271,7 +280,14 @@ export interface WorkspaceControllerCommands {
     toolPreferences?: HomeChatToolPreferences;
   }) => Promise<{
     errorMessage?: string;
-    outcome: 'assessment-complete' | 'continued' | 'failed' | 'imported' | 'noop' | 'planned';
+    outcome:
+      | 'abandoned'
+      | 'assessment-complete'
+      | 'continued'
+      | 'failed'
+      | 'imported'
+      | 'noop'
+      | 'planned';
     sourceWarnings?: Array<{ message: string; name: string }>;
   }>;
   startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
@@ -280,7 +296,7 @@ export interface WorkspaceControllerCommands {
     toolPreferences?: HomeChatToolPreferences
   ) => Promise<{
     errorMessage?: string;
-    outcome: 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
+    outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
     sourceWarnings?: Array<{ message: string; name: string }>;
   }>;
   updateApplicationExercise: (

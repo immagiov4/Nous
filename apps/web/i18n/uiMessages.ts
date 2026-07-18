@@ -11,30 +11,40 @@ let renderingLocaleOverride: AppLocale | null = null;
 const ENGLISH_UI_MESSAGES = {
   'Apri {videoTitle} su YouTube': 'Open {videoTitle} on YouTube',
   automatico: 'automatic',
+  'Annulla creazione corso': 'Cancel course creation',
+  'Argomento del nuovo corso non valido.': 'Invalid new course topic.',
   'Argomento del corso': 'Course topic',
+  'Avvio nuovo corso': 'Starting new course',
+  '{regenerated} di {total} cover rigenerate, {failed} non riuscite, {pending} in attesa.':
+    '{regenerated} of {total} covers regenerated, {failed} failed, {pending} pending.',
   'Brief di ricerca reale': 'Actual research brief',
   'Budget token': 'Token budget',
   Candidati: 'Candidates',
   'Candidati e decisioni': 'Candidates and decisions',
   'Canale non disponibile': 'Channel unavailable',
-  'Circuito transcript aperto: blocco IP rilevato. I candidati successivi non sono stati interrogati.':
-    'Transcript circuit opened: IP block detected. Later candidates were not queried.',
   caratteri: 'characters',
   'Clip in produzione': 'Clips in production',
-  'Clip scelte': 'Selected clips',
+  'Anteprima video': 'Video preview',
+  'Clip YouTube abilitate nella generazione': 'YouTube clips enabled in generation',
+  'Intervallo di anteprima; la stesura sceglie quello definitivo':
+    'Preview interval; the lesson writer chooses the final one',
+  'Il modello non ha scelto una clip. Questa è l’anteprima del miglior intervallo timestampato disponibile.':
+    'The model did not select a clip. This previews the best timestamped interval available.',
+  'Nessun intervallo YouTube timestampato disponibile per l’anteprima.':
+    'No timestamped YouTube interval is available for preview.',
   'Contesto transcript inviato': 'Transcript context sent',
   cache: 'cache',
   'Diagnostica temporanea': 'Temporary diagnostics',
-  'Esegue la stessa ricerca, raccolta transcript e selezione usata per una lezione. Non salva nulla.':
-    'Runs the same search, transcript collection, and selection used for a lesson. Nothing is saved.',
+  'Decisioni isolate del modello': 'Isolated model decisions',
+  'Per ogni candidato mostra l’esito strutturato e la motivazione sintetica restituita dal modello.':
+    'Shows the structured outcome and concise model-provided reason for every candidate.',
+  'Esegue la stessa ricerca e raccolta transcript Decodo usata per una lezione. Non salva nulla.':
+    'Runs the same search and Decodo transcript collection used for a lesson. Nothing is saved.',
   'Esegui il percorso reale': 'Run the actual pipeline',
   Esecuzione: 'Run',
   disponibile: 'available',
   vuoto: 'empty',
-  'IP bloccato': 'IP blocked',
   'Laboratorio YouTube non disponibile.': 'YouTube lab is unavailable.',
-  'Limiti attuali: {videos} video, {playlists} playlist, {playlistVideos} video dalla prima playlist e {transcripts} transcript.':
-    'Current limits: {videos} videos, {playlists} playlists, {playlistVideos} videos from the first playlist, and {transcripts} transcripts.',
   Lingua: 'Language',
   manuale: 'manual',
   'Nessun transcript è entrato nel contesto. La valutazione dei modelli non è stata eseguita per evitare due chiamate inutili.':
@@ -45,8 +55,7 @@ const ENGLISH_UI_MESSAGES = {
     'Not evaluated: the transcript did not enter the context',
   'Non eseguito': 'Not run',
   'Non propagato nel dossier': 'Not propagated to the dossier',
-  'Non interrogato dopo un blocco o budget esaurito':
-    'Not queried after a block or exhausted budget',
+  'Non interrogato: budget esaurito': 'Not queried: budget exhausted',
   'Opzionale: per esempio bordi, curve, sfumature e texture':
     'Optional: for example outlines, curves, gradients, and textures',
   Playlist: 'Playlist',
@@ -61,20 +70,18 @@ const ENGLISH_UI_MESSAGES = {
   'Scartato: transcript non disponibile': 'Rejected: transcript unavailable',
   'Scartato dal modello': 'Rejected by the model',
   'Scartato: viene espansa solo la prima playlist': 'Rejected: only the first playlist is expanded',
-  'Scelto come clip pratica': 'Selected as a practical clip',
-  'Scelto come fonte, senza clip': 'Selected as a source, without a clip',
+  'Scelto come fonte video': 'Selected as a video source',
+  'Anteprima diagnostica del primo intervallo timestampato. La stesura sceglierà la clip effettiva nel contesto della lezione.':
+    'Diagnostic preview of the first timestamped interval. The lesson writer will choose the actual clip in context.',
+  'Nessun video è stato selezionato. Questa è l’anteprima del primo intervallo timestampato disponibile.':
+    'No video was selected. This is a preview of the first available timestamped interval.',
   segmenti: 'segments',
-  'Tempo totale CLI': 'Total CLI time',
-  'Tentativi CLI transcript': 'Transcript CLI attempts',
+  'Tempo totale': 'Total time',
+  'Richieste transcript API': 'Transcript API requests',
   'Tentativi modello': 'Model attempts',
   'Tentativi transcript': 'Transcript attempts',
   tentativi: 'attempts',
   'Titolo o obiettivo della lezione': 'Lesson title or objective',
-  'Transcript dal browser (opzionale)': 'Browser transcript (optional)',
-  'Incolla un array JSON. Verrà usato anche nelle successive generazioni di corsi e lezioni.':
-    'Paste a JSON array. It will also be used by subsequent course and lesson generations.',
-  'Il JSON dei transcript non è valido. Controlla videoId e segmenti.':
-    'The transcript JSON is invalid. Check videoId and segments.',
   'Transcript incluso nel contesto': 'Transcript included in context',
   'Ricerca modello': 'Model research',
   'Strutturazione modello': 'Model structuring',
@@ -86,16 +93,12 @@ const ENGLISH_UI_MESSAGES = {
   Usato: 'Used',
   'Stima conservativa: caratteri diviso 4, arrotondati per eccesso.':
     'Conservative estimate: characters divided by 4, rounded up.',
-  'Ogni transcript usa al massimo min(20% W, 50% B); se è più lungo vengono scelte le finestre più pertinenti.':
-    'Each transcript uses at most min(20% W, 50% B); longer transcripts are reduced to the most relevant windows.',
-  'Discovery attuale: {videos} video, {playlists} playlist e fino a {playlistVideos} video per playlist. I transcript continuano finché c’è budget, con concorrenza {concurrency}.':
-    'Current discovery: {videos} videos, {playlists} playlists, and up to {playlistVideos} videos per playlist. Transcripts continue while budget remains, with concurrency {concurrency}.',
+  'Ogni transcript usa al massimo metà del budget residuo; se è più lungo viene escluso senza selezioni per keyword.':
+    'Each transcript uses at most half of the remaining budget; longer transcripts are excluded without keyword selection.',
+  'Discovery attuale: {videos} video complessivi da {playlists} playlist. I transcript continuano finché c’è budget, con concorrenza {concurrency}.':
+    'Current discovery: {videos} total videos from {playlists} playlists. Transcripts continue while budget remains, with concurrency {concurrency}.',
   'Limite noto: il web search dipende ancora dal provider attivo; questo laboratorio isola la pipeline YouTube.':
     'Known limitation: web search still depends on the active provider; this lab isolates the YouTube pipeline.',
-  'YouTube ha bloccato i transcript per {blockedCount} candidati.':
-    'YouTube blocked transcripts for {blockedCount} candidates.',
-  'YouTube sta bloccando i transcript per questo IP.':
-    'YouTube is blocking transcripts for this IP.',
   'Playlist espansa': 'Playlist expanded',
   'Aggiungi ai preferiti': 'Add to favorites',
   'Aggiungi {courseTitle} ai preferiti': 'Add {courseTitle} to favorites',

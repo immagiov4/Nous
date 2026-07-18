@@ -132,6 +132,7 @@ export interface CodexTurnInput {
   ) => void;
   outputSchema?: JsonObject;
   reasoningEffort: ReasoningEffort;
+  serviceTier?: 'fast';
   tools?: CodexTurnTool[];
 }
 
@@ -626,6 +627,7 @@ export const runCodexAppServerTurnWithClient = async (
     ephemeral: true,
     environments: [],
     model: turn.model,
+    serviceTier: turn.serviceTier,
     runtimeWorkspaceRoots: [],
     sandbox: 'read-only',
     selectedCapabilityRoots: [],
@@ -761,6 +763,7 @@ export const generateCodexAppServerImage = async ({
       imageResult = result;
     },
     reasoningEffort: 'low',
+    serviceTier: 'fast',
   });
   if (!imageResult) {
     throw new CodexAppServerError('Codex did not return a generated image.', 'protocol');

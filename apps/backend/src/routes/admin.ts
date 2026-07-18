@@ -5,6 +5,7 @@ import {
   type GlobalModelConfigPatch,
   isAiProvider,
   isReasoningEffort,
+  isTextModelSlot,
   loadPersistedGlobalModelConfig,
   patchAndPersistGlobalModelConfig,
 } from '../config/modelConfig.js';
@@ -213,11 +214,18 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       codexArtifactModel: readOptionalString(req.body.codexArtifactModel),
       codexArtifactInteractiveModel: readOptionalString(req.body.codexArtifactInteractiveModel),
       codexContextModel: readOptionalString(req.body.codexContextModel),
+      codexDraftingModel: readOptionalString(req.body.codexDraftingModel),
+      codexFastModelSlots: Array.isArray(req.body.codexFastModelSlots)
+        ? req.body.codexFastModelSlots.filter(isTextModelSlot)
+        : undefined,
       codexLessonModel: readOptionalString(req.body.codexLessonModel),
       codexProgressModel: readOptionalString(req.body.codexProgressModel),
       codexResearchModel: readOptionalString(req.body.codexResearchModel),
+      codexStructureModel: readOptionalString(req.body.codexStructureModel),
+      codexVerificationModel: readOptionalString(req.body.codexVerificationModel),
       contextModel: readOptionalString(req.body.contextModel),
       contextReasoningEffort: readReasoningEffortPatch(req.body.contextReasoningEffort),
+      draftingReasoningEffort: readReasoningEffortPatch(req.body.draftingReasoningEffort),
       imageModel: readOptionalString(req.body.imageModel),
       lessonModel: readOptionalString(req.body.lessonModel),
       lessonReasoningEffort: readReasoningEffortPatch(req.body.lessonReasoningEffort),
@@ -232,8 +240,10 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       progressModel: readOptionalString(req.body.progressModel),
       progressReasoningEffort: readReasoningEffortPatch(req.body.progressReasoningEffort),
       researchModel: readOptionalString(req.body.researchModel),
+      structureReasoningEffort: readReasoningEffortPatch(req.body.structureReasoningEffort),
       ttsModel: readOptionalString(req.body.ttsModel),
       ttsVoice: readOptionalString(req.body.ttsVoice),
+      verificationReasoningEffort: readReasoningEffortPatch(req.body.verificationReasoningEffort),
     };
 
     if (patch.imageModel) {

@@ -1,27 +1,3 @@
-const MAX_LABEL_LENGTH = 90;
-const MIN_LABEL_LENGTH = 2;
-
-const stripBoldMarkers = (value: string): string => {
-  if (value.startsWith('**') && value.endsWith('**') && value.length > 4) {
-    return value.slice(2, -2);
-  }
-  return value;
-};
-
-const findLabelColonIndex = (value: string): number => {
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (character === '\n') {
-      return -1;
-    }
-    if (character === ':') {
-      return index;
-    }
-  }
-
-  return -1;
-};
-
 const stripBracketedSegment = (
   source: string,
   startIndex: number,
@@ -143,50 +119,6 @@ export const stripMarkdownForSimilarity = (value: string): string => {
   }
 
   return parts.join('').replace(/\s+/g, ' ').trim();
-};
-
-export const parseStandaloneLabel = (value: string): string | null => {
-  const trimmed = value.trim();
-  if (!trimmed.endsWith(':')) {
-    return null;
-  }
-
-  const label = stripBoldMarkers(trimmed.slice(0, -1).trim());
-  if (
-    label.length < MIN_LABEL_LENGTH ||
-    label.length > MAX_LABEL_LENGTH ||
-    label.includes('*') ||
-    label.includes('\n')
-  ) {
-    return null;
-  }
-
-  return label;
-};
-
-export const parseLabelBodyPair = (value: string): { body: string; label: string } | null => {
-  const trimmed = value.trim();
-  const colonIndex = findLabelColonIndex(trimmed);
-  if (colonIndex < 0) {
-    return null;
-  }
-
-  const rawLabel = stripBoldMarkers(trimmed.slice(0, colonIndex).trim());
-  const rawBody = trimmed.slice(colonIndex + 1).trim();
-  if (
-    rawLabel.length < MIN_LABEL_LENGTH ||
-    rawLabel.length > MAX_LABEL_LENGTH ||
-    rawLabel.includes('*') ||
-    rawLabel.includes('\n') ||
-    rawBody.length === 0
-  ) {
-    return null;
-  }
-
-  return {
-    body: rawBody,
-    label: rawLabel,
-  };
 };
 
 export const hasBrokenDisplayMathBracketBlock = (value: string): boolean => {

@@ -187,3 +187,41 @@ test('source merge keeps original provenance and deduplicates equivalent online 
     { title: 'Articolo accademico', url: 'https://example.com/paper', note: undefined },
   ]);
 });
+
+test('source merge preserves selected YouTube transcript and clip metadata', () => {
+  const dossier: ResearchLessonDossier = {
+    sectionId: 'lesson-video',
+    title: 'Dimostrazione',
+    generatedAt: '2026-07-18T10:00:00.000Z',
+    factualSummary: 'Passaggio verificato.',
+    keyExamples: [],
+    difficultSteps: [],
+    avoidOversimplifying: [],
+    controversies: [],
+    recentDevelopments: [],
+    sources: [
+      {
+        title: 'Tutorial pratico',
+        url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+        videoClip: { startSeconds: 65, endSeconds: 92 },
+        youtubeTranscript: {
+          ranges: [
+            { startSeconds: 65, endSeconds: 70 },
+            { startSeconds: 80, endSeconds: 93 },
+          ],
+          text: '[01:05-01:10] Primo passaggio.\n[01:20-01:33] Risultato.',
+        },
+      },
+    ],
+  };
+
+  const merged = mergePrerequisiteDossierSources(dossier, [
+    {
+      title: 'Tutorial già noto',
+      url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+    },
+  ]);
+
+  assert.deepEqual(merged.sources[0]?.videoClip, { startSeconds: 65, endSeconds: 92 });
+  assert.deepEqual(merged.sources[0]?.youtubeTranscript, dossier.sources[0]?.youtubeTranscript);
+});

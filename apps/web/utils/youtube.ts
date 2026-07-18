@@ -1,9 +1,13 @@
 const YOUTUBE_VIDEO_ID_LENGTH = 11;
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_HOSTNAMES = new Set(['m.youtube.com', 'www.youtube.com', 'youtube.com', 'youtu.be']);
-export const MAX_YOUTUBE_CLIP_DURATION_SECONDS = 180;
 
 export interface YouTubeClipInterval {
+  endSeconds: number;
+  startSeconds: number;
+}
+
+export interface YouTubeTranscriptRange {
   endSeconds: number;
   startSeconds: number;
 }
@@ -76,16 +80,24 @@ export const normalizeYouTubeClipInterval = (
     !Number.isFinite(startSeconds) ||
     !Number.isFinite(endSeconds) ||
     startSeconds < 0 ||
-    endSeconds <= startSeconds ||
-    endSeconds - startSeconds > MAX_YOUTUBE_CLIP_DURATION_SECONDS
+    endSeconds <= startSeconds
   ) {
     return null;
   }
 
   const normalizedStart = Math.floor(startSeconds);
   const normalizedEnd = Math.floor(endSeconds);
-  return normalizedEnd > normalizedStart &&
-    normalizedEnd - normalizedStart <= MAX_YOUTUBE_CLIP_DURATION_SECONDS
+  return normalizedEnd > normalizedStart
     ? { endSeconds: normalizedEnd, startSeconds: normalizedStart }
     : null;
+};
+
+export const isYouTubeClipWithinTranscriptBounds = (
+  interval: YouTubeClipInterval,
+  ranges: readonly YouTubeTranscriptRange[]
+): boolean => {
+  if (ranges.length === 0) return false;
+  const transcriptStart = Math.min(...ranges.map(range => range.startSeconds));
+  const transcriptEnd = Math.max(...ranges.map(range => range.endSeconds));
+  return interval.startSeconds >= transcriptStart && interval.endSeconds <= transcriptEnd;
 };

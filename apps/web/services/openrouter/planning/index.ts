@@ -1,8 +1,5 @@
 export { askContextualQuestion } from '../contextChat.ts';
-export {
-  collapseRedundantParagraphs,
-  estimateTargetQuizCount,
-} from '../lessonMarkdownQuality/index.ts';
+export { estimateTargetQuizCount } from '../lessonMarkdownQuality/index.ts';
 export { buildLessonVerificationPrompt, LESSON_RESPONSE_SCHEMA } from '../lessonVerification.ts';
 export {
   buildPdfChunkUsageDebugPayload,

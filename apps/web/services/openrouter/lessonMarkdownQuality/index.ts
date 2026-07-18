@@ -4,7 +4,7 @@ export {
   MAX_LESSON_REPAIR_SOURCE_CHARS,
   MIN_LESSON_QUIZ_QUESTIONS,
 } from './constants.ts';
-export { collapseRedundantParagraphs, sanitizeLessonMarkdownContent } from './quality.ts';
+export { sanitizeLessonMarkdownContent } from './quality.ts';
 export {
   clampLessonQuizCount,
   estimateTargetQuizCount,

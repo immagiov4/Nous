@@ -5,12 +5,7 @@ import { createSupabaseTestToken } from '../helpers/auth.js';
 const youtubeResearchMocks = vi.hoisted(() => ({
   buildYouTubeResearchBundle: vi.fn(),
   buildYouTubeResearchDiagnostic: vi.fn(),
-  YouTubeTranscriptOverrideProvider: vi.fn(function YouTubeTranscriptOverrideProvider(
-    this: { overrides: unknown },
-    overrides: unknown
-  ) {
-    this.overrides = overrides;
-  }),
+  buildYouTubeResearchOutcome: vi.fn(),
 }));
 
 vi.mock('../../src/services/youtubeResearch.js', () => youtubeResearchMocks);
@@ -26,39 +21,39 @@ describe('/api/youtube/admin/research-lab', () => {
     process.env = {
       ...ORIGINAL_ENV,
       AUTH_MODE: 'supabase',
+      DECODO_SCRAPING_API_KEY: 'decodo-test-key',
       SUPABASE_JWT_SECRET: 'test-secret',
     };
     youtubeResearchMocks.buildYouTubeResearchDiagnostic.mockReset();
     youtubeResearchMocks.buildYouTubeResearchBundle.mockReset();
+    youtubeResearchMocks.buildYouTubeResearchOutcome.mockReset();
     youtubeResearchMocks.buildYouTubeResearchBundle.mockResolvedValue({
       context: 'SOURCE Pixel art',
       videoCandidates: [],
     });
-    youtubeResearchMocks.YouTubeTranscriptOverrideProvider.mockClear();
     youtubeResearchMocks.buildYouTubeResearchDiagnostic.mockResolvedValue({
       budget: {
         contextWindowTokens: 128_000,
         nonYouTubePromptTokens: 8_000,
-        perTranscriptMaxTokens: 25_600,
-        remainingTokens: 52_800,
+        perTranscriptMaxTokens: 44_000,
+        remainingTokens: 88_000,
         reservedOutputTokens: 32_000,
         residualTokens: 88_000,
-        transcriptBudgetTokens: 52_800,
+        transcriptBudgetTokens: 88_000,
         usedTokens: 0,
       },
       bundle: { context: 'SOURCE Pixel art', videoCandidates: [] },
       candidates: [],
       errors: [],
       limits: {
-        discoveryVideos: 12,
-        playlistResults: 4,
-        playlistVideos: 4,
+        discoveryVideos: 6,
+        playlistResults: 2,
         transcriptConcurrency: 2,
       },
       operations: {
-        discoveryCommands: 2,
-        playlistExpansionCommands: 1,
-        transcriptCommandAttempts: 5,
+        discoveryRequests: 1,
+        playlistPreviewsExpanded: 1,
+        transcriptRequests: 5,
         transcriptLookups: 1,
       },
       preferredLanguages: ['it', 'en'],
@@ -107,7 +102,7 @@ describe('/api/youtube/admin/research-lab', () => {
     );
     expect(response.body).toMatchObject({
       success: true,
-      productionVideoClipsEnabled: expect.any(Boolean),
+      productionVideoClipsEnabled: true,
       diagnostic: { query: 'Bordi e curve Pixel art' },
     });
   });
@@ -122,77 +117,9 @@ describe('/api/youtube/admin/research-lab', () => {
     expect(youtubeResearchMocks.buildYouTubeResearchDiagnostic).not.toHaveBeenCalled();
   });
 
-  test('passes validated browser transcripts to an override-first provider', async () => {
-    const response = await request(createApp())
-      .post('/api/youtube/admin/research-lab')
-      .set('Authorization', authHeader('admin'))
-      .send({
-        query: 'Pixel art',
-        transcriptOverrides: [
-          {
-            language: 'it',
-            videoId: 'video-1',
-            segments: [
-              { startSeconds: 10, text: 'Prima riga' },
-              { startSeconds: 13.5, text: 'Seconda riga' },
-            ],
-          },
-        ],
-      });
-
-    expect(response.status).toBe(200);
-    expect(youtubeResearchMocks.YouTubeTranscriptOverrideProvider).toHaveBeenCalledWith([
-      {
-        language: 'it',
-        videoId: 'video-1',
-        segments: [
-          { durationSeconds: 3.5, startSeconds: 10, text: 'Prima riga' },
-          { durationSeconds: 4, startSeconds: 13.5, text: 'Seconda riga' },
-        ],
-      },
-    ]);
-    expect(youtubeResearchMocks.buildYouTubeResearchDiagnostic).toHaveBeenCalledWith(
-      'Pixel art',
-      'Italiano',
-      expect.objectContaining({ transcripts: expect.any(Object) })
-    );
-  });
-
-  test('rejects malformed browser transcripts before discovery', async () => {
-    const response = await request(createApp())
-      .post('/api/youtube/admin/research-lab')
-      .set('Authorization', authHeader('admin'))
-      .send({
-        query: 'Pixel art',
-        transcriptOverrides: [
-          { videoId: 'video-1', segments: [{ startSeconds: -1, text: 'Invalid' }] },
-        ],
-      });
-
-    expect(response.status).toBe(400);
-    expect(response.body.error).toBe('Transcript importati non validi.');
-    expect(youtubeResearchMocks.buildYouTubeResearchDiagnostic).not.toHaveBeenCalled();
-  });
-
-  test('caps the number of imported browser transcripts', async () => {
-    const response = await request(createApp())
-      .post('/api/youtube/admin/research-lab')
-      .set('Authorization', authHeader('admin'))
-      .send({
-        query: 'Pixel art',
-        transcriptOverrides: Array.from({ length: 31 }, (_, index) => ({
-          videoId: `video-${index}`,
-          segments: [{ startSeconds: 0, text: 'Transcript' }],
-        })),
-      });
-
-    expect(response.status).toBe(400);
-    expect(youtubeResearchMocks.buildYouTubeResearchDiagnostic).not.toHaveBeenCalled();
-  });
-
   test('returns a stable gateway error when discovery fails', async () => {
     youtubeResearchMocks.buildYouTubeResearchDiagnostic.mockRejectedValueOnce(
-      new Error('yt-dlp missing from C:\\private\\path')
+      new Error('Decodo credential failed at C:\\private\\path')
     );
 
     const response = await request(createApp())
@@ -202,7 +129,7 @@ describe('/api/youtube/admin/research-lab', () => {
 
     expect(response.status).toBe(502);
     expect(response.body.error).toBe(
-      'Ricerca YouTube non disponibile. Controlla i tool del backend e riprova.'
+      'Ricerca YouTube non disponibile. Controlla la configurazione Decodo e riprova.'
     );
     expect(JSON.stringify(response.body)).not.toContain('private');
   });
@@ -213,69 +140,63 @@ describe('/api/youtube/research-context', () => {
     process.env = {
       ...ORIGINAL_ENV,
       AUTH_MODE: 'supabase',
+      DECODO_SCRAPING_API_KEY: 'decodo-test-key',
       SUPABASE_JWT_SECRET: 'test-secret',
     };
     youtubeResearchMocks.buildYouTubeResearchBundle.mockReset();
-    youtubeResearchMocks.buildYouTubeResearchBundle.mockResolvedValue({
+    youtubeResearchMocks.buildYouTubeResearchOutcome.mockReset();
+    youtubeResearchMocks.buildYouTubeResearchOutcome.mockResolvedValue({
       context: 'SOURCE Pixel art',
+      rationale: 'Un transcript incluso.',
       videoCandidates: [],
     });
-    youtubeResearchMocks.YouTubeTranscriptOverrideProvider.mockClear();
   });
 
   afterEach(() => {
     process.env = { ...ORIGINAL_ENV };
   });
 
-  test('uses browser transcripts during normal course and lesson research', async () => {
+  test('uses the shared transcript provider during normal course and lesson research', async () => {
     const response = await request(createApp())
       .post('/api/youtube/research-context')
       .set('Authorization', authHeader('user'))
       .send({
         language: 'Italiano',
         query: 'Luce piani e volume',
-        transcriptOverrides: [
-          {
-            language: 'it',
-            videoId: 'light-demo',
-            segments: [{ startSeconds: 12, text: 'Ora ombreggio il piano laterale.' }],
-          },
-        ],
       });
 
     expect(response.status).toBe(200);
-    expect(youtubeResearchMocks.YouTubeTranscriptOverrideProvider).toHaveBeenCalledWith([
-      {
-        language: 'it',
-        videoId: 'light-demo',
-        segments: [
-          {
-            durationSeconds: 4,
-            startSeconds: 12,
-            text: 'Ora ombreggio il piano laterale.',
-          },
-        ],
-      },
-    ]);
-    expect(youtubeResearchMocks.buildYouTubeResearchBundle).toHaveBeenCalledWith(
+    expect(youtubeResearchMocks.buildYouTubeResearchOutcome).toHaveBeenCalledWith(
       'Luce piani e volume',
-      'Italiano',
-      { transcripts: expect.any(Object) }
+      'Italiano'
     );
+    expect(response.body.videoClipsEnabled).toBe(true);
+    expect(response.body.rationale).toBe('Un transcript incluso.');
   });
 
-  test('rejects malformed browser transcripts before normal research', async () => {
+  test('exposes production discovery failures as gateway errors', async () => {
+    youtubeResearchMocks.buildYouTubeResearchOutcome.mockRejectedValueOnce(
+      new Error('Decodo request failed')
+    );
+
     const response = await request(createApp())
       .post('/api/youtube/research-context')
       .set('Authorization', authHeader('user'))
-      .send({
-        query: 'Luce piani e volume',
-        transcriptOverrides: [
-          { videoId: 'light-demo', segments: [{ startSeconds: -1, text: 'Invalid' }] },
-        ],
-      });
+      .send({ language: 'Italiano', query: 'Luce piani e volume' });
 
-    expect(response.status).toBe(400);
-    expect(youtubeResearchMocks.buildYouTubeResearchBundle).not.toHaveBeenCalled();
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      error: 'Ricerca YouTube non disponibile. Riprova tra poco.',
+      success: false,
+    });
+  });
+
+  test('enables video clips whenever Decodo is configured', async () => {
+    const response = await request(createApp())
+      .get('/api/youtube/config')
+      .set('Authorization', authHeader('user'));
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, videoClipsEnabled: true });
   });
 });

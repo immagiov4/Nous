@@ -4,7 +4,7 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from 'ai';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ChatArtifactActionRequest,
   ChatArtifactRegenerateRequest,
@@ -76,6 +76,10 @@ interface LibraryAssistantTools {
     input: unknown;
     output: unknown;
   };
+  startCourseAssessment: {
+    input: unknown;
+    output: unknown;
+  };
 }
 
 type LibraryAssistantMessage = UIMessage<unknown, Record<string, never>, LibraryAssistantTools>;
@@ -116,6 +120,11 @@ interface RequestSaveLearningArtifactNoteInput {
   projectId: string;
   rationale: string;
 }
+
+interface StartCourseAssessmentInput {
+  topic: string;
+}
+
 interface LibraryAssistantRequestState {
   attachedContextRefs: LibraryContextRef[];
   scopeSummary: LibraryScopeSummary;
@@ -146,6 +155,15 @@ const readGenerateLearningArtifactInput = (
           typeof candidate.sourceArtifactId === 'string' ? candidate.sourceArtifactId : undefined,
       }
     : null;
+};
+
+const readStartCourseAssessmentInput = (value: unknown): StartCourseAssessmentInput | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const topic = (value as Partial<StartCourseAssessmentInput>).topic;
+  return typeof topic === 'string' && topic.trim() ? { topic: topic.trim() } : null;
 };
 
 const resolveContextRefLabel = ({
@@ -183,6 +201,9 @@ export const useLibraryAssistantChat = ({
   >({});
   const [webSearch, setWebSearch] = useState(false);
   const [generateArtifacts, setGenerateArtifacts] = useState(false);
+  const [courseAssessmentRequest, setCourseAssessmentRequest] =
+    useState<StartCourseAssessmentInput | null>(null);
+  const consumeCourseAssessmentRequest = useCallback(() => setCourseAssessmentRequest(null), []);
   const attachedContextRefs = useMemo(
     () =>
       selectedContextRefs
@@ -371,6 +392,29 @@ export const useLibraryAssistantChat = ({
           return;
         }
 
+        if (toolCall.toolName === 'startCourseAssessment') {
+          const input = readStartCourseAssessmentInput(toolCall.input);
+          if (!input) {
+            void addToolOutput({
+              tool: 'startCourseAssessment',
+              toolCallId: toolCall.toolCallId,
+              output: {
+                handoffRequested: false,
+                error: t('Argomento del nuovo corso non valido.'),
+              },
+            });
+            return;
+          }
+
+          setCourseAssessmentRequest(input);
+          void addToolOutput({
+            tool: 'startCourseAssessment',
+            toolCallId: toolCall.toolCallId,
+            output: { handoffRequested: true, topic: input.topic },
+          });
+          return;
+        }
+
         const toolName = toolCall.toolName as LibraryAssistantToolName;
         if (
           !LIBRARY_ASSISTANT_TOOL_NAMES.includes(
@@ -517,6 +561,7 @@ export const useLibraryAssistantChat = ({
   return {
     attachedContextRefs,
     artifactPayloadsByToolCallId,
+    courseAssessmentRequest,
     replacementDraftPayloads,
     error,
     isLoading: status === 'submitted' || status === 'streaming',
@@ -526,6 +571,7 @@ export const useLibraryAssistantChat = ({
       setGeneratedVisualsByArtifactId({});
       setMessages([]);
     },
+    consumeCourseAssessmentRequest,
     approveLearningArtifactNoteSave: async (
       toolCallId: string,
       input: RequestSaveLearningArtifactNoteInput

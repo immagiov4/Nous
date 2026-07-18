@@ -1,22 +1,14 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
-const execFileAsync = promisify(execFile);
-const DISCOVERY_RESULT_LIMIT = 12;
-const PLAYLIST_RESULT_LIMIT = 4;
-const PLAYLIST_VIDEO_LIMIT = 4;
+const VIDEO_RESULT_LIMIT = 6;
+const PLAYLIST_RESULT_LIMIT = 2;
 const TRANSCRIPT_CONCURRENCY = 2;
-const TRANSCRIPT_CHUNK_SEGMENTS = 16;
 const ESTIMATED_CHARACTERS_PER_TOKEN = 4;
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
 const DEFAULT_RESERVED_OUTPUT_TOKENS = 32_000;
 const DEFAULT_NON_YOUTUBE_PROMPT_TOKENS = 8_000;
-const COMMAND_TIMEOUT_MS = 30_000;
-const BROWSER_TRANSCRIPT_TIMEOUT_MS = 60_000;
-const COMMAND_OUTPUT_LIMIT_BYTES = 8 * 1024 * 1024;
 const TRANSCRIPT_CACHE_MAX_ENTRIES = 200;
 const TRANSCRIPT_CACHE_SUCCESS_TTL_MS = 6 * 60 * 60 * 1000;
 const TRANSCRIPT_CACHE_FAILURE_TTL_MS = 15 * 60 * 1000;
+const DECODO_SCRAPE_URL = 'https://scraper-api.decodo.com/v2/scrape';
 
 type YouTubeCandidateKind = 'playlist' | 'video';
 type YouTubeTranscriptKind = 'automatic' | 'manual' | 'translated';
@@ -28,7 +20,9 @@ export interface YouTubeCandidate {
   id: string;
   kind: YouTubeCandidateKind;
   playlistId?: string;
+  playlistVideos?: YouTubeCandidate[];
   playlistPosition?: number;
+  publishedAt?: number;
   title: string;
   url: string;
   viewCount?: number;
@@ -50,14 +44,12 @@ export interface YouTubeTranscriptAttempt {
   durationMs: number;
   kind: YouTubeTranscriptKind;
   language: string;
-  outcome: 'available' | 'empty' | 'ip-blocked' | 'unavailable';
+  outcome: 'available' | 'empty' | 'unavailable';
 }
 
 export interface YouTubeTranscriptLookup {
   attempts: YouTubeTranscriptAttempt[];
   cached?: boolean;
-  circuitOpened?: boolean;
-  circuitReason?: 'ip-blocked';
   transcript: YouTubeTranscript | null;
 }
 
@@ -68,12 +60,18 @@ export interface YouTubeTranscriptRange {
 
 export interface YouTubeVideoEvidence {
   ranges: YouTubeTranscriptRange[];
+  title: string;
+  transcript: string;
   url: string;
 }
 
 export interface YouTubeResearchBundle {
   context: string;
   videoCandidates: YouTubeVideoEvidence[];
+}
+
+export interface YouTubeResearchOutcome extends YouTubeResearchBundle {
+  rationale: string;
 }
 
 export type YouTubeResearchCandidateDecision =
@@ -87,7 +85,6 @@ export type YouTubeResearchCandidateDecision =
 export interface YouTubeResearchDiagnosticCandidate extends YouTubeCandidate {
   decision: YouTubeResearchCandidateDecision;
   origins: Array<'playlist' | 'search'>;
-  rankScore: number;
   estimatedTokens?: number;
   includedTokens?: number;
   transcript?: {
@@ -116,19 +113,16 @@ export interface YouTubeResearchDiagnostic {
   };
   bundle: YouTubeResearchBundle;
   candidates: YouTubeResearchDiagnosticCandidate[];
-  circuitOpened: boolean;
-  circuitReason: 'ip-blocked' | null;
   errors: Array<'playlist-expansion-failed'>;
   limits: {
     discoveryVideos: number;
     playlistResults: number;
-    playlistVideos: number;
     transcriptConcurrency: number;
   };
   operations: {
-    discoveryCommands: number;
-    playlistExpansionCommands: number;
-    transcriptCommandAttempts: number;
+    discoveryRequests: number;
+    playlistPreviewsExpanded: number;
+    transcriptRequests: number;
     transcriptLookups: number;
   };
   preferredLanguages: string[];
@@ -153,10 +147,6 @@ export interface YouTubeResearchOptions {
   transcripts?: YouTubeTranscriptProvider;
 }
 
-export interface CommandRunner {
-  run(command: string, args: string[]): Promise<string>;
-}
-
 export interface YouTubeDiscoveryProvider {
   expandPlaylist(candidate: YouTubeCandidate): Promise<YouTubeCandidate[]>;
   search(query: string): Promise<YouTubeCandidate[]>;
@@ -170,109 +160,12 @@ export interface YouTubeTranscriptProvider {
   getTranscript(videoId: string, preferredLanguages: string[]): Promise<YouTubeTranscript | null>;
 }
 
-export interface YouTubeTranscriptOverride {
-  language: string;
-  segments: YouTubeTranscriptSegment[];
-  videoId: string;
-}
-
-export class YouTubeTranscriptOverrideProvider implements YouTubeTranscriptProvider {
-  private readonly overrides: Map<string, YouTubeTranscript>;
-
-  constructor(
-    overrides: YouTubeTranscriptOverride[],
-    private readonly fallback: YouTubeTranscriptProvider = new YoutubeTranscriptCliProvider()
-  ) {
-    this.overrides = new Map(
-      overrides.map(({ language, segments, videoId }) => [
-        videoId,
-        { kind: 'automatic' as const, language, segments },
-      ])
-    );
-  }
-
-  async getTranscriptDiagnostic(
-    videoId: string,
-    preferredLanguages: string[]
-  ): Promise<YouTubeTranscriptLookup> {
-    const transcript = this.overrides.get(videoId);
-    if (transcript) {
-      return {
-        attempts: [
-          {
-            durationMs: 0,
-            kind: transcript.kind,
-            language: transcript.language,
-            outcome: 'available',
-          },
-        ],
-        transcript,
-      };
-    }
-
-    return getTranscriptLookup(this.fallback, videoId, preferredLanguages);
-  }
-
-  async getTranscript(
-    videoId: string,
-    preferredLanguages: string[]
-  ): Promise<YouTubeTranscript | null> {
-    return (
-      this.overrides.get(videoId) ||
-      (await this.fallback.getTranscript(videoId, preferredLanguages))
-    );
-  }
-}
-
-const defaultCommandRunner: CommandRunner = {
-  async run(command, args) {
-    const { stdout } = await execFileAsync(command, args, {
-      encoding: 'utf8',
-      maxBuffer: COMMAND_OUTPUT_LIMIT_BYTES,
-      timeout: COMMAND_TIMEOUT_MS,
-      windowsHide: true,
-    });
-    return stdout;
-  },
-};
-
-const browserCommandRunner: CommandRunner = {
-  async run(command, args) {
-    const configuredTimeout = Number.parseInt(
-      process.env.YOUTUBE_BROWSER_TRANSCRIPT_TIMEOUT_MS || '',
-      10
-    );
-    const { stdout } = await execFileAsync(command, args, {
-      encoding: 'utf8',
-      maxBuffer: COMMAND_OUTPUT_LIMIT_BYTES,
-      timeout:
-        Number.isFinite(configuredTimeout) && configuredTimeout > 0
-          ? configuredTimeout
-          : BROWSER_TRANSCRIPT_TIMEOUT_MS,
-      windowsHide: true,
-    });
-    return stdout;
-  },
-};
-
 interface TranscriptCacheEntry {
   expiresAt: number;
   lookup: Promise<YouTubeTranscriptLookup>;
 }
 
-const sharedTranscriptCache = new Map<string, TranscriptCacheEntry>();
-const IP_BLOCK_DIAGNOSTIC_MARKERS = [
-  'youtube is blocking requests from your ip',
-  'requestblocked',
-  'ipblocked',
-] as const;
-const NO_TRANSCRIPT_DIAGNOSTIC_MARKER =
-  'no transcripts were found for any of the requested language codes';
-
-const isIpBlockDiagnostic = (value: string): boolean =>
-  IP_BLOCK_DIAGNOSTIC_MARKERS.some(marker => value.includes(marker));
-
-const parseJson = (value: string): unknown => JSON.parse(value.replace(/^\uFEFF/, ''));
+const sharedDecodoTranscriptCache = new Map<string, TranscriptCacheEntry>();
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
@@ -282,290 +175,232 @@ const asString = (value: unknown): string => (typeof value === 'string' ? value.
 const asOptionalNumber = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
-const candidateFromEntry = (
+const readRunsText = (value: unknown): string => {
+  const record = asRecord(value);
+  if (typeof record?.simpleText === 'string') return record.simpleText.trim();
+  const runs = Array.isArray(record?.runs) ? record.runs : [];
+  return runs
+    .map(run => asString(asRecord(run)?.text))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+};
+
+const parseDurationSeconds = (value: string): number | undefined => {
+  const parts = value.split(':').map(part => Number.parseInt(part, 10));
+  if (!parts.length || parts.some(part => !Number.isFinite(part) || part < 0)) return undefined;
+  return parts.reduce((seconds, part) => seconds * 60 + part, 0);
+};
+
+const parseCompactNumber = (value: string): number | undefined => {
+  const match = value.replaceAll(',', '').match(/([\d.]+)\s*([KMB])?/i);
+  if (!match) return undefined;
+  const amount = Number.parseFloat(match[1]);
+  const multiplier = { B: 1_000_000_000, K: 1_000, M: 1_000_000 }[(match[2] || '').toUpperCase()];
+  return Number.isFinite(amount) ? Math.round(amount * (multiplier || 1)) : undefined;
+};
+
+const candidateFromDecodoResult = (
   value: unknown,
-  kind: YouTubeCandidateKind,
   playlist?: { id: string; position: number }
 ): YouTubeCandidate | null => {
   const entry = asRecord(value);
-  if (!entry) {
-    return null;
-  }
-
-  const id = asString(entry.id);
-  const title = asString(entry.title);
-  if (!id || !title) {
-    return null;
-  }
-
-  const url =
-    asString(entry.url) ||
-    (kind === 'playlist'
-      ? `https://www.youtube.com/playlist?list=${encodeURIComponent(id)}`
-      : `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`);
+  if (!entry) return null;
+  const videoId = asString(entry.videoId);
+  const playlistId = asString(entry.playlistId);
+  const kind: YouTubeCandidateKind = videoId ? 'video' : playlistId ? 'playlist' : 'video';
+  const id = videoId || playlistId;
+  const title = readRunsText(entry.title);
+  if (!id || !title) return null;
+  const channelTitle =
+    readRunsText(entry.longBylineText) ||
+    readRunsText(entry.shortBylineText) ||
+    readRunsText(entry.ownerText);
+  const playlistVideos = Array.isArray(entry.videos)
+    ? entry.videos
+        .map((video, index) =>
+          candidateFromDecodoResult(video, { id: playlistId, position: index + 1 })
+        )
+        .filter((video): video is YouTubeCandidate => Boolean(video))
+    : undefined;
   return {
-    channelTitle: asString(entry.channel) || asString(entry.uploader),
-    channelVerified: entry.channel_is_verified === true,
-    durationSeconds: asOptionalNumber(entry.duration),
+    channelTitle,
+    channelVerified: Array.isArray(entry.ownerBadges) && entry.ownerBadges.length > 0,
+    durationSeconds: parseDurationSeconds(readRunsText(entry.lengthText)),
     id,
     kind,
     playlistId: playlist?.id,
     playlistPosition: playlist?.position,
+    playlistVideos,
     title,
-    url,
-    viewCount: asOptionalNumber(entry.view_count),
+    url:
+      kind === 'playlist'
+        ? `https://www.youtube.com/playlist?list=${encodeURIComponent(id)}`
+        : `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`,
+    viewCount: parseCompactNumber(readRunsText(entry.viewCountText)),
   };
 };
 
-const parseEntries = (stdout: string, kind: YouTubeCandidateKind): YouTubeCandidate[] => {
-  const result = asRecord(parseJson(stdout));
-  const entries = Array.isArray(result?.entries) ? result.entries : [];
-  return entries
-    .map(entry => candidateFromEntry(entry, kind))
+const readDecodoSearchResults = (payload: unknown): YouTubeCandidate[] => {
+  const root = asRecord(payload);
+  const results = Array.isArray(root?.results) ? root.results : [];
+  const rawContent = asRecord(results[0])?.content;
+  const content =
+    typeof rawContent === 'string' ? JSON.parse(rawContent.replace(/^\uFEFF/, '')) : rawContent;
+  return (Array.isArray(content) ? content : [])
+    .map(candidate => candidateFromDecodoResult(candidate))
     .filter((candidate): candidate is YouTubeCandidate => Boolean(candidate));
 };
 
-const SEARCH_STOP_WORDS = new Set([
-  'a',
-  'al',
-  'alla',
-  'con',
-  'corso',
-  'course',
-  'da',
-  'del',
-  'della',
-  'di',
-  'e',
-  'for',
-  'in',
-  'lezione',
-  'lesson',
-  'of',
-  'the',
-]);
-
-const tokenizeSearchText = (value: string): Set<string> =>
-  new Set(
-    value
-      .toLocaleLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .split(/[^a-z0-9]+/)
-      .filter(token => token.length > 1 && !SEARCH_STOP_WORDS.has(token))
-  );
-
-const rankCandidate = (candidate: YouTubeCandidate, queryTokens: Set<string>): number => {
-  const titleTokens = tokenizeSearchText(candidate.title);
-  const matchingTitleTokens = [...queryTokens].filter(token => titleTokens.has(token)).length;
-  const popularity = Math.log10((candidate.viewCount || 0) + 1);
-  const substantialDuration = (candidate.durationSeconds || 0) >= 20 * 60 ? 2 : 0;
-  return (
-    matchingTitleTokens * 3 + popularity + substantialDuration + (candidate.channelVerified ? 2 : 0)
-  );
-};
-
-export class YtDlpDiscoveryProvider implements YouTubeDiscoveryProvider {
-  constructor(private readonly runner: CommandRunner = defaultCommandRunner) {}
+export class DecodoDiscoveryProvider implements YouTubeDiscoveryProvider {
+  constructor(
+    private readonly apiKey: string,
+    private readonly fetcher: typeof fetch = fetch
+  ) {}
 
   async search(query: string): Promise<YouTubeCandidate[]> {
-    const playlistSearchUrl = new URL('https://www.youtube.com/results');
-    playlistSearchUrl.searchParams.set('search_query', query);
-    playlistSearchUrl.searchParams.set('sp', 'EgIQAw==');
-
-    const [videosResult, playlistsResult] = await Promise.allSettled([
-      this.runner.run('yt-dlp', [
-        '--flat-playlist',
-        '--dump-single-json',
-        '--playlist-end',
-        String(DISCOVERY_RESULT_LIMIT),
-        `ytsearch${DISCOVERY_RESULT_LIMIT}:${query}`,
-      ]),
-      this.runner.run('yt-dlp', [
-        '--flat-playlist',
-        '--dump-single-json',
-        '--playlist-end',
-        String(PLAYLIST_RESULT_LIMIT),
-        playlistSearchUrl.toString(),
-      ]),
-    ]);
-
-    if (videosResult.status === 'rejected') {
-      throw videosResult.reason;
+    const response = await this.fetcher(DECODO_SCRAPE_URL, {
+      body: JSON.stringify({ query, target: 'youtube_search' }),
+      headers: {
+        Authorization: `Basic ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error(`Decodo YouTube search failed with status ${response.status}.`);
     }
-
-    const queryTokens = tokenizeSearchText(query);
-    const videos = parseEntries(videosResult.value, 'video').sort(
-      (left, right) => rankCandidate(right, queryTokens) - rankCandidate(left, queryTokens)
-    );
-    const playlists =
-      playlistsResult.status === 'fulfilled' ? parseEntries(playlistsResult.value, 'playlist') : [];
-    return [...videos, ...playlists];
+    const candidates = readDecodoSearchResults(await response.json());
+    let playlistCount = 0;
+    return candidates.filter(candidate => {
+      if (candidate.kind === 'video') return true;
+      playlistCount += 1;
+      return playlistCount <= PLAYLIST_RESULT_LIMIT;
+    });
   }
 
   async expandPlaylist(candidate: YouTubeCandidate): Promise<YouTubeCandidate[]> {
-    if (candidate.kind !== 'playlist') {
-      return [candidate];
-    }
-
-    const output = await this.runner.run('yt-dlp', [
-      '--flat-playlist',
-      '--dump-single-json',
-      '--playlist-end',
-      String(PLAYLIST_VIDEO_LIMIT),
-      candidate.url,
-    ]);
-    const result = asRecord(parseJson(output));
-    const entries = Array.isArray(result?.entries) ? result.entries : [];
-    return entries
-      .map((entry, index) =>
-        candidateFromEntry(entry, 'video', { id: candidate.id, position: index + 1 })
-      )
-      .filter((video): video is YouTubeCandidate => Boolean(video));
+    return candidate.kind === 'playlist' ? candidate.playlistVideos || [] : [candidate];
   }
 }
 
-const parseTranscriptSegments = (stdout: string): YouTubeTranscriptSegment[] => {
-  const payload = parseJson(stdout);
-  const transcript = Array.isArray(payload) && Array.isArray(payload[0]) ? payload[0] : [];
-  return transcript
+const getDecodoSubtitleEvents = (
+  content: Record<string, unknown>,
+  origin: 'auto_generated' | 'uploader_provided',
+  language: string
+): unknown[] => {
+  const origins = asRecord(content[origin]);
+  const transcript = asRecord(origins?.[language]);
+  return Array.isArray(transcript?.events) ? transcript.events : [];
+};
+
+const parseDecodoManualSegments = (events: unknown[]): YouTubeTranscriptSegment[] =>
+  events
     .map(value => {
-      const segment = asRecord(value);
-      const text = asString(segment?.text).replace(/\s+/g, ' ');
-      const startSeconds = asOptionalNumber(segment?.start);
-      const durationSeconds = asOptionalNumber(segment?.duration);
-      return text &&
-        startSeconds !== undefined &&
-        startSeconds >= 0 &&
-        durationSeconds !== undefined &&
-        durationSeconds > 0
-        ? { durationSeconds, startSeconds, text }
+      const event = asRecord(value);
+      const startMs = asOptionalNumber(event?.tStartMs);
+      const durationMs = asOptionalNumber(event?.dDurationMs);
+      const segmentValues = Array.isArray(event?.segs) ? event.segs : [];
+      const text = segmentValues
+        .map(segment => asString(asRecord(segment)?.utf8))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return text && startMs !== undefined && startMs >= 0 && durationMs && durationMs > 0
+        ? {
+            durationSeconds: durationMs / 1_000,
+            startSeconds: startMs / 1_000,
+            text,
+          }
         : null;
     })
     .filter((segment): segment is YouTubeTranscriptSegment => Boolean(segment));
+
+const readDecodoTranscript = (
+  payload: unknown,
+  preferredLanguages: string[]
+): YouTubeTranscript | null => {
+  const root = asRecord(payload);
+  const results = Array.isArray(root?.results) ? root.results : [];
+  const content = asRecord(asRecord(results[0])?.content);
+  if (!content) return null;
+
+  for (const language of preferredLanguages) {
+    const manual = parseDecodoManualSegments(
+      getDecodoSubtitleEvents(content, 'uploader_provided', language)
+    );
+    if (manual.length) return { kind: 'manual', language, segments: manual };
+
+    const automatic = parseDecodoManualSegments(
+      getDecodoSubtitleEvents(content, 'auto_generated', language)
+    );
+    if (automatic.length) return { kind: 'automatic', language, segments: automatic };
+  }
+  return null;
 };
 
-export class YoutubeTranscriptCliProvider implements YouTubeTranscriptProvider {
+export class DecodoTranscriptProvider implements YouTubeTranscriptProvider {
   private readonly cache: Map<string, TranscriptCacheEntry>;
-  private ipBlockCircuitOpened = false;
 
-  constructor(private readonly runner: CommandRunner = defaultCommandRunner) {
-    this.cache = runner === defaultCommandRunner ? sharedTranscriptCache : new Map();
-  }
-
-  private async fetch(
-    videoId: string,
-    language: string,
-    kind: YouTubeTranscriptKind
-  ): Promise<{ attempt: YouTubeTranscriptAttempt; transcript: YouTubeTranscript | null }> {
-    const args = [videoId, '--languages', kind === 'translated' ? 'en' : language];
-    if (kind === 'manual') {
-      args.push('--exclude-generated');
-    } else if (kind === 'automatic') {
-      args.push('--exclude-manually-created');
-    } else {
-      args.push('--translate', language);
-    }
-    args.push('--format', 'json');
-
-    const startedAt = Date.now();
-    let stdout = '';
-    try {
-      stdout = await this.runner.run('youtube_transcript_api', args);
-      const normalizedOutput = stdout.toLocaleLowerCase();
-      if (isIpBlockDiagnostic(normalizedOutput)) {
-        return {
-          attempt: {
-            durationMs: Date.now() - startedAt,
-            kind,
-            language,
-            outcome: 'ip-blocked',
-          },
-          transcript: null,
-        };
-      }
-      if (normalizedOutput.includes(NO_TRANSCRIPT_DIAGNOSTIC_MARKER)) {
-        return {
-          attempt: {
-            durationMs: Date.now() - startedAt,
-            kind,
-            language,
-            outcome: 'empty',
-          },
-          transcript: null,
-        };
-      }
-
-      const segments = parseTranscriptSegments(stdout);
-      const transcript = segments.length ? { kind, language, segments } : null;
-      return {
-        attempt: {
-          durationMs: Date.now() - startedAt,
-          kind,
-          language,
-          outcome: transcript ? 'available' : 'empty',
-        },
-        transcript,
-      };
-    } catch (error) {
-      const errorRecord =
-        error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
-      const diagnosticText = [
-        stdout,
-        error instanceof Error ? error.message : '',
-        typeof errorRecord.stderr === 'string' ? errorRecord.stderr : '',
-        typeof errorRecord.stdout === 'string' ? errorRecord.stdout : '',
-      ]
-        .join(' ')
-        .toLocaleLowerCase();
-      return {
-        attempt: {
-          durationMs: Date.now() - startedAt,
-          kind,
-          language,
-          outcome: isIpBlockDiagnostic(diagnosticText) ? 'ip-blocked' : 'unavailable',
-        },
-        transcript: null,
-      };
-    }
+  constructor(
+    private readonly apiKey: string,
+    private readonly fetcher: typeof fetch = fetch
+  ) {
+    this.cache = fetcher === fetch ? sharedDecodoTranscriptCache : new Map();
   }
 
   private async loadTranscriptDiagnostic(
     videoId: string,
     preferredLanguages: string[]
   ): Promise<YouTubeTranscriptLookup> {
-    const attempts: YouTubeTranscriptAttempt[] = [];
-    for (const language of preferredLanguages) {
-      for (const kind of ['manual', 'automatic'] as const) {
-        if (this.ipBlockCircuitOpened) {
-          return { attempts, circuitOpened: true, circuitReason: 'ip-blocked', transcript: null };
-        }
-        const result = await this.fetch(videoId, language, kind);
-        attempts.push(result.attempt);
-        if (result.transcript) {
-          return { attempts, transcript: result.transcript };
-        }
-        if (result.attempt.outcome === 'ip-blocked') {
-          this.ipBlockCircuitOpened = true;
-          return { attempts, circuitOpened: true, circuitReason: 'ip-blocked', transcript: null };
-        }
+    const startedAt = Date.now();
+    try {
+      const response = await this.fetcher(DECODO_SCRAPE_URL, {
+        body: JSON.stringify({ query: videoId, target: 'youtube_subtitles' }),
+        headers: {
+          Authorization: `Basic ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      });
+      if (!response.ok) {
+        return {
+          attempts: [
+            {
+              durationMs: Date.now() - startedAt,
+              kind: 'automatic',
+              language: preferredLanguages[0] || 'en',
+              outcome: 'unavailable',
+            },
+          ],
+          transcript: null,
+        };
       }
+      const transcript = readDecodoTranscript(await response.json(), preferredLanguages);
+      return {
+        attempts: [
+          {
+            durationMs: Date.now() - startedAt,
+            kind: transcript?.kind || 'automatic',
+            language: transcript?.language || preferredLanguages[0] || 'en',
+            outcome: transcript ? 'available' : 'empty',
+          },
+        ],
+        transcript,
+      };
+    } catch {
+      return {
+        attempts: [
+          {
+            durationMs: Date.now() - startedAt,
+            kind: 'automatic',
+            language: preferredLanguages[0] || 'en',
+            outcome: 'unavailable',
+          },
+        ],
+        transcript: null,
+      };
     }
-
-    const targetLanguage = preferredLanguages.find(language => language !== 'en');
-    if (targetLanguage) {
-      if (this.ipBlockCircuitOpened) {
-        return { attempts, circuitOpened: true, circuitReason: 'ip-blocked', transcript: null };
-      }
-      const result = await this.fetch(videoId, targetLanguage, 'translated');
-      attempts.push(result.attempt);
-      if (result.attempt.outcome === 'ip-blocked') {
-        this.ipBlockCircuitOpened = true;
-        return { attempts, circuitOpened: true, circuitReason: 'ip-blocked', transcript: null };
-      }
-      return { attempts, transcript: result.transcript };
-    }
-    return { attempts, transcript: null };
   }
 
   async getTranscriptDiagnostic(
@@ -575,19 +410,9 @@ export class YoutubeTranscriptCliProvider implements YouTubeTranscriptProvider {
     const cacheKey = `${videoId}:${preferredLanguages.join(',')}`;
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      const lookup = await cached.lookup;
-      if (
-        lookup.circuitOpened ||
-        lookup.attempts.some(attempt => attempt.outcome === 'ip-blocked')
-      ) {
-        this.ipBlockCircuitOpened = true;
-      }
-      return { ...lookup, cached: true };
+      return { ...(await cached.lookup), cached: true };
     }
     if (cached) this.cache.delete(cacheKey);
-    if (this.ipBlockCircuitOpened) {
-      return { attempts: [], circuitOpened: true, circuitReason: 'ip-blocked', transcript: null };
-    }
 
     const entry: TranscriptCacheEntry = {
       expiresAt: Date.now() + TRANSCRIPT_CACHE_FAILURE_TTL_MS,
@@ -614,100 +439,20 @@ export class YoutubeTranscriptCliProvider implements YouTubeTranscriptProvider {
   }
 }
 
-export class YoutubeBrowserTranscriptProvider implements YouTubeTranscriptProvider {
-  constructor(
-    private readonly runner: CommandRunner = browserCommandRunner,
-    private readonly scriptPath = process.env.YOUTUBE_BROWSER_TRANSCRIPT_SCRIPT ||
-      'scripts/fetch-youtube-browser-transcript.mjs',
-    private readonly authStatePath = process.env.YOUTUBE_BROWSER_AUTH_STATE_PATH
-  ) {}
-
-  async getTranscriptDiagnostic(
-    videoId: string,
-    preferredLanguages: string[]
-  ): Promise<YouTubeTranscriptLookup> {
-    const attempts: YouTubeTranscriptAttempt[] = [];
-    for (const language of preferredLanguages) {
-      const startedAt = Date.now();
-      try {
-        const stdout = await this.runner.run('node', [
-          this.scriptPath,
-          '--video-id',
-          videoId,
-          '--language',
-          language,
-          ...(this.authStatePath ? ['--auth-state', this.authStatePath] : []),
-        ]);
-        const segments = parseTranscriptSegments(stdout);
-        attempts.push({
-          durationMs: Date.now() - startedAt,
-          kind: 'automatic',
-          language,
-          outcome: segments.length ? 'available' : 'empty',
-        });
-        if (segments.length) {
-          return { attempts, transcript: { kind: 'automatic', language, segments } };
-        }
-      } catch {
-        attempts.push({
-          durationMs: Date.now() - startedAt,
-          kind: 'automatic',
-          language,
-          outcome: 'unavailable',
-        });
-      }
-    }
-    return { attempts, transcript: null };
-  }
-
-  async getTranscript(
-    videoId: string,
-    preferredLanguages: string[]
-  ): Promise<YouTubeTranscript | null> {
-    return (await this.getTranscriptDiagnostic(videoId, preferredLanguages)).transcript;
-  }
-}
-
-export class YouTubeTranscriptFallbackProvider implements YouTubeTranscriptProvider {
-  constructor(
-    private readonly primary: YouTubeTranscriptProvider,
-    private readonly fallback: YouTubeTranscriptProvider
-  ) {}
-
-  async getTranscriptDiagnostic(
-    videoId: string,
-    preferredLanguages: string[]
-  ): Promise<YouTubeTranscriptLookup> {
-    const primary = await getTranscriptLookup(this.primary, videoId, preferredLanguages);
-    if (primary.transcript) return primary;
-
-    const fallback = await getTranscriptLookup(this.fallback, videoId, preferredLanguages);
-    return {
-      ...fallback,
-      attempts: [...primary.attempts, ...fallback.attempts],
-      ...(fallback.transcript ? {} : { circuitOpened: primary.circuitOpened }),
-      ...(fallback.transcript || !primary.circuitReason
-        ? {}
-        : { circuitReason: primary.circuitReason }),
-    };
-  }
-
-  async getTranscript(
-    videoId: string,
-    preferredLanguages: string[]
-  ): Promise<YouTubeTranscript | null> {
-    return (
-      (await this.primary.getTranscript(videoId, preferredLanguages)) ||
-      (await this.fallback.getTranscript(videoId, preferredLanguages))
-    );
-  }
-}
-
 const createDefaultTranscriptProvider = (): YouTubeTranscriptProvider => {
-  const cli = new YoutubeTranscriptCliProvider();
-  return process.env.YOUTUBE_BROWSER_TRANSCRIPTS_ENABLED === 'true'
-    ? new YouTubeTranscriptFallbackProvider(cli, new YoutubeBrowserTranscriptProvider())
-    : cli;
+  const decodoApiKey = process.env.DECODO_SCRAPING_API_KEY?.trim();
+  if (!decodoApiKey) {
+    throw new Error('DECODO_SCRAPING_API_KEY is not configured.');
+  }
+  return new DecodoTranscriptProvider(decodoApiKey);
+};
+
+const createDefaultDiscoveryProvider = (): YouTubeDiscoveryProvider => {
+  const decodoApiKey = process.env.DECODO_SCRAPING_API_KEY?.trim();
+  if (!decodoApiKey) {
+    throw new Error('DECODO_SCRAPING_API_KEY is not configured.');
+  }
+  return new DecodoDiscoveryProvider(decodoApiKey);
 };
 
 const LANGUAGE_CODES: Record<string, string> = {
@@ -739,7 +484,6 @@ const estimateTokens = (value: string): number =>
 
 const formatTranscript = (
   transcript: YouTubeTranscript,
-  queryTokens: Set<string>,
   maxTokens: number
 ): {
   estimatedTokens: number;
@@ -762,47 +506,14 @@ const formatTranscript = (
     ];
   });
   const estimatedTokens = estimateTokens(lines.map(line => line.line).join('\n'));
-  if (estimatedTokens <= maxTokens) {
-    return {
-      estimatedTokens,
-      ranges: lines.map(({ endSeconds, startSeconds }) => ({ endSeconds, startSeconds })),
-      text: lines.map(line => line.line).join('\n'),
-      tokens: estimatedTokens,
-    };
-  }
-
-  const chunks = Array.from(
-    { length: Math.ceil(lines.length / TRANSCRIPT_CHUNK_SEGMENTS) },
-    (_, index) => {
-      const start = index * TRANSCRIPT_CHUNK_SEGMENTS;
-      const chunkLines = lines.slice(start, start + TRANSCRIPT_CHUNK_SEGMENTS);
-      const chunkTokens = tokenizeSearchText(chunkLines.map(line => line.line).join(' '));
-      return {
-        indexes: chunkLines.map((_, offset) => start + offset),
-        index,
-        score: [...queryTokens].filter(token => chunkTokens.has(token)).length,
-      };
-    }
-  ).sort((left, right) => right.score - left.score || left.index - right.index);
-
-  const selectedIndexes = new Set<number>();
-  let usedTokens = 0;
-  for (const chunk of chunks) {
-    for (const index of chunk.indexes) {
-      const lineTokens = estimateTokens(lines[index]?.line || '');
-      if (usedTokens + lineTokens > maxTokens) continue;
-      selectedIndexes.add(index);
-      usedTokens += lineTokens;
-    }
-  }
-
-  const selectedLines = lines.filter((_, index) => selectedIndexes.has(index));
-  const text = selectedLines.map(line => line.line).join('\n');
+  const fitsBudget = estimatedTokens <= maxTokens;
   return {
     estimatedTokens,
-    ranges: selectedLines.map(({ endSeconds, startSeconds }) => ({ endSeconds, startSeconds })),
-    text,
-    tokens: estimateTokens(text),
+    ranges: fitsBudget
+      ? lines.map(({ endSeconds, startSeconds }) => ({ endSeconds, startSeconds }))
+      : [],
+    text: fitsBudget ? lines.map(line => line.line).join('\n') : '',
+    tokens: fitsBudget ? estimatedTokens : 0,
   };
 };
 
@@ -851,15 +562,11 @@ const calculateTranscriptBudget = (input: YouTubeResearchBudgetInput = {}) => {
     0,
     contextWindowTokens - reservedOutputTokens - nonYouTubePromptTokens
   );
-  const transcriptBudgetTokens = Math.floor(
-    Math.min(contextWindowTokens * 0.4, residualTokens * 0.6)
-  );
+  const transcriptBudgetTokens = residualTokens;
   return {
     contextWindowTokens,
     nonYouTubePromptTokens,
-    perTranscriptMaxTokens: Math.floor(
-      Math.min(contextWindowTokens * 0.2, transcriptBudgetTokens * 0.5)
-    ),
+    perTranscriptMaxTokens: Math.floor(residualTokens * 0.5),
     remainingTokens: transcriptBudgetTokens,
     reservedOutputTokens,
     residualTokens,
@@ -876,7 +583,7 @@ const buildYouTubeResearch = async (
   language: string,
   options: YouTubeResearchOptions
 ): Promise<YouTubeResearchDiagnostic> => {
-  const discovery = options.discovery || new YtDlpDiscoveryProvider();
+  const discovery = options.discovery || createDefaultDiscoveryProvider();
   const transcripts = options.transcripts || createDefaultTranscriptProvider();
   const budget = calculateTranscriptBudget(options.budget);
   const startedAt = Date.now();
@@ -884,7 +591,9 @@ const buildYouTubeResearch = async (
   const candidates = await discovery.search(query);
   const discoveryMs = Date.now() - discoveryStartedAt;
   const errors: YouTubeResearchDiagnostic['errors'] = [];
-  const playlists = candidates.filter(candidate => candidate.kind === 'playlist');
+  const playlists = candidates
+    .filter(candidate => candidate.kind === 'playlist')
+    .slice(0, PLAYLIST_RESULT_LIMIT);
   const playlistStartedAt = Date.now();
   const playlistResults = await Promise.allSettled(
     playlists.map(playlist => discovery.expandPlaylist(playlist))
@@ -901,10 +610,16 @@ const buildYouTubeResearch = async (
   });
 
   const searchVideos = candidates.filter(candidate => candidate.kind === 'video');
-  const queryTokens = tokenizeSearchText(query);
-  const videos = deduplicateVideos([...searchVideos, ...playlistVideos]).sort(
-    (left, right) => rankCandidate(right, queryTokens) - rankCandidate(left, queryTokens)
+  const playlistVideosById = new Map(
+    playlists.map((playlist, index) => [
+      playlist.id,
+      playlistResults[index]?.status === 'fulfilled' ? playlistResults[index].value : [],
+    ])
   );
+  const providerOrderedVideos = candidates.flatMap(candidate =>
+    candidate.kind === 'video' ? [candidate] : playlistVideosById.get(candidate.id) || []
+  );
+  const videos = deduplicateVideos(providerOrderedVideos).slice(0, VIDEO_RESULT_LIMIT);
   const preferredLanguages = getPreferredLanguages(language);
   const transcriptsStartedAt = Date.now();
 
@@ -916,15 +631,12 @@ const buildYouTubeResearch = async (
       ...video,
       decision: 'transcript-not-requested',
       origins: getCandidateOrigins(video.id, searchVideos, playlistVideos),
-      rankScore: rankCandidate(video, queryTokens),
       transcriptAttempts: [],
     });
   }
 
   let transcriptLookups = 0;
-  let transcriptCommandAttempts = 0;
-  let circuitOpened = false;
-  let circuitReason: YouTubeResearchDiagnostic['circuitReason'] = null;
+  let transcriptRequests = 0;
   for (
     let index = 0;
     index < videos.length && budget.remainingTokens > 0;
@@ -939,20 +651,10 @@ const buildYouTubeResearch = async (
       })
     );
     transcriptLookups += enriched.length;
-    transcriptCommandAttempts += enriched.reduce(
+    transcriptRequests += enriched.reduce(
       (total, result) => total + (result.cached ? 0 : result.attempts.length),
       0
     );
-    if (
-      enriched.some(
-        result =>
-          result.circuitOpened || result.attempts.some(attempt => attempt.outcome === 'ip-blocked')
-      )
-    ) {
-      circuitOpened = true;
-      circuitReason = 'ip-blocked';
-    }
-
     for (const { attempts, cached, transcript, transcriptLookupMs, video } of enriched) {
       const diagnostic = diagnosticsByVideoId.get(video.id);
       if (!diagnostic) continue;
@@ -973,11 +675,7 @@ const buildYouTubeResearch = async (
         0,
         Math.min(budget.perTranscriptMaxTokens, budget.remainingTokens - prefixTokens - 1)
       );
-      const formattedTranscript = formatTranscript(
-        transcript,
-        queryTokens,
-        availableTranscriptTokens
-      );
+      const formattedTranscript = formatTranscript(transcript, availableTranscriptTokens);
       const safeTranscript = sanitizeTranscriptForPrompt(formattedTranscript.text);
       const source = `${sourcePrefix}${safeTranscript}\n`;
       const sourceTokens = estimateTokens(source);
@@ -1001,10 +699,13 @@ const buildYouTubeResearch = async (
       diagnostic.decision = 'context-included';
       budget.usedTokens += sourceTokens;
       budget.remainingTokens = Math.max(0, budget.transcriptBudgetTokens - budget.usedTokens);
-      videoCandidates.push({ ranges: formattedTranscript.ranges, url: video.url });
+      videoCandidates.push({
+        ranges: formattedTranscript.ranges,
+        title: video.title,
+        transcript: safeTranscript,
+        url: video.url,
+      });
     }
-
-    if (circuitOpened) break;
   }
   const transcriptsMs = Date.now() - transcriptsStartedAt;
 
@@ -1014,7 +715,6 @@ const buildYouTubeResearch = async (
       ? ('playlist-expansion-failed' as const)
       : ('playlist-expanded' as const),
     origins: ['search'] as Array<'playlist' | 'search'>,
-    rankScore: rankCandidate(candidate, queryTokens),
     transcriptAttempts: [],
   }));
 
@@ -1028,19 +728,16 @@ const buildYouTubeResearch = async (
       }),
       ...playlistDiagnostics,
     ],
-    circuitOpened,
-    circuitReason,
     errors,
     limits: {
-      discoveryVideos: DISCOVERY_RESULT_LIMIT,
+      discoveryVideos: VIDEO_RESULT_LIMIT,
       playlistResults: PLAYLIST_RESULT_LIMIT,
-      playlistVideos: PLAYLIST_VIDEO_LIMIT,
       transcriptConcurrency: TRANSCRIPT_CONCURRENCY,
     },
     operations: {
-      discoveryCommands: 2,
-      playlistExpansionCommands: playlists.length,
-      transcriptCommandAttempts,
+      discoveryRequests: 1,
+      playlistPreviewsExpanded: playlists.length,
+      transcriptRequests,
       transcriptLookups,
     },
     preferredLanguages,
@@ -1059,6 +756,45 @@ export const buildYouTubeResearchBundle = async (
   language: string,
   options: YouTubeResearchOptions = {}
 ): Promise<YouTubeResearchBundle> => (await buildYouTubeResearch(query, language, options)).bundle;
+
+const summarizeYouTubeResearch = (diagnostic: YouTubeResearchDiagnostic): string => {
+  const videoCandidates = diagnostic.candidates.filter(candidate => candidate.kind === 'video');
+  const includedCount = videoCandidates.filter(
+    candidate => candidate.decision === 'context-included'
+  ).length;
+  const noTranscriptCount = videoCandidates.filter(
+    candidate => candidate.decision === 'no-transcript'
+  ).length;
+  const budgetCount = videoCandidates.filter(
+    candidate => candidate.decision === 'transcript-budget'
+  ).length;
+
+  if (videoCandidates.length === 0) {
+    return 'La ricerca non ha restituito video candidati.';
+  }
+  if (includedCount > 0) {
+    return `${includedCount} video con transcript disponibile inclusi su ${videoCandidates.length} candidati valutati.`;
+  }
+  if (noTranscriptCount === videoCandidates.length) {
+    return `Nessuno dei ${videoCandidates.length} video candidati disponeva di un transcript utilizzabile.`;
+  }
+  if (budgetCount > 0) {
+    return `Nessun video incluso: ${budgetCount} transcript non rientravano nel budget contestuale e ${noTranscriptCount} non erano disponibili.`;
+  }
+  return `Nessuno dei ${videoCandidates.length} video candidati ha prodotto contesto utilizzabile.`;
+};
+
+export const buildYouTubeResearchOutcome = async (
+  query: string,
+  language: string,
+  options: YouTubeResearchOptions = {}
+): Promise<YouTubeResearchOutcome> => {
+  const diagnostic = await buildYouTubeResearch(query, language, options);
+  return {
+    ...diagnostic.bundle,
+    rationale: summarizeYouTubeResearch(diagnostic),
+  };
+};
 
 export const buildYouTubeResearchDiagnostic = async (
   query: string,

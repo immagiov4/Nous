@@ -152,6 +152,9 @@ test('generateSectionContent keeps all verified image placements instead of trun
         textAfter: 'overlay sul muro',
         sourceOrder: 1,
         pageNumber: 5,
+        intrinsicWidth: 1280,
+        intrinsicHeight: 720,
+        sizeBytes: 84_000,
       },
       {
         id: 'pdf-img-002',
@@ -221,6 +224,10 @@ test('generateSectionContent keeps all verified image placements instead of trun
   assert.doesNotMatch(
     String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || ''),
     /sourceContext(Current|Before|After)/i
+  );
+  assert.match(
+    String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || ''),
+    /"intrinsicWidth": 1280[\s\S]*"intrinsicHeight": 720[\s\S]*"aspectRatio": 1\.7777777777777777[\s\S]*"sizeBytes": 84000/
   );
   assert.doesNotMatch(
     String(callOpenRouterMock.mock.calls[2]?.[0]?.messages?.[1]?.content || ''),

@@ -23,11 +23,9 @@ import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
 import { imageClient } from './imageClient.js';
 
-const MAX_CONCURRENT_COURSE_COVER_REGENERATIONS = 4;
+const MAX_CONCURRENT_COURSE_COVER_REGENERATIONS = 6;
 const COURSE_COVER_PLANNER_TIMEOUT_MS = 90_000;
-const COMPLETED_JOB_COOLDOWN_MS = 15 * 60 * 1_000;
 const COURSE_COVER_REGENERATION_FAILURE_MESSAGE = 'Course cover regeneration failed.';
-const COURSE_COVER_REGENERATION_SKIPPED_MESSAGE = 'Course changed before its cover could be saved.';
 const COURSE_COVER_JOB_FAILURE_MESSAGE = 'Course cover regeneration could not be started.';
 
 type ScheduledOperation<T> = {
@@ -92,12 +90,6 @@ export type CourseCoverRegenerationResult =
       projectId: string;
       status: 'failed';
       title: string;
-    }
-  | {
-      message: typeof COURSE_COVER_REGENERATION_SKIPPED_MESSAGE;
-      projectId: string;
-      status: 'skipped';
-      title: string;
     };
 
 export interface CourseCoverRegenerationJob {
@@ -144,6 +136,10 @@ const readVisualDirection = (value: unknown): string | null => {
   if (!value || typeof value !== 'object') return null;
   const direction = value as Record<string, unknown>;
   return formatCourseCoverVisualDirection({
+    dominantColor:
+      typeof direction.dominantColor === 'string'
+        ? (direction.dominantColor as CourseCoverVisualDirection['dominantColor'])
+        : undefined,
     composition: typeof direction.composition === 'string' ? direction.composition : '',
     distinctiveDetails:
       typeof direction.distinctiveDetails === 'string' ? direction.distinctiveDetails : '',
@@ -222,13 +218,6 @@ const buildCoverFile = (projectId: string, dataUrl: string): ProjectCoverFile =>
   };
 };
 
-const skippedResult = (project: SavedProjectMeta): CourseCoverRegenerationResult => ({
-  message: COURSE_COVER_REGENERATION_SKIPPED_MESSAGE,
-  projectId: project.id,
-  status: 'skipped',
-  title: project.title,
-});
-
 const regenerateProjectCover = (
   config: GlobalModelConfig,
   project: SavedProjectMeta,
@@ -237,7 +226,6 @@ const regenerateProjectCover = (
 ): Promise<CourseCoverRegenerationResult> =>
   scheduleCourseCoverOperation(userId, async () => {
     try {
-      if (!Number.isInteger(project.revision)) return skippedResult(project);
       const visualDirection = await planCourseCoverVisualDirection(config, project);
       const image = await imageClient.generateImage({
         model: resolveImageModel(config),
@@ -245,18 +233,8 @@ const regenerateProjectCover = (
         provider: config.aiProvider,
       });
       const cover = buildCoverFile(project.id, image.dataUrl);
-      const currentProject = await store.loadProject(userId, project.id);
-      if (
-        !currentProject ||
-        currentProject.title !== project.title ||
-        currentProject.updatedAt !== project.updatedAt
-      ) {
-        return skippedResult(project);
-      }
-      const saved = await store.saveProjectCover(userId, project.id, cover, {
-        expectedRevision: project.revision,
-      });
-      if (!saved) return skippedResult(project);
+      const saved = await store.saveProjectCover(userId, project.id, cover);
+      if (!saved) throw new Error('Course no longer exists.');
       return {
         coverName: cover.name,
         projectId: project.id,
@@ -336,12 +314,7 @@ export const startOrResumeCourseCoverRegeneration = (
 ): CourseCoverRegenerationJob => {
   const jobKey = getJobKey(userId);
   const existingJob = jobByUserAndPromptVersion.get(jobKey);
-  const existingJobIsReusable =
-    existingJob?.status === 'running' ||
-    (existingJob?.status === 'completed' &&
-      existingJob.completedAtEpochMs !== undefined &&
-      Date.now() - existingJob.completedAtEpochMs < COMPLETED_JOB_COOLDOWN_MS);
-  if (existingJob && existingJobIsReusable) return snapshotJob(existingJob);
+  if (existingJob?.status === 'running') return snapshotJob(existingJob);
 
   const startedAt = timestampIso();
   const job: MutableCourseCoverRegenerationJob = {

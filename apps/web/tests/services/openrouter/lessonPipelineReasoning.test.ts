@@ -11,7 +11,9 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   };
 });
 
-const { verifyLessonDraft } = await import('../../../services/openrouter/lessonVerification.ts');
+const { buildLessonVerificationPrompt, verifyLessonDraft } = await import(
+  '../../../services/openrouter/lessonVerification.ts'
+);
 const { repairLessonMarkdown } = await import(
   '../../../services/openrouter/lessonMarkdownQuality/repair.ts'
 );
@@ -45,6 +47,7 @@ describe('lesson pipeline reasoning callbacks', () => {
         contentMarkdown: 'Bozza.',
         imagePlacements: [],
         quiz: [],
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       },
       onReasoningUpdate,
       previousContext: '',
@@ -61,7 +64,7 @@ describe('lesson pipeline reasoning callbacks', () => {
   test('forwards repair reasoning to the quiz-phase progress stream', async () => {
     const onReasoningUpdate = vi.fn();
     callOpenRouterMock.mockResolvedValue('## Sezione corretta\n\nTesto corretto.');
-    const malformedMarkdown = `${'# Titolo duplicato\n\n'.repeat(2)}${'Testo esteso. '.repeat(300)}`;
+    const malformedMarkdown = '## Formula\n\n[\nx + y\n]';
 
     await repairLessonMarkdown(
       malformedMarkdown,
@@ -73,5 +76,29 @@ describe('lesson pipeline reasoning callbacks', () => {
     );
 
     expect(callOpenRouterMock.mock.calls[0]?.[0]?.onReasoningUpdate).toBe(onReasoningUpdate);
+  });
+
+  test('keeps the complete backend-bounded source context available to verification', () => {
+    const transcriptTail = '[12:10-12:30] Mostra il passaggio pratico completo.';
+    const sourceContext = `${'Contesto precedente. '.repeat(1_500)}${transcriptTail}`;
+    const prompt = buildLessonVerificationPrompt({
+      candidateImages: [],
+      continuityRule: 'Mantieni la continuità.',
+      draft: {
+        contentMarkdown: 'Bozza.',
+        imagePlacements: [],
+        quiz: [],
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
+      },
+      previousContext: '',
+      scopeRule: 'Resta nel tema.',
+      sectionDescription: 'Descrizione',
+      sectionTitle: 'Titolo',
+      sourceContext,
+      targetQuizCount: 1,
+    });
+
+    expect(sourceContext.length).toBeGreaterThan(24_000);
+    expect(prompt).toContain(transcriptTail);
   });
 });

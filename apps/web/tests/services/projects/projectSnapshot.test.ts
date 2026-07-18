@@ -61,7 +61,7 @@ test('getProjectSourceFile preserves a round-trip legacy file payload for codeba
   assert.equal(decodeTextBase64(file?.data || ''), 'console.log("hi");');
 });
 
-test('normalizeImportedProject preserves only bounded YouTube clip metadata', () => {
+test('normalizeImportedProject preserves validated YouTube clip evidence', () => {
   const imported = normalizeImportedProject({
     id: 'video-course',
     isLearnMode: true,
@@ -73,10 +73,14 @@ test('normalizeImportedProject preserves only bounded YouTube clip metadata', ()
           {
             title: 'Dimostrazione valida',
             url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+            youtubeTranscript: {
+              ranges: [{ startSeconds: 65, endSeconds: 93 }],
+              text: '[01:05-01:33] Traccio le linee di ombra.',
+            },
             videoClip: { startSeconds: 65.8, endSeconds: 92.2 },
           },
           {
-            title: 'Intervallo eccessivo',
+            title: 'Intervallo lungo',
             url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
             videoClip: { startSeconds: 10, endSeconds: 400 },
           },
@@ -89,7 +93,49 @@ test('normalizeImportedProject preserves only bounded YouTube clip metadata', ()
     startSeconds: 65,
     endSeconds: 92,
   });
-  assert.equal(imported.researchDossiersBySectionId?.lesson?.sources[1]?.videoClip, undefined);
+  assert.deepEqual(imported.researchDossiersBySectionId?.lesson?.sources[0]?.youtubeTranscript, {
+    ranges: [{ startSeconds: 65, endSeconds: 93 }],
+    text: '[01:05-01:33] Traccio le linee di ombra.',
+  });
+  assert.deepEqual(imported.researchDossiersBySectionId?.lesson?.sources[1]?.videoClip, {
+    startSeconds: 10,
+    endSeconds: 400,
+  });
+});
+
+test('normalizeImportedProject preserves YouTube research decisions and rationale', () => {
+  const imported = normalizeImportedProject({
+    id: 'video-research-trace',
+    researchDossiersBySectionId: {
+      lesson: {
+        sectionId: 'lesson',
+        title: 'Ombreggiatura',
+        youtubeResearch: {
+          outcome: 'completed',
+          rationale: 'Una dimostrazione pratica è pertinente.',
+          candidateDecisions: [
+            {
+              url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+              decision: 'selected-source',
+              reason: 'Mostra il passaggio con timestamp verificati.',
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(imported.researchDossiersBySectionId?.lesson?.youtubeResearch, {
+    outcome: 'completed',
+    rationale: 'Una dimostrazione pratica è pertinente.',
+    candidateDecisions: [
+      {
+        url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+        decision: 'selected-source',
+        reason: 'Mostra il passaggio con timestamp verificati.',
+      },
+    ],
+  });
 });
 
 test('detached PDF snapshots retain their source reference without pretending bytes are loaded', () => {

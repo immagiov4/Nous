@@ -6,10 +6,13 @@ const YouTubeResearchLab = lazy(() => import('./components/admin/YouTubeResearch
 const AppContent = lazy(() => import('./app/AppContent.tsx'));
 
 const renderCurrentPage = () => {
-  if (typeof window !== 'undefined' && window.location.pathname === '/admin/youtube-lab') {
+  const pathname =
+    typeof window === 'undefined' ? '/' : window.location.pathname.replace(/\/+$/, '') || '/';
+
+  if (pathname === '/admin/youtube-lab') {
     return <YouTubeResearchLab />;
   }
-  if (typeof window !== 'undefined' && window.location.pathname === '/admin') {
+  if (pathname === '/admin') {
     return <AdminPanel />;
   }
   return <AppContent />;
