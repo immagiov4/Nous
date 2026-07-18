@@ -17,7 +17,11 @@ import {
   CODEX_ACCESS_DENIED_MESSAGE,
   CodexAccessError,
 } from '../services/codexAccess.js';
-import { type CodexTurnTool, runCodexAppServerTurn } from '../services/codexAppServer.js';
+import {
+  CodexAppServerError,
+  type CodexTurnTool,
+  runCodexAppServerTurn,
+} from '../services/codexAppServer.js';
 import { isRecord } from '../utils/validation.js';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -487,26 +491,39 @@ router.get('/artifact-settings', async (_req: Request, res: Response) => {
 });
 
 router.post('/chat/completions', async (req: Request, res: Response) => {
+  let resolvedRequest: Awaited<ReturnType<typeof buildProxyRequest>> | null = null;
   try {
-    const request = await buildProxyRequest(req);
-    if (request.provider === 'codex') {
+    resolvedRequest = await buildProxyRequest(req);
+    if (resolvedRequest.provider === 'codex') {
       assertCodexRequestAccess(req);
-      await sendCodexCompletion(request.body, res);
+      await sendCodexCompletion(resolvedRequest.body, res);
       return;
     }
     const upstreamResponse = await fetch(
-      request.provider === 'openai' ? OPENAI_CHAT_COMPLETIONS_URL : OPENROUTER_CHAT_COMPLETIONS_URL,
+      resolvedRequest.provider === 'openai'
+        ? OPENAI_CHAT_COMPLETIONS_URL
+        : OPENROUTER_CHAT_COMPLETIONS_URL,
       {
         method: 'POST',
-        headers: request.provider === 'openai' ? getOpenAiHeaders() : forwardOpenRouterHeaders(req),
-        body: JSON.stringify(request.body),
+        headers:
+          resolvedRequest.provider === 'openai'
+            ? getOpenAiHeaders()
+            : forwardOpenRouterHeaders(req),
+        body: JSON.stringify(resolvedRequest.body),
       }
     );
 
     pipeAiResponse(upstreamResponse, res);
   } catch (error) {
     console.error('[AI Proxy] Request failed.', {
+      errorCode: error instanceof CodexAppServerError ? error.code : undefined,
+      errorMessage: error instanceof Error ? error.message : String(error),
       errorType: error instanceof Error ? error.name : 'unknown',
+      headersSent: res.headersSent,
+      model: resolvedRequest?.body.model,
+      modelSlot: resolvedRequest?.body.nous_model_slot,
+      serviceTier: resolvedRequest?.body.nous_service_tier,
+      stream: resolvedRequest?.body.stream === true,
     });
     if (error instanceof CodexAccessError && !res.headersSent) {
       res.status(403).json({ success: false, error: CODEX_ACCESS_DENIED_MESSAGE });

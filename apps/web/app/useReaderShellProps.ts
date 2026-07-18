@@ -249,6 +249,7 @@ export const useReaderShellProps = ({
         sectionProgress: controller.workflowState.loadSection.progress,
         sourcePageRangeLabel: activeSectionSourcePageRangeLabel,
         ttsTextPicker: {
+          confirmationRects: readerState.ttsTextPicker.confirmationRects,
           hoveredChunkIndex: readerState.ttsTextPicker.hoveredChunkIndex,
           isActive: readerState.ttsTextPicker.isActive,
           overlayRects: readerState.ttsTextPicker.overlayRects,

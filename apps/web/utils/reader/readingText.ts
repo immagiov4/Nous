@@ -65,6 +65,23 @@ const HTML_TAGS_TO_STRIP = new Set(['mark', 'span']);
 const rangeContainsLineBreak = (content: string, range: MarkdownRange): boolean =>
   content.slice(range.start, range.end).includes('\n');
 
+const readInlineCode = (content: string, range: MarkdownRange): string | null => {
+  const protectedText = content.slice(range.start, range.end);
+  if (!protectedText.startsWith('`') || protectedText.includes('\n')) {
+    return null;
+  }
+
+  const delimiter = protectedText.match(/^`+/u)?.[0] ?? '';
+  if (
+    !delimiter ||
+    !protectedText.endsWith(delimiter) ||
+    protectedText.length <= delimiter.length * 2
+  ) {
+    return null;
+  }
+  return protectedText.slice(delimiter.length, -delimiter.length).trim();
+};
+
 const replaceMarkdownProtectedRanges = (content: string): string => {
   const ranges = getMarkdownProtectedRanges(content);
   if (ranges.length === 0) {
@@ -76,7 +93,8 @@ const replaceMarkdownProtectedRanges = (content: string): string => {
 
   ranges.forEach(range => {
     nextContent += content.slice(cursor, range.start);
-    nextContent += rangeContainsLineBreak(content, range) ? '\n' : ' ';
+    const inlineCode = readInlineCode(content, range);
+    nextContent += inlineCode ?? (rangeContainsLineBreak(content, range) ? '\n' : ' ');
     cursor = range.end;
   });
 
@@ -394,7 +412,7 @@ export const prepareMarkdownForSpeech = (content: string): string => {
 const extractReadableElementText = (element: HTMLElement): string => {
   const clone = element.cloneNode(true) as HTMLElement;
   clone
-    .querySelectorAll(`pre, code, .katex, .katex-display, script, style, ${NON_SPEECH_SELECTOR}`)
+    .querySelectorAll(`pre, .katex, .katex-display, script, style, ${NON_SPEECH_SELECTOR}`)
     .forEach(node => {
       node.remove();
     });

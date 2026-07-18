@@ -1,10 +1,11 @@
-import { type RefObject, useCallback, useEffect, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import {
   buildReadableTextElements,
   type ReadableTextElement,
 } from '../../utils/reader/readingText.ts';
 
 const OVERLAY_HORIZONTAL_INSET_PX = 6;
+const CONFIRMATION_DURATION_MS = 900;
 
 interface TtsTextPickerOverlayRect {
   height: number;
@@ -120,6 +121,8 @@ export const useTtsTextPicker = ({
   const [isActive, setIsActiveState] = useState(false);
   const [hoveredChunkIndex, setHoveredChunkIndex] = useState<number | null>(null);
   const [overlayRects, setOverlayRects] = useState<TtsTextPickerOverlayRect[]>([]);
+  const [confirmationRects, setConfirmationRects] = useState<TtsTextPickerOverlayRect[]>([]);
+  const confirmationTimeoutRef = useRef<number | null>(null);
 
   const clearHighlight = useCallback(() => {
     setHoveredChunkIndex(currentIndex => (currentIndex === null ? currentIndex : null));
@@ -185,6 +188,14 @@ export const useTtsTextPicker = ({
 
       event.preventDefault();
       event.stopImmediatePropagation();
+      setConfirmationRects(buildOverlayRects(matches, chunkIndex));
+      if (confirmationTimeoutRef.current !== null) {
+        window.clearTimeout(confirmationTimeoutRef.current);
+      }
+      confirmationTimeoutRef.current = window.setTimeout(() => {
+        confirmationTimeoutRef.current = null;
+        setConfirmationRects([]);
+      }, CONFIRMATION_DURATION_MS);
       onSelectChunk(chunkIndex);
       setIsActive(false);
     };
@@ -210,7 +221,17 @@ export const useTtsTextPicker = ({
     };
   }, [chunkTexts, clearHighlight, contentRef, isActive, onSelectChunk, setIsActive]);
 
+  useEffect(
+    () => () => {
+      if (confirmationTimeoutRef.current !== null) {
+        window.clearTimeout(confirmationTimeoutRef.current);
+      }
+    },
+    []
+  );
+
   return {
+    confirmationRects,
     hoveredChunkIndex,
     isActive,
     overlayRects,

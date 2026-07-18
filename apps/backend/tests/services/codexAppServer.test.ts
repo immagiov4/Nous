@@ -452,6 +452,55 @@ describe('Codex app-server protocol client', () => {
     client.close();
   });
 
+  test('surfaces the app-server reason when a turn fails', async () => {
+    let fakeProcess: FakeCodexProcess;
+    fakeProcess = new FakeCodexProcess(message => {
+      if (message.method === 'initialize') {
+        respond(fakeProcess, message, {});
+      } else if (message.method === 'account/read') {
+        respond(fakeProcess, message, {
+          account: { type: 'chatgpt', planType: 'plus' },
+          requiresOpenaiAuth: true,
+        });
+      } else if (message.method === 'thread/start') {
+        respond(fakeProcess, message, { thread: { id: 'thread-failed' } });
+      } else if (message.method === 'turn/start') {
+        respond(fakeProcess, message, { turn: { id: 'turn-failed' } });
+        fakeProcess.send({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-failed',
+            turn: {
+              id: 'turn-failed',
+              status: 'failed',
+              error: { code: 'rate_limit', message: 'Too many requests.' },
+            },
+          },
+        });
+      }
+    });
+
+    const client = await startCodexAppServerClient(() => fakeProcess as never);
+    await expect(
+      runCodexAppServerTurnWithClient(
+        {
+          developerInstructions: 'Tutor.',
+          input: [{ type: 'text', text: 'Ciao' }],
+          model: 'gpt-test-a',
+          reasoningEffort: 'minimal',
+        },
+        client
+      )
+    ).rejects.toMatchObject<CodexAppServerError>({
+      code: 'protocol',
+      message: 'Codex turn failed: rate_limit: Too many requests.',
+    });
+    expect(fakeProcess.received.find(message => message.method === 'turn/start')).toMatchObject({
+      params: { effort: 'none', summary: 'none' },
+    });
+    client.close();
+  });
+
   test('stops before opening a thread when Codex has no authenticated account', async () => {
     let fakeProcess: FakeCodexProcess;
     fakeProcess = new FakeCodexProcess(message => {

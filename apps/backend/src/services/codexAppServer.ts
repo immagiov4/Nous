@@ -566,6 +566,25 @@ const readTurnStatus = (params: unknown): string | undefined => {
   return readString(params.turn.status);
 };
 
+const readTurnFailure = (params: unknown): string | undefined => {
+  if (!isRecord(params) || !isRecord(params.turn)) {
+    return undefined;
+  }
+
+  const error = params.turn.error;
+  if (typeof error === 'string') {
+    return readString(error);
+  }
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  return [error.code, error.codexErrorInfo, error.message, error.additionalDetails]
+    .map(readString)
+    .filter((value): value is string => Boolean(value))
+    .join(': ');
+};
+
 export const runCodexAppServerTurnWithClient = async (
   turn: CodexTurnInput,
   client: CodexJsonRpcClient
@@ -707,7 +726,13 @@ export const runCodexAppServerTurnWithClient = async (
       cleanupTurnListener();
       const status = readTurnStatus(params);
       if (status && status !== 'completed') {
-        reject(new CodexAppServerError('Codex did not complete the turn.', 'protocol'));
+        const failure = readTurnFailure(params);
+        reject(
+          new CodexAppServerError(
+            `Codex turn ${status}${failure ? `: ${failure}` : '.'}`,
+            'protocol'
+          )
+        );
         return;
       }
       resolve(completedText || streamedText);
@@ -723,8 +748,9 @@ export const runCodexAppServerTurnWithClient = async (
       threadId,
       input: turn.input,
       model: turn.model,
-      effort: turn.reasoningEffort,
-      summary: turn.reasoningEffort === 'none' ? 'none' : 'detailed',
+      effort: turn.reasoningEffort === 'minimal' ? 'none' : turn.reasoningEffort,
+      summary:
+        turn.reasoningEffort === 'none' || turn.reasoningEffort === 'minimal' ? 'none' : 'detailed',
       sandboxPolicy: { type: 'readOnly' },
       ...(turn.outputSchema ? { outputSchema: turn.outputSchema } : {}),
     });

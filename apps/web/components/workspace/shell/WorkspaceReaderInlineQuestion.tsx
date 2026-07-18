@@ -52,6 +52,7 @@ export default function WorkspaceReaderInlineQuestion({
 
   return (
     <section
+      data-nous-speech="ignore"
       className={`my-8 rounded-[2rem] border px-5 py-5 shadow-sm transition-all sm:px-7 ${
         isAnswered
           ? 'border-stone-200/90 bg-stone-50/90 dark:border-stone-600/80 dark:bg-stone-900/50'

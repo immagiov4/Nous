@@ -47,6 +47,21 @@ describe('buildReadableBlocks', () => {
     expect(blocks.map(block => block.text)).toEqual(['Prima del media.', 'Dopo il media.']);
   });
 
+  test('reads inline code while ignoring code blocks and interactive quizzes', () => {
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <article class="prose">
+        <p>Usa il comando <code>fetch</code> per continuare.</p>
+        <pre><code>fetch('/api').then(run);</code></pre>
+        <section data-nous-speech="ignore"><p>Quiz da non leggere.</p></section>
+      </article>
+    `;
+
+    expect(buildReadableTextElements(container).map(item => item.text)).toEqual([
+      'Usa il comando fetch per continuare.',
+    ]);
+  });
+
   test('falls back to textContent when a browser returns empty innerText for a detached clone', () => {
     const originalInnerTextDescriptor = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
@@ -75,7 +90,7 @@ describe('buildReadableBlocks', () => {
 });
 
 describe('prepareMarkdownForSpeech', () => {
-  test('drops media placeholders, code, math, and ignored html while preserving readable prose', () => {
+  test('drops media placeholders, code blocks, math, and ignored html while preserving inline code', () => {
     const input = [
       '# Titolo',
       '',
@@ -94,7 +109,9 @@ describe('prepareMarkdownForSpeech', () => {
     ].join('\n');
 
     expect(prepareMarkdownForSpeech(input)).toBe(
-      ['Titolo', '', 'Intro con link utile e .', '', 'Punto finale con focus.'].join('\n')
+      ['Titolo', '', 'Intro con link utile e codice inline.', '', 'Punto finale con focus.'].join(
+        '\n'
+      )
     );
   });
 

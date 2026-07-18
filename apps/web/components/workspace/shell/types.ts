@@ -144,6 +144,7 @@ export interface WorkspaceReaderTtsModel {
 }
 
 export interface WorkspaceReaderTextPickerModel {
+  confirmationRects?: Array<{ height: number; left: number; top: number; width: number }>;
   hoveredChunkIndex: number | null;
   isActive: boolean;
   overlayRects: Array<{ height: number; left: number; top: number; width: number }>;

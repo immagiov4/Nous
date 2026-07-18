@@ -1092,16 +1092,6 @@ export const useTtsPlayer = ({
       if (nextIndex < 0 || nextIndex >= chunks.length) {
         return;
       }
-      if (nextIndex === currentState.currentChunkIndex && currentState.chunks.length > 0) {
-        return;
-      }
-
-      const wasPlaying =
-        shouldPlayRef.current &&
-        (playbackRunRef.current.status === 'playing' ||
-          playbackRunRef.current.status === 'crossfading' ||
-          playbackRunRef.current.status === 'starting');
-
       shouldPlayRef.current = false;
       playbackSessionRef.current += 1;
       playRequestIdRef.current += 1;
@@ -1116,17 +1106,9 @@ export const useTtsPlayer = ({
         isPlaying: false,
       }));
 
-      if (wasPlaying) {
-        shouldPlayRef.current = true;
-        beginNewRun(nextIndex);
-        void playAudio(nextIndex, 0);
-        return;
-      }
-
-      playbackRunRef.current.status = 'paused';
-      playbackRunRef.current.currentChunkIndex = nextIndex;
-      setPlayerCurrentTime(0);
-      setPlayerDuration(chunks[nextIndex]?.duration || 0);
+      shouldPlayRef.current = true;
+      beginNewRun(nextIndex);
+      void playAudio(nextIndex, 0);
     },
     [abortCurrentRun, beginNewRun, playAudio, preparedChunkTexts, setTrackedAudioState]
   );

@@ -203,7 +203,7 @@ describe('useTtsPlayer', () => {
     expect(result.current.audioState.playbackRate).toBe(1.25);
   });
 
-  test('selects a speech chunk before playback and starts from that chunk', async () => {
+  test('selects a speech chunk and starts it automatically', async () => {
     const sectionContent = `${'Prima parte della lezione con concetti introduttivi. '.repeat(16)}\n\n${'Seconda parte dedicata agli esempi applicativi. '.repeat(16)}`;
     const { result } = renderHook(() =>
       useTtsPlayer({
@@ -222,11 +222,6 @@ describe('useTtsPlayer', () => {
 
     expect(result.current.audioState.currentChunkIndex).toBe(1);
     expect(result.current.audioState.chunks).toHaveLength(result.current.chunkOptions.length);
-    expect(openRouterMocks.generateSpeech).not.toHaveBeenCalled();
-
-    act(() => {
-      result.current.togglePlayPause();
-    });
 
     await waitFor(() => expect(openRouterMocks.generateSpeech).toHaveBeenCalledTimes(1));
     expect(openRouterMocks.generateSpeech.mock.calls[0]?.[0]).toBe(

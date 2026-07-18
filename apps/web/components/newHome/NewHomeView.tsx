@@ -959,9 +959,16 @@ const CourseList = ({
                             onOpenProject(project.id);
                           }
                         }}
-                        className="group relative flex cursor-pointer items-center gap-4 border-b border-stone-100 px-4 py-3 last:border-b-0 dark:border-white/10"
+                        className="group relative m-3 flex min-h-24 cursor-pointer items-center gap-3 overflow-hidden rounded-[1.5rem] border border-stone-200/80 px-4 py-4 shadow-sm sm:m-0 sm:min-h-0 sm:gap-4 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:px-4 sm:py-3 sm:shadow-none sm:last:border-b-0 dark:border-white/10"
                       >
-                        <div className="flex min-w-0 flex-1 items-center gap-4 text-left">
+                        <div aria-hidden="true" className="absolute inset-0 sm:hidden">
+                          <CourseCover
+                            imageUrl={getCourseCoverUrl(project, coverImages)}
+                            title={project.title}
+                          />
+                          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(253,251,247,0.98)_0%,rgba(253,251,247,0.94)_58%,rgba(253,251,247,0.3)_100%)] dark:bg-[linear-gradient(90deg,rgba(37,37,38,0.98)_0%,rgba(37,37,38,0.94)_58%,rgba(37,37,38,0.35)_100%)]" />
+                        </div>
+                        <div className="relative z-10 flex min-w-0 flex-1 items-center gap-4 text-left">
                           <button
                             type="button"
                             onClick={event => {
@@ -970,7 +977,7 @@ const CourseList = ({
                             }}
                             disabled={isOpening}
                             aria-busy={isOpening}
-                            className="relative h-11 w-16 shrink-0 overflow-hidden rounded-lg disabled:cursor-wait"
+                            className="relative hidden h-11 w-16 shrink-0 overflow-hidden rounded-lg disabled:cursor-wait sm:block"
                           >
                             <div className="relative h-11 w-16 shrink-0 overflow-hidden rounded-lg">
                               {isOpening ? (
@@ -990,7 +997,7 @@ const CourseList = ({
                               renderInlineRenameForm('project')
                             ) : (
                               <>
-                                <p className="line-clamp-2 font-serif text-sm leading-snug text-stone-900 dark:text-stone-100">
+                                <p className="font-serif text-sm leading-snug text-stone-900 dark:text-stone-100">
                                   <button
                                     type="button"
                                     onClick={event => {
@@ -1027,7 +1034,7 @@ const CourseList = ({
                                         name: project.title,
                                       });
                                     }}
-                                    className="text-left"
+                                    className="line-clamp-3 w-full overflow-hidden text-left sm:line-clamp-2"
                                   >
                                     {project.title}
                                   </button>
@@ -1040,7 +1047,7 @@ const CourseList = ({
                                   }}
                                   disabled={isOpening}
                                   aria-busy={isOpening}
-                                  className="mt-1 text-[0.68rem] text-stone-400 disabled:cursor-wait"
+                                  className="mt-1 text-[0.68rem] text-stone-600 disabled:cursor-wait sm:text-stone-400 dark:text-stone-300 dark:sm:text-stone-400"
                                 >
                                   {t('{lessonCount} lezioni · {lastOpenedDate}', {
                                     lessonCount: project.lessonCount,
@@ -1051,7 +1058,7 @@ const CourseList = ({
                             )}
                           </div>
                         </div>
-                        <div className="hidden sm:block">
+                        <div className="relative z-10 hidden sm:block">
                           <CourseProgress value={progress} />
                         </div>
                         <button
@@ -1071,7 +1078,7 @@ const CourseList = ({
                             onToggleFavorite(project.id);
                           }}
                           disabled={isOpening}
-                          className="rounded-full p-2 text-stone-400 hover:bg-stone-100 hover:text-[#b45c28] aria-pressed:text-[#b45c28] dark:hover:bg-white/5 dark:hover:text-[#f1c6a8] dark:aria-pressed:text-[#f1c6a8]"
+                          className="relative z-10 rounded-full bg-[#fdfbf7] p-2 text-stone-600 hover:bg-stone-100 hover:text-[#b45c28] aria-pressed:text-[#b45c28] sm:bg-transparent sm:text-stone-400 dark:bg-[#252526] dark:text-stone-300 dark:hover:bg-white/5 dark:hover:text-[#f1c6a8] dark:aria-pressed:text-[#f1c6a8] dark:sm:bg-transparent dark:sm:text-stone-400"
                         >
                           <Heart className="h-4 w-4" fill={isFavorite ? 'currentColor' : 'none'} />
                         </button>
@@ -1090,10 +1097,15 @@ const CourseList = ({
                             );
                           }}
                           disabled={isOpening}
-                          className="rounded-full p-2 text-stone-400 hover:bg-stone-100 dark:hover:bg-white/5"
+                          className="relative z-10 rounded-full bg-[#fdfbf7] p-2 text-stone-600 hover:bg-stone-100 sm:bg-transparent sm:text-stone-400 dark:bg-[#252526] dark:text-stone-300 dark:hover:bg-white/5 dark:sm:bg-transparent dark:sm:text-stone-400"
                         >
                           <MoreVertical className="h-4 w-4" />
                         </button>
+                        {isOpening ? (
+                          <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#fdfbf7]/95 sm:hidden dark:bg-[#252526]/95">
+                            <Loader2 className="h-6 w-6 animate-spin text-[#a95828] dark:text-[#f1c6a8]" />
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}

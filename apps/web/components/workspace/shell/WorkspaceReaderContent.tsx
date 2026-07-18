@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import {
   Archive,
   Bold,
@@ -1080,6 +1081,17 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
             </span>
           ) : null}
         </div>
+      ))}
+      {(ttsTextPicker.confirmationRects || []).map(rect => (
+        <motion.div
+          key={`confirmation:${rect.top}:${rect.left}:${rect.width}:${rect.height}`}
+          aria-hidden="true"
+          className="pointer-events-none fixed z-40 rounded-md border-2 border-orange-500 bg-orange-300/20 shadow-[0_0_0_3px_rgba(249,115,22,0.16)] dark:border-orange-400 dark:bg-orange-400/15"
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: [0, 1, 1, 0], scale: [0.92, 1.03, 1, 1] }}
+          transition={{ duration: 0.9, times: [0, 0.35, 0.55, 1], ease: 'easeOut' }}
+          style={rect}
+        />
       ))}
       <div
         className={`mx-auto w-full min-w-0 transition-all duration-500 ${readingShellClassName}`}
