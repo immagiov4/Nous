@@ -14,7 +14,9 @@ const logJsonRepairFailure = (stage: JsonRepairStage, error: unknown): void => {
 };
 
 export const cleanJson = (text: string): string => {
-  let clean = text.replace(/```json\n?|```/g, '').trim();
+  const trimmed = text.trim();
+  const outerFence = trimmed.match(/^```(?:json)?[\t ]*(?:\r?\n)?([\s\S]*?)\r?\n?```$/i);
+  let clean = (outerFence?.[1] ?? trimmed).trim();
   const firstBracket = clean.indexOf('[');
   const firstBrace = clean.indexOf('{');
   const start =
