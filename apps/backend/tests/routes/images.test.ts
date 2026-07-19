@@ -61,6 +61,7 @@ describe('POST /api/images/generate', () => {
   test('routes Codex image generation through the authenticated app-server capability', async () => {
     process.env.AUTH_MODE = 'supabase';
     process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    patchGlobalModelConfig({ codexArtifactModel: 'gpt-codex-artifact' });
     const token = createSupabaseTestToken({ aiProvider: 'codex' });
     const modelsResponse = await request(createApp())
       .get('/api/images/models')
@@ -76,8 +77,9 @@ describe('POST /api/images/generate', () => {
     expect(modelsResponse.body).toMatchObject({
       success: true,
       available: true,
-      selectedModel: expect.stringMatching(/^gpt-image-/),
-      models: [{ id: 'gpt-image-2', name: 'gpt-image-2' }],
+      defaultModel: 'gpt-codex-artifact',
+      selectedModel: 'gpt-codex-artifact',
+      models: [{ id: 'gpt-codex-artifact', name: 'gpt-codex-artifact' }],
     });
     expect(generationResponse.status).toBe(200);
     expect(imageClientMocks.generateImage).toHaveBeenCalledWith({
@@ -86,7 +88,7 @@ describe('POST /api/images/generate', () => {
       provider: 'codex',
     });
     expect(imageClientMocks.listModels).not.toHaveBeenCalled();
-    expect(imageClientMocks.listOpenAiModels).toHaveBeenCalledTimes(1);
+    expect(imageClientMocks.listOpenAiModels).not.toHaveBeenCalled();
   });
 
   test('requires a non-empty prompt', async () => {

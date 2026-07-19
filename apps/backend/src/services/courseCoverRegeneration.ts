@@ -13,6 +13,8 @@ import {
   type AiProvider,
   type GlobalModelConfig,
   getResolvedModelConfigForProvider,
+  type ModelProviderOverrides,
+  resolveAiProviderForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
 import { getProjectStore } from '../projects/projectStore.js';
@@ -25,7 +27,9 @@ import { imageClient } from './imageClient.js';
 
 const MAX_CONCURRENT_COURSE_COVER_REGENERATIONS = 6;
 const COURSE_COVER_PLANNER_TIMEOUT_MS = 90_000;
+const COMPLETED_JOB_COOLDOWN_MS = 15 * 60 * 1_000;
 const COURSE_COVER_REGENERATION_FAILURE_MESSAGE = 'Course cover regeneration failed.';
+const COURSE_COVER_REGENERATION_SKIPPED_MESSAGE = 'Course changed before its cover could be saved.';
 const COURSE_COVER_JOB_FAILURE_MESSAGE = 'Course cover regeneration could not be started.';
 
 type ScheduledOperation<T> = {
@@ -90,6 +94,12 @@ export type CourseCoverRegenerationResult =
       projectId: string;
       status: 'failed';
       title: string;
+    }
+  | {
+      message: typeof COURSE_COVER_REGENERATION_SKIPPED_MESSAGE;
+      projectId: string;
+      status: 'skipped';
+      title: string;
     };
 
 export interface CourseCoverRegenerationJob {
@@ -152,7 +162,7 @@ const planWithCodex = async (
   title: string,
   context: string
 ): Promise<string | null> => {
-  const { model, reasoningEffort } = resolveTextModelConfig(config, 'assessment');
+  const { model, reasoningEffort } = resolveTextModelConfig(config, 'artifact');
   const response = await runCodexAppServerTurn({
     developerInstructions: COURSE_COVER_DIRECTION_SYSTEM_PROMPT,
     input: [{ type: 'text', text: buildCourseCoverDirectionUserPrompt(title, context) }],
@@ -168,17 +178,16 @@ const planWithAiSdk = async (
   title: string,
   context: string
 ): Promise<string | null> => {
-  const configuredModel = createConfiguredTextModel(config, 'assessment');
+  const configuredModel = createConfiguredTextModel(config, 'artifact');
   const { output } = await generateText({
     abortSignal: AbortSignal.timeout(COURSE_COVER_PLANNER_TIMEOUT_MS),
     maxOutputTokens: 420,
     model: configuredModel.model,
     output: Output.object({
       name: 'course_cover_visual_direction',
-      schema: jsonSchema<CourseCoverVisualDirection>({
-        ...COURSE_COVER_DIRECTION_JSON_SCHEMA,
-        required: [...COURSE_COVER_DIRECTION_JSON_SCHEMA.required],
-      }),
+      schema: jsonSchema<CourseCoverVisualDirection>(
+        COURSE_COVER_DIRECTION_JSON_SCHEMA as unknown as Parameters<typeof jsonSchema>[0]
+      ),
     }),
     prompt: buildCourseCoverDirectionUserPrompt(title, context),
     providerOptions: configuredModel.providerOptions,
@@ -193,7 +202,7 @@ const planCourseCoverVisualDirection = async (
 ): Promise<string> => {
   const context = `Source: ${project.coverLabel}. Source kind: ${project.sourceKind}.`;
   const direction =
-    config.aiProvider === 'codex'
+    resolveAiProviderForSlot(config, 'artifact') === 'codex'
       ? await planWithCodex(config, project.title, context)
       : await planWithAiSdk(config, project.title, context);
   if (!direction) throw new Error('Course cover visual direction is invalid.');
@@ -201,8 +210,9 @@ const planCourseCoverVisualDirection = async (
 };
 
 const resolveImageModel = (config: GlobalModelConfig): string => {
-  if (config.aiProvider === 'codex') return config.codexArtifactModel;
-  if (config.aiProvider === 'openai') return config.openAiImageModel;
+  const provider = resolveAiProviderForSlot(config, 'image');
+  if (provider === 'codex') return config.codexArtifactModel;
+  if (provider === 'openai') return config.openAiImageModel;
   return config.imageModel;
 };
 
@@ -218,6 +228,13 @@ const buildCoverFile = (projectId: string, dataUrl: string): ProjectCoverFile =>
   };
 };
 
+const skippedResult = (project: SavedProjectMeta): CourseCoverRegenerationResult => ({
+  message: COURSE_COVER_REGENERATION_SKIPPED_MESSAGE,
+  projectId: project.id,
+  status: 'skipped',
+  title: project.title,
+});
+
 const regenerateProjectCover = (
   config: GlobalModelConfig,
   project: SavedProjectMeta,
@@ -226,15 +243,26 @@ const regenerateProjectCover = (
 ): Promise<CourseCoverRegenerationResult> =>
   scheduleCourseCoverOperation(userId, async () => {
     try {
+      if (!Number.isInteger(project.revision)) return skippedResult(project);
       const visualDirection = await planCourseCoverVisualDirection(config, project);
       const image = await imageClient.generateImage({
         model: resolveImageModel(config),
         prompt: buildCourseCoverPrompt(project.title, visualDirection),
-        provider: config.aiProvider,
+        provider: resolveAiProviderForSlot(config, 'image'),
       });
       const cover = buildCoverFile(project.id, image.dataUrl);
-      const saved = await store.saveProjectCover(userId, project.id, cover);
-      if (!saved) throw new Error('Course no longer exists.');
+      const currentProject = await store.loadProject(userId, project.id);
+      if (
+        !currentProject ||
+        currentProject.title !== project.title ||
+        currentProject.updatedAt !== project.updatedAt
+      ) {
+        return skippedResult(project);
+      }
+      const saved = await store.saveProjectCover(userId, project.id, cover, {
+        expectedRevision: project.revision,
+      });
+      if (!saved) return skippedResult(project);
       return {
         coverName: cover.name,
         projectId: project.id,
@@ -281,12 +309,13 @@ const completeJob = (
 const runCourseCoverRegenerationJob = async (
   job: MutableCourseCoverRegenerationJob,
   userId: string,
-  aiProvider?: AiProvider
+  aiProvider?: AiProvider,
+  aiProviderOverrides?: ModelProviderOverrides
 ): Promise<void> => {
   try {
     const store = getProjectStore();
     const [config, projects] = await Promise.all([
-      getResolvedModelConfigForProvider(aiProvider),
+      getResolvedModelConfigForProvider(aiProvider, aiProviderOverrides),
       store.listProjects(userId),
     ]);
     job.resultSlots = Array.from({ length: projects.length });
@@ -310,11 +339,17 @@ const runCourseCoverRegenerationJob = async (
 
 export const startOrResumeCourseCoverRegeneration = (
   userId: string,
-  aiProvider?: AiProvider
+  aiProvider?: AiProvider,
+  aiProviderOverrides?: ModelProviderOverrides
 ): CourseCoverRegenerationJob => {
   const jobKey = getJobKey(userId);
   const existingJob = jobByUserAndPromptVersion.get(jobKey);
-  if (existingJob?.status === 'running') return snapshotJob(existingJob);
+  const existingJobIsReusable =
+    existingJob?.status === 'running' ||
+    (existingJob?.status === 'completed' &&
+      existingJob.completedAtEpochMs !== undefined &&
+      Date.now() - existingJob.completedAtEpochMs < COMPLETED_JOB_COOLDOWN_MS);
+  if (existingJob && existingJobIsReusable) return snapshotJob(existingJob);
 
   const startedAt = timestampIso();
   const job: MutableCourseCoverRegenerationJob = {
@@ -328,7 +363,7 @@ export const startOrResumeCourseCoverRegeneration = (
     updatedAt: startedAt,
   };
   jobByUserAndPromptVersion.set(jobKey, job);
-  void runCourseCoverRegenerationJob(job, userId, aiProvider);
+  void runCourseCoverRegenerationJob(job, userId, aiProvider, aiProviderOverrides);
   return snapshotJob(job);
 };
 

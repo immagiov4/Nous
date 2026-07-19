@@ -3,6 +3,17 @@ import { getBackendUrl } from '../openrouter/config.ts';
 
 export type AdminReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
 export type AdminAiProvider = 'codex' | 'openai' | 'openrouter';
+export type AdminModelProviderSlot =
+  | 'artifact'
+  | 'artifactInteractive'
+  | 'assessment'
+  | 'context'
+  | 'course'
+  | 'image'
+  | 'lesson'
+  | 'progress'
+  | 'research';
+export type AdminModelProviderOverrides = Partial<Record<AdminModelProviderSlot, AdminAiProvider>>;
 
 export interface AdminUser {
   banned_until?: string | null;
@@ -10,6 +21,7 @@ export interface AdminUser {
   id: string;
   app_metadata?: {
     ai_provider?: AdminAiProvider;
+    ai_provider_overrides?: AdminModelProviderOverrides;
     password_setup_required?: boolean;
     role?: string;
   };
@@ -24,6 +36,7 @@ export interface AdminUserCreateInput {
 
 export interface AdminUserPatch {
   aiProvider?: AdminAiProvider | null;
+  aiProviderOverrides?: AdminModelProviderOverrides;
   disabled?: boolean;
   password?: string;
   role?: 'admin' | 'user';
@@ -204,6 +217,7 @@ export interface AdminYouTubeResearchLabResult {
 
 export interface AdminModelConfig {
   aiProvider: AdminAiProvider;
+  aiProviderOverrides: AdminModelProviderOverrides;
   artifactModel: string;
   artifactInteractiveModel: string;
   artifactInteractiveReasoningEffort: AdminReasoningEffort;
@@ -216,27 +230,24 @@ export interface AdminModelConfig {
   codexArtifactModel: string;
   codexArtifactInteractiveModel: string;
   codexContextModel: string;
-  codexDraftingModel: string;
+  codexCourseModel: string;
   codexFastModelSlots: Array<
     | 'artifact'
     | 'artifactInteractive'
     | 'assessment'
     | 'context'
-    | 'drafting'
+    | 'course'
     | 'lesson'
     | 'progress'
     | 'research'
-    | 'structure'
-    | 'verification'
   >;
   codexLessonModel: string;
   codexProgressModel: string;
   codexResearchModel: string;
-  codexStructureModel: string;
-  codexVerificationModel: string;
   contextModel: string;
   contextReasoningEffort: AdminReasoningEffort;
-  draftingReasoningEffort: AdminReasoningEffort;
+  courseModel: string;
+  courseReasoningEffort: AdminReasoningEffort;
   imageModel: string;
   lessonModel: string;
   lessonReasoningEffort: AdminReasoningEffort;
@@ -244,6 +255,7 @@ export interface AdminModelConfig {
   openAiArtifactModel: string;
   openAiArtifactInteractiveModel: string;
   openAiContextModel: string;
+  openAiCourseModel: string;
   openAiImageModel: string;
   openAiLessonModel: string;
   openAiProgressModel: string;
@@ -251,17 +263,16 @@ export interface AdminModelConfig {
   progressModel: string;
   progressReasoningEffort: AdminReasoningEffort;
   researchModel: string;
-  structureReasoningEffort: AdminReasoningEffort;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
-  verificationReasoningEffort: AdminReasoningEffort;
 }
 
 export type AdminModelConfigPatch = Partial<
   Pick<
     AdminModelConfig,
     | 'aiProvider'
+    | 'aiProviderOverrides'
     | 'artifactModel'
     | 'artifactInteractiveModel'
     | 'artifactInteractiveReasoningEffort'
@@ -274,16 +285,15 @@ export type AdminModelConfigPatch = Partial<
     | 'codexArtifactModel'
     | 'codexArtifactInteractiveModel'
     | 'codexContextModel'
-    | 'codexDraftingModel'
+    | 'codexCourseModel'
     | 'codexFastModelSlots'
     | 'codexLessonModel'
     | 'codexProgressModel'
     | 'codexResearchModel'
-    | 'codexStructureModel'
-    | 'codexVerificationModel'
     | 'contextModel'
     | 'contextReasoningEffort'
-    | 'draftingReasoningEffort'
+    | 'courseModel'
+    | 'courseReasoningEffort'
     | 'imageModel'
     | 'lessonModel'
     | 'lessonReasoningEffort'
@@ -291,6 +301,7 @@ export type AdminModelConfigPatch = Partial<
     | 'openAiArtifactModel'
     | 'openAiArtifactInteractiveModel'
     | 'openAiContextModel'
+    | 'openAiCourseModel'
     | 'openAiImageModel'
     | 'openAiLessonModel'
     | 'openAiProgressModel'
@@ -298,15 +309,14 @@ export type AdminModelConfigPatch = Partial<
     | 'progressModel'
     | 'progressReasoningEffort'
     | 'researchModel'
-    | 'structureReasoningEffort'
     | 'ttsModel'
     | 'ttsVoice'
-    | 'verificationReasoningEffort'
   >
 >;
 
 export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   aiProvider: 'openrouter',
+  aiProviderOverrides: {},
   artifactModel: 'deepseek/deepseek-v4-pro',
   artifactInteractiveModel: 'openai/gpt-5.6-terra',
   artifactInteractiveReasoningEffort: 'low',
@@ -319,16 +329,15 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   codexArtifactModel: 'gpt-5.6-sol',
   codexArtifactInteractiveModel: 'gpt-5.6-sol',
   codexContextModel: 'gpt-5.6-luna',
-  codexDraftingModel: 'gpt-5.6-luna',
-  codexFastModelSlots: ['artifact', 'artifactInteractive', 'drafting', 'structure'],
+  codexCourseModel: 'gpt-5.6-luna',
+  codexFastModelSlots: ['artifact', 'artifactInteractive', 'course', 'lesson'],
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
   codexResearchModel: 'gpt-5.6-terra',
-  codexStructureModel: 'gpt-5.6-luna',
-  codexVerificationModel: 'gpt-5.6-terra',
   contextModel: 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium',
-  draftingReasoningEffort: 'high',
+  courseModel: 'openai/gpt-5.6-luna',
+  courseReasoningEffort: 'medium',
   imageModel: 'google/gemini-3.1-flash-lite-image',
   lessonModel: 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high',
@@ -336,18 +345,17 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   openAiArtifactModel: 'gpt-5.6-terra',
   openAiArtifactInteractiveModel: 'gpt-5.6-terra',
   openAiContextModel: 'gpt-5.6-luna',
+  openAiCourseModel: 'gpt-5.6-terra',
   openAiImageModel: 'gpt-image-2',
   openAiLessonModel: 'gpt-5.6-terra',
   openAiProgressModel: 'gpt-5.6-luna',
-  openAiResearchModel: 'gpt-5.6-terra',
+  openAiResearchModel: 'gpt-5-search-api',
   progressModel: 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low',
   researchModel: 'perplexity/sonar-pro-search',
-  structureReasoningEffort: 'medium',
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   ttsVoice: 'Ara',
   updatedAt: '',
-  verificationReasoningEffort: 'high',
 };
 
 const readConfigValue = (value: unknown, fallback: string): string =>
@@ -361,11 +369,36 @@ const ADMIN_REASONING_EFFORTS = new Set<AdminReasoningEffort>([
   'high',
 ]);
 const ADMIN_AI_PROVIDERS = new Set<AdminAiProvider>(['codex', 'openai', 'openrouter']);
+const ADMIN_MODEL_PROVIDER_SLOTS = new Set<AdminModelProviderSlot>([
+  'artifact',
+  'artifactInteractive',
+  'assessment',
+  'context',
+  'course',
+  'image',
+  'lesson',
+  'progress',
+  'research',
+]);
 
 const readAiProvider = (value: unknown): AdminAiProvider =>
   typeof value === 'string' && ADMIN_AI_PROVIDERS.has(value as AdminAiProvider)
     ? (value as AdminAiProvider)
     : DEFAULT_ADMIN_MODEL_CONFIG.aiProvider;
+
+const readAiProviderOverrides = (value: unknown): AdminModelProviderOverrides => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [AdminModelProviderSlot, AdminAiProvider] =>
+        ADMIN_MODEL_PROVIDER_SLOTS.has(entry[0] as AdminModelProviderSlot) &&
+        ADMIN_AI_PROVIDERS.has(entry[1] as AdminAiProvider)
+    )
+  );
+};
 
 const readReasoningEffort = (
   value: unknown,
@@ -379,6 +412,7 @@ const normalizeAdminModelConfig = (
   config: Partial<AdminModelConfig> | null | undefined
 ): AdminModelConfig => ({
   aiProvider: readAiProvider(config?.aiProvider),
+  aiProviderOverrides: readAiProviderOverrides(config?.aiProviderOverrides),
   artifactModel: readConfigValue(config?.artifactModel, DEFAULT_ADMIN_MODEL_CONFIG.artifactModel),
   artifactInteractiveModel: readConfigValue(
     config?.artifactInteractiveModel,
@@ -426,9 +460,9 @@ const normalizeAdminModelConfig = (
     config?.codexContextModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexContextModel
   ),
-  codexDraftingModel: readConfigValue(
-    config?.codexDraftingModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.codexDraftingModel
+  codexCourseModel: readConfigValue(
+    config?.codexCourseModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.codexCourseModel
   ),
   codexFastModelSlots: Array.isArray(config?.codexFastModelSlots)
     ? config.codexFastModelSlots
@@ -445,22 +479,15 @@ const normalizeAdminModelConfig = (
     config?.codexResearchModel,
     DEFAULT_ADMIN_MODEL_CONFIG.codexResearchModel
   ),
-  codexStructureModel: readConfigValue(
-    config?.codexStructureModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.codexStructureModel
-  ),
-  codexVerificationModel: readConfigValue(
-    config?.codexVerificationModel,
-    DEFAULT_ADMIN_MODEL_CONFIG.codexVerificationModel
-  ),
   contextModel: readConfigValue(config?.contextModel, DEFAULT_ADMIN_MODEL_CONFIG.contextModel),
   contextReasoningEffort: readReasoningEffort(
     config?.contextReasoningEffort,
     DEFAULT_ADMIN_MODEL_CONFIG.contextReasoningEffort
   ),
-  draftingReasoningEffort: readReasoningEffort(
-    config?.draftingReasoningEffort,
-    DEFAULT_ADMIN_MODEL_CONFIG.draftingReasoningEffort
+  courseModel: readConfigValue(config?.courseModel, DEFAULT_ADMIN_MODEL_CONFIG.courseModel),
+  courseReasoningEffort: readReasoningEffort(
+    config?.courseReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.courseReasoningEffort
   ),
   imageModel: readConfigValue(config?.imageModel, DEFAULT_ADMIN_MODEL_CONFIG.imageModel),
   lessonModel: readConfigValue(config?.lessonModel, DEFAULT_ADMIN_MODEL_CONFIG.lessonModel),
@@ -484,6 +511,10 @@ const normalizeAdminModelConfig = (
     config?.openAiContextModel,
     DEFAULT_ADMIN_MODEL_CONFIG.openAiContextModel
   ),
+  openAiCourseModel: readConfigValue(
+    config?.openAiCourseModel,
+    DEFAULT_ADMIN_MODEL_CONFIG.openAiCourseModel
+  ),
   openAiImageModel: readConfigValue(
     config?.openAiImageModel,
     DEFAULT_ADMIN_MODEL_CONFIG.openAiImageModel
@@ -506,17 +537,9 @@ const normalizeAdminModelConfig = (
     DEFAULT_ADMIN_MODEL_CONFIG.progressReasoningEffort
   ),
   researchModel: readConfigValue(config?.researchModel, DEFAULT_ADMIN_MODEL_CONFIG.researchModel),
-  structureReasoningEffort: readReasoningEffort(
-    config?.structureReasoningEffort,
-    DEFAULT_ADMIN_MODEL_CONFIG.structureReasoningEffort
-  ),
   ttsModel: readConfigValue(config?.ttsModel, DEFAULT_ADMIN_MODEL_CONFIG.ttsModel),
   ttsVoice: readConfigValue(config?.ttsVoice, DEFAULT_ADMIN_MODEL_CONFIG.ttsVoice),
   updatedAt: readConfigValue(config?.updatedAt, DEFAULT_ADMIN_MODEL_CONFIG.updatedAt),
-  verificationReasoningEffort: readReasoningEffort(
-    config?.verificationReasoningEffort,
-    DEFAULT_ADMIN_MODEL_CONFIG.verificationReasoningEffort
-  ),
 });
 
 const readAdminResponse = async <T>(response: Response): Promise<T> => {

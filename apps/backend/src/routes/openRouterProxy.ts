@@ -8,8 +8,10 @@ import { getCurrentUser } from '../auth/currentUser.js';
 import { requireOpenAiApiKey, requireOpenRouterApiKey } from '../config/chatConfig.js';
 import {
   type AiProvider,
+  DEFAULT_OPENAI_RESEARCH_MODEL,
   getResolvedGlobalModelConfig,
   getResolvedModelConfigForProvider,
+  resolveAiProviderForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
 import {
@@ -60,26 +62,28 @@ type ModelSlot =
   | 'artifactInteractive'
   | 'assessment'
   | 'context'
-  | 'drafting'
+  | 'course'
   | 'lesson'
   | 'progress'
-  | 'research'
-  | 'structure'
-  | 'verification';
+  | 'research';
+
+class InvalidModelSlotError extends Error {}
 
 const readModelSlot = (req: Request): ModelSlot => {
   const slot = req.get('x-nous-model-slot')?.trim();
-  return slot === 'artifact' ||
+  if (
+    slot === 'artifact' ||
     slot === 'artifactInteractive' ||
     slot === 'assessment' ||
     slot === 'context' ||
-    slot === 'drafting' ||
+    slot === 'course' ||
+    slot === 'lesson' ||
     slot === 'progress' ||
-    slot === 'research' ||
-    slot === 'structure' ||
-    slot === 'verification'
-    ? slot
-    : 'lesson';
+    slot === 'research'
+  ) {
+    return slot;
+  }
+  throw new InvalidModelSlotError('Missing or unknown X-Nous-Model-Slot header.');
 };
 
 const hasOpenRouterWebSearchTool = (value: unknown): boolean =>
@@ -98,19 +102,17 @@ const removeOpenRouterWebSearchTool = (value: unknown): unknown => {
 };
 
 const resolveProxyConfig = async (req: Request) => {
-  const requestedModelSlot = readModelSlot(req);
-  const modelConfig = await getResolvedModelConfigForProvider(getCurrentUser(req).aiProvider);
-  const requestedTools = isRecord(req.body) ? req.body.tools : undefined;
-  const modelSlot =
-    requestedModelSlot === 'lesson' &&
-    modelConfig.aiProvider !== 'openrouter' &&
-    hasOpenRouterWebSearchTool(requestedTools)
-      ? 'research'
-      : requestedModelSlot;
+  const modelSlot = readModelSlot(req);
+  const currentUser = getCurrentUser(req);
+  const modelConfig = await getResolvedModelConfigForProvider(
+    currentUser.aiProvider,
+    currentUser.aiProviderOverrides
+  );
+  const provider = resolveAiProviderForSlot(modelConfig, modelSlot);
   return {
     codexFast: modelConfig.codexFastModelSlots.includes(modelSlot),
     modelSlot,
-    provider: modelConfig.aiProvider,
+    provider,
     ...resolveTextModelConfig(modelConfig, modelSlot),
   };
 };
@@ -184,8 +186,15 @@ const buildProxyRequest = async (
       reasoning: _ignoredReasoning,
       tools,
       transforms: _ignoredTransforms,
+      web_search_options: _ignoredWebSearchOptions,
       ...portableBody
     } = requestBody;
+    const webSearchRequested = hasOpenRouterWebSearchTool(tools);
+    if (webSearchRequested && model !== DEFAULT_OPENAI_RESEARCH_MODEL) {
+      throw new Error(
+        `OpenAI Chat Completions web search requires ${DEFAULT_OPENAI_RESEARCH_MODEL}.`
+      );
+    }
     return {
       provider,
       body: {
@@ -193,6 +202,7 @@ const buildProxyRequest = async (
         model,
         reasoning_effort: reasoningEffort,
         tools: removeOpenRouterWebSearchTool(tools),
+        ...(webSearchRequested ? { web_search_options: {} } : {}),
         ...(typeof maxTokens === 'number' ? { max_completion_tokens: maxTokens } : {}),
       },
     };
@@ -527,6 +537,12 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
     });
     if (error instanceof CodexAccessError && !res.headersSent) {
       res.status(403).json({ success: false, error: CODEX_ACCESS_DENIED_MESSAGE });
+      return;
+    }
+    if (error instanceof InvalidModelSlotError && !res.headersSent) {
+      res
+        .status(400)
+        .json({ success: false, error: 'La tipologia di modello richiesta non è valida.' });
       return;
     }
     if (res.headersSent) {

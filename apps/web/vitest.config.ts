@@ -17,6 +17,7 @@ export default defineConfig({
     include: [
       'apps/web/tests/**/*.{test,spec}.{ts,tsx}',
       'apps/backend/tests/**/*.{test,spec}.{ts,tsx}',
+      'scripts/**/*.{test,spec}.{ts,tsx}',
     ],
     setupFiles: ['./apps/web/tests/setup.ts'],
     testTimeout: TEST_TIMEOUT_MS,

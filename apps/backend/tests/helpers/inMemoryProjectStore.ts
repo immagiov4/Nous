@@ -13,10 +13,19 @@ import { applyProjectPatch } from '../../src/projects/projectPatch.js';
 import { ProjectRevisionConflictError } from '../../src/projects/projectRevision.js';
 import {
   attachProjectSource,
+  attachProjectSources,
+  buildProjectSourceObjectPath,
   detachProjectSource,
+  detachProjectSources,
   prepareProjectSource,
-  readEmbeddedPdfSource,
+  prepareProjectSourceBytes,
+  readEmbeddedProjectSource,
+  readEmbeddedProjectSources,
 } from '../../src/projects/projectSource.js';
+import {
+  indexSourceArchive,
+  PROJECT_SOURCE_ARCHIVE_LIMITS,
+} from '../../src/projects/sourceArchive.js';
 import type {
   LibraryFolder,
   LibraryPlacement,
@@ -25,12 +34,16 @@ import type {
   ProjectExportData,
   ProjectId,
   ProjectPatch,
+  ProjectSaveOptions,
+  ProjectSaveResult,
   ProjectSnapshot,
+  ProjectSourceArchiveIndex,
   ProjectSourceFile,
   ProjectSourceRef,
+  ProjectSourceUpload,
   ProjectStore,
-  ProjectWriteOptions,
   SavedProjectMeta,
+  StoredProjectSourceFile,
 } from '../../src/projects/types.js';
 import { createEntityId } from '../../src/utils/ids.js';
 import { timestampIso } from '../../src/utils/time.js';
@@ -54,6 +67,15 @@ const toEpochMillis = (value: string | undefined): number => {
 export class InMemoryProjectStore implements ProjectStore {
   private readonly projectsByUser = new Map<string, Map<ProjectId, ProjectRecord>>();
   private readonly sourcesByUser = new Map<string, Map<ProjectId, ProjectSourceFile>>();
+  private readonly sourceSetsByUser = new Map<string, Map<ProjectId, StoredProjectSourceFile[]>>();
+  private readonly sourceArchiveEntriesByUser = new Map<
+    string,
+    Map<ProjectId, Map<string, Uint8Array>>
+  >();
+  private readonly sourceArchiveIndexesByUser = new Map<
+    string,
+    Map<ProjectId, ProjectSourceArchiveIndex>
+  >();
   private readonly coversByUser = new Map<string, Map<ProjectId, ProjectCoverFile>>();
   private readonly foldersByUser = new Map<string, Map<string, LibraryFolder>>();
   private readonly placementsByUser = new Map<string, Map<ProjectId, LibraryPlacement>>();
@@ -80,18 +102,54 @@ export class InMemoryProjectStore implements ProjectStore {
       return null;
     }
 
-    const embeddedSource = readEmbeddedPdfSource(record.snapshot);
-    if (embeddedSource) {
-      const ref = await this.saveProjectSource(userId, id, embeddedSource);
-      record.snapshot = detachProjectSource(record.snapshot, ref);
-    }
-
     return clone(record.snapshot);
   }
 
   async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {
     const source = this.getSources(userId).get(id);
     return source ? clone(source) : null;
+  }
+
+  async loadProjectSources(userId: string, id: ProjectId): Promise<StoredProjectSourceFile[]> {
+    return clone(this.getSourceSets(userId).get(id) || []);
+  }
+
+  async loadProjectSourceArchiveIndex(
+    userId: string,
+    id: ProjectId
+  ): Promise<ProjectSourceArchiveIndex | null> {
+    const index = this.getSourceArchiveIndexes(userId).get(id);
+    return index ? clone(index) : null;
+  }
+
+  async loadProjectSourceArchiveEntry(
+    userId: string,
+    id: ProjectId,
+    path: string,
+    version: ProjectSourceArchiveIndex['version']
+  ): Promise<Uint8Array | null> {
+    const index = this.getSourceArchiveIndexes(userId).get(id);
+    if (
+      !index ||
+      index.version.sourceId !== version.sourceId ||
+      index.version.sourceHash !== version.sourceHash
+    ) {
+      return null;
+    }
+    const entry = this.getSourceArchiveEntries(userId).get(id)?.get(path);
+    return entry ? entry.slice() : null;
+  }
+
+  async loadProjectSourceArchiveEntryRange(
+    userId: string,
+    id: ProjectId,
+    path: string,
+    version: ProjectSourceArchiveIndex['version'],
+    start: number,
+    endExclusive: number
+  ): Promise<Uint8Array | null> {
+    const entry = await this.loadProjectSourceArchiveEntry(userId, id, path, version);
+    return entry?.slice(start, endExclusive) ?? null;
   }
 
   async loadProjectCover(userId: string, id: ProjectId): Promise<ProjectCoverFile | null> {
@@ -113,14 +171,84 @@ export class InMemoryProjectStore implements ProjectStore {
     return true;
   }
 
-  async saveProjectSource(
+  private async storeProjectSource(
     userId: string,
     id: ProjectId,
-    source: ProjectSourceFile
+    source: ProjectSourceFile,
+    sourceBytes?: Uint8Array
   ): Promise<ProjectSourceRef> {
-    const { ref } = prepareProjectSource(source);
-    this.getSources(userId).set(id, clone(source));
+    const { bytes, ref: preparedRef } = sourceBytes
+      ? prepareProjectSourceBytes(source, sourceBytes)
+      : prepareProjectSource(source);
+    const ref: ProjectSourceRef = {
+      ...preparedRef,
+      objectPath: buildProjectSourceObjectPath(userId, id, preparedRef.id, preparedRef.hash),
+    };
+    this.getSources(userId).set(
+      id,
+      clone(sourceBytes ? { ...source, data: Buffer.from(sourceBytes).toString('base64') } : source)
+    );
+    this.getSourceSets(userId).delete(id);
+    if (
+      source.mimeType.toLowerCase() === 'application/zip' ||
+      source.mimeType.toLowerCase() === 'application/x-zip-compressed' ||
+      source.name.toLowerCase().endsWith('.zip')
+    ) {
+      const archive = await indexSourceArchive(bytes, PROJECT_SOURCE_ARCHIVE_LIMITS);
+      const entryBytes = new Map<string, Uint8Array>();
+      this.getSourceArchiveIndexes(userId).set(id, {
+        entries: archive.entries.map(entry => {
+          if (entry.kind === 'directory') {
+            return { kind: entry.kind, path: entry.path };
+          }
+          entryBytes.set(entry.path, entry.content.slice());
+          return {
+            byteSize: entry.byteSize,
+            contentKind: entry.text === undefined ? 'binary' : 'text',
+            hash: entry.hash,
+            kind: entry.kind,
+            path: entry.path,
+            ...(entry.preview === undefined ? {} : { preview: entry.preview }),
+          };
+        }),
+        version: {
+          sourceHash: ref.hash,
+          sourceId: ref.id,
+        },
+      });
+      this.getSourceArchiveEntries(userId).set(id, entryBytes);
+    } else {
+      this.getSourceArchiveIndexes(userId).delete(id);
+      this.getSourceArchiveEntries(userId).delete(id);
+    }
     return ref;
+  }
+
+  private async storeProjectSources(
+    userId: string,
+    id: ProjectId,
+    sources: ProjectSourceUpload[]
+  ): Promise<ProjectSourceRef[]> {
+    const storedSources = [...sources]
+      .sort((left, right) => left.position - right.position)
+      .map(source => {
+        const { ref: preparedRef } = prepareProjectSource(source.file, source.id);
+        return {
+          file: { ...clone(source.file), sourceId: source.id },
+          ref: {
+            ...preparedRef,
+            objectPath: buildProjectSourceObjectPath(userId, id, source.id, preparedRef.hash),
+          },
+        } satisfies StoredProjectSourceFile;
+      });
+    if (storedSources.length !== sources.length || storedSources.length === 0) {
+      throw new Error('Project source set is invalid.');
+    }
+    this.getSourceSets(userId).set(id, storedSources);
+    this.getSources(userId).set(id, clone(storedSources[0].file));
+    this.getSourceArchiveIndexes(userId).delete(id);
+    this.getSourceArchiveEntries(userId).delete(id);
+    return storedSources.map(source => clone(source.ref));
   }
 
   async loadProjectsById(userId: string, ids: ProjectId[]): Promise<ProjectSnapshot[]> {
@@ -131,8 +259,8 @@ export class InMemoryProjectStore implements ProjectStore {
   async saveProject(
     userId: string,
     data: ProjectSnapshot,
-    { expectedRevision }: ProjectWriteOptions = {}
-  ): Promise<SavedProjectMeta> {
+    { expectedRevision, sourceFile }: ProjectSaveOptions = {}
+  ): Promise<ProjectSaveResult> {
     this.fullSaveCount += 1;
     const projects = this.getProjects(userId);
     const existing = projects.get(data.id);
@@ -141,10 +269,25 @@ export class InMemoryProjectStore implements ProjectStore {
     }
 
     let snapshot = normalizeProjectSnapshot(clone(data));
-    const embeddedSource = readEmbeddedPdfSource(snapshot);
-    if (embeddedSource) {
-      const ref = await this.saveProjectSource(userId, snapshot.id, embeddedSource);
-      snapshot = detachProjectSource(snapshot, ref);
+    const embeddedSources = readEmbeddedProjectSources(snapshot);
+    if (embeddedSources.length > 0) {
+      snapshot = detachProjectSources(
+        snapshot,
+        await this.storeProjectSources(userId, snapshot.id, embeddedSources)
+      );
+    } else {
+      const embeddedSource = readEmbeddedProjectSource(snapshot);
+      if (sourceFile || embeddedSource) {
+        const source =
+          embeddedSource ||
+          ({
+            data: '',
+            mimeType: sourceFile?.mimeType || '',
+            name: sourceFile?.name || '',
+          } satisfies ProjectSourceFile);
+        const ref = await this.storeProjectSource(userId, snapshot.id, source, sourceFile?.bytes);
+        snapshot = detachProjectSource(snapshot, ref);
+      }
     }
 
     if (
@@ -152,7 +295,7 @@ export class InMemoryProjectStore implements ProjectStore {
       existing &&
       toEpochMillis(existing.snapshot.updatedAt) > toEpochMillis(snapshot.updatedAt)
     ) {
-      return clone(existing.meta);
+      return clone({ meta: existing.meta, snapshot: existing.snapshot });
     }
 
     const meta = {
@@ -161,7 +304,7 @@ export class InMemoryProjectStore implements ProjectStore {
     };
     projects.set(snapshot.id, { meta, snapshot });
     this.ensurePlacement(userId, snapshot.id);
-    return clone(meta);
+    return clone({ meta, snapshot });
   }
 
   async patchProject(
@@ -194,6 +337,9 @@ export class InMemoryProjectStore implements ProjectStore {
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
     this.getProjects(userId).delete(id);
     this.getSources(userId).delete(id);
+    this.getSourceSets(userId).delete(id);
+    this.getSourceArchiveEntries(userId).delete(id);
+    this.getSourceArchiveIndexes(userId).delete(id);
     this.getCovers(userId).delete(id);
     this.getPlacements(userId).delete(id);
   }
@@ -203,8 +349,7 @@ export class InMemoryProjectStore implements ProjectStore {
     data: unknown
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
     const snapshot = normalizeProjectSnapshot(data, true);
-    const meta = await this.saveProject(userId, snapshot);
-    return { meta, snapshot: (await this.loadProject(userId, snapshot.id)) || snapshot };
+    return this.saveProject(userId, snapshot);
   }
 
   async exportProject(userId: string, id: ProjectId): Promise<ProjectExportData | null> {
@@ -213,8 +358,12 @@ export class InMemoryProjectStore implements ProjectStore {
       return null;
     }
 
-    const source = await this.loadProjectSource(userId, id);
-    return source ? attachProjectSource(snapshot, source) : snapshot;
+    const source = snapshot.source as { sources?: unknown[] } | null | undefined;
+    if (source?.sources?.length) {
+      return attachProjectSources(snapshot, await this.loadProjectSources(userId, id));
+    }
+    const primarySource = await this.loadProjectSource(userId, id);
+    return primarySource ? attachProjectSource(snapshot, primarySource) : snapshot;
   }
 
   async touchProject(userId: string, id: ProjectId): Promise<void> {
@@ -385,14 +534,6 @@ export class InMemoryProjectStore implements ProjectStore {
     return movedItems.map(item => clone(item.value as LibraryPlacement));
   }
 
-  seedStoredSnapshot(userId: string, snapshot: ProjectSnapshot): void {
-    const normalized = normalizeProjectSnapshot(clone(snapshot));
-    this.getProjects(userId).set(snapshot.id, {
-      snapshot: normalized,
-      meta: { ...buildProjectMeta(normalized), revision: 1 },
-    });
-  }
-
   replaceProjectMeta(userId: string, id: ProjectId, meta: SavedProjectMeta): void {
     const record = this.getProjects(userId).get(id);
     if (!record) {
@@ -404,10 +545,6 @@ export class InMemoryProjectStore implements ProjectStore {
   readStoredSnapshot(userId: string, id: ProjectId): ProjectSnapshot | null {
     const record = this.getProjects(userId).get(id);
     return record ? clone(record.snapshot) : null;
-  }
-
-  countStoredSources(userId: string): number {
-    return this.getSources(userId).size;
   }
 
   private ensurePlacement(userId: string, projectId: ProjectId): void {
@@ -465,6 +602,18 @@ export class InMemoryProjectStore implements ProjectStore {
 
   private getSources(userId: string): Map<ProjectId, ProjectSourceFile> {
     return this.getUserMap(this.sourcesByUser, userId);
+  }
+
+  private getSourceSets(userId: string): Map<ProjectId, StoredProjectSourceFile[]> {
+    return this.getUserMap(this.sourceSetsByUser, userId);
+  }
+
+  private getSourceArchiveEntries(userId: string): Map<ProjectId, Map<string, Uint8Array>> {
+    return this.getUserMap(this.sourceArchiveEntriesByUser, userId);
+  }
+
+  private getSourceArchiveIndexes(userId: string): Map<ProjectId, ProjectSourceArchiveIndex> {
+    return this.getUserMap(this.sourceArchiveIndexesByUser, userId);
   }
 
   private getCovers(userId: string): Map<ProjectId, ProjectCoverFile> {

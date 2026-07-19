@@ -645,8 +645,11 @@ const ENGLISH_UI_MESSAGES = {
   disabilitato: 'disabled',
   Disabilita: 'Disable',
   Lezioni: 'Lessons',
+  'Fasi di generazione': 'Generation phases',
+  '{count} fasi': '{count} phases',
   'Modelli aggiornati.': 'Models updated.',
   'Modelli globali': 'Global models',
+  'Backend per funzione': 'Backend by function',
   'Modello {modelSlot}': '{modelSlot} model',
   'Modello {modelSlot} per {provider}': '{modelSlot} model for {provider}',
   'Pannello admin non disponibile.': 'The admin panel is unavailable.',
@@ -943,6 +946,7 @@ const ENGLISH_UI_MESSAGES = {
     'Adds external grounding when comparisons, course suggestions, or current data are needed.',
   'Aggiungi dettagli o requisiti...': 'Add details or requirements...',
   'Allega contesto': 'Attach context',
+  'Allega file per un nuovo corso': 'Attach files for a new course',
   'Allega un file sorgente (PDF, ZIP, testo)': 'Attach a source file (PDF, ZIP, text)',
   'Apri esploratore contesto libreria': 'Open the library context browser',
   "Apri l'esploratore contesto senza rischi di clipping laterale.":
@@ -1120,6 +1124,8 @@ const ENGLISH_UI_MESSAGES = {
   'Provider AI nuovo account': 'AI provider for new account',
   'Provider AI per {userName}': 'AI provider for {userName}',
   'Predefinito globale': 'Global default',
+  'Predefinito: {provider}': 'Default: {provider}',
+  'Provider per {modelSlot}': 'Provider for {modelSlot}',
   'Codex è disponibile solo quando il backend locale abilita app-server.':
     'Codex is available only when the local backend enables app-server.',
   'Codex gestisce direttamente accesso, token e rinnovo. Nous non legge né salva le credenziali.':
@@ -1140,6 +1146,8 @@ const ENGLISH_UI_MESSAGES = {
   None: 'None',
   'Revisione visiva degli artefatti': 'Artifact visual review',
   'Artefatti visuali': 'Visual artifacts',
+  'Ogni funzione eredita il provider globale, salvo gli override indicati qui.':
+    'Each function inherits the global provider unless overridden here.',
   'Artefatti interattivi': 'Interactive artifacts',
   'Richiesta ricevuta. Sto rigenerando l artefatto...':
     'Request received. Regenerating the artifact...',

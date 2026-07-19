@@ -108,20 +108,8 @@ export interface CourseSourceDescriptor {
   outline: SourceOutlineNode[];
   outlineOrigin: 'deterministic' | 'native' | 'none';
   position: number;
+  ref?: ProjectSourceRef;
   status: 'error' | 'partial' | 'ready';
-}
-
-export interface CodebaseSourceFile {
-  path: string;
-  text: string;
-  truncated?: boolean;
-}
-
-export interface CodebaseBundleStats {
-  includedFileCount: number;
-  skippedFileCount: number;
-  truncatedFileCount: number;
-  totalCharacterCount: number;
 }
 
 export interface ProjectSourceRef {
@@ -130,6 +118,37 @@ export interface ProjectSourceRef {
   id: string;
   mimeType: string;
   name: string;
+  objectPath: string;
+}
+
+export interface StoredProjectSourceFile {
+  file: FileData;
+  ref: ProjectSourceRef;
+}
+
+export interface SourceArchiveDirectoryEntry {
+  kind: 'directory';
+  path: string;
+}
+
+export interface SourceArchiveFileEntry {
+  byteSize: number;
+  contentKind: 'binary' | 'text';
+  hash?: string;
+  kind: 'file';
+  path: string;
+  preview?: string;
+}
+
+export type SourceArchiveEntry = SourceArchiveDirectoryEntry | SourceArchiveFileEntry;
+
+export interface SourceArchiveIndex {
+  entries: SourceArchiveEntry[];
+}
+
+export interface SourceArchiveSelector {
+  kind: 'directory' | 'file';
+  path: string;
 }
 
 export interface PdfProjectSource {
@@ -139,16 +158,23 @@ export interface PdfProjectSource {
   sources?: CourseSourceDescriptor[];
 }
 
-export interface CodebaseBundleSource {
-  kind: 'codebase-bundle';
-  name: string;
-  aggregatedText: string;
-  files: CodebaseSourceFile[];
-  stats: CodebaseBundleStats;
+export interface DocumentProjectSource {
+  file: FileData;
+  kind: 'document';
+  ref?: ProjectSourceRef;
   sources?: CourseSourceDescriptor[];
 }
 
-export type ProjectSource = PdfProjectSource | CodebaseBundleSource;
+export interface SourceArchiveProjectSource {
+  file: FileData;
+  index: SourceArchiveIndex;
+  kind: 'archive';
+  name: string;
+  ref?: ProjectSourceRef;
+  sources?: CourseSourceDescriptor[];
+}
+
+export type ProjectSource = DocumentProjectSource | PdfProjectSource | SourceArchiveProjectSource;
 
 export const AppState = {
   LIBRARY: 'LIBRARY',
@@ -447,6 +473,7 @@ export interface LearningSection {
   contextPrompt?: string; // For Learn Mode
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
   primaryChunkMappingSource?: 'fallback' | 'mapped';
+  sourceArchiveSelectors?: SourceArchiveSelector[];
   sourceReferences?: LessonSourceReference[];
   annotations?: SectionAnnotation[]; // Persistent text annotations/highlights for the section
 }
@@ -575,14 +602,12 @@ export interface ProjectExportData {
 export type OpenRouterModelSlot =
   | 'artifact'
   | 'artifactInteractive'
-  | 'drafting'
+  | 'course'
   | 'lesson'
   | 'assessment'
   | 'context'
   | 'progress'
   | 'research'
-  | 'structure'
-  | 'verification'
   | 'tts';
 export type SettingsPanelSectionId = 'course-notes';
 

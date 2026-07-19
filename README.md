@@ -69,13 +69,5 @@ Authenticated sessions use server storage. Import/export remains available for m
 
 ## Useful Commands
 
-```bash
-bun run quality       # Type checks + Biome + dependency boundaries + React Hooks lint
-bun run check:fallow  # Static dead-code & duplication analysis
-bun run gate          # Full gate: quality + fallow + tests
-bun run fix           # Auto-fix Biome lint, format, and import ordering
-bun run format        # Format all files (Biome)
-bun run test          # Vitest test suite (runs under Bun runtime)
-bun run test:supabase-contract # Canonical Auth/RLS isolation contract
-bun run test:supabase-local # Supabase local Auth/RLS integration test
-```
+Use `bun run gate` for the complete local quality gate. See
+[Testing and quality gates](docs/TESTING.md) for the canonical command list and CI contract.

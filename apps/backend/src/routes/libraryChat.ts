@@ -12,6 +12,7 @@ import { type Request, type Response, Router } from 'express';
 import { getCurrentUser } from '../auth/currentUser.js';
 import {
   getResolvedModelConfigForProvider,
+  resolveAiProviderForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from '../services/aiSdkTextModel.js';
@@ -34,26 +35,27 @@ import {
   type LibraryChatToolPreferences,
   type LibraryContextReference,
   type LibraryResolvedScopeSummary,
-  runOpenRouterWebSearch,
+  runConfiguredWebSearch,
+  type WebSearchModelConfig,
   type WebSearchToolResult,
 } from './chatPrompts.js';
 
 const runLibraryWebSearch = async ({
   attachedContextRefs,
   maxResults,
-  modelOverride,
+  modelConfig,
   query,
   resolvedScopeSummary,
 }: {
   attachedContextRefs?: LibraryContextReference[];
   maxResults?: number;
-  modelOverride?: string;
+  modelConfig: WebSearchModelConfig;
   query: string;
   resolvedScopeSummary?: LibraryResolvedScopeSummary;
 }): Promise<WebSearchToolResult> => {
   const normalizedQuery = query.trim();
 
-  return runOpenRouterWebSearch({
+  return runConfiguredWebSearch({
     maxResults,
     messages: [
       {
@@ -72,7 +74,7 @@ Restituisci in italiano:
         content: `Query da verificare:\n${normalizedQuery}\n\nRiepilogo scope libreria:\n${resolvedScopeSummary?.scopeSummary || 'Nessun riepilogo scope disponibile.'}\n\nContesti allegati:\n${formatLibraryAttachedRefs(attachedContextRefs)}\n\nEtichette contesto:\n${resolvedScopeSummary?.contextLabels?.join(', ') || 'nessun contesto allegato'}`,
       },
     ],
-    model: modelOverride,
+    modelConfig,
     query: normalizedQuery,
   });
 };
@@ -423,11 +425,11 @@ const libraryChatTools = {
 
 const createLibrarySearchWebTool = ({
   attachedContextRefs,
-  modelOverride,
+  modelConfig,
   resolvedScopeSummary,
 }: {
   attachedContextRefs?: LibraryContextReference[];
-  modelOverride?: string;
+  modelConfig: WebSearchModelConfig;
   resolvedScopeSummary?: LibraryResolvedScopeSummary;
 }) =>
   createWebSearchTool({
@@ -439,7 +441,7 @@ const createLibrarySearchWebTool = ({
       runLibraryWebSearch({
         attachedContextRefs,
         maxResults,
-        modelOverride,
+        modelConfig,
         query,
         resolvedScopeSummary,
       }),
@@ -449,16 +451,16 @@ const libraryLocalToolNames = Object.keys(libraryChatTools) as Array<keyof typeo
 
 const buildLibraryToolSet = ({
   attachedContextRefs,
-  modelOverride,
+  modelConfig,
   resolvedScopeSummary,
 }: {
   attachedContextRefs?: LibraryContextReference[];
-  modelOverride?: string;
+  modelConfig: WebSearchModelConfig;
   resolvedScopeSummary?: LibraryResolvedScopeSummary;
 }) => ({
   [LIBRARY_WEB_SEARCH_TOOL_NAME]: createLibrarySearchWebTool({
     attachedContextRefs,
-    modelOverride,
+    modelConfig,
     resolvedScopeSummary,
   }),
   ...libraryChatTools,
@@ -545,12 +547,21 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
       return;
     }
 
-    const modelConfig = await getResolvedModelConfigForProvider(getCurrentUser(req).aiProvider);
+    const currentUser = getCurrentUser(req);
+    const modelConfig = await getResolvedModelConfigForProvider(
+      currentUser.aiProvider,
+      currentUser.aiProviderOverrides
+    );
     const contextModelConfig = resolveTextModelConfig(modelConfig, 'context');
+    const contextProvider = resolveAiProviderForSlot(modelConfig, 'context');
+    const researchModelConfig = {
+      ...resolveTextModelConfig(modelConfig, 'research'),
+      provider: resolveAiProviderForSlot(modelConfig, 'research'),
+    };
 
     const libraryTools = buildLibraryToolSet({
       attachedContextRefs,
-      modelOverride: modelConfig.researchModel,
+      modelConfig: researchModelConfig,
       resolvedScopeSummary,
     });
 
@@ -564,8 +575,11 @@ libraryChatRouter.post('/library', async (req: Request, res: Response) => {
       toolPreferences,
     });
 
-    if (modelConfig.aiProvider === 'codex') {
+    if (contextProvider === 'codex' || researchModelConfig.provider === 'codex') {
       assertCodexRequestAccess(req);
+    }
+
+    if (contextProvider === 'codex') {
       const stream = await createCodexChatStream({
         messages: modelMessages,
         model: contextModelConfig.model,

@@ -203,7 +203,7 @@ const callPlacementModel = async (args: GenerateApplicationExercisePlacementsArg
   args.onStatusUpdate?.('Scelgo dove inserire gli esercizi…');
   const response = await callOpenRouter({
     model: MODEL_REASONING,
-    modelSlot: 'lesson',
+    modelSlot: 'course',
     reasoning: MEDIUM_REASONING_CONFIG,
     onReasoningUpdate: args.onReasoningUpdate,
     temperature: 0.2,

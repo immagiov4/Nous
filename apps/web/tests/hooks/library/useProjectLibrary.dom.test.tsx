@@ -2,10 +2,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { createLibraryArchiveBlob } from '../../../services/projects/libraryArchive.ts';
+import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import {
   AppState,
   type ProjectSnapshot,
+  type ProjectSource,
   type SavedProjectMeta,
   type WorkspaceDomainState,
 } from '../../../types.ts';
@@ -43,7 +45,13 @@ vi.mock('../../../services/projects/httpProjectRepository.ts', () => ({
   }),
 }));
 
-const { useProjectLibrary } = await import('../../../hooks/library/useProjectLibrary.ts');
+const { useProjectLibrary: useProjectLibraryHook } = await import(
+  '../../../hooks/library/useProjectLibrary.ts'
+);
+type ProjectLibraryArgs = Parameters<typeof useProjectLibraryHook>[0];
+const useProjectLibrary = (
+  args: Omit<ProjectLibraryArgs, 'setSource'> & Partial<Pick<ProjectLibraryArgs, 'setSource'>>
+) => useProjectLibraryHook({ ...args, setSource: args.setSource || vi.fn() });
 
 const buildMeta = (id: string, lastOpenedAt: string, revision = 1): SavedProjectMeta => ({
   id,
@@ -133,9 +141,10 @@ describe('useProjectLibrary', () => {
     repositoryMocks.moveFolder.mockResolvedValue(null);
     repositoryMocks.moveProjects.mockResolvedValue([]);
     repositoryMocks.renameFolder.mockResolvedValue(null);
-    repositoryMocks.saveProject.mockImplementation(async (snapshot: ProjectSnapshot) =>
-      buildMeta(snapshot.id, snapshot.updatedAt)
-    );
+    repositoryMocks.saveProject.mockImplementation(async (snapshot: ProjectSnapshot) => ({
+      meta: buildMeta(snapshot.id, snapshot.updatedAt),
+      snapshot,
+    }));
     repositoryMocks.loadProject.mockResolvedValue(null);
     repositoryMocks.importProject.mockImplementation(async (project: ProjectSnapshot) => ({
       meta: buildMeta(project.id, '2026-04-02T10:00:00.000Z'),
@@ -360,6 +369,106 @@ describe('useProjectLibrary', () => {
     });
 
     expect(result.current.savedProjects.map(project => project.id)).toEqual(['newer', 'older']);
+  });
+
+  test('persistSnapshot can propagate the original storage error for blocking workflows', async () => {
+    repositoryMocks.listProjects.mockResolvedValue([]);
+    repositoryMocks.saveProject.mockRejectedValue(
+      new ProjectStorageError(
+        'Il caricamento della sorgente ha superato il tempo disponibile.',
+        'persistence-failed'
+      )
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await expect(
+      act(() =>
+        result.current.persistSnapshot(buildSnapshot('archive-project'), {
+          throwOnError: true,
+        })
+      )
+    ).rejects.toThrow('Il caricamento della sorgente ha superato il tempo disponibile.');
+  });
+
+  test('applies the detached source without scheduling another full snapshot save', async () => {
+    const embeddedSource: ProjectSource = {
+      file: {
+        data: 'UEsDBAo=',
+        mimeType: 'application/zip',
+        name: 'engine.zip',
+      },
+      index: { entries: [] },
+      kind: 'archive',
+      name: 'engine.zip',
+    };
+    const detachedSource: ProjectSource = {
+      ...embeddedSource,
+      file: { ...embeddedSource.file, data: '' },
+      ref: {
+        byteSize: 5,
+        hash: 'archive-hash',
+        id: 'source-archive',
+        mimeType: 'application/zip',
+        name: 'engine.zip',
+        objectPath: 'users/user/projects/archive/source-archive/archive-hash/original',
+      },
+    };
+    const initialState = {
+      ...createEmptyWorkspaceDomainState(),
+      source: embeddedSource,
+    };
+    const setSource = vi.fn();
+    repositoryMocks.saveProject.mockImplementation(async (snapshot: ProjectSnapshot) => ({
+      meta: buildMeta(snapshot.id, snapshot.updatedAt),
+      snapshot: { ...snapshot, source: detachedSource },
+    }));
+    const { rerender, result } = renderHook(
+      ({ domainState }) =>
+        useProjectLibrary({
+          domainState,
+          hydrateSnapshot: vi.fn(),
+          setSource,
+        }),
+      { initialProps: { domainState: initialState } }
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('archive-project');
+      result.current.setProjectHydrated(true);
+    });
+
+    let savedSnapshot: ProjectSnapshot | undefined;
+    await act(async () => {
+      savedSnapshot = (
+        await result.current.persistSnapshot(
+          buildSnapshot('archive-project', {
+            source: embeddedSource,
+            sourceKind: 'codebase',
+          })
+        )
+      )?.snapshot;
+    });
+
+    expect(savedSnapshot?.source).toEqual(detachedSource);
+    expect(setSource).toHaveBeenCalledWith(detachedSource);
+    vi.useFakeTimers();
+    rerender({
+      domainState: {
+        ...initialState,
+        source: detachedSource,
+      },
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await vi.runOnlyPendingTimersAsync();
+    });
+    expect(repositoryMocks.saveProject).toHaveBeenCalledOnce();
   });
 
   test('autosaves only after the debounced persisted signature changes', async () => {
@@ -794,9 +903,13 @@ describe('useProjectLibrary', () => {
         ...buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2),
         hasSourceFile: false,
       });
-    repositoryMocks.saveProject.mockResolvedValue(
-      buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3)
-    );
+    repositoryMocks.saveProject.mockResolvedValue({
+      meta: buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3),
+      snapshot: buildSnapshot('project-1', {
+        learningPlan: dirtyState.learningPlan,
+        updatedAt: '2026-04-02T12:00:00.000Z',
+      }),
+    });
     const { result, rerender } = renderHook(
       ({ domainState }: { domainState: WorkspaceDomainState }) =>
         useProjectLibrary({ domainState, hydrateSnapshot: vi.fn() }),

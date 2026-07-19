@@ -7,18 +7,34 @@ import {
   getLessonSourcePageLabel,
 } from '../../../utils/context/sourceMaterial.ts';
 
-test('returns aggregated source text for codebase-backed projects', () => {
+test('returns the complete archive index in deterministic path order without concatenated content', () => {
   const source: ProjectSource = {
-    kind: 'codebase-bundle',
-    name: 'notes.md',
-    aggregatedText: '# Titolo\n\nContenuto sorgente',
-    files: [],
-    stats: {
-      includedFileCount: 0,
-      skippedFileCount: 0,
-      truncatedFileCount: 0,
-      totalCharacterCount: 27,
+    file: {
+      data: 'UEs=',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
     },
+    index: {
+      entries: [
+        {
+          byteSize: 2048,
+          contentKind: 'binary',
+          kind: 'file',
+          path: 'textures/logo.png',
+        },
+        { kind: 'directory', path: 'docs' },
+        {
+          byteSize: 32,
+          contentKind: 'text',
+          hash: 'readme-hash',
+          kind: 'file',
+          path: 'docs/README.md',
+          preview: '# Engine\nArchitecture',
+        },
+      ],
+    },
+    kind: 'archive',
+    name: 'engine.zip',
   };
 
   const result = buildContextSourceMaterial({
@@ -27,9 +43,19 @@ test('returns aggregated source text for codebase-backed projects', () => {
     source,
   });
 
-  assert.equal(result.sourceKind, 'codebase-bundle');
-  assert.equal(result.sourceName, 'notes.md');
-  assert.match(result.sourceMaterial ?? '', /Contenuto sorgente/);
+  assert.equal(result.sourceKind, 'archive');
+  assert.equal(result.sourceName, 'engine.zip');
+  assert.equal(
+    result.sourceMaterial,
+    [
+      'directory docs',
+      'file docs/README.md | text | 32 bytes | sha256 readme-hash',
+      'preview:',
+      '# Engine',
+      'Architecture',
+      'file textures/logo.png | binary | 2048 bytes',
+    ].join('\n')
+  );
 });
 
 test('returns lesson-relevant pdf chunks when document index is available', () => {

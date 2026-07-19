@@ -2,7 +2,12 @@
 import { createHmac, timingSafeEqual, webcrypto } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 
-import { type AiProvider, isAiProvider } from '../config/modelConfig.js';
+import {
+  type AiProvider,
+  isAiProvider,
+  type ModelProviderOverrides,
+  readModelProviderOverrides,
+} from '../config/modelConfig.js';
 
 const DEFAULT_LOCAL_USER_ID = 'local-user';
 export const LOCAL_AUTH_MODE = 'local-bypass' as const;
@@ -16,6 +21,7 @@ type AuthMode = typeof LOCAL_AUTH_MODE | typeof SUPABASE_AUTH_MODE;
 
 export interface CurrentUser {
   aiProvider?: AiProvider;
+  aiProviderOverrides?: ModelProviderOverrides;
   email?: string;
   id: string;
   passwordSetupRequired: boolean;
@@ -192,6 +198,14 @@ const readAiProvider = (payload: Record<string, unknown>): AiProvider | undefine
   return isAiProvider(appMetadata?.ai_provider) ? appMetadata.ai_provider : undefined;
 };
 
+const readAiProviderOverrides = (
+  payload: Record<string, unknown>
+): ModelProviderOverrides | undefined => {
+  const appMetadata = isRecord(payload.app_metadata) ? payload.app_metadata : undefined;
+  const overrides = readModelProviderOverrides(appMetadata?.ai_provider_overrides);
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
+};
+
 const readPasswordSetupRequired = (payload: Record<string, unknown>): boolean => {
   const appMetadata = isRecord(payload.app_metadata) ? payload.app_metadata : undefined;
   return appMetadata?.password_setup_required === true;
@@ -248,6 +262,7 @@ const resolveSupabaseJwtUser = async (token: string): Promise<CurrentUser> => {
 
   return {
     aiProvider: readAiProvider(payload),
+    aiProviderOverrides: readAiProviderOverrides(payload),
     id: userId,
     email: readString(payload.email),
     passwordSetupRequired: readPasswordSetupRequired(payload),

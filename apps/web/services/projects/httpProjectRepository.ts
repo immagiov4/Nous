@@ -7,14 +7,14 @@ import type {
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSnapshot,
-  ProjectSourceRef,
   ProjectWriteOptions,
   SavedProjectMeta,
+  StoredProjectSourceFile,
 } from '../../types';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
-import { detachStoredPrimarySource } from './courseSources.ts';
-import type { ProjectRepository } from './projectRepository';
+import { attachStoredSources, getCourseSourceDescriptors } from './courseSources.ts';
+import type { ProjectRepository, ProjectSaveOptions, ProjectSaveResult } from './projectRepository';
 import { ProjectStorageError } from './projectRepository';
 import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
 import { normalizeStoredProject } from './projectSnapshot.ts';
@@ -33,7 +33,7 @@ interface ApiResponse {
   project?: ProjectSnapshot | null;
   projects?: ProjectSnapshot[] | SavedProjectMeta[];
   source?: FileData | null;
-  sourceRef?: ProjectSourceRef;
+  sources?: StoredProjectSourceFile[];
   snapshot?: ProjectSnapshot;
   uploadStatus?: 'receiving' | 'finalizing' | 'completed';
 }
@@ -51,6 +51,7 @@ const PROJECT_SYNC_ERROR_MESSAGE =
 const PROJECT_SYNC_TIMEOUT_MESSAGE =
   'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
+const PROJECT_ARCHIVE_SAVE_TIMEOUT_MS = 10 * 60_000;
 const PROJECT_IMPORT_STATUS_POLL_MS = 1_000;
 const getUtf8Bytes = (value: string): number => new Blob([value]).size;
 
@@ -196,6 +197,13 @@ export class HttpProjectRepository implements ProjectRepository {
     return response.source || null;
   }
 
+  async loadProjectSources(id: ProjectId): Promise<StoredProjectSourceFile[]> {
+    const response = await this.request<{ sources?: StoredProjectSourceFile[] }>(
+      `/api/projects/projects/${encodeURIComponent(id)}/sources`
+    );
+    return response.sources || [];
+  }
+
   async loadProjectsById(ids: ProjectId[]): Promise<ProjectSnapshot[]> {
     const response = await this.request<{ projects?: ProjectSnapshot[] }>(
       '/api/projects/projects/by-id',
@@ -250,44 +258,79 @@ export class HttpProjectRepository implements ProjectRepository {
 
   async saveProject(
     snapshot: ProjectSnapshot,
-    options: ProjectWriteOptions = {}
-  ): Promise<SavedProjectMeta> {
+    { archiveFile, ...options }: ProjectSaveOptions = {}
+  ): Promise<ProjectSaveResult> {
+    let snapshotToSave = snapshot;
     const source = snapshot.source;
-    let lightweightSnapshot = snapshot;
-    if (source?.kind === 'pdf') {
-      let sourceRef = source.ref;
-      if (!sourceRef && source.file.data) {
-        const sourceResponse = await this.request<{ sourceRef?: ProjectSourceRef }>(
-          `/api/projects/projects/${encodeURIComponent(snapshot.id)}/source`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ source: source.file }),
-          }
-        );
-        sourceRef = assertValue(
-          sourceResponse.sourceRef,
-          'La sorgente del progetto non e stata salvata.'
-        );
-      }
-      if (!sourceRef) {
-        throw new ProjectStorageError(
-          'La sorgente del progetto non e disponibile.',
-          'persistence-failed'
-        );
-      }
-      lightweightSnapshot = {
-        ...snapshot,
-        source: { ...detachStoredPrimarySource(source), ref: sourceRef },
-      };
+    if (source?.kind === 'archive' && source.file.data) {
+      throw new ProjectStorageError(
+        'Gli archivi devono essere caricati come file binari.',
+        'persistence-failed'
+      );
     }
-    const response = await this.request<{ meta?: SavedProjectMeta }>(
+    if (source?.kind !== 'archive' && source?.sources?.length) {
+      const descriptors = getCourseSourceDescriptors(source);
+      if (
+        descriptors.some(descriptor => descriptor.file.data) &&
+        descriptors.some(descriptor => !descriptor.file.data)
+      ) {
+        const storedFilesById = new Map(
+          (await this.loadProjectSources(snapshot.id)).map(stored => [stored.ref.id, stored.file])
+        );
+        const completeFiles = descriptors.map(descriptor =>
+          descriptor.file.data
+            ? descriptor.file
+            : assertValue(
+                storedFilesById.get(descriptor.id),
+                `La sorgente ${descriptor.name} non e disponibile.`
+              )
+        );
+        snapshotToSave = {
+          ...snapshot,
+          source: attachStoredSources(source, completeFiles),
+        };
+      }
+    }
+    const body = archiveFile
+      ? this.createArchiveSaveBody(snapshotToSave, archiveFile, options)
+      : JSON.stringify({ snapshot: snapshotToSave, ...options });
+    const response = await this.request<{
+      meta?: SavedProjectMeta;
+      snapshot?: ProjectSnapshot;
+    }>(
       `/api/projects/projects/${encodeURIComponent(snapshot.id)}`,
       {
         method: 'PUT',
-        body: JSON.stringify({ snapshot: lightweightSnapshot, ...options }),
-      }
+        body,
+      },
+      source?.kind === 'archive' ? PROJECT_ARCHIVE_SAVE_TIMEOUT_MS : PROJECT_REQUEST_TIMEOUT_MS
     );
-    return assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.');
+    return {
+      meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.'),
+      snapshot: normalizeStoredProject(
+        assertValue(response.snapshot, 'La fonte sincronizzata non e stata restituita.')
+      ),
+    };
+  }
+
+  private createArchiveSaveBody(
+    snapshot: ProjectSnapshot,
+    archiveFile: File,
+    options: ProjectWriteOptions
+  ): FormData {
+    if (snapshot.source?.kind !== 'archive') {
+      throw new ProjectStorageError(
+        'Il file archivio richiede una sorgente ZIP.',
+        'persistence-failed'
+      );
+    }
+    const body = new FormData();
+    body.append('snapshot', JSON.stringify(snapshot));
+    if (options.expectedRevision !== undefined) {
+      body.append('expectedRevision', String(options.expectedRevision));
+    }
+    body.append('archive', archiveFile);
+    return body;
   }
 
   async saveProjectCover(id: ProjectId, cover: FileData): Promise<void> {
@@ -501,21 +544,28 @@ export class HttpProjectRepository implements ProjectRepository {
     throw new ProjectStorageError(PROJECT_SYNC_ERROR_MESSAGE, 'persistence-failed');
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async request<T>(
+    path: string,
+    init: RequestInit = {},
+    timeoutMs = PROJECT_REQUEST_TIMEOUT_MS
+  ): Promise<T> {
     const requestUrl = `${this.baseUrl}${path}`;
     const timeoutController = new AbortController();
     const timeoutId = globalThis.setTimeout(() => {
       timeoutController.abort();
-    }, PROJECT_REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
 
     try {
       const response = await fetchWithSupabaseAuth(requestUrl, {
         ...init,
         cache: init.cache || 'no-store',
-        headers: {
-          'Content-Type': 'application/json',
-          ...init.headers,
-        },
+        headers:
+          init.body instanceof FormData
+            ? init.headers
+            : {
+                'Content-Type': 'application/json',
+                ...init.headers,
+              },
         signal: init.signal || timeoutController.signal,
       });
       const data = await readApiResponse<T>(response);

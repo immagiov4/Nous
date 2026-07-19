@@ -126,8 +126,7 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
 
   callOpenRouterMock
     .mockResolvedValueOnce('Schema con coni di visibilita e stanze etichettate A-G.')
-    .mockResolvedValueOnce('DECORATIVE')
-    .mockResolvedValueOnce('');
+    .mockResolvedValueOnce('DECORATIVE');
 
   const session = await getPdfAssetSession(pdfFile, { partialPages: [10, 11, 12] });
 
@@ -151,9 +150,9 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
     },
   ]);
   assert.equal(fetchMock.mock.calls.length, 2);
-  assert.equal(callOpenRouterMock.mock.calls.length, 3);
+  assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.model, 'nvidia/nemotron-nano-12b-v2-vl');
-  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.disableModelOverride, true);
+  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
   assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[0]?.content?.[0], {
     type: 'image_url',
     image_url: { url: 'data:image/png;base64,AAAA' },
@@ -190,7 +189,6 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
     String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[0]?.content?.[1]?.text || ''),
     new RegExp(`${previousPageTail}[\\s\\S]*${currentPageTail}[\\s\\S]*${nextPageTail}`)
   );
-  assert.equal(callOpenRouterMock.mock.calls[2]?.[0]?.model, 'openai/gpt-5.4-nano');
   assert.equal(session?.parser, 'pdf-parse');
   assert.equal(session?.images.length, 2);
   assert.equal(session?.images[0]?.id, 'pdf-img-001');

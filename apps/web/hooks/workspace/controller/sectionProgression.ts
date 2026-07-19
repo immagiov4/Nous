@@ -15,6 +15,7 @@ import {
 import type { GenerationStatusReporter } from '../../../services/openrouter/generationProgress.ts';
 import { getCourseSourceDescriptors } from '../../../services/projects/courseSources.ts';
 import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
+import { SourceArchiveClient } from '../../../services/projects/sourceArchive.ts';
 import { mergeDocumentAssetsForPlan } from '../../../services/workspace/controller/documentAssets.ts';
 import { resolveLearnSectionContext } from '../../../services/workspace/controller/learnMode.ts';
 import {
@@ -51,6 +52,7 @@ const READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN: WorkspaceWorkflowId[] = [
 
 export const createSectionCommands = (context: WorkspaceControllerContext) => {
   const { domain, openRouter, projectLibrary, state, stopAudio } = context;
+  const sourceArchiveClient = new SourceArchiveClient();
 
   const getNextLesson = (plan: LearningPlan | null): LessonNode | null => {
     if (!plan || !domain.activeSectionId) {
@@ -379,6 +381,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const lessonGenerationState = resolveLessonGenerationState({
       file: sourceFile,
+      hasToolBackedSource: domain.source?.kind === 'archive',
       isLearnMode,
       learningPlan: currentPlan,
       syllabus: currentSyllabus,
@@ -419,77 +422,48 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           domain.setIsLearnMode(true);
         }
 
-        const { anchorLessonContextPrompt, anchorLessonId, moduleId, moduleTitle } =
-          resolveLearnSectionContext(section, currentPlan, currentSyllabus);
+        const { anchorLessonContextPrompt, moduleTitle } = resolveLearnSectionContext(
+          section,
+          currentPlan,
+          currentSyllabus
+        );
 
         let nextResearchDossiersBySectionId = currentResearchDossiersBySectionId;
         const cachedResearchDossier = currentResearchDossiersBySectionId[section.id];
-        const learnLessonResult = currentResearchCoursePlan
-          ? await (async () => {
-              const researchDossier =
-                cachedResearchDossier ||
-                (await openRouter.generateResearchLessonDossier({
-                  lesson: section,
-                  moduleTitle,
-                  profile: currentUserProfile,
-                  researchCoursePlan: currentResearchCoursePlan,
-                  onStatusUpdate: reportStatus,
-                  onReasoningUpdate: progressObserver.push,
-                }));
+        const researchDossier =
+          cachedResearchDossier ||
+          (await openRouter.generateResearchLessonDossier({
+            lesson: section,
+            moduleTitle,
+            profile: currentUserProfile,
+            researchCoursePlan: currentResearchCoursePlan,
+            onStatusUpdate: reportStatus,
+            onReasoningUpdate: progressObserver.push,
+          }));
 
-              if (!state.isWorkflowCurrent('loadSection', requestId)) {
-                return null;
-              }
+        if (!state.isWorkflowCurrent('loadSection', requestId)) {
+          return 'ignored-busy';
+        }
 
-              if (!cachedResearchDossier) {
-                nextResearchDossiersBySectionId = {
-                  ...currentResearchDossiersBySectionId,
-                  [section.id]: researchDossier,
-                };
-                domain.setResearchLessonDossier(researchDossier);
-              }
+        if (!cachedResearchDossier) {
+          nextResearchDossiersBySectionId = {
+            ...currentResearchDossiersBySectionId,
+            [section.id]: researchDossier,
+          };
+          domain.setResearchLessonDossier(researchDossier);
+        }
 
-              return openRouter.generateResearchLessonContent({
-                lessonTitle: section.title,
-                moduleTitle,
-                contextPrompt: section.contextPrompt || anchorLessonContextPrompt,
-                profile: currentUserProfile,
-                syllabus: currentSyllabus,
-                researchDossier,
-                generationNotes: currentPlan.generationNotes,
-                onStatusUpdate: reportStatus,
-                onReasoningUpdate: progressObserver.push,
-              });
-            })()
-          : await (async () => {
-              const content = await openRouter.generateLearnLessonContent(
-                section.title,
-                moduleTitle,
-                moduleId,
-                anchorLessonId,
-                section.contextPrompt || anchorLessonContextPrompt,
-                currentUserProfile,
-                currentSyllabus,
-                reportStatus,
-                currentPlan.generationNotes,
-                progressObserver.push
-              );
-              if (!state.isWorkflowCurrent('loadSection', requestId)) {
-                return null;
-              }
-
-              return openRouter.finalizeSourceFreeLesson({
-                contentMarkdown: content,
-                generationNotes: currentPlan.generationNotes,
-                language: currentUserProfile?.language,
-                onReasoningUpdate: progressObserver.push,
-                onStatusUpdate: reportStatus,
-                previousContext: completedTitles,
-                sectionDescription: section.description,
-                sectionTitle: section.title,
-                sourceContext: section.contextPrompt || anchorLessonContextPrompt,
-              });
-            })();
+        const learnLessonResult = await openRouter.generateResearchLessonContent({
+          lessonTitle: section.title,
+          moduleTitle,
+          contextPrompt: section.contextPrompt || anchorLessonContextPrompt,
+          profile: currentUserProfile,
+          syllabus: currentSyllabus,
+          researchDossier,
+          generationNotes: currentPlan.generationNotes,
+          onStatusUpdate: reportStatus,
+          onReasoningUpdate: progressObserver.push,
+        });
 
         if (!state.isWorkflowCurrent('loadSection', requestId) || !learnLessonResult) {
           return 'ignored-busy';
@@ -535,99 +509,92 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           throw new Error(t('La lezione rigenerata non e stata salvata. Riprova.'));
         }
       } else {
-        if (!sourceFile) {
+        const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
+        if (!sourceFile && !archiveSource) {
+          throw new Error('Missing source file for section generation');
+        }
+        const generationSourceFile = sourceFile || archiveSource?.file;
+        if (!generationSourceFile) {
           throw new Error('Missing source file for section generation');
         }
 
-        const cachedPrerequisiteDossier = currentResearchDossiersBySectionId[section.id];
-        const prerequisiteSourceContext =
-          section.type === 'prerequisite'
-            ? await openRouter.buildPrerequisiteSourceContext({
-                documentIndex: currentDocumentIndex,
-                file: sourceFile,
-                primaryChunkIds: section.primaryChunkIds,
-                sourceDescriptors: getCourseSourceDescriptors(domain.source),
-                sourceReferences: section.sourceReferences,
-              })
-            : null;
+        const cachedResearchDossier = currentResearchDossiersBySectionId[section.id];
+        let resolvedSourceArchiveContext: string | undefined;
+        if (archiveSource) {
+          if (
+            !projectLibrary.currentProjectId ||
+            !archiveSource.ref ||
+            !section.sourceArchiveSelectors?.length
+          ) {
+            throw new Error('La lezione non contiene riferimenti validi alla sorgente archivio.');
+          }
+          const resolvedFiles = await sourceArchiveClient.resolveSelectors(
+            projectLibrary.currentProjectId,
+            { sourceHash: archiveSource.ref.hash, sourceId: archiveSource.ref.id },
+            section.sourceArchiveSelectors
+          );
+          resolvedSourceArchiveContext = resolvedFiles
+            .map(file => `FILE ${file.path}\n${file.text}`)
+            .join('\n\n---\n\n');
+        }
+        const originalSourceContext = resolvedSourceArchiveContext
+          ? { content: resolvedSourceArchiveContext, sources: [] }
+          : await openRouter.buildPrerequisiteSourceContext({
+              documentIndex: currentDocumentIndex,
+              file: generationSourceFile,
+              primaryChunkIds: section.primaryChunkIds,
+              sourceDescriptors: getCourseSourceDescriptors(domain.source),
+              sourceReferences: section.sourceReferences,
+            });
         const coverageDecision =
-          section.type === 'prerequisite' && !cachedPrerequisiteDossier
+          section.type === 'prerequisite' && !cachedResearchDossier
             ? await openRouter.selectPrerequisiteSourceCoverage({
                 description: section.description,
                 onReasoningUpdate: progressObserver.push,
                 onStatusUpdate: reportStatus,
-                sourceContext: prerequisiteSourceContext?.content || '',
+                sourceContext: originalSourceContext.content,
                 title: section.title,
               })
             : null;
-        const needsMixedSources = Boolean(
-          section.type === 'prerequisite' &&
-            (cachedPrerequisiteDossier || coverageDecision?.needsResearch)
-        );
         let nextResearchDossiersBySectionId = currentResearchDossiersBySectionId;
-        let lessonResult:
-          | Awaited<ReturnType<typeof openRouter.generateSectionContent>>
-          | (Awaited<ReturnType<typeof openRouter.generateResearchLessonContent>> & {
-              documentAssets: null;
-              imageRefs: [];
-            });
-
-        if (needsMixedSources && prerequisiteSourceContext) {
-          const moduleTitle =
-            currentPlan.modules.find(module =>
-              module.children.some(child => child.id === section.id)
-            )?.title || section.title;
-          const researchedDossier =
-            cachedPrerequisiteDossier ||
-            (await openRouter.generateResearchLessonDossier({
-              coverageGaps: coverageDecision?.missingTopics,
-              lesson: section,
-              moduleTitle,
-              profile: currentUserProfile,
-              researchCoursePlan: currentResearchCoursePlan,
-              onStatusUpdate: reportStatus,
-              onReasoningUpdate: progressObserver.push,
-            }));
-          const mixedDossier = openRouter.mergePrerequisiteDossierSources(
-            researchedDossier,
-            prerequisiteSourceContext.sources
-          );
-          nextResearchDossiersBySectionId = {
-            ...currentResearchDossiersBySectionId,
-            [section.id]: mixedDossier,
-          };
-          domain.setResearchLessonDossier(mixedDossier);
-
-          const researchLessonResult = await openRouter.generateResearchLessonContent({
-            lessonTitle: section.title,
+        const moduleTitle =
+          currentPlan.modules.find(module => module.children.some(child => child.id === section.id))
+            ?.title || section.title;
+        const researchedDossier =
+          cachedResearchDossier ||
+          (await openRouter.generateResearchLessonDossier({
+            courseTitle: currentPlan.title,
+            coverageGaps: coverageDecision?.missingTopics,
+            lesson: section,
             moduleTitle,
-            contextPrompt: section.contextPrompt || section.description,
             profile: currentUserProfile,
-            syllabus: currentSyllabus,
-            researchDossier: mixedDossier,
-            originalSourceContext: prerequisiteSourceContext.content,
-            generationNotes: currentPlan.generationNotes,
+            researchCoursePlan: currentResearchCoursePlan,
             onStatusUpdate: reportStatus,
             onReasoningUpdate: progressObserver.push,
-          });
-          lessonResult = {
-            ...researchLessonResult,
-            documentAssets: null,
-            imageRefs: [],
-          };
-        } else {
-          lessonResult = await openRouter.generateSectionContent(
-            sourceFile,
-            section.title,
-            section.description,
-            completedTitles,
-            section.primaryChunkIds,
-            currentDocumentIndex,
-            reportStatus,
-            currentPlan.generationNotes,
-            progressObserver.push
-          );
-        }
+          }));
+        const mixedDossier = openRouter.mergePrerequisiteDossierSources(
+          researchedDossier,
+          originalSourceContext.sources
+        );
+        nextResearchDossiersBySectionId = {
+          ...currentResearchDossiersBySectionId,
+          [section.id]: mixedDossier,
+        };
+        domain.setResearchLessonDossier(mixedDossier);
+
+        const lessonResult = await openRouter.generateSectionContent({
+          documentIndex: currentDocumentIndex,
+          file: generationSourceFile,
+          generationNotes: currentPlan.generationNotes,
+          onReasoningUpdate: progressObserver.push,
+          onStatusUpdate: reportStatus,
+          previousContext: completedTitles,
+          primaryChunkIds: section.primaryChunkIds,
+          resolvedSourceArchiveContext,
+          sectionDescription: section.description,
+          sectionTitle: section.title,
+          supplementalSourceContext: openRouter.formatResearchDossierForPrompt(mixedDossier),
+        });
 
         const {
           content,

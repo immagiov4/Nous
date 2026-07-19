@@ -1,3 +1,4 @@
+import { COURSE_COVER_PROMPT_VERSION } from '@shared/courseCoverPrompt';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { GlobalModelConfig } from '../../src/config/modelConfig.js';
 import type { ProjectSnapshot, ProjectStore, SavedProjectMeta } from '../../src/projects/types.js';
@@ -58,11 +59,12 @@ const MODEL_CONFIG = {
   openAiAssessmentModel: 'openai/assessment',
   openAiImageModel: 'openai/image',
 } as GlobalModelConfig;
-const MAX_CONCURRENT_TEST_SLOTS = 4;
+const MAX_CONCURRENT_TEST_SLOTS = 6;
 
 const direction = {
   composition: 'Close editorial crop from above.',
   distinctiveDetails: 'Visible domain-specific tools and precise illustrative marks.',
+  dominantColor: 'muted copper',
   subject: 'A recognizable course subject.',
 };
 
@@ -169,7 +171,7 @@ describe('course cover regeneration jobs', () => {
     });
     expect(completed.results[0]).toEqual(
       expect.objectContaining({
-        coverName: 'owned-cover-v2.png',
+        coverName: `owned-cover-v${COURSE_COVER_PROMPT_VERSION}.png`,
         projectId: 'owned',
         status: 'regenerated',
       })
@@ -178,7 +180,7 @@ describe('course cover regeneration jobs', () => {
     expect(store.listProjects).toHaveBeenCalledTimes(1);
   });
 
-  test('uses fair global scheduling with at most four active operations across users', async () => {
+  test('uses fair global scheduling with at most six active operations across users', async () => {
     const userAProjects = Array.from({ length: 8 }, (_, index) => project(`a-${index}`));
     const userBProjects = [project('b-0')];
     const stores = new Map([
@@ -215,8 +217,8 @@ describe('course cover regeneration jobs', () => {
       waitForTerminalJob('fair-user-b'),
     ]);
 
-    expect(maxActiveImages).toBe(6);
-    expect(starts.indexOf('Course b-0')).toBeLessThanOrEqual(5);
+    expect(maxActiveImages).toBe(MAX_CONCURRENT_TEST_SLOTS);
+    expect(starts.indexOf('Course b-0')).toBeLessThanOrEqual(MAX_CONCURRENT_TEST_SLOTS + 1);
     expect(jobA.summary.regenerated).toBe(8);
     expect(jobB.summary.regenerated).toBe(1);
   });
@@ -286,7 +288,7 @@ describe('course cover regeneration jobs', () => {
     );
   });
 
-  test('uses OpenAI assessment and image models', async () => {
+  test('uses OpenAI artifact and image models', async () => {
     const store = buildStore([project('openai')]);
     getProjectStoreMock.mockReturnValue(store);
     const openAiConfig = { ...MODEL_CONFIG, aiProvider: 'openai' as const };
@@ -295,7 +297,7 @@ describe('course cover regeneration jobs', () => {
     startOrResumeCourseCoverRegeneration('openai-user', 'openai');
     await waitForTerminalJob('openai-user');
 
-    expect(createConfiguredTextModelMock).toHaveBeenCalledWith(openAiConfig, 'assessment');
+    expect(createConfiguredTextModelMock).toHaveBeenCalledWith(openAiConfig, 'artifact');
     expect(generateTextMock).toHaveBeenCalledWith(
       expect.objectContaining({ abortSignal: expect.any(AbortSignal) })
     );
@@ -304,7 +306,33 @@ describe('course cover regeneration jobs', () => {
     );
   });
 
-  test('uses the Codex assessment planner and retries immediately after setup failure', async () => {
+  test('resolves artifact planning and image providers independently', async () => {
+    const store = buildStore([project('mixed-providers')]);
+    const aiProviderOverrides = {
+      artifact: 'codex',
+      image: 'openrouter',
+    } as const;
+    getProjectStoreMock.mockReturnValue(store);
+    getResolvedModelConfigMock.mockResolvedValue({
+      ...MODEL_CONFIG,
+      aiProvider: 'openai',
+      aiProviderOverrides,
+    });
+    runCodexAppServerTurnMock.mockResolvedValue(JSON.stringify(direction));
+
+    startOrResumeCourseCoverRegeneration('mixed-provider-user', 'openai', aiProviderOverrides);
+    await waitForTerminalJob('mixed-provider-user');
+
+    expect(getResolvedModelConfigMock).toHaveBeenCalledWith('openai', aiProviderOverrides);
+    expect(runCodexAppServerTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'codex/image' })
+    );
+    expect(generateImageMock).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'openrouter/image', provider: 'openrouter' })
+    );
+  });
+
+  test('uses the Codex artifact planner and retries immediately after setup failure', async () => {
     const store = buildStore([project('codex')]);
     getProjectStoreMock.mockReturnValue(store);
     getResolvedModelConfigMock
@@ -322,7 +350,7 @@ describe('course cover regeneration jobs', () => {
     expect(completedJob.status).toBe('completed');
     expect(runCodexAppServerTurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: 'codex/assessment',
+        model: 'codex/image',
         outputSchema: expect.objectContaining({ type: 'object' }),
       })
     );

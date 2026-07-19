@@ -31,6 +31,10 @@ const codexStreamMocks = vi.hoisted(() => ({
   createCodexChatStream: vi.fn(),
   SAFE_AI_STREAM_ERROR: 'Il servizio AI non ha completato la richiesta. Riprova tra poco.',
 }));
+
+const codexAppServerMocks = vi.hoisted(() => ({
+  runCodexAppServerTurn: vi.fn(),
+}));
 const ORIGINAL_ENV = { ...process.env };
 
 vi.mock('ai', async importOriginal => {
@@ -54,6 +58,14 @@ vi.mock('@ai-sdk/openai', () => ({
 }));
 
 vi.mock('../../src/services/codexChatStream.js', () => codexStreamMocks);
+
+vi.mock('../../src/services/codexAppServer.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../src/services/codexAppServer.js')>();
+  return {
+    ...actual,
+    runCodexAppServerTurn: codexAppServerMocks.runCodexAppServerTurn,
+  };
+});
 
 vi.mock('../../src/config/chatConfig.js', async () => {
   const actual = await vi.importActual<typeof import('../../src/config/chatConfig.js')>(
@@ -90,6 +102,7 @@ describe('POST /api/chat/context', () => {
     openAiMocks.createOpenAI.mockReset();
     chatConfigMocks.requireOpenAiApiKey.mockReset();
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
+    codexAppServerMocks.runCodexAppServerTurn.mockReset();
     codexStreamMocks.createCodexChatStream.mockReset();
     resetModelConfigForTesting();
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
@@ -110,6 +123,7 @@ describe('POST /api/chat/context', () => {
     aiMocks.toUIMessageStream.mockReturnValue('stream-token');
     aiMocks.streamText.mockReturnValue({ toUIMessageStream: aiMocks.toUIMessageStream });
     codexStreamMocks.createCodexChatStream.mockResolvedValue('codex-stream-token');
+    codexAppServerMocks.runCodexAppServerTurn.mockResolvedValue('Cross-check Codex eseguito.');
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
       ({
         response,
@@ -401,6 +415,78 @@ describe('POST /api/chat/context', () => {
     expect(fetchOptions?.body).not.toContain('"model":"server/context-model"');
     expect(fetchOptions?.body).not.toContain('"model":"openai/gpt-5.4-nano"');
   });
+
+  test('keeps the context chat on OpenRouter while routing web search through OpenAI research', async () => {
+    patchGlobalModelConfig({
+      aiProvider: 'openrouter',
+      aiProviderOverrides: { research: 'openai' },
+      contextModel: 'server/context-model',
+      openAiResearchModel: 'gpt-5-search-api',
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              annotations: [
+                {
+                  type: 'url_citation',
+                  url_citation: {
+                    title: 'OpenAI source',
+                    url: 'https://example.com/openai-source',
+                  },
+                },
+              ],
+              content: 'Cross-check OpenAI eseguito.',
+            },
+          },
+        ],
+      }),
+    });
+
+    await request(createApp())
+      .post('/api/chat/context')
+      .send({
+        selectedText: 'Puntatore',
+        messages: [{ id: '1', role: 'user', content: 'Spiegami' }],
+      });
+
+    expect(openRouterMocks.chat).toHaveBeenCalledWith('server/context-model');
+    fetchMock.mockClear();
+    chatConfigMocks.requireOpenAiApiKey.mockClear();
+    chatConfigMocks.requireOpenRouterApiKey.mockClear();
+
+    const toolResult = await aiMocks.streamText.mock.calls[0][0].tools.searchWeb.execute({
+      query: 'pointer aliasing rules',
+    });
+
+    expect(toolResult).toMatchObject({
+      query: 'pointer aliasing rules',
+      sources: [
+        {
+          title: 'OpenAI source',
+          url: 'https://example.com/openai-source',
+        },
+      ],
+      summary: 'Cross-check OpenAI eseguito.',
+      webSearchRequests: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
+    const fetchOptions = fetchMock.mock.calls[0]?.[1] as { body?: string } | undefined;
+    const requestBody = JSON.parse(fetchOptions?.body || '{}') as Record<string, unknown>;
+    expect(requestBody).toMatchObject({
+      model: 'gpt-5-search-api',
+      max_completion_tokens: 1200,
+      web_search_options: {},
+    });
+    expect(requestBody.tools).toBeUndefined();
+    expect(requestBody.tool_choice).toBeUndefined();
+    expect(chatConfigMocks.requireOpenAiApiKey).toHaveBeenCalledTimes(1);
+    expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
+    expect(codexAppServerMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST /api/chat/library', () => {
@@ -416,6 +502,7 @@ describe('POST /api/chat/library', () => {
     openAiMocks.createOpenAI.mockReset();
     chatConfigMocks.requireOpenAiApiKey.mockReset();
     chatConfigMocks.requireOpenRouterApiKey.mockReset();
+    codexAppServerMocks.runCodexAppServerTurn.mockReset();
     codexStreamMocks.createCodexChatStream.mockReset();
     resetModelConfigForTesting();
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
@@ -436,6 +523,7 @@ describe('POST /api/chat/library', () => {
     aiMocks.toUIMessageStream.mockReturnValue('stream-token');
     aiMocks.streamText.mockReturnValue({ toUIMessageStream: aiMocks.toUIMessageStream });
     codexStreamMocks.createCodexChatStream.mockResolvedValue('codex-stream-token');
+    codexAppServerMocks.runCodexAppServerTurn.mockResolvedValue('Cross-check Codex eseguito.');
     aiMocks.pipeUIMessageStreamToResponse.mockImplementation(
       ({
         response,
@@ -713,5 +801,55 @@ describe('POST /api/chat/library', () => {
     expect(fetchOptions?.body).toContain('"model":"server/research-model"');
     expect(fetchOptions?.body).not.toContain('"model":"server/library-model"');
     expect(fetchOptions?.body).not.toContain('"model":"openai/gpt-5.4-nano"');
+  });
+
+  test('keeps the library chat on OpenRouter while routing web search through Codex research', async () => {
+    patchGlobalModelConfig({
+      aiProvider: 'openrouter',
+      aiProviderOverrides: { research: 'codex' },
+      codexResearchModel: 'gpt-codex-research',
+      contextModel: 'server/library-model',
+    });
+
+    await request(createApp())
+      .post('/api/chat/library')
+      .send({
+        messages: [{ id: '1', role: 'user', content: 'Riassumimi le note' }],
+      });
+
+    expect(openRouterMocks.chat).toHaveBeenCalledWith('server/library-model');
+    fetchMock.mockClear();
+    chatConfigMocks.requireOpenAiApiKey.mockClear();
+    chatConfigMocks.requireOpenRouterApiKey.mockClear();
+
+    const toolResult = await aiMocks.streamText.mock.calls[0][0].tools.searchWeb.execute({
+      query: 'nis2 identity access management summary',
+    });
+
+    expect(toolResult).toEqual({
+      query: 'nis2 identity access management summary',
+      sources: [],
+      summary: 'Cross-check Codex eseguito.',
+      webSearchRequests: 1,
+    });
+    expect(codexAppServerMocks.runCodexAppServerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowWebSearch: true,
+        developerInstructions: expect.stringContaining(
+          'Sei un ricercatore web per una chat di libreria corsi.'
+        ),
+        input: [
+          {
+            type: 'text',
+            text: expect.stringContaining('nis2 identity access management summary'),
+          },
+        ],
+        model: 'gpt-codex-research',
+        reasoningEffort: 'none',
+      })
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(chatConfigMocks.requireOpenAiApiKey).not.toHaveBeenCalled();
+    expect(chatConfigMocks.requireOpenRouterApiKey).not.toHaveBeenCalled();
   });
 });

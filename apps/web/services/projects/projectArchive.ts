@@ -94,7 +94,7 @@ const buildArchiveManifest = (
   manifest: ProjectArchiveManifest;
 } => {
   const project = exportProjectData(snapshot);
-  const { file: _legacyFile, source: projectSource, ...projectRest } = project;
+  const { file: _legacyFile, source: _projectSource, ...projectRest } = project;
 
   if (snapshot.source?.sources?.length) {
     const attachments = snapshot.source.sources
@@ -112,17 +112,12 @@ const buildArchiveManifest = (
       ...source,
       file: { ...source.file, data: '' },
     }));
-    let archivedSource: ProjectExportData['source'];
-    if (snapshot.source.kind === 'pdf') {
-      const { ref: _serverSourceReference, ...portableSource } = snapshot.source;
-      archivedSource = {
-        ...portableSource,
-        file: { ...snapshot.source.file, data: '' },
-        sources: archivedSources,
-      };
-    } else {
-      archivedSource = { ...snapshot.source, sources: archivedSources };
-    }
+    const { ref: _serverSourceReference, ...portableSource } = snapshot.source;
+    const archivedSource: ProjectExportData['source'] = {
+      ...portableSource,
+      file: { ...snapshot.source.file, data: '' },
+      sources: archivedSources,
+    };
 
     return {
       attachments,
@@ -135,20 +130,21 @@ const buildArchiveManifest = (
     };
   }
 
-  if (snapshot.source?.kind !== 'pdf') {
+  if (!snapshot.source) {
     return {
       manifest: {
         format: PROJECT_ARCHIVE_FORMAT,
         archiveVersion: PROJECT_ARCHIVE_VERSION,
         project: {
           ...projectRest,
-          source: projectSource || null,
+          source: null,
         },
       },
     };
   }
 
   const file = snapshot.source.file;
+  const { ref: _serverSourceReference, ...portableSource } = snapshot.source;
   const archivePath = `${PROJECT_ARCHIVE_SOURCE_DIR}/${sanitizeArchivePathSegment(file.name)}`;
 
   return {
@@ -175,7 +171,7 @@ const buildArchiveManifest = (
       project: {
         ...projectRest,
         source: {
-          kind: 'pdf',
+          ...portableSource,
           file: {
             name: file.name,
             mimeType: file.mimeType,
@@ -224,13 +220,20 @@ const loadProjectArchive = async (bytes: Uint8Array): Promise<LoadedProjectArchi
 const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportData> => {
   const { manifest, zip } = await loadProjectArchive(bytes);
 
-  if (manifest.attachments?.sourceFiles?.length && manifest.project.source?.sources?.length) {
+  if (manifest.project.source?.sources?.length) {
+    const sourceFiles = manifest.attachments?.sourceFiles;
+    if (!sourceFiles || sourceFiles.length !== manifest.project.source.sources.length) {
+      throw new Error('Archivio backup non valido: allegati delle fonti incompleti.');
+    }
     const filesBySourceId = new Map<string, FileData>();
     let totalAttachmentBytes = 0;
-    for (const attachment of manifest.attachments.sourceFiles) {
+    for (const attachment of sourceFiles) {
       const attachmentEntry = zip.file(attachment.path);
       if (!attachmentEntry || !attachment.sourceId) {
         throw new Error(`Archivio backup non valido: manca ${attachment.path}.`);
+      }
+      if (filesBySourceId.has(attachment.sourceId)) {
+        throw new Error('Archivio backup non valido: allegati delle fonti incompleti.');
       }
       const fileBytes = await readZipEntryBytesWithinLimit(
         attachmentEntry,
@@ -246,24 +249,25 @@ const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportDa
         sourceId: attachment.sourceId,
       });
     }
-    const sources = manifest.project.source.sources.map(source => ({
-      ...source,
-      file: filesBySourceId.get(source.id) || source.file,
-    }));
-    const primarySourceId =
-      manifest.project.source.kind === 'pdf' ? manifest.project.source.file.sourceId : undefined;
-    const primaryFile =
-      sources.find(source => source.id === primarySourceId)?.file || sources[0]?.file;
+    const sources = manifest.project.source.sources.map(source => {
+      const file = filesBySourceId.get(source.id);
+      if (!file) {
+        throw new Error('Archivio backup non valido: allegati delle fonti incompleti.');
+      }
+      return { ...source, file };
+    });
+    const primarySourceId = manifest.project.source.file.sourceId;
+    const primaryFile = sources.find(source => source.id === primarySourceId)?.file;
+    if (!primaryFile) {
+      throw new Error('Archivio backup non valido: fonte primaria mancante.');
+    }
     return {
       ...manifest.project,
-      source:
-        manifest.project.source.kind === 'pdf' && primaryFile
-          ? { ...manifest.project.source, file: primaryFile, sources }
-          : { ...manifest.project.source, sources },
+      source: { ...manifest.project.source, file: primaryFile, sources },
     };
   }
 
-  if (manifest.attachments?.sourceFile && manifest.project.source?.kind === 'pdf') {
+  if (manifest.attachments?.sourceFile && manifest.project.source) {
     const attachment = manifest.attachments.sourceFile;
     const attachmentEntry = zip.file(attachment.path);
 
@@ -281,7 +285,7 @@ const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportDa
     return {
       ...manifest.project,
       source: {
-        kind: 'pdf',
+        ...manifest.project.source,
         file: {
           name: attachment.name,
           mimeType: attachment.mimeType,
@@ -293,8 +297,8 @@ const decodeArchiveManifest = async (bytes: Uint8Array): Promise<ProjectExportDa
 
   const source = manifest.project.source;
 
-  if (source?.kind === 'pdf') {
-    throw new Error('Archivio backup non valido: allegato PDF mancante.');
+  if (source && !source.file.data) {
+    throw new Error('Archivio backup non valido: allegato della fonte mancante.');
   }
 
   return {

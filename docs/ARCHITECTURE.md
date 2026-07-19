@@ -71,7 +71,11 @@ This is the source of truth for the current project payload:
 - active section id
 - learn mode flag
 
-`ProjectSource.sources` is the authoritative logical source set for document-backed courses. The root PDF file or text bundle remains a compatibility view for legacy single-source code; it must not be treated as a physical merge of the set. Planning receives the source outlines and bounded content samples, while lesson generation retrieves only the chunks mapped to that lesson. Chunk ids and lesson source references retain their `sourceId`, plus page ranges where available.
+`ProjectSource.sources` is the authoritative logical source set for document-backed courses. The root
+file identifies the primary source; it is not a physical merge of the set. Planning receives the
+source outlines and bounded content samples, while lesson generation retrieves only the chunks
+mapped to that lesson. Chunk ids and lesson source references retain their `sourceId`, plus page
+ranges where available.
 
 It should not know anything about the screen the user is on.
 
@@ -213,6 +217,22 @@ We did not unify because rebuilding the chat/tool-call/history stack on top of `
 
 The AI API key is held server-side: the browser never sees it, regardless of which client is making the call.
 
+Text and image backends are resolved per model function. The global configuration chooses a default
+provider and may override the semantic workload slots independently:
+
+- `course` owns course planning, source-backed structuring, document mapping, and exercise placement;
+- `lesson` owns lesson dossier structuring, drafting, repair, quizzes, learning aids, and final verification;
+- `research` owns web and YouTube discovery, source coverage, and source analysis;
+- `context` is reserved for contextual and library chat;
+- `assessment`, `progress`, `artifact`, `artifactInteractive`, and `image` retain their dedicated roles.
+
+These slots describe product responsibilities, not transient generation phases. A request without
+an explicit valid slot is rejected; the backend does not infer or rewrite ownership from the
+selected provider. User metadata may replace the global default and then override individual slots
+again. The backend performs this resolution
+authoritatively for every request, so the browser cannot select a provider by changing a model name.
+The admin UI exposes the same hierarchy through compact expandable provider panels.
+
 ## Backend
 
 The backend lives in `apps/backend/src/`, with `apps/backend/dist/` used as build output only.
@@ -248,6 +268,49 @@ Supporting modules:
 The frontend always uses backend HTTP storage through `HttpProjectRepository`. The backend always creates `PostgresProjectStore`; there is no runtime storage-mode switch. Backend route tests exercise the persistence contract through a dedicated in-memory `ProjectStore`, without carrying a second production-style database implementation.
 
 The frontend `ProjectRepository` and backend `ProjectStore` interfaces remain separate adapters, while their wire-level values are shared through `packages/shared-types/projectContract.ts` as described in [Shared types](#9-shared-types).
+
+Project-source bytes live only in the private Supabase Storage bucket `project-sources`. Postgres
+stores the primary reference in `project_sources`, every logical source descriptor in
+`project_source_files`, and ZIP entry metadata in `project_source_entries`. Runtime snapshots contain
+only immutable references and empty `file.data` fields: there is no persistent Base64, concatenated
+code bundle, alternate filesystem store, or post-cutover fallback. Creating a new source-backed
+project is one application write: Storage uploads are verified first, project and source metadata are
+committed together, and a failed database write removes the uploaded objects.
+
+### Large source archives
+
+ZIP sources are indexed as archives rather than flattened text. The backend preserves the original
+ZIP and every entry, validates exact paths and duplicate records, and rejects archives above the
+named safety limits: 20,000 entries, 256 MB for one expanded file, or 1 GB total expanded content.
+The browser treats a source ZIP as opaque bytes and sends the original `File` in a binary multipart
+project PUT; it never reads, Base64-encodes, or embeds the archive in JSON. The response returns the
+authoritative detached index, which is the only index used for assessment and planning.
+The backend expands one file at a time, checks the bytes actually produced before accepting them,
+and bounds concurrent Storage uploads before opening the short metadata transaction.
+The persisted index contains the complete directory/file structure, byte sizes, content kind, and
+the first 24 lines of every UTF-8 text file, capped at 8,000 characters per preview. Binary files
+remain addressable metadata but are never decoded as lesson text.
+
+Course planning receives the complete index and shares a global 180,000-character preview budget
+equally across all textual files in stable path order. It never eagerly concatenates complete
+documentation into the prompt. Every textual file remains addressable through exact tools to list a
+directory, search a literal string, obtain the full tree, or read successive UTF-8 pages of at most
+256 KiB using the returned byte cursor. Page reads use authenticated Supabase Storage byte ranges
+and fail if Storage ignores or misreports the requested range; there is no full-object fallback.
+The local tool loop also fails explicitly before another model request once serialized tool results
+exceed 8 MiB. Every index response includes its immutable source ID and hash; all later tool calls
+must present that version, and stale calls fail with HTTP 409 rather than mixing two archive
+versions. The planner must assign at least one exact file or directory selector to every lesson. A
+lesson resolves those selectors before generation: file selectors load that complete text file,
+while directory selectors load every textual descendant and skip indexed binaries. The selected
+lesson context is all-or-nothing and fails explicitly above 4 MB instead of silently dropping files.
+
+The archive planner and lesson generator request OpenRouter's `middle-out` transform for oversized
+prompts; the Codex adapter uses its native context handling. This compression is a provider concern,
+not a substitute for the index and exact source tools. Source-backed course planning also performs
+supplemental web and transcript-backed YouTube research, and lesson dossier generation performs its
+own web and YouTube pass. Original material stays primary; online research fills gaps and supplies
+current references.
 
 Every project metadata response includes the server-owned monotonic `revision`. Existing-project PUT and PATCH requests send `expectedRevision`; a stale request receives HTTP 409 and never updates the snapshot. Authenticated server-sent events at `/api/projects/events` carry only `{ projectId, revision }`. `useProjectLibrary` refreshes metadata on an event, reconnect, foreground, or network recovery, and reloads the active snapshot only when the revision advanced and no local write or dirty autosave state is pending.
 
@@ -308,12 +371,9 @@ Course cover generation uses the shared versioned prompt in `packages/shared-typ
 
 ## Tooling
 
-Bun is the only package manager and task runner. The root workspace owns the single lockfile for the frontend and backend.
+Bun is the JavaScript package manager and task runner, and the root workspace owns the single
+lockfile for the frontend and backend. The quality gate uses `uvx` only to execute the pinned
+Semgrep CLI.
 
-```bash
-bun run dev       # Frontend + backend in watch mode
-bun run quality   # Type checks + Biome + dependency boundaries + React Hooks lint
-bun run fix       # Auto-fix Biome lint, format, and import ordering
-bun run gate      # Full gate: quality + fallow + tests
-bun run test      # Vitest test suite (runs under Bun runtime)
-```
+Use `bun run dev` for the local stack and `bun run gate` for the complete local quality gate. The
+canonical check list and CI contract live in [Testing and quality gates](TESTING.md).

@@ -103,6 +103,8 @@ test('coverage selection distinguishes complete material from factual gaps', asy
     needsResearch: true,
   });
   assert.equal(callOpenRouterMock.mock.calls.length, 2);
+  assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.modelSlot, 'research');
+  assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.modelSlot, 'research');
 });
 
 test('coverage selection requests research without a model call when source evidence is absent', async () => {

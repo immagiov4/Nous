@@ -962,12 +962,7 @@ const CourseList = ({
                     return (
                       <div
                         key={project.id}
-                        onClick={() => {
-                          if (renameTarget?.id !== project.id) {
-                            onOpenProject(project.id);
-                          }
-                        }}
-                        className="group relative m-3 flex min-h-24 cursor-pointer items-center gap-3 overflow-hidden rounded-[1.5rem] border border-stone-200/80 px-4 py-4 shadow-sm sm:m-0 sm:min-h-0 sm:gap-4 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:px-4 sm:py-3 sm:shadow-none sm:last:border-b-0 dark:border-white/10"
+                        className="group relative m-3 flex min-h-24 items-center gap-3 overflow-hidden rounded-[1.5rem] border border-stone-200/80 px-4 py-4 shadow-sm sm:m-0 sm:min-h-0 sm:gap-4 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:px-4 sm:py-3 sm:shadow-none sm:last:border-b-0 dark:border-white/10"
                       >
                         <div aria-hidden="true" className="absolute inset-0 sm:hidden">
                           <CourseCover

@@ -80,6 +80,44 @@ test('createProjectArchiveBlob keeps pdf bytes outside the manifest and restores
   assert.equal(flattenLessons(imported.learningPlan?.modules).length, 1);
 });
 
+test('source archive backups keep original zip bytes outside the manifest and preserve the index', async () => {
+  const snapshot = buildPdfSnapshot();
+  const sourceBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x2a, 0x2b, 0x2c, 0x2d]);
+  snapshot.source = {
+    file: {
+      data: encodeBytesBase64(sourceBytes),
+      mimeType: 'application/zip',
+      name: 'engine-source.zip',
+    },
+    index: {
+      entries: [
+        { kind: 'directory', path: 'src' },
+        {
+          byteSize: 42,
+          contentKind: 'text',
+          hash: 'a'.repeat(64),
+          kind: 'file',
+          path: 'src/main.cpp',
+          preview: 'int main() {}',
+        },
+      ],
+    },
+    kind: 'archive',
+    name: 'engine-source.zip',
+  };
+
+  const archive = await createProjectArchiveBlob(snapshot);
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifestText = (await zip.file('project.json')?.async('string')) || '';
+  const sourceEntry = zip.file('source/engine-source.zip');
+  const imported = (await readProjectImportData(archive)) as ProjectSnapshot;
+
+  assert.ok(sourceEntry);
+  assert.equal(manifestText.includes(snapshot.source.file.data), false);
+  assert.deepEqual(new Uint8Array(await sourceEntry.async('uint8array')), sourceBytes);
+  assert.deepEqual(imported.source, snapshot.source);
+});
+
 test('multi-source archives preserve every file and derivative without embedding file bytes in the manifest', async () => {
   const snapshot = buildPdfSnapshot();
   const descriptors = buildCourseSourceDescriptors([
@@ -91,11 +129,80 @@ test('multi-source archives preserve every file and derivative without embedding
   const archive = await createProjectArchiveBlob(snapshot);
   const zip = await JSZip.loadAsync(await archive.arrayBuffer());
   const manifestText = (await zip.file('project.json')?.async('string')) || '';
+  const manifest = JSON.parse(manifestText) as {
+    project: {
+      source?: {
+        file?: { data?: string };
+        sources?: Array<{ file: { data?: string } }>;
+      };
+    };
+  };
   const imported = (await readProjectImportData(archive)) as ProjectSnapshot;
 
   assert.equal(zip.file(/^source\//u).length, 2);
-  assert.equal(manifestText.includes(descriptors[0]?.file.data || ''), false);
+  assert.equal(manifest.project.source?.file?.data, '');
+  assert.equal(
+    manifest.project.source?.sources?.every(source => source.file.data === ''),
+    true
+  );
+  for (const descriptor of descriptors) {
+    assert.equal(manifestText.includes(descriptor.file.data), false);
+  }
   assert.deepEqual(imported.source, snapshot.source);
+});
+
+test('multi-source archive import rejects a missing primary source instead of selecting another file', async () => {
+  const snapshot = buildPdfSnapshot();
+  const descriptors = buildCourseSourceDescriptors([
+    { name: 'b.txt', mimeType: 'text/plain', data: encodeTextBase64('Beta') },
+    { name: 'a.md', mimeType: 'text/markdown', data: encodeTextBase64('# Alpha') },
+  ]);
+  snapshot.source = createProjectSourceFromDescriptors(descriptors);
+
+  const archive = await createProjectArchiveBlob(snapshot);
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifestEntry = zip.file('project.json');
+  assert.ok(manifestEntry);
+  const manifest = JSON.parse(await manifestEntry.async('string')) as {
+    project: { source: { file: { sourceId?: string } } };
+  };
+  manifest.project.source.file.sourceId = 'missing-source';
+  zip.file('project.json', JSON.stringify(manifest));
+  const invalidArchive = new Blob([(await zip.generateAsync({ type: 'uint8array' })) as BlobPart], {
+    type: 'application/zip',
+  });
+
+  await assert.rejects(
+    () => readProjectImportData(invalidArchive),
+    /Archivio backup non valido: fonte primaria mancante\./
+  );
+});
+
+test('multi-source archive import rejects an incomplete attachment set instead of losing a source', async () => {
+  const snapshot = buildPdfSnapshot();
+  const descriptors = buildCourseSourceDescriptors([
+    { name: 'b.txt', mimeType: 'text/plain', data: encodeTextBase64('Beta') },
+    { name: 'a.md', mimeType: 'text/markdown', data: encodeTextBase64('# Alpha') },
+  ]);
+  snapshot.source = createProjectSourceFromDescriptors(descriptors);
+
+  const archive = await createProjectArchiveBlob(snapshot);
+  const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifestEntry = zip.file('project.json');
+  assert.ok(manifestEntry);
+  const manifest = JSON.parse(await manifestEntry.async('string')) as {
+    attachments: { sourceFiles: unknown[] };
+  };
+  manifest.attachments.sourceFiles.pop();
+  zip.file('project.json', JSON.stringify(manifest));
+  const invalidArchive = new Blob([(await zip.generateAsync({ type: 'uint8array' })) as BlobPart], {
+    type: 'application/zip',
+  });
+
+  await assert.rejects(
+    () => readProjectImportData(invalidArchive),
+    /Archivio backup non valido: allegati delle fonti incompleti\./
+  );
 });
 
 test('isProjectArchiveFile rejects generic source zips and readProjectImportData reports a backup-specific error', async () => {

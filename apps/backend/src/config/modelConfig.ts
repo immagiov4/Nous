@@ -5,17 +5,18 @@ export type TextModelSlot =
   | 'artifactInteractive'
   | 'assessment'
   | 'context'
-  | 'drafting'
+  | 'course'
   | 'lesson'
   | 'progress'
-  | 'research'
-  | 'structure'
-  | 'verification';
+  | 'research';
+export type ModelProviderSlot = TextModelSlot | 'image';
+export type ModelProviderOverrides = Partial<Record<ModelProviderSlot, AiProvider>>;
 
 export const DEFAULT_TTS_MODEL = 'x-ai/grok-voice-tts-1.0';
 export const DEFAULT_TTS_VOICE = 'Ara';
 export const DEFAULT_IMAGE_MODEL = 'google/gemini-3.1-flash-lite-image';
 export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-2';
+export const DEFAULT_OPENAI_RESEARCH_MODEL = 'gpt-5-search-api';
 
 const UNAVAILABLE_TTS_MODELS = new Set([
   'openai/gpt-4o-mini-tts',
@@ -25,6 +26,7 @@ const UNAVAILABLE_TTS_MODELS = new Set([
 
 export interface GlobalModelConfig {
   aiProvider: AiProvider;
+  aiProviderOverrides?: ModelProviderOverrides;
   artifactModel: string;
   artifactInteractiveModel: string;
   artifactInteractiveReasoningEffort: ReasoningEffort;
@@ -37,16 +39,15 @@ export interface GlobalModelConfig {
   codexArtifactModel: string;
   codexArtifactInteractiveModel: string;
   codexContextModel: string;
-  codexDraftingModel: string;
+  codexCourseModel: string;
   codexFastModelSlots: TextModelSlot[];
   codexLessonModel: string;
   codexProgressModel: string;
   codexResearchModel: string;
-  codexStructureModel: string;
-  codexVerificationModel: string;
   contextModel: string;
   contextReasoningEffort: ReasoningEffort;
-  draftingReasoningEffort: ReasoningEffort;
+  courseModel: string;
+  courseReasoningEffort: ReasoningEffort;
   imageModel: string;
   lessonModel: string;
   lessonReasoningEffort: ReasoningEffort;
@@ -54,6 +55,7 @@ export interface GlobalModelConfig {
   openAiArtifactModel: string;
   openAiArtifactInteractiveModel: string;
   openAiContextModel: string;
+  openAiCourseModel: string;
   openAiImageModel: string;
   openAiLessonModel: string;
   openAiProgressModel: string;
@@ -61,17 +63,16 @@ export interface GlobalModelConfig {
   progressModel: string;
   progressReasoningEffort: ReasoningEffort;
   researchModel: string;
-  structureReasoningEffort: ReasoningEffort;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
-  verificationReasoningEffort: ReasoningEffort;
 }
 
 export type GlobalModelConfigPatch = Partial<
   Pick<
     GlobalModelConfig,
     | 'aiProvider'
+    | 'aiProviderOverrides'
     | 'artifactModel'
     | 'artifactInteractiveModel'
     | 'artifactInteractiveReasoningEffort'
@@ -84,16 +85,15 @@ export type GlobalModelConfigPatch = Partial<
     | 'codexArtifactModel'
     | 'codexArtifactInteractiveModel'
     | 'codexContextModel'
-    | 'codexDraftingModel'
+    | 'codexCourseModel'
     | 'codexFastModelSlots'
     | 'codexLessonModel'
     | 'codexProgressModel'
     | 'codexResearchModel'
-    | 'codexStructureModel'
-    | 'codexVerificationModel'
     | 'contextModel'
     | 'contextReasoningEffort'
-    | 'draftingReasoningEffort'
+    | 'courseModel'
+    | 'courseReasoningEffort'
     | 'imageModel'
     | 'lessonModel'
     | 'lessonReasoningEffort'
@@ -101,6 +101,7 @@ export type GlobalModelConfigPatch = Partial<
     | 'openAiArtifactModel'
     | 'openAiArtifactInteractiveModel'
     | 'openAiContextModel'
+    | 'openAiCourseModel'
     | 'openAiImageModel'
     | 'openAiLessonModel'
     | 'openAiProgressModel'
@@ -108,10 +109,8 @@ export type GlobalModelConfigPatch = Partial<
     | 'progressModel'
     | 'progressReasoningEffort'
     | 'researchModel'
-    | 'structureReasoningEffort'
     | 'ttsModel'
     | 'ttsVoice'
-    | 'verificationReasoningEffort'
   >
 >;
 
@@ -119,6 +118,7 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   aiProvider: (['codex', 'openai', 'openrouter'].includes(process.env.AI_PROVIDER || '')
     ? process.env.AI_PROVIDER
     : 'openrouter') as AiProvider,
+  aiProviderOverrides: {},
   artifactModel: process.env.MODEL_ARTIFACT || 'deepseek/deepseek-v4-pro',
   artifactInteractiveModel:
     process.env.MODEL_ARTIFACT_INTERACTIVE || process.env.MODEL_ARTIFACT || 'openai/gpt-5.6-terra',
@@ -135,16 +135,15 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
     process.env.CODEX_MODEL_ARTIFACT ||
     'gpt-5.6-sol',
   codexContextModel: process.env.CODEX_MODEL_CONTEXT || 'gpt-5.6-luna',
-  codexDraftingModel: process.env.CODEX_MODEL_DRAFTING || 'gpt-5.6-luna',
-  codexFastModelSlots: ['artifact', 'artifactInteractive', 'drafting', 'structure'],
+  codexCourseModel: process.env.CODEX_MODEL_COURSE || 'gpt-5.6-luna',
+  codexFastModelSlots: ['artifact', 'artifactInteractive', 'course', 'lesson'],
   codexLessonModel: process.env.CODEX_MODEL_LESSON || 'gpt-5.6-terra',
   codexProgressModel: process.env.CODEX_MODEL_PROGRESS || 'gpt-5.6-luna',
   codexResearchModel: process.env.CODEX_MODEL_RESEARCH || 'gpt-5.6-terra',
-  codexStructureModel: process.env.CODEX_MODEL_STRUCTURE || 'gpt-5.6-luna',
-  codexVerificationModel: process.env.CODEX_MODEL_VERIFICATION || 'gpt-5.6-terra',
   contextModel: process.env.MODEL_CONTEXT || 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium',
-  draftingReasoningEffort: 'high',
+  courseModel: process.env.MODEL_COURSE || 'openai/gpt-5.6-luna',
+  courseReasoningEffort: 'medium',
   imageModel: process.env.MODEL_IMAGE || DEFAULT_IMAGE_MODEL,
   lessonModel: process.env.MODEL_LESSON || 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high',
@@ -155,17 +154,16 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
     process.env.OPENAI_MODEL_ARTIFACT ||
     'gpt-5.6-terra',
   openAiContextModel: process.env.OPENAI_MODEL_CONTEXT || 'gpt-5.6-luna',
+  openAiCourseModel: process.env.OPENAI_MODEL_COURSE || 'gpt-5.6-terra',
   openAiImageModel: process.env.OPENAI_MODEL_IMAGE || DEFAULT_OPENAI_IMAGE_MODEL,
   openAiLessonModel: process.env.OPENAI_MODEL_LESSON || 'gpt-5.6-terra',
   openAiProgressModel: process.env.OPENAI_MODEL_PROGRESS || 'gpt-5.6-luna',
-  openAiResearchModel: process.env.OPENAI_MODEL_RESEARCH || 'gpt-5.6-terra',
+  openAiResearchModel: process.env.OPENAI_MODEL_RESEARCH || DEFAULT_OPENAI_RESEARCH_MODEL,
   progressModel: process.env.MODEL_PROGRESS || 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low',
   researchModel: process.env.MODEL_RESEARCH_PLANNER || 'perplexity/sonar-pro-search',
-  structureReasoningEffort: 'medium',
   ttsModel: process.env.MODEL_TTS || DEFAULT_TTS_MODEL,
   ttsVoice: process.env.TTS_VOICE || DEFAULT_TTS_VOICE,
-  verificationReasoningEffort: 'high',
 };
 
 let activeModelConfig: GlobalModelConfig = {
@@ -177,6 +175,7 @@ let persistedModelConfigPromise: Promise<GlobalModelConfig> | null = null;
 interface PersistedModelConfigRow {
   id?: 'global';
   ai_provider?: string;
+  ai_provider_overrides?: unknown;
   artifact_model?: string;
   artifact_interactive_model?: string;
   artifact_interactive_reasoning_effort?: string;
@@ -189,16 +188,15 @@ interface PersistedModelConfigRow {
   codex_artifact_model?: string;
   codex_artifact_interactive_model?: string;
   codex_context_model?: string;
-  codex_drafting_model?: string;
+  codex_course_model?: string;
   codex_fast_model_slots?: unknown;
   codex_lesson_model?: string;
   codex_progress_model?: string;
   codex_research_model?: string;
-  codex_structure_model?: string;
-  codex_verification_model?: string;
   context_model?: string;
   context_reasoning_effort?: string;
-  drafting_reasoning_effort?: string;
+  course_model?: string;
+  course_reasoning_effort?: string;
   image_model?: string;
   lesson_model?: string;
   lesson_reasoning_effort?: string;
@@ -206,6 +204,7 @@ interface PersistedModelConfigRow {
   openai_artifact_model?: string;
   openai_artifact_interactive_model?: string;
   openai_context_model?: string;
+  openai_course_model?: string;
   openai_image_model?: string;
   openai_lesson_model?: string;
   openai_progress_model?: string;
@@ -213,11 +212,9 @@ interface PersistedModelConfigRow {
   progress_model?: string;
   progress_reasoning_effort?: string;
   research_model?: string;
-  structure_reasoning_effort?: string;
   tts_model?: string;
   tts_voice?: string;
   updated_at?: string;
-  verification_reasoning_effort?: string;
 }
 
 const readConfigValue = (value: unknown): string | undefined =>
@@ -230,13 +227,12 @@ const TEXT_MODEL_SLOTS = new Set<TextModelSlot>([
   'artifactInteractive',
   'assessment',
   'context',
-  'drafting',
+  'course',
   'lesson',
   'progress',
   'research',
-  'structure',
-  'verification',
 ]);
+const MODEL_PROVIDER_SLOTS = new Set<ModelProviderSlot>([...TEXT_MODEL_SLOTS, 'image']);
 
 export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
   typeof value === 'string' && REASONING_EFFORTS.has(value as ReasoningEffort);
@@ -246,6 +242,22 @@ export const isAiProvider = (value: unknown): value is AiProvider =>
 
 export const isTextModelSlot = (value: unknown): value is TextModelSlot =>
   typeof value === 'string' && TEXT_MODEL_SLOTS.has(value as TextModelSlot);
+
+const isModelProviderSlot = (value: unknown): value is ModelProviderSlot =>
+  typeof value === 'string' && MODEL_PROVIDER_SLOTS.has(value as ModelProviderSlot);
+
+export const readModelProviderOverrides = (value: unknown): ModelProviderOverrides => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [ModelProviderSlot, AiProvider] =>
+        isModelProviderSlot(entry[0]) && isAiProvider(entry[1])
+    )
+  );
+};
 
 const readReasoningEffort = (value: unknown, fallback: ReasoningEffort): ReasoningEffort =>
   isReasoningEffort(value) ? value : fallback;
@@ -260,42 +272,41 @@ const readFastModelSlots = (value: unknown, fallback: TextModelSlot[]): TextMode
 
 export const getGlobalModelConfig = (): GlobalModelConfig => activeModelConfig;
 
+export const resolveAiProviderForSlot = (
+  config: GlobalModelConfig,
+  slot: ModelProviderSlot
+): AiProvider => config.aiProviderOverrides?.[slot] || config.aiProvider;
+
 const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof GlobalModelConfig>> = {
   codex: {
     artifact: 'codexArtifactModel',
     artifactInteractive: 'codexArtifactInteractiveModel',
     assessment: 'codexAssessmentModel',
     context: 'codexContextModel',
-    drafting: 'codexDraftingModel',
+    course: 'codexCourseModel',
     lesson: 'codexLessonModel',
     progress: 'codexProgressModel',
     research: 'codexResearchModel',
-    structure: 'codexStructureModel',
-    verification: 'codexVerificationModel',
   },
   openai: {
     artifact: 'openAiArtifactModel',
     artifactInteractive: 'openAiArtifactInteractiveModel',
     assessment: 'openAiAssessmentModel',
     context: 'openAiContextModel',
-    drafting: 'openAiLessonModel',
+    course: 'openAiCourseModel',
     lesson: 'openAiLessonModel',
     progress: 'openAiProgressModel',
     research: 'openAiResearchModel',
-    structure: 'openAiLessonModel',
-    verification: 'openAiLessonModel',
   },
   openrouter: {
     artifact: 'artifactModel',
     artifactInteractive: 'artifactInteractiveModel',
     assessment: 'assessmentModel',
     context: 'contextModel',
-    drafting: 'lessonModel',
+    course: 'courseModel',
     lesson: 'lessonModel',
     progress: 'progressModel',
     research: 'researchModel',
-    structure: 'lessonModel',
-    verification: 'lessonModel',
   },
 };
 
@@ -307,18 +318,17 @@ const REASONING_EFFORT_FIELDS: Record<
   artifactInteractive: 'artifactInteractiveReasoningEffort',
   assessment: 'assessmentReasoningEffort',
   context: 'contextReasoningEffort',
-  drafting: 'draftingReasoningEffort',
+  course: 'courseReasoningEffort',
   lesson: 'lessonReasoningEffort',
   progress: 'progressReasoningEffort',
-  structure: 'structureReasoningEffort',
-  verification: 'verificationReasoningEffort',
 };
 
 export const resolveTextModelConfig = (
   config: GlobalModelConfig,
   slot: TextModelSlot
 ): { model: string; reasoningEffort: ReasoningEffort } => {
-  const model = config[PROVIDER_MODEL_FIELDS[config.aiProvider][slot]];
+  const provider = resolveAiProviderForSlot(config, slot);
+  const model = config[PROVIDER_MODEL_FIELDS[provider][slot]];
   const reasoningEffort = slot === 'research' ? 'none' : config[REASONING_EFFORT_FIELDS[slot]];
   return {
     model: model as string,
@@ -339,10 +349,18 @@ export const getResolvedGlobalModelConfig = async (): Promise<GlobalModelConfig>
 };
 
 export const getResolvedModelConfigForProvider = async (
-  requestedProvider: unknown
+  requestedProvider: unknown,
+  requestedProviderOverrides?: unknown
 ): Promise<GlobalModelConfig> => {
   const config = await getResolvedGlobalModelConfig();
-  return isAiProvider(requestedProvider) ? { ...config, aiProvider: requestedProvider } : config;
+  const aiProviderOverrides = readModelProviderOverrides(requestedProviderOverrides);
+  if (isAiProvider(requestedProvider)) {
+    return { ...config, aiProvider: requestedProvider, aiProviderOverrides };
+  }
+  return {
+    ...config,
+    aiProviderOverrides: { ...config.aiProviderOverrides, ...aiProviderOverrides },
+  };
 };
 
 const buildPatchedGlobalModelConfig = (
@@ -351,6 +369,9 @@ const buildPatchedGlobalModelConfig = (
 ): GlobalModelConfig => ({
   ...currentConfig,
   ...(isAiProvider(patch.aiProvider) ? { aiProvider: patch.aiProvider } : {}),
+  ...(patch.aiProviderOverrides
+    ? { aiProviderOverrides: readModelProviderOverrides(patch.aiProviderOverrides) }
+    : {}),
   ...(readConfigValue(patch.artifactModel)
     ? { artifactModel: readConfigValue(patch.artifactModel) }
     : {}),
@@ -389,8 +410,8 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.codexContextModel)
     ? { codexContextModel: readConfigValue(patch.codexContextModel) }
     : {}),
-  ...(readConfigValue(patch.codexDraftingModel)
-    ? { codexDraftingModel: readConfigValue(patch.codexDraftingModel) }
+  ...(readConfigValue(patch.codexCourseModel)
+    ? { codexCourseModel: readConfigValue(patch.codexCourseModel) }
     : {}),
   ...(Array.isArray(patch.codexFastModelSlots)
     ? { codexFastModelSlots: readFastModelSlots(patch.codexFastModelSlots, []) }
@@ -404,20 +425,17 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.codexResearchModel)
     ? { codexResearchModel: readConfigValue(patch.codexResearchModel) }
     : {}),
-  ...(readConfigValue(patch.codexStructureModel)
-    ? { codexStructureModel: readConfigValue(patch.codexStructureModel) }
-    : {}),
-  ...(readConfigValue(patch.codexVerificationModel)
-    ? { codexVerificationModel: readConfigValue(patch.codexVerificationModel) }
-    : {}),
   ...(readConfigValue(patch.contextModel)
     ? { contextModel: readConfigValue(patch.contextModel) }
     : {}),
   ...(isReasoningEffort(patch.contextReasoningEffort)
     ? { contextReasoningEffort: patch.contextReasoningEffort }
     : {}),
-  ...(isReasoningEffort(patch.draftingReasoningEffort)
-    ? { draftingReasoningEffort: patch.draftingReasoningEffort }
+  ...(readConfigValue(patch.courseModel)
+    ? { courseModel: readConfigValue(patch.courseModel) }
+    : {}),
+  ...(isReasoningEffort(patch.courseReasoningEffort)
+    ? { courseReasoningEffort: patch.courseReasoningEffort }
     : {}),
   ...(readConfigValue(patch.imageModel) ? { imageModel: readConfigValue(patch.imageModel) } : {}),
   ...(readConfigValue(patch.lessonModel)
@@ -434,6 +452,9 @@ const buildPatchedGlobalModelConfig = (
     : {}),
   ...(readConfigValue(patch.openAiContextModel)
     ? { openAiContextModel: readConfigValue(patch.openAiContextModel) }
+    : {}),
+  ...(readConfigValue(patch.openAiCourseModel)
+    ? { openAiCourseModel: readConfigValue(patch.openAiCourseModel) }
     : {}),
   ...(readConfigValue(patch.openAiImageModel)
     ? { openAiImageModel: readConfigValue(patch.openAiImageModel) }
@@ -459,14 +480,8 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.researchModel)
     ? { researchModel: readConfigValue(patch.researchModel) }
     : {}),
-  ...(isReasoningEffort(patch.structureReasoningEffort)
-    ? { structureReasoningEffort: patch.structureReasoningEffort }
-    : {}),
   ...(readConfigValue(patch.ttsModel) ? { ttsModel: readConfigValue(patch.ttsModel) } : {}),
   ...(readConfigValue(patch.ttsVoice) ? { ttsVoice: readConfigValue(patch.ttsVoice) } : {}),
-  ...(isReasoningEffort(patch.verificationReasoningEffort)
-    ? { verificationReasoningEffort: patch.verificationReasoningEffort }
-    : {}),
   updatedAt: new Date().toISOString(),
 });
 
@@ -487,6 +502,7 @@ const getSupabaseRestConfig = () => ({
 const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelConfigRow => ({
   id: 'global',
   ai_provider: config.aiProvider,
+  ai_provider_overrides: config.aiProviderOverrides || {},
   artifact_model: config.artifactModel,
   artifact_interactive_model: config.artifactInteractiveModel,
   artifact_interactive_reasoning_effort: config.artifactInteractiveReasoningEffort,
@@ -499,16 +515,15 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   codex_artifact_model: config.codexArtifactModel,
   codex_artifact_interactive_model: config.codexArtifactInteractiveModel,
   codex_context_model: config.codexContextModel,
-  codex_drafting_model: config.codexDraftingModel,
+  codex_course_model: config.codexCourseModel,
   codex_fast_model_slots: config.codexFastModelSlots,
   codex_lesson_model: config.codexLessonModel,
   codex_progress_model: config.codexProgressModel,
   codex_research_model: config.codexResearchModel,
-  codex_structure_model: config.codexStructureModel,
-  codex_verification_model: config.codexVerificationModel,
   context_model: config.contextModel,
   context_reasoning_effort: config.contextReasoningEffort,
-  drafting_reasoning_effort: config.draftingReasoningEffort,
+  course_model: config.courseModel,
+  course_reasoning_effort: config.courseReasoningEffort,
   image_model: config.imageModel,
   lesson_model: config.lessonModel,
   lesson_reasoning_effort: config.lessonReasoningEffort,
@@ -516,6 +531,7 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   openai_artifact_model: config.openAiArtifactModel,
   openai_artifact_interactive_model: config.openAiArtifactInteractiveModel,
   openai_context_model: config.openAiContextModel,
+  openai_course_model: config.openAiCourseModel,
   openai_image_model: config.openAiImageModel,
   openai_lesson_model: config.openAiLessonModel,
   openai_progress_model: config.openAiProgressModel,
@@ -523,11 +539,9 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   progress_model: config.progressModel,
   progress_reasoning_effort: config.progressReasoningEffort,
   research_model: config.researchModel,
-  structure_reasoning_effort: config.structureReasoningEffort,
   tts_model: config.ttsModel,
   tts_voice: config.ttsVoice,
   updated_at: config.updatedAt,
-  verification_reasoning_effort: config.verificationReasoningEffort,
 });
 
 const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConfig => {
@@ -538,6 +552,7 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
 
   return {
     aiProvider: isAiProvider(row.ai_provider) ? row.ai_provider : activeModelConfig.aiProvider,
+    aiProviderOverrides: readModelProviderOverrides(row.ai_provider_overrides),
     artifactModel: readConfigValue(row.artifact_model) || activeModelConfig.artifactModel,
     artifactInteractiveModel:
       readConfigValue(row.artifact_interactive_model) || activeModelConfig.artifactInteractiveModel,
@@ -573,8 +588,7 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       activeModelConfig.codexArtifactInteractiveModel,
     codexContextModel:
       readConfigValue(row.codex_context_model) || activeModelConfig.codexContextModel,
-    codexDraftingModel:
-      readConfigValue(row.codex_drafting_model) || activeModelConfig.codexDraftingModel,
+    codexCourseModel: readConfigValue(row.codex_course_model) || activeModelConfig.codexCourseModel,
     codexFastModelSlots: readFastModelSlots(
       row.codex_fast_model_slots,
       activeModelConfig.codexFastModelSlots
@@ -584,18 +598,15 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       readConfigValue(row.codex_progress_model) || activeModelConfig.codexProgressModel,
     codexResearchModel:
       readConfigValue(row.codex_research_model) || activeModelConfig.codexResearchModel,
-    codexStructureModel:
-      readConfigValue(row.codex_structure_model) || activeModelConfig.codexStructureModel,
-    codexVerificationModel:
-      readConfigValue(row.codex_verification_model) || activeModelConfig.codexVerificationModel,
     contextModel: readConfigValue(row.context_model) || activeModelConfig.contextModel,
     contextReasoningEffort: readReasoningEffort(
       row.context_reasoning_effort,
       activeModelConfig.contextReasoningEffort
     ),
-    draftingReasoningEffort: readReasoningEffort(
-      row.drafting_reasoning_effort,
-      activeModelConfig.draftingReasoningEffort
+    courseModel: readConfigValue(row.course_model) || activeModelConfig.courseModel,
+    courseReasoningEffort: readReasoningEffort(
+      row.course_reasoning_effort,
+      activeModelConfig.courseReasoningEffort
     ),
     imageModel: readConfigValue(row.image_model) || activeModelConfig.imageModel,
     lessonModel: readConfigValue(row.lesson_model) || activeModelConfig.lessonModel,
@@ -612,6 +623,8 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       activeModelConfig.openAiArtifactInteractiveModel,
     openAiContextModel:
       readConfigValue(row.openai_context_model) || activeModelConfig.openAiContextModel,
+    openAiCourseModel:
+      readConfigValue(row.openai_course_model) || activeModelConfig.openAiCourseModel,
     openAiImageModel: readConfigValue(row.openai_image_model) || activeModelConfig.openAiImageModel,
     openAiLessonModel:
       readConfigValue(row.openai_lesson_model) || activeModelConfig.openAiLessonModel,
@@ -625,10 +638,6 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       activeModelConfig.progressReasoningEffort
     ),
     researchModel: readConfigValue(row.research_model) || activeModelConfig.researchModel,
-    structureReasoningEffort: readReasoningEffort(
-      row.structure_reasoning_effort,
-      activeModelConfig.structureReasoningEffort
-    ),
     ttsModel: usesUnavailableTtsModel
       ? DEFAULT_TTS_MODEL
       : persistedTtsModel || activeModelConfig.ttsModel,
@@ -636,10 +645,6 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       ? DEFAULT_TTS_VOICE
       : readConfigValue(row.tts_voice) || activeModelConfig.ttsVoice,
     updatedAt: readConfigValue(row.updated_at) || activeModelConfig.updatedAt,
-    verificationReasoningEffort: readReasoningEffort(
-      row.verification_reasoning_effort,
-      activeModelConfig.verificationReasoningEffort
-    ),
   };
 };
 

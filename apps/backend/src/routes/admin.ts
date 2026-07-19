@@ -8,6 +8,7 @@ import {
   isTextModelSlot,
   loadPersistedGlobalModelConfig,
   patchAndPersistGlobalModelConfig,
+  readModelProviderOverrides,
 } from '../config/modelConfig.js';
 import { imageClient } from '../services/imageClient.js';
 import { requestSupabaseAdmin, SUPABASE_ADMIN_USERS_PATH } from '../services/supabaseAdmin.js';
@@ -50,6 +51,7 @@ const readCreateUserBody = (body: unknown) => {
 
   return {
     aiProvider: readAiProviderPatch(body.aiProvider),
+    aiProviderOverrides: readModelProviderOverrides(body.aiProviderOverrides),
     email,
     password,
     role: readAdminRole(body.role),
@@ -71,6 +73,7 @@ const readAccessEmailBody = (body: unknown): string => {
 const readAdminUserPatch = (body: Record<string, unknown>) => {
   const role = readOptionalString(body.role);
   const hasAiProviderPatch = Object.hasOwn(body, 'aiProvider');
+  const hasAiProviderOverridesPatch = Object.hasOwn(body, 'aiProviderOverrides');
   const aiProvider = body.aiProvider === null ? null : readAiProviderPatch(body.aiProvider);
   if (hasAiProviderPatch && body.aiProvider !== null && !aiProvider) {
     throw new Error('Provider AI non valido.');
@@ -78,12 +81,16 @@ const readAdminUserPatch = (body: Record<string, unknown>) => {
 
   const password = readOptionalString(body.password);
   const disabled = typeof body.disabled === 'boolean' ? body.disabled : undefined;
-  const hasMetadataPatch = Boolean(role) || hasAiProviderPatch || Boolean(password);
+  const hasMetadataPatch =
+    Boolean(role) || hasAiProviderPatch || hasAiProviderOverridesPatch || Boolean(password);
   return {
     ...(hasMetadataPatch
       ? {
           app_metadata: {
             ...(hasAiProviderPatch ? { ai_provider: aiProvider } : {}),
+            ...(hasAiProviderOverridesPatch
+              ? { ai_provider_overrides: readModelProviderOverrides(body.aiProviderOverrides) }
+              : {}),
             ...(role ? { role: readAdminRole(role) } : {}),
             ...(password ? { password_setup_required: null } : {}),
           },
@@ -194,6 +201,9 @@ router.patch('/model-config', async (req: Request, res: Response) => {
 
     const patch: GlobalModelConfigPatch = {
       aiProvider: readAiProviderPatch(req.body.aiProvider),
+      aiProviderOverrides: Object.hasOwn(req.body, 'aiProviderOverrides')
+        ? readModelProviderOverrides(req.body.aiProviderOverrides)
+        : undefined,
       artifactModel: readOptionalString(req.body.artifactModel),
       artifactInteractiveModel: readOptionalString(req.body.artifactInteractiveModel),
       artifactInteractiveReasoningEffort: readReasoningEffortPatch(
@@ -214,18 +224,17 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       codexArtifactModel: readOptionalString(req.body.codexArtifactModel),
       codexArtifactInteractiveModel: readOptionalString(req.body.codexArtifactInteractiveModel),
       codexContextModel: readOptionalString(req.body.codexContextModel),
-      codexDraftingModel: readOptionalString(req.body.codexDraftingModel),
+      codexCourseModel: readOptionalString(req.body.codexCourseModel),
       codexFastModelSlots: Array.isArray(req.body.codexFastModelSlots)
         ? req.body.codexFastModelSlots.filter(isTextModelSlot)
         : undefined,
       codexLessonModel: readOptionalString(req.body.codexLessonModel),
       codexProgressModel: readOptionalString(req.body.codexProgressModel),
       codexResearchModel: readOptionalString(req.body.codexResearchModel),
-      codexStructureModel: readOptionalString(req.body.codexStructureModel),
-      codexVerificationModel: readOptionalString(req.body.codexVerificationModel),
       contextModel: readOptionalString(req.body.contextModel),
       contextReasoningEffort: readReasoningEffortPatch(req.body.contextReasoningEffort),
-      draftingReasoningEffort: readReasoningEffortPatch(req.body.draftingReasoningEffort),
+      courseModel: readOptionalString(req.body.courseModel),
+      courseReasoningEffort: readReasoningEffortPatch(req.body.courseReasoningEffort),
       imageModel: readOptionalString(req.body.imageModel),
       lessonModel: readOptionalString(req.body.lessonModel),
       lessonReasoningEffort: readReasoningEffortPatch(req.body.lessonReasoningEffort),
@@ -233,6 +242,7 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       openAiArtifactModel: readOptionalString(req.body.openAiArtifactModel),
       openAiArtifactInteractiveModel: readOptionalString(req.body.openAiArtifactInteractiveModel),
       openAiContextModel: readOptionalString(req.body.openAiContextModel),
+      openAiCourseModel: readOptionalString(req.body.openAiCourseModel),
       openAiImageModel: readOptionalString(req.body.openAiImageModel),
       openAiLessonModel: readOptionalString(req.body.openAiLessonModel),
       openAiProgressModel: readOptionalString(req.body.openAiProgressModel),
@@ -240,10 +250,8 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       progressModel: readOptionalString(req.body.progressModel),
       progressReasoningEffort: readReasoningEffortPatch(req.body.progressReasoningEffort),
       researchModel: readOptionalString(req.body.researchModel),
-      structureReasoningEffort: readReasoningEffortPatch(req.body.structureReasoningEffort),
       ttsModel: readOptionalString(req.body.ttsModel),
       ttsVoice: readOptionalString(req.body.ttsVoice),
-      verificationReasoningEffort: readReasoningEffortPatch(req.body.verificationReasoningEffort),
     };
 
     if (patch.imageModel) {
@@ -300,6 +308,9 @@ router.post('/users', async (req: Request, res: Response) => {
         email_confirm: true,
         app_metadata: {
           ...(body.aiProvider ? { ai_provider: body.aiProvider } : {}),
+          ...(Object.keys(body.aiProviderOverrides).length > 0
+            ? { ai_provider_overrides: body.aiProviderOverrides }
+            : {}),
           role: body.role,
         },
       },

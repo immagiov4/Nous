@@ -113,6 +113,12 @@ often than the receiving-session TTL. The current in-memory admission/session re
 validated single backend replica in `compose.yml`; multiple backend replicas require shared session
 coordination before scaling horizontally.
 
+Project-source creation uses the authenticated `/api/projects` write path, whose JSON body limit is
+300 MB so a 128 MB ZIP plus transport encoding and project metadata fits. The public reverse proxy
+in front of `NOUS_BACKEND_PUBLIC_URL` must allow at least the same request size and a timeout suitable
+for the Storage upload and archive indexing pass. The archive's expanded-content limits are separate
+and documented in [Architecture](ARCHITECTURE.md#large-source-archives).
+
 ### Managed profile
 
 Fill `SUPABASE_URL`, `NOUS_SUPABASE_PUBLIC_URL`, `DATABASE_URL`, publishable/anon key, and service-role/secret key from one managed project. `config` rejects mismatched Supabase API origins and requires either the legacy JWT secret or a JWKS URL. It never rewrites remote credentials or generates managed-project secrets.
@@ -430,26 +436,69 @@ the delivery proof.
 
 ## Backup, restore, and proof
 
-Create a custom-format Postgres backup:
+Create the paired custom-format Postgres and private project-source Storage backups:
 
 ```bash
 sh deploy/nous.sh backup
 ```
 
-The command writes under ignored `deploy/backups/` and immediately parses the archive with `pg_restore --list`; a corrupt archive fails the command. This is an integrity check, not a restore proof.
+The command writes two adjacent files under ignored `deploy/backups/`:
+
+- `nous-<UTC timestamp>.dump`
+- `nous-<UTC timestamp>.project-sources.tar`
+
+The dump intentionally excludes the Supabase-owned `storage` schema; Storage metadata is not the
+object payload and must not be restored as application data. The separate archive contains one
+manifest entry for every distinct `object_path` referenced by `project_sources`,
+`project_source_files`, and file rows in `project_source_entries`, and no unreferenced payloads. Each
+entry records its expected SHA-256 and byte size. Downloads are streamed to temporary files,
+verified, packed, extracted once, and verified again before the two final files are published. The
+manifest also records the dump SHA-256, so an archive from another backup cannot be paired
+accidentally. A corrupt, incomplete, changed, or mismatched object fails the command. These integrity
+checks are not a restore proof.
+Run the command while application writes are quiesced so the database dump and the immediately
+derived Storage manifest describe the same application state.
 
 For the required restore proof, use a disposable database or protected staging project:
 
 ```bash
 cp .env.production .env.restore-proof
-# edit only DATABASE_URL to target the disposable empty database
+# point DATABASE_URL, SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY at the same
+# disposable target, provisioned with the private project-sources bucket
 CONFIRM_RESTORE=nous-reader NOUS_ENV_FILE=.env.restore-proof \
-  sh deploy/nous.sh restore deploy/backups/<dump>.dump
+  sh deploy/nous.sh restore \
+    deploy/backups/<backup>.dump \
+    deploy/backups/<backup>.project-sources.tar
 NOUS_ENV_FILE=.env.restore-proof sh deploy/nous.sh smoke
 NOUS_ENV_FILE=.env.restore-proof sh deploy/nous.sh contract
 ```
 
-PowerShell sets the same values through `$env:CONFIRM_RESTORE` and `$env:NOUS_ENV_FILE`. Record the UTC date, source deployment, dump checksum, target identifier, restore exit status, `smoke`, and `contract` results in the operator's incident/backup log. Never prove restoration against the only production database.
+PowerShell uses the same paired artifact and confirmation contract:
+
+```powershell
+$env:CONFIRM_RESTORE = 'nous-reader'
+$env:NOUS_ENV_FILE = '.env.restore-proof'
+deploy/nous.ps1 restore `
+  deploy/backups/<backup>.dump `
+  deploy/backups/<backup>.project-sources.tar
+```
+
+Restore parses the dump and fully verifies the Storage archive before changing the database. It then
+restores the database in one transaction and compares its complete project-source reference set with
+the manifest before uploading any object. Existing objects are accepted only when their streamed
+SHA-256 and byte size match; missing objects are uploaded with overwrite disabled and read back for
+verification. A mismatch, missing payload, extra payload, changed DB reference, failed upload, or
+failed read-back stops the restore. The command never overwrites a different existing object and
+never reconstructs an object from legacy concatenated source text.
+
+If the object phase fails after the database transaction succeeds, treat the target as an incomplete
+restore: keep it unavailable, correct the Storage/configuration fault, and rerun the same restore
+pair. The idempotent object rules safely accept bytes already restored by the first attempt.
+
+Record the UTC date, source deployment, both file checksums, target database and Supabase
+identifiers, restore exit status, `smoke`, and `contract` results in the operator's incident/backup
+log. Store both backup files together off-host. Never prove restoration against the only production
+database or its `project-sources` bucket.
 
 Repository mechanism proof on 2026-07-11: a Postgres 17 custom-format dump was parsed, restored into a separate disposable Postgres 17 instance, and its sentinel row was selected. This verifies the documented archive/restore mechanism, not any operator's current production data.
 

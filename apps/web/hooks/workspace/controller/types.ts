@@ -1,4 +1,5 @@
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
+import type { ProjectSaveResult } from '../../../services/projects/projectRepository.ts';
 import type {
   WorkspaceWorkflowId,
   WorkspaceWorkflowState,
@@ -25,6 +26,7 @@ import type {
   ResearchDossiersBySectionId,
   ResearchLessonDossier,
   SavedProjectMeta,
+  StoredProjectSourceFile,
   SyllabusItem,
   UserProfile,
   WorkspaceDomainState,
@@ -104,6 +106,7 @@ export interface WorkspaceProjectLibraryAdapter {
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
   loadStoredProject: (projectId: string) => Promise<ProjectSnapshot | null>;
   loadStoredProjectSource: (projectId: string) => Promise<FileData | null>;
+  loadStoredProjectSources: (projectId: string) => Promise<StoredProjectSourceFile[]>;
   moveFolder: (
     folderId: string,
     parentFolderId: string | null,
@@ -114,12 +117,18 @@ export interface WorkspaceProjectLibraryAdapter {
     folderId: string | null,
     targetIndex?: number
   ) => Promise<LibraryPlacement[]>;
-  persistSnapshot: (snapshot: ProjectSnapshot) => Promise<SavedProjectMeta | null>;
+  persistSnapshot: (
+    snapshot: ProjectSnapshot,
+    options?: { archiveFile?: File; throwOnError?: boolean }
+  ) => Promise<ProjectSaveResult | null>;
   refreshLibraryOrganization: () => Promise<void>;
   refreshLibraryState: () => Promise<void>;
   refreshSavedProjects: () => Promise<void>;
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
-  saveCurrentProject: (overrides?: Partial<ProjectSnapshot>) => Promise<SavedProjectMeta | null>;
+  saveCurrentProject: (
+    overrides?: Partial<ProjectSnapshot>,
+    options?: { archiveFile?: File; throwOnError?: boolean }
+  ) => Promise<SavedProjectMeta | null>;
   patchCurrentProject: (overrides?: Partial<ProjectSnapshot>) => Promise<SavedProjectMeta | null>;
   patchSectionAnnotations: (
     sectionId: string,
@@ -254,7 +263,7 @@ export interface WorkspaceControllerCommands {
     options?: { mode?: 'new-project' | 'reattach-source' }
   ) => Promise<{
     errorMessage?: string;
-    outcome: 'imported' | 'started-assessment' | 'reattached';
+    outcome: 'failed' | 'imported' | 'started-assessment' | 'reattached';
     sourceWarnings?: Array<{ message: string; name: string }>;
   }>;
   importProjectFile: (

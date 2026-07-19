@@ -73,6 +73,7 @@ describe('getYouTubeResearchContext', () => {
 
     await expect(getYouTubeResearchContext('disegno', 'Italiano')).resolves.toEqual({
       context: '',
+      failed: true,
       rationale: 'La ricerca YouTube non è stata completata.',
       videoCandidates: [],
       videoClipsEnabled: false,
@@ -122,6 +123,7 @@ describe('getYouTubeResearchContext', () => {
       ])
     ).toEqual({
       context: 'Fondamenti.\n\nPercorso pratico.',
+      failed: false,
       rationale: 'Ricerca generale. Ricerca applicata.',
       videoCandidates: [
         {

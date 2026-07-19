@@ -1,8 +1,14 @@
 // Builds shared chat prompts and tool definitions for backend agents.
 import { jsonSchema, tool } from 'ai';
 
-import { requireOpenRouterApiKey } from '../config/chatConfig.js';
+import { requireOpenAiApiKey, requireOpenRouterApiKey } from '../config/chatConfig.js';
+import {
+  type AiProvider,
+  DEFAULT_OPENAI_RESEARCH_MODEL,
+  type ReasoningEffort,
+} from '../config/modelConfig.js';
 import { getBackendServerUrl } from '../config/serverConfig.js';
+import { runCodexAppServerTurn } from '../services/codexAppServer.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { isRecord } from '../utils/validation.js';
 
@@ -11,11 +17,11 @@ const MAX_WEB_SEARCH_RESULTS = 8;
 const DEFAULT_WEB_SEARCH_RESULTS = 5;
 const WEB_SEARCH_TOTAL_RESULT_MULTIPLIER = 2;
 const WEB_SEARCH_SUMMARY_MAX_TOKENS = 1_200;
+const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
 export const CHAT_TOOL_STEP_LIMIT = 6;
 
 export const LIBRARY_WEB_SEARCH_TOOL_NAME = 'searchWeb' as const;
-const LIBRARY_WEB_SEARCH_EXECUTOR_MODEL =
-  process.env.MODEL_LIBRARY_WEB_SEARCH || process.env.MODEL_REASONING || 'openai/gpt-5.4-mini';
 
 export interface ContextChatToolPreferences {
   annotate?: boolean;
@@ -45,7 +51,7 @@ export interface LibraryResolvedScopeSummary {
   scopeSummary?: string;
 }
 
-interface OpenRouterWebSearchAnnotation {
+interface WebSearchAnnotation {
   type?: string;
   url_citation?: {
     title?: string;
@@ -53,10 +59,10 @@ interface OpenRouterWebSearchAnnotation {
   };
 }
 
-interface OpenRouterWebSearchResponse {
+interface WebSearchResponse {
   choices?: Array<{
     message?: {
-      annotations?: OpenRouterWebSearchAnnotation[];
+      annotations?: WebSearchAnnotation[];
       content?: string;
     };
   }>;
@@ -76,6 +82,12 @@ export interface WebSearchToolResult {
   }>;
   summary: string;
   webSearchRequests: number;
+}
+
+export interface WebSearchModelConfig {
+  model: string;
+  provider: AiProvider;
+  reasoningEffort: ReasoningEffort;
 }
 
 interface CreateWebSearchToolOptions {
@@ -196,7 +208,12 @@ const getOpenRouterHeaders = () => ({
   'X-OpenRouter-Title': 'Nous Reader',
 });
 
-const extractWebSearchSources = (annotations?: OpenRouterWebSearchAnnotation[]) =>
+const getOpenAiHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${requireOpenAiApiKey()}`,
+});
+
+const extractWebSearchSources = (annotations?: WebSearchAnnotation[]) =>
   (annotations || []).reduce<WebSearchToolResult['sources']>((sources, annotation) => {
     if (annotation.type !== 'url_citation') {
       return sources;
@@ -215,10 +232,112 @@ const extractWebSearchSources = (annotations?: OpenRouterWebSearchAnnotation[]) 
     return sources;
   }, []);
 
-export const runOpenRouterWebSearch = async ({
+const runWebSearchCompletion = async ({
+  body,
+  headers,
+  query,
+  successfulRequestCount,
+  url,
+}: {
+  body: Record<string, unknown>;
+  headers: HeadersInit;
+  query: string;
+  successfulRequestCount: number;
+  url: string;
+}): Promise<WebSearchToolResult> => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    return {
+      error: `Ricerca web fallita: ${details || response.statusText}`,
+      query,
+      sources: [],
+      summary: '',
+      webSearchRequests: 0,
+    };
+  }
+
+  const payload = (await response.json()) as WebSearchResponse;
+  const webSearchRequests =
+    payload.usage?.server_tool_use?.web_search_requests ?? successfulRequestCount;
+  const summary = payload.choices?.[0]?.message?.content?.trim() || '';
+  const sources = extractWebSearchSources(payload.choices?.[0]?.message?.annotations);
+
+  if (webSearchRequests < 1 || !summary) {
+    return {
+      error: 'La ricerca web non ha restituito un risultato utilizzabile.',
+      query,
+      sources,
+      summary,
+      webSearchRequests,
+    };
+  }
+
+  return {
+    query,
+    sources,
+    summary,
+    webSearchRequests,
+  };
+};
+
+const runCodexWebSearch = async ({
+  messages,
+  modelConfig,
+  query,
+}: {
+  messages: Array<{
+    content: string;
+    role: 'system' | 'user';
+  }>;
+  modelConfig: WebSearchModelConfig;
+  query: string;
+}): Promise<WebSearchToolResult> => {
+  const developerInstructions = messages
+    .filter(message => message.role === 'system')
+    .map(message => message.content)
+    .join('\n\n');
+  const input = messages
+    .filter(message => message.role === 'user')
+    .map(message => message.content)
+    .join('\n\n');
+  const summary = (
+    await runCodexAppServerTurn({
+      allowWebSearch: true,
+      developerInstructions,
+      input: [{ type: 'text', text: input }],
+      model: modelConfig.model,
+      reasoningEffort: modelConfig.reasoningEffort,
+    })
+  ).trim();
+
+  if (!summary) {
+    return {
+      error: 'La ricerca web non ha restituito un risultato utilizzabile.',
+      query,
+      sources: [],
+      summary: '',
+      webSearchRequests: 0,
+    };
+  }
+
+  return {
+    query,
+    sources: [],
+    summary,
+    webSearchRequests: 1,
+  };
+};
+
+export const runConfiguredWebSearch = async ({
   maxResults,
   messages,
-  model,
+  modelConfig,
   query,
 }: {
   maxResults?: number;
@@ -226,7 +345,7 @@ export const runOpenRouterWebSearch = async ({
     content: string;
     role: 'system' | 'user';
   }>;
-  model?: string;
+  modelConfig: WebSearchModelConfig;
   query: string;
 }): Promise<WebSearchToolResult> => {
   const normalizedQuery = query.trim();
@@ -246,11 +365,34 @@ export const runOpenRouterWebSearch = async ({
   }
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: getOpenRouterHeaders(),
-      body: JSON.stringify({
-        model: model?.trim() || LIBRARY_WEB_SEARCH_EXECUTOR_MODEL,
+    if (modelConfig.provider === 'codex') {
+      return await runCodexWebSearch({ messages, modelConfig, query: normalizedQuery });
+    }
+
+    if (modelConfig.provider === 'openai') {
+      if (modelConfig.model !== DEFAULT_OPENAI_RESEARCH_MODEL) {
+        throw new Error(
+          `OpenAI Chat Completions web search requires ${DEFAULT_OPENAI_RESEARCH_MODEL}.`
+        );
+      }
+
+      return await runWebSearchCompletion({
+        body: {
+          model: modelConfig.model,
+          max_completion_tokens: WEB_SEARCH_SUMMARY_MAX_TOKENS,
+          messages,
+          web_search_options: {},
+        },
+        headers: getOpenAiHeaders(),
+        query: normalizedQuery,
+        successfulRequestCount: 1,
+        url: OPENAI_CHAT_COMPLETIONS_URL,
+      });
+    }
+
+    return await runWebSearchCompletion({
+      body: {
+        model: modelConfig.model,
         max_tokens: WEB_SEARCH_SUMMARY_MAX_TOKENS,
         messages,
         tool_choice: 'required',
@@ -264,41 +406,12 @@ export const runOpenRouterWebSearch = async ({
             },
           },
         ],
-      }),
-    });
-
-    if (!response.ok) {
-      const details = await response.text();
-      return {
-        error: `Ricerca web fallita: ${details || response.statusText}`,
-        query: normalizedQuery,
-        sources: [],
-        summary: '',
-        webSearchRequests: 0,
-      };
-    }
-
-    const payload = (await response.json()) as OpenRouterWebSearchResponse;
-    const webSearchRequests = payload.usage?.server_tool_use?.web_search_requests || 0;
-    const summary = payload.choices?.[0]?.message?.content?.trim() || '';
-    const sources = extractWebSearchSources(payload.choices?.[0]?.message?.annotations);
-
-    if (webSearchRequests < 1 || !summary) {
-      return {
-        error: 'La ricerca web non ha restituito un risultato utilizzabile.',
-        query: normalizedQuery,
-        sources,
-        summary,
-        webSearchRequests,
-      };
-    }
-
-    return {
+      },
+      headers: getOpenRouterHeaders(),
       query: normalizedQuery,
-      sources,
-      summary,
-      webSearchRequests,
-    };
+      successfulRequestCount: 0,
+      url: OPENROUTER_CHAT_COMPLETIONS_URL,
+    });
   } catch (error) {
     return {
       error: getErrorMessage(error, 'Ricerca web non riuscita.'),

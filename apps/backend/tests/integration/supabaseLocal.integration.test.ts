@@ -1,7 +1,7 @@
 import postgres from 'postgres';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
-import { resetModelConfigForTesting } from '../../src/config/modelConfig.js';
+import { queryProjectSourceReferences } from '../../../../scripts/project-source-storage-artifact.ts';
 import { createApp } from '../../src/index.js';
 import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
@@ -30,6 +30,7 @@ const ORIGINAL_ENV = { ...process.env };
 interface PersistedModelConfigProjection {
   artifact_visual_review_max_rounds: number;
   context_model: string;
+  course_model: string;
   lesson_model: string;
 }
 
@@ -104,34 +105,6 @@ describeLocalSupabase('Supabase local integration', () => {
   const store = new PostgresProjectStore(LOCAL_DATABASE_URL);
   const adminAuthorization = `Bearer ${createBackendAdminToken()}`;
   const createdEmails: string[] = [];
-
-  const readModelConfigSnapshot = async (): Promise<Record<string, unknown> | null> => {
-    const rows = await sql<Array<{ config: string }>>`
-      select to_jsonb(model_config)::text as config
-      from public.model_config
-      where id = 'global'
-    `;
-    return rows[0] ? (JSON.parse(rows[0].config) as Record<string, unknown>) : null;
-  };
-
-  const restoreModelConfigSnapshot = async (snapshot: Record<string, unknown> | null) => {
-    await sql.begin(async transaction => {
-      await transaction`
-        delete from public.model_config
-        where id = 'global' and lesson_model like 'integration/%'
-      `;
-      if (snapshot) {
-        await transaction`
-          insert into public.model_config
-          select (jsonb_populate_record(
-            null::public.model_config,
-            ${transaction.json(snapshot)}
-          )).*
-          on conflict (id) do nothing
-        `;
-      }
-    });
-  };
 
   const applyLocalSupabaseEnvironment = () => {
     process.env.AUTH_MODE = 'supabase';
@@ -290,59 +263,275 @@ describeLocalSupabase('Supabase local integration', () => {
     expect(forbiddenInsertResponse.status).toBe(403);
   });
 
-  test('persists model config', async () => {
-    const originalConfig = await readModelConfigSnapshot();
+  test('persists valid archive entry paths in the source index', async () => {
+    const user = await createUser('archive-entry-path');
+    const projectId = `archive-entry-path-${Date.now()}`;
+    const sourceHash = 'a'.repeat(64);
+
     try {
-      const configResponse = await request(app)
-        .patch('/api/admin/model-config')
-        .set('Authorization', adminAuthorization)
-        .send({
-          lessonModel: 'integration/lesson-model',
-          contextModel: 'integration/context-model',
-          artifactVisualReviewMaxRounds: 2,
-        });
-      expect(configResponse.status).toBe(200);
-      expect(configResponse.body.config).toMatchObject({
-        lessonModel: 'integration/lesson-model',
-        contextModel: 'integration/context-model',
-        artifactVisualReviewMaxRounds: 2,
-      });
-
-      resetModelConfigForTesting();
-      const patchAfterRestartResponse = await request(app)
-        .patch('/api/admin/model-config')
-        .set('Authorization', adminAuthorization)
-        .send({ contextModel: 'integration/context-after-restart' });
-      expect(patchAfterRestartResponse.status).toBe(200);
-      expect(patchAfterRestartResponse.body.config).toMatchObject({
-        artifactVisualReviewMaxRounds: 2,
-        contextModel: 'integration/context-after-restart',
-      });
-
-      resetModelConfigForTesting();
-      const reloadedConfigResponse = await request(app)
-        .get('/api/admin/model-config')
-        .set('Authorization', adminAuthorization);
-      expect(reloadedConfigResponse.status).toBe(200);
-      expect(reloadedConfigResponse.body.config).toMatchObject({
-        artifactVisualReviewMaxRounds: 2,
-        contextModel: 'integration/context-after-restart',
-      });
-
-      const persistedRows = await sql<PersistedModelConfigProjection[]>`
-        select artifact_visual_review_max_rounds, context_model, lesson_model
-        from public.model_config
-        where id = 'global'
+      await sql`
+        insert into public.projects (user_id, id, meta, updated_at)
+        values (
+          ${user.id},
+          ${projectId},
+          ${sql.json({ id: projectId, title: 'Archive entry path' })},
+          now()
+        )
       `;
-      expect(persistedRows[0]).toMatchObject({
-        artifact_visual_review_max_rounds: 2,
-        lesson_model: 'integration/lesson-model',
-        context_model: 'integration/context-after-restart',
-      });
+      await sql`
+        insert into public.project_sources (
+          user_id,
+          project_id,
+          source_id,
+          source_hash,
+          name,
+          mime_type,
+          byte_size,
+          object_path,
+          source_kind
+        )
+        values (
+          ${user.id},
+          ${projectId},
+          'source-primary',
+          ${sourceHash},
+          'source.zip',
+          'application/zip',
+          1,
+          ${`users/${user.id}/projects/${projectId}/source-primary/${sourceHash}/original`},
+          'archive'
+        )
+      `;
+
+      await sql`
+        insert into public.project_source_entries (user_id, project_id, path, kind)
+        values (${user.id}, ${projectId}, 'src', 'directory')
+      `;
+
+      const rows = await sql<Array<{ path: string }>>`
+        select path
+        from public.project_source_entries
+        where user_id = ${user.id} and project_id = ${projectId}
+      `;
+      expect(rows).toEqual([{ path: 'src' }]);
     } finally {
-      await restoreModelConfigSnapshot(originalConfig);
-      resetModelConfigForTesting();
+      await sql`
+        delete from public.projects
+        where user_id = ${user.id} and id = ${projectId}
+      `;
     }
+  });
+
+  test('persists project source bytes only in private Storage and serves them through the backend', async () => {
+    const user = await createUser('project-source-storage');
+    const accessToken = await login(user.email);
+    const projectId = `storage-course-${Date.now()}`;
+    const sourceFiles = [
+      {
+        data: Buffer.from('%PDF-1.4\nintegration source').toString('base64'),
+        mimeType: 'application/pdf',
+        name: 'integration.pdf',
+        sourceId: 'source-primary',
+      },
+      {
+        data: Buffer.from('integration notes').toString('base64'),
+        mimeType: 'text/plain',
+        name: 'notes.txt',
+        sourceId: 'source-notes',
+      },
+    ];
+    const sourceDescriptors = sourceFiles.map((file, position) => ({
+      file,
+      hash: '',
+      id: file.sourceId,
+      kind: position === 0 ? 'pdf' : 'text',
+      name: file.name,
+      outline: [],
+      outlineOrigin: 'none',
+      position,
+      status: 'ready',
+    }));
+    const snapshot = {
+      ...createSnapshot(projectId, 'Corso Storage'),
+      source: {
+        file: sourceFiles[0],
+        kind: 'pdf',
+        sources: sourceDescriptors,
+      },
+    } satisfies ProjectSnapshot;
+
+    const saveProjectResponse = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ snapshot });
+    expect(saveProjectResponse.status, JSON.stringify(saveProjectResponse.body)).toBe(200);
+
+    const metadataRows = await sql<
+      Array<{
+        byte_size: string;
+        object_path: string;
+        source_hash: string;
+      }>
+    >`
+      select byte_size, object_path, source_hash
+      from public.project_sources
+      where user_id = ${user.id} and project_id = ${projectId}
+    `;
+    expect(metadataRows).toHaveLength(1);
+    expect(Number(metadataRows[0]?.byte_size)).toBe(
+      Buffer.from(sourceFiles[0].data, 'base64').byteLength
+    );
+    expect(metadataRows[0]?.object_path).toMatch(
+      /^users\/[0-9a-f-]+\/projects\/[0-9a-f]{64}\/source-primary\/[0-9a-f]{64}\/original$/u
+    );
+
+    const sourceFileRows = await sql<
+      Array<{
+        byte_size: string;
+        object_path: string;
+        position: number;
+        source_id: string;
+      }>
+    >`
+      select byte_size, object_path, position, source_id
+      from public.project_source_files
+      where user_id = ${user.id} and project_id = ${projectId}
+      order by position
+    `;
+    expect(sourceFileRows.map(row => row.source_id)).toEqual(['source-primary', 'source-notes']);
+    expect(sourceFileRows.map(row => row.position)).toEqual([0, 1]);
+
+    const byteaColumns = await sql<Array<{ column_name: string }>>`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'project_sources'
+        and column_name = 'data'
+    `;
+    expect(byteaColumns).toEqual([]);
+
+    const snapshotRows = await sql<Array<{ snapshot: ProjectSnapshot }>>`
+      select snapshot
+      from public.project_snapshots
+      where user_id = ${user.id} and id = ${projectId}
+    `;
+    expect(snapshotRows).toHaveLength(1);
+    expect(snapshotRows[0]?.snapshot.source).toMatchObject({
+      file: { data: '' },
+      sources: [{ file: { data: '' } }, { file: { data: '' } }],
+    });
+
+    const backendSourceResponse = await request(app)
+      .get(`/api/projects/projects/${projectId}/source`)
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(backendSourceResponse.status).toBe(200);
+    expect(backendSourceResponse.body.source).toEqual({
+      data: sourceFiles[0].data,
+      mimeType: sourceFiles[0].mimeType,
+      name: sourceFiles[0].name,
+    });
+
+    const backendSourcesResponse = await request(app)
+      .get(`/api/projects/projects/${projectId}/sources`)
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(backendSourcesResponse.status).toBe(200);
+    expect(
+      backendSourcesResponse.body.sources.map(
+        (storedSource: { file: { data: string } }) => storedSource.file.data
+      )
+    ).toEqual(sourceFiles.map(file => file.data));
+
+    const backupReferences = await queryProjectSourceReferences(sql);
+    const backupPaths = new Set(backupReferences.map(reference => reference.object_path));
+    expect(sourceFileRows.every(row => backupPaths.has(row.object_path))).toBe(true);
+
+    for (const row of sourceFileRows) {
+      const directStorageResponse = await fetch(
+        `${LOCAL_SUPABASE_URL}/storage/v1/object/project-sources/${row.object_path}`,
+        {
+          headers: {
+            apikey: anonKey,
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      expect([400, 401, 403, 404]).toContain(directStorageResponse.status);
+
+      const serviceStorageResponse = await fetch(
+        `${LOCAL_SUPABASE_URL}/storage/v1/object/project-sources/${row.object_path}`,
+        {
+          headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+          },
+        }
+      );
+      expect(serviceStorageResponse.status).toBe(200);
+      expect(new Uint8Array(await serviceStorageResponse.arrayBuffer())).toEqual(
+        new Uint8Array(Buffer.from(sourceFiles[row.position].data, 'base64'))
+      );
+    }
+
+    const deleteResponse = await request(app)
+      .delete(`/api/projects/projects/${projectId}`)
+      .set('Authorization', `Bearer ${accessToken}`);
+    expect(deleteResponse.status).toBe(200);
+
+    for (const row of sourceFileRows) {
+      const deletedStorageResponse = await fetch(
+        `${LOCAL_SUPABASE_URL}/storage/v1/object/project-sources/${row.object_path}`,
+        {
+          headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+          },
+        }
+      );
+      expect([400, 404]).toContain(deletedStorageResponse.status);
+    }
+    const deletedObjectPaths = sourceFileRows.map(row => row.object_path);
+    const remainingStorageRows = await sql<Array<{ name: string }>>`
+      select name
+      from storage.objects
+      where bucket_id = 'project-sources' and name in ${sql(deletedObjectPaths)}
+    `;
+    expect(remainingStorageRows).toEqual([]);
+  });
+
+  test('reads the model config persisted in Supabase', async () => {
+    const persistedRows = await sql<PersistedModelConfigProjection[]>`
+      select artifact_visual_review_max_rounds, context_model, course_model, lesson_model
+      from public.model_config
+      where id = 'global'
+    `;
+    expect(persistedRows).toHaveLength(1);
+
+    const configResponse = await request(app)
+      .get('/api/admin/model-config')
+      .set('Authorization', adminAuthorization);
+    expect(configResponse.status).toBe(200);
+    expect(configResponse.body.config).toMatchObject({
+      artifactVisualReviewMaxRounds: persistedRows[0]?.artifact_visual_review_max_rounds,
+      contextModel: persistedRows[0]?.context_model,
+      courseModel: persistedRows[0]?.course_model,
+      lessonModel: persistedRows[0]?.lesson_model,
+    });
+
+    const legacyColumns = await sql<Array<{ column_name: string }>>`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'model_config'
+        and column_name in (
+          'codex_drafting_model',
+          'codex_structure_model',
+          'codex_verification_model',
+          'drafting_reasoning_effort',
+          'structure_reasoning_effort',
+          'verification_reasoning_effort'
+        )
+    `;
+    expect(legacyColumns).toEqual([]);
   });
 
   test('persists authenticated feedback while keeping the inbox private through RLS', async () => {

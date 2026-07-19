@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { attachProjectSource, detachProjectSource } from '../../src/projects/projectSource.js';
+import {
+  attachProjectSources,
+  detachProjectSources,
+  readEmbeddedProjectSources,
+} from '../../src/projects/projectSource.js';
 import type { ProjectSnapshot, ProjectSourceRef } from '../../src/projects/types.js';
 
-test('backend source storage detaches and hydrates only the primary file in a source set', () => {
+test('backend source storage detaches and hydrates every file in a source set', () => {
   const snapshot: ProjectSnapshot = {
     id: 'project-multi',
     version: '4.1',
@@ -40,28 +44,51 @@ test('backend source storage detaches and hydrates only the primary file in a so
       ],
     },
   };
-  const ref: ProjectSourceRef = {
-    id: 'stored-source',
-    hash: 'hash',
+  const refs: ProjectSourceRef[] = ['primary', 'secondary'].map(name => ({
+    id: `source-${name}`,
+    hash: name.repeat(64).slice(0, 64),
     byteSize: 13,
-    name: 'primary.pdf',
-    mimeType: 'application/pdf',
-  };
+    name: `${name}.${name === 'primary' ? 'pdf' : 'txt'}`,
+    mimeType: name === 'primary' ? 'application/pdf' : 'text/plain',
+    objectPath: `users/user/projects/project/source-${name}/original`,
+  }));
 
-  const detached = detachProjectSource(snapshot, ref);
+  assert.deepEqual(
+    readEmbeddedProjectSources(snapshot).map(source => source.id),
+    ['source-primary', 'source-secondary']
+  );
+
+  const detached = detachProjectSources(snapshot, refs);
   const detachedSource = detached.source as {
     file: { data: string };
-    sources: Array<{ file: { data: string } }>;
+    sources: Array<{ file: { data: string }; ref: ProjectSourceRef }>;
   };
   assert.equal(detachedSource.file.data, '');
   assert.equal(detachedSource.sources[0]?.file.data, '');
-  assert.equal(detachedSource.sources[1]?.file.data, 'secondary-bytes');
+  assert.equal(detachedSource.sources[1]?.file.data, '');
+  assert.deepEqual(
+    detachedSource.sources.map(source => source.ref.id),
+    ['source-primary', 'source-secondary']
+  );
 
-  const hydrated = attachProjectSource(detached, {
-    name: 'primary.pdf',
-    mimeType: 'application/pdf',
-    data: 'restored-primary',
-  });
+  const hydrated = attachProjectSources(detached, [
+    {
+      file: {
+        name: 'primary.pdf',
+        mimeType: 'application/pdf',
+        data: 'restored-primary',
+      },
+      ref: refs[0],
+    },
+    {
+      file: {
+        name: 'secondary.txt',
+        mimeType: 'text/plain',
+        data: 'restored-secondary',
+      },
+      ref: refs[1],
+    },
+  ]);
   const hydratedSource = hydrated.source as {
     file: { data: string; sourceId?: string };
     sources: Array<{ file: { data: string } }>;
@@ -69,5 +96,5 @@ test('backend source storage detaches and hydrates only the primary file in a so
   assert.equal(hydratedSource.file.data, 'restored-primary');
   assert.equal(hydratedSource.file.sourceId, 'source-primary');
   assert.equal(hydratedSource.sources[0]?.file.data, 'restored-primary');
-  assert.equal(hydratedSource.sources[1]?.file.data, 'secondary-bytes');
+  assert.equal(hydratedSource.sources[1]?.file.data, 'restored-secondary');
 });

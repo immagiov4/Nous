@@ -163,6 +163,7 @@ export const generateLessonLearningAids = async (
   try {
     const response = await callOpenRouter({
       model: MODEL_FLASH,
+      modelSlot: 'lesson',
       messages: [
         {
           role: 'system',

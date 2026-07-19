@@ -5,6 +5,7 @@ import type { JSONValue, LanguageModel } from 'ai';
 import { requireOpenAiApiKey, requireOpenRouterApiKey } from '../config/chatConfig.js';
 import {
   type GlobalModelConfig,
+  resolveAiProviderForSlot,
   resolveTextModelConfig,
   type TextModelSlot,
 } from '../config/modelConfig.js';
@@ -19,13 +20,14 @@ export const createConfiguredTextModel = (
   config: GlobalModelConfig,
   slot: TextModelSlot
 ): ConfiguredTextModel => {
-  if (config.aiProvider === 'codex') {
+  const provider = resolveAiProviderForSlot(config, slot);
+  if (provider === 'codex') {
     throw new Error('Codex app-server requires its dedicated streaming adapter.');
   }
 
   const { model: modelName, reasoningEffort } = resolveTextModelConfig(config, slot);
 
-  if (config.aiProvider === 'openai') {
+  if (provider === 'openai') {
     const openAi = createOpenAI({ apiKey: requireOpenAiApiKey() });
     return {
       model: openAi.chat(modelName),

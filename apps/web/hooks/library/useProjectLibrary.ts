@@ -17,7 +17,10 @@ import {
   createProjectArchiveBlob,
   getProjectArchiveExtension,
 } from '../../services/projects/projectArchive.ts';
-import { ProjectStorageError } from '../../services/projects/projectRepository';
+import {
+  type ProjectSaveResult,
+  ProjectStorageError,
+} from '../../services/projects/projectRepository';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -35,6 +38,7 @@ import type {
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSnapshot,
+  ProjectSource,
   SavedProjectMeta,
   SectionAnnotationArtifactRef,
   WorkspaceDomainState,
@@ -48,6 +52,12 @@ import { timestampIso } from '../../utils/time.ts';
 interface UseProjectLibraryArgs {
   domainState: WorkspaceDomainState;
   hydrateSnapshot: (snapshot: ProjectSnapshot) => void;
+  setSource: (source: ProjectSource | null) => void;
+}
+
+interface PersistSnapshotOptions {
+  archiveFile?: File;
+  throwOnError?: boolean;
 }
 
 type LessonGeneratedVisualInput = NonNullable<LearningSection['generatedVisuals']>[number];
@@ -57,7 +67,11 @@ const sortProjects = (projects: SavedProjectMeta[]) =>
     .slice()
     .sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime());
 
-export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLibraryArgs) => {
+export const useProjectLibrary = ({
+  domainState,
+  hydrateSnapshot,
+  setSource,
+}: UseProjectLibraryArgs) => {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [libraryFolders, setLibraryFolders] = useState<LibraryFolder[]>([]);
   const [libraryPlacements, setLibraryPlacements] = useState<LibraryPlacement[]>([]);
@@ -81,6 +95,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
   const processPendingRemoteRevisionRef = useRef<() => Promise<void>>(async () => {});
   const domainStateRef = useRef<WorkspaceDomainState>(domainState);
   const hydrateSnapshotRef = useRef(hydrateSnapshot);
+  const setSourceRef = useRef(setSource);
   const savedProjectsRef = useRef<SavedProjectMeta[]>([]);
   const explicitProjectTitlesRef = useRef(new Map<string, string>());
   const loadedProjectRevisionRef = useRef<{ projectId: string | null; revision?: number }>({
@@ -109,6 +124,10 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
   useEffect(() => {
     hydrateSnapshotRef.current = hydrateSnapshot;
   }, [hydrateSnapshot]);
+
+  useEffect(() => {
+    setSourceRef.current = setSource;
+  }, [setSource]);
 
   useEffect(() => {
     projectRepositoryRef.current = projectRepository;
@@ -289,7 +308,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
   );
 
   const persistSnapshot = useCallback(
-    async (snapshot: ProjectSnapshot) => {
+    async (snapshot: ProjectSnapshot, options: PersistSnapshotOptions = {}) => {
       // Anti-data-loss guard: se è uno scrivimento di un progetto già esistente con
       // sourceFile registrata in meta ma lo snapshot ha source nullo, evitiamo di
       // sovrascrivere il PDF persistito. (Non blocca il primo salvataggio: se non c'è
@@ -304,16 +323,22 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
       }
 
       try {
-        const meta = await runTrackedProjectWrite(
-          () =>
-            projectRepositoryRef.current.saveProject(snapshot, {
-              expectedRevision: getExpectedRevision(snapshot.id),
-            }),
-          false
-        );
+        let detachedSnapshot: ProjectSnapshot | undefined;
+        const meta = await runTrackedProjectWrite(async () => {
+          const saved = await projectRepositoryRef.current.saveProject(snapshot, {
+            archiveFile: options.archiveFile,
+            expectedRevision: getExpectedRevision(snapshot.id),
+          });
+          detachedSnapshot = saved.snapshot;
+          return saved.meta;
+        }, false);
+        if (detachedSnapshot && domainStateRef.current.source === snapshot.source) {
+          lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot);
+          setSourceRef.current(detachedSnapshot.source);
+        }
         if (pendingWriteCountRef.current === 0 && !trackedWriteBatchFailedRef.current) {
           setStorageError(null);
-          lastPersistedSignatureRef.current = buildAutosaveSignature(snapshot);
+          lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot || snapshot);
         }
         if (!matchingMeta) {
           void ensureProjectCover({
@@ -327,12 +352,18 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
           });
         }
         void requestPersistentStorage();
-        return meta;
+        return {
+          meta,
+          snapshot: detachedSnapshot || snapshot,
+        } satisfies ProjectSaveResult;
       } catch (error) {
         const message =
           error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
         setStorageError(message);
         markSyncError();
+        if (options.throwOnError) {
+          throw error;
+        }
         return null;
       }
     },
@@ -340,7 +371,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
   );
 
   const saveCurrentProject = useCallback(
-    async (overrides?: Partial<ProjectSnapshot>) => {
+    async (overrides?: Partial<ProjectSnapshot>, options?: PersistSnapshotOptions) => {
       const snapshot = buildSnapshotFromDomain(overrides);
       if (!snapshot) {
         return null;
@@ -361,7 +392,8 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
         return null;
       }
 
-      return persistSnapshot(snapshot);
+      const saved = await persistSnapshot(snapshot, options);
+      return saved?.meta || null;
     },
     [buildSnapshotFromDomain, currentProjectMeta, persistSnapshot]
   );
@@ -957,6 +989,10 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
     (projectId: string) => projectRepositoryRef.current.loadProjectSource(projectId),
     []
   );
+  const loadStoredProjectSources = useCallback(
+    (projectId: string) => projectRepositoryRef.current.loadProjectSources(projectId),
+    []
+  );
   const saveStoredProjectCover = useCallback(
     (projectId: string, cover: FileData) =>
       projectRepositoryRef.current.saveProjectCover(projectId, cover),
@@ -1065,6 +1101,7 @@ export const useProjectLibrary = ({ domainState, hydrateSnapshot }: UseProjectLi
     loadStoredProject,
     loadStoredProjectCover,
     loadStoredProjectSource,
+    loadStoredProjectSources,
     moveFolder: async (folderId: string, parentFolderId: string | null, targetIndex?: number) => {
       const nextFolder = await projectRepositoryRef.current.moveFolder(
         folderId,

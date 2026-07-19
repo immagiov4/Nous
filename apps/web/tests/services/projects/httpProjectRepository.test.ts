@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { clearSupabaseSession, saveSupabaseSession } from '../../../services/auth/supabaseAuth.ts';
+import {
+  buildCourseSourceDescriptors,
+  createProjectSourceFromDescriptors,
+} from '../../../services/projects/courseSources.ts';
 import { HttpProjectRepository } from '../../../services/projects/httpProjectRepository.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
 import { consumeProjectRevisionStream } from '../../../services/projects/projectRevisionStream.ts';
+import { normalizeStoredProject } from '../../../services/projects/projectSnapshot.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 
 const fetchMock = vi.fn();
@@ -108,6 +113,68 @@ test('HttpProjectRepository reports request timeouts without claiming the backen
   );
 });
 
+test('HttpProjectRepository gives archive saves enough time to upload and index large sources', async () => {
+  vi.useFakeTimers();
+  let resolveFetch: ((response: unknown) => void) | undefined;
+  fetchMock.mockImplementationOnce(
+    (_url: string, init: RequestInit) =>
+      new Promise(resolve => {
+        resolveFetch = resolve;
+        expect(init.signal?.aborted).toBe(false);
+      })
+  );
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    id: 'large-archive-project',
+    sourceKind: 'codebase',
+    source: {
+      file: {
+        data: '',
+        mimeType: 'application/zip',
+        name: 'engine.zip',
+      },
+      index: { entries: [] },
+      kind: 'archive',
+      name: 'engine.zip',
+    },
+  };
+  const archiveFile = new File(['PK large archive'], 'engine.zip', {
+    type: 'application/zip',
+  });
+
+  const savePromise = repository.saveProject(snapshot, { archiveFile });
+  await vi.advanceTimersByTimeAsync(15_001);
+
+  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+  expect(requestInit?.signal?.aborted).toBe(false);
+
+  resolveFetch?.({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      success: true,
+      meta: {
+        id: snapshot.id,
+        title: 'Engine',
+        sourceKind: 'codebase',
+        createdAt: snapshot.createdAt,
+        updatedAt: snapshot.updatedAt,
+        lastOpenedAt: snapshot.lastOpenedAt,
+        lessonCount: 0,
+        completedCount: 0,
+        exerciseCount: 0,
+        completedExercises: 0,
+        hasSourceFile: true,
+        coverLabel: 'engine.zip',
+      },
+      snapshot,
+    }),
+  });
+  await savePromise;
+  vi.useRealTimers();
+});
+
 test('HttpProjectRepository refreshes once and retries a backend 401', async () => {
   saveSupabaseSession({
     accessToken: 'access-token-old',
@@ -144,20 +211,106 @@ test('HttpProjectRepository refreshes once and retries a backend 401', async () 
   });
 });
 
-test('HttpProjectRepository uploads a new PDF once and saves a lightweight snapshot', async () => {
+test('HttpProjectRepository creates a sourced project with one atomic PUT', async () => {
+  const detachedSnapshot = {
+    ...buildPdfSnapshot(),
+    source: {
+      kind: 'pdf',
+      file: {
+        data: '',
+        mimeType: 'application/pdf',
+        name: 'dispensa.pdf',
+      },
+      ref: {
+        byteSize: 8,
+        hash: 'pdf-hash',
+        id: 'source-pdf',
+        mimeType: 'application/pdf',
+        name: 'dispensa.pdf',
+        objectPath: 'users/user/projects/pdf/source-pdf/pdf-hash/original',
+      },
+    },
+  } satisfies ProjectSnapshot;
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      success: true,
+      meta: {
+        id: 'pdf-project',
+        title: 'Dispensa',
+        sourceKind: 'document',
+        createdAt: '2026-07-09T10:00:00.000Z',
+        updatedAt: '2026-07-09T10:00:00.000Z',
+        lastOpenedAt: '2026-07-09T10:00:00.000Z',
+        lessonCount: 0,
+        completedCount: 0,
+        exerciseCount: 0,
+        completedExercises: 0,
+        hasSourceFile: true,
+        coverLabel: 'dispensa.pdf',
+      },
+      snapshot: detachedSnapshot,
+    }),
+  });
+
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  const saved = await repository.saveProject(buildPdfSnapshot());
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    'http://localhost:3301/api/projects/projects/pdf-project'
+  );
+  const saveBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+  expect(saveBody.snapshot.source).toEqual({
+    kind: 'pdf',
+    file: {
+      name: 'dispensa.pdf',
+      mimeType: 'application/pdf',
+      data: 'JVBERi0xLjQ=',
+    },
+  });
+  expect(saved.snapshot).toEqual(normalizeStoredProject(detachedSnapshot));
+});
+
+test('HttpProjectRepository preserves detached siblings when replacing one source', async () => {
+  const descriptors = buildCourseSourceDescriptors([
+    { data: 'b2xkLWZpcnN0', mimeType: 'text/plain', name: 'first.txt' },
+    { data: 'bmV3LXNlY29uZA==', mimeType: 'text/plain', name: 'second.txt' },
+  ]);
+  const firstRef = {
+    byteSize: 9,
+    hash: 'a'.repeat(64),
+    id: descriptors[0].id,
+    mimeType: 'text/plain',
+    name: 'first.txt',
+    objectPath: `users/user/projects/project/${descriptors[0].id}/original`,
+  };
+  const source = createProjectSourceFromDescriptors([
+    {
+      ...descriptors[0],
+      file: { ...descriptors[0].file, data: '' },
+      ref: firstRef,
+    },
+    descriptors[1],
+  ]);
+  const replaceSnapshot = {
+    ...buildPdfSnapshot(),
+    id: 'replace-project',
+    source,
+  };
   fetchMock
     .mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({
         success: true,
-        sourceRef: {
-          id: 'source-123',
-          hash: 'hash-123',
-          byteSize: 8,
-          name: 'dispensa.pdf',
-          mimeType: 'application/pdf',
-        },
+        sources: [
+          {
+            file: { ...descriptors[0].file, data: 'b2xkLWZpcnN0' },
+            ref: firstRef,
+          },
+        ],
       }),
     })
     .mockResolvedValueOnce({
@@ -166,8 +319,8 @@ test('HttpProjectRepository uploads a new PDF once and saves a lightweight snaps
       json: async () => ({
         success: true,
         meta: {
-          id: 'pdf-project',
-          title: 'Dispensa',
+          id: 'replace-project',
+          title: 'Replace',
           sourceKind: 'document',
           createdAt: '2026-07-09T10:00:00.000Z',
           updatedAt: '2026-07-09T10:00:00.000Z',
@@ -177,43 +330,183 @@ test('HttpProjectRepository uploads a new PDF once and saves a lightweight snaps
           exerciseCount: 0,
           completedExercises: 0,
           hasSourceFile: true,
-          coverLabel: 'dispensa.pdf',
+          coverLabel: 'first.txt',
         },
+        snapshot: replaceSnapshot,
       }),
     });
-
   const repository = new HttpProjectRepository('http://localhost:3301');
-  await repository.saveProject(buildPdfSnapshot());
 
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  await repository.saveProject(replaceSnapshot);
+
+  expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
+    'http://localhost:3301/api/projects/projects/replace-project/sources',
+    'http://localhost:3301/api/projects/projects/replace-project',
+  ]);
+  const saved = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+  expect(
+    saved.snapshot.source.sources.map((item: { file: { data: string } }) => item.file.data)
+  ).toEqual(['b2xkLWZpcnN0', 'bmV3LXNlY29uZA==']);
+});
+
+test('HttpProjectRepository sends every document source in the atomic project PUT', async () => {
+  const descriptors = buildCourseSourceDescriptors([
+    { data: 'Zmlyc3Q=', mimeType: 'text/plain', name: 'notes.txt' },
+    { data: 'c2Vjb25k', mimeType: 'text/plain', name: 'notes.txt' },
+  ]);
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    id: 'multi-project',
+    source: createProjectSourceFromDescriptors(descriptors),
+  };
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      success: true,
+      meta: {
+        id: 'multi-project',
+        title: 'Multi',
+        sourceKind: 'document',
+        createdAt: '2026-07-09T10:00:00.000Z',
+        updatedAt: '2026-07-09T10:00:00.000Z',
+        lastOpenedAt: '2026-07-09T10:00:00.000Z',
+        lessonCount: 0,
+        completedCount: 0,
+        exerciseCount: 0,
+        completedExercises: 0,
+        hasSourceFile: true,
+        coverLabel: 'notes.txt',
+      },
+      snapshot,
+    }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await repository.saveProject(snapshot);
+
   expect(fetchMock.mock.calls[0]?.[0]).toBe(
-    'http://localhost:3301/api/projects/projects/pdf-project/source'
+    'http://localhost:3301/api/projects/projects/multi-project'
   );
-  expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
-    source: {
-      name: 'dispensa.pdf',
-      mimeType: 'application/pdf',
-      data: 'JVBERi0xLjQ=',
+  const savedSnapshot = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    .snapshot as ProjectSnapshot;
+  expect(savedSnapshot.source?.file.data).toBe('Zmlyc3Q=');
+  expect(savedSnapshot.source?.sources?.map(descriptor => descriptor.file.data)).toEqual([
+    'Zmlyc3Q=',
+    'c2Vjb25k',
+  ]);
+});
+
+test('HttpProjectRepository uploads archives as binary multipart without a JSON content type', async () => {
+  const detachedArchiveSource = {
+    file: {
+      data: '',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
     },
+    index: { entries: [] },
+    kind: 'archive' as const,
+    name: 'engine.zip',
+    ref: {
+      byteSize: 5,
+      hash: 'archive-hash',
+      id: 'source-archive',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
+      objectPath: 'users/user/projects/archive/source-archive/archive-hash/original',
+    },
+  };
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      success: true,
+      meta: {
+        id: 'archive-project',
+        title: 'Engine',
+        sourceKind: 'codebase',
+        createdAt: '2026-07-09T10:00:00.000Z',
+        updatedAt: '2026-07-09T10:00:00.000Z',
+        lastOpenedAt: '2026-07-09T10:00:00.000Z',
+        lessonCount: 0,
+        completedCount: 0,
+        exerciseCount: 0,
+        completedExercises: 0,
+        hasSourceFile: true,
+        coverLabel: 'engine.zip',
+      },
+      snapshot: {
+        ...buildPdfSnapshot(),
+        id: 'archive-project',
+        source: detachedArchiveSource,
+        sourceKind: 'codebase',
+      },
+    }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    id: 'archive-project',
+    sourceKind: 'codebase',
+    source: {
+      file: {
+        data: '',
+        mimeType: 'application/zip',
+        name: 'engine.zip',
+      },
+      index: { entries: [] },
+      kind: 'archive',
+      name: 'engine.zip',
+    },
+  };
+  const archiveFile = new File(['PK binary archive'], 'engine.zip', {
+    type: 'application/zip',
   });
 
-  const saveBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
-  expect(saveBody.snapshot.source).toEqual({
-    kind: 'pdf',
+  const saved = await repository.saveProject(snapshot, { archiveFile });
+
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+  expect(requestInit.body).toBeInstanceOf(FormData);
+  expect(new Headers(requestInit.headers).has('Content-Type')).toBe(false);
+  const saveBody = requestInit.body as FormData;
+  const sentArchive = saveBody.get('archive');
+  expect(sentArchive).toBeInstanceOf(File);
+  expect((sentArchive as File).name).toBe(archiveFile.name);
+  expect(await (sentArchive as File).text()).toBe(await archiveFile.text());
+  expect(JSON.parse(String(saveBody.get('snapshot'))).source).toEqual({
     file: {
-      name: 'dispensa.pdf',
-      mimeType: 'application/pdf',
       data: '',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
     },
-    ref: {
-      id: 'source-123',
-      hash: 'hash-123',
-      byteSize: 8,
-      name: 'dispensa.pdf',
-      mimeType: 'application/pdf',
-    },
+    index: { entries: [] },
+    kind: 'archive',
+    name: 'engine.zip',
   });
-  expect(saveBody.omitSource).toBeUndefined();
+  expect(saved.snapshot.source).toEqual(detachedArchiveSource);
+});
+
+test('HttpProjectRepository does not fall back to Base64 JSON for archives', async () => {
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    source: {
+      file: {
+        data: 'UEsDBAo=',
+        mimeType: 'application/zip',
+        name: 'engine.zip',
+      },
+      index: { entries: [] },
+      kind: 'archive',
+      name: 'engine.zip',
+    },
+  };
+
+  await expect(repository.saveProject(snapshot)).rejects.toThrow(
+    'Gli archivi devono essere caricati come file binari.'
+  );
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 test('HttpProjectRepository sends the expected revision and preserves a 409 conflict', async () => {

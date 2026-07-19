@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  attachStoredSources,
   buildCombinedSourceIndex,
   buildCourseSourceDescriptors,
+  createProjectSourceFromDescriptors,
+  detachStoredSources,
   getCourseSourceDescriptors,
   mergeCourseSourceDescriptors,
   parseMarkdownOutline,
 } from '../../../services/projects/courseSources.ts';
 import { encodeTextBase64 } from '../../../services/projects/projectSource.ts';
-import type { FileData } from '../../../types.ts';
+import type { FileData, ProjectSourceRef } from '../../../types.ts';
 
 const textFile = (name: string, text: string, mimeType = 'text/plain'): FileData => ({
   data: encodeTextBase64(text),
@@ -72,22 +75,28 @@ test('same-name same-content sources keep collision-free source and chunk identi
   );
 });
 
-test('legacy single-source projects migrate logically and reattaching one source preserves the others', () => {
-  const legacyFile = textFile('legacy.md', '# Legacy', 'text/markdown');
-  const legacySources = getCourseSourceDescriptors({
-    kind: 'codebase-bundle',
-    name: legacyFile.name,
-    aggregatedText: '# Legacy',
-    files: [],
-    stats: {
-      includedFileCount: 0,
-      skippedFileCount: 0,
-      totalCharacterCount: 8,
-      truncatedFileCount: 0,
+test('archives stay outside document descriptors and replacing one document preserves the others', () => {
+  const archiveSources = getCourseSourceDescriptors({
+    file: {
+      data: 'UEs=',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
     },
+    index: {
+      entries: [
+        {
+          byteSize: 8,
+          contentKind: 'text',
+          kind: 'file',
+          path: 'README.md',
+          preview: '# Engine',
+        },
+      ],
+    },
+    kind: 'archive',
+    name: 'engine.zip',
   });
-  assert.equal(legacySources.length, 1);
-  assert.equal(legacySources[0]?.name, 'legacy.md');
+  assert.deepEqual(archiveSources, []);
 
   const existing = buildCourseSourceDescriptors([
     textFile('a.txt', 'old A'),
@@ -102,7 +111,20 @@ test('legacy single-source projects migrate logically and reattaching one source
   assert.equal(merged[1]?.documentIndex?.chunks[0]?.text, 'keep B');
 });
 
-test('detached legacy PDFs remain discoverable through their stored source reference', () => {
+test('replacing a single source preserves its identity even when its filename changes', () => {
+  const [existing] = buildCourseSourceDescriptors([textFile('old.txt', 'old')]);
+  const [replacement] = buildCourseSourceDescriptors([textFile('renamed.txt', 'new')]);
+
+  const merged = mergeCourseSourceDescriptors([existing], [replacement]);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]?.id, existing.id);
+  assert.equal(merged[0]?.file.sourceId, existing.id);
+  assert.equal(merged[0]?.name, 'renamed.txt');
+  assert.equal(merged[0]?.documentIndex?.chunks[0]?.text, 'new');
+});
+
+test('detached PDFs remain discoverable through their stored source reference', () => {
   const descriptors = getCourseSourceDescriptors({
     file: {
       data: '',
@@ -116,6 +138,7 @@ test('detached legacy PDFs remain discoverable through their stored source refer
       id: 'stored-source-id',
       mimeType: 'application/pdf',
       name: 'dispensa.pdf',
+      objectPath: 'users/user/projects/project/stored-source-id/original',
     },
   });
 
@@ -124,4 +147,47 @@ test('detached legacy PDFs remain discoverable through their stored source refer
   assert.equal(descriptors[0]?.hash, 'stored-hash');
   assert.equal(descriptors[0]?.file.sourceId, 'stored-source-id');
   assert.equal(descriptors[0]?.file.data, '');
+});
+
+test('detaches and rehydrates every document source without losing source identities', () => {
+  const descriptors = buildCourseSourceDescriptors([
+    textFile('notes.txt', 'Same content'),
+    textFile('notes.txt', 'Same content'),
+  ]);
+  const source = createProjectSourceFromDescriptors(descriptors);
+  const refs: ProjectSourceRef[] = descriptors.map((descriptor, position) => ({
+    byteSize: 12,
+    hash: `${position}`.repeat(64),
+    id: descriptor.id,
+    mimeType: descriptor.file.mimeType,
+    name: descriptor.name,
+    objectPath: `users/user/projects/project/${descriptor.id}/original`,
+  }));
+
+  const detached = detachStoredSources(source, refs);
+
+  assert.equal(detached.file.data, '');
+  assert.equal(detached.ref?.id, descriptors[0]?.id);
+  assert.deepEqual(
+    detached.sources?.map(descriptor => ({
+      data: descriptor.file.data,
+      id: descriptor.id,
+      refId: descriptor.ref?.id,
+    })),
+    descriptors.map(descriptor => ({ data: '', id: descriptor.id, refId: descriptor.id }))
+  );
+  assert.deepEqual(
+    buildCombinedSourceIndex(getCourseSourceDescriptors(detached))?.chunks.map(chunk => chunk.text),
+    ['Same content', 'Same content']
+  );
+
+  const hydrated = attachStoredSources(
+    detached,
+    descriptors.map(descriptor => descriptor.file)
+  );
+  assert.deepEqual(
+    hydrated.sources?.map(descriptor => descriptor.file.data),
+    descriptors.map(descriptor => descriptor.file.data)
+  );
+  assert.equal(hydrated.file.data, descriptors[0]?.file.data);
 });

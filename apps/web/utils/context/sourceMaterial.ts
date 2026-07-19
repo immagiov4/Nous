@@ -1,5 +1,11 @@
 import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex/index.ts';
-import type { LessonNode, PdfTextChunk, PdfTextIndex, ProjectSource } from '../../types.ts';
+import type {
+  LessonNode,
+  PdfTextChunk,
+  PdfTextIndex,
+  ProjectSource,
+  SourceArchiveEntry,
+} from '../../types.ts';
 import { clipText } from '../text.ts';
 
 const MAX_CONTEXT_SOURCE_CHARS = 168_000;
@@ -13,6 +19,30 @@ interface ResolvedPageSpan {
 
 const clip = (value: string) =>
   clipText(value, MAX_CONTEXT_SOURCE_CHARS, '[sorgente troncata nel client]');
+
+const compareArchiveEntries = (left: SourceArchiveEntry, right: SourceArchiveEntry): number => {
+  if (left.path !== right.path) {
+    return left.path < right.path ? -1 : 1;
+  }
+  return left.kind === right.kind ? 0 : left.kind === 'directory' ? -1 : 1;
+};
+
+const formatArchiveEntry = (entry: SourceArchiveEntry): string => {
+  if (entry.kind === 'directory') {
+    return `directory ${entry.path}`;
+  }
+
+  const header = [
+    `file ${entry.path}`,
+    entry.contentKind,
+    `${entry.byteSize} bytes`,
+    ...(entry.hash ? [`sha256 ${entry.hash}`] : []),
+  ].join(' | ');
+  return entry.preview === undefined ? header : `${header}\npreview:\n${entry.preview}`;
+};
+
+const buildArchiveSourceMaterial = (source: Extract<ProjectSource, { kind: 'archive' }>): string =>
+  [...source.index.entries].sort(compareArchiveEntries).map(formatArchiveEntry).join('\n');
 
 const formatChunk = (chunk: PdfTextChunk) => {
   const headingPath = chunk.headingPath.join(' > ').trim() || 'Nessuno';
@@ -160,11 +190,10 @@ export const buildContextSourceMaterial = ({
     return {};
   }
 
-  if (source.kind === 'codebase-bundle') {
-    const material = source.aggregatedText.trim();
+  if (source.kind === 'archive') {
     return {
       sourceKind: source.kind,
-      sourceMaterial: material ? clip(material) : undefined,
+      sourceMaterial: buildArchiveSourceMaterial(source) || undefined,
       sourceName: source.name,
     };
   }

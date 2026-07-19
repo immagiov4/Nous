@@ -1,4 +1,4 @@
-import type { CodebaseBundleSource, FileData, ProjectSource } from '../../types';
+import type { FileData, ProjectSource } from '../../types';
 
 const TEXT_FILE_EXTENSION_TO_MIME = new Map<string, string>([
   ['cfg', 'text/plain'],
@@ -76,6 +76,9 @@ const ZIP_MIME_TYPES = new Set([
   'multipart/x-zip',
 ]);
 
+const BASE64_ENCODE_CHUNK_BYTES = 3 * 16 * 1024;
+const BASE64_DECODE_CHUNK_CHARS = 4 * 16 * 1024;
+
 const bytesToBinaryString = (bytes: Uint8Array): string => {
   let binary = '';
   const chunkSize = 0x8000;
@@ -128,7 +131,13 @@ const countReplacementCharacters = (text: string): number => {
 
 export const encodeBytesBase64 = (bytes: Uint8Array): string => {
   if (typeof btoa === 'function') {
-    return btoa(bytesToBinaryString(bytes));
+    const encodedChunks: string[] = [];
+    for (let index = 0; index < bytes.length; index += BASE64_ENCODE_CHUNK_BYTES) {
+      encodedChunks.push(
+        btoa(bytesToBinaryString(bytes.subarray(index, index + BASE64_ENCODE_CHUNK_BYTES)))
+      );
+    }
+    return encodedChunks.join('');
   }
 
   return Buffer.from(bytes).toString('base64');
@@ -136,7 +145,17 @@ export const encodeBytesBase64 = (bytes: Uint8Array): string => {
 
 export const decodeBase64Bytes = (value: string): Uint8Array => {
   if (typeof atob === 'function') {
-    return binaryStringToBytes(atob(value));
+    const paddingBytes = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+    const decodedBytes = new Uint8Array(Math.floor((value.length * 3) / 4) - paddingBytes);
+    let byteOffset = 0;
+    for (let index = 0; index < value.length; index += BASE64_DECODE_CHUNK_CHARS) {
+      const chunkBytes = binaryStringToBytes(
+        atob(value.slice(index, index + BASE64_DECODE_CHUNK_CHARS))
+      );
+      decodedBytes.set(chunkBytes, byteOffset);
+      byteOffset += chunkBytes.length;
+    }
+    return decodedBytes;
   }
 
   return Uint8Array.from(Buffer.from(value, 'base64'));
@@ -284,19 +303,8 @@ export const normalizeSourceFileMimeType = (
   return normalizedMimeType;
 };
 
-const isCodebaseArchiveSource = (source: CodebaseBundleSource): boolean =>
-  source.files.length > 0 || source.name.toLowerCase().endsWith('.zip');
-
 export const isDocumentProjectSource = (source: ProjectSource | null | undefined): boolean => {
-  if (!source) {
-    return false;
-  }
-
-  if (source.kind === 'pdf') {
-    return true;
-  }
-
-  return !isCodebaseArchiveSource(source);
+  return source?.kind === 'pdf' || source?.kind === 'document';
 };
 
 export const createProjectSourceFromFile = (file: FileData): ProjectSource => {
@@ -304,19 +312,7 @@ export const createProjectSourceFromFile = (file: FileData): ProjectSource => {
     return { kind: 'pdf', file };
   }
 
-  const aggregatedText = decodeTextBase64(file.data);
-  return {
-    kind: 'codebase-bundle',
-    name: file.name,
-    aggregatedText,
-    files: [],
-    stats: {
-      includedFileCount: 0,
-      skippedFileCount: 0,
-      truncatedFileCount: 0,
-      totalCharacterCount: aggregatedText.length,
-    },
-  };
+  return { kind: 'document', file };
 };
 
 export const getProjectSourceFile = (source: ProjectSource | null | undefined): FileData | null => {
@@ -324,15 +320,7 @@ export const getProjectSourceFile = (source: ProjectSource | null | undefined): 
     return null;
   }
 
-  if (source.kind === 'pdf') {
-    return source.file.data ? source.file : null;
-  }
-
-  return {
-    name: source.name,
-    mimeType: normalizeSourceFileMimeType(source.name, '', 'text'),
-    data: encodeTextBase64(source.aggregatedText),
-  };
+  return source.file.data ? source.file : null;
 };
 
 export const getProjectSourceName = (source: ProjectSource | null | undefined): string => {
@@ -340,5 +328,5 @@ export const getProjectSourceName = (source: ProjectSource | null | undefined): 
     return '';
   }
 
-  return source.kind === 'pdf' ? source.file.name : source.name;
+  return source.kind === 'archive' ? source.name : source.file.name;
 };

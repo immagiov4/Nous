@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import JSZip from 'jszip';
 import { test, vi } from 'vitest';
 import type { WorkspaceControllerStateAdapter } from '../../../hooks/workspace/controller/types.ts';
 import {
@@ -8,6 +9,11 @@ import {
   type WorkspaceProjectLibraryAdapter,
 } from '../../../hooks/workspace/useWorkspaceController.ts';
 import { mergePrerequisiteDossierSources } from '../../../services/openrouter/prerequisiteSources.ts';
+import { formatResearchDossierForPrompt } from '../../../services/openrouter/research.ts';
+import {
+  buildCourseSourceDescriptors,
+  createProjectSourceFromDescriptors,
+} from '../../../services/projects/courseSources.ts';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
 import {
   createProjectSnapshot,
@@ -335,6 +341,7 @@ const createDomainAdapter = (
 const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryAdapter> = {}) => {
   const persistedSnapshots: ProjectSnapshot[] = [];
   const savedOverrides: Array<Partial<ProjectSnapshot> | undefined> = [];
+  const saveOptions: Array<{ archiveFile?: File; throwOnError?: boolean } | undefined> = [];
   const sectionProjectPatches: Array<Partial<ProjectSnapshot>> = [];
   const deletedProjectIds: string[] = [];
   const exportedProjectIds: Array<string | undefined> = [];
@@ -379,18 +386,23 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       ),
     loadStoredProject: async () => loadedSnapshot,
     loadStoredProjectSource: async () => null,
+    loadStoredProjectSources: async () => [],
     moveFolder: async () => null,
     moveProjects: async () => [],
     persistSnapshot: async snapshot => {
       persistedSnapshots.push(snapshot);
-      return buildMeta(snapshot.id);
+      return {
+        meta: buildMeta(snapshot.id),
+        snapshot,
+      };
     },
     refreshLibraryOrganization: async () => {},
     refreshLibraryState: async () => {},
     refreshSavedProjects: async () => {},
     renameFolder: async () => null,
-    saveCurrentProject: async overridesArg => {
+    saveCurrentProject: async (overridesArg, options) => {
       savedOverrides.push(overridesArg);
+      saveOptions.push(options);
       return adapter.currentProjectId ? buildMeta(adapter.currentProjectId) : null;
     },
     patchCurrentProject: async overridesArg => {
@@ -422,6 +434,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     deletedProjectIds,
     exportedProjectIds,
     persistedSnapshots,
+    saveOptions,
     savedOverrides,
     sectionProjectPatches,
     setLoadedSnapshot: (snapshot: ProjectSnapshot | null) => {
@@ -651,30 +664,6 @@ const createOpenRouterMock = (
       strengths: ['Consegna coerente con la traccia'],
       summary: 'Buon lavoro pratico con alcuni margini di chiarimento.',
     }),
-    generateFullCurriculum: async (
-      _profile: UserProfile,
-      _onStatusUpdate: (message: string) => void,
-      _onStructureUpdate: (items: SyllabusItem[]) => void,
-      _onRevisionStart: () => void
-    ) => [
-      {
-        id: 'mod-1',
-        title: 'Modulo 1',
-        description: 'Base',
-        type: 'module' as const,
-        status: 'ready' as const,
-        children: [
-          {
-            id: 'lesson-1',
-            title: 'Lezione 1',
-            description: 'Intro',
-            type: 'lesson' as const,
-            status: 'pending' as const,
-            contextPrompt: 'Spiega il concetto',
-          },
-        ],
-      },
-    ],
     generateResearchCoursePlan: async (
       profile: UserProfile,
       _onStatusUpdate: (message: string) => void,
@@ -745,8 +734,11 @@ const createOpenRouterMock = (
           }))
         ),
       }),
+    buildPrerequisiteSourceContext: async ({ file }: { file: FileData }) => ({
+      content: `FONTE ORIGINALE: ${file.name}`,
+      sources: [{ title: file.name, note: 'Materiale originale del corso' }],
+    }),
     generateLearningPlan: async () => buildPlan(),
-    generateLearnLessonContent: async () => '# Lezione generata',
     finalizeSourceFreeLesson: async ({ contentMarkdown }: { contentMarkdown: string }) => ({
       content: contentMarkdown,
       generatedVisuals: [],
@@ -785,6 +777,7 @@ const createOpenRouterMock = (
       learningAids: [],
       quiz: [],
     }),
+    formatResearchDossierForPrompt,
     getPdfLessonMappingState: () => 'idle' as const,
     preparePdfLessonMappings: async (
       _file: FileData,
@@ -801,6 +794,11 @@ const createOpenRouterMock = (
       status: 'ok' as const,
       substantivePageCount: 10,
       substantivePageRatio: 1,
+    }),
+    mergePrerequisiteDossierSources,
+    selectPrerequisiteSourceCoverage: async () => ({
+      missingTopics: [],
+      needsResearch: false,
     }),
     ...overrides,
   }) as unknown as typeof import('../../../services/openrouter/index.ts');
@@ -927,7 +925,10 @@ test('openProject does not wait for a real hydration migration to be persisted',
       persistSnapshot: async persistedSnapshot => {
         notifyPersistenceStarted?.();
         await persistenceGate;
-        return buildMeta(persistedSnapshot.id);
+        return {
+          meta: buildMeta(persistedSnapshot.id),
+          snapshot: persistedSnapshot,
+        };
       },
     },
   });
@@ -1220,6 +1221,7 @@ test('openProject does not download detached PDF bytes when the active lesson is
         byteSize: 4,
         name: pdfFile.name,
         mimeType: pdfFile.mimeType,
+        objectPath: 'users/user/projects/project/source-123/original',
       },
     },
     learningPlan: buildPlan({
@@ -1420,6 +1422,76 @@ test('handleSourceUpload creates a fresh project and lands in assessment for doc
   assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
+test('handleSourceUpload persists opaque ZIP bytes once and assesses the canonical server index', async () => {
+  const canonicalEntry = {
+    byteSize: 21,
+    contentKind: 'text' as const,
+    kind: 'file' as const,
+    path: 'src/server-entry.ts',
+    preview: 'export const server = 1;',
+  };
+  let persistedWrites = 0;
+  let assessmentText = '';
+  const persistenceOrder: string[] = [];
+  const { controller, domain } = createControllerHarness({
+    openRouter: {
+      createAssessmentChatFromTextSource: async source => {
+        assessmentText = source.text;
+        return {
+          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
+          sendMessage: async () => ({ text: 'Domanda iniziale' }),
+        };
+      },
+    },
+    projectLibrary: {
+      persistSnapshot: async (snapshot, options) => {
+        persistenceOrder.push('persist');
+        persistedWrites += 1;
+        assert.equal(options?.archiveFile, uploadedFile);
+        assert.equal(snapshot.source?.kind, 'archive');
+        if (snapshot.source?.kind !== 'archive') {
+          throw new Error('Expected archive source');
+        }
+        assert.deepEqual(snapshot.source.index.entries, []);
+        assert.equal(snapshot.source.file.data, '');
+        return {
+          meta: buildMeta(snapshot.id),
+          snapshot: {
+            ...snapshot,
+            source: {
+              ...snapshot.source,
+              file: { ...snapshot.source.file, data: '' },
+              index: { entries: [canonicalEntry] },
+            },
+          },
+        };
+      },
+      setProjectHydrated: value => {
+        persistenceOrder.push(`hydrated:${value}`);
+      },
+    },
+  });
+  const uploadedFile = new File(['opaque bytes that are never decompressed'], 'engine.zip', {
+    type: 'application/zip',
+  });
+  const readArchiveBytes = vi.spyOn(uploadedFile, 'arrayBuffer');
+
+  const result = await controller.handleSourceUpload(uploadedFile, {
+    mode: 'new-project',
+  });
+
+  assert.equal(result.outcome, 'started-assessment');
+  assert.equal(result.errorMessage, undefined);
+  assert.equal(persistedWrites, 1);
+  assert.equal(readArchiveBytes.mock.calls.length, 0);
+  assert.deepEqual(persistenceOrder, ['hydrated:false', 'persist', 'hydrated:true']);
+  assert.equal(domain.source?.kind, 'archive');
+  assert.deepEqual(domain.source?.kind === 'archive' ? domain.source.index.entries : [], [
+    canonicalEntry,
+  ]);
+  assert.equal(assessmentText.includes('src/server-entry.ts'), true);
+});
+
 test('handleSourceUpload reattach clears transient session state and invalidates stale workflows', async () => {
   const { controller, domain, projectLibrary, state } = createControllerHarness({
     domain: {
@@ -1462,6 +1534,151 @@ test('handleSourceUpload reattach clears transient session state and invalidates
   assert.equal(state.internalState.workflowState.attachSource.status, 'succeeded');
 });
 
+test('handleSourceUpload reattach preserves the active source and session when persistence fails', async () => {
+  const existingSource = createProjectSourceFromFile(markdownFile);
+  const existingChatSession = {
+    sendMessage: async () => ({ text: 'Sessione esistente' }),
+  };
+  const hydrationStates: boolean[] = [];
+  const { controller, domain, state } = createControllerHarness({
+    domain: {
+      source: existingSource,
+    },
+    projectLibrary: {
+      currentProjectId: 'project-reattach-failure',
+      saveCurrentProject: async () => null,
+      setProjectHydrated: value => {
+        hydrationStates.push(value);
+      },
+    },
+  });
+  state.internalState.assessmentMessages = [{ role: 'model', text: 'Chat esistente' }];
+  state.internalState.chatSession = existingChatSession;
+  const activeLoadRequestId = state.adapter.beginWorkflow('loadSection', 'Caricamento esistente');
+
+  const result = await controller.handleSourceUpload(
+    new File(['nuovo contenuto'], 'nuova-fonte.md', { type: 'text/markdown' }),
+    { mode: 'reattach-source' }
+  );
+
+  assert.equal(result.outcome, 'failed');
+  assert.equal(result.errorMessage, 'La sorgente del progetto non è stata salvata.');
+  assert.equal(domain.source, existingSource);
+  assert.deepEqual(state.internalState.assessmentMessages, [
+    { role: 'model', text: 'Chat esistente' },
+  ]);
+  assert.equal(state.internalState.chatSession, existingChatSession);
+  assert.equal(state.adapter.isWorkflowCurrent('loadSection', activeLoadRequestId), true);
+  assert.equal(state.internalState.workflowState.attachSource.status, 'failed');
+  assert.deepEqual(hydrationStates, [false, true]);
+});
+
+test('handleSourceUpload preserves archive identity when reattaching changed ZIP bytes', async () => {
+  const existingSourceId = 'source-existing-archive';
+  const existingSource = {
+    file: {
+      data: '',
+      mimeType: 'application/zip',
+      name: 'old-engine.zip',
+    },
+    index: { entries: [] },
+    kind: 'archive' as const,
+    name: 'old-engine.zip',
+    ref: {
+      byteSize: 128,
+      hash: 'a'.repeat(64),
+      id: existingSourceId,
+      mimeType: 'application/zip',
+      name: 'old-engine.zip',
+      objectPath: `users/user/projects/project/${existingSourceId}/${'a'.repeat(64)}/original`,
+    },
+  };
+  const { controller, projectLibrary } = createControllerHarness({
+    domain: {
+      source: existingSource,
+      domainState: {
+        source: existingSource,
+        learningPlan: null,
+        documentAssets: null,
+        documentIndex: null,
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: null,
+      },
+    },
+    projectLibrary: {
+      currentProjectId: 'archive-project',
+    },
+  });
+  const archive = new JSZip();
+  archive.file('src/main.ts', 'export const changed = true;');
+  const archiveBytes = await archive.generateAsync({ type: 'uint8array' });
+  const uploadedFile = new File([archiveBytes.buffer as ArrayBuffer], 'new-engine.zip', {
+    type: 'application/zip',
+  });
+
+  const result = await controller.handleSourceUpload(uploadedFile, {
+    mode: 'reattach-source',
+  });
+
+  assert.equal(result.outcome, 'reattached');
+  assert.equal(projectLibrary.savedOverrides[0]?.source?.kind, 'archive');
+  assert.equal(projectLibrary.savedOverrides[0]?.source?.file.sourceId, existingSourceId);
+  assert.deepEqual(projectLibrary.saveOptions, [{ archiveFile: uploadedFile, throwOnError: true }]);
+});
+
+test('handleSourceUpload bounds previews for a 20k-file archive before starting assessment', async () => {
+  const previewMarker = '§';
+  const canonicalEntries = Array.from({ length: 20_000 }, (_, index) => ({
+    byteSize: 8_000,
+    contentKind: 'text' as const,
+    kind: 'file' as const,
+    path: `src/file-${index.toString().padStart(5, '0')}.ts`,
+    preview: previewMarker.repeat(100),
+  }));
+  let assessmentText = '';
+  const { controller } = createControllerHarness({
+    openRouter: {
+      createAssessmentChatFromTextSource: async source => {
+        assessmentText = source.text;
+        return {
+          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
+          sendMessage: async () => ({ text: 'Domanda iniziale' }),
+        };
+      },
+    },
+    projectLibrary: {
+      persistSnapshot: async snapshot => {
+        assert.equal(snapshot.source?.kind, 'archive');
+        if (snapshot.source?.kind !== 'archive') {
+          throw new Error('Expected archive source');
+        }
+        return {
+          meta: buildMeta(snapshot.id),
+          snapshot: {
+            ...snapshot,
+            source: {
+              ...snapshot.source,
+              file: { ...snapshot.source.file, data: '' },
+              index: { entries: canonicalEntries },
+            },
+          },
+        };
+      },
+    },
+  });
+
+  const result = await controller.handleSourceUpload(
+    new File(['opaque archive'], 'engine.zip', { type: 'application/zip' }),
+    { mode: 'new-project' }
+  );
+
+  assert.equal(result.errorMessage, undefined);
+  assert.equal(assessmentText.split(previewMarker).length - 1, 20_000);
+  assert.equal(assessmentText.includes('src/file-19999.ts'), true);
+});
+
 test('handleSourceUpload accepts markdown sources with missing mime and stores them as document projects', async () => {
   let textAssessmentCalls = 0;
   let fileAssessmentCalls = 0;
@@ -1494,9 +1711,9 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
   assert.equal(result.outcome, 'started-assessment');
   assert.equal(result.errorMessage, undefined);
   assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
-  assert.equal(domain.source?.kind, 'codebase-bundle');
+  assert.equal(domain.source?.kind, 'document');
   assert.equal(projectLibrary.persistedSnapshots[0]?.sourceKind, 'document');
-  assert.equal(projectLibrary.persistedSnapshots[0]?.source?.kind, 'codebase-bundle');
+  assert.equal(projectLibrary.persistedSnapshots[0]?.source?.kind, 'document');
   assert.equal(textAssessmentCalls, 1);
   assert.equal(fileAssessmentCalls, 0);
   assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
@@ -1612,6 +1829,69 @@ test('startHomeChat passes the Nuovo corso preference to the model without alter
   );
   assert.equal(sentMessage.includes('[Preferenza utente attiva: Nuovo corso]'), true);
   assert.equal(sentMessage.includes('Vorrei capire meglio come studiare'), true);
+});
+
+test('startHomeChat saves a ZIP before assessment and uses only the server index', async () => {
+  const canonicalEntry = {
+    byteSize: 18,
+    contentKind: 'text' as const,
+    kind: 'file' as const,
+    path: 'docs/server.md',
+    preview: '# Server index',
+  };
+  let persistedWrites = 0;
+  let assessmentText = '';
+  const { controller, domain } = createControllerHarness({
+    openRouter: {
+      createEmbeddedAssessmentChatFromTextSource: async source => {
+        assessmentText = source.text;
+        return {
+          sendMessage: async () => ({ text: 'Continuiamo.' }),
+        };
+      },
+    },
+    projectLibrary: {
+      persistSnapshot: async (snapshot, options) => {
+        persistedWrites += 1;
+        assert.deepEqual(options, { archiveFile: uploadedFile, throwOnError: true });
+        assert.equal(snapshot.source?.kind, 'archive');
+        assert.deepEqual(
+          snapshot.source?.kind === 'archive' ? snapshot.source.index.entries : [],
+          []
+        );
+        if (snapshot.source?.kind !== 'archive') {
+          throw new Error('Expected archive source');
+        }
+        return {
+          meta: buildMeta(snapshot.id),
+          snapshot: {
+            ...snapshot,
+            source: {
+              ...snapshot.source,
+              file: { ...snapshot.source.file, data: '' },
+              index: { entries: [canonicalEntry] },
+            },
+          },
+        };
+      },
+    },
+  });
+
+  const uploadedFile = new File(['opaque source archive'], 'engine.zip', {
+    type: 'application/zip',
+  });
+  const result = await controller.startHomeChat({
+    input: 'Voglio studiare questo motore',
+    selectedFile: uploadedFile,
+  });
+
+  assert.equal(result.outcome, 'continued');
+  assert.equal(result.errorMessage, undefined);
+  assert.equal(persistedWrites, 1);
+  assert.deepEqual(domain.source?.kind === 'archive' ? domain.source.index.entries : [], [
+    canonicalEntry,
+  ]);
+  assert.equal(assessmentText.includes('docs/server.md'), true);
 });
 
 test('startHomeChat reports each unusable source while continuing with valid material', async () => {
@@ -1874,6 +2154,87 @@ test('submitAssessment in document mode can generate a plan for text-backed sour
   assert.equal(getLessons(domain.learningPlan)[0]?.title, 'Lezione 1');
 });
 
+test('submitAssessment plans a reopened archive without downloading the ZIP', async () => {
+  const archiveSource = {
+    file: {
+      data: '',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
+    },
+    index: {
+      entries: [
+        {
+          byteSize: 24,
+          contentKind: 'text' as const,
+          kind: 'file' as const,
+          path: 'src/main.ts',
+          preview: 'export function main() {}',
+        },
+      ],
+    },
+    kind: 'archive' as const,
+    name: 'engine.zip',
+    ref: {
+      byteSize: 128,
+      hash: 'a'.repeat(64),
+      id: 'source-archive',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
+      objectPath: `users/user/projects/project/source-archive/${'a'.repeat(64)}/original`,
+    },
+  };
+  let archivePlanningCalls = 0;
+  let sourceDownloadCalls = 0;
+  const { controller, state } = createControllerHarness({
+    domain: {
+      file: null,
+      source: archiveSource,
+      domainState: {
+        source: archiveSource,
+        learningPlan: null,
+        documentAssets: null,
+        documentIndex: null,
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: null,
+      },
+    },
+    projectLibrary: {
+      currentProjectId: 'archive-project',
+      loadStoredProjectSource: async () => {
+        sourceDownloadCalls += 1;
+        return null;
+      },
+    },
+    openRouter: {
+      generateLearningPlan: async () => {
+        throw new Error('Archive planning must use the archive tool flow.');
+      },
+      generateLearningPlanFromSourceArchive: async () => {
+        archivePlanningCalls += 1;
+        return buildPlan();
+      },
+    },
+  });
+  state.adapter.setChatSession({
+    sendMessage: async () => ({ text: '[ASSESSMENT_COMPLETE]' }),
+  });
+  state.adapter.setAssessmentMessages([
+    { role: 'user', text: 'Uno' },
+    { role: 'model', text: 'Due' },
+    { role: 'user', text: 'Tre' },
+    { role: 'model', text: 'Quattro' },
+  ]);
+
+  await controller.submitAssessment('Quinta risposta');
+  const result = await controller.confirmPlanGeneration();
+
+  assert.equal(result.outcome, 'planned');
+  assert.equal(archivePlanningCalls, 1);
+  assert.equal(sourceDownloadCalls, 0);
+});
+
 test('openSection reuses cached lessons and only generates when content is missing', async () => {
   const cachedPlan = buildPlan({
     sections: [
@@ -1947,6 +2308,186 @@ test('openSection reuses cached lessons and only generates when content is missi
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Generata');
 });
 
+test('openSection resolves archive selectors before passing source files to lesson generation', async () => {
+  const source = {
+    kind: 'archive' as const,
+    name: 'engine.zip',
+    file: {
+      data: '',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
+    },
+    index: {
+      entries: [
+        {
+          byteSize: 24,
+          contentKind: 'text' as const,
+          kind: 'file' as const,
+          path: 'src/main.ts',
+          preview: 'export function main() {}',
+        },
+      ],
+    },
+    ref: {
+      byteSize: 128,
+      hash: 'a'.repeat(64),
+      id: 'source-engine',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
+      objectPath: 'users/user/projects/engine/source-engine/original',
+    },
+  };
+  const plan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-engine-loop',
+        title: 'Ciclo principale',
+        description: 'Spiega il ciclo principale.',
+        isCompleted: false,
+        type: 'core',
+        sourceArchiveSelectors: [{ kind: 'file', path: 'src/main.ts' }],
+      },
+    ],
+  });
+  let resolvedContext = '';
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      success: true,
+      result: [{ path: 'src/main.ts', text: 'export const SENTINEL = 42;' }],
+    }),
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  try {
+    const { controller } = createControllerHarness({
+      domain: {
+        file: source.file,
+        learningPlan: plan,
+        source,
+        domainState: {
+          source,
+          learningPlan: plan,
+          documentAssets: null,
+          documentIndex: null,
+          isLearnMode: false,
+          userProfile: null,
+          syllabus: [],
+          activeSectionId: null,
+        },
+      },
+      projectLibrary: {
+        currentProjectId: 'engine-project',
+      },
+      openRouter: {
+        buildPrerequisiteSourceContext: async () => {
+          throw new Error('Archive source must be resolved through its selectors.');
+        },
+        generateSectionContent: async args => {
+          resolvedContext = args.resolvedSourceArchiveContext || '';
+          return {
+            content: '# Lezione dal codice',
+            documentAssets: null,
+            generatedVisuals: [],
+            imageRefs: [],
+            learningAids: [],
+            quiz: [],
+          };
+        },
+      },
+    });
+
+    const outcome = await controller.openSection(getLessons(plan)[0]);
+
+    assert.equal(outcome, 'loaded');
+    assert.match(resolvedContext, /FILE src\/main\.ts/);
+    assert.match(resolvedContext, /SENTINEL = 42/);
+    assert.equal(fetchMock.mock.calls.length, 1);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('openSection hydrates every detached document source before generation', async () => {
+  const descriptors = buildCourseSourceDescriptors([
+    { data: 'Zmlyc3Q=', mimeType: 'text/plain', name: 'first.txt' },
+    { data: 'c2Vjb25k', mimeType: 'text/plain', name: 'second.txt' },
+  ]);
+  const refs = descriptors.map(descriptor => ({
+    byteSize: descriptor.file.data.length,
+    hash: descriptor.hash.padEnd(64, '0').slice(0, 64),
+    id: descriptor.id,
+    mimeType: descriptor.file.mimeType,
+    name: descriptor.name,
+    objectPath: `users/user/projects/project/${descriptor.id}/hash/original`,
+  }));
+  const detachedDescriptors = descriptors.map((descriptor, index) => ({
+    ...descriptor,
+    file: { ...descriptor.file, data: '' },
+    ref: refs[index],
+  }));
+  const source = createProjectSourceFromDescriptors(detachedDescriptors);
+  const plan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-documents',
+        title: 'Fonti multiple',
+        description: 'Combina le fonti.',
+        isCompleted: false,
+        type: 'core',
+      },
+    ],
+  });
+  let sourceLoadCalls = 0;
+  let generatedWithFile: FileData | null | undefined;
+  const { controller } = createControllerHarness({
+    domain: {
+      file: null,
+      learningPlan: plan,
+      source,
+      domainState: {
+        source,
+        learningPlan: plan,
+        documentAssets: null,
+        documentIndex: null,
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: null,
+      },
+    },
+    projectLibrary: {
+      currentProjectId: 'document-project',
+      loadStoredProjectSources: async () => {
+        sourceLoadCalls += 1;
+        return descriptors.map((descriptor, index) => ({
+          file: descriptor.file,
+          ref: refs[index],
+        }));
+      },
+    },
+    openRouter: {
+      generateSectionContent: async ({ file }) => {
+        generatedWithFile = file;
+        return {
+          content: '# Generata dalle fonti',
+          documentAssets: null,
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          quiz: [],
+        };
+      },
+    },
+  });
+
+  const outcome = await controller.openSection(getLessons(plan)[0]);
+
+  assert.equal(outcome, 'loaded');
+  assert.equal(sourceLoadCalls, 1);
+  assert.equal(generatedWithFile?.data, 'Zmlyc3Q=');
+});
+
 test('openSection downloads detached PDF bytes only when an uncached lesson needs them', async () => {
   const uncachedPlan = buildPlan({
     sections: [
@@ -1972,6 +2513,7 @@ test('openSection downloads detached PDF bytes only when an uncached lesson need
       byteSize: 4,
       name: pdfFile.name,
       mimeType: pdfFile.mimeType,
+      objectPath: 'users/user/projects/project/source-123/original',
     },
   };
   let sourceLoadCalls = 0;
@@ -2000,7 +2542,7 @@ test('openSection downloads detached PDF bytes only when an uncached lesson need
       },
     },
     openRouter: {
-      generateSectionContent: async file => {
+      generateSectionContent: async ({ file }) => {
         generatedWithFile = file;
         return {
           content: '# Generata dal PDF',
@@ -2046,6 +2588,7 @@ test('openSection reports a detached PDF whose stored bytes are missing without 
       byteSize: 4,
       name: pdfFile.name,
       mimeType: pdfFile.mimeType,
+      objectPath: 'users/user/projects/project/source-missing/original',
     },
   };
   let generationCalls = 0;
@@ -2085,28 +2628,7 @@ test('openSection reports a detached PDF whose stored bytes are missing without 
   assert.equal(state.internalState.missingSourceProjectId, 'project-missing-source');
 });
 
-test('openSection generates and caches research dossiers for research-backed learn lessons', async () => {
-  const researchPlan: ResearchCoursePlan = {
-    generatedAt: '2026-03-20T10:00:00.000Z',
-    lessonCountReason: 'Percorso breve.',
-    title: 'Kotlin',
-    summary: 'Corso Kotlin',
-    lessons: [
-      {
-        id: 'lesson-1',
-        title: 'Lezione 1',
-        description: 'Intro',
-        moduleId: 'mod-1',
-        moduleTitle: 'Modulo 1',
-        prerequisites: [],
-        keyConcepts: ['Kotlin'],
-        guidingQuestions: ['Perche Kotlin?'],
-        miniLab: 'Hello world',
-        simplificationRisks: ['Non confondere JVM e linguaggio'],
-        sourceHints: [{ title: 'Kotlin docs', url: 'https://kotlinlang.org/docs/home.html' }],
-      },
-    ],
-  };
+test('openSection always generates and caches research dossiers for learn lessons', async () => {
   const syllabus: SyllabusItem[] = [
     {
       id: 'mod-1',
@@ -2145,7 +2667,7 @@ test('openSection generates and caches research dossiers for research-backed lea
     domain: {
       isLearnMode: true,
       learningPlan: plan,
-      researchCoursePlan: researchPlan,
+      researchCoursePlan: null,
       researchDossiersBySectionId: {},
       syllabus,
       userProfile: {
@@ -2180,9 +2702,6 @@ test('openSection generates and caches research dossiers for research-backed lea
         contentCalls += 1;
         return { content: '# Lezione research', generatedVisuals: [], learningAids: [], quiz: [] };
       },
-      generateLearnLessonContent: async () => {
-        throw new Error('Should use research-backed generation');
-      },
     },
   });
 
@@ -2207,7 +2726,7 @@ test('openSection generates and caches research dossiers for research-backed lea
   assert.equal(contentCalls, 3);
 });
 
-test('openSection keeps a covered prerequisite on the original document pipeline', async () => {
+test('openSection supplements a covered prerequisite while keeping the document pipeline', async () => {
   const plan = buildPlan({
     sections: [
       {
@@ -2239,7 +2758,18 @@ test('openSection keeps a covered prerequisite on the original document pipeline
       }),
       generateResearchLessonDossier: async () => {
         researchCalls += 1;
-        throw new Error('Covered prerequisites must not start web research');
+        return {
+          sectionId: 'lesson-prerequisite',
+          title: 'Basi gia presenti',
+          generatedAt: '2026-07-19T10:00:00.000Z',
+          factualSummary: 'Contesto web aggiornato.',
+          keyExamples: [],
+          difficultSteps: [],
+          sources: [{ title: 'Fonte web', url: 'https://example.com/web' }],
+          avoidOversimplifying: [],
+          controversies: [],
+          recentDevelopments: [],
+        };
       },
       generateSectionContent: async () => {
         documentGenerationCalls += 1;
@@ -2259,9 +2789,12 @@ test('openSection keeps a covered prerequisite on the original document pipeline
 
   assert.equal(outcome, 'loaded');
   assert.equal(documentGenerationCalls, 1);
-  assert.equal(researchCalls, 0);
+  assert.equal(researchCalls, 1);
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Lezione dalla dispensa');
-  assert.deepEqual(domain.researchDossiersBySectionId, {});
+  assert.deepEqual(
+    domain.researchDossiersBySectionId['lesson-prerequisite']?.sources.map(source => source.title),
+    ['dispensa.pdf', 'Fonte web']
+  );
 });
 
 test('openSection researches uncovered prerequisites, mixes original context, and persists sources', async () => {
@@ -2281,10 +2814,7 @@ test('openSection researches uncovered prerequisites, mixes original context, an
   let dossierCalls = 0;
   let documentGenerationCalls = 0;
   const dossierCoverageGaps: string[][] = [];
-  const mixedGenerationInputs: Array<{
-    originalSourceContext?: string;
-    sourceTitles: string[];
-  }> = [];
+  const mixedGenerationInputs: string[] = [];
   const { controller, domain, projectLibrary } = createControllerHarness({
     domain: {
       file: pdfFile,
@@ -2321,21 +2851,18 @@ test('openSection researches uncovered prerequisites, mixes original context, an
         };
       },
       mergePrerequisiteDossierSources,
-      generateResearchLessonContent: async args => {
-        mixedGenerationInputs.push({
-          originalSourceContext: args.originalSourceContext,
-          sourceTitles: args.researchDossier.sources.map(source => source.title),
-        });
+      formatResearchDossierForPrompt,
+      generateSectionContent: async args => {
+        documentGenerationCalls += 1;
+        mixedGenerationInputs.push(args.supplementalSourceContext || '');
         return {
           content: '# Lezione da fonti miste',
+          documentAssets: null,
           generatedVisuals: [],
+          imageRefs: [],
           learningAids: [],
           quiz: [],
         };
-      },
-      generateSectionContent: async () => {
-        documentGenerationCalls += 1;
-        throw new Error('Uncovered prerequisites must use mixed generation');
       },
     },
   });
@@ -2345,12 +2872,10 @@ test('openSection researches uncovered prerequisites, mixes original context, an
   assert.equal(firstOutcome, 'loaded');
   assert.equal(coverageCalls, 1);
   assert.equal(dossierCalls, 1);
-  assert.equal(documentGenerationCalls, 0);
+  assert.equal(documentGenerationCalls, 1);
   assert.deepEqual(dossierCoverageGaps, [['Ipotesi matematiche', 'Limiti del metodo']]);
-  assert.deepEqual(mixedGenerationInputs[0], {
-    originalSourceContext,
-    sourceTitles: ['dispensa.pdf', 'Documentazione ufficiale'],
-  });
+  assert.match(mixedGenerationInputs[0] || '', /dispensa\.pdf/);
+  assert.match(mixedGenerationInputs[0] || '', /Documentazione ufficiale/);
   assert.deepEqual(
     domain.researchDossiersBySectionId['lesson-prerequisite']?.sources.map(source => source.title),
     ['dispensa.pdf', 'Documentazione ufficiale']
@@ -2414,10 +2939,10 @@ test('regenerateActiveSection waits for the regenerated lesson to be persisted',
   });
 
   const regeneration = controller.regenerateActiveSection();
-  await Promise.resolve();
-  await Promise.resolve();
+  await vi.waitFor(() => {
+    assert.equal(persistedContent, '# Versione rigenerata');
+  });
 
-  assert.equal(persistedContent, '# Versione rigenerata');
   assert.equal(state.internalState.workflowState.loadSection.status, 'pending');
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Versione rigenerata');
 

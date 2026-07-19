@@ -1,6 +1,5 @@
 import {
   AppState,
-  type CodebaseBundleSource,
   type CourseSourceDescriptor,
   type FileData,
   type LearningPlan,
@@ -13,6 +12,7 @@ import {
   type ProjectSourceKind,
   type ProjectSourceRef,
   type SavedProjectMeta,
+  type SourceArchiveIndex,
   type SourceOutlineNode,
   type SyllabusItem,
   type UserProfile,
@@ -24,12 +24,7 @@ import { timestampIso } from '../../utils/time.ts';
 import { normalizeYouTubeClipInterval } from '../../utils/youtube.ts';
 import { groupSectionsIntoModules } from '../learning/groupSectionsIntoModules.ts';
 import { normalizeCourseSourceOrder } from './courseSources.ts';
-import {
-  createProjectSourceFromFile,
-  getProjectSourceName,
-  isDocumentProjectSource,
-  isPdfFileData,
-} from './projectSource.ts';
+import { getProjectSourceName, isDocumentProjectSource, isPdfFileData } from './projectSource.ts';
 
 const CURRENT_PROJECT_VERSION = '4.1';
 
@@ -52,7 +47,7 @@ export const inferProjectSourceKind = (
     return 'document';
   }
 
-  if (snapshot.source?.kind === 'codebase-bundle') {
+  if (snapshot.source?.kind === 'archive') {
     return 'codebase';
   }
 
@@ -96,18 +91,13 @@ export const buildCoverLabel = (
   snapshot: Pick<ProjectSnapshot, 'source' | 'learningPlan' | 'isLearnMode'>,
   sourceKind: ProjectSourceKind
 ): string => {
-  if (snapshot.source?.kind === 'pdf') {
+  if (snapshot.source?.kind === 'pdf' || snapshot.source?.kind === 'document') {
     return snapshot.source.file.name;
   }
 
-  if (snapshot.source?.kind === 'codebase-bundle') {
-    if (sourceKind === 'document') {
-      return snapshot.source.name;
-    }
-
-    return snapshot.source.files.length > 0
-      ? `${snapshot.source.files.length} file`
-      : snapshot.source.name;
+  if (snapshot.source?.kind === 'archive') {
+    const fileCount = snapshot.source.index.entries.filter(entry => entry.kind === 'file').length;
+    return fileCount > 0 ? `${fileCount} file` : snapshot.source.name;
   }
 
   if (sourceKind === 'learn-mode') {
@@ -209,8 +199,11 @@ const parseProjectSourceRef = (value: unknown): ProjectSourceRef | undefined => 
     !isString(value.id) ||
     !isString(value.hash) ||
     typeof value.byteSize !== 'number' ||
+    !Number.isSafeInteger(value.byteSize) ||
+    value.byteSize < 0 ||
     !isString(value.name) ||
-    !isString(value.mimeType)
+    !isString(value.mimeType) ||
+    !isString(value.objectPath)
   ) {
     return undefined;
   }
@@ -221,6 +214,7 @@ const parseProjectSourceRef = (value: unknown): ProjectSourceRef | undefined => 
     byteSize: value.byteSize,
     name: value.name,
     mimeType: value.mimeType,
+    objectPath: value.objectPath,
   };
 };
 
@@ -249,6 +243,7 @@ const parseCourseSources = (value: unknown): CourseSourceDescriptor[] | undefine
     .filter(isRecord)
     .map(source => {
       const file = parseFileData(source.file);
+      const ref = parseProjectSourceRef(source.ref);
       const kind =
         source.kind === 'pdf' || source.kind === 'markdown' || source.kind === 'text'
           ? source.kind
@@ -258,7 +253,8 @@ const parseCourseSources = (value: unknown): CourseSourceDescriptor[] | undefine
         !kind ||
         !isString(source.id) ||
         !isString(source.hash) ||
-        !isString(source.name)
+        !isString(source.name) ||
+        (!file.data && !ref)
       ) {
         return null;
       }
@@ -276,51 +272,55 @@ const parseCourseSources = (value: unknown): CourseSourceDescriptor[] | undefine
             ? source.outlineOrigin
             : 'none',
         position: typeof source.position === 'number' ? source.position : 0,
+        ...(ref ? { ref } : {}),
         status: source.status === 'error' || source.status === 'partial' ? source.status : 'ready',
       } satisfies CourseSourceDescriptor;
     })
     .filter((source): source is Exclude<typeof source, null> => source !== null);
 
-  return sources.length > 0 ? normalizeCourseSourceOrder(sources) : undefined;
+  return sources.length === value.length && sources.length > 0
+    ? normalizeCourseSourceOrder(sources)
+    : undefined;
 };
 
-const parseCodebaseBundleSource = (value: Record<string, unknown>): CodebaseBundleSource | null => {
-  if (!isString(value.name) || !isString(value.aggregatedText) || !Array.isArray(value.files)) {
+const parseSourceArchiveIndex = (value: unknown): SourceArchiveIndex | null => {
+  if (!isRecord(value) || !Array.isArray(value.entries)) {
     return null;
   }
 
-  return {
-    kind: 'codebase-bundle',
-    name: value.name,
-    aggregatedText: value.aggregatedText,
-    files: value.files
-      .filter(isRecord)
-      .map(file => ({
-        path: ensureString(file.path),
-        text: ensureString(file.text),
-        truncated: typeof file.truncated === 'boolean' ? file.truncated : undefined,
-      }))
-      .filter(file => file.path && file.text),
-    stats: {
-      includedFileCount:
-        isRecord(value.stats) && typeof value.stats.includedFileCount === 'number'
-          ? value.stats.includedFileCount
-          : 0,
-      skippedFileCount:
-        isRecord(value.stats) && typeof value.stats.skippedFileCount === 'number'
-          ? value.stats.skippedFileCount
-          : 0,
-      truncatedFileCount:
-        isRecord(value.stats) && typeof value.stats.truncatedFileCount === 'number'
-          ? value.stats.truncatedFileCount
-          : 0,
-      totalCharacterCount:
-        isRecord(value.stats) && typeof value.stats.totalCharacterCount === 'number'
-          ? value.stats.totalCharacterCount
-          : value.aggregatedText.length,
-    },
-    sources: parseCourseSources(value.sources),
-  };
+  const entries = value.entries.map(entry => {
+    if (!isRecord(entry) || !isString(entry.path) || !entry.path) {
+      return null;
+    }
+    if (entry.kind === 'directory') {
+      return { kind: 'directory' as const, path: entry.path };
+    }
+    if (
+      entry.kind !== 'file' ||
+      typeof entry.byteSize !== 'number' ||
+      !Number.isSafeInteger(entry.byteSize) ||
+      entry.byteSize < 0 ||
+      (entry.contentKind !== 'binary' && entry.contentKind !== 'text') ||
+      (entry.hash !== undefined && !isString(entry.hash)) ||
+      (entry.preview !== undefined && !isString(entry.preview))
+    ) {
+      return null;
+    }
+    return {
+      byteSize: entry.byteSize,
+      contentKind: entry.contentKind,
+      ...(isString(entry.hash) ? { hash: entry.hash } : {}),
+      kind: 'file' as const,
+      path: entry.path,
+      ...(isString(entry.preview) ? { preview: entry.preview } : {}),
+    };
+  });
+
+  if (entries.some(entry => entry === null)) {
+    return null;
+  }
+
+  return { entries: entries as SourceArchiveIndex['entries'] };
 };
 
 const parseProjectSource = (value: unknown): ProjectSource | null => {
@@ -328,20 +328,49 @@ const parseProjectSource = (value: unknown): ProjectSource | null => {
     return null;
   }
 
+  const ref = parseProjectSourceRef(value.ref);
+  const sources = parseCourseSources(value.sources);
+  if (Array.isArray(value.sources) && !sources) {
+    return null;
+  }
+
   if (value.kind === 'pdf') {
     const file = parseFileData(value.file);
-    return file && isPdfFileData(file)
+    return file && isPdfFileData(file) && (file.data || ref)
       ? {
           kind: 'pdf',
           file,
-          ref: parseProjectSourceRef(value.ref),
-          sources: parseCourseSources(value.sources),
+          ...(ref ? { ref } : {}),
+          ...(sources ? { sources } : {}),
         }
       : null;
   }
 
-  if (value.kind === 'codebase-bundle') {
-    return parseCodebaseBundleSource(value);
+  if (value.kind === 'document') {
+    const file = parseFileData(value.file);
+    return file && !isPdfFileData(file) && (file.data || ref)
+      ? {
+          file,
+          kind: 'document',
+          ...(ref ? { ref } : {}),
+          ...(sources ? { sources } : {}),
+        }
+      : null;
+  }
+
+  if (value.kind === 'archive') {
+    const file = parseFileData(value.file);
+    const index = parseSourceArchiveIndex(value.index);
+    return file && index && isString(value.name) && (file.data || ref)
+      ? {
+          file,
+          index,
+          kind: 'archive',
+          name: value.name,
+          ...(ref ? { ref } : {}),
+          ...(sources ? { sources } : {}),
+        }
+      : null;
   }
 
   return null;
@@ -657,8 +686,6 @@ const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapsh
   const learningPlan = parseLearningPlan(data.learningPlan ?? data);
   const syllabus = parseSyllabus(data.syllabus);
   const source = parseProjectSource(data.source);
-  const legacyFile = parseFileData(data.file);
-  const fallbackSource = source || (legacyFile ? createProjectSourceFromFile(legacyFile) : null);
   const hasParentLessons = learningPlan
     ? flattenLessons(learningPlan.modules).some(lesson => Boolean(lesson.parentId))
     : false;
@@ -673,10 +700,8 @@ const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapsh
     version: ensureString(data.version, CURRENT_PROJECT_VERSION),
     title: ensureString(data.title) || undefined,
     state: learningPlan ? AppState.READING : AppState.LIBRARY,
-    sourceKind:
-      explicitSourceKind ||
-      inferProjectSourceKind({ source: fallbackSource, isLearnMode }, imported),
-    source: fallbackSource,
+    sourceKind: explicitSourceKind || inferProjectSourceKind({ source, isLearnMode }, imported),
+    source,
     learningPlan:
       learningPlan && !learningPlan.backgroundMusicUrl && isString(data.musicUrl)
         ? { ...learningPlan, backgroundMusicUrl: ensureString(data.musicUrl) }

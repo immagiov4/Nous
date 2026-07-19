@@ -1,18 +1,33 @@
 import { type Request, type Response, Router } from 'express';
 
 import { getCurrentUser } from '../auth/currentUser.js';
-import { type AiProvider, getResolvedModelConfigForProvider } from '../config/modelConfig.js';
+import {
+  getResolvedModelConfigForProvider,
+  resolveAiProviderForSlot,
+} from '../config/modelConfig.js';
 import { DEFAULT_IMAGE_MODEL, imageClient } from '../services/imageClient.js';
 
 const router = Router();
 const MAX_IMAGE_PROMPT_CHARS = 12_000;
 
-const resolveImageProvider = (aiProvider: AiProvider) => aiProvider;
-
 router.get('/models', async (req: Request, res: Response) => {
   try {
-    const modelConfig = await getResolvedModelConfigForProvider(getCurrentUser(req).aiProvider);
-    const provider = resolveImageProvider(modelConfig.aiProvider);
+    const currentUser = getCurrentUser(req);
+    const modelConfig = await getResolvedModelConfigForProvider(
+      currentUser.aiProvider,
+      currentUser.aiProviderOverrides
+    );
+    const provider = resolveAiProviderForSlot(modelConfig, 'image');
+    if (provider === 'codex') {
+      const model = modelConfig.codexArtifactModel;
+      return res.json({
+        success: true,
+        available: true,
+        defaultModel: model,
+        selectedModel: model,
+        models: [{ id: model, name: model }],
+      });
+    }
     const models =
       provider === 'openrouter' ? await imageClient.listModels() : imageClient.listOpenAiModels();
     return res.json({
@@ -42,8 +57,12 @@ router.post('/generate', async (req: Request, res: Response) => {
   }
 
   try {
-    const modelConfig = await getResolvedModelConfigForProvider(getCurrentUser(req).aiProvider);
-    const provider = resolveImageProvider(modelConfig.aiProvider);
+    const currentUser = getCurrentUser(req);
+    const modelConfig = await getResolvedModelConfigForProvider(
+      currentUser.aiProvider,
+      currentUser.aiProviderOverrides
+    );
+    const provider = resolveAiProviderForSlot(modelConfig, 'image');
     const image = await imageClient.generateImage({
       prompt,
       provider,

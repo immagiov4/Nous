@@ -1,14 +1,20 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { LibraryScreenContainer } from '../../../components/library/LibraryScreenContainer.tsx';
 
 vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
-  NewHomeView: ({ chatProps }: { chatProps: { homeChatMode: string } }) => (
-    <div data-testid="new-home-surface">{chatProps.homeChatMode}</div>
+  NewHomeView: ({
+    chatProps,
+  }: {
+    chatProps: { homeChatMode: string; pendingFileNames?: string[] };
+  }) => (
+    <div data-testid="new-home-surface">
+      {chatProps.homeChatMode}:{chatProps.pendingFileNames?.join(',')}
+    </div>
   ),
 }));
 
@@ -64,5 +70,24 @@ describe('LibraryScreenContainer route fallback', () => {
     render(<LibraryScreenContainer {...buildProps()} />);
 
     expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course');
+  });
+
+  test('switches from library query to new course after choosing a local source', () => {
+    window.history.replaceState({}, '', '/library');
+
+    const { container } = render(<LibraryScreenContainer {...buildProps()} />);
+    const fileInput = container.querySelector<HTMLInputElement>('#library-source-file');
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('library-query');
+    expect(fileInput).not.toBeNull();
+    if (!fileInput) {
+      throw new Error('Expected the library source file input.');
+    }
+
+    fireEvent.change(fileInput, {
+      target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
+    });
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:source.md');
   });
 });

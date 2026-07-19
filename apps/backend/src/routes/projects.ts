@@ -1,4 +1,8 @@
 // Exposes project CRUD routes for the backend API.
+
+import { Readable } from 'node:stream';
+
+import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
 import { type Request, type Response, Router } from 'express';
 
 import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
@@ -14,12 +18,17 @@ import {
 import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js';
 import { ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
+import { PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES } from '../projects/sourceArchive.js';
+import {
+  SourceArchiveAccess,
+  type SourceArchiveSelector,
+} from '../projects/sourceArchiveAccess.js';
 import type {
   ProjectCoverFile,
   ProjectPatch,
   ProjectRevisionEvent,
   ProjectSnapshot,
-  ProjectSourceFile,
+  ProjectSourceArchiveVersion,
   SectionPatch,
 } from '../projects/types.js';
 import {
@@ -40,6 +49,7 @@ const router = Router();
 const PROJECT_SOURCE_KINDS = new Set(['document', 'codebase', 'learn-mode', 'imported-json']);
 const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
 const PROJECT_COVER_MAX_BYTES = 6 * 1024 * 1024;
+const PROJECT_SNAPSHOT_MULTIPART_MAX_BYTES = 300_000_000;
 const PROJECT_COVER_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const BASE64_DATA_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const LIBRARY_IMPORT_DIAGNOSTIC_CODES = new Set([
@@ -59,6 +69,7 @@ const LIBRARY_IMPORT_DIAGNOSTIC_STAGES = new Set([
   'zip-open',
 ]);
 const CORRELATION_ID_PATTERN = /^[0-9a-f-]{36}$/u;
+const SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const COURSE_COVER_JOB_STATUS_ROUTE_ERROR = 'Unable to read course cover regeneration status.';
 const COURSE_COVER_JOB_START_ROUTE_ERROR = 'Unable to start course cover regeneration.';
 
@@ -89,6 +100,63 @@ const readExpectedRevision = (body: Record<string, unknown>): number | undefined
     throw new Error('Revisione progetto non valida.');
   }
   return body.expectedRevision as number;
+};
+
+const parseArchiveProjectSave = async (
+  req: Request,
+  projectId: string
+): Promise<{
+  snapshot: ProjectSnapshot;
+  expectedRevision?: number;
+  sourceFile: { bytes: Uint8Array; mimeType: string; name: string };
+}> => {
+  const multipartRequest = new globalThis.Request(`http://localhost${req.originalUrl}`, {
+    body: Readable.toWeb(req) as unknown as ReadableStream,
+    duplex: 'half',
+    headers: req.headers as HeadersInit,
+    method: req.method,
+  } as RequestInit & { duplex: 'half' });
+  const fields = await multipartRequest.formData();
+  const archive = fields.get('archive');
+  if (!(archive instanceof File)) {
+    throw new Error('Archivio ZIP mancante.');
+  }
+  if (archive.size > PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES) {
+    throw new Error('L’archivio supera il limite massimo consentito.');
+  }
+  const serializedSnapshot = fields.get('snapshot');
+  if (
+    typeof serializedSnapshot !== 'string' ||
+    Buffer.byteLength(serializedSnapshot, 'utf8') > PROJECT_SNAPSHOT_MULTIPART_MAX_BYTES
+  ) {
+    throw new Error('Snapshot progetto mancante o troppo grande.');
+  }
+  const snapshot = requireProjectSnapshot({ snapshot: JSON.parse(serializedSnapshot) }, projectId);
+  const sourceFile = isRecord(snapshot.source) ? snapshot.source.file : null;
+  if (
+    !isRecord(snapshot.source) ||
+    snapshot.source.kind !== 'archive' ||
+    !isRecord(sourceFile) ||
+    typeof sourceFile.name !== 'string' ||
+    typeof sourceFile.mimeType !== 'string' ||
+    sourceFile.name !== archive.name
+  ) {
+    throw new Error('La sorgente del progetto non è un archivio.');
+  }
+  const expectedRevisionField = fields.get('expectedRevision');
+  const expectedRevision =
+    expectedRevisionField === null
+      ? undefined
+      : readExpectedRevision({ expectedRevision: Number(expectedRevisionField) });
+  return {
+    snapshot,
+    expectedRevision,
+    sourceFile: {
+      bytes: new Uint8Array(await archive.arrayBuffer()),
+      mimeType: sourceFile.mimeType,
+      name: sourceFile.name,
+    },
+  };
 };
 
 const readOptionalSafeInteger = (value: unknown): number | undefined =>
@@ -181,23 +249,87 @@ const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectS
   };
 };
 
-const requireProjectSourceFile = (body: unknown): ProjectSourceFile => {
-  const source = getBodyRecord(body).source;
+const requireSourceArchiveSelector = (value: unknown): SourceArchiveSelector => {
   if (
-    !isRecord(source) ||
-    typeof source.name !== 'string' ||
-    typeof source.mimeType !== 'string' ||
-    typeof source.data !== 'string' ||
-    !source.data
+    !isRecord(value) ||
+    (value.kind !== 'file' && value.kind !== 'directory') ||
+    typeof value.path !== 'string'
   ) {
-    throw new Error('Sorgente progetto mancante o non valida.');
+    throw new Error('Selettore sorgente archivio non valido.');
   }
+  return { kind: value.kind, path: value.path };
+};
 
-  return {
-    name: source.name,
-    mimeType: source.mimeType,
-    data: source.data,
+class SourceArchiveVersionMismatchError extends Error {
+  constructor() {
+    super('L’archivio sorgente è cambiato. Ricarica il progetto e riprova.');
+    this.name = 'SourceArchiveVersionMismatchError';
+  }
+}
+
+const requireSourceArchiveVersion = (value: unknown): ProjectSourceArchiveVersion => {
+  if (
+    !isRecord(value) ||
+    typeof value.sourceId !== 'string' ||
+    !value.sourceId ||
+    typeof value.sourceHash !== 'string' ||
+    !SOURCE_HASH_PATTERN.test(value.sourceHash)
+  ) {
+    throw new Error('Versione archivio sorgente mancante o non valida.');
+  }
+  return { sourceHash: value.sourceHash, sourceId: value.sourceId };
+};
+
+const isSameSourceArchiveVersion = (
+  left: ProjectSourceArchiveVersion,
+  right: ProjectSourceArchiveVersion
+): boolean => left.sourceId === right.sourceId && left.sourceHash === right.sourceHash;
+
+const getSourceArchiveAccess = async (
+  userId: string,
+  projectId: string,
+  expectedVersion: ProjectSourceArchiveVersion
+) => {
+  const store = getProjectStore();
+  const index = await store.loadProjectSourceArchiveIndex(userId, projectId);
+  if (!index) {
+    return null;
+  }
+  if (!isSameSourceArchiveVersion(index.version, expectedVersion)) {
+    throw new SourceArchiveVersionMismatchError();
+  }
+  const requireCurrentArchiveEntry = async (
+    loadEntry: () => Promise<Uint8Array | null>
+  ): Promise<Uint8Array> => {
+    const bytes = await loadEntry();
+    if (bytes) {
+      return bytes;
+    }
+    const currentIndex = await store.loadProjectSourceArchiveIndex(userId, projectId);
+    if (!currentIndex || !isSameSourceArchiveVersion(currentIndex.version, expectedVersion)) {
+      throw new SourceArchiveVersionMismatchError();
+    }
+    throw new Error('Source archive entry is missing.');
   };
+  return new SourceArchiveAccess({
+    index: { entries: index.entries },
+    maxContextBytes: SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES,
+    readByteRange: (path, start, endExclusive) =>
+      requireCurrentArchiveEntry(() =>
+        store.loadProjectSourceArchiveEntryRange(
+          userId,
+          projectId,
+          path,
+          expectedVersion,
+          start,
+          endExclusive
+        )
+      ),
+    readBytes: path =>
+      requireCurrentArchiveEntry(() =>
+        store.loadProjectSourceArchiveEntry(userId, projectId, path, expectedVersion)
+      ),
+  });
 };
 
 const requireProjectCoverFile = (body: unknown): ProjectCoverFile => {
@@ -285,7 +417,11 @@ router.get('/covers/regenerate', (req: Request, res: Response) => {
   res.set('Pragma', 'no-cache');
   try {
     const currentUser = getCurrentUser(req);
-    const job = startOrResumeCourseCoverRegeneration(currentUser.id, currentUser.aiProvider);
+    const job = startOrResumeCourseCoverRegeneration(
+      currentUser.id,
+      currentUser.aiProvider,
+      currentUser.aiProviderOverrides
+    );
     res.status(job.status === 'running' ? 202 : 200).json({ success: true, job });
   } catch (error) {
     console.error('[Nous][CourseCover] Start route failed.', { error });
@@ -327,6 +463,99 @@ router.get('/projects/:id/source', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/projects/:id/sources', async (req: Request, res: Response) => {
+  try {
+    const sources = await getProjectStore().loadProjectSources(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id)
+    );
+    res.json({ success: true, sources });
+  } catch (error) {
+    sendErrorResponse(res, 500, error, 'Failed to load project sources');
+  }
+});
+
+router.get('/projects/:id/source/archive', async (req: Request, res: Response) => {
+  try {
+    const archiveIndex = await getProjectStore().loadProjectSourceArchiveIndex(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id)
+    );
+    if (!archiveIndex) {
+      res.status(404).json({ success: false, error: 'Archivio sorgente non disponibile.' });
+      return;
+    }
+    res.json({
+      success: true,
+      archiveIndex: { entries: archiveIndex.entries },
+      archiveVersion: archiveIndex.version,
+    });
+  } catch (error) {
+    sendErrorResponse(res, 500, error, 'Failed to load project source archive');
+  }
+});
+
+router.post('/projects/:id/source/archive/query', async (req: Request, res: Response) => {
+  try {
+    const body = getBodyRecord(req.body);
+    const archiveVersion = requireSourceArchiveVersion(body.archiveVersion);
+    const access = await getSourceArchiveAccess(
+      getCurrentUser(req).id,
+      getRouteParam(req.params.id),
+      archiveVersion
+    );
+    if (!access) {
+      res.status(404).json({ success: false, error: 'Archivio sorgente non disponibile.' });
+      return;
+    }
+
+    let result: unknown;
+    switch (body.operation) {
+      case 'tree':
+        result = access.getTree();
+        break;
+      case 'list-directory':
+        if (body.path !== undefined && typeof body.path !== 'string') {
+          throw new Error('Percorso sorgente archivio non valido.');
+        }
+        result = access.listDirectory(body.path);
+        break;
+      case 'read-file':
+        if (typeof body.path !== 'string') {
+          throw new Error('Percorso sorgente archivio non valido.');
+        }
+        if (body.cursorBytes !== undefined && typeof body.cursorBytes !== 'number') {
+          throw new Error('Cursore sorgente archivio non valido.');
+        }
+        result = await access.readTextPage(body.path, body.cursorBytes);
+        break;
+      case 'search-text':
+        if (typeof body.query !== 'string') {
+          throw new Error('Ricerca sorgente archivio non valida.');
+        }
+        result = await access.searchLiteral(body.query);
+        break;
+      case 'resolve-selectors': {
+        if (!Array.isArray(body.selectors) || body.selectors.length === 0) {
+          throw new Error('Selettori sorgente archivio mancanti.');
+        }
+        result = await access.resolveSelectors(body.selectors.map(requireSourceArchiveSelector));
+        break;
+      }
+      default:
+        throw new Error('Operazione sorgente archivio non valida.');
+    }
+    res.json({ success: true, result });
+  } catch (error) {
+    sendErrorResponse(
+      res,
+      error instanceof SourceArchiveVersionMismatchError ? 409 : 400,
+      error,
+      'Failed to query project source archive'
+    );
+  }
+});
+
 router.get('/projects/:id/cover', async (req: Request, res: Response) => {
   try {
     const cover = await getProjectStore().loadProjectCover(
@@ -359,40 +588,34 @@ router.post('/projects/:id/cover', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/projects/:id/source', async (req: Request, res: Response) => {
-  try {
-    const sourceRef = await getProjectStore().saveProjectSource(
-      getCurrentUser(req).id,
-      getRouteParam(req.params.id),
-      requireProjectSourceFile(req.body)
-    );
-    res.json({ success: true, sourceRef });
-  } catch (error) {
-    sendErrorResponse(res, 400, error, 'Failed to save project source');
-  }
-});
-
 router.put('/projects/:id', async (req: Request, res: Response) => {
   try {
     const userId = getCurrentUser(req).id;
     const projectId = getRouteParam(req.params.id);
-    const snapshot = requireProjectSnapshot(req.body, projectId);
-    const bodyRecord = getBodyRecord(req.body);
-    // Client autosave strips the PDF base64 from `source.file.data` to avoid
-    // resending ~100 MB on every debounced save. When omitSource=true we
-    // preserve the source already on disk instead of overwriting with the
-    // stripped one.
-    if (bodyRecord.omitSource === true) {
-      const existing = await getProjectStore().loadProject(userId, projectId);
-      if (existing?.source) {
-        snapshot.source = existing.source;
+    let snapshot: ProjectSnapshot;
+    let expectedRevision: number | undefined;
+    let sourceFile: { bytes: Uint8Array; mimeType: string; name: string } | undefined;
+    if (req.is('multipart/form-data')) {
+      ({ expectedRevision, snapshot, sourceFile } = await parseArchiveProjectSave(req, projectId));
+    } else {
+      snapshot = requireProjectSnapshot(req.body, projectId);
+      if (
+        isRecord(snapshot.source) &&
+        snapshot.source.kind === 'archive' &&
+        isRecord(snapshot.source.file) &&
+        typeof snapshot.source.file.data === 'string' &&
+        snapshot.source.file.data
+      ) {
+        throw new Error('Gli archivi devono essere inviati come file binari.');
       }
+      expectedRevision = readExpectedRevision(getBodyRecord(req.body));
     }
-    const meta = await getProjectStore().saveProject(userId, snapshot, {
-      expectedRevision: readExpectedRevision(bodyRecord),
+    const saved = await getProjectStore().saveProject(userId, snapshot, {
+      expectedRevision,
+      sourceFile,
     });
-    publishMetaRevision(userId, meta);
-    res.json({ success: true, meta });
+    publishMetaRevision(userId, saved.meta);
+    res.json({ success: true, ...saved });
   } catch (error) {
     sendProjectWriteError(res, error, 'Failed to save project');
   }

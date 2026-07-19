@@ -92,6 +92,7 @@ ${trimmedContent}`;
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
+        modelSlot: 'lesson',
         temperature: 0.2,
         messages: [
           { role: 'system', content: teacherInstruction },

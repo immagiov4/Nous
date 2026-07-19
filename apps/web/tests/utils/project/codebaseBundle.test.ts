@@ -1,54 +1,18 @@
 import assert from 'node:assert/strict';
-import JSZip from 'jszip';
-import { test } from 'vitest';
-import {
-  buildCodebaseBundleSource,
-  createCodebaseBundleSourceFromZip,
-  isBinaryFile,
-} from '../../../utils/project/codebaseBundle.ts';
+import { test, vi } from 'vitest';
+import { createSourceArchiveFromZip } from '../../../utils/project/codebaseBundle.ts';
 
-test('buildCodebaseBundleSource sorts files deterministically and keeps stable aggregated text', () => {
-  const bundle = buildCodebaseBundleSource('repo.zip', [
-    { path: 'src/zeta.ts', text: 'export const zeta = 1;' },
-    { path: 'src/alpha.ts', text: 'export const alpha = 1;' },
-  ]);
+test('createSourceArchiveFromZip keeps archive bytes out of the browser snapshot', async () => {
+  const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff, 0x00]);
+  const file = new File([bytes as BlobPart], 'engine.zip', { type: 'application/zip' });
+  const readArchiveBytes = vi.spyOn(file, 'arrayBuffer');
 
-  assert.deepEqual(
-    bundle.files.map(file => file.path),
-    ['src/alpha.ts', 'src/zeta.ts']
-  );
-  assert.match(bundle.aggregatedText, /START OF FILE: src\/alpha\.ts/);
-  assert.match(bundle.aggregatedText, /START OF FILE: src\/zeta\.ts/);
-  assert.equal(bundle.stats.includedFileCount, 2);
-});
+  const source = await createSourceArchiveFromZip(file);
 
-test('buildCodebaseBundleSource applies explicit truncation budgets and tracks stats', () => {
-  const bundle = buildCodebaseBundleSource(
-    'repo.zip',
-    [
-      { path: 'src/a.ts', text: 'a'.repeat(80) },
-      { path: 'src/b.ts', text: '' },
-    ],
-    { maxFileChars: 20, maxTotalChars: 25 }
-  );
-
-  assert.equal(bundle.files.length, 1);
-  assert.equal(bundle.files[0].truncated, true);
-  assert.match(bundle.files[0].text, /\[TRUNCATED FOR CONTEXT BUDGET\]/);
-  assert.equal(bundle.stats.truncatedFileCount, 1);
-  assert.equal(bundle.stats.skippedFileCount, 1);
-});
-
-test('isBinaryFile detects null bytes early', () => {
-  assert.equal(isBinaryFile(new Uint8Array([65, 0, 66])), true);
-  assert.equal(isBinaryFile(new Uint8Array([65, 66, 67])), false);
-});
-
-test('createCodebaseBundleSourceFromZip rejects unsafe archive paths', async () => {
-  const zip = new JSZip();
-  zip.file('../secret.ts', 'export const secret = true;');
-  const bytes = await zip.generateAsync({ type: 'uint8array' });
-  const file = new File([bytes as BlobPart], 'repo.zip', { type: 'application/zip' });
-
-  await assert.rejects(() => createCodebaseBundleSourceFromZip(file), /Invalid ZIP archive\./);
+  assert.equal(source.kind, 'archive');
+  assert.equal(source.name, 'engine.zip');
+  assert.equal(source.file.mimeType, 'application/zip');
+  assert.equal(source.file.data, '');
+  assert.deepEqual(source.index.entries, []);
+  assert.equal(readArchiveBytes.mock.calls.length, 0);
 });

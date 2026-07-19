@@ -545,6 +545,24 @@ describe('HomeChatPanel', () => {
     });
   });
 
+  test.each([
+    390, 1280,
+  ])('offers local source upload from the library attachment surface at %ipx', async viewportWidth => {
+    setViewportWidth(viewportWidth);
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      homeChatMode: 'library-query' as const,
+    };
+
+    render(<HomeChatPanel {...props} />);
+
+    await user.click(screen.getByTitle(/Apri esploratore contesto libreria/i));
+    await user.click(screen.getByRole('button', { name: /Allega file per un nuovo corso/i }));
+
+    expect(props.onUploadSourceClick).toHaveBeenCalledOnce();
+  });
+
   test('round-trips folder selection through controlled state and updates the context badge', async () => {
     const user = userEvent.setup();
 

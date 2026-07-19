@@ -4,6 +4,7 @@ coverage/
 graphify-out/
 .scannerwork/
 .git/
+.semgrep/
 .codex/
 .claude/
 .dyad/

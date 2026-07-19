@@ -158,6 +158,18 @@ run_smoke() {
   echo "Healthy: database"
 }
 
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+source_storage_tool() {
+  compose --profile tools run --rm -T --user "$(id -u):$(id -g)" source-storage-tools "$@"
+}
+
 preflight
 ensure_env_file
 PROFILE=$(deployment_profile)
@@ -237,22 +249,85 @@ case "$COMMAND" in
     compose --profile tools run --rm admin-bootstrap
     ;;
   backup)
+    if ! command -v tar >/dev/null 2>&1 ||
+      { ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; }; then
+      echo "Backup requires tar and sha256sum or shasum." >&2
+      exit 1
+    fi
+    umask 077
     mkdir -p "$ROOT/deploy/backups"
-    BACKUP_PATH="$ROOT/deploy/backups/nous-$(date -u +%Y%m%dT%H%M%SZ).dump"
-    compose --profile tools run --rm -T db-tools sh -c 'pg_dump "$DATABASE_URL" --format=custom' > "$BACKUP_PATH"
-    compose --profile tools run --rm -T db-tools pg_restore --list < "$BACKUP_PATH" >/dev/null
-    echo "$BACKUP_PATH"
+    BACKUP_STEM="nous-$(date -u +%Y%m%dT%H%M%SZ)"
+    BACKUP_PATH="$ROOT/deploy/backups/$BACKUP_STEM.dump"
+    STORAGE_BACKUP_PATH="$ROOT/deploy/backups/$BACKUP_STEM.project-sources.tar"
+    DATABASE_PART="$BACKUP_PATH.partial"
+    STORAGE_PART="$STORAGE_BACKUP_PATH.partial"
+    if [ -e "$BACKUP_PATH" ] || [ -e "$STORAGE_BACKUP_PATH" ] ||
+      [ -e "$DATABASE_PART" ] || [ -e "$STORAGE_PART" ]; then
+      echo "A backup with this timestamp already exists; retry in one second." >&2
+      exit 1
+    fi
+    STORAGE_WORK_DIRECTORY=$(mktemp -d "$ROOT/deploy/backups/.$BACKUP_STEM.storage.XXXXXX")
+    STORAGE_DIRECTORY="$STORAGE_WORK_DIRECTORY/artifact"
+    VERIFY_DIRECTORY=$(mktemp -d "$ROOT/deploy/backups/.$BACKUP_STEM.verify.XXXXXX")
+    cleanup_backup() {
+      rm -rf "$DATABASE_PART" "$STORAGE_PART" "$STORAGE_WORK_DIRECTORY" "$VERIFY_DIRECTORY"
+    }
+    trap cleanup_backup 0 1 2 15
+
+    compose --profile tools run --rm -T db-tools sh -c \
+      'pg_dump "$DATABASE_URL" --format=custom --exclude-schema=storage' > "$DATABASE_PART"
+    compose --profile tools run --rm -T db-tools pg_restore --list < "$DATABASE_PART" >/dev/null
+    DATABASE_SHA256=$(sha256_file "$DATABASE_PART")
+    source_storage_tool bun run scripts/project-source-storage-artifact.ts \
+      backup "/backups/$(basename "$STORAGE_WORK_DIRECTORY")/artifact" "$DATABASE_SHA256"
+    tar -C "$STORAGE_DIRECTORY" -cf "$STORAGE_PART" .
+    tar -xf "$STORAGE_PART" -C "$VERIFY_DIRECTORY"
+    source_storage_tool bun run scripts/project-source-storage-artifact.ts \
+      verify "/backups/$(basename "$VERIFY_DIRECTORY")" "$DATABASE_SHA256"
+
+    mv "$STORAGE_PART" "$STORAGE_BACKUP_PATH"
+    mv "$DATABASE_PART" "$BACKUP_PATH"
+    cleanup_backup
+    trap - 0 1 2 15
+    printf '%s\n%s\n' "$BACKUP_PATH" "$STORAGE_BACKUP_PATH"
     ;;
   restore)
     BACKUP_PATH=${1:-}
-    if [ ! -f "$BACKUP_PATH" ] || [ "${CONFIRM_RESTORE:-}" != "nous-reader" ]; then
-      echo "Set CONFIRM_RESTORE=nous-reader and pass an existing dump path." >&2
+    STORAGE_BACKUP_PATH=${2:-}
+    if ! command -v tar >/dev/null 2>&1 ||
+      { ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; }; then
+      echo "Restore requires tar and sha256sum or shasum." >&2
       exit 1
     fi
-    compose --profile tools run --rm -T db-tools sh -c 'pg_restore --dbname="$DATABASE_URL" --clean --if-exists --no-owner' < "$BACKUP_PATH"
+    if [ ! -f "$BACKUP_PATH" ] || [ ! -f "$STORAGE_BACKUP_PATH" ] ||
+      [ "${CONFIRM_RESTORE:-}" != "nous-reader" ]; then
+      echo "Set CONFIRM_RESTORE=nous-reader and pass the matching dump and project-sources archive." >&2
+      exit 1
+    fi
+    umask 077
+    mkdir -p "$ROOT/deploy/backups"
+    RESTORE_DIRECTORY=$(mktemp -d "$ROOT/deploy/backups/.restore-project-sources.XXXXXX")
+    cleanup_restore() {
+      rm -rf "$RESTORE_DIRECTORY"
+    }
+    trap cleanup_restore 0 1 2 15
+
+    compose --profile tools run --rm -T db-tools pg_restore --list < "$BACKUP_PATH" >/dev/null
+    DATABASE_SHA256=$(sha256_file "$BACKUP_PATH")
+    tar -xf "$STORAGE_BACKUP_PATH" -C "$RESTORE_DIRECTORY"
+    source_storage_tool bun run scripts/project-source-storage-artifact.ts \
+      verify "/backups/$(basename "$RESTORE_DIRECTORY")" "$DATABASE_SHA256"
+    compose --profile tools run --rm -T db-tools sh -c \
+      'pg_restore --dbname="$DATABASE_URL" --clean --if-exists --no-owner --exit-on-error --single-transaction' \
+      < "$BACKUP_PATH"
+    source_storage_tool bun run scripts/project-source-storage-artifact.ts \
+      restore "/backups/$(basename "$RESTORE_DIRECTORY")" "$DATABASE_SHA256"
+
+    cleanup_restore
+    trap - 0 1 2 15
     ;;
   *)
-    echo "Usage: sh deploy/nous.sh config|setup|up|status|logs [service]|redeploy|smoke|contract|codex-login|down|admin|backup|restore <dump>" >&2
+    echo "Usage: sh deploy/nous.sh config|setup|up|status|logs [service]|redeploy|smoke|contract|codex-login|down|admin|backup|restore <dump> <project-sources.tar>" >&2
     exit 1
     ;;
 esac

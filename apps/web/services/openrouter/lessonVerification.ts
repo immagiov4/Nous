@@ -376,7 +376,7 @@ export const verifyLessonDraft = async ({
     async () => {
       const response = await callOpenRouter({
         model: MODEL_FLASH,
-        modelSlot: 'verification',
+        modelSlot: 'lesson',
         onReasoningUpdate,
         reasoning: MEDIUM_REASONING_CONFIG,
         messages: [

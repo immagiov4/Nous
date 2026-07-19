@@ -66,6 +66,7 @@ Rispondi SOLO con un oggetto JSON:
     const userContent = await buildReasoningContentForFile(file, prompt, MAX_METADATA_SOURCE_CHARS);
     const response = await callOpenRouter({
       model: MODEL_REASONING,
+      modelSlot: 'lesson',
       reasoning: MEDIUM_REASONING_CONFIG,
       messages: [
         {
@@ -129,6 +130,7 @@ Rispondi SOLO con un oggetto JSON:
   return retryWithBackoff(async () => {
     const response = await callOpenRouter({
       model: MODEL_FLASH,
+      modelSlot: 'lesson',
       reasoning: MEDIUM_REASONING_CONFIG,
       messages: [{ role: 'user', content: prompt }],
       response_format: {

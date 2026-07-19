@@ -195,7 +195,7 @@ export const selectPrerequisiteSourceCoverage = async (
     () =>
       callOpenRouter({
         model: MODEL_FLASH,
-        modelSlot: 'context',
+        modelSlot: 'research',
         reasoning: LOW_REASONING_CONFIG,
         onReasoningUpdate: args.onReasoningUpdate,
         temperature: 0,

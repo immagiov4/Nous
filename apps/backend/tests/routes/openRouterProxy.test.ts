@@ -95,6 +95,20 @@ describe('/api/openrouter proxy', () => {
     expect(fetchOptions?.body).not.toContain('client/ignored-model');
   });
 
+  test('rejects missing and unknown model slots instead of defaulting to lesson', async () => {
+    const missingSlotResponse = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .send({ messages: [{ role: 'user', content: 'Ciao' }] });
+    const unknownSlotResponse = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'drafting')
+      .send({ messages: [{ role: 'user', content: 'Ciao' }] });
+
+    expect(missingSlotResponse.status).toBe(400);
+    expect(unknownSlotResponse.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test('routes artifact passes through their dedicated model and reasoning slot', async () => {
     patchGlobalModelConfig({
       artifactModel: 'server/artifact-model',
@@ -223,7 +237,7 @@ describe('/api/openrouter proxy', () => {
     expect(body.reasoning).toBeUndefined();
   });
 
-  test('uses the lesson model with OpenRouter web search for supplemental source research', async () => {
+  test('uses the research model with OpenRouter web search for supplemental source research', async () => {
     patchGlobalModelConfig({
       lessonModel: 'openrouter/configured-lesson',
       researchModel: 'perplexity/deep-research',
@@ -231,7 +245,7 @@ describe('/api/openrouter proxy', () => {
 
     await request(createApp())
       .post('/api/openrouter/chat/completions')
-      .set('X-Nous-Model-Slot', 'lesson')
+      .set('X-Nous-Model-Slot', 'research')
       .send({
         messages: [{ role: 'user', content: 'Colma soltanto la lacuna indicata.' }],
         tools: [{ type: 'openrouter:web_search' }],
@@ -241,32 +255,54 @@ describe('/api/openrouter proxy', () => {
       model?: string;
       tools?: Array<{ type?: string }>;
     };
-    expect(body.model).toBe('openrouter/configured-lesson');
+    expect(body.model).toBe('perplexity/deep-research');
     expect(body.tools).toEqual([{ type: 'openrouter:web_search' }]);
   });
 
-  test('keeps non-OpenRouter supplemental research on the research slot', async () => {
+  test('maps supplemental research to OpenAI Chat Completions search options', async () => {
     patchGlobalModelConfig({
       openAiLessonModel: 'openai/configured-lesson',
-      openAiResearchModel: 'openai/configured-research',
+      openAiResearchModel: 'gpt-5-search-api',
     });
     const token = authenticateProvider('openai');
 
     await request(createApp())
       .post('/api/openrouter/chat/completions')
       .set('Authorization', `Bearer ${token}`)
-      .set('X-Nous-Model-Slot', 'lesson')
+      .set('X-Nous-Model-Slot', 'research')
       .send({
         messages: [{ role: 'user', content: 'Colma soltanto la lacuna indicata.' }],
         tools: [{ type: 'openrouter:web_search' }],
       });
 
-    const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
+    const rawBody = fetchMock.mock.calls[0]?.[1]?.body as string;
+    const body = JSON.parse(rawBody) as {
       model?: string;
-      tools?: unknown;
+      tools?: Array<{ type?: string }>;
+      web_search_options?: Record<string, never>;
     };
-    expect(body.model).toBe('openai/configured-research');
+    expect(body.model).toBe('gpt-5-search-api');
     expect(body.tools).toBeUndefined();
+    expect(body.web_search_options).toEqual({});
+    expect(rawBody).not.toContain('openrouter:web_search');
+  });
+
+  test('rejects an incompatible OpenAI research model before contacting the provider', async () => {
+    patchGlobalModelConfig({ openAiResearchModel: 'gpt-5.6-terra' });
+    const token = authenticateProvider('openai');
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Nous-Model-Slot', 'research')
+      .send({
+        messages: [{ role: 'user', content: 'Cerca fonti aggiornate.' }],
+        tools: [{ type: 'openrouter:web_search' }],
+      });
+
+    expect(response.status).toBe(502);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('sends explicit none effort for artifact reasoning', async () => {
@@ -292,6 +328,7 @@ describe('/api/openrouter proxy', () => {
 
     await request(createApp())
       .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
       .send({ messages: [{ role: 'user', content: 'Crea una lezione' }] });
 
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
@@ -305,6 +342,7 @@ describe('/api/openrouter proxy', () => {
 
     await request(createApp())
       .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
       .send({ messages: [{ role: 'user', content: 'Crea una lezione' }] });
 
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string) as {
@@ -364,6 +402,7 @@ describe('/api/openrouter proxy', () => {
 
     await request(createApp())
       .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
       .send({
         max_tokens: 1234,
         messages: [{ role: 'user', content: 'Ciao' }],
@@ -401,6 +440,7 @@ describe('/api/openrouter proxy', () => {
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
       .set('Authorization', `Bearer ${token}`)
+      .set('X-Nous-Model-Slot', 'lesson')
       .set('X-Nous-AI-Provider', 'codex')
       .send({ messages: [{ role: 'user', content: 'Ciao' }] });
 
@@ -408,6 +448,30 @@ describe('/api/openrouter proxy', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.openai.com/v1/chat/completions');
     expect(fetchMock.mock.calls[0]?.[1]?.body).toContain('"model":"gpt-authenticated-user"');
     expect(codexMocks.runCodexAppServerTurn).not.toHaveBeenCalled();
+  });
+
+  test('uses a global provider override only for its configured model slot', async () => {
+    patchGlobalModelConfig({
+      aiProvider: 'openrouter',
+      aiProviderOverrides: { lesson: 'codex' },
+      codexLessonModel: 'gpt-mixed-lesson',
+    });
+    codexMocks.runCodexAppServerTurn.mockResolvedValue('Risposta mista');
+    process.env.AUTH_MODE = 'supabase';
+    process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    const token = createSupabaseTestToken();
+
+    const response = await request(createApp())
+      .post('/api/openrouter/chat/completions')
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-Nous-Model-Slot', 'lesson')
+      .send({ messages: [{ role: 'user', content: 'Ciao' }] });
+
+    expect(response.status).toBe(200);
+    expect(codexMocks.runCodexAppServerTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gpt-mixed-lesson' })
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test('maps a non-streaming completion to an ephemeral Codex turn', async () => {
@@ -421,6 +485,7 @@ describe('/api/openrouter proxy', () => {
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
       .set('Authorization', `Bearer ${token}`)
+      .set('X-Nous-Model-Slot', 'lesson')
       .send({
         messages: [
           { role: 'system', content: 'Spiega con precisione.' },
@@ -512,6 +577,7 @@ describe('/api/openrouter proxy', () => {
 
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
       .send({
         messages: [{ role: 'user', content: 'Ciao' }],
         stream: true,
@@ -537,6 +603,7 @@ describe('/api/openrouter proxy', () => {
 
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
       .send({
         messages: [{ role: 'user', content: 'Genera la lezione.' }],
         response_format: {
@@ -656,6 +723,7 @@ describe('/api/openrouter proxy', () => {
 
     const response = await request(createApp())
       .post('/api/openrouter/chat/completions')
+      .set('X-Nous-Model-Slot', 'lesson')
       .send({
         model: 'client/ignored-model',
         messages: [{ role: 'user', content: 'Ciao' }],

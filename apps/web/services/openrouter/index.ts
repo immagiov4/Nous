@@ -8,7 +8,6 @@ export {
   createEmbeddedLearnAssessmentChat,
   createLearnAssessmentChat,
 } from './assessment.ts';
-export { generateFullCurriculum, generateLearnLessonContent } from './curriculum.ts';
 export {
   buildLessonChunkContext,
   buildPdfTextIndex,
@@ -36,6 +35,7 @@ export {
   createLearnSubChapterMetadata,
   createSubChapterMetadata,
   generateLearningPlan,
+  generateLearningPlanFromSourceArchive,
   generateLearningPlanFromSourceSet,
   generateSectionContent,
 } from './planning/index.ts';
@@ -46,6 +46,7 @@ export {
 } from './prerequisiteSources.ts';
 export {
   buildLearningPlanFromResearchCourse,
+  formatResearchDossierForPrompt,
   generateResearchCoursePlan,
   generateResearchLessonContent,
   generateResearchLessonDossier,

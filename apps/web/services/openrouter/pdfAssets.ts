@@ -16,7 +16,6 @@ import {
   fileToDataUrl,
   getBackendUrl,
   isPdfFile,
-  MODEL_FLASH,
   MODEL_PDF_IMAGE_CAPTION,
   retryWithBackoff,
 } from './shared.ts';
@@ -244,16 +243,12 @@ const buildImageSourceContext = (
   };
 };
 
-const requestImageCaption = async (
-  image: BackendPdfImage,
-  prompt: string,
-  model: string
-): Promise<string> => {
+const requestImageCaption = async (image: BackendPdfImage, prompt: string): Promise<string> => {
   const response = await retryWithBackoff(
     () =>
       callOpenRouter({
-        model,
-        disableModelOverride: true,
+        model: MODEL_PDF_IMAGE_CAPTION,
+        modelSlot: 'research',
         max_tokens: 120,
         messages: [
           {
@@ -296,11 +291,7 @@ ${sourceContext.promptContext}`
     : ''
 }`;
 
-  let normalizedCaption = await requestImageCaption(image, prompt, MODEL_PDF_IMAGE_CAPTION);
-
-  if (!normalizedCaption) {
-    normalizedCaption = await requestImageCaption(image, prompt, MODEL_FLASH);
-  }
+  const normalizedCaption = await requestImageCaption(image, prompt);
 
   return {
     id: image.id || `${IMAGE_ID_PREFIX}${String(index + 1).padStart(3, '0')}`,

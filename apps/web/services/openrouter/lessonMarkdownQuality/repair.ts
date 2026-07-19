@@ -95,6 +95,7 @@ ${contentMarkdown}`;
     () =>
       callOpenRouter({
         model: MODEL_REASONING,
+        modelSlot: 'lesson',
         onReasoningUpdate,
         reasoning: MEDIUM_REASONING_CONFIG,
         messages: [

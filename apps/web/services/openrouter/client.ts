@@ -8,9 +8,11 @@ import {
 import type {
   ChatAnnotation,
   ChatCompletionOptions,
+  ChatMessage,
   ChatMessageContent,
   OpenRouterMessageContent,
   OpenRouterResponse,
+  OpenRouterToolCall,
   TextContentPart,
 } from './types.ts';
 
@@ -49,7 +51,7 @@ export const getArtifactVisualReviewSettings = async (): Promise<{
 };
 
 const getHeaders = (
-  modelSlot: ChatCompletionOptions['modelSlot'] = 'lesson',
+  modelSlot: ChatCompletionOptions['modelSlot'],
   allowTextOnlyImageFallback = false
 ) => ({
   'Content-Type': 'application/json',
@@ -144,7 +146,7 @@ const logWebSearchUsage = (
   const requestCount = usage?.server_tool_use?.web_search_requests;
   if (!Number.isFinite(requestCount) || requestCount === undefined) return;
   console.info('[Nous][Research] OpenRouter web search usage', {
-    modelSlot: options.modelSlot || 'lesson',
+    modelSlot: options.modelSlot,
     requests: requestCount,
   });
 };
@@ -260,6 +262,7 @@ export const callOpenRouterRaw = async (
     temperature: options.temperature ?? 0.7,
     max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
     response_format: options.response_format,
+    transforms: options.transforms,
     tools: options.tools,
     plugins: options.plugins,
   });
@@ -291,6 +294,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     temperature: options.temperature ?? 0.7,
     max_tokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
     response_format: options.response_format,
+    transforms: options.transforms,
     tools: options.tools,
     plugins: options.plugins,
     stream_options: { include_usage: true },
@@ -452,4 +456,59 @@ export const callOpenRouter = async (options: ChatCompletionOptions): Promise<st
     urlCitations,
     options.includeUrlCitationsInText
   );
+};
+
+const MAX_LOCAL_TOOL_ROUNDS = 12;
+export const MAX_LOCAL_TOOL_CONTEXT_BYTES = 8 * 1024 * 1024;
+const TOOL_CONTEXT_LIMIT_MESSAGE =
+  'Il modello ha superato il limite cumulativo di consultazione della sorgente.';
+
+export const callOpenRouterWithTools = async (
+  options: ChatCompletionOptions,
+  runTool: (toolCall: OpenRouterToolCall) => Promise<unknown>
+): Promise<string> => {
+  const messages: ChatMessage[] = [...options.messages];
+  const textEncoder = new TextEncoder();
+  let toolContextBytes = 0;
+
+  for (let round = 0; round < MAX_LOCAL_TOOL_ROUNDS; round += 1) {
+    const response = await callOpenRouterRaw({
+      ...options,
+      messages,
+      onReasoningUpdate: undefined,
+    });
+    const message = response.choices?.[0]?.message;
+    const reasoning = extractReasoningText(message);
+    if (reasoning) {
+      options.onReasoningUpdate?.(reasoning);
+    }
+
+    const toolCalls = message?.tool_calls || [];
+    if (toolCalls.length === 0) {
+      return extractTextContent(message?.content);
+    }
+
+    messages.push({
+      role: 'assistant',
+      content: message?.content || '',
+      tool_calls: toolCalls,
+    });
+    for (const toolCall of toolCalls) {
+      if (!toolCall.id || !toolCall.function.name) {
+        throw new Error('Il modello ha restituito una chiamata tool non valida.');
+      }
+      const toolResult = JSON.stringify(await runTool(toolCall)) ?? 'null';
+      toolContextBytes += textEncoder.encode(toolResult).byteLength;
+      if (toolContextBytes > MAX_LOCAL_TOOL_CONTEXT_BYTES) {
+        throw new Error(TOOL_CONTEXT_LIMIT_MESSAGE);
+      }
+      messages.push({
+        role: 'tool',
+        content: toolResult,
+        tool_call_id: toolCall.id,
+      });
+    }
+  }
+
+  throw new Error('Il modello ha superato il limite di consultazione della sorgente.');
 };

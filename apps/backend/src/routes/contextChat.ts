@@ -12,6 +12,7 @@ import { type Request, type Response, Router } from 'express';
 import { getCurrentUser } from '../auth/currentUser.js';
 import {
   getResolvedModelConfigForProvider,
+  resolveAiProviderForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from '../services/aiSdkTextModel.js';
@@ -32,7 +33,8 @@ import {
   createWebSearchTool,
   isUiMessageArray,
   LIBRARY_WEB_SEARCH_TOOL_NAME,
-  runOpenRouterWebSearch,
+  runConfiguredWebSearch,
+  type WebSearchModelConfig,
   type WebSearchToolResult,
 } from './chatPrompts.js';
 
@@ -46,7 +48,7 @@ const runContextWebSearch = async ({
   contextBefore,
   lessonTitle,
   maxResults,
-  modelOverride,
+  modelConfig,
   query,
   selectedText,
   sourceKind,
@@ -58,7 +60,7 @@ const runContextWebSearch = async ({
   contextBefore?: string;
   lessonTitle?: string;
   maxResults?: number;
-  modelOverride?: string;
+  modelConfig: WebSearchModelConfig;
   query: string;
   selectedText: string;
   sourceKind?: string;
@@ -67,7 +69,7 @@ const runContextWebSearch = async ({
   const normalizedQuery = query.trim();
   const selectionContext = [contextBefore, selectedText, contextAfter].filter(Boolean).join(' ');
 
-  return runOpenRouterWebSearch({
+  return runConfiguredWebSearch({
     maxResults,
     messages: [
       {
@@ -86,7 +88,7 @@ Restituisci in italiano:
         content: `Query da verificare:\n${normalizedQuery}\n\nSelezione evidenziata:\n${selectedText}\n\nContesto immediato:\n${selectionContext || selectedText}\n\nTitolo lezione:\n${lessonTitle || 'Lezione corrente'}\n\nPassaggio gia annotato:\n${attachedAnnotationText || 'nessun passaggio gia annotato'}\n\nNota gia associata:\n${attachedAnnotationNote || 'nessuna nota collegata'}\n\nMateriale sorgente:\n${sourceKind || 'non specificato'}${sourceName ? ` - ${sourceName}` : ''}`,
       },
     ],
-    model: modelOverride,
+    modelConfig,
     query: normalizedQuery,
   });
 };
@@ -97,7 +99,7 @@ const createContextSearchWebTool = ({
   contextAfter,
   contextBefore,
   lessonTitle,
-  modelOverride,
+  modelConfig,
   selectedText,
   sourceKind,
   sourceName,
@@ -107,7 +109,7 @@ const createContextSearchWebTool = ({
   contextAfter?: string;
   contextBefore?: string;
   lessonTitle?: string;
-  modelOverride?: string;
+  modelConfig: WebSearchModelConfig;
   selectedText: string;
   sourceKind?: string;
   sourceName?: string;
@@ -125,7 +127,7 @@ const createContextSearchWebTool = ({
         contextBefore,
         lessonTitle,
         maxResults,
-        modelOverride,
+        modelConfig,
         query,
         selectedText,
         sourceKind,
@@ -338,7 +340,7 @@ const buildContextToolSet = ({
   contextAfter,
   contextBefore,
   lessonTitle,
-  modelOverride,
+  modelConfig,
   selectedText,
   sourceKind,
   sourceName,
@@ -348,7 +350,7 @@ const buildContextToolSet = ({
   contextAfter?: string;
   contextBefore?: string;
   lessonTitle?: string;
-  modelOverride?: string;
+  modelConfig: WebSearchModelConfig;
   selectedText: string;
   sourceKind?: string;
   sourceName?: string;
@@ -359,7 +361,7 @@ const buildContextToolSet = ({
     contextAfter,
     contextBefore,
     lessonTitle,
-    modelOverride,
+    modelConfig,
     selectedText,
     sourceKind,
     sourceName,
@@ -471,8 +473,17 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       return;
     }
 
-    const modelConfig = await getResolvedModelConfigForProvider(getCurrentUser(req).aiProvider);
+    const currentUser = getCurrentUser(req);
+    const modelConfig = await getResolvedModelConfigForProvider(
+      currentUser.aiProvider,
+      currentUser.aiProviderOverrides
+    );
     const contextModelConfig = resolveTextModelConfig(modelConfig, 'context');
+    const contextProvider = resolveAiProviderForSlot(modelConfig, 'context');
+    const researchModelConfig = {
+      ...resolveTextModelConfig(modelConfig, 'research'),
+      provider: resolveAiProviderForSlot(modelConfig, 'research'),
+    };
 
     const contextSubject =
       selectedText ||
@@ -481,7 +492,7 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
         : 'Intera lezione corrente');
 
     const contextTools = buildContextToolSet({
-      modelOverride: modelConfig.researchModel,
+      modelConfig: researchModelConfig,
       selectedText: contextSubject,
       ...contextInput,
     });
@@ -496,8 +507,11 @@ contextChatRouter.post('/context', async (req: Request, res: Response) => {
       ...contextInput,
     });
 
-    if (modelConfig.aiProvider === 'codex') {
+    if (contextProvider === 'codex' || researchModelConfig.provider === 'codex') {
       assertCodexRequestAccess(req);
+    }
+
+    if (contextProvider === 'codex') {
       const stream = await createCodexChatStream({
         messages: modelMessages,
         model: contextModelConfig.model,

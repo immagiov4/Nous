@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  FileUp,
   Folder,
   FolderOpen,
   GitFork,
@@ -1034,6 +1035,30 @@ export default function HomeChatPanel({
     );
   };
 
+  const renderLocalSourceUploadAction = () => (
+    <button
+      type="button"
+      onClick={() => {
+        closeMenus();
+        onUploadSourceClick();
+      }}
+      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-orange-50 active:bg-orange-100 dark:hover:bg-orange-500/10 dark:active:bg-orange-500/15"
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200">
+        <FileUp className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-gray-900 dark:text-zinc-100">
+          {t('Allega file per un nuovo corso')}
+        </span>
+        <span className="block text-xs text-gray-500 dark:text-zinc-400">
+          {t('Allega un file sorgente (PDF, ZIP, testo)')}
+        </span>
+      </span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
+    </button>
+  );
+
   const renderDesktopAttachmentMenu = () => (
     <div
       ref={attachmentMenuRef}
@@ -1061,6 +1086,9 @@ export default function HomeChatPanel({
         >
           <X className="h-4 w-4" />
         </button>
+      </div>
+      <div className="border-b border-gray-100 p-2 dark:border-zinc-700/70">
+        {renderLocalSourceUploadAction()}
       </div>
       <div className="p-2 pr-1.5">
         <div className="custom-scrollbar max-h-[22rem] overflow-y-auto pr-2">
@@ -1111,6 +1139,10 @@ export default function HomeChatPanel({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+
+        <div className="mb-4 rounded-2xl border border-orange-200 bg-orange-50/70 p-1 dark:border-orange-500/25 dark:bg-orange-500/10">
+          {renderLocalSourceUploadAction()}
         </div>
 
         <div className="custom-scrollbar mr-1 max-h-[52vh] overflow-y-auto pr-3">

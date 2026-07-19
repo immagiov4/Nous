@@ -12,9 +12,15 @@ import {
 } from '../../../services/projects/projectSnapshot.ts';
 import {
   createProjectSourceFromFile,
+  decodeTextBase64,
   getProjectSourceFile,
+  getProjectSourceName,
   isZipFileData,
 } from '../../../services/projects/projectSource.ts';
+import {
+  ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+  formatSourceArchiveIndex,
+} from '../../../services/projects/sourceArchive.ts';
 import {
   prepareSnapshotForHydrationResult,
   resolvePlanLesson,
@@ -129,7 +135,7 @@ export const createProjectLifecycleCommands = (
     options?: { mode?: 'new-project' | 'reattach-source' }
   ): Promise<{
     errorMessage?: string;
-    outcome: 'imported' | 'started-assessment' | 'reattached';
+    outcome: 'failed' | 'imported' | 'started-assessment' | 'reattached';
     sourceWarnings?: Array<{ message: string; name: string }>;
   }> {
     const requestId = state.beginWorkflow('attachSource', t('Caricamento...'));
@@ -138,7 +144,10 @@ export const createProjectLifecycleCommands = (
       : [selectedFilesInput];
     const selectedFile = selectedFiles[0];
     if (!selectedFile) {
-      return { outcome: 'started-assessment', errorMessage: 'Nessuna fonte selezionata.' };
+      return {
+        outcome: options?.mode === 'reattach-source' ? 'failed' : 'started-assessment',
+        errorMessage: 'Nessuna fonte selezionata.',
+      };
     }
     pushNousDebugTrace('attach-source:start', {
       mode: options?.mode || 'new-project',
@@ -152,6 +161,7 @@ export const createProjectLifecycleCommands = (
     try {
       let nextSource: ProjectSource | null = null;
       let nextFile: FileData | null = null;
+      let archiveFile: File | undefined;
 
       const zipFiles = selectedFiles.filter(file =>
         isZipFileData({ name: file.name, mimeType: file.type })
@@ -181,10 +191,12 @@ export const createProjectLifecycleCommands = (
           return { outcome: 'imported' };
         }
 
-        nextSource = await import('../../../utils/project/codebaseBundle.ts').then(module =>
-          module.createCodebaseBundleSourceFromZip(selectedFile)
+        const archiveSource = await import('../../../utils/project/codebaseBundle.ts').then(
+          module => module.createSourceArchiveFromZip(selectedFile)
         );
-        nextFile = getProjectSourceFile(nextSource);
+        nextSource = archiveSource;
+        nextFile = archiveSource.file;
+        archiveFile = selectedFile;
       } else {
         if (selectedFiles.length === 1) {
           nextFile = await readSourceFileData(selectedFile);
@@ -227,7 +239,7 @@ export const createProjectLifecycleCommands = (
         normalizedMimeType: nextFile.mimeType,
         requestId,
         sourceKind: nextSource.kind,
-        textLength: nextSource.kind === 'codebase-bundle' ? nextSource.aggregatedText.length : null,
+        archiveEntryCount: nextSource.kind === 'archive' ? nextSource.index.entries.length : null,
       });
 
       if (options?.mode === 'reattach-source' && projectLibrary.currentProjectId) {
@@ -237,12 +249,34 @@ export const createProjectLifecycleCommands = (
           nextSource = createProjectSourceFromDescriptors(
             mergeCourseSourceDescriptors(existingSources, replacementSources)
           );
+        } else if (nextSource.kind === 'archive') {
+          const existingSourceId = domain.source?.ref?.id || domain.source?.file.sourceId;
+          if (existingSourceId) {
+            nextSource = {
+              ...nextSource,
+              file: { ...nextSource.file, sourceId: existingSourceId },
+            };
+          }
+        }
+        const previousSource = domain.source;
+        projectLibrary.setProjectHydrated(false);
+        domain.setSource(nextSource);
+        try {
+          const saved = await projectLibrary.saveCurrentProject(
+            { source: nextSource },
+            { archiveFile, throwOnError: true }
+          );
+          if (!saved) {
+            throw new Error('La sorgente del progetto non è stata salvata.');
+          }
+        } catch (error) {
+          domain.setSource(previousSource);
+          projectLibrary.setProjectHydrated(true);
+          throw error;
         }
         state.invalidateWorkflows([...REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE]);
         state.resetSessionState();
-        domain.setSource(nextSource);
         projectLibrary.setProjectHydrated(true);
-        await projectLibrary.saveCurrentProject({ source: nextSource });
         state.succeedWorkflow('attachSource', requestId);
         return { outcome: 'reattached', sourceWarnings };
       }
@@ -253,15 +287,21 @@ export const createProjectLifecycleCommands = (
       state.resetSessionState();
       projectLibrary.setCurrentProjectId(nextProjectId);
       domain.setSource(nextSource);
-      projectLibrary.setProjectHydrated(true);
 
-      await projectLibrary.persistSnapshot(
+      const saved = await projectLibrary.persistSnapshot(
         createProjectSnapshot({
           id: nextProjectId,
           state: AppState.ASSESSMENT,
           source: nextSource,
-        })
+        }),
+        { archiveFile, throwOnError: true }
       );
+      if (!saved?.snapshot.source) {
+        throw new Error('La sorgente del progetto non è stata salvata.');
+      }
+      nextSource = saved.snapshot.source;
+      domain.setSource(nextSource);
+      projectLibrary.setProjectHydrated(true);
       state.succeedWorkflow('attachSource', requestId);
       pushNousDebugTrace('attach-source:persisted', {
         projectId: nextProjectId,
@@ -271,21 +311,30 @@ export const createProjectLifecycleCommands = (
       await startAssessment(
         (nextSource.sources?.length || 0) > 1
           ? { sources: nextSource.sources }
-          : nextSource.kind === 'codebase-bundle'
+          : nextSource.kind === 'archive'
             ? {
                 textSource: {
                   name: nextSource.name,
-                  text: nextSource.aggregatedText,
+                  text: formatSourceArchiveIndex(nextSource.index, {
+                    previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+                  }),
                 },
               }
-            : { file: nextFile }
+            : nextSource.kind === 'document'
+              ? {
+                  textSource: {
+                    name: nextSource.file.name,
+                    text: decodeTextBase64(nextSource.file.data),
+                  },
+                }
+              : { file: nextFile }
       );
       return { outcome: 'started-assessment', sourceWarnings };
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('attachSource', requestId, errorMessage);
       return {
-        outcome: options?.mode === 'reattach-source' ? 'reattached' : 'started-assessment',
+        outcome: options?.mode === 'reattach-source' ? 'failed' : 'started-assessment',
         errorMessage,
       };
     }
@@ -333,14 +382,9 @@ export const createProjectLifecycleCommands = (
         projectId,
         requestId,
         sourceKind: snapshot.source?.kind || null,
-        sourceName:
-          snapshot.source?.kind === 'pdf'
-            ? snapshot.source.file.name
-            : snapshot.source?.name || null,
-        textLength:
-          snapshot.source?.kind === 'codebase-bundle'
-            ? snapshot.source.aggregatedText.length
-            : null,
+        sourceName: getProjectSourceName(snapshot.source) || null,
+        archiveEntryCount:
+          snapshot.source?.kind === 'archive' ? snapshot.source.index.entries.length : null,
       });
 
       let nextSnapshot = snapshot;
@@ -445,16 +489,31 @@ export const createProjectLifecycleCommands = (
         const assessmentSources = getCourseSourceDescriptors(preparedSnapshot.source);
         if (assessmentSources.length > 1) {
           await startAssessment({ sources: assessmentSources });
-        } else if (preparedSnapshot.source?.kind === 'codebase-bundle') {
+        } else if (preparedSnapshot.source?.kind === 'archive') {
           pushNousDebugTrace('open-project:start-text-assessment', {
             projectId,
             requestId,
-            textLength: preparedSnapshot.source.aggregatedText.length,
+            archiveEntryCount: preparedSnapshot.source.index.entries.length,
           });
           await startAssessment({
             textSource: {
               name: preparedSnapshot.source.name,
-              text: preparedSnapshot.source.aggregatedText,
+              text: formatSourceArchiveIndex(preparedSnapshot.source.index, {
+                previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+              }),
+            },
+          });
+        } else if (preparedSnapshot.source?.kind === 'document') {
+          const sourceFile =
+            getProjectSourceFile(preparedSnapshot.source) ??
+            (await projectLibrary.loadStoredProjectSource(projectId));
+          if (!sourceFile) {
+            throw new Error('La sorgente documento non è disponibile.');
+          }
+          await startAssessment({
+            textSource: {
+              name: sourceFile.name,
+              text: decodeTextBase64(sourceFile.data),
             },
           });
         } else if (preparedSnapshot.source?.kind === 'pdf') {
@@ -478,7 +537,7 @@ export const createProjectLifecycleCommands = (
           void (async () => {
             const sourceFile =
               nextSnapshotFile ??
-              (preparedSnapshot.source?.kind === 'pdf'
+              (preparedSnapshot.source && preparedSnapshot.source.kind !== 'archive'
                 ? await loadProjectSourceFile(context)
                 : null);
             await openSection(nextSection, {

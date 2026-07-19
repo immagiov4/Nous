@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { pushNousDebugTrace } from '../../services/core/debugTrace.ts';
-import { getProjectSourceFile } from '../../services/projects/projectSource.ts';
+import {
+  getProjectSourceFile,
+  getProjectSourceName,
+} from '../../services/projects/projectSource.ts';
 import {
   createEmptyWorkspaceDomainState,
   selectActiveSection,
@@ -149,8 +152,8 @@ export const useWorkspaceDomain = () => {
     pushNousDebugTrace('domain/source-updated', {
       hasLearningPlan: Boolean(learningPlan),
       sourceKind: source?.kind || null,
-      sourceName: source?.kind === 'pdf' ? source.file.name : source?.name || null,
-      textLength: source?.kind === 'codebase-bundle' ? source.aggregatedText.length : null,
+      sourceName: getProjectSourceName(source) || null,
+      archiveEntryCount: source?.kind === 'archive' ? source.index.entries.length : null,
     });
   }, [learningPlan, source]);
 

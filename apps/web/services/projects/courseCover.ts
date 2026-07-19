@@ -57,7 +57,7 @@ const planCourseCoverVisualDirection = async (title: string, context?: string): 
   try {
     const response = await callOpenRouter({
       model: MODEL_ASSESSMENT,
-      modelSlot: 'assessment',
+      modelSlot: 'artifact',
       max_tokens: 420,
       messages: [
         {

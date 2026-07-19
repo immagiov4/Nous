@@ -55,6 +55,14 @@ const isInternalIdentifierLiteral = (node: ts.Node): boolean => {
     return true;
   }
 
+  if (
+    ts.isCallExpression(parent) &&
+    ts.isPropertyAccessExpression(parent.expression) &&
+    parent.expression.expression.getText() === 'console'
+  ) {
+    return true;
+  }
+
   if (!ts.isCallExpression(parent) || !ts.isIdentifier(parent.expression)) {
     return false;
   }

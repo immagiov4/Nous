@@ -22,8 +22,20 @@ jobs:
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          version: '0.11.16'
+
       - name: Run Quality Checks (TypeScript + Biome)
         run: bun run quality
+
+      - name: Verify Semgrep Rules
+        run: bun run check:semgrep:rules
+
+      - name: Run Semgrep Maintainability Checks
+        run: bun run check:semgrep
 
       - name: Run Fallow Static Analysis (regression check)
         run: bun run check:fallow:ci
@@ -53,6 +65,12 @@ jobs:
         env:
           SUPABASE_AUTH_SMTP_PASS: ci-placeholder-not-used
         run: bunx supabase start
+
+      - name: Verify Private Project Source Storage
+        run: |
+          eval "$(bunx supabase status -o env)"
+          DATABASE_URL="$DB_URL" SUPABASE_URL="$API_URL" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+            bun run scripts/migrate-project-sources-to-storage.ts
 
       - name: Run Canonical Auth/RLS Contract
         run: bun run test:supabase-contract

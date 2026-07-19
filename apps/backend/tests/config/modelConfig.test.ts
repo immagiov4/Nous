@@ -5,6 +5,7 @@ import {
   getResolvedModelConfigForProvider,
   patchGlobalModelConfig,
   resetModelConfigForTesting,
+  resolveAiProviderForSlot,
   resolveTextModelConfig,
 } from '../../src/config/modelConfig.js';
 
@@ -20,13 +21,17 @@ describe('global AI provider model mapping', () => {
       artifactInteractiveModel: 'openrouter-interactive',
       artifactInteractiveReasoningEffort: 'minimal',
       assessmentReasoningEffort: 'low',
+      codexCourseModel: 'codex-course',
       codexArtifactModel: 'codex-artifact',
       codexArtifactInteractiveModel: 'codex-interactive',
       codexAssessmentModel: 'codex-assessment',
       openAiArtifactModel: 'openai-artifact',
       openAiArtifactInteractiveModel: 'openai-interactive',
       openAiAssessmentModel: 'openai-assessment',
+      openAiCourseModel: 'openai-course',
       assessmentModel: 'openrouter-assessment',
+      courseModel: 'openrouter-course',
+      courseReasoningEffort: 'high',
     });
 
     expect(resolveTextModelConfig({ ...baseConfig, aiProvider: 'openrouter' }, 'artifact')).toEqual(
@@ -65,6 +70,19 @@ describe('global AI provider model mapping', () => {
       model: 'codex-assessment',
       reasoningEffort: 'low',
     });
+
+    expect(resolveTextModelConfig({ ...baseConfig, aiProvider: 'openrouter' }, 'course')).toEqual({
+      model: 'openrouter-course',
+      reasoningEffort: 'high',
+    });
+    expect(resolveTextModelConfig({ ...baseConfig, aiProvider: 'openai' }, 'course')).toEqual({
+      model: 'openai-course',
+      reasoningEffort: 'high',
+    });
+    expect(resolveTextModelConfig({ ...baseConfig, aiProvider: 'codex' }, 'course')).toEqual({
+      model: 'codex-course',
+      reasoningEffort: 'high',
+    });
   });
 
   test('applies a request provider without mutating the admin default', async () => {
@@ -74,5 +92,28 @@ describe('global AI provider model mapping', () => {
 
     expect(requestConfig.aiProvider).toBe('codex');
     expect(getGlobalModelConfig().aiProvider).toBe('openrouter');
+  });
+
+  test('defaults OpenAI research to its Chat Completions search model', () => {
+    expect(getGlobalModelConfig().openAiResearchModel).toBe('gpt-5-search-api');
+  });
+
+  test('resolves global and user provider overrides by model slot', async () => {
+    patchGlobalModelConfig({
+      aiProvider: 'openrouter',
+      aiProviderOverrides: { course: 'openrouter', lesson: 'codex', research: 'openai' },
+    });
+
+    const globalConfig = await getResolvedModelConfigForProvider(undefined);
+    expect(resolveAiProviderForSlot(globalConfig, 'lesson')).toBe('codex');
+    expect(resolveAiProviderForSlot(globalConfig, 'course')).toBe('openrouter');
+    expect(resolveAiProviderForSlot(globalConfig, 'assessment')).toBe('openrouter');
+
+    const userConfig = await getResolvedModelConfigForProvider('codex', {
+      context: 'openrouter',
+    });
+    expect(resolveAiProviderForSlot(userConfig, 'lesson')).toBe('codex');
+    expect(resolveAiProviderForSlot(userConfig, 'context')).toBe('openrouter');
+    expect(resolveAiProviderForSlot(userConfig, 'research')).toBe('codex');
   });
 });

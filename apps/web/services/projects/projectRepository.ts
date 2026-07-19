@@ -9,6 +9,7 @@ import type {
   ProjectSnapshot,
   ProjectWriteOptions,
   SavedProjectMeta,
+  StoredProjectSourceFile,
 } from '../../types';
 
 export class ProjectStorageError extends Error {
@@ -21,6 +22,15 @@ export class ProjectStorageError extends Error {
   }
 }
 
+export interface ProjectSaveResult {
+  meta: SavedProjectMeta;
+  snapshot: ProjectSnapshot;
+}
+
+export interface ProjectSaveOptions extends ProjectWriteOptions {
+  archiveFile?: File;
+}
+
 export interface ProjectRepository {
   createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;
   deleteFolder: (folderId: string) => Promise<void>;
@@ -30,6 +40,7 @@ export interface ProjectRepository {
   loadProject: (id: ProjectId) => Promise<ProjectSnapshot | null>;
   loadProjectCover: (id: ProjectId) => Promise<FileData | null>;
   loadProjectSource: (id: ProjectId) => Promise<FileData | null>;
+  loadProjectSources: (id: ProjectId) => Promise<StoredProjectSourceFile[]>;
   loadProjectsById: (ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
   moveFolder: (
     folderId: string,
@@ -44,8 +55,8 @@ export interface ProjectRepository {
   renameFolder: (folderId: string, name: string) => Promise<LibraryFolder | null>;
   saveProject: (
     snapshot: ProjectSnapshot,
-    options?: ProjectWriteOptions
-  ) => Promise<SavedProjectMeta>;
+    options?: ProjectSaveOptions
+  ) => Promise<ProjectSaveResult>;
   saveProjectCover: (id: ProjectId, cover: FileData) => Promise<void>;
   patchProject: (
     id: ProjectId,

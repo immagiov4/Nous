@@ -30,9 +30,14 @@ vi.mock('../../../services/openrouter/pdfAssets.ts', () => ({
   buildStoredPdfDocumentAssets: buildStoredPdfDocumentAssetsMock,
 }));
 
-vi.mock('../../../services/openrouter/visualExamples.ts', () => ({
-  generateLessonVisualExample: generateLessonVisualExampleMock,
-}));
+vi.mock('../../../services/openrouter/visualExamples.ts', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../../services/openrouter/visualExamples.ts')>();
+  return {
+    ...actual,
+    generateLessonVisualExample: generateLessonVisualExampleMock,
+  };
+});
 
 vi.mock('../../../services/openrouter/learningAids.ts', () => ({
   generateLessonLearningAids: generateLessonLearningAidsMock,
@@ -97,7 +102,6 @@ test('generateSectionContent keeps all verified image placements instead of trun
         imagePlacements,
       })
     )
-    .mockResolvedValueOnce(repairedMarkdown)
     .mockResolvedValueOnce(
       JSON.stringify({
         contentMarkdown: repairedMarkdown,
@@ -192,19 +196,19 @@ test('generateSectionContent keeps all verified image placements instead of trun
   getPdfTextSessionMock.mockResolvedValue(pdfTextSession);
   getPdfAssetSessionMock.mockResolvedValue(pdfAssetSession);
 
-  const result = await generateSectionContent(
+  const result = await generateSectionContent({
+    documentIndex,
     file,
-    'Decal e overlay',
-    'Uso di decal, overlay e layering dei materiali',
-    'Contesto precedente',
-    ['chunk-001'],
-    documentIndex
-  );
+    previousContext: 'Contesto precedente',
+    primaryChunkIds: ['chunk-001'],
+    sectionDescription: 'Uso di decal, overlay e layering dei materiali',
+    sectionTitle: 'Decal e overlay',
+    supplementalSourceContext: 'Fonte web: https://example.com/rendering-update',
+  });
 
-  assert.equal(callOpenRouterMock.mock.calls.length, 3);
+  assert.equal(callOpenRouterMock.mock.calls.length, 2);
   assert.equal(callOpenRouterMock.mock.calls[0]?.[0]?.model, 'reasoning-model');
-  assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.model, 'reasoning-model');
-  assert.equal(callOpenRouterMock.mock.calls[2]?.[0]?.model, 'flash-model');
+  assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.model, 'flash-model');
   assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.reasoning, {
     effort: 'medium',
     exclude: false,
@@ -213,12 +217,12 @@ test('generateSectionContent keeps all verified image placements instead of trun
     effort: 'medium',
     exclude: false,
   });
-  assert.deepEqual(callOpenRouterMock.mock.calls[2]?.[0]?.reasoning, {
-    effort: 'medium',
-    exclude: false,
-  });
   assert.match(
-    String(callOpenRouterMock.mock.calls[2]?.[0]?.messages?.[1]?.content || ''),
+    String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || ''),
+    /https:\/\/example\.com\/rendering-update/
+  );
+  assert.match(
+    String(callOpenRouterMock.mock.calls[1]?.[0]?.messages?.[1]?.content || ''),
     /descrizione, caption, immagine e paragrafo vicino siano abbinati/i
   );
   assert.doesNotMatch(
@@ -334,14 +338,15 @@ test('generateSectionContent excludes unclear PDF images when the vision pass pr
   getPdfTextSessionMock.mockResolvedValue(pdfTextSession);
   getPdfAssetSessionMock.mockResolvedValue(pdfAssetSession);
 
-  const result = await generateSectionContent(
+  const result = await generateSectionContent({
+    documentIndex,
     file,
-    'Confronti fragili',
-    'Perche un controllo fragile puo non riconoscere correttamente un elemento.',
-    'Contesto precedente',
-    ['chunk-001'],
-    documentIndex
-  );
+    previousContext: 'Contesto precedente',
+    primaryChunkIds: ['chunk-001'],
+    sectionDescription:
+      'Perche un controllo fragile puo non riconoscere correttamente un elemento.',
+    sectionTitle: 'Confronti fragili',
+  });
 
   const generationPrompt = String(
     callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || ''
@@ -378,7 +383,6 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
         imagePlacements: [],
       })
     )
-    .mockResolvedValueOnce('## Coordinate\n\nSpiegazione sintetica.\n\n## Conclusione\n\nChiusura.')
     .mockResolvedValueOnce(
       JSON.stringify({
         contentMarkdown: '## Coordinate\n\nSpiegazione sintetica.\n\n## Conclusione\n\nChiusura.',
@@ -438,14 +442,14 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
     images: [],
   });
 
-  const result = await generateSectionContent(
+  const result = await generateSectionContent({
+    documentIndex,
     file,
-    'Coordinate',
-    'Coordinate in spazio mondo e unita di misura.',
-    'Contesto precedente',
-    ['chunk-001'],
-    documentIndex
-  );
+    previousContext: 'Contesto precedente',
+    primaryChunkIds: ['chunk-001'],
+    sectionDescription: 'Coordinate in spazio mondo e unita di misura.',
+    sectionTitle: 'Coordinate',
+  });
 
   assert.equal(result.quiz.length, 1);
   assert.equal(result.quiz[0]?.question, 'Quale valore resta espresso in metri?');

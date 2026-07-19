@@ -586,6 +586,7 @@ const requestChunkMappings = async ({
       callOpenRouter({
         disableModelOverride: true,
         model,
+        modelSlot: 'course',
         messages: [{ role: 'user', content: prompt }],
         response_format: {
           type: 'json_schema',

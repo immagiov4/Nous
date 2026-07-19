@@ -22,6 +22,7 @@ const createPrivateApp = () => {
     const currentUser = getCurrentUser(req);
     res.json({
       aiProvider: currentUser.aiProvider,
+      aiProviderOverrides: currentUser.aiProviderOverrides,
       userId: currentUser.id,
       role: currentUser.role,
     });
@@ -81,6 +82,37 @@ describe('resolveCurrentUser', () => {
       aiProvider: 'codex',
       userId: 'user-123',
       role: 'admin',
+    });
+  });
+
+  test('reads valid per-function provider overrides from app metadata', async () => {
+    process.env.AUTH_MODE = 'supabase';
+    process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    const token = signSupabaseJwt(
+      {
+        sub: 'mixed-provider-user',
+        exp: Math.floor(Date.now() / 1000) + 60,
+        app_metadata: {
+          ai_provider: 'codex',
+          ai_provider_overrides: {
+            context: 'openrouter',
+            lesson: 'codex',
+            unknown: 'openai',
+          },
+          role: 'user',
+        },
+      },
+      'test-secret'
+    );
+
+    const response = await request(createPrivateApp())
+      .get('/private')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.aiProviderOverrides).toEqual({
+      context: 'openrouter',
+      lesson: 'codex',
     });
   });
 

@@ -78,6 +78,7 @@ export interface ProjectSourceFile {
   data: string;
   mimeType: string;
   name: string;
+  sourceId?: string;
 }
 
 export type ProjectCoverFile = ProjectSourceFile;
@@ -92,6 +93,59 @@ export interface ProjectSourceRef {
   id: string;
   mimeType: string;
   name: string;
+  objectPath: string;
+}
+
+export interface ProjectSourceUpload {
+  file: ProjectSourceFile;
+  id: string;
+  position: number;
+}
+
+export interface StoredProjectSourceFile {
+  file: ProjectSourceFile;
+  ref: ProjectSourceRef;
+}
+
+export interface ProjectSourceArchiveDirectoryEntry {
+  kind: 'directory';
+  path: string;
+}
+
+export interface ProjectSourceArchiveFileEntry {
+  byteSize: number;
+  contentKind: 'binary' | 'text';
+  hash: string;
+  kind: 'file';
+  path: string;
+  preview?: string;
+}
+
+export type ProjectSourceArchiveEntry =
+  | ProjectSourceArchiveDirectoryEntry
+  | ProjectSourceArchiveFileEntry;
+
+export interface ProjectSourceArchiveVersion {
+  sourceHash: string;
+  sourceId: string;
+}
+
+export interface ProjectSourceArchiveIndex {
+  entries: ProjectSourceArchiveEntry[];
+  version: ProjectSourceArchiveVersion;
+}
+
+export interface ProjectSaveResult {
+  meta: SavedProjectMeta;
+  snapshot: ProjectSnapshot;
+}
+
+export interface ProjectSaveOptions extends ProjectWriteOptions {
+  sourceFile?: {
+    bytes: Uint8Array;
+    mimeType: string;
+    name: string;
+  };
 }
 
 export interface ProjectStore {
@@ -112,6 +166,25 @@ export interface ProjectStore {
   loadProject: (userId: string, id: ProjectId) => Promise<ProjectSnapshot | null>;
   loadProjectCover: (userId: string, id: ProjectId) => Promise<ProjectCoverFile | null>;
   loadProjectSource: (userId: string, id: ProjectId) => Promise<ProjectSourceFile | null>;
+  loadProjectSources: (userId: string, id: ProjectId) => Promise<StoredProjectSourceFile[]>;
+  loadProjectSourceArchiveEntry: (
+    userId: string,
+    id: ProjectId,
+    path: string,
+    version: ProjectSourceArchiveVersion
+  ) => Promise<Uint8Array | null>;
+  loadProjectSourceArchiveEntryRange: (
+    userId: string,
+    id: ProjectId,
+    path: string,
+    version: ProjectSourceArchiveVersion,
+    start: number,
+    endExclusive: number
+  ) => Promise<Uint8Array | null>;
+  loadProjectSourceArchiveIndex: (
+    userId: string,
+    id: ProjectId
+  ) => Promise<ProjectSourceArchiveIndex | null>;
   loadProjectsById: (userId: string, ids: ProjectId[]) => Promise<ProjectSnapshot[]>;
   moveFolder: (
     userId: string,
@@ -129,19 +202,14 @@ export interface ProjectStore {
   saveProject: (
     userId: string,
     snapshot: ProjectSnapshot,
-    options?: ProjectWriteOptions
-  ) => Promise<SavedProjectMeta>;
+    options?: ProjectSaveOptions
+  ) => Promise<ProjectSaveResult>;
   saveProjectCover: (
     userId: string,
     id: ProjectId,
     cover: ProjectCoverFile,
     options?: ProjectCoverWriteOptions
   ) => Promise<boolean>;
-  saveProjectSource: (
-    userId: string,
-    id: ProjectId,
-    source: ProjectSourceFile
-  ) => Promise<ProjectSourceRef>;
   patchProject: (
     userId: string,
     id: ProjectId,

@@ -286,6 +286,7 @@ describe('/api/admin', () => {
       .set('Authorization', authHeader(adminToken))
       .send({
         aiProvider: 'codex',
+        aiProviderOverrides: { context: 'openrouter' },
         email: 'student@example.com',
         password: 'correct horse battery staple',
         role: 'user',
@@ -311,6 +312,7 @@ describe('/api/admin', () => {
           email_confirm: true,
           app_metadata: {
             ai_provider: 'codex',
+            ai_provider_overrides: { context: 'openrouter' },
             role: 'user',
           },
         }),
@@ -671,6 +673,45 @@ describe('/api/admin', () => {
         body: JSON.stringify({
           app_metadata: {
             ai_provider: null,
+          },
+        }),
+      })
+    );
+  });
+
+  test('stores per-function provider overrides in user app metadata', async () => {
+    const app = createApp();
+    const adminToken = createSupabaseTestToken({ role: 'admin' });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: 'user-1', email: 'student@example.com' }), {
+          status: 200,
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await request(app)
+      .patch('/api/admin/users/user-1')
+      .set('Authorization', authHeader(adminToken))
+      .send({
+        aiProviderOverrides: {
+          artifact: 'openrouter',
+          lesson: 'codex',
+          unknown: 'openai',
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.supabase.co/auth/v1/admin/users/user-1',
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          app_metadata: {
+            ai_provider_overrides: {
+              artifact: 'openrouter',
+              lesson: 'codex',
+            },
           },
         }),
       })

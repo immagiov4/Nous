@@ -1,14 +1,14 @@
 import type {
   CourseSourceDescriptor,
   FileData,
-  PdfProjectSource,
   PdfTextChunk,
   PdfTextIndex,
   ProjectSource,
+  ProjectSourceRef,
   SourceOutlineNode,
 } from '../../types.ts';
 import { timestampIso } from '../../utils/time.ts';
-import { decodeTextBase64, getProjectSourceFile, isPdfFileData } from './projectSource.ts';
+import { decodeTextBase64, isPdfFileData } from './projectSource.ts';
 
 const MAX_SOURCE_CONTEXT_CHARS = 8_000;
 const TEXT_CHUNK_CHARS = 8_000;
@@ -246,18 +246,9 @@ export const createProjectSourceFromDescriptors = (
   if (primary.kind === 'pdf') {
     return { kind: 'pdf', file: primary.file, sources };
   }
-  const aggregatedText = decodeTextBase64(primary.file.data);
   return {
-    kind: 'codebase-bundle',
-    name: primary.name,
-    aggregatedText,
-    files: [],
-    stats: {
-      includedFileCount: 0,
-      skippedFileCount: 0,
-      truncatedFileCount: 0,
-      totalCharacterCount: aggregatedText.length,
-    },
+    file: primary.file,
+    kind: 'document',
     sources,
   };
 };
@@ -271,7 +262,7 @@ export const getCourseSourceDescriptors = (
   if (source.sources?.length) {
     return normalizeCourseSourceOrder(source.sources);
   }
-  if (source.kind === 'pdf') {
+  if (source.kind === 'pdf' || source.kind === 'document') {
     const [descriptor] = buildCourseSourceDescriptors([source.file]);
     if (!descriptor) {
       return [];
@@ -288,8 +279,7 @@ export const getCourseSourceDescriptors = (
       },
     ];
   }
-  const legacyFile = getProjectSourceFile(source);
-  return legacyFile ? buildCourseSourceDescriptors([legacyFile]) : [];
+  return [];
 };
 
 export const getCourseSourceFiles = (source: ProjectSource | null | undefined): FileData[] =>
@@ -301,6 +291,19 @@ export const mergeCourseSourceDescriptors = (
   existingSources: readonly CourseSourceDescriptor[],
   replacements: readonly CourseSourceDescriptor[]
 ): CourseSourceDescriptor[] => {
+  const existingSource = existingSources[0];
+  const replacement = replacements[0];
+  if (existingSources.length === 1 && replacements.length === 1 && existingSource && replacement) {
+    return [
+      {
+        ...replacement,
+        file: { ...replacement.file, sourceId: existingSource.id },
+        id: existingSource.id,
+        position: existingSource.position,
+      },
+    ];
+  }
+
   const replacementsByName = new Map<string, CourseSourceDescriptor[]>();
   for (const replacement of replacements) {
     const normalizedName = replacement.name.normalize('NFKC').toLowerCase();
@@ -333,7 +336,7 @@ export const attachStoredPrimarySource = (
   storedFile: FileData
 ): ProjectSource => {
   const descriptors = getCourseSourceDescriptors(source);
-  const primarySourceId = source.kind === 'pdf' ? source.file.sourceId : undefined;
+  const primarySourceId = source.file.sourceId;
   const primary =
     descriptors.find(descriptor => descriptor.id === primarySourceId) || descriptors[0];
   const hydratedFile = primary ? { ...storedFile, sourceId: primary.id } : storedFile;
@@ -342,12 +345,47 @@ export const attachStoredPrimarySource = (
         descriptor.id === primary.id ? { ...descriptor, file: hydratedFile } : descriptor
       )
     : source.sources;
-  return source.kind === 'pdf'
-    ? { ...source, file: hydratedFile, sources }
-    : { ...source, sources };
+  return { ...source, file: hydratedFile, sources };
 };
 
-export const detachStoredPrimarySource = (source: PdfProjectSource): PdfProjectSource => {
+export const attachStoredSources = (
+  source: ProjectSource,
+  storedFiles: readonly FileData[]
+): ProjectSource => {
+  const descriptors = getCourseSourceDescriptors(source);
+  if (descriptors.length === 0 || storedFiles.length !== descriptors.length) {
+    throw new Error('Stored course sources do not match the project source set.');
+  }
+  const filesBySourceId = new Map(
+    storedFiles.map(file => {
+      if (!file.sourceId) {
+        throw new Error('Stored course source is missing its source ID.');
+      }
+      return [file.sourceId, file] as const;
+    })
+  );
+  if (filesBySourceId.size !== storedFiles.length) {
+    throw new Error('Stored course source IDs must be unique.');
+  }
+
+  const sources = descriptors.map(descriptor => {
+    const file = filesBySourceId.get(descriptor.id);
+    if (!file) {
+      throw new Error(`Stored course source is missing: ${descriptor.id}`);
+    }
+    return { ...descriptor, file };
+  });
+  const primaryId = source.file.sourceId || descriptors[0]?.id;
+  const primary = sources.find(descriptor => descriptor.id === primaryId);
+  if (!primary) {
+    throw new Error('Stored primary course source is missing.');
+  }
+  return { ...source, file: primary.file, sources };
+};
+
+export const detachStoredPrimarySource = <TSource extends ProjectSource>(
+  source: TSource
+): TSource => {
   const primaryId = source.file.sourceId || source.sources?.[0]?.id;
   return {
     ...source,
@@ -357,7 +395,51 @@ export const detachStoredPrimarySource = (source: PdfProjectSource): PdfProjectS
         ? { ...descriptor, file: { ...descriptor.file, data: '' } }
         : descriptor
     ),
-  };
+  } as TSource;
+};
+
+export const detachStoredSources = <TSource extends ProjectSource>(
+  source: TSource,
+  refs: readonly ProjectSourceRef[]
+): TSource => {
+  const descriptors = getCourseSourceDescriptors(source);
+  const refsById = new Map(refs.map(ref => [ref.id, ref]));
+  if (
+    descriptors.length === 0 ||
+    refs.length !== descriptors.length ||
+    refsById.size !== refs.length
+  ) {
+    throw new Error('Stored source references do not match the project source set.');
+  }
+  const sources = descriptors.map(descriptor => {
+    const ref = refsById.get(descriptor.id);
+    if (!ref) {
+      throw new Error(`Stored source reference is missing: ${descriptor.id}`);
+    }
+    return {
+      ...descriptor,
+      file: {
+        ...descriptor.file,
+        data: '',
+        mimeType: ref.mimeType,
+        name: ref.name,
+        sourceId: ref.id,
+      },
+      hash: ref.hash,
+      ref,
+    };
+  });
+  const primaryId = source.file.sourceId || descriptors[0]?.id;
+  const primary = sources.find(descriptor => descriptor.id === primaryId);
+  if (!primary) {
+    throw new Error('Stored primary source reference is missing.');
+  }
+  return {
+    ...source,
+    file: primary.file,
+    ref: primary.ref,
+    sources,
+  } as TSource;
 };
 
 export const normalizeCourseSourceOrder = (
@@ -423,7 +505,7 @@ export const formatCourseSourceSetContext = (sources: readonly CourseSourceDescr
         id: source.id,
         name: source.name,
         kind: source.kind,
-        approximateBytes: Math.floor((source.file.data.length * 3) / 4),
+        approximateBytes: source.ref?.byteSize ?? Math.floor((source.file.data.length * 3) / 4),
         status: source.status,
         outlineOrigin: source.outlineOrigin,
         outline,

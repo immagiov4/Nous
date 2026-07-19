@@ -88,12 +88,12 @@ const ProjectCard = ({
   const coverIcon = getProjectCoverIcon(project.sourceKind);
   const showSourceWarning = !project.hasSourceFile && project.sourceKind !== 'learn-mode';
 
-  const cancelScheduledTitleOpen = () => {
+  const cancelScheduledTitleOpen = useCallback(() => {
     if (titleOpenTimeoutRef.current !== null) {
       window.clearTimeout(titleOpenTimeoutRef.current);
       titleOpenTimeoutRef.current = null;
     }
-  };
+  }, []);
 
   const scheduleTitleOpen = () => {
     cancelScheduledTitleOpen();
@@ -221,7 +221,7 @@ const ProjectCard = ({
     wasExportingRef.current = isExporting;
   }, [closeMenu, isExporting]);
 
-  useEffect(() => cancelScheduledTitleOpen, []);
+  useEffect(() => cancelScheduledTitleOpen, [cancelScheduledTitleOpen]);
 
   const renderMenu = () => {
     if (!menuOpen) {
@@ -310,11 +310,6 @@ const ProjectCard = ({
     <article
       className={`group flex items-center gap-3 rounded-xl border border-gray-300 bg-white px-3.5 py-3 transition-colors hover:border-gray-400 sm:gap-4 sm:rounded-2xl sm:px-4 sm:py-3.5 dark:border-white/10 dark:bg-paper-surface dark:hover:border-zinc-600 ${className || ''}`}
       style={style}
-      onClick={() => {
-        if (!isRenaming) {
-          onOpen(project.id);
-        }
-      }}
     >
       {/* Icon */}
       <Pressable
@@ -337,11 +332,7 @@ const ProjectCard = ({
       <div className="flex min-w-0 flex-1 flex-col items-start gap-1 text-left">
         <div className="flex w-full items-center gap-2">
           {isRenaming ? (
-            <form
-              className="flex min-w-0 flex-1 items-center gap-2"
-              onClick={event => event.stopPropagation()}
-              onSubmit={submitRename}
-            >
+            <form className="flex min-w-0 flex-1 items-center gap-2" onSubmit={submitRename}>
               <input
                 ref={nameInputRef}
                 value={nameDraft}

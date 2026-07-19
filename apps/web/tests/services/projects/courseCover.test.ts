@@ -1,3 +1,4 @@
+import { COURSE_COVER_PROMPT_VERSION } from '@shared/courseCoverPrompt';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { callOpenRouter } from '../../../services/openrouter/client.ts';
 import { requestGeneratedImage } from '../../../services/openrouter/imageClient.ts';
@@ -27,6 +28,7 @@ describe('course covers', () => {
         composition: 'Low three-quarter view with the bridge deck crossing the frame diagonally',
         distinctiveDetails:
           'Visible tension cables, force arrows made from physical brass rods, and a cracked test beam',
+        dominantColor: 'muted copper',
       })
     );
     requestGeneratedImageMock.mockReset();
@@ -80,7 +82,7 @@ describe('course covers', () => {
     expect(requestGeneratedImageMock).toHaveBeenCalledTimes(1);
     expect(callOpenRouterMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        modelSlot: 'assessment',
+        modelSlot: 'artifact',
       })
     );
     expect(requestGeneratedImageMock).toHaveBeenCalledWith(
@@ -120,11 +122,11 @@ describe('course covers', () => {
     );
   });
 
-  test('compresses an existing v2 cover without regenerating it', async () => {
+  test('compresses a current-generation cover without regenerating it', async () => {
     let storedCover = {
       data: 'djJjb3Zlcg==',
       mimeType: 'image/png',
-      name: 'project-refresh-cover-v2.png',
+      name: `project-refresh-cover-v${COURSE_COVER_PROMPT_VERSION}.png`,
     };
     const loadCover = vi.fn(async () => storedCover);
     const saveCover = vi.fn(async (_projectId: string, cover: typeof storedCover) => {

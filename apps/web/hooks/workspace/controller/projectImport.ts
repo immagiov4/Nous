@@ -36,4 +36,4 @@ export const importProjectBackupFile = async (
 };
 
 export const isNousBackupArchive = async (selectedFile: File): Promise<boolean> =>
-  isProjectArchiveFile(selectedFile);
+  selectedFile.name.toLowerCase().endsWith('.nous.zip') && isProjectArchiveFile(selectedFile);

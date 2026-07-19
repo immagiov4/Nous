@@ -1,179 +1,28 @@
-import type { CodebaseBundleSource, CodebaseSourceFile } from '../../types';
-import { clipText as clipTextToLimit, normalizeLineEndings } from '../text.ts';
-import { getSafeZipEntryPath, loadZipSafely, readZipEntryBytesWithinLimit } from './zipSafety.ts';
+import type { SourceArchiveProjectSource } from '../../types.ts';
 
-const DEFAULT_MAX_TOTAL_CHARS = 220_000;
-const DEFAULT_MAX_FILE_CHARS = 24_000;
-const DEFAULT_MAX_ZIP_ENTRIES = 2_000;
-const DEFAULT_MAX_ZIP_ENTRY_BYTES = 1_000_000;
+export const isBinaryFile = (bytes: Uint8Array): boolean => decodeText(bytes) === undefined;
 
-const IGNORED_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  'coverage',
-  '.next',
-  '.idea',
-  '.vscode',
-  '__pycache__',
-  'bin',
-  'obj',
-  '.vs',
-  'vendor',
-  'packages',
-]);
-
-export interface CodebaseBundleBuildEntry {
-  path: string;
-  text: string;
-}
-
-export interface CodebaseBundleBuildOptions {
-  maxFileChars?: number;
-  maxTotalChars?: number;
-}
-
-export const isBinaryFile = (uint8Array: Uint8Array): boolean => {
-  const checkLength = Math.min(uint8Array.length, 1024);
-
-  for (let index = 0; index < checkLength; index += 1) {
-    if (uint8Array[index] === 0) {
-      return true;
-    }
+const decodeText = (bytes: Uint8Array): string | undefined => {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return undefined;
   }
-
-  return false;
 };
 
-const shouldIgnorePath = (relativePath: string): boolean =>
-  relativePath.split('/').some(part => IGNORED_DIRS.has(part) || part.startsWith('.'));
-
-const normalizeSourceText = (text: string): string => normalizeLineEndings(text).trim();
-
-const clipText = (text: string, maxChars: number): { text: string; truncated: boolean } => {
+export const createSourceArchiveFromZip = async (
+  file: File
+): Promise<SourceArchiveProjectSource> => {
   return {
-    text: clipTextToLimit(text, maxChars, '[TRUNCATED FOR CONTEXT BUDGET]'),
-    truncated: text.length > maxChars,
-  };
-};
-
-export const buildCodebaseBundleSource = (
-  name: string,
-  entries: CodebaseBundleBuildEntry[],
-  options: CodebaseBundleBuildOptions = {}
-): CodebaseBundleSource => {
-  const maxTotalChars = options.maxTotalChars ?? DEFAULT_MAX_TOTAL_CHARS;
-  const maxFileChars = options.maxFileChars ?? DEFAULT_MAX_FILE_CHARS;
-  const sortedEntries = entries
-    .map(entry => ({ ...entry, path: entry.path.replace(/\\/g, '/') }))
-    .sort((left, right) => left.path.localeCompare(right.path));
-
-  const files: CodebaseSourceFile[] = [];
-  let skippedFileCount = 0;
-  let truncatedFileCount = 0;
-  let totalCharacterCount = 0;
-
-  for (const entry of sortedEntries) {
-    const normalizedText = normalizeSourceText(entry.text);
-    if (!normalizedText) {
-      skippedFileCount += 1;
-      continue;
-    }
-
-    if (totalCharacterCount >= maxTotalChars) {
-      skippedFileCount += 1;
-      continue;
-    }
-
-    const remainingChars = Math.max(0, maxTotalChars - totalCharacterCount);
-    const clipBudget = Math.min(maxFileChars, remainingChars);
-    if (clipBudget <= 0) {
-      skippedFileCount += 1;
-      continue;
-    }
-
-    const clipped = clipText(normalizedText, clipBudget);
-    files.push({
-      path: entry.path.replace(/\\/g, '/'),
-      text: clipped.text,
-      truncated: clipped.truncated || undefined,
-    });
-
-    totalCharacterCount += clipped.text.length;
-    if (clipped.truncated) {
-      truncatedFileCount += 1;
-    }
-  }
-
-  if (files.length === 0) {
-    throw new Error('No readable text files found in this archive.');
-  }
-
-  const aggregatedText = [
-    'This bundle contains the source code of a project. Analyze it as a whole codebase.',
-    ...files.map(file => `--- START OF FILE: ${file.path} ---\n${file.text}`),
-  ].join('\n\n');
-
-  return {
-    kind: 'codebase-bundle',
-    name,
-    aggregatedText,
-    files,
-    stats: {
-      includedFileCount: files.length,
-      skippedFileCount,
-      truncatedFileCount,
-      totalCharacterCount: aggregatedText.length,
+    file: {
+      data: '',
+      mimeType: file.type || 'application/zip',
+      name: file.name,
     },
-  };
-};
-
-export const createCodebaseBundleSourceFromZip = async (
-  file: File,
-  options: CodebaseBundleBuildOptions = {}
-): Promise<CodebaseBundleSource> => {
-  const contents = await loadZipSafely(await file.arrayBuffer(), {
-    maxEntries: DEFAULT_MAX_ZIP_ENTRIES,
-  });
-  const decoder = new TextDecoder('utf-8', { fatal: true });
-  const entries = Object.values(contents.files)
-    .filter(entry => !entry.dir)
-    .map(entry => ({ entry, path: getSafeZipEntryPath(entry) }))
-    .filter((item): item is { entry: NonNullable<typeof item.entry>; path: string } =>
-      Boolean(item.path)
-    )
-    .filter(item => !shouldIgnorePath(item.path))
-    .sort((left, right) => left.path.localeCompare(right.path));
-
-  const readableEntries: CodebaseBundleBuildEntry[] = [];
-  let skippedBinaryCount = 0;
-
-  for (const { entry, path } of entries) {
-    const rawData = await readZipEntryBytesWithinLimit(entry, DEFAULT_MAX_ZIP_ENTRY_BYTES);
-    if (isBinaryFile(rawData)) {
-      skippedBinaryCount += 1;
-      continue;
-    }
-
-    try {
-      const text = decoder.decode(rawData);
-      readableEntries.push({
-        path,
-        text,
-      });
-    } catch {
-      // intentional: fallback to default
-      skippedBinaryCount += 1;
-    }
-  }
-
-  const bundle = buildCodebaseBundleSource(file.name, readableEntries, options);
-  return {
-    ...bundle,
-    stats: {
-      ...bundle.stats,
-      skippedFileCount: bundle.stats.skippedFileCount + skippedBinaryCount,
+    index: {
+      entries: [],
     },
+    kind: 'archive',
+    name: file.name,
   };
 };

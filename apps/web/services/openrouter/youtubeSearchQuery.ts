@@ -73,6 +73,7 @@ export const planYouTubeSearchQuery = async (input: YouTubeSearchQueryInput): Pr
       () =>
         callOpenRouter({
           model: MODEL_FLASH,
+          modelSlot: 'research',
           reasoning: LOW_REASONING_CONFIG,
           temperature: 0.1,
           max_tokens: 100,
@@ -126,6 +127,7 @@ export const planCourseYouTubeSearchQueries = async (
       () =>
         callOpenRouter({
           model: MODEL_FLASH,
+          modelSlot: 'research',
           reasoning: LOW_REASONING_CONFIG,
           temperature: 0.1,
           max_tokens: 220,

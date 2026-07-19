@@ -15,11 +15,14 @@ export class CodexAccessError extends Error {
 
 export const assertCodexRequestAccess = (req: Request): void => {
   const currentUser = getCurrentUser(req);
-  const assignedProvider = currentUser.aiProvider || getGlobalModelConfig().aiProvider;
-  if (
-    !isCodexAppServerEnabled() ||
-    (currentUser.role !== 'admin' && assignedProvider !== 'codex')
-  ) {
+  const globalConfig = getGlobalModelConfig();
+  const assignedProvider = currentUser.aiProvider || globalConfig.aiProvider;
+  const assignedOverrides = currentUser.aiProvider
+    ? currentUser.aiProviderOverrides
+    : { ...globalConfig.aiProviderOverrides, ...currentUser.aiProviderOverrides };
+  const hasCodexProvider =
+    assignedProvider === 'codex' || Object.values(assignedOverrides || {}).includes('codex');
+  if (!isCodexAppServerEnabled() || (currentUser.role !== 'admin' && !hasCodexProvider)) {
     throw new CodexAccessError();
   }
 };

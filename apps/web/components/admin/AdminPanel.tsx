@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Flag,
   FlaskConical,
+  GraduationCap,
   Image,
   KeyRound,
   Link2,
@@ -30,6 +31,8 @@ import {
   type AdminAccessEmailDelivery,
   type AdminAiProvider,
   type AdminModelConfig,
+  type AdminModelProviderOverrides,
+  type AdminModelProviderSlot,
   type AdminReasoningEffort,
   type AdminUser,
   type AdminUserPatch,
@@ -109,6 +112,16 @@ const readUserAiProvider = (value: string): UserAiProviderSelection =>
 const getUserAiProvider = (user: AdminUser): UserAiProviderSelection =>
   user.app_metadata?.ai_provider || 'default';
 
+const getUserAiProviderOverrides = (user: AdminUser): AdminModelProviderOverrides =>
+  user.app_metadata?.ai_provider_overrides || {};
+
+const getUserDefaultAiProvider = (
+  user: AdminUser,
+  modelConfig: AdminModelConfig,
+  slot: AdminModelProviderSlot
+): AdminAiProvider =>
+  user.app_metadata?.ai_provider || modelConfig.aiProviderOverrides[slot] || modelConfig.aiProvider;
+
 const REASONING_OPTIONS = [
   ['none', 'None'],
   ['minimal', 'Minimal'],
@@ -125,18 +138,18 @@ type AdminTextModelKey =
   | 'codexArtifactInteractiveModel'
   | 'codexAssessmentModel'
   | 'codexContextModel'
-  | 'codexDraftingModel'
+  | 'codexCourseModel'
   | 'codexLessonModel'
   | 'codexProgressModel'
   | 'codexResearchModel'
-  | 'codexStructureModel'
-  | 'codexVerificationModel'
   | 'contextModel'
+  | 'courseModel'
   | 'lessonModel'
   | 'openAiArtifactModel'
   | 'openAiArtifactInteractiveModel'
   | 'openAiAssessmentModel'
   | 'openAiContextModel'
+  | 'openAiCourseModel'
   | 'openAiLessonModel'
   | 'openAiProgressModel'
   | 'openAiResearchModel'
@@ -148,14 +161,17 @@ type AdminReasoningKey =
   | 'artifactInteractiveReasoningEffort'
   | 'assessmentReasoningEffort'
   | 'contextReasoningEffort'
+  | 'courseReasoningEffort'
   | 'lessonReasoningEffort'
   | 'progressReasoningEffort';
+type AdminTextModelSlot = Exclude<AdminModelProviderSlot, 'image'>;
 
 const TEXT_MODEL_LABELS = {
   artifacts: () => t('Artefatti visuali'),
   interactiveArtifacts: () => t('Artefatti interattivi'),
   assessment: () => 'Assessment',
   context: () => t('Contesto'),
+  course: () => t('Corso'),
   lessons: () => t('Lezioni'),
   progress: () => t('Avanzamento'),
   research: () => t('Ricerca'),
@@ -166,6 +182,7 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
   labelKey: keyof typeof TEXT_MODEL_LABELS;
   models: Record<AdminAiProvider, AdminTextModelKey>;
   reasoning?: AdminReasoningKey;
+  slot: AdminTextModelSlot;
 }> = [
   {
     icon: Shapes,
@@ -176,6 +193,7 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
       codex: 'codexArtifactModel',
     },
     reasoning: 'artifactReasoningEffort',
+    slot: 'artifact',
   },
   {
     icon: BrainCircuit,
@@ -186,6 +204,18 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
       codex: 'codexArtifactInteractiveModel',
     },
     reasoning: 'artifactInteractiveReasoningEffort',
+    slot: 'artifactInteractive',
+  },
+  {
+    icon: GraduationCap,
+    labelKey: 'course',
+    models: {
+      openrouter: 'courseModel',
+      openai: 'openAiCourseModel',
+      codex: 'codexCourseModel',
+    },
+    reasoning: 'courseReasoningEffort',
+    slot: 'course',
   },
   {
     icon: BookOpen,
@@ -196,6 +226,7 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
       codex: 'codexLessonModel',
     },
     reasoning: 'lessonReasoningEffort',
+    slot: 'lesson',
   },
   {
     icon: MessageSquareText,
@@ -206,6 +237,7 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
       codex: 'codexContextModel',
     },
     reasoning: 'contextReasoningEffort',
+    slot: 'context',
   },
   {
     icon: ClipboardCheck,
@@ -216,6 +248,7 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
       codex: 'codexAssessmentModel',
     },
     reasoning: 'assessmentReasoningEffort',
+    slot: 'assessment',
   },
   {
     icon: TrendingUp,
@@ -226,6 +259,7 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
       codex: 'codexProgressModel',
     },
     reasoning: 'progressReasoningEffort',
+    slot: 'progress',
   },
   {
     icon: Search,
@@ -235,29 +269,9 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
       openai: 'openAiResearchModel',
       codex: 'codexResearchModel',
     },
+    slot: 'research',
   },
 ];
-
-const CODEX_GENERATION_PHASES = [
-  {
-    label: () => 'Strutturazione',
-    modelKey: 'codexStructureModel',
-    reasoningKey: 'structureReasoningEffort',
-    slot: 'structure',
-  },
-  {
-    label: () => t('Stesura'),
-    modelKey: 'codexDraftingModel',
-    reasoningKey: 'draftingReasoningEffort',
-    slot: 'drafting',
-  },
-  {
-    label: () => t('Verifica'),
-    modelKey: 'codexVerificationModel',
-    reasoningKey: 'verificationReasoningEffort',
-    slot: 'verification',
-  },
-] as const;
 
 const PROVIDER_SECTIONS: ReadonlyArray<{
   id: AdminAiProvider;
@@ -266,6 +280,19 @@ const PROVIDER_SECTIONS: ReadonlyArray<{
   { id: 'openrouter', label: 'OpenRouter' },
   { id: 'openai', label: 'OpenAI API' },
   { id: 'codex', label: 'Codex app-server' },
+];
+
+const PROVIDER_OVERRIDE_ROWS: ReadonlyArray<{
+  icon: LucideIcon;
+  label: () => string;
+  slot: AdminModelProviderSlot;
+}> = [
+  ...TEXT_MODEL_ROWS.map(row => ({
+    icon: row.icon,
+    label: TEXT_MODEL_LABELS[row.labelKey],
+    slot: row.slot,
+  })),
+  { icon: Image, label: () => t('Immagini'), slot: 'image' },
 ];
 
 export default function AdminPanel() {
@@ -407,7 +434,10 @@ export default function AdminPanel() {
     setErrorMessage('');
     try {
       await updateAdminUser(user.id, patch);
-      if ('aiProvider' in patch && readSupabaseSession()?.user?.id === user.id) {
+      if (
+        ('aiProvider' in patch || 'aiProviderOverrides' in patch) &&
+        readSupabaseSession()?.user?.id === user.id
+      ) {
         await refreshSupabaseSession();
       }
       await loadUsers(userPage);
@@ -462,6 +492,63 @@ export default function AdminPanel() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const renderProviderOverrideSelect = ({
+    defaultProvider,
+    label,
+    onChange,
+    overrides,
+    slot,
+  }: {
+    defaultProvider: AdminAiProvider;
+    label: string;
+    onChange: (overrides: AdminModelProviderOverrides) => void;
+    overrides: AdminModelProviderOverrides;
+    slot: AdminModelProviderSlot;
+  }) => {
+    const Icon =
+      PROVIDER_OVERRIDE_ROWS.find(providerSlot => providerSlot.slot === slot)?.icon || Settings2;
+    return (
+      <label
+        key={slot}
+        className="rounded-xl border border-stone-200 bg-stone-50/70 p-3 dark:border-zinc-700 dark:bg-zinc-800/40"
+      >
+        <span className="mb-2 flex items-center gap-2 text-xs font-semibold text-stone-700 dark:text-zinc-200">
+          <Icon className="h-3.5 w-3.5 text-stone-500 dark:text-zinc-400" />
+          {label}
+        </span>
+        <select
+          aria-label={t('Provider per {modelSlot}', { modelSlot: label })}
+          value={overrides[slot] || 'default'}
+          onChange={event => {
+            const { [slot]: _removed, ...remainingOverrides } = overrides;
+            onChange(
+              event.target.value === 'default'
+                ? remainingOverrides
+                : {
+                    ...remainingOverrides,
+                    [slot]: readAiProvider(event.target.value),
+                  }
+            );
+          }}
+          className={`${adminFieldClassName} py-2 text-xs`}
+        >
+          <option value="default">
+            {t('Predefinito: {provider}', {
+              provider:
+                AI_PROVIDER_OPTIONS.find(([provider]) => provider === defaultProvider)?.[1] ||
+                defaultProvider,
+            })}
+          </option>
+          {AI_PROVIDER_OPTIONS.map(([value, providerLabel]) => (
+            <option key={value} value={value}>
+              {providerLabel}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
   };
 
   const renderTextModelRow = (provider: AdminAiProvider, row: (typeof TEXT_MODEL_ROWS)[number]) => {
@@ -532,6 +619,24 @@ export default function AdminPanel() {
             </select>
           </label>
         </div>
+        {provider === 'codex' ? (
+          <label className="mt-2 flex items-center gap-2 text-sm text-stone-600 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              checked={modelConfig.codexFastModelSlots.includes(row.slot)}
+              onChange={event =>
+                setModelConfig(current => ({
+                  ...current,
+                  codexFastModelSlots: event.target.checked
+                    ? [...current.codexFastModelSlots, row.slot]
+                    : current.codexFastModelSlots.filter(slot => slot !== row.slot),
+                }))
+              }
+              className="h-4 w-4 rounded border-stone-300"
+            />
+            Modalità Fast
+          </label>
+        ) : null}
       </div>
     );
   };
@@ -559,69 +664,6 @@ export default function AdminPanel() {
       />
     </label>
   );
-
-  const renderCodexGenerationPhase = ({
-    label,
-    modelKey,
-    reasoningKey,
-    slot,
-  }: (typeof CODEX_GENERATION_PHASES)[number]) => {
-    const phaseLabel = label();
-    const isFast = modelConfig.codexFastModelSlots.includes(slot);
-    return (
-      <div
-        key={slot}
-        className="border-b border-stone-100 py-3 last:border-b-0 dark:border-zinc-800"
-      >
-        <span className="block text-sm font-semibold text-stone-800 dark:text-zinc-200">
-          {phaseLabel}
-        </span>
-        <div className="mt-2 grid grid-cols-[minmax(0,7fr)_minmax(6.5rem,3fr)] gap-2">
-          <input
-            aria-label={`Modello per ${phaseLabel}`}
-            value={modelConfig[modelKey]}
-            onChange={event =>
-              setModelConfig(current => ({ ...current, [modelKey]: event.target.value }))
-            }
-            className={adminFieldClassName}
-          />
-          <select
-            aria-label={`Ragionamento per ${phaseLabel}`}
-            value={modelConfig[reasoningKey]}
-            onChange={event =>
-              setModelConfig(current => ({
-                ...current,
-                [reasoningKey]: event.target.value as AdminReasoningEffort,
-              }))
-            }
-            className={adminFieldClassName}
-          >
-            {REASONING_OPTIONS.map(([value, optionLabel]) => (
-              <option key={value} value={value}>
-                {t(optionLabel)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <label className="mt-2 flex items-center gap-2 text-sm text-stone-600 dark:text-zinc-300">
-          <input
-            type="checkbox"
-            checked={isFast}
-            onChange={event =>
-              setModelConfig(current => ({
-                ...current,
-                codexFastModelSlots: event.target.checked
-                  ? [...current.codexFastModelSlots, slot]
-                  : current.codexFastModelSlots.filter(currentSlot => currentSlot !== slot),
-              }))
-            }
-            className="h-4 w-4 rounded border-stone-300"
-          />
-          Modalità Fast
-        </label>
-      </div>
-    );
-  };
 
   return (
     <main className="min-h-screen bg-[#f8f7f4] px-3 py-4 text-stone-950 sm:px-5 sm:py-6 dark:bg-zinc-950 dark:text-zinc-100">
@@ -771,6 +813,28 @@ export default function AdminPanel() {
                             </select>
                           </label>
                         </div>
+                        <details className="mt-3 rounded-xl border border-stone-200 bg-stone-50/60 dark:border-zinc-700 dark:bg-zinc-800/30">
+                          <summary className="cursor-pointer list-none px-3 py-2 text-xs font-semibold text-stone-700 dark:text-zinc-200 [&::-webkit-details-marker]:hidden">
+                            {t('Backend per funzione')}
+                          </summary>
+                          <div className="grid gap-2 border-t border-stone-200 p-3 sm:grid-cols-2 dark:border-zinc-700">
+                            {PROVIDER_OVERRIDE_ROWS.map(providerSlot =>
+                              renderProviderOverrideSelect({
+                                defaultProvider: getUserDefaultAiProvider(
+                                  user,
+                                  modelConfig,
+                                  providerSlot.slot
+                                ),
+                                label: providerSlot.label(),
+                                overrides: getUserAiProviderOverrides(user),
+                                slot: providerSlot.slot,
+                                onChange: aiProviderOverrides => {
+                                  void handleUserPatch(user, { aiProviderOverrides });
+                                },
+                              })
+                            )}
+                          </div>
+                        </details>
                       </div>
                       <div className="flex flex-wrap items-start gap-1.5 sm:justify-end">
                         <button
@@ -1012,6 +1076,31 @@ export default function AdminPanel() {
                         ))}
                       </select>
                     </label>
+                    <div className="mt-4">
+                      <p className="text-sm font-semibold text-stone-800 dark:text-zinc-200">
+                        {t('Backend per funzione')}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-stone-500 dark:text-zinc-400">
+                        {t(
+                          'Ogni funzione eredita il provider globale, salvo gli override indicati qui.'
+                        )}
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {PROVIDER_OVERRIDE_ROWS.map(providerSlot =>
+                          renderProviderOverrideSelect({
+                            defaultProvider: modelConfig.aiProvider,
+                            label: providerSlot.label(),
+                            overrides: modelConfig.aiProviderOverrides,
+                            slot: providerSlot.slot,
+                            onChange: aiProviderOverrides =>
+                              setModelConfig(current => ({
+                                ...current,
+                                aiProviderOverrides,
+                              })),
+                          })
+                        )}
+                      </div>
+                    </div>
                     <label className="mt-4 flex items-start gap-3 rounded-xl border border-stone-200 px-3 py-3 dark:border-zinc-700">
                       <input
                         type="checkbox"
@@ -1071,22 +1160,9 @@ export default function AdminPanel() {
                       }
                     >
                       {id === 'codex' ? (
-                        <>
-                          <div className="mb-5 [&>section]:border-0 [&>section]:bg-transparent [&>section]:p-0">
-                            <CodexConnectionSettings />
-                          </div>
-                          <div className="mb-3 overflow-hidden rounded-xl border border-stone-200 dark:border-zinc-700">
-                            <AdminDisclosure
-                              icon={BookOpen}
-                              title="Fasi di generazione"
-                              status="3 fasi"
-                            >
-                              <div className="mt-1">
-                                {CODEX_GENERATION_PHASES.map(renderCodexGenerationPhase)}
-                              </div>
-                            </AdminDisclosure>
-                          </div>
-                        </>
+                        <div className="mb-5 [&>section]:border-0 [&>section]:bg-transparent [&>section]:p-0">
+                          <CodexConnectionSettings />
+                        </div>
                       ) : null}
                       <div className="mt-1">
                         {TEXT_MODEL_ROWS.map(row => renderTextModelRow(id, row))}

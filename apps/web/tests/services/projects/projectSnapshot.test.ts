@@ -13,22 +13,10 @@ import {
 } from '../../../services/projects/projectSnapshot.ts';
 import {
   createProjectSourceFromFile,
-  decodeTextBase64,
   encodeTextBase64,
   getProjectSourceFile,
 } from '../../../services/projects/projectSource.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
-
-test('createProjectSourceFromFile upgrades legacy zip payloads into structured codebase sources', () => {
-  const source = createProjectSourceFromFile({
-    name: 'repo.zip',
-    mimeType: 'text/plain',
-    data: encodeTextBase64('--- START OF FILE: src/index.ts ---\nconsole.log("hi");'),
-  });
-
-  assert.equal(source.kind, 'codebase-bundle');
-  assert.match(source.aggregatedText, /src\/index\.ts/);
-});
 
 test('an explicit project title survives normalization and stays aligned with the learning plan', () => {
   const snapshot = createProjectSnapshot({
@@ -47,18 +35,174 @@ test('an explicit project title survives normalization and stays aligned with th
   assert.equal(exportProjectData(snapshot).title, 'Titolo scelto');
 });
 
-test('getProjectSourceFile preserves a round-trip legacy file payload for codebase bundles', () => {
-  const source = createProjectSourceFromFile({
-    name: 'repo.zip',
-    mimeType: 'text/plain',
-    data: encodeTextBase64('console.log("hi");'),
+test('modern archive exports round-trip raw bytes, storage reference, and the complete index', () => {
+  const snapshot = createProjectSnapshot({
+    id: 'archive-project',
+    source: {
+      file: {
+        data: encodeTextBase64('raw zip bytes'),
+        mimeType: 'application/zip',
+        name: 'engine.zip',
+      },
+      index: {
+        entries: [
+          { kind: 'directory', path: 'docs' },
+          {
+            byteSize: 19,
+            contentKind: 'text',
+            hash: 'readme-hash',
+            kind: 'file',
+            path: 'docs/README.md',
+            preview: '# Engine\nArchitecture',
+          },
+          {
+            byteSize: 2048,
+            contentKind: 'binary',
+            hash: 'texture-hash',
+            kind: 'file',
+            path: 'textures/logo.png',
+          },
+        ],
+      },
+      kind: 'archive',
+      name: 'engine.zip',
+      ref: {
+        byteSize: 13,
+        hash: 'archive-hash',
+        id: 'archive-source',
+        mimeType: 'application/zip',
+        name: 'engine.zip',
+        objectPath: 'users/user/projects/project/archive-source/original',
+      },
+    },
   });
 
-  const file = getProjectSourceFile(source);
+  const imported = normalizeImportedProject(exportProjectData(snapshot));
 
-  assert.equal(file?.name, 'repo.zip');
-  assert.equal(file?.mimeType, 'text/plain');
-  assert.equal(decodeTextBase64(file?.data || ''), 'console.log("hi");');
+  assert.deepEqual(imported.source, snapshot.source);
+  assert.equal(inferProjectSourceKind(imported, true), 'codebase');
+  assert.equal(getProjectSourceFile(imported.source)?.data, snapshot.source?.file.data);
+});
+
+test('modern multi-source snapshots preserve every detached storage reference', () => {
+  const descriptors = buildCourseSourceDescriptors([
+    {
+      data: encodeTextBase64('first source'),
+      mimeType: 'text/plain',
+      name: 'notes.txt',
+    },
+    {
+      data: encodeTextBase64('second source'),
+      mimeType: 'text/plain',
+      name: 'notes.txt',
+    },
+  ]).map((descriptor, position) => ({
+    ...descriptor,
+    file: { ...descriptor.file, data: '' },
+    ref: {
+      byteSize: position + 1,
+      hash: `${position}`.repeat(64),
+      id: descriptor.id,
+      mimeType: descriptor.file.mimeType,
+      name: descriptor.name,
+      objectPath: `users/user/projects/project/${descriptor.id}/original`,
+    },
+  }));
+  const snapshot = createProjectSnapshot({
+    id: 'multi-source-project',
+    source: {
+      file: descriptors[0].file,
+      kind: 'document',
+      ref: descriptors[0].ref,
+      sources: descriptors,
+    },
+  });
+
+  const imported = normalizeImportedProject(exportProjectData(snapshot));
+
+  assert.deepEqual(
+    imported.source?.sources?.map(source => source.ref),
+    descriptors.map(source => source.ref)
+  );
+  assert.ok(imported.source?.sources?.every(source => source.file.data === ''));
+  assert.deepEqual(
+    imported.source?.sources?.flatMap(source =>
+      source.documentIndex?.chunks.map(chunk => chunk.text)
+    ),
+    ['first source', 'second source']
+  );
+});
+
+test('rejects a detached source set instead of silently dropping a descriptor without a ref', () => {
+  const imported = normalizeImportedProject({
+    id: 'invalid-multi-source',
+    version: '4.1',
+    source: {
+      file: {
+        data: '',
+        mimeType: 'text/plain',
+        name: 'first.txt',
+        sourceId: 'source-first',
+      },
+      kind: 'document',
+      ref: {
+        byteSize: 1,
+        hash: 'a'.repeat(64),
+        id: 'source-first',
+        mimeType: 'text/plain',
+        name: 'first.txt',
+        objectPath: 'users/user/projects/project/source-first/original',
+      },
+      sources: [
+        {
+          file: {
+            data: '',
+            mimeType: 'text/plain',
+            name: 'first.txt',
+            sourceId: 'source-first',
+          },
+          hash: 'a'.repeat(64),
+          id: 'source-first',
+          kind: 'text',
+          name: 'first.txt',
+          outline: [],
+          outlineOrigin: 'none',
+          position: 0,
+          ref: {
+            byteSize: 1,
+            hash: 'a'.repeat(64),
+            id: 'source-first',
+            mimeType: 'text/plain',
+            name: 'first.txt',
+            objectPath: 'users/user/projects/project/source-first/original',
+          },
+          status: 'ready',
+        },
+        {
+          file: {
+            data: '',
+            mimeType: 'text/plain',
+            name: 'second.txt',
+            sourceId: 'source-second',
+          },
+          hash: 'b'.repeat(64),
+          id: 'source-second',
+          kind: 'text',
+          name: 'second.txt',
+          outline: [],
+          outlineOrigin: 'none',
+          position: 1,
+          status: 'ready',
+        },
+      ],
+    },
+    learningPlan: null,
+    isLearnMode: false,
+    userProfile: null,
+    syllabus: [],
+  });
+
+  assert.equal(imported.source, null);
 });
 
 test('normalizeImportedProject preserves validated YouTube clip evidence', () => {
@@ -155,6 +299,7 @@ test('detached PDF snapshots retain their source reference without pretending by
         byteSize: 1024,
         name: 'paper.pdf',
         mimeType: 'application/pdf',
+        objectPath: 'users/user/projects/project/source-123/original',
       },
     },
     learningPlan: null,
@@ -169,6 +314,7 @@ test('detached PDF snapshots retain their source reference without pretending by
     byteSize: 1024,
     name: 'paper.pdf',
     mimeType: 'application/pdf',
+    objectPath: 'users/user/projects/project/source-123/original',
   });
   assert.equal(getProjectSourceFile(snapshot.source), null);
 });
@@ -185,16 +331,6 @@ test('inferProjectSourceKind treats single text files as documents', () => {
     buildCoverLabel({ source, learningPlan: null, isLearnMode: false }, 'document'),
     'notes.md'
   );
-});
-
-test('inferProjectSourceKind keeps zip-backed codebase bundles as codebase projects', () => {
-  const source = createProjectSourceFromFile({
-    name: 'repo.zip',
-    mimeType: 'text/plain',
-    data: encodeTextBase64('console.log("hi");'),
-  });
-
-  assert.equal(inferProjectSourceKind({ source, isLearnMode: false }), 'codebase');
 });
 
 test('exportProjectData keeps the source only once for modern exports', () => {
@@ -230,26 +366,69 @@ test('exportProjectData keeps the source only once for modern exports', () => {
   assert.equal(Object.hasOwn(exported, 'file'), false);
 });
 
-test('normalizeImportedProject still supports legacy file-only exports', () => {
-  const pdfFile = {
-    name: 'paper.pdf',
-    mimeType: 'application/pdf',
-    data: encodeTextBase64('fake-pdf-binary'),
-  };
-
+test('legacy source payloads are discarded without losing their course', () => {
   const imported = normalizeImportedProject({
     version: '3.0',
-    file: pdfFile,
-    learningPlan: null,
+    file: {
+      name: 'paper.pdf',
+      mimeType: 'application/pdf',
+      data: encodeTextBase64('fake-pdf-binary'),
+    },
+    source: {
+      aggregatedText: '# Legacy source',
+      files: [],
+      kind: 'codebase-bundle',
+      name: 'legacy.zip',
+    },
+    learningPlan: {
+      applicationExercisePlanningStatus: 'not-run',
+      modules: [],
+      summary: 'Il corso resta disponibile.',
+      title: 'Corso esistente',
+    },
     isLearnMode: false,
     userProfile: null,
     syllabus: [],
   });
 
-  assert.deepEqual(imported.source, {
-    kind: 'pdf',
-    file: pdfFile,
+  assert.equal(imported.source, null);
+  assert.equal(imported.learningPlan?.title, 'Corso esistente');
+  assert.equal(imported.learningPlan?.summary, 'Il corso resta disponibile.');
+});
+
+test('an invalid archive index rejects the whole source instead of silently dropping entries', () => {
+  const imported = normalizeImportedProject({
+    source: {
+      file: {
+        data: encodeTextBase64('raw zip bytes'),
+        mimeType: 'application/zip',
+        name: 'broken.zip',
+      },
+      index: {
+        entries: [
+          { kind: 'directory', path: 'src' },
+          {
+            byteSize: -1,
+            contentKind: 'text',
+            kind: 'file',
+            path: 'src/index.ts',
+            preview: 'export {};',
+          },
+        ],
+      },
+      kind: 'archive',
+      name: 'broken.zip',
+    },
+    learningPlan: {
+      applicationExercisePlanningStatus: 'not-run',
+      modules: [],
+      summary: '',
+      title: 'Corso preservato',
+    },
   });
+
+  assert.equal(imported.source, null);
+  assert.equal(imported.learningPlan?.title, 'Corso preservato');
 });
 
 test('normalizeImportedProject preserves multi-source identities, outlines, and chunk provenance', () => {

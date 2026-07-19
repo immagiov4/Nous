@@ -50,6 +50,7 @@ vi.mock('../../../services/admin/adminApi.ts', async importOriginal => {
 
 const defaultModelConfig = {
   aiProvider: 'openrouter',
+  aiProviderOverrides: {},
   artifactModel: 'deepseek/deepseek-v4-pro',
   artifactInteractiveModel: 'openai/gpt-5.6-terra',
   artifactInteractiveReasoningEffort: 'low' as const,
@@ -62,16 +63,15 @@ const defaultModelConfig = {
   codexArtifactModel: 'gpt-5.6-sol',
   codexArtifactInteractiveModel: 'gpt-5.6-sol',
   codexContextModel: 'gpt-5.6-luna',
-  codexDraftingModel: 'gpt-5.6-luna',
-  codexFastModelSlots: ['artifact', 'artifactInteractive', 'drafting', 'structure'],
+  codexCourseModel: 'gpt-5.6-luna',
+  codexFastModelSlots: ['artifact', 'artifactInteractive', 'course', 'lesson'],
   codexLessonModel: 'gpt-5.6-terra',
   codexProgressModel: 'gpt-5.6-luna',
   codexResearchModel: 'gpt-5.6-terra',
-  codexStructureModel: 'gpt-5.6-luna',
-  codexVerificationModel: 'gpt-5.6-terra',
   contextModel: 'google/gemini-3.1-flash-lite',
   contextReasoningEffort: 'medium' as const,
-  draftingReasoningEffort: 'high' as const,
+  courseModel: 'openai/gpt-5.6-luna',
+  courseReasoningEffort: 'medium' as const,
   imageModel: 'google/gemini-3.1-flash-lite-image',
   lessonModel: 'openai/gpt-5.6-luna',
   lessonReasoningEffort: 'high' as const,
@@ -79,6 +79,7 @@ const defaultModelConfig = {
   openAiArtifactModel: 'gpt-5.6-terra',
   openAiArtifactInteractiveModel: 'gpt-5.6-terra',
   openAiContextModel: 'gpt-5.6-luna',
+  openAiCourseModel: 'gpt-5.6-terra',
   openAiImageModel: 'gpt-image-2',
   openAiLessonModel: 'gpt-5.6-terra',
   openAiProgressModel: 'gpt-5.6-luna',
@@ -86,11 +87,9 @@ const defaultModelConfig = {
   progressModel: 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low' as const,
   researchModel: 'perplexity/sonar-pro-search',
-  structureReasoningEffort: 'medium' as const,
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   ttsVoice: 'Ara',
   updatedAt: '2026-07-07T00:00:00.000Z',
-  verificationReasoningEffort: 'high' as const,
 } satisfies AdminModelConfig;
 
 const openConfiguration = async (user: ReturnType<typeof userEvent.setup>) => {
@@ -161,14 +160,14 @@ describe('AdminPanel', () => {
 
     expect(await screen.findByDisplayValue('deepseek/deepseek-v4-pro')).toBeInTheDocument();
     expect(screen.getByDisplayValue('openai/gpt-5.6-terra')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('openai/gpt-5.6-luna')).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue('openai/gpt-5.6-luna')).toHaveLength(2);
     expect(screen.getAllByDisplayValue('google/gemini-3.1-flash-lite')).toHaveLength(3);
     expect(screen.getByDisplayValue('x-ai/grok-voice-tts-1.0')).toBeInTheDocument();
     expect(screen.getByDisplayValue('google/gemini-3.1-flash-lite-image')).toBeInTheDocument();
     expect(screen.getByDisplayValue('perplexity/sonar-pro-search')).toBeInTheDocument();
     expect(screen.getByDisplayValue('gpt-image-2')).toBeInTheDocument();
     expect(screen.getAllByDisplayValue('gpt-5.6-sol')).toHaveLength(2);
-    expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(6);
+    expect(screen.getAllByDisplayValue('gpt-5.6-terra')).toHaveLength(7);
     expect(screen.getByDisplayValue('Ara')).toBeInTheDocument();
     const artifactReasoningSelects = screen.getAllByRole('combobox', {
       name: /Ragionamento Artefatti visuali per/,
@@ -221,6 +220,27 @@ describe('AdminPanel', () => {
       })
     );
     expect(await screen.findByText('Modelli aggiornati.')).toBeInTheDocument();
+  });
+
+  test('saves a provider override for a single model function', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+    await openConfiguration(user);
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Provider per Lezioni' }),
+      'codex'
+    );
+    await user.click(screen.getByRole('button', { name: 'Salva modelli' }));
+
+    await waitFor(() =>
+      expect(patchAdminModelConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          aiProvider: 'openrouter',
+          aiProviderOverrides: { lesson: 'codex' },
+        })
+      )
+    );
   });
 
   test('does not allow saving model defaults before persisted configuration loads', async () => {
@@ -357,6 +377,24 @@ describe('AdminPanel', () => {
     await user.selectOptions(providerSelect, 'default');
     await waitFor(() =>
       expect(updateAdminUser).toHaveBeenLastCalledWith('user-1', { aiProvider: null })
+    );
+  });
+
+  test('sets a user-specific provider override by function', async () => {
+    const user = userEvent.setup();
+    render(<AdminPanel />);
+
+    await screen.findByText('student@example.com');
+    await user.click(screen.getByText('Backend per funzione'));
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Provider per Contesto' }),
+      'codex'
+    );
+
+    await waitFor(() =>
+      expect(updateAdminUser).toHaveBeenCalledWith('user-1', {
+        aiProviderOverrides: { context: 'codex' },
+      })
     );
   });
 

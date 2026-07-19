@@ -55,7 +55,7 @@ describe('course cover regeneration routes', () => {
     expect(response.status).toBe(202);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.body).toEqual({ success: true, job: runningJob });
-    expect(startOrResumeMock).toHaveBeenCalledWith('cover-user', undefined);
+    expect(startOrResumeMock).toHaveBeenCalledWith('cover-user', undefined, undefined);
   });
 
   test('returns a completed cooldown job without starting another batch', async () => {

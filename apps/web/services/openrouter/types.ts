@@ -83,9 +83,11 @@ export interface UrlCitationAnnotation {
 export type ChatAnnotation = FileAnnotation | UrlCitationAnnotation;
 
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: ChatMessageContent;
   annotations?: ChatAnnotation[];
+  tool_call_id?: string;
+  tool_calls?: OpenRouterToolCall[];
 }
 
 export type OpenRouterReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
@@ -99,7 +101,7 @@ export interface OpenRouterReasoningOptions {
 
 export interface ChatCompletionOptions {
   model: string;
-  modelSlot?: OpenRouterModelSlot;
+  modelSlot: OpenRouterModelSlot;
   allowTextOnlyImageFallback?: boolean;
   disableModelOverride?: boolean;
   messages: ChatMessage[];
@@ -108,6 +110,7 @@ export interface ChatCompletionOptions {
   temperature?: number;
   max_tokens?: number;
   response_format?: JsonSchemaFormat;
+  transforms?: string[];
   tools?: Record<string, unknown>[];
   plugins?: Record<string, unknown>[];
   includeUrlCitationsInText?: boolean;
@@ -127,6 +130,8 @@ export interface OpenRouterChoice {
   message?: {
     content?: OpenRouterMessageContent;
     annotations?: ChatAnnotation[];
+    reasoning?: string;
+    reasoning_details?: unknown[];
     tool_calls?: OpenRouterToolCall[];
   };
 }

@@ -10,9 +10,13 @@ import {
 } from '../../../services/projects/projectSnapshot.ts';
 import {
   createProjectSourceFromFile,
-  getProjectSourceFile,
+  getProjectSourceName,
   isZipFileData,
 } from '../../../services/projects/projectSource.ts';
+import {
+  ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+  formatSourceArchiveIndex,
+} from '../../../services/projects/sourceArchive.ts';
 import {
   AppState,
   type FileData,
@@ -20,6 +24,7 @@ import {
   type LearningPlan,
   type LessonNode,
   type Message,
+  type ProjectSource,
   type ResearchCoursePlan,
   type SyllabusItem,
   type UserProfile,
@@ -334,10 +339,7 @@ export const createAssessmentPlanningCommands = (
       language: profile?.language || 'Italiano',
       onUpdate: progress => state.setWorkflowProgress('generatePlan', requestId, progress),
       operation: 'plan',
-      subject:
-        profile?.topic ||
-        (domain.source?.kind === 'pdf' ? domain.source.file.name : domain.source?.name) ||
-        'Nuovo percorso',
+      subject: profile?.topic || getProjectSourceName(domain.source) || 'Nuovo percorso',
     });
 
     const reportStatus: GenerationStatusReporter = (status, stage) => {
@@ -420,37 +422,62 @@ export const createAssessmentPlanningCommands = (
           );
         }
       } else {
+        const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
         const sourceFile = await loadProjectSourceFile(context);
-        if (!sourceFile) {
+        if (!sourceFile && !archiveSource) {
           throw new Error('Missing source file for plan generation');
         }
 
         if (domain.source?.kind === 'pdf') {
           state.setWorkflowMessage('generatePlan', requestId, t('Verifica testo PDF...'));
-          await openRouter.validatePdfTextSource(sourceFile);
+          await openRouter.validatePdfTextSource(sourceFile as FileData);
+        }
+
+        let sourceProjectId = projectLibrary.currentProjectId;
+        if (archiveSource && !sourceProjectId) {
+          sourceProjectId = createProjectId();
+          projectLibrary.setCurrentProjectId(sourceProjectId);
+          projectLibrary.setProjectHydrated(true);
+          await projectLibrary.persistSnapshot(
+            createProjectSnapshot({
+              id: sourceProjectId,
+              state: AppState.PLANNING,
+              source: archiveSource,
+            })
+          );
         }
 
         const sources = getCourseSourceDescriptors(domain.source);
         const plan =
           sources.length > 1
-            ? await openRouter.generateLearningPlanFromSourceSet(
-                sources,
-                args.history || [],
-                reportStatus,
-                progressObserver.push
-              )
-            : await openRouter.generateLearningPlan(
-                sourceFile,
-                args.history || [],
-                reportStatus,
-                progressObserver.push
-              );
+            ? await openRouter.generateLearningPlanFromSourceSet(sources, args.history || [], {
+                language: profile?.language,
+                onReasoningUpdate: progressObserver.push,
+                onStatusUpdate: reportStatus,
+              })
+            : archiveSource && sourceProjectId
+              ? await openRouter.generateLearningPlanFromSourceArchive(
+                  { projectId: sourceProjectId, source: archiveSource },
+                  args.history || [],
+                  {
+                    language: profile?.language,
+                    onReasoningUpdate: progressObserver.push,
+                    onStatusUpdate: reportStatus,
+                  }
+                )
+              : await openRouter.generateLearningPlan(sourceFile as FileData, args.history || [], {
+                  language: profile?.language,
+                  onReasoningUpdate: progressObserver.push,
+                  onStatusUpdate: reportStatus,
+                });
 
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
           return;
         }
 
-        const prepared = await context.preparePdfLessonPlan(sourceFile, plan, domain.documentIndex);
+        const prepared = archiveSource
+          ? { learningPlan: plan, documentIndex: null }
+          : await context.preparePdfLessonPlan(sourceFile as FileData, plan, domain.documentIndex);
         if (!state.isWorkflowCurrent('generatePlan', requestId)) {
           return;
         }
@@ -587,8 +614,9 @@ export const createAssessmentPlanningCommands = (
       let sourceWarnings: Array<{ message: string; name: string }> = [];
 
       if (selectedFiles.length > 0) {
-        let nextSource = null;
+        let nextSource: ProjectSource | null = null;
         let nextFile: FileData | null = null;
+        let archiveFile: File | undefined;
 
         const zipFiles = selectedFiles.filter(file =>
           isZipFileData({ name: file.name, mimeType: file.type })
@@ -608,10 +636,12 @@ export const createAssessmentPlanningCommands = (
             return { outcome: 'imported' };
           }
 
-          nextSource = await import('../../../utils/project/codebaseBundle.ts').then(module =>
-            module.createCodebaseBundleSourceFromZip(selectedFile)
+          const archiveSource = await import('../../../utils/project/codebaseBundle.ts').then(
+            module => module.createSourceArchiveFromZip(selectedFile)
           );
-          nextFile = getProjectSourceFile(nextSource);
+          nextSource = archiveSource;
+          nextFile = archiveSource.file;
+          archiveFile = selectedFile;
         } else {
           if (selectedFiles.length === 1) {
             nextFile = await readSourceFileData(selectedFiles[0]);
@@ -649,17 +679,39 @@ export const createAssessmentPlanningCommands = (
           await openRouter.validatePdfTextSource(nextFile);
         }
 
+        if (nextSource.kind === 'archive') {
+          const projectId = createProjectId();
+          projectLibrary.setCurrentProjectId(projectId);
+          const saved = await projectLibrary.persistSnapshot(
+            createProjectSnapshot({
+              id: projectId,
+              state: AppState.ASSESSMENT,
+              source: nextSource,
+            }),
+            { archiveFile, throwOnError: true }
+          );
+          if (saved?.snapshot.source?.kind !== 'archive') {
+            throw new Error('La sorgente archivio non è stata salvata.');
+          }
+          nextSource = saved.snapshot.source;
+        }
+
         domain.setSource(nextSource);
+        if (nextSource.kind === 'archive') {
+          projectLibrary.setProjectHydrated(true);
+        }
         domain.setIsLearnMode(false);
         learnMode = false;
 
         session =
           nextSource.sources && nextSource.sources.length > 1
             ? await openRouter.createEmbeddedAssessmentChatFromSourceSet(nextSource.sources)
-            : nextSource.kind === 'codebase-bundle'
+            : nextSource.kind === 'archive'
               ? await openRouter.createEmbeddedAssessmentChatFromTextSource({
                   name: nextSource.name,
-                  text: nextSource.aggregatedText,
+                  text: formatSourceArchiveIndex(nextSource.index, {
+                    previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+                  }),
                 })
               : await openRouter.createEmbeddedAssessmentChat(nextFile, status => {
                   state.setWorkflowMessage('assessment', requestId, status);

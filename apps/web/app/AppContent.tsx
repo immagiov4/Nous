@@ -38,6 +38,7 @@ const AppContent = () => {
   const projectLibrary = useProjectLibrary({
     domainState: domain.domainState,
     hydrateSnapshot: domain.hydrateSnapshot,
+    setSource: domain.setSource,
   });
 
   const libraryAssistantChat = useLibraryAssistantChat({

@@ -1,3 +1,4 @@
+import JSZip from 'jszip';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -305,6 +306,304 @@ describe('/api/projects', () => {
     );
   });
 
+  test('round-trips every modern course source while snapshots remain byte-free', async () => {
+    const app = createApp();
+    const sourceFiles = [
+      {
+        file: {
+          data: Buffer.from('first document').toString('base64'),
+          mimeType: 'text/plain',
+          name: 'notes.txt',
+        },
+        id: 'source-notes-1',
+        position: 0,
+      },
+      {
+        file: {
+          data: Buffer.from('second document').toString('base64'),
+          mimeType: 'text/plain',
+          name: 'notes.txt',
+        },
+        id: 'source-notes-2',
+        position: 1,
+      },
+    ];
+
+    const embeddedSources = sourceFiles.map(source => ({
+      file: { ...source.file, sourceId: source.id },
+      hash: '',
+      id: source.id,
+      kind: 'text',
+      name: source.file.name,
+      outline: [],
+      outlineOrigin: 'none',
+      position: source.position,
+      status: 'ready',
+    }));
+    const snapshot = {
+      ...createSnapshot('multi-source', 'Corso multi-fonte'),
+      source: {
+        file: embeddedSources[0].file,
+        kind: 'document',
+        sources: embeddedSources,
+      },
+    } satisfies ProjectSnapshot;
+    const snapshotSave = await request(app)
+      .put('/api/projects/projects/multi-source')
+      .send({ snapshot });
+    expect(snapshotSave.status).toBe(200);
+    expect(
+      snapshotSave.body.snapshot.source.sources.every(
+        (source: { file: { data: string }; ref?: unknown }) => source.file.data === '' && source.ref
+      )
+    ).toBe(true);
+
+    const storedSnapshot = await request(app).get('/api/projects/projects/multi-source');
+    expect(
+      storedSnapshot.body.project.source.sources.every(
+        (source: { file: { data: string } }) => source.file.data === ''
+      )
+    ).toBe(true);
+
+    const sourceLoad = await request(app).get('/api/projects/projects/multi-source/sources');
+    expect(sourceLoad.status).toBe(200);
+    expect(
+      sourceLoad.body.sources.map((source: { file: { data: string } }) => source.file.data)
+    ).toEqual(sourceFiles.map(source => source.file.data));
+
+    const exported = await request(app).post('/api/projects/projects/multi-source/export');
+    expect(
+      exported.body.data.source.sources.map(
+        (source: { file: { data: string } }) => source.file.data
+      )
+    ).toEqual(sourceFiles.map(source => source.file.data));
+
+    const imported = await request(app)
+      .post('/api/projects/import')
+      .send({ data: { ...exported.body.data, id: 'multi-source-imported' } });
+    expect(imported.status).toBe(200);
+    expect(
+      imported.body.snapshot.source.sources.every(
+        (source: { file: { data: string } }) => source.file.data === ''
+      )
+    ).toBe(true);
+    const importedSources = await request(app).get(
+      '/api/projects/projects/multi-source-imported/sources'
+    );
+    expect(
+      importedSources.body.sources.map((source: { file: { data: string } }) => source.file.data)
+    ).toEqual(sourceFiles.map(source => source.file.data));
+  });
+
+  test('does not expose split source-write endpoints', async () => {
+    const app = createApp();
+
+    const singularResponse = await request(app)
+      .post('/api/projects/projects/project-1/source')
+      .send({ source: { data: 'ZmFrZQ==', mimeType: 'text/plain', name: 'source.txt' } });
+    const pluralResponse = await request(app)
+      .post('/api/projects/projects/project-1/sources')
+      .send({ sources: [] });
+
+    expect(singularResponse.status).toBe(404);
+    expect(pluralResponse.status).toBe(404);
+  });
+
+  test('exposes complete archive metadata and exact source queries without aggregation', async () => {
+    const app = createApp();
+    const zip = new JSZip();
+    const guide = `${Array.from({ length: 30 }, (_, index) => `guide line ${index + 1}`).join(
+      '\n'
+    )}\nfinal guide sentinel`;
+    zip.file('.github/workflows/ci.yml', 'name: CI\nrun: bun run gate');
+    zip.file('packages/core/guide.md', guide);
+    zip.file('packages/core/index.ts', 'export const engine = true;');
+    const archiveBytes = await zip.generateAsync({ compression: 'DEFLATE', type: 'uint8array' });
+    const projectId = 'archive-project';
+
+    const archiveSnapshot = {
+      ...createSnapshot(projectId, 'Corso archivio'),
+      sourceKind: 'codebase' as const,
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'engine.zip',
+        },
+        index: { entries: [] },
+        kind: 'archive',
+        name: 'engine.zip',
+      },
+    };
+    const saveSnapshotResponse = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .field('snapshot', JSON.stringify(archiveSnapshot))
+      .attach('archive', Buffer.from(archiveBytes), {
+        contentType: 'application/zip',
+        filename: 'engine.zip',
+      });
+    expect(saveSnapshotResponse.status).toBe(200);
+    expect(saveSnapshotResponse.body.snapshot.source.file.data).toBe('');
+    expect(saveSnapshotResponse.body.snapshot.source.ref).toMatchObject({
+      id: expect.any(String),
+      hash: expect.any(String),
+      objectPath: expect.any(String),
+    });
+
+    const base64SaveResponse = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({
+        snapshot: {
+          ...archiveSnapshot,
+          source: {
+            ...archiveSnapshot.source,
+            file: {
+              ...archiveSnapshot.source.file,
+              data: Buffer.from(archiveBytes).toString('base64'),
+            },
+          },
+        },
+      });
+    expect(base64SaveResponse.status).toBe(400);
+
+    const detachedSaveResponse = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot: saveSnapshotResponse.body.snapshot });
+    expect(detachedSaveResponse.status).toBe(200);
+
+    const indexResponse = await request(app).get(
+      `/api/projects/projects/${projectId}/source/archive`
+    );
+    expect(indexResponse.status).toBe(200);
+    expect(indexResponse.body.archiveVersion).toEqual(
+      expect.objectContaining({
+        sourceHash: expect.any(String),
+        sourceId: expect.any(String),
+      })
+    );
+    const archiveVersion = indexResponse.body.archiveVersion;
+    expect(indexResponse.body.archiveIndex.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'directory', path: '.github' }),
+        expect.objectContaining({ kind: 'directory', path: 'packages' }),
+        expect.objectContaining({
+          kind: 'file',
+          path: 'packages/core/guide.md',
+          preview: Array.from({ length: 24 }, (_, index) => `guide line ${index + 1}`).join('\n'),
+        }),
+      ])
+    );
+
+    const readResponse = await request(app)
+      .post(`/api/projects/projects/${projectId}/source/archive/query`)
+      .send({ archiveVersion, operation: 'read-file', path: 'packages/core/guide.md' });
+    expect(readResponse.status).toBe(200);
+    expect(readResponse.body.result).toEqual({
+      cursorBytes: 0,
+      endByteExclusive: Buffer.byteLength(guide),
+      nextCursorBytes: null,
+      path: 'packages/core/guide.md',
+      text: guide,
+      totalBytes: Buffer.byteLength(guide),
+    });
+
+    const resumedReadResponse = await request(app)
+      .post(`/api/projects/projects/${projectId}/source/archive/query`)
+      .send({
+        archiveVersion,
+        cursorBytes: Buffer.byteLength(guide) - Buffer.byteLength('sentinel'),
+        operation: 'read-file',
+        path: 'packages/core/guide.md',
+      });
+    expect(resumedReadResponse.status).toBe(200);
+    expect(resumedReadResponse.body.result).toEqual({
+      cursorBytes: Buffer.byteLength(guide) - Buffer.byteLength('sentinel'),
+      endByteExclusive: Buffer.byteLength(guide),
+      nextCursorBytes: null,
+      path: 'packages/core/guide.md',
+      text: 'sentinel',
+      totalBytes: Buffer.byteLength(guide),
+    });
+
+    const invalidCursorResponse = await request(app)
+      .post(`/api/projects/projects/${projectId}/source/archive/query`)
+      .send({
+        archiveVersion,
+        cursorBytes: Buffer.byteLength(guide) + 1,
+        operation: 'read-file',
+        path: 'packages/core/guide.md',
+      });
+    expect(invalidCursorResponse.status).toBe(400);
+
+    const searchResponse = await request(app)
+      .post(`/api/projects/projects/${projectId}/source/archive/query`)
+      .send({ archiveVersion, operation: 'search-text', query: 'engine' });
+    expect(searchResponse.status).toBe(200);
+    expect(searchResponse.body.result).toEqual([
+      {
+        column: 14,
+        line: 1,
+        lineText: 'export const engine = true;',
+        path: 'packages/core/index.ts',
+      },
+    ]);
+
+    const resolveResponse = await request(app)
+      .post(`/api/projects/projects/${projectId}/source/archive/query`)
+      .send({
+        archiveVersion,
+        operation: 'resolve-selectors',
+        selectors: [
+          { kind: 'directory', path: 'packages/core' },
+          { kind: 'file', path: 'packages/core/index.ts' },
+        ],
+      });
+    expect(resolveResponse.status).toBe(200);
+    expect(resolveResponse.body.result).toEqual([
+      { path: 'packages/core/guide.md', text: guide },
+      { path: 'packages/core/index.ts', text: 'export const engine = true;' },
+    ]);
+
+    const replacementZip = new JSZip();
+    replacementZip.file('replacement.txt', 'new source version');
+    const replacementBytes = await replacementZip.generateAsync({
+      compression: 'DEFLATE',
+      type: 'uint8array',
+    });
+    const replacementSnapshot = {
+      ...archiveSnapshot,
+      source: {
+        ...archiveSnapshot.source,
+        file: {
+          data: '',
+          mimeType: 'application/zip',
+          name: 'replacement.zip',
+        },
+        name: 'replacement.zip',
+      },
+    };
+    const replacementResponse = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .field('snapshot', JSON.stringify(replacementSnapshot))
+      .attach('archive', Buffer.from(replacementBytes), {
+        contentType: 'application/zip',
+        filename: 'replacement.zip',
+      });
+    expect(replacementResponse.status).toBe(200);
+
+    const staleReadResponse = await request(app)
+      .post(`/api/projects/projects/${projectId}/source/archive/query`)
+      .send({ archiveVersion, operation: 'read-file', path: 'packages/core/guide.md' });
+    expect(staleReadResponse.status).toBe(409);
+    expect(staleReadResponse.body.error).toMatch(/cambiato|ricarica/iu);
+
+    const exportResponse = await request(app).post(`/api/projects/projects/${projectId}/export`);
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.body.data.source.file.data).toBe(
+      Buffer.from(replacementBytes).toString('base64')
+    );
+  });
+
   test('stores raster course covers separately from project snapshots', async () => {
     const app = createApp();
     await request(app)
@@ -329,33 +628,6 @@ describe('/api/projects', () => {
       .post('/api/projects/projects/project-1/cover')
       .send({ cover: { ...cover, mimeType: 'image/svg+xml' } });
     expect(invalidResponse.status).toBe(400);
-  });
-
-  test('migrates a legacy embedded PDF once when the project is first loaded', async () => {
-    const app = createApp();
-    const pdfData = 'JVBERi0xLjQKbGVnYWN5';
-    const snapshot = {
-      ...createSnapshot('legacy-pdf', 'Corso legacy'),
-      source: {
-        kind: 'pdf',
-        file: {
-          name: 'legacy.pdf',
-          mimeType: 'application/pdf',
-          data: pdfData,
-        },
-      },
-    } satisfies ProjectSnapshot;
-    store.seedStoredSnapshot('local-user', snapshot);
-
-    const firstLoad = await request(app).get('/api/projects/projects/legacy-pdf');
-    const secondLoad = await request(app).get('/api/projects/projects/legacy-pdf');
-
-    expect(firstLoad.body.project.source.file.data).toBe('');
-    expect(secondLoad.body.project.source.ref).toEqual(firstLoad.body.project.source.ref);
-    expect(store.countStoredSources('local-user')).toBe(1);
-    expect(JSON.stringify(store.readStoredSnapshot('local-user', snapshot.id))).not.toContain(
-      pdfData
-    );
   });
 
   test('counts module-shaped lessons in server project metadata', async () => {

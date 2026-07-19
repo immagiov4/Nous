@@ -33,6 +33,8 @@ export const MEDIUM_REASONING_CONFIG: OpenRouterReasoningOptions = {
   exclude: false,
 };
 
+export const OPENROUTER_WEB_SEARCH_TOOL = { type: 'openrouter:web_search' } as const;
+
 export const resolveOpenRouterModel = (
   fallbackModel: string,
   _slot: OpenRouterModelSlot = 'lesson',

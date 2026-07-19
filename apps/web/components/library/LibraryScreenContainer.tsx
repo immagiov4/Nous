@@ -98,7 +98,11 @@ export const LibraryScreenContainer = ({
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    setPendingHomeSourceFiles(sortSourceFiles(Array.from(event.target.files || [])));
+    const selectedFiles = sortSourceFiles(Array.from(event.target.files || []));
+    setPendingHomeSourceFiles(selectedFiles);
+    if (selectedFiles.length > 0) {
+      setHomeChatMode('new-course');
+    }
     if (event.target) {
       event.target.value = '';
     }

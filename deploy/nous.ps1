@@ -160,6 +160,14 @@ function Invoke-Smoke {
   Write-Output 'Healthy: database'
 }
 
+function Invoke-SourceStorageTool([string[]]$ToolArgs) {
+  Invoke-Compose (@('--profile', 'tools', 'run', '--rm', '-T', 'source-storage-tools') + $ToolArgs)
+}
+
+function Get-Sha256([string]$Path) {
+  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
 Invoke-Preflight
 Ensure-EnvFile
 $Profile = Get-DeploymentProfile
@@ -236,21 +244,103 @@ switch ($Command) {
   'backup' {
     $backupDirectory = Join-Path $Root 'deploy/backups'
     New-Item -ItemType Directory -Force -Path $backupDirectory | Out-Null
-    $backupPath = Join-Path $backupDirectory "nous-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')).dump"
-    $base64 = & docker @ComposeArgs --profile tools run --rm -T db-tools sh -c 'pg_dump "$DATABASE_URL" --format=custom | base64'
-    if ($LASTEXITCODE -ne 0) { throw 'Database backup failed.' }
-    [IO.File]::WriteAllBytes($backupPath, [Convert]::FromBase64String(($base64 -join '')))
-    $base64 | & docker @ComposeArgs --profile tools run --rm -T db-tools sh -c 'base64 -d | pg_restore --list >/dev/null'
-    if ($LASTEXITCODE -ne 0) { throw 'The backup archive failed verification.' }
-    Write-Output $backupPath
+    $backupStem = "nous-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ'))"
+    $databaseName = "$backupStem.dump"
+    $storageName = "$backupStem.project-sources.tar"
+    $databasePath = Join-Path $backupDirectory $databaseName
+    $storagePath = Join-Path $backupDirectory $storageName
+    $databasePartName = "$databaseName.partial"
+    $storagePartName = "$storageName.partial"
+    $databasePartPath = Join-Path $backupDirectory $databasePartName
+    $storagePartPath = Join-Path $backupDirectory $storagePartName
+    $workName = ".$backupStem.storage.$([Guid]::NewGuid().ToString('N'))"
+    $verifyName = ".$backupStem.verify.$([Guid]::NewGuid().ToString('N'))"
+    $workDirectory = Join-Path $backupDirectory $workName
+    $storageDirectory = Join-Path $workDirectory 'artifact'
+    $verifyDirectory = Join-Path $backupDirectory $verifyName
+
+    foreach ($path in @($databasePath, $storagePath, $databasePartPath, $storagePartPath)) {
+      if (Test-Path -LiteralPath $path) {
+        throw 'A backup with this timestamp already exists; retry in one second.'
+      }
+    }
+
+    New-Item -ItemType Directory -Path $workDirectory, $verifyDirectory | Out-Null
+    try {
+      Invoke-Compose @(
+        '--profile', 'tools', 'run', '--rm', '-T', 'db-tools', 'sh', '-ec',
+        "pg_dump `"`$DATABASE_URL`" --format=custom --exclude-schema=storage --file=`"/backups/$databasePartName`" && pg_restore --list `"/backups/$databasePartName`" >/dev/null"
+      )
+      $databaseSha256 = Get-Sha256 $databasePartPath
+      Invoke-SourceStorageTool @(
+        'bun', 'run', 'scripts/project-source-storage-artifact.ts',
+        'backup', "/backups/$workName/artifact", $databaseSha256
+      )
+
+      & tar -C $storageDirectory -cf $storagePartPath .
+      if ($LASTEXITCODE -ne 0) { throw 'Project source archive creation failed.' }
+      & tar -xf $storagePartPath -C $verifyDirectory
+      if ($LASTEXITCODE -ne 0) { throw 'Project source archive extraction failed.' }
+      Invoke-SourceStorageTool @(
+        'bun', 'run', 'scripts/project-source-storage-artifact.ts',
+        'verify', "/backups/$verifyName", $databaseSha256
+      )
+
+      Move-Item -LiteralPath $storagePartPath -Destination $storagePath
+      Move-Item -LiteralPath $databasePartPath -Destination $databasePath
+      Write-Output $databasePath
+      Write-Output $storagePath
+    }
+    catch {
+      Remove-Item -LiteralPath $databasePath, $storagePath -Force -ErrorAction SilentlyContinue
+      throw
+    }
+    finally {
+      Remove-Item -LiteralPath $databasePartPath, $storagePartPath -Force -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $workDirectory, $verifyDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
   'restore' {
     $backupPath = $Arguments[0]
-    if ($env:CONFIRM_RESTORE -ne 'nous-reader' -or -not (Test-Path -LiteralPath $backupPath)) {
-      throw 'Set CONFIRM_RESTORE=nous-reader and pass an existing dump path.'
+    $storagePath = $Arguments[1]
+    if (
+      $env:CONFIRM_RESTORE -ne 'nous-reader' -or
+      -not (Test-Path -LiteralPath $backupPath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $storagePath -PathType Leaf)
+    ) {
+      throw 'Set CONFIRM_RESTORE=nous-reader and pass the matching dump and project-sources archive.'
     }
-    $base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($backupPath))
-    $base64 | & docker @ComposeArgs --profile tools run --rm -T db-tools sh -c 'base64 -d | pg_restore --dbname="$DATABASE_URL" --clean --if-exists --no-owner'
-    if ($LASTEXITCODE -ne 0) { throw 'Database restore failed.' }
+
+    $backupDirectory = Join-Path $Root 'deploy/backups'
+    New-Item -ItemType Directory -Force -Path $backupDirectory | Out-Null
+    $restoreId = [Guid]::NewGuid().ToString('N')
+    $databaseCopyName = ".restore-$restoreId.dump"
+    $databaseCopyPath = Join-Path $backupDirectory $databaseCopyName
+    $restoreName = ".restore-project-sources.$restoreId"
+    $restoreDirectory = Join-Path $backupDirectory $restoreName
+    New-Item -ItemType Directory -Path $restoreDirectory | Out-Null
+
+    try {
+      Copy-Item -LiteralPath $backupPath -Destination $databaseCopyPath
+      $databaseSha256 = Get-Sha256 $databaseCopyPath
+      & tar -xf $storagePath -C $restoreDirectory
+      if ($LASTEXITCODE -ne 0) { throw 'Project source archive extraction failed.' }
+      Invoke-SourceStorageTool @(
+        'bun', 'run', 'scripts/project-source-storage-artifact.ts',
+        'verify', "/backups/$restoreName", $databaseSha256
+      )
+      Invoke-Compose @(
+        '--profile', 'tools', 'run', '--rm', '-T', 'db-tools', 'sh', '-ec',
+        "pg_restore --list `"/backups/$databaseCopyName`" >/dev/null && pg_restore --dbname=`"`$DATABASE_URL`" --clean --if-exists --no-owner --exit-on-error --single-transaction `"/backups/$databaseCopyName`""
+      )
+      Invoke-SourceStorageTool @(
+        'bun', 'run', 'scripts/project-source-storage-artifact.ts',
+        'restore', "/backups/$restoreName", $databaseSha256
+      )
+    }
+    finally {
+      Remove-Item -LiteralPath $databaseCopyPath -Force -ErrorAction SilentlyContinue
+      Remove-Item -LiteralPath $restoreDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
 }

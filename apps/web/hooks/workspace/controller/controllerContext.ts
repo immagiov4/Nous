@@ -1,6 +1,7 @@
 import * as OpenRouterService from '../../../services/openrouter/index.ts';
 import {
   attachStoredPrimarySource,
+  attachStoredSources,
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
   getCourseSourceDescriptors,
@@ -44,8 +45,23 @@ export const loadProjectSourceFile = async (
 
   const source = context.domain.source;
   const projectId = context.projectLibrary.currentProjectId;
-  if (source?.kind !== 'pdf' || !projectId) {
+  if (!source || source.kind === 'archive' || !projectId) {
     return null;
+  }
+
+  if (source.sources?.length) {
+    const storedSources = await context.projectLibrary.loadStoredProjectSources(projectId);
+    if (storedSources.length !== source.sources.length) {
+      context.state.setMissingSourceProjectId(projectId);
+      return null;
+    }
+    const hydratedSource = attachStoredSources(
+      source,
+      storedSources.map(stored => stored.file)
+    );
+    context.state.setMissingSourceProjectId(null);
+    context.domain.setSource(hydratedSource);
+    return getProjectSourceFile(hydratedSource);
   }
 
   const loadedFile = await context.projectLibrary.loadStoredProjectSource(projectId);
