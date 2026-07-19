@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { parseCleanJson } from '../../../services/openrouter/json.ts';
 
+test('parseCleanJson preserves fenced Markdown inside an outer JSON fence', () => {
+  const contentMarkdown = 'Prima\n\n```sh\nuname -r\n```\n\nDopo';
+  const raw = `\`\`\`json\n${JSON.stringify({ contentMarkdown })}\n\`\`\``;
+
+  assert.equal(parseCleanJson<{ contentMarkdown: string }>(raw).contentMarkdown, contentMarkdown);
+});
+
 test('parseCleanJson repairs raw newlines and invalid backslashes inside strings', () => {
   const raw = `{
     "contentMarkdown": "Linea 1
