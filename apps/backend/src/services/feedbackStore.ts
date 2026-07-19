@@ -3,7 +3,7 @@ import postgres from 'postgres';
 
 type PostgresSql = ReturnType<typeof postgres>;
 
-const RATE_LIMIT_MAX_REPORTS = 5;
+const RATE_LIMIT_MAX_REPORTS = 15;
 const RATE_LIMIT_WINDOW_HOURS = 1;
 const DUPLICATE_WINDOW_HOURS = 24;
 const MAX_DELIVERY_ATTEMPTS = 8;
