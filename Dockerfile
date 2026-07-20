@@ -23,6 +23,7 @@ EXPOSE 8080
 CMD ["bun", "run", "scripts/serve-production-frontend.ts"]
 
 FROM dependencies AS tooling
+COPY apps/backend/src apps/backend/src
 COPY deploy/config.mjs deploy/config.mjs
 COPY deploy/health-smoke.mjs deploy/health-smoke.mjs
 COPY supabase supabase

@@ -1208,6 +1208,7 @@ if (import.meta.main) {
     console.error('[Project source migration] Failed.', {
       code: diagnostic.code,
       message: diagnostic.message,
+      projectId: diagnostic.projectId,
     });
     process.exitCode = 1;
   });
