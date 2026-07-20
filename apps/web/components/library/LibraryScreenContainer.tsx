@@ -284,6 +284,7 @@ export const LibraryScreenContainer = ({
           void fileActions.handleExportProject(projectId);
         }}
         onImportLibraryBackup={projectLibrary.importLibraryBackup}
+        onImportProjectFile={fileActions.handlePlanUpload}
         onOpenProject={projectId => {
           void navigation.handleOpenProject(projectId, { source: 'library' });
         }}

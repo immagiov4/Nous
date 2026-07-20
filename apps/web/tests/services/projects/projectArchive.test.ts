@@ -8,6 +8,7 @@ import {
 import {
   createProjectArchiveBlob,
   isProjectArchiveFile,
+  readProjectImportBundle,
   readProjectImportData,
 } from '../../../services/projects/projectArchive.ts';
 import { encodeBytesBase64, encodeTextBase64 } from '../../../services/projects/projectSource.ts';
@@ -111,11 +112,16 @@ test('source archive backups keep original zip bytes outside the manifest and pr
   const manifestText = (await zip.file('project.json')?.async('string')) || '';
   const sourceEntry = zip.file('source/engine-source.zip');
   const imported = (await readProjectImportData(archive)) as ProjectSnapshot;
+  const binaryImport = await readProjectImportBundle(archive);
+  const binarySnapshot = binaryImport.data as ProjectSnapshot;
 
   assert.ok(sourceEntry);
   assert.equal(manifestText.includes(snapshot.source.file.data), false);
   assert.deepEqual(new Uint8Array(await sourceEntry.async('uint8array')), sourceBytes);
   assert.deepEqual(imported.source, snapshot.source);
+  assert.equal(binarySnapshot.source?.file.data, '');
+  assert.ok(binaryImport.sourceArchiveFile);
+  assert.deepEqual(new Uint8Array(await binaryImport.sourceArchiveFile.arrayBuffer()), sourceBytes);
 });
 
 test('multi-source archives preserve every file and derivative without embedding file bytes in the manifest', async () => {

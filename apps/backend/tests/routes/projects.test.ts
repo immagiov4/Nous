@@ -306,6 +306,47 @@ describe('/api/projects', () => {
     );
   });
 
+  test('imports a binary source archive in bounded chunks', async () => {
+    const app = createApp();
+    const uploadId = '223e4567-e89b-42d3-a456-426614174000';
+    const sourceZip = new JSZip();
+    sourceZip.file('main.ts', 'export const ready = true;');
+    const sourceBytes = Buffer.from(await sourceZip.generateAsync({ type: 'uint8array' }));
+    const splitAt = Math.ceil(sourceBytes.length / 2);
+    const snapshot = {
+      ...createSnapshot('binary-import-project', 'Corso archivio'),
+      sourceKind: 'codebase' as const,
+      source: {
+        file: { data: '', mimeType: 'application/zip', name: 'engine.zip' },
+        index: { entries: [] },
+        kind: 'archive',
+        name: 'engine.zip',
+      },
+    };
+
+    for (let chunkIndex = 0; chunkIndex < 2; chunkIndex += 1) {
+      const response = await request(app)
+        .put(`/api/projects/import/chunks/${uploadId}/${chunkIndex}?chunkCount=2`)
+        .set('Content-Type', 'application/octet-stream')
+        .send(
+          sourceBytes.subarray(
+            chunkIndex === 0 ? 0 : splitAt,
+            chunkIndex === 0 ? splitAt : undefined
+          )
+        );
+      expect(response.status).toBe(202);
+    }
+
+    const response = await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .send({
+        snapshot,
+        sourceFile: { mimeType: 'application/zip', name: 'engine.zip' },
+      });
+    expect(response.status).toBe(200);
+    expect(response.body.snapshot).toMatchObject({ id: 'binary-import-project' });
+  });
+
   test('round-trips every modern course source while snapshots remain byte-free', async () => {
     const app = createApp();
     const sourceFiles = [

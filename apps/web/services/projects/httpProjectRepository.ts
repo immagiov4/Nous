@@ -52,6 +52,7 @@ const PROJECT_SYNC_TIMEOUT_MESSAGE =
   'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_ARCHIVE_SAVE_TIMEOUT_MS = 10 * 60_000;
+const PROJECT_ARCHIVE_DIRECT_MAX_BYTES = 16_000_000;
 const PROJECT_IMPORT_STATUS_POLL_MS = 1_000;
 const getUtf8Bytes = (value: string): number => new Blob([value]).size;
 
@@ -291,6 +292,10 @@ export class HttpProjectRepository implements ProjectRepository {
         };
       }
     }
+    if (archiveFile && archiveFile.size > PROJECT_ARCHIVE_DIRECT_MAX_BYTES) {
+      const importConfig = await this.getProjectImportConfig();
+      return this.saveArchiveProjectInChunks(snapshotToSave, archiveFile, importConfig);
+    }
     const body = archiveFile
       ? this.createArchiveSaveBody(snapshotToSave, archiveFile, options)
       : JSON.stringify({ snapshot: snapshotToSave, ...options });
@@ -331,6 +336,67 @@ export class HttpProjectRepository implements ProjectRepository {
     }
     body.append('archive', archiveFile);
     return body;
+  }
+
+  private async saveArchiveProjectInChunks(
+    snapshot: ProjectSnapshot,
+    archiveFile: File,
+    config: ProjectImportConfig
+  ): Promise<ProjectSaveResult> {
+    if (snapshot.source?.kind !== 'archive') {
+      throw new ProjectStorageError(
+        'Il file archivio richiede una sorgente ZIP.',
+        'persistence-failed'
+      );
+    }
+    const sourceFile = snapshot.source.file;
+    const uploadId = globalThis.crypto.randomUUID();
+    const chunkCount = Math.ceil(archiveFile.size / config.maxChunkBytes);
+    if (chunkCount > config.maxChunkCount || archiveFile.size > config.maxSerializedBytes) {
+      throw new ProjectStorageError(
+        'Il backup supera il limite massimo di importazione configurato sul server.',
+        'quota-exceeded'
+      );
+    }
+    try {
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        await this.requestImportUpload(
+          `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/${chunkIndex}?chunkCount=${chunkCount}`,
+          {
+            body: archiveFile.slice(
+              chunkIndex * config.maxChunkBytes,
+              Math.min(archiveFile.size, (chunkIndex + 1) * config.maxChunkBytes)
+            ),
+            headers: { 'Content-Type': 'application/octet-stream' },
+            method: 'PUT',
+          },
+          config.requestTimeoutMs
+        );
+      }
+      const response = await this.requestImportUpload<{
+        meta?: SavedProjectMeta;
+        snapshot?: ProjectSnapshot;
+      }>(
+        `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
+        {
+          body: JSON.stringify({
+            snapshot,
+            sourceFile: { name: sourceFile.name, mimeType: sourceFile.mimeType },
+          }),
+          method: 'POST',
+        },
+        config.requestTimeoutMs
+      );
+      return {
+        meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato salvato.'),
+        snapshot: normalizeStoredProject(
+          assertValue(response.snapshot, 'La fonte sincronizzata non e stata restituita.')
+        ),
+      };
+    } catch (error) {
+      await this.cancelProjectImportUpload(uploadId, config.requestTimeoutMs);
+      throw error;
+    }
   }
 
   async saveProjectCover(id: ProjectId, cover: FileData): Promise<void> {

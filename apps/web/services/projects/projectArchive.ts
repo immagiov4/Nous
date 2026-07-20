@@ -363,4 +363,42 @@ export const readProjectImportData = async (file: Blob): Promise<unknown> => {
   return parsed;
 };
 
+export const readProjectImportBundle = async (
+  file: Blob
+): Promise<{ data: unknown; sourceArchiveFile?: File }> => {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!isZipArchive(bytes)) {
+    return { data: await readProjectImportData(file) };
+  }
+
+  const { manifest, zip } = await loadProjectArchive(bytes);
+  const attachment = manifest.attachments?.sourceFile;
+  if (manifest.project.source?.kind !== 'archive' || !attachment) {
+    return { data: await decodeArchiveManifest(bytes) };
+  }
+  const attachmentEntry = zip.file(attachment.path);
+  if (!attachmentEntry) {
+    throw new Error(`Archivio backup non valido: manca ${attachment.path}.`);
+  }
+  const sourceBytes = await readZipEntryBytesWithinLimit(
+    attachmentEntry,
+    PROJECT_ARCHIVE_MAX_TOTAL_ATTACHMENT_BYTES,
+    INVALID_BACKUP_ARCHIVE_MESSAGE
+  );
+  assertTotalAttachmentBytes(sourceBytes.length);
+
+  return {
+    data: {
+      ...manifest.project,
+      source: {
+        ...manifest.project.source,
+        file: { ...manifest.project.source.file, data: '' },
+      },
+    },
+    sourceArchiveFile: new File([new Uint8Array(sourceBytes)], attachment.name, {
+      type: attachment.mimeType,
+    }),
+  };
+};
+
 export const getProjectArchiveExtension = () => '.nous.zip';

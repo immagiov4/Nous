@@ -751,12 +751,24 @@ router.post('/import', async (req: Request, res: Response) => {
 router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Response) => {
   try {
     const userId = getCurrentUser(req).id;
+    const chunk = req.is('application/octet-stream')
+      ? new Uint8Array(
+          await new globalThis.Request(`http://localhost${req.originalUrl}`, {
+            body: Readable.toWeb(req) as unknown as ReadableStream,
+            duplex: 'half',
+            headers: req.headers as HeadersInit,
+            method: req.method,
+          } as RequestInit & { duplex: 'half' }).arrayBuffer()
+        )
+      : typeof req.body === 'string'
+        ? req.body
+        : '';
     const result = await storeProjectImportChunk({
       userId,
       uploadId: getRouteParam(req.params.uploadId),
       chunkIndex: readOptionalSafeInteger(Number(getRouteParam(req.params.chunkIndex))) ?? -1,
       chunkCount: readOptionalSafeInteger(Number(req.query.chunkCount)) ?? -1,
-      chunk: typeof req.body === 'string' ? req.body : '',
+      chunk,
     });
     res.status(202).json({ success: true, complete: false, ...result });
   } catch (error) {
@@ -825,11 +837,40 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
   try {
     const userId = getCurrentUser(req).id;
     const store = getProjectStore();
+    const completionBody = isRecord(req.body) ? req.body : {};
     const completed = await completeProjectImportUpload({
       userId,
       uploadId: getRouteParam(req.params.uploadId),
       importData: async data => {
         const imported = await store.importProject(userId, data);
+        publishMetaRevision(userId, imported.meta);
+        return { projectId: imported.meta.id, meta: imported.meta };
+      },
+      importBinary: async bytes => {
+        const snapshotRecord = completionBody.snapshot;
+        const sourceFile = completionBody.sourceFile;
+        if (
+          !isRecord(snapshotRecord) ||
+          !isRecord(sourceFile) ||
+          typeof snapshotRecord.id !== 'string'
+        ) {
+          throw new ProjectImportInputError('Metadati del backup binario non validi.');
+        }
+        const snapshot = requireProjectSnapshot({ snapshot: snapshotRecord }, snapshotRecord.id);
+        if (
+          !isRecord(snapshot.source) ||
+          snapshot.source.kind !== 'archive' ||
+          !isRecord(snapshot.source.file) ||
+          typeof sourceFile.name !== 'string' ||
+          typeof sourceFile.mimeType !== 'string' ||
+          snapshot.source.file.name !== sourceFile.name ||
+          snapshot.source.file.mimeType !== sourceFile.mimeType
+        ) {
+          throw new ProjectImportInputError('Metadati della sorgente archivio non validi.');
+        }
+        const imported = await store.saveProject(userId, snapshot, {
+          sourceFile: { bytes, name: sourceFile.name, mimeType: sourceFile.mimeType },
+        });
         publishMetaRevision(userId, imported.meta);
         return { projectId: imported.meta.id, meta: imported.meta };
       },

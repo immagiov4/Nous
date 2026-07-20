@@ -22,7 +22,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { ComponentProps, FormEvent } from 'react';
+import type { ChangeEvent, ComponentProps, FormEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import logoUrl from '@/assets/logo.svg';
@@ -99,6 +99,7 @@ interface NewHomeViewProps {
   onExportLibraryBackup?: () => Promise<number>;
   onExportProject?: (projectId: string) => void;
   onImportLibraryBackup?: (file: File) => Promise<number>;
+  onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenProject: (projectId: string) => void;
   openingProjectId: string | null;
   onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
@@ -551,6 +552,7 @@ const CourseList = ({
   onDeleteFolder,
   onDeleteProject,
   onExportProject,
+  onImportProjectFile,
   onOpenProject,
   openingProjectId,
   onRenameFolder,
@@ -571,6 +573,7 @@ const CourseList = ({
   onDeleteFolder?: (folderId: string) => Promise<void>;
   onDeleteProject?: (projectId: string) => void | Promise<void>;
   onExportProject?: (projectId: string) => void;
+  onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenProject: (projectId: string) => void;
   openingProjectId: string | null;
   onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
@@ -796,12 +799,28 @@ const CourseList = ({
         <h2 className="font-serif text-[1.45rem] tracking-[-0.02em] text-stone-950 dark:text-stone-50">
           {t('I tuoi corsi')}
         </h2>
-        <Pressable
-          onClick={() => setDialog({ initialName: '' })}
-          className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 hover:border-stone-300 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
-        >
-          <Plus className="h-3.5 w-3.5" /> {t('Nuova cartella')}
-        </Pressable>
+        <div className="flex items-center gap-3">
+          {onImportProjectFile ? (
+            <label
+              className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-dashed border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 hover:border-stone-300 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
+              title={t('Importa backup Nous (.nous.zip, formato legacy o JSON legacy)')}
+            >
+              <Download className="h-3.5 w-3.5" /> {t('Importa')}
+              <input
+                type="file"
+                className="hidden"
+                accept=".nous.zip,.lumina.zip,.zip,.json,.nous,.lumina"
+                onChange={onImportProjectFile}
+              />
+            </label>
+          ) : null}
+          <Pressable
+            onClick={() => setDialog({ initialName: '' })}
+            className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 hover:border-stone-300 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
+          >
+            <Plus className="h-3.5 w-3.5" /> {t('Nuova cartella')}
+          </Pressable>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -1267,6 +1286,7 @@ const HomePage = ({
   onDeleteFolder,
   onDeleteProject,
   onExportProject,
+  onImportProjectFile,
   onOpenProject,
   openingProjectId,
   onRenameFolder,
@@ -1285,6 +1305,7 @@ const HomePage = ({
   onDeleteFolder?: (folderId: string) => Promise<void>;
   onDeleteProject?: (projectId: string) => void | Promise<void>;
   onExportProject?: (projectId: string) => void;
+  onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
   onOpenProject: (projectId: string) => void;
   openingProjectId: string | null;
   onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
@@ -1408,6 +1429,7 @@ const HomePage = ({
             onDeleteFolder={onDeleteFolder}
             onDeleteProject={onDeleteProject}
             onExportProject={onExportProject}
+            onImportProjectFile={onImportProjectFile}
             onOpenProject={onOpenProject}
             openingProjectId={openingProjectId}
             onQueryChange={setQuery}
@@ -1714,6 +1736,7 @@ export const NewHomeView = ({
   onExportLibraryBackup,
   onExportProject,
   onImportLibraryBackup,
+  onImportProjectFile,
   onOpenProject,
   openingProjectId,
   onRenameFolder,
@@ -1806,6 +1829,7 @@ export const NewHomeView = ({
               onDeleteFolder={onDeleteFolder}
               onDeleteProject={onDeleteProject}
               onExportProject={onExportProject}
+              onImportProjectFile={onImportProjectFile}
               onOpenProject={onOpenProject}
               openingProjectId={openingProjectId}
               onRenameFolder={onRenameFolder}

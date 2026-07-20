@@ -21,7 +21,7 @@ const IMPORT_UPLOAD_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 interface ProjectImportChunk {
-  chunk: string;
+  chunk: string | Uint8Array;
   chunkCount: number;
   chunkIndex: number;
   uploadId: string;
@@ -44,6 +44,7 @@ interface UploadSession {
   completed?: CompletedImport;
   completion?: Promise<CompletedImport>;
   directory: string;
+  format: 'binary' | 'text';
   key: string;
   lock: Promise<void>;
   status: 'receiving' | 'finalizing' | 'completed';
@@ -148,8 +149,9 @@ const validateChunk = ({ chunk, chunkCount, chunkIndex, uploadId }: ProjectImpor
   if (!Number.isSafeInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= chunkCount) {
     throw new ProjectImportInputError('Indice della parte del backup non valido.');
   }
-  const chunkBytes = Buffer.byteLength(chunk, 'utf8');
-  if (!chunk || chunkBytes > projectImportConfig.maxChunkBytes) {
+  const chunkBytes =
+    typeof chunk === 'string' ? Buffer.byteLength(chunk, 'utf8') : chunk.byteLength;
+  if (chunkBytes === 0 || chunkBytes > projectImportConfig.maxChunkBytes) {
     throw new ProjectImportInputError('Parte del backup non valida o troppo grande.');
   }
   return chunkBytes;
@@ -204,6 +206,7 @@ const createSession = async (input: ProjectImportChunk): Promise<UploadSession> 
     chunkCount: input.chunkCount,
     chunks: new Map(),
     directory,
+    format: typeof input.chunk === 'string' ? 'text' : 'binary',
     key,
     lock: Promise.resolve(),
     status: 'receiving',
@@ -267,6 +270,9 @@ export const storeProjectImportChunk = async (
     if (session.chunkCount !== input.chunkCount) {
       throw new ProjectImportInputError('Il numero di parti del backup non e coerente.');
     }
+    if (session.format !== (typeof input.chunk === 'string' ? 'text' : 'binary')) {
+      throw new ProjectImportInputError('Il formato delle parti del backup non e coerente.');
+    }
 
     const digest = createHash('sha256').update(input.chunk).digest('hex');
     const existingChunk = session.chunks.get(input.chunkIndex);
@@ -288,7 +294,6 @@ export const storeProjectImportChunk = async (
     }
 
     await writeFile(join(session.directory, `${input.chunkIndex}.part`), input.chunk, {
-      encoding: 'utf8',
       flag: 'wx',
       mode: 0o600,
     });
@@ -334,10 +339,11 @@ export const getProjectImportUploadStatus = (
 
 const assembleAndImport = async (
   session: UploadSession,
-  importData: (data: unknown) => Promise<CompletedImport>
+  importData?: (data: unknown) => Promise<CompletedImport>,
+  importBinary?: (bytes: Uint8Array) => Promise<CompletedImport>
 ): Promise<CompletedImport> => {
-  const assembledPath = join(session.directory, 'assembled.json');
-  await writeFile(assembledPath, '', { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  const assembledPath = join(session.directory, 'assembled');
+  await writeFile(assembledPath, '', { flag: 'wx', mode: 0o600 });
   for (let index = 0; index < session.chunkCount; index += 1) {
     const chunkPath = join(session.directory, `${index}.part`);
     const chunk = await readFile(chunkPath);
@@ -345,6 +351,12 @@ const assembleAndImport = async (
     await unlink(chunkPath);
   }
 
+  if (session.format === 'binary') {
+    if (!importBinary) throw new ProjectImportInputError('Formato del backup non valido.');
+    return importBinary(new Uint8Array(await readFile(assembledPath)));
+  }
+
+  if (!importData) throw new ProjectImportInputError('Formato del backup non valido.');
   let serialized = await readFile(assembledPath, 'utf8');
   let data: unknown;
   try {
@@ -358,11 +370,13 @@ const assembleAndImport = async (
 };
 
 export const completeProjectImportUpload = async ({
+  importBinary,
   importData,
   uploadId,
   userId,
 }: {
-  importData: (data: unknown) => Promise<CompletedImport>;
+  importBinary?: (bytes: Uint8Array) => Promise<CompletedImport>;
+  importData?: (data: unknown) => Promise<CompletedImport>;
   uploadId: string;
   userId: string;
 }): Promise<CompletedImport> => {
@@ -390,7 +404,9 @@ export const completeProjectImportUpload = async ({
     session.status = 'finalizing';
     session.updatedAt = Date.now();
     try {
-      const completed = await runFinalization(() => assembleAndImport(session, importData));
+      const completed = await runFinalization(() =>
+        assembleAndImport(session, importData, importBinary)
+      );
       session.completed = completed;
       session.status = 'completed';
       session.updatedAt = Date.now();

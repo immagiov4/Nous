@@ -487,6 +487,54 @@ test('HttpProjectRepository uploads archives as binary multipart without a JSON 
   expect(saved.snapshot.source).toEqual(detachedArchiveSource);
 });
 
+test('HttpProjectRepository chunks large binary archives before upload', async () => {
+  const snapshot: ProjectSnapshot = {
+    ...buildPdfSnapshot(),
+    id: 'chunked-archive',
+    sourceKind: 'codebase',
+    source: {
+      file: { data: '', mimeType: 'application/zip', name: 'engine.zip' },
+      index: { entries: [] },
+      kind: 'archive',
+      name: 'engine.zip',
+    },
+  };
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 10_000_000,
+            maxChunkBytes: 10_000_000,
+            maxChunkCount: 4,
+            maxSerializedBytes: 32_000_000,
+            requestTimeoutMs: 10_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, meta: { id: snapshot.id }, snapshot }),
+    });
+
+  await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
+    archiveFile: new File([new Uint8Array(16_000_001)], 'engine.zip', {
+      type: 'application/zip',
+    }),
+  });
+
+  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(fetchMock.mock.calls.slice(1, 3).every(call => call[1]?.body instanceof Blob)).toBe(true);
+  expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
+});
+
 test('HttpProjectRepository does not fall back to Base64 JSON for archives', async () => {
   const repository = new HttpProjectRepository('http://localhost:3301');
   const snapshot: ProjectSnapshot = {

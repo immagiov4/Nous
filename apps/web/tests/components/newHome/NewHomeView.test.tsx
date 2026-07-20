@@ -87,6 +87,36 @@ describe('NewHomeView library rename', () => {
     window.localStorage.clear();
   });
 
+  test('imports a single course from the library header', async () => {
+    const user = userEvent.setup();
+    const onImportProjectFile = vi.fn();
+    render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isLibraryLoading={false}
+        libraryFolders={[folder]}
+        libraryTree={tree}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onImportProjectFile={onImportProjectFile}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[project]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    const file = new File(['backup'], 'course.nous.zip', { type: 'application/zip' });
+    await user.upload(screen.getByLabelText(/^Importa$|^Import$/), file);
+
+    expect(onImportProjectFile).toHaveBeenCalledTimes(1);
+    expect(onImportProjectFile.mock.calls[0]?.[0].target.files?.[0]).toBe(file);
+  });
+
   test('renames course and folder names inline on double click', async () => {
     const user = userEvent.setup();
     const onOpenProject = vi.fn();

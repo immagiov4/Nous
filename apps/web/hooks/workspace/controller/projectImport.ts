@@ -1,6 +1,6 @@
 import {
   isProjectArchiveFile,
-  readProjectImportData,
+  readProjectImportBundle,
 } from '../../../services/projects/projectArchive.ts';
 import { prepareSnapshotForHydrationResult } from '../../../services/workspace/controller/snapshotHydration.ts';
 import type { ProjectSnapshot } from '../../../types.ts';
@@ -22,8 +22,17 @@ export const importProjectBackupFile = async (
   context: Pick<WorkspaceControllerContext, 'persistHydratedSnapshot' | 'projectLibrary'>,
   selectedFile: File
 ): Promise<ProjectSnapshot> => {
-  const importedProject = await readProjectImportData(selectedFile);
-  const { snapshot } = await context.projectLibrary.importProjectData(importedProject);
+  const importedProject = await readProjectImportBundle(selectedFile);
+  const imported = importedProject.sourceArchiveFile
+    ? await context.projectLibrary.persistSnapshot(importedProject.data as ProjectSnapshot, {
+        archiveFile: importedProject.sourceArchiveFile,
+        throwOnError: true,
+      })
+    : await context.projectLibrary.importProjectData(importedProject.data);
+  if (!imported) {
+    throw new Error('Importazione del corso non riuscita.');
+  }
+  const { snapshot } = imported;
   const hydration = prepareSnapshotForHydrationResult(snapshot);
   const preparedSnapshot = hydration.snapshot;
 
