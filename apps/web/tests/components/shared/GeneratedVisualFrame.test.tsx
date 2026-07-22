@@ -207,7 +207,7 @@ describe('GeneratedVisualFrame', () => {
       visualId: missingElementVisual.id,
       visualTitle: missingElementVisual.title,
     };
-    window.dispatchEvent(
+    globalThis.dispatchEvent(
       new MessageEvent('message', {
         data: { type: 'generated-visual-error', error },
         source: frame.contentWindow,

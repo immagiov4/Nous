@@ -65,8 +65,8 @@ const normalizeExtractedTextSegment = (text: string): string =>
     .split('\n')
     .filter(line => !isPageMarkerLine(line))
     .join('\n')
-    .replace(/\f/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll('\f', '\n')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
 
 const buildExtractedPages = (
@@ -91,10 +91,11 @@ const buildOutlineTree = (
   const stack: ExtractedPdfOutlineNode[] = [];
   for (const flatNode of flatNodes) {
     const node = { ...flatNode, children: [] };
-    while (stack.length > 0 && stack[stack.length - 1].level >= node.level) {
+    let parent = stack.at(-1);
+    while (parent && parent.level >= node.level) {
       stack.pop();
+      parent = stack.at(-1);
     }
-    const parent = stack[stack.length - 1];
     (parent?.children || roots).push(node);
     stack.push(node);
   }
@@ -142,7 +143,7 @@ export const buildDeterministicPdfOutline = (
   const flatNodes: Array<Omit<ExtractedPdfOutlineNode, 'children'>> = [];
   for (const page of pages) {
     for (const rawLine of page.text.split('\n')) {
-      const title = rawLine.replace(/\s+/g, ' ').trim();
+      const title = rawLine.replaceAll(/\s+/g, ' ').trim();
       if (title.length < 3 || title.length > 120) {
         continue;
       }
@@ -242,7 +243,7 @@ const extractWithPdftotext = async (
     );
 
     const rawPages = normalizeLineEndings(stdout).split('\f');
-    while (rawPages.length > 1 && rawPages[rawPages.length - 1]?.trim() === '') {
+    while (rawPages.length > 1 && rawPages.at(-1)?.trim() === '') {
       rawPages.pop();
     }
 

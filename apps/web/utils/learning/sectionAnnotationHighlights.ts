@@ -5,7 +5,7 @@ const ANNOTATION_HIGHLIGHT_NAME = 'nous-annotations';
 const NOTE_HIGHLIGHT_NAME = 'nous-annotation-notes';
 const SELECTOR_CONTEXT_LENGTH = 48;
 const PROJECTION_IGNORED_SELECTOR = 'script, style, [data-nous-speech="ignore"]';
-const HIGHLIGHT_IGNORED_SELECTOR = 'code, pre, .katex, [data-nous-speech="ignore"]';
+const HIGHLIGHT_IGNORED_SELECTOR = 'pre, .katex, [data-nous-speech="ignore"]';
 const BLOCK_SELECTOR = 'p, div, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, pre';
 
 interface ProjectionCharacter {
@@ -99,7 +99,21 @@ const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
   return projection;
 };
 
-const normalizeWhitespace = (value: string): string => value.replace(/\s+/gu, ' ').trim();
+const normalizeWhitespace = (value: string): string => value.replaceAll(/\s+/gu, ' ').trim();
+
+const hasIgnoredDomGap = (
+  previousCharacter: ProjectionCharacter,
+  character: ProjectionCharacter
+): boolean => {
+  if (previousCharacter.node === character.node) {
+    return false;
+  }
+
+  const gapRange = document.createRange();
+  gapRange.setStart(previousCharacter.node, previousCharacter.offset + 1);
+  gapRange.setEnd(character.node, character.offset);
+  return Boolean(gapRange.cloneContents().querySelector(PROJECTION_IGNORED_SELECTOR));
+};
 
 const contextMatches = (
   text: string,
@@ -170,13 +184,14 @@ const createHighlightRanges = (
       continue;
     }
 
-    const isContiguous =
-      previousCharacter?.node === character.node &&
-      previousCharacter.offset + 1 === character.offset;
-    if (!currentRange || !isContiguous) {
+    if (previousCharacter && hasIgnoredDomGap(previousCharacter, character)) {
       if (currentRange) {
         ranges.push(currentRange);
       }
+      currentRange = null;
+    }
+
+    if (!currentRange) {
       currentRange = document.createRange();
       currentRange.setStart(character.node, character.offset);
     }

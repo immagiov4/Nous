@@ -32,6 +32,7 @@ const repositoryMocks = vi.hoisted(() => ({
   renameFolder: vi.fn(),
   saveProject: vi.fn(),
   saveProjectCover: vi.fn(),
+  setProjectFavorite: vi.fn(),
   subscribeToProjectRevisions: vi.fn(),
   touchProject: vi.fn(),
 }));
@@ -88,9 +89,9 @@ const buildSnapshot = (id: string, overrides: Partial<ProjectSnapshot> = {}): Pr
 
 describe('useProjectLibrary', () => {
   beforeEach(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof globalThis.window !== 'undefined') {
       const store = new Map<string, string>();
-      Object.defineProperty(window, 'localStorage', {
+      Object.defineProperty(globalThis, 'localStorage', {
         configurable: true,
         value: {
           getItem: (k: string) => store.get(k) ?? null,
@@ -120,6 +121,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.renameFolder.mockReset();
     repositoryMocks.saveProject.mockReset();
     repositoryMocks.saveProjectCover.mockReset();
+    repositoryMocks.setProjectFavorite.mockReset();
     repositoryMocks.patchProject.mockReset();
     repositoryMocks.subscribeToProjectRevisions.mockReset();
     repositoryMocks.touchProject.mockReset();
@@ -212,6 +214,31 @@ describe('useProjectLibrary', () => {
       title: 'Titolo nuovo',
       revision: 5,
     });
+  });
+
+  test('serializes favorite writes and immediately syncs returned server metadata', async () => {
+    const originalMeta = buildMeta('course', '2026-04-02T10:00:00.000Z', 4);
+    repositoryMocks.listProjects.mockResolvedValue([originalMeta]);
+    repositoryMocks.setProjectFavorite.mockResolvedValue({
+      ...originalMeta,
+      isFavorite: true,
+      revision: 5,
+    });
+
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.setProjectFavorite('course', true);
+    });
+
+    expect(repositoryMocks.setProjectFavorite).toHaveBeenCalledWith('course', true);
+    expect(result.current.savedProjects[0]).toMatchObject({ isFavorite: true, revision: 5 });
   });
 
   test('keeps snapshot and source loaders stable across workspace rerenders', async () => {

@@ -9,7 +9,7 @@ import {
 } from '../../../hooks/library/useLearningActivity.ts';
 
 beforeEach(() => {
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 6, 15, 12, 0, 0));
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);

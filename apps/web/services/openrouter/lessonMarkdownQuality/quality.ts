@@ -31,11 +31,7 @@ const insertHeadingSpacing = (contentMarkdown: string): string => {
       trimmedLine.startsWith('##### ') ||
       trimmedLine.startsWith('###### ');
 
-    if (
-      isHeading &&
-      normalizedLines.length > 0 &&
-      normalizedLines[normalizedLines.length - 1] !== ''
-    ) {
+    if (isHeading && normalizedLines.length > 0 && normalizedLines.at(-1) !== '') {
       normalizedLines.push('');
     }
 
@@ -49,9 +45,9 @@ const insertHeadingSpacing = (contentMarkdown: string): string => {
 
 const stripModelMarkdownImages = (contentMarkdown: string): string =>
   contentMarkdown
-    .replace(/!\[[^\]]*]\([^)\n]*\)/g, '')
-    .replace(/<img\b[^>]*>/gi, '')
-    .replace(/\n{3,}/g, '\n\n');
+    .replaceAll(/!\[[^\]]*]\([^)\n]*\)/g, '')
+    .replaceAll(/<img\b[^>]*>/gi, '')
+    .replaceAll(/\n{3,}/g, '\n\n');
 
 // ── Spacing prettification ─────────────────────────────────────────────
 
@@ -59,7 +55,7 @@ const prettifyMarkdownSpacing = (contentMarkdown: string): string =>
   insertHeadingSpacing(
     normalizeLineEndings(contentMarkdown).split('\n').map(trimLineTrailingWhitespace).join('\n')
   )
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
 
 // ── Public export ──────────────────────────────────────────────────────

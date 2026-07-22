@@ -12,7 +12,6 @@ import {
   List,
   LoaderCircle,
   MousePointerClick,
-  Play,
   Trash2,
   Upload,
   X,
@@ -24,6 +23,7 @@ import { getYouTubeVideoClipsEnabled } from '../../../services/openrouter/youtub
 import type {
   ApplicationExerciseNode,
   LearningArtifactRenderPayload,
+  LessonContentBlock,
   LessonGeneratedVisual,
   ResearchSourceReference,
   SectionAnnotation,
@@ -34,12 +34,16 @@ import { supportsSectionAnnotationHighlights } from '../../../utils/learning/sec
 import { stripTerminalLessonSourcesSection } from '../../../utils/markdown/lessonSources.ts';
 import { buildInlineQuizLayout } from '../../../utils/reader/inlineQuiz.ts';
 import {
-  buildYouTubeClipEmbedUrl,
-  isYouTubeClipWithinTranscriptBounds,
-  normalizeYouTubeClipInterval,
-  type YouTubeClipInterval,
-} from '../../../utils/youtube.ts';
+  deriveQuizFromLessonContentBlocks,
+  normalizeLessonContentBlocks,
+} from '../../../utils/reader/lessonContentBlocks.ts';
+import {
+  projectYouTubeClipCarousel,
+  resolveTypedYouTubeClips,
+  splitYouTubeClipCarouselContent,
+} from '../../../utils/reader/youtubeClipCarousel.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
+import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
@@ -47,56 +51,9 @@ import LessonLearningAids from './LessonLearningAids.tsx';
 import type { WorkspaceReaderContentModel } from './types.ts';
 import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
 import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
+import YouTubeClipCarousel from './YouTubeClipCarousel.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
-const YOUTUBE_CLIP_SOURCE_PLACEHOLDER_REGEX =
-  /\{\{YOUTUBE_CLIP_SOURCE:(\d+)(?:\|START:(\d+)\|END:(\d+))?}}/g;
-
-type InlineLessonPart =
-  | { content: string; key: string; type: 'markdown' }
-  | {
-      clipOverride?: YouTubeClipInterval;
-      key: string;
-      sourceIndex: number;
-      type: 'youtube';
-    };
-
-const splitInlineLessonParts = (content: string): InlineLessonPart[] => {
-  const parts: InlineLessonPart[] = [];
-  let lastIndex = 0;
-  YOUTUBE_CLIP_SOURCE_PLACEHOLDER_REGEX.lastIndex = 0;
-  for (const match of content.matchAll(YOUTUBE_CLIP_SOURCE_PLACEHOLDER_REGEX)) {
-    const matchIndex = match.index ?? 0;
-    if (matchIndex > lastIndex) {
-      parts.push({
-        content: content.slice(lastIndex, matchIndex),
-        key: `markdown:${lastIndex}:${matchIndex}`,
-        type: 'markdown',
-      });
-    }
-    parts.push({
-      clipOverride:
-        match[2] && match[3]
-          ? {
-              endSeconds: Number.parseInt(match[3], 10),
-              startSeconds: Number.parseInt(match[2], 10),
-            }
-          : undefined,
-      key: `youtube:${matchIndex}`,
-      sourceIndex: Number.parseInt(match[1] || '', 10),
-      type: 'youtube',
-    });
-    lastIndex = matchIndex + match[0].length;
-  }
-  if (lastIndex < content.length) {
-    parts.push({
-      content: content.slice(lastIndex),
-      key: `markdown:${lastIndex}:${content.length}`,
-      type: 'markdown',
-    });
-  }
-  return parts;
-};
 
 const createFallbackVisualArtifactPayload = ({
   activeSectionTitle,
@@ -120,7 +77,7 @@ const createFallbackVisualArtifactPayload = ({
     projectId: '',
     projectTitle: '',
     sourceLabel: getGeneratedVisualSourceLabel(visual),
-    title: title || visual.title?.replace(/[_-]+/g, ' ').trim() || 'Esempio visuale',
+    title: title || visual.title?.replaceAll(/[_-]+/g, ' ').trim() || 'Esempio visuale',
   },
   visual,
 });
@@ -254,7 +211,7 @@ const stripExerciseObjectiveSection = (brief: string): string => {
 
   return visibleLines
     .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
 };
 
@@ -299,8 +256,8 @@ function ExerciseInternalTextEditor({
       return;
     }
 
-    const timeoutId = window.setTimeout(onCommit, 300);
-    return () => window.clearTimeout(timeoutId);
+    const timeoutId = globalThis.window.setTimeout(onCommit, 300);
+    return () => globalThis.window.clearTimeout(timeoutId);
   }, [exercise.internalText, internalText, onCommit]);
 
   const withTextareaTransform = (
@@ -782,62 +739,6 @@ const getSafeSourceUrl = (url: string | undefined): string | null => {
   }
 };
 
-const formatClipTime = (seconds: number): string => {
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
-};
-
-function YouTubeLessonClip({
-  clipOverride,
-  source,
-}: {
-  clipOverride?: YouTubeClipInterval;
-  source: ResearchSourceReference;
-}) {
-  const [isPlayerVisible, setIsPlayerVisible] = useState(false);
-  const clip = clipOverride || source.videoClip;
-  const embedUrl = clip
-    ? buildYouTubeClipEmbedUrl(source.url || '', clip.startSeconds, clip.endSeconds)
-    : null;
-  if (!clip || !embedUrl) {
-    return null;
-  }
-
-  const timeRange = `${formatClipTime(clip.startSeconds)}–${formatClipTime(clip.endSeconds)}`;
-  return (
-    <figure className="overflow-hidden rounded-[1.2rem] border border-stone-200/80 bg-white/80 dark:border-stone-700 dark:bg-stone-900/35">
-      {isPlayerVisible ? (
-        <iframe
-          src={embedUrl}
-          title={t('Dimostrazione video: {sourceTitle}', { sourceTitle: source.title })}
-          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
-          loading="lazy"
-          referrerPolicy="strict-origin-when-cross-origin"
-          className="aspect-video w-full border-0"
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setIsPlayerVisible(true)}
-          className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-stone-100 px-6 text-stone-800 transition-colors hover:bg-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-orange-600 dark:bg-stone-950 dark:text-stone-100 dark:hover:bg-stone-900"
-        >
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-600 text-white">
-            <Play className="ml-0.5 h-5 w-5" fill="currentColor" />
-          </span>
-          <span className="text-sm font-semibold">
-            {t('Riproduci la dimostrazione ({timeRange})', { timeRange })}
-          </span>
-        </button>
-      )}
-      <figcaption className="px-4 py-3 text-sm leading-6 text-stone-600 dark:text-stone-300">
-        <span className="font-semibold text-stone-900 dark:text-stone-100">{source.title}</span>
-        {source.note ? <span> — {source.note}</span> : null}
-      </figcaption>
-    </figure>
-  );
-}
-
 function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference[] }) {
   if (sources.length === 0) {
     return null;
@@ -914,6 +815,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   scrollMode = 'contained',
   sectionAnnotations,
   sectionContent,
+  sectionContentBlocks,
   exerciseFeedbackError,
   exerciseFeedbackStatus,
   sectionReasoningText,
@@ -923,16 +825,15 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   ttsTextPicker,
 }: WorkspaceReaderContentModel) {
   const [hasDismissedContextHint, setHasDismissedContextHint] = useState(() => {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return false;
     }
-    return window.localStorage.getItem(CONTEXT_MENU_HINT_STORAGE_KEY) === 'true';
+    return globalThis.window.localStorage.getItem(CONTEXT_MENU_HINT_STORAGE_KEY) === 'true';
   });
   const hasVideoClips = lessonSources.some(source => source.videoClip || source.youtubeTranscript);
   const [videoClipsEnabled, setVideoClipsEnabled] = useState(false);
   useEffect(() => {
     if (!hasVideoClips) {
-      setVideoClipsEnabled(false);
       return;
     }
     let active = true;
@@ -962,16 +863,55 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
         )}*`
       : contentWithoutDuplicateSources;
   }, [lessonSources.length, sectionContent, sourcePageRangeLabel]);
-  const usesNativeAnnotationHighlights = supportsSectionAnnotationHighlights();
-  const inlineQuizLayout = useMemo(() => {
-    const content = renderedSectionContent || '';
-    return buildInlineQuizLayout(
-      usesNativeAnnotationHighlights
-        ? content
-        : materializeSectionAnnotationMarks(content, sectionAnnotations),
-      quiz
+  const typedContentBlocks = useMemo(() => {
+    const blocks = normalizeLessonContentBlocks(sectionContentBlocks);
+    if (blocks.length === 0 || !sourcePageRangeLabel) return blocks;
+    let lastMarkdownIndex = -1;
+    blocks.forEach((block, index) => {
+      if (block.type === 'markdown') lastMarkdownIndex = index;
+    });
+    return blocks.map(
+      (block, index): LessonContentBlock =>
+        index === lastMarkdownIndex && block.type === 'markdown'
+          ? {
+              ...block,
+              markdown: `${block.markdown.trim()}\n\n&nbsp;\n\n*${t(
+                'Fonte originale: {sourcePageRangeLabel}',
+                { sourcePageRangeLabel }
+              )}*`,
+            }
+          : block
     );
-  }, [quiz, renderedSectionContent, sectionAnnotations, usesNativeAnnotationHighlights]);
+  }, [sectionContentBlocks, sourcePageRangeLabel]);
+  const hasTypedContent = typedContentBlocks.length > 0;
+  const hasLessonContent = hasTypedContent || Boolean(sectionContent);
+  const effectiveQuiz = useMemo(
+    () => (hasTypedContent ? deriveQuizFromLessonContentBlocks(typedContentBlocks) : quiz),
+    [hasTypedContent, quiz, typedContentBlocks]
+  );
+  const usesNativeAnnotationHighlights = supportsSectionAnnotationHighlights();
+  const { clips: lessonVideoClips, inlineQuizLayout } = useMemo(() => {
+    if (hasTypedContent) {
+      return { clips: [], inlineQuizLayout: [] };
+    }
+
+    const content = renderedSectionContent || '';
+    const annotatedContent = usesNativeAnnotationHighlights
+      ? content
+      : materializeSectionAnnotationMarks(content, sectionAnnotations);
+    const videoProjection = projectYouTubeClipCarousel(annotatedContent, lessonSources);
+    return {
+      clips: videoProjection.clips,
+      inlineQuizLayout: buildInlineQuizLayout(videoProjection.content, quiz),
+    };
+  }, [
+    hasTypedContent,
+    lessonSources,
+    quiz,
+    renderedSectionContent,
+    sectionAnnotations,
+    usesNativeAnnotationHighlights,
+  ]);
   const lessonAnnotations = useMemo(
     () => (sectionAnnotations || []).filter(annotation => annotation.anchor?.kind === 'lesson'),
     [sectionAnnotations]
@@ -1021,18 +961,20 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     ]
   );
   const unansweredQuestionCount = useMemo(
-    () => quizAnswers.filter(answer => answer < 0).length,
-    [quizAnswers]
+    () => effectiveQuiz.filter((_, index) => (quizAnswers[index] ?? -1) < 0).length,
+    [effectiveQuiz, quizAnswers]
   );
-  const canCompleteSection = quiz.length === 0 || unansweredQuestionCount === 0;
+  const canCompleteSection = effectiveQuiz.length === 0 || unansweredQuestionCount === 0;
   const shouldShowLessonSkeleton =
-    !activeExercise && (isLoading || Boolean(activeSectionTitle && !sectionContent));
-  const isContextHintVisible = Boolean(sectionContent) && !hasDismissedContextHint;
+    !activeExercise && (isLoading || Boolean(activeSectionTitle && !hasLessonContent));
+  const shouldShowLessonContent = !activeExercise && !shouldShowLessonSkeleton && hasLessonContent;
+  const shouldShowEmptyReader = !activeExercise && !shouldShowLessonSkeleton && !hasLessonContent;
+  const isContextHintVisible = hasLessonContent && !hasDismissedContextHint;
 
   const dismissContextHint = () => {
     setHasDismissedContextHint(true);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(CONTEXT_MENU_HINT_STORAGE_KEY, 'true');
+    if (typeof globalThis.window !== 'undefined') {
+      globalThis.window.localStorage.setItem(CONTEXT_MENU_HINT_STORAGE_KEY, 'true');
     }
   };
 
@@ -1118,7 +1060,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
               onRequestFeedback={onRequestExerciseFeedback}
               onUpdateInternalText={onUpdateExerciseInternalText}
             />
-          ) : shouldShowLessonSkeleton ? (
+          ) : null}
+          {shouldShowLessonSkeleton ? (
             <LessonGenerationSkeleton
               isDarkMode={isDarkMode}
               isMobileViewport={isMobileViewport}
@@ -1126,7 +1069,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
               progress={sectionProgress}
               reasoningText={sectionReasoningText}
             />
-          ) : sectionContent ? (
+          ) : null}
+          {shouldShowLessonContent ? (
             <div className={lessonLayoutClassName}>
               <div className="min-w-0 space-y-2">
                 {isMobileViewport ? (
@@ -1155,43 +1099,92 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                     </button>
                   </div>
                 ) : null}
-                {inlineQuizLayout.map(chunk => (
-                  <div key={`${chunk.questionIndexes.join('-')}::${chunk.markdown.slice(0, 64)}`}>
-                    {splitInlineLessonParts(chunk.markdown).map(part => {
-                      if (part.type === 'youtube') {
-                        const source = lessonSources[part.sourceIndex];
-                        const clip = source?.url
-                          ? normalizeYouTubeClipInterval(
-                              source.url,
-                              part.clipOverride?.startSeconds ?? source.videoClip?.startSeconds,
-                              part.clipOverride?.endSeconds ?? source.videoClip?.endSeconds
-                            )
-                          : null;
-                        const hasTranscriptCoverage = Boolean(
-                          clip &&
-                            source?.youtubeTranscript &&
-                            isYouTubeClipWithinTranscriptBounds(
-                              clip,
-                              source.youtubeTranscript.ranges
-                            )
-                        );
-                        return videoClipsEnabled && source && clip && hasTranscriptCoverage ? (
-                          <div key={part.key} className="my-8" data-nous-speech="ignore">
-                            <YouTubeLessonClip clipOverride={clip} source={source} />
-                          </div>
+                <div className="space-y-2" data-nous-lesson-content-root="true">
+                  {hasTypedContent
+                    ? typedContentBlocks.map((block, blockIndex) => {
+                        if (block.type === 'markdown') {
+                          const content = usesNativeAnnotationHighlights
+                            ? block.markdown
+                            : materializeSectionAnnotationMarks(block.markdown, sectionAnnotations);
+                          return (
+                            <MarkdownRenderer
+                              key={`markdown:${block.markdown}`}
+                              content={content}
+                              generatedVisualsById={activeSectionGeneratedVisualsById}
+                              isDarkMode={isDarkMode}
+                              lessonAssetsById={activeSectionAssetsById}
+                              lessonImageRefsById={activeSectionImageRefsById}
+                              onClick={onContentClick}
+                              sectionAnnotations={sectionAnnotations}
+                              className={`prose-lg leading-7 sm:prose-xl sm:leading-loose prose-p:text-gray-800 dark:prose-p:text-gray-200 prose-headings:font-serif prose-headings:font-normal prose-headings:text-gray-900 dark:prose-headings:text-white prose-strong:font-semibold prose-strong:text-orange-800 dark:prose-strong:text-orange-400 ${isDarkMode ? 'prose-invert' : ''}`}
+                            />
+                          );
+                        }
+                        if (block.type === 'inline-quiz') {
+                          const questionIndex = typedContentBlocks
+                            .slice(0, blockIndex)
+                            .filter(candidate => candidate.type === 'inline-quiz').length;
+                          return (
+                            <WorkspaceReaderInlineQuestion
+                              key={`quiz:${questionIndex}:${block.quiz.question}`}
+                              isDarkMode={isDarkMode}
+                              onSelectQuizAnswer={onSelectQuizAnswer}
+                              question={block.quiz}
+                              questionIndex={questionIndex}
+                              selectedIndex={quizAnswers[questionIndex] ?? -1}
+                            />
+                          );
+                        }
+                        if (block.type === 'youtube-clips') {
+                          const clips = resolveTypedYouTubeClips(block, lessonSources);
+                          return videoClipsEnabled && clips.length > 0 ? (
+                            <div
+                              key={`youtube:${JSON.stringify(block.clips)}`}
+                              className="my-8"
+                              data-nous-speech="ignore"
+                            >
+                              <YouTubeClipCarousel clips={clips} />
+                            </div>
+                          ) : null;
+                        }
+                        const visual = block.visualId
+                          ? activeSectionGeneratedVisualsById[block.visualId]
+                          : undefined;
+                        return visual ? (
+                          <GeneratedVisualFrame
+                            key={`visual:${block.slotId}`}
+                            isDarkMode={isDarkMode}
+                            title={visual.title}
+                            visual={visual}
+                          />
                         ) : null;
-                      }
-                      return (
-                        <MarkdownRenderer
-                          key={part.key}
-                          content={part.content}
-                          generatedVisualsById={activeSectionGeneratedVisualsById}
-                          isDarkMode={isDarkMode}
-                          lessonAssetsById={activeSectionAssetsById}
-                          lessonImageRefsById={activeSectionImageRefsById}
-                          onClick={onContentClick}
-                          sectionAnnotations={sectionAnnotations}
-                          className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
+                      })
+                    : inlineQuizLayout.map(chunk => (
+                        <div
+                          key={`${chunk.questionIndexes.join('-')}::${chunk.markdown.slice(0, 64)}`}
+                        >
+                          {splitYouTubeClipCarouselContent(chunk.markdown).map(part => {
+                            if (part.type === 'youtube-carousel') {
+                              return videoClipsEnabled && lessonVideoClips.length > 0 ? (
+                                <div key={part.key} className="my-8" data-nous-speech="ignore">
+                                  <YouTubeClipCarousel
+                                    key={lessonVideoClips.map(clip => clip.id).join('|')}
+                                    clips={lessonVideoClips}
+                                  />
+                                </div>
+                              ) : null;
+                            }
+                            return (
+                              <MarkdownRenderer
+                                key={part.key}
+                                content={part.content}
+                                generatedVisualsById={activeSectionGeneratedVisualsById}
+                                isDarkMode={isDarkMode}
+                                lessonAssetsById={activeSectionAssetsById}
+                                lessonImageRefsById={activeSectionImageRefsById}
+                                onClick={onContentClick}
+                                sectionAnnotations={sectionAnnotations}
+                                className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
                           prose-p:text-gray-800 dark:prose-p:text-gray-200
                           prose-headings:font-serif prose-headings:font-normal
                           prose-headings:text-gray-900 dark:prose-headings:text-white
@@ -1199,29 +1192,30 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                           prose-strong:text-orange-800 dark:prose-strong:text-orange-400
                           ${isDarkMode ? 'prose-invert' : ''}
                         `}
-                        />
-                      );
-                    })}
+                              />
+                            );
+                          })}
 
-                    {chunk.questionIndexes.map(questionIndex => {
-                      const question = quiz[questionIndex];
-                      if (!question) {
-                        return null;
-                      }
+                          {chunk.questionIndexes.map(questionIndex => {
+                            const question = quiz[questionIndex];
+                            if (!question) {
+                              return null;
+                            }
 
-                      return (
-                        <WorkspaceReaderInlineQuestion
-                          key={`${question.question}-${questionIndex}`}
-                          isDarkMode={isDarkMode}
-                          onSelectQuizAnswer={onSelectQuizAnswer}
-                          question={question}
-                          questionIndex={questionIndex}
-                          selectedIndex={quizAnswers[questionIndex] ?? -1}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
+                            return (
+                              <WorkspaceReaderInlineQuestion
+                                key={`${question.question}-${questionIndex}`}
+                                isDarkMode={isDarkMode}
+                                onSelectQuizAnswer={onSelectQuizAnswer}
+                                question={question}
+                                questionIndex={questionIndex}
+                                selectedIndex={quizAnswers[questionIndex] ?? -1}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
+                </div>
 
                 {sectionArtifactPayloads.length > 0 ? (
                   <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
@@ -1289,7 +1283,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                 />
               </div>
             </div>
-          ) : (
+          ) : null}
+          {shouldShowEmptyReader ? (
             <div className="mt-16 flex flex-col items-center text-center text-gray-400 sm:mt-20">
               <BookOpen className="mb-4 h-16 w-16 opacity-20" />
               <p>
@@ -1298,7 +1293,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                   : t('Seleziona una sezione dal piano di studi per iniziare.')}
               </p>
             </div>
-          )}
+          ) : null}
         </section>
       </div>
     </div>

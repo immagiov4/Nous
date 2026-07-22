@@ -40,19 +40,19 @@ export default function LandingPage({
   const [activeJourneyStep, setActiveJourneyStep] = useState(0);
   const [isMobileJourney, setIsMobileJourney] = useState(
     () =>
-      typeof window !== 'undefined' &&
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia(MOBILE_JOURNEY_MEDIA_QUERY).matches
+      typeof globalThis.window !== 'undefined' &&
+      typeof globalThis.window.matchMedia === 'function' &&
+      globalThis.window.matchMedia(MOBILE_JOURNEY_MEDIA_QUERY).matches
   );
   const journeyStage = JOURNEY_STAGES[activeJourneyStep];
   const mobileJourneyCopy = MARKETING_JOURNEY_COPY[activeJourneyStep];
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) {
+    if (typeof globalThis.window === 'undefined' || !globalThis.window.matchMedia) {
       return;
     }
 
-    const mediaQuery = window.matchMedia(MOBILE_JOURNEY_MEDIA_QUERY);
+    const mediaQuery = globalThis.window.matchMedia(MOBILE_JOURNEY_MEDIA_QUERY);
     const handleChange = (event: MediaQueryListEvent) => {
       setIsMobileJourney(current => (current === event.matches ? current : event.matches));
     };

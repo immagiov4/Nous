@@ -83,8 +83,8 @@ const chatProps = {
 
 describe('NewHomeView library rename', () => {
   beforeEach(() => {
-    window.history.replaceState({}, '', '/');
-    window.localStorage.clear();
+    globalThis.history.replaceState({}, '', '/');
+    globalThis.localStorage.clear();
   });
 
   test('imports a single course from the library header', async () => {
@@ -228,7 +228,7 @@ describe('NewHomeView library rename', () => {
   });
 
   test('groups course sources in a collapsed folder', async () => {
-    window.history.replaceState({}, '', '/library');
+    globalThis.history.replaceState({}, '', '/library');
     const user = userEvent.setup();
     const file = {
       data: 'ZmlsZQ==',

@@ -246,7 +246,7 @@ export const normalizeCodeFenceSpacing = (lines: string[]): string[] => {
     normalizedLines.shift();
   }
 
-  while (normalizedLines[normalizedLines.length - 1] === '') {
+  while (normalizedLines.at(-1) === '') {
     normalizedLines.pop();
   }
 

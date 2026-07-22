@@ -4,13 +4,13 @@ import { stripPdfImagePlaceholders } from '../pdf/imagePlaceholders.ts';
 const isInlineWhitespace = (character: string): boolean => character === ' ' || character === '\t';
 
 const trimTrailingInlineSpace = (characters: string[]): void => {
-  while (characters[characters.length - 1] === ' ') {
+  while (characters.at(-1) === ' ') {
     characters.pop();
   }
 };
 
 const appendInlineSpace = (characters: string[]): void => {
-  if (characters.length > 0 && characters[characters.length - 1] !== ' ') {
+  if (characters.length > 0 && characters.at(-1) !== ' ') {
     characters.push(' ');
   }
 };
@@ -50,7 +50,7 @@ const collapseWhitespace = (text: string): string => {
 };
 
 const BLOCK_PAUSE_WEIGHT = 200;
-const NON_SPEECH_SELECTOR =
+export const READER_NON_SPEECH_SELECTOR =
   'figure, figcaption, img, picture, svg, canvas, [data-nous-speech="ignore"]';
 const READABLE_TEXT_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, li, blockquote';
 const PROSE_READABLE_TEXT_SELECTOR = READABLE_TEXT_SELECTOR.split(', ')
@@ -412,7 +412,7 @@ export const prepareMarkdownForSpeech = (content: string): string => {
 const extractReadableElementText = (element: HTMLElement): string => {
   const clone = element.cloneNode(true) as HTMLElement;
   clone
-    .querySelectorAll(`pre, .katex, .katex-display, script, style, ${NON_SPEECH_SELECTOR}`)
+    .querySelectorAll(`pre, .katex, .katex-display, script, style, ${READER_NON_SPEECH_SELECTOR}`)
     .forEach(node => {
       node.remove();
     });
@@ -428,7 +428,7 @@ export const buildReadableTextElements = (container: HTMLElement): ReadableTextE
       : container.querySelectorAll(READABLE_TEXT_SELECTOR);
 
   return Array.from(textElements)
-    .filter(node => !(node as HTMLElement).closest(NON_SPEECH_SELECTOR))
+    .filter(node => !(node as HTMLElement).closest(READER_NON_SPEECH_SELECTOR))
     .map(node => {
       const element = node as HTMLElement;
       return { element, text: extractReadableElementText(element) };

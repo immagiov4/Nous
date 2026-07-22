@@ -243,6 +243,7 @@ export const useReaderShellProps = ({
         scrollContainerRef: readerState.scrollContainerRef,
         sectionAnnotations: controller.activeSection?.annotations,
         sectionContent: activeExercise ? '' : controller.sectionContent,
+        sectionContentBlocks: activeExercise ? undefined : controller.activeSection?.contentBlocks,
         exerciseFeedbackError: controller.workflowState.evaluateExercise.error,
         exerciseFeedbackStatus: controller.workflowState.evaluateExercise.message,
         sectionReasoningText: controller.workflowState.loadSection.reasoning,
@@ -324,6 +325,13 @@ export const useReaderShellProps = ({
         isContextLoading: controller.isContextBusy,
         isDarkMode: readerState.readerChrome.isDarkMode,
         isMobileViewport: readerState.readerChrome.isMobileViewport,
+        lessonCreationBlockReason: controller.isLessonGenerationActive
+          ? 'lesson-generation'
+          : controller.isGenerationActive ||
+              controller.workflowState.loadSection.status === 'pending' ||
+              controller.workflowState.generateExercise.status === 'pending'
+            ? 'other-operation'
+            : null,
         onAskContextQuestion: readerActions.handleContextQuestion,
         onAttachArtifactToAnnotation: readerActions.handleAttachArtifactToAnnotation,
         onCloseContextAnswer: readerState.readerContext.closeContextAnswer,
@@ -373,6 +381,8 @@ export const useReaderShellProps = ({
       controller.generatingSectionId,
       controller.isBlocking,
       controller.isContextBusy,
+      controller.isGenerationActive,
+      controller.isLessonGenerationActive,
       controller.learningPlan,
       controller.musicUrl,
       controller.needsSourceFile,
@@ -385,6 +395,8 @@ export const useReaderShellProps = ({
       controller.storageError,
       controller.workflowState.evaluateExercise.error,
       controller.workflowState.evaluateExercise.message,
+      controller.workflowState.generateExercise.status,
+      controller.workflowState.loadSection.status,
       controller.workflowState.loadSection.reasoning,
       controller.workflowState.loadSection.progress,
       currentLessonArtifactPayloads,
@@ -453,6 +465,7 @@ export const useReaderShellProps = ({
       readerState.ttsPlayer.playerDuration,
       readerState.ttsPlayer.togglePlayPause,
       readerState.ttsPlayer.ttsConnected,
+      readerState.ttsTextPicker.confirmationRects,
       readerState.ttsTextPicker.hoveredChunkIndex,
       readerState.ttsTextPicker.isActive,
       readerState.ttsTextPicker.overlayRects,

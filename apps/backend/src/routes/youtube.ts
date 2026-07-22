@@ -57,6 +57,7 @@ router.post('/research-context', async (req, res) => {
     return res.json({
       success: true,
       context: research.context,
+      discoveredVideoCount: research.discoveredVideoCount,
       rationale: research.rationale,
       videoClipsEnabled,
       videoCandidates: videoClipsEnabled ? research.videoCandidates : [],

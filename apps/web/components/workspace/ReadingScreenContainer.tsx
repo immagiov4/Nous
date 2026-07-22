@@ -19,12 +19,12 @@ type WorkspaceFileActions = ReturnType<typeof useWorkspaceFileActions>;
 type WorkspaceNavigation = ReturnType<typeof useWorkspaceNavigation>;
 
 interface ReadingScreenContainerProps {
-  controller: WorkspaceController;
-  readerState: WorkspaceReaderState;
-  fileActions: WorkspaceFileActions;
-  navigation: WorkspaceNavigation;
-  notify: (message: string) => void;
-  screenState: AppState;
+  readonly controller: WorkspaceController;
+  readonly readerState: WorkspaceReaderState;
+  readonly fileActions: WorkspaceFileActions;
+  readonly navigation: WorkspaceNavigation;
+  readonly notify: (message: string) => void;
+  readonly screenState: AppState;
 }
 
 export const ReadingScreenContainer = ({

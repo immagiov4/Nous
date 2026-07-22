@@ -560,8 +560,13 @@ describe('PostgresProjectStore', () => {
     const transactionStatements: string[] = [];
     const transactionSql = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
-        transactionStatements.push(strings.join('?'));
-        return Promise.resolve([]);
+        const statement = strings.join('?');
+        transactionStatements.push(statement);
+        return Promise.resolve(
+          statement.includes('returning meta, revision')
+            ? [{ meta: PROJECT_META, revision: 1 }]
+            : []
+        );
       }),
       { json: vi.fn((value: unknown) => value) }
     );
@@ -660,8 +665,13 @@ describe('PostgresProjectStore', () => {
     const transactionStatements: string[] = [];
     const transactionSql = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
-        transactionStatements.push(strings.join('?'));
-        return Promise.resolve([]);
+        const statement = strings.join('?');
+        transactionStatements.push(statement);
+        return Promise.resolve(
+          statement.includes('returning meta, revision')
+            ? [{ meta: PROJECT_META, revision: 1 }]
+            : []
+        );
       }),
       { json: vi.fn((value: unknown) => value) }
     );
@@ -886,8 +896,13 @@ describe('PostgresProjectStore', () => {
     const transactionStatements: string[] = [];
     const transactionSql = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
-        transactionStatements.push(strings.join('?'));
-        return Promise.resolve([]);
+        const statement = strings.join('?');
+        transactionStatements.push(statement);
+        return Promise.resolve(
+          statement.includes('returning meta, revision')
+            ? [{ meta: PROJECT_META, revision: 1 }]
+            : []
+        );
       }),
       { json: vi.fn((value: unknown) => value) }
     );
@@ -1661,8 +1676,93 @@ describe('PostgresProjectStore', () => {
 
     await store.touchProject('user-1', PROJECT_META.id);
 
+    expect(statements).toHaveLength(1);
     expect(statements.some(statement => statement.includes('project_snapshots'))).toBe(false);
-    expect(statements.some(statement => statement.includes('update public.projects'))).toBe(true);
+    expect(statements[0]).toContain('update public.projects');
+    expect(statements[0]).toContain("jsonb_set(meta, '{updatedAt}'");
+    expect(statements[0]).toContain("'{lastOpenedAt}'");
+  });
+
+  test('preserves the current favorite during an unconditional snapshot save', async () => {
+    const existingSnapshot: ProjectSnapshot = {
+      id: PROJECT_META.id,
+      version: '4.1',
+      sourceKind: 'document',
+      learningPlan: { title: 'Reti', sections: [] },
+      createdAt: PROJECT_META.createdAt,
+      updatedAt: PROJECT_META.updatedAt,
+      lastOpenedAt: PROJECT_META.lastOpenedAt,
+    };
+    const transactionStatements: string[] = [];
+    const favoriteMeta = { ...PROJECT_META, isFavorite: true };
+    const transactionSql = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        transactionStatements.push(statement);
+        return Promise.resolve(
+          statement.includes('returning meta, revision')
+            ? [{ meta: favoriteMeta, revision: 2 }]
+            : []
+        );
+      }),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        if (statement.includes('select meta')) {
+          return Promise.resolve([{ meta: PROJECT_META, revision: 1 }]);
+        }
+        if (statement.includes('project_snapshots')) {
+          return Promise.resolve([{ document_index: null, snapshot: existingSnapshot }]);
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    const saved = await store.saveProject('user-1', {
+      ...existingSnapshot,
+      updatedAt: '2026-07-07T11:00:00.000Z',
+    });
+
+    expect(saved.meta).toMatchObject({ isFavorite: true, revision: 2 });
+    const metaUpdate = transactionStatements.find(statement =>
+      statement.includes('update public.projects')
+    );
+    expect(metaUpdate).toContain("coalesce(meta -> 'isFavorite', 'false'::jsonb)");
+  });
+
+  test('bounds import diagnostics to the active retention window', async () => {
+    const statements: string[] = [];
+    const values: unknown[][] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray, ...parameters: unknown[]) => {
+        statements.push(strings.join('?'));
+        values.push(parameters);
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await store.listProjectImportDiagnostics('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(statements[1]).toContain('created_at >= now()');
+    expect(statements[1]).toContain('order by created_at desc, id desc');
+    expect(statements[1]).toContain('limit');
+    expect(values[1]).toEqual(
+      expect.arrayContaining([30, '550e8400-e29b-41d4-a716-446655440000', 200])
+    );
   });
 
   test('rolls back before writing the snapshot when the expected revision lost a race', async () => {

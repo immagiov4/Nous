@@ -68,10 +68,16 @@ const LIBRARY_IMPORT_DIAGNOSTIC_STAGES = new Set([
   'unknown',
   'zip-open',
 ]);
-const CORRELATION_ID_PATTERN = /^[0-9a-f-]{36}$/u;
+const CORRELATION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const COURSE_COVER_JOB_STATUS_ROUTE_ERROR = 'Unable to read course cover regeneration status.';
 const COURSE_COVER_JOB_START_ROUTE_ERROR = 'Unable to start course cover regeneration.';
+const ADMIN_REQUIRED_MESSAGE = 'Solo un amministratore puo eseguire questa operazione.';
+const IMPORT_DIAGNOSTIC_LIST_ERROR = 'Unable to list import diagnostics.';
+const IMPORT_DIAGNOSTIC_RECORD_ERROR = 'Unable to record import diagnostic.';
+
+class ProjectImportDiagnosticInputError extends Error {}
 
 const getTargetIndex = (value: unknown): number | undefined => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -451,6 +457,25 @@ router.get('/projects/:id', async (req: Request, res: Response) => {
   }
 });
 
+router.patch('/projects/:id/favorite', async (req: Request, res: Response) => {
+  try {
+    const isFavorite = getBodyRecord(req.body).isFavorite;
+    if (typeof isFavorite !== 'boolean') {
+      throw new Error('Stato preferito non valido.');
+    }
+    const userId = getCurrentUser(req).id;
+    const meta = await getProjectStore().setProjectFavorite(
+      userId,
+      getRouteParam(req.params.id),
+      isFavorite
+    );
+    publishMetaRevision(userId, meta);
+    res.json({ success: true, meta });
+  } catch (error) {
+    sendErrorResponse(res, 400, error, 'Failed to update project favorite');
+  }
+});
+
 router.get('/projects/:id/source', async (req: Request, res: Response) => {
   try {
     const source = await getProjectStore().loadProjectSource(
@@ -636,6 +661,7 @@ const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefin
     sectionId,
     annotations: Array.isArray(value.annotations) ? value.annotations : undefined,
     content: readOptionalString(value.content),
+    contentBlocks: Array.isArray(value.contentBlocks) ? value.contentBlocks : undefined,
     generatedVisuals: Array.isArray(value.generatedVisuals) ? value.generatedVisuals : undefined,
     imageRefs: Array.isArray(value.imageRefs) ? value.imageRefs : undefined,
     isCompleted: typeof value.isCompleted === 'boolean' ? value.isCompleted : undefined,
@@ -890,7 +916,30 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
   }
 });
 
-router.post('/import-diagnostics', (req: Request, res: Response) => {
+router.get('/import-diagnostics', async (req: Request, res: Response) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    if (getCurrentUser(req).role !== 'admin') {
+      res.status(403).json({ success: false, error: ADMIN_REQUIRED_MESSAGE });
+      return;
+    }
+    const correlationId = readOptionalString(req.query.correlationId);
+    if (correlationId && !CORRELATION_ID_PATTERN.test(correlationId)) {
+      throw new ProjectImportDiagnosticInputError('Correlation ID non valido.');
+    }
+    const diagnostics = await getProjectStore().listProjectImportDiagnostics(correlationId);
+    res.json({ success: true, diagnostics });
+  } catch (error) {
+    if (error instanceof ProjectImportDiagnosticInputError) {
+      sendErrorResponse(res, 400, error, IMPORT_DIAGNOSTIC_LIST_ERROR);
+      return;
+    }
+    console.error('[Projects] Failed to list import diagnostics.', { error });
+    res.status(500).json({ success: false, error: IMPORT_DIAGNOSTIC_LIST_ERROR });
+  }
+});
+
+router.post('/import-diagnostics', async (req: Request, res: Response) => {
   try {
     const body = getBodyRecord(req.body);
     const correlationId = readOptionalString(body.correlationId);
@@ -904,22 +953,29 @@ router.post('/import-diagnostics', (req: Request, res: Response) => {
       !stage ||
       !LIBRARY_IMPORT_DIAGNOSTIC_STAGES.has(stage)
     ) {
-      throw new Error('Diagnostica importazione non valida.');
+      throw new ProjectImportDiagnosticInputError('Diagnostica importazione non valida.');
     }
 
-    console.warn('[Projects] Library backup import failed.', {
+    const diagnostic = {
       correlationId,
       code,
       stage,
-      userId: getCurrentUser(req).id,
       fileBytes: readOptionalSafeInteger(body.fileBytes),
       limitBytes: readOptionalSafeInteger(body.limitBytes),
       projectCount: readOptionalSafeInteger(body.projectCount),
       projectIndex: readOptionalSafeInteger(body.projectIndex),
-    });
+    };
+    const userId = getCurrentUser(req).id;
+    await getProjectStore().recordProjectImportDiagnostic(userId, diagnostic);
+    console.warn('[Projects] Library backup import failed.', { ...diagnostic, userId });
     res.status(204).end();
   } catch (error) {
-    sendErrorResponse(res, 400, error, 'Failed to record import diagnostic');
+    if (error instanceof ProjectImportDiagnosticInputError) {
+      sendErrorResponse(res, 400, error, IMPORT_DIAGNOSTIC_RECORD_ERROR);
+      return;
+    }
+    console.error('[Projects] Failed to record import diagnostic.', { error });
+    res.status(500).json({ success: false, error: IMPORT_DIAGNOSTIC_RECORD_ERROR });
   }
 });
 

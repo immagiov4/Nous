@@ -59,7 +59,7 @@ describe('SpeechInputButton', () => {
       configurable: true,
       value: { getUserMedia },
     });
-    Object.defineProperty(window, 'isSecureContext', {
+    Object.defineProperty(globalThis, 'isSecureContext', {
       configurable: true,
       value: true,
     });
@@ -97,6 +97,35 @@ describe('SpeechInputButton', () => {
     });
     expect(stopTrack).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Avvia dettatura' })).toBeEnabled();
+  });
+
+  test('keeps failed audio available for an explicit transcription retry', async () => {
+    const user = userEvent.setup();
+    const onTranscription = vi.fn();
+    requestSpeechTranscriptionMock
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce('Testo recuperato.');
+
+    render(<SpeechInputButton onTranscription={onTranscription} />);
+
+    await user.click(screen.getByRole('button', { name: 'Avvia dettatura' }));
+    await user.click(screen.getByRole('button', { name: 'Ferma e trascrivi' }));
+
+    expect(
+      await screen.findByRole('alert', {
+        name: 'Trascrizione non riuscita. Puoi riprovare senza registrare di nuovo.',
+      })
+    ).toBeInTheDocument();
+
+    const firstAudio = requestSpeechTranscriptionMock.mock.calls[0]?.[0];
+    await user.click(screen.getByRole('button', { name: 'Riprova trascrizione' }));
+
+    await waitFor(() => {
+      expect(requestSpeechTranscriptionMock).toHaveBeenCalledTimes(2);
+      expect(requestSpeechTranscriptionMock.mock.calls[1]?.[0]).toBe(firstAudio);
+      expect(onTranscription).toHaveBeenCalledWith('Testo recuperato.');
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   test('shows a useful error when microphone permission is denied', async () => {
@@ -155,7 +184,7 @@ describe('SpeechInputButton', () => {
 
   test('explains when microphone capture is blocked by an insecure page', async () => {
     const user = userEvent.setup();
-    Object.defineProperty(window, 'isSecureContext', {
+    Object.defineProperty(globalThis, 'isSecureContext', {
       configurable: true,
       value: false,
     });

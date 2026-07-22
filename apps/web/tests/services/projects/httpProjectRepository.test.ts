@@ -65,6 +65,27 @@ test('HttpProjectRepository sends the Supabase bearer token to the backend', asy
   });
 });
 
+test('HttpProjectRepository writes favorites through the project API', async () => {
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      success: true,
+      meta: { id: 'project-1', isFavorite: true },
+    }),
+  });
+
+  const repository = new HttpProjectRepository('http://localhost:3301');
+  await expect(repository.setProjectFavorite('project-1', true)).resolves.toMatchObject({
+    id: 'project-1',
+    isFavorite: true,
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://localhost:3301/api/projects/projects/project-1/favorite',
+    expect.objectContaining({ body: '{"isFavorite":true}', method: 'PATCH' })
+  );
+});
+
 test('HttpProjectRepository preserves backend errors instead of reporting server as unavailable', async () => {
   fetchMock.mockResolvedValueOnce({
     ok: false,

@@ -10,11 +10,21 @@ const normalizeOptionalText = (value: string | undefined) => {
 };
 
 const normalizeRequiredText = (value: string) => value.trim();
+const normalizeSelectedTextStart = (value: number | undefined) =>
+  value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined;
 
-const areAnchorsEqual = (left: ConversationSelectionAnchor, right: ConversationSelectionAnchor) =>
+const haveMatchingTextContext = (
+  left: ConversationSelectionAnchor,
+  right: ConversationSelectionAnchor
+) =>
   normalizeRequiredText(left.selectedText) === normalizeRequiredText(right.selectedText) &&
   normalizeOptionalText(left.contextBefore) === normalizeOptionalText(right.contextBefore) &&
   normalizeOptionalText(left.contextAfter) === normalizeOptionalText(right.contextAfter);
+
+const areAnchorsEqual = (left: ConversationSelectionAnchor, right: ConversationSelectionAnchor) =>
+  haveMatchingTextContext(left, right) &&
+  normalizeSelectedTextStart(left.selectedTextStart) ===
+    normalizeSelectedTextStart(right.selectedTextStart);
 
 export const buildConversationNoteSaveCandidates = ({
   anchor,
@@ -23,16 +33,27 @@ export const buildConversationNoteSaveCandidates = ({
   anchor: ConversationSelectionAnchor;
   toolInput: SaveConversationNoteToolInput;
 }): SaveConversationNoteInput[] => {
+  const normalizedAnchorStart = normalizeSelectedTextStart(anchor.selectedTextStart);
   const normalizedAnchor = {
     contextAfter: normalizeOptionalText(anchor.contextAfter),
     contextBefore: normalizeOptionalText(anchor.contextBefore),
     selectedText: normalizeRequiredText(anchor.selectedText),
+    ...(normalizedAnchorStart !== undefined ? { selectedTextStart: normalizedAnchorStart } : {}),
   } satisfies ConversationSelectionAnchor;
 
-  const primarySelection = {
+  const primaryTextSelection = {
     contextAfter: normalizeOptionalText(toolInput.contextAfter) || normalizedAnchor.contextAfter,
     contextBefore: normalizeOptionalText(toolInput.contextBefore) || normalizedAnchor.contextBefore,
     selectedText: normalizeRequiredText(toolInput.selectedText) || normalizedAnchor.selectedText,
+  } satisfies ConversationSelectionAnchor;
+  const primarySelectionStart =
+    normalizeSelectedTextStart(toolInput.selectedTextStart) ??
+    (haveMatchingTextContext(primaryTextSelection, normalizedAnchor)
+      ? normalizedAnchor.selectedTextStart
+      : undefined);
+  const primarySelection = {
+    ...primaryTextSelection,
+    ...(primarySelectionStart !== undefined ? { selectedTextStart: primarySelectionStart } : {}),
   } satisfies ConversationSelectionAnchor;
 
   const primaryCandidate = {

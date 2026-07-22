@@ -64,13 +64,13 @@ interface CursorWaypoint {
 }
 
 interface LandingDemoCursorProps {
-  annotationId: string;
-  artifactId: string;
-  frame: number;
-  projectId: string;
-  rootRef: RefObject<HTMLDivElement | null>;
-  selectionSearchText: string;
-  stage: DemoStage;
+  readonly annotationId: string;
+  readonly artifactId: string;
+  readonly frame: number;
+  readonly projectId: string;
+  readonly rootRef: RefObject<HTMLDivElement | null>;
+  readonly selectionSearchText: string;
+  readonly stage: DemoStage;
 }
 
 const areCursorPointsEqual = (

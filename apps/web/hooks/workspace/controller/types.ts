@@ -52,6 +52,8 @@ export interface WorkspaceChatSession {
   }>;
 }
 
+export type WorkspaceGenerationKind = 'exercise' | 'lesson';
+
 export interface WorkspaceDomainControllerAdapter {
   activeSection: LessonNode | null;
   activeSectionId: string | null;
@@ -142,6 +144,7 @@ export interface WorkspaceProjectLibraryAdapter {
       Pick<
         LessonNode,
         | 'content'
+        | 'contentBlocks'
         | 'generatedVisuals'
         | 'imageRefs'
         | 'learningAids'
@@ -161,11 +164,15 @@ export interface WorkspaceProjectLibraryAdapter {
 export interface WorkspaceControllerStateAdapter {
   beginWorkflow: (workflowId: WorkspaceWorkflowId, message?: string) => number;
   failWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, errorMessage: string) => void;
+  finishGeneration: (projectId: string | null, token: number) => void;
   getAssessmentMessages: () => Message[];
   getChatSession: () => WorkspaceChatSession | null;
+  getGeneratingSectionId: (projectId: string | null) => string | null;
   getOpeningProjectId: () => string | null;
   getWorkflowState: () => WorkspaceWorkflowState;
   invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
+  isGenerationActive: (projectId: string | null) => boolean;
+  isLessonGenerationActive: (projectId: string | null) => boolean;
   isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) => boolean;
   resetSessionState: () => void;
   setAssessmentMessages: (
@@ -174,7 +181,7 @@ export interface WorkspaceControllerStateAdapter {
   setChatSession: (chatSession: WorkspaceChatSession | null) => void;
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
-  setGeneratingSectionId: (sectionId: string | null) => void;
+  setGeneratingSectionId: (projectId: string | null, token: number, sectionId: string) => void;
   setMissingSourceProjectId: (projectId: string | null) => void;
   setWorkflowMessage: (workflowId: WorkspaceWorkflowId, requestId: number, message: string) => void;
   setWorkflowReasoning: (
@@ -188,6 +195,7 @@ export interface WorkspaceControllerStateAdapter {
     progress: GenerationProgressSnapshot
   ) => void;
   succeedWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, message?: string) => void;
+  tryBeginGeneration: (projectId: string | null, kind: WorkspaceGenerationKind) => number | null;
 }
 
 export interface CreateWorkspaceControllerArgs {
@@ -206,7 +214,7 @@ export type OpenSectionOutcome =
   | 'blocked-missing-source'
   | 'ignored-busy';
 
-export type CreateLessonOutcome = 'created' | 'blocked-missing-source' | 'failed';
+export type CreateLessonOutcome = 'created' | 'blocked-missing-source' | 'failed' | 'ignored-busy';
 export type CompleteSectionOutcome = 'opened-next' | 'journey-complete' | 'noop';
 export type AdvanceSectionOutcome = 'opened-next' | 'journey-complete' | 'noop';
 

@@ -2,7 +2,7 @@ import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 
 const BASE64_CHUNK_BYTES = 24_576;
-const STT_REQUEST_TIMEOUT_MS = 70_000;
+const STT_TOTAL_REQUEST_TIMEOUT_MS = 80_000;
 
 export type SttAudioFormat = 'aac' | 'flac' | 'm4a' | 'mp3' | 'ogg' | 'wav' | 'webm';
 
@@ -36,7 +36,7 @@ export const requestSpeechTranscription = async (
       format,
       language,
     }),
-    signal: AbortSignal.timeout(STT_REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(STT_TOTAL_REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {

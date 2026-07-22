@@ -35,7 +35,7 @@ const scorePageProximity = (pageNumber: number | undefined, targetedPages: numbe
     return 0;
   }
 
-  const centerPage = (targetedPages[0] + targetedPages[targetedPages.length - 1]) / 2;
+  const centerPage = (targetedPages[0] + (targetedPages.at(-1) as number)) / 2;
   const distance = Math.abs((pageNumber as number) - centerPage);
   if (distance <= 0.5) {
     return 4;
@@ -146,7 +146,7 @@ const buildImageContextSummary = (
   sectionDescription: string
 ): string => {
   const joinedContext = getPdfImageSearchText(image).trim();
-  const normalized = joinedContext.replace(/\s+/g, ' ').trim();
+  const normalized = joinedContext.replaceAll(/\s+/g, ' ').trim();
   const sentenceCandidates = normalized
     .split(/(?<=[.!?])\s+/)
     .map(sentence => sentence.trim())
@@ -161,7 +161,7 @@ const buildImageContextSummary = (
 
   const chosen =
     image.caption?.trim() || bestSentence || sentenceCandidates[0] || normalized || sectionTitle;
-  const compact = trimLeadingSummaryPunctuation(chosen).replace(/[|}]/g, ' ').trim();
+  const compact = trimLeadingSummaryPunctuation(chosen).replaceAll(/[|}]/g, ' ').trim();
 
   return compact.length > 140 ? `${compact.slice(0, 137).trim()}...` : compact;
 };
@@ -252,7 +252,7 @@ export const buildFallbackImageRefs = (
 };
 
 const sanitizePlaceholderValue = (value: string): string =>
-  value.replace(/[|}]/g, ' ').replace(/\s+/g, ' ').trim();
+  value.replaceAll(/[|}]/g, ' ').replaceAll(/\s+/g, ' ').trim();
 
 const buildPdfImagePlaceholder = (imageRef: LessonImageRef): string => {
   const alt = sanitizePlaceholderValue(imageRef.alt || 'Figura dal PDF');
@@ -281,8 +281,8 @@ const buildVisualPlanningPass = (
 
 const removeVisualSlotMarkers = (contentMarkdown: string): string =>
   contentMarkdown
-    .replace(/\{\{VISUAL_SLOT:[^}]+}}/g, '')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/\{\{VISUAL_SLOT:[^}]+}}/g, '')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
 
 export const materializeGeneratedVisualSlots = async ({
@@ -411,7 +411,7 @@ export const materializeGeneratedVisualSlots = async ({
 };
 
 const normalizeHeading = (text: string): string =>
-  normalizeSearchText(text.replace(/^#+\s*/, '').replace(/[*_`]/g, ' '));
+  normalizeSearchText(text.replace(/^#+\s*/, '').replaceAll(/[*_`]/g, ' '));
 
 const HEADING_LINE_REGEX = /^(#{1,6})\s+/;
 const FENCE_LINE_REGEX = /^(```|~~~)/;
@@ -536,7 +536,7 @@ export const injectImagePlaceholders = (
 
   return lines
     .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
 };
 
@@ -589,16 +589,16 @@ export const sanitizeAssetIdMentions = (
   visibleLabelByAssetId: Map<string, string>
 ): string =>
   contentMarkdown
-    .replace(
+    .replaceAll(
       /\b([Ff]igura|[Ii]mmagine)\s+(pdf-img-\d+)\b/g,
       (_match, noun: string, assetId: string) => {
         const label = visibleLabelByAssetId.get(assetId.toLowerCase());
         return label ? `${noun} "${label}"` : `${noun} seguente`;
       }
     )
-    .replace(/\b(pdf-img-\d+)\b/gi, (_match, assetId: string) => {
+    .replaceAll(/\b(pdf-img-\d+)\b/gi, (_match, assetId: string) => {
       const label = visibleLabelByAssetId.get(assetId.toLowerCase());
       return label ? `"${label}"` : 'figura seguente';
     })
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/""/g, '"');
+    .replaceAll(/[ \t]{2,}/g, ' ')
+    .replaceAll(/""/g, '"');

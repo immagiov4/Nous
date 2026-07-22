@@ -89,7 +89,7 @@ export const buildPdfChunkUsageDebugPayload = (
     })),
     targetedImagePages:
       targetedImagePages.length > 0
-        ? `pag. ${targetedImagePages[0]}-${targetedImagePages[targetedImagePages.length - 1]}`
+        ? `pag. ${targetedImagePages[0]}-${targetedImagePages.at(-1)}`
         : null,
     pageMappingMode: resolvePageMappingMode({ hasStoredChunkPages, pageLayout }),
   };

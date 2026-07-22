@@ -7,7 +7,9 @@ const AppContent = lazy(() => import('./app/AppContent.tsx'));
 
 const renderCurrentPage = () => {
   const pathname =
-    typeof window === 'undefined' ? '/' : window.location.pathname.replace(/\/+$/, '') || '/';
+    typeof globalThis.window === 'undefined'
+      ? '/'
+      : globalThis.location.pathname.replace(/\/+$/, '') || '/';
 
   if (pathname === '/admin/youtube-lab') {
     return <YouTubeResearchLab />;

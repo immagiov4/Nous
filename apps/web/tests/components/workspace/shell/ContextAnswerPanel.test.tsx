@@ -2,7 +2,8 @@
 
 import '@testing-library/jest-dom/vitest';
 
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { createRef, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -12,6 +13,7 @@ const defaultChatTransportInstances: Array<{
 const sendMessageMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
+const generateLessonArtifactDraftMock = vi.fn();
 const chatTextComposerProps: Array<{
   disabled?: boolean;
   onSubmit: () => void;
@@ -78,6 +80,10 @@ vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
   fetchWithSupabaseAuth: vi.fn(),
 }));
 
+vi.mock('../../../../services/openrouter/artifactDrafts.ts', () => ({
+  generateLessonArtifactDraft: generateLessonArtifactDraftMock,
+}));
+
 const { default: ContextAnswerPanel } = await import(
   '../../../../components/workspace/shell/ContextAnswerPanel.tsx'
 );
@@ -102,6 +108,21 @@ const currentLessonArtifact = {
   },
 } as const;
 
+const replacementDraftArtifact = {
+  summary: {
+    ...currentLessonArtifact.summary,
+    id: 'project-1:lesson-1:generated-visual:visual-2',
+    replacementOfArtifactId: currentLessonArtifact.summary.id,
+    title: 'mappa concettuale rivista',
+  },
+  visual: {
+    ...currentLessonArtifact.visual,
+    createdAt: '2026-05-01T11:00:00.000Z',
+    id: 'visual-2',
+    title: 'mappa_concettuale_rivista',
+  },
+} as const;
+
 const buildProps = (
   contextAnswerOverrides: Partial<{
     contextScope: 'annotation' | 'lesson' | 'selection';
@@ -115,7 +136,10 @@ const buildProps = (
     selectedText: 'G-buffer',
     lessonContent: 'Contenuto',
     lessonDescription: 'Descrizione',
+    lessonId: 'lesson-1',
     lessonTitle: 'Titolo',
+    projectId: 'project-1',
+    projectTitle: 'Corso',
     ...contextAnswerOverrides,
   },
   contextAnswerPanelRef: createRef<HTMLDivElement>(),
@@ -135,6 +159,7 @@ describe('ContextAnswerPanel', () => {
     sendMessageMock.mockReset();
     addToolOutputMock.mockReset();
     useChatMock.mockReset();
+    generateLessonArtifactDraftMock.mockReset();
     chatTextComposerProps.length = 0;
   });
 
@@ -358,6 +383,119 @@ describe('ContextAnswerPanel', () => {
 
     expect(screen.getByText('mappa concettuale')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Apri mappa concettuale/i })).toBeInTheDocument();
+  });
+
+  test.each([
+    { actionLabel: /Scarta artefatto/i, actionName: 'discard' },
+    { actionLabel: /Sostituisci artefatto/i, actionName: 'replace' },
+  ])('shares regeneration lifecycle across source and draft surfaces on $actionName', async ({
+    actionLabel,
+    actionName,
+  }) => {
+    const user = userEvent.setup();
+    let rejectReplacement: ((reason?: unknown) => void) | undefined;
+    const pendingReplacement = new Promise<void>((_resolve, reject) => {
+      rejectReplacement = reject;
+    });
+    const onReplaceArtifactInLesson =
+      actionName === 'replace'
+        ? vi
+            .fn()
+            .mockImplementationOnce(() => pendingReplacement)
+            .mockResolvedValue(undefined)
+        : vi.fn().mockResolvedValue(undefined);
+    const consoleErrorSpy =
+      actionName === 'replace' ? vi.spyOn(console, 'error').mockImplementation(() => {}) : null;
+    generateLessonArtifactDraftMock.mockResolvedValue({
+      artifactId: replacementDraftArtifact.summary.id,
+      payload: replacementDraftArtifact,
+      visual: replacementDraftArtifact.visual,
+    });
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-artifacts-regeneration',
+          role: 'assistant',
+          parts: [
+            {
+              type: 'tool-getCurrentLessonArtifacts',
+              toolCallId: 'tool-artifacts-regeneration',
+              state: 'output-available',
+              input: {},
+              output: {
+                artifactCount: 1,
+                artifacts: [currentLessonArtifact.summary],
+                renderMode: 'attachments',
+                renderedArtifactCount: 1,
+              },
+            },
+          ],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    render(
+      <ContextAnswerPanel
+        {...buildProps({ id: `context-multi-surface-${actionName}` })}
+        onReplaceArtifactInLesson={onReplaceArtifactInLesson}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: /Apri mappa concettuale$/i }));
+    await user.click(screen.getByRole('button', { name: /Rigenera artefatto/i }));
+    const sourceDialog = screen.getByRole('dialog', { name: /mappa concettuale/i });
+    await user.type(
+      within(sourceDialog).getByLabelText(/Istruzioni rigenerazione/i),
+      'Rendi la mappa piu leggibile.'
+    );
+    await user.click(within(sourceDialog).getByRole('button', { name: /Conferma rigenerazione/i }));
+
+    const draftButton = await screen.findByRole('button', {
+      name: /Apri mappa concettuale rivista/i,
+    });
+    expect(screen.queryByRole('button', { name: /Apri mappa concettuale$/i })).toBeNull();
+    expect(screen.queryByText('Nuova bozza pronta.')).toBeNull();
+
+    await user.click(draftButton);
+    await user.click(screen.getByRole('button', { name: actionLabel }));
+
+    if (actionName === 'replace') {
+      expect(screen.queryByRole('button', { name: /Apri mappa concettuale$/i })).toBeNull();
+      expect(
+        screen.getByRole('dialog', { name: /mappa concettuale rivista/i })
+      ).toBeInTheDocument();
+
+      await act(async () => {
+        rejectReplacement?.(new Error('replace failed'));
+        await pendingReplacement.catch(() => undefined);
+      });
+      expect(
+        await screen.findByText('Operazione non riuscita. L artefatto non e stato modificato.')
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Apri mappa concettuale$/i })).toBeNull();
+      expect(
+        screen.getByRole('dialog', { name: /mappa concettuale rivista/i })
+      ).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: actionLabel }));
+    }
+
+    expect(
+      await screen.findByRole('button', { name: /Apri mappa concettuale$/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Nuova bozza pronta.')).toBeNull();
+    if (actionName === 'replace') {
+      expect(onReplaceArtifactInLesson).toHaveBeenLastCalledWith(
+        currentLessonArtifact.summary.id,
+        replacementDraftArtifact.visual
+      );
+      expect(onReplaceArtifactInLesson).toHaveBeenCalledTimes(2);
+    }
+    consoleErrorSpy?.mockRestore();
   });
 
   test('shows fallback buttons after grace period when requestAddToNotes input is invalid', async () => {

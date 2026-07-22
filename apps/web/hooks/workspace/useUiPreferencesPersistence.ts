@@ -15,7 +15,7 @@ export const useUiPreferencesPersistence = ({
   uiPreferences,
 }: UseUiPreferencesPersistenceArgs) => {
   const hasHydratedFromStorageRef = useRef(false);
-  const hasLoadedPreferencesRef = useRef(typeof window === 'undefined');
+  const hasLoadedPreferencesRef = useRef(typeof globalThis.window === 'undefined');
   const shouldSkipNextPersistRef = useRef(true);
   const applyUiPreferencesRef = useRef(applyUiPreferences);
 
@@ -30,11 +30,11 @@ export const useUiPreferencesPersistence = ({
 
     hasHydratedFromStorageRef.current = true;
 
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return;
     }
 
-    const storedPreferences = readUiPreferences(window.localStorage);
+    const storedPreferences = readUiPreferences(globalThis.localStorage);
     if (storedPreferences) {
       applyUiPreferencesRef.current(storedPreferences);
     }
@@ -43,7 +43,7 @@ export const useUiPreferencesPersistence = ({
   }, []);
 
   useEffect(() => {
-    if (!hasLoadedPreferencesRef.current || typeof window === 'undefined') {
+    if (!hasLoadedPreferencesRef.current || typeof globalThis.window === 'undefined') {
       return;
     }
 
@@ -52,6 +52,6 @@ export const useUiPreferencesPersistence = ({
       return;
     }
 
-    writeUiPreferences(window.localStorage, uiPreferences);
+    writeUiPreferences(globalThis.localStorage, uiPreferences);
   }, [uiPreferences]);
 };

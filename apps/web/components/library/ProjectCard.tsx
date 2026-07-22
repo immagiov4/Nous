@@ -25,16 +25,16 @@ import type { SavedProjectMeta } from '../../types';
 import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 
 interface ProjectCardProps {
-  className?: string;
-  isExporting?: boolean;
-  isOpening?: boolean;
-  onMove?: (projectId: string) => void;
-  project: SavedProjectMeta;
-  onDelete: (projectId: string) => void;
-  onExport: (projectId: string) => void;
-  onOpen: (projectId: string) => void;
-  onRename?: (projectId: string, title: string) => Promise<unknown>;
-  style?: CSSProperties;
+  readonly className?: string;
+  readonly isExporting?: boolean;
+  readonly isOpening?: boolean;
+  readonly onMove?: (projectId: string) => void;
+  readonly project: SavedProjectMeta;
+  readonly onDelete: (projectId: string) => void;
+  readonly onExport: (projectId: string) => void;
+  readonly onOpen: (projectId: string) => void;
+  readonly onRename?: (projectId: string, title: string) => Promise<unknown>;
+  readonly style?: CSSProperties;
 }
 
 const formatDate = (value: string): string =>
@@ -90,14 +90,14 @@ const ProjectCard = ({
 
   const cancelScheduledTitleOpen = useCallback(() => {
     if (titleOpenTimeoutRef.current !== null) {
-      window.clearTimeout(titleOpenTimeoutRef.current);
+      globalThis.window.clearTimeout(titleOpenTimeoutRef.current);
       titleOpenTimeoutRef.current = null;
     }
   }, []);
 
   const scheduleTitleOpen = () => {
     cancelScheduledTitleOpen();
-    titleOpenTimeoutRef.current = window.setTimeout(() => {
+    titleOpenTimeoutRef.current = globalThis.window.setTimeout(() => {
       titleOpenTimeoutRef.current = null;
       onOpen(project.id);
     }, TITLE_OPEN_DELAY_MS);
@@ -149,21 +149,21 @@ const ProjectCard = ({
   const openMenu = () => {
     const buttonRect = menuButtonRef.current?.getBoundingClientRect();
     if (!buttonRect) {
-      setMenuPosition({ bottom: null, left: 0, maxHeight: window.innerHeight, top: 0 });
+      setMenuPosition({ bottom: null, left: 0, maxHeight: globalThis.window.innerHeight, top: 0 });
       setMenuOpen(true);
       return;
     }
 
-    const spaceBelow = window.innerHeight - buttonRect.bottom;
+    const spaceBelow = globalThis.window.innerHeight - buttonRect.bottom;
     const spaceAbove = buttonRect.top;
     const shouldOpenAbove =
       spaceBelow < LIBRARY_PROJECT_MENU_ESTIMATED_HEIGHT_PX && spaceAbove > spaceBelow;
     const nextTop = buttonRect.bottom + LIBRARY_MENU_GAP_PX;
-    const nextBottom = window.innerHeight - buttonRect.top + LIBRARY_MENU_GAP_PX;
+    const nextBottom = globalThis.window.innerHeight - buttonRect.top + LIBRARY_MENU_GAP_PX;
     const nextLeft = Math.max(
       LIBRARY_MENU_EDGE_PADDING_PX,
       Math.min(
-        window.innerWidth - LIBRARY_PROJECT_MENU_WIDTH_PX - LIBRARY_MENU_EDGE_PADDING_PX,
+        globalThis.window.innerWidth - LIBRARY_PROJECT_MENU_WIDTH_PX - LIBRARY_MENU_EDGE_PADDING_PX,
         buttonRect.right - LIBRARY_PROJECT_MENU_WIDTH_PX
       )
     );
@@ -174,7 +174,7 @@ const ProjectCard = ({
         )
       : Math.max(
           LIBRARY_MENU_EDGE_PADDING_PX,
-          window.innerHeight - nextTop - LIBRARY_MENU_EDGE_PADDING_PX
+          globalThis.window.innerHeight - nextTop - LIBRARY_MENU_EDGE_PADDING_PX
         );
 
     setMenuPosition({

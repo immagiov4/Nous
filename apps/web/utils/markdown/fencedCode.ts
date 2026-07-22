@@ -149,7 +149,9 @@ export const parseFencedBlockAt = (lines: string[], startIndex: number): FencedB
     return null;
   }
 
-  const closingFenceRegex = new RegExp(`^${escapeRegExp(token[0])}{${token.length},}[\\t ]*$`);
+  const closingFenceRegex = new RegExp(
+    String.raw`^${escapeRegExp(token[0])}{${token.length},}[\t ]*$`
+  );
   for (let cursor = startIndex + 1; cursor < lines.length; cursor += 1) {
     if (closingFenceRegex.test(lines[cursor])) {
       return {
@@ -414,7 +416,7 @@ export const sanitizeExistingFencedCodeBlock = (block: string): string => {
   }
 
   const openingFence = lines[0];
-  const closingFence = lines[lines.length - 1];
+  const closingFence = lines.at(-1) as string;
   const bodyLines = lines.slice(1, -1);
   if (!bodyLines.some(line => isStandaloneCodeLine(line) || isCodeContinuationLine(line))) {
     return block;

@@ -26,6 +26,7 @@ function WorkspaceReaderOverlays({
   isContextLoading,
   isDarkMode,
   isMobileViewport,
+  lessonCreationBlockReason,
   currentLessonArtifactPayloads,
   onAskContextQuestion,
   onAttachArtifactToAnnotation,
@@ -96,6 +97,7 @@ function WorkspaceReaderOverlays({
           onDetachArtifactFromAnnotation={onDetachArtifactFromAnnotation}
           onHighlight={onHighlight}
           isLoading={isContextLoading}
+          lessonCreationBlockReason={lessonCreationBlockReason}
           onSaveNote={onSaveNote}
         />
       ) : null}

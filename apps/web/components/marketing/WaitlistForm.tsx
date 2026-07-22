@@ -7,7 +7,7 @@ import {
 } from '../../services/marketing/waitlist.ts';
 
 interface WaitlistFormProps {
-  onJoinWaitlist?: (email: string) => Promise<void>;
+  readonly onJoinWaitlist?: (email: string) => Promise<void>;
 }
 
 type SubmissionStatus = 'idle' | 'submitting' | 'success' | 'error';

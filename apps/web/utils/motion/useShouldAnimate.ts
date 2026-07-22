@@ -4,11 +4,11 @@ import { subscribeToMediaQuery } from '../mediaQuery.ts';
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 const readShouldAnimate = (): boolean => {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+  if (typeof globalThis.window === 'undefined' || typeof globalThis.matchMedia !== 'function') {
     return true;
   }
 
-  return !window.matchMedia(REDUCED_MOTION_QUERY).matches;
+  return !globalThis.matchMedia(REDUCED_MOTION_QUERY).matches;
 };
 
 /**
@@ -21,11 +21,11 @@ export const useShouldAnimate = (): boolean => {
   const [shouldAnimate, setShouldAnimate] = useState(readShouldAnimate);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    if (typeof globalThis.window === 'undefined' || typeof globalThis.matchMedia !== 'function') {
       return;
     }
 
-    const mediaQueryList = window.matchMedia(REDUCED_MOTION_QUERY);
+    const mediaQueryList = globalThis.matchMedia(REDUCED_MOTION_QUERY);
     return subscribeToMediaQuery(mediaQueryList, event => {
       setShouldAnimate(!event.matches);
     });

@@ -8,7 +8,6 @@ import type {
   SavedProjectMeta,
 } from '../../types.ts';
 
-const FAVORITE_PROJECTS_STORAGE_KEY = 'nous-favorite-projects-v1';
 const SOURCE_LIBRARY_BATCH_SIZE = 4;
 const COURSE_COVER_GENERATION_CONCURRENCY = 3;
 
@@ -22,39 +21,23 @@ export interface SourceLibraryItem {
   requiresPrimarySourceLoad: boolean;
 }
 
-const readFavoriteProjectIds = (): string[] => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(FAVORITE_PROJECTS_STORAGE_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed.filter(value => typeof value === 'string') : [];
-  } catch {
-    return [];
-  }
-};
-
-export const useFavoriteProjectIds = (projects: SavedProjectMeta[]) => {
-  const [favoriteProjectIds, setFavoriteProjectIds] = useState<string[]>(readFavoriteProjectIds);
-  const validProjectIds = useMemo(() => new Set(projects.map(project => project.id)), [projects]);
+export const useFavoriteProjectIds = (
+  projects: SavedProjectMeta[],
+  setProjectFavorite?: (projectId: string, isFavorite: boolean) => Promise<unknown>
+) => {
   const favoriteIds = useMemo(
-    () => favoriteProjectIds.filter(projectId => validProjectIds.has(projectId)),
-    [favoriteProjectIds, validProjectIds]
+    () => projects.filter(project => project.isFavorite).map(project => project.id),
+    [projects]
   );
 
-  const toggleFavoriteProject = useCallback((projectId: string) => {
-    setFavoriteProjectIds(currentIds => {
-      const nextIds = currentIds.includes(projectId)
-        ? currentIds.filter(currentId => currentId !== projectId)
-        : [...currentIds, projectId];
-      try {
-        window.localStorage.setItem(FAVORITE_PROJECTS_STORAGE_KEY, JSON.stringify(nextIds));
-      } catch {
-        // Favorites remain available for the current session when storage is unavailable.
-      }
-      return nextIds;
-    });
-  }, []);
+  const toggleFavoriteProject = useCallback(
+    (projectId: string) => {
+      const project = projects.find(candidate => candidate.id === projectId);
+      if (!project || !setProjectFavorite) return;
+      void setProjectFavorite(projectId, !project.isFavorite).catch(() => undefined);
+    },
+    [projects, setProjectFavorite]
+  );
 
   return { favoriteIds, toggleFavoriteProject };
 };
@@ -227,7 +210,7 @@ export const createSourceObjectUrl = (file: FileData): string | null => {
   if (!file.data) {
     return null;
   }
-  const binary = window.atob(file.data);
+  const binary = globalThis.window.atob(file.data);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
@@ -239,6 +222,6 @@ export const createSourceObjectUrl = (file: FileData): string | null => {
 
 export const decodeSourceText = (file: FileData): string => {
   if (!file.data) return '';
-  const binary = window.atob(file.data);
+  const binary = globalThis.window.atob(file.data);
   return new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)));
 };

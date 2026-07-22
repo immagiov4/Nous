@@ -144,7 +144,7 @@ export const splitOversizedText = (text: string, maxLength: number): string[] =>
 
 export const splitContentIntoChunks = (text: string, speechBlocks: string[]): string[] => {
   const normalizedBlocks = speechBlocks
-    .map(block => block.replace(/\s+/g, ' ').trim())
+    .map(block => block.replaceAll(/\s+/g, ' ').trim())
     .filter(Boolean);
 
   if (normalizedBlocks.length > 0) {
@@ -264,7 +264,7 @@ const createAudioChunks = (chunks: string[]): AudioChunk[] =>
   }));
 
 const buildChunkOptionLabel = (text: string, index: number): string => {
-  const normalizedText = text.replace(/\s+/g, ' ').trim();
+  const normalizedText = text.replaceAll(/\s+/g, ' ').trim();
   const preview =
     normalizedText.length > CHUNK_LABEL_MAX_CHARACTERS
       ? `${normalizedText.slice(0, CHUNK_LABEL_MAX_CHARACTERS - 1).trimEnd()}…`
@@ -375,7 +375,7 @@ export const useTtsPlayer = ({
       run.pendingAudio = null;
     }
     if (run.crossfadeIntervalId !== null) {
-      window.clearInterval(run.crossfadeIntervalId);
+      globalThis.clearInterval(run.crossfadeIntervalId);
       run.crossfadeIntervalId = null;
     }
 
@@ -481,7 +481,7 @@ export const useTtsPlayer = ({
 
   const clearCrossfadeInterval = useCallback((run: PlaybackRun) => {
     if (run.crossfadeIntervalId !== null) {
-      window.clearInterval(run.crossfadeIntervalId);
+      globalThis.clearInterval(run.crossfadeIntervalId);
       run.crossfadeIntervalId = null;
     }
   }, []);
@@ -1011,7 +1011,7 @@ export const useTtsPlayer = ({
       const audioChunks = createAudioChunks(preparedChunkTexts);
 
       setTrackedAudioState(previousState => ({ ...previousState, chunks: audioChunks }));
-      window.setTimeout(() => {
+      globalThis.setTimeout(() => {
         void startFromScratch(audioChunks);
       }, 0);
       return;
@@ -1182,7 +1182,7 @@ export const useTtsPlayer = ({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: this polling loop intentionally uses refs to read fresh playback state without recreating the interval on every render.
   useEffect(() => {
-    const interval = window.setInterval(() => {
+    const interval = globalThis.setInterval(() => {
       const currentState = audioStateRef.current;
       const run = playbackRunRef.current;
       const audio = run.currentAudio;
@@ -1289,7 +1289,7 @@ export const useTtsPlayer = ({
           }
 
           const fadeStart = performance.now();
-          validatedRun.crossfadeIntervalId = window.setInterval(() => {
+          validatedRun.crossfadeIntervalId = globalThis.window.setInterval(() => {
             const activeRun = playbackRunRef.current;
             if (
               activeRun.runId !== runId ||

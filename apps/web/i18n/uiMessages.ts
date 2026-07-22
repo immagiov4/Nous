@@ -458,6 +458,8 @@ const ENGLISH_UI_MESSAGES = {
   'Nuova password': 'New password',
   'Conferma password': 'Confirm password',
   'Nuovo indirizzo email': 'New email address',
+  'Operazione non riuscita. L artefatto non e stato modificato.':
+    'The operation failed. The artifact was not changed.',
   'Operazione non riuscita. Riprova.': 'The operation failed. Try again.',
   'Operazione in corso…': 'Working…',
   'Password aggiornata.': 'Password updated.',
@@ -531,6 +533,11 @@ const ENGLISH_UI_MESSAGES = {
   Salva: 'Save',
   'Salva modelli': 'Save models',
   'Dimostrazione video: {sourceTitle}': 'Video demonstration: {sourceTitle}',
+  'Micro-capitoli video': 'Video micro-chapters',
+  'Micro-capitolo precedente': 'Previous micro-chapter',
+  'Micro-capitolo successivo': 'Next micro-chapter',
+  'Micro-capitolo {current}: {title}, {timeRange}, {durationShare}% della sequenza':
+    'Micro-chapter {current}: {title}, {timeRange}, {durationShare}% of the sequence',
   'Riproduci la dimostrazione ({timeRange})': 'Play the demonstration ({timeRange})',
   'Salva password': 'Save password',
   'Scegli la destinazione': 'Choose destination',
@@ -573,6 +580,7 @@ const ENGLISH_UI_MESSAGES = {
   'Artefatto sostituito.': 'Artifact replaced.',
   'Avvia dettatura': 'Start dictation',
   'Chiudi avviso microfono': 'Dismiss microphone alert',
+  'Riprova trascrizione': 'Retry transcription',
   'Chiudi anteprima artefatto': 'Close artifact preview',
   'Chiudi artefatto': 'Close artifact',
   'Conferma rigenerazione': 'Confirm regeneration',
@@ -634,6 +642,8 @@ const ENGLISH_UI_MESSAGES = {
   'Sostituisci artefatto': 'Replace artifact',
   'Trascrizione in corso': 'Transcribing',
   'Trascrizione non riuscita. Riprova.': 'Transcription failed. Try again.',
+  'Trascrizione non riuscita. Puoi riprovare senza registrare di nuovo.':
+    'Transcription failed. You can retry without recording again.',
   Visuale: 'Visual',
   'Account creato.': 'Account created.',
   'Aggiornamento utente non riuscito.': 'Could not update the user.',
@@ -1255,7 +1265,7 @@ export const getAppLocale = (): AppLocale =>
   renderingLocaleOverride ?? resolveAppLocale(getBrowserLanguagePreferences());
 
 const interpolateMessage = (message: string, variables?: UiMessageVariables): string =>
-  message.replace(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (placeholder, variableName: string) => {
+  message.replaceAll(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, (placeholder, variableName: string) => {
     const value = variables?.[variableName];
     return value === undefined ? placeholder : String(value);
   });

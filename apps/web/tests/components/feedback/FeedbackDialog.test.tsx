@@ -33,7 +33,7 @@ afterEach(cleanup);
 
 describe('FeedbackDialog', () => {
   beforeEach(() => {
-    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['it']);
+    vi.spyOn(globalThis.navigator, 'languages', 'get').mockReturnValue(['it']);
     submitFeedbackMock.mockReset();
     captureFeedbackScreenshotMock.mockReset();
     getFeedbackDiagnosticsSnapshotMock.mockReset();

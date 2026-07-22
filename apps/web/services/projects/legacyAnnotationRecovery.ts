@@ -24,6 +24,12 @@ const LEGACY_MARK_OPEN_REGEX = /^<mark\b[^>]*>/iu;
 const LEGACY_MARK_PRESENT_REGEX = /<mark\b/iu;
 const LEGACY_ANNOTATION_ID_REGEX = /\bdata-(?:nous|lumina)-annotation-id=(["'])([^"']+)\1/iu;
 
+const compareArtifactIdsByCodeUnit = (left: string, right: string): number => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
+
 type LegacySectionAnnotation = Omit<SectionAnnotation, 'anchor'> & {
   anchor?: SectionAnnotation['anchor'] | { kind: 'selection' };
 };
@@ -248,7 +254,9 @@ const getLessonAnnotationKey = (annotation: SectionAnnotation): string | null =>
   }
 
   const note = annotation.note.trim();
-  const artifactIds = (annotation.artifactRefs || []).map(reference => reference.artifactId).sort();
+  const artifactIds = (annotation.artifactRefs || [])
+    .map(reference => reference.artifactId)
+    .sort(compareArtifactIdsByCodeUnit);
   return JSON.stringify(['lesson', note, note ? [] : artifactIds]);
 };
 
@@ -535,7 +543,7 @@ const openLegacySnapshotStore = async (
 
 export const recoverLegacyAnnotations = async ({
   isUserActive,
-  migrationStorage = typeof window === 'undefined' ? undefined : window.localStorage,
+  migrationStorage = typeof globalThis.window === 'undefined' ? undefined : globalThis.localStorage,
   projectMetas,
   repository,
   userId,

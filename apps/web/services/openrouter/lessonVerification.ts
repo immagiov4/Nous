@@ -1,4 +1,13 @@
+import type { LessonContentBlock } from '../../types.ts';
 import { ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE } from '../../utils/learning/activePause.ts';
+import {
+  deriveQuizFromLessonContentBlocks,
+  hasValidTypedQuizBlocks,
+  legacyMarkdownToLessonContentBlocks,
+  lessonContentBlocksToLegacyMarkdown,
+  normalizeLessonContentBlocks,
+} from '../../utils/reader/lessonContentBlocks.ts';
+import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { MEDIUM_REASONING_CONFIG } from './config.ts';
 import type { SectionImagePlacement } from './lessonImages.ts';
 import {
@@ -6,7 +15,6 @@ import {
   LESSON_QUIZ_OPTION_COUNT,
   MAX_LESSON_QUIZ_QUESTIONS,
   MIN_LESSON_QUIZ_QUESTIONS,
-  normalizeQuizLength,
   parseQuizPayload,
 } from './lessonMarkdownQuality/index.ts';
 import {
@@ -31,6 +39,7 @@ import {
 } from './visualExamples.ts';
 
 interface PdfSectionContentPayload {
+  contentBlocks?: LessonContentBlock[];
   contentMarkdown?: string;
   quiz?: QuizQuestion[];
   imagePlacements?: SectionImagePlacement[];
@@ -53,9 +62,40 @@ export const parseLessonContentPayload = (
   sectionTitle: string
 ): PdfSectionContentPayload => {
   const parsed = parseCleanJson<PdfSectionContentPayload>(response || '{}');
-  if (parsed.contentMarkdown?.trim()) {
+  const contentBlocks = normalizeLessonContentBlocks(parsed.contentBlocks);
+  const contentMarkdown = contentBlocks.length
+    ? lessonContentBlocksToLegacyMarkdown(contentBlocks)
+    : parsed.contentMarkdown?.trim() || '';
+  if (contentMarkdown) {
+    const legacyQuiz = parseQuizPayload(parsed.quiz);
+    const normalizedBlocks = contentBlocks.length
+      ? contentBlocks
+      : legacyMarkdownToLessonContentBlocks(contentMarkdown, legacyQuiz);
+    const quiz = contentBlocks.length
+      ? parseQuizPayload(deriveQuizFromLessonContentBlocks(normalizedBlocks))
+      : legacyQuiz;
+    const hasValidInlineQuizMarkers = hasValidTypedQuizBlocks(normalizedBlocks, {
+      max: MAX_LESSON_QUIZ_QUESTIONS,
+      min: MIN_LESSON_QUIZ_QUESTIONS,
+    });
+    pushNousDebugTrace('lesson-forensics:parsed-draft', {
+      contentBlocks: normalizedBlocks,
+      contentMarkdown,
+      hasValidInlineQuizMarkers,
+      parsedPayload: parsed,
+      quiz,
+      response,
+      sectionTitle,
+    });
+    if (!hasValidInlineQuizMarkers) {
+      throw new Error('La lezione non rispetta il contratto dei blocchi quiz inline.');
+    }
+
     return {
       ...parsed,
+      contentBlocks: normalizedBlocks,
+      contentMarkdown,
+      quiz,
       visualPlanning: normalizeVisualPlanningPayload(parsed.visualPlanning),
     };
   }
@@ -73,6 +113,7 @@ export const parseLessonContentPayload = (
 };
 
 export interface LessonVerificationDraft {
+  contentBlocks?: LessonContentBlock[];
   contentMarkdown: string;
   quiz: QuizQuestion[];
   imagePlacements: LessonImageRef[];
@@ -86,12 +127,7 @@ export const ACTIVE_PAUSE_EXERCISE_TYPE_RULES = ACTIVE_PAUSE_EXERCISE_PROMPT_GUI
   exercise => `- ${exercise.type}: ${exercise.instruction}`
 ).join('\n');
 
-const buildLessonResponseSchema = (exactQuizCount?: number) => {
-  const quizCount =
-    typeof exactQuizCount === 'number' && Number.isInteger(exactQuizCount)
-      ? clampLessonQuizCount(exactQuizCount)
-      : undefined;
-
+const buildLessonResponseSchema = () => {
   return {
     name: 'nous_lesson_response',
     strict: true,
@@ -99,42 +135,84 @@ const buildLessonResponseSchema = (exactQuizCount?: number) => {
       type: 'object',
       additionalProperties: false,
       properties: {
-        contentMarkdown: {
-          type: 'string',
-        },
-        quiz: {
+        contentBlocks: {
           type: 'array',
-          minItems: quizCount ?? MIN_LESSON_QUIZ_QUESTIONS,
-          maxItems: quizCount ?? MAX_LESSON_QUIZ_QUESTIONS,
+          minItems: 2,
           items: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              anchorExcerpt: {
-                type: ['string', 'null'],
-              },
-              exerciseType: {
-                type: 'string',
-                enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
-              },
-              question: {
-                type: 'string',
-              },
-              options: {
-                type: 'array',
-                minItems: LESSON_QUIZ_OPTION_COUNT,
-                maxItems: LESSON_QUIZ_OPTION_COUNT,
-                items: {
-                  type: 'string',
+            anyOf: [
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  type: { type: 'string', const: 'markdown' },
+                  markdown: { type: 'string' },
                 },
+                required: ['type', 'markdown'],
               },
-              correctIndex: {
-                type: 'integer',
-                minimum: 0,
-                maximum: LESSON_QUIZ_OPTION_COUNT - 1,
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  type: { type: 'string', const: 'inline-quiz' },
+                  quiz: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      exerciseType: {
+                        type: 'string',
+                        enum: ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE.map(exercise => exercise.type),
+                      },
+                      question: { type: 'string' },
+                      options: {
+                        type: 'array',
+                        minItems: LESSON_QUIZ_OPTION_COUNT,
+                        maxItems: LESSON_QUIZ_OPTION_COUNT,
+                        items: { type: 'string' },
+                      },
+                      correctIndex: {
+                        type: 'integer',
+                        minimum: 0,
+                        maximum: LESSON_QUIZ_OPTION_COUNT - 1,
+                      },
+                    },
+                    required: ['exerciseType', 'question', 'options', 'correctIndex'],
+                  },
+                },
+                required: ['type', 'quiz'],
               },
-            },
-            required: ['anchorExcerpt', 'exerciseType', 'question', 'options', 'correctIndex'],
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  type: { type: 'string', const: 'youtube-clips' },
+                  clips: {
+                    type: 'array',
+                    minItems: 1,
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        sourceIndex: { type: 'integer', minimum: 0 },
+                        startSeconds: { type: 'number', minimum: 0 },
+                        endSeconds: { type: 'number', minimum: 0 },
+                        title: { type: 'string' },
+                      },
+                      required: ['sourceIndex', 'startSeconds', 'endSeconds', 'title'],
+                    },
+                  },
+                },
+                required: ['type', 'clips'],
+              },
+              {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  type: { type: 'string', const: 'generated-visual' },
+                  slotId: { type: 'string' },
+                },
+                required: ['type', 'slotId'],
+              },
+            ],
           },
         },
         imagePlacements: {
@@ -227,7 +305,7 @@ const buildLessonResponseSchema = (exactQuizCount?: number) => {
           required: ['rationale', 'plans'],
         },
       },
-      required: ['contentMarkdown', 'quiz', 'imagePlacements', 'visualPlanning'],
+      required: ['contentBlocks', 'imagePlacements', 'visualPlanning'],
     },
   } as const;
 };
@@ -281,17 +359,18 @@ OBIETTIVI DI VERIFICA:
 2. ${continuityRule}
 3. Devono valere tutti questi vincoli di focus:
 ${scopeRule}
-4. \`quiz\` deve contenere ESATTAMENTE ${clampLessonQuizCount(targetQuizCount)} pause attive con ESATTAMENTE 4 opzioni ciascuna.
+4. \`contentBlocks\` deve contenere ESATTAMENTE ${clampLessonQuizCount(targetQuizCount)} blocchi inline-quiz con ESATTAMENTE 4 opzioni ciascuno.
 5. Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
 ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 6. Non generare sempre domande: alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
 7. Le pause del \`quiz\` NON devono mai chiedere di ripetere alla lettera una definizione appena data o copiare una frase della lezione.
 8. Ogni pausa deve richiedere almeno una tra queste operazioni mentali: applicare un concetto a un caso, confrontare due casi, prevedere una conseguenza, riconoscere un errore, classificare un esempio, scegliere l'implicazione corretta.
-9. I distrattori devono essere plausibili: niente opzioni caricaturali o palesemente assurde.
-10. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
-10a. Per ogni pausa, \`anchorExcerpt\` deve copiare un breve estratto ESATTO dell'ultimo paragrafo che lo studente deve leggere prima della pausa. Il modello decide cosi il punto editoriale preciso; non usare il heading come scorciatoia e non anticipare una pausa prima delle informazioni necessarie.
-11. \`contentMarkdown\` non deve contenere quiz, markdown image syntax, tag <img>, assetId tecnici o riferimenti sbagliati alle immagini.
-12. I heading devono essere coerenti e ogni \`anchorHeading\` in \`imagePlacements\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`.
+9. Le quattro opzioni di ogni pausa devono essere testualmente distinte. I distrattori devono essere plausibili: niente opzioni caricaturali o palesemente assurde.
+10. Le stringhe \`question\` e \`options\` dei blocchi inline-quiz devono essere testo normale: non racchiudere MAI l'intera consegna o opzione in backticks o code fence.
+10a. La posizione di ogni pausa fa parte della stesura. In \`contentBlocks\`, inserisci un blocco \`inline-quiz\` che contiene direttamente l'oggetto \`quiz\`, subito DOPO il blocco markdown che completa le informazioni necessarie.
+10b. Non restituire un array quiz separato: la sequenza dei blocchi e la fonte di verita. Non raggruppare le pause in fondo e non usare marker testuali o ancore indirette.
+11. I blocchi markdown non devono contenere sezioni quiz, marker strutturali, markdown image syntax, tag <img>, assetId tecnici o riferimenti sbagliati alle immagini.
+12. I heading devono essere coerenti e ogni \`anchorHeading\` in \`imagePlacements\` deve corrispondere ESATTAMENTE a un heading presente in un blocco markdown.
 13. Ogni immagine selezionata deve essere nel punto giusto della lezione: stessa sezione concettuale, stessa descrizione, stesso argomento. Deve avere un collegamento bidirezionale con il testo vicino: il paragrafo deve spiegare cio che la figura mostra, e la figura deve rappresentare cio che il paragrafo sta spiegando.
 14. Verifica con particolare severita che descrizione, caption, immagine e paragrafo vicino siano abbinati correttamente: se una figura parla di ambient occlusion non puo essere usata per decals, overlay, particelle o altri argomenti diversi.
 15. Ogni immagine selezionata deve anche essere visivamente chiara e autosufficiente: se appare sfocata, parziale, tagliata, poco leggibile, mostra solo un bordo, un wrapper, un riquadro, un badge, un'icona o un frammento non riconoscibile, rimuovila.
@@ -301,9 +380,9 @@ ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 19. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
 20. ${FORMULA_RELEVANCE_RULE} Rimuovi le formule decorative o estranee al materiale. Per le formule pertinenti, verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
 21. Verifica con severita tutti gli esempi tecnici che devono essere resi come blocchi preformattati: codice, pseudocodice, sequenze di bit, tracciati, comandi e output. Se un esempio non ha fence Markdown, ha soltanto un'etichetta di linguaggio nuda, oppure e spezzato tra piu fence e righe esterne, racchiudilo interamente in UN SOLO code block con un linguaggio appropriato. Non trasformare normale prosa o formule LaTeX in blocchi di codice. Questo e un errore di formattazione anche quando il contenuto resta semanticamente comprensibile.
-22. La stesura ha gia deciso e collocato gli esempi visuali tramite \`visualPlanning.plans\` e tag \`{{VISUAL_SLOT:slot-001}}\` dentro \`contentMarkdown\`. Verifica questa decisione insieme al testo: conserva i tag validi nel loro punto editoriale, spostali nel testo se la revisione cambia il contesto, correggi o rimuovi piani deboli e aggiungine uno solo se la stesura ha omesso un aiuto chiaramente necessario. Non descrivere una posizione tramite heading o estratti: il tag E la posizione. Nel risultato ogni piano deve avere esattamente un tag e ogni tag esattamente un piano, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. Usa identificatori sequenziali \`slot-001\`, \`slot-002\`, ecc.
+22. La stesura colloca gli esempi visuali con blocchi \`generated-visual\` associati a \`visualPlanning.plans\` tramite \`slotId\`. Ogni piano deve avere esattamente un blocco e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}.
 23. Pianifica un visuale solo quando migliora davvero la comprensione. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE} I worker grafici non hanno comprensione spaziale affidabile: gli artefatti HTML devono generare la grafica con regole o algoritmi, non disegnarla a mano.
-24. Verifica i marker YouTube \`{{YOUTUBE_CLIP_SOURCE:indice|START:secondi|END:secondi}}\` contro il transcript timestampato della stessa fonte. La stesura decide intervallo e posizione mentre scrive: conserva ogni scelta valida, correggi indice o tempi quando l'evidenza lo permette e rimuovila soltanto quando il transcript non la sostiene. Se la lezione insegna principalmente una procedura pratica, visiva, fisica, sonora, temporale o multistep e un transcript selezionato ne mostra direttamente l'azione, l'assenza di una clip inline e un errore editoriale: aggiungi il marker nel punto pertinente. Il marker deve restare subito dopo il paragrafo che spiega cosa osservare, mai in fondo alla lezione o in una sezione fonti.
+24. Verifica ogni blocco \`youtube-clips\` contro i transcript timestampati. Ogni clip contiene \`sourceIndex\`, \`startSeconds\`, \`endSeconds\` e un \`title\` breve che descrive il momento specifico mostrato, non il titolo generico del video. Il blocco deve stare subito dopo il markdown che spiega cosa osservare.
 25. Restituisci SOLO un oggetto JSON valido che rispetti esattamente lo schema richiesto.
 26. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Valuta la pertinenza usando solo la figura descritta da \`caption\`, il suo \`visibleLabel\` e il contesto della lezione, senza inventare dettagli non presenti. Se manca una frase vicina che aiuta il lettore a usare la figura, aggiungila con modifica minima oppure rimuovi l'immagine.
 
@@ -318,9 +397,9 @@ ${JSON.stringify(draft, null, 2)}
 
 Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
-  "contentMarkdown": "Lezione finale verificata in markdown",
-  "quiz": [
-    { "anchorExcerpt": "estratto esatto del paragrafo precedente", "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+  "contentBlocks": [
+    { "type": "markdown", "markdown": "## Sezione\\n\\nTesto della lezione." },
+    { "type": "inline-quiz", "quiz": { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 } }
   ],
   "imagePlacements": [
     { "assetId": "pdf-img-001", "alt": "Descrizione breve", "caption": "Caption opzionale", "anchorHeading": "Analisi Approfondita" }
@@ -371,6 +450,13 @@ export const verifyLessonDraft = async ({
     candidateImages,
     generationNotes,
   });
+  pushNousDebugTrace('lesson-forensics:verification-input', {
+    draft,
+    sectionDescription,
+    sectionTitle,
+    targetQuizCount,
+    verificationPrompt,
+  });
 
   const parsed = await retryWithBackoff(
     async () => {
@@ -389,38 +475,64 @@ export const verifyLessonDraft = async ({
         temperature: 0,
         response_format: {
           type: 'json_schema',
-          json_schema: buildLessonResponseSchema(targetQuizCount),
+          json_schema: buildLessonResponseSchema(),
         },
+      });
+      pushNousDebugTrace('lesson-forensics:verification-response', {
+        response,
+        sectionTitle,
+        targetQuizCount,
       });
       return parseCleanJson<PdfSectionContentPayload>(response || '{}');
     },
     1,
     500
   );
-  const verifiedQuiz = parseQuizPayload(parsed.quiz);
-  const contentMarkdown =
-    typeof parsed.contentMarkdown === 'string' && parsed.contentMarkdown.trim()
-      ? parsed.contentMarkdown
-      : draft.contentMarkdown;
+  const contentBlocks = normalizeLessonContentBlocks(parsed.contentBlocks);
+  const effectiveBlocks = contentBlocks.length
+    ? contentBlocks
+    : (draft.contentBlocks ??
+      legacyMarkdownToLessonContentBlocks(draft.contentMarkdown, draft.quiz));
+  const contentMarkdown = lessonContentBlocksToLegacyMarkdown(effectiveBlocks);
   const parsedVisualPlans = Array.isArray(parsed.visualPlanning?.plans)
     ? parsed.visualPlanning.plans
     : [];
   const seenSlotIds = new Set<string>();
   const visualPlans = parsedVisualPlans.filter(plan => {
     const slotId = plan.slotId?.trim();
-    const marker = `{{VISUAL_SLOT:${slotId}}}`;
-    if (!slotId || seenSlotIds.has(slotId) || !contentMarkdown.includes(marker)) {
+    if (
+      !slotId ||
+      seenSlotIds.has(slotId) ||
+      !effectiveBlocks.some(block => block.type === 'generated-visual' && block.slotId === slotId)
+    ) {
       return false;
     }
     seenSlotIds.add(slotId);
-    return contentMarkdown.indexOf(marker) === contentMarkdown.lastIndexOf(marker);
+    return (
+      effectiveBlocks.filter(block => block.type === 'generated-visual' && block.slotId === slotId)
+        .length === 1
+    );
   });
-  return {
+  const quiz = parseQuizPayload(deriveQuizFromLessonContentBlocks(effectiveBlocks));
+  const hasValidInlineQuizMarkers = hasValidTypedQuizBlocks(effectiveBlocks, {
+    exact: clampLessonQuizCount(targetQuizCount),
+  });
+  pushNousDebugTrace('lesson-forensics:verification-output', {
     contentMarkdown,
-    quiz:
-      verifiedQuiz.length > 0
-        ? normalizeQuizLength(verifiedQuiz, targetQuizCount)
-        : normalizeQuizLength(draft.quiz, targetQuizCount),
+    hasValidInlineQuizMarkers,
+    parsedPayload: parsed,
+    quiz,
+    sectionTitle,
+    targetQuizCount,
+  });
+  if (!hasValidInlineQuizMarkers) {
+    throw new Error('La verifica non ha restituito blocchi quiz inline validi.');
+  }
+
+  return {
+    contentBlocks: effectiveBlocks,
+    contentMarkdown,
+    quiz,
     imagePlacements: Array.isArray(parsed.imagePlacements)
       ? parsed.imagePlacements
           .filter(

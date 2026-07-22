@@ -7,7 +7,11 @@ import {
   type WorkspaceWorkflowState,
 } from '../../../services/workspace/workflow.ts';
 import { AppState, type Message } from '../../../types.ts';
-import type { WorkspaceChatSession, WorkspaceControllerStateAdapter } from './types.ts';
+import type {
+  WorkspaceChatSession,
+  WorkspaceControllerStateAdapter,
+  WorkspaceGenerationKind,
+} from './types.ts';
 
 export const useWorkspaceControllerState = () => {
   const [screenState, setScreenState] = useState<AppState>(AppState.LIBRARY);
@@ -18,11 +22,18 @@ export const useWorkspaceControllerState = () => {
   const [workflowState, setWorkflowState] = useState<WorkspaceWorkflowState>(
     createWorkspaceWorkflowState
   );
-  const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [missingSourceProjectId, setMissingSourceProjectId] = useState<string | null>(null);
+  const [, setGenerationRevision] = useState(0);
 
   const assessmentMessagesRef = useRef(assessmentMessages);
   const chatSessionRef = useRef(chatSession);
+  const generationByProjectRef = useRef(
+    new Map<
+      string | null,
+      { kind: WorkspaceGenerationKind; sectionId: string | null; token: number }
+    >()
+  );
+  const nextGenerationTokenRef = useRef(0);
   const workflowStateRef = useRef(workflowState);
 
   useEffect(() => {
@@ -40,6 +51,10 @@ export const useWorkspaceControllerState = () => {
   const commitWorkflowState = (nextState: WorkspaceWorkflowState) => {
     workflowStateRef.current = nextState;
     setWorkflowState(nextState);
+  };
+
+  const commitGenerationChange = () => {
+    setGenerationRevision(currentRevision => currentRevision + 1);
   };
 
   return {
@@ -85,8 +100,19 @@ export const useWorkspaceControllerState = () => {
         commitWorkflowState(nextState);
         pushNousDebugTrace('workflow:fail', { errorMessage, requestId, workflowId });
       },
+      finishGeneration: (projectId, token) => {
+        const activeGeneration = generationByProjectRef.current.get(projectId);
+        if (activeGeneration?.token !== token) {
+          return;
+        }
+
+        generationByProjectRef.current.delete(projectId);
+        commitGenerationChange();
+      },
       getAssessmentMessages: () => assessmentMessagesRef.current,
       getChatSession: () => chatSessionRef.current,
+      getGeneratingSectionId: projectId =>
+        generationByProjectRef.current.get(projectId)?.sectionId ?? null,
       getOpeningProjectId: () => openingProjectIdRef.current,
       getWorkflowState: () => workflowStateRef.current,
       invalidateWorkflows: workflowIds => {
@@ -94,6 +120,9 @@ export const useWorkspaceControllerState = () => {
         commitWorkflowState(nextState);
         pushNousDebugTrace('workflow:invalidate', { workflowIds });
       },
+      isGenerationActive: projectId => generationByProjectRef.current.has(projectId),
+      isLessonGenerationActive: projectId =>
+        generationByProjectRef.current.get(projectId)?.kind === 'lesson',
       isWorkflowCurrent: (workflowId: WorkspaceWorkflowId, requestId: number) =>
         workflowStateRef.current[workflowId].requestId === requestId,
       resetSessionState: () => {
@@ -113,8 +142,17 @@ export const useWorkspaceControllerState = () => {
           return resolvedMessages;
         });
       },
-      setGeneratingSectionId: (sectionId: string | null) => {
-        setGeneratingSectionId(sectionId);
+      setGeneratingSectionId: (projectId, token, sectionId) => {
+        const activeGeneration = generationByProjectRef.current.get(projectId);
+        if (activeGeneration?.token !== token || activeGeneration.sectionId === sectionId) {
+          return;
+        }
+
+        generationByProjectRef.current.set(projectId, {
+          ...activeGeneration,
+          sectionId,
+        });
+        commitGenerationChange();
       },
       setChatSession: nextChatSession => {
         chatSessionRef.current = nextChatSession;
@@ -196,8 +234,18 @@ export const useWorkspaceControllerState = () => {
         commitWorkflowState(nextState);
         pushNousDebugTrace('workflow:succeed', { message, requestId, workflowId });
       },
+      tryBeginGeneration: (projectId, kind) => {
+        if (generationByProjectRef.current.has(projectId)) {
+          return null;
+        }
+
+        const token = nextGenerationTokenRef.current + 1;
+        nextGenerationTokenRef.current = token;
+        generationByProjectRef.current.set(projectId, { kind, sectionId: null, token });
+        commitGenerationChange();
+        return token;
+      },
     } satisfies WorkspaceControllerStateAdapter,
-    generatingSectionId,
     missingSourceProjectId,
     workflowState,
   };

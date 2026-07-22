@@ -507,6 +507,9 @@ describe('/api/openrouter proxy', () => {
       });
 
     expect(response.status).toBe(200);
+    expect(response.headers['x-nous-resolved-ai-provider']).toBe('codex');
+    expect(response.headers['x-nous-resolved-ai-model']).toBe('gpt-codex-lesson');
+    expect(response.headers['x-nous-resolved-ai-reasoning-effort']).toBe('high');
     expect(response.body.choices[0]).toMatchObject({
       finish_reason: 'stop',
       message: { role: 'assistant', content: 'Risposta Codex' },

@@ -19,14 +19,14 @@ export function useMobileKeyboardOffset() {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return;
     }
 
-    const vv = window.visualViewport;
+    const vv = globalThis.visualViewport;
 
     const update = () => {
-      const layoutHeight = window.innerHeight;
+      const layoutHeight = globalThis.innerHeight;
       const visualHeight = vv ? vv.height : layoutHeight;
       const visibleHeight = Math.min(visualHeight, layoutHeight);
 
@@ -38,16 +38,16 @@ export function useMobileKeyboardOffset() {
 
     update();
 
-    window.addEventListener('resize', update);
-    window.addEventListener('orientationchange', update);
+    globalThis.addEventListener('resize', update);
+    globalThis.addEventListener('orientationchange', update);
     if (vv) {
       vv.addEventListener('resize', update);
       vv.addEventListener('scroll', update);
     }
 
     return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('orientationchange', update);
+      globalThis.removeEventListener('resize', update);
+      globalThis.removeEventListener('orientationchange', update);
       if (vv) {
         vv.removeEventListener('resize', update);
         vv.removeEventListener('scroll', update);

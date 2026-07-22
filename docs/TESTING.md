@@ -11,13 +11,31 @@ bun run quality
 bun run check:fallow
 bun run test
 bun run gate
+bun run gate:full
 ```
 
 - `quality` runs the TypeScript checks, Biome, dependency boundaries, and React Hooks lint.
 - `test` runs the Vitest suite under Bun.
-- `gate` runs `quality`, the Semgrep rule tests and repository scan, Fallow, and Vitest.
+- `gate:checks` runs `quality`, the Semgrep rule tests and repository scan, and Fallow.
+- `gate` adds the Vitest suite to `gate:checks`.
 - `gate:ci` uses the same blocking checks and reports Fallow against its regression baseline.
-- `gate:full` adds the local Sonar scan after `gate`.
+- `gate:full` runs `gate`, generates frontend LCOV coverage on Node, and launches the local Sonar
+  scan. The complete suite still runs on Bun; the Node pass is limited to frontend tests because
+  backend deployment tests exercise Bun-specific APIs. The full gate completes every stage so a
+  local lint or test failure cannot silently skip Sonar, then exits with a failure if any stage
+  failed. The scanner waits for the Sonar quality-gate result and propagates a failing gate.
+
+Before the first local full gate, start and initialize Sonar with `bun run sonar:up` and
+`bun run sonar:bootstrap`. The generated credentials stay in the ignored
+`sonar.local.properties` file.
+
+## Sonar quality ratchet
+
+Run `bun run gate:full` after each non-trivial completed batch. Triage every new bug,
+vulnerability, and security hotspot before considering the batch complete. When safe unresolved
+code-smell debt remains, each batch should also remove at least 10 findings. Record the reason when
+there are not 10 safe findings in scope; do not force speculative refactors merely to reach the
+number.
 
 Biome fixes and formatting remain separate, explicit commands:
 

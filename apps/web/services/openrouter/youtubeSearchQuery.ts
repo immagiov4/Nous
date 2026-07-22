@@ -3,17 +3,22 @@ import { INTERNAL_FAST_TASK_INSTRUCTION } from './prompts.ts';
 import { callOpenRouter, parseCleanJson, retryWithBackoff } from './shared.ts';
 
 const MAX_YOUTUBE_SEARCH_QUERY_CHARS = 100;
+const MAX_LESSON_YOUTUBE_SEARCH_QUERY_CHARS = 80;
+const MIN_YOUTUBE_SEARCH_QUERY_TERMS = 2;
+const MAX_YOUTUBE_SEARCH_QUERY_TERMS = 6;
 const MAX_COURSE_YOUTUBE_SEARCH_QUERIES = 3;
 const YOUTUBE_SEARCH_QUERY_RESPONSE_SCHEMA = {
-  name: 'youtube_search_query',
+  name: 'youtube_search_plan',
   strict: true,
   schema: {
     type: 'object',
     additionalProperties: false,
     properties: {
-      query: { type: 'string', maxLength: MAX_YOUTUBE_SEARCH_QUERY_CHARS },
+      fallbackQuery: { type: 'string', maxLength: MAX_LESSON_YOUTUBE_SEARCH_QUERY_CHARS },
+      focusConcept: { type: 'string', maxLength: 120 },
+      specificQuery: { type: 'string', maxLength: MAX_LESSON_YOUTUBE_SEARCH_QUERY_CHARS },
     },
-    required: ['query'],
+    required: ['fallbackQuery', 'focusConcept', 'specificQuery'],
   },
 } as const;
 const COURSE_YOUTUBE_SEARCH_QUERIES_RESPONSE_SCHEMA = {
@@ -44,10 +49,29 @@ export interface YouTubeSearchQueryInput {
   practicalTask?: string;
 }
 
+export interface YouTubeSearchPlan {
+  fallbackQuery: string;
+  focusConcept: string;
+  specificQuery: string;
+}
+
 const normalizePlannedQuery = (value: unknown): string => {
   if (typeof value !== 'string') throw new Error('Missing YouTube search query');
-  const query = value.replace(/\s+/g, ' ').trim();
+  const query = value.replaceAll(/\s+/g, ' ').trim();
   if (!query || query.length > MAX_YOUTUBE_SEARCH_QUERY_CHARS) {
+    throw new Error('Invalid YouTube search query length');
+  }
+  return query;
+};
+
+const normalizeLessonPlannedQuery = (value: unknown): string => {
+  const query = normalizePlannedQuery(value);
+  const termCount = query.split(' ').length;
+  if (
+    query.length > MAX_LESSON_YOUTUBE_SEARCH_QUERY_CHARS ||
+    termCount < MIN_YOUTUBE_SEARCH_QUERY_TERMS ||
+    termCount > MAX_YOUTUBE_SEARCH_QUERY_TERMS
+  ) {
     throw new Error('Invalid YouTube search query length');
   }
   return query;
@@ -61,13 +85,37 @@ const buildFallbackQuery = (input: YouTubeSearchQueryInput): string =>
     .slice(0, MAX_YOUTUBE_SEARCH_QUERY_CHARS)
     .trim();
 
+const limitQueryTerms = (value: string): string =>
+  value
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .slice(0, MAX_YOUTUBE_SEARCH_QUERY_TERMS)
+    .join(' ')
+    .slice(0, MAX_LESSON_YOUTUBE_SEARCH_QUERY_CHARS)
+    .trim();
+
+const buildFallbackPlan = (input: YouTubeSearchQueryInput): YouTubeSearchPlan => {
+  const specificQuery = limitQueryTerms(input.lessonTitle || buildFallbackQuery(input));
+  const fallbackQuery = limitQueryTerms(
+    input.keyConcepts?.[0] || input.courseTitle || specificQuery
+  );
+  return {
+    fallbackQuery: fallbackQuery || specificQuery,
+    focusConcept: input.keyConcepts?.[0] || input.lessonTitle || input.courseTitle,
+    specificQuery,
+  };
+};
+
 const normalizePlannedQueries = (value: unknown): string[] => {
   if (!Array.isArray(value)) throw new Error('Missing YouTube search queries');
   const queries = value.map(normalizePlannedQuery);
   return [...new Set(queries)].slice(0, MAX_COURSE_YOUTUBE_SEARCH_QUERIES);
 };
 
-export const planYouTubeSearchQuery = async (input: YouTubeSearchQueryInput): Promise<string> => {
+export const planYouTubeSearchQuery = async (
+  input: YouTubeSearchQueryInput
+): Promise<YouTubeSearchPlan> => {
   try {
     const response = await retryWithBackoff(
       () =>
@@ -86,14 +134,19 @@ ${INTERNAL_FAST_TASK_INSTRUCTION}`,
             },
             {
               role: 'user',
-              content: `Crea UNA query YouTube breve e mirata per trovare il video più utile a questa lezione.
+              content: `Scegli UN SOLO concetto centrale della lezione che sia insieme difficile da capire, importante per l'obiettivo didattico e chiarito meglio da movimento, spazio, tempo o dimostrazione video. Non cercare di coprire tutta la lezione.
+
+Restituisci due formulazioni della STESSA intenzione:
+- specificQuery: il concetto scelto con al massimo un contesto tecnico indispensabile;
+- fallbackQuery: lo stesso concetto senza prodotto, framework o contesto restrittivo.
 
 Regole:
-- Usa 3-10 termini che potrebbero davvero comparire nel titolo o nella descrizione di un video.
-- Dai priorità alla tecnica, dimostrazione o processo concreto che lo studente deve vedere o sentire.
+- Ogni query usa ${MIN_YOUTUBE_SEARCH_QUERY_TERMS}-${MAX_YOUTUBE_SEARCH_QUERY_TERMS} termini che potrebbero davvero comparire nel titolo o nella descrizione.
+- Ogni query cerca un solo soggetto e una sola intenzione: spiegazione, visualizzazione oppure dimostrazione.
+- Non concatenare gli altri argomenti della lezione e non usare la query come elenco di keyword.
 - Non copiare tutto il contesto, non scrivere una frase completa e non inserire URL.
 - Puoi usare termini inglesi quando aumentano nettamente la qualità dei risultati, specialmente per contenuti visivi indipendenti dalla lingua.
-- Massimo ${MAX_YOUTUBE_SEARCH_QUERY_CHARS} caratteri.
+- Massimo ${MAX_LESSON_YOUTUBE_SEARCH_QUERY_CHARS} caratteri.
 
 CONTESTO:
 ${JSON.stringify(input)}`,
@@ -107,15 +160,27 @@ ${JSON.stringify(input)}`,
       1,
       300
     );
-    const query = normalizePlannedQuery(
-      parseCleanJson<{ query?: unknown }>(response || '{}').query
-    );
-    console.info('[Nous] Query YouTube pianificata.', { query });
-    return query;
+    const parsed = parseCleanJson<{
+      fallbackQuery?: unknown;
+      focusConcept?: unknown;
+      specificQuery?: unknown;
+    }>(response || '{}');
+    const plan = {
+      fallbackQuery: normalizeLessonPlannedQuery(parsed.fallbackQuery),
+      focusConcept:
+        typeof parsed.focusConcept === 'string' && parsed.focusConcept.trim()
+          ? parsed.focusConcept.trim()
+          : (() => {
+              throw new Error('Missing YouTube focus concept');
+            })(),
+      specificQuery: normalizeLessonPlannedQuery(parsed.specificQuery),
+    };
+    console.info('[Nous] Ricerca YouTube pianificata.', plan);
+    return plan;
   } catch {
-    const fallback = buildFallbackQuery(input);
-    console.error('[Nous] Pianificazione della query YouTube fallita; uso il titolo breve.');
-    return fallback;
+    const fallbackPlan = buildFallbackPlan(input);
+    console.error('[Nous] Pianificazione della ricerca YouTube fallita; uso i titoli brevi.');
+    return fallbackPlan;
   }
 };
 

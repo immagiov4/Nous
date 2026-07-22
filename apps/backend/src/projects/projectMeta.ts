@@ -211,5 +211,6 @@ export const buildProjectMeta = (
     completedExercises,
     hasSourceFile: Boolean(snapshot.source),
     coverLabel: buildCoverLabel(snapshot, sourceKind),
+    isFavorite: previousMeta?.isFavorite ?? false,
   };
 };

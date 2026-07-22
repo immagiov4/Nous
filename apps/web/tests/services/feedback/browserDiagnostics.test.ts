@@ -12,7 +12,7 @@ describe('browser feedback diagnostics', () => {
   beforeEach(() => {
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    window.history.replaceState({}, '', '/course/123?access_token=page-secret#lesson');
+    globalThis.history.replaceState({}, '', '/course/123?access_token=page-secret#lesson');
     cleanup = initializeFeedbackDiagnostics();
   });
 
@@ -50,7 +50,7 @@ describe('browser feedback diagnostics', () => {
   });
 
   test('records uncaught browser errors without URL parameters', () => {
-    window.dispatchEvent(
+    globalThis.dispatchEvent(
       new ErrorEvent('error', {
         filename: 'https://nous.test/assets/app.js?token=secret',
         lineno: 42,

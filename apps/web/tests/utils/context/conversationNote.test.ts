@@ -9,6 +9,7 @@ test('keeps a single candidate when the refined selection matches the original a
       contextAfter: ' dopo',
       contextBefore: 'prima ',
       selectedText: ' Concetto chiave ',
+      selectedTextStart: 42,
     },
     toolInput: {
       note: ' Nota sintetica ',
@@ -24,9 +25,11 @@ test('keeps a single candidate when the refined selection matches the original a
         contextAfter: 'dopo',
         contextBefore: 'prima',
         selectedText: 'Concetto chiave',
+        selectedTextStart: 42,
       },
       note: 'Nota sintetica',
       selectedText: 'Concetto chiave',
+      selectedTextStart: 42,
     },
   ]);
 });
@@ -37,6 +40,7 @@ test('adds a fallback candidate with the original anchored selection when the mo
       contextAfter: 'definisce il comportamento',
       contextBefore: 'La funzione pure',
       selectedText: 'non muta lo stato',
+      selectedTextStart: 128,
     },
     toolInput: {
       contextAfter: 'il comportamento',
@@ -54,6 +58,7 @@ test('adds a fallback candidate with the original anchored selection when the mo
         contextAfter: 'definisce il comportamento',
         contextBefore: 'La funzione pure',
         selectedText: 'non muta lo stato',
+        selectedTextStart: 128,
       },
       note: 'Riassunto finale',
       selectedText: 'non muta',
@@ -65,9 +70,11 @@ test('adds a fallback candidate with the original anchored selection when the mo
         contextAfter: 'definisce il comportamento',
         contextBefore: 'La funzione pure',
         selectedText: 'non muta lo stato',
+        selectedTextStart: 128,
       },
       note: 'Riassunto finale',
       selectedText: 'non muta lo stato',
+      selectedTextStart: 128,
     },
   ]);
 });

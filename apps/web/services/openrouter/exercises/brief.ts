@@ -8,6 +8,7 @@ import type {
   UserProfile,
 } from '../../../types.ts';
 import { flattenPathNodes } from '../../../utils/learning/pathNodes.ts';
+import { stripInlineQuizMarkers } from '../../../utils/reader/inlineQuiz.ts';
 import { clipText } from '../../../utils/text.ts';
 import { MEDIUM_REASONING_CONFIG, MODEL_REASONING, teacherInstruction } from '../config.ts';
 import { callOpenRouter, parseCleanJson, retryWithBackoff } from '../shared.ts';
@@ -70,25 +71,8 @@ const EXERCISE_BRIEF_RESPONSE_SCHEMA = {
   },
 } as const;
 const VISUAL_PLACEHOLDER_REGEX = /\{\{(?:PDF_IMAGE|VISUAL_EXAMPLE):[^}]+}}/g;
-const QUIZ_HEADING_REGEX =
-  /(?:^|\n)#{1,6}\s+(?:quiz|verifica|domande|pausa attiva|esercizi di controllo)\b[\s\S]*$/i;
-const PRIMARY_DELIVERY_HEADING_REGEX =
-  /^#{1,6}[ \t]+(?:cosa devi consegnare|consegna|output richiesto|deliverable)[ \t]*$/im;
-const REDUNDANT_FINAL_DELIVERY_SECTION_REGEX =
-  /^#{1,6}[ \t]+(?:consegna finale attesa|risultato finale atteso|output finale atteso)[ \t]*\r?\n[\s\S]*?(?=^#{1,6}[ \t]+|(?![\s\S]))/gim;
 
 const asString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-
-const normalizeExerciseBrief = (brief: string): string => {
-  if (!PRIMARY_DELIVERY_HEADING_REGEX.test(brief)) {
-    return brief.trim();
-  }
-
-  return brief
-    .replace(REDUNDANT_FINAL_DELIVERY_SECTION_REGEX, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-};
 
 const normalizeSources = (value: unknown): ResearchSourceReference[] | undefined => {
   if (!Array.isArray(value)) {
@@ -155,15 +139,15 @@ const getFocusLessons = (plan: LearningPlan, exerciseId: string): LessonNode[] =
     .filter((node): node is LessonNode => node.kind === 'lesson');
 };
 
-const stripGeneratedLessonAppendices = (content: string): string =>
-  content.replace(VISUAL_PLACEHOLDER_REGEX, '').replace(QUIZ_HEADING_REGEX, '').trim();
+const stripGeneratedLessonPlaceholders = (content: string): string =>
+  stripInlineQuizMarkers(content).replaceAll(VISUAL_PLACEHOLDER_REGEX, '').trim();
 
 const formatFocusLessons = (lessons: LessonNode[]): string =>
   lessons
     .map(
       lesson =>
         `## ${lesson.title}\nDescrizione: ${lesson.description}\n\n${clipText(
-          stripGeneratedLessonAppendices(lesson.content || ''),
+          stripGeneratedLessonPlaceholders(lesson.content || ''),
           MAX_FOCUS_LESSON_CHARS,
           '[lezione troncata per budget]'
         )}`
@@ -234,14 +218,15 @@ const buildBriefPrompt = (args: GenerateApplicationExerciseBriefArgs): string =>
 
 REGOLA FONDAMENTALE:
 - Questo NON e una lezione. Non spiegare il modulo come contenuto didattico.
-- Devi scrivere una traccia operativa: scenario, task, vincoli, cosa consegnare, criteri di verifica.
+- Scrivi la traccia piu breve che renda il compito autonomo, sicuro e valutabile. La complessita della traccia deve essere proporzionata a quella del compito: un esercizio semplice non va trasformato in un capitolato.
 - Lo studente deve produrre qualcosa: diagnosi, mappa, checklist, procedura, configurazione ragionata, report o artefatto equivalente.
 - Non introdurre concetti nuovi fuori dal corso; puoi usare esempi realistici solo per rendere il compito concreto.
 - Se il task dipende da un messaggio, caso, dataset, configurazione, brano o altro oggetto da analizzare, fornisci tu nella traccia tutto il materiale necessario in forma compatta ma sufficiente.
 - Non chiedere allo studente di cercare, scegliere o recuperare autonomamente il materiale di partenza: il laboratorio deve essere autosufficiente.
-- Mantieni la traccia breve e operativa. Ogni sezione deve aggiungere informazioni nuove, senza parafrasi o riepiloghi ridondanti.
-- Usa una sola sezione dedicata alla consegna e non ripetere la consegna in una conclusione finale.
-- Non creare sezioni intitolate "Obiettivo", "Obiettivo operativo" o equivalenti: l'obiettivo resta interno alla valutazione.
+- Distingui cio che lo studente deve fare da eventuali dati di partenza, ma non imporre una sezione per ogni aspetto della traccia. Usa heading solo quando aiutano davvero a orientarsi.
+- Dai i vincoli indispensabili per delimitare o rendere sicuro il lavoro; non aggiungere checklist, criteri di verifica dettagliati, conteggi, formati o passaggi intermedi se l'esercizio non li richiede davvero.
+- Non anticipare la soluzione, la classificazione corretta, la procedura completa o le osservazioni che lo studente deve ricavare. Fornisci contesto sufficiente per iniziare, non una risposta guidata da ricopiare.
+- Indica la consegna una sola volta, nel modo piu diretto possibile. Non aggiungere riepiloghi finali, rubriche rivolte allo studente o sezioni "Obiettivo".
 - Lingua: ${args.profile?.language || 'Italiano'}.
 
 ESERCIZIO PIANIFICATO:
@@ -300,7 +285,7 @@ export const generateApplicationExerciseBrief = async (
 
   args.onStatusUpdate?.('Verifico la traccia…');
   const parsed = parseCleanJson<ExerciseBriefDraft>(response || '{}');
-  const brief = normalizeExerciseBrief(asString(parsed.briefMarkdown));
+  const brief = asString(parsed.briefMarkdown);
   if (!brief) {
     throw new Error('Il modello non ha restituito una traccia valida.');
   }

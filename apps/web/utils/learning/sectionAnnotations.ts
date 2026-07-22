@@ -28,6 +28,7 @@ interface ApplySectionAnnotationOptions {
   now?: string;
   preferredAnnotationId?: string;
   selectedText: string;
+  selectedTextStart?: number;
 }
 
 interface ApplySectionAnnotationResult {
@@ -93,15 +94,22 @@ export const findSectionAnnotationForSelection = ({
   contextAfter,
   contextBefore,
   selectedText,
+  selectedTextStart,
 }: Pick<
   ApplySectionAnnotationOptions,
-  'annotations' | 'content' | 'contextAfter' | 'contextBefore' | 'selectedText'
+  | 'annotations'
+  | 'content'
+  | 'contextAfter'
+  | 'contextBefore'
+  | 'selectedText'
+  | 'selectedTextStart'
 >): FindSectionAnnotationForSelectionResult | null => {
   const selectedSegments = resolveSelectedSegments({
     content,
     contextAfter,
     contextBefore,
     selectedText,
+    selectedTextStart,
   });
   if (selectedSegments.length === 0) {
     return null;
@@ -168,12 +176,14 @@ export const applySectionAnnotation = ({
   now = timestampIso(),
   preferredAnnotationId,
   selectedText,
+  selectedTextStart,
 }: ApplySectionAnnotationOptions): ApplySectionAnnotationResult | null => {
   const selectedSegments = resolveSelectedSegments({
     content,
     contextAfter,
     contextBefore,
     selectedText,
+    selectedTextStart,
   });
   if (selectedSegments.length === 0) {
     return null;

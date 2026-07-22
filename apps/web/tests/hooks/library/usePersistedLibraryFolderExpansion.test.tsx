@@ -22,11 +22,11 @@ const buildTree = (folderIds: string[]): Pick<LibraryTree, 'folderById'> => ({
 });
 
 beforeEach(() => {
-  window.localStorage.clear();
+  globalThis.localStorage.clear();
 });
 
 test('persists multiple folder expansion toggles immediately', () => {
-  window.localStorage.setItem(
+  globalThis.localStorage.setItem(
     LIBRARY_COLLAPSED_FOLDER_IDS_KEY,
     JSON.stringify(['folder-1', 'folder-2'])
   );
@@ -42,15 +42,15 @@ test('persists multiple folder expansion toggles immediately', () => {
     result.current.toggleFolderExpansion('folder-1');
   });
 
-  expect(JSON.parse(window.localStorage.getItem(LIBRARY_COLLAPSED_FOLDER_IDS_KEY) || '[]')).toEqual(
-    ['folder-2']
-  );
+  expect(
+    JSON.parse(globalThis.localStorage.getItem(LIBRARY_COLLAPSED_FOLDER_IDS_KEY) || '[]')
+  ).toEqual(['folder-2']);
 
   act(() => {
     result.current.toggleFolderExpansion('folder-2');
   });
 
-  expect(JSON.parse(window.localStorage.getItem(LIBRARY_COLLAPSED_FOLDER_IDS_KEY) || '[]')).toEqual(
-    []
-  );
+  expect(
+    JSON.parse(globalThis.localStorage.getItem(LIBRARY_COLLAPSED_FOLDER_IDS_KEY) || '[]')
+  ).toEqual([]);
 });

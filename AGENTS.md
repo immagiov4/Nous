@@ -96,14 +96,18 @@ a feature is core or better left to external tools.
 bun run quality       # TypeScript type checks + Biome lint
 bun run check:fallow  # Static dead-code & duplication analysis (info only)
 bun run gate          # Full gate: quality + fallow + tests
+bun run gate:full     # Local full gate: checks + test coverage + Sonar
 bun run gate:ci       # CI gate: quality + fallow regression + tests
 bun run fix           # Auto-fix Biome lint, format, and import ordering
 bun run format        # Format all files (Biome)
 bun run test          # Vitest test suite (runs under Bun runtime)
 ```
 
-Run the narrowest meaningful validation first. Before completing cleanup/refactor
-batches, run `bun run gate`. Use `bun run fix` to auto-fix lint and format issues.
+Run the narrowest meaningful validation first. Before completing a non-trivial local batch,
+run `bun run gate:full`; it must still reach Sonar when an earlier stage fails. Triage every new
+Sonar bug, vulnerability, and security hotspot, and reduce safe unresolved code-smell debt by at
+least 10 findings per batch when that much safe debt remains. Use `bun run fix` to auto-fix lint and
+format issues.
 Do not claim validation passed unless it was actually run.
 
 ## Core Philosophy

@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import ContextMenu from '../../../components/workspace/ContextMenu.tsx';
-import type { LearningArtifactRenderPayload } from '../../../types.ts';
+import type { LearningArtifactRenderPayload, LessonCreationBlockReason } from '../../../types.ts';
 
 vi.mock('../../../components/shared/SpeechInputButton.tsx', async importOriginal => {
   const actual =
@@ -34,6 +34,7 @@ const buildProps = () => ({
   anchorX: 240,
   anchorY: 180,
   isLoading: false,
+  lessonCreationBlockReason: null as LessonCreationBlockReason | null,
   horizontalBounds: undefined as { left: number; right: number } | undefined,
   onAsk: vi.fn(),
   onClose: vi.fn(),
@@ -68,11 +69,11 @@ const annotationArtifact: LearningArtifactRenderPayload = {
 
 describe('ContextMenu', () => {
   beforeEach(() => {
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
       callback(0);
       return 1;
     });
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -191,13 +192,70 @@ describe('ContextMenu', () => {
     expect(props.onCreateLesson).toHaveBeenCalledWith('Approfondisci il punto');
   });
 
+  test('disables lesson creation and explains the wait while a lesson is generating', async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...buildProps(),
+      isLoading: true,
+      lessonCreationBlockReason: 'lesson-generation' as const,
+    };
+
+    render(<ContextMenu {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+    const createLessonItem = screen.getByRole('menuitem', {
+      name: 'Generazione lezione in corso…',
+    });
+
+    expect(createLessonItem).toBeDisabled();
+    await user.click(createLessonItem);
+    expect(props.onCreateLesson).not.toHaveBeenCalled();
+    expect(
+      screen
+        .getByText(/Vuoi creare una nuova lezione da questa selezione/i)
+        .closest('[aria-hidden]')
+    ).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  test('disables an open lesson confirmation when generation starts', async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const { rerender } = render(<ContextMenu {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crea lezione' }));
+
+    rerender(<ContextMenu {...props} isLoading lessonCreationBlockReason="lesson-generation" />);
+
+    const pendingButton = screen.getByRole('button', {
+      name: 'Generazione lezione in corso…',
+    });
+    expect(pendingButton).toBeDisabled();
+    await user.click(pendingButton);
+    expect(props.onCreateLesson).not.toHaveBeenCalled();
+  });
+
+  test('does not describe exercise work as lesson generation', async () => {
+    const user = userEvent.setup();
+
+    render(<ContextMenu {...buildProps()} lessonCreationBlockReason="other-operation" />);
+
+    await user.click(screen.getByRole('button', { name: 'Apri menu' }));
+    const createLessonItem = screen.getByRole('menuitem', {
+      name: 'Operazione in corso…',
+    });
+
+    expect(createLessonItem).toBeDisabled();
+    expect(screen.queryByText('Generazione lezione in corso…')).not.toBeInTheDocument();
+  });
+
   test('closes on escape and disables actions while loading', () => {
     const props = buildProps();
     props.isLoading = true;
 
     render(<ContextMenu {...props} />);
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(globalThis.window, { key: 'Escape' });
 
     expect(props.onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: /Invia domanda/i })).not.toBeInTheDocument();
@@ -237,7 +295,7 @@ describe('ContextMenu', () => {
     expect(submenu.parentElement).toBe(portalContainer);
     expect(createLessonItem).toHaveFocus();
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(globalThis.window, { key: 'Escape' });
     expect(screen.queryByRole('menu', { name: 'Apri menu' })).not.toBeInTheDocument();
     expect(props.onClose).not.toHaveBeenCalled();
     expect(moreActionsButton).toHaveFocus();
@@ -310,7 +368,7 @@ describe('ContextMenu', () => {
     const top = Number.parseFloat(surface.style.top);
 
     expect(noteMaxHeight).toBeGreaterThan(0);
-    expect(top + noteMaxHeight).toBeLessThanOrEqual(window.innerHeight);
+    expect(top + noteMaxHeight).toBeLessThanOrEqual(globalThis.innerHeight);
     expect(surface.style.top).toBe(initialTop);
     expect(surface.style.bottom).toBe(initialBottom);
     expect(noteInput).toHaveAttribute('rows', '5');

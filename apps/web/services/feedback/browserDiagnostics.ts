@@ -38,13 +38,13 @@ const sanitizeUrl = (value: string): string => {
 };
 
 export const sanitizeFeedbackDiagnosticText = (value: string): string => {
-  const withoutUrls = value.replace(/https?:\/\/[^\s)\]}]+/gi, match => sanitizeUrl(match));
+  const withoutUrls = value.replaceAll(/https?:\/\/[^\s)\]}]+/gi, match => sanitizeUrl(match));
   return withoutUrls
-    .replace(SENSITIVE_VALUE_PATTERN, '$1=[RIMOSSO]')
-    .replace(BEARER_PATTERN, 'Bearer [RIMOSSO]')
-    .replace(JWT_PATTERN, '[TOKEN RIMOSSO]')
-    .replace(PROVIDER_SECRET_PATTERN, '[TOKEN RIMOSSO]')
-    .replace(EMAIL_PATTERN, '[EMAIL RIMOSSA]')
+    .replaceAll(SENSITIVE_VALUE_PATTERN, '$1=[RIMOSSO]')
+    .replaceAll(BEARER_PATTERN, 'Bearer [RIMOSSO]')
+    .replaceAll(JWT_PATTERN, '[TOKEN RIMOSSO]')
+    .replaceAll(PROVIDER_SECRET_PATTERN, '[TOKEN RIMOSSO]')
+    .replaceAll(EMAIL_PATTERN, '[EMAIL RIMOSSA]')
     .slice(0, MAX_MESSAGE_LENGTH);
 };
 
@@ -90,12 +90,12 @@ export const getFeedbackDiagnosticsSnapshot = (): FeedbackDiagnosticsSnapshot =>
   return {
     consoleEntries,
     correlationIds: getCorrelationIds(consoleEntries),
-    pageUrl: sanitizeUrl(window.location.href),
+    pageUrl: sanitizeUrl(globalThis.location.href),
   };
 };
 
 export const initializeFeedbackDiagnostics = (): (() => void) => {
-  if (initialized || typeof window === 'undefined') return () => undefined;
+  if (initialized || typeof globalThis.window === 'undefined') return () => undefined;
   initialized = true;
 
   const originalMethods = new Map<FeedbackConsoleLevel, (...args: unknown[]) => void>();
@@ -125,13 +125,13 @@ export const initializeFeedbackDiagnostics = (): (() => void) => {
   const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
     appendEntry('error', `Promise non gestita: ${formatConsoleArgument(event.reason)}`);
   };
-  window.addEventListener('error', handleWindowError);
-  window.addEventListener('unhandledrejection', handleUnhandledRejection);
+  globalThis.addEventListener('error', handleWindowError);
+  globalThis.addEventListener('unhandledrejection', handleUnhandledRejection);
 
   return () => {
     for (const [level, original] of originalMethods) console[level] = original;
-    window.removeEventListener('error', handleWindowError);
-    window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    globalThis.removeEventListener('error', handleWindowError);
+    globalThis.removeEventListener('unhandledrejection', handleUnhandledRejection);
     entries.length = 0;
     initialized = false;
   };

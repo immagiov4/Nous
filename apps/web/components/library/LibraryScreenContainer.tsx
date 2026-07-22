@@ -18,14 +18,14 @@ type WorkspaceFileActions = ReturnType<typeof useWorkspaceFileActions>;
 type WorkspaceNavigation = ReturnType<typeof useWorkspaceNavigation>;
 
 interface LibraryScreenContainerProps {
-  controller: WorkspaceController;
-  readerState: WorkspaceReaderState;
-  projectLibrary: WorkspaceProjectLibrary;
-  libraryAssistantChat: WorkspaceLibraryAssistantChat;
-  fileActions: WorkspaceFileActions;
-  navigation: WorkspaceNavigation;
-  notify: (message: string) => void;
-  requestConfirmation: (request: {
+  readonly controller: WorkspaceController;
+  readonly readerState: WorkspaceReaderState;
+  readonly projectLibrary: WorkspaceProjectLibrary;
+  readonly libraryAssistantChat: WorkspaceLibraryAssistantChat;
+  readonly fileActions: WorkspaceFileActions;
+  readonly navigation: WorkspaceNavigation;
+  readonly notify: (message: string) => void;
+  readonly requestConfirmation: (request: {
     title: string;
     message: string;
     confirmLabel: string;
@@ -79,7 +79,8 @@ export const LibraryScreenContainer = ({
   }, [controller.learningPlan]);
   const [assessmentComplete, setAssessmentComplete] = useState(false);
   const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>(() =>
-    typeof window !== 'undefined' && isLibraryQueryPath(window.location.pathname)
+    typeof globalThis.window !== 'undefined' &&
+    isLibraryQueryPath(globalThis.window.location.pathname)
       ? 'library-query'
       : 'new-course'
   );
@@ -291,6 +292,7 @@ export const LibraryScreenContainer = ({
         openingProjectId={openingProjectId}
         onRenameFolder={projectLibrary.renameFolder}
         onRenameProject={handleRenameProject}
+        onSetProjectFavorite={projectLibrary.setProjectFavorite}
         onToggleDarkMode={() =>
           readerState.readerChrome.setIsDarkMode(!readerState.readerChrome.isDarkMode)
         }

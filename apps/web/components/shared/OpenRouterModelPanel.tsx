@@ -11,12 +11,12 @@ export interface CourseGenerationNotesBinding {
 }
 
 interface OpenRouterModelPanelProps {
-  className?: string;
-  style?: CSSProperties;
-  courseNotes?: CourseGenerationNotesBinding;
-  expandedSections?: SettingsPanelSectionId[];
-  onClose?: () => void;
-  onSectionToggle?: (sections: SettingsPanelSectionId[]) => void;
+  readonly className?: string;
+  readonly style?: CSSProperties;
+  readonly courseNotes?: CourseGenerationNotesBinding;
+  readonly expandedSections?: SettingsPanelSectionId[];
+  readonly onClose?: () => void;
+  readonly onSectionToggle?: (sections: SettingsPanelSectionId[]) => void;
 }
 
 export default function OpenRouterModelPanel({

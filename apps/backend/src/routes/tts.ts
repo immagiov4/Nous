@@ -48,7 +48,7 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const normalizedText = text.replace(/\s+/g, ' ').trim();
+    const normalizedText = text.replaceAll(/\s+/g, ' ').trim();
 
     if (normalizedText.length > MAX_TTS_TEXT_CHARS) {
       return res.status(400).json({

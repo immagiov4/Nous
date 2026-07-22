@@ -4,11 +4,11 @@ import { getActivePauseExerciseLabel } from '../../../utils/learning/activePause
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 
 interface WorkspaceReaderInlineQuestionProps {
-  isDarkMode: boolean;
-  onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
-  question: QuizQuestion;
-  questionIndex: number;
-  selectedIndex: number;
+  readonly isDarkMode: boolean;
+  readonly onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
+  readonly question: QuizQuestion;
+  readonly questionIndex: number;
+  readonly selectedIndex: number;
 }
 
 const getQuizOptionClassName = ({
@@ -117,7 +117,8 @@ export default function WorkspaceReaderInlineQuestion({
           {question.options.map((option, optionIndex) => (
             <button
               type="button"
-              key={`${question.question}-${option}`}
+              // biome-ignore lint/suspicious/noArrayIndexKey: generated options have no IDs and may contain duplicate text; their order is immutable for the lifetime of this quiz.
+              key={`${questionIndex}-${optionIndex}`}
               onClick={() => onSelectQuizAnswer(questionIndex, optionIndex)}
               className={`flex w-full items-baseline gap-2 rounded-xl border p-4 text-left text-base transition-all ${getQuizOptionClassName(
                 {

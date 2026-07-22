@@ -318,10 +318,10 @@ export default function AuthGate({ children }: AuthGateProps) {
 
     const scheduleSynchronizationRetry = () => {
       cancelScheduledRefresh();
-      const retryId = globalThis.setTimeout(() => {
+      const retryId = globalThis.window.setTimeout(() => {
         void synchronizeSession();
       }, SUPABASE_SESSION_REFRESH_RETRY_MS);
-      cancelScheduledRefresh = () => globalThis.clearTimeout(retryId);
+      cancelScheduledRefresh = () => globalThis.window.clearTimeout(retryId);
     };
 
     const applySession = (nextSession: SupabaseUserSession | null) => {
@@ -374,7 +374,7 @@ export default function AuthGate({ children }: AuthGateProps) {
   }, []);
 
   const shouldShowPublicLanding =
-    typeof window !== 'undefined' && window.location.pathname === '/landing';
+    typeof globalThis.window !== 'undefined' && globalThis.window.location.pathname === '/landing';
 
   if (shouldShowPublicLanding) {
     return (

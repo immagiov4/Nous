@@ -48,12 +48,12 @@ export const useAppDialogs = () => {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
+    const timeoutId = globalThis.setTimeout(() => {
       setNotification(null);
     }, NOTIFICATION_AUTO_DISMISS_MS);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      globalThis.clearTimeout(timeoutId);
     };
   }, [notification]);
 

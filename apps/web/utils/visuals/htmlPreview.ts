@@ -41,7 +41,7 @@ setTimeout(() => {
   try {
     const snapshot = await new Promise<{ body: string; height: number }>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        window.removeEventListener('message', receiveSnapshot);
+        globalThis.removeEventListener('message', receiveSnapshot);
         reject(new Error('La bozza HTML non ha completato il rendering.'));
       }, 3000);
       const receiveSnapshot = (event: MessageEvent) => {
@@ -53,10 +53,10 @@ setTimeout(() => {
           return;
         }
         clearTimeout(timeout);
-        window.removeEventListener('message', receiveSnapshot);
+        globalThis.removeEventListener('message', receiveSnapshot);
         resolve({ body: String(event.data.body), height: Number(event.data.height) });
       };
-      window.addEventListener('message', receiveSnapshot);
+      globalThis.addEventListener('message', receiveSnapshot);
     });
     const height = Math.min(MAX_PREVIEW_HEIGHT, Math.max(1, snapshot.height));
     const previewSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${PREVIEW_WIDTH}" height="${height}"><foreignObject width="100%" height="100%">${snapshot.body}</foreignObject></svg>`;

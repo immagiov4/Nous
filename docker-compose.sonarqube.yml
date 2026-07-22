@@ -1,6 +1,8 @@
+name: lumina-reader
+
 services:
   sonarqube:
-    image: sonarqube:26.5.0-community
+    image: sonarqube:26.7.0.124771-community
     container_name: lumina-sonarqube
     ports:
       - '9000:9000'

@@ -1,6 +1,7 @@
 import type {
   LearningPlan,
   LearningSection,
+  LessonContentBlock,
   LessonGeneratedVisual,
   LessonLearningAid,
   LessonVisualPlanningDecision,
@@ -811,7 +812,18 @@ export const generateResearchLessonDossier = async (args: {
     lessonDescription: args.lesson.description,
     lessonTitle: args.lesson.title,
     practicalTask: researchLesson?.miniLab,
-  }).then(query => getYouTubeResearchContext(query, language));
+  }).then(async plan => {
+    const specificResult = await getYouTubeResearchContext(plan.specificQuery, language);
+    if (specificResult.discoveredVideoCount !== 0 || plan.fallbackQuery === plan.specificQuery) {
+      return specificResult;
+    }
+    console.info('[Nous] Nessun video per la query specifica; provo il fallback.', {
+      fallbackQuery: plan.fallbackQuery,
+      focusConcept: plan.focusConcept,
+      specificQuery: plan.specificQuery,
+    });
+    return getYouTubeResearchContext(plan.fallbackQuery, language);
+  });
 
   const details = await generateResearchLessonDossierDetails({
     ...args,
@@ -1046,14 +1058,16 @@ const formatResearchSourceForPrompt = (
   const transcript = source.youtubeTranscript
     ? `\nTimestamped YouTube transcript (already bounded by the backend token budget; use only its timestamps):
 ${source.youtubeTranscript.text}
-To embed a useful interval inline, write {{YOUTUBE_CLIP_SOURCE:${sourceIndex}|START:<seconds>|END:<seconds>}}.`
+Use sourceIndex ${sourceIndex} in typed youtube-clips blocks when an interval is pedagogically useful.`
     : '';
   const sourceUrl = source.url ? `: ${source.url}` : '';
   return `- ${source.title}${sourceUrl}${transcript}`;
 };
 
 export const formatResearchDossierForPrompt = (dossier: ResearchLessonDossier): string => {
-  const sources = dossier.sources.map(formatResearchSourceForPrompt).join('\n');
+  const sources = dossier.sources
+    .map((source, sourceIndex) => formatResearchSourceForPrompt(source, sourceIndex))
+    .join('\n');
   return [
     `Factual summary:\n${dossier.factualSummary}`,
     dossier.keyExamples.length ? `Key examples:\n- ${dossier.keyExamples.join('\n- ')}` : '',
@@ -1086,6 +1100,7 @@ export const generateResearchLessonContent = async (args: {
   onReasoningUpdate?: (reasoning: string) => void;
 }): Promise<{
   content: string;
+  contentBlocks?: LessonContentBlock[];
   generatedVisuals: LessonGeneratedVisual[];
   learningAids: LessonLearningAid[];
   quiz: QuizQuestion[];
@@ -1132,14 +1147,16 @@ ISTRUZIONI:
 - Non usare diagrammi Mermaid.
 - Non aggiungere bibliografie o sezioni delle fonti nel corpo: le fonti vengono mostrate separatamente dall'interfaccia.
 - Per ogni fonte YouTube selezionata ricevi il transcript timestampato gia limitato dal budget del backend. Usalo come materiale della lezione: puo sostenere progressione, spiegazioni ed esempi, non soltanto la clip.
-- Sei tu a decidere se, dove e quale intervallo video integrare mentre scrivi. Quando un passaggio pratico, visivo, fisico, sonoro, temporale o multistep beneficia davvero del video, inserisci \`{{YOUTUBE_CLIP_SOURCE:indice|START:secondi|END:secondi}}\` subito dopo il paragrafo che anticipa cosa osservare. Usa soltanto indice e timestamp presenti nel dossier e non mettere i video in fondo o in una sezione fonti.
+- Sei tu a decidere quali intervalli video integrare mentre scrivi. Rappresentali con un blocco \`youtube-clips\` nel punto editoriale esatto. Ogni clip deve avere un \`title\` breve, concreto e specifico per quel momento. Il blocco puo contenere piu clip, anche da video diversi, ed e un unico player a micro-capitoli.
+- Preferisci piu intervalli dello stesso video quando copre bene l'intera sequenza; usa video diversi quando sono complementari. Usa soltanto indici e timestamp presenti nel dossier.
 - Per una procedura manuale o fisica che costituisce il nucleo della lezione, un transcript selezionato che mostra direttamente l'azione deve normalmente diventare una clip inline: una descrizione o un'immagine statica non sostituiscono il movimento. Omettila soltanto per una ragione concreta ricavabile dal transcript.
-- Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} esempi visuali generati. Inserisci direttamente \`{{VISUAL_SLOT:slot-001}}\` nel punto editoriale esatto e aggiungi la specifica corrispondente in \`visualPlanning.plans\`. Ogni tag deve avere esattamente un piano e viceversa. Il tag e la posizione: non descrivere un'ancora da cercare dopo.
+- Genera da 1 a 3 pause attive come blocchi \`inline-quiz\` autosufficienti, contenenti direttamente domanda, quattro opzioni e indice corretto. Inserisci ciascuna pausa subito dopo il blocco markdown che la prepara. Non restituire un array quiz separato.
+- Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} esempi visuali generati. Inserisci un blocco \`generated-visual\` con \`slotId\` nel punto editoriale esatto e aggiungi il piano corrispondente in \`visualPlanning.plans\`.
 - ${INTERACTIVE_VISUAL_VALUE_RULE}
 - ${VISUAL_FORMAT_SELECTION_RULE} Per HTML interattivo la grafica deve essere prodotta da regole o algoritmi, non disegnata a mano.
 - Se il dossier contiene "Sviluppi recenti", integra quei punti organicamente nel corpo della lezione (con date quando disponibili) dove sono pertinenti, invece di confinarli in una sezione separata. Non inventare aggiornamenti che non sono nel dossier.
 
-FORMATO: restituisci solo il JSON richiesto. \`imagePlacements\` deve essere vuoto; il \`quiz\` contiene una prima proposta che verra verificata nel passaggio successivo.`;
+FORMATO: restituisci solo il JSON richiesto. \`imagePlacements\` deve essere vuoto; pause, clip e visuali devono stare nella sequenza ordinata \`contentBlocks\`.`;
 
   const response = await retryWithBackoff(
     () =>
@@ -1167,11 +1184,12 @@ FORMATO: restituisci solo il JSON richiesto. \`imagePlacements\` deve essere vuo
   const contentWithoutSources = stripTerminalLessonSourcesSection(lessonContent);
 
   return finalizeSourceFreeLesson({
+    contentBlocks: parsedLesson.contentBlocks,
     contentMarkdown: contentWithoutSources,
     generationNotes: args.generationNotes,
-    language: profile.language,
     onReasoningUpdate: args.onReasoningUpdate,
     onStatusUpdate: args.onStatusUpdate,
+    quiz: parsedLesson.quiz,
     sectionDescription: args.contextPrompt || args.lessonTitle,
     sectionTitle: args.lessonTitle,
     sourceContext: formatResearchDossierForPrompt(args.researchDossier),

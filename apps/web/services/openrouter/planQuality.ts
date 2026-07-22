@@ -101,9 +101,9 @@ export const normalizeSearchText = (text: string): string =>
   text
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[^a-z0-9\s]/g, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim();
 
 export const getSearchKeywords = (text: string): string[] =>
@@ -490,7 +490,7 @@ export const dedupeLearningPlanSections = (
   const compactDeduped: LearningSection[] = [];
 
   exactDeduped.forEach(section => {
-    const previous = compactDeduped[compactDeduped.length - 1];
+    const previous = compactDeduped.at(-1);
     if (previous && isPlanSectionNearDuplicate(previous, section)) {
       compactDeduped[compactDeduped.length - 1] = pickPreferredPlanSection(previous, section);
       return;

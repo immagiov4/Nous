@@ -42,7 +42,7 @@ const getProjectionRange = (
     .map(({ projectionIndex }) => projectionIndex);
 
   const start = includedIndexes[0];
-  const lastIndex = includedIndexes[includedIndexes.length - 1];
+  const lastIndex = includedIndexes.at(-1);
   if (start === undefined || lastIndex === undefined) {
     return null;
   }
@@ -57,7 +57,7 @@ export const createSectionAnnotationSelector = (
 ): SectionAnnotationTextSelector | null => {
   const sortedSegments = sortRanges(segments);
   const firstSegment = sortedSegments[0];
-  const lastSegment = sortedSegments[sortedSegments.length - 1];
+  const lastSegment = sortedSegments.at(-1);
   if (!firstSegment || !lastSegment) {
     return null;
   }

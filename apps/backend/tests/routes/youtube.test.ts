@@ -147,6 +147,7 @@ describe('/api/youtube/research-context', () => {
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockReset();
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockResolvedValue({
       context: 'SOURCE Pixel art',
+      discoveredVideoCount: 2,
       rationale: 'Un transcript incluso.',
       videoCandidates: [],
     });
@@ -171,6 +172,7 @@ describe('/api/youtube/research-context', () => {
       'Italiano'
     );
     expect(response.body.videoClipsEnabled).toBe(true);
+    expect(response.body.discoveredVideoCount).toBe(2);
     expect(response.body.rationale).toBe('Un transcript incluso.');
   });
 

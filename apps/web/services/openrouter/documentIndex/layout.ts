@@ -4,8 +4,8 @@ import { PAGE_TEXT_SEPARATOR } from './constants.ts';
 
 export const normalizeWhitespace = (text: string): string =>
   normalizeLineEndings(text)
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/[ \t]+/g, ' ')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
 
 interface PdfPageLayoutEntry extends PdfTextPage {
@@ -91,7 +91,7 @@ export const resolveChunkPageSpanFromLayout = (
   if (overlappingPages.length > 0) {
     return {
       startPage: overlappingPages[0].pageNumber,
-      endPage: overlappingPages[overlappingPages.length - 1].pageNumber,
+      endPage: (overlappingPages.at(-1) as PdfPageLayoutEntry).pageNumber,
     };
   }
 
@@ -117,7 +117,7 @@ const clampPageNumber = (page: number, pageCount: number): number =>
 
 const getPdfDocumentCharLength = (documentIndex: PdfTextIndex): number =>
   Math.max(
-    (documentIndex.chunks[documentIndex.chunks.length - 1] || { endOffset: 0 }).endOffset,
+    (documentIndex.chunks.at(-1) || { endOffset: 0 }).endOffset,
     documentIndex.chunks.reduce((maxChars, chunk) => Math.max(maxChars, chunk.endOffset), 0)
   );
 

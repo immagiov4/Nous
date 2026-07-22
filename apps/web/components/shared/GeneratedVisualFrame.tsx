@@ -9,10 +9,10 @@ import {
 } from '../../utils/visuals/htmlElementReferences.ts';
 
 interface GeneratedVisualFrameProps {
-  className?: string;
-  isDarkMode?: boolean;
-  title: string;
-  visual: LessonGeneratedVisual;
+  readonly className?: string;
+  readonly isDarkMode?: boolean;
+  readonly title: string;
+  readonly visual: LessonGeneratedVisual;
 }
 
 const GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE = `
@@ -33,7 +33,8 @@ body > * {
 
 const GENERATED_VISUAL_ROOT_ID = 'nous-generated-visual-root';
 
-const toSafeScriptJson = (value: string): string => JSON.stringify(value).replace(/<\//g, '<\\/');
+const toSafeScriptJson = (value: string): string =>
+  JSON.stringify(value).replaceAll(/<\//g, String.raw`<\/`);
 
 const buildGeneratedVisualBootstrapScript = (visual: LessonGeneratedVisual): string => `
 const visualCode = ${toSafeScriptJson(visual.code)};
@@ -168,7 +169,7 @@ async function replayGeneratedVisualScripts(container) {
 })();
 `;
 
-const RESIZE_SCRIPT = `
+const RESIZE_SCRIPT = String.raw`
 const isDarkHost = document.documentElement.classList.contains('dark');
 const darkTextFills = new Set([
   '#000', '#000000', '#111', '#111111', '#1f1f1f', '#1e293b',
@@ -224,7 +225,7 @@ function parseHexColor(value) {
 }
 function parseRgbColor(value) {
   const match = normalizeColor(value).match(
-    /^rgba?\\((\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)(?:[,/\\s]+([\\d.]+%?))?/
+    /^rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,/\s]+([\d.]+%?))?/
   );
   if (!match) {
     return null;
@@ -539,7 +540,7 @@ const GeneratedVisualFrame = ({
 
   if (visual.kind === 'image') {
     const imageAltText =
-      visual.altText?.trim() || visual.title.replace(/[_-]+/g, ' ').trim() || title;
+      visual.altText?.trim() || visual.title.replaceAll(/[_-]+/g, ' ').trim() || title;
 
     return (
       <figure className={`${className} overflow-hidden bg-transparent`} data-nous-speech="ignore">

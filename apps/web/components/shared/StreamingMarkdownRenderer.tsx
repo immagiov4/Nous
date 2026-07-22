@@ -3,7 +3,7 @@ import { memo, startTransition, useCallback, useEffect, useRef, useState } from 
 import MarkdownRenderer, { type MarkdownRendererProps } from './MarkdownRenderer.tsx';
 
 interface StreamingMarkdownRendererProps extends MarkdownRendererProps {
-  isStreaming?: boolean;
+  readonly isStreaming?: boolean;
 }
 
 const STREAMING_MARKDOWN_MIN_UPDATE_MS = 48;
@@ -42,7 +42,7 @@ const StreamingMarkdownRenderer = ({
       return;
     }
 
-    window.clearTimeout(flushTimeoutRef.current);
+    globalThis.window.clearTimeout(flushTimeoutRef.current);
     flushTimeoutRef.current = null;
   }, []);
 
@@ -98,7 +98,7 @@ const StreamingMarkdownRenderer = ({
       ? Math.max(STREAMING_MARKDOWN_MIN_UPDATE_MS - elapsedSinceLastCommit, 0)
       : Math.max(STREAMING_MARKDOWN_MAX_STALENESS_MS - elapsedSinceLastCommit, 0);
 
-    flushTimeoutRef.current = window.setTimeout(() => {
+    flushTimeoutRef.current = globalThis.window.setTimeout(() => {
       commitContent(latestContentRef.current);
     }, nextFlushDelay);
 

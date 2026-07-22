@@ -310,7 +310,7 @@ export const createGenerationProgressObserver = ({
     const stageUpdateCount = observerUpdatesByStage.get(currentStage) || 0;
     if (
       currentStage === 'ready' ||
-      inFlight ||
+      inFlight !== null ||
       stageUpdateCount >= OBSERVER_MAX_UPDATES_PER_STAGE
     ) {
       return;
@@ -323,7 +323,7 @@ export const createGenerationProgressObserver = ({
 
   const runObserver = (force = false, bypassStageBudget = false, idle = false): void => {
     const stageUpdateCount = observerUpdatesByStage.get(currentStage) || 0;
-    if (inFlight) {
+    if (inFlight !== null) {
       pendingForcedObservation ||= force;
       pendingStageBudgetBypass ||= bypassStageBudget;
       return;
@@ -384,12 +384,12 @@ export const createGenerationProgressObserver = ({
     },
     finish: async () => {
       clearIdleObservationTimer();
-      while (inFlight) {
+      while (inFlight !== null) {
         await inFlight;
       }
       if (buffer.trim().length >= OBSERVER_FINAL_MIN_CHARS) {
         runObserver(true);
-        while (inFlight) {
+        while (inFlight !== null) {
           await inFlight;
         }
       }
@@ -408,7 +408,7 @@ export const createGenerationProgressObserver = ({
       buffer += nextChunk;
       clearIdleObservationTimer();
       runObserver();
-      if (!inFlight && buffer.length < OBSERVER_TRIGGER_CHARS) {
+      if (inFlight === null && buffer.length < OBSERVER_TRIGGER_CHARS) {
         scheduleIdleObservation();
       }
     },
@@ -432,7 +432,7 @@ export const createGenerationProgressObserver = ({
       buffer += `\n\nORCHESTRATOR_STATUS:\n${normalizedStatus}`;
       clearIdleObservationTimer();
       runObserver(true, true);
-      if (!inFlight) {
+      if (inFlight === null) {
         scheduleIdleObservation();
       }
     },

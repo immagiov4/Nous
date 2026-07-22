@@ -117,9 +117,9 @@ export const toggleHighlightInContent = ({
   }
 
   const escapedWords = words.map(word => escapeRegex(word));
-  const junkPattern = '[^\\p{L}\\p{N}]+';
+  const junkPattern = String.raw`[^\p{L}\p{N}]+`;
   const pattern = escapedWords.join(junkPattern);
-  const wordChar = '[\\p{L}\\p{N}]';
+  const wordChar = String.raw`[\p{L}\p{N}]`;
   const expandedPattern = `${wordChar}*${pattern}${wordChar}*`;
   const fuzzyRegex = new RegExp(expandedPattern, 'iu');
   const shouldPreferExact = /[^\p{L}\p{N}]/u.test(trimmedTargetText);

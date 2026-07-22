@@ -535,7 +535,7 @@ const buildMappingBatchDebugPayload = (
   lessonTitles: lessonBatch.map(lesson => lesson.title),
   chunkCount: chunkDescriptors.length,
   firstChunkId: chunkDescriptors[0]?.id || null,
-  lastChunkId: chunkDescriptors[chunkDescriptors.length - 1]?.id || null,
+  lastChunkId: chunkDescriptors.at(-1)?.id || null,
   promptChars: prompt.length,
   maxTokens,
 });

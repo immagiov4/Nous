@@ -29,6 +29,9 @@ export const useWorkspaceController = ({
     state: controllerState.stateAdapter,
     stopAudio,
   });
+  const generatingSectionId = controllerState.stateAdapter.getGeneratingSectionId(
+    projectLibrary.currentProjectId
+  );
 
   return {
     ...commands,
@@ -36,9 +39,15 @@ export const useWorkspaceController = ({
     assessmentMessages: controllerState.assessmentMessages,
     blockingMessage: selectBlockingMessage(controllerState.workflowState),
     currentProjectId: projectLibrary.currentProjectId,
-    generatingSectionId: controllerState.generatingSectionId,
+    generatingSectionId,
     isBlocking: selectIsBlocking(controllerState.workflowState),
     isContextBusy: selectIsContextBusy(controllerState.workflowState),
+    isGenerationActive: controllerState.stateAdapter.isGenerationActive(
+      projectLibrary.currentProjectId
+    ),
+    isLessonGenerationActive: controllerState.stateAdapter.isLessonGenerationActive(
+      projectLibrary.currentProjectId
+    ),
     isLibraryLoading: projectLibrary.isLibraryLoading,
     needsSourceFile:
       domain.needsSourceFile ||

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef } from 'react';
 import StreamingMarkdownRenderer from './StreamingMarkdownRenderer.tsx';
 
 interface ThinkingStreamProps {
-  className?: string;
-  isDarkMode: boolean;
-  text?: string;
+  readonly className?: string;
+  readonly isDarkMode: boolean;
+  readonly text?: string;
 }
 
 // Constant scroll velocity in pixels per second. Slow & predictable so the
@@ -31,7 +31,7 @@ const restoreLiteralWhitespaceTokens = (text: string): string => {
   for (let index = 0; index < text.length; ) {
     if (text[index] === '\\' && !isEscapedBackslashSequence(text, index)) {
       const nextSlice = text.slice(index, index + 4);
-      if (nextSlice === '\\r\\n') {
+      if (nextSlice === String.raw`\r\n`) {
         normalized += '\n';
         index += 4;
         continue;
@@ -102,8 +102,8 @@ const insertHeadingBreaks = (text: string): string =>
 const normalizeReasoningText = (text: string): string =>
   insertHeadingBreaks(
     restoreLiteralWhitespaceTokens(text)
-      .replace(/([.!?])\s*(\*\*[^*\n][^*\n]{1,100}\*\*)(?=\s|$)/g, '$1\n\n$2')
-      .replace(
+      .replaceAll(/([.!?])\s*(\*\*[^*\n][^*\n]{1,100}\*\*)(?=\s|$)/g, '$1\n\n$2')
+      .replaceAll(
         /([.!?])\s*([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+(?:\s+[A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+){1,5})(?=\n)/g,
         '$1\n\n$2'
       )
@@ -141,7 +141,7 @@ export default function ThinkingStream({ className = '', isDarkMode, text }: Thi
     const step = (timestamp: number) => {
       if (lastTimestamp === null) {
         lastTimestamp = timestamp;
-        frameId = window.requestAnimationFrame(step);
+        frameId = globalThis.window.requestAnimationFrame(step);
         return;
       }
 
@@ -163,14 +163,14 @@ export default function ThinkingStream({ className = '', isDarkMode, text }: Thi
         track.style.transform = `translate3d(0, ${-offsetY}px, 0)`;
       }
 
-      frameId = window.requestAnimationFrame(step);
+      frameId = globalThis.window.requestAnimationFrame(step);
     };
 
-    frameId = window.requestAnimationFrame(step);
+    frameId = globalThis.window.requestAnimationFrame(step);
 
     return () => {
       if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+        globalThis.window.cancelAnimationFrame(frameId);
       }
       track.style.transform = '';
     };

@@ -20,11 +20,11 @@ const { default: App } = await import('../App.tsx');
 
 describe('App routing', () => {
   afterEach(() => {
-    window.history.replaceState({}, '', '/');
+    globalThis.history.replaceState({}, '', '/');
   });
 
   test.each(['/admin', '/admin/'])('renders the admin panel at %s', async pathname => {
-    window.history.replaceState({}, '', pathname);
+    globalThis.history.replaceState({}, '', pathname);
 
     render(<App />);
 
@@ -36,7 +36,7 @@ describe('App routing', () => {
     '/admin/youtube-lab',
     '/admin/youtube-lab/',
   ])('renders the YouTube lab at %s', async pathname => {
-    window.history.replaceState({}, '', pathname);
+    globalThis.history.replaceState({}, '', pathname);
 
     render(<App />);
 

@@ -21,8 +21,8 @@
       // This happens when libraries (like formdata-polyfill) try to overwrite window.fetch
       (() => {
         try {
-          let currentFetch = window.fetch;
-          Object.defineProperty(window, 'fetch', {
+          let currentFetch = globalThis.fetch;
+          Object.defineProperty(globalThis, 'fetch', {
             get: () => currentFetch,
             set: (val) => {
               currentFetch = val;
@@ -36,8 +36,8 @@
       })();
 
       // Polyfill process and global for browser environment
-      window.global = window;
-      window.process = {
+      globalThis.global = globalThis;
+      globalThis.process = {
         env: {
           NODE_ENV: 'development'
         }

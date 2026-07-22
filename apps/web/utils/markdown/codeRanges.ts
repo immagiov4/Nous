@@ -123,12 +123,24 @@ export const getMarkdownMathRangeAt = (
     return findDelimitedMathRange(content, startIndex, '$', '$', false);
   }
 
-  if (content.startsWith('\\(', startIndex) && !isEscapedCharacter(content, startIndex)) {
-    return findDelimitedMathRange(content, startIndex, '\\(', '\\)', false);
+  if (content.startsWith(String.raw`\(`, startIndex) && !isEscapedCharacter(content, startIndex)) {
+    return findDelimitedMathRange(
+      content,
+      startIndex,
+      String.raw`\(` as '\\(',
+      String.raw`\)` as '\\)',
+      false
+    );
   }
 
-  if (content.startsWith('\\[', startIndex) && !isEscapedCharacter(content, startIndex)) {
-    return findDelimitedMathRange(content, startIndex, '\\[', '\\]', true);
+  if (content.startsWith(String.raw`\[`, startIndex) && !isEscapedCharacter(content, startIndex)) {
+    return findDelimitedMathRange(
+      content,
+      startIndex,
+      String.raw`\[` as '\\[',
+      String.raw`\]` as '\\]',
+      true
+    );
   }
 
   return null;
@@ -271,7 +283,7 @@ const collapseAdjacentDuplicatedWordRuns = (value: string): string => {
   let nextValue = value;
 
   while (true) {
-    const collapsedValue = nextValue.replace(/([A-Za-z][A-Za-z0-9]{2,})(?:\1){1,}/gu, '$1');
+    const collapsedValue = nextValue.replaceAll(/([A-Za-z][A-Za-z0-9]{2,})(?:\1){1,}/gu, '$1');
 
     if (collapsedValue === nextValue) {
       return collapsedValue;
@@ -282,7 +294,7 @@ const collapseAdjacentDuplicatedWordRuns = (value: string): string => {
 };
 
 export const normalizeMathSelectionArtifacts = (value: string): string => {
-  const strippedValue = value.replace(ZERO_WIDTH_CHARACTERS_REGEX, '');
+  const strippedValue = value.replaceAll(ZERO_WIDTH_CHARACTERS_REGEX, '');
   let projectedValue = '';
   let cursor = 0;
 
@@ -315,7 +327,7 @@ const mergeRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
 
   for (let index = 1; index < sortedRanges.length; index += 1) {
     const currentRange = sortedRanges[index];
-    const lastMergedRange = mergedRanges[mergedRanges.length - 1];
+    const lastMergedRange = mergedRanges.at(-1) as MarkdownRange;
 
     if (currentRange.start <= lastMergedRange.end) {
       lastMergedRange.end = Math.max(lastMergedRange.end, currentRange.end);
@@ -409,7 +421,7 @@ export const stripHighlightTagsInsideMarkdownCode = (content: string): string =>
 
   ranges.forEach(range => {
     updatedContent += content.slice(cursor, range.start);
-    updatedContent += content.slice(range.start, range.end).replace(MARK_TAG_REGEX, '');
+    updatedContent += content.slice(range.start, range.end).replaceAll(MARK_TAG_REGEX, '');
     cursor = range.end;
   });
 

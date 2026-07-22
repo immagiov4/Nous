@@ -49,7 +49,7 @@ describe('requestSpeechTranscription', () => {
     });
   });
 
-  test('returns a stable error when the backend rejects the transcription', async () => {
+  test('returns a stable error without retrying a rejected backend request', async () => {
     fetchWithSupabaseAuthMock.mockResolvedValue(
       new Response(JSON.stringify({ error: 'provider detail' }), {
         status: 502,
@@ -60,5 +60,6 @@ describe('requestSpeechTranscription', () => {
     await expect(requestSpeechTranscription(new Blob(['audio']), 'webm', 'it')).rejects.toThrow(
       'Trascrizione non riuscita. Riprova.'
     );
+    expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
   });
 });

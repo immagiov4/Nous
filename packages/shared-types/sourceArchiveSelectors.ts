@@ -1,5 +1,11 @@
 export const SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES = 4_000_000;
 
+const comparePathsByCodeUnit = (left: string, right: string): number => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
+
 interface SourceArchiveDirectoryEntry {
   kind: 'directory';
   path: string;
@@ -74,7 +80,7 @@ export const resolveSourceArchiveSelection = (
       textFiles.push(entry);
     }
   }
-  textFiles.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  textFiles.sort((left, right) => comparePathsByCodeUnit(left.path, right.path));
 
   const normalizedSelectors: SourceArchiveSelector[] = [];
   const selectorKeys = new Set<string>();
@@ -129,6 +135,6 @@ export const resolveSourceArchiveSelection = (
   return {
     expandedTextBytes,
     selectors: normalizedSelectors,
-    textFilePaths: [...selectedFiles.keys()].sort(),
+    textFilePaths: [...selectedFiles.keys()].sort(comparePathsByCodeUnit),
   };
 };

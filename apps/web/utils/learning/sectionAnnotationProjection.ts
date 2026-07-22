@@ -23,6 +23,7 @@ export interface ResolveSelectedSegmentsOptions {
   contextAfter?: string;
   contextBefore?: string;
   selectedText: string;
+  selectedTextStart?: number;
 }
 
 export { normalizeWhitespace } from '../markdown/textProjection.ts';
@@ -32,6 +33,7 @@ export const resolveSelectedSegments = ({
   contextAfter,
   contextBefore,
   selectedText,
+  selectedTextStart,
 }: ResolveSelectedSegmentsOptions): MarkdownRange[] => {
   const trimmedTargetText = normalizeMathSelectionArtifacts(selectedText).trim();
   if (!trimmedTargetText) {
@@ -42,11 +44,14 @@ export const resolveSelectedSegments = ({
   const looseProjection = buildLooseProjection(content);
   const sourceLooseProjection = buildSourceLooseProjection(content);
   const protectedRanges = getMarkdownProtectedRanges(content);
+  const hasSelectionContext = Boolean(contextBefore || contextAfter);
   const exactMatch = resolveExactMatch(
     visibleProjection.text,
     trimmedTargetText,
     contextBefore ? normalizeMathSelectionArtifacts(contextBefore) : contextBefore,
-    contextAfter ? normalizeMathSelectionArtifacts(contextAfter) : contextAfter
+    contextAfter ? normalizeMathSelectionArtifacts(contextAfter) : contextAfter,
+    hasSelectionContext,
+    selectedTextStart
   );
   const words = trimmedTargetText.match(/[\p{L}\p{N}]+/gu) || [];
 
@@ -63,14 +68,22 @@ export const resolveSelectedSegments = ({
   }
 
   const escapedWords = words.map(word => escapeRegex(word));
-  const junkPattern = '[^\\p{L}\\p{N}]+';
+  const junkPattern = String.raw`[^\p{L}\p{N}]+`;
   const pattern = escapedWords.join(junkPattern);
-  const wordChar = '[\\p{L}\\p{N}]';
+  const wordChar = String.raw`[\p{L}\p{N}]`;
   const expandedPattern = `${wordChar}*${pattern}${wordChar}*`;
   const fuzzyRegex = new RegExp(expandedPattern, 'iu');
   const shouldPreferExact = /[^\p{L}\p{N}]/u.test(trimmedTargetText);
   const fuzzyMatch = visibleProjection.text.match(fuzzyRegex);
-  const match = shouldPreferExact ? exactMatch || fuzzyMatch : fuzzyMatch || exactMatch;
+  const match = hasSelectionContext
+    ? exactMatch
+    : shouldPreferExact
+      ? exactMatch || fuzzyMatch
+      : fuzzyMatch || exactMatch;
+
+  if (hasSelectionContext && !match) {
+    return [];
+  }
 
   if (match) {
     const matchedText = 'text' in match ? match.text : match[0];

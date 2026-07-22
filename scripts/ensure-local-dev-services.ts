@@ -25,9 +25,9 @@ const getCommandErrorDetail = (error: unknown): string => {
       : '';
   const detail = stderr || (error instanceof Error ? error.message : 'Unknown command failure.');
   return detail
-    .replace(/(postgres(?:ql)?:\/\/)[^@\s]+@/giu, '$1[redacted]@')
-    .replace(/\b(?:eyJ|sb_(?:secret|publishable)_)[A-Za-z0-9._-]+\b/gu, '[redacted]')
-    .replace(/\s+/gu, ' ')
+    .replaceAll(/(postgres(?:ql)?:\/\/)[^@\s]+@/giu, '$1[redacted]@')
+    .replaceAll(/\b(?:eyJ|sb_(?:secret|publishable)_)[A-Za-z0-9._-]+\b/gu, '[redacted]')
+    .replaceAll(/\s+/gu, ' ')
     .slice(0, COMMAND_ERROR_MAX_LENGTH);
 };
 

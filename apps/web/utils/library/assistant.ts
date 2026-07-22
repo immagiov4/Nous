@@ -16,9 +16,9 @@ const normalizeSearchText = (value: string) =>
   value
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim();
 
 const buildSnippet = (value: string, query: string, maxLength = 220) => {

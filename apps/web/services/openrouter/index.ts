@@ -28,7 +28,6 @@ export type {
 } from './generationProgress.ts';
 export { createGenerationProgressObserver } from './generationProgress.ts';
 export { generateLessonLearningAids } from './learningAids.ts';
-export { generateStandaloneLessonQuiz } from './lessonMarkdownQuality/index.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,

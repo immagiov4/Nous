@@ -208,7 +208,7 @@ export default function YouTubeResearchLab() {
 
   useEffect(() => {
     if (!hasAdminAccess) {
-      window.location.replace('/');
+      globalThis.window.location.replace('/');
     }
   }, [hasAdminAccess]);
 
@@ -220,7 +220,7 @@ export default function YouTubeResearchLab() {
     setRun(null);
     setIsRunning(true);
     try {
-      const query = await planYouTubeSearchQuery({
+      const searchPlan = await planYouTubeSearchQuery({
         courseTitle: topic.trim(),
         language,
         lessonDescription: lessonGoal.trim(),
@@ -231,7 +231,7 @@ export default function YouTubeResearchLab() {
         contextWindowTokens,
         language,
         nonYouTubePromptTokens,
-        query,
+        query: searchPlan.specificQuery,
         reservedOutputTokens,
       });
       setRun({ evaluation: null, research });

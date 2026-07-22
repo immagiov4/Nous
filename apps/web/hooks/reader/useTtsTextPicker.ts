@@ -24,7 +24,7 @@ interface ReadableChunkMatch extends ReadableTextElement {
   chunkIndexes: number[];
 }
 
-const normalizeText = (text: string): string => text.replace(/\s+/gu, ' ').trim();
+const normalizeText = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
 
 const findMatchingChunkIndexes = (elementText: string, chunkTexts: string[]): number[] => {
   const normalizedElementText = normalizeText(elementText);
@@ -190,9 +190,9 @@ export const useTtsTextPicker = ({
       event.stopImmediatePropagation();
       setConfirmationRects(buildOverlayRects(matches, chunkIndex));
       if (confirmationTimeoutRef.current !== null) {
-        window.clearTimeout(confirmationTimeoutRef.current);
+        globalThis.clearTimeout(confirmationTimeoutRef.current);
       }
-      confirmationTimeoutRef.current = window.setTimeout(() => {
+      confirmationTimeoutRef.current = globalThis.window.setTimeout(() => {
         confirmationTimeoutRef.current = null;
         setConfirmationRects([]);
       }, CONFIRMATION_DURATION_MS);
@@ -208,23 +208,23 @@ export const useTtsTextPicker = ({
     container.addEventListener('pointermove', handlePointerMove);
     container.addEventListener('pointerleave', clearHighlight);
     container.addEventListener('click', handleClick, true);
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('scroll', clearHighlight, true);
+    globalThis.addEventListener('keydown', handleKeyDown);
+    globalThis.addEventListener('scroll', clearHighlight, true);
 
     return () => {
       container.style.cursor = previousCursor;
       container.removeEventListener('pointermove', handlePointerMove);
       container.removeEventListener('pointerleave', clearHighlight);
       container.removeEventListener('click', handleClick, true);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('scroll', clearHighlight, true);
+      globalThis.removeEventListener('keydown', handleKeyDown);
+      globalThis.removeEventListener('scroll', clearHighlight, true);
     };
   }, [chunkTexts, clearHighlight, contentRef, isActive, onSelectChunk, setIsActive]);
 
   useEffect(
     () => () => {
       if (confirmationTimeoutRef.current !== null) {
-        window.clearTimeout(confirmationTimeoutRef.current);
+        globalThis.clearTimeout(confirmationTimeoutRef.current);
       }
     },
     []

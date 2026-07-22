@@ -44,10 +44,10 @@ export const useReaderSpeechBlocks = ({
 
     const scheduleSpeechBlocksUpdate = () => {
       if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+        globalThis.cancelAnimationFrame(frameId);
       }
 
-      frameId = window.requestAnimationFrame(() => {
+      frameId = globalThis.requestAnimationFrame(() => {
         frameId = null;
         updateSpeechBlocks();
       });
@@ -74,7 +74,7 @@ export const useReaderSpeechBlocks = ({
       mutationObserver.disconnect();
 
       if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
+        globalThis.cancelAnimationFrame(frameId);
       }
     };
   }, [contentRef, sectionContent, updateSpeechBlocks]);

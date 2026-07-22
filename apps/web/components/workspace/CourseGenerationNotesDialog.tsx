@@ -3,10 +3,10 @@ import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import { MotionDialog, Pressable } from '../../utils/motion/index.ts';
 
 interface CourseGenerationNotesDialogProps {
-  courseTitle: string;
-  initialValue: string;
-  onSaveAndContinue: (notes: string) => void;
-  onSkip: () => void;
+  readonly courseTitle: string;
+  readonly initialValue: string;
+  readonly onSaveAndContinue: (notes: string) => void;
+  readonly onSkip: () => void;
 }
 
 export default function CourseGenerationNotesDialog({

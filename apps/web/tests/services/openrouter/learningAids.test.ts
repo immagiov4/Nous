@@ -123,6 +123,32 @@ test('generates normalized learning aids through the strict response schema', as
   assert.equal(request?.response_format?.type, 'json_schema');
 });
 
+test('retries a transient provider failure before dropping optional learning aids', async () => {
+  vi.useFakeTimers();
+  callOpenRouterMock
+    .mockRejectedValueOnce(
+      Object.assign(new Error('temporary upstream failure'), {
+        status: 502,
+      })
+    )
+    .mockResolvedValueOnce(JSON.stringify({ aids: [] }));
+
+  try {
+    const resultPromise = generateLessonLearningAids({
+      contentMarkdown: '## Contenuto\n\nTesto della lezione.',
+      sectionDescription: 'Descrizione.',
+      sectionTitle: 'Titolo',
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    assert.deepEqual(await resultPromise, []);
+    assert.equal(callOpenRouterMock.mock.calls.length, 2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test('does not accept symbol as a generated learning-aid kind', () => {
   const result = normalizeLessonLearningAids(
     {

@@ -57,7 +57,7 @@ const buildProps = () =>
 
 afterEach(() => {
   cleanup();
-  window.history.replaceState({}, '', '/');
+  globalThis.history.replaceState({}, '', '/');
 });
 
 describe('LibraryScreenContainer route fallback', () => {
@@ -65,7 +65,7 @@ describe('LibraryScreenContainer route fallback', () => {
     '/percorso-sconosciuto',
     '/api/projects/covers/regenerate',
   ])('uses the current home for %s instead of the removed legacy library', pathname => {
-    window.history.replaceState({}, '', pathname);
+    globalThis.history.replaceState({}, '', pathname);
 
     render(<LibraryScreenContainer {...buildProps()} />);
 
@@ -73,7 +73,7 @@ describe('LibraryScreenContainer route fallback', () => {
   });
 
   test('switches from library query to new course after choosing a local source', () => {
-    window.history.replaceState({}, '', '/library');
+    globalThis.history.replaceState({}, '', '/library');
 
     const { container } = render(<LibraryScreenContainer {...buildProps()} />);
     const fileInput = container.querySelector<HTMLInputElement>('#library-source-file');

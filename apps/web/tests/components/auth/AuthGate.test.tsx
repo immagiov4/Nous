@@ -16,7 +16,7 @@ const createAccessToken = ({
   userId?: string;
 } = {}): string => {
   const encode = (value: unknown) =>
-    btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    btoa(JSON.stringify(value)).replaceAll(/\+/g, '-').replaceAll(/\//g, '_').replaceAll(/=/g, '');
   return `${encode({ alg: 'none' })}.${encode({
     sub: userId,
     email: `${userId}@example.com`,
@@ -29,7 +29,7 @@ const createAccessToken = ({
 };
 
 beforeEach(() => {
-  window.history.replaceState({}, '', '/');
+  globalThis.history.replaceState({}, '', '/');
   vi.stubEnv('VITE_AUTH_MODE', 'supabase');
   vi.stubEnv('VITE_SUPABASE_URL', 'https://supabase.test');
   vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
@@ -44,7 +44,7 @@ test('keeps the public landing available to signed-in testers at /landing', () =
     expiresAt: Math.floor(Date.now() / 1000) + 3600,
     refreshToken: 'refresh-token',
   });
-  window.history.replaceState({}, '', '/landing');
+  globalThis.history.replaceState({}, '', '/landing');
 
   render(
     <AuthGate>
@@ -120,8 +120,8 @@ test('AuthGate synchronizes logout events received from another tab', async () =
   expect(screen.getByText('Area autenticata')).toBeInTheDocument();
 
   act(() => {
-    window.localStorage.removeItem('nousSupabaseSession');
-    window.dispatchEvent(new StorageEvent('storage', { key: 'nousSupabaseSession' }));
+    globalThis.localStorage.removeItem('nousSupabaseSession');
+    globalThis.dispatchEvent(new StorageEvent('storage', { key: 'nousSupabaseSession' }));
   });
 
   await waitFor(() => expect(screen.getByRole('button', { name: 'Accedi' })).toBeInTheDocument());
@@ -132,7 +132,7 @@ test('an invalid callback never renders the stored account and shows a stable er
     accessToken: 'old-account-token',
     expiresAt: Math.floor(Date.now() / 1000) + 3600,
   });
-  window.history.replaceState(
+  globalThis.history.replaceState(
     {},
     '',
     '/#error=access_denied&error_code=otp_expired&error_description=expired'
@@ -150,7 +150,7 @@ test('an invalid callback never renders the stored account and shows a stable er
   expect(screen.getByRole('alert')).toHaveTextContent(
     'Il link non è valido o è scaduto. Richiedine uno nuovo.'
   );
-  await waitFor(() => expect(window.location.hash).toBe(''));
+  await waitFor(() => expect(globalThis.location.hash).toBe(''));
   expect(screen.queryByText('Area autenticata')).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
 });
@@ -158,7 +158,7 @@ test('an invalid callback never renders the stored account and shows a stable er
 test('a pre-marked magic-link callback forces password setup before opening the app', async () => {
   const inviteToken = createAccessToken({ passwordSetupRequired: true, userId: 'invited-user' });
   const completedToken = createAccessToken({ userId: 'invited-user' });
-  window.history.replaceState(
+  globalThis.history.replaceState(
     {},
     '',
     `/#access_token=${inviteToken}&refresh_token=refresh-token&expires_in=3600&type=magiclink`
@@ -180,7 +180,7 @@ test('a pre-marked magic-link callback forces password setup before opening the 
 
   expect(screen.getByRole('heading', { name: 'Completa il tuo account' })).toBeInTheDocument();
   expect(screen.queryByText('Area autenticata')).toBeNull();
-  await waitFor(() => expect(window.location.hash).toBe(''));
+  await waitFor(() => expect(globalThis.location.hash).toBe(''));
   fireEvent.change(screen.getByLabelText('Nuova password'), {
     target: { value: 'password-one' },
   });
@@ -206,7 +206,7 @@ test('a pre-marked magic-link callback forces password setup before opening the 
 
 test('a magic-link callback opens the app without asking for a password', async () => {
   const magicToken = createAccessToken();
-  window.history.replaceState(
+  globalThis.history.replaceState(
     {},
     '',
     `/#access_token=${magicToken}&refresh_token=refresh-token&expires_in=3600&type=magiclink`
@@ -220,14 +220,14 @@ test('a magic-link callback opens the app without asking for a password', async 
 
   expect(screen.getByText('Area autenticata')).toBeInTheDocument();
   expect(screen.queryByLabelText('Nuova password')).toBeNull();
-  await waitFor(() => expect(window.location.hash).toBe(''));
+  await waitFor(() => expect(globalThis.location.hash).toBe(''));
   expect(screen.getByText('Area autenticata')).toBeInTheDocument();
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
 test('a final recovery 401 clears the session and returns to an expired-link login', async () => {
   const recoveryToken = createAccessToken({ userId: 'recovered-user' });
-  window.history.replaceState(
+  globalThis.history.replaceState(
     {},
     '',
     `/#access_token=${recoveryToken}&expires_in=3600&type=recovery`
@@ -245,7 +245,7 @@ test('a final recovery 401 clears the session and returns to an expired-link log
 
   expect(screen.getByRole('heading', { name: 'Scegli una nuova password' })).toBeInTheDocument();
   expect(screen.queryByText('Area autenticata')).toBeNull();
-  await waitFor(() => expect(window.location.hash).toBe(''));
+  await waitFor(() => expect(globalThis.location.hash).toBe(''));
   fireEvent.change(screen.getByLabelText('Nuova password'), {
     target: { value: 'password-one' },
   });
@@ -279,7 +279,7 @@ test.each([
   status,
 }) => {
   const recoveryToken = createAccessToken({ userId: 'recovered-user' });
-  window.history.replaceState(
+  globalThis.history.replaceState(
     {},
     '',
     `/#access_token=${recoveryToken}&expires_in=3600&type=recovery`
@@ -292,7 +292,7 @@ test.each([
     </AuthGate>
   );
 
-  await waitFor(() => expect(window.location.hash).toBe(''));
+  await waitFor(() => expect(globalThis.location.hash).toBe(''));
   fireEvent.change(screen.getByLabelText('Nuova password'), {
     target: { value: 'password-one' },
   });

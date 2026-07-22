@@ -3,8 +3,8 @@ import { LandingProductVideoFrame } from './LandingProductComposition.tsx';
 import { DEMO_FPS, DEMO_STAGE_CONFIG } from './landingDemoTimeline.ts';
 
 export interface LandingProductJourneyProps extends Record<string, unknown> {
-  isCompact: boolean;
-  locale?: 'en' | 'it';
+  readonly isCompact: boolean;
+  readonly locale?: 'en' | 'it';
 }
 
 export default function LandingProductJourney({ isCompact, locale }: LandingProductJourneyProps) {

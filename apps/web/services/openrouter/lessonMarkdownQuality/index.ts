@@ -12,4 +12,3 @@ export {
   parseQuizPayload,
 } from './quiz.ts';
 export { repairLessonMarkdown } from './repair.ts';
-export { generateStandaloneLessonQuiz } from './standaloneQuiz.ts';

@@ -30,7 +30,6 @@ const generateLessonLearningAidsMock = vi.fn(
     },
   ]
 );
-const generateStandaloneLessonQuizMock = vi.fn(async () => []);
 const verifyLessonDraftMock = vi.fn(async ({ draft }: { draft: unknown }) => draft);
 const getYouTubeResearchContextMock = vi.fn(
   async (_query: string, _language: string): Promise<YouTubeResearchContext> => ({
@@ -40,9 +39,11 @@ const getYouTubeResearchContextMock = vi.fn(
     videoClipsEnabled: false,
   })
 );
-const planYouTubeSearchQueryMock = vi.fn(
-  async (_input: unknown) => 'pixel art curve shading tutorial'
-);
+const planYouTubeSearchQueryMock = vi.fn(async (_input: unknown) => ({
+  fallbackQuery: 'pixel art curve tutorial',
+  focusConcept: 'pixel art curve shading',
+  specificQuery: 'pixel art curve shading tutorial',
+}));
 const planCourseYouTubeSearchQueriesMock = vi.fn(async (_input: unknown) => [
   'kotlin fundamentals course',
   'kotlin complete playlist',
@@ -79,7 +80,6 @@ vi.mock('../../../services/openrouter/lessonMarkdownQuality/index.ts', async imp
   return {
     ...actual,
     estimateTargetQuizCount: () => 1,
-    generateStandaloneLessonQuiz: generateStandaloneLessonQuizMock,
     normalizeQuizLength: (quiz: unknown[]) => quiz,
     repairLessonMarkdown: async (content: string) => content,
     sanitizeLessonMarkdownContent: (content: string) => content,
@@ -126,7 +126,6 @@ beforeEach(() => {
   retryWithBackoffMock.mockClear();
   materializeGeneratedVisualSlotsMock.mockClear();
   generateLessonLearningAidsMock.mockClear();
-  generateStandaloneLessonQuizMock.mockClear();
   verifyLessonDraftMock.mockClear();
   getYouTubeResearchContextMock.mockReset();
   planCourseYouTubeSearchQueriesMock.mockClear();
@@ -718,6 +717,62 @@ test('generateResearchLessonDossier keeps sources optional and attaches the sect
   assert.equal(callOpenRouterMock.mock.calls[1]?.[0]?.modelSlot, 'lesson');
 });
 
+test('generateResearchLessonDossier retries the broader YouTube query only after zero discoveries', async () => {
+  getYouTubeResearchContextMock
+    .mockResolvedValueOnce({
+      context: '',
+      discoveredVideoCount: 0,
+      rationale: 'Nessun video candidato.',
+      videoCandidates: [],
+      videoClipsEnabled: true,
+    })
+    .mockResolvedValueOnce({
+      context: 'SOURCE Quaternions\n[00:10] Rotation visualization',
+      discoveredVideoCount: 3,
+      rationale: 'Un transcript incluso.',
+      videoCandidates: [],
+      videoClipsEnabled: true,
+    });
+  planYouTubeSearchQueryMock.mockResolvedValueOnce({
+    fallbackQuery: 'quaternions explained visually',
+    focusConcept: 'visualizzazione delle rotazioni con quaternioni',
+    specificQuery: 'OpenXR quaternion rotation visualization',
+  });
+  callOpenRouterMock
+    .mockResolvedValueOnce('I quaternioni rappresentano rotazioni tridimensionali.')
+    .mockResolvedValueOnce(
+      JSON.stringify({
+        avoidOversimplifying: [],
+        controversies: [],
+        difficultSteps: [],
+        factualSummary: 'I quaternioni rappresentano rotazioni tridimensionali.',
+        keyExamples: [],
+        recentDevelopments: [],
+        sources: [],
+        youtubeCandidateDecisions: [],
+      })
+    );
+
+  await generateResearchLessonDossier({
+    lesson: {
+      id: 'lesson-quaternions',
+      title: 'Pose, trasformazioni e quaternioni',
+      description: 'Comprendere le rotazioni nello spazio',
+      isCompleted: false,
+      type: 'core',
+    },
+    moduleTitle: 'Grafica 3D',
+    profile,
+    researchCoursePlan: null,
+    onStatusUpdate: () => {},
+  });
+
+  assert.deepEqual(
+    getYouTubeResearchContextMock.mock.calls.map(call => call[0]),
+    ['OpenXR quaternion rotation visualization', 'quaternions explained visually']
+  );
+});
+
 test('generateResearchLessonDossier targets coverage gaps while always enabling web search', async () => {
   callOpenRouterMock.mockResolvedValueOnce('Brief supplementare con fonti web.');
   callOpenRouterMock.mockResolvedValueOnce(
@@ -768,9 +823,19 @@ test('generateResearchLessonDossier targets coverage gaps while always enabling 
 test('generateResearchLessonContent returns contextual learning aids with the lesson', async () => {
   callOpenRouterMock.mockResolvedValue(
     JSON.stringify({
-      contentMarkdown: '## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.',
+      contentBlocks: [
+        { type: 'markdown', markdown: '## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.' },
+        {
+          type: 'inline-quiz',
+          quiz: {
+            correctIndex: 0,
+            exerciseType: 'application-card',
+            options: ['A', 'B', 'C', 'D'],
+            question: 'Che cosa esegue la JVM?',
+          },
+        },
+      ],
       imagePlacements: [],
-      quiz: [],
       visualPlanning: { plans: [], rationale: 'Non serve un visuale.' },
     })
   );
@@ -797,10 +862,12 @@ test('generateResearchLessonContent returns contextual learning aids with the le
   });
 
   assert.equal(result.learningAids[0]?.title, 'Bytecode');
+  assert.equal(result.quiz[0]?.question, 'Che cosa esegue la JVM?');
+  assert.equal(result.contentBlocks?.[1]?.type, 'inline-quiz');
   assert.equal(verifyLessonDraftMock.mock.calls.length, 1);
-  assert.equal(generateStandaloneLessonQuizMock.mock.calls.length, 0);
   assert.deepEqual(generateLessonLearningAidsMock.mock.calls[0]?.[0], {
-    contentMarkdown: '## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.',
+    contentMarkdown:
+      '## Kotlin e JVM\n\nKotlin compila in bytecode per la JVM.\n\n{{INLINE_QUIZ:0}}',
     sectionDescription: 'Spiega la relazione tra Kotlin, bytecode e JVM.',
     sectionTitle: 'Kotlin e JVM',
   });
@@ -809,10 +876,19 @@ test('generateResearchLessonContent returns contextual learning aids with the le
 test('generateResearchLessonContent leaves structured source attribution out of lesson markdown', async () => {
   callOpenRouterMock.mockResolvedValue(
     JSON.stringify({
-      contentMarkdown:
-        '## Fondamenti\n\nSpiegazione verificata.\n\n## Fonti essenziali\n\n- Fonte inventata',
+      contentBlocks: [
+        { type: 'markdown', markdown: '## Fondamenti\n\nSpiegazione verificata.' },
+        {
+          type: 'inline-quiz',
+          quiz: {
+            correctIndex: 0,
+            exerciseType: 'application-card',
+            options: ['A', 'B', 'C', 'D'],
+            question: 'Qual è il prerequisito?',
+          },
+        },
+      ],
       imagePlacements: [],
-      quiz: [],
       visualPlanning: { plans: [], rationale: 'Non serve un visuale.' },
     })
   );
@@ -850,8 +926,11 @@ test('generateResearchLessonContent leaves structured source attribution out of 
     onStatusUpdate: () => {},
   });
 
-  assert.equal(result.content, '## Fondamenti\n\nSpiegazione verificata.');
+  assert.equal(result.content, '## Fondamenti\n\nSpiegazione verificata.\n\n{{INLINE_QUIZ:0}}');
+  assert.equal(result.quiz[0]?.question, 'Qual è il prerequisito?');
+  assert.equal(result.contentBlocks?.[0]?.type, 'markdown');
   const draftingPrompt = callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || '';
   assert.match(draftingPrompt, /\[01:05-01:33] Traccio una curva a gradini/);
-  assert.match(draftingPrompt, /\{\{YOUTUBE_CLIP_SOURCE:2\|START:<seconds>\|END:<seconds>}}/);
+  assert.match(draftingPrompt, /sourceIndex 2 in typed youtube-clips blocks/i);
+  assert.match(draftingPrompt, /blocco `youtube-clips` nel punto editoriale esatto/i);
 });

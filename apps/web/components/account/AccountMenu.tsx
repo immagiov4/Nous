@@ -41,12 +41,12 @@ type AccountAction =
 const SUCCESS_MESSAGE_DURATION_MS = 3_000;
 
 interface AccountPanelProps {
-  account: SupabaseAccount;
-  initialSection: AccountSection;
-  onAccountChange: (account: SupabaseAccount) => void;
-  onClose: () => void;
-  onExportLibraryBackup?: () => Promise<number>;
-  onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly account: SupabaseAccount;
+  readonly initialSection: AccountSection;
+  readonly onAccountChange: (account: SupabaseAccount) => void;
+  readonly onClose: () => void;
+  readonly onExportLibraryBackup?: () => Promise<number>;
+  readonly onImportLibraryBackup?: (file: File) => Promise<number>;
 }
 
 const fieldClassName =
@@ -90,8 +90,11 @@ const AccountPanel = ({
       return;
     }
 
-    const timeout = window.setTimeout(() => setSuccessMessage(''), SUCCESS_MESSAGE_DURATION_MS);
-    return () => window.clearTimeout(timeout);
+    const timeout = globalThis.window.setTimeout(
+      () => setSuccessMessage(''),
+      SUCCESS_MESSAGE_DURATION_MS
+    );
+    return () => globalThis.window.clearTimeout(timeout);
   }, [successMessage]);
 
   const beginAction = (action: AccountAction) => {
@@ -413,10 +416,10 @@ const AccountPanel = ({
 };
 
 interface AccountMenuProps {
-  onExportLibraryBackup?: () => Promise<number>;
-  onImportLibraryBackup?: (file: File) => Promise<number>;
-  triggerText?: string;
-  triggerVariant?: 'avatar' | 'settings';
+  readonly onExportLibraryBackup?: () => Promise<number>;
+  readonly onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly triggerText?: string;
+  readonly triggerVariant?: 'avatar' | 'settings';
 }
 
 export default function AccountMenu({

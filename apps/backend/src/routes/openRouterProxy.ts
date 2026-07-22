@@ -32,6 +32,12 @@ const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions'
 const OPENROUTER_WEB_SEARCH_TOOL_TYPE = 'openrouter:web_search';
 const OPENROUTER_ECONOMY_SERVICE_TIER = 'flex';
 const AI_RESPONSE_HEADERS = ['content-type', 'cache-control'] as const;
+const RESOLVED_AI_ROUTE_HEADERS = {
+  model: 'X-Nous-Resolved-AI-Model',
+  provider: 'X-Nous-Resolved-AI-Provider',
+  reasoningEffort: 'X-Nous-Resolved-AI-Reasoning-Effort',
+  serviceTier: 'X-Nous-Resolved-AI-Service-Tier',
+} as const;
 const openRouterImageSupportByModel = new Map<string, boolean>();
 const CODEX_PRODUCT_INSTRUCTIONS =
   'Opera solo come motore didattico di Nous Reader. Non ispezionare file locali, non eseguire comandi e non modificare il computer. Rispetta le istruzioni e i dati forniti nella richiesta.';
@@ -257,6 +263,29 @@ const buildProxyRequest = async (
       },
     },
   };
+};
+
+const exposeResolvedAiRoute = (
+  resolvedRequest: Awaited<ReturnType<typeof buildProxyRequest>>,
+  res: Response
+): void => {
+  const reasoning = isRecord(resolvedRequest.body.reasoning)
+    ? resolvedRequest.body.reasoning.effort
+    : resolvedRequest.body.reasoning_effort;
+  const serviceTier = resolvedRequest.body.nous_service_tier || resolvedRequest.body.service_tier;
+
+  res.setHeader(RESOLVED_AI_ROUTE_HEADERS.provider, resolvedRequest.provider);
+  res.setHeader(RESOLVED_AI_ROUTE_HEADERS.model, String(resolvedRequest.body.model || ''));
+  if (typeof reasoning === 'string') {
+    res.setHeader(RESOLVED_AI_ROUTE_HEADERS.reasoningEffort, reasoning);
+  }
+  if (typeof serviceTier === 'string') {
+    res.setHeader(RESOLVED_AI_ROUTE_HEADERS.serviceTier, serviceTier);
+  }
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    Object.values(RESOLVED_AI_ROUTE_HEADERS).join(', ')
+  );
 };
 
 const readChatContent = (content: unknown): { images: string[]; text: string } => {
@@ -504,6 +533,7 @@ router.post('/chat/completions', async (req: Request, res: Response) => {
   let resolvedRequest: Awaited<ReturnType<typeof buildProxyRequest>> | null = null;
   try {
     resolvedRequest = await buildProxyRequest(req);
+    exposeResolvedAiRoute(resolvedRequest, res);
     if (resolvedRequest.provider === 'codex') {
       assertCodexRequestAccess(req);
       await sendCodexCompletion(resolvedRequest.body, res);

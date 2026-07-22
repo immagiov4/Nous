@@ -6,7 +6,7 @@ import { initializeFeedbackDiagnostics } from './services/feedback/browserDiagno
 import { initializeDocumentTheme } from './services/preferences/documentTheme.ts';
 import './styles/app.css';
 
-initializeDocumentTheme(document.documentElement, window.localStorage);
+initializeDocumentTheme(document.documentElement, globalThis.localStorage);
 initializeDocumentLanguage();
 initializeFeedbackDiagnostics();
 

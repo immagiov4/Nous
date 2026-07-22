@@ -64,47 +64,47 @@ import {
 import StreamingMarkdownRenderer from '../shared/StreamingMarkdownRenderer.tsx';
 
 interface HomeChatPanelProps {
-  assessmentComplete: boolean;
-  assessmentMessages: Message[];
-  homeChatMode: HomeChatMode;
-  isDarkMode: boolean;
-  isLibraryLoading: boolean;
-  isLibraryModeLoading: boolean;
-  isNewCourseLoading: boolean;
-  libraryAttachedContextRefs: LibraryContextRef[];
-  libraryArtifactPayloadsByToolCallId?: Record<string, LearningArtifactRenderPayload[]>;
-  libraryArtifactPreviewIdOverride?: string | null;
-  libraryArtifactPortalContainer?: HTMLElement | null;
-  libraryFloatingArtifactPayloads?: LearningArtifactRenderPayload[];
-  libraryErrorMessage: string | null;
-  libraryMessages: UIMessage[];
-  libraryTree: LibraryTree;
-  libraryWebSearch: boolean;
-  libraryGenerateArtifacts: boolean;
-  newCourseLoadingStatus: string;
-  pendingFileName: string | null;
-  pendingFileNames?: string[];
-  draftValueOverride?: string;
-  draftTemplate?: {
+  readonly assessmentComplete: boolean;
+  readonly assessmentMessages: Message[];
+  readonly homeChatMode: HomeChatMode;
+  readonly isDarkMode: boolean;
+  readonly isLibraryLoading: boolean;
+  readonly isLibraryModeLoading: boolean;
+  readonly isNewCourseLoading: boolean;
+  readonly libraryAttachedContextRefs: LibraryContextRef[];
+  readonly libraryArtifactPayloadsByToolCallId?: Record<string, LearningArtifactRenderPayload[]>;
+  readonly libraryArtifactPreviewIdOverride?: string | null;
+  readonly libraryArtifactPortalContainer?: HTMLElement | null;
+  readonly libraryFloatingArtifactPayloads?: LearningArtifactRenderPayload[];
+  readonly libraryErrorMessage: string | null;
+  readonly libraryMessages: UIMessage[];
+  readonly libraryTree: LibraryTree;
+  readonly libraryWebSearch: boolean;
+  readonly libraryGenerateArtifacts: boolean;
+  readonly newCourseLoadingStatus: string;
+  readonly pendingFileName: string | null;
+  readonly pendingFileNames?: string[];
+  readonly draftValueOverride?: string;
+  readonly draftTemplate?: {
     id: string;
     mode?: HomeChatMode;
     selection?: { end: number; start: number };
     value: string;
   };
-  scrollProgressOverride?: number;
-  compactWhenEmpty?: boolean;
-  hideHeaderCopy?: boolean;
-  hideModeSelector?: boolean;
-  inputPlaceholder?: string;
-  showChatAvatars?: boolean;
-  onClearPendingFile: () => void;
-  onClearLibraryMessages?: () => void;
-  onCancelNewCourse?: () => void;
-  onContinueAssessment?: () => void;
-  onConfirmGenerate: () => void;
-  onHomeChatModeChange: (mode: HomeChatMode) => void;
-  onLibraryMessageSend: (message: string) => void | Promise<void>;
-  onLibraryArtifactNoteApprove?: (
+  readonly scrollProgressOverride?: number;
+  readonly compactWhenEmpty?: boolean;
+  readonly hideHeaderCopy?: boolean;
+  readonly hideModeSelector?: boolean;
+  readonly inputPlaceholder?: string;
+  readonly showChatAvatars?: boolean;
+  readonly onClearPendingFile: () => void;
+  readonly onClearLibraryMessages?: () => void;
+  readonly onCancelNewCourse?: () => void;
+  readonly onContinueAssessment?: () => void;
+  readonly onConfirmGenerate: () => void;
+  readonly onHomeChatModeChange: (mode: HomeChatMode) => void;
+  readonly onLibraryMessageSend: (message: string) => void | Promise<void>;
+  readonly onLibraryArtifactNoteApprove?: (
     toolCallId: string,
     input: {
       artifactIds: string[];
@@ -114,17 +114,17 @@ interface HomeChatPanelProps {
       rationale: string;
     }
   ) => Promise<void>;
-  onLibraryArtifactNoteReject?: (toolCallId: string) => void;
-  onLibraryArtifactDiscard?: (request: ChatArtifactActionRequest) => void;
-  onLibraryArtifactRegenerate?: (
+  readonly onLibraryArtifactNoteReject?: (toolCallId: string) => void;
+  readonly onLibraryArtifactDiscard?: (request: ChatArtifactActionRequest) => void;
+  readonly onLibraryArtifactRegenerate?: (
     request: ChatArtifactRegenerateRequest
   ) => Promise<boolean> | boolean;
-  onLibraryArtifactReplace?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
-  onLibraryWebSearchChange: (value: boolean) => void;
-  onLibraryGenerateArtifactsChange: (value: boolean) => void;
-  onSendAssessmentMessage: (message: string) => Promise<void>;
-  onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
-  onUploadSourceClick: () => void;
+  readonly onLibraryArtifactReplace?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
+  readonly onLibraryWebSearchChange: (value: boolean) => void;
+  readonly onLibraryGenerateArtifactsChange: (value: boolean) => void;
+  readonly onSendAssessmentMessage: (message: string) => Promise<void>;
+  readonly onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
+  readonly onUploadSourceClick: () => void;
 }
 
 type SurfaceState = null | 'attachment-menu' | 'tool-menu';
@@ -163,7 +163,7 @@ const isRequestSaveLearningArtifactNoteInput = (
 };
 
 const readIsMobileViewport = () =>
-  typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+  typeof globalThis.window !== 'undefined' ? globalThis.window.innerWidth < 768 : false;
 
 const getMenuVerticalPlacement = (
   anchorRect: DOMRect,
@@ -321,7 +321,7 @@ const getToolMeta = (part: UIMessage['parts'][number]) => {
     ? { icon: configuredMeta.icon, label: configuredMeta.getLabel() }
     : {
         icon: Search,
-        label: raw.replace(/([A-Z])/g, ' $1').trim() || t('Tool'),
+        label: raw.replaceAll(/([A-Z])/g, ' $1').trim() || t('Tool'),
       };
 };
 
@@ -556,7 +556,7 @@ export default function HomeChatPanel({
   }, [scrollMeasurementKey, scrollProgressOverride]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return;
     }
 
@@ -565,9 +565,9 @@ export default function HomeChatPanel({
     };
 
     updateViewport();
-    window.addEventListener('resize', updateViewport);
+    globalThis.window.addEventListener('resize', updateViewport);
     return () => {
-      window.removeEventListener('resize', updateViewport);
+      globalThis.window.removeEventListener('resize', updateViewport);
     };
   }, []);
 
@@ -575,7 +575,7 @@ export default function HomeChatPanel({
     if (scrollProgressOverride !== undefined) {
       return;
     }
-    const lastItem = activeMessages[activeMessages.length - 1] || null;
+    const lastItem = activeMessages.at(-1) || null;
     if (!lastItem && !assessmentComplete && !isLoading) {
       return;
     }
@@ -606,7 +606,7 @@ export default function HomeChatPanel({
     if (targetMode !== homeChatMode) {
       return;
     }
-    window.requestAnimationFrame(() => {
+    globalThis.window.requestAnimationFrame(() => {
       inputRef.current?.focus();
       if (draftTemplate.selection) {
         inputRef.current?.setSelectionRange(
@@ -647,11 +647,12 @@ export default function HomeChatPanel({
     const updateMenuPlacement = () => {
       const anchorRect = anchor.getBoundingClientRect();
       const menuRect = menu.getBoundingClientRect();
-      const align: MenuAlign = anchorRect.left > window.innerWidth * 0.62 ? 'end' : 'start';
+      const align: MenuAlign =
+        anchorRect.left > globalThis.window.innerWidth * 0.62 ? 'end' : 'start';
       const verticalPlacement = getMenuVerticalPlacement(
         anchorRect,
         menuRect.height,
-        window.innerHeight
+        globalThis.window.innerHeight
       );
 
       if (activeSurface === 'tool-menu') {
@@ -669,9 +670,9 @@ export default function HomeChatPanel({
     };
 
     updateMenuPlacement();
-    window.addEventListener('resize', updateMenuPlacement);
+    globalThis.window.addEventListener('resize', updateMenuPlacement);
     return () => {
-      window.removeEventListener('resize', updateMenuPlacement);
+      globalThis.window.removeEventListener('resize', updateMenuPlacement);
     };
   }, [activeSurface, isLibraryLoading, libraryTree.rootNodes.length]);
 
@@ -707,7 +708,7 @@ export default function HomeChatPanel({
       ...currentDrafts,
       [homeChatMode]: appendSpeechTranscription(currentDrafts[homeChatMode], transcription),
     }));
-    window.requestAnimationFrame(() => {
+    globalThis.window.requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
   };
@@ -1541,7 +1542,7 @@ export default function HomeChatPanel({
               onChange={event => handleDraftChange(event.target.value)}
               onFocus={() => {
                 if (isMobileViewport && inputRef.current) {
-                  window.requestAnimationFrame(() => {
+                  globalThis.window.requestAnimationFrame(() => {
                     inputRef.current?.scrollIntoView({ block: 'nearest' });
                   });
                 }

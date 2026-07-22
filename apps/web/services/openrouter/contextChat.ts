@@ -25,17 +25,26 @@ export const askContextualQuestion = async ({
   contextAfter,
 }: AskContextualQuestionInput): Promise<string> => {
   const selectionContext = [contextBefore, selection, contextAfter].filter(Boolean).join(' ');
-  const basePrompt = `L'utente ha evidenziato questo testo:
+  const lessonPrompt = `LEZIONE CORRENTE
+Titolo: "${lessonTitle || 'Lezione corrente'}"
+Descrizione: "${lessonDescription || 'Nessuna descrizione disponibile'}"
+
+Contenuto completo:
+${lessonContent || 'Nessun contenuto disponibile.'}
+
+PASSAGGIO SELEZIONATO DALL'UTENTE
 "${selection}"
 
-Contesto immediato della selezione:
+Contesto immediato del passaggio:
 "${selectionContext || selection}"
 
 Domanda dell'utente:
-"${question}"`;
+"${question}"
+
+Usa l'intera lezione per interpretare il passaggio selezionato. Mantieni il passaggio come focus esplicito della risposta e non trattarlo come testo isolato.`;
 
   return retryWithBackoff(async () => {
-    const userPromptWithSource = `${basePrompt}
+    const userPromptWithSource = `${lessonPrompt}
 
 Rispondi in modo conciso e utile basandoti sul documento caricato.
 Se la risposta e presente nella fonte originale, citala chiaramente.`;
@@ -56,13 +65,7 @@ Se la risposta e presente nella fonte originale, citala chiaramente.`;
         : [
             {
               role: 'user',
-              content: `${basePrompt}
-
-Titolo lezione corrente: "${lessonTitle || 'Lezione corrente'}"
-Descrizione lezione: "${lessonDescription || 'Nessuna descrizione disponibile'}"
-
-Contenuto della lezione corrente:
-${lessonContent || 'Nessun contenuto disponibile.'}
+              content: `${lessonPrompt}
 
 La fonte originale non e allegata. Rispondi usando solo il contesto della lezione corrente.
 Se il dettaglio richiesto non e supportato dal testo disponibile, dichiaralo esplicitamente invece di inventare riferimenti.`,

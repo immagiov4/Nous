@@ -162,6 +162,7 @@ const buildProps = (): WorkspaceReaderShellProps => {
       isContextLoading: false,
       isDarkMode: false,
       isMobileViewport: false,
+      lessonCreationBlockReason: null,
       onAskContextQuestion: vi.fn(),
       onAttachArtifactToAnnotation: vi.fn(),
       onCloseContextAnswer: vi.fn(),
@@ -203,16 +204,16 @@ const buildProps = (): WorkspaceReaderShellProps => {
 describe('WorkspaceReaderShell', () => {
   test('resets both window and content scroll positions on mount', () => {
     const props = buildProps();
-    vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    vi.spyOn(globalThis, 'scrollTo').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
       callback(0);
       return 1;
     });
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation(() => {});
 
     render(<WorkspaceReaderShell {...props} />);
 
-    expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+    expect(globalThis.scrollTo).toHaveBeenCalledWith(0, 0);
     expect(props.content.scrollContainerRef.current?.scrollTo).toHaveBeenCalledWith({
       behavior: 'auto',
       left: 0,
@@ -262,7 +263,7 @@ describe('WorkspaceReaderShell', () => {
 
   test('supports an embedded reader without locking or resetting the document viewport', () => {
     const props = buildProps();
-    const windowScrollSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const windowScrollSpy = vi.spyOn(globalThis, 'scrollTo').mockImplementation(() => {});
     document.documentElement.style.overflow = 'auto';
     document.body.style.overflow = 'auto';
 

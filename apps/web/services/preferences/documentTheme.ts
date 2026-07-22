@@ -23,11 +23,12 @@ export const readInitialDarkMode = (): boolean => {
     return false;
   }
 
-  if (typeof window === 'undefined') {
+  if (typeof globalThis.window === 'undefined') {
     return document.documentElement.classList.contains('dark');
   }
 
   return (
-    readStoredDarkMode(window.localStorage) ?? document.documentElement.classList.contains('dark')
+    readStoredDarkMode(globalThis.localStorage) ??
+    document.documentElement.classList.contains('dark')
   );
 };

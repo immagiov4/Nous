@@ -94,7 +94,7 @@ export interface LibraryArchiveOrganization {
 }
 
 const sanitizeArchivePathSegment = (value: string): string => {
-  const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, '_');
+  const normalized = value.trim().replaceAll(/[^a-zA-Z0-9._-]+/g, '_');
   return normalized || 'course';
 };
 

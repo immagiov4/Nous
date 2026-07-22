@@ -41,13 +41,13 @@ describe('AdminFeedbackPanel', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    Object.defineProperty(globalThis, 'innerWidth', { configurable: true, value: 390 });
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
       configurable: true,
       value: scrollIntoView,
     });
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
-      return window.setTimeout(() => callback(0), 0);
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => {
+      return globalThis.window.setTimeout(() => callback(0), 0);
     });
     vi.mocked(loadAdminFeedbackScreenshot).mockResolvedValue(new Blob(['image']));
     vi.mocked(retryAdminFeedback).mockResolvedValue();

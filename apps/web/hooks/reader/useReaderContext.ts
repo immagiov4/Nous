@@ -63,6 +63,7 @@ interface SelectionMenuIdentity {
   contextBefore?: string;
   placement: ContextMenuPlacement;
   selectedText: string;
+  selectedTextStart?: number;
 }
 
 const getSelectionMenuKey = ({
@@ -70,8 +71,9 @@ const getSelectionMenuKey = ({
   contextBefore,
   placement,
   selectedText,
+  selectedTextStart,
 }: SelectionMenuIdentity) => {
-  return `${placement}::${selectedText}::${contextBefore || ''}::${contextAfter || ''}`;
+  return `${placement}::${selectedText}::${selectedTextStart ?? ''}::${contextBefore || ''}::${contextAfter || ''}`;
 };
 
 const canOpenLessonContextMenu = (target: EventTarget | null, contentElement: HTMLElement) => {
@@ -146,7 +148,7 @@ export const useReaderContext = ({
       return;
     }
 
-    window.clearTimeout(selectionMenuTimeoutRef.current);
+    globalThis.clearTimeout(selectionMenuTimeoutRef.current);
     selectionMenuTimeoutRef.current = null;
   }, []);
 
@@ -156,7 +158,7 @@ export const useReaderContext = ({
   }, []);
 
   const clampContextAnswerSize = useCallback((size: ContextAnswerSize): ContextAnswerSize => {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return clampContextAnswerPanelSize(size, {
         width: CONTEXT_ANSWER_DEFAULT_SIZE.width + 32,
         height: CONTEXT_ANSWER_DEFAULT_SIZE.height + 32,
@@ -164,8 +166,8 @@ export const useReaderContext = ({
     }
 
     return clampContextAnswerPanelSize(size, {
-      width: window.innerWidth,
-      height: window.innerHeight,
+      width: globalThis.innerWidth,
+      height: globalThis.innerHeight,
     });
   }, []);
 
@@ -247,6 +249,7 @@ export const useReaderContext = ({
       projectId,
       projectTitle,
       selectedText,
+      selectedTextStart,
       sourceKind,
       sourceMaterial,
       sourceName,
@@ -267,6 +270,7 @@ export const useReaderContext = ({
         projectId,
         projectTitle,
         selectedText,
+        selectedTextStart,
         sourceKind,
         sourceMaterial,
         sourceName,
@@ -336,6 +340,7 @@ export const useReaderContext = ({
       }
 
       const nextMenu = resolveContextMenuSelection({
+        content: sectionContentRef.current,
         container: contentRef.current,
         fallbackAnchorX,
         fallbackAnchorY,
@@ -379,6 +384,7 @@ export const useReaderContext = ({
           currentMenu.type === 'selection' &&
           currentMenu.placement === nextMenu.placement &&
           currentMenu.selectedText === nextMenu.selectedText &&
+          currentMenu.selectedTextStart === nextMenu.selectedTextStart &&
           currentMenu.contextBefore === nextMenu.contextBefore &&
           currentMenu.contextAfter === nextMenu.contextAfter
         ) {
@@ -399,7 +405,7 @@ export const useReaderContext = ({
         return;
       }
 
-      const selection = window.getSelection();
+      const selection = globalThis.getSelection();
       if (selection) {
         const selectionMenuOutcome = openContextMenuFromSelection(
           selection,
@@ -434,7 +440,7 @@ export const useReaderContext = ({
         return;
       }
 
-      const selection = window.getSelection();
+      const selection = globalThis.getSelection();
       if (!selection || selection.rangeCount === 0 || !selection.toString().trim()) {
         return;
       }
@@ -469,7 +475,7 @@ export const useReaderContext = ({
         return;
       }
 
-      const selection = window.getSelection();
+      const selection = globalThis.getSelection();
       if (selection && !selection.isCollapsed && selection.toString().trim()) {
         return;
       }
@@ -643,7 +649,7 @@ export const useReaderContext = ({
       }
 
       clearSelectionMenuTimeout();
-      selectionMenuTimeoutRef.current = window.setTimeout(() => {
+      selectionMenuTimeoutRef.current = globalThis.window.setTimeout(() => {
         selectionMenuTimeoutRef.current = null;
 
         if (
@@ -653,7 +659,7 @@ export const useReaderContext = ({
           return;
         }
 
-        const selection = window.getSelection();
+        const selection = globalThis.getSelection();
         const isInteractingWithinMenu =
           interactionTarget instanceof Node &&
           Boolean(contextMenuRef.current?.contains(interactionTarget));
@@ -696,21 +702,21 @@ export const useReaderContext = ({
       });
     };
 
-    window.addEventListener('resize', handleResize);
+    globalThis.addEventListener('resize', handleResize);
     return () => {
-      window.removeEventListener('resize', handleResize);
+      globalThis.removeEventListener('resize', handleResize);
     };
   }, [applyContextAnswerPanelSize, clampContextAnswerSize]);
 
   useEffect(() => {
     const contextAnswerPanelElement = contextAnswerPanelRef.current;
-    window.addEventListener('pointermove', handleContextAnswerResizeMove);
-    window.addEventListener('pointerup', handleContextAnswerResizeEnd);
-    window.addEventListener('pointercancel', handleContextAnswerResizeEnd);
+    globalThis.addEventListener('pointermove', handleContextAnswerResizeMove);
+    globalThis.addEventListener('pointerup', handleContextAnswerResizeEnd);
+    globalThis.addEventListener('pointercancel', handleContextAnswerResizeEnd);
     return () => {
-      window.removeEventListener('pointermove', handleContextAnswerResizeMove);
-      window.removeEventListener('pointerup', handleContextAnswerResizeEnd);
-      window.removeEventListener('pointercancel', handleContextAnswerResizeEnd);
+      globalThis.removeEventListener('pointermove', handleContextAnswerResizeMove);
+      globalThis.removeEventListener('pointerup', handleContextAnswerResizeEnd);
+      globalThis.removeEventListener('pointercancel', handleContextAnswerResizeEnd);
       contextAnswerResizeRef.current = null;
       if (contextAnswerPanelElement) {
         contextAnswerPanelElement.style.removeProperty('will-change');
@@ -805,12 +811,12 @@ export const useReaderContext = ({
     };
 
     document.addEventListener('selectionchange', handleSelectionEvent);
-    window.addEventListener('pointerup', handleSelectionEvent);
-    window.addEventListener('touchend', handleSelectionEvent);
+    globalThis.addEventListener('pointerup', handleSelectionEvent);
+    globalThis.addEventListener('touchend', handleSelectionEvent);
     return () => {
       document.removeEventListener('selectionchange', handleSelectionEvent);
-      window.removeEventListener('pointerup', handleSelectionEvent);
-      window.removeEventListener('touchend', handleSelectionEvent);
+      globalThis.removeEventListener('pointerup', handleSelectionEvent);
+      globalThis.removeEventListener('touchend', handleSelectionEvent);
 
       clearSelectionMenuTimeout();
     };

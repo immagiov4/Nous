@@ -82,7 +82,10 @@ const isStorage = (candidate: unknown): candidate is Storage =>
 
 const getStorage = (): Storage | null => {
   try {
-    const candidate = typeof window !== 'undefined' ? window.localStorage : globalThis.localStorage;
+    const candidate =
+      typeof globalThis.window !== 'undefined'
+        ? globalThis.window.localStorage
+        : globalThis.localStorage;
 
     // Some runtimes expose a partial localStorage global that is not browser Storage.
     return isStorage(candidate) ? candidate : null;
@@ -103,9 +106,9 @@ const isLoopbackHostname = (hostname: string): boolean =>
 
 export const resolveBrowserReachableSupabaseUrl = (
   configuredUrl: string,
-  browserLocation: BrowserLocationLike | null = typeof window === 'undefined'
+  browserLocation: BrowserLocationLike | null = typeof globalThis.window === 'undefined'
     ? null
-    : window.location
+    : globalThis.window.location
 ): string => {
   const normalizedUrl = configuredUrl.replace(/\/$/, '');
   if (!browserLocation || isLoopbackHostname(browserLocation.hostname)) {
@@ -275,8 +278,8 @@ const stripUnusedSessionFields = (session: SupabaseUserSession): SupabaseUserSes
 });
 
 const notifySupabaseSessionChange = (): void => {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event(SUPABASE_SESSION_CHANGE_EVENT));
+  if (typeof globalThis.window !== 'undefined') {
+    globalThis.window.dispatchEvent(new Event(SUPABASE_SESSION_CHANGE_EVENT));
   }
 };
 
@@ -390,7 +393,7 @@ const requestRefreshedSupabaseSession = async (
 };
 
 export const refreshSupabaseSession = (): Promise<SupabaseUserSession | null> => {
-  if (refreshSessionPromise) {
+  if (refreshSessionPromise !== null) {
     return refreshSessionPromise;
   }
 
@@ -472,7 +475,7 @@ export const scheduleSupabaseSessionRefresh = (
 export const subscribeToSupabaseSession = (
   listener: (session: SupabaseUserSession | null) => void
 ): (() => void) => {
-  if (typeof window === 'undefined') {
+  if (typeof globalThis.window === 'undefined') {
     return () => {};
   }
 
@@ -482,11 +485,11 @@ export const subscribeToSupabaseSession = (
       handleSessionChange();
     }
   };
-  window.addEventListener(SUPABASE_SESSION_CHANGE_EVENT, handleSessionChange);
-  window.addEventListener('storage', handleStorageChange);
+  globalThis.window.addEventListener(SUPABASE_SESSION_CHANGE_EVENT, handleSessionChange);
+  globalThis.window.addEventListener('storage', handleStorageChange);
   return () => {
-    window.removeEventListener(SUPABASE_SESSION_CHANGE_EVENT, handleSessionChange);
-    window.removeEventListener('storage', handleStorageChange);
+    globalThis.window.removeEventListener(SUPABASE_SESSION_CHANGE_EVENT, handleSessionChange);
+    globalThis.window.removeEventListener('storage', handleStorageChange);
   };
 };
 

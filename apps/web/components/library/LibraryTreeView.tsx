@@ -32,28 +32,31 @@ import { MotionPopover, Pressable } from '../../utils/motion/index.ts';
 import ProjectCard from './ProjectCard.tsx';
 
 interface LibraryTreeViewProps {
-  createRootTrigger?: number;
-  isExportingProject?: boolean;
-  openingProjectId: string | null;
-  onCreateFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<unknown>;
-  onConfirmDeleteFolder: (folderName: string) => Promise<boolean>;
-  onDeleteFolder: (folderId: string) => Promise<void>;
-  onDeleteProject: (projectId: string) => void;
-  onExportProject: (projectId: string) => void;
-  onMoveFolder: (
+  readonly createRootTrigger?: number;
+  readonly isExportingProject?: boolean;
+  readonly openingProjectId: string | null;
+  readonly onCreateFolder: (args: {
+    name: string;
+    parentFolderId?: string | null;
+  }) => Promise<unknown>;
+  readonly onConfirmDeleteFolder: (folderName: string) => Promise<boolean>;
+  readonly onDeleteFolder: (folderId: string) => Promise<void>;
+  readonly onDeleteProject: (projectId: string) => void;
+  readonly onExportProject: (projectId: string) => void;
+  readonly onMoveFolder: (
     folderId: string,
     parentFolderId: string | null,
     targetIndex?: number
   ) => Promise<unknown>;
-  onMoveProjects: (
+  readonly onMoveProjects: (
     projectIds: string[],
     folderId: string | null,
     targetIndex?: number
   ) => Promise<unknown>;
-  onOpenProject: (projectId: string) => void;
-  onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
-  onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
-  tree: LibraryTree;
+  readonly onOpenProject: (projectId: string) => void;
+  readonly onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
+  readonly onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
+  readonly tree: LibraryTree;
 }
 
 interface DraggedLibraryItem {
@@ -72,9 +75,9 @@ interface DropTarget {
 type FlattenedFolderNode = LibraryFolderNode & { depth: number };
 
 interface AnimatedFolderChildrenProps {
-  children: ReactNode;
-  folderId: string;
-  folderName: string;
+  readonly children: ReactNode;
+  readonly folderId: string;
+  readonly folderName: string;
 }
 
 const DropLineIndicator = () => (
@@ -146,14 +149,14 @@ const clampIndex = (value: number, maxValue: number) =>
   Math.max(0, Math.min(maxValue, Math.trunc(value)));
 
 const getVerticalScrollContainer = (element: HTMLElement | null): HTMLElement | Window => {
-  if (typeof window === 'undefined' || !element) {
-    return window;
+  if (typeof globalThis.window === 'undefined' || !element) {
+    return globalThis.window;
   }
 
   let current: HTMLElement | null = element.parentElement;
 
   while (current) {
-    const { overflowY } = window.getComputedStyle(current);
+    const { overflowY } = globalThis.window.getComputedStyle(current);
     const isScrollable =
       (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
       current.scrollHeight > current.clientHeight + 1;
@@ -165,7 +168,7 @@ const getVerticalScrollContainer = (element: HTMLElement | null): HTMLElement | 
     current = current.parentElement;
   }
 
-  return window;
+  return globalThis.window;
 };
 
 const getScrollOffsetTop = (scrollContainer: HTMLElement | Window) =>
@@ -303,11 +306,11 @@ export default function LibraryTreeView({
   const movePendingRef = useRef(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) {
+    if (typeof globalThis.window === 'undefined' || !globalThis.window.matchMedia) {
       return;
     }
 
-    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const mediaQuery = globalThis.window.matchMedia('(max-width: 767px)');
     const updateViewport = () => {
       setIsMobileViewport(mediaQuery.matches);
     };
@@ -321,14 +324,14 @@ export default function LibraryTreeView({
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
+    const timeoutId = globalThis.window.setTimeout(() => {
       setCreateTargetId(ROOT_CREATE_KEY);
       setEditingFolderId(null);
       setFolderDraftName('');
     }, 0);
 
     return () => {
-      window.clearTimeout(timeoutId);
+      globalThis.window.clearTimeout(timeoutId);
     };
   }, [createRootTrigger]);
 
@@ -345,8 +348,11 @@ export default function LibraryTreeView({
       return;
     }
 
-    const timeoutId = window.setTimeout(() => setActionMessage(''), ACTION_STATUS_DISMISS_MS);
-    return () => window.clearTimeout(timeoutId);
+    const timeoutId = globalThis.window.setTimeout(
+      () => setActionMessage(''),
+      ACTION_STATUS_DISMISS_MS
+    );
+    return () => globalThis.window.clearTimeout(timeoutId);
   }, [actionMessage]);
 
   useEffect(() => {
@@ -382,7 +388,7 @@ export default function LibraryTreeView({
 
   const animateCollapseScrollCompensation = useCallback(
     (scrollContainer: HTMLElement | Window, startY: number, endY: number) => {
-      if (typeof window === 'undefined' || endY >= startY) {
+      if (typeof globalThis.window === 'undefined' || endY >= startY) {
         return;
       }
 
@@ -391,7 +397,7 @@ export default function LibraryTreeView({
       }
 
       const easeOutCubic = (progress: number) => 1 - (1 - progress) ** 3;
-      const startedAt = window.performance.now();
+      const startedAt = globalThis.window.performance.now();
 
       const tick = (now: number) => {
         const progress = Math.min(1, (now - startedAt) / FOLDER_COLLAPSE_DURATION_MS);
@@ -401,21 +407,21 @@ export default function LibraryTreeView({
         setScrollOffsetTop(scrollContainer, nextY);
 
         if (progress < 1) {
-          collapseScrollFrameRef.current = window.requestAnimationFrame(tick);
+          collapseScrollFrameRef.current = globalThis.window.requestAnimationFrame(tick);
           return;
         }
 
         collapseScrollFrameRef.current = null;
       };
 
-      collapseScrollFrameRef.current = window.requestAnimationFrame(tick);
+      collapseScrollFrameRef.current = globalThis.window.requestAnimationFrame(tick);
     },
     []
   );
 
   const handleFolderExpansionToggle = useCallback(
     (folderId: string, isExpanded: boolean) => {
-      if (isExpanded && typeof window !== 'undefined') {
+      if (isExpanded && typeof globalThis.window !== 'undefined') {
         const childrenContainer = document.querySelector<HTMLElement>(
           `[data-folder-children-id="${folderId}"]`
         );
@@ -1112,7 +1118,7 @@ export default function LibraryTreeView({
                 folderMenuTriggerRef.current = e.currentTarget;
                 const rect = e.currentTarget.getBoundingClientRect();
                 const estimatedMenuHeight = LIBRARY_FOLDER_MENU_ESTIMATED_HEIGHT_PX;
-                const spaceBelow = window.innerHeight - rect.bottom;
+                const spaceBelow = globalThis.window.innerHeight - rect.bottom;
                 const spaceAbove = rect.top;
                 const shouldFlipUp = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
                 setFolderMenuPlacement(shouldFlipUp ? 'above' : 'below');

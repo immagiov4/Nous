@@ -93,11 +93,11 @@ const AppContent = () => {
   });
 
   useEffect(() => {
-    if (screenState === AppState.LIBRARY || typeof window === 'undefined') {
+    if (screenState === AppState.LIBRARY || typeof globalThis.window === 'undefined') {
       return;
     }
 
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    globalThis.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [screenState]);
 
   const isLoading = isBlocking;

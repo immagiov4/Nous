@@ -144,21 +144,21 @@ const generatedArtifactPayload: LearningArtifactRenderPayload = {
 };
 
 const setViewportWidth = (width: number) => {
-  Object.defineProperty(window, 'innerWidth', {
+  Object.defineProperty(globalThis, 'innerWidth', {
     configurable: true,
     value: width,
     writable: true,
   });
-  window.dispatchEvent(new Event('resize'));
+  globalThis.dispatchEvent(new Event('resize'));
 };
 
 const setViewportHeight = (height: number) => {
-  Object.defineProperty(window, 'innerHeight', {
+  Object.defineProperty(globalThis, 'innerHeight', {
     configurable: true,
     value: height,
     writable: true,
   });
-  window.dispatchEvent(new Event('resize'));
+  globalThis.dispatchEvent(new Event('resize'));
 };
 
 const createDomRect = (top: number, height: number): DOMRect =>
@@ -426,7 +426,7 @@ describe('HomeChatPanel', () => {
   });
 
   test('renders the course setup surface in the browser language', () => {
-    Object.defineProperties(window.navigator, {
+    Object.defineProperties(globalThis.navigator, {
       language: { configurable: true, value: 'en-US' },
       languages: { configurable: true, value: ['en-US'] },
     });
@@ -694,7 +694,7 @@ describe('HomeChatPanel', () => {
 
   test('opens the desktop tools menu below the composer when it would clip above', async () => {
     const user = userEvent.setup();
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       configurable: true,
       value: 700,
       writable: true,

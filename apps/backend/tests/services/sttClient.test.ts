@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { DEFAULT_STT_MODEL, sttClient } from '../../src/services/sttClient.js';
+import {
+  DEFAULT_STT_FALLBACK_MODEL,
+  DEFAULT_STT_MODEL,
+  STT_ATTEMPT_TIMEOUTS_MS,
+  sttClient,
+} from '../../src/services/sttClient.js';
 
 const ORIGINAL_OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
@@ -10,6 +15,7 @@ describe('OpenRouter STT client', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     if (ORIGINAL_OPENROUTER_API_KEY === undefined) {
       delete process.env.OPENROUTER_API_KEY;
@@ -47,6 +53,7 @@ describe('OpenRouter STT client', () => {
     });
 
     expect(DEFAULT_STT_MODEL).toBe('nvidia/parakeet-tdt-0.6b-v3');
+    expect(STT_ATTEMPT_TIMEOUTS_MS).toEqual([20_000, 25_000, 30_000]);
     expect(fetchMock).toHaveBeenCalledWith(
       'https://openrouter.ai/api/v1/audio/transcriptions',
       expect.objectContaining({
@@ -86,7 +93,7 @@ describe('OpenRouter STT client', () => {
         data: 'ZmFrZS1hdWRpbw==',
         format: 'webm',
       })
-    ).rejects.toThrow('Il servizio STT non ha restituito una trascrizione valida.');
+    ).rejects.toThrow('Il servizio STT non ha completato la richiesta. Riprova tra poco.');
   });
 
   test('hides provider failures behind a stable service error', async () => {
@@ -106,5 +113,39 @@ describe('OpenRouter STT client', () => {
         format: 'webm',
       })
     ).rejects.toThrow('Il servizio STT non ha completato la richiesta. Riprova tra poco.');
+  });
+
+  test('uses progressive timeouts and the stable fallback only for the third attempt', async () => {
+    const timeoutMock = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation(() => new AbortController().signal);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: 'Fallback riuscito.' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await sttClient.transcribeAudio({
+      data: 'ZmFrZS1hdWRpbw==',
+      format: 'webm',
+      language: 'it',
+    });
+
+    expect(DEFAULT_STT_FALLBACK_MODEL).toBe('openai/whisper-large-v3-turbo');
+    expect(timeoutMock.mock.calls.map(([timeoutMs]) => timeoutMs)).toEqual([
+      20_000, 25_000, 30_000,
+    ]);
+    expect(fetchMock.mock.calls.map(call => JSON.parse(String(call[1]?.body)).model)).toEqual([
+      'nvidia/parakeet-tdt-0.6b-v3',
+      'nvidia/parakeet-tdt-0.6b-v3',
+      'openai/whisper-large-v3-turbo',
+    ]);
+    expect(result.text).toBe('Fallback riuscito.');
   });
 });

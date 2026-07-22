@@ -38,10 +38,10 @@ const buildStableSourceHash = (file: FileData): string => {
 const slugify = (value: string): string =>
   value
     .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
+    .replaceAll(/[^a-z0-9]+/g, '-')
+    .replaceAll(/^-|-$/g, '')
     .slice(0, 48) || 'section';
 
 const getSourceKind = (file: FileData): CourseSourceDescriptor['kind'] => {
@@ -139,10 +139,10 @@ export const parseMarkdownOutline = (text: string, sourceId: string): SourceOutl
   const roots: SourceOutlineNode[] = [];
   const stack: SourceOutlineNode[] = [];
   for (const node of flatNodes) {
-    while (stack.length > 0 && stack[stack.length - 1].level >= node.level) {
+    while (stack.length > 0 && (stack.at(-1) as SourceOutlineNode).level >= node.level) {
       stack.pop();
     }
-    const parent = stack[stack.length - 1];
+    const parent = stack.at(-1);
     (parent?.children || roots).push(node);
     stack.push(node);
   }

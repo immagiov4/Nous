@@ -42,6 +42,8 @@ import type {
   ProjectCoverWriteOptions,
   ProjectExportData,
   ProjectId,
+  ProjectImportDiagnostic,
+  ProjectImportDiagnosticInput,
   ProjectPatch,
   ProjectSaveOptions,
   ProjectSaveResult,
@@ -63,6 +65,19 @@ type LibraryItem = SiblingItem;
 interface ProjectMetaRow {
   meta: SavedProjectMeta;
   revision: number;
+}
+
+interface ProjectImportDiagnosticRow {
+  code: string;
+  correlation_id: string;
+  created_at: Date | string;
+  file_bytes: number | string | null;
+  id: number | string;
+  limit_bytes: number | string | null;
+  project_count: number | null;
+  project_index: number | null;
+  stage: string;
+  user_id: string;
 }
 
 interface ProjectSnapshotRow {
@@ -177,6 +192,14 @@ const SOURCE_UPLOAD_MAX_CONCURRENCY = 4;
 const SOURCE_UPLOAD_MAX_IN_FLIGHT_BYTES = 64_000_000;
 const SOURCE_ENTRY_PATH_SEGMENT = '/entries/';
 const SOURCE_ORIGINAL_PATH_SUFFIX = '/original';
+const PROJECT_IMPORT_DIAGNOSTIC_RETENTION_DAYS = 30;
+const PROJECT_IMPORT_DIAGNOSTIC_LIST_LIMIT = 200;
+
+const compareLockKeysByCodeUnit = (left: string, right: string): number => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
 
 const stripProjectRevision = (meta: SavedProjectMeta): Omit<SavedProjectMeta, 'revision'> => {
   const { revision: _revision, ...storedMeta } = meta;
@@ -238,6 +261,71 @@ export class PostgresProjectStore implements ProjectStore {
     return rows
       .map(mergeProjectMetaRow)
       .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
+  }
+
+  async listProjectImportDiagnostics(correlationId?: string): Promise<ProjectImportDiagnostic[]> {
+    await this.deleteExpiredProjectImportDiagnostics();
+    const rows = await this.sql<ProjectImportDiagnosticRow[]>`
+      select
+        id,
+        user_id,
+        correlation_id,
+        code,
+        stage,
+        file_bytes,
+        limit_bytes,
+        project_count,
+        project_index,
+        created_at
+      from public.project_import_diagnostics
+      where created_at >= now() - ${PROJECT_IMPORT_DIAGNOSTIC_RETENTION_DAYS} * interval '1 day'
+        and correlation_id = coalesce(${correlationId ?? null}::uuid, correlation_id)
+      order by created_at desc, id desc
+      limit ${PROJECT_IMPORT_DIAGNOSTIC_LIST_LIMIT}
+    `;
+
+    return rows.map(row => ({
+      id: Number(row.id),
+      userId: row.user_id,
+      correlationId: row.correlation_id,
+      code: row.code,
+      stage: row.stage,
+      ...(row.file_bytes === null ? {} : { fileBytes: Number(row.file_bytes) }),
+      ...(row.limit_bytes === null ? {} : { limitBytes: Number(row.limit_bytes) }),
+      ...(row.project_count === null ? {} : { projectCount: row.project_count }),
+      ...(row.project_index === null ? {} : { projectIndex: row.project_index }),
+      createdAt: new Date(row.created_at).toISOString(),
+    }));
+  }
+
+  async recordProjectImportDiagnostic(
+    userId: string,
+    diagnostic: ProjectImportDiagnosticInput
+  ): Promise<void> {
+    await this.sql.begin(async sql => {
+      await this.deleteExpiredProjectImportDiagnostics(sql);
+      await sql`
+        insert into public.project_import_diagnostics (
+          user_id,
+          correlation_id,
+          code,
+          stage,
+          file_bytes,
+          limit_bytes,
+          project_count,
+          project_index
+        ) values (
+          ${userId},
+          ${diagnostic.correlationId},
+          ${diagnostic.code},
+          ${diagnostic.stage},
+          ${diagnostic.fileBytes ?? null},
+          ${diagnostic.limitBytes ?? null},
+          ${diagnostic.projectCount ?? null},
+          ${diagnostic.projectIndex ?? null}
+        )
+      `;
+    });
   }
 
   async loadProject(userId: string, id: ProjectId): Promise<ProjectSnapshot | null> {
@@ -544,6 +632,7 @@ export class PostgresProjectStore implements ProjectStore {
             ? await this.canonicalizeDetachedProjectSource(sql, userId, snapshot)
             : snapshot;
         const meta = buildProjectMeta(snapshotToPersist, existingMeta);
+        const serializedMeta = sql.json(toPostgresJson(stripProjectRevision(meta)));
         const { documentIndex, snapshotWithoutDocumentIndex } = splitSnapshot(snapshotToPersist);
         let revisionRows: ProjectMetaRow[];
         if (existingMeta) {
@@ -551,7 +640,12 @@ export class PostgresProjectStore implements ProjectStore {
             expectedRevision === undefined
               ? await sql<ProjectMetaRow[]>`
                 update public.projects
-                set meta = ${sql.json(toPostgresJson(stripProjectRevision(meta)))},
+                set meta = jsonb_set(
+                      ${serializedMeta},
+                      '{isFavorite}',
+                      coalesce(meta -> 'isFavorite', 'false'::jsonb),
+                      true
+                    ),
                     updated_at = ${meta.updatedAt},
                     last_opened_at = ${meta.lastOpenedAt},
                     server_updated_at = now(),
@@ -561,7 +655,12 @@ export class PostgresProjectStore implements ProjectStore {
               `
               : await sql<ProjectMetaRow[]>`
                 update public.projects
-                set meta = ${sql.json(toPostgresJson(stripProjectRevision(meta)))},
+                set meta = jsonb_set(
+                      ${serializedMeta},
+                      '{isFavorite}',
+                      coalesce(meta -> 'isFavorite', 'false'::jsonb),
+                      true
+                    ),
                     updated_at = ${meta.updatedAt},
                     last_opened_at = ${meta.lastOpenedAt},
                     server_updated_at = now(),
@@ -614,7 +713,7 @@ export class PostgresProjectStore implements ProjectStore {
           server_updated_at = excluded.server_updated_at
       `;
         return {
-          meta: { ...meta, revision: Number(revisionRows[0]?.revision) },
+          meta: mergeProjectMetaRow(revisionRows[0]),
           replacedObjectPaths: sourceObjectPaths,
           snapshot: snapshotToPersist,
         };
@@ -672,6 +771,25 @@ export class PostgresProjectStore implements ProjectStore {
 
     const snapshot = applyProjectPatch(existing, patch, patch.updatedAt || timestampIso());
     return (await this.saveProject(userId, snapshot, options)).meta;
+  }
+
+  async setProjectFavorite(
+    userId: string,
+    id: ProjectId,
+    isFavorite: boolean
+  ): Promise<SavedProjectMeta> {
+    const rows = await this.sql<ProjectMetaRow[]>`
+      update public.projects
+      set meta = jsonb_set(meta, '{isFavorite}', ${this.sql.json(isFavorite)}, true),
+          server_updated_at = now(),
+          revision = revision + 1
+      where user_id = ${userId} and id = ${id}
+      returning meta, revision
+    `;
+    if (!rows[0]) {
+      throw new Error(`Progetto ${id} non trovato per aggiornamento preferito.`);
+    }
+    return mergeProjectMetaRow(rows[0]);
   }
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {
@@ -756,20 +874,15 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   async touchProject(userId: string, id: ProjectId): Promise<void> {
-    const existingMeta = await this.readProjectMeta(userId, id);
-    if (!existingMeta) {
-      return;
-    }
-
     const touchedAt = timestampIso();
-    const touchedMeta = {
-      ...existingMeta,
-      updatedAt: touchedAt,
-      lastOpenedAt: touchedAt,
-    };
     await this.sql`
       update public.projects
-      set meta = ${this.sql.json(toPostgresJson(stripProjectRevision(touchedMeta)))},
+      set meta = jsonb_set(
+            jsonb_set(meta, '{updatedAt}', to_jsonb(${touchedAt}::text), true),
+            '{lastOpenedAt}',
+            to_jsonb(${touchedAt}::text),
+            true
+          ),
           updated_at = ${touchedAt},
           last_opened_at = ${touchedAt},
           server_updated_at = now()
@@ -1593,7 +1706,7 @@ export class PostgresProjectStore implements ProjectStore {
     let uploadFailure: unknown;
     const sourceLockKeys = [
       ...new Set(prepared.objects.map(object => this.getProjectSourceLockKey(object.path))),
-    ].sort();
+    ].sort(compareLockKeysByCodeUnit);
     await this.lockProjectSourceObjectPathsSession(sql, sourceLockKeys);
     lockedObjectPaths.push(...sourceLockKeys);
 
@@ -1840,7 +1953,7 @@ export class PostgresProjectStore implements ProjectStore {
   ): Promise<void> {
     const orderedLockKeys = [
       ...new Set(objectPaths.map(objectPath => this.getProjectSourceLockKey(objectPath))),
-    ].sort();
+    ].sort(compareLockKeysByCodeUnit);
     if (orderedLockKeys.length === 0) {
       return;
     }
@@ -1953,13 +2066,27 @@ export class PostgresProjectStore implements ProjectStore {
     return rows[0] ? mergeProjectMetaRow(rows[0]) : null;
   }
 
+  private async deleteExpiredProjectImportDiagnostics(
+    sql: PostgresMutationSql = this.sql
+  ): Promise<void> {
+    await sql`
+      delete from public.project_import_diagnostics
+      where created_at < now() - ${PROJECT_IMPORT_DIAGNOSTIC_RETENTION_DAYS} * interval '1 day'
+    `;
+  }
+
   private async writeProjectMeta(
     userId: string,
     meta: SavedProjectMeta
   ): Promise<SavedProjectMeta> {
     const rows = await this.sql<ProjectMetaRow[]>`
       update public.projects
-      set meta = ${this.sql.json(toPostgresJson(stripProjectRevision(meta)))},
+      set meta = jsonb_set(
+            ${this.sql.json(toPostgresJson(stripProjectRevision(meta)))},
+            '{isFavorite}',
+            coalesce(meta -> 'isFavorite', 'false'::jsonb),
+            true
+          ),
           updated_at = ${meta.updatedAt},
           last_opened_at = ${meta.lastOpenedAt},
           server_updated_at = now(),

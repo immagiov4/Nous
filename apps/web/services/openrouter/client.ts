@@ -1,4 +1,5 @@
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { getBackendUrl, MAX_OUTPUT_TOKENS, resolveOpenRouterModel } from './config.ts';
 import {
   measureUtf8Bytes,
@@ -23,6 +24,13 @@ interface HttpError extends Error {
 
 const OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH = '/api/openrouter/chat/completions';
 const ARTIFACT_SETTINGS_PATH = '/api/openrouter/artifact-settings';
+let forensicRequestSequence = 0;
+
+const shouldTraceModelCall = (options: ChatCompletionOptions): boolean =>
+  import.meta.env.DEV && options.modelSlot !== 'progress';
+
+const nextForensicRequestId = (options: ChatCompletionOptions): string =>
+  `${options.modelSlot}-${++forensicRequestSequence}`;
 
 const getOpenRouterProxyUrl = (): string =>
   `${getBackendUrl()}${OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH}`;
@@ -247,8 +255,27 @@ const createHttpError = async (response: Response): Promise<HttpError> => {
   return error;
 };
 
+const traceResolvedAiRoute = (
+  response: Response,
+  options: ChatCompletionOptions,
+  forensicRequestId?: string
+): void => {
+  if (!forensicRequestId) {
+    return;
+  }
+  pushNousDebugTrace('model-forensics:routing', {
+    forensicRequestId,
+    model: response.headers.get('X-Nous-Resolved-AI-Model'),
+    modelSlot: options.modelSlot,
+    provider: response.headers.get('X-Nous-Resolved-AI-Provider'),
+    reasoningEffort: response.headers.get('X-Nous-Resolved-AI-Reasoning-Effort'),
+    serviceTier: response.headers.get('X-Nous-Resolved-AI-Service-Tier'),
+  });
+};
+
 export const callOpenRouterRaw = async (
-  options: ChatCompletionOptions
+  options: ChatCompletionOptions,
+  forensicRequestId?: string
 ): Promise<OpenRouterResponse> => {
   const selectedModel = resolveOpenRouterModel(
     options.model,
@@ -272,6 +299,7 @@ export const callOpenRouterRaw = async (
     body,
     signal: options.signal,
   });
+  traceResolvedAiRoute(response, options, forensicRequestId);
 
   if (!response.ok) {
     throw await createHttpError(response);
@@ -280,7 +308,10 @@ export const callOpenRouterRaw = async (
   return (await response.json()) as OpenRouterResponse;
 };
 
-const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<string> => {
+const callOpenRouterStreaming = async (
+  options: ChatCompletionOptions,
+  forensicRequestId?: string
+): Promise<string> => {
   const selectedModel = resolveOpenRouterModel(
     options.model,
     options.modelSlot,
@@ -305,6 +336,7 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     body,
     signal: options.signal,
   });
+  traceResolvedAiRoute(response, options, forensicRequestId);
 
   if (!response.ok) {
     throw await createHttpError(response);
@@ -439,23 +471,76 @@ const callOpenRouterStreaming = async (options: ChatCompletionOptions): Promise<
     throw error;
   }
 
-  return appendUrlCitationAppendix(content, urlCitations, options.includeUrlCitationsInText);
-};
-
-export const callOpenRouter = async (options: ChatCompletionOptions): Promise<string> => {
-  if (options.onReasoningUpdate) {
-    return callOpenRouterStreaming(options);
-  }
-
-  const data = await callOpenRouterRaw(options);
-  logWebSearchUsage(options, data.usage);
-  const urlCitations = new Map<string, NormalizedUrlCitation>();
-  collectUrlCitations(urlCitations, data.choices?.[0]?.message?.annotations);
-  return appendUrlCitationAppendix(
-    extractTextContent(data.choices?.[0]?.message?.content),
+  const finalContent = appendUrlCitationAppendix(
+    content,
     urlCitations,
     options.includeUrlCitationsInText
   );
+  if (forensicRequestId) {
+    pushNousDebugTrace('model-forensics:response', {
+      content: finalContent,
+      forensicRequestId,
+      modelSlot: options.modelSlot,
+      reasoning,
+      transport: 'stream',
+    });
+  }
+  return finalContent;
+};
+
+export const callOpenRouter = async (options: ChatCompletionOptions): Promise<string> => {
+  const traceModelCall = shouldTraceModelCall(options);
+  const forensicRequestId = traceModelCall ? nextForensicRequestId(options) : undefined;
+  if (forensicRequestId) {
+    pushNousDebugTrace('model-forensics:request', {
+      forensicRequestId,
+      maxTokens: options.max_tokens ?? MAX_OUTPUT_TOKENS,
+      messages: options.messages,
+      modelSlot: options.modelSlot,
+      reasoning: options.reasoning,
+      responseFormat: options.response_format,
+      temperature: options.temperature ?? 0.7,
+      transforms: options.transforms,
+    });
+  }
+
+  try {
+    if (options.onReasoningUpdate) {
+      return await callOpenRouterStreaming(options, forensicRequestId);
+    }
+
+    const data = await callOpenRouterRaw(options, forensicRequestId);
+    logWebSearchUsage(options, data.usage);
+    const urlCitations = new Map<string, NormalizedUrlCitation>();
+    collectUrlCitations(urlCitations, data.choices?.[0]?.message?.annotations);
+    const content = appendUrlCitationAppendix(
+      extractTextContent(data.choices?.[0]?.message?.content),
+      urlCitations,
+      options.includeUrlCitationsInText
+    );
+    if (forensicRequestId) {
+      pushNousDebugTrace('model-forensics:response', {
+        content,
+        forensicRequestId,
+        modelSlot: options.modelSlot,
+        reasoning: extractReasoningText(data.choices?.[0]?.message),
+        transport: 'json',
+      });
+    }
+    return content;
+  } catch (error) {
+    if (forensicRequestId) {
+      const httpError = error as HttpError;
+      pushNousDebugTrace('model-forensics:error', {
+        details: httpError.details,
+        forensicRequestId,
+        message: httpError.message,
+        modelSlot: options.modelSlot,
+        status: httpError.status,
+      });
+    }
+    throw error;
+  }
 };
 
 const MAX_LOCAL_TOOL_ROUNDS = 12;

@@ -30,7 +30,7 @@ interface AssessmentDocumentContext {
 const buildAssessmentExcerpt = (text: string): string => {
   const paragraphs = text
     .split(/\n{2,}/)
-    .map(part => part.replace(/\s+/g, ' ').trim())
+    .map(part => part.replaceAll(/\s+/g, ' ').trim())
     .filter(Boolean);
 
   const picked: string[] = [];

@@ -86,9 +86,9 @@ import {
 export type { DemoStage } from './landingDemoTimeline.ts';
 
 export interface LandingProductVideoFrameProps extends Record<string, unknown> {
-  isCompact: boolean;
-  locale?: 'en' | 'it';
-  stage: DemoStage;
+  readonly isCompact: boolean;
+  readonly locale?: 'en' | 'it';
+  readonly stage: DemoStage;
 }
 
 export const DEMO_MOBILE_WIDTH = 390;
@@ -970,7 +970,7 @@ export const LandingProductVideoFrame = ({
   const frame = useCurrentFrame();
   const remotionScale = useCurrentScale();
   useLayoutEffect(() => {
-    window.scrollTo(0, 0);
+    globalThis.window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
   });
@@ -1787,6 +1787,7 @@ export const LandingProductVideoFrame = ({
       isContextLoading: false,
       isDarkMode,
       isMobileViewport,
+      lessonCreationBlockReason: null,
       currentLessonArtifactPayloads,
       onAskContextQuestion: () => {},
       onAttachArtifactToAnnotation: () => {},

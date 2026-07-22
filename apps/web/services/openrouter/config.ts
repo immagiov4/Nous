@@ -78,11 +78,11 @@ const DEFAULT_BACKEND_PORT = normalizePort(
 const DEFAULT_BACKEND_URL = `http://${DEFAULT_BACKEND_HOST}:${DEFAULT_BACKEND_PORT}`;
 
 const getSameHostBackendUrl = (): string | null => {
-  if (typeof window === 'undefined') {
+  if (typeof globalThis.window === 'undefined') {
     return null;
   }
 
-  const { hostname, protocol } = window.location;
+  const { hostname, protocol } = globalThis.window.location;
   if (!hostname || protocol === 'file:') {
     return null;
   }

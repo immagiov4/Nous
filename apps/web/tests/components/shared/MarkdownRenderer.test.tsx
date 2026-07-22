@@ -2,6 +2,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import MarkdownRenderer from '../../../components/shared/MarkdownRenderer.tsx';
+import { resolveSectionAnnotationHighlightEntries } from '../../../utils/learning/sectionAnnotationHighlights.ts';
 
 const originalRangeGetClientRects = Range.prototype.getClientRects;
 
@@ -33,8 +34,8 @@ describe('MarkdownRenderer', () => {
       anchor: {
         kind: 'selection' as const,
         selector: {
-          end: 27,
-          exact: 'Prima grassetto e finale.',
+          end: 37,
+          exact: 'Prima grassetto, poi codice e finale.',
           prefix: '',
           start: 0,
           suffix: '',
@@ -48,7 +49,7 @@ describe('MarkdownRenderer', () => {
 
     const { container, rerender, unmount } = render(
       <MarkdownRenderer
-        content={'Prima **grassetto** e finale.'}
+        content={'Prima **grassetto**, poi `codice` e finale.'}
         sectionAnnotations={[annotation]}
       />
     );
@@ -63,16 +64,17 @@ describe('MarkdownRenderer', () => {
         .map(range => range.toString())
         .join('')
     ).toBe(annotation.anchor.selector.exact);
+    expect(annotationHighlight).toHaveLength(1);
     expect(noteHighlight?.size).toBe(annotationHighlight?.size);
     const highlightCaps = container.querySelectorAll('.nous-annotation-highlight-cap');
-    expect(highlightCaps.length).toBe((annotationHighlight?.size || 0) * 2);
+    expect(highlightCaps).toHaveLength(2);
     expect(Array.from(highlightCaps).every(cap => (cap as HTMLElement).style.width === '3px')).toBe(
       true
     );
 
     rerender(
       <MarkdownRenderer
-        content={'Prima **grassetto** e finale.'}
+        content={'Prima **grassetto**, poi `codice` e finale.'}
         sectionAnnotations={[{ ...annotation, note: 'Nota aggiornata' }]}
       />
     );
@@ -100,6 +102,33 @@ describe('MarkdownRenderer', () => {
       'href',
       'https://example.com/percorso_(test)'
     );
+  });
+
+  test('splits native highlight ranges around DOM nodes excluded from speech', () => {
+    const article = document.createElement('article');
+    article.innerHTML = 'Prima<span data-nous-speech="ignore">contenuto ignorato</span>finale.';
+    const entries = resolveSectionAnnotationHighlightEntries(article, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: 12,
+            exact: 'Primafinale.',
+            prefix: '',
+            start: 0,
+            suffix: '',
+          },
+        },
+        createdAt: '2026-07-22T10:00:00.000Z',
+        id: 'annotation-ignored-gap',
+        note: '',
+        updatedAt: '2026-07-22T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.ranges).toHaveLength(2);
+    expect(entries[0]?.ranges.map(range => range.toString())).toEqual(['Prima', 'finale.']);
   });
 
   test('softens annotation edges with minimal horizontal spacing', () => {

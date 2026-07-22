@@ -1,3 +1,9 @@
+import type { LessonContentBlock } from '../../../types.ts';
+import {
+  hasValidTypedQuizBlocks,
+  legacyMarkdownToLessonContentBlocks,
+  materializeGeneratedVisualBlocks,
+} from '../../../utils/reader/lessonContentBlocks.ts';
 import { pushNousDebugTrace } from '../../core/debugTrace.ts';
 import { MEDIUM_REASONING_CONFIG } from '../config.ts';
 import { buildLessonChunkContext } from '../documentIndex/index.ts';
@@ -145,6 +151,12 @@ export interface GenerateSectionContentInput {
   supplementalSourceContext?: string;
 }
 
+const assertValidInlineQuizPair = (blocks: LessonContentBlock[], quiz: QuizQuestion[]): void => {
+  if (!hasValidTypedQuizBlocks(blocks, { exact: quiz.length })) {
+    throw new Error('Generated lesson has an invalid typed inline quiz contract.');
+  }
+};
+
 export const generateSectionContent = async ({
   documentIndex,
   file,
@@ -159,6 +171,7 @@ export const generateSectionContent = async ({
   supplementalSourceContext,
 }: GenerateSectionContentInput): Promise<{
   content: string;
+  contentBlocks?: LessonContentBlock[];
   generatedVisuals: LessonGeneratedVisual[];
   learningAids: LessonLearningAid[];
   quiz: QuizQuestion[];
@@ -214,7 +227,7 @@ REGOLE FONDAMENTALI:
 2. Incorpora e spiega i contenuti del documento in modo discorsivo ma tecnico, con esempi concreti, formule (LaTeX $$...$$) e codice solo quando aiutano davvero la comprensione. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'il testo afferma'): la lezione deve funzionare come testo autonomo, senza presupporre che il lettore abbia il documento aperto. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X e Y'): le formulazioni per contrasto ('X non e soltanto Y') sono accettabili solo dopo che il concetto e gia stato definito. Tratta tabelle, blocchi comparativi, matrici, didascalie, legende e label testuali di grafici come parte del contenuto tecnico della lezione, non come rumore.
 3. Organizza il testo con heading chiari, ma usa solo le sezioni che servono davvero a questa lezione. Non creare heading riempitivi.
 4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione in Introduzione, Concetti Fondamentali e Analisi Approfondita con semplici parafrasi.
-5. Non ripetere il titolo della lezione dentro \`contentMarkdown\` e non duplicare heading identici o quasi identici.
+5. Non ripetere il titolo della lezione nei blocchi markdown e non duplicare heading identici o quasi identici.
 6. Evita metadiscorso e enfasi ridondante: non usare continuamente formule come "questo e importante", "in pratica", "il punto centrale e", "qui si capisce", salvo rarissimi casi.
 ${LESSON_SHARED_WRITING_RULES}${imageRules}
 24. ${continuityRule}
@@ -228,27 +241,29 @@ ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 30. Non generare sempre domande: alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
 31. Le pause del \`quiz\` NON devono mai limitarsi a chiedere la ripetizione letterale di una definizione, di una formula o di una frase appena letta.
 32. Ogni pausa deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso, sequenziamento, micro-sintesi oppure previsione di un effetto/conseguenza.
-33. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
+33. Le quattro opzioni devono essere testualmente distinte. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
 34. **POSIZIONA OGNI PAUSA DOPO LE INFORMAZIONI NECESSARIE:** ogni pausa attiva deve arrivare DOPO che il contenuto necessario per rispondere e gia stato spiegato nel testo della lezione. In particolare, se la pausa e di tipo confronto (compare-contrast), non inserirla subito dopo il primo concetto: deve essere posizionata DOPO che ENTRAMBI i concetti / elementi da confrontare sono stati presentati e spiegati. Lo stesso vale per micro-sintesi, classificazione e previsione: il lettore deve avere tutti gli elementi per rispondere.
-35. Le stringhe di \`quiz.question\` e \`quiz.options\` devono essere testo normale: non racchiudere MAI l'intera consegna o l'intera opzione in backticks, inline code o code fence. I backticks sono ammessi solo per un singolo termine, simbolo o identificatore interno alla frase quando servono davvero.
-35a. Per ogni pausa, \`anchorExcerpt\` deve copiare un breve estratto ESATTO dell'ultimo paragrafo che lo studente deve leggere prima della pausa. Questo decide il punto editoriale preciso: non anticipare la pausa e non affidarti al solo heading.
+35. Le stringhe \`question\` e \`options\` dei blocchi inline-quiz devono essere testo normale: non racchiudere MAI l'intera consegna o opzione in backticks, inline code o code fence.
+35a. La posizione di ogni pausa fa parte della stesura: inserisci un blocco \`inline-quiz\` che contiene direttamente la domanda completa subito DOPO il blocco markdown che fornisce le informazioni necessarie. Non restituire un array quiz separato.
+35b. Ogni pausa deve essere un blocco autosufficiente e deve seguire un blocco markdown. Non raggruppare le pause in fondo e non descrivere posizioni tramite heading o estratti.
 ${imagePlacementInstruction}
 37. Non racchiudere il JSON in markdown fences e non aggiungere spiegazioni prima o dopo il JSON.
 38. Quando elenchi 2 o piu elementi fratelli (tipi, gruppi, fasi, strutture, definizioni), usa una lista Markdown vera (\`-\` oppure \`1.\`).
 39. Non scrivere pseudo-liste come paragrafi consecutivi del tipo "Etichetta: ..." senza bullet. Se non e una lista, allora fondi tutto in paragrafi completi.
 40. Per i blocchi di codice, usa Markdown standard: la riga di apertura deve essere esattamente \`\`\`\` oppure \`\`\`\`lang con solo il nome del linguaggio (es. \`\`\`\`cpp). Non aggiungere commenti o testo extra sulla riga del fence.
 41. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, usa una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
-42. NON inserire markdown image syntax dentro \`contentMarkdown\` (niente \`![...](...)\` e niente tag \`<img>\`): le immagini vengono gestite SOLO tramite \`imagePlacements\`.
-43. NON inserire una sezione quiz, domande o verifica dentro \`contentMarkdown\`: il quiz deve comparire SOLO nel campo strutturato \`quiz\`.
+42. NON inserire markdown image syntax nei blocchi markdown: le immagini vengono gestite SOLO tramite \`imagePlacements\`.
+43. NON inserire sezioni quiz o marker strutturali nei blocchi markdown: domande e opzioni appartengono ai blocchi \`inline-quiz\`.
+43a. Se il contesto include transcript YouTube timestampati, usa un blocco \`youtube-clips\` nel punto editoriale esatto. Ogni clip deve includere indice, tempi e un titolo breve specifico del momento mostrato.
 44. Se inserisci formule, assicurati che il Markdown sia compatibile con KaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe isolate con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non aprire una formula con un delimitatore e chiuderla con un altro, e chiudi sempre correttamente graffe e delimitatori.
-45. Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} punti in cui un esempio visuale generato migliorerebbe davvero la comprensione. Inserisci direttamente nel testo il tag \`{{VISUAL_SLOT:slot-001}}\` nel punto editoriale esatto e aggiungi il piano corrispondente in \`visualPlanning.plans\`. Il tag e la posizione: non fornire heading o estratti da cercare dopo.
-46. Ogni piano deve avere esattamente un tag e ogni tag esattamente un piano. Usa identificatori sequenziali. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE} Per HTML interattivo, la grafica deve essere prodotta da regole o algoritmi, non disegnata a mano.
+45. Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} punti in cui un esempio visuale generato migliorerebbe davvero la comprensione. Inserisci un blocco \`generated-visual\` con \`slotId\` nel punto editoriale esatto e aggiungi il piano corrispondente in \`visualPlanning.plans\`.
+46. Ogni piano deve avere esattamente un blocco generated-visual con lo stesso slotId e viceversa. Usa identificatori sequenziali. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE} Per HTML interattivo, la grafica deve essere prodotta da regole o algoritmi, non disegnata a mano.
 ${candidateImagesPayload}
 Rispondi SOLO con un oggetto JSON valido con questa struttura:
 {
-  "contentMarkdown": "Lezione completa in markdown",
-  "quiz": [
-    { "anchorExcerpt": "estratto esatto del paragrafo precedente", "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 }
+  "contentBlocks": [
+    { "type": "markdown", "markdown": "## Sezione\\n\\nTesto della lezione." },
+    { "type": "inline-quiz", "quiz": { "exerciseType": "application-card", "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0 } }
   ],
   "imagePlacements": [
     { "assetId": "pdf-img-001", "alt": "Descrizione breve", "caption": "Caption opzionale", "anchorHeading": "Analisi Approfondita" }
@@ -277,7 +292,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       );
       if (relevantPdfPages.length > 0) {
         onStatusUpdate?.(
-          `Analisi immagini... pp. ${relevantPdfPages[0]}-${relevantPdfPages[relevantPdfPages.length - 1]}`
+          `Analisi immagini... pp. ${relevantPdfPages[0]}-${relevantPdfPages.at(-1)}`
         );
       }
 
@@ -365,7 +380,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     const imageRules = `
 18. Usa un numero di immagini proporzionato alla struttura della lezione. Ogni immagine deve servire una spiegazione vicina: non usarla come decorazione, intermezzo visivo o grafico generico se il testo non la interpreta esplicitamente.
 19. Puoi referenziare SOLO questi assetId. Se nessuna immagine e chiaramente pertinente, restituisci un array vuoto.
-20. Se usi un'immagine, \`anchorHeading\` deve corrispondere ESATTAMENTE a un heading presente in \`contentMarkdown\`, senza i simboli #. Scegli il heading della sezione in cui il primo blocco di testo spiega proprio cio che l'immagine mostra; se il testo vicino non la usa, non inserirla li.
+20. Se usi un'immagine, \`anchorHeading\` deve corrispondere ESATTAMENTE a un heading presente in un blocco markdown, senza i simboli #.
 21. Se il materiale parla chiaramente di anatomia, strutture o meccanica visivamente spiegabili e tra le candidate c'e una figura pertinente, preferisci includerne almeno una.
 22. Usa solo immagini visivamente chiare, autosufficienti e distinguibili. Escludi immagini sfocate, parziali, ritagliate, poco leggibili, decorative, badge, icone, bordi, wrapper di sezione, riquadri ornamentali o frammenti di figura.
 23. L'immagine originale e prioritaria quando e chiara, pertinente e specifica della fonte: schermate di un programma, oggetti o casi propri del documento, diagrammi complessi con label specifiche e relazioni non ricreabili vanno conservati anche se non perfetti.
@@ -376,7 +391,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       sourceContext: `\nESTRATTI RILEVANTI DAL PDF PER QUESTA LEZIONE:\n${lessonSourceContext || pdfSession.extractedText.slice(0, 12000)}\n`,
       imageRules,
       candidateImagesPayload: `45. Nei dati immagine, \`caption\` e una descrizione sintetica generata a partire dalla figura. Usa \`caption\`, \`visibleLabel\`, metadata dimensionali e il contesto della lezione per decidere se l'immagine e pertinente: non inventare dettagli non esplicitati dalla descrizione. La caption finale deve essere coerente con il paragrafo vicino, non una descrizione isolata.\n\nIMMAGINI CANDIDATE:\n${JSON.stringify(candidateImagePayload, null, 2)}`,
-      imagePlacementInstruction: `36. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.\n37. NON citare MAI stringhe tecniche come \`pdf-img-004\` dentro \`contentMarkdown\`.\n38. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "la figura mostra". Il paragrafo vicino deve dire al lettore che cosa guardare nell'immagine e perche e utile alla spiegazione.`,
+      imagePlacementInstruction: `36. \`imagePlacements\` deve contenere solo assetId presenti nella lista fornita oppure essere un array vuoto.\n37. NON citare MAI stringhe tecniche come \`pdf-img-004\` nei blocchi markdown.\n38. Se vuoi richiamare un'immagine nel testo, usa solo il suo \`visibleLabel\`, la sua caption oppure formule naturali come "la figura mostra". Il paragrafo vicino deve dire al lettore che cosa guardare nell'immagine e perche e utile alla spiegazione.`,
     });
 
     onStatusUpdate?.('Strutturazione della lezione...', 'drafting');
@@ -406,18 +421,21 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
     onStatusUpdate?.('Organizzazione quiz...', 'quiz');
     const structuredQuiz = parseQuizPayload(parsed.quiz);
-    const repairedContentMarkdown = await repairLessonMarkdown(
-      parsed.contentMarkdown || '',
-      sectionTitle,
-      sectionDescription,
-      lessonSourceContext ||
-        clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS),
-      generationNotes,
-      onReasoningUpdate
-    ).catch(error => {
-      console.warn('[Nous][Lesson] Markdown repair failed, keeping original content.', error);
-      return parsed.contentMarkdown || '';
-    });
+    const originalContentMarkdown = (parsed.contentMarkdown || '').trim();
+    const repairedContentMarkdown = parsed.contentBlocks?.length
+      ? originalContentMarkdown
+      : await repairLessonMarkdown(
+          parsed.contentMarkdown || '',
+          sectionTitle,
+          sectionDescription,
+          lessonSourceContext ||
+            clipPdfSourceText(pdfSession.extractedText, MAX_LESSON_REPAIR_SOURCE_CHARS),
+          generationNotes,
+          onReasoningUpdate
+        ).catch(error => {
+          console.warn('[Nous][Lesson] Markdown repair failed, keeping original content.', error);
+          return parsed.contentMarkdown || '';
+        });
     traceLessonMarkdownStage('repaired', sectionTitle, repairedContentMarkdown || '');
     const targetQuizCount = estimateTargetQuizCount(repairedContentMarkdown);
     const draftQuiz = normalizeQuizLength(structuredQuiz, targetQuizCount);
@@ -464,6 +482,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       scopeRule,
       targetQuizCount,
       draft: {
+        contentBlocks: parsed.contentBlocks,
         contentMarkdown: repairedContentMarkdown,
         quiz: draftQuiz,
         imagePlacements: draftImageRefs,
@@ -481,8 +500,9 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         error
       );
       return {
-        contentMarkdown: repairedContentMarkdown,
-        quiz: draftQuiz,
+        contentBlocks: parsed.contentBlocks,
+        contentMarkdown: originalContentMarkdown,
+        quiz: structuredQuiz,
         imagePlacements: draftImageRefs,
         visualPlanning: parsed.visualPlanning ?? {
           plans: [],
@@ -551,12 +571,22 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         sectionTitle,
       }),
     ]);
+    const verifiedBlocks =
+      verifiedDraft.contentBlocks ??
+      legacyMarkdownToLessonContentBlocks(visualResult.content, verifiedDraft.quiz);
+    const contentBlocks = materializeGeneratedVisualBlocks(
+      verifiedBlocks,
+      verifiedDraft.visualPlanning.plans,
+      visualResult.generatedVisuals
+    );
+    assertValidInlineQuizPair(contentBlocks, verifiedDraft.quiz);
 
     return {
       content: visualResult.content,
+      contentBlocks,
       generatedVisuals: visualResult.generatedVisuals,
       learningAids,
-      quiz: normalizeQuizLength(verifiedDraft.quiz, targetQuizCount),
+      quiz: verifiedDraft.quiz,
       visualPlanningDecision: visualResult.visualPlanningDecision,
       imageRefs,
       documentAssets: buildStoredPdfDocumentAssets(pdfSession, imageRefs),
@@ -604,17 +634,20 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   traceLessonMarkdownStage('raw', sectionTitle, parsed.contentMarkdown || '');
   onStatusUpdate?.('Organizzazione quiz...', 'quiz');
   const structuredQuiz = parseQuizPayload(parsed.quiz);
-  const repairedContentMarkdown = await repairLessonMarkdown(
-    parsed.contentMarkdown || '',
-    sectionTitle,
-    mappedSourceContext || sectionDescription,
-    sectionDescription,
-    generationNotes,
-    onReasoningUpdate
-  ).catch(error => {
-    console.warn('[Nous][Lesson] Markdown repair failed, keeping original content.', error);
-    return parsed.contentMarkdown || '';
-  });
+  const originalContentMarkdown = (parsed.contentMarkdown || '').trim();
+  const repairedContentMarkdown = parsed.contentBlocks?.length
+    ? originalContentMarkdown
+    : await repairLessonMarkdown(
+        parsed.contentMarkdown || '',
+        sectionTitle,
+        mappedSourceContext || sectionDescription,
+        sectionDescription,
+        generationNotes,
+        onReasoningUpdate
+      ).catch(error => {
+        console.warn('[Nous][Lesson] Markdown repair failed, keeping original content.', error);
+        return parsed.contentMarkdown || '';
+      });
   traceLessonMarkdownStage('repaired', sectionTitle, repairedContentMarkdown || '');
   const targetQuizCount = estimateTargetQuizCount(repairedContentMarkdown);
   const draftQuiz = normalizeQuizLength(structuredQuiz, targetQuizCount);
@@ -629,6 +662,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     scopeRule,
     targetQuizCount,
     draft: {
+      contentBlocks: parsed.contentBlocks,
       contentMarkdown: repairedContentMarkdown.trim(),
       quiz: draftQuiz,
       imagePlacements: [],
@@ -646,8 +680,9 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       error
     );
     return {
-      contentMarkdown: repairedContentMarkdown.trim(),
-      quiz: draftQuiz,
+      contentBlocks: parsed.contentBlocks,
+      contentMarkdown: originalContentMarkdown,
+      quiz: structuredQuiz,
       imagePlacements: [],
       visualPlanning: parsed.visualPlanning ?? {
         plans: [],
@@ -677,12 +712,22 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       sectionTitle,
     }),
   ]);
+  const verifiedBlocks =
+    verifiedDraft.contentBlocks ??
+    legacyMarkdownToLessonContentBlocks(visualResult.content, verifiedDraft.quiz);
+  const contentBlocks = materializeGeneratedVisualBlocks(
+    verifiedBlocks,
+    verifiedDraft.visualPlanning.plans,
+    visualResult.generatedVisuals
+  );
+  assertValidInlineQuizPair(contentBlocks, verifiedDraft.quiz);
 
   return {
     content: visualResult.content,
+    contentBlocks,
     generatedVisuals: visualResult.generatedVisuals,
     learningAids,
-    quiz: normalizeQuizLength(verifiedDraft.quiz, targetQuizCount),
+    quiz: verifiedDraft.quiz,
     visualPlanningDecision: visualResult.visualPlanningDecision,
     imageRefs: [],
     documentAssets: null,

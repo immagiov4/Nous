@@ -76,25 +76,26 @@ const findInlineLinkDestinationEnd = (value: string, openingParenthesisIndex: nu
   return -1;
 };
 
-export const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const escapeRegex = (value: string) =>
+  value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 
-export const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
+export const normalizeWhitespace = (value: string) => value.replaceAll(/\s+/g, ' ').trim();
 
 export const buildContextRegex = (value: string) =>
-  escapeRegex(normalizeWhitespace(value)).replace(/\s+/g, '\\s+');
+  escapeRegex(normalizeWhitespace(value)).replaceAll(/\s+/g, String.raw`\s+`);
 
 const normalizeLooseCharacter = (value: string): string =>
   value
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201C\u201D]/g, '"')
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[\u2018\u2019]/g, "'")
+    .replaceAll(/[\u201C\u201D]/g, '"')
     .toLowerCase();
 
 export const normalizeLooseText = (value: string): string =>
   normalizeLooseCharacter(value)
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/[^\p{L}\p{N}]+/gu, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim();
 
 export const buildVisibleProjection = (content: string): VisibleProjection => {
@@ -113,7 +114,8 @@ export const buildVisibleProjection = (content: string): VisibleProjection => {
     if (
       content.startsWith('{{PDF_IMAGE:', index) ||
       content.startsWith('{{VISUAL_EXAMPLE:', index) ||
-      content.startsWith('{{YOUTUBE_CLIP_SOURCE:', index)
+      content.startsWith('{{YOUTUBE_CLIP_SOURCE:', index) ||
+      content.startsWith('{{INLINE_QUIZ:', index)
     ) {
       const placeholderEnd = content.indexOf('}}', index);
       index = placeholderEnd === -1 ? content.length : placeholderEnd + 2;
@@ -242,14 +244,14 @@ export const buildLooseProjection = (content: string): LooseProjection => {
     }
 
     if (/\s/u.test(character)) {
-      if (characters[characters.length - 1] !== ' ') {
+      if (characters.at(-1) !== ' ') {
         characters.push(' ');
         sourceIndexes.push(visibleProjection.sourceIndexes[index]);
       }
       return;
     }
 
-    if (characters[characters.length - 1] !== ' ') {
+    if (characters.at(-1) !== ' ') {
       characters.push(' ');
       sourceIndexes.push(visibleProjection.sourceIndexes[index]);
     }
@@ -273,7 +275,7 @@ export const buildSourceLooseProjection = (content: string): LooseProjection => 
       return;
     }
 
-    if (characters[characters.length - 1] !== ' ') {
+    if (characters.at(-1) !== ' ') {
       characters.push(' ');
       sourceIndexes.push(index);
     }
@@ -289,7 +291,9 @@ export const resolveExactMatch = (
   text: string,
   selectedText: string,
   contextBefore?: string,
-  contextAfter?: string
+  contextAfter?: string,
+  requireContextMatch = false,
+  preferredStart?: number
 ): TextMatch | undefined => {
   const normalizedSelectionPattern = buildContextRegex(selectedText);
   const exactSelectionRegex = new RegExp(normalizedSelectionPattern, 'gu');
@@ -297,26 +301,34 @@ export const resolveExactMatch = (
   const normalizedAfter = normalizeWhitespace(contextAfter || '');
   const selectionMatches = [...text.matchAll(exactSelectionRegex)];
 
-  const match =
-    selectionMatches.find(candidate => {
-      const candidateIndex = candidate.index ?? 0;
-      const beforeSlice = normalizeWhitespace(
-        text.slice(Math.max(0, candidateIndex - 64), candidateIndex)
-      );
-      const afterSlice = normalizeWhitespace(
-        text.slice(candidateIndex + candidate[0].length, candidateIndex + candidate[0].length + 64)
-      );
+  const contextualMatches = selectionMatches.filter(candidate => {
+    const candidateIndex = candidate.index ?? 0;
+    const beforeSlice = normalizeWhitespace(
+      text.slice(Math.max(0, candidateIndex - 64), candidateIndex)
+    );
+    const afterSlice = normalizeWhitespace(
+      text.slice(candidateIndex + candidate[0].length, candidateIndex + candidate[0].length + 64)
+    );
 
-      const beforeOk =
-        !normalizedBefore ||
-        beforeSlice.endsWith(normalizedBefore) ||
-        normalizedBefore.endsWith(beforeSlice);
-      const afterOk =
-        !normalizedAfter ||
-        afterSlice.startsWith(normalizedAfter) ||
-        normalizedAfter.startsWith(afterSlice);
-      return beforeOk && afterOk;
-    }) || selectionMatches[0];
+    const beforeOk =
+      !normalizedBefore ||
+      beforeSlice.endsWith(normalizedBefore) ||
+      normalizedBefore.endsWith(beforeSlice);
+    const afterOk =
+      !normalizedAfter ||
+      afterSlice.startsWith(normalizedAfter) ||
+      normalizedAfter.startsWith(afterSlice);
+    return beforeOk && afterOk;
+  });
+  const eligibleMatches = requireContextMatch ? contextualMatches : selectionMatches;
+  const match =
+    preferredStart !== undefined
+      ? eligibleMatches.find(candidate => candidate.index === preferredStart)
+      : requireContextMatch
+        ? contextualMatches.length === 1
+          ? contextualMatches[0]
+          : undefined
+        : contextualMatches[0] || selectionMatches[0];
 
   if (!match) {
     return undefined;
@@ -560,7 +572,7 @@ const canBridgeInlineMarkdownGap = (
 
 const mergeInlineMarkdownRun = (content: string, segments: MarkdownRange[]): MarkdownRange[] => {
   const firstSegment = segments[0];
-  const lastSegment = segments[segments.length - 1];
+  const lastSegment = segments.at(-1) as MarkdownRange;
   const start = expandInlineMarkdownStart(content, firstSegment.start);
   const end = expandInlineMarkdownEnd(content, lastSegment.end);
   const balance: InlineMarkdownSyntaxBalance = {
@@ -599,9 +611,9 @@ const mergeInlineMarkdownSegments = (
   const runs: MarkdownRange[][] = [[segments[0]]];
 
   for (let index = 1; index < segments.length; index += 1) {
-    const currentRun = runs[runs.length - 1];
+    const currentRun = runs.at(-1) as MarkdownRange[];
     const currentSegment = segments[index];
-    const previousSegment = currentRun[currentRun.length - 1];
+    const previousSegment = currentRun.at(-1) as MarkdownRange;
 
     if (canBridgeInlineMarkdownGap(content, previousSegment, currentSegment, protectedRanges)) {
       currentRun.push(currentSegment);

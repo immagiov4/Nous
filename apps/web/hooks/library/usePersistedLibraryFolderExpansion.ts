@@ -31,12 +31,12 @@ const persistCollapsedFolderIds = (
   folderIds: readonly string[],
   expandedFolderIds: ReadonlySet<string>
 ) => {
-  if (typeof window === 'undefined') {
+  if (typeof globalThis.window === 'undefined') {
     return;
   }
 
   writeCollapsedLibraryFolderIds(
-    window.localStorage,
+    globalThis.localStorage,
     folderIds.filter(folderId => !expandedFolderIds.has(folderId))
   );
 };
@@ -48,11 +48,14 @@ export const usePersistedLibraryFolderExpansion = (tree: Pick<LibraryTree, 'fold
       return new Set<string>();
     }
 
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return new Set(folderIds);
     }
 
-    return buildExpandedFolderIds(folderIds, readCollapsedLibraryFolderIds(window.localStorage));
+    return buildExpandedFolderIds(
+      folderIds,
+      readCollapsedLibraryFolderIds(globalThis.localStorage)
+    );
   });
   const hasHydratedFromStorageRef = useRef(folderIds.length > 0);
   const previousFolderIdsRef = useRef<Set<string>>(new Set(folderIds));
@@ -64,9 +67,12 @@ export const usePersistedLibraryFolderExpansion = (tree: Pick<LibraryTree, 'fold
       if (!hasHydratedFromStorageRef.current && folderIds.length > 0) {
         hasHydratedFromStorageRef.current = true;
         const hydratedIds =
-          typeof window === 'undefined'
+          typeof globalThis.window === 'undefined'
             ? new Set(folderIds)
-            : buildExpandedFolderIds(folderIds, readCollapsedLibraryFolderIds(window.localStorage));
+            : buildExpandedFolderIds(
+                folderIds,
+                readCollapsedLibraryFolderIds(globalThis.localStorage)
+              );
 
         return areSetsEqual(currentIds, hydratedIds) ? currentIds : hydratedIds;
       }
@@ -85,7 +91,7 @@ export const usePersistedLibraryFolderExpansion = (tree: Pick<LibraryTree, 'fold
   }, [folderIds]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !hasHydratedFromStorageRef.current) {
+    if (typeof globalThis.window === 'undefined' || !hasHydratedFromStorageRef.current) {
       return;
     }
 

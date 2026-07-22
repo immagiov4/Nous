@@ -7,13 +7,13 @@ import GenerationProgress from './GenerationProgress.tsx';
 import ThinkingStream from './ThinkingStream.tsx';
 
 interface LoadingScreenProps {
-  displayMode?: 'embedded' | 'page';
-  elapsedSecondsOverride?: number;
-  isDarkMode?: boolean;
-  message: string;
-  progress?: GenerationProgressSnapshot;
-  reasoningText?: string;
-  subMessage?: string;
+  readonly displayMode?: 'embedded' | 'page';
+  readonly elapsedSecondsOverride?: number;
+  readonly isDarkMode?: boolean;
+  readonly message: string;
+  readonly progress?: GenerationProgressSnapshot;
+  readonly reasoningText?: string;
+  readonly subMessage?: string;
 }
 
 const LoadingScreen = ({
@@ -45,7 +45,7 @@ const LoadingScreen = ({
     body.style.overflow = 'hidden';
     html.style.overscrollBehavior = 'none';
     body.style.overscrollBehavior = 'none';
-    window.scrollTo(0, 0);
+    globalThis.window.scrollTo(0, 0);
     html.scrollTop = 0;
     body.scrollTop = 0;
 
@@ -62,12 +62,12 @@ const LoadingScreen = ({
       return;
     }
 
-    const intervalId = window.setInterval(() => {
+    const intervalId = globalThis.window.setInterval(() => {
       setElapsedSeconds(seconds => seconds + 1);
     }, 1000);
 
     return () => {
-      window.clearInterval(intervalId);
+      globalThis.window.clearInterval(intervalId);
     };
   }, [elapsedSecondsOverride, progress]);
 

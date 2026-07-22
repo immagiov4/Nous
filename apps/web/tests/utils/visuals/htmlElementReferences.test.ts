@@ -32,6 +32,17 @@ describe('findMissingStaticHtmlElementIds', () => {
     expect(findMissingStaticHtmlElementIds(html)).toEqual(['missing-node']);
   });
 
+  test('orders missing IDs by deterministic UTF-16 code units', () => {
+    const html = `
+      <script>
+        document.getElementById('a-output').textContent = 'uno';
+        document.getElementById('Z-output').textContent = 'due';
+      </script>
+    `;
+
+    expect(findMissingStaticHtmlElementIds(html)).toEqual(['Z-output', 'a-output']);
+  });
+
   test('does not mistake HTML strings inside scripts for mounted elements', () => {
     const html = `
       <script>

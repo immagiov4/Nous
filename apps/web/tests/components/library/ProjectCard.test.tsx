@@ -22,18 +22,18 @@ const project: SavedProjectMeta = {
   coverLabel: 'Game_Engine_Architecture-en.pdf',
 };
 
-const originalInnerHeight = window.innerHeight;
+const originalInnerHeight = globalThis.innerHeight;
 
 describe('ProjectCard', () => {
   afterEach(() => {
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       configurable: true,
       value: originalInnerHeight,
     });
   });
 
   test('renders library controls in the browser language', () => {
-    Object.defineProperties(window.navigator, {
+    Object.defineProperties(globalThis.navigator, {
       language: { configurable: true, value: 'en-GB' },
       languages: { configurable: true, value: ['en-GB'] },
     });
@@ -53,7 +53,7 @@ describe('ProjectCard', () => {
   });
 
   test('keeps the project action menu attached to the button near the viewport bottom', async () => {
-    Object.defineProperty(window, 'innerHeight', {
+    Object.defineProperty(globalThis, 'innerHeight', {
       configurable: true,
       value: 400,
     });

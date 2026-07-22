@@ -11,8 +11,11 @@ import {
   normalizeMathSelectionArtifacts,
   projectMarkdownMathRange,
 } from '../markdown/codeRanges.ts';
+import { buildVisibleProjection } from '../markdown/textProjection.ts';
+import { READER_NON_SPEECH_SELECTOR } from '../reader/readingText.ts';
 
 interface ResolveContextMenuSelectionArgs {
+  content?: string;
   container: HTMLElement;
   fallbackAnchorX?: number;
   fallbackAnchorY?: number;
@@ -27,11 +30,13 @@ interface ResolvedSelectionPayload {
   contextBefore: string;
   horizontalBounds?: HorizontalViewportBounds;
   selectedText: string;
+  selectedTextStart?: number;
   selectionRect: SelectionRect;
 }
 
 const DEFAULT_CONTEXT_WINDOW = 48;
 const KATEX_TEX_ANNOTATION_SELECTOR = 'annotation[encoding="application/x-tex"]';
+const LESSON_CONTENT_ROOT_SELECTOR = '[data-nous-lesson-content-root="true"]';
 
 const projectKatexAnnotationSource = (texSource: string): string => {
   const wrappedExpression = `$${texSource}$`;
@@ -56,6 +61,9 @@ const extractRangeText = (range: Range, fallbackText = ''): string => {
 
     const container = ownerDocument.createElement('div');
     container.append(range.cloneContents());
+    container.querySelectorAll(READER_NON_SPEECH_SELECTOR).forEach(node => {
+      node.remove();
+    });
 
     Array.from(container.querySelectorAll('.katex')).forEach(katexNode => {
       const texAnnotation = katexNode.querySelector(KATEX_TEX_ANNOTATION_SELECTOR);
@@ -102,10 +110,21 @@ const getNodeForContainmentCheck = (node: Node): Node => {
   return node.nodeType === 3 && node.parentNode ? node.parentNode : node;
 };
 
+const isWithinNonSpeechSurface = (node: Node): boolean => {
+  const containmentNode = getNodeForContainmentCheck(node);
+  return (
+    containmentNode.nodeType === 1 &&
+    typeof (containmentNode as Element).closest === 'function' &&
+    Boolean((containmentNode as Element).closest(READER_NON_SPEECH_SELECTOR))
+  );
+};
+
 const getSelectionContext = (
   container: HTMLElement,
-  range: Range
-): Pick<ResolvedSelectionPayload, 'contextBefore' | 'contextAfter'> => {
+  range: Range,
+  content: string | undefined,
+  selectedText: string
+): Pick<ResolvedSelectionPayload, 'contextBefore' | 'contextAfter' | 'selectedTextStart'> => {
   const beforeRange = range.cloneRange();
   beforeRange.selectNodeContents(container);
   beforeRange.setEnd(range.startContainer, range.startOffset);
@@ -114,14 +133,42 @@ const getSelectionContext = (
   afterRange.selectNodeContents(container);
   afterRange.setStart(range.endContainer, range.endOffset);
 
+  const textBeforeSelection = extractRangeText(beforeRange, beforeRange.toString());
+  const precedingOccurrenceCount = selectedText
+    ? textBeforeSelection.split(selectedText).length - 1
+    : 0;
+  const projectedContent = content ? buildVisibleProjection(content).text : '';
+  let selectedTextStart: number | undefined;
+  let searchStart = 0;
+  for (let occurrence = 0; occurrence <= precedingOccurrenceCount; occurrence += 1) {
+    const occurrenceStart = projectedContent.indexOf(selectedText, searchStart);
+    if (occurrenceStart === -1) {
+      selectedTextStart = undefined;
+      break;
+    }
+    selectedTextStart = occurrenceStart;
+    searchStart = occurrenceStart + selectedText.length;
+  }
+
+  const projectedContextBefore =
+    selectedTextStart === undefined
+      ? textBeforeSelection
+      : projectedContent.slice(
+          Math.max(0, selectedTextStart - DEFAULT_CONTEXT_WINDOW),
+          selectedTextStart
+        );
+  const projectedContextAfter =
+    selectedTextStart === undefined
+      ? extractRangeText(afterRange, afterRange.toString())
+      : projectedContent.slice(
+          selectedTextStart + selectedText.length,
+          selectedTextStart + selectedText.length + DEFAULT_CONTEXT_WINDOW
+        );
+
   return {
-    contextBefore: extractRangeText(beforeRange, beforeRange.toString()).slice(
-      -DEFAULT_CONTEXT_WINDOW
-    ),
-    contextAfter: extractRangeText(afterRange, afterRange.toString()).slice(
-      0,
-      DEFAULT_CONTEXT_WINDOW
-    ),
+    contextBefore: projectedContextBefore.slice(-DEFAULT_CONTEXT_WINDOW),
+    contextAfter: projectedContextAfter.slice(0, DEFAULT_CONTEXT_WINDOW),
+    selectedTextStart,
   };
 };
 
@@ -221,6 +268,7 @@ export const resolveMobileContextMenuSyncAction = ({
 };
 
 export const resolveContextMenuSelection = ({
+  content,
   container,
   fallbackAnchorX,
   fallbackAnchorY,
@@ -232,18 +280,29 @@ export const resolveContextMenuSelection = ({
   }
 
   const range = selection.getRangeAt(0);
+  const lessonContentRoot = container.querySelector<HTMLElement>(LESSON_CONTENT_ROOT_SELECTOR);
+  const selectionContainer = lessonContentRoot || container;
+  const ancestorNode = getNodeForContainmentCheck(range.commonAncestorContainer);
+  if (
+    !selectionContainer.contains(ancestorNode) ||
+    isWithinNonSpeechSurface(range.startContainer) ||
+    isWithinNonSpeechSurface(range.endContainer)
+  ) {
+    return null;
+  }
+
   const selectedText = extractRangeText(range, selection.toString()).trim();
   if (!selectedText) {
     return null;
   }
 
-  const ancestorNode = getNodeForContainmentCheck(range.commonAncestorContainer);
-  if (!container.contains(ancestorNode)) {
-    return null;
-  }
-
   const selectionRect = getSelectionRect(range);
-  const { contextBefore, contextAfter } = getSelectionContext(container, range);
+  const { contextBefore, contextAfter, selectedTextStart } = getSelectionContext(
+    selectionContainer,
+    range,
+    content,
+    selectedText
+  );
   const containerRect = container.getBoundingClientRect?.();
   const anchorX = fallbackAnchorX ?? selectionRect.left + selectionRect.width / 2;
   const anchorY = fallbackAnchorY ?? selectionRect.top + selectionRect.height;
@@ -264,5 +323,6 @@ export const resolveContextMenuSelection = ({
     selectionRect,
     contextBefore,
     contextAfter,
+    selectedTextStart,
   };
 };

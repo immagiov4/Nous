@@ -23,7 +23,7 @@ const splitParagraphs = (text: string): string[] =>
     .filter(Boolean);
 
 const isHeadingCandidate = (paragraph: string): boolean => {
-  const compact = paragraph.replace(/\s+/g, ' ').trim();
+  const compact = paragraph.replaceAll(/\s+/g, ' ').trim();
   if (!compact || compact.length > HEADING_MAX_CHARS) {
     return false;
   }
@@ -41,12 +41,12 @@ const isHeadingCandidate = (paragraph: string): boolean => {
     return true;
   }
 
-  const letterCount = compact.replace(/[^A-Za-z]/g, '').length;
+  const letterCount = compact.replaceAll(/[^A-Za-z]/g, '').length;
   if (letterCount === 0) {
     return false;
   }
 
-  const uppercaseCount = compact.replace(/[^A-Z]/g, '').length;
+  const uppercaseCount = compact.replaceAll(/[^A-Z]/g, '').length;
   if (uppercaseCount / letterCount > 0.7) {
     return true;
   }
@@ -257,7 +257,7 @@ const splitLargeSection = (
         endOffset: currentStartOffset + text.length,
       });
 
-      const overlapParagraph = currentParagraphs[currentParagraphs.length - 1];
+      const overlapParagraph = currentParagraphs.at(-1);
       currentParagraphs = overlapParagraph ? [overlapParagraph] : [];
       currentLength = overlapParagraph ? overlapParagraph.length : 0;
       currentStartOffset = Math.max(

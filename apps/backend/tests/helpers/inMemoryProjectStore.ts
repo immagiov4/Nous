@@ -33,6 +33,8 @@ import type {
   ProjectCoverWriteOptions,
   ProjectExportData,
   ProjectId,
+  ProjectImportDiagnostic,
+  ProjectImportDiagnosticInput,
   ProjectPatch,
   ProjectSaveOptions,
   ProjectSaveResult,
@@ -54,6 +56,8 @@ interface ProjectRecord {
 }
 
 const clone = <T>(value: T): T => structuredClone(value);
+const PROJECT_IMPORT_DIAGNOSTIC_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const PROJECT_IMPORT_DIAGNOSTIC_LIST_LIMIT = 200;
 
 const toEpochMillis = (value: string | undefined): number => {
   const timestamp = Date.parse(value || '');
@@ -79,6 +83,7 @@ export class InMemoryProjectStore implements ProjectStore {
   private readonly coversByUser = new Map<string, Map<ProjectId, ProjectCoverFile>>();
   private readonly foldersByUser = new Map<string, Map<string, LibraryFolder>>();
   private readonly placementsByUser = new Map<string, Map<ProjectId, LibraryPlacement>>();
+  private readonly projectImportDiagnostics: ProjectImportDiagnostic[] = [];
 
   fullSaveCount = 0;
 
@@ -94,6 +99,30 @@ export class InMemoryProjectStore implements ProjectStore {
     return records
       .map(record => clone(record.meta))
       .sort((left, right) => toEpochMillis(right.lastOpenedAt) - toEpochMillis(left.lastOpenedAt));
+  }
+
+  async listProjectImportDiagnostics(correlationId?: string): Promise<ProjectImportDiagnostic[]> {
+    const cutoff = Date.now() - PROJECT_IMPORT_DIAGNOSTIC_RETENTION_MS;
+    return clone(this.projectImportDiagnostics)
+      .filter(
+        diagnostic =>
+          Date.parse(diagnostic.createdAt) >= cutoff &&
+          (!correlationId || diagnostic.correlationId === correlationId)
+      )
+      .sort((left, right) => right.id - left.id)
+      .slice(0, PROJECT_IMPORT_DIAGNOSTIC_LIST_LIMIT);
+  }
+
+  async recordProjectImportDiagnostic(
+    userId: string,
+    diagnostic: ProjectImportDiagnosticInput
+  ): Promise<void> {
+    this.projectImportDiagnostics.push({
+      ...clone(diagnostic),
+      createdAt: timestampIso(),
+      id: this.projectImportDiagnostics.length + 1,
+      userId,
+    });
   }
 
   async loadProject(userId: string, id: ProjectId): Promise<ProjectSnapshot | null> {
@@ -332,6 +361,23 @@ export class InMemoryProjectStore implements ProjectStore {
     };
     projects.set(id, { meta, snapshot });
     return clone(meta);
+  }
+
+  async setProjectFavorite(
+    userId: string,
+    id: ProjectId,
+    isFavorite: boolean
+  ): Promise<SavedProjectMeta> {
+    const record = this.getProjects(userId).get(id);
+    if (!record) {
+      throw new Error(`Progetto ${id} non trovato per aggiornamento preferito.`);
+    }
+    record.meta = {
+      ...record.meta,
+      isFavorite,
+      revision: (record.meta.revision || 0) + 1,
+    };
+    return clone(record.meta);
   }
 
   async deleteProject(userId: string, id: ProjectId): Promise<void> {

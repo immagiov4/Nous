@@ -58,9 +58,9 @@ type SourceFilter = 'all' | SourceLibraryItem['kind'];
 type NewHomePage = 'home' | 'library';
 
 const getNewHomePageFromLocation = (): NewHomePage =>
-  typeof window !== 'undefined' &&
-  (window.location.pathname === '/library' ||
-    window.location.pathname.startsWith('/newhome/library'))
+  typeof globalThis.window !== 'undefined' &&
+  (globalThis.window.location.pathname === '/library' ||
+    globalThis.window.location.pathname.startsWith('/newhome/library'))
     ? 'library'
     : 'home';
 
@@ -84,29 +84,33 @@ const buildCoursePromptTemplate = (prefix: string, suffix: string): ChatDraftTem
 };
 
 interface NewHomeViewProps {
-  chatProps: ChatProps;
-  isDarkMode: boolean;
-  isLibraryLoading: boolean;
-  libraryFolders: LibraryFolder[];
-  libraryTree: LibraryTree;
-  loadProjectCover: (projectId: string) => Promise<FileData | null>;
-  loadProjectSource: (projectId: string) => Promise<FileData | null>;
-  loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
-  onCreateFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<unknown>;
-  onConfirmDeleteFolder?: (folderName: string) => Promise<boolean>;
-  onDeleteFolder?: (folderId: string) => Promise<void>;
-  onDeleteProject?: (projectId: string) => void | Promise<void>;
-  onExportLibraryBackup?: () => Promise<number>;
-  onExportProject?: (projectId: string) => void;
-  onImportLibraryBackup?: (file: File) => Promise<number>;
-  onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
-  onOpenProject: (projectId: string) => void;
-  openingProjectId: string | null;
-  onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
-  onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
-  onToggleDarkMode: () => void;
-  projects: SavedProjectMeta[];
-  saveProjectCover: (projectId: string, cover: FileData) => Promise<void>;
+  readonly chatProps: ChatProps;
+  readonly isDarkMode: boolean;
+  readonly isLibraryLoading: boolean;
+  readonly libraryFolders: LibraryFolder[];
+  readonly libraryTree: LibraryTree;
+  readonly loadProjectCover: (projectId: string) => Promise<FileData | null>;
+  readonly loadProjectSource: (projectId: string) => Promise<FileData | null>;
+  readonly loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
+  readonly onCreateFolder: (args: {
+    name: string;
+    parentFolderId?: string | null;
+  }) => Promise<unknown>;
+  readonly onConfirmDeleteFolder?: (folderName: string) => Promise<boolean>;
+  readonly onDeleteFolder?: (folderId: string) => Promise<void>;
+  readonly onDeleteProject?: (projectId: string) => void | Promise<void>;
+  readonly onExportLibraryBackup?: () => Promise<number>;
+  readonly onExportProject?: (projectId: string) => void;
+  readonly onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly onImportProjectFile?: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onOpenProject: (projectId: string) => void;
+  readonly openingProjectId: string | null;
+  readonly onRenameFolder?: (folderId: string, name: string) => Promise<unknown>;
+  readonly onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
+  readonly onSetProjectFavorite?: (projectId: string, isFavorite: boolean) => Promise<unknown>;
+  readonly onToggleDarkMode: () => void;
+  readonly projects: SavedProjectMeta[];
+  readonly saveProjectCover: (projectId: string, cover: FileData) => Promise<void>;
 }
 
 const getCourseProgress = (project: SavedProjectMeta): number =>
@@ -468,9 +472,12 @@ const getFloatingMenuState = (
   menuHeight: number
 ): FloatingMenuState => ({
   id,
-  left: Math.max(12, Math.min(anchor.right - menuWidth, window.innerWidth - menuWidth - 12)),
+  left: Math.max(
+    12,
+    Math.min(anchor.right - menuWidth, globalThis.window.innerWidth - menuWidth - 12)
+  ),
   top:
-    anchor.bottom + menuHeight + 8 <= window.innerHeight
+    anchor.bottom + menuHeight + 8 <= globalThis.window.innerHeight
       ? anchor.bottom + 4
       : Math.max(12, anchor.top - menuHeight - 4),
 });
@@ -776,8 +783,8 @@ const CourseList = ({
 
   useEffect(() => {
     updateChipScrollState();
-    window.addEventListener('resize', updateChipScrollState);
-    return () => window.removeEventListener('resize', updateChipScrollState);
+    globalThis.window.addEventListener('resize', updateChipScrollState);
+    return () => globalThis.window.removeEventListener('resize', updateChipScrollState);
   }, [updateChipScrollState]);
 
   const selectFilter = (nextFilter: CourseFilter) => {
@@ -1741,6 +1748,7 @@ export const NewHomeView = ({
   openingProjectId,
   onRenameFolder,
   onRenameProject,
+  onSetProjectFavorite,
   onToggleDarkMode,
   projects,
   saveProjectCover,
@@ -1748,24 +1756,27 @@ export const NewHomeView = ({
   const [activePage, setActivePage] = useState<NewHomePage>(getNewHomePageFromLocation);
   useEffect(() => {
     const handlePopState = () => setActivePage(getNewHomePageFromLocation());
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    globalThis.window.addEventListener('popstate', handlePopState);
+    return () => globalThis.window.removeEventListener('popstate', handlePopState);
   }, []);
   const navigate = useCallback((page: NewHomePage, hash?: string) => {
     const pathname = page === 'library' ? '/library' : '/';
     const nextUrl = hash ? `${pathname}#${hash}` : pathname;
-    window.history.pushState({}, '', nextUrl);
+    globalThis.window.history.pushState({}, '', nextUrl);
     setActivePage(page);
     if (hash) {
-      window.requestAnimationFrame(() =>
+      globalThis.window.requestAnimationFrame(() =>
         document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       );
     } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      globalThis.window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, []);
   const { streakDays, studyTimeLabel } = useLearningActivity();
-  const { favoriteIds, toggleFavoriteProject } = useFavoriteProjectIds(projects);
+  const { favoriteIds, toggleFavoriteProject } = useFavoriteProjectIds(
+    projects,
+    onSetProjectFavorite
+  );
   const coverImages = useCourseCoverImages({
     loadProjectCover,
     projects,

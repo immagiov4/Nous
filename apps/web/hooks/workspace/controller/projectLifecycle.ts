@@ -538,8 +538,19 @@ export const createProjectLifecycleCommands = (
             const sourceFile =
               nextSnapshotFile ??
               (preparedSnapshot.source && preparedSnapshot.source.kind !== 'archive'
-                ? await loadProjectSourceFile(context)
+                ? await loadProjectSourceFile(
+                    context,
+                    () =>
+                      projectLibrary.currentProjectId === projectId &&
+                      state.isWorkflowCurrent('openProject', requestId)
+                  )
                 : null);
+            if (
+              projectLibrary.currentProjectId !== projectId ||
+              !state.isWorkflowCurrent('openProject', requestId)
+            ) {
+              return;
+            }
             await openSection(nextSection, {
               allowWhileBlocking: true,
               currentDocumentAssets: preparedSnapshot.documentAssets ?? null,

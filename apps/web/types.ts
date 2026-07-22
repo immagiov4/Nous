@@ -34,6 +34,48 @@ export interface ResearchSourceReference {
   };
 }
 
+export interface LessonYouTubeClip {
+  endSeconds: number;
+  id: string;
+  note?: string;
+  sourceIndex: number;
+  startSeconds: number;
+  title: string;
+  url: string;
+}
+
+export interface LessonMarkdownBlock {
+  markdown: string;
+  type: 'markdown';
+}
+
+export interface LessonInlineQuizBlock {
+  quiz: QuizQuestion;
+  type: 'inline-quiz';
+}
+
+export interface LessonYouTubeClipsBlock {
+  clips: Array<{
+    endSeconds: number;
+    sourceIndex: number;
+    startSeconds: number;
+    title?: string;
+  }>;
+  type: 'youtube-clips';
+}
+
+export interface LessonGeneratedVisualBlock {
+  slotId: string;
+  type: 'generated-visual';
+  visualId?: string;
+}
+
+export type LessonContentBlock =
+  | LessonMarkdownBlock
+  | LessonInlineQuizBlock
+  | LessonYouTubeClipsBlock
+  | LessonGeneratedVisualBlock;
+
 export interface ResearchLessonPlan {
   description: string;
   guidingQuestions: string[];
@@ -465,6 +507,7 @@ export interface LearningSection {
   type: 'prerequisite' | 'core' | 'summary' | 'deep-dive';
   parentId?: string; // ID of the parent section if this is a sub-chapter
   content?: string; // The generated full lesson content (persisted)
+  contentBlocks?: LessonContentBlock[]; // Ordered first-class lesson content (new generations)
   quiz?: QuizQuestion[]; // The generated quiz (persisted)
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
   generatedVisuals?: LessonGeneratedVisual[]; // Generated pedagogical visuals for missing examples
@@ -636,6 +679,7 @@ export interface HorizontalViewportBounds {
 }
 
 export type ContextMenuPlacement = 'desktop-floating' | 'mobile-sheet';
+export type LessonCreationBlockReason = 'lesson-generation' | 'other-operation';
 export type ContextScope = 'annotation' | 'lesson' | 'selection';
 
 export interface SectionAnnotationTextSelector {
@@ -679,6 +723,7 @@ export interface SelectionContextMenuState extends BaseContextMenuState {
   type: 'selection';
   contextBefore?: string;
   contextAfter?: string;
+  selectedTextStart?: number;
 }
 
 export interface LessonContextMenuState extends BaseContextMenuState {

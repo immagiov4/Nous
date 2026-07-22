@@ -121,7 +121,7 @@ export const ensureProjectCover = ({
   title: string;
 }): Promise<string> => {
   const existingGeneration = coverGenerationByProjectId.get(projectId);
-  if (existingGeneration) return existingGeneration;
+  if (existingGeneration !== undefined) return existingGeneration;
 
   const generation = (async () => {
     await assertCoverStorageAvailable(loadCover, projectId);

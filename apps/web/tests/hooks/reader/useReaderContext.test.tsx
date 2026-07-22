@@ -95,7 +95,7 @@ test('desktop right pointer-down opens the selection menu immediately', () => {
   );
 
   const selection = buildSelection(container, textNode, 'beta');
-  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue(selection);
+  const selectionSpy = vi.spyOn(globalThis, 'getSelection').mockReturnValue(selection);
   const preventDefault = vi.fn();
 
   act(() => {
@@ -137,7 +137,7 @@ test('desktop context menu without selection opens a whole-lesson menu inside co
   assert.ok(paragraph);
   assert.ok(button);
 
-  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+  const selectionSpy = vi.spyOn(globalThis, 'getSelection').mockReturnValue({
     rangeCount: 0,
     toString: () => '',
   } as unknown as Selection);
@@ -218,7 +218,7 @@ test('clicking the same annotation mark toggles its menu closed', () => {
       toJSON: () => ({}),
     }) as DOMRect;
 
-  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+  const selectionSpy = vi.spyOn(globalThis, 'getSelection').mockReturnValue({
     isCollapsed: true,
     rangeCount: 0,
     toString: () => '',
@@ -292,7 +292,7 @@ test('mobile duplicate annotation clicks within 100 ms produce one stable transi
   mark.getBoundingClientRect = () =>
     ({ bottom: 120, height: 20, left: 40, right: 82, top: 100, width: 42 }) as DOMRect;
   container.getBoundingClientRect = () => ({ left: 24, right: 420 }) as DOMRect;
-  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+  const selectionSpy = vi.spyOn(globalThis, 'getSelection').mockReturnValue({
     isCollapsed: true,
     rangeCount: 0,
     toString: () => '',
@@ -358,7 +358,7 @@ test('mobile annotation taps close the current menu before another annotation ca
       }) as DOMRect;
   });
   container.getBoundingClientRect = () => ({ left: 24, right: 420 }) as DOMRect;
-  const selectionSpy = vi.spyOn(window, 'getSelection').mockReturnValue({
+  const selectionSpy = vi.spyOn(globalThis, 'getSelection').mockReturnValue({
     isCollapsed: true,
     rangeCount: 0,
     toString: () => '',

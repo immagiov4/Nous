@@ -328,7 +328,7 @@ The TTS player in the Reader (`hooks/reader/useTtsPlayer.ts`) splits the lesson 
 
 The Library/Home composer and the Reader follow-up composer expose the same microphone control. The first click starts a browser `MediaRecorder`; the second stops it, sends the recording to the authenticated `/api/stt` route, and inserts the returned text into the draft without submitting it.
 
-Browser recordings are capped at 90 seconds. The backend validates the audio format and a 12 MiB decoded payload limit, then calls OpenRouter's dedicated `audio/transcriptions` endpoint. The server-owned model defaults to `nvidia/parakeet-tdt-0.6b-v3` and can be changed with `MODEL_STT`.
+Browser recordings are capped at 90 seconds. The backend validates the audio format and a 12 MiB decoded payload limit, then calls OpenRouter's dedicated `audio/transcriptions` endpoint. It retries with server-owned timeouts of 20, 25, and 30 seconds; the first two attempts use `MODEL_STT` (default `nvidia/parakeet-tdt-0.6b-v3`) and the final attempt uses `MODEL_STT_FALLBACK` (default `openai/whisper-large-v3-turbo`).
 
 Provider details stay in server logs; the frontend receives stable Italian error messages for denied microphone access, empty audio, and transcription failures.
 

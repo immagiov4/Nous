@@ -8,15 +8,18 @@ type WorkspaceNavigation = ReturnType<typeof useWorkspaceNavigation>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
 
 interface AssessmentScreenContainerProps {
-  assessmentMessages: Message[];
-  isLoading: boolean;
-  loadingStatus: string;
-  navigation: WorkspaceNavigation;
-  notify: (message: string) => void;
-  readerState: WorkspaceReaderState;
-  screenState: AppState;
-  startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
-  submitAssessment: (input: string) => Promise<{
+  readonly assessmentMessages: Message[];
+  readonly isLoading: boolean;
+  readonly loadingStatus: string;
+  readonly navigation: WorkspaceNavigation;
+  readonly notify: (message: string) => void;
+  readonly readerState: WorkspaceReaderState;
+  readonly screenState: AppState;
+  readonly startLearnJourney: () => Promise<{
+    errorMessage?: string;
+    outcome: 'failed' | 'started';
+  }>;
+  readonly submitAssessment: (input: string) => Promise<{
     errorMessage?: string;
     outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
   }>;

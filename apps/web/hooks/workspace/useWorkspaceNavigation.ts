@@ -69,22 +69,22 @@ export const useWorkspaceNavigation = ({
   setIsMobileSidebarOpen,
 }: UseWorkspaceNavigationArgs) => {
   const [locationProjectId, setLocationProjectId] = useState<string | null>(() =>
-    typeof window === 'undefined' ? null : getProjectIdFromLocation(window.location)
+    typeof globalThis.window === 'undefined' ? null : getProjectIdFromLocation(globalThis.location)
   );
   const hasPendingExternalLocationRef = useRef(Boolean(locationProjectId));
   const nextLocationHistoryModeRef = useRef<'push' | 'replace'>('replace');
 
   const syncProjectLocation = useCallback(
     (projectId: string | null, historyMode: 'push' | 'replace' = 'replace') => {
-      if (typeof window === 'undefined') {
+      if (typeof globalThis.window === 'undefined') {
         return;
       }
 
-      const nextHref = buildProjectLocationHref(window.location, projectId);
-      const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      const nextHref = buildProjectLocationHref(globalThis.location, projectId);
+      const currentHref = `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
 
       if (nextHref !== currentHref) {
-        window.history[historyMode === 'push' ? 'pushState' : 'replaceState']({}, '', nextHref);
+        globalThis.history[historyMode === 'push' ? 'pushState' : 'replaceState']({}, '', nextHref);
       }
 
       hasPendingExternalLocationRef.current = false;
@@ -153,12 +153,12 @@ export const useWorkspaceNavigation = ({
   useEffect(() => {
     const handlePopState = () => {
       hasPendingExternalLocationRef.current = true;
-      setLocationProjectId(getProjectIdFromLocation(window.location));
+      setLocationProjectId(getProjectIdFromLocation(globalThis.location));
     };
 
-    window.addEventListener('popstate', handlePopState);
+    globalThis.addEventListener('popstate', handlePopState);
     return () => {
-      window.removeEventListener('popstate', handlePopState);
+      globalThis.removeEventListener('popstate', handlePopState);
     };
   }, []);
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, vi } from 'vitest';
 import type { FileData, LessonLearningAid, PdfTextIndex, QuizQuestion } from '../../../types.ts';
+import { hasExactInlineQuizMarkerContract } from '../../../utils/reader/inlineQuiz.ts';
 
 const callOpenRouterMock = vi.fn();
 const retryWithBackoffMock = vi.fn(async (operation: () => Promise<string>) => await operation());
@@ -59,7 +60,7 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
 const { generateSectionContent } = await import('../../../services/openrouter/planning/index.ts');
 
 const buildQuiz = (): QuizQuestion[] =>
-  Array.from({ length: 5 }, (_, index) => ({
+  Array.from({ length: 2 }, (_, index) => ({
     question: `Domanda ${index + 1}`,
     options: ['A', 'B', 'C', 'D'],
     correctIndex: 0,
@@ -83,9 +84,20 @@ test('generateSectionContent keeps all verified image placements instead of trun
   ]);
   buildStoredPdfDocumentAssetsMock.mockClear();
 
-  const bulkyMarkdown = `## Decal\n\n${'Spiegazione tecnica sui decal e sugli overlay. '.repeat(120)}`;
-  const repairedMarkdown = `${bulkyMarkdown}\n\n## Conclusione\n\nChiusura pulita.`;
   const quiz = buildQuiz();
+  const bulkyBlocks = [
+    { type: 'markdown', markdown: `## Decal\n\n${'Spiegazione tecnica sui decal. '.repeat(60)}` },
+    { type: 'inline-quiz', quiz: quiz[0] },
+    {
+      type: 'markdown',
+      markdown: `## Overlay\n\n${'Spiegazione tecnica sugli overlay. '.repeat(60)}`,
+    },
+    { type: 'inline-quiz', quiz: quiz[1] },
+  ];
+  const repairedBlocks = [
+    ...bulkyBlocks,
+    { type: 'markdown', markdown: '## Conclusione\n\nChiusura pulita.' },
+  ];
 
   const imagePlacements = [
     { assetId: 'pdf-img-001', alt: 'Schema 1', caption: 'Figura 1', anchorHeading: 'Decal' },
@@ -97,16 +109,16 @@ test('generateSectionContent keeps all verified image placements instead of trun
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        contentMarkdown: bulkyMarkdown,
-        quiz,
+        contentBlocks: bulkyBlocks,
         imagePlacements,
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     )
     .mockResolvedValueOnce(
       JSON.stringify({
-        contentMarkdown: repairedMarkdown,
-        quiz,
+        contentBlocks: repairedBlocks,
         imagePlacements,
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     );
 
@@ -222,6 +234,10 @@ test('generateSectionContent keeps all verified image placements instead of trun
     /https:\/\/example\.com\/rendering-update/
   );
   assert.match(
+    String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[1]?.content || ''),
+    /blocco `youtube-clips` nel punto editoriale esatto/i
+  );
+  assert.match(
     String(callOpenRouterMock.mock.calls[1]?.[0]?.messages?.[1]?.content || ''),
     /descrizione, caption, immagine e paragrafo vicino siano abbinati/i
   );
@@ -264,8 +280,11 @@ test('generateSectionContent excludes unclear PDF images when the vision pass pr
   buildStoredPdfDocumentAssetsMock.mockClear();
   generateLessonVisualExampleMock.mockResolvedValue(null);
 
-  const markdown = '## Caso concreto\n\nSpiegazione tecnica focalizzata sul confronto fragile.';
+  const markdown =
+    '## Caso concreto\n\nSpiegazione tecnica focalizzata sul confronto fragile.\n\n{{INLINE_QUIZ:0}}\n\nUn secondo passaggio applica il confronto.\n\n{{INLINE_QUIZ:1}}';
   const repairedMarkdown = `${markdown}\n\n## Conclusione\n\nChiusura.`;
+  const verifiedMarkdown =
+    '## Caso concreto\n\nSpiegazione tecnica focalizzata sul confronto fragile.\n\n{{INLINE_QUIZ:0}}\n\n## Conclusione\n\nChiusura.';
   const quiz = buildQuiz();
 
   callOpenRouterMock
@@ -279,7 +298,7 @@ test('generateSectionContent excludes unclear PDF images when the vision pass pr
     .mockResolvedValueOnce(repairedMarkdown)
     .mockResolvedValueOnce(
       JSON.stringify({
-        contentMarkdown: repairedMarkdown,
+        contentMarkdown: verifiedMarkdown,
         quiz,
         imagePlacements: [],
       })
@@ -367,38 +386,47 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
   callOpenRouterMock
     .mockResolvedValueOnce(
       JSON.stringify({
-        contentMarkdown: '## Coordinate\n\nSpiegazione sintetica:',
-        quiz: [
+        contentBlocks: [
+          { type: 'markdown', markdown: '## Coordinate\n\nSpiegazione sintetica:' },
           {
-            question: '`Coordinate in spazio mondo (metri)`',
-            options: [
-              '`Posizione assoluta`',
-              'Errore di `overflow`',
-              '`Colore diffuso`',
-              '`Texture`',
-            ],
-            correctIndex: 0,
+            type: 'inline-quiz',
+            quiz: {
+              question: '`Coordinate in spazio mondo (metri)`',
+              options: [
+                '`Posizione assoluta`',
+                'Errore di `overflow`',
+                '`Colore diffuso`',
+                '`Texture`',
+              ],
+              correctIndex: 0,
+            },
           },
         ],
         imagePlacements: [],
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     )
     .mockResolvedValueOnce(
       JSON.stringify({
-        contentMarkdown: '## Coordinate\n\nSpiegazione sintetica.\n\n## Conclusione\n\nChiusura.',
-        quiz: [
+        contentBlocks: [
+          { type: 'markdown', markdown: '## Coordinate\n\nSpiegazione sintetica.' },
           {
-            question: '`Quale valore resta espresso in metri?`',
-            options: [
-              '`Posizione assoluta`',
-              'Errore di `overflow`',
-              '`Indice di shader`',
-              '`UUID`',
-            ],
-            correctIndex: 0,
+            type: 'inline-quiz',
+            quiz: {
+              question: '`Quale valore resta espresso in metri?`',
+              options: [
+                '`Posizione assoluta`',
+                'Errore di `overflow`',
+                '`Indice di shader`',
+                '`UUID`',
+              ],
+              correctIndex: 0,
+            },
           },
+          { type: 'markdown', markdown: '## Conclusione\n\nChiusura.' },
         ],
         imagePlacements: [],
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     );
 
@@ -459,4 +487,67 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
     'Indice di shader',
     'UUID',
   ]);
+});
+
+test('generateSectionContent falls back to the original validated lesson and quiz pair', async () => {
+  callOpenRouterMock.mockReset();
+  retryWithBackoffMock.mockClear();
+  generateLessonVisualExampleMock.mockReset();
+  generateLessonLearningAidsMock.mockReset();
+
+  const originalContent = [
+    '## Concetto',
+    '',
+    'Primo paragrafo che introduce il concetto.',
+    '',
+    '[',
+    'x + y',
+    ']',
+    '',
+    '{{INLINE_QUIZ:0}}',
+    '',
+    'Secondo paragrafo che applica il concetto.',
+    '',
+    '{{INLINE_QUIZ:1}}',
+  ].join('\n');
+  const repairedContentWithLostMarker = [
+    '## Concetto',
+    '',
+    'Primo paragrafo corretto.',
+    '',
+    '$$x + y$$',
+    '',
+    '{{INLINE_QUIZ:0}}',
+    '',
+    'Secondo paragrafo.',
+    '',
+    'Terzo paragrafo.',
+    '',
+    'Quarto paragrafo.',
+  ].join('\n');
+  const quiz = buildQuiz();
+
+  callOpenRouterMock
+    .mockResolvedValueOnce(
+      JSON.stringify({ contentMarkdown: originalContent, quiz, imagePlacements: [] })
+    )
+    .mockResolvedValueOnce(repairedContentWithLostMarker)
+    .mockRejectedValueOnce(new Error('verification failed'));
+
+  const result = await generateSectionContent({
+    file: {
+      name: 'lesson.txt',
+      mimeType: 'text/plain',
+      data: 'source text',
+    },
+    previousContext: '',
+    resolvedSourceArchiveContext: 'Fonte gia indicizzata.',
+    sectionDescription: 'Applicazione del concetto.',
+    sectionTitle: 'Concetto',
+  });
+
+  assert.equal(result.quiz.length, 2);
+  assert.equal(hasExactInlineQuizMarkerContract(result.content, result.quiz.length), true);
+  assert.match(result.content, /\[\nx \+ y\n\]/);
+  assert.doesNotMatch(result.content, /Primo paragrafo corretto/);
 });

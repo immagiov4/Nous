@@ -25,47 +25,50 @@ const SOURCE_FILE_ACCEPT =
   '.pdf,.zip,.txt,.md,.markdown,.mdx,.csv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.cs,.go,.rs,.rb,.php,.html,.css,text/*,application/pdf,application/zip,application/x-zip-compressed';
 
 interface LibraryViewProps {
-  assessmentComplete: boolean;
-  assessmentMessages: import('../../types').Message[];
-  homeChatMode: HomeChatMode;
-  openingProjectId: string | null;
-  isDarkMode: boolean;
-  isExportingProject?: boolean;
-  isLibraryLoading: boolean;
-  isLibraryQueryLoading: boolean;
-  isNewCourseLoading: boolean;
-  libraryAttachedContextRefs: LibraryContextRef[];
-  libraryArtifactPayloadsByToolCallId: Record<string, LearningArtifactRenderPayload[]>;
-  libraryArtifactPreviewIdOverride?: string | null;
-  libraryArtifactPortalContainer?: HTMLElement | null;
-  libraryFloatingArtifactPayloads: LearningArtifactRenderPayload[];
-  libraryErrorMessage: string | null;
-  libraryMessages: UIMessage[];
-  libraryTree: LibraryTree;
-  libraryWebSearch: boolean;
-  libraryGenerateArtifacts: boolean;
-  newCourseLoadingStatus: string;
-  planFileInputId: string;
-  projects: SavedProjectMeta[];
-  pendingHomeFileName: string | null;
-  pendingHomeFileNames?: string[];
-  homeChatDraftValue?: string;
-  homeChatScrollProgressOverride?: number;
-  sourceFileInputId: string;
-  storageError: string | null;
-  onClearPendingHomeFile: () => void;
-  onClearLibraryMessages: () => void;
-  onContinueAssessment: () => void;
-  onConfirmGenerate: () => void;
-  onCreateFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<unknown>;
-  onConfirmDeleteFolder: (folderName: string) => Promise<boolean>;
-  onDeleteProject: (projectId: string) => void;
-  onDeleteFolder: (folderId: string) => Promise<void>;
-  onExportProject: (projectId: string) => void;
-  onExportLibraryBackup?: () => Promise<number>;
-  onHomeChatModeChange: (mode: HomeChatMode) => void;
-  onLibraryAssistantSend: (message: string) => void | Promise<void>;
-  onLibraryArtifactNoteApprove: (
+  readonly assessmentComplete: boolean;
+  readonly assessmentMessages: import('../../types').Message[];
+  readonly homeChatMode: HomeChatMode;
+  readonly openingProjectId: string | null;
+  readonly isDarkMode: boolean;
+  readonly isExportingProject?: boolean;
+  readonly isLibraryLoading: boolean;
+  readonly isLibraryQueryLoading: boolean;
+  readonly isNewCourseLoading: boolean;
+  readonly libraryAttachedContextRefs: LibraryContextRef[];
+  readonly libraryArtifactPayloadsByToolCallId: Record<string, LearningArtifactRenderPayload[]>;
+  readonly libraryArtifactPreviewIdOverride?: string | null;
+  readonly libraryArtifactPortalContainer?: HTMLElement | null;
+  readonly libraryFloatingArtifactPayloads: LearningArtifactRenderPayload[];
+  readonly libraryErrorMessage: string | null;
+  readonly libraryMessages: UIMessage[];
+  readonly libraryTree: LibraryTree;
+  readonly libraryWebSearch: boolean;
+  readonly libraryGenerateArtifacts: boolean;
+  readonly newCourseLoadingStatus: string;
+  readonly planFileInputId: string;
+  readonly projects: SavedProjectMeta[];
+  readonly pendingHomeFileName: string | null;
+  readonly pendingHomeFileNames?: string[];
+  readonly homeChatDraftValue?: string;
+  readonly homeChatScrollProgressOverride?: number;
+  readonly sourceFileInputId: string;
+  readonly storageError: string | null;
+  readonly onClearPendingHomeFile: () => void;
+  readonly onClearLibraryMessages: () => void;
+  readonly onContinueAssessment: () => void;
+  readonly onConfirmGenerate: () => void;
+  readonly onCreateFolder: (args: {
+    name: string;
+    parentFolderId?: string | null;
+  }) => Promise<unknown>;
+  readonly onConfirmDeleteFolder: (folderName: string) => Promise<boolean>;
+  readonly onDeleteProject: (projectId: string) => void;
+  readonly onDeleteFolder: (folderId: string) => Promise<void>;
+  readonly onExportProject: (projectId: string) => void;
+  readonly onExportLibraryBackup?: () => Promise<number>;
+  readonly onHomeChatModeChange: (mode: HomeChatMode) => void;
+  readonly onLibraryAssistantSend: (message: string) => void | Promise<void>;
+  readonly onLibraryArtifactNoteApprove: (
     toolCallId: string,
     input: {
       artifactIds: string[];
@@ -75,35 +78,35 @@ interface LibraryViewProps {
       rationale: string;
     }
   ) => Promise<void>;
-  onLibraryArtifactNoteReject: (toolCallId: string) => void;
-  onLibraryArtifactDiscard: (request: ChatArtifactActionRequest) => void;
-  onLibraryArtifactRegenerate: (
+  readonly onLibraryArtifactNoteReject: (toolCallId: string) => void;
+  readonly onLibraryArtifactDiscard: (request: ChatArtifactActionRequest) => void;
+  readonly onLibraryArtifactRegenerate: (
     request: ChatArtifactRegenerateRequest
   ) => Promise<boolean> | boolean;
-  onLibraryArtifactReplace: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
-  onLibraryWebSearchChange: (value: boolean) => void;
-  onLibraryGenerateArtifactsChange: (value: boolean) => void;
-  onMoveFolder: (
+  readonly onLibraryArtifactReplace: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
+  readonly onLibraryWebSearchChange: (value: boolean) => void;
+  readonly onLibraryGenerateArtifactsChange: (value: boolean) => void;
+  readonly onMoveFolder: (
     folderId: string,
     parentFolderId: string | null,
     targetIndex?: number
   ) => Promise<unknown>;
-  onMoveProjects: (
+  readonly onMoveProjects: (
     projectIds: string[],
     folderId: string | null,
     targetIndex?: number
   ) => Promise<unknown>;
-  onOpenProject: (projectId: string) => void;
-  onPlanUpload: (event: ChangeEvent<HTMLInputElement>) => void;
-  onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
-  onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
-  onSendAssessmentMessage: (message: string) => Promise<void>;
-  onToggleDarkMode: () => void;
-  onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
-  onUploadSourceClick: () => void;
-  onSourceFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
-  onImportJsonClick: () => void;
-  onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly onOpenProject: (projectId: string) => void;
+  readonly onPlanUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onRenameFolder: (folderId: string, name: string) => Promise<unknown>;
+  readonly onRenameProject?: (projectId: string, title: string) => Promise<unknown>;
+  readonly onSendAssessmentMessage: (message: string) => Promise<void>;
+  readonly onToggleDarkMode: () => void;
+  readonly onToggleLibraryContextRef: (reference: LibraryContextRef) => void;
+  readonly onUploadSourceClick: () => void;
+  readonly onSourceFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onImportJsonClick: () => void;
+  readonly onImportLibraryBackup?: (file: File) => Promise<number>;
 }
 
 const LibraryView = ({

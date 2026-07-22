@@ -6,4 +6,4 @@ export const clipText = (value: string, maxChars: number, suffix: string): strin
   return `${value.slice(0, maxChars).trimEnd()}\n\n${suffix}`;
 };
 
-export const normalizeLineEndings = (value: string): string => value.replace(/\r\n?/g, '\n');
+export const normalizeLineEndings = (value: string): string => value.replaceAll(/\r\n?/g, '\n');

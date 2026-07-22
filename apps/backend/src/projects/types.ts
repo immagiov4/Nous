@@ -148,6 +148,22 @@ export interface ProjectSaveOptions extends ProjectWriteOptions {
   };
 }
 
+export interface ProjectImportDiagnosticInput {
+  code: string;
+  correlationId: string;
+  fileBytes?: number;
+  limitBytes?: number;
+  projectCount?: number;
+  projectIndex?: number;
+  stage: string;
+}
+
+export interface ProjectImportDiagnostic extends ProjectImportDiagnosticInput {
+  createdAt: string;
+  id: number;
+  userId: string;
+}
+
 export interface ProjectStore {
   createFolder: (
     userId: string,
@@ -163,6 +179,7 @@ export interface ProjectStore {
   listFolders: (userId: string) => Promise<LibraryFolder[]>;
   listPlacements: (userId: string) => Promise<LibraryPlacement[]>;
   listProjects: (userId: string) => Promise<SavedProjectMeta[]>;
+  listProjectImportDiagnostics: (correlationId?: string) => Promise<ProjectImportDiagnostic[]>;
   loadProject: (userId: string, id: ProjectId) => Promise<ProjectSnapshot | null>;
   loadProjectCover: (userId: string, id: ProjectId) => Promise<ProjectCoverFile | null>;
   loadProjectSource: (userId: string, id: ProjectId) => Promise<ProjectSourceFile | null>;
@@ -199,6 +216,10 @@ export interface ProjectStore {
     targetIndex?: number
   ) => Promise<LibraryPlacement[]>;
   renameFolder: (userId: string, folderId: string, name: string) => Promise<LibraryFolder | null>;
+  recordProjectImportDiagnostic: (
+    userId: string,
+    diagnostic: ProjectImportDiagnosticInput
+  ) => Promise<void>;
   saveProject: (
     userId: string,
     snapshot: ProjectSnapshot,
@@ -215,6 +236,11 @@ export interface ProjectStore {
     id: ProjectId,
     patch: ProjectPatch,
     options?: ProjectWriteOptions
+  ) => Promise<SavedProjectMeta>;
+  setProjectFavorite: (
+    userId: string,
+    id: ProjectId,
+    isFavorite: boolean
   ) => Promise<SavedProjectMeta>;
   touchProject: (userId: string, id: ProjectId) => Promise<void>;
 }

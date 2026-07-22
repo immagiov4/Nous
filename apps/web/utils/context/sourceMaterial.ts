@@ -101,7 +101,7 @@ const mergeResolvedPageSpans = (spans: ResolvedPageSpan[]): ResolvedPageSpan[] =
   });
 
   return sortedSpans.reduce<ResolvedPageSpan[]>((mergedSpans, span) => {
-    const previousSpan = mergedSpans[mergedSpans.length - 1];
+    const previousSpan = mergedSpans.at(-1);
 
     if (!previousSpan || span.startPage > previousSpan.endPage + 1) {
       mergedSpans.push({ ...span });

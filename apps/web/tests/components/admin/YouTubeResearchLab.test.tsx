@@ -114,7 +114,11 @@ describe('YouTubeResearchLab', () => {
     });
     readSupabaseAccessRoleMock.mockReturnValue('admin');
     runAdminYouTubeResearchLabMock.mockResolvedValue(researchResult);
-    planYouTubeSearchQueryMock.mockResolvedValue('pixel art curves step by step tutorial');
+    planYouTubeSearchQueryMock.mockResolvedValue({
+      fallbackQuery: 'pixel art curves tutorial',
+      focusConcept: 'pixel art curves',
+      specificQuery: 'pixel art curves step by step tutorial',
+    });
     evaluateYouTubeResearchLabMock.mockResolvedValue({
       dossier: {
         avoidOversimplifying: [],

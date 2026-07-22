@@ -35,17 +35,17 @@ if (shouldApplyTestEnvironment) applyTestEnvironment();
 beforeEach(() => {
   if (shouldApplyTestEnvironment) applyTestEnvironment();
   vi.restoreAllMocks();
-  if (typeof window !== 'undefined') {
-    window.scrollTo = vi.fn();
-    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue();
-    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
-    Object.defineProperties(window.navigator, {
+  if (typeof globalThis.window !== 'undefined') {
+    globalThis.scrollTo = vi.fn();
+    vi.spyOn(globalThis.HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    vi.spyOn(globalThis.HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
+    Object.defineProperties(globalThis.navigator, {
       language: { configurable: true, value: 'it-IT' },
       languages: { configurable: true, value: ['it-IT'] },
     });
 
     const storedValues = new Map<string, string>();
-    Object.defineProperty(window, 'localStorage', {
+    Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
       value: {
         clear: () => {

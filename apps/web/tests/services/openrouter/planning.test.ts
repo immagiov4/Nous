@@ -114,6 +114,27 @@ test('LESSON_RESPONSE_SCHEMA marks all image placement keys as required for stri
   });
 });
 
+test('LESSON_RESPONSE_SCHEMA gives every typed-block discriminator an explicit string type', () => {
+  const contentBlockVariants = (
+    (LESSON_RESPONSE_SCHEMA.schema as { properties: Record<string, unknown> }).properties
+      .contentBlocks as {
+      items: {
+        anyOf: Array<{ properties: { type: Record<string, unknown> } }>;
+      };
+    }
+  ).items.anyOf;
+
+  assert.deepEqual(
+    contentBlockVariants.map(variant => variant.properties.type),
+    [
+      { type: 'string', const: 'markdown' },
+      { type: 'string', const: 'inline-quiz' },
+      { type: 'string', const: 'youtube-clips' },
+      { type: 'string', const: 'generated-visual' },
+    ]
+  );
+});
+
 test('estimateTargetQuizCount scales pauses conservatively with lesson density', () => {
   const shortLesson = `## Concetto\n\nBreve spiegazione tecnica focalizzata su un solo punto.\n\nUna conseguenza pratica.`;
   const mediumLesson = `## Concetto\n\n${'Spiegazione tecnica mirata. '.repeat(80)}\n\n## Applicazione\n\n${'Caso d uso e implicazioni operative. '.repeat(60)}`;
@@ -122,6 +143,13 @@ test('estimateTargetQuizCount scales pauses conservatively with lesson density',
   assert.equal(estimateTargetQuizCount(shortLesson), 1);
   assert.equal(estimateTargetQuizCount(mediumLesson), 2);
   assert.equal(estimateTargetQuizCount(longLesson), 3);
+});
+
+test('estimateTargetQuizCount ignores structural inline quiz markers', () => {
+  const lesson = '## Concetto\n\nUna spiegazione breve e focalizzata.';
+  const lessonWithMarkers = `${lesson}\n\n{{INLINE_QUIZ:0}}\n\n{{INLINE_QUIZ:1}}\n\n{{INLINE_QUIZ:2}}`;
+
+  assert.equal(estimateTargetQuizCount(lessonWithMarkers), estimateTargetQuizCount(lesson));
 });
 
 test('estimateRelevantPdfImagePages focuses extraction around the mapped chunk positions', () => {

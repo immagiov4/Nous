@@ -9,7 +9,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { type Dispatch, memo, type SetStateAction, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
@@ -28,25 +28,36 @@ export interface ChatArtifactReplaceRequest extends ChatArtifactActionRequest {
   replacementOfArtifactId: string;
 }
 
+export type ChatArtifactRegenerationStates = Record<string, 'working' | 'succeeded' | 'failed'>;
+
+export interface ChatArtifactRegenerationLifecycle {
+  replacementSourceArtifactIds: ReadonlySet<string>;
+  setStates: Dispatch<SetStateAction<ChatArtifactRegenerationStates>>;
+  states: ChatArtifactRegenerationStates;
+}
+
 interface ChatArtifactRendererProps {
-  actionFeedbackOverride?: ArtifactActionFeedback;
-  artifacts: LearningArtifactRenderPayload[];
-  className?: string;
-  isDarkMode: boolean;
+  readonly actionFeedbackOverride?: ArtifactActionFeedback;
+  readonly artifacts: LearningArtifactRenderPayload[];
+  readonly className?: string;
+  readonly isDarkMode: boolean;
   /** Called when user clicks "Salva" in the overlay footer. Returns a promise so the button shows saving state correctly. */
-  onSaveArtifact?: (request: ChatArtifactActionRequest) => Promise<void>;
+  readonly onSaveArtifact?: (request: ChatArtifactActionRequest) => Promise<void>;
   /** Called when user clicks "Rigenera" in the overlay footer. */
-  onRegenerateArtifact?: (request: ChatArtifactRegenerateRequest) => Promise<boolean> | boolean;
+  readonly onRegenerateArtifact?: (
+    request: ChatArtifactRegenerateRequest
+  ) => Promise<boolean> | boolean;
   /** Called when user clicks "Scarta" in the overlay footer. */
-  onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
+  readonly onDiscardArtifact?: (request: ChatArtifactActionRequest) => Promise<void> | void;
   /** Called when user approves a replacement draft. */
-  onReplaceArtifact?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
+  readonly onReplaceArtifact?: (request: ChatArtifactReplaceRequest) => Promise<void> | void;
   /** If true, the artifact grid shows a loading skeleton instead of cards. */
-  isLoading?: boolean;
-  openArtifactIdOverride?: string | null;
-  portalContainer?: HTMLElement | null;
+  readonly isLoading?: boolean;
+  readonly openArtifactIdOverride?: string | null;
+  readonly portalContainer?: HTMLElement | null;
+  readonly regenerationLifecycle?: ChatArtifactRegenerationLifecycle;
   /** When set, replaces the Maximize2 icon with an X remove button inside the card. */
-  onRemoveArtifact?: (artifactId: string) => void;
+  readonly onRemoveArtifact?: (artifactId: string) => void;
 }
 
 const getArtifactKindLabel = (artifact: LearningArtifactRenderPayload): string => {
@@ -86,6 +97,7 @@ const getArtifactReplacementTargetId = (artifact: LearningArtifactRenderPayload)
     : undefined;
 
 const ARTIFACT_ACTION_FEEDBACK = {
+  actionFailed: () => t('Operazione non riuscita. L artefatto non e stato modificato.'),
   discarded: () => t('Artefatto scartato.'),
   regenerationFailed: () => t('Rigenerazione fallita. La bozza precedente non e stata modificata.'),
   regenerationRequested: () => t('Rigenerazione richiesta.'),
@@ -163,6 +175,8 @@ const ArtifactOverlay = ({
   const hasActions = shouldShowSaveAction || canRegenerate || onDiscardArtifact || canReplace;
   const trimmedRegenerationInstructions = regenerationInstructions.trim();
   const visibleActionFeedback = actionFeedbackOverride ?? actionFeedback;
+  const hasFailedAction =
+    visibleActionFeedback === 'actionFailed' || visibleActionFeedback === 'regenerationFailed';
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -171,13 +185,19 @@ const ArtifactOverlay = ({
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    globalThis.window.addEventListener('keydown', handleKeyDown);
+    return () => globalThis.window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
   const handleDiscardArtifact = async () => {
-    setActionFeedback('discarded');
-    await onDiscardArtifact?.({ artifactId: artifact.summary.id });
+    setActionFeedback(null);
+    try {
+      await onDiscardArtifact?.({ artifactId: artifact.summary.id });
+      setActionFeedback('discarded');
+    } catch (error) {
+      console.error('[Nous][Artifact] Discard failed.', error);
+      setActionFeedback('actionFailed');
+    }
   };
 
   const handleRegenerateArtifact = async () => {
@@ -207,11 +227,17 @@ const ArtifactOverlay = ({
       return;
     }
 
-    await onReplaceArtifact({
-      artifactId: artifact.summary.id,
-      replacementOfArtifactId,
-    });
-    setActionFeedback('replaced');
+    setActionFeedback(null);
+    try {
+      await onReplaceArtifact({
+        artifactId: artifact.summary.id,
+        replacementOfArtifactId,
+      });
+      setActionFeedback('replaced');
+    } catch (error) {
+      console.error('[Nous][Artifact] Replacement failed.', error);
+      setActionFeedback('actionFailed');
+    }
   };
 
   const handleSaveArtifact = async () => {
@@ -320,12 +346,12 @@ const ArtifactOverlay = ({
               {visibleActionFeedback ? (
                 <div
                   className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ${
-                    visibleActionFeedback === 'regenerationFailed'
+                    hasFailedAction
                       ? 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-200'
                       : 'bg-stone-100 text-stone-600 dark:bg-zinc-800 dark:text-zinc-200'
                   }`}
                 >
-                  {visibleActionFeedback === 'regenerationFailed' ? (
+                  {hasFailedAction ? (
                     <AlertTriangle className="h-3.5 w-3.5" />
                   ) : (
                     <Check className="h-3.5 w-3.5" />
@@ -400,6 +426,7 @@ const ChatArtifactRenderer = ({
   isLoading = false,
   openArtifactIdOverride,
   portalContainer,
+  regenerationLifecycle,
   onDiscardArtifact,
   onRegenerateArtifact,
   onRemoveArtifact,
@@ -407,9 +434,10 @@ const ChatArtifactRenderer = ({
   onSaveArtifact,
 }: ChatArtifactRendererProps) => {
   const [openArtifactId, setOpenArtifactId] = useState<string | null>(null);
-  const [regenerationState, setRegenerationState] = useState<
-    'idle' | 'working' | 'succeeded' | 'failed'
-  >('idle');
+  const [localRegenerationStates, setLocalRegenerationStates] =
+    useState<ChatArtifactRegenerationStates>({});
+  const regenerationStates = regenerationLifecycle?.states ?? localRegenerationStates;
+  const setRegenerationStates = regenerationLifecycle?.setStates ?? setLocalRegenerationStates;
 
   // Deduplicate by artifact summary ID to avoid React key warnings.
   const deduplicatedArtifacts = useMemo(
@@ -422,23 +450,132 @@ const ChatArtifactRenderer = ({
       }, []),
     [artifacts]
   );
+  const currentArtifacts = useMemo(() => {
+    const replacementsByTarget = new Map<string, LearningArtifactRenderPayload[]>();
+    for (const artifact of deduplicatedArtifacts) {
+      const replacementTargetId = getArtifactReplacementTargetId(artifact);
+      if (replacementTargetId) {
+        const replacements = replacementsByTarget.get(replacementTargetId) || [];
+        replacements.push(artifact);
+        replacementsByTarget.set(replacementTargetId, replacements);
+      }
+    }
+
+    const activeReplacementIds = new Set<string>();
+    const replacedArtifactIds = new Set<string>();
+    for (const [replacementTargetId, replacements] of replacementsByTarget) {
+      const latestCreatedAt = replacements.reduce(
+        (latest, artifact) =>
+          'visual' in artifact && artifact.visual.createdAt > latest
+            ? artifact.visual.createdAt
+            : latest,
+        ''
+      );
+      const latestReplacements = replacements.filter(
+        artifact => 'visual' in artifact && artifact.visual.createdAt === latestCreatedAt
+      );
+      if (latestReplacements.length === 1) {
+        activeReplacementIds.add(latestReplacements[0].summary.id);
+        replacedArtifactIds.add(replacementTargetId);
+      }
+    }
+
+    return deduplicatedArtifacts.filter(artifact => {
+      const replacementTargetId = getArtifactReplacementTargetId(artifact);
+      const isActiveReplacement =
+        !replacementTargetId || activeReplacementIds.has(artifact.summary.id);
+      return isActiveReplacement && !replacedArtifactIds.has(artifact.summary.id);
+    });
+  }, [deduplicatedArtifacts]);
+  const observedReplacementTargetIds = useMemo(() => {
+    const replacementTargetIds = new Set(regenerationLifecycle?.replacementSourceArtifactIds);
+    for (const artifact of deduplicatedArtifacts) {
+      const replacementTargetId = getArtifactReplacementTargetId(artifact);
+      if (replacementTargetId) {
+        replacementTargetIds.add(replacementTargetId);
+      }
+    }
+    return replacementTargetIds;
+  }, [deduplicatedArtifacts, regenerationLifecycle?.replacementSourceArtifactIds]);
+  const renderedArtifactIds = useMemo(
+    () => new Set(deduplicatedArtifacts.map(artifact => artifact.summary.id)),
+    [deduplicatedArtifacts]
+  );
+  const visibleRegenerationStates = Object.entries(regenerationStates).filter(
+    ([sourceArtifactId, state]) =>
+      renderedArtifactIds.has(sourceArtifactId) &&
+      (state !== 'succeeded' || !observedReplacementTargetIds.has(sourceArtifactId))
+  );
+  const visibleArtifacts = currentArtifacts.filter(artifact => {
+    const regenerationState = regenerationStates[artifact.summary.id];
+    return regenerationState !== 'working' && regenerationState !== 'succeeded';
+  });
+
+  const clearSucceededRegenerationState = (sourceArtifactId: string | undefined) => {
+    if (!sourceArtifactId) {
+      return;
+    }
+
+    setRegenerationStates(currentStates => {
+      if (currentStates[sourceArtifactId] !== 'succeeded') {
+        return currentStates;
+      }
+
+      const nextStates = { ...currentStates };
+      delete nextStates[sourceArtifactId];
+      return nextStates;
+    });
+  };
+  const clearReplacementSourceRegenerationState = (artifactId: string) => {
+    const artifact = deduplicatedArtifacts.find(candidate => candidate.summary.id === artifactId);
+    clearSucceededRegenerationState(
+      artifact ? getArtifactReplacementTargetId(artifact) : undefined
+    );
+  };
 
   const resolvedOpenArtifactId =
     openArtifactIdOverride === undefined ? openArtifactId : openArtifactIdOverride;
   const openArtifact =
-    deduplicatedArtifacts.find(artifact => artifact.summary.id === resolvedOpenArtifactId) || null;
+    visibleArtifacts.find(artifact => artifact.summary.id === resolvedOpenArtifactId) || null;
   const handleRegenerateFromOverlay = onRegenerateArtifact
     ? async (request: ChatArtifactRegenerateRequest): Promise<boolean> => {
         setOpenArtifactId(null);
-        setRegenerationState('working');
+        setRegenerationStates(currentStates => ({
+          ...currentStates,
+          [request.artifactId]: 'working',
+        }));
         try {
           const regenerated = await onRegenerateArtifact(request);
-          setRegenerationState(regenerated ? 'succeeded' : 'failed');
+          setRegenerationStates(currentStates => ({
+            ...currentStates,
+            [request.artifactId]: regenerated ? 'succeeded' : 'failed',
+          }));
           return regenerated;
         } catch (error) {
-          setRegenerationState('failed');
+          setRegenerationStates(currentStates => ({
+            ...currentStates,
+            [request.artifactId]: 'failed',
+          }));
           throw error;
         }
+      }
+    : undefined;
+  const handleDiscardFromOverlay = onDiscardArtifact
+    ? async (request: ChatArtifactActionRequest) => {
+        await onDiscardArtifact(request);
+        clearReplacementSourceRegenerationState(request.artifactId);
+      }
+    : undefined;
+  const handleReplaceFromOverlay = onReplaceArtifact
+    ? async (request: ChatArtifactReplaceRequest) => {
+        await onReplaceArtifact(request);
+        clearSucceededRegenerationState(request.replacementOfArtifactId);
+      }
+    : undefined;
+  const handleRemoveArtifact = onRemoveArtifact
+    ? (artifactId: string) => {
+        clearReplacementSourceRegenerationState(artifactId);
+        onRemoveArtifact(artifactId);
       }
     : undefined;
   const artifactOverlay = openArtifact ? (
@@ -448,9 +585,9 @@ const ChatArtifactRenderer = ({
       artifact={openArtifact}
       isDarkMode={isDarkMode}
       onClose={() => setOpenArtifactId(null)}
-      onDiscardArtifact={onDiscardArtifact}
+      onDiscardArtifact={handleDiscardFromOverlay}
       onRegenerateArtifact={handleRegenerateFromOverlay}
-      onReplaceArtifact={onReplaceArtifact}
+      onReplaceArtifact={handleReplaceFromOverlay}
       onSaveArtifact={onSaveArtifact}
     />
   ) : null;
@@ -461,8 +598,9 @@ const ChatArtifactRenderer = ({
 
   return (
     <div className={className}>
-      {regenerationState !== 'idle' ? (
+      {visibleRegenerationStates.map(([sourceArtifactId, regenerationState]) => (
         <output
+          key={sourceArtifactId}
           className={`col-span-full flex items-center gap-2 rounded-2xl border p-4 text-sm ${
             regenerationState === 'failed'
               ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
@@ -484,14 +622,14 @@ const ChatArtifactRenderer = ({
                 : t('Nuova bozza pronta.')}
           </span>
         </output>
-      ) : null}
+      ))}
       {isLoading ? (
         <div className="col-span-full flex items-center gap-2 rounded-2xl border border-stone-200/90 bg-white/85 p-4 text-sm text-stone-500 dark:border-zinc-700/80 dark:bg-stone-800/75 dark:text-zinc-400">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-orange-500 border-t-transparent" />
           <span>{t('Generazione artefatto in corso...')}</span>
         </div>
       ) : (
-        deduplicatedArtifacts.map(artifact => {
+        visibleArtifacts.map(artifact => {
           const Icon = getArtifactIcon(artifact);
           const hasPreview = artifact.summary.previewMode === 'thumbnail';
           return (
@@ -511,7 +649,7 @@ const ChatArtifactRenderer = ({
                 <ArtifactPreview artifact={artifact} isDarkMode={isDarkMode} />
                 <span
                   className={`${hasPreview ? 'mt-2' : ''} flex min-w-0 items-start gap-2 ${
-                    onRemoveArtifact ? 'pr-7' : ''
+                    handleRemoveArtifact ? 'pr-7' : ''
                   }`}
                 >
                   <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-200">
@@ -527,10 +665,10 @@ const ChatArtifactRenderer = ({
                   </span>
                 </span>
               </button>
-              {onRemoveArtifact ? (
+              {handleRemoveArtifact ? (
                 <button
                   type="button"
-                  onClick={() => onRemoveArtifact(artifact.summary.id)}
+                  onClick={() => handleRemoveArtifact(artifact.summary.id)}
                   className="absolute right-2.5 bottom-2.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-stone-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-stone-700 dark:hover:text-red-300"
                   aria-label={t('Rimuovi {artifactTitle} dalla nota', {
                     artifactTitle: artifact.summary.title,

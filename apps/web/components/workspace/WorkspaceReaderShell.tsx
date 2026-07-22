@@ -45,12 +45,12 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
   }, [displayMode]);
 
   useLayoutEffect(() => {
-    if (displayMode === 'embedded' || typeof window === 'undefined') {
+    if (displayMode === 'embedded' || typeof globalThis.window === 'undefined') {
       return;
     }
 
     const resetScrollPosition = () => {
-      window.scrollTo(0, 0);
+      globalThis.window.scrollTo(0, 0);
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
       content.scrollContainerRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -59,10 +59,10 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
     // The reader swaps from document scrolling to an internal scroll container; resetting once now
     // and once after layout prevents the previous screen position from leaking into the lesson view.
     resetScrollPosition();
-    const frameId = window.requestAnimationFrame(resetScrollPosition);
+    const frameId = globalThis.window.requestAnimationFrame(resetScrollPosition);
 
     return () => {
-      window.cancelAnimationFrame(frameId);
+      globalThis.window.cancelAnimationFrame(frameId);
     };
   }, [content.scrollContainerRef, displayMode]);
 

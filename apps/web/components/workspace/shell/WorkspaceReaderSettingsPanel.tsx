@@ -4,10 +4,10 @@ import OpenRouterModelPanel, {
 } from '../../shared/OpenRouterModelPanel.tsx';
 
 interface WorkspaceReaderSettingsPanelProps {
-  courseNotes?: CourseGenerationNotesBinding;
-  onClose: () => void;
-  onSectionToggle: (sections: SettingsPanelSectionId[]) => void;
-  expandedSections: SettingsPanelSectionId[];
+  readonly courseNotes?: CourseGenerationNotesBinding;
+  readonly onClose: () => void;
+  readonly onSectionToggle: (sections: SettingsPanelSectionId[]) => void;
+  readonly expandedSections: SettingsPanelSectionId[];
 }
 
 export default function WorkspaceReaderSettingsPanel({

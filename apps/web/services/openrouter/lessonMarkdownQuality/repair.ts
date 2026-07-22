@@ -76,13 +76,13 @@ REGOLE:
 11. Evita il tono da saggio divulgativo: niente piccoli riassunti, tesi di paragrafo o frasi che riformulano subito la stessa idea con parole diverse.
 12. Mantieni heading chiari senza imporre sezioni aggiuntive.
 13. Se due paragrafi stanno difendendo la stessa tesi o ribadendo lo stesso contrasto concettuale, fondili in uno solo e tieni soltanto la formulazione piu chiara e utile.
-14. NON inserire quiz nel testo.
+14. NON inserire domande, opzioni o sezioni quiz nel testo; i marker quiz inline esistenti non sono contenuto del quiz e vanno conservati.
 15. NON inserire markdown image syntax, tag <img> o riferimenti ad asset tecnici.
 16. Normalizza i blocchi di codice Markdown: usa solo fence standard del tipo \`\`\` oppure \`\`\`lang con il SOLO nome del linguaggio (es. \`\`\`cpp). Non aggiungere commenti, etichette o testo extra sulla stessa riga del fence.
 17. Per pseudocodice o codice multilinea, NON alternare blocchi \`\`\`text\` e righe fuori dal blocco: ogni esempio deve stare in UN SOLO code block, includendo firma, corpo, parentesi graffe e RETURN.
 18. Non scrivere righe spurie come \`cpp\`, \`cpp // commento\` o simili subito prima di un code block. Se vuoi introdurre il codice, fallo con una frase normale separata; se vuoi un commento nel codice, mettilo dentro il blocco con la sintassi del linguaggio.
 19. Correggi e normalizza anche la formattazione KaTeX/LaTeX: formule inline solo come \`$...$\` oppure \`\\(...\\)\`; formule display solo come \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, e assicurati che parentesi, graffe e delimitatori siano bilanciati.
-20. Conserva integralmente i marker strutturati \`{{YOUTUBE_CLIP_SOURCE:...}}\` e \`{{VISUAL_SLOT:...}}\`; puoi spostarli insieme al paragrafo pertinente, ma non riscriverli o eliminarli.
+20. Conserva integralmente i marker strutturati \`{{YOUTUBE_CLIP_SOURCE:...}}\`, \`{{VISUAL_SLOT:...}}\` e \`{{INLINE_QUIZ:...}}\`; puoi spostarli insieme al paragrafo pertinente, ma non riscriverli o eliminarli.
 21. Restituisci SOLO markdown pulito, senza JSON e senza spiegazioni.
 
 CONTESTO SORGENTE:

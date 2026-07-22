@@ -50,6 +50,11 @@ const READING_WORKFLOWS_TO_CANCEL_ON_LIBRARY_RETURN: WorkspaceWorkflowId[] = [
   'evaluateExercise',
 ];
 
+interface ActiveGeneration {
+  projectId: string | null;
+  token: number;
+}
+
 export const createSectionCommands = (context: WorkspaceControllerContext) => {
   const { domain, openRouter, projectLibrary, state, stopAudio } = context;
   const sourceArchiveClient = new SourceArchiveClient();
@@ -71,125 +76,174 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
   };
 
   async function openExercise(exercise: ApplicationExerciseNode): Promise<void> {
-    stopAudio(true);
-    domain.setActiveSectionId(exercise.id);
-    void projectLibrary.patchCurrentProject({
-      activeSectionId: exercise.id,
-      state: AppState.READING,
-    });
-
-    if (exercise.brief?.trim() || !domain.learningPlan) {
-      return;
-    }
-
-    const gaps = openRouter.getExercisePrerequisiteGaps(domain.learningPlan, exercise.id);
-    if (gaps.length > 0) {
-      return;
-    }
-
-    const isLoadingSection = state.getWorkflowState().loadSection.status === 'pending';
-    if (selectIsBlocking(state.getWorkflowState()) || isLoadingSection) {
-      return;
-    }
-
-    state.setGeneratingSectionId(exercise.id);
-    const requestId = state.beginWorkflow('loadSection', t('Controllo le lezioni precedenti...'));
-
-    try {
-      const result = await openRouter.generateApplicationExerciseBrief({
-        documentIndex: domain.documentIndex,
-        exercise,
-        learningPlan: domain.learningPlan,
-        profile: domain.userProfile,
-        researchDossiersBySectionId: domain.researchDossiersBySectionId,
-        onStatusUpdate: status => {
-          state.setWorkflowMessage('loadSection', requestId, status);
-        },
-        onReasoningUpdate: reasoning => {
-          state.setWorkflowReasoning('loadSection', requestId, reasoning);
-        },
-      });
-
-      if (!state.isWorkflowCurrent('loadSection', requestId)) {
-        return;
-      }
-
-      const updatedPlan = updateApplicationExerciseInPlan(domain.learningPlan, exercise.id, node =>
-        withGeneratedExerciseBrief(node, {
-          brief: result.brief,
-          groundingSources: result.groundingSources,
-        })
-      );
-      domain.setLearningPlan(updatedPlan);
+    const learningPlan = domain.learningPlan;
+    const needsBrief = !exercise.brief?.trim() && learningPlan !== null;
+    const gaps = needsBrief
+      ? openRouter.getExercisePrerequisiteGaps(learningPlan, exercise.id)
+      : [];
+    if (!needsBrief || !learningPlan || gaps.length > 0) {
+      stopAudio(true);
+      domain.setActiveSectionId(exercise.id);
       void projectLibrary.patchCurrentProject({
-        learningPlan: updatedPlan,
         activeSectionId: exercise.id,
         state: AppState.READING,
       });
-      state.succeedWorkflow('loadSection', requestId);
-    } catch (error) {
-      state.failWorkflow('loadSection', requestId, getErrorMessage(error));
-      throw error;
+      return;
+    }
+
+    const workflowState = state.getWorkflowState();
+    if (
+      state.isGenerationActive(projectLibrary.currentProjectId) ||
+      workflowState.generateExercise.status === 'pending' ||
+      workflowState.loadSection.status === 'pending' ||
+      selectIsBlocking(workflowState)
+    ) {
+      return;
+    }
+
+    const projectId = projectLibrary.currentProjectId;
+    const generationToken = state.tryBeginGeneration(projectId, 'exercise');
+    if (generationToken === null) {
+      return;
+    }
+
+    try {
+      stopAudio(true);
+      domain.setActiveSectionId(exercise.id);
+      void projectLibrary.patchCurrentProject({
+        activeSectionId: exercise.id,
+        state: AppState.READING,
+      });
+      state.setGeneratingSectionId(projectId, generationToken, exercise.id);
+      const requestId = state.beginWorkflow('loadSection', t('Controllo le lezioni precedenti...'));
+      const isGenerationRequestCurrent = () =>
+        projectLibrary.currentProjectId === projectId &&
+        state.isWorkflowCurrent('loadSection', requestId);
+
+      try {
+        const result = await openRouter.generateApplicationExerciseBrief({
+          documentIndex: domain.documentIndex,
+          exercise,
+          learningPlan,
+          profile: domain.userProfile,
+          researchDossiersBySectionId: domain.researchDossiersBySectionId,
+          onStatusUpdate: status => {
+            state.setWorkflowMessage('loadSection', requestId, status);
+          },
+          onReasoningUpdate: reasoning => {
+            state.setWorkflowReasoning('loadSection', requestId, reasoning);
+          },
+        });
+
+        if (!isGenerationRequestCurrent()) {
+          return;
+        }
+
+        const updatedPlan = updateApplicationExerciseInPlan(learningPlan, exercise.id, node =>
+          withGeneratedExerciseBrief(node, {
+            brief: result.brief,
+            groundingSources: result.groundingSources,
+          })
+        );
+        domain.setLearningPlan(updatedPlan);
+        void projectLibrary.patchCurrentProject({
+          learningPlan: updatedPlan,
+          activeSectionId: exercise.id,
+          state: AppState.READING,
+        });
+        state.succeedWorkflow('loadSection', requestId);
+      } catch (error) {
+        if (!isGenerationRequestCurrent()) {
+          return;
+        }
+        state.failWorkflow('loadSection', requestId, getErrorMessage(error));
+        throw error;
+      }
     } finally {
-      state.setGeneratingSectionId(null);
+      state.finishGeneration(projectId, generationToken);
     }
   }
 
   async function repairApplicationExercises(): Promise<{ outcome: 'noop' | 'repaired' }> {
-    if (!domain.learningPlan) {
+    const learningPlan = domain.learningPlan;
+    if (!learningPlan) {
       return { outcome: 'noop' };
     }
 
-    const requestId = state.beginWorkflow(
-      'generateExercise',
-      t('Scelgo dove inserire gli esercizi...')
-    );
+    const workflowState = state.getWorkflowState();
+    if (
+      state.isGenerationActive(projectLibrary.currentProjectId) ||
+      workflowState.generateExercise.status === 'pending' ||
+      workflowState.loadSection.status === 'pending' ||
+      selectIsBlocking(workflowState)
+    ) {
+      return { outcome: 'noop' };
+    }
+
+    const projectId = projectLibrary.currentProjectId;
+    const generationToken = state.tryBeginGeneration(projectId, 'exercise');
+    if (generationToken === null) {
+      return { outcome: 'noop' };
+    }
 
     try {
-      const result = await openRouter.generateApplicationExercisePlacements({
-        courseIntent: domain.learningPlan.summary || domain.learningPlan.title,
-        learningPlan: domain.learningPlan,
-        profile: domain.userProfile,
-        researchCoursePlan: domain.researchCoursePlan,
-        researchDossiersBySectionId: domain.researchDossiersBySectionId,
-        onStatusUpdate: status => {
-          state.setWorkflowMessage('generateExercise', requestId, status);
-        },
-        onReasoningUpdate: reasoning => {
-          state.setWorkflowReasoning('generateExercise', requestId, reasoning);
-        },
-      });
-
-      if (!state.isWorkflowCurrent('generateExercise', requestId)) {
-        return { outcome: 'noop' };
-      }
-
-      domain.setLearningPlan(result.plan);
-      void projectLibrary.patchCurrentProject({
-        learningPlan: result.plan,
-        activeSectionId: domain.activeSectionId,
-        state: AppState.READING,
-      });
-      state.succeedWorkflow('generateExercise', requestId);
-      return { outcome: 'repaired' };
-    } catch (error) {
-      const attempts =
-        typeof (error as { attempts?: unknown }).attempts === 'number'
-          ? (error as { attempts: number }).attempts
-          : 1;
-      const failedPlan = markApplicationExercisePlanningFailed(
-        domain.learningPlan,
-        error instanceof Error ? error : new Error(getErrorMessage(error)),
-        attempts
+      const requestId = state.beginWorkflow(
+        'generateExercise',
+        t('Scelgo dove inserire gli esercizi...')
       );
-      domain.setLearningPlan(failedPlan);
-      void projectLibrary.patchCurrentProject({
-        learningPlan: failedPlan,
-        activeSectionId: domain.activeSectionId,
-        state: AppState.READING,
-      });
-      state.failWorkflow('generateExercise', requestId, getErrorMessage(error));
-      throw error;
+
+      try {
+        const result = await openRouter.generateApplicationExercisePlacements({
+          courseIntent: learningPlan.summary || learningPlan.title,
+          learningPlan,
+          profile: domain.userProfile,
+          researchCoursePlan: domain.researchCoursePlan,
+          researchDossiersBySectionId: domain.researchDossiersBySectionId,
+          onStatusUpdate: status => {
+            state.setWorkflowMessage('generateExercise', requestId, status);
+          },
+          onReasoningUpdate: reasoning => {
+            state.setWorkflowReasoning('generateExercise', requestId, reasoning);
+          },
+        });
+
+        if (!state.isWorkflowCurrent('generateExercise', requestId)) {
+          return { outcome: 'noop' };
+        }
+
+        domain.setLearningPlan(result.plan);
+        void projectLibrary.patchCurrentProject({
+          learningPlan: result.plan,
+          activeSectionId: domain.activeSectionId,
+          state: AppState.READING,
+        });
+        state.succeedWorkflow('generateExercise', requestId);
+        return { outcome: 'repaired' };
+      } catch (error) {
+        if (!state.isWorkflowCurrent('generateExercise', requestId)) {
+          return { outcome: 'noop' };
+        }
+
+        const attempts =
+          typeof (error as { attempts?: unknown }).attempts === 'number'
+            ? (error as { attempts: number }).attempts
+            : 1;
+        const failedPlan = markApplicationExercisePlanningFailed(
+          learningPlan,
+          error instanceof Error ? error : new Error(getErrorMessage(error)),
+          attempts
+        );
+        domain.setLearningPlan(failedPlan);
+        void projectLibrary.patchCurrentProject({
+          learningPlan: failedPlan,
+          activeSectionId: domain.activeSectionId,
+          state: AppState.READING,
+        });
+        state.failWorkflow('generateExercise', requestId, getErrorMessage(error));
+        throw error;
+      }
+    } finally {
+      state.finishGeneration(projectId, generationToken);
     }
   }
 
@@ -312,9 +366,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     }
   }
 
-  async function openSection(
+  async function openSectionWithGenerationGate(
     section: LessonNode,
-    options: OpenSectionOptions = {}
+    options: OpenSectionOptions = {},
+    activeGeneration?: ActiveGeneration
   ): Promise<OpenSectionOutcome> {
     const currentPlan = options.currentPlan ?? domain.learningPlan;
     const currentDocumentIndex =
@@ -345,12 +400,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'ignored-busy';
     }
 
-    stopAudio(true);
-    domain.setActiveSectionId(section.id);
-
     // Sections with content navigate immediately — even if another generation
     // is running. The user can freely switch between ready lessons.
     if (!forceRegenerate && section.content?.length) {
+      stopAudio(true);
+      domain.setActiveSectionId(section.id);
       void projectLibrary.patchCurrentProject({
         activeSectionId: section.id,
         state: AppState.READING,
@@ -358,26 +412,74 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'reused-cached';
     }
 
-    // Guard: starting a NEW generation is blocked while any blocking workflow is
-    // active or another loadSection is already running (avoids accidental double-
-    // clicks and rate-limit contention). Only one generation at a time.
-    const isLoadingSection = state.getWorkflowState().loadSection.status === 'pending';
+    // Ready lessons remain navigable, but every new lesson or sublesson generation
+    // shares this gate so workflow invalidation and command recreation cannot open a race.
+    const workflowState = state.getWorkflowState();
+    const isLoadingSection = workflowState.loadSection.status === 'pending';
+    const isCreatingLesson = workflowState.createLesson.status === 'pending';
+    const isGeneratingExercises = workflowState.generateExercise.status === 'pending';
     if (
       isLoadingSection ||
-      (!options.allowWhileBlocking && selectIsBlocking(state.getWorkflowState()))
+      isCreatingLesson ||
+      isGeneratingExercises ||
+      (!options.allowWhileBlocking && selectIsBlocking(workflowState))
     ) {
       return 'ignored-busy';
     }
+
+    const ownsGenerationGate = activeGeneration === undefined;
+    if (!activeGeneration) {
+      const projectId = projectLibrary.currentProjectId;
+      const token = state.tryBeginGeneration(projectId, 'lesson');
+      if (token === null) {
+        return 'ignored-busy';
+      }
+      activeGeneration = { projectId, token };
+    }
+
+    state.setGeneratingSectionId(activeGeneration.projectId, activeGeneration.token, section.id);
+    const requestId = state.beginWorkflow(
+      'loadSection',
+      t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
+    );
+    const isGenerationRequestCurrent = () =>
+      projectLibrary.currentProjectId === activeGeneration.projectId &&
+      state.isWorkflowCurrent('loadSection', requestId);
+
+    stopAudio(true);
+    domain.setActiveSectionId(section.id);
 
     void projectLibrary.patchCurrentProject({
       activeSectionId: section.id,
       state: AppState.READING,
     });
 
-    const sourceFile =
-      options.currentSourceFile === undefined
-        ? await loadProjectSourceFile(context)
-        : options.currentSourceFile;
+    let sourceFile: Awaited<ReturnType<typeof loadProjectSourceFile>>;
+    try {
+      sourceFile =
+        options.currentSourceFile === undefined
+          ? await loadProjectSourceFile(context, isGenerationRequestCurrent)
+          : options.currentSourceFile;
+    } catch (error) {
+      if (!isGenerationRequestCurrent()) {
+        if (ownsGenerationGate) {
+          state.finishGeneration(activeGeneration.projectId, activeGeneration.token);
+        }
+        return 'ignored-busy';
+      }
+      state.failWorkflow('loadSection', requestId, getErrorMessage(error));
+      if (ownsGenerationGate) {
+        state.finishGeneration(activeGeneration.projectId, activeGeneration.token);
+      }
+      throw error;
+    }
+
+    if (!isGenerationRequestCurrent()) {
+      if (ownsGenerationGate) {
+        state.finishGeneration(activeGeneration.projectId, activeGeneration.token);
+      }
+      return 'ignored-busy';
+    }
 
     const lessonGenerationState = resolveLessonGenerationState({
       file: sourceFile,
@@ -388,15 +490,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     });
 
     if (lessonGenerationState === 'blocked-missing-source') {
+      state.invalidateWorkflows(['loadSection']);
+      if (ownsGenerationGate) {
+        state.finishGeneration(activeGeneration.projectId, activeGeneration.token);
+      }
       return 'blocked-missing-source';
     }
-
-    state.setGeneratingSectionId(section.id);
-
-    const requestId = state.beginWorkflow(
-      'loadSection',
-      t(forceRegenerate ? 'Rigenerazione lezione...' : 'Analisi contenuti...')
-    );
     const progressObserver = openRouter.createGenerationProgressObserver({
       language: currentUserProfile?.language || 'Italiano',
       onUpdate: progress => state.setWorkflowProgress('loadSection', requestId, progress),
@@ -441,7 +540,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             onReasoningUpdate: progressObserver.push,
           }));
 
-        if (!state.isWorkflowCurrent('loadSection', requestId)) {
+        if (!isGenerationRequestCurrent()) {
           return 'ignored-busy';
         }
 
@@ -465,16 +564,23 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           onReasoningUpdate: progressObserver.push,
         });
 
-        if (!state.isWorkflowCurrent('loadSection', requestId) || !learnLessonResult) {
+        if (!isGenerationRequestCurrent() || !learnLessonResult) {
           return 'ignored-busy';
         }
 
-        const { content, generatedVisuals, learningAids, quiz, visualPlanningDecision } =
-          learnLessonResult;
+        const {
+          content,
+          contentBlocks,
+          generatedVisuals,
+          learningAids,
+          quiz,
+          visualPlanningDecision,
+        } = learnLessonResult;
 
         domain.updateSection(section.id, section => ({
           ...section,
           content,
+          contentBlocks,
           quiz,
           imageRefs: [],
           generatedVisuals,
@@ -491,6 +597,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           section.id,
           {
             content,
+            contentBlocks,
             generatedVisuals,
             imageRefs: [],
             learningAids,
@@ -533,6 +640,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             { sourceHash: archiveSource.ref.hash, sourceId: archiveSource.ref.id },
             section.sourceArchiveSelectors
           );
+          if (!isGenerationRequestCurrent()) {
+            return 'ignored-busy';
+          }
           resolvedSourceArchiveContext = resolvedFiles
             .map(file => `FILE ${file.path}\n${file.text}`)
             .join('\n\n---\n\n');
@@ -546,6 +656,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
               sourceDescriptors: getCourseSourceDescriptors(domain.source),
               sourceReferences: section.sourceReferences,
             });
+        if (!isGenerationRequestCurrent()) {
+          return 'ignored-busy';
+        }
         const coverageDecision =
           section.type === 'prerequisite' && !cachedResearchDossier
             ? await openRouter.selectPrerequisiteSourceCoverage({
@@ -556,6 +669,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
                 title: section.title,
               })
             : null;
+        if (!isGenerationRequestCurrent()) {
+          return 'ignored-busy';
+        }
         let nextResearchDossiersBySectionId = currentResearchDossiersBySectionId;
         const moduleTitle =
           currentPlan.modules.find(module => module.children.some(child => child.id === section.id))
@@ -572,6 +688,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             onStatusUpdate: reportStatus,
             onReasoningUpdate: progressObserver.push,
           }));
+        if (!isGenerationRequestCurrent()) {
+          return 'ignored-busy';
+        }
         const mixedDossier = openRouter.mergePrerequisiteDossierSources(
           researchedDossier,
           originalSourceContext.sources
@@ -598,6 +717,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
         const {
           content,
+          contentBlocks,
           documentAssets: nextDocumentAssets,
           generatedVisuals,
           imageRefs,
@@ -606,13 +726,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           visualPlanningDecision,
         } = lessonResult;
 
-        if (!state.isWorkflowCurrent('loadSection', requestId)) {
+        if (!isGenerationRequestCurrent()) {
           return 'ignored-busy';
         }
 
         domain.updateSection(section.id, section => ({
           ...section,
           content,
+          contentBlocks,
           quiz,
           imageRefs,
           learningAids,
@@ -629,6 +750,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           section.id,
           {
             content,
+            contentBlocks,
             generatedVisuals,
             imageRefs,
             learningAids,
@@ -652,13 +774,25 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       await progressObserver.finish();
       progressObserver.complete();
       state.succeedWorkflow('loadSection', requestId);
-      state.setGeneratingSectionId(null);
       return 'loaded';
     } catch (error) {
+      if (!isGenerationRequestCurrent()) {
+        return 'ignored-busy';
+      }
       state.failWorkflow('loadSection', requestId, getErrorMessage(error));
-      state.setGeneratingSectionId(null);
       throw error;
+    } finally {
+      if (ownsGenerationGate) {
+        state.finishGeneration(activeGeneration.projectId, activeGeneration.token);
+      }
     }
+  }
+
+  async function openSection(
+    section: LessonNode,
+    options: OpenSectionOptions = {}
+  ): Promise<OpenSectionOutcome> {
+    return openSectionWithGenerationGate(section, options);
   }
 
   async function regenerateActiveSection(): Promise<OpenSectionOutcome> {
@@ -687,18 +821,25 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         args.contextBefore ||
         args.contextAfter
     );
+    const requestId = state.beginWorkflow('contextQuestion', t('Analisi contesto...'));
     const sourceFile = canAnswerFromLesson
       ? getProjectSourceFile(domain.source)
-      : await loadProjectSourceFile(context);
+      : await loadProjectSourceFile(context, () =>
+          state.isWorkflowCurrent('contextQuestion', requestId)
+        );
 
-    if (!sourceFile && !canAnswerFromLesson) {
-      return {
-        errorMessage:
-          'Questo progetto non ha una fonte collegata e la lezione corrente non contiene abbastanza contesto per rispondere.',
-      };
+    if (!state.isWorkflowCurrent('contextQuestion', requestId)) {
+      return {};
     }
 
-    const requestId = state.beginWorkflow('contextQuestion', t('Analisi contesto...'));
+    if (!sourceFile && !canAnswerFromLesson) {
+      const errorMessage =
+        'Questo progetto non ha una fonte collegata e la lezione corrente non contiene abbastanza contesto per rispondere.';
+      state.failWorkflow('contextQuestion', requestId, errorMessage);
+      return {
+        errorMessage,
+      };
+    }
 
     try {
       const answer = await openRouter.askContextualQuestion({
@@ -742,13 +883,50 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       };
     }
 
+    const workflowState = state.getWorkflowState();
+    if (
+      workflowState.createLesson.status === 'pending' ||
+      workflowState.generateExercise.status === 'pending' ||
+      workflowState.loadSection.status === 'pending'
+    ) {
+      return {
+        outcome: 'failed',
+        errorMessage: t('Rigenerazione in corso'),
+      };
+    }
+    const projectId = projectLibrary.currentProjectId;
+    const generationToken = state.tryBeginGeneration(projectId, 'lesson');
+    if (generationToken === null) {
+      return {
+        outcome: 'failed',
+        errorMessage: t('Rigenerazione in corso'),
+      };
+    }
+    const activeGeneration = { projectId, token: generationToken };
+
     const requestId = state.beginWorkflow('createLesson', t('Creazione approfondimento...'));
     const previousPlan = domain.learningPlan;
     const previousDocumentIndex = domain.documentIndex;
     const previousActiveSectionId = domain.activeSectionId;
+    const rollbackCreatedLesson = async () => {
+      domain.setLearningPlan(previousPlan);
+      domain.setDocumentIndex(previousDocumentIndex);
+      domain.setActiveSectionId(previousActiveSectionId);
+      await projectLibrary.saveCurrentProject({
+        activeSectionId: previousActiveSectionId,
+        documentIndex: previousDocumentIndex,
+        learningPlan: previousPlan,
+        state: AppState.READING,
+      });
+    };
 
     try {
-      const sourceFile = await loadProjectSourceFile(context);
+      const sourceFile = await loadProjectSourceFile(context, () =>
+        state.isWorkflowCurrent('createLesson', requestId)
+      );
+      if (!state.isWorkflowCurrent('createLesson', requestId)) {
+        return { outcome: 'ignored-busy' };
+      }
       const canCreateWithoutFile =
         domain.isLearnMode ||
         domain.syllabus.length > 0 ||
@@ -773,6 +951,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
               domain.userProfile
             )
           : null;
+
+      if (!state.isWorkflowCurrent('createLesson', requestId)) {
+        return { outcome: 'ignored-busy' };
+      }
 
       if (!newSection) {
         state.succeedWorkflow('createLesson', requestId);
@@ -809,6 +991,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           domain.documentIndex,
           [newSection.id]
         );
+        if (!state.isWorkflowCurrent('createLesson', requestId)) {
+          return { outcome: 'ignored-busy' };
+        }
         updatedPlan = prepared.learningPlan;
         // Se il mapping PDF fallisce/torna null, manteniamo l'indice esistente:
         // un indice obsoleto è sempre meglio di nessun indice (i chunk delle altre
@@ -835,27 +1020,30 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         ) ?? newLesson;
       state.succeedWorkflow('createLesson', requestId);
       try {
-        await openSection(mappedNewLesson, {
-          allowWhileBlocking: true,
-          currentDocumentAssets: domain.documentAssets,
-          currentDocumentIndex: nextDocumentIndex,
-          currentPlan: updatedPlan,
-          currentSourceFile: sourceFile,
-          currentSyllabus: domain.syllabus,
-          currentUserProfile: domain.userProfile,
-          isLearnMode: domain.isLearnMode,
-        });
+        const openOutcome = await openSectionWithGenerationGate(
+          mappedNewLesson,
+          {
+            allowWhileBlocking: true,
+            currentDocumentAssets: domain.documentAssets,
+            currentDocumentIndex: nextDocumentIndex,
+            currentPlan: updatedPlan,
+            currentSourceFile: sourceFile,
+            currentSyllabus: domain.syllabus,
+            currentUserProfile: domain.userProfile,
+            isLearnMode: domain.isLearnMode,
+          },
+          activeGeneration
+        );
+        if (openOutcome === 'blocked-missing-source') {
+          await rollbackCreatedLesson();
+          return { outcome: 'blocked-missing-source' };
+        }
+        if (openOutcome === 'ignored-busy') {
+          throw new Error(t('Rigenerazione in corso'));
+        }
       } catch (error) {
-        domain.setLearningPlan(previousPlan);
-        domain.setDocumentIndex(previousDocumentIndex);
-        domain.setActiveSectionId(previousActiveSectionId);
         // Rollback save is critical for consistency — await is intentional.
-        await projectLibrary.saveCurrentProject({
-          activeSectionId: previousActiveSectionId,
-          documentIndex: previousDocumentIndex,
-          learningPlan: previousPlan,
-          state: AppState.READING,
-        });
+        await rollbackCreatedLesson();
         throw error;
       }
 
@@ -866,9 +1054,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       });
       return { outcome: 'created' };
     } catch (error) {
+      if (!state.isWorkflowCurrent('createLesson', requestId)) {
+        return { outcome: 'ignored-busy' };
+      }
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('createLesson', requestId, errorMessage);
       return { outcome: 'failed', errorMessage };
+    } finally {
+      state.finishGeneration(activeGeneration.projectId, activeGeneration.token);
     }
   }
 

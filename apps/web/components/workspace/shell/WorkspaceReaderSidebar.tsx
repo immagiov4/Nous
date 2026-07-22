@@ -184,12 +184,12 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       }
     };
 
-    window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('keydown', handleKeyDown);
+    globalThis.window.addEventListener('pointerdown', handlePointerDown);
+    globalThis.window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('keydown', handleKeyDown);
+      globalThis.window.removeEventListener('pointerdown', handlePointerDown);
+      globalThis.window.removeEventListener('keydown', handleKeyDown);
     };
   }, [lessonContextMenu]);
 
@@ -228,8 +228,10 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
       return undefined;
     }
 
-    const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth;
-    const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight;
+    const viewportWidth =
+      typeof globalThis.window === 'undefined' ? 0 : globalThis.window.innerWidth;
+    const viewportHeight =
+      typeof globalThis.window === 'undefined' ? 0 : globalThis.window.innerHeight;
 
     return {
       left: Math.max(

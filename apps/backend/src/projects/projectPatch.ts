@@ -16,6 +16,9 @@ const applySectionPatchToNode = (
   ...node,
   ...(sectionPatch.annotations !== undefined ? { annotations: sectionPatch.annotations } : {}),
   ...(sectionPatch.content !== undefined ? { content: sectionPatch.content } : {}),
+  ...(sectionPatch.contentBlocks === undefined
+    ? {}
+    : { contentBlocks: sectionPatch.contentBlocks }),
   ...(sectionPatch.generatedVisuals !== undefined
     ? { generatedVisuals: sectionPatch.generatedVisuals }
     : {}),

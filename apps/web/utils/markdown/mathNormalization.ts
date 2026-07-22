@@ -92,10 +92,10 @@ const normalizeBareParenInlineMathInPlainText = (plainText: string): string => {
 
 const escapeLatexTextContent = (value: string): string =>
   value
-    .replace(/(?<!\\)_/g, '\\_')
-    .replace(/(?<!\\)%/g, '\\%')
-    .replace(/(?<!\\)#/g, '\\#')
-    .replace(/(?<!\\)&/g, '\\&');
+    .replaceAll(/(?<!\\)_/g, String.raw`\_`)
+    .replaceAll(/(?<!\\)%/g, String.raw`\%`)
+    .replaceAll(/(?<!\\)#/g, String.raw`\#`)
+    .replaceAll(/(?<!\\)&/g, String.raw`\&`);
 
 const wrapWordLikeMathScriptLabel = (value: string): string | null => {
   const trimmedValue = value.trim();
@@ -103,11 +103,11 @@ const wrapWordLikeMathScriptLabel = (value: string): string | null => {
     return null;
   }
 
-  return `\\text{${escapeLatexTextContent(trimmedValue)}}`;
+  return String.raw`\text{${escapeLatexTextContent(trimmedValue)}}`;
 };
 
 const normalizeWordLikeMathScripts = (value: string): string => {
-  const withBracedLabelsNormalized = value.replace(
+  const withBracedLabelsNormalized = value.replaceAll(
     /(?<!\\)([_^])\{([A-Za-z][A-Za-z0-9-\s]*)\}/g,
     (match, operator: string, label: string) => {
       const wrappedLabel = wrapWordLikeMathScriptLabel(label);
@@ -115,16 +115,16 @@ const normalizeWordLikeMathScripts = (value: string): string => {
     }
   );
 
-  return withBracedLabelsNormalized.replace(
+  return withBracedLabelsNormalized.replaceAll(
     /(?<!\\)([_^])(?!\{)([A-Za-z][A-Za-z0-9-]{2,})\b/g,
     (_match, operator: string, label: string) =>
-      `${operator}{\\text{${escapeLatexTextContent(label)}}}`
+      String.raw`${operator}{\text{${escapeLatexTextContent(label)}}}`
   );
 };
 
 const repairMathExpressionForKatex = (value: string): string =>
   normalizeWordLikeMathScripts(
-    value.replace(/\\(?:text|mathrm|mathtt|operatorname)\{([^{}]*)\}/g, match => {
+    value.replaceAll(/\\(?:text|mathrm|mathtt|operatorname)\{([^{}]*)\}/g, match => {
       const innerMatch = match.match(/^\\([A-Za-z]+)\{([^{}]*)\}$/);
       if (!innerMatch) {
         return match;
@@ -147,11 +147,11 @@ const normalizeBareParenInlineMath = (segment: string): string =>
 
 const normalizeBackslashDelimitedMath = (segment: string): string =>
   mapMathDelimitedSegments(segment, expression => {
-    if (expression.startsWith('\\[') && expression.endsWith('\\]')) {
+    if (expression.startsWith(String.raw`\[`) && expression.endsWith(String.raw`\]`)) {
       return `$$${expression.slice(2, -2)}$$`;
     }
 
-    if (expression.startsWith('\\(') && expression.endsWith('\\)')) {
+    if (expression.startsWith(String.raw`\(`) && expression.endsWith(String.raw`\)`)) {
       return `$${expression.slice(2, -2)}$`;
     }
 
@@ -249,8 +249,8 @@ export const getDisplayMathClosingDelimiter = (line: string): '$$' | '\\]' | nul
     return '$$';
   }
 
-  if (trimmed === '\\[') {
-    return '\\]';
+  if (trimmed === String.raw`\[`) {
+    return String.raw`\]` as '\\]';
   }
 
   return null;

@@ -20,18 +20,18 @@ import { extractYouTubeVideoId } from '../../utils/youtube.ts';
 import type { WorkspaceReaderTtsModel, WorkspaceReaderVoiceOption } from './shell/types.ts';
 
 interface UnifiedAudioPanelProps {
-  isMobileViewport?: boolean;
-  isOpen?: boolean;
-  onToggle?: (open: boolean) => void;
-  initialTab?: AudioTab;
-  onTabChange?: (tab: AudioTab) => void;
-  musicUrl: string;
-  setMusicUrl: (url: string) => void;
-  isMusicPlaying: boolean;
-  setIsMusicPlaying: (playing: boolean) => void;
-  musicVolume: number;
-  setMusicVolume: (vol: number) => void;
-  tts: WorkspaceReaderTtsModel;
+  readonly isMobileViewport?: boolean;
+  readonly isOpen?: boolean;
+  readonly onToggle?: (open: boolean) => void;
+  readonly initialTab?: AudioTab;
+  readonly onTabChange?: (tab: AudioTab) => void;
+  readonly musicUrl: string;
+  readonly setMusicUrl: (url: string) => void;
+  readonly isMusicPlaying: boolean;
+  readonly setIsMusicPlaying: (playing: boolean) => void;
+  readonly musicVolume: number;
+  readonly setMusicVolume: (vol: number) => void;
+  readonly tts: WorkspaceReaderTtsModel;
 }
 
 declare global {
@@ -177,7 +177,7 @@ const UnifiedAudioPanel = ({
   const [activeTab, setActiveTab] = useState<AudioTab>(initialTab);
 
   const [isYtReady, setIsYtReady] = useState(
-    () => typeof window !== 'undefined' && Boolean(window.YT)
+    () => typeof globalThis.window !== 'undefined' && Boolean(globalThis.window.YT)
   );
   const [playerErrorVideoId, setPlayerErrorVideoId] = useState<string | null>(null);
   const [readyVideoId, setReadyVideoId] = useState<string | null>(null);
@@ -211,7 +211,8 @@ const UnifiedAudioPanel = ({
   const hasYtError = hasInvalidMusicUrl || hasPlayerError;
   const isPlayerReady = requestedVideoId !== null && readyVideoId === requestedVideoId;
   const isYtApiReady =
-    hasUserActivatedPlayer && (isYtReady || (typeof window !== 'undefined' && Boolean(window.YT)));
+    hasUserActivatedPlayer &&
+    (isYtReady || (typeof globalThis.window !== 'undefined' && Boolean(globalThis.window.YT)));
   const ttsPlayButtonState = {
     isDisabled: ttsDisabled,
     isLoading: tts.isLoading,
@@ -255,8 +256,8 @@ const UnifiedAudioPanel = ({
   };
 
   const getPlayerOrigin = () => {
-    if (typeof window === 'undefined') return null;
-    const { origin, protocol } = window.location;
+    if (typeof globalThis.window === 'undefined') return null;
+    const { origin, protocol } = globalThis.window.location;
     if ((protocol === 'http:' || protocol === 'https:') && origin && origin !== 'null') {
       return origin;
     }
@@ -317,7 +318,7 @@ const UnifiedAudioPanel = ({
       tag.src = 'https://www.youtube.com/iframe_api';
       document.head.appendChild(tag);
     }
-    window.onYouTubeIframeAPIReady = () => {
+    globalThis.window.onYouTubeIframeAPIReady = () => {
       setIsYtReady(true);
     };
   }, [hasUserActivatedPlayer, isYtApiReady]);
@@ -331,9 +332,15 @@ const UnifiedAudioPanel = ({
   );
 
   useEffect(() => {
-    if (isYtApiReady && requestedVideoId && iframeRef.current && !playerRef.current && window.YT) {
+    if (
+      isYtApiReady &&
+      requestedVideoId &&
+      iframeRef.current &&
+      !playerRef.current &&
+      globalThis.window.YT
+    ) {
       try {
-        const newPlayer = new window.YT.Player(iframeRef.current, {
+        const newPlayer = new globalThis.window.YT.Player(iframeRef.current, {
           events: {
             onReady: event => {
               setReadyVideoId(requestedVideoId);

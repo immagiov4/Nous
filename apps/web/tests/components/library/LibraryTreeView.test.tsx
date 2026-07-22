@@ -136,22 +136,22 @@ const desktopTree: LibraryTree = {
   ],
 };
 
-const originalMatchMedia = window.matchMedia;
+const originalMatchMedia = globalThis.matchMedia;
 
 describe('LibraryTreeView', () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    globalThis.localStorage.clear();
   });
 
   afterEach(() => {
-    window.matchMedia = originalMatchMedia;
+    globalThis.matchMedia = originalMatchMedia;
   });
 
   test('mounts correctly with legacy MediaQueryList listeners used by mobile Safari', () => {
     const addListener = vi.fn();
     const removeListener = vi.fn();
 
-    window.matchMedia = vi.fn().mockReturnValue({
+    globalThis.matchMedia = vi.fn().mockReturnValue({
       matches: true,
       media: '(max-width: 767px)',
       onchange: null,
@@ -591,7 +591,7 @@ describe('LibraryTreeView', () => {
 
   test('completes a mobile long-press move when the touch is released', async () => {
     vi.useFakeTimers();
-    window.matchMedia = vi.fn().mockReturnValue({
+    globalThis.matchMedia = vi.fn().mockReturnValue({
       matches: true,
       media: '(max-width: 767px)',
       onchange: null,

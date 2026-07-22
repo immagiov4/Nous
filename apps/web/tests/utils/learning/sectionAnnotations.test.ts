@@ -102,6 +102,88 @@ test('detached annotations stay orphaned when an ambiguous quote has no matching
   assert.equal(materializeSectionAnnotationMarks(content, annotations), content);
 });
 
+test('applySectionAnnotation anchors a repeated word at the contextual occurrence', () => {
+  const content = 'Beta uno. Beta due.';
+  const result = applySectionAnnotation({
+    annotations: [],
+    content,
+    contextAfter: ' due.',
+    contextBefore: 'Beta uno. ',
+    createId: () => 'annotation-second-beta',
+    selectedText: 'Beta',
+  });
+
+  assert.ok(result);
+  assert.deepEqual(result.annotations[0]?.anchor, {
+    kind: 'selection',
+    selector: {
+      end: 14,
+      exact: 'Beta',
+      prefix: 'Beta uno.',
+      start: 10,
+      suffix: 'due.',
+    },
+  });
+  assert.equal(
+    materializeSectionAnnotationMarks(content, result.annotations),
+    'Beta uno. <mark data-nous-annotation-id="annotation-second-beta">Beta</mark> due.'
+  );
+});
+
+test('applySectionAnnotation rejects repeated words when the supplied context does not match', () => {
+  const result = applySectionAnnotation({
+    annotations: [],
+    content: 'Beta uno. Beta due.',
+    contextAfter: 'contesto assente',
+    contextBefore: 'altro contesto assente',
+    selectedText: 'Beta',
+  });
+
+  assert.equal(result, null);
+});
+
+test('applySectionAnnotation rejects repeated words when context matches multiple occurrences', () => {
+  const result = applySectionAnnotation({
+    annotations: [],
+    content: 'Alpha Beta gamma. Alpha Beta gamma.',
+    contextAfter: ' gamma.',
+    contextBefore: 'Alpha ',
+    selectedText: 'Beta',
+  });
+
+  assert.equal(result, null);
+});
+
+test('applySectionAnnotation uses the visible text offset when text and context are identical', () => {
+  const content = 'Alpha Beta gamma. Alpha Beta gamma.';
+  const selectedTextStart = content.lastIndexOf('Beta');
+  const result = applySectionAnnotation({
+    annotations: [],
+    content,
+    contextAfter: ' gamma.',
+    contextBefore: 'Alpha ',
+    createId: () => 'annotation-second-identical-beta',
+    selectedText: 'Beta',
+    selectedTextStart,
+  });
+
+  assert.equal(result?.annotations[0]?.anchor?.kind, 'selection');
+  assert.deepEqual(result?.annotations[0]?.anchor, {
+    kind: 'selection',
+    selector: {
+      end: selectedTextStart + 'Beta'.length,
+      exact: 'Beta',
+      prefix: 'Alpha Beta gamma. Alpha',
+      start: selectedTextStart,
+      suffix: 'gamma.',
+    },
+  });
+  assert.equal(
+    materializeSectionAnnotationMarks(content, result?.annotations),
+    'Alpha Beta gamma. Alpha <mark data-nous-annotation-id="annotation-second-identical-beta">Beta</mark> gamma.'
+  );
+});
+
 test('materialized annotations preserve inline Markdown as one highlight', () => {
   const content =
     'Prima **grassetto**, poi *corsivo* e [un link](https://example.com/percorso_(test)).';

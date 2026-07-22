@@ -60,7 +60,7 @@ const sanitizeArchivePathSegment = (value: string): string => {
   const withoutControlCharacters = Array.from(value.trim(), char =>
     char <= '\u001f' ? '_' : char
   ).join('');
-  const normalized = withoutControlCharacters.replace(/[<>:"/\\|?*]/g, '_');
+  const normalized = withoutControlCharacters.replaceAll(/[<>:"/\\|?*]/g, '_');
   return normalized || 'source';
 };
 

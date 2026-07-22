@@ -49,6 +49,8 @@ import {
 import type {
   ChatArtifactActionRequest,
   ChatArtifactRegenerateRequest,
+  ChatArtifactRegenerationLifecycle,
+  ChatArtifactRegenerationStates,
   ChatArtifactReplaceRequest,
 } from '../../shared/ChatArtifactRenderer.tsx';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
@@ -210,6 +212,7 @@ interface ContextRequestState {
   lessonDescription?: string;
   lessonTitle?: string;
   selectedText: string;
+  selectedTextStart?: number;
   sourceKind?: ContextAnswerState['sourceKind'];
   sourceMaterial?: string;
   sourceName?: string;
@@ -235,32 +238,37 @@ const buildContextDraftLesson = (
 };
 
 interface ContextAnswerPanelProps {
-  artifactActionFeedbackOverride?: 'saved';
-  artifactPreviewIdOverride?: string | null;
-  artifactPortalContainer?: HTMLElement | null;
-  autoScrollKey?: string;
-  contextAnswer: ContextAnswerState;
-  contextAnswerPanelRef: RefObject<HTMLDivElement | null>;
-  contextAnswerSize: ContextAnswerSize;
-  displayMessages?: UIMessage[];
-  handleContextAnswerResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  isDarkMode: boolean;
-  inputValueOverride?: string;
-  isMobileViewport: boolean;
-  messagesScrollTopOverride?: number;
-  currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
-  onClose: () => void;
-  onSaveConversationNote: (input: SaveConversationNoteInput) => Promise<SaveConversationNoteResult>;
-  onUpdateConversationNote: (
+  readonly artifactActionFeedbackOverride?: 'saved';
+  readonly artifactPreviewIdOverride?: string | null;
+  readonly artifactPortalContainer?: HTMLElement | null;
+  readonly autoScrollKey?: string;
+  readonly contextAnswer: ContextAnswerState;
+  readonly contextAnswerPanelRef: RefObject<HTMLDivElement | null>;
+  readonly contextAnswerSize: ContextAnswerSize;
+  readonly displayMessages?: UIMessage[];
+  readonly handleContextAnswerResizeStart: (event: ReactPointerEvent<HTMLButtonElement>) => void;
+  readonly isDarkMode: boolean;
+  readonly inputValueOverride?: string;
+  readonly isMobileViewport: boolean;
+  readonly messagesScrollTopOverride?: number;
+  readonly currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
+  readonly onClose: () => void;
+  readonly onSaveConversationNote: (
+    input: SaveConversationNoteInput
+  ) => Promise<SaveConversationNoteResult>;
+  readonly onUpdateConversationNote: (
     input: SaveConversationNoteInput
   ) => Promise<SaveConversationNoteResult>;
   /** Saves a generated visual artifact directly as a lesson-level annotation. */
-  onSaveArtifactToLesson?: (
+  readonly onSaveArtifactToLesson?: (
     visual: LessonGeneratedVisual,
     artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
   ) => Promise<void>;
   /** Replaces an already saved generated visual while preserving its artifact identity. */
-  onReplaceArtifactInLesson?: (artifactId: string, visual: LessonGeneratedVisual) => Promise<void>;
+  readonly onReplaceArtifactInLesson?: (
+    artifactId: string,
+    visual: LessonGeneratedVisual
+  ) => Promise<void>;
 }
 
 const toolCardClassName =
@@ -324,6 +332,8 @@ function ContextAnswerPanelSession({
   const [generatedVisualsByArtifactId, setGeneratedVisualsByArtifactId] = useState<
     Record<string, LessonGeneratedVisual>
   >({});
+  const [artifactRegenerationStates, setArtifactRegenerationStates] =
+    useState<ChatArtifactRegenerationStates>({});
   const [generatingArtifactToolCallIds, setGeneratingArtifactToolCallIds] = useState<Set<string>>(
     new Set()
   );
@@ -334,6 +344,7 @@ function ContextAnswerPanelSession({
     contextAfter: contextAnswer.contextAfter,
     contextBefore: contextAnswer.contextBefore,
     selectedText: contextAnswer.selectedText,
+    selectedTextStart: contextAnswer.selectedTextStart,
   });
 
   // Tracks when each requestAddToNotes part entered input-available without
@@ -353,8 +364,14 @@ function ContextAnswerPanelSession({
       contextAfter: contextAnswer.contextAfter,
       contextBefore: contextAnswer.contextBefore,
       selectedText: contextAnswer.selectedText,
+      selectedTextStart: contextAnswer.selectedTextStart,
     };
-  }, [contextAnswer.contextAfter, contextAnswer.contextBefore, contextAnswer.selectedText]);
+  }, [
+    contextAnswer.contextAfter,
+    contextAnswer.contextBefore,
+    contextAnswer.selectedText,
+    contextAnswer.selectedTextStart,
+  ]);
 
   const requestStateKey = useMemo(() => Symbol('context-request-state'), []);
 
@@ -369,6 +386,7 @@ function ContextAnswerPanelSession({
       lessonDescription: contextAnswer.lessonDescription,
       lessonTitle: contextAnswer.lessonTitle,
       selectedText: contextAnswer.selectedText,
+      selectedTextStart: contextAnswer.selectedTextStart,
       sourceKind: contextAnswer.sourceKind,
       sourceMaterial: contextAnswer.sourceMaterial,
       sourceName: contextAnswer.sourceName,
@@ -388,6 +406,7 @@ function ContextAnswerPanelSession({
     contextAnswer.lessonDescription,
     contextAnswer.lessonTitle,
     contextAnswer.selectedText,
+    contextAnswer.selectedTextStart,
     contextAnswer.sourceKind,
     contextAnswer.sourceMaterial,
     contextAnswer.sourceName,
@@ -594,6 +613,20 @@ function ContextAnswerPanelSession({
         toolCallId.startsWith(REPLACEMENT_DRAFT_TOOL_CALL_PREFIX) ? payloads : []
       ),
     [artifactPayloadsByToolCallId]
+  );
+  const artifactRegenerationLifecycle = useMemo<ChatArtifactRegenerationLifecycle>(
+    () => ({
+      replacementSourceArtifactIds: new Set(
+        replacementDraftPayloads.flatMap(payload =>
+          payload.summary.kind === 'generated-visual' && payload.summary.replacementOfArtifactId
+            ? [payload.summary.replacementOfArtifactId]
+            : []
+        )
+      ),
+      setStates: setArtifactRegenerationStates,
+      states: artifactRegenerationStates,
+    }),
+    [artifactRegenerationStates, replacementDraftPayloads]
   );
 
   useEffect(() => {
@@ -1074,7 +1107,11 @@ function ContextAnswerPanelSession({
               </p>
               {noteArtifactPayloads.length > 0 ? (
                 <div className="pt-1">
-                  <ChatArtifactRenderer artifacts={noteArtifactPayloads} isDarkMode={isDarkMode} />
+                  <ChatArtifactRenderer
+                    artifacts={noteArtifactPayloads}
+                    isDarkMode={isDarkMode}
+                    regenerationLifecycle={artifactRegenerationLifecycle}
+                  />
                 </div>
               ) : null}
             </div>
@@ -1179,6 +1216,7 @@ function ContextAnswerPanelSession({
           isLoading={(isGenerating || isAwaitingArtifactOutput) && artifactPayloads.length === 0}
           openArtifactIdOverride={artifactPreviewIdOverride}
           portalContainer={artifactPortalContainer}
+          regenerationLifecycle={artifactRegenerationLifecycle}
           onDiscardArtifact={handleDiscardArtifact}
           onRegenerateArtifact={handleRegenerateArtifact}
           onReplaceArtifact={handleReplaceArtifact}
@@ -1284,6 +1322,7 @@ function ContextAnswerPanelSession({
                 onDiscardArtifact={handleDiscardArtifact}
                 onRegenerateArtifact={handleRegenerateArtifact}
                 onReplaceArtifact={handleReplaceArtifact}
+                regenerationLifecycle={artifactRegenerationLifecycle}
               />
             ) : null}
 

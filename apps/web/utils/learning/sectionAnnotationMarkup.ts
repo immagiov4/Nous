@@ -17,7 +17,7 @@ export const mergeRanges = (ranges: MarkdownRange[]): MarkdownRange[] => {
 
   for (let index = 1; index < sortedRanges.length; index += 1) {
     const currentRange = sortedRanges[index];
-    const lastMergedRange = mergedRanges[mergedRanges.length - 1];
+    const lastMergedRange = mergedRanges.at(-1) as MarkdownRange;
 
     if (currentRange.start <= lastMergedRange.end) {
       lastMergedRange.end = Math.max(lastMergedRange.end, currentRange.end);

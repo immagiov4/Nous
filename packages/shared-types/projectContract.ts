@@ -49,6 +49,7 @@ export interface SavedProjectMeta {
   completedExercises: number;
   hasSourceFile: boolean;
   coverLabel: string;
+  isFavorite?: boolean;
   /** Monotonic server-side version used for optimistic concurrency and cross-session sync. */
   revision?: number;
 }
@@ -67,6 +68,7 @@ export interface SectionPatch {
   sectionId: string;
   annotations?: unknown[];
   content?: string;
+  contentBlocks?: unknown[];
   generatedVisuals?: unknown[];
   imageRefs?: unknown[];
   isCompleted?: boolean;

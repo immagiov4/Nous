@@ -248,7 +248,11 @@ export const useProjectLibrary = ({
 
     persistentStorageRequestedRef.current = true;
 
-    if (typeof window === 'undefined' || !window.isSecureContext || !navigator.storage?.persist) {
+    if (
+      typeof globalThis.window === 'undefined' ||
+      !globalThis.isSecureContext ||
+      !navigator.storage?.persist
+    ) {
       return;
     }
 
@@ -519,6 +523,7 @@ export const useProjectLibrary = ({
         Pick<
           LearningSection,
           | 'content'
+          | 'contentBlocks'
           | 'generatedVisuals'
           | 'imageRefs'
           | 'learningAids'
@@ -668,7 +673,7 @@ export const useProjectLibrary = ({
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
-    window.setTimeout(() => {
+    globalThis.setTimeout(() => {
       URL.revokeObjectURL(objectUrl);
     }, 0);
   }, []);
@@ -900,7 +905,7 @@ export const useProjectLibrary = ({
   }, [projectRepository, requestRevisionCatchUp]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return;
     }
     const catchUp = () => {
@@ -909,10 +914,10 @@ export const useProjectLibrary = ({
       }
     };
     document.addEventListener('visibilitychange', catchUp);
-    window.addEventListener('online', catchUp);
+    globalThis.addEventListener('online', catchUp);
     return () => {
       document.removeEventListener('visibilitychange', catchUp);
-      window.removeEventListener('online', catchUp);
+      globalThis.removeEventListener('online', catchUp);
     };
   }, [requestRevisionCatchUp]);
 
@@ -1016,6 +1021,15 @@ export const useProjectLibrary = ({
     [getExpectedRevision, runTrackedProjectWrite]
   );
 
+  const setProjectFavorite = useCallback(
+    (projectId: string, isFavorite: boolean) =>
+      runTrackedProjectWrite(
+        () => projectRepositoryRef.current.setProjectFavorite(projectId, isFavorite),
+        false
+      ),
+    [runTrackedProjectWrite]
+  );
+
   // Autosave: full snapshot PUT — safety net for any domain change that wasn't
   // already handled by an explicit patch. No sync indicator (background work).
   // Hot paths (highlight, note) call patchSectionAnnotations first, which updates
@@ -1047,10 +1061,10 @@ export const useProjectLibrary = ({
     }
 
     if (autosaveTimeoutRef.current) {
-      window.clearTimeout(autosaveTimeoutRef.current);
+      globalThis.clearTimeout(autosaveTimeoutRef.current);
     }
 
-    autosaveTimeoutRef.current = window.setTimeout(() => {
+    autosaveTimeoutRef.current = globalThis.window.setTimeout(() => {
       autosaveTimeoutRef.current = null;
       attemptedAutosaveSignatureRef.current = currentPersistenceSignature;
       void saveCurrentProject().then(meta => {
@@ -1062,7 +1076,7 @@ export const useProjectLibrary = ({
 
     return () => {
       if (autosaveTimeoutRef.current) {
-        window.clearTimeout(autosaveTimeoutRef.current);
+        globalThis.clearTimeout(autosaveTimeoutRef.current);
         autosaveTimeoutRef.current = null;
       }
     };
@@ -1138,6 +1152,7 @@ export const useProjectLibrary = ({
     patchSectionLessonContent,
     patchSectionAnnotations,
     savedProjects,
+    setProjectFavorite,
     setCurrentProjectId: selectCurrentProject,
     setProjectHydrated: (value: boolean) => {
       isProjectHydratedRef.current = value;

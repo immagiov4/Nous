@@ -57,8 +57,8 @@ export default function AdminFeedbackPanel() {
 
   const handleReportSelection = (reportId: string) => {
     setSelectedReportId(reportId);
-    if (window.innerWidth >= DESKTOP_DETAIL_BREAKPOINT_PX) return;
-    window.requestAnimationFrame(() => {
+    if (globalThis.window.innerWidth >= DESKTOP_DETAIL_BREAKPOINT_PX) return;
+    globalThis.window.requestAnimationFrame(() => {
       detailRef.current?.focus({ preventScroll: true });
       detailRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
     });

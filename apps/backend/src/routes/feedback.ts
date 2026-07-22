@@ -51,7 +51,7 @@ interface ParsedFeedbackInput {
 
 const redactSensitiveText = (value: string): string =>
   value
-    .replace(HTTP_URL_PATTERN, rawUrl => {
+    .replaceAll(HTTP_URL_PATTERN, rawUrl => {
       try {
         const url = new URL(rawUrl);
         return `${url.origin}${url.pathname}`;
@@ -59,20 +59,20 @@ const redactSensitiveText = (value: string): string =>
         return '[URL REDACTED]';
       }
     })
-    .replace(EMAIL_PATTERN, '[EMAIL REDACTED]')
-    .replace(/\b(authorization)(\s*[=:]\s*)[^\r\n]+/gi, '$1$2[REDACTED]')
-    .replace(/(bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
-    .replace(
+    .replaceAll(EMAIL_PATTERN, '[EMAIL REDACTED]')
+    .replaceAll(/\b(authorization)(\s*[=:]\s*)[^\r\n]+/gi, '$1$2[REDACTED]')
+    .replaceAll(/(bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
+    .replaceAll(
       /\b(access[_-]?token|refresh[_-]?token|api[_-]?key|password|secret)(\s*[=:]\s*)[^\s,;"']+/gi,
       '$1$2[REDACTED]'
     )
-    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[JWT REDACTED]')
-    .replace(/\b(?:github_pat|gh[opsu]|sk)[-_]?[A-Za-z0-9_-]{16,}\b/g, '[SECRET REDACTED]');
+    .replaceAll(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[JWT REDACTED]')
+    .replaceAll(/\b(?:github_pat|gh[opsu]|sk)[-_]?[A-Za-z0-9_-]{16,}\b/g, '[SECRET REDACTED]');
 
 const sanitizeText = (value: string, maxLength: number): string =>
   redactSensitiveText(value)
     // biome-ignore lint/suspicious/noControlCharactersInRegex: logs may contain unsafe terminal control bytes.
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+    .replaceAll(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
     .slice(0, maxLength)
     .trim();
 
@@ -277,7 +277,7 @@ const parseScreenshot = (value: unknown): FeedbackScreenshot | null | undefined 
   if (!match?.[1] || !match[2]) {
     return null;
   }
-  const encoded = match[2].replace(/\s/g, '');
+  const encoded = match[2].replaceAll(/\s/g, '');
   if (encoded.length > Math.ceil(MAX_SCREENSHOT_BYTES / 3) * 4 || encoded.length % 4 !== 0) {
     return null;
   }

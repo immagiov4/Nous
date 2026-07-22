@@ -11,6 +11,8 @@ import type {
   ContextMenuState,
   ContextScope,
   LearningArtifactRenderPayload,
+  LessonContentBlock,
+  LessonCreationBlockReason,
   LessonGeneratedVisual,
   LessonImageRef,
   LessonLearningAid,
@@ -41,6 +43,7 @@ export interface ContextAnswerState {
   projectId?: string;
   projectTitle?: string;
   selectedText: string;
+  selectedTextStart?: number;
   sourceKind?: ProjectSource['kind'];
   sourceMaterial?: string;
   sourceName?: string;
@@ -50,6 +53,7 @@ export interface ConversationSelectionAnchor {
   contextAfter?: string;
   contextBefore?: string;
   selectedText: string;
+  selectedTextStart?: number;
 }
 
 export interface ContextChatToolPreferences {
@@ -222,6 +226,7 @@ export interface WorkspaceReaderContentModel {
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sectionAnnotations?: SectionAnnotation[];
   sectionContent: string;
+  sectionContentBlocks?: LessonContentBlock[];
   exerciseFeedbackError?: string;
   exerciseFeedbackStatus?: string;
   ttsTextPicker: WorkspaceReaderTextPickerModel;
@@ -254,6 +259,7 @@ export interface WorkspaceReaderOverlaysModel {
   isContextLoading: boolean;
   isDarkMode: boolean;
   isMobileViewport: boolean;
+  lessonCreationBlockReason: LessonCreationBlockReason | null;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
   onAskContextQuestion: (question: string) => void;
   onAttachArtifactToAnnotation: (artifactRef: SectionAnnotationArtifactRef) => void;

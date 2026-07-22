@@ -3,23 +3,23 @@ import type { FormEvent, ReactNode } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 
 interface ChatTextComposerProps {
-  className?: string;
-  disabled?: boolean;
-  leadingContent?: ReactNode;
-  inputClassName?: string;
-  inputDataTarget?: string;
-  inputShellClassName?: string;
-  isLoading?: boolean;
-  onChange: (value: string) => void;
-  onSubmit: () => void;
-  placeholder: string;
-  submitAriaLabel?: string;
-  submitButtonClassName?: string;
-  submitDataTarget?: string;
-  submitContent?: ReactNode;
-  submitTitle?: string;
-  trailingContent?: ReactNode;
-  value: string;
+  readonly className?: string;
+  readonly disabled?: boolean;
+  readonly leadingContent?: ReactNode;
+  readonly inputClassName?: string;
+  readonly inputDataTarget?: string;
+  readonly inputShellClassName?: string;
+  readonly isLoading?: boolean;
+  readonly onChange: (value: string) => void;
+  readonly onSubmit: () => void;
+  readonly placeholder: string;
+  readonly submitAriaLabel?: string;
+  readonly submitButtonClassName?: string;
+  readonly submitDataTarget?: string;
+  readonly submitContent?: ReactNode;
+  readonly submitTitle?: string;
+  readonly trailingContent?: ReactNode;
+  readonly value: string;
 }
 
 export default function ChatTextComposer({

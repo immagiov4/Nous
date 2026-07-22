@@ -234,8 +234,14 @@ const digestFile = async (filePath: string): Promise<{ byteSize: number; hash: s
   return { byteSize, hash: hash.digest('hex') };
 };
 
+const compareKeysByCodeUnit = (left: string, right: string): number => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
+
 const exactKeys = (value: Record<string, unknown>, expected: readonly string[]): boolean => {
-  const keys = Object.keys(value).sort();
+  const keys = Object.keys(value).sort(compareKeysByCodeUnit);
   return keys.length === expected.length && keys.every((key, index) => key === expected[index]);
 };
 

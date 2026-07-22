@@ -72,7 +72,7 @@ const restoreMissingJsonOpeningFences = (content: string): string => {
 
 export const normalizeMarkdownForRendering = (content: string): string => {
   const normalizedContent = restoreMissingJsonOpeningFences(
-    stripHighlightTagsInsideMarkdownCode(content.replace(/\r/g, ''))
+    stripHighlightTagsInsideMarkdownCode(content.replaceAll(/\r/g, ''))
   );
   const lines = normalizedContent.split('\n');
   const parts: string[] = [];
@@ -98,7 +98,7 @@ export const normalizeMarkdownForRendering = (content: string): string => {
 
     const block = parseFencedBlockAt(lines, index);
     if (!block) {
-      markdownBuffer.push(line.replace(/^(`{3,}|~{3,})/, '\\$1'));
+      markdownBuffer.push(line.replace(/^(`{3,}|~{3,})/, String.raw`\$1`));
       continue;
     }
 

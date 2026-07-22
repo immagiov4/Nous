@@ -18,10 +18,10 @@ import { createEntityId } from '../../../utils/ids.ts';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 
 interface LessonLearningAidsProps {
-  isDarkMode: boolean;
-  isMobileViewport: boolean;
-  learningAids: LessonLearningAid[];
-  onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
+  readonly isDarkMode: boolean;
+  readonly isMobileViewport: boolean;
+  readonly learningAids: LessonLearningAid[];
+  readonly onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
 }
 
 const LEARNING_AID_TITLE_MAX_LENGTH = 64;
@@ -42,12 +42,12 @@ interface LearningAidDraft {
 }
 
 interface LearningAidEditorProps {
-  draft: LearningAidDraft;
-  isInline: boolean;
-  isSaving: boolean;
-  onCancel: () => void;
-  onChange: (draft: LearningAidDraft) => void;
-  onSave: () => void;
+  readonly draft: LearningAidDraft;
+  readonly isInline: boolean;
+  readonly isSaving: boolean;
+  readonly onCancel: () => void;
+  readonly onChange: (draft: LearningAidDraft) => void;
+  readonly onSave: () => void;
 }
 
 const getLearningAidKindLabel = (kind: LessonLearningAidKind): string => {

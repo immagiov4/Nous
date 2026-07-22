@@ -71,6 +71,7 @@ export interface YouTubeResearchBundle {
 }
 
 export interface YouTubeResearchOutcome extends YouTubeResearchBundle {
+  discoveredVideoCount: number;
   rationale: string;
 }
 
@@ -304,7 +305,7 @@ const parseDecodoManualSegments = (events: unknown[]): YouTubeTranscriptSegment[
       const text = segmentValues
         .map(segment => asString(asRecord(segment)?.utf8))
         .join(' ')
-        .replace(/\s+/g, ' ')
+        .replaceAll(/\s+/g, ' ')
         .trim();
       return text && startMs !== undefined && startMs >= 0 && durationMs && durationMs > 0
         ? {
@@ -576,7 +577,7 @@ const calculateTranscriptBudget = (input: YouTubeResearchBudgetInput = {}) => {
 };
 
 const sanitizeTranscriptForPrompt = (value: string): string =>
-  value.replace(/<\/?youtube_sources>/gi, '[youtube_sources tag removed]');
+  value.replaceAll(/<\/?youtube_sources>/gi, '[youtube_sources tag removed]');
 
 const buildYouTubeResearch = async (
   query: string,
@@ -792,6 +793,8 @@ export const buildYouTubeResearchOutcome = async (
   const diagnostic = await buildYouTubeResearch(query, language, options);
   return {
     ...diagnostic.bundle,
+    discoveredVideoCount: diagnostic.candidates.filter(candidate => candidate.kind === 'video')
+      .length,
     rationale: summarizeYouTubeResearch(diagnostic),
   };
 };

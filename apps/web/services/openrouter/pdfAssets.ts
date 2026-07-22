@@ -114,7 +114,8 @@ const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
   console.groupEnd();
 };
 
-const countNormalizedTextChars = (text: string): number => text.replace(/\s+/g, ' ').trim().length;
+const countNormalizedTextChars = (text: string): number =>
+  text.replaceAll(/\s+/g, ' ').trim().length;
 
 const canCaptionBackendImage = (image: BackendPdfImage): boolean =>
   isOpenRouterDataUrlInlineSafe(image.dataUrl);

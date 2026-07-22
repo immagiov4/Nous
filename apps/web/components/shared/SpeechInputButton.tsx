@@ -26,13 +26,19 @@ type SpeechInputVariant = 'compact' | 'round';
 interface SpeechInputError {
   autoDismiss: boolean;
   message: string;
+  retryAvailable?: boolean;
+}
+
+interface FailedTranscription {
+  audio: Blob;
+  format: SttAudioFormat;
 }
 
 interface SpeechInputButtonProps {
-  disabled?: boolean;
-  language?: string;
-  onTranscription: (text: string) => void;
-  variant?: SpeechInputVariant;
+  readonly disabled?: boolean;
+  readonly language?: string;
+  readonly onTranscription: (text: string) => void;
+  readonly variant?: SpeechInputVariant;
 }
 
 const stopStreamTracks = (stream: MediaStream | null) => {
@@ -104,6 +110,7 @@ export default function SpeechInputButton({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failedTranscriptionRef = useRef<FailedTranscription | null>(null);
   const isMountedRef = useRef(true);
   const onTranscriptionRef = useRef(onTranscription);
 
@@ -116,12 +123,12 @@ export default function SpeechInputButton({
       return;
     }
 
-    const timeout = window.setTimeout(() => {
+    const timeout = globalThis.window.setTimeout(() => {
       setSpeechInputError(null);
     }, TEMPORARY_ERROR_DISMISS_MS);
 
     return () => {
-      window.clearTimeout(timeout);
+      globalThis.window.clearTimeout(timeout);
     };
   }, [speechInputError]);
 
@@ -140,10 +147,40 @@ export default function SpeechInputButton({
     }
   }, [clearRecordingTimeout]);
 
+  const transcribeRecording = useCallback(
+    async ({ audio, format }: FailedTranscription) => {
+      setState('transcribing');
+      setSpeechInputError(null);
+
+      try {
+        const transcription = await requestSpeechTranscription(audio, format, language);
+        if (isMountedRef.current) {
+          failedTranscriptionRef.current = null;
+          onTranscriptionRef.current(transcription);
+        }
+      } catch {
+        if (isMountedRef.current) {
+          failedTranscriptionRef.current = { audio, format };
+          setSpeechInputError({
+            autoDismiss: false,
+            message: t('Trascrizione non riuscita. Puoi riprovare senza registrare di nuovo.'),
+            retryAvailable: true,
+          });
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setState('idle');
+        }
+      }
+    },
+    [language]
+  );
+
   const startRecording = useCallback(async () => {
     setSpeechInputError(null);
+    failedTranscriptionRef.current = null;
 
-    if (window.isSecureContext === false) {
+    if (globalThis.window.isSecureContext === false) {
       setSpeechInputError({
         autoDismiss: false,
         message: t('Il microfono richiede una connessione sicura (HTTPS o localhost).'),
@@ -210,28 +247,7 @@ export default function SpeechInputButton({
           return;
         }
 
-        setState('transcribing');
-        try {
-          const transcription = await requestSpeechTranscription(
-            audio,
-            recordingFormat.format,
-            language
-          );
-          if (isMountedRef.current) {
-            onTranscriptionRef.current(transcription);
-          }
-        } catch {
-          if (isMountedRef.current) {
-            setSpeechInputError({
-              autoDismiss: true,
-              message: t('Trascrizione non riuscita. Riprova.'),
-            });
-          }
-        } finally {
-          if (isMountedRef.current) {
-            setState('idle');
-          }
-        }
+        await transcribeRecording({ audio, format: recordingFormat.format });
       };
 
       recorder.start();
@@ -248,7 +264,7 @@ export default function SpeechInputButton({
       setState('idle');
       setSpeechInputError(getMicrophoneError(error));
     }
-  }, [clearRecordingTimeout, language]);
+  }, [clearRecordingTimeout, transcribeRecording]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -315,7 +331,23 @@ export default function SpeechInputButton({
           aria-label={speechInputError.message}
           className="absolute bottom-[calc(100%+0.6rem)] right-0 z-30 flex w-64 items-start gap-2 rounded-xl border border-red-200 bg-white px-3 py-2 text-xs leading-5 text-red-700 shadow-lg dark:border-red-900/70 dark:bg-stone-800 dark:text-red-200"
         >
-          <span className="min-w-0 flex-1">{speechInputError.message}</span>
+          <span className="min-w-0 flex-1">
+            {speechInputError.message}
+            {speechInputError.retryAvailable ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const failedTranscription = failedTranscriptionRef.current;
+                  if (failedTranscription) {
+                    void transcribeRecording(failedTranscription);
+                  }
+                }}
+                className="mt-1 block font-semibold underline underline-offset-2 hover:text-red-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:hover:text-white"
+              >
+                {t('Riprova trascrizione')}
+              </button>
+            ) : null}
+          </span>
           <button
             type="button"
             onClick={() => setSpeechInputError(null)}

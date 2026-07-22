@@ -5,7 +5,7 @@ import { DEMO_ASPECT_RATIO, DEMO_STAGE_SEGMENTS, type DemoStage } from './landin
 export type { DemoStage } from './landingDemoTimeline.ts';
 
 interface LandingProductDemoProps {
-  activeStage?: DemoStage;
+  readonly activeStage?: DemoStage;
 }
 
 const VIDEO_ROOT = '/marketing/demos';

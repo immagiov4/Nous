@@ -90,7 +90,7 @@ const buildUntrustedPreformattedBlock = (value: string): string =>
 const buildIssueTitle = (report: StoredFeedbackReport): string => {
   const prefix = report.category === 'bug' ? '[Bug in-app]' : '[Suggerimento in-app]';
   const summary = report.title || report.description.split(/\r?\n/, 1)[0] || 'Segnalazione utente';
-  return truncate(`${prefix} ${summary}`.replaceAll('@', '＠').replace(/\s+/g, ' ').trim(), 220);
+  return truncate(`${prefix} ${summary}`.replaceAll('@', '＠').replaceAll(/\s+/g, ' ').trim(), 220);
 };
 
 const buildDiagnosticsSection = (report: StoredFeedbackReport): string => {

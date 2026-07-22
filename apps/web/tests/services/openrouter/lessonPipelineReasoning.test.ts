@@ -11,9 +11,8 @@ vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
   };
 });
 
-const { buildLessonVerificationPrompt, verifyLessonDraft } = await import(
-  '../../../services/openrouter/lessonVerification.ts'
-);
+const { buildLessonVerificationPrompt, parseLessonContentPayload, verifyLessonDraft } =
+  await import('../../../services/openrouter/lessonVerification.ts');
 const { repairLessonMarkdown } = await import(
   '../../../services/openrouter/lessonMarkdownQuality/repair.ts'
 );
@@ -27,16 +26,20 @@ describe('lesson pipeline reasoning callbacks', () => {
     const onReasoningUpdate = vi.fn();
     callOpenRouterMock.mockResolvedValue(
       JSON.stringify({
-        contentMarkdown: 'Contenuto verificato.',
-        imagePlacements: [],
-        quiz: [
+        contentBlocks: [
+          { markdown: 'Contenuto verificato.', type: 'markdown' },
           {
-            correctIndex: 0,
-            exerciseType: 'application-card',
-            options: ['A', 'B', 'C', 'D'],
-            question: 'Quale opzione si applica?',
+            type: 'inline-quiz',
+            quiz: {
+              correctIndex: 0,
+              exerciseType: 'application-card',
+              options: ['A', 'B', 'C', 'D'],
+              question: 'Quale opzione si applica?',
+            },
           },
         ],
+        imagePlacements: [],
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     );
 
@@ -76,6 +79,29 @@ describe('lesson pipeline reasoning callbacks', () => {
     );
 
     expect(callOpenRouterMock.mock.calls[0]?.[0]?.onReasoningUpdate).toBe(onReasoningUpdate);
+  });
+
+  test('rejects typed quiz blocks without preceding lesson content', () => {
+    expect(() =>
+      parseLessonContentPayload(
+        JSON.stringify({
+          contentBlocks: [
+            {
+              type: 'inline-quiz',
+              quiz: {
+                correctIndex: 0,
+                exerciseType: 'application-card',
+                options: ['A', 'B', 'C', 'D'],
+                question: 'Quale opzione si applica?',
+              },
+            },
+          ],
+          imagePlacements: [],
+          visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
+        }),
+        'Titolo'
+      )
+    ).toThrow(/contratto dei blocchi quiz inline/);
   });
 
   test('keeps the complete backend-bounded source context available to verification', () => {

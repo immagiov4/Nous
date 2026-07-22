@@ -15,9 +15,9 @@ import type {
 } from '../../services/openrouter/generationProgress.ts';
 
 interface GenerationProgressProps {
-  displayMode?: 'embedded' | 'page';
-  elapsedSecondsOverride?: number;
-  progress: GenerationProgressSnapshot;
+  readonly displayMode?: 'embedded' | 'page';
+  readonly elapsedSecondsOverride?: number;
+  readonly progress: GenerationProgressSnapshot;
 }
 
 type StageLabel = 'Fonti' | 'Pronta' | 'Pronto' | 'Quiz' | 'Stesura' | 'Struttura' | 'Verifica';
@@ -92,8 +92,8 @@ export default function GenerationProgress({
       setElapsedSeconds(Math.max(0, Math.floor((Date.now() - progress.startedAt) / 1_000)));
     };
     updateElapsedTime();
-    const intervalId = window.setInterval(updateElapsedTime, 1_000);
-    return () => window.clearInterval(intervalId);
+    const intervalId = globalThis.window.setInterval(updateElapsedTime, 1_000);
+    return () => globalThis.window.clearInterval(intervalId);
   }, [elapsedSecondsOverride, progress.startedAt]);
 
   const visibleElapsedSeconds = elapsedSecondsOverride ?? elapsedSeconds;

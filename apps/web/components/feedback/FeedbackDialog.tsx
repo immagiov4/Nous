@@ -19,7 +19,7 @@ import {
 } from '../shared/SpeechInputButton.tsx';
 
 interface FeedbackDialogProps {
-  onClose: () => void;
+  readonly onClose: () => void;
 }
 
 const MIN_DESCRIPTION_LENGTH = 10;
@@ -27,7 +27,7 @@ const FOCUSABLE_CONTROL_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 interface FeedbackTitleProps {
-  titleRef: RefObject<HTMLHeadingElement | null>;
+  readonly titleRef: RefObject<HTMLHeadingElement | null>;
 }
 
 function FeedbackSuccess({
@@ -100,7 +100,7 @@ function FeedbackCategoryPicker({
   category,
   onChange,
 }: {
-  category: FeedbackCategory;
+  readonly category: FeedbackCategory;
   onChange: (category: FeedbackCategory) => void;
 }) {
   return (
@@ -134,7 +134,7 @@ function FeedbackDescriptionField({
   onChange,
   onTranscription,
 }: {
-  description: string;
+  readonly description: string;
   isSubmitting: boolean;
   onChange: (description: string) => void;
   onTranscription: (text: string) => void;
@@ -178,7 +178,7 @@ function FeedbackDiagnostics({
   includeDiagnostics,
   onChange,
 }: {
-  diagnostics: FeedbackDiagnosticsSnapshot;
+  readonly diagnostics: FeedbackDiagnosticsSnapshot;
   includeDiagnostics: boolean;
   onChange: (checked: boolean) => void;
 }) {
@@ -347,20 +347,20 @@ interface FeedbackFormProps extends FeedbackTitleProps {
   category: FeedbackCategory;
   description: string;
   diagnostics: FeedbackDiagnosticsSnapshot;
-  errorMessage: string;
-  includeDiagnostics: boolean;
-  isCapturing: boolean;
-  isSubmitting: boolean;
-  onCategoryChange: (category: FeedbackCategory) => void;
-  onClose: () => void;
-  onDescriptionChange: (description: string) => void;
-  onDiagnosticsChange: (checked: boolean) => void;
-  onScreenshotCapture: () => void;
-  onScreenshotRemove: () => void;
-  onSubmit: () => void;
-  onTranscription: (text: string) => void;
-  screenshot: FeedbackScreenshot | null;
-  screenshotError: string;
+  readonly errorMessage: string;
+  readonly includeDiagnostics: boolean;
+  readonly isCapturing: boolean;
+  readonly isSubmitting: boolean;
+  readonly onCategoryChange: (category: FeedbackCategory) => void;
+  readonly onClose: () => void;
+  readonly onDescriptionChange: (description: string) => void;
+  readonly onDiagnosticsChange: (checked: boolean) => void;
+  readonly onScreenshotCapture: () => void;
+  readonly onScreenshotRemove: () => void;
+  readonly onSubmit: () => void;
+  readonly onTranscription: (text: string) => void;
+  readonly screenshot: FeedbackScreenshot | null;
+  readonly screenshotError: string;
 }
 
 function FeedbackForm(props: FeedbackFormProps) {

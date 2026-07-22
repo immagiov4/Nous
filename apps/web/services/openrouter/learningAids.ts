@@ -1,7 +1,7 @@
 import type { LessonLearningAid, LessonLearningAidKind } from '../../types.ts';
 import { isRecord } from '../../utils/records.ts';
 import { getMarkdownHeadings } from './lessonImages.ts';
-import { callOpenRouter, MODEL_FLASH, parseCleanJson } from './shared.ts';
+import { callOpenRouter, MODEL_FLASH, parseCleanJson, retryWithBackoff } from './shared.ts';
 
 const LEARNING_AID_KINDS = new Set<LessonLearningAidKind>(['definition', 'formula', 'analogy']);
 const MAX_DEFINITION_COUNT = 2;
@@ -40,15 +40,15 @@ const LEARNING_AIDS_RESPONSE_SCHEMA = {
 } as const;
 
 const normalizeText = (value: unknown): string =>
-  typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  typeof value === 'string' ? value.replaceAll(/\s+/g, ' ').trim() : '';
 
 const slugifyAidTitle = (value: string): string =>
   value
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'untitled';
+    .replaceAll(/[^a-z0-9]+/g, '-')
+    .replaceAll(/^-+|-+$/g, '') || 'untitled';
 
 const isLearningAidKind = (value: unknown): value is LessonLearningAidKind =>
   typeof value === 'string' && LEARNING_AID_KINDS.has(value as LessonLearningAidKind);
@@ -161,24 +161,26 @@ export const generateLessonLearningAids = async (
   options: GenerateLessonLearningAidsOptions
 ): Promise<LessonLearningAid[]> => {
   try {
-    const response = await callOpenRouter({
-      model: MODEL_FLASH,
-      modelSlot: 'lesson',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Sei Lia, un tutor rigoroso. Estrai solo supporti didattici brevi e verificabili dal testo fornito.',
+    const response = await retryWithBackoff(() =>
+      callOpenRouter({
+        model: MODEL_FLASH,
+        modelSlot: 'lesson',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Sei Lia, un tutor rigoroso. Estrai solo supporti didattici brevi e verificabili dal testo fornito.',
+          },
+          { role: 'user', content: buildLearningAidsPrompt(options) },
+        ],
+        temperature: 0.1,
+        max_tokens: 1200,
+        response_format: {
+          type: 'json_schema',
+          json_schema: LEARNING_AIDS_RESPONSE_SCHEMA,
         },
-        { role: 'user', content: buildLearningAidsPrompt(options) },
-      ],
-      temperature: 0.1,
-      max_tokens: 1200,
-      response_format: {
-        type: 'json_schema',
-        json_schema: LEARNING_AIDS_RESPONSE_SCHEMA,
-      },
-    });
+      })
+    );
 
     return normalizeLessonLearningAids(
       parseCleanJson<unknown>(response || '{}'),

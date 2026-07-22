@@ -60,12 +60,12 @@ export default function CodexConnectionSettings() {
     if (!login) {
       return;
     }
-    const interval = window.setInterval(() => {
+    const interval = globalThis.window.setInterval(() => {
       void refreshCodexStatus().catch(error =>
         console.error('[Nous][Codex] Login status refresh failed.', error)
       );
     }, CODEX_STATUS_POLL_MS);
-    return () => window.clearInterval(interval);
+    return () => globalThis.window.clearInterval(interval);
   }, [login, refreshCodexStatus]);
 
   const handleConnect = async () => {

@@ -28,7 +28,9 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
   const [isDarkMode, setIsDarkMode] = useState(readInitialDarkMode);
   const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY).matches
+    () =>
+      typeof globalThis.window !== 'undefined' &&
+      globalThis.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY).matches
   );
   const [mobileSidebarState, setMobileSidebarState] = useState<MobileSidebarState>({
     isOpen: false,
@@ -79,11 +81,11 @@ export const useReaderChrome = ({ activeSectionId, sidebarGroups }: UseReaderChr
   }, [isDarkMode]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) {
+    if (typeof globalThis.window === 'undefined' || !globalThis.matchMedia) {
       return;
     }
 
-    const mediaQueryList = window.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY);
+    const mediaQueryList = globalThis.matchMedia(MOBILE_LAYOUT_MEDIA_QUERY);
     const handleMediaQueryChange = (event: MediaQueryListEvent) => {
       setIsMobileViewport(keepCurrentWhenEqual(event.matches));
 

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createApp } from '../../src/index.js';
 import { setProjectStoreForTesting } from '../../src/projects/projectStore.js';
 import type { ProjectSnapshot } from '../../src/projects/types.js';
+import { createSupabaseTestToken } from '../helpers/auth.js';
 import { InMemoryProjectStore } from '../helpers/inMemoryProjectStore.js';
 
 let store: InMemoryProjectStore;
@@ -142,6 +143,28 @@ describe('/api/projects', () => {
 
     const emptyListResponse = await request(app).get('/api/projects/projects');
     expect(emptyListResponse.body.projects).toEqual([]);
+  });
+
+  test('stores favorites on the server with last-arrival-wins updates', async () => {
+    const app = createApp();
+    await request(app)
+      .put('/api/projects/projects/favorite-project')
+      .send({ snapshot: createSnapshot('favorite-project', 'Corso preferito') });
+
+    const favoriteResponse = await request(app)
+      .patch('/api/projects/projects/favorite-project/favorite')
+      .send({ isFavorite: true });
+    const unfavoriteResponse = await request(app)
+      .patch('/api/projects/projects/favorite-project/favorite')
+      .send({ isFavorite: false });
+
+    expect(favoriteResponse.body.meta.isFavorite).toBe(true);
+    expect(unfavoriteResponse.body.meta).toMatchObject({
+      isFavorite: false,
+      revision: 3,
+    });
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.body.projects[0].isFavorite).toBe(false);
   });
 
   test('keeps the newest project version when stale clients save later', async () => {
@@ -747,6 +770,18 @@ describe('/api/projects', () => {
           section: {
             sectionId: 'lesson-2',
             content: 'Contenuto generato e salvato',
+            contentBlocks: [
+              { type: 'markdown', markdown: 'Contenuto generato e salvato' },
+              {
+                type: 'inline-quiz',
+                quiz: {
+                  exerciseType: 'classification',
+                  question: 'Qual e il protocollo?',
+                  options: ['Regole condivise', 'Un browser', 'Un file', 'Un server'],
+                  correctIndex: 0,
+                },
+              },
+            ],
             learningAids: [
               {
                 id: 'learning-aid-definition-protocollo',
@@ -770,6 +805,10 @@ describe('/api/projects', () => {
     expect(loadResponse.body.project.learningPlan.modules[1].children[0]).toMatchObject({
       id: 'lesson-2',
       content: 'Contenuto generato e salvato',
+      contentBlocks: [
+        { type: 'markdown', markdown: 'Contenuto generato e salvato' },
+        expect.objectContaining({ type: 'inline-quiz' }),
+      ],
       learningAids: [
         {
           id: 'learning-aid-definition-protocollo',
@@ -982,6 +1021,83 @@ describe('/api/projects', () => {
       projectCount: 11,
       projectIndex: 1,
     });
+    await expect(store.listProjectImportDiagnostics()).resolves.toMatchObject([
+      {
+        code: 'LIBRARY_ARCHIVE_PROJECT_INVALID',
+        correlationId: '550e8400-e29b-41d4-a716-446655440000',
+        fileBytes: 173_398_950,
+        projectCount: 11,
+        projectIndex: 1,
+        stage: 'nested-project-read',
+        userId: 'local-user',
+      },
+    ]);
     warning.mockRestore();
+  });
+
+  test('restricts persisted import diagnostics to admins', async () => {
+    await store.recordProjectImportDiagnostic('user-123', {
+      correlationId: '550e8400-e29b-41d4-a716-446655440000',
+      code: 'LIBRARY_ARCHIVE_INVALID',
+      stage: 'manifest-read',
+    });
+    const previousAuthMode = process.env.AUTH_MODE;
+    const previousJwtSecret = process.env.SUPABASE_JWT_SECRET;
+    process.env.AUTH_MODE = 'supabase';
+    process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    try {
+      const app = createApp();
+      const userResponse = await request(app)
+        .get('/api/projects/import-diagnostics')
+        .set('Authorization', `Bearer ${createSupabaseTestToken({ role: 'user' })}`);
+      const adminResponse = await request(app)
+        .get('/api/projects/import-diagnostics?correlationId=550e8400-e29b-41d4-a716-446655440000')
+        .set('Authorization', `Bearer ${createSupabaseTestToken({ role: 'admin' })}`);
+
+      expect(userResponse.status).toBe(403);
+      expect(adminResponse.status).toBe(200);
+      expect(adminResponse.body.diagnostics).toMatchObject([
+        {
+          code: 'LIBRARY_ARCHIVE_INVALID',
+          correlationId: '550e8400-e29b-41d4-a716-446655440000',
+          stage: 'manifest-read',
+          userId: 'user-123',
+        },
+      ]);
+      const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      vi.spyOn(store, 'listProjectImportDiagnostics').mockRejectedValueOnce(
+        new Error('database password leaked')
+      );
+      const failedAdminResponse = await request(app)
+        .get('/api/projects/import-diagnostics')
+        .set('Authorization', `Bearer ${createSupabaseTestToken({ role: 'admin' })}`);
+      expect(failedAdminResponse.status).toBe(500);
+      expect(failedAdminResponse.body.error).toBe('Unable to list import diagnostics.');
+      expect(failedAdminResponse.body.error).not.toContain('password');
+      errorLog.mockRestore();
+    } finally {
+      if (previousAuthMode === undefined) delete process.env.AUTH_MODE;
+      else process.env.AUTH_MODE = previousAuthMode;
+      if (previousJwtSecret === undefined) delete process.env.SUPABASE_JWT_SECRET;
+      else process.env.SUPABASE_JWT_SECRET = previousJwtSecret;
+    }
+  });
+
+  test('does not expose persistence errors while recording import diagnostics', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(store, 'recordProjectImportDiagnostic').mockRejectedValueOnce(
+      new Error('database password leaked')
+    );
+
+    const response = await request(createApp()).post('/api/projects/import-diagnostics').send({
+      correlationId: '550e8400-e29b-41d4-a716-446655440000',
+      code: 'LIBRARY_ARCHIVE_INVALID',
+      stage: 'manifest-read',
+    });
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toBe('Unable to record import diagnostic.');
+    expect(response.body.error).not.toContain('password');
+    errorLog.mockRestore();
   });
 });

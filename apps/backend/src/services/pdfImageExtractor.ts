@@ -87,8 +87,8 @@ const emptyImageTextContext = Object.freeze({
 
 const normalizeLineText = (value: string): string =>
   normalizeLineEndings(value)
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/[ \t]+/g, ' ')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
 
 const joinLineTexts = (lines: PositionedPdfTextLine[]): string =>

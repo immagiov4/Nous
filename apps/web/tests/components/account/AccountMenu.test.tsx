@@ -33,7 +33,7 @@ const accountResponse = (provider: string) => ({
 
 describe('AccountMenu', () => {
   beforeEach(() => {
-    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['it']);
+    vi.spyOn(globalThis.navigator, 'languages', 'get').mockReturnValue(['it']);
     vi.stubEnv('VITE_AUTH_MODE', 'supabase');
     vi.stubEnv('VITE_SUPABASE_URL', 'https://supabase.test');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');

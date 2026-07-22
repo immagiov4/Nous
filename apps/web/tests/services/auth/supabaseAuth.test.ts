@@ -32,7 +32,7 @@ const createAccessToken = ({
   userId?: string;
 } = {}): string => {
   const encode = (value: unknown) =>
-    btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    btoa(JSON.stringify(value)).replaceAll(/\+/g, '-').replaceAll(/\//g, '_').replaceAll(/=/g, '');
   return `${encode({ alg: 'none' })}.${encode({
     sub: userId,
     email: `${userId}@example.com`,
@@ -48,7 +48,7 @@ describe('Supabase auth session storage', () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
-    window.history.replaceState({}, '', '/');
+    globalThis.history.replaceState({}, '', '/');
     clearSupabaseSession();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
@@ -197,7 +197,7 @@ describe('Supabase auth session storage', () => {
   });
 
   test('password sign-in leaves the public landing for the app root', async () => {
-    window.history.replaceState({}, '', '/landing');
+    globalThis.history.replaceState({}, '', '/landing');
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ access_token: createAccessToken(), user: { id: 'user-123' } }),
@@ -205,7 +205,7 @@ describe('Supabase auth session storage', () => {
 
     await signInWithPassword({ email: 'student@example.com', password: 'password' });
 
-    expect(window.location.pathname).toBe('/');
+    expect(globalThis.location.pathname).toBe('/');
   });
 
   test('falls back to memory when the runtime exposes incomplete localStorage', () => {
@@ -426,7 +426,7 @@ describe('Supabase auth session storage', () => {
       passwordSetupRequired: true,
       userId: 'invited-user',
     });
-    window.history.replaceState(
+    globalThis.history.replaceState(
       {},
       '',
       `/landing#access_token=${inviteToken}&refresh_token=refresh-token&expires_in=3600&type=invite`
@@ -447,12 +447,12 @@ describe('Supabase auth session storage', () => {
         },
       },
     });
-    expect(window.location.hash).toContain('type=invite');
+    expect(globalThis.location.hash).toContain('type=invite');
     expect(readSupabaseSession()).toBeNull();
 
     expect(consumeSupabaseAuthCallbackFromUrl().status).toBe('success');
-    expect(window.location.hash).toBe('');
-    expect(window.location.pathname).toBe('/');
+    expect(globalThis.location.hash).toBe('');
+    expect(globalThis.location.pathname).toBe('/');
     expect(readSupabaseSession()).toMatchObject({
       accessToken: inviteToken,
       authAction: 'invite',
@@ -462,18 +462,18 @@ describe('Supabase auth session storage', () => {
 
   test('scrubs a callback without moving a non-landing route', () => {
     const accessToken = createAccessToken();
-    window.history.replaceState({}, '', `/reader?course=one#access_token=${accessToken}`);
+    globalThis.history.replaceState({}, '', `/reader?course=one#access_token=${accessToken}`);
 
     expect(consumeSupabaseAuthCallbackFromUrl().status).toBe('success');
 
-    expect(window.location.pathname).toBe('/reader');
-    expect(window.location.search).toBe('?course=one');
-    expect(window.location.hash).toBe('');
+    expect(globalThis.location.pathname).toBe('/reader');
+    expect(globalThis.location.search).toBe('?course=one');
+    expect(globalThis.location.hash).toBe('');
   });
 
   test('an invalid callback clears a stored account instead of falling back to it', () => {
     saveSupabaseSession({ accessToken: 'old-account-token' });
-    window.history.replaceState(
+    globalThis.history.replaceState(
       {},
       '',
       '/#error=access_denied&error_code=otp_expired&error_description=expired'
@@ -484,7 +484,7 @@ describe('Supabase auth session storage', () => {
 
     expect(consumeSupabaseAuthCallbackFromUrl()).toEqual({ status: 'error', session: null });
     expect(readSupabaseSession()).toBeNull();
-    expect(window.location.hash).toBe('');
+    expect(globalThis.location.hash).toBe('');
   });
 
   test('keeps ordinary account password changes on the user-scoped endpoint', async () => {
@@ -657,7 +657,7 @@ describe('Supabase auth session storage', () => {
         method: 'POST',
         body: JSON.stringify({
           email: 'student@example.com',
-          redirect_to: `${window.location.origin}/`,
+          redirect_to: `${globalThis.location.origin}/`,
         }),
       })
     );
@@ -725,7 +725,7 @@ describe('Supabase auth session storage', () => {
       create_user: false,
       email: 'unknown@example.com',
       type: 'magiclink',
-      redirect_to: `${window.location.origin}/`,
+      redirect_to: `${globalThis.location.origin}/`,
     });
   });
 });

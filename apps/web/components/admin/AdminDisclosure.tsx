@@ -2,11 +2,11 @@ import { ChevronDown, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 interface AdminDisclosureProps {
-  children: ReactNode;
-  defaultOpen?: boolean;
-  icon: LucideIcon;
-  status: string;
-  title: string;
+  readonly children: ReactNode;
+  readonly defaultOpen?: boolean;
+  readonly icon: LucideIcon;
+  readonly status: string;
+  readonly title: string;
 }
 
 export default function AdminDisclosure({

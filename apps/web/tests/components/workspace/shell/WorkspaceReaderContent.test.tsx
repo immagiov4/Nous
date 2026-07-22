@@ -98,7 +98,7 @@ const savedSelectionArtifact: LearningArtifactRenderPayload = {
 
 describe('WorkspaceReaderContent', () => {
   beforeEach(() => {
-    window.localStorage.clear();
+    globalThis.localStorage.clear();
     youtubePolicyMocks.getYouTubeVideoClipsEnabled.mockResolvedValue(true);
   });
 
@@ -125,6 +125,115 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByText(/Pausa attiva 1 - Previsione/i)).toBeInTheDocument();
     expect(screen.queryByTestId('reader-quiz-column')).toBeNull();
     expect(screen.getByText('Prosegui')).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  test('renders typed lesson blocks as the primary ordered lesson content', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeSectionTitle: 'Trasformazioni',
+          activeSectionGeneratedVisualsById: {
+            'visual-1': {
+              code: '<div>Gerarchia delle pose</div>',
+              createdAt: '2026-07-22T18:00:00.000Z',
+              id: 'visual-1',
+              kind: 'html',
+              title: 'Gerarchia delle pose',
+            },
+          },
+          quiz: [],
+          sectionContent: 'Questo fallback legacy non deve apparire.',
+          sourcePageRangeLabel: 'pagine 4-6',
+          sectionContentBlocks: [
+            { type: 'markdown', markdown: '## Coordinate locali\n\nPrima spiegazione.' },
+            {
+              type: 'inline-quiz',
+              quiz: {
+                correctIndex: 1,
+                exerciseType: 'application-card',
+                options: ['Globale', 'Locale', 'Vista', 'Schermo'],
+                question: 'In quale spazio parte il vettore?',
+              },
+            },
+            {
+              type: 'generated-visual',
+              slotId: 'slot-001',
+              visualId: 'visual-1',
+            },
+            { type: 'markdown', markdown: '## Composizione\n\nSeconda spiegazione.' },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText('Coordinate locali')).toBeInTheDocument();
+    expect(screen.getByText('In quale spazio parte il vettore?')).toBeInTheDocument();
+    expect(screen.getByText('Composizione')).toBeInTheDocument();
+    expect(screen.getByTitle('Gerarchia delle pose')).toBeInTheDocument();
+    expect(screen.getAllByText(/Fonte originale: pagine 4-6/)).toHaveLength(1);
+    expect(screen.queryByText('Questo fallback legacy non deve apparire.')).toBeNull();
+  });
+
+  test('resolves a typed YouTube chapter at its ordered block position', async () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          quiz: [],
+          quizAnswers: [],
+          sectionContent: '',
+          sectionContentBlocks: [
+            { type: 'markdown', markdown: 'Osserva la rotazione locale.' },
+            {
+              type: 'youtube-clips',
+              clips: [
+                {
+                  endSeconds: 45,
+                  sourceIndex: 0,
+                  startSeconds: 20,
+                  title: 'Dal riferimento locale al genitore',
+                },
+              ],
+            },
+            { type: 'markdown', markdown: 'Ora confrontala con quella globale.' },
+          ],
+          lessonSources: [
+            {
+              title: 'Video completo sui quaternioni',
+              url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+              youtubeTranscript: {
+                ranges: [{ startSeconds: 0, endSeconds: 90 }],
+                text: 'Transcript timestampato.',
+              },
+            },
+          ],
+        })}
+      />
+    );
+
+    const video = await screen.findByRole('tabpanel', {
+      name: 'Dal riferimento locale al genitore',
+    });
+    expect(
+      screen.getByText('Osserva la rotazione locale.').compareDocumentPosition(video) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  test('treats typed blocks as ready content even without legacy markdown', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeSectionTitle: 'Quaternioni',
+          quiz: [],
+          quizAnswers: [],
+          sectionContent: '',
+          sectionContentBlocks: [{ type: 'markdown', markdown: 'La lezione tipizzata è pronta.' }],
+        })}
+      />
+    );
+
+    expect(screen.getByText('La lezione tipizzata è pronta.')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   test('materializes annotations before rendering lesson chunks', () => {
@@ -340,15 +449,74 @@ describe('WorkspaceReaderContent', () => {
       />
     );
 
-    await screen.findByRole('button', { name: 'Riproduci la dimostrazione (1:05–1:32)' });
-    const pageText = document.body.textContent || '';
-    expect(pageText.indexOf('Osserva il movimento')).toBeLessThan(
-      pageText.indexOf('Riproduci la dimostrazione')
-    );
-    expect(pageText.indexOf('Riproduci la dimostrazione')).toBeLessThan(
-      pageText.indexOf('Poi prova')
-    );
+    const playButton = await screen.findByRole('button', {
+      name: 'Riproduci la dimostrazione (1:05–1:32)',
+    });
+    expect(
+      screen.getByText(/Osserva il movimento/).compareDocumentPosition(playButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      playButton.compareDocumentPosition(screen.getByText(/Poi prova/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(screen.getAllByRole('button', { name: /Riproduci la dimostrazione/ })).toHaveLength(1);
+  });
+
+  test('groups multiple validated lesson markers into one inline micro-chapter carousel', async () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          sectionContent: [
+            '## Tecnica',
+            '',
+            'Osserva il primo movimento.',
+            '',
+            '{{YOUTUBE_CLIP_SOURCE:0|START:10|END:30}}',
+            '',
+            'Confronta il secondo movimento.',
+            '',
+            '{{YOUTUBE_CLIP_SOURCE:0|START:40|END:70}}',
+            '',
+            'Nota il dettaglio complementare.',
+            '',
+            '{{YOUTUBE_CLIP_SOURCE:1|START:5|END:20}}',
+            '',
+            'Applica la sequenza.',
+          ].join('\n'),
+          lessonSources: [
+            {
+              title: 'Tecnica completa',
+              url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+              youtubeTranscript: {
+                ranges: [{ startSeconds: 0, endSeconds: 90 }],
+                text: 'Transcript della tecnica completa.',
+              },
+            },
+            {
+              title: 'Dettaglio complementare',
+              url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+              youtubeTranscript: {
+                ranges: [{ startSeconds: 0, endSeconds: 30 }],
+                text: 'Transcript del dettaglio.',
+              },
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(await screen.findAllByRole('tab')).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /Riproduci la dimostrazione/ })).toHaveLength(1);
+    const tabList = screen.getByRole('tablist', { name: 'Micro-capitoli video' });
+    expect(
+      screen.getByText(/Osserva il primo movimento/).compareDocumentPosition(tabList) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      tabList.compareDocumentPosition(screen.getByText(/Confronta il secondo movimento/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   test('uses the writer-selected transcript-backed interval in an inline marker', async () => {

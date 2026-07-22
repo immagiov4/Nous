@@ -406,6 +406,17 @@ export class HttpProjectRepository implements ProjectRepository {
     });
   }
 
+  async setProjectFavorite(id: ProjectId, isFavorite: boolean): Promise<SavedProjectMeta> {
+    const response = await this.request<{ meta?: SavedProjectMeta }>(
+      `/api/projects/projects/${encodeURIComponent(id)}/favorite`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ isFavorite }),
+      }
+    );
+    return assertValue(response.meta, 'Il preferito sincronizzato non e stato aggiornato.');
+  }
+
   async patchProject(
     id: ProjectId,
     patch: ProjectPatch,

@@ -3,6 +3,7 @@ import { getBackendUrl } from './config.ts';
 
 interface YouTubeResearchResponse {
   context?: unknown;
+  discoveredVideoCount?: unknown;
   rationale?: unknown;
   success?: unknown;
   videoCandidates?: unknown;
@@ -23,6 +24,7 @@ export interface YouTubeVideoEvidence {
 
 export interface YouTubeResearchContext {
   context: string;
+  discoveredVideoCount?: number;
   failed?: boolean;
   rationale: string;
   videoCandidates: YouTubeVideoEvidence[];
@@ -33,6 +35,9 @@ export const mergeYouTubeResearchContexts = (
   contexts: YouTubeResearchContext[]
 ): YouTubeResearchContext => {
   const videoCandidates = new Map<string, YouTubeVideoEvidence>();
+  const discoveredVideoCounts = contexts.flatMap(item =>
+    typeof item.discoveredVideoCount === 'number' ? [item.discoveredVideoCount] : []
+  );
   for (const context of contexts) {
     for (const candidate of context.videoCandidates) {
       if (!videoCandidates.has(candidate.url)) {
@@ -43,6 +48,9 @@ export const mergeYouTubeResearchContexts = (
 
   return {
     context: [...new Set(contexts.map(item => item.context.trim()).filter(Boolean))].join('\n\n'),
+    ...(discoveredVideoCounts.length
+      ? { discoveredVideoCount: discoveredVideoCounts.reduce((total, count) => total + count, 0) }
+      : {}),
     failed: contexts.every(item => item.failed === true),
     rationale: [...new Set(contexts.map(item => item.rationale.trim()).filter(Boolean))].join(' '),
     videoCandidates: [...videoCandidates.values()],
@@ -132,6 +140,11 @@ export const getYouTubeResearchContext = async (
 
     const result = {
       context: payload.context,
+      discoveredVideoCount:
+        typeof payload.discoveredVideoCount === 'number' &&
+        Number.isFinite(payload.discoveredVideoCount)
+          ? payload.discoveredVideoCount
+          : undefined,
       rationale:
         typeof payload.rationale === 'string' && payload.rationale.trim()
           ? payload.rationale.trim()

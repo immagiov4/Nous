@@ -177,7 +177,7 @@ Regole SVG obbligatorie:
 - **Niente caption narrativa, niente box di sintesi, niente "takeaway".** Non aggiungere riquadri finali con titoli tipo "Cambio di paradigma", "Concetto chiave", "In sintesi", "In una frase", "Punto chiave", "Conclusione", o simili. Non scrivere paragrafi di prosa dentro l'SVG. Ogni <text> deve essere un'etichetta breve (1-6 parole) o una label di nodo, MAI una frase narrativa multi-riga che riassume la lezione. Se senti il bisogno di "spiegare" la visuale dentro l'SVG, la visuale e gia sbagliata: rifalla con etichette piu chiare.
 - **Vietate frasi complete di prosa.** Niente periodi che iniziano con "Il...", "La...", "Quando...", "Mentre...", "Perche...", "In Rust...", "Nei linguaggi...", o costruzioni soggetto-verbo-complemento estese. Le label sono nominali e telegrafiche, non discorsive.`;
 
-const RENDERER_HTML_PROMPT = `SYSTEM:
+const RENDERER_HTML_PROMPT = String.raw`SYSTEM:
 Sei un generatore esperto di visuali programmate HTML per Nous Reader.
 Genera un frammento HTML auto-contenuto che insegna tramite una visualizzazione prodotta dal browser. Può avere controlli quando aiutano, oppure essere una dimostrazione passiva e animata o statica.
 
@@ -185,7 +185,7 @@ Output SOLO JSON:
 {
   "title": "snake_case_title",
   "loading_messages": ["uno", "due", "tre"],
-  "widget_code": "<style>...</style>\\n...HTML...\\n<script>...</script>",
+  "widget_code": "<style>...</style>\n...HTML...\n<script>...</script>",
   "image_requests": [
     {
       "id": "asset-id-univoco",
@@ -523,7 +523,7 @@ const stripFence = (code: string, language?: string): string => {
   const lines = trimmed.split('\n');
   const openingFence = lines[0] || '';
   const expectedFence = language
-    ? new RegExp(`^\\\`\\\`\\\`${language}\\s*$`, 'i')
+    ? new RegExp(String.raw`^\`\`\`${language}\s*$`, 'i')
     : /^```\w*\s*$/i;
   if (!expectedFence.test(openingFence)) {
     return trimmed
@@ -617,7 +617,7 @@ const normalizeHtmlImageRequests = (requests: unknown, code: string): HtmlImageR
   }
 
   const hasMalformedPlaceholder = code
-    .replace(GENERATED_IMAGE_PLACEHOLDER_PATTERN, '')
+    .replaceAll(GENERATED_IMAGE_PLACEHOLDER_PATTERN, '')
     .includes('{{GENERATED_IMAGE:');
   return !hasMalformedPlaceholder && placeholderIds.size === requestIds.size ? normalized : null;
 };
@@ -626,13 +626,13 @@ const hasFullHtmlDocument = (code: string): boolean =>
   /<!doctype|<html\b|<head\b|<body\b/i.test(code);
 
 const buildVisualPlaceholder = (visual: LessonGeneratedVisual): string =>
-  `{{VISUAL_EXAMPLE:${visual.id}|title=${visual.title.replace(/[|}]/g, ' ').trim()}}}`;
+  `{{VISUAL_EXAMPLE:${visual.id}|title=${visual.title.replaceAll(/[|}]/g, ' ').trim()}}}`;
 
 const normalizeHeadingTitle = (value: string): string =>
   value
     .replace(/^#{1,6}\s+/, '')
-    .replace(/[*_`]/g, ' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/[*_`]/g, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim()
     .toLowerCase();
 
@@ -904,7 +904,7 @@ const buildEmbeddedImageGenerationPrompt = (
   ].join('\n');
 
 const buildHtmlReviewPreviewCode = (code: string): string =>
-  code.replace(GENERATED_IMAGE_PLACEHOLDER_PATTERN, GENERATED_IMAGE_PREVIEW_DATA_URL);
+  code.replaceAll(GENERATED_IMAGE_PLACEHOLDER_PATTERN, GENERATED_IMAGE_PREVIEW_DATA_URL);
 
 const materializeHtmlImages = async (
   visual: LessonGeneratedVisual,

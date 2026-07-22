@@ -36,13 +36,13 @@ const normalizeSearchText = (value: string): string =>
   value
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replaceAll(/\s+/g, ' ')
     .trim();
 
 const formatGeneratedVisualTitle = (title: string): string =>
-  title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Esempio visuale';
+  title.replaceAll(/[_-]+/g, ' ').replaceAll(/\s+/g, ' ').trim() || 'Esempio visuale';
 
 export const getGeneratedVisualSourceLabel = (visual: LessonGeneratedVisual): string => {
   if (visual.kind === 'image') {

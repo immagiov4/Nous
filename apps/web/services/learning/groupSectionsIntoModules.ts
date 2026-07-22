@@ -30,7 +30,7 @@ const trimHyphenEdges = (input: string): string => {
 
 const slugify = (input: string): string => {
   const normalizedInput = stripCombiningMarks(input.toLowerCase().normalize('NFKD'));
-  const collapsedSeparators = normalizedInput.replace(/[^a-z0-9]+/g, '-');
+  const collapsedSeparators = normalizedInput.replaceAll(/[^a-z0-9]+/g, '-');
   const trimmedSlug = trimHyphenEdges(collapsedSeparators);
   const base = trimmedSlug.slice(0, 48);
   return base.length > 0 ? base : 'untitled';

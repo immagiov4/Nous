@@ -23,7 +23,7 @@ beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', IntersectionObserverStub);
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
-  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });
+  Object.defineProperty(globalThis, 'innerWidth', { configurable: true, value: 1200 });
 });
 
 afterEach(() => {
@@ -52,7 +52,7 @@ test('uses one media decoder and seeks between journey scene segments', () => {
 });
 
 test('uses the desktop journey video and aspect ratio on narrow screens', () => {
-  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+  Object.defineProperty(globalThis, 'innerWidth', { configurable: true, value: 390 });
 
   const { container } = render(<LandingProductDemo activeStage="lesson" />);
   const demo = container.querySelector('.marketing-product-demo') as HTMLElement;

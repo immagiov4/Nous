@@ -10,11 +10,17 @@ const INLINE_SCRIPT_PATTERN = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
 const SCRIPT_SOURCE_ATTRIBUTE_PATTERN = /\bsrc\s*=/i;
 const SCRIPT_TYPE_ATTRIBUTE_PATTERN = /\btype\s*=\s*(["'])([^"']+)\1/i;
 
+const compareElementIdsByCodeUnit = (left: string, right: string): number => {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+};
+
 const isJavaScriptType = (type: string): boolean =>
   !type || type === 'module' || type === 'text/javascript' || type === 'application/javascript';
 
 export const findMissingStaticHtmlElementIds = (html: string): string[] => {
-  const staticMarkup = html.replace(HTML_RAW_TEXT_ELEMENT_PATTERN, '');
+  const staticMarkup = html.replaceAll(HTML_RAW_TEXT_ELEMENT_PATTERN, '');
   const declaredIds = new Set(
     Array.from(staticMarkup.matchAll(HTML_ELEMENT_ID_PATTERN), match => match[2]).filter(Boolean)
   );
@@ -22,11 +28,11 @@ export const findMissingStaticHtmlElementIds = (html: string): string[] => {
     (id): id is string => Boolean(id) && !declaredIds.has(id)
   );
 
-  return Array.from(new Set(missingIds)).sort();
+  return Array.from(new Set(missingIds)).sort(compareElementIdsByCodeUnit);
 };
 
 export const findMissingDirectlyDereferencedHtmlElementIds = (html: string): string[] => {
-  const staticMarkup = html.replace(HTML_RAW_TEXT_ELEMENT_PATTERN, '');
+  const staticMarkup = html.replaceAll(HTML_RAW_TEXT_ELEMENT_PATTERN, '');
   const declaredIds = new Set(
     Array.from(staticMarkup.matchAll(HTML_ELEMENT_ID_PATTERN), match => match[2]).filter(Boolean)
   );
@@ -35,7 +41,7 @@ export const findMissingDirectlyDereferencedHtmlElementIds = (html: string): str
     match => match[2]
   ).filter((id): id is string => Boolean(id) && !declaredIds.has(id));
 
-  return Array.from(new Set(missingIds)).sort();
+  return Array.from(new Set(missingIds)).sort(compareElementIdsByCodeUnit);
 };
 
 export const hasUnsafeHtmlElementDereferences = (html: string): boolean =>

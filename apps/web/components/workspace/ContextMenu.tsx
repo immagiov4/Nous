@@ -33,6 +33,7 @@ import type {
   ContextMenuPlacement,
   HorizontalViewportBounds,
   LearningArtifactRenderPayload,
+  LessonCreationBlockReason,
   SectionAnnotationArtifactRef,
   SelectionRect,
 } from '../../types';
@@ -43,32 +44,33 @@ import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechInputButton.tsx';
 
 interface ContextMenuProps {
-  anchorX?: number;
-  anchorY?: number;
-  askInputValue?: string;
-  annotationArtifactRefs?: SectionAnnotationArtifactRef[];
-  annotationNote?: string;
-  artifactPayloads?: LearningArtifactRenderPayload[];
-  artifactPreviewIdOverride?: string | null;
-  artifactPortalContainer?: HTMLElement | null;
-  containerRef?: RefObject<HTMLDivElement | null>;
-  horizontalBounds?: HorizontalViewportBounds;
-  isDarkMode?: boolean;
-  isLoading: boolean;
-  motionProgressOverride?: number;
-  notePreviewScrollTopOverride?: number;
-  onAttachArtifactToAnnotation?: (artifactRef: SectionAnnotationArtifactRef) => void;
-  onAsk: (question: string) => void;
-  onClose: () => void;
-  onCreateLesson: (instructions: string) => void;
-  onDeleteAnnotation: () => void;
-  onDetachArtifactFromAnnotation?: (artifactId: string) => void;
-  onHighlight: () => void;
-  onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
-  placement: ContextMenuPlacement;
-  selectionRect?: SelectionRect;
-  selectedText: string;
-  type: 'annotation' | 'lesson' | 'selection';
+  readonly anchorX?: number;
+  readonly anchorY?: number;
+  readonly askInputValue?: string;
+  readonly annotationArtifactRefs?: SectionAnnotationArtifactRef[];
+  readonly annotationNote?: string;
+  readonly artifactPayloads?: LearningArtifactRenderPayload[];
+  readonly artifactPreviewIdOverride?: string | null;
+  readonly artifactPortalContainer?: HTMLElement | null;
+  readonly containerRef?: RefObject<HTMLDivElement | null>;
+  readonly horizontalBounds?: HorizontalViewportBounds;
+  readonly isDarkMode?: boolean;
+  readonly isLoading: boolean;
+  readonly lessonCreationBlockReason: LessonCreationBlockReason | null;
+  readonly motionProgressOverride?: number;
+  readonly notePreviewScrollTopOverride?: number;
+  readonly onAttachArtifactToAnnotation?: (artifactRef: SectionAnnotationArtifactRef) => void;
+  readonly onAsk: (question: string) => void;
+  readonly onClose: () => void;
+  readonly onCreateLesson: (instructions: string) => void;
+  readonly onDeleteAnnotation: () => void;
+  readonly onDetachArtifactFromAnnotation?: (artifactId: string) => void;
+  readonly onHighlight: () => void;
+  readonly onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
+  readonly placement: ContextMenuPlacement;
+  readonly selectionRect?: SelectionRect;
+  readonly selectedText: string;
+  readonly type: 'annotation' | 'lesson' | 'selection';
 }
 
 const CONTEXT_MENU_DESKTOP_MAX_WIDTH = 460;
@@ -76,7 +78,7 @@ const CONTEXT_MENU_DESKTOP_MIN_WIDTH = 320;
 const CONTEXT_MENU_DESKTOP_CHROME_HEIGHT = 76;
 const CONTEXT_MENU_MOBILE_MAX_WIDTH = 384;
 const CONTEXT_MENU_VIEWPORT_PADDING = 12;
-const MORE_ACTIONS_MENU_WIDTH = 176;
+const MORE_ACTIONS_MENU_WIDTH = 240;
 const MORE_ACTIONS_MENU_HEIGHT = 52;
 const MORE_ACTIONS_MENU_GAP = 8;
 
@@ -85,7 +87,7 @@ const clamp = (value: number, min: number, max: number) => {
 };
 
 const abbreviate = (value: string, maxLength: number) => {
-  const normalizedValue = value.trim().replace(/\s+/g, ' ');
+  const normalizedValue = value.trim().replaceAll(/\s+/g, ' ');
   if (normalizedValue.length <= maxLength) {
     return normalizedValue;
   }
@@ -106,6 +108,7 @@ const ContextMenu = ({
   horizontalBounds,
   isDarkMode = false,
   isLoading,
+  lessonCreationBlockReason,
   motionProgressOverride,
   notePreviewScrollTopOverride,
   onAttachArtifactToAnnotation,
@@ -147,6 +150,12 @@ const ContextMenu = ({
   const { keyboardOffset } = useMobileKeyboardOffset();
   const isAnnotationMode = type === 'annotation';
   const isLessonMode = type === 'lesson';
+  const lessonCreationBlockedLabel =
+    lessonCreationBlockReason === 'lesson-generation'
+      ? t('Generazione lezione in corso…')
+      : lessonCreationBlockReason === 'other-operation'
+        ? t('Operazione in corso…')
+        : null;
   const activeAnnotationArtifactRefs = isLessonMode
     ? annotationArtifactRefs
     : localAnnotationArtifactRefs;
@@ -213,7 +222,7 @@ const ContextMenu = ({
 
     if (isMobileSheet) {
       onClose();
-      window.requestAnimationFrame(() => {
+      globalThis.window.requestAnimationFrame(() => {
         onAsk(trimmedInput);
       });
       return;
@@ -238,7 +247,7 @@ const ContextMenu = ({
     }
     askInteractionLockRef.current = true;
     submitAsk();
-    window.setTimeout(() => {
+    globalThis.window.setTimeout(() => {
       askInteractionLockRef.current = false;
     }, 400);
   };
@@ -251,7 +260,7 @@ const ContextMenu = ({
     }
     askInteractionLockRef.current = true;
     submitAsk();
-    window.setTimeout(() => {
+    globalThis.window.setTimeout(() => {
       askInteractionLockRef.current = false;
     }, 400);
   };
@@ -264,7 +273,7 @@ const ContextMenu = ({
     }
     askInteractionLockRef.current = true;
     submitAsk();
-    window.setTimeout(() => {
+    globalThis.window.setTimeout(() => {
       askInteractionLockRef.current = false;
     }, 400);
   };
@@ -281,7 +290,7 @@ const ContextMenu = ({
     } else {
       onHighlight();
     }
-    window.setTimeout(() => {
+    globalThis.window.setTimeout(() => {
       highlightInteractionLockRef.current = false;
     }, 400);
   };
@@ -298,7 +307,7 @@ const ContextMenu = ({
     } else {
       onHighlight();
     }
-    window.setTimeout(() => {
+    globalThis.window.setTimeout(() => {
       highlightInteractionLockRef.current = false;
     }, 400);
   };
@@ -315,7 +324,7 @@ const ContextMenu = ({
     } else {
       onHighlight();
     }
-    window.setTimeout(() => {
+    globalThis.window.setTimeout(() => {
       highlightInteractionLockRef.current = false;
     }, 400);
   };
@@ -329,7 +338,7 @@ const ContextMenu = ({
     }
 
     const triggerRect = moreActionsButtonRef.current?.getBoundingClientRect();
-    if (!triggerRect || typeof window === 'undefined') {
+    if (!triggerRect || typeof globalThis.window === 'undefined') {
       return;
     }
 
@@ -338,13 +347,13 @@ const ContextMenu = ({
       CONTEXT_MENU_VIEWPORT_PADDING,
       Math.max(
         CONTEXT_MENU_VIEWPORT_PADDING,
-        window.innerWidth - MORE_ACTIONS_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING
+        globalThis.window.innerWidth - MORE_ACTIONS_MENU_WIDTH - CONTEXT_MENU_VIEWPORT_PADDING
       )
     );
     setMoreActionsMenuStyle(
       triggerRect.top >= MORE_ACTIONS_MENU_HEIGHT + MORE_ACTIONS_MENU_GAP
         ? {
-            bottom: window.innerHeight - triggerRect.top + MORE_ACTIONS_MENU_GAP,
+            bottom: globalThis.window.innerHeight - triggerRect.top + MORE_ACTIONS_MENU_GAP,
             left,
           }
         : { left, top: triggerRect.bottom + MORE_ACTIONS_MENU_GAP }
@@ -359,7 +368,7 @@ const ContextMenu = ({
     setIsMoreActionsOpen(false);
     setIsNoteEditorOpen(false);
     setIsLessonConfirmOpen(true);
-    window.requestAnimationFrame(() => lessonCancelButtonRef.current?.focus());
+    globalThis.window.requestAnimationFrame(() => lessonCancelButtonRef.current?.focus());
   };
 
   const handleCancelCreate = (event: MouseEvent<HTMLButtonElement>) => {
@@ -415,16 +424,16 @@ const ContextMenu = ({
       if (isMoreActionsOpen) {
         event.preventDefault();
         setIsMoreActionsOpen(false);
-        window.requestAnimationFrame(() => moreActionsButtonRef.current?.focus());
+        globalThis.window.requestAnimationFrame(() => moreActionsButtonRef.current?.focus());
         return;
       }
 
       onClose();
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    globalThis.window.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      globalThis.window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isMoreActionsOpen, onClose]);
 
@@ -433,7 +442,9 @@ const ContextMenu = ({
       return;
     }
 
-    const frameId = window.requestAnimationFrame(() => moreActionsMenuItemRef.current?.focus());
+    const frameId = globalThis.window.requestAnimationFrame(() =>
+      moreActionsMenuItemRef.current?.focus()
+    );
     const handlePointerDown = (event: globalThis.PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) {
@@ -452,7 +463,7 @@ const ContextMenu = ({
 
     document.addEventListener('pointerdown', handlePointerDown, true);
     return () => {
-      window.cancelAnimationFrame(frameId);
+      globalThis.window.cancelAnimationFrame(frameId);
       document.removeEventListener('pointerdown', handlePointerDown, true);
     };
   }, [isMoreActionsOpen]);
@@ -474,8 +485,9 @@ const ContextMenu = ({
     setIsNoteEditorOpen(false);
   }, [annotationArtifactRefs, annotationNote, selectedText, type]);
 
-  const viewportHeight = typeof window === 'undefined' ? 0 : window.innerHeight;
-  const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth;
+  const viewportHeight =
+    typeof globalThis.window === 'undefined' ? 0 : globalThis.window.innerHeight;
+  const viewportWidth = typeof globalThis.window === 'undefined' ? 0 : globalThis.window.innerWidth;
   const desktopBoundaryLeft = horizontalBounds ? clamp(horizontalBounds.left, 0, viewportWidth) : 0;
   const desktopBoundaryRight = horizontalBounds
     ? clamp(horizontalBounds.right, desktopBoundaryLeft, viewportWidth)
@@ -795,7 +807,7 @@ const ContextMenu = ({
                 onFocus={event => {
                   if (!isMobileSheet) return;
                   const target = event.currentTarget;
-                  window.setTimeout(() => {
+                  globalThis.window.setTimeout(() => {
                     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
                   }, 250);
                 }}
@@ -894,7 +906,7 @@ const ContextMenu = ({
         ref={moreActionsButtonRef}
         type="button"
         onClick={handleToggleMoreActions}
-        disabled={isLoading}
+        disabled={isLoading && lessonCreationBlockedLabel === null}
         aria-expanded={isMoreActionsOpen}
         aria-haspopup="menu"
         aria-label={t('Apri menu')}
@@ -919,7 +931,7 @@ const ContextMenu = ({
         initial={{ opacity: 0, scale: 0.96, y: 4 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.18, ease: 'easeOut' }}
-        className="fixed z-[70] w-44 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-[0_24px_64px_-24px_rgba(28,25,23,0.45)] dark:border-stone-500 dark:bg-stone-800"
+        className="fixed z-[70] w-60 rounded-2xl border border-stone-200 bg-white p-1.5 shadow-[0_24px_64px_-24px_rgba(28,25,23,0.45)] dark:border-stone-500 dark:bg-stone-800"
         style={moreActionsMenuStyle}
       >
         <button
@@ -927,10 +939,11 @@ const ContextMenu = ({
           type="button"
           role="menuitem"
           onClick={handleCreateIntent}
-          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 focus-visible:bg-stone-100 focus-visible:outline-none dark:text-stone-100 dark:hover:bg-stone-700 dark:focus-visible:bg-stone-700"
+          disabled={lessonCreationBlockedLabel !== null}
+          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 focus-visible:bg-stone-100 focus-visible:outline-none disabled:cursor-wait disabled:opacity-60 dark:text-stone-100 dark:hover:bg-stone-700 dark:focus-visible:bg-stone-700"
         >
           <BookPlus className="h-4 w-4 shrink-0 text-stone-500 dark:text-stone-300" />
-          <span>{t('Crea lezione')}</span>
+          <span>{lessonCreationBlockedLabel ?? t('Crea lezione')}</span>
         </button>
       </motion.div>,
       moreActionsPortalTarget
@@ -1059,10 +1072,10 @@ const ContextMenu = ({
               <button
                 type="button"
                 onClick={handleCreate}
-                disabled={isLoading}
+                disabled={isLoading || lessonCreationBlockedLabel !== null}
                 className="rounded-full bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-500 dark:hover:bg-orange-600"
               >
-                {t('Procedi')}
+                {lessonCreationBlockedLabel ?? t('Procedi')}
               </button>
             </div>
           </div>
@@ -1082,7 +1095,7 @@ const ContextMenu = ({
             onChange={event => setInput(event.target.value)}
             onFocus={event => {
               const target = event.currentTarget;
-              window.setTimeout(() => {
+              globalThis.window.setTimeout(() => {
                 target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
               }, 250);
             }}
@@ -1191,10 +1204,10 @@ const ContextMenu = ({
             <button
               type="button"
               onClick={handleCreate}
-              disabled={isLoading}
+              disabled={isLoading || lessonCreationBlockedLabel !== null}
               className="rounded-full bg-orange-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-orange-700 disabled:opacity-50 dark:bg-orange-500 dark:hover:bg-orange-600"
             >
-              {t('Procedi')}
+              {lessonCreationBlockedLabel ?? t('Procedi')}
             </button>
           </div>
         </div>

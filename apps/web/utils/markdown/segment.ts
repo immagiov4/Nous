@@ -40,7 +40,7 @@ const removeAccidentalPlainTextIndentation = (segment: string): string =>
 
 export const processMarkdownSegment = (segment: string): string => {
   const lines = normalizeMathMarkdownSegment(removeAccidentalPlainTextIndentation(segment))
-    .replace(/\r/g, '')
+    .replaceAll(/\r/g, '')
     .split('\n');
   const output: string[] = [];
 

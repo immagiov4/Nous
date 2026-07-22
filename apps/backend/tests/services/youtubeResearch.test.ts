@@ -185,6 +185,7 @@ describe('YouTube research', () => {
     });
 
     expect(requestedIds).toEqual(['video-1', 'video-2']);
+    expect(research.discoveredVideoCount).toBe(2);
     expect(research.context).toContain('[01:05-01:09] Concetto verificabile');
     expect(research.rationale).toBe(
       '2 video con transcript disponibile inclusi su 2 candidati valutati.'

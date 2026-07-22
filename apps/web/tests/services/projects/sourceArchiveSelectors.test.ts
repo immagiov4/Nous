@@ -44,6 +44,29 @@ describe('source archive selector contract', () => {
     });
   });
 
+  test('returns selected paths in deterministic UTF-16 code-unit order', () => {
+    expect(
+      resolveSourceArchiveSelection(
+        [
+          { kind: 'directory' as const, path: 'src' },
+          {
+            byteSize: 1,
+            contentKind: 'text' as const,
+            kind: 'file' as const,
+            path: 'src/a.ts',
+          },
+          {
+            byteSize: 1,
+            contentKind: 'text' as const,
+            kind: 'file' as const,
+            path: 'src/Z.ts',
+          },
+        ],
+        [{ kind: 'directory', path: 'src' }]
+      ).textFilePaths
+    ).toEqual(['src/Z.ts', 'src/a.ts']);
+  });
+
   test.each([
     {
       selectors: [],

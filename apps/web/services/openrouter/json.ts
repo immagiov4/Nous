@@ -87,7 +87,7 @@ export const cleanJson = (text: string): string => {
     clean = clean.substring(0, lastCompleteRootEnd + 1);
   }
 
-  clean = clean.replace(/\\u(?![0-9a-fA-F]{4})/g, 'u');
+  clean = clean.replaceAll(/\\u(?![0-9a-fA-F]{4})/g, 'u');
 
   return clean;
 };
@@ -112,17 +112,17 @@ const repairJsonString = (text: string): string => {
     }
 
     if (current === '\n') {
-      repaired += '\\n';
+      repaired += String.raw`\n`;
       continue;
     }
 
     if (current === '\r') {
-      repaired += '\\r';
+      repaired += String.raw`\r`;
       continue;
     }
 
     if (current === '\t') {
-      repaired += '\\t';
+      repaired += String.raw`\t`;
       continue;
     }
 
@@ -146,7 +146,7 @@ const repairJsonString = (text: string): string => {
     }
   }
 
-  return repaired.replace(/,\s*([}\]])/g, '$1');
+  return repaired.replaceAll(/,\s*([}\]])/g, '$1');
 };
 
 const closeOpenJsonStructures = (text: string): string => {
@@ -209,7 +209,7 @@ const closeOpenJsonStructures = (text: string): string => {
     completed += stack[index] === '{' ? '}' : ']';
   }
 
-  return completed.replace(/,\s*([}\]])/g, '$1');
+  return completed.replaceAll(/,\s*([}\]])/g, '$1');
 };
 
 const buildJsonParseError = (): Error & { status?: number; details?: string } => {
@@ -256,7 +256,7 @@ export const sanitizeTitle = (title: string): string => {
 
   const clean = title
     .replace(/^(Output|Rule|Strict|Instruction|Task|Topic).*?:/i, '')
-    .replace(/["*_]/g, '')
+    .replaceAll(/["*_]/g, '')
     .trim();
 
   const words = clean.split(' ');

@@ -3,11 +3,11 @@ import { useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 
 interface WorkspaceReaderQuizFooterProps {
-  canComplete: boolean;
-  hasNextSection: boolean;
-  onAdvanceSection: () => void;
-  onCompleteSection: () => void;
-  remainingQuestionCount: number;
+  readonly canComplete: boolean;
+  readonly hasNextSection: boolean;
+  readonly onAdvanceSection: () => void;
+  readonly onCompleteSection: () => void;
+  readonly remainingQuestionCount: number;
 }
 
 const getProgressPrompt = ({

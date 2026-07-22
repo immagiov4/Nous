@@ -20,12 +20,12 @@ const getLocalDateKey = (date = new Date()): string => {
 };
 
 const readActivityStore = (): LearningActivityStore => {
-  if (typeof window === 'undefined') {
+  if (typeof globalThis.window === 'undefined') {
     return createEmptyStore();
   }
 
   try {
-    const value = window.localStorage.getItem(ACTIVITY_STORAGE_KEY);
+    const value = globalThis.localStorage.getItem(ACTIVITY_STORAGE_KEY);
     if (!value) {
       return createEmptyStore();
     }
@@ -40,7 +40,7 @@ const readActivityStore = (): LearningActivityStore => {
 
 const writeActivityStore = (store: LearningActivityStore) => {
   try {
-    window.localStorage.setItem(ACTIVITY_STORAGE_KEY, JSON.stringify(store));
+    globalThis.localStorage.setItem(ACTIVITY_STORAGE_KEY, JSON.stringify(store));
   } catch {
     // Study tracking is optional when browser storage is unavailable.
   }
@@ -88,13 +88,13 @@ export const useStudyTimeTracking = () => {
       'touchstart',
     ];
     activityEvents.forEach(eventName => {
-      window.addEventListener(eventName, markInteraction, {
+      globalThis.addEventListener(eventName, markInteraction, {
         capture: eventName === 'scroll',
         passive: true,
       });
     });
 
-    const interval = window.setInterval(() => {
+    const interval = globalThis.setInterval(() => {
       const isActivelyStudying =
         document.visibilityState === 'visible' &&
         document.hasFocus() &&
@@ -114,9 +114,9 @@ export const useStudyTimeTracking = () => {
     }, STUDY_TICK_MS);
 
     return () => {
-      window.clearInterval(interval);
+      globalThis.clearInterval(interval);
       activityEvents.forEach(eventName => {
-        window.removeEventListener(eventName, markInteraction, {
+        globalThis.removeEventListener(eventName, markInteraction, {
           capture: eventName === 'scroll',
         });
       });

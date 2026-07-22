@@ -187,7 +187,7 @@ test('getPdfAssetSession captions extracted images with the dedicated vision mod
   );
   assert.match(
     String(callOpenRouterMock.mock.calls[0]?.[0]?.messages?.[0]?.content?.[1]?.text || ''),
-    new RegExp(`${previousPageTail}[\\s\\S]*${currentPageTail}[\\s\\S]*${nextPageTail}`)
+    new RegExp(String.raw`${previousPageTail}[\s\S]*${currentPageTail}[\s\S]*${nextPageTail}`)
   );
   assert.equal(session?.parser, 'pdf-parse');
   assert.equal(session?.images.length, 2);

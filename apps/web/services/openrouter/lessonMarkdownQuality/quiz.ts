@@ -1,4 +1,5 @@
 import { normalizeActivePauseExerciseType } from '../../../utils/learning/activePause.ts';
+import { stripInlineQuizMarkers } from '../../../utils/reader/inlineQuiz.ts';
 import { getMarkdownHeadings } from '../lessonImages.ts';
 import type { QuizQuestion } from '../shared.ts';
 import {
@@ -14,8 +15,8 @@ const normalizeSimilarityWord = (word: string): string =>
   word
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '');
+    .replaceAll(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[^a-z0-9]/g, '');
 
 const countMeaningfulLessonWords = (contentMarkdown: string): number =>
   stripMarkdownForSimilarity(contentMarkdown)
@@ -27,8 +28,8 @@ const BLOCKISH_PARAGRAPH_PREFIX = /^(#{1,6}\s|[-*+]\s|>\s|```|~~~|\|.*\||\{\{PDF
 
 const normalizeParagraphForDetection = (paragraph: string): string =>
   paragraph
-    .replace(/\n+/g, ' ')
-    .replace(/[ \t]{2,}/g, ' ')
+    .replaceAll(/\n+/g, ' ')
+    .replaceAll(/[ \t]{2,}/g, ' ')
     .trim();
 
 const countMeaningfulLessonParagraphs = (contentMarkdown: string): number =>
@@ -44,7 +45,7 @@ const countMeaningfulLessonParagraphs = (contentMarkdown: string): number =>
 // ── Estimate target quiz count ─────────────────────────────────────────
 
 export const estimateTargetQuizCount = (contentMarkdown: string): number => {
-  const trimmed = contentMarkdown.trim();
+  const trimmed = stripInlineQuizMarkers(contentMarkdown).trim();
   if (!trimmed) return MIN_LESSON_QUIZ_QUESTIONS;
 
   const wordCount = countMeaningfulLessonWords(trimmed);
@@ -79,7 +80,7 @@ const unwrapWholeFenceBlock = (value: string): string | null => {
   }
 
   const openingLine = lines[0]?.trim() || '';
-  const closingLine = lines[lines.length - 1]?.trim() || '';
+  const closingLine = lines.at(-1)?.trim() || '';
   if (!/^```(?:[a-z0-9_+-]+)?$/iu.test(openingLine) || closingLine !== '```') {
     return null;
   }

@@ -81,7 +81,7 @@ const getCandidateText = (node: ts.Node): string | null => {
   ) {
     return node
       .getText()
-      .replace(/^['"`]|['"`]$/g, '')
+      .replaceAll(/^['"`]|['"`]$/g, '')
       .trim();
   }
   return null;

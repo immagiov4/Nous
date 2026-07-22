@@ -35,7 +35,7 @@ const stripPdfImageToken = (source: string, startIndex: number): number | null =
 
 const appendCollapsedWhitespace = (parts: string[], character: string) => {
   if (character === '\n' || character === '\r' || character === '\t' || character === ' ') {
-    if (parts[parts.length - 1] !== ' ') {
+    if (parts.at(-1) !== ' ') {
       parts.push(' ');
     }
     return;
@@ -118,7 +118,7 @@ export const stripMarkdownForSimilarity = (value: string): string => {
     index += 1;
   }
 
-  return parts.join('').replace(/\s+/g, ' ').trim();
+  return parts.join('').replaceAll(/\s+/g, ' ').trim();
 };
 
 export const hasBrokenDisplayMathBracketBlock = (value: string): boolean => {

@@ -79,7 +79,7 @@ describe('useTtsPlayer', () => {
     ]);
 
     vi.stubGlobal('Audio', FakeAudio as unknown as typeof Audio);
-    window.Audio = FakeAudio as unknown as typeof Audio;
+    globalThis.Audio = FakeAudio as unknown as typeof Audio;
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       writable: true,

@@ -80,7 +80,7 @@ ${trimmedInput}`;
 const normalizeAssessmentText = (value: string): string =>
   value
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replaceAll(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 
 const matchesAnyAssessmentPattern = (value: string, patterns: RegExp[]): boolean =>
@@ -423,7 +423,12 @@ export const createAssessmentPlanningCommands = (
         }
       } else {
         const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
-        const sourceFile = await loadProjectSourceFile(context);
+        const sourceFile = await loadProjectSourceFile(context, () =>
+          state.isWorkflowCurrent('generatePlan', requestId)
+        );
+        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
+          return;
+        }
         if (!sourceFile && !archiveSource) {
           throw new Error('Missing source file for plan generation');
         }
@@ -528,6 +533,9 @@ export const createAssessmentPlanningCommands = (
       progressObserver.complete();
       state.succeedWorkflow('generatePlan', requestId);
     } catch (error) {
+      if (!state.isWorkflowCurrent('generatePlan', requestId)) {
+        return;
+      }
       state.setScreenState(AppState.LIBRARY);
       state.failWorkflow('generatePlan', requestId, getErrorMessage(error));
       throw error;

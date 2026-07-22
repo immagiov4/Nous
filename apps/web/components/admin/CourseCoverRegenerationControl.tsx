@@ -64,7 +64,7 @@ export default function CourseCoverRegenerationControl() {
     let timer: number | undefined;
 
     const poll = async () => {
-      timer = window.setTimeout(async () => {
+      timer = globalThis.window.setTimeout(async () => {
         try {
           const nextJob = await loadCourseCoverRegenerationStatus();
           if (!cancelled) {
@@ -83,7 +83,7 @@ export default function CourseCoverRegenerationControl() {
     void poll();
     return () => {
       cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
+      if (timer !== undefined) globalThis.window.clearTimeout(timer);
     };
   }, [job?.status]);
 

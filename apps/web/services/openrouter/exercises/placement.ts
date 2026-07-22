@@ -86,7 +86,7 @@ const buildProfileBlock = (profile: UserProfile | null): string =>
     : 'Profilo utente non disponibile. Usa lingua e tono del piano.';
 
 const truncateLine = (value: string, maxChars: number): string => {
-  const normalized = value.replace(/\s+/g, ' ').trim();
+  const normalized = value.replaceAll(/\s+/g, ' ').trim();
   return normalized.length > maxChars ? `${normalized.slice(0, maxChars - 1).trim()}…` : normalized;
 };
 

@@ -57,20 +57,20 @@ import { parsePdfContentParts } from '../../utils/pdf/imagePlaceholders';
 import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
 
 export interface MarkdownRendererProps {
-  content: string;
-  className?: string;
-  isDarkMode?: boolean;
-  onClick?: (e: MouseEvent<HTMLElement>) => void;
-  onContextMenu?: (e: MouseEvent<HTMLElement>) => void;
-  lessonAssetsById?: Record<string, PdfImageAsset>;
-  generatedVisualsById?: Record<string, LessonGeneratedVisual>;
-  lessonImageRefsById?: Record<string, LessonImageRef>;
-  sectionAnnotations?: SectionAnnotation[];
+  readonly content: string;
+  readonly className?: string;
+  readonly isDarkMode?: boolean;
+  readonly onClick?: (e: MouseEvent<HTMLElement>) => void;
+  readonly onContextMenu?: (e: MouseEvent<HTMLElement>) => void;
+  readonly lessonAssetsById?: Record<string, PdfImageAsset>;
+  readonly generatedVisualsById?: Record<string, LessonGeneratedVisual>;
+  readonly lessonImageRefsById?: Record<string, LessonImageRef>;
+  readonly sectionAnnotations?: SectionAnnotation[];
 }
 
 interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
-  className?: string;
-  children?: ReactNode;
+  readonly className?: string;
+  readonly children?: ReactNode;
 }
 
 const EMPTY_GENERATED_VISUALS_BY_ID: Record<string, LessonGeneratedVisual> = {};
@@ -296,8 +296,8 @@ const buildMarkdownComponents = (
 type MarkdownComponents = ReturnType<typeof buildMarkdownComponents>;
 
 interface MarkdownPartProps {
-  components: MarkdownComponents;
-  content: string;
+  readonly components: MarkdownComponents;
+  readonly content: string;
 }
 
 const MarkdownPart = memo(({ components, content }: MarkdownPartProps) => (
@@ -313,9 +313,9 @@ const MarkdownPart = memo(({ components, content }: MarkdownPartProps) => (
 MarkdownPart.displayName = 'MarkdownPart';
 
 interface PdfImageFigureProps {
-  alt: string;
-  asset: PdfImageAsset;
-  caption?: string;
+  readonly alt: string;
+  readonly asset: PdfImageAsset;
+  readonly caption?: string;
 }
 
 const PdfImageFigure = memo(({ alt, asset, caption }: PdfImageFigureProps) => (

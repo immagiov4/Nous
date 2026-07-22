@@ -26,7 +26,7 @@ import type { CreateWorkspaceControllerArgs, WorkspaceControllerContext } from '
 
 const createSleep = (ms: number) =>
   new Promise<void>(resolve => {
-    window.setTimeout(resolve, ms);
+    globalThis.setTimeout(resolve, ms);
   });
 
 const scheduleHydrationWithMicrotask = (callback: () => void) => {
@@ -34,8 +34,13 @@ const scheduleHydrationWithMicrotask = (callback: () => void) => {
 };
 
 export const loadProjectSourceFile = async (
-  context: Pick<WorkspaceControllerContext, 'domain' | 'projectLibrary' | 'state'>
+  context: Pick<WorkspaceControllerContext, 'domain' | 'projectLibrary' | 'state'>,
+  isCurrent: () => boolean = () => true
 ): Promise<FileData | null> => {
+  if (!isCurrent()) {
+    return null;
+  }
+
   const currentFile = context.domain.file?.data
     ? context.domain.file
     : getProjectSourceFile(context.domain.source);
@@ -51,6 +56,9 @@ export const loadProjectSourceFile = async (
 
   if (source.sources?.length) {
     const storedSources = await context.projectLibrary.loadStoredProjectSources(projectId);
+    if (!isCurrent()) {
+      return null;
+    }
     if (storedSources.length !== source.sources.length) {
       context.state.setMissingSourceProjectId(projectId);
       return null;
@@ -65,6 +73,9 @@ export const loadProjectSourceFile = async (
   }
 
   const loadedFile = await context.projectLibrary.loadStoredProjectSource(projectId);
+  if (!isCurrent()) {
+    return null;
+  }
   if (!loadedFile) {
     context.state.setMissingSourceProjectId(projectId);
     return null;

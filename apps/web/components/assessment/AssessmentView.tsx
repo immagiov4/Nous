@@ -6,17 +6,17 @@ import type { Message } from '../../types';
 import MarkdownRenderer from '../shared/MarkdownRenderer';
 
 interface AssessmentViewProps {
-  assessmentInputId: string;
-  assessmentInputRef: RefObject<HTMLInputElement | null>;
-  currentAssessmentInput: string;
-  isDarkMode: boolean;
-  isLoading: boolean;
-  loadingStatus: string;
-  messages: Message[];
-  messagesEndRef: RefObject<HTMLDivElement | null>;
-  onBackToLibrary: () => void;
-  onInputChange: (value: string) => void;
-  onSubmit: (event: FormEvent) => void;
+  readonly assessmentInputId: string;
+  readonly assessmentInputRef: RefObject<HTMLInputElement | null>;
+  readonly currentAssessmentInput: string;
+  readonly isDarkMode: boolean;
+  readonly isLoading: boolean;
+  readonly loadingStatus: string;
+  readonly messages: Message[];
+  readonly messagesEndRef: RefObject<HTMLDivElement | null>;
+  readonly onBackToLibrary: () => void;
+  readonly onInputChange: (value: string) => void;
+  readonly onSubmit: (event: FormEvent) => void;
 }
 
 const AssessmentView = ({

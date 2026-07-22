@@ -20,7 +20,7 @@ describe('automatic UI localization', () => {
   });
 
   test('uses navigator.language when the language list is unavailable', () => {
-    Object.defineProperties(window.navigator, {
+    Object.defineProperties(globalThis.navigator, {
       language: { configurable: true, value: 'it-IT' },
       languages: { configurable: true, value: undefined },
     });

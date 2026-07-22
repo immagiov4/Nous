@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { SavedProjectMeta } from '../../../types.ts';
 
@@ -9,7 +9,9 @@ vi.mock('../../../services/projects/courseCover.ts', () => ({
   ensureProjectCover: ensureProjectCoverMock,
 }));
 
-const { useCourseCoverImages } = await import('../../../components/newHome/newHomeData.ts');
+const { useCourseCoverImages, useFavoriteProjectIds } = await import(
+  '../../../components/newHome/newHomeData.ts'
+);
 
 const buildProject = (index: number): SavedProjectMeta => ({
   id: `project-${index}`,
@@ -88,5 +90,24 @@ describe('new home course covers', () => {
     });
 
     expect(maxActiveJobs).toBe(3);
+  });
+});
+
+describe('new home favorites', () => {
+  test('uses backend metadata as the source of truth and persists toggles', async () => {
+    const setProjectFavorite = vi.fn().mockResolvedValue({});
+    const project = { ...buildProject(1), isFavorite: true };
+    const { result, rerender } = renderHook(
+      ({ projects }) => useFavoriteProjectIds(projects, setProjectFavorite),
+      { initialProps: { projects: [project] } }
+    );
+    await waitFor(() => expect(result.current.favoriteIds).toEqual(['project-1']));
+
+    act(() => result.current.toggleFavoriteProject('project-1'));
+    expect(result.current.favoriteIds).toEqual(['project-1']);
+    expect(setProjectFavorite).toHaveBeenCalledWith('project-1', false);
+
+    rerender({ projects: [{ ...project, isFavorite: false }] });
+    await waitFor(() => expect(result.current.favoriteIds).toEqual([]));
   });
 });

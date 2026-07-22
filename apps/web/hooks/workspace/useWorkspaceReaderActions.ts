@@ -28,6 +28,7 @@ import {
   updateSectionAnnotationNote,
   upsertSectionAnnotationArtifactRefs,
 } from '../../utils/learning/sectionAnnotations.ts';
+import type { CreateLessonOutcome } from './controller/types.ts';
 
 interface UseWorkspaceReaderActionsArgs {
   activeSectionId: string | null;
@@ -43,7 +44,7 @@ interface UseWorkspaceReaderActionsArgs {
   contextMenu: ContextMenuState;
   createLessonFromSelection: (args: { instructions: string; selectedText: string }) => Promise<{
     errorMessage?: string;
-    outcome: 'blocked-missing-source' | 'created' | 'failed';
+    outcome: CreateLessonOutcome;
   }>;
   documentIndex: PdfTextIndex | null;
   isMobileViewport: boolean;
@@ -63,6 +64,7 @@ interface UseWorkspaceReaderActionsArgs {
     projectId?: string;
     projectTitle?: string;
     selectedText: string;
+    selectedTextStart?: number;
     sourceKind?: ProjectSource['kind'];
     sourceMaterial?: string;
     sourceName?: string;
@@ -92,7 +94,7 @@ const getErrorMessage = (error: unknown) => {
 };
 
 const clearNativeSelection = () => {
-  window.getSelection()?.removeAllRanges();
+  globalThis.getSelection()?.removeAllRanges();
 };
 
 const buildWholeLessonContextLabel = (lessonTitle?: string) => {
@@ -170,6 +172,7 @@ export const useWorkspaceReaderActions = ({
               contextAfter: contextMenu.contextAfter,
               contextBefore: contextMenu.contextBefore,
               selectedText: contextMenu.selectedText,
+              selectedTextStart: contextMenu.selectedTextStart,
             })
           : null;
       const clickedAnnotation =
@@ -209,6 +212,8 @@ export const useWorkspaceReaderActions = ({
         projectId: projectId || undefined,
         projectTitle: learningPlan?.title,
         selectedText,
+        selectedTextStart:
+          contextMenu.type === 'selection' ? contextMenu.selectedTextStart : undefined,
         sourceKind: sourceContext.sourceKind,
         sourceMaterial: sourceContext.sourceMaterial,
         sourceName: sourceContext.sourceName,
@@ -248,6 +253,10 @@ export const useWorkspaceReaderActions = ({
         return;
       }
 
+      if (result.outcome === 'ignored-busy') {
+        return;
+      }
+
       notify(
         result.errorMessage ||
           'Questo progetto non ha un file sorgente collegato. Ricollega il PDF o lo ZIP prima di creare una sottolezione.'
@@ -278,6 +287,7 @@ export const useWorkspaceReaderActions = ({
       contextAfter: contextMenu.contextAfter,
       contextBefore: contextMenu.contextBefore,
       selectedText: contextMenu.selectedText,
+      selectedTextStart: contextMenu.selectedTextStart,
     });
 
     if (!result) {
@@ -327,6 +337,7 @@ export const useWorkspaceReaderActions = ({
           artifactRefs,
           note,
           selectedText: contextMenu.selectedText,
+          selectedTextStart: contextMenu.selectedTextStart,
         });
 
         if (!result) {
@@ -505,6 +516,7 @@ export const useWorkspaceReaderActions = ({
       contextBefore,
       note,
       selectedText,
+      selectedTextStart,
     }: SaveConversationNoteInput): Promise<SaveConversationNoteResult> => {
       if (!activeSectionId) {
         return {
@@ -527,6 +539,7 @@ export const useWorkspaceReaderActions = ({
         contextAfter?: string;
         contextBefore?: string;
         selectedText: string;
+        selectedTextStart?: number;
       }) =>
         applySectionAnnotation({
           annotations: currentSection.annotations,
@@ -536,9 +549,15 @@ export const useWorkspaceReaderActions = ({
           contextBefore: input.contextBefore,
           note,
           selectedText: input.selectedText,
+          selectedTextStart: input.selectedTextStart,
         });
 
-      const primaryResult = trySave({ contextAfter, contextBefore, selectedText });
+      const primaryResult = trySave({
+        contextAfter,
+        contextBefore,
+        selectedText,
+        selectedTextStart,
+      });
 
       const fallbackResult =
         !primaryResult && fallbackSelection
@@ -546,6 +565,7 @@ export const useWorkspaceReaderActions = ({
               contextAfter: fallbackSelection.contextAfter,
               contextBefore: fallbackSelection.contextBefore,
               selectedText: fallbackSelection.selectedText,
+              selectedTextStart: fallbackSelection.selectedTextStart,
             })
           : null;
 
@@ -597,6 +617,7 @@ export const useWorkspaceReaderActions = ({
       contextBefore,
       note,
       selectedText,
+      selectedTextStart,
     }: SaveConversationNoteInput): Promise<SaveConversationNoteResult> => {
       if (!activeSectionId) {
         return {
@@ -619,6 +640,7 @@ export const useWorkspaceReaderActions = ({
         contextAfter?: string;
         contextBefore?: string;
         selectedText: string;
+        selectedTextStart?: number;
       }) =>
         findSectionAnnotationForSelection({
           annotations: currentSection.annotations,
@@ -626,15 +648,17 @@ export const useWorkspaceReaderActions = ({
           contextAfter: input.contextAfter,
           contextBefore: input.contextBefore,
           selectedText: input.selectedText,
+          selectedTextStart: input.selectedTextStart,
         });
 
       const match =
-        resolveMatch({ contextAfter, contextBefore, selectedText }) ||
+        resolveMatch({ contextAfter, contextBefore, selectedText, selectedTextStart }) ||
         (fallbackSelection
           ? resolveMatch({
               contextAfter: fallbackSelection.contextAfter,
               contextBefore: fallbackSelection.contextBefore,
               selectedText: fallbackSelection.selectedText,
+              selectedTextStart: fallbackSelection.selectedTextStart,
             })
           : null);
 
