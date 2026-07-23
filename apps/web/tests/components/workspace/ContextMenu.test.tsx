@@ -350,6 +350,20 @@ describe('ContextMenu', () => {
     expect(surface.style.transformOrigin).toBe(initialTransformOrigin);
   });
 
+  test('opens above when the menu anchor is near the viewport bottom', () => {
+    const { container } = render(
+      <ContextMenu
+        {...buildProps()}
+        anchorY={700}
+        selectionRect={{ top: 20, left: 200, width: 80, height: 680 }}
+      />
+    );
+
+    const surface = container.firstElementChild as HTMLElement;
+    expect(surface.style.bottom).not.toBe('');
+    expect(surface.style.top).toBe('');
+  });
+
   test('bounds the desktop note panel to the remaining viewport height', async () => {
     const user = userEvent.setup();
     const { container } = render(<ContextMenu {...buildProps()} />);

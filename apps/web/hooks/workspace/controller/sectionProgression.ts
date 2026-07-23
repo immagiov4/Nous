@@ -483,6 +483,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
 
     const lessonGenerationState = resolveLessonGenerationState({
       file: sourceFile,
+      hasResearchContext: currentResearchCoursePlan !== null,
       hasToolBackedSource: domain.source?.kind === 'archive',
       isLearnMode,
       learningPlan: currentPlan,
@@ -928,11 +929,14 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         return { outcome: 'ignored-busy' };
       }
       const canCreateWithoutFile =
-        domain.isLearnMode ||
-        domain.syllabus.length > 0 ||
-        flattenLessons(domain.learningPlan.modules).some(currentLesson =>
-          Boolean(currentLesson.parentId)
-        );
+        resolveLessonGenerationState({
+          file: null,
+          hasResearchContext: domain.researchCoursePlan !== null,
+          hasToolBackedSource: domain.source?.kind === 'archive',
+          isLearnMode: domain.isLearnMode,
+          learningPlan: domain.learningPlan,
+          syllabus: domain.syllabus,
+        }) !== 'blocked-missing-source';
 
       const newSection = sourceFile
         ? await openRouter.createSubChapterMetadata(

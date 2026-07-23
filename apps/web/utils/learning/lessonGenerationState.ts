@@ -5,6 +5,7 @@ export type LessonGenerationState = 'blocked-missing-source' | 'learn-mode' | 's
 
 interface ResolveLessonGenerationStateArgs {
   file: FileData | null;
+  hasResearchContext?: boolean;
   hasToolBackedSource?: boolean;
   isLearnMode: boolean;
   learningPlan: LearningPlan | null;
@@ -13,6 +14,7 @@ interface ResolveLessonGenerationStateArgs {
 
 export const resolveLessonGenerationState = ({
   file,
+  hasResearchContext = false,
   hasToolBackedSource = false,
   isLearnMode,
   learningPlan,
@@ -21,7 +23,8 @@ export const resolveLessonGenerationState = ({
   const hasParentIds = Boolean(
     flattenLessons(learningPlan?.modules).some(section => Boolean(section.parentId))
   );
-  const canGenerateInLearnMode = isLearnMode || syllabus.length > 0 || hasParentIds;
+  const canGenerateInLearnMode =
+    isLearnMode || hasResearchContext || syllabus.length > 0 || hasParentIds;
 
   if (!file && !hasToolBackedSource && !canGenerateInLearnMode) {
     return 'blocked-missing-source';

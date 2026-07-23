@@ -5,7 +5,7 @@ import {
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 
-const IMAGE_REQUEST_TIMEOUT_MS = 90_000;
+const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 const IMAGE_GENERATION_ERROR = 'Generazione immagine non riuscita. Riprova.';
 
 interface ImageGenerationResponse {

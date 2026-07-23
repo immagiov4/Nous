@@ -63,6 +63,17 @@ test('uses learn-mode generation when the project already behaves like a generat
   assert.equal(
     resolveLessonGenerationState({
       file: null,
+      hasResearchContext: true,
+      isLearnMode: false,
+      learningPlan: regularPlan,
+      syllabus: [],
+    }),
+    'learn-mode'
+  );
+
+  assert.equal(
+    resolveLessonGenerationState({
+      file: null,
       isLearnMode: false,
       learningPlan: nestedPlan,
       syllabus: [],
@@ -81,7 +92,18 @@ test('uses learn-mode generation when the project already behaves like a generat
   );
 });
 
-test('uses the source-backed flow when a source file is present', () => {
+test('uses the source-backed flow when a source file or tool-backed archive is present', () => {
+  assert.equal(
+    resolveLessonGenerationState({
+      file: null,
+      hasToolBackedSource: true,
+      isLearnMode: false,
+      learningPlan: regularPlan,
+      syllabus: [],
+    }),
+    'source-backed'
+  );
+
   assert.equal(
     resolveLessonGenerationState({
       file: pdfFile,
