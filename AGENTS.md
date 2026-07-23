@@ -64,6 +64,7 @@ Core Philosophy → Context Before Code → Simplicity → Naming → Single Sou
 - Remove dead code and duplicate logic introduced by the change.
 - Keep names specific and semantically clear.
 - Do not introduce a project-specific heuristic for ranking, classification, ordering, placement, filtering, fallback selection, or semantic inference without explicit developer approval. When proposing one, label the question clearly as `EURISTICA PROPOSTA` and explain its decision rule and failure modes so it cannot be mistaken for a routine clarification. Established standard algorithms and deterministic validation of an explicit contract do not require this extra approval.
+- Do not introduce or change collateral product behavior or any quantitative threshold without explicit developer approval. This includes timeouts, token limits, context budgets, retry counts, concurrency caps, file-size limits, rate limits, fallback cutoffs, distribution curves, ranking weights, and similar policies. Discovering that a limit is needed does not authorize choosing its value: ask before implementing or changing the number or policy.
 
 ## Product Manifesto
 
