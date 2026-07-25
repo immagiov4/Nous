@@ -504,9 +504,12 @@ const ContextMenu = ({
     0,
     desktopBoundaryRight - desktopBoundaryLeft - CONTEXT_MENU_VIEWPORT_PADDING * 2
   );
-  const shouldOpenAbove =
-    !isMobileSheet &&
-    (anchorY ?? selectionRect?.top ?? CONTEXT_MENU_VIEWPORT_PADDING) > viewportHeight / 3;
+  const desktopAnchorY = anchorY ?? selectionRect?.top ?? CONTEXT_MENU_VIEWPORT_PADDING;
+  const desktopSpaceAbove =
+    desktopAnchorY - CONTEXT_MENU_VIEWPORT_PADDING - CONTEXT_MENU_VIEWPORT_PADDING;
+  const desktopSpaceBelow =
+    viewportHeight - desktopAnchorY - CONTEXT_MENU_VIEWPORT_PADDING - CONTEXT_MENU_VIEWPORT_PADDING;
+  const shouldOpenAbove = !isMobileSheet && desktopSpaceAbove >= desktopSpaceBelow;
   const desktopMenuWidth =
     viewportWidth > 0
       ? Math.min(

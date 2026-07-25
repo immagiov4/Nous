@@ -994,9 +994,13 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
         : 'relative flex-1 min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-smooth';
 
   return (
-    <div
+    <section
       ref={scrollContainerRef}
+      data-nous-lesson-context-surface
+      aria-label={t('Area di lettura')}
       className={scrollContainerClassName}
+      onContextMenu={onContentContextMenu}
+      onPointerDownCapture={onContentPointerDownCapture}
       style={{
         touchAction: scrollMode === 'document' ? 'auto' : 'pan-y',
       }}
@@ -1042,8 +1046,6 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
           ref={contentRef}
           aria-label={t('Area di lettura')}
           className="mb-8 min-h-[50vh] min-w-0"
-          onContextMenu={onContentContextMenu}
-          onPointerDownCapture={onContentPointerDownCapture}
         >
           {activeExercise ? (
             <ApplicationExerciseViewer
@@ -1296,7 +1298,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
           ) : null}
         </section>
       </div>
-    </div>
+    </section>
   );
 });
 

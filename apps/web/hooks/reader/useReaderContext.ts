@@ -31,8 +31,8 @@ import {
 
 const CONTEXT_MENU_MOBILE_DEBOUNCE_MS = 100;
 const SELECTION_MENU_REOPEN_SUPPRESSION_MS = 260;
-const ANNOTATION_MENU_OPEN_SUPPRESSION_MS = 700;
 const ANNOTATION_MARK_SELECTOR = 'mark[data-nous-annotation-id], mark[data-lumina-annotation-id]';
+const LESSON_CONTEXT_SURFACE_SELECTOR = '[data-nous-lesson-context-surface]';
 const LESSON_CONTEXT_INTERACTIVE_SELECTOR =
   'a,button,input,textarea,select,option,summary,[role="button"],[role="link"],[role="menuitem"],[contenteditable="true"],[data-nous-native-context-menu]';
 
@@ -77,12 +77,16 @@ const getSelectionMenuKey = ({
 };
 
 const canOpenLessonContextMenu = (target: EventTarget | null, contentElement: HTMLElement) => {
-  if (!(target instanceof Node) || !contentElement.contains(target)) {
+  if (!(target instanceof Node)) {
     return false;
   }
 
   const targetElement = target instanceof Element ? target : target.parentElement;
-  if (!targetElement || !contentElement.contains(targetElement)) {
+  if (
+    !targetElement ||
+    (!contentElement.contains(targetElement) &&
+      !targetElement.closest(LESSON_CONTEXT_SURFACE_SELECTOR))
+  ) {
     return false;
   }
 
@@ -119,7 +123,6 @@ export const useReaderContext = ({
     sectionId: string | null;
   } | null>(null);
   const suppressedSelectionMenuRef = useRef<{ key: string; until: number } | null>(null);
-  const suppressOutsideCloseUntilRef = useRef(0);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
   const contextAnswerDraftSizeRef = useRef<ContextAnswerSize>(CONTEXT_ANSWER_DEFAULT_SIZE);
   // Mirror of contextMenu state consumed from callbacks that must keep a stable
@@ -556,7 +559,6 @@ export const useReaderContext = ({
 
       setContextMenuOwnerSectionId(activeSectionId);
       contextMenuStateRef.current = nextMenu;
-      suppressOutsideCloseUntilRef.current = Date.now() + ANNOTATION_MENU_OPEN_SUPPRESSION_MS;
       setContextMenu(nextMenu);
     },
     [activeSectionId, closeContextMenu, contentRef, isMobileViewport, sectionAnnotations]
@@ -747,10 +749,6 @@ export const useReaderContext = ({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) {
-        return;
-      }
-
-      if (Date.now() < suppressOutsideCloseUntilRef.current) {
         return;
       }
 
