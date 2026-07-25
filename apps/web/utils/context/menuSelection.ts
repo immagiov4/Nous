@@ -9,7 +9,7 @@ import type {
 } from '../../types';
 import {
   normalizeMathSelectionArtifacts,
-  projectMarkdownMathRange,
+  projectKatexAnnotationSource,
 } from '../markdown/codeRanges.ts';
 import { buildVisibleProjection } from '../markdown/textProjection.ts';
 import { READER_NON_SPEECH_SELECTOR } from '../reader/readingText.ts';
@@ -38,16 +38,6 @@ const DEFAULT_CONTEXT_WINDOW = 48;
 const KATEX_TEX_ANNOTATION_SELECTOR = 'annotation[encoding="application/x-tex"]';
 const LESSON_CONTENT_ROOT_SELECTOR = '[data-nous-lesson-content-root="true"]';
 
-const projectKatexAnnotationSource = (texSource: string): string => {
-  const wrappedExpression = `$${texSource}$`;
-  return (
-    projectMarkdownMathRange(wrappedExpression, {
-      start: 0,
-      end: wrappedExpression.length,
-    }).text || texSource
-  );
-};
-
 const extractRangeText = (range: Range, fallbackText = ''): string => {
   try {
     const ownerDocument =
@@ -70,10 +60,8 @@ const extractRangeText = (range: Range, fallbackText = ''): string => {
       const texSource = texAnnotation?.textContent?.trim();
 
       if (texSource) {
-        const projectedText = projectKatexAnnotationSource(texSource).trim();
-        katexNode.replaceWith(
-          ownerDocument.createTextNode(projectedText ? ` ${projectedText} ` : ' ')
-        );
+        const projectedText = projectKatexAnnotationSource(texSource).trim() || texSource;
+        katexNode.replaceWith(ownerDocument.createTextNode(projectedText));
         return;
       }
 

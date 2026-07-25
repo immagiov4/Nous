@@ -209,6 +209,45 @@ test('maps a repeated DOM selection past ignored UI to its exact content occurre
   });
 });
 
+test('anchors a paragraph containing inline KaTeX without adding artificial spaces', () => {
+  const content =
+    'Le coordinate locali seguono la camera. Se il suo avanti è $-Z$, il punto $(0,0,-1)$ è davanti.';
+  const container = document.createElement('div');
+  container.innerHTML = `<div data-nous-lesson-content-root="true"><p>Le coordinate locali seguono la camera. Se il suo avanti è <span class="katex"><span class="katex-mathml">−Z<annotation encoding="application/x-tex">-Z</annotation></span><span class="katex-html">−Z</span></span>, il punto <span class="katex"><span class="katex-mathml">(0,0,−1)<annotation encoding="application/x-tex">(0,0,-1)</annotation></span><span class="katex-html">(0,0,−1)</span></span> è davanti.</p></div>`;
+  document.body.append(container);
+  const paragraph = container.querySelector('p');
+  assert.ok(paragraph);
+
+  const range = document.createRange();
+  range.selectNodeContents(paragraph);
+  range.getBoundingClientRect = () => ({ top: 32, left: 16, width: 480, height: 80 }) as DOMRect;
+  const selection = {
+    rangeCount: 1,
+    getRangeAt: () => range,
+    toString: () => range.toString(),
+  } as unknown as Selection;
+
+  const resolved = resolveContextMenuSelection({
+    content,
+    container,
+    placement: 'desktop-floating',
+    selection,
+  });
+  assert.equal(
+    resolved?.selectedText,
+    'Le coordinate locali seguono la camera. Se il suo avanti è -Z, il punto (0,0,-1) è davanti.'
+  );
+
+  const annotation = applySectionAnnotation({
+    content,
+    contextAfter: resolved?.contextAfter,
+    contextBefore: resolved?.contextBefore,
+    selectedText: resolved?.selectedText || '',
+    selectedTextStart: resolved?.selectedTextStart,
+  });
+  assert.ok(annotation);
+});
+
 test('rejects a selection inside ignored lesson UI before creating an annotation', () => {
   const content = 'Alpha Beta gamma.\n\nAlpha Beta gamma.';
   const container = document.createElement('div');

@@ -222,6 +222,14 @@ export const projectMarkdownMathRange = (
   };
 };
 
+export const projectKatexAnnotationSource = (texSource: string): string => {
+  const wrappedExpression = `$${texSource}$`;
+  return projectMarkdownMathRange(wrappedExpression, {
+    start: 0,
+    end: wrappedExpression.length,
+  }).text;
+};
+
 const projectInlineMathLikeExpression = (expression: string): string => {
   const projected = projectMarkdownMathRange(`$${expression}$`, {
     start: 0,

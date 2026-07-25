@@ -131,6 +131,38 @@ describe('MarkdownRenderer', () => {
     expect(entries[0]?.ranges.map(range => range.toString())).toEqual(['Prima', 'finale.']);
   });
 
+  test('resolves native highlights around inline KaTeX from the canonical TeX projection', () => {
+    const content =
+      'La convenzione OpenXR usa $+X$ verso destra, $+Y$ verso l’alto e $-Z$ in avanti.';
+    const { container } = render(<MarkdownRenderer content={content} />);
+    const article = container.querySelector('article');
+    expect(article).not.toBeNull();
+
+    const entries = resolveSectionAnnotationHighlightEntries(article as HTMLElement, [
+      {
+        anchor: {
+          kind: 'selection',
+          selector: {
+            end: content.length,
+            exact: 'La convenzione OpenXR usa +X verso destra, +Y verso l’alto e -Z in avanti.',
+            prefix: '',
+            start: 0,
+            suffix: '',
+          },
+        },
+        createdAt: '2026-07-25T10:00:00.000Z',
+        id: 'annotation-inline-katex',
+        note: '',
+        updatedAt: '2026-07-25T10:00:00.000Z',
+      },
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.ranges.map(range => range.toString()).join('')).toBe(
+      'La convenzione OpenXR usa  verso destra,  verso l’alto e  in avanti.'
+    );
+  });
+
   test('softens annotation edges with minimal horizontal spacing', () => {
     const { container } = render(
       <MarkdownRenderer

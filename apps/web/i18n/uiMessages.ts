@@ -903,6 +903,7 @@ const ENGLISH_UI_MESSAGES = {
     'Do you want to create a new sublesson from this page?',
   'Vuoi creare una nuova sottolezione da questa selezione?':
     'Do you want to create a new sublesson from this selection?',
+  'Verrà usata come contesto l’intera lezione.': 'The whole lesson will be used as context.',
   Assessment: 'Assessment',
   'Chiudi anteprima': 'Close preview',
   Modifica: 'Edit',

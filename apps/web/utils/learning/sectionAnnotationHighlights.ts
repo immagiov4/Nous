@@ -1,4 +1,5 @@
 import type { SectionAnnotation, SectionAnnotationTextSelector } from '../../types.ts';
+import { projectKatexAnnotationSource } from '../markdown/codeRanges.ts';
 import { isSelectionAnnotation } from './sectionAnnotationAnchors.ts';
 
 const ANNOTATION_HIGHLIGHT_NAME = 'nous-annotations';
@@ -6,6 +7,8 @@ const NOTE_HIGHLIGHT_NAME = 'nous-annotation-notes';
 const SELECTOR_CONTEXT_LENGTH = 48;
 const PROJECTION_IGNORED_SELECTOR = 'script, style, [data-nous-speech="ignore"]';
 const HIGHLIGHT_IGNORED_SELECTOR = 'pre, .katex, [data-nous-speech="ignore"]';
+const KATEX_SELECTOR = '.katex';
+const KATEX_TEX_ANNOTATION_SELECTOR = 'annotation[encoding="application/x-tex"]';
 const BLOCK_SELECTOR = 'p, div, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, pre';
 
 interface ProjectionCharacter {
@@ -64,9 +67,22 @@ const appendNormalizedText = (projection: DomTextProjection, node: Text) => {
   }
 };
 
+const appendProjectedMath = (projection: DomTextProjection, node: Text, texSource: string) => {
+  const projectedText = projectKatexAnnotationSource(texSource).trim() || texSource;
+  for (let index = 0; index < projectedText.length; index += 1) {
+    appendProjectionCharacter(
+      projection,
+      projectedText[index],
+      node,
+      Math.min(index, Math.max(0, node.data.length - 1))
+    );
+  }
+};
+
 const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
   const projection: DomTextProjection = { characters: [], text: '' };
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const projectedKatexNodes = new Set<Element>();
   let previousBlock: Element | null = null;
 
   for (let current = walker.nextNode(); current; current = walker.nextNode()) {
@@ -77,6 +93,7 @@ const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
     }
 
     const block = parent.closest(BLOCK_SELECTOR);
+    const katexNode = parent.closest(KATEX_SELECTOR);
     if (
       previousBlock &&
       block &&
@@ -87,7 +104,19 @@ const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
       appendProjectionCharacter(projection, ' ', node, 0);
     }
 
-    appendNormalizedText(projection, node);
+    if (katexNode) {
+      if (!projectedKatexNodes.has(katexNode)) {
+        projectedKatexNodes.add(katexNode);
+        const texSource = katexNode
+          .querySelector(KATEX_TEX_ANNOTATION_SELECTOR)
+          ?.textContent?.trim();
+        if (texSource) {
+          appendProjectedMath(projection, node, texSource);
+        }
+      }
+    } else {
+      appendNormalizedText(projection, node);
+    }
     previousBlock = block;
   }
 
