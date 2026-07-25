@@ -42,10 +42,14 @@ interface UseWorkspaceReaderActionsArgs {
   closeContextMenu: () => void;
   completeActiveSection: () => Promise<'journey-complete' | 'noop' | 'opened-next'>;
   contextMenu: ContextMenuState;
-  createLessonFromSelection: (args: { instructions: string; selectedText: string }) => Promise<{
-    errorMessage?: string;
-    outcome: CreateLessonOutcome;
-  }>;
+  createLessonFromSelection: (args: {
+    annotationNote?: string;
+    contextAfter?: string;
+    contextBefore?: string;
+    instructions: string;
+    parentContent?: string;
+    selectedText: string;
+  }) => Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }>;
   documentIndex: PdfTextIndex | null;
   isMobileViewport: boolean;
   learningPlan: LearningPlan | null;
@@ -236,13 +240,38 @@ export const useWorkspaceReaderActions = ({
 
   const handleCreateLesson = useCallback(
     async (instructions: string) => {
-      if (!contextMenu.selectedText) {
+      const activeSection = getCurrentSection();
+      const selectedText =
+        contextMenu.type === 'lesson'
+          ? activeSection?.content || sectionContent
+          : contextMenu.selectedText;
+      if (!selectedText || (contextMenu.type === 'lesson' && !instructions.trim())) {
         return;
       }
 
+      const attachedAnnotation =
+        contextMenu.type === 'annotation'
+          ? (activeSection?.annotations || []).find(
+              annotation => annotation.id === contextMenu.annotationId
+            )
+          : contextMenu.type === 'selection' && activeSection
+            ? findSectionAnnotationForSelection({
+                annotations: activeSection.annotations,
+                content: activeSection.content || sectionContent,
+                contextAfter: contextMenu.contextAfter,
+                contextBefore: contextMenu.contextBefore,
+                selectedText: contextMenu.selectedText,
+                selectedTextStart:
+                  contextMenu.type === 'selection' ? contextMenu.selectedTextStart : undefined,
+              })?.annotation
+            : undefined;
       const result = await createLessonFromSelection({
+        annotationNote: attachedAnnotation?.note,
+        contextAfter: contextMenu.contextAfter,
+        contextBefore: contextMenu.contextBefore,
         instructions,
-        selectedText: contextMenu.selectedText,
+        parentContent: activeSection?.content || sectionContent,
+        selectedText,
       });
 
       if (result.outcome === 'created') {
@@ -262,7 +291,15 @@ export const useWorkspaceReaderActions = ({
           'Questo progetto non ha un file sorgente collegato. Ricollega il PDF o lo ZIP prima di creare una sottolezione.'
       );
     },
-    [closeContextMenu, contextMenu, createLessonFromSelection, isMobileViewport, notify]
+    [
+      closeContextMenu,
+      contextMenu,
+      createLessonFromSelection,
+      getCurrentSection,
+      isMobileViewport,
+      notify,
+      sectionContent,
+    ]
   );
 
   const handleRegenerateActiveSection = useCallback(() => {

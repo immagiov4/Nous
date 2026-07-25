@@ -141,6 +141,7 @@ export interface GenerateSectionContentInput {
   documentIndex?: PdfTextIndex | null;
   file: FileData;
   generationNotes?: string;
+  lessonContext?: string;
   onReasoningUpdate?: (reasoning: string) => void;
   onStatusUpdate?: GenerationStatusReporter;
   previousContext: string;
@@ -161,6 +162,7 @@ export const generateSectionContent = async ({
   documentIndex,
   file,
   generationNotes,
+  lessonContext,
   onReasoningUpdate,
   onStatusUpdate,
   previousContext,
@@ -221,6 +223,7 @@ ${userNotesBlock}
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
 CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.${noRepetitionRule}
+${lessonContext?.trim() ? `CONTESTO SPECIFICO DELLA SOTTOLEZIONE:\n${lessonContext.trim()}\n` : ''}
 ${sourceContext}
 REGOLE FONDAMENTALI:
 1. Scrivi una lezione esaustiva in Markdown ricco, ma ad alta densita informativa: niente riempitivo, niente ripetizioni decorative, niente giri larghi per dire poco.

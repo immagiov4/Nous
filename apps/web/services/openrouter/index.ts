@@ -31,6 +31,7 @@ export { generateLessonLearningAids } from './learningAids.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,
+  createArchiveSubChapterMetadata,
   createLearnSubChapterMetadata,
   createSubChapterMetadata,
   generateLearningPlan,

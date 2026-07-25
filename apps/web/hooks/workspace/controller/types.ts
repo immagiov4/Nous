@@ -260,7 +260,11 @@ export interface WorkspaceControllerCommands {
   advanceActiveSection: () => Promise<AdvanceSectionOutcome>;
   completeActiveSection: () => Promise<CompleteSectionOutcome>;
   createLessonFromSelection: (args: {
+    annotationNote?: string;
+    contextAfter?: string;
+    contextBefore?: string;
     instructions: string;
+    parentContent?: string;
     selectedText: string;
   }) => Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }>;
   deleteProject: (projectId: string) => Promise<void>;

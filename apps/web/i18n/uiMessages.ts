@@ -878,7 +878,7 @@ const ENGLISH_UI_MESSAGES = {
   Chiedi: 'Ask',
   'Chiedi a Nous o aggiungi istruzioni': 'Ask Nous or add instructions',
   'Chiedi su tutta la lezione': 'Ask about the whole lesson',
-  'Crea lezione': 'Create lesson',
+  'Crea sottolezione': 'Create sublesson',
   'Crea una nuova lezione dedicata a questo punto': 'Create a lesson about this point',
   'Crea una nuova lezione dedicata a questo punto nel menu a sinistra':
     'Create a lesson about this point in the left menu',
@@ -898,8 +898,11 @@ const ENGLISH_UI_MESSAGES = {
   'Scrivi la nota che vuoi lasciare su questo passaggio...':
     'Write the note you want to leave on this passage...',
   'Scrivi, aggiorna o svuota la nota...': 'Write, update, or clear the note...',
-  'Vuoi creare una nuova lezione da questa selezione?':
-    'Do you want to create a new lesson from this selection?',
+  'Generazione sottolezione in corso…': 'Generating sublesson…',
+  'Vuoi creare una nuova sottolezione da questa pagina?':
+    'Do you want to create a new sublesson from this page?',
+  'Vuoi creare una nuova sottolezione da questa selezione?':
+    'Do you want to create a new sublesson from this selection?',
   Assessment: 'Assessment',
   'Chiudi anteprima': 'Close preview',
   Modifica: 'Edit',

@@ -13,7 +13,11 @@ export {
 } from '../planQuality.ts';
 export { LESSON_SCOPE_RULES, PLAN_PROPEDEUTIC_ORDER_RULES } from '../prompts.ts';
 export { generateSectionContent } from './content.ts';
-export { createLearnSubChapterMetadata, createSubChapterMetadata } from './metadata.ts';
+export {
+  createArchiveSubChapterMetadata,
+  createLearnSubChapterMetadata,
+  createSubChapterMetadata,
+} from './metadata.ts';
 export {
   generateLearningPlan,
   generateLearningPlanFromSourceArchive,

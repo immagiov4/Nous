@@ -152,7 +152,7 @@ const ContextMenu = ({
   const isLessonMode = type === 'lesson';
   const lessonCreationBlockedLabel =
     lessonCreationBlockReason === 'lesson-generation'
-      ? t('Generazione lezione in corso…')
+      ? t('Generazione sottolezione in corso…')
       : lessonCreationBlockReason === 'other-operation'
         ? t('Operazione in corso…')
         : null;
@@ -202,8 +202,16 @@ const ContextMenu = ({
     isAnnotationMode && hasSavedAnnotationContent
       ? t('Nota associata al passaggio')
       : t('Aggiungi una nota alla lezione');
-  const lessonSelectionPreview = abbreviate(selectedText, 120);
+  const lessonSelectionPreview = isLessonMode
+    ? t('Verrà usata come contesto l’intera lezione.')
+    : `"${abbreviate(selectedText, 120)}"`;
+  const lessonConfirmationTitle = t(
+    isLessonMode
+      ? 'Vuoi creare una nuova sottolezione da questa pagina?'
+      : 'Vuoi creare una nuova sottolezione da questa selezione?'
+  );
   const lessonInstructionPreview = trimmedInput ? abbreviate(trimmedInput, 120) : null;
+  const isLessonCreationMissingInstructions = isLessonMode && !trimmedInput;
   const normalizedNotePreview = useMemo(
     () => normalizeMarkdownForRendering(noteInput),
     [noteInput]
@@ -900,22 +908,21 @@ const ContextMenu = ({
     );
   };
 
-  const renderMoreActionsButton = () =>
-    !isLessonMode ? (
-      <button
-        ref={moreActionsButtonRef}
-        type="button"
-        onClick={handleToggleMoreActions}
-        disabled={isLoading && lessonCreationBlockedLabel === null}
-        aria-expanded={isMoreActionsOpen}
-        aria-haspopup="menu"
-        aria-label={t('Apri menu')}
-        className={moreActionsButtonClassName}
-        title={t('Apri menu')}
-      >
-        <MoreVertical className="h-4 w-4 shrink-0" />
-      </button>
-    ) : null;
+  const renderMoreActionsButton = () => (
+    <button
+      ref={moreActionsButtonRef}
+      type="button"
+      onClick={handleToggleMoreActions}
+      disabled={isLoading && lessonCreationBlockedLabel === null}
+      aria-expanded={isMoreActionsOpen}
+      aria-haspopup="menu"
+      aria-label={t('Apri menu')}
+      className={moreActionsButtonClassName}
+      title={t('Apri menu')}
+    >
+      <MoreVertical className="h-4 w-4 shrink-0" />
+    </button>
+  );
 
   const renderMoreActionsPortal = () => {
     if (!isMoreActionsOpen || !moreActionsMenuStyle || !moreActionsPortalTarget) {
@@ -939,11 +946,11 @@ const ContextMenu = ({
           type="button"
           role="menuitem"
           onClick={handleCreateIntent}
-          disabled={lessonCreationBlockedLabel !== null}
-          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 focus-visible:bg-stone-100 focus-visible:outline-none disabled:cursor-wait disabled:opacity-60 dark:text-stone-100 dark:hover:bg-stone-700 dark:focus-visible:bg-stone-700"
+          disabled={lessonCreationBlockedLabel !== null || isLessonCreationMissingInstructions}
+          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-stone-700 transition-colors hover:bg-stone-100 focus-visible:bg-stone-100 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 dark:text-stone-100 dark:hover:bg-stone-700 dark:focus-visible:bg-stone-700"
         >
           <BookPlus className="h-4 w-4 shrink-0 text-stone-500 dark:text-stone-300" />
-          <span>{lessonCreationBlockedLabel ?? t('Crea lezione')}</span>
+          <span>{lessonCreationBlockedLabel ?? t('Crea sottolezione')}</span>
         </button>
       </motion.div>,
       moreActionsPortalTarget
@@ -1046,10 +1053,10 @@ const ContextMenu = ({
         <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
           <div className="space-y-2 px-4 py-3">
             <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-              {t('Vuoi creare una nuova lezione da questa selezione?')}
+              {lessonConfirmationTitle}
             </p>
             <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-              "{lessonSelectionPreview}"
+              {lessonSelectionPreview}
             </p>
             {lessonInstructionPreview ? (
               <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
@@ -1178,10 +1185,10 @@ const ContextMenu = ({
       <div className={lessonConfirmationClassName} aria-hidden={!isLessonConfirmOpen}>
         <div className="space-y-2 px-4 py-3">
           <p className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-            {t('Vuoi creare una nuova lezione da questa selezione?')}
+            {lessonConfirmationTitle}
           </p>
           <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">
-            "{lessonSelectionPreview}"
+            {lessonSelectionPreview}
           </p>
           {lessonInstructionPreview ? (
             <p className="text-xs leading-5 text-stone-500 dark:text-stone-400">

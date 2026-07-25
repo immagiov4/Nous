@@ -27,6 +27,7 @@ import {
   AppState,
   type ExerciseAttachment,
   type LearningPlan,
+  type LearningSection,
   type LessonNode,
 } from '../../../types.ts';
 import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
@@ -54,6 +55,29 @@ interface ActiveGeneration {
   projectId: string | null;
   token: number;
 }
+
+const buildSublessonGenerationContext = (
+  section: LessonNode,
+  plan: LearningPlan
+): string | undefined => {
+  if (!section.parentId) {
+    return section.contextPrompt;
+  }
+
+  const parentNode = findPathNodeById(plan.modules, section.parentId);
+  if (parentNode?.kind !== 'lesson') {
+    return section.contextPrompt;
+  }
+
+  return [
+    section.contextPrompt,
+    `CONTESTO DELLA LEZIONE PADRE "${parentNode.title}":`,
+    parentNode.description,
+    parentNode.content,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+};
 
 export const createSectionCommands = (context: WorkspaceControllerContext) => {
   const { domain, openRouter, projectLibrary, state, stopAudio } = context;
@@ -515,10 +539,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       .filter(currentLesson => currentLesson.isCompleted)
       .map(currentLesson => currentLesson.title)
       .join(', ');
+    const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
+    const usesArchiveResearchFallback =
+      archiveSource !== null &&
+      Array.isArray(section.sourceArchiveSelectors) &&
+      section.sourceArchiveSelectors.length === 0;
+    const sublessonGenerationContext = buildSublessonGenerationContext(section, currentPlan);
 
     try {
-      if (lessonGenerationState === 'learn-mode') {
-        if (!isLearnMode) {
+      if (lessonGenerationState === 'learn-mode' || usesArchiveResearchFallback) {
+        if (lessonGenerationState === 'learn-mode' && !isLearnMode) {
           domain.setIsLearnMode(true);
         }
 
@@ -533,7 +563,9 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         const researchDossier =
           cachedResearchDossier ||
           (await openRouter.generateResearchLessonDossier({
-            lesson: section,
+            lesson: sublessonGenerationContext
+              ? { ...section, contextPrompt: sublessonGenerationContext }
+              : section,
             moduleTitle,
             profile: currentUserProfile,
             researchCoursePlan: currentResearchCoursePlan,
@@ -556,7 +588,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         const learnLessonResult = await openRouter.generateResearchLessonContent({
           lessonTitle: section.title,
           moduleTitle,
-          contextPrompt: section.contextPrompt || anchorLessonContextPrompt,
+          contextPrompt: sublessonGenerationContext || anchorLessonContextPrompt,
           profile: currentUserProfile,
           syllabus: currentSyllabus,
           researchDossier,
@@ -610,14 +642,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             researchDossiersBySectionId: nextResearchDossiersBySectionId,
             activeSectionId: section.id,
             state: AppState.READING,
-            isLearnMode: true,
+            isLearnMode: lessonGenerationState === 'learn-mode',
           }
         );
         if (!didPersistLesson) {
           throw new Error(t('La lezione rigenerata non e stata salvata. Riprova.'));
         }
       } else {
-        const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
         if (!sourceFile && !archiveSource) {
           throw new Error('Missing source file for section generation');
         }
@@ -711,6 +742,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           previousContext: completedTitles,
           primaryChunkIds: section.primaryChunkIds,
           resolvedSourceArchiveContext,
+          lessonContext: sublessonGenerationContext,
           sectionDescription: section.description,
           sectionTitle: section.title,
           supplementalSourceContext: openRouter.formatResearchDossierForPrompt(mixedDossier),
@@ -863,7 +895,11 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
   }
 
   async function createLessonFromSelection(args: {
+    annotationNote?: string;
+    contextAfter?: string;
+    contextBefore?: string;
     instructions: string;
+    parentContent?: string;
     selectedText: string;
   }): Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }> {
     if (!domain.learningPlan || !domain.activeSectionId) {
@@ -937,24 +973,42 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           learningPlan: domain.learningPlan,
           syllabus: domain.syllabus,
         }) !== 'blocked-missing-source';
+      const metadataContext = {
+        annotationNote: args.annotationNote,
+        contextAfter: args.contextAfter,
+        contextBefore: args.contextBefore,
+        parentContent: args.parentContent,
+        parentSection,
+        selection: args.selectedText,
+        userInstructions: args.instructions,
+      };
+      const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
+      if (archiveSource && !projectId) {
+        throw new Error(
+          'Il progetto corrente non è disponibile per consultare la sorgente archivio.'
+        );
+      }
 
-      const newSection = sourceFile
-        ? await openRouter.createSubChapterMetadata(
-            sourceFile,
+      let newSection: LearningSection | null = null;
+      if (archiveSource && projectId) {
+        newSection = await openRouter.createArchiveSubChapterMetadata({
+          ...metadataContext,
+          projectId,
+          source: archiveSource,
+        });
+      } else if (sourceFile) {
+        newSection = await openRouter.createSubChapterMetadata(sourceFile, metadataContext);
+      } else if (canCreateWithoutFile) {
+        newSection = await openRouter.createLearnSubChapterMetadata({
+          ...metadataContext,
+          moduleTitle: resolveLearnSectionContext(
             parentSection,
-            args.selectedText,
-            args.instructions
-          )
-        : canCreateWithoutFile
-          ? await openRouter.createLearnSubChapterMetadata(
-              parentSection,
-              args.selectedText,
-              args.instructions,
-              resolveLearnSectionContext(parentSection, domain.learningPlan, domain.syllabus)
-                .moduleTitle,
-              domain.userProfile
-            )
-          : null;
+            domain.learningPlan,
+            domain.syllabus
+          ).moduleTitle,
+          profile: domain.userProfile,
+        });
+      }
 
       if (!state.isWorkflowCurrent('createLesson', requestId)) {
         return { outcome: 'ignored-busy' };

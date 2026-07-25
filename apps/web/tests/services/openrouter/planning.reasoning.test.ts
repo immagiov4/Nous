@@ -41,6 +41,7 @@ vi.mock('../../../services/openrouter/research.ts', () => ({
 }));
 
 const {
+  createArchiveSubChapterMetadata,
   generateLearningPlan,
   generateLearningPlanFromSourceArchive,
   generateLearningPlanFromSourceSet,
@@ -53,6 +54,68 @@ beforeEach(() => {
     return await operation();
   });
   retryWithBackoffMock.mockClear();
+});
+
+test('createArchiveSubChapterMetadata selects and persists exact archive files for the deep dive', async () => {
+  callOpenRouterWithToolsMock.mockResolvedValueOnce(
+    JSON.stringify({
+      title: 'Il ciclo degli eventi',
+      description: 'Approfondisce il dispatch degli eventi.',
+      contextPrompt: 'Spiega il dispatch partendo dalla selezione.',
+      sourceArchiveSelectors: [{ kind: 'file', path: 'src/events.ts' }],
+    })
+  );
+  const source = {
+    file: {
+      data: '',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
+    },
+    index: {
+      entries: [
+        {
+          byteSize: 64,
+          contentKind: 'text' as const,
+          kind: 'file' as const,
+          path: 'src/events.ts',
+          preview: 'export function dispatch() {}',
+        },
+      ],
+    },
+    kind: 'archive' as const,
+    name: 'engine.zip',
+    ref: ARCHIVE_REF,
+  };
+
+  const section = await createArchiveSubChapterMetadata({
+    annotationNote: 'Collegalo alla coda.',
+    contextAfter: 'poi notifica i listener',
+    contextBefore: 'il motore estrae un evento',
+    parentContent: 'La lezione descrive il ciclo principale del motore.',
+    parentSection: {
+      id: 'lesson-loop',
+      title: 'Ciclo principale',
+      description: 'Panoramica del loop.',
+      isCompleted: false,
+      type: 'core',
+    },
+    projectId: 'project-engine',
+    selection: 'dispatch(event)',
+    source,
+    userInstructions: 'Mostra il percorso completo.',
+  });
+
+  assert.deepEqual(section.sourceArchiveSelectors, [{ kind: 'file', path: 'src/events.ts' }]);
+  assert.equal(section.parentId, 'lesson-loop');
+  assert.equal(callOpenRouterWithToolsMock.mock.calls.length, 1);
+  const request = callOpenRouterWithToolsMock.mock.calls[0]?.[0];
+  assert.equal(request.modelSlot, 'lesson');
+  const userMessage = request.messages.find(
+    (message: { role: string }) => message.role === 'user'
+  ) as { content: string } | undefined;
+  assert.match(userMessage?.content || '', /La lezione descrive il ciclo principale/);
+  assert.match(userMessage?.content || '', /Collegalo alla coda/);
+  assert.ok(request.tools.length > 0);
 });
 
 test('generateLearningPlan uses medium effort for both first draft and refinement', async () => {

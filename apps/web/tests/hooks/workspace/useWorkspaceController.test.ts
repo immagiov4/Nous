@@ -675,6 +675,15 @@ const createOpenRouterMock = (
         updateStatus: vi.fn(),
       };
     },
+    createArchiveSubChapterMetadata: async () => ({
+      id: 'deep-archive',
+      title: 'Approfondimento archivio',
+      description: 'Dettaglio',
+      isCompleted: false,
+      type: 'deep-dive',
+      parentId: 'lesson-1',
+      sourceArchiveSelectors: [],
+    }),
     createLearnSubChapterMetadata: async () => ({
       id: 'deep-learn',
       title: 'Approfondimento AI',
@@ -3842,6 +3851,127 @@ test('createLessonFromSelection rolls back when nested lesson opening is ignored
     ['lesson-1', 'lesson-2']
   );
   assert.equal(harness.domain.activeSectionId, 'lesson-1');
+});
+
+test('createLessonFromSelection uses research when the archive planner returns no selectors', async () => {
+  const plan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Ciclo principale',
+        description: 'Panoramica del motore.',
+        content: 'Il motore estrae gli eventi da una coda e li inoltra ai listener.',
+        isCompleted: false,
+        type: 'core',
+      },
+    ],
+  });
+  const source = {
+    kind: 'archive' as const,
+    name: 'engine.zip',
+    file: {
+      data: '',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
+    },
+    index: {
+      entries: [
+        {
+          byteSize: 64,
+          contentKind: 'text' as const,
+          kind: 'file' as const,
+          path: 'src/main.ts',
+          preview: 'export function main() {}',
+        },
+      ],
+    },
+    ref: {
+      byteSize: 128,
+      hash: 'a'.repeat(64),
+      id: 'source-engine',
+      mimeType: 'application/zip',
+      name: 'engine.zip',
+      objectPath: 'users/user/projects/engine/source-engine/original',
+    },
+  };
+  const createArchiveSubChapterMetadata = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').createArchiveSubChapterMetadata
+      >[0]
+    ) => ({
+      id: 'deep-math',
+      title: 'Teoria delle code',
+      description: 'Approfondisce il modello matematico.',
+      contextPrompt: 'Spiega la teoria delle code collegandola al passaggio selezionato.',
+      isCompleted: false,
+      type: 'deep-dive' as const,
+      parentId: 'lesson-1',
+      sourceArchiveSelectors: [],
+    })
+  );
+  const generateResearchLessonContent = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').generateResearchLessonContent
+      >[0]
+    ) => ({
+      content: '# Teoria delle code',
+      contentBlocks: [],
+      generatedVisuals: [],
+      learningAids: [],
+      quiz: [],
+    })
+  );
+  const generateSectionContent = vi.fn();
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      learningPlan: plan,
+      source,
+      domainState: {
+        source,
+        learningPlan: plan,
+        documentAssets: null,
+        documentIndex: null,
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+        activeSectionId: 'lesson-1',
+      },
+    },
+    projectLibrary: { currentProjectId: 'engine-project' },
+    openRouter: {
+      createArchiveSubChapterMetadata,
+      generateResearchLessonContent,
+      generateSectionContent,
+    },
+  });
+
+  const result = await controller.createLessonFromSelection({
+    annotationNote: 'Collega questo passaggio alla teoria matematica.',
+    contextAfter: 'prima di notificare i listener',
+    contextBefore: 'dopo avere estratto un evento',
+    instructions: 'Approfondisci il modello astratto.',
+    parentContent: 'Il motore estrae gli eventi da una coda e li inoltra ai listener.',
+    selectedText: 'coda degli eventi',
+  });
+
+  assert.equal(result.outcome, 'created');
+  assert.deepEqual(getLessons(domain.learningPlan)[1]?.sourceArchiveSelectors, []);
+  assert.equal(getLessons(domain.learningPlan)[1]?.content, '# Teoria delle code');
+  assert.equal(generateSectionContent.mock.calls.length, 0);
+  assert.equal(generateResearchLessonContent.mock.calls.length, 1);
+  assert.match(
+    generateResearchLessonContent.mock.calls[0]?.[0]?.contextPrompt || '',
+    /Il motore estrae gli eventi da una coda/
+  );
+  assert.equal(
+    createArchiveSubChapterMetadata.mock.calls[0]?.[0]?.annotationNote,
+    'Collega questo passaggio alla teoria matematica.'
+  );
+  assert.equal(domain.isLearnMode, false);
+  assert.equal(projectLibrary.sectionProjectPatches.at(-1)?.isLearnMode, false);
 });
 
 test('createLessonFromSelection inserts the deep dive after the parent subtree and opens it', async () => {

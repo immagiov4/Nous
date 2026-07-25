@@ -94,7 +94,7 @@ describe('ContextMenu', () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  test('submits a whole-lesson question without selection-only actions', async () => {
+  test('allows whole-lesson creation only after instructions are entered', async () => {
     const user = userEvent.setup();
     const props = {
       ...buildProps(),
@@ -106,15 +106,18 @@ describe('ContextMenu', () => {
 
     expect(screen.queryByTitle(/Evidenzia il testo selezionato/i)).not.toBeInTheDocument();
     expect(screen.queryByTitle(/Aggiungi una nota a questo passaggio/i)).not.toBeInTheDocument();
-    expect(
-      screen.queryByTitle(/Crea una nuova lezione dedicata a questo punto/i)
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Apri menu' })).not.toBeInTheDocument();
+    const moreActionsButton = screen.getByRole('button', { name: 'Apri menu' });
+    await user.click(moreActionsButton);
+    expect(screen.getByRole('menuitem', { name: 'Crea sottolezione' })).toBeDisabled();
 
     await user.type(screen.getByPlaceholderText(/Chiedi su tutta la lezione/i), 'Fammi una mappa');
-    await user.click(screen.getByRole('button', { name: /Invia domanda/i }));
+    await user.click(moreActionsButton);
+    const createLessonItem = screen.getByRole('menuitem', { name: 'Crea sottolezione' });
+    expect(createLessonItem).toBeEnabled();
+    await user.click(createLessonItem);
+    await user.click(screen.getByRole('button', { name: 'Procedi' }));
 
-    expect(props.onAsk).toHaveBeenCalledWith('Fammi una mappa');
+    expect(props.onCreateLesson).toHaveBeenCalledWith('Fammi una mappa');
   });
 
   test('submits on mobile only after closing the sheet', async () => {
@@ -173,10 +176,10 @@ describe('ContextMenu', () => {
 
     const moreActionsButton = screen.getByRole('button', { name: 'Apri menu' });
     await user.click(moreActionsButton);
-    await user.click(screen.getByRole('menuitem', { name: 'Crea lezione' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crea sottolezione' }));
 
     const confirmationPanel = screen
-      .getByText(/Vuoi creare una nuova lezione da questa selezione/i)
+      .getByText(/Vuoi creare una nuova sottolezione da questa selezione/i)
       .closest('div[aria-hidden]');
 
     expect(confirmationPanel).toHaveAttribute('aria-hidden', 'false');
@@ -186,7 +189,7 @@ describe('ContextMenu', () => {
     expect(confirmationPanel).toHaveAttribute('aria-hidden', 'true');
 
     await user.click(moreActionsButton);
-    await user.click(screen.getByRole('menuitem', { name: 'Crea lezione' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crea sottolezione' }));
     await user.click(screen.getByRole('button', { name: 'Procedi' }));
 
     expect(props.onCreateLesson).toHaveBeenCalledWith('Approfondisci il punto');
@@ -204,7 +207,7 @@ describe('ContextMenu', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apri menu' }));
     const createLessonItem = screen.getByRole('menuitem', {
-      name: 'Generazione lezione in corso…',
+      name: 'Generazione sottolezione in corso…',
     });
 
     expect(createLessonItem).toBeDisabled();
@@ -212,7 +215,7 @@ describe('ContextMenu', () => {
     expect(props.onCreateLesson).not.toHaveBeenCalled();
     expect(
       screen
-        .getByText(/Vuoi creare una nuova lezione da questa selezione/i)
+        .getByText(/Vuoi creare una nuova sottolezione da questa selezione/i)
         .closest('[aria-hidden]')
     ).toHaveAttribute('aria-hidden', 'true');
   });
@@ -223,12 +226,12 @@ describe('ContextMenu', () => {
     const { rerender } = render(<ContextMenu {...props} />);
 
     await user.click(screen.getByRole('button', { name: 'Apri menu' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Crea lezione' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crea sottolezione' }));
 
     rerender(<ContextMenu {...props} isLoading lessonCreationBlockReason="lesson-generation" />);
 
     const pendingButton = screen.getByRole('button', {
-      name: 'Generazione lezione in corso…',
+      name: 'Generazione sottolezione in corso…',
     });
     expect(pendingButton).toBeDisabled();
     await user.click(pendingButton);
@@ -246,7 +249,7 @@ describe('ContextMenu', () => {
     });
 
     expect(createLessonItem).toBeDisabled();
-    expect(screen.queryByText('Generazione lezione in corso…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Generazione sottolezione in corso…')).not.toBeInTheDocument();
   });
 
   test('closes on escape and disables actions while loading', () => {
@@ -291,7 +294,7 @@ describe('ContextMenu', () => {
     await user.click(moreActionsButton);
 
     const submenu = screen.getByRole('menu', { name: 'Apri menu' });
-    const createLessonItem = screen.getByRole('menuitem', { name: 'Crea lezione' });
+    const createLessonItem = screen.getByRole('menuitem', { name: 'Crea sottolezione' });
     expect(submenu.parentElement).toBe(portalContainer);
     expect(createLessonItem).toHaveFocus();
 
@@ -318,7 +321,7 @@ describe('ContextMenu', () => {
     await user.click(screen.getByRole('button', { name: 'Apri menu' }));
 
     expect(noteInput).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: 'Crea lezione' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Crea sottolezione' })).toBeInTheDocument();
   });
 
   test('opens the rare-actions portal and lesson confirmation from the mobile sheet', async () => {
@@ -329,11 +332,11 @@ describe('ContextMenu', () => {
     render(<ContextMenu {...props} />);
 
     await user.click(screen.getByRole('button', { name: 'Apri menu' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Crea lezione' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Crea sottolezione' }));
 
     expect(
       screen
-        .getByText(/Vuoi creare una nuova lezione da questa selezione/i)
+        .getByText(/Vuoi creare una nuova sottolezione da questa selezione/i)
         .closest('[aria-hidden]')
     ).toHaveAttribute('aria-hidden', 'false');
   });
