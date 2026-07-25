@@ -12,6 +12,7 @@ const KATEX_TEX_ANNOTATION_SELECTOR = 'annotation[encoding="application/x-tex"]'
 const BLOCK_SELECTOR = 'p, div, h1, h2, h3, h4, h5, h6, li, blockquote, td, th, pre';
 
 interface ProjectionCharacter {
+  highlightElement?: Element;
   node: Text;
   offset: number;
 }
@@ -47,10 +48,11 @@ const appendProjectionCharacter = (
   projection: DomTextProjection,
   character: string,
   node: Text,
-  offset: number
+  offset: number,
+  highlightElement?: Element
 ) => {
   projection.text += character;
-  projection.characters.push({ node, offset });
+  projection.characters.push({ highlightElement, node, offset });
 };
 
 const appendNormalizedText = (projection: DomTextProjection, node: Text) => {
@@ -67,14 +69,23 @@ const appendNormalizedText = (projection: DomTextProjection, node: Text) => {
   }
 };
 
-const appendProjectedMath = (projection: DomTextProjection, node: Text, texSource: string) => {
+const appendProjectedMath = (
+  projection: DomTextProjection,
+  katexNode: Element,
+  node: Text,
+  texSource: string
+) => {
   const projectedText = projectKatexAnnotationSource(texSource).trim() || texSource;
+  const highlightElement = katexNode.closest('.katex-display')
+    ? undefined
+    : katexNode.querySelector('.katex-html') || undefined;
   for (let index = 0; index < projectedText.length; index += 1) {
     appendProjectionCharacter(
       projection,
       projectedText[index],
       node,
-      Math.min(index, Math.max(0, node.data.length - 1))
+      Math.min(index, Math.max(0, node.data.length - 1)),
+      highlightElement
     );
   }
 };
@@ -111,7 +122,7 @@ const buildDomTextProjection = (root: HTMLElement): DomTextProjection => {
           .querySelector(KATEX_TEX_ANNOTATION_SELECTOR)
           ?.textContent?.trim();
         if (texSource) {
-          appendProjectedMath(projection, node, texSource);
+          appendProjectedMath(projection, katexNode, node, texSource);
         }
       }
     } else {
@@ -200,10 +211,27 @@ const createHighlightRanges = (
 ): Range[] => {
   const ranges: Range[] = [];
   let currentRange: Range | null = null;
+  let previousHighlightElement: Element | null = null;
   let previousCharacter: ProjectionCharacter | null = null;
 
   for (let index = start; index < end; index += 1) {
     const character = projection.characters[index];
+    if (character?.highlightElement) {
+      if (currentRange) {
+        ranges.push(currentRange);
+        currentRange = null;
+      }
+      if (previousHighlightElement !== character.highlightElement) {
+        const mathRange = document.createRange();
+        mathRange.selectNodeContents(character.highlightElement);
+        ranges.push(mathRange);
+      }
+      previousHighlightElement = character.highlightElement;
+      previousCharacter = null;
+      continue;
+    }
+
+    previousHighlightElement = null;
     if (!character || character.node.parentElement?.closest(HIGHLIGHT_IGNORED_SELECTOR)) {
       if (currentRange) {
         ranges.push(currentRange);

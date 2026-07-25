@@ -12,6 +12,7 @@ import {
 } from '../../utils/visuals/htmlElementReferences.ts';
 import { renderHtmlPreview } from '../../utils/visuals/htmlPreview.ts';
 import { pushNousDebugTrace } from '../core/debugTrace.ts';
+import { getErrorDiagnostic } from '../core/errorMessage.ts';
 import { requestGeneratedImage } from './imageClient.ts';
 import {
   INTERNAL_FAST_TASK_INSTRUCTION,
@@ -46,6 +47,29 @@ export const NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT = `CONTRATTO VISIVO NOUS:
 - In HTML e SVG usa le variabili CSS dell'host (--bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong) invece di colori tema hard-coded e mantieni leggibili tema chiaro e scuro.`;
 const GENERATED_IMAGE_PREVIEW_DATA_URL =
   'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 9%22%3E%3Crect width=%2216%22 height=%229%22 fill=%22%23eeeae4%22/%3E%3C/svg%3E';
+
+const reportVisualWorkerFailure = ({
+  error,
+  index,
+  plan,
+  slotId,
+}: {
+  error: unknown;
+  index: number;
+  plan: VisualPlan;
+  slotId?: string;
+}) => {
+  const diagnostic = {
+    concept: plan.concept,
+    error: getErrorDiagnostic(error),
+    index,
+    phase: 'visual-artifact-generation',
+    ...(slotId ? { slotId } : {}),
+    visualType: plan.visual_type,
+  };
+  console.warn('[Nous][Lesson] Visual worker failed.', JSON.stringify(diagnostic));
+  pushNousDebugTrace('lesson:visual-worker-failed', diagnostic);
+};
 
 const buildArtifactSystemPrompt = (prompt: string, isVerification = false): string =>
   `${prompt}\n\n${NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT}\n\n${
@@ -1184,7 +1208,12 @@ ${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`,
       if (lintIssues.length === 0) {
         break;
       }
-      const preview = await renderSvgPreview(visual.code);
+      let preview: string;
+      try {
+        preview = await renderSvgPreview(visual.code);
+      } catch (error) {
+        throw new Error('SVG preview rendering failed.', { cause: error });
+      }
       const reviewedResponse = await requestRenderedVisual([
         ...rendererReviewMessages,
         { role: 'assistant', content: JSON.stringify({ svg_code: visual.code }) },
@@ -1317,9 +1346,10 @@ export const generateLessonVisualExamples = async (
     if (result.status === 'fulfilled') {
       return result.value ? [result.value] : [];
     }
-    console.warn('[Nous][Lesson] Generated visual worker failed.', {
-      index,
+    reportVisualWorkerFailure({
       error: result.reason,
+      index,
+      plan: plans[index],
     });
     return [];
   });
@@ -1361,9 +1391,22 @@ export const generateVerifiedVisualSlots = async (
     if (result.status === 'fulfilled') {
       return result.value ? [{ slotId: plans[index].slotId, visual: result.value.visual }] : [];
     }
-    console.warn('[Nous][Lesson] Inline visual worker failed.', {
-      slotId: plans[index].slotId,
+    reportVisualWorkerFailure({
       error: result.reason,
+      index,
+      plan: {
+        complexity: plans[index].complexity,
+        concept: plans[index].concept,
+        coverage: plans[index].coverage,
+        coverage_rationale: plans[index].coverageRationale,
+        factual_requirements: plans[index].factualRequirements,
+        interaction_level: plans[index].interactionLevel,
+        pedagogical_goal: plans[index].pedagogicalGoal,
+        reason: plans[index].reason,
+        visual_direction: plans[index].visualDirection,
+        visual_type: plans[index].visualType,
+      },
+      slotId: plans[index].slotId,
     });
     return [];
   });

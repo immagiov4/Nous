@@ -66,6 +66,21 @@ const buildQuiz = (): QuizQuestion[] =>
     correctIndex: 0,
   }));
 
+const buildVerificationReport = () =>
+  [
+    'core.instructions',
+    'core.progression',
+    'core.clarity',
+    'core.correctness',
+    'core.structure',
+    'core.integrity',
+  ].map(checkId => ({
+    action: '',
+    checkId,
+    evidence: 'Controllo completato sulla bozza.',
+    status: 'pass',
+  }));
+
 test('generateSectionContent keeps all verified image placements instead of truncating them with a per-lesson cap', async () => {
   callOpenRouterMock.mockReset();
   retryWithBackoffMock.mockClear();
@@ -118,6 +133,7 @@ test('generateSectionContent keeps all verified image placements instead of trun
       JSON.stringify({
         contentBlocks: repairedBlocks,
         imagePlacements,
+        verificationReport: buildVerificationReport(),
         visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     );
@@ -403,6 +419,7 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
           },
         ],
         imagePlacements: [],
+        verificationReport: buildVerificationReport(),
         visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     )
@@ -426,6 +443,7 @@ test('generateSectionContent unwraps whole-question backticks but preserves inli
           { type: 'markdown', markdown: '## Conclusione\n\nChiusura.' },
         ],
         imagePlacements: [],
+        verificationReport: buildVerificationReport(),
         visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     );

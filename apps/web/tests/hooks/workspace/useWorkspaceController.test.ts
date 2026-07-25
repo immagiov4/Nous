@@ -822,6 +822,7 @@ const createOpenRouterMock = (
       learningAids: [],
       quiz: [],
     }),
+    planLessonInstructionPacks: async () => [],
     formatResearchDossierForPrompt,
     getPdfLessonMappingState: () => 'idle' as const,
     preparePdfLessonMappings: async (
@@ -3073,6 +3074,8 @@ test('regenerateActiveSection waits for the regenerated lesson to be persisted',
     resolvePersist = resolve;
   });
   let persistedContent = '';
+  let plannedPackCalls = 0;
+  let generationInstructionPacks: LearningSection['instructionPacks'];
   const { controller, domain, state } = createControllerHarness({
     domain: {
       activeSectionId: 'lesson-1',
@@ -3088,15 +3091,22 @@ test('regenerateActiveSection waits for the regenerated lesson to be persisted',
       },
     },
     openRouter: {
-      generateSectionContent: async () => ({
-        content: '# Versione rigenerata',
-        contentBlocks: [],
-        documentAssets: null,
-        generatedVisuals: [],
-        imageRefs: [],
-        learningAids: [],
-        quiz: [],
-      }),
+      generateSectionContent: async args => {
+        generationInstructionPacks = args.instructionPacks;
+        return {
+          content: '# Versione rigenerata',
+          contentBlocks: [],
+          documentAssets: null,
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          quiz: [],
+        };
+      },
+      planLessonInstructionPacks: async () => {
+        plannedPackCalls += 1;
+        return ['mathematics'];
+      },
     },
   });
 
@@ -3107,10 +3117,54 @@ test('regenerateActiveSection waits for the regenerated lesson to be persisted',
 
   assert.equal(state.internalState.workflowState.loadSection.status, 'pending');
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Versione rigenerata');
+  assert.equal(plannedPackCalls, 1);
+  assert.deepEqual(generationInstructionPacks, ['mathematics']);
+  assert.deepEqual(getLessons(domain.learningPlan)[0]?.instructionPacks, ['mathematics']);
 
   resolvePersist?.(true);
   assert.equal(await regeneration, 'loaded');
   assert.equal(state.internalState.workflowState.loadSection.status, 'succeeded');
+});
+
+test('regenerateActiveSection preserves an explicitly empty instruction-pack selection', async () => {
+  const plan = buildPlan({
+    sections: [
+      buildTestLesson({
+        id: 'lesson-1',
+        content: '# Versione precedente',
+        instructionPacks: [],
+      }),
+    ],
+  });
+  let generationInstructionPacks: LearningSection['instructionPacks'];
+  const { controller } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      file: pdfFile,
+      learningPlan: plan,
+      source: createProjectSourceFromFile(pdfFile),
+    },
+    openRouter: {
+      generateSectionContent: async args => {
+        generationInstructionPacks = args.instructionPacks;
+        return {
+          content: '# Versione rigenerata',
+          contentBlocks: [],
+          documentAssets: null,
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          quiz: [],
+        };
+      },
+      planLessonInstructionPacks: async () => {
+        throw new Error('Explicit empty selections must not be replanned.');
+      },
+    },
+  });
+
+  assert.equal(await controller.regenerateActiveSection(), 'loaded');
+  assert.deepEqual(generationInstructionPacks, []);
 });
 
 test('openSection ignores user navigation while another blocking workflow is pending', async () => {

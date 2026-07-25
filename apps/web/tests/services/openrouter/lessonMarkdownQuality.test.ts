@@ -58,4 +58,20 @@ describe('lessonMarkdownQuality markdown heuristics', () => {
     expect(normalized).toContain('Prima frase utile\n\n## Titolo');
     expect(normalized).not.toContain('   \n');
   });
+
+  it('removes the Delete control character without altering inline LaTeX', () => {
+    const normalized = sanitizeLessonMarkdownContent(
+      'La lettera $\u007f\\mathbf{p}_{\\text{locale}}$ indica un punto.'
+    );
+
+    expect(normalized).toBe('La lettera $\\mathbf{p}_{\\text{locale}}$ indica un punto.');
+  });
+
+  it('removes ANSI styling without altering inline LaTeX', () => {
+    const normalized = sanitizeLessonMarkdownContent(
+      'La lettera $\u001b[1m\\mathbf{p}_{\\text{locale}}\u001b[0m$ indica un punto.'
+    );
+
+    expect(normalized).toBe('La lettera $\\mathbf{p}_{\\text{locale}}$ indica un punto.');
+  });
 });

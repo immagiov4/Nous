@@ -5,6 +5,7 @@ import type {
   LessonVisualPlanningDecision,
   QuizQuestion,
 } from '../../types.ts';
+import type { LessonInstructionPackId } from '../../utils/learning/lessonInstructionPacks.ts';
 import {
   deriveQuizFromLessonContentBlocks,
   hasValidTypedQuizBlocks,
@@ -37,6 +38,7 @@ export const finalizeSourceFreeLesson = async (args: {
   contentMarkdown: string;
   contentBlocks?: LessonContentBlock[];
   generationNotes?: string;
+  instructionPacks?: LessonInstructionPackId[];
   onReasoningUpdate?: (reasoning: string) => void;
   onStatusUpdate?: GenerationStatusReporter;
   previousContext?: string;
@@ -102,6 +104,7 @@ export const finalizeSourceFreeLesson = async (args: {
     },
     candidateImages: [],
     generationNotes: args.generationNotes,
+    instructionPacks: args.instructionPacks,
     onReasoningUpdate: args.onReasoningUpdate,
   }).catch(error => {
     console.warn('[Nous][Lesson] Final verification failed, keeping original draft.', error);

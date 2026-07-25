@@ -1,12 +1,18 @@
 import { resolveSourceArchiveSelection } from '@shared/sourceArchiveSelectors';
 import type { SourceArchiveProjectSource, SourceArchiveSelector } from '../../../types.ts';
+import {
+  LESSON_INSTRUCTION_PACK_IDS,
+  LESSON_INSTRUCTION_PACK_SELECTION_RULES,
+  type LessonInstructionPackId,
+  normalizeLessonInstructionPacks,
+} from '../../../utils/learning/lessonInstructionPacks.ts';
 import { clipText } from '../../../utils/text.ts';
 import {
   formatSourceArchiveIndex,
   SOURCE_ARCHIVE_ANALYSIS_TOOLS,
   SourceArchiveClient,
 } from '../../projects/sourceArchive.ts';
-import { MEDIUM_REASONING_CONFIG } from '../config.ts';
+import { LOW_REASONING_CONFIG, MEDIUM_REASONING_CONFIG } from '../config.ts';
 import { buildReasoningContentForFile } from '../pdfReasoning.ts';
 import {
   callOpenRouter,
@@ -31,8 +37,27 @@ const SUBCHAPTER_METADATA_RESPONSE_SCHEMA = {
       title: { type: 'string' },
       description: { type: 'string' },
       contextPrompt: { type: 'string' },
+      instructionPacks: {
+        type: 'array',
+        items: { type: 'string', enum: LESSON_INSTRUCTION_PACK_IDS },
+      },
     },
-    required: ['title', 'description', 'contextPrompt'],
+    required: ['title', 'description', 'contextPrompt', 'instructionPacks'],
+  },
+} as const;
+const LESSON_INSTRUCTION_PACKS_RESPONSE_SCHEMA = {
+  name: 'lesson_instruction_packs',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      instructionPacks: {
+        type: 'array',
+        items: { type: 'string', enum: LESSON_INSTRUCTION_PACK_IDS },
+      },
+    },
+    required: ['instructionPacks'],
   },
 } as const;
 const ARCHIVE_SUBCHAPTER_METADATA_RESPONSE_SCHEMA = {
@@ -45,6 +70,10 @@ const ARCHIVE_SUBCHAPTER_METADATA_RESPONSE_SCHEMA = {
       title: { type: 'string' },
       description: { type: 'string' },
       contextPrompt: { type: 'string' },
+      instructionPacks: {
+        type: 'array',
+        items: { type: 'string', enum: LESSON_INSTRUCTION_PACK_IDS },
+      },
       sourceArchiveSelectors: {
         type: 'array',
         items: {
@@ -58,7 +87,13 @@ const ARCHIVE_SUBCHAPTER_METADATA_RESPONSE_SCHEMA = {
         },
       },
     },
-    required: ['title', 'description', 'contextPrompt', 'sourceArchiveSelectors'],
+    required: [
+      'title',
+      'description',
+      'contextPrompt',
+      'instructionPacks',
+      'sourceArchiveSelectors',
+    ],
   },
 } as const;
 
@@ -85,9 +120,47 @@ interface ArchiveSubChapterMetadataInput extends SubChapterMetadataContext {
 interface SubChapterMetadataDraft {
   contextPrompt: string;
   description: string;
+  instructionPacks?: LessonInstructionPackId[];
   sourceArchiveSelectors?: SourceArchiveSelector[];
   title: string;
 }
+
+export const planLessonInstructionPacks = async (lesson: {
+  contextPrompt?: string;
+  description: string;
+  generationNotes?: string;
+  title: string;
+}): Promise<LessonInstructionPackId[]> =>
+  retryWithBackoff(async () => {
+    const response = await callOpenRouter({
+      model: MODEL_FLASH,
+      modelSlot: 'lesson',
+      reasoning: LOW_REASONING_CONFIG,
+      messages: [
+        {
+          role: 'user',
+          content: `Classifica una lezione gia pianificata usando soltanto i pacchetti specialistici applicabili.
+
+TITOLO: ${lesson.title}
+DESCRIZIONE: ${lesson.description}
+CONTESTO DI GENERAZIONE: ${lesson.contextPrompt?.trim() || 'Non disponibile.'}
+ISTRUZIONI DEL CORSO: ${lesson.generationNotes?.trim() || 'Nessuna.'}
+
+${LESSON_INSTRUCTION_PACK_SELECTION_RULES}
+
+Restituisci soltanto il JSON richiesto.`,
+        },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: LESSON_INSTRUCTION_PACKS_RESPONSE_SCHEMA,
+      },
+    });
+    const parsed = parseCleanJson<{ instructionPacks?: LessonInstructionPackId[] }>(
+      response || '{}'
+    );
+    return normalizeLessonInstructionPacks(parsed.instructionPacks);
+  });
 
 const buildSubChapterFocusPrompt = ({
   annotationNote,
@@ -129,6 +202,7 @@ const buildLearningSection = (
   type: 'deep-dive',
   parentId,
   contextPrompt: draft.contextPrompt,
+  instructionPacks: normalizeLessonInstructionPacks(draft.instructionPacks),
   ...(draft.sourceArchiveSelectors ? { sourceArchiveSelectors: draft.sourceArchiveSelectors } : {}),
 });
 
@@ -141,11 +215,14 @@ export const createSubChapterMetadata = async (
 Il tuo compito e creare il METADATA per una nuova lezione (sotto-capitolo) dedicata esclusivamente a questo punto evidenziato.
 Questa lezione deve essere un "Deep Dive".
 
+${LESSON_INSTRUCTION_PACK_SELECTION_RULES}
+
 Rispondi SOLO con un oggetto JSON:
 {
   "title": "Titolo accattivante per la nuova lezione",
   "description": "Cosa si imparera in questo approfondimento",
-  "contextPrompt": "Prompt tecnico sintetico e autosufficiente per generare la sottolezione restando focalizzati sulla selezione"
+  "contextPrompt": "Prompt tecnico sintetico e autosufficiente per generare la sottolezione restando focalizzati sulla selezione",
+  "instructionPacks": []
 }`;
 
   return retryWithBackoff(async () => {
@@ -192,11 +269,14 @@ ${buildSubChapterFocusPrompt(input)}
 Il tuo compito e creare il METADATA per una nuova sottolezione deep dive.
 Questa sottolezione deve essere coerente con il percorso corrente ma non dipendere da un file sorgente.
 
+${LESSON_INSTRUCTION_PACK_SELECTION_RULES}
+
 Rispondi SOLO con un oggetto JSON:
 {
   "title": "Titolo specifico della nuova sottolezione",
   "description": "Cosa si imparera in questo approfondimento",
-  "contextPrompt": "Prompt tecnico sintetico da usare poi per generare il contenuto della sottolezione"
+  "contextPrompt": "Prompt tecnico sintetico da usare poi per generare il contenuto della sottolezione",
+  "instructionPacks": []
 }`;
 
   return retryWithBackoff(async () => {
@@ -247,6 +327,8 @@ REGOLE:
 - Se trovi materiale direttamente utile, restituisci il minimo insieme di selector esatti.
 - Se l'argomento non dipende dall'archivio o non trovi materiale pertinente, restituisci sourceArchiveSelectors come array vuoto. Non forzare associazioni.
 - Non inventare percorsi e non selezionare file soltanto perche appartengono alla lezione padre.
+
+${LESSON_INSTRUCTION_PACK_SELECTION_RULES}
 
 Rispondi soltanto con il JSON conforme allo schema.`;
 

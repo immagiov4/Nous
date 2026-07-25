@@ -17,6 +17,7 @@ export {
   createArchiveSubChapterMetadata,
   createLearnSubChapterMetadata,
   createSubChapterMetadata,
+  planLessonInstructionPacks,
 } from './metadata.ts';
 export {
   generateLearningPlan,

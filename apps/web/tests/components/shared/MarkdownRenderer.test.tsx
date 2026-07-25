@@ -158,9 +158,10 @@ describe('MarkdownRenderer', () => {
     ]);
 
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.ranges.map(range => range.toString()).join('')).toBe(
-      'La convenzione OpenXR usa  verso destra,  verso l’alto e  in avanti.'
-    );
+    expect(entries[0]?.ranges).toHaveLength(7);
+    expect(entries[0]?.ranges.map(range => range.toString()).join('')).toContain('+X');
+    expect(entries[0]?.ranges.map(range => range.toString()).join('')).toContain('+Y');
+    expect(entries[0]?.ranges.map(range => range.toString()).join('')).toContain('−Z');
   });
 
   test('softens annotation edges with minimal horizontal spacing', () => {

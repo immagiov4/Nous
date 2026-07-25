@@ -38,6 +38,7 @@ export {
   generateLearningPlanFromSourceArchive,
   generateLearningPlanFromSourceSet,
   generateSectionContent,
+  planLessonInstructionPacks,
 } from './planning/index.ts';
 export {
   buildPrerequisiteSourceContext,

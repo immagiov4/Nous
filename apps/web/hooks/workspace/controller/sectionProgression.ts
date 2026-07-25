@@ -535,18 +535,31 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       progressObserver.updateStatus(status);
     };
 
-    const completedTitles = flattenLessons(currentPlan.modules)
-      .filter(currentLesson => currentLesson.isCompleted)
-      .map(currentLesson => currentLesson.title)
-      .join(', ');
-    const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
-    const usesArchiveResearchFallback =
-      archiveSource !== null &&
-      Array.isArray(section.sourceArchiveSelectors) &&
-      section.sourceArchiveSelectors.length === 0;
-    const sublessonGenerationContext = buildSublessonGenerationContext(section, currentPlan);
-
     try {
+      const instructionPacks =
+        forceRegenerate && section.instructionPacks === undefined
+          ? await openRouter.planLessonInstructionPacks({
+              contextPrompt: section.contextPrompt,
+              description: section.description,
+              generationNotes: currentPlan.generationNotes,
+              title: section.title,
+            })
+          : section.instructionPacks;
+      if (!isGenerationRequestCurrent()) {
+        return 'ignored-busy';
+      }
+
+      const completedTitles = flattenLessons(currentPlan.modules)
+        .filter(currentLesson => currentLesson.isCompleted)
+        .map(currentLesson => currentLesson.title)
+        .join(', ');
+      const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
+      const usesArchiveResearchFallback =
+        archiveSource !== null &&
+        Array.isArray(section.sourceArchiveSelectors) &&
+        section.sourceArchiveSelectors.length === 0;
+      const sublessonGenerationContext = buildSublessonGenerationContext(section, currentPlan);
+
       if (lessonGenerationState === 'learn-mode' || usesArchiveResearchFallback) {
         if (lessonGenerationState === 'learn-mode' && !isLearnMode) {
           domain.setIsLearnMode(true);
@@ -593,6 +606,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           syllabus: currentSyllabus,
           researchDossier,
           generationNotes: currentPlan.generationNotes,
+          instructionPacks,
           onStatusUpdate: reportStatus,
           onReasoningUpdate: progressObserver.push,
         });
@@ -617,6 +631,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           quiz,
           imageRefs: [],
           generatedVisuals,
+          ...(instructionPacks !== undefined ? { instructionPacks } : {}),
           learningAids,
           visualPlanningDecision,
         }));
@@ -633,6 +648,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             contentBlocks,
             generatedVisuals,
             imageRefs: [],
+            ...(instructionPacks !== undefined ? { instructionPacks } : {}),
             learningAids,
             quiz,
             visualPlanningDecision,
@@ -737,6 +753,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           documentIndex: currentDocumentIndex,
           file: generationSourceFile,
           generationNotes: currentPlan.generationNotes,
+          instructionPacks,
           onReasoningUpdate: progressObserver.push,
           onStatusUpdate: reportStatus,
           previousContext: completedTitles,
@@ -769,6 +786,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
           contentBlocks,
           quiz,
           imageRefs,
+          ...(instructionPacks !== undefined ? { instructionPacks } : {}),
           learningAids,
           generatedVisuals,
           visualPlanningDecision,
@@ -786,6 +804,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
             contentBlocks,
             generatedVisuals,
             imageRefs,
+            ...(instructionPacks !== undefined ? { instructionPacks } : {}),
             learningAids,
             quiz,
             visualPlanningDecision,

@@ -712,11 +712,9 @@ const ENGLISH_UI_MESSAGES = {
   'Salva note e genera': 'Save notes and generate',
   'Verrà ricreata la lezione corrente a partire dal materiale sorgente e potresti perdere il contenuto attuale.':
     'The current lesson will be recreated from the source material, and you may lose its current content.',
-  'Azioni debug lezione': 'Lesson debug actions',
+  'Azioni lezione': 'Lesson actions',
   'Chiudi elenco lezioni': 'Close lesson list',
   'Copia markdown lezione': 'Copy lesson markdown',
-  'Debug temporaneo: copia il markdown salvato prima del rendering.':
-    'Temporary debug tool: copy the stored Markdown before rendering.',
   'Esercizio applicativo attivo': 'Active application exercise',
   'Esercizio applicativo pianificato': 'Planned application exercise',
   'Esercizio applicativo pronto': 'Application exercise ready',

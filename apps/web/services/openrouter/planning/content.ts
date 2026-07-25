@@ -1,5 +1,9 @@
 import type { LessonContentBlock } from '../../../types.ts';
 import {
+  buildLessonInstructionPackBlock,
+  type LessonInstructionPackId,
+} from '../../../utils/learning/lessonInstructionPacks.ts';
+import {
   hasValidTypedQuizBlocks,
   legacyMarkdownToLessonContentBlocks,
   materializeGeneratedVisualBlocks,
@@ -47,6 +51,7 @@ import {
   buildUserGenerationNotesBlock,
   LESSON_SCOPE_RULES,
   LESSON_SHARED_WRITING_RULES,
+  YOUTUBE_CLIP_PEDAGOGY_RULES,
 } from '../prompts.ts';
 import {
   callOpenRouter,
@@ -141,6 +146,7 @@ export interface GenerateSectionContentInput {
   documentIndex?: PdfTextIndex | null;
   file: FileData;
   generationNotes?: string;
+  instructionPacks?: LessonInstructionPackId[];
   lessonContext?: string;
   onReasoningUpdate?: (reasoning: string) => void;
   onStatusUpdate?: GenerationStatusReporter;
@@ -162,6 +168,7 @@ export const generateSectionContent = async ({
   documentIndex,
   file,
   generationNotes,
+  instructionPacks,
   lessonContext,
   onReasoningUpdate,
   onStatusUpdate,
@@ -220,13 +227,14 @@ ${supplementalSourceContext.trim()}`
 
     return `Sei il Professor Nous. Devi generare una LEZIONE COMPLETA E APPROFONDITA${sourcePrefix}.
 ${userNotesBlock}
+${buildLessonInstructionPackBlock(instructionPacks, 'writing')}
 TITOLO LEZIONE: "${sectionTitle}"
 DESCRIZIONE: "${sectionDescription}"
 CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.${noRepetitionRule}
 ${lessonContext?.trim() ? `CONTESTO SPECIFICO DELLA SOTTOLEZIONE:\n${lessonContext.trim()}\n` : ''}
 ${sourceContext}
 REGOLE FONDAMENTALI:
-1. Scrivi una lezione esaustiva in Markdown ricco, ma ad alta densita informativa: niente riempitivo, niente ripetizioni decorative, niente giri larghi per dire poco.
+1. Scrivi una lezione esaustiva in Markdown ricco. In assenza di indicazioni diverse mantieni una buona densita informativa, senza riempitivo o ripetizioni decorative; se le note di personalizzazione chiedono invece un ritmo piu lento, maggiore espansione o ridondanza didattica, rispettale pienamente.
 2. Incorpora e spiega i contenuti del documento in modo discorsivo ma tecnico, con esempi concreti, formule (LaTeX $$...$$) e codice solo quando aiutano davvero la comprensione. Non fare riferimento a sezioni, pagine o strutture del testo sorgente ('il documento', 'la sezione X', 'il testo afferma'): la lezione deve funzionare come testo autonomo, senza presupporre che il lettore abbia il documento aperto. Quando introduci un concetto per la prima volta, parti da una definizione positiva ('X e Y'): le formulazioni per contrasto ('X non e soltanto Y') sono accettabili solo dopo che il concetto e gia stato definito. Tratta tabelle, blocchi comparativi, matrici, didascalie, legende e label testuali di grafici come parte del contenuto tecnico della lezione, non come rumore.
 3. Organizza il testo con heading chiari, ma usa solo le sezioni che servono davvero a questa lezione. Non creare heading riempitivi.
 4. Ogni sezione deve aggiungere informazione nuova. Non rispiegare la stessa definizione in Introduzione, Concetti Fondamentali e Analisi Approfondita con semplici parafrasi.
@@ -258,6 +266,7 @@ ${imagePlacementInstruction}
 42. NON inserire markdown image syntax nei blocchi markdown: le immagini vengono gestite SOLO tramite \`imagePlacements\`.
 43. NON inserire sezioni quiz o marker strutturali nei blocchi markdown: domande e opzioni appartengono ai blocchi \`inline-quiz\`.
 43a. Se il contesto include transcript YouTube timestampati, usa un blocco \`youtube-clips\` nel punto editoriale esatto. Ogni clip deve includere indice, tempi e un titolo breve specifico del momento mostrato.
+${YOUTUBE_CLIP_PEDAGOGY_RULES}
 44. Se inserisci formule, assicurati che il Markdown sia compatibile con KaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare mai righe isolate con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non aprire una formula con un delimitatore e chiuderla con un altro, e chiudi sempre correttamente graffe e delimitatori.
 45. Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} punti in cui un esempio visuale generato migliorerebbe davvero la comprensione. Inserisci un blocco \`generated-visual\` con \`slotId\` nel punto editoriale esatto e aggiungi il piano corrispondente in \`visualPlanning.plans\`.
 46. Ogni piano deve avere esattamente un blocco generated-visual con lo stesso slotId e viceversa. Usa identificatori sequenziali. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE} Per HTML interattivo, la grafica deve essere prodotta da regole o algoritmi, non disegnata a mano.
@@ -496,6 +505,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       },
       candidateImages: candidateImagePayload,
       generationNotes,
+      instructionPacks,
       onReasoningUpdate,
     }).catch(error => {
       console.warn(
@@ -676,6 +686,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     },
     candidateImages: [],
     generationNotes,
+    instructionPacks,
     onReasoningUpdate,
   }).catch(error => {
     console.warn(

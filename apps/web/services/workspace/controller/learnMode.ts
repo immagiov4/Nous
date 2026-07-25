@@ -16,6 +16,7 @@ export const buildLearningPlanFromSyllabus = (
       parentId: module.id,
       moduleTitle: module.title,
       contextPrompt: lesson.contextPrompt,
+      instructionPacks: lesson.instructionPacks,
     }))
   );
 

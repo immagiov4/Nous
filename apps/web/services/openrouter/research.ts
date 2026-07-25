@@ -13,6 +13,13 @@ import type {
   SyllabusItem,
   UserProfile,
 } from '../../types.ts';
+import {
+  buildLessonInstructionPackBlock,
+  LESSON_INSTRUCTION_PACK_IDS,
+  LESSON_INSTRUCTION_PACK_SELECTION_RULES,
+  type LessonInstructionPackId,
+  normalizeLessonInstructionPacks,
+} from '../../utils/learning/lessonInstructionPacks.ts';
 import { stripTerminalLessonSourcesSection } from '../../utils/markdown/lessonSources.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { extractYouTubeVideoId } from '../../utils/youtube.ts';
@@ -27,7 +34,11 @@ import {
 } from './config.ts';
 import type { GenerationStatusReporter } from './generationProgress.ts';
 import { LESSON_RESPONSE_SCHEMA, parseLessonContentPayload } from './lessonVerification.ts';
-import { buildUserGenerationNotesBlock, INTERNAL_FAST_TASK_INSTRUCTION } from './prompts.ts';
+import {
+  buildUserGenerationNotesBlock,
+  INTERNAL_FAST_TASK_INSTRUCTION,
+  YOUTUBE_CLIP_PEDAGOGY_RULES,
+} from './prompts.ts';
 import { callOpenRouter, parseCleanJson, retryWithBackoff, sanitizeTitle } from './shared.ts';
 import { finalizeSourceFreeLesson } from './sourceFreeLessonFinalization.ts';
 import {
@@ -88,6 +99,10 @@ const RESEARCH_COURSE_PLAN_RESPONSE_SCHEMA = {
                   prerequisites: { type: 'array', items: { type: 'string' } },
                   keyConcepts: { type: 'array', items: { type: 'string' } },
                   guidingQuestions: { type: 'array', items: { type: 'string' } },
+                  instructionPacks: {
+                    type: 'array',
+                    items: { type: 'string', enum: LESSON_INSTRUCTION_PACK_IDS },
+                  },
                   miniLab: { type: ['string', 'null'] },
                   sourceHints: { type: 'array', items: SOURCE_REFERENCE_SCHEMA },
                   simplificationRisks: { type: 'array', items: { type: 'string' } },
@@ -98,6 +113,7 @@ const RESEARCH_COURSE_PLAN_RESPONSE_SCHEMA = {
                   'prerequisites',
                   'keyConcepts',
                   'guidingQuestions',
+                  'instructionPacks',
                   'miniLab',
                   'sourceHints',
                   'simplificationRisks',
@@ -159,6 +175,7 @@ const RESEARCH_LESSON_DOSSIER_RESPONSE_SCHEMA = {
 interface ResearchLessonDraft {
   description?: string;
   guidingQuestions?: unknown[];
+  instructionPacks?: LessonInstructionPackId[];
   keyConcepts?: unknown[];
   miniLab?: unknown;
   prerequisites?: unknown[];
@@ -396,6 +413,7 @@ const normalizeResearchCoursePlan = (
         prerequisites: asStringArray(lesson.prerequisites),
         keyConcepts: asStringArray(lesson.keyConcepts, 12),
         guidingQuestions: asStringArray(lesson.guidingQuestions),
+        instructionPacks: normalizeLessonInstructionPacks(lesson.instructionPacks),
         miniLab: asString(lesson.miniLab),
         simplificationRisks: asStringArray(lesson.simplificationRisks),
         sourceHints: normalizeSourceReferences(lesson.sourceHints, youtubeResearch),
@@ -409,6 +427,7 @@ const normalizeResearchCoursePlan = (
         type: 'lesson',
         status: 'pending',
         contextPrompt: buildContextPrompt(normalizedLesson),
+        instructionPacks: normalizedLesson.instructionPacks,
       });
     });
 
@@ -456,6 +475,7 @@ export const buildLearningPlanFromResearchCourse = (
       parentId: module.id,
       moduleTitle: module.title,
       contextPrompt: lesson.contextPrompt,
+      instructionPacks: lesson.instructionPacks,
     }))
   );
 
@@ -538,6 +558,8 @@ PRODUCT RULES:
 - Set miniLab only when a short applied activity is genuinely useful for that lesson. It is not a mandatory editorial ending; otherwise set it to null.
 - Use the research brief and the supplied YouTube transcripts as the source of truth. Do not invent sources or facts that are absent from both.
 - Evaluate each supplied YouTube source from its real transcript. Propagate only useful videos into the relevant lesson sourceHints, preserving their URL. Do not choose clip intervals here: the lesson writer will do that after it knows the final lesson structure.
+PACCHETTI SPECIALISTICI:
+${LESSON_INSTRUCTION_PACK_SELECTION_RULES}
 - Output JSON only. No prose around it.
 
 Return this JSON shape:
@@ -556,6 +578,7 @@ Return this JSON shape:
           "prerequisites": ["..."],
           "keyConcepts": ["..."],
           "guidingQuestions": ["..."],
+          "instructionPacks": [],
           "miniLab": null,
           "sourceHints": [{"title": "Source title", "url": "https://...", "note": "Why useful"}],
           "simplificationRisks": ["What not to flatten"]
@@ -680,6 +703,7 @@ const buildLessonPlanContextBlock = (
     prerequisites: [],
     keyConcepts: [],
     guidingQuestions: [],
+    instructionPacks: lesson.instructionPacks ?? [],
     miniLab: '',
     simplificationRisks: [],
     sourceHints: [],
@@ -766,7 +790,22 @@ ${formatYouTubeResearchContextForPrompt(args.youtubeResearch.context)}
 YOUTUBE CANDIDATES TO CLASSIFY:
 ${
   args.youtubeResearch.videoCandidates.length
-    ? args.youtubeResearch.videoCandidates.map(candidate => `- ${candidate.url}`).join('\n')
+    ? args.youtubeResearch.videoCandidates
+        .map(candidate => {
+          const metrics = [
+            typeof candidate.viewCount === 'number'
+              ? `${candidate.viewCount.toLocaleString('en-US')} views`
+              : '',
+            typeof candidate.likeCount === 'number'
+              ? `${candidate.likeCount.toLocaleString('en-US')} likes`
+              : '',
+            typeof candidate.commentCount === 'number'
+              ? `${candidate.commentCount.toLocaleString('en-US')} comments`
+              : '',
+          ].filter(Boolean);
+          return `- ${candidate.url}${metrics.length ? ` | ${metrics.join(', ')}` : ''}`;
+        })
+        .join('\n')
     : 'None'
 }
 
@@ -774,6 +813,7 @@ RULES:
 - Use the research brief and supplied YouTube transcripts as the source of truth. Do not invent sources or facts that are absent from both.
 - Decide only whether each video is useful source material for this lesson. Do not choose a clip or anticipate where it belongs: the lesson writer receives the selected timestamped transcripts and makes that editorial decision while writing.
 - Select videos whose transcript materially helps the lesson's explanations, progression, examples, or practical demonstrations. Prefer the learner's language, while allowing a different language when the useful content is mainly visual or audible.
+- Treat views, likes, and comment counts only as secondary social evidence. They may break a tie between similarly relevant candidates, but never override transcript relevance, clarity, prerequisites, or lesson fit; raw popularity also reflects age, channel size, and topic breadth.
 - Return exactly one youtubeCandidateDecisions item for each URL above, preserving the URL. Give a specific evidence-based reason; use rejected only when the video should not enter this lesson.
 - Output JSON only. No prose around it.
 
@@ -1096,6 +1136,7 @@ export const generateResearchLessonContent = async (args: {
   researchDossier: ResearchLessonDossier;
   originalSourceContext?: string;
   generationNotes?: string;
+  instructionPacks?: LessonInstructionPackId[];
   onStatusUpdate: GenerationStatusReporter;
   onReasoningUpdate?: (reasoning: string) => void;
 }): Promise<{
@@ -1121,6 +1162,7 @@ export const generateResearchLessonContent = async (args: {
   args.onStatusUpdate('Scrittura lezione da fonti...', 'drafting');
 
   const prompt = `${userNotesBlock}
+${buildLessonInstructionPackBlock(args.instructionPacks, 'writing')}
 
 LEZIONE: "${args.lessonTitle}" (Modulo: "${args.moduleTitle}")
 STUDENTE: ${profile.context || 'Studente generico'}
@@ -1150,6 +1192,7 @@ ISTRUZIONI:
 - Sei tu a decidere quali intervalli video integrare mentre scrivi. Rappresentali con un blocco \`youtube-clips\` nel punto editoriale esatto. Ogni clip deve avere un \`title\` breve, concreto e specifico per quel momento. Il blocco puo contenere piu clip, anche da video diversi, ed e un unico player a micro-capitoli.
 - Preferisci piu intervalli dello stesso video quando copre bene l'intera sequenza; usa video diversi quando sono complementari. Usa soltanto indici e timestamp presenti nel dossier.
 - Per una procedura manuale o fisica che costituisce il nucleo della lezione, un transcript selezionato che mostra direttamente l'azione deve normalmente diventare una clip inline: una descrizione o un'immagine statica non sostituiscono il movimento. Omettila soltanto per una ragione concreta ricavabile dal transcript.
+${YOUTUBE_CLIP_PEDAGOGY_RULES}
 - Genera da 1 a 3 pause attive come blocchi \`inline-quiz\` autosufficienti, contenenti direttamente domanda, quattro opzioni e indice corretto. Inserisci ciascuna pausa subito dopo il blocco markdown che la prepara. Non restituire un array quiz separato.
 - Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} esempi visuali generati. Inserisci un blocco \`generated-visual\` con \`slotId\` nel punto editoriale esatto e aggiungi il piano corrispondente in \`visualPlanning.plans\`.
 - ${INTERACTIVE_VISUAL_VALUE_RULE}
@@ -1187,6 +1230,7 @@ FORMATO: restituisci solo il JSON richiesto. \`imagePlacements\` deve essere vuo
     contentBlocks: parsedLesson.contentBlocks,
     contentMarkdown: contentWithoutSources,
     generationNotes: args.generationNotes,
+    instructionPacks: args.instructionPacks,
     onReasoningUpdate: args.onReasoningUpdate,
     onStatusUpdate: args.onStatusUpdate,
     quiz: parsedLesson.quiz,

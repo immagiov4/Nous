@@ -16,6 +16,9 @@ const { buildLessonVerificationPrompt, parseLessonContentPayload, verifyLessonDr
 const { repairLessonMarkdown } = await import(
   '../../../services/openrouter/lessonMarkdownQuality/repair.ts'
 );
+const { buildLessonVerificationChecklist } = await import(
+  '../../../utils/learning/lessonInstructionPacks.ts'
+);
 
 describe('lesson pipeline reasoning callbacks', () => {
   beforeEach(() => {
@@ -39,6 +42,12 @@ describe('lesson pipeline reasoning callbacks', () => {
           },
         ],
         imagePlacements: [],
+        verificationReport: buildLessonVerificationChecklist([]).map(check => ({
+          action: '',
+          checkId: check.checkId,
+          evidence: 'Controllo completato sulla bozza.',
+          status: 'pass',
+        })),
         visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
       })
     );
@@ -126,5 +135,29 @@ describe('lesson pipeline reasoning callbacks', () => {
 
     expect(sourceContext.length).toBeGreaterThan(24_000);
     expect(prompt).toContain(transcriptTail);
+  });
+
+  test('activates only the selected specialist checklist', () => {
+    const prompt = buildLessonVerificationPrompt({
+      candidateImages: [],
+      continuityRule: 'Mantieni la continuità.',
+      draft: {
+        contentMarkdown: 'Bozza.',
+        imagePlacements: [],
+        quiz: [],
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
+      },
+      instructionPacks: ['mathematics'],
+      previousContext: '',
+      scopeRule: 'Resta nel tema.',
+      sectionDescription: 'Descrizione',
+      sectionTitle: 'Titolo',
+      sourceContext: 'Fonte',
+      targetQuizCount: 1,
+    });
+
+    expect(prompt).toContain('mathematics.1');
+    expect(prompt).not.toContain('code.1');
+    expect(prompt).toContain('stesso paragrafo o in quello immediatamente successivo');
   });
 });

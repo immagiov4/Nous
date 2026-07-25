@@ -526,6 +526,7 @@ export const useProjectLibrary = ({
           | 'contentBlocks'
           | 'generatedVisuals'
           | 'imageRefs'
+          | 'instructionPacks'
           | 'learningAids'
           | 'quiz'
           | 'visualPlanningDecision'

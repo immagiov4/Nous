@@ -2,6 +2,24 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { normalizeMarkdownForRendering } from '../../../utils/markdown/render.ts';
 
+test('normalizeMarkdownForRendering removes Delete control characters from inline LaTeX', () => {
+  assert.equal(
+    normalizeMarkdownForRendering(
+      'La lettera $\u007f\\mathbf{p}_{\\text{locale}}$ indica un punto.'
+    ),
+    'La lettera $\\mathbf{p}_{\\text{locale}}$ indica un punto.'
+  );
+});
+
+test('normalizeMarkdownForRendering removes ANSI styling from inline LaTeX', () => {
+  assert.equal(
+    normalizeMarkdownForRendering(
+      'La lettera $\u001b[1m\\mathbf{p}_{\\text{locale}}\u001b[0m$ indica un punto.'
+    ),
+    'La lettera $\\mathbf{p}_{\\text{locale}}$ indica un punto.'
+  );
+});
+
 test('normalizeMarkdownForRendering converts single-line cpp snippets into fenced code blocks', () => {
   const input = 'Sintassi:\n\ncpp while (i < 5) { std::cout << i; }';
 

@@ -16,10 +16,13 @@ export interface YouTubeTranscriptRange {
 }
 
 export interface YouTubeVideoEvidence {
+  commentCount?: number;
+  likeCount?: number;
   ranges: YouTubeTranscriptRange[];
   title: string;
   transcript: string;
   url: string;
+  viewCount?: number;
 }
 
 export interface YouTubeResearchContext {
@@ -72,9 +75,12 @@ const normalizeVideoCandidates = (value: unknown): YouTubeVideoEvidence[] =>
         if (typeof candidate !== 'object' || candidate === null) return [];
         const record = candidate as {
           ranges?: unknown;
+          commentCount?: unknown;
+          likeCount?: unknown;
           title?: unknown;
           transcript?: unknown;
           url?: unknown;
+          viewCount?: unknown;
         };
         if (
           typeof record.url !== 'string' ||
@@ -101,10 +107,15 @@ const normalizeVideoCandidates = (value: unknown): YouTubeVideoEvidence[] =>
         return ranges.length
           ? [
               {
+                ...(typeof record.commentCount === 'number'
+                  ? { commentCount: record.commentCount }
+                  : {}),
+                ...(typeof record.likeCount === 'number' ? { likeCount: record.likeCount } : {}),
                 ranges,
                 title: record.title.trim(),
                 transcript: record.transcript.trim(),
                 url: record.url,
+                ...(typeof record.viewCount === 'number' ? { viewCount: record.viewCount } : {}),
               },
             ]
           : [];

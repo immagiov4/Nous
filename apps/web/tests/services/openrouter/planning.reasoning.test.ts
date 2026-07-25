@@ -133,6 +133,7 @@ test('generateLearningPlan uses medium effort for both first draft and refinemen
             description: 'Spiega il concetto chiave del testo.',
             type: 'core',
             isCompleted: false,
+            instructionPacks: ['mathematics'],
           },
         ],
       })
@@ -149,6 +150,7 @@ test('generateLearningPlan uses medium effort for both first draft and refinemen
             description: 'Spiega il concetto chiave del testo.',
             type: 'core',
             isCompleted: false,
+            instructionPacks: ['mathematics'],
           },
         ],
       })
@@ -163,6 +165,7 @@ test('generateLearningPlan uses medium effort for both first draft and refinemen
   const plan = await generateLearningPlan(file, []);
 
   assert.equal(flattenLessons(plan.modules).length, 1);
+  assert.deepEqual(flattenLessons(plan.modules)[0]?.instructionPacks, ['mathematics']);
   assert.equal(callOpenRouterMock.mock.calls.length, 3);
   assert.deepEqual(callOpenRouterMock.mock.calls[0]?.[0]?.tools, [
     { type: 'openrouter:web_search' },

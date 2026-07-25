@@ -102,6 +102,7 @@ const buildSectionsFromSyllabus = (syllabus: SyllabusItem[]): LearningSection[] 
       parentId: module.id,
       moduleTitle: module.title,
       contextPrompt: lesson.contextPrompt,
+      instructionPacks: lesson.instructionPacks,
     }))
   );
 

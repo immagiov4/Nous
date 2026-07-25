@@ -1,6 +1,11 @@
 import type { LessonContentBlock } from '../../types.ts';
 import { ACTIVE_PAUSE_EXERCISE_PROMPT_GUIDE } from '../../utils/learning/activePause.ts';
 import {
+  buildLessonVerificationChecklist,
+  type LessonInstructionPackId,
+  type LessonVerificationChecklistItem,
+} from '../../utils/learning/lessonInstructionPacks.ts';
+import {
   deriveQuizFromLessonContentBlocks,
   hasValidTypedQuizBlocks,
   legacyMarkdownToLessonContentBlocks,
@@ -21,6 +26,7 @@ import {
   buildUserGenerationNotesBlock,
   FORMULA_RELEVANCE_RULE,
   INTERNAL_REASONING_EFFICIENCY_INSTRUCTION,
+  LESSON_LOCAL_PROPEDEUTIC_RULES,
 } from './prompts.ts';
 import {
   callOpenRouter,
@@ -42,11 +48,19 @@ interface PdfSectionContentPayload {
   contentBlocks?: LessonContentBlock[];
   contentMarkdown?: string;
   quiz?: QuizQuestion[];
+  verificationReport?: LessonVerificationReportItem[];
   imagePlacements?: SectionImagePlacement[];
   visualPlanning: {
     plans: VerifiedVisualSlotPlan[];
     rationale: string;
   };
+}
+
+interface LessonVerificationReportItem {
+  action: string;
+  checkId: string;
+  evidence: string;
+  status: 'corrected' | 'not-applicable' | 'pass';
 }
 
 const normalizeVisualPlanningPayload = (
@@ -310,6 +324,42 @@ const buildLessonResponseSchema = () => {
   } as const;
 };
 
+const buildLessonVerificationResponseSchema = (
+  checklist: readonly LessonVerificationChecklistItem[]
+) => {
+  const lessonResponseSchema = buildLessonResponseSchema();
+  return {
+    ...lessonResponseSchema,
+    name: 'nous_lesson_verification_response',
+    schema: {
+      ...lessonResponseSchema.schema,
+      properties: {
+        ...lessonResponseSchema.schema.properties,
+        verificationReport: {
+          type: 'array',
+          minItems: checklist.length,
+          maxItems: checklist.length,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              checkId: { type: 'string', enum: checklist.map(item => item.checkId) },
+              status: {
+                type: 'string',
+                enum: ['pass', 'corrected', 'not-applicable'],
+              },
+              evidence: { type: 'string' },
+              action: { type: 'string' },
+            },
+            required: ['checkId', 'status', 'evidence', 'action'],
+          },
+        },
+      },
+      required: [...lessonResponseSchema.schema.required, 'verificationReport'],
+    },
+  } as const;
+};
+
 export const LESSON_RESPONSE_SCHEMA = buildLessonResponseSchema();
 
 interface BuildLessonVerificationPromptInput {
@@ -329,6 +379,7 @@ interface BuildLessonVerificationPromptInput {
     sourceOrder: number;
   }>;
   generationNotes?: string;
+  instructionPacks?: LessonInstructionPackId[];
 }
 
 interface VerifyLessonDraftInput extends BuildLessonVerificationPromptInput {
@@ -346,7 +397,10 @@ export const buildLessonVerificationPrompt = ({
   draft,
   candidateImages,
   generationNotes,
-}: BuildLessonVerificationPromptInput): string => `Sei il verificatore finale di Nous Reader.
+  instructionPacks,
+}: BuildLessonVerificationPromptInput): string => {
+  const checklist = buildLessonVerificationChecklist(instructionPacks);
+  return `Sei il verificatore finale di Nous Reader.
 
 Ricevi una bozza quasi finale di lezione. Devi fare un controllo conclusivo e correggere SOLO cio che serve.
 ${buildUserGenerationNotesBlock(generationNotes)}
@@ -355,6 +409,9 @@ DESCRIZIONE: "${sectionDescription}"
 CONTESTO PRECEDENTE: ${previousContext || 'Inizio percorso'}.
 
 OBIETTIVI DI VERIFICA:
+Compila obbligatoriamente una voce di \`verificationReport\` per CIASCUNO dei controlli seguenti, usando esattamente il relativo \`checkId\`:
+${checklist.map(item => `- ${item.checkId}: ${item.instruction}`).join('\n')}
+
 1. La lezione deve restare strettamente nel focus della lezione corrente.
 2. ${continuityRule}
 3. Devono valere tutti questi vincoli di focus:
@@ -376,6 +433,11 @@ ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 15. Ogni immagine selezionata deve anche essere visivamente chiara e autosufficiente: se appare sfocata, parziale, tagliata, poco leggibile, mostra solo un bordo, un wrapper, un riquadro, un badge, un'icona o un frammento non riconoscibile, rimuovila.
 16. Se una figura e debole, ambigua, fuori tema, decorativa, non richiamata dal testo vicino o messa sotto il heading sbagliato, correggila o rimuovila. Meglio meno immagini che immagini sbagliate.
 17. Se trovi forestierismi inutili nel testo, sostituiscili con equivalenti italiani naturali, salvo casi in cui il termine straniero sia davvero lo standard tecnico necessario.
+17a. Verifica l'ordine propedeutico LOCALE della bozza, paragrafo per paragrafo, e correggi ogni violazione:
+${LESSON_LOCAL_PROPEDEUTIC_RULES.map(rule => `- ${rule}`).join('\n')}
+17b. Rimuovi o sposta in avanti frasi che introducono dipendenze premature, come nomi di strutture, proprieta, convenzioni, eccezioni o operazioni che saranno spiegate soltanto in una sezione successiva. Formula e spiegazione possono precedersi in qualunque ordine quando restano nello stesso blocco locale o in paragrafi immediatamente adiacenti.
+17c. Rimuovi i chiarimenti preventivi che aggiungono carico cognitivo senza risolvere un dubbio necessario al passaggio corrente. Se una precisazione serve davvero ma dipende da nozioni successive, sostituiscila con una breve anticipazione esplicita oppure spostala dopo l'introduzione dei prerequisiti.
+17d. Applica davvero le note di personalizzazione: se chiedono lentezza, spiegazioni matematiche elementari o ridondanza didattica, non preservare una bozza densa soltanto perche tecnicamente corretta. Correggi con il minimo intervento sufficiente a rendere graduale la progressione.
 18. Mantieni i contenuti validi e fai modifiche minime: non riscrivere tutto se non serve.
 19. Se nessuna immagine candidata e chiaramente giusta, restituisci \`imagePlacements: []\`.
 20. ${FORMULA_RELEVANCE_RULE} Rimuovi le formule decorative o estranee al materiale. Per le formule pertinenti, verifica con severita anche la formattazione KaTeX/LaTeX: formule inline solo con \`$...$\` oppure \`\\(...\\)\`; formule display solo con \`$$...$$\` oppure \`\\[...\\]\`. Non lasciare righe orfane con solo \`[\`, \`]\`, \`\\[\` o \`\\]\`, non mischiare delimitatori diversi nella stessa formula, e correggi delimitatori o graffe non bilanciati.
@@ -422,8 +484,17 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
         "visualType": "illustrative_image"
       }
     ]
-  }
+  },
+  "verificationReport": [
+    {
+      "checkId": "core.instructions",
+      "status": "pass|corrected|not-applicable",
+      "evidence": "Evidenza breve e specifica osservata nella lezione",
+      "action": "Correzione applicata, oppure stringa vuota"
+    }
+  ]
 }`;
+};
 
 export const verifyLessonDraft = async ({
   sectionTitle,
@@ -436,8 +507,10 @@ export const verifyLessonDraft = async ({
   draft,
   candidateImages,
   generationNotes,
+  instructionPacks,
   onReasoningUpdate,
 }: VerifyLessonDraftInput): Promise<LessonVerificationDraft> => {
+  const verificationChecklist = buildLessonVerificationChecklist(instructionPacks);
   const verificationPrompt = buildLessonVerificationPrompt({
     sectionTitle,
     sectionDescription,
@@ -449,6 +522,7 @@ export const verifyLessonDraft = async ({
     draft,
     candidateImages,
     generationNotes,
+    instructionPacks,
   });
   pushNousDebugTrace('lesson-forensics:verification-input', {
     draft,
@@ -475,7 +549,7 @@ export const verifyLessonDraft = async ({
         temperature: 0,
         response_format: {
           type: 'json_schema',
-          json_schema: buildLessonResponseSchema(),
+          json_schema: buildLessonVerificationResponseSchema(verificationChecklist),
         },
       });
       pushNousDebugTrace('lesson-forensics:verification-response', {
@@ -488,6 +562,17 @@ export const verifyLessonDraft = async ({
     1,
     500
   );
+  const reportedCheckIds = new Set(
+    Array.isArray(parsed.verificationReport)
+      ? parsed.verificationReport.map(item => item.checkId)
+      : []
+  );
+  if (
+    reportedCheckIds.size !== verificationChecklist.length ||
+    verificationChecklist.some(item => !reportedCheckIds.has(item.checkId))
+  ) {
+    throw new Error('La verifica non ha compilato tutti i controlli richiesti.');
+  }
   const contentBlocks = normalizeLessonContentBlocks(parsed.contentBlocks);
   const effectiveBlocks = contentBlocks.length
     ? contentBlocks

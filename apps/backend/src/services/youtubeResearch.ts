@@ -59,10 +59,13 @@ export interface YouTubeTranscriptRange {
 }
 
 export interface YouTubeVideoEvidence {
+  commentCount?: number;
+  likeCount?: number;
   ranges: YouTubeTranscriptRange[];
   title: string;
   transcript: string;
   url: string;
+  viewCount?: number;
 }
 
 export interface YouTubeResearchBundle {
@@ -145,6 +148,7 @@ export interface YouTubeResearchBudgetInput {
 export interface YouTubeResearchOptions {
   budget?: YouTubeResearchBudgetInput;
   discovery?: YouTubeDiscoveryProvider;
+  metadata?: YouTubeMetadataProvider;
   transcripts?: YouTubeTranscriptProvider;
 }
 
@@ -159,6 +163,16 @@ export interface YouTubeTranscriptProvider {
     preferredLanguages: string[]
   ): Promise<YouTubeTranscriptLookup>;
   getTranscript(videoId: string, preferredLanguages: string[]): Promise<YouTubeTranscript | null>;
+}
+
+export interface YouTubeVideoMetadata {
+  commentCount?: number;
+  likeCount?: number;
+  viewCount?: number;
+}
+
+export interface YouTubeMetadataProvider {
+  getMetadata(videoId: string): Promise<YouTubeVideoMetadata>;
 }
 
 interface TranscriptCacheEntry {
@@ -282,6 +296,37 @@ export class DecodoDiscoveryProvider implements YouTubeDiscoveryProvider {
 
   async expandPlaylist(candidate: YouTubeCandidate): Promise<YouTubeCandidate[]> {
     return candidate.kind === 'playlist' ? candidate.playlistVideos || [] : [candidate];
+  }
+}
+
+export class DecodoMetadataProvider implements YouTubeMetadataProvider {
+  constructor(
+    private readonly apiKey: string,
+    private readonly fetcher: typeof fetch = fetch
+  ) {}
+
+  async getMetadata(videoId: string): Promise<YouTubeVideoMetadata> {
+    const response = await this.fetcher(DECODO_SCRAPE_URL, {
+      body: JSON.stringify({ query: videoId, target: 'youtube_metadata' }),
+      headers: {
+        Authorization: `Basic ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error(`Decodo YouTube metadata failed with status ${response.status}.`);
+    }
+
+    const root = asRecord(await response.json());
+    const result = Array.isArray(root?.results) ? asRecord(root.results[0]) : null;
+    const content = asRecord(result?.content);
+    const metadata = asRecord(content?.results);
+    return {
+      commentCount: asOptionalNumber(metadata?.comment_count),
+      likeCount: asOptionalNumber(metadata?.like_count),
+      viewCount: asOptionalNumber(metadata?.view_count),
+    };
   }
 }
 
@@ -456,6 +501,14 @@ const createDefaultDiscoveryProvider = (): YouTubeDiscoveryProvider => {
   return new DecodoDiscoveryProvider(decodoApiKey);
 };
 
+const createDefaultMetadataProvider = (): YouTubeMetadataProvider => {
+  const decodoApiKey = process.env.DECODO_SCRAPING_API_KEY?.trim();
+  if (!decodoApiKey) {
+    throw new Error('DECODO_SCRAPING_API_KEY is not configured.');
+  }
+  return new DecodoMetadataProvider(decodoApiKey);
+};
+
 const LANGUAGE_CODES: Record<string, string> = {
   deutsch: 'de',
   english: 'en',
@@ -586,6 +639,9 @@ const buildYouTubeResearch = async (
 ): Promise<YouTubeResearchDiagnostic> => {
   const discovery = options.discovery || createDefaultDiscoveryProvider();
   const transcripts = options.transcripts || createDefaultTranscriptProvider();
+  const metadata =
+    options.metadata ||
+    (options.discovery || options.transcripts ? undefined : createDefaultMetadataProvider());
   const budget = calculateTranscriptBudget(options.budget);
   const startedAt = Date.now();
   const discoveryStartedAt = Date.now();
@@ -709,6 +765,21 @@ const buildYouTubeResearch = async (
     }
   }
   const transcriptsMs = Date.now() - transcriptsStartedAt;
+  if (metadata && videoCandidates.length > 0) {
+    const metadataResults = await Promise.allSettled(
+      videoCandidates.map(candidate => {
+        const videoId = new URL(candidate.url).searchParams.get('v');
+        return videoId ? metadata.getMetadata(videoId) : Promise.resolve({});
+      })
+    );
+    for (const [index, result] of metadataResults.entries()) {
+      if (result.status !== 'fulfilled') {
+        console.warn('[Backend] YouTube metadata unavailable:', result.reason);
+        continue;
+      }
+      Object.assign(videoCandidates[index] ?? {}, result.value);
+    }
+  }
 
   const playlistDiagnostics = playlists.map(candidate => ({
     ...candidate,

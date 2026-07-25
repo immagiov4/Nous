@@ -3,6 +3,7 @@ import {
   buildYouTubeResearchDiagnostic,
   buildYouTubeResearchOutcome,
   DecodoDiscoveryProvider,
+  DecodoMetadataProvider,
   DecodoTranscriptProvider,
   type YouTubeCandidate,
   type YouTubeDiscoveryProvider,
@@ -54,6 +55,35 @@ describe('YouTube research', () => {
       title: 'Una celebrità racconta la propria vita',
       viewCount: 50_000_000,
     });
+  });
+
+  test('loads engagement metadata through the Decodo metadata target', async () => {
+    const calls: string[] = [];
+    const provider = new DecodoMetadataProvider('secret', async (_input, init) => {
+      calls.push(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              content: {
+                results: {
+                  comment_count: 321,
+                  like_count: 4_567,
+                  view_count: 98_765,
+                },
+              },
+            },
+          ],
+        })
+      );
+    });
+
+    await expect(provider.getMetadata('video-1')).resolves.toEqual({
+      commentCount: 321,
+      likeCount: 4_567,
+      viewCount: 98_765,
+    });
+    expect(calls).toEqual([JSON.stringify({ query: 'video-1', target: 'youtube_metadata' })]);
   });
 
   test('loads all Decodo subtitle variants in one request and prefers manual captions', async () => {
@@ -181,6 +211,13 @@ describe('YouTube research', () => {
 
     const research = await buildYouTubeResearchOutcome('argomento', 'Italiano', {
       discovery,
+      metadata: {
+        getMetadata: async videoId => ({
+          commentCount: videoId === 'video-1' ? 30 : 20,
+          likeCount: videoId === 'video-1' ? 300 : 200,
+          viewCount: videoId === 'video-1' ? 3_000 : 2_000,
+        }),
+      },
       transcripts,
     });
 
@@ -193,16 +230,22 @@ describe('YouTube research', () => {
     expect(research.context).toContain('playlist playlist-1, posizione 2');
     expect(research.videoCandidates).toEqual([
       {
+        commentCount: 30,
+        likeCount: 300,
         ranges: [{ endSeconds: 69, startSeconds: 65 }],
         title: 'Course lecture',
         transcript: '[01:05-01:09] Concetto verificabile',
         url: video.url,
+        viewCount: 3_000,
       },
       {
+        commentCount: 20,
+        likeCount: 200,
         ranges: [{ endSeconds: 69, startSeconds: 65 }],
         title: 'Second lecture',
         transcript: '[01:05-01:09] Concetto verificabile',
         url: 'https://www.youtube.com/watch?v=video-2',
+        viewCount: 2_000,
       },
     ]);
   });

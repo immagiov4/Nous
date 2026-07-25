@@ -9,6 +9,11 @@ import type {
   SourceArchiveProjectSource,
   SourceArchiveSelector,
 } from '../../../types.ts';
+import {
+  LESSON_INSTRUCTION_PACK_IDS,
+  type LessonInstructionPackId,
+  normalizeLessonInstructionPacks,
+} from '../../../utils/learning/lessonInstructionPacks.ts';
 import { clipText } from '../../../utils/text.ts';
 import { groupSectionsIntoModules } from '../../learning/groupSectionsIntoModules.ts';
 import { formatCourseSourceSetContext } from '../../projects/courseSources.ts';
@@ -80,6 +85,10 @@ const LEARNING_PLAN_RESPONSE_SCHEMA = {
               enum: ['prerequisite', 'core', 'summary', 'deep-dive'],
             },
             isCompleted: { type: 'boolean' },
+            instructionPacks: {
+              type: 'array',
+              items: { type: 'string', enum: LESSON_INSTRUCTION_PACK_IDS },
+            },
             sourceArchiveSelectors: {
               type: 'array',
               items: {
@@ -93,7 +102,15 @@ const LEARNING_PLAN_RESPONSE_SCHEMA = {
               },
             },
           },
-          required: ['id', 'moduleTitle', 'title', 'description', 'type', 'isCompleted'],
+          required: [
+            'id',
+            'moduleTitle',
+            'title',
+            'description',
+            'type',
+            'isCompleted',
+            'instructionPacks',
+          ],
         },
       },
     },
@@ -131,6 +148,7 @@ interface LearningPlanSectionDraft {
   description?: string;
   type?: LearningSection['type'];
   isCompleted?: boolean;
+  instructionPacks?: LessonInstructionPackId[];
   sourceArchiveSelectors?: SourceArchiveSelector[];
 }
 
@@ -230,6 +248,7 @@ const planAsSectionsView = (
         description: child.kind === 'lesson' ? child.description : '',
         type: child.kind === 'lesson' ? child.type : undefined,
         isCompleted: child.kind === 'lesson' ? child.isCompleted : false,
+        instructionPacks: child.kind === 'lesson' ? child.instructionPacks : undefined,
         sourceArchiveSelectors: child.kind === 'lesson' ? child.sourceArchiveSelectors : undefined,
       }))
   ),
@@ -262,6 +281,7 @@ const normalizeLearningPlan = (
             ? section.type
             : 'core',
         isCompleted: false,
+        instructionPacks: normalizeLessonInstructionPacks(section.instructionPacks),
         ...(sourceArchiveSelectors ? { sourceArchiveSelectors } : {}),
       };
     })
@@ -324,7 +344,8 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       "title": "Titolo sezione",
       "description": "Cosa si impara",
       "type": "prerequisite|core|summary",
-      "isCompleted": false
+      "isCompleted": false,
+      "instructionPacks": []
     }
   ]
 }`;
@@ -402,7 +423,8 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
       "title": "Titolo sezione",
       "description": "Cosa si impara",
       "type": "prerequisite|core|summary",
-      "isCompleted": false
+      "isCompleted": false,
+      "instructionPacks": []
     }
   ]
 }`;
@@ -679,7 +701,8 @@ Rispondi SOLO con un oggetto JSON valido:
       "moduleTitle": "Titolo del modulo",
       "title": "Titolo sezione",
       "description": "Cosa si impara e confini della lezione",
-      "type": "prerequisite|core|summary|deep-dive"
+      "type": "prerequisite|core|summary|deep-dive",
+      "instructionPacks": []
     }
   ]
 }`;

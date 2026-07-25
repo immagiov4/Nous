@@ -462,12 +462,11 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
         </div>
       </aside>
 
-      {/* Temporary debug action for renderer QA; keep isolated from regular lesson controls. */}
       {lessonContextMenu ? (
         <div
           ref={lessonContextMenuRef}
           role="menu"
-          aria-label={t('Azioni debug lezione')}
+          aria-label={t('Azioni lezione')}
           className="fixed z-[90] w-[17rem] rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_18px_36px_-24px_rgba(15,23,42,0.28)] dark:border-zinc-600/80 dark:bg-stone-800"
           style={lessonContextMenuStyle}
         >
@@ -483,9 +482,6 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
             <Copy className="h-4 w-4 shrink-0" />
             {t(lessonContextMenu.copied ? 'Markdown copiato' : 'Copia markdown lezione')}
           </button>
-          <p className="px-3 pb-2 pt-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-            {t('Debug temporaneo: copia il markdown salvato prima del rendering.')}
-          </p>
         </div>
       ) : null}
 

@@ -1,3 +1,5 @@
+import type { LessonInstructionPackId } from './utils/learning/lessonInstructionPacks.ts';
+
 export interface UserProfile {
   topic: string;
   experienceLevel: string;
@@ -14,6 +16,7 @@ export interface SyllabusItem {
   type: 'module' | 'lesson';
   status: 'pending' | 'ready';
   contextPrompt?: string;
+  instructionPacks?: LessonInstructionPackId[];
   children?: SyllabusItem[];
 }
 
@@ -80,6 +83,7 @@ export interface ResearchLessonPlan {
   description: string;
   guidingQuestions: string[];
   id: string;
+  instructionPacks?: LessonInstructionPackId[];
   keyConcepts: string[];
   miniLab: string;
   moduleId: string;
@@ -514,6 +518,7 @@ export interface LearningSection {
   visualPlanningDecision?: LessonVisualPlanningDecision; // Planner and reviewer verdicts
   learningAids?: LessonLearningAid[]; // Compact definitions, formulas, symbols, and analogies
   contextPrompt?: string; // For Learn Mode
+  instructionPacks?: LessonInstructionPackId[];
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
   primaryChunkMappingSource?: 'fallback' | 'mapped';
   sourceArchiveSelectors?: SourceArchiveSelector[];

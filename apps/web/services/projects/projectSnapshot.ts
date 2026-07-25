@@ -18,6 +18,7 @@ import {
   type UserProfile,
 } from '../../types.ts';
 import { createEntityId } from '../../utils/ids.ts';
+import { normalizeLessonInstructionPacks } from '../../utils/learning/lessonInstructionPacks.ts';
 import { flattenLessons, flattenPathNodes } from '../../utils/learning/pathNodes.ts';
 import { isRecord } from '../../utils/records.ts';
 import { timestampIso } from '../../utils/time.ts';
@@ -601,6 +602,9 @@ const parseResearchCoursePlan = (value: unknown): ProjectSnapshot['researchCours
         prerequisites: parseStringArray(lesson.prerequisites),
         keyConcepts: parseStringArray(lesson.keyConcepts),
         guidingQuestions: parseStringArray(lesson.guidingQuestions),
+        ...('instructionPacks' in lesson
+          ? { instructionPacks: normalizeLessonInstructionPacks(lesson.instructionPacks) }
+          : {}),
         miniLab: ensureString(lesson.miniLab),
         simplificationRisks: parseStringArray(lesson.simplificationRisks),
         sourceHints: parseResearchSourceReferences(lesson.sourceHints),

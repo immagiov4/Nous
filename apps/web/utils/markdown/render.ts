@@ -9,6 +9,9 @@ import {
 } from './fencedCode.ts';
 import { processMarkdownSegment } from './segment.ts';
 
+const DELETE_CONTROL_CHARACTER = '\u007f';
+const ANSI_ESCAPE_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
+
 const applyPostFenceRepairs = (content: string): string =>
   mergeSplitTextPseudocodeBlocks(
     mergeSplitBraceFencedBlocks(mergeOrphanedContinuationLinesIntoPreviousFence(content))
@@ -72,7 +75,12 @@ const restoreMissingJsonOpeningFences = (content: string): string => {
 
 export const normalizeMarkdownForRendering = (content: string): string => {
   const normalizedContent = restoreMissingJsonOpeningFences(
-    stripHighlightTagsInsideMarkdownCode(content.replaceAll(/\r/g, ''))
+    stripHighlightTagsInsideMarkdownCode(
+      content
+        .replaceAll(ANSI_ESCAPE_SEQUENCE, '')
+        .replaceAll(DELETE_CONTROL_CHARACTER, '')
+        .replaceAll(/\r/g, '')
+    )
   );
   const lines = normalizedContent.split('\n');
   const parts: string[] = [];
