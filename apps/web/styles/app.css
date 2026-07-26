@@ -30,7 +30,8 @@
   --ink-primary: #e4e4e7;
   --ink-secondary: #a1a1aa;
   --accent: #fb923c;
-  --annotation-highlight-color: rgba(180, 83, 9, 0.5);
+  /* Keep fragmented inline highlights visually uniform when their painted edges overlap. */
+  --annotation-highlight-color: #6d3c18;
   --border-subtle: rgba(113, 113, 122, 0.6);
   --border-strong: rgba(161, 161, 170, 0.78);
   --panel-shadow: 0 16px 34px -14px rgba(0, 0, 0, 0.35), 0 30px 60px -24px rgba(0, 0, 0, 0.38);
@@ -453,7 +454,7 @@ textarea::-webkit-scrollbar-thumb:hover {
 }
 
 mark {
-  background-color: #fde047;
+  background-color: var(--annotation-highlight-color);
   color: #000;
   padding: 0.1em 0.2em;
   border-radius: 0.2em;
@@ -461,7 +462,7 @@ mark {
 }
 
 .dark mark {
-  background-color: #fbbf24;
+  background-color: var(--annotation-highlight-color);
   color: #000;
 }
 

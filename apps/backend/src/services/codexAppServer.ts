@@ -133,8 +133,14 @@ export interface CodexTurnInput {
   outputSchema?: JsonObject;
   reasoningEffort: ReasoningEffort;
   serviceTier?: 'fast';
+  signal?: AbortSignal;
   tools?: CodexTurnTool[];
 }
+
+export const normalizeCodexReasoningEffort = (
+  reasoningEffort: ReasoningEffort
+): Exclude<ReasoningEffort, 'minimal' | 'none'> =>
+  reasoningEffort === 'none' || reasoningEffort === 'minimal' ? 'low' : reasoningEffort;
 
 export class CodexAppServerError extends Error {
   constructor(
@@ -566,6 +572,9 @@ const readTurnStatus = (params: unknown): string | undefined => {
   return readString(params.turn.status);
 };
 
+const readStartedTurnId = (response: unknown): string | undefined =>
+  isRecord(response) && isRecord(response.turn) ? readString(response.turn.id) : undefined;
+
 const readTurnFailure = (params: unknown): string | undefined => {
   if (!isRecord(params) || !isRecord(params.turn)) {
     return undefined;
@@ -589,6 +598,7 @@ export const runCodexAppServerTurnWithClient = async (
   turn: CodexTurnInput,
   client: CodexJsonRpcClient
 ): Promise<string> => {
+  turn.signal?.throwIfAborted();
   let completedText = '';
   let streamedText = '';
   let hasStreamedReasoningText = false;
@@ -744,17 +754,41 @@ export const runCodexAppServerTurnWithClient = async (
   });
 
   try {
-    await client.request('turn/start', {
+    const turnResponse = await client.request('turn/start', {
       threadId,
       input: turn.input,
       model: turn.model,
-      effort: turn.reasoningEffort === 'minimal' ? 'none' : turn.reasoningEffort,
+      effort: normalizeCodexReasoningEffort(turn.reasoningEffort),
       summary:
         turn.reasoningEffort === 'none' || turn.reasoningEffort === 'minimal' ? 'none' : 'detailed',
       sandboxPolicy: { type: 'readOnly' },
       ...(turn.outputSchema ? { outputSchema: turn.outputSchema } : {}),
     });
-    return await turnCompleted;
+    const turnId = readStartedTurnId(turnResponse);
+    if (!turnId) {
+      throw new CodexAppServerError('Codex did not return a turn id.', 'protocol');
+    }
+
+    let cleanupAbortListener: () => void = () => {};
+    const aborted = new Promise<never>((_resolve, reject) => {
+      const onAbort = () => {
+        void client.request('turn/interrupt', { threadId, turnId }).catch(error => {
+          console.warn('[Codex app-server] Turn interrupt failed.', { error, threadId, turnId });
+        });
+        reject(turn.signal?.reason ?? new DOMException('Codex turn aborted.', 'AbortError'));
+      };
+      if (turn.signal?.aborted) {
+        onAbort();
+        return;
+      }
+      turn.signal?.addEventListener('abort', onAbort, { once: true });
+      cleanupAbortListener = () => turn.signal?.removeEventListener('abort', onAbort);
+    });
+    try {
+      return await Promise.race([turnCompleted, aborted]);
+    } finally {
+      cleanupAbortListener();
+    }
   } finally {
     cleanupTurnListener();
   }

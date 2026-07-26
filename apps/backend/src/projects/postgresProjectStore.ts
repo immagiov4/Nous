@@ -48,6 +48,7 @@ import type {
   ProjectSaveOptions,
   ProjectSaveResult,
   ProjectSnapshot,
+  ProjectSnapshotWithRevision,
   ProjectSourceArchiveIndex,
   ProjectSourceFile,
   ProjectSourceRef,
@@ -83,6 +84,10 @@ interface ProjectImportDiagnosticRow {
 interface ProjectSnapshotRow {
   document_index: unknown | null;
   snapshot: Omit<ProjectSnapshot, 'documentIndex'>;
+}
+
+interface ProjectSnapshotWithRevisionRow extends ProjectSnapshotRow {
+  revision: number | string;
 }
 
 interface ProjectSourceRow {
@@ -341,6 +346,23 @@ export class PostgresProjectStore implements ProjectStore {
     }
 
     return mergeSnapshot(rows[0]);
+  }
+
+  async loadProjectWithRevision(
+    userId: string,
+    id: ProjectId
+  ): Promise<ProjectSnapshotWithRevision | null> {
+    const rows = await this.sql<ProjectSnapshotWithRevisionRow[]>`
+      select project_snapshots.snapshot, project_snapshots.document_index, projects.revision
+      from public.project_snapshots
+      join public.projects
+        on projects.user_id = project_snapshots.user_id and projects.id = project_snapshots.id
+      where project_snapshots.user_id = ${userId} and project_snapshots.id = ${id}
+      limit 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { revision: Number(row.revision), snapshot: mergeSnapshot(row) };
   }
 
   async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {

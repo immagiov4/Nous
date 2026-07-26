@@ -48,6 +48,20 @@ class QueuedGenerationJobStore implements GenerationJobStore {
     return this.jobs.find(job => job.userId === userId && job.id === id) ?? null;
   }
 
+  async getLatestLessonForUser(userId: string, projectId: string, sectionId: string) {
+    return (
+      [...this.jobs]
+        .reverse()
+        .find(
+          job =>
+            job.userId === userId &&
+            job.projectId === projectId &&
+            job.kind === 'lesson' &&
+            (job.payload as { sectionId?: string }).sectionId === sectionId
+        ) ?? null
+    );
+  }
+
   async claimNext() {
     return null;
   }
@@ -67,7 +81,10 @@ const createSnapshot = (): ProjectSnapshot => ({
   learningPlan: {
     modules: [
       {
-        children: [{ id: 'lesson-1', kind: 'lesson', title: 'Fotosintesi' }],
+        children: [
+          { id: 'lesson-1', kind: 'lesson', title: 'Fotosintesi' },
+          { id: 'lesson-2', kind: 'lesson', title: 'Respirazione' },
+        ],
         id: 'module-1',
         title: 'Biologia',
       },
@@ -148,5 +165,44 @@ describe('/api/generation-jobs', () => {
     expect(duplicate.status).toBe(200);
     expect(duplicate.body.job.id).toBe(first.body.job.id);
     expect(jobStore.jobs).toHaveLength(1);
+  });
+
+  test('rejects a different lesson while the project already has an active generation', async () => {
+    const first = await request(createApp()).post('/api/generation-jobs/lessons').send({
+      projectId: 'project-1',
+      sectionId: 'lesson-1',
+    });
+    const competing = await request(createApp()).post('/api/generation-jobs/lessons').send({
+      projectId: 'project-1',
+      sectionId: 'lesson-2',
+    });
+
+    expect(first.status).toBe(202);
+    expect(competing.status).toBe(409);
+    expect(competing.body.job.id).toBe(first.body.job.id);
+    expect(competing.body.error).toContain('altra lezione');
+    expect(jobStore.jobs).toHaveLength(1);
+  });
+
+  test('returns the latest failed lesson job so a reconnect does not retry silently', async () => {
+    const created = await request(createApp()).post('/api/generation-jobs/lessons').send({
+      projectId: 'project-1',
+      sectionId: 'lesson-1',
+    });
+    const stored = jobStore.jobs.find(job => job.id === created.body.job.id);
+    if (!stored) throw new Error('Missing queued test job');
+    stored.status = 'failed';
+    stored.errorCode = 'lesson_provider_failed';
+
+    const latest = await request(createApp()).get(
+      '/api/generation-jobs/lessons/project-1/lesson-1/latest'
+    );
+
+    expect(latest.status).toBe(200);
+    expect(latest.body.job).toMatchObject({
+      errorCode: 'lesson_provider_failed',
+      id: created.body.job.id,
+      status: 'failed',
+    });
   });
 });

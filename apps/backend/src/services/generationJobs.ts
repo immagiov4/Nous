@@ -1,5 +1,8 @@
 export type GenerationJobKind = 'image' | 'lesson';
-export type GenerationJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+import type { GenerationJobStatus } from '@shared/generationJobContract';
+
+export type { GenerationJobStatus } from '@shared/generationJobContract';
 
 export interface GenerationJob {
   attemptCount: number;
@@ -34,6 +37,11 @@ export interface GenerationJobStore {
   enqueue(input: EnqueueGenerationJobInput): Promise<{ created: boolean; job: GenerationJob }>;
   fail(id: string, errorCode: string): Promise<void>;
   getForUser(userId: string, id: string): Promise<GenerationJob | null>;
+  getLatestLessonForUser(
+    userId: string,
+    projectId: string,
+    sectionId: string
+  ): Promise<GenerationJob | null>;
   recoverInterrupted(): Promise<void>;
   requeue(id: string): Promise<void>;
 }
@@ -41,8 +49,8 @@ export interface GenerationJobStore {
 export class TransientGenerationJobError extends Error {
   readonly code: string;
 
-  constructor(code: string, message = code) {
-    super(message);
+  constructor(code: string, message = code, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'TransientGenerationJobError';
     this.code = code;
   }

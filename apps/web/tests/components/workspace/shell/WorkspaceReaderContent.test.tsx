@@ -445,9 +445,8 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByText('Lessico del corso.')).toBeInTheDocument();
   });
 
-  test('loads a validated timestamped YouTube demonstration only after user intent', async () => {
-    const user = userEvent.setup();
-    const { container } = render(
+  test('loads a validated timestamped YouTube demonstration without an extra play gate', async () => {
+    render(
       <WorkspaceReaderContent
         {...buildProps({
           sectionContent:
@@ -468,15 +467,10 @@ describe('WorkspaceReaderContent', () => {
       />
     );
 
-    expect(container.querySelector('iframe')).toBeNull();
-    await user.click(
-      await screen.findByRole('button', { name: 'Riproduci la dimostrazione (1:05–1:32)' })
-    );
-
-    const frame = screen.getByTitle('Dimostrazione video: Ombreggiatura a tratteggio');
+    const frame = await screen.findByTitle('Dimostrazione video: Ombreggiatura a tratteggio');
     expect(frame).toHaveAttribute(
       'src',
-      'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?autoplay=0&controls=1&end=92&playsinline=1&rel=0&start=65'
+      'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?autoplay=0&controls=1&end=92&enablejsapi=1&playsinline=1&rel=0&start=65'
     );
     expect(frame).toHaveAttribute('loading', 'lazy');
   });
@@ -502,18 +496,16 @@ describe('WorkspaceReaderContent', () => {
       />
     );
 
-    const playButton = await screen.findByRole('button', {
-      name: 'Riproduci la dimostrazione (1:05–1:32)',
-    });
+    const frame = await screen.findByTitle('Dimostrazione video: Ombreggiatura a tratteggio');
     expect(
-      screen.getByText(/Osserva il movimento/).compareDocumentPosition(playButton) &
+      screen.getByText(/Osserva il movimento/).compareDocumentPosition(frame) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(
-      playButton.compareDocumentPosition(screen.getByText(/Poi prova/)) &
+      frame.compareDocumentPosition(screen.getByText(/Poi prova/)) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /Riproduci la dimostrazione/ })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Riproduci la dimostrazione/ })).toBeNull();
   });
 
   test('groups multiple validated lesson markers into one inline micro-chapter carousel', async () => {
@@ -560,7 +552,8 @@ describe('WorkspaceReaderContent', () => {
     );
 
     expect(await screen.findAllByRole('tab')).toHaveLength(3);
-    expect(screen.getAllByRole('button', { name: /Riproduci la dimostrazione/ })).toHaveLength(1);
+    expect(screen.getAllByTitle(/Dimostrazione video:/)).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Riproduci la dimostrazione/ })).toBeNull();
     const tabList = screen.getByRole('tablist', { name: 'Micro-capitoli video' });
     expect(
       screen.getByText(/Osserva il primo movimento/).compareDocumentPosition(tabList) &
@@ -593,7 +586,9 @@ describe('WorkspaceReaderContent', () => {
       />
     );
 
-    await screen.findByRole('button', { name: 'Riproduci la dimostrazione (1:10–1:28)' });
+    const frame = await screen.findByTitle('Dimostrazione video: Ombreggiatura a tratteggio');
+    expect(frame).toHaveAttribute('src', expect.stringContaining('start=70'));
+    expect(frame).toHaveAttribute('src', expect.stringContaining('end=88'));
   });
 
   test('keeps persisted YouTube clips hidden when the backend policy is disabled', async () => {
@@ -614,6 +609,7 @@ describe('WorkspaceReaderContent', () => {
 
     await waitFor(() => expect(youtubePolicyMocks.getYouTubeVideoClipsEnabled).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: /Riproduci la dimostrazione/ })).toBeNull();
+    expect(screen.queryByTitle(/Dimostrazione video:/)).toBeNull();
   });
 
   test('renders legacy lesson bibliographies only through structured section sources', () => {

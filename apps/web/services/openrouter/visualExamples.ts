@@ -1,3 +1,7 @@
+import {
+  MAX_GENERATED_VISUALS_PER_LESSON,
+  MAX_VISUAL_LESSON_CHARS,
+} from '@shared/lessonGenerationPolicy';
 import type {
   LessonGeneratedVisual,
   LessonVisualPlan,
@@ -34,8 +38,8 @@ import type { ChatMessage } from './types.ts';
 
 const VISUAL_ID_PREFIX = 'visual-';
 const GENERATED_IMAGE_PLACEHOLDER_PATTERN = /\{\{GENERATED_IMAGE:([a-z][a-z0-9_-]{0,63})\}\}/g;
-const MAX_VISUAL_LESSON_CHARS = 12000;
-export const MAX_GENERATED_VISUALS_PER_LESSON = 3;
+
+export { MAX_GENERATED_VISUALS_PER_LESSON } from '@shared/lessonGenerationPolicy';
 export const INTERACTIVE_VISUAL_VALUE_RULE =
   'Tratta interactive_html come un formato costoso: usalo solo quando l’utente deve esplorare, modificare o confrontare stati e questa interazione produce una comprensione importante che testo, video o una o due immagini statiche non possono offrire altrettanto bene. Non usarlo per dimostrazioni cosmetiche, controlli banali o esempi statici travestiti da interattivi; se l’interazione non è essenziale, scegli il formato più semplice.';
 export const VISUAL_FORMAT_SELECTION_RULE =

@@ -27,7 +27,10 @@ export type {
   GenerationStatusReporter,
 } from './generationProgress.ts';
 export { createGenerationProgressObserver } from './generationProgress.ts';
-export { generateLessonLearningAids } from './learningAids.ts';
+export {
+  generateDurableLesson,
+  LessonGenerationBusyError,
+} from './lessonGenerationClient.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';
 export {
   askContextualQuestion,
@@ -37,20 +40,11 @@ export {
   generateLearningPlan,
   generateLearningPlanFromSourceArchive,
   generateLearningPlanFromSourceSet,
-  generateSectionContent,
   planLessonInstructionPacks,
 } from './planning/index.ts';
 export {
-  buildPrerequisiteSourceContext,
-  mergePrerequisiteDossierSources,
-  selectPrerequisiteSourceCoverage,
-} from './prerequisiteSources.ts';
-export {
   buildLearningPlanFromResearchCourse,
-  formatResearchDossierForPrompt,
   generateResearchCoursePlan,
-  generateResearchLessonContent,
-  generateResearchLessonDossier,
 } from './research.ts';
 export {
   MODEL_ASSESSMENT,
@@ -60,6 +54,5 @@ export {
   MODEL_RESEARCH_DOSSIER,
   MODEL_RESEARCH_PLANNER,
 } from './shared.ts';
-export { finalizeSourceFreeLesson } from './sourceFreeLessonFinalization.ts';
 export { checkTTSStatus, generateSpeech, getTTSModels, getTTSVoices } from './tts.ts';
 export { generateLessonVisualExample } from './visualExamples.ts';

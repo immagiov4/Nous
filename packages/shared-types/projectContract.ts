@@ -73,6 +73,7 @@ export interface SectionPatch {
   imageRefs?: unknown[];
   isCompleted?: boolean;
   learningAids?: unknown[];
+  lastGenerationJobId?: string;
   quiz?: unknown[];
   visualPlanningDecision?: unknown;
 }

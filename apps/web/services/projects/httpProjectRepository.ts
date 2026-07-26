@@ -178,10 +178,28 @@ export class HttpProjectRepository implements ProjectRepository {
   }
 
   async loadProject(id: ProjectId): Promise<ProjectSnapshot | null> {
-    const response = await this.request<{ project?: ProjectSnapshot | null }>(
-      `/api/projects/projects/${encodeURIComponent(id)}`
-    );
-    return response.project ? normalizeStoredProject(response.project) : null;
+    return (await this.loadProjectWithRevision(id))?.snapshot || null;
+  }
+
+  async loadProjectWithRevision(id: ProjectId): Promise<{
+    revision: number;
+    snapshot: ProjectSnapshot;
+  } | null> {
+    const response = await this.request<{
+      project?: ProjectSnapshot | null;
+      revision?: number;
+    }>(`/api/projects/projects/${encodeURIComponent(id)}`);
+    if (!response.project) return null;
+    if (!Number.isSafeInteger(response.revision) || (response.revision as number) < 1) {
+      throw new ProjectStorageError(
+        'La revisione del progetto sincronizzato non è valida.',
+        'persistence-failed'
+      );
+    }
+    return {
+      revision: response.revision as number,
+      snapshot: normalizeStoredProject(response.project),
+    };
   }
 
   async loadProjectCover(id: ProjectId): Promise<FileData | null> {

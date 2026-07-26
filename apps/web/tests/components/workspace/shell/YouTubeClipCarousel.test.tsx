@@ -34,6 +34,16 @@ const clips: LessonYouTubeClip[] = [
   },
 ];
 
+const signalPlayerReady = (iframe: HTMLIFrameElement): void => {
+  globalThis.dispatchEvent(
+    new MessageEvent('message', {
+      data: JSON.stringify({ event: 'onReady' }),
+      origin: 'https://www.youtube-nocookie.com',
+      source: iframe.contentWindow,
+    })
+  );
+};
+
 test('uses one compact player with selectable chapters and no duration-share bars', async () => {
   const user = userEvent.setup();
   const { container } = render(<YouTubeClipCarousel clips={clips} />);
@@ -58,13 +68,16 @@ test('uses one compact player with selectable chapters and no duration-share bar
     'Dimostrazione video: Tecnica completa'
   ) as HTMLIFrameElement;
   const postMessage = vi.spyOn(initialPlayer.contentWindow as Window, 'postMessage');
+  const initialPlayerSrc = initialPlayer.getAttribute('src');
   fireEvent.load(initialPlayer);
+  signalPlayerReady(initialPlayer);
+  postMessage.mockClear();
   await user.click(chapterTabs[1] as HTMLElement);
   expect(container.querySelectorAll('iframe')).toHaveLength(1);
   expect(screen.getByTitle('Dimostrazione video: Tecnica completa')).toBe(initialPlayer);
-  expect(initialPlayer.src).toContain('start=0');
+  expect(initialPlayer).toHaveAttribute('src', initialPlayerSrc);
   expect(postMessage).toHaveBeenCalledWith(
-    expect.stringContaining('"startSeconds":30'),
+    expect.stringContaining('"endSeconds":90,"startSeconds":30'),
     'https://www.youtube-nocookie.com'
   );
   expect(screen.getAllByRole('tab')[1]).toHaveAttribute('aria-selected', 'true');
@@ -77,9 +90,11 @@ test('uses one compact player with selectable chapters and no duration-share bar
   );
 });
 
-test('resets selection and autoplay when the clip sequence identity changes', async () => {
+test('resets selection, autoplay, and a queued command when the clip sequence changes', async () => {
   const user = userEvent.setup();
   const { container, rerender } = render(<YouTubeClipCarousel clips={clips} />);
+  const initialPlayer = container.querySelector('iframe') as HTMLIFrameElement;
+  const postMessage = vi.spyOn(initialPlayer.contentWindow as Window, 'postMessage');
 
   await user.click(screen.getAllByRole('tab')[1] as HTMLElement);
   expect(container.querySelector('iframe')).not.toBeNull();
@@ -105,6 +120,75 @@ test('resets selection and autoplay when the clip sequence identity changes', as
     expect.stringContaining('autoplay=0')
   );
   expect(screen.queryByRole('tab')).toBeNull();
+  const replacementPlayer = container.querySelector('iframe') as HTMLIFrameElement;
+  fireEvent.load(replacementPlayer);
+  signalPlayerReady(replacementPlayer);
+  expect(postMessage).not.toHaveBeenCalledWith(
+    expect.stringContaining('"func":"loadVideoById"'),
+    'https://www.youtube-nocookie.com'
+  );
+});
+
+test('queues a chapter change made before the existing player loads without changing its src', async () => {
+  const user = userEvent.setup();
+  const { container } = render(<YouTubeClipCarousel clips={clips} />);
+  const initialPlayer = container.querySelector('iframe') as HTMLIFrameElement;
+  const initialPlayerSrc = initialPlayer.getAttribute('src');
+  const postMessage = vi.spyOn(initialPlayer.contentWindow as Window, 'postMessage');
+
+  await user.click(screen.getAllByRole('tab')[1] as HTMLElement);
+
+  expect(container.querySelector('iframe')).toBe(initialPlayer);
+  expect(initialPlayer).toHaveAttribute('src', initialPlayerSrc);
+  expect(postMessage).not.toHaveBeenCalled();
+
+  fireEvent.load(initialPlayer);
+  expect(postMessage).not.toHaveBeenCalledWith(
+    expect.stringContaining('"func":"loadVideoById"'),
+    'https://www.youtube-nocookie.com'
+  );
+  signalPlayerReady(initialPlayer);
+  expect(postMessage).toHaveBeenCalledWith(
+    expect.stringContaining('"endSeconds":90,"startSeconds":30'),
+    'https://www.youtube-nocookie.com'
+  );
+});
+
+test('ignores a stale ready event from the previous video player', async () => {
+  const user = userEvent.setup();
+  const secondVideoClips: LessonYouTubeClip[] = [
+    clips[0],
+    { ...clips[2], id: 'clip-3a' },
+    {
+      ...clips[2],
+      endSeconds: 75,
+      id: 'clip-3b',
+      startSeconds: 30,
+      title: 'Secondo dettaglio complementare',
+    },
+  ];
+  const { container } = render(<YouTubeClipCarousel clips={secondVideoClips} />);
+  const firstPlayer = container.querySelector('iframe') as HTMLIFrameElement;
+
+  await user.click(screen.getAllByRole('tab')[1] as HTMLElement);
+  await user.click(screen.getAllByRole('tab')[2] as HTMLElement);
+
+  const currentPlayer = container.querySelector('iframe') as HTMLIFrameElement;
+  const currentPostMessage = vi.spyOn(currentPlayer.contentWindow as Window, 'postMessage');
+  expect(currentPlayer).not.toBe(firstPlayer);
+
+  signalPlayerReady(firstPlayer);
+  expect(currentPostMessage).not.toHaveBeenCalledWith(
+    expect.stringContaining('"func":"loadVideoById"'),
+    'https://www.youtube-nocookie.com'
+  );
+
+  fireEvent.load(currentPlayer);
+  signalPlayerReady(currentPlayer);
+  expect(currentPostMessage).toHaveBeenCalledWith(
+    expect.stringContaining('"endSeconds":75,"startSeconds":30'),
+    'https://www.youtube-nocookie.com'
+  );
 });
 
 test('supports standard arrow, Home, and End navigation across the tablist', () => {

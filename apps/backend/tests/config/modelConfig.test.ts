@@ -6,6 +6,7 @@ import {
   patchGlobalModelConfig,
   resetModelConfigForTesting,
   resolveAiProviderForSlot,
+  resolveCodexServiceTierForSlot,
   resolveTextModelConfig,
 } from '../../src/config/modelConfig.js';
 
@@ -96,6 +97,14 @@ describe('global AI provider model mapping', () => {
 
   test('defaults OpenAI research to its Chat Completions search model', () => {
     expect(getGlobalModelConfig().openAiResearchModel).toBe('gpt-5-search-api');
+  });
+
+  test('resolves the Codex service tier from the configured model slots', () => {
+    const config = patchGlobalModelConfig({ codexFastModelSlots: ['course', 'lesson'] });
+
+    expect(resolveCodexServiceTierForSlot(config, 'lesson')).toBe('fast');
+    expect(resolveCodexServiceTierForSlot(config, 'course')).toBe('fast');
+    expect(resolveCodexServiceTierForSlot(config, 'research')).toBeUndefined();
   });
 
   test('resolves global and user provider overrides by model slot', async () => {

@@ -32,11 +32,7 @@ import {
   type LessonNode,
   type ProjectSource,
 } from '../../../types.ts';
-import {
-  loadProjectSourceFile,
-  prepareUploadedCourseSource,
-  readSourceFileData,
-} from './controllerContext.ts';
+import { prepareUploadedCourseSource, readSourceFileData } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -528,39 +524,19 @@ export const createProjectLifecycleCommands = (
           await startAssessment({ file: assessmentFile });
         }
       } else if (preparedSnapshot.learningPlan) {
-        const nextSnapshotFile = getProjectSourceFile(preparedSnapshot.source);
         const nextSection = resolvePlanLesson(
           preparedSnapshot.learningPlan,
           preparedSnapshot.activeSectionId
         );
         if (nextSection && (!nextSection.content || nextSection.content.length === 0)) {
           void (async () => {
-            const sourceFile =
-              nextSnapshotFile ??
-              (preparedSnapshot.source && preparedSnapshot.source.kind !== 'archive'
-                ? await loadProjectSourceFile(
-                    context,
-                    () =>
-                      projectLibrary.currentProjectId === projectId &&
-                      state.isWorkflowCurrent('openProject', requestId)
-                  )
-                : null);
             if (
               projectLibrary.currentProjectId !== projectId ||
               !state.isWorkflowCurrent('openProject', requestId)
             ) {
               return;
             }
-            await openSection(nextSection, {
-              allowWhileBlocking: true,
-              currentDocumentAssets: preparedSnapshot.documentAssets ?? null,
-              currentDocumentIndex: preparedSnapshot.documentIndex ?? null,
-              currentPlan: preparedSnapshot.learningPlan,
-              currentSourceFile: sourceFile,
-              currentSyllabus: preparedSnapshot.syllabus,
-              currentUserProfile: preparedSnapshot.userProfile,
-              isLearnMode: preparedSnapshot.isLearnMode,
-            });
+            await openSection(nextSection, { allowWhileBlocking: true });
           })().catch(error => {
             pushNousDebugTrace('open-project:background-section-load-failed', {
               errorMessage: getErrorMessage(error),

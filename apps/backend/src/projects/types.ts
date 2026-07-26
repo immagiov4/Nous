@@ -57,6 +57,7 @@ export interface ProjectSnapshot {
   learningPlan?: LearningPlanSnapshot | null;
   isLearnMode?: boolean;
   userProfile?: {
+    language?: string;
     topic?: string;
   } | null;
   syllabus?: unknown[];
@@ -140,6 +141,11 @@ export interface ProjectSaveResult {
   snapshot: ProjectSnapshot;
 }
 
+export interface ProjectSnapshotWithRevision {
+  revision: number;
+  snapshot: ProjectSnapshot;
+}
+
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   sourceFile?: {
     bytes: Uint8Array;
@@ -181,6 +187,10 @@ export interface ProjectStore {
   listProjects: (userId: string) => Promise<SavedProjectMeta[]>;
   listProjectImportDiagnostics: (correlationId?: string) => Promise<ProjectImportDiagnostic[]>;
   loadProject: (userId: string, id: ProjectId) => Promise<ProjectSnapshot | null>;
+  loadProjectWithRevision: (
+    userId: string,
+    id: ProjectId
+  ) => Promise<ProjectSnapshotWithRevision | null>;
   loadProjectCover: (userId: string, id: ProjectId) => Promise<ProjectCoverFile | null>;
   loadProjectSource: (userId: string, id: ProjectId) => Promise<ProjectSourceFile | null>;
   loadProjectSources: (userId: string, id: ProjectId) => Promise<StoredProjectSourceFile[]>;

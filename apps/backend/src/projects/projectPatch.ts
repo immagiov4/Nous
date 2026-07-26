@@ -25,6 +25,9 @@ const applySectionPatchToNode = (
   ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
   ...(sectionPatch.isCompleted !== undefined ? { isCompleted: sectionPatch.isCompleted } : {}),
   ...(sectionPatch.learningAids !== undefined ? { learningAids: sectionPatch.learningAids } : {}),
+  ...(sectionPatch.lastGenerationJobId !== undefined
+    ? { lastGenerationJobId: sectionPatch.lastGenerationJobId }
+    : {}),
   ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
   ...(sectionPatch.visualPlanningDecision !== undefined
     ? { visualPlanningDecision: sectionPatch.visualPlanningDecision }

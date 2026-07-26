@@ -103,6 +103,29 @@ const createPostgresProjectStore = (
 };
 
 describe('PostgresProjectStore', () => {
+  test('loads a project snapshot and its revision in one joined query', async () => {
+    const storedSnapshot = createMultiSourceSnapshot();
+    const statements: string[] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        statements.push(strings.join('?'));
+        return Promise.resolve([{ document_index: null, revision: '7', snapshot: storedSnapshot }]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await expect(store.loadProjectWithRevision('user-1', 'project-1')).resolves.toMatchObject({
+      revision: 7,
+      snapshot: { id: 'large-pdf-project', learningPlan: { title: 'Reti' } },
+    });
+    expect(statements[0]).toContain('join public.projects');
+    expect(statements[0]).toContain('projects.revision');
+  });
+
   test('creates project, detached snapshot, and every source metadata row in one transaction', async () => {
     const transactionStatements: string[] = [];
     const transactionValues: unknown[][] = [];

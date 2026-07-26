@@ -11,12 +11,7 @@ import {
   type WorkspaceDomainControllerAdapter,
   type WorkspaceProjectLibraryAdapter,
 } from '../../../hooks/workspace/useWorkspaceController.ts';
-import { mergePrerequisiteDossierSources } from '../../../services/openrouter/prerequisiteSources.ts';
-import { formatResearchDossierForPrompt } from '../../../services/openrouter/research.ts';
-import {
-  buildCourseSourceDescriptors,
-  createProjectSourceFromDescriptors,
-} from '../../../services/projects/courseSources.ts';
+import { LessonGenerationBusyError } from '../../../services/openrouter/lessonGenerationClient.ts';
 import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
 import {
   createProjectSnapshot,
@@ -350,9 +345,16 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
   const deletedProjectIds: string[] = [];
   const exportedProjectIds: Array<string | undefined> = [];
   const touchedProjectIds: string[] = [];
+  const appliedProjectRevisions: Parameters<
+    WorkspaceProjectLibraryAdapter['applyPersistedProjectRevision']
+  >[0][] = [];
   let loadedSnapshot: ProjectSnapshot | null = null;
 
   const adapter: WorkspaceProjectLibraryAdapter = {
+    applyPersistedProjectRevision: async args => {
+      appliedProjectRevisions.push(args);
+      return true;
+    },
     createFolder: async ({ name, parentFolderId }) => ({
       id: 'folder-1',
       name,
@@ -436,6 +438,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
   Object.assign(adapter, overrides);
 
   return {
+    appliedProjectRevisions,
     adapter,
     deletedProjectIds,
     exportedProjectIds,
@@ -780,51 +783,29 @@ const createOpenRouterMock = (
           }))
         ),
       }),
-    buildPrerequisiteSourceContext: async ({ file }: { file: FileData }) => ({
-      content: `FONTE ORIGINALE: ${file.name}`,
-      sources: [{ title: file.name, note: 'Materiale originale del corso' }],
-    }),
     generateLearningPlan: async () => buildPlan(),
-    finalizeSourceFreeLesson: async ({ contentMarkdown }: { contentMarkdown: string }) => ({
-      content: contentMarkdown,
+    generateDurableLesson: async ({
+      projectId,
+      sectionId,
+    }: Parameters<
+      typeof import('../../../services/openrouter/index.ts').generateDurableLesson
+    >[0]) => ({
+      content: '# Lezione generata',
+      contentBlocks: [{ markdown: '# Lezione generata', type: 'markdown' as const }],
+      documentAssets: null,
       generatedVisuals: [],
+      imageRefs: [],
       learningAids: [],
+      projectId,
       quiz: [],
+      sectionId,
       visualPlanningDecision: {
         initial: { outcome: 'none' as const, plans: [], rationale: 'Nessuna visuale utile.' },
         reviewed: { outcome: 'none' as const, plans: [], rationale: 'Decisione confermata.' },
         reviewedAt: '2026-07-17T12:00:00.000Z',
       },
     }),
-    generateLessonLearningAids: async () => [],
-    generateResearchLessonDossier: async (args: { lesson: LearningSection }) => ({
-      sectionId: args.lesson.id,
-      title: args.lesson.title,
-      generatedAt: '2026-03-20T10:00:00.000Z',
-      factualSummary: 'Dossier',
-      keyExamples: ['Esempio'],
-      difficultSteps: ['Passaggio difficile'],
-      sources: [{ title: 'Fonte base', url: 'https://example.com' }],
-      avoidOversimplifying: ['Non banalizzare'],
-      controversies: [],
-      recentDevelopments: [],
-    }),
-    generateResearchLessonContent: async () => ({
-      content: '# Lezione research',
-      generatedVisuals: [],
-      learningAids: [],
-      quiz: [],
-    }),
-    generateSectionContent: async () => ({
-      content: '# Lezione dal documento',
-      documentAssets: null,
-      generatedVisuals: [],
-      imageRefs: [],
-      learningAids: [],
-      quiz: [],
-    }),
     planLessonInstructionPacks: async () => [],
-    formatResearchDossierForPrompt,
     getPdfLessonMappingState: () => 'idle' as const,
     preparePdfLessonMappings: async (
       _file: FileData,
@@ -841,11 +822,6 @@ const createOpenRouterMock = (
       status: 'ok' as const,
       substantivePageCount: 10,
       substantivePageRatio: 1,
-    }),
-    mergePrerequisiteDossierSources,
-    selectPrerequisiteSourceCoverage: async () => ({
-      missingTopics: [],
-      needsResearch: false,
     }),
     ...overrides,
   }) as unknown as typeof import('../../../services/openrouter/index.ts');
@@ -1246,7 +1222,7 @@ test('openProject resolves immediately while loading an empty stored section in 
   const { controller, domain } = createControllerHarness({
     loadedSnapshot: snapshot,
     openRouter: {
-      generateSectionContent: async () => await new Promise(() => {}),
+      generateDurableLesson: async () => await new Promise(() => {}),
     },
   });
 
@@ -2318,7 +2294,7 @@ test('openSection reuses cached lessons and only generates when content is missi
       },
     },
     openRouter: {
-      generateSectionContent: async () => {
+      generateDurableLesson: async () => {
         generateSectionCalls += 1;
         return {
           content: '# Generata',
@@ -2327,10 +2303,13 @@ test('openSection reuses cached lessons and only generates when content is missi
           generatedVisuals: [],
           imageRefs: [],
           learningAids: [],
+          projectId: 'project-1',
           quiz: [],
+          sectionId: 'lesson-1',
         };
       },
     },
+    projectLibrary: { currentProjectId: 'project-1' },
   });
 
   const cachedOutcome = await controller.openSection(getLessons(cachedPlan)[0]);
@@ -2360,812 +2339,135 @@ test('openSection reuses cached lessons and only generates when content is missi
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Generata');
 });
 
-test('openSection resolves archive selectors before passing source files to lesson generation', async () => {
-  const source = {
-    kind: 'archive' as const,
-    name: 'engine.zip',
-    file: {
-      data: '',
-      mimeType: 'application/zip',
-      name: 'engine.zip',
-    },
-    index: {
-      entries: [
-        {
-          byteSize: 24,
-          contentKind: 'text' as const,
-          kind: 'file' as const,
-          path: 'src/main.ts',
-          preview: 'export function main() {}',
-        },
-      ],
-    },
-    ref: {
-      byteSize: 128,
-      hash: 'a'.repeat(64),
-      id: 'source-engine',
-      mimeType: 'application/zip',
-      name: 'engine.zip',
-      objectPath: 'users/user/projects/engine/source-engine/original',
-    },
-  };
-  const plan = buildPlan({
-    sections: [
-      {
-        id: 'lesson-engine-loop',
-        title: 'Ciclo principale',
-        description: 'Spiega il ciclo principale.',
-        isCompleted: false,
-        type: 'core',
-        sourceArchiveSelectors: [{ kind: 'file', path: 'src/main.ts' }],
-      },
-    ],
-  });
-  let resolvedContext = '';
-  const fetchMock = vi.fn(async () => ({
-    ok: true,
-    json: async () => ({
-      success: true,
-      result: [{ path: 'src/main.ts', text: 'export const SENTINEL = 42;' }],
-    }),
-  }));
-  vi.stubGlobal('fetch', fetchMock);
-
-  try {
-    const { controller } = createControllerHarness({
-      domain: {
-        file: source.file,
-        learningPlan: plan,
-        source,
-        domainState: {
-          source,
-          learningPlan: plan,
-          documentAssets: null,
-          documentIndex: null,
-          isLearnMode: false,
-          userProfile: null,
-          syllabus: [],
-          activeSectionId: null,
-        },
-      },
-      projectLibrary: {
-        currentProjectId: 'engine-project',
-      },
-      openRouter: {
-        buildPrerequisiteSourceContext: async () => {
-          throw new Error('Archive source must be resolved through its selectors.');
-        },
-        generateSectionContent: async args => {
-          resolvedContext = args.resolvedSourceArchiveContext || '';
-          return {
-            content: '# Lezione dal codice',
-            contentBlocks: [],
-            documentAssets: null,
-            generatedVisuals: [],
-            imageRefs: [],
-            learningAids: [],
-            quiz: [],
-          };
-        },
-      },
-    });
-
-    const outcome = await controller.openSection(getLessons(plan)[0]);
-
-    assert.equal(outcome, 'loaded');
-    assert.match(resolvedContext, /FILE src\/main\.ts/);
-    assert.match(resolvedContext, /SENTINEL = 42/);
-    assert.equal(fetchMock.mock.calls.length, 1);
-  } finally {
-    vi.unstubAllGlobals();
-  }
-});
-
-test('openSection hydrates every detached document source before generation', async () => {
-  const descriptors = buildCourseSourceDescriptors([
-    { data: 'Zmlyc3Q=', mimeType: 'text/plain', name: 'first.txt' },
-    { data: 'c2Vjb25k', mimeType: 'text/plain', name: 'second.txt' },
-  ]);
-  const refs = descriptors.map(descriptor => ({
-    byteSize: descriptor.file.data.length,
-    hash: descriptor.hash.padEnd(64, '0').slice(0, 64),
-    id: descriptor.id,
-    mimeType: descriptor.file.mimeType,
-    name: descriptor.name,
-    objectPath: `users/user/projects/project/${descriptor.id}/hash/original`,
-  }));
-  const detachedDescriptors = descriptors.map((descriptor, index) => ({
-    ...descriptor,
-    file: { ...descriptor.file, data: '' },
-    ref: refs[index],
-  }));
-  const source = createProjectSourceFromDescriptors(detachedDescriptors);
-  const plan = buildPlan({
-    sections: [
-      {
-        id: 'lesson-documents',
-        title: 'Fonti multiple',
-        description: 'Combina le fonti.',
-        isCompleted: false,
-        type: 'core',
-      },
-    ],
-  });
-  let sourceLoadCalls = 0;
-  let generatedWithFile: FileData | null | undefined;
-  const { controller } = createControllerHarness({
-    domain: {
-      file: null,
-      learningPlan: plan,
-      source,
-      domainState: {
-        source,
-        learningPlan: plan,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: null,
-      },
-    },
-    projectLibrary: {
-      currentProjectId: 'document-project',
-      loadStoredProjectSources: async () => {
-        sourceLoadCalls += 1;
-        return descriptors.map((descriptor, index) => ({
-          file: descriptor.file,
-          ref: refs[index],
-        }));
-      },
-    },
-    openRouter: {
-      generateSectionContent: async ({ file }) => {
-        generatedWithFile = file;
-        return {
-          content: '# Generata dalle fonti',
-          contentBlocks: [],
-          documentAssets: null,
-          generatedVisuals: [],
-          imageRefs: [],
-          learningAids: [],
-          quiz: [],
-        };
-      },
-    },
-  });
-
-  const outcome = await controller.openSection(getLessons(plan)[0]);
-
-  assert.equal(outcome, 'loaded');
-  assert.equal(sourceLoadCalls, 1);
-  assert.equal(generatedWithFile?.data, 'Zmlyc3Q=');
-});
-
-test('openSection downloads detached PDF bytes only when an uncached lesson needs them', async () => {
-  const uncachedPlan = buildPlan({
-    sections: [
-      {
-        id: 'lesson-1',
-        title: 'Lezione 1',
-        description: 'Intro',
-        isCompleted: false,
-        type: 'core',
-      },
-    ],
-  });
-  const detachedSource = {
-    kind: 'pdf' as const,
-    file: {
-      name: pdfFile.name,
-      mimeType: pdfFile.mimeType,
-      data: '',
-    },
-    ref: {
-      id: 'source-123',
-      hash: 'hash-123',
-      byteSize: 4,
-      name: pdfFile.name,
-      mimeType: pdfFile.mimeType,
-      objectPath: 'users/user/projects/project/source-123/original',
-    },
-  };
-  let sourceLoadCalls = 0;
-  let generatedWithFile: FileData | null | undefined;
-  const { controller } = createControllerHarness({
-    domain: {
-      file: null,
-      learningPlan: uncachedPlan,
-      source: detachedSource,
-      domainState: {
-        source: detachedSource,
-        learningPlan: uncachedPlan,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: null,
-      },
-    },
-    projectLibrary: {
-      currentProjectId: 'pdf-project',
-      loadStoredProjectSource: async () => {
-        sourceLoadCalls += 1;
-        return pdfFile;
-      },
-    },
-    openRouter: {
-      generateSectionContent: async ({ file }) => {
-        generatedWithFile = file;
-        return {
-          content: '# Generata dal PDF',
-          contentBlocks: [],
-          documentAssets: null,
-          generatedVisuals: [],
-          imageRefs: [],
-          learningAids: [],
-          quiz: [],
-        };
-      },
-    },
-  });
-
-  const outcome = await controller.openSection(getLessons(uncachedPlan)[0]);
-
-  assert.equal(outcome, 'loaded');
-  assert.equal(sourceLoadCalls, 1);
-  assert.deepEqual(generatedWithFile, pdfFile);
-});
-
-test('openSection does not attach detached source bytes after another project is opened', async () => {
-  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
-  const detachedSource = {
-    kind: 'pdf' as const,
-    file: { name: pdfFile.name, mimeType: pdfFile.mimeType, data: '' },
-    ref: {
-      id: 'source-old',
-      hash: 'hash-old',
-      byteSize: 4,
-      name: pdfFile.name,
-      mimeType: pdfFile.mimeType,
-      objectPath: 'users/user/projects/project/source-old/original',
-    },
-  };
-  const replacementFile = {
-    ...pdfFile,
-    name: 'replacement.pdf',
-    data: 'bmV3',
-  };
-  const replacementSource = createProjectSourceFromFile(replacementFile);
-  const replacementPlan = buildPlan({
-    sections: [buildTestLesson({ id: 'lesson-b', content: '# Lezione B' })],
-  });
-  const replacementSnapshot = createProjectSnapshot({
-    id: 'project-b',
-    source: replacementSource,
-    learningPlan: replacementPlan,
-    activeSectionId: 'lesson-b',
-    state: AppState.READING,
-  });
-  let resolveStoredSource: ((file: FileData) => void) | undefined;
-  let markSourceLoadStarted: (() => void) | undefined;
-  const storedSource = new Promise<FileData>(resolve => {
-    resolveStoredSource = resolve;
-  });
-  const sourceLoadStarted = new Promise<void>(resolve => {
-    markSourceLoadStarted = resolve;
-  });
-  const generateSectionContent = vi.fn();
-  const { controller, domain, projectLibrary } = createControllerHarness({
-    domain: {
-      file: null,
-      learningPlan: plan,
-      source: detachedSource,
-      domainState: {
-        source: detachedSource,
-        learningPlan: plan,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: null,
-      },
-    },
-    loadedSnapshot: replacementSnapshot,
-    projectLibrary: {
-      currentProjectId: 'project-1',
-      loadStoredProjectSource: () => {
-        markSourceLoadStarted?.();
-        return storedSource;
-      },
-    },
-    openRouter: { generateSectionContent },
-  });
-
-  const generation = controller.openSection(getLessons(plan)[0]);
-  await sourceLoadStarted;
-  await controller.goToLibrary();
-  assert.deepEqual(await controller.openProject('project-b'), { outcome: 'opened' });
-  const saveCountBeforeOldSourceSettles = projectLibrary.savedOverrides.length;
-  const sectionPatchCountBeforeOldSourceSettles = projectLibrary.sectionProjectPatches.length;
-  resolveStoredSource?.(pdfFile);
-
-  assert.equal(await generation, 'ignored-busy');
-  assert.equal(domain.source, replacementSource);
-  assert.equal(domain.learningPlan, replacementPlan);
-  assert.equal(generateSectionContent.mock.calls.length, 0);
-  assert.equal(projectLibrary.savedOverrides.length, saveCountBeforeOldSourceSettles);
-  assert.equal(
-    projectLibrary.sectionProjectPatches.length,
-    sectionPatchCountBeforeOldSourceSettles
-  );
-});
-
-test('openSection reports a detached PDF whose stored bytes are missing without starting generation', async () => {
-  const uncachedPlan = buildPlan({
-    sections: [
-      {
-        id: 'lesson-missing-source',
-        title: 'Lezione senza fonte',
-        description: 'Intro',
-        isCompleted: false,
-        type: 'core',
-      },
-    ],
-  });
-  const detachedSource = {
-    kind: 'pdf' as const,
-    file: {
-      name: pdfFile.name,
-      mimeType: pdfFile.mimeType,
-      data: '',
-    },
-    ref: {
-      id: 'source-missing',
-      hash: 'hash-missing',
-      byteSize: 4,
-      name: pdfFile.name,
-      mimeType: pdfFile.mimeType,
-      objectPath: 'users/user/projects/project/source-missing/original',
-    },
-  };
-  let generationCalls = 0;
-  const { controller, state } = createControllerHarness({
-    domain: {
-      file: null,
-      learningPlan: uncachedPlan,
-      source: detachedSource,
-      domainState: {
-        source: detachedSource,
-        learningPlan: uncachedPlan,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: null,
-      },
-    },
-    projectLibrary: {
-      currentProjectId: 'project-missing-source',
-      loadStoredProjectSource: async () => null,
-    },
-    openRouter: {
-      generateSectionContent: async () => {
-        generationCalls += 1;
-        throw new Error('Generation must not start without the PDF source.');
-      },
-    },
-  });
-
-  const outcome = await controller.openSection(getLessons(uncachedPlan)[0]);
-
-  assert.equal(outcome, 'blocked-missing-source');
-  assert.equal(generationCalls, 0);
-  assert.equal(state.adapter.getGeneratingSectionId('project-missing-source'), null);
-  assert.equal(state.internalState.missingSourceProjectId, 'project-missing-source');
-});
-
-test('openSection always generates and caches research dossiers for learn lessons', async () => {
-  const syllabus: SyllabusItem[] = [
-    {
-      id: 'mod-1',
-      title: 'Modulo 1',
-      description: 'Base',
-      type: 'module',
-      status: 'ready',
-      children: [
-        {
-          id: 'lesson-1',
-          title: 'Lezione 1',
-          description: 'Intro',
-          type: 'lesson',
-          status: 'pending',
-          contextPrompt: 'Spiega Kotlin',
-        },
-      ],
-    },
-  ];
+test('openSection delegates production lesson work to the durable backend job', async () => {
   const plan = buildPlan({
     sections: [
       {
         id: 'lesson-1',
-        title: 'Lezione 1',
-        description: 'Intro',
+        title: 'Fotosintesi',
+        description: 'Energia luminosa',
         isCompleted: false,
         type: 'core',
-        parentId: 'mod-1',
-        contextPrompt: 'Spiega Kotlin',
       },
     ],
   });
-  let dossierCalls = 0;
-  let contentCalls = 0;
-  const { controller, domain, projectLibrary } = createControllerHarness({
-    domain: {
-      isLearnMode: true,
-      learningPlan: plan,
-      researchCoursePlan: null,
-      researchDossiersBySectionId: {},
-      syllabus,
-      userProfile: {
-        topic: 'Kotlin',
-        experienceLevel: 'Base',
-        learningStyle: 'Pratico',
-        goals: 'Creare app Android',
-        context: 'Studente con basi Java',
-        language: 'Italiano',
-      },
+  const generateDurableLesson = vi.fn(async () => ({
+    content: '# Lezione durevole',
+    contentBlocks: [{ markdown: '# Lezione durevole', type: 'markdown' as const }],
+    generatedVisuals: [],
+    imageRefs: [],
+    learningAids: [],
+    projectId: 'project-1',
+    projectRevision: 7,
+    quiz: [],
+    researchDossier: {
+      avoidOversimplifying: [],
+      controversies: [],
+      difficultSteps: [],
+      factualSummary: 'Dossier salvato dal backend.',
+      generatedAt: '2026-07-26T12:00:00.000Z',
+      keyExamples: [],
+      recentDevelopments: [],
+      sectionId: 'lesson-1',
+      sources: [],
+      title: 'Fotosintesi',
     },
-    projectLibrary: {
-      currentProjectId: 'research-project',
-    },
-    openRouter: {
-      generateResearchLessonDossier: async args => {
-        dossierCalls += 1;
-        return {
-          sectionId: args.lesson.id,
-          title: args.lesson.title,
-          generatedAt: '2026-03-20T10:00:00.000Z',
-          factualSummary: 'Dossier Kotlin',
-          keyExamples: ['Hello world'],
-          difficultSteps: ['JVM vs Kotlin'],
-          sources: [{ title: 'Kotlin docs', url: 'https://kotlinlang.org/docs/home.html' }],
-          avoidOversimplifying: ['Non dire che Kotlin e solo Java breve'],
-          controversies: [],
-          recentDevelopments: [],
-        };
-      },
-      generateResearchLessonContent: async () => {
-        contentCalls += 1;
-        return {
-          content: '# Lezione research',
-          contentBlocks: [{ type: 'markdown', markdown: '# Lezione research' }],
-          generatedVisuals: [],
-          learningAids: [],
-          quiz: [],
-        };
-      },
-    },
-  });
-
-  const firstOutcome = await controller.openSection(getLessons(plan)[0]);
-  assert.equal(firstOutcome, 'loaded');
-  assert.equal(dossierCalls, 1);
-  assert.equal(contentCalls, 1);
-  assert.equal(domain.researchDossiersBySectionId['lesson-1']?.factualSummary, 'Dossier Kotlin');
-  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Lezione research');
-  assert.deepEqual(getLessons(domain.learningPlan)[0]?.contentBlocks, [
-    { type: 'markdown', markdown: '# Lezione research' },
-  ]);
-  assert.deepEqual(projectLibrary.sectionLessonPatches[0], {
     sectionId: 'lesson-1',
-    patch: {
-      content: '# Lezione research',
-      contentBlocks: [{ type: 'markdown', markdown: '# Lezione research' }],
-      generatedVisuals: [],
-      imageRefs: [],
-      learningAids: [],
-      quiz: [],
-      visualPlanningDecision: undefined,
-    },
-  });
-
-  const secondOutcome = await controller.openSection(
-    getLessons(domain.learningPlan)[0] ?? getLessons(plan)[0],
-    { forceRegenerate: true }
-  );
-  assert.equal(secondOutcome, 'loaded');
-  assert.equal(dossierCalls, 1);
-  assert.equal(contentCalls, 2);
-
-  const fullRegenerationOutcome = await controller.regenerateActiveSection();
-  assert.equal(fullRegenerationOutcome, 'loaded');
-  assert.equal(dossierCalls, 2);
-  assert.equal(contentCalls, 3);
-});
-
-test('openSection supplements a covered prerequisite while keeping the document pipeline', async () => {
-  const plan = buildPlan({
-    sections: [
-      {
-        id: 'lesson-prerequisite',
-        title: 'Basi gia presenti',
-        description: 'Spiega le basi coperte dalla dispensa.',
-        isCompleted: false,
-        type: 'prerequisite',
-      },
-    ],
-  });
-  let documentGenerationCalls = 0;
-  let researchCalls = 0;
-  const { controller, domain } = createControllerHarness({
-    domain: {
-      file: pdfFile,
-      learningPlan: plan,
-      source: createProjectSourceFromFile(pdfFile),
-      researchDossiersBySectionId: {},
-    },
-    openRouter: {
-      buildPrerequisiteSourceContext: async () => ({
-        content: 'Contesto originale completo.',
-        sources: [{ title: 'dispensa.pdf', note: 'Materiale originale del corso' }],
-      }),
-      selectPrerequisiteSourceCoverage: async () => ({
-        missingTopics: [],
-        needsResearch: false,
-      }),
-      generateResearchLessonDossier: async () => {
-        researchCalls += 1;
-        return {
-          sectionId: 'lesson-prerequisite',
-          title: 'Basi gia presenti',
-          generatedAt: '2026-07-19T10:00:00.000Z',
-          factualSummary: 'Contesto web aggiornato.',
-          keyExamples: [],
-          difficultSteps: [],
-          sources: [{ title: 'Fonte web', url: 'https://example.com/web' }],
-          avoidOversimplifying: [],
-          controversies: [],
-          recentDevelopments: [],
-        };
-      },
-      generateSectionContent: async () => {
-        documentGenerationCalls += 1;
-        return {
-          content: '# Lezione dalla dispensa',
-          contentBlocks: [],
-          documentAssets: null,
-          generatedVisuals: [],
-          imageRefs: [],
-          learningAids: [],
-          quiz: [],
-        };
-      },
-    },
+  }));
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: { generateDurableLesson },
   });
 
   const outcome = await controller.openSection(getLessons(plan)[0]);
 
   assert.equal(outcome, 'loaded');
-  assert.equal(documentGenerationCalls, 1);
-  assert.equal(researchCalls, 1);
-  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Lezione dalla dispensa');
-  assert.deepEqual(
-    domain.researchDossiersBySectionId['lesson-prerequisite']?.sources.map(source => source.title),
-    ['dispensa.pdf', 'Fonte web']
+  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Lezione durevole');
+  assert.equal(
+    domain.researchDossiersBySectionId['lesson-1']?.factualSummary,
+    'Dossier salvato dal backend.'
   );
+  assert.equal(projectLibrary.sectionLessonPatches.length, 0);
+  assert.deepEqual(projectLibrary.appliedProjectRevisions, [
+    { projectId: 'project-1', revision: 7 },
+  ]);
+  assert.deepEqual(generateDurableLesson.mock.calls, [
+    [
+      {
+        forceRegenerate: false,
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+      },
+    ],
+  ]);
 });
 
-test('openSection researches uncovered prerequisites, mixes original context, and persists sources', async () => {
+test('openSection exposes a durable busy error instead of silently ignoring it', async () => {
   const plan = buildPlan({
     sections: [
       {
-        id: 'lesson-prerequisite',
-        title: 'Basi mancanti',
-        description: 'Spiega ipotesi e limiti assenti dalla dispensa.',
+        id: 'lesson-1',
+        title: 'Fotosintesi',
+        description: 'Energia luminosa',
         isCompleted: false,
-        type: 'prerequisite',
+        type: 'core',
       },
     ],
   });
-  const originalSourceContext = 'FONTE ORIGINALE: dispensa.pdf\nEstratto parziale.';
-  let coverageCalls = 0;
-  let dossierCalls = 0;
-  let documentGenerationCalls = 0;
-  const dossierCoverageGaps: string[][] = [];
-  const mixedGenerationInputs: string[] = [];
-  const { controller, domain, projectLibrary } = createControllerHarness({
-    domain: {
-      file: pdfFile,
-      learningPlan: plan,
-      source: createProjectSourceFromFile(pdfFile),
-      researchDossiersBySectionId: {},
-    },
+  const busyError = new LessonGenerationBusyError('lesson-2');
+  const { controller, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
     openRouter: {
-      buildPrerequisiteSourceContext: async () => ({
-        content: originalSourceContext,
-        sources: [{ title: 'dispensa.pdf', note: 'Materiale originale del corso' }],
+      generateDurableLesson: vi.fn(async () => {
+        throw busyError;
       }),
-      selectPrerequisiteSourceCoverage: async () => {
-        coverageCalls += 1;
-        return {
-          missingTopics: ['Ipotesi matematiche', 'Limiti del metodo'],
-          needsResearch: true,
-        };
-      },
-      generateResearchLessonDossier: async args => {
-        dossierCalls += 1;
-        dossierCoverageGaps.push(args.coverageGaps || []);
-        return {
-          sectionId: args.lesson.id,
-          title: args.lesson.title,
-          generatedAt: '2026-07-11T10:00:00.000Z',
-          factualSummary: 'Fondamento verificato.',
-          keyExamples: [],
-          difficultSteps: [],
-          sources: [{ title: 'Documentazione ufficiale', url: 'https://example.com/docs' }],
-          avoidOversimplifying: [],
-          controversies: [],
-          recentDevelopments: [],
-        };
-      },
-      mergePrerequisiteDossierSources,
-      formatResearchDossierForPrompt,
-      generateSectionContent: async args => {
-        documentGenerationCalls += 1;
-        mixedGenerationInputs.push(args.supplementalSourceContext || '');
-        return {
-          content: '# Lezione da fonti miste',
-          contentBlocks: [],
-          documentAssets: null,
-          generatedVisuals: [],
-          imageRefs: [],
-          learningAids: [],
-          quiz: [],
-        };
-      },
     },
   });
 
-  const firstOutcome = await controller.openSection(getLessons(plan)[0]);
-
-  assert.equal(firstOutcome, 'loaded');
-  assert.equal(coverageCalls, 1);
-  assert.equal(dossierCalls, 1);
-  assert.equal(documentGenerationCalls, 1);
-  assert.deepEqual(dossierCoverageGaps, [['Ipotesi matematiche', 'Limiti del metodo']]);
-  assert.match(mixedGenerationInputs[0] || '', /dispensa\.pdf/);
-  assert.match(mixedGenerationInputs[0] || '', /Documentazione ufficiale/);
-  assert.deepEqual(
-    domain.researchDossiersBySectionId['lesson-prerequisite']?.sources.map(source => source.title),
-    ['dispensa.pdf', 'Documentazione ufficiale']
-  );
-  assert.deepEqual(
-    projectLibrary.sectionProjectPatches
-      .at(-1)
-      ?.researchDossiersBySectionId?.['lesson-prerequisite']?.sources.map(source => source.title),
-    ['dispensa.pdf', 'Documentazione ufficiale']
-  );
-
-  const secondOutcome = await controller.openSection(
-    getLessons(domain.learningPlan)[0] ?? getLessons(plan)[0],
-    { forceRegenerate: true }
-  );
-
-  assert.equal(secondOutcome, 'loaded');
-  assert.equal(coverageCalls, 1);
-  assert.equal(dossierCalls, 1);
-  assert.equal(mixedGenerationInputs.length, 2);
+  await assert.rejects(controller.openSection(getLessons(plan)[0]), busyError);
+  assert.equal(state.internalState.workflowState.loadSection.status, 'failed');
+  assert.equal(state.internalState.workflowState.loadSection.error, busyError.message);
 });
 
-test('regenerateActiveSection waits for the regenerated lesson to be persisted', async () => {
+test('openSection ignores a durable result older than the known project revision', async () => {
   const plan = buildPlan({
     sections: [
-      buildTestLesson({
+      {
         id: 'lesson-1',
-        content: '# Versione precedente',
-      }),
+        title: 'Fotosintesi',
+        description: 'Energia luminosa',
+        isCompleted: false,
+        type: 'core',
+      },
     ],
   });
-  let resolvePersist: ((value: boolean) => void) | undefined;
-  const persistLesson = new Promise<boolean>(resolve => {
-    resolvePersist = resolve;
-  });
-  let persistedContent = '';
-  let plannedPackCalls = 0;
-  let generationInstructionPacks: LearningSection['instructionPacks'];
+  const applyPersistedProjectRevision = vi.fn(async () => false);
   const { controller, domain, state } = createControllerHarness({
-    domain: {
-      activeSectionId: 'lesson-1',
-      file: pdfFile,
-      learningPlan: plan,
-      source: createProjectSourceFromFile(pdfFile),
-    },
-    projectLibrary: {
-      currentProjectId: 'project-1',
-      patchSectionLessonContent: async (_sectionId, patch) => {
-        persistedContent = patch.content || '';
-        return persistLesson;
-      },
-    },
+    domain: { learningPlan: plan },
+    projectLibrary: { applyPersistedProjectRevision, currentProjectId: 'project-1' },
     openRouter: {
-      generateSectionContent: async args => {
-        generationInstructionPacks = args.instructionPacks;
-        return {
-          content: '# Versione rigenerata',
-          contentBlocks: [],
-          documentAssets: null,
-          generatedVisuals: [],
-          imageRefs: [],
-          learningAids: [],
-          quiz: [],
-        };
-      },
-      planLessonInstructionPacks: async () => {
-        plannedPackCalls += 1;
-        return ['mathematics'];
-      },
+      generateDurableLesson: vi.fn(async () => ({
+        content: '# Risultato stantio',
+        contentBlocks: [{ markdown: '# Risultato stantio', type: 'markdown' as const }],
+        generatedVisuals: [],
+        imageRefs: [],
+        learningAids: [],
+        projectId: 'project-1',
+        projectRevision: 5,
+        quiz: [],
+        sectionId: 'lesson-1',
+      })),
     },
   });
 
-  const regeneration = controller.regenerateActiveSection();
-  await vi.waitFor(() => {
-    assert.equal(persistedContent, '# Versione rigenerata');
-  });
-
-  assert.equal(state.internalState.workflowState.loadSection.status, 'pending');
-  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Versione rigenerata');
-  assert.equal(plannedPackCalls, 1);
-  assert.deepEqual(generationInstructionPacks, ['mathematics']);
-  assert.deepEqual(getLessons(domain.learningPlan)[0]?.instructionPacks, ['mathematics']);
-
-  resolvePersist?.(true);
-  assert.equal(await regeneration, 'loaded');
+  assert.equal(await controller.openSection(getLessons(plan)[0]), 'loaded');
+  assert.equal(getLessons(domain.learningPlan)[0]?.content, undefined);
+  assert.deepEqual(applyPersistedProjectRevision.mock.calls, [
+    [{ projectId: 'project-1', revision: 5 }],
+  ]);
   assert.equal(state.internalState.workflowState.loadSection.status, 'succeeded');
-});
-
-test('regenerateActiveSection preserves an explicitly empty instruction-pack selection', async () => {
-  const plan = buildPlan({
-    sections: [
-      buildTestLesson({
-        id: 'lesson-1',
-        content: '# Versione precedente',
-        instructionPacks: [],
-      }),
-    ],
-  });
-  let generationInstructionPacks: LearningSection['instructionPacks'];
-  const { controller } = createControllerHarness({
-    domain: {
-      activeSectionId: 'lesson-1',
-      file: pdfFile,
-      learningPlan: plan,
-      source: createProjectSourceFromFile(pdfFile),
-    },
-    openRouter: {
-      generateSectionContent: async args => {
-        generationInstructionPacks = args.instructionPacks;
-        return {
-          content: '# Versione rigenerata',
-          contentBlocks: [],
-          documentAssets: null,
-          generatedVisuals: [],
-          imageRefs: [],
-          learningAids: [],
-          quiz: [],
-        };
-      },
-      planLessonInstructionPacks: async () => {
-        throw new Error('Explicit empty selections must not be replanned.');
-      },
-    },
-  });
-
-  assert.equal(await controller.regenerateActiveSection(), 'loaded');
-  assert.deepEqual(generationInstructionPacks, []);
 });
 
 test('openSection ignores user navigation while another blocking workflow is pending', async () => {
@@ -3224,7 +2526,7 @@ test('openSection never starts a second lesson generation', async () => {
       source: createProjectSourceFromFile(pdfFile),
     },
     openRouter: {
-      generateSectionContent: async () => {
+      generateDurableLesson: async () => {
         generationCalls += 1;
         throw new Error('A concurrent generation must not start');
       },
@@ -3280,7 +2582,7 @@ test('lesson generation discards an invalidated sublesson and rejects competing 
           parentId: 'lesson-1',
         };
       },
-      generateSectionContent: async () => {
+      generateDurableLesson: async () => {
         generationCalls += 1;
         return {
           content: '# Lezione generata',
@@ -3289,7 +2591,9 @@ test('lesson generation discards an invalidated sublesson and rejects competing 
           generatedVisuals: [],
           imageRefs: [],
           learningAids: [],
+          projectId: 'project-1',
           quiz: [],
+          sectionId: 'lesson-1',
         };
       },
     },
@@ -3391,7 +2695,7 @@ test('lesson generation keeps its gate after workflow invalidation until the pro
     },
     projectLibrary: { currentProjectId: 'project-1' },
     openRouter: {
-      generateSectionContent: async () => {
+      generateDurableLesson: async () => {
         generationCalls += 1;
         if (generationCalls === 1) {
           markGenerationStarted?.();
@@ -3404,7 +2708,9 @@ test('lesson generation keeps its gate after workflow invalidation until the pro
           generatedVisuals: [],
           imageRefs: [],
           learningAids: [],
+          projectId: 'project-1',
           quiz: [],
+          sectionId: 'lesson-1',
         };
       },
     },
@@ -3429,64 +2735,6 @@ test('lesson generation keeps its gate after workflow invalidation until the pro
   const retried = await controller.openSection(getLessons(plan)[0]);
   assert.equal(retried, 'loaded');
   assert.equal(generationCalls, 2);
-});
-
-test('document lesson generation discards a dossier resolved after workflow invalidation', async () => {
-  const plan = buildPlan({ sections: [buildTestLesson({ id: 'lesson-1' })] });
-  const dossier = {
-    sectionId: 'lesson-1',
-    title: 'Lezione 1',
-    generatedAt: '2026-07-22T10:00:00.000Z',
-    factualSummary: 'Dossier tardivo',
-    keyExamples: [],
-    difficultSteps: [],
-    sources: [],
-    avoidOversimplifying: [],
-    controversies: [],
-    recentDevelopments: [],
-  };
-  let resolveDossier: ((value: typeof dossier) => void) | undefined;
-  let markDossierStarted: (() => void) | undefined;
-  const dossierResult = new Promise<typeof dossier>(resolve => {
-    resolveDossier = resolve;
-  });
-  const dossierStarted = new Promise<void>(resolve => {
-    markDossierStarted = resolve;
-  });
-  const generateSectionContent = vi.fn(async () => ({
-    content: '# Lezione generata',
-    contentBlocks: [],
-    documentAssets: null,
-    generatedVisuals: [],
-    imageRefs: [],
-    learningAids: [],
-    quiz: [],
-  }));
-  const { controller, domain, projectLibrary, state } = createControllerHarness({
-    domain: {
-      file: pdfFile,
-      learningPlan: plan,
-      source: createProjectSourceFromFile(pdfFile),
-    },
-    projectLibrary: { currentProjectId: 'project-1' },
-    openRouter: {
-      generateResearchLessonDossier: () => {
-        markDossierStarted?.();
-        return dossierResult;
-      },
-      generateSectionContent,
-    },
-  });
-
-  const generation = controller.openSection(getLessons(plan)[0]);
-  await dossierStarted;
-  state.adapter.invalidateWorkflows(['loadSection']);
-  resolveDossier?.(dossier);
-
-  assert.equal(await generation, 'ignored-busy');
-  assert.deepEqual(domain.researchDossiersBySectionId, {});
-  assert.equal(generateSectionContent.mock.calls.length, 0);
-  assert.equal(projectLibrary.sectionProjectPatches.length, 0);
 });
 
 test('an active lesson generation blocks exercise brief and placement generation after workflow invalidation', async () => {
@@ -3532,7 +2780,7 @@ test('an active lesson generation blocks exercise brief and placement generation
       generateApplicationExerciseBrief,
       generateApplicationExercisePlacements,
       getExercisePrerequisiteGaps: () => [],
-      generateSectionContent: async () => {
+      generateDurableLesson: async () => {
         markLessonStarted?.();
         await lessonGate;
         return {
@@ -3542,7 +2790,9 @@ test('an active lesson generation blocks exercise brief and placement generation
           generatedVisuals: [],
           imageRefs: [],
           learningAids: [],
+          projectId: 'project-1',
           quiz: [],
+          sectionId: 'lesson-1',
         };
       },
     },
@@ -3587,14 +2837,16 @@ test('exercise brief generation keeps its gate after workflow invalidation until
   const briefStarted = new Promise<void>(resolve => {
     markBriefStarted = resolve;
   });
-  const generateSectionContent = vi.fn(async () => ({
+  const generateDurableLesson = vi.fn(async () => ({
     content: '# Lezione generata',
     contentBlocks: [],
     documentAssets: null,
     generatedVisuals: [],
     imageRefs: [],
     learningAids: [],
+    projectId: 'project-1',
     quiz: [],
+    sectionId: 'lesson-1',
   }));
   const { controller, state } = createControllerHarness({
     domain: {
@@ -3609,7 +2861,7 @@ test('exercise brief generation keeps its gate after workflow invalidation until
         await briefGate;
         return { brief: '# Consegna', groundingSources: [] };
       },
-      generateSectionContent,
+      generateDurableLesson,
       getExercisePrerequisiteGaps: () => [],
     },
   });
@@ -3621,7 +2873,7 @@ test('exercise brief generation keeps its gate after workflow invalidation until
   const lessonResult = await controller.openSection(getLessons(plan)[0]);
 
   assert.equal(lessonResult, 'ignored-busy');
-  assert.equal(generateSectionContent.mock.calls.length, 0);
+  assert.equal(generateDurableLesson.mock.calls.length, 0);
 
   releaseBrief?.();
   await briefGeneration;
@@ -3704,14 +2956,16 @@ test('exercise placement repair keeps its gate after workflow invalidation until
   const placementStarted = new Promise<void>(resolve => {
     markPlacementStarted = resolve;
   });
-  const generateSectionContent = vi.fn(async () => ({
+  const generateDurableLesson = vi.fn(async () => ({
     content: '# Lezione generata',
     contentBlocks: [],
     documentAssets: null,
     generatedVisuals: [],
     imageRefs: [],
     learningAids: [],
+    projectId: 'project-1',
     quiz: [],
+    sectionId: 'lesson-1',
   }));
   const { controller, state } = createControllerHarness({
     domain: {
@@ -3725,7 +2979,7 @@ test('exercise placement repair keeps its gate after workflow invalidation until
         markPlacementStarted?.();
         return placementResult;
       },
-      generateSectionContent,
+      generateDurableLesson,
     },
   });
 
@@ -3736,7 +2990,7 @@ test('exercise placement repair keeps its gate after workflow invalidation until
   const lessonResult = await controller.openSection(getLessons(plan)[0]);
 
   assert.equal(lessonResult, 'ignored-busy');
-  assert.equal(generateSectionContent.mock.calls.length, 0);
+  assert.equal(generateDurableLesson.mock.calls.length, 0);
 
   resolvePlacement?.({ plan, placedCount: 0 });
   assert.deepEqual(await repair, { outcome: 'noop' });
@@ -3819,14 +3073,16 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
     type: 'deep-dive' as const,
     parentId: 'lesson-1',
   }));
-  const generateSectionContent = vi.fn(async () => ({
+  const generateDurableLesson = vi.fn(async () => ({
     content: '# Lezione generata',
     contentBlocks: [],
     documentAssets: null,
     generatedVisuals: [],
     imageRefs: [],
     learningAids: [],
+    projectId: 'project-1',
     quiz: [],
+    sectionId: 'lesson-1',
   }));
   const { controller } = createControllerHarness({
     domain: {
@@ -3841,7 +3097,7 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
       createSubChapterMetadata,
       generateApplicationExerciseBrief,
       generateApplicationExercisePlacements,
-      generateSectionContent,
+      generateDurableLesson,
       getExercisePrerequisiteGaps: () => [],
     },
   });
@@ -3859,7 +3115,7 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
   assert.equal(sublessonResult.outcome, 'failed');
   assert.equal(lessonResult, 'ignored-busy');
   assert.equal(createSubChapterMetadata.mock.calls.length, 0);
-  assert.equal(generateSectionContent.mock.calls.length, 0);
+  assert.equal(generateDurableLesson.mock.calls.length, 0);
   assert.equal(generateApplicationExerciseBrief.mock.calls.length, 0);
 
   resolvePlacement?.({ plan, placedCount: 0 });
@@ -3869,7 +3125,7 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
 test('createLessonFromSelection rolls back when nested lesson opening is ignored', async () => {
   const plan = buildPlan();
   let stateAdapter: WorkspaceControllerStateAdapter | undefined;
-  const generateSectionContent = vi.fn();
+  const generateDurableLesson = vi.fn();
   const harness = createControllerHarness({
     domain: {
       activeSectionId: 'lesson-1',
@@ -3889,7 +3145,7 @@ test('createLessonFromSelection rolls back when nested lesson opening is ignored
           parentId: 'lesson-1',
         };
       },
-      generateSectionContent,
+      generateDurableLesson,
     },
   });
   stateAdapter = harness.state.adapter;
@@ -3900,7 +3156,7 @@ test('createLessonFromSelection rolls back when nested lesson opening is ignored
   });
 
   assert.equal(result.outcome, 'failed');
-  assert.equal(generateSectionContent.mock.calls.length, 0);
+  assert.equal(generateDurableLesson.mock.calls.length, 0);
   assert.deepEqual(
     getLessons(harness.domain.learningPlan).map(lesson => lesson.id),
     ['lesson-1', 'lesson-2']
@@ -3908,125 +3164,58 @@ test('createLessonFromSelection rolls back when nested lesson opening is ignored
   assert.equal(harness.domain.activeSectionId, 'lesson-1');
 });
 
-test('createLessonFromSelection uses research when the archive planner returns no selectors', async () => {
-  const plan = buildPlan({
-    sections: [
-      {
-        id: 'lesson-1',
-        title: 'Ciclo principale',
-        description: 'Panoramica del motore.',
-        content: 'Il motore estrae gli eventi da una coda e li inoltra ai listener.',
-        isCompleted: false,
-        type: 'core',
-      },
-    ],
+test('createLessonFromSelection stops after persistence when another project is opened', async () => {
+  const firstPlan = buildPlan();
+  const secondPlan = buildPlan({
+    sections: [buildTestLesson({ id: 'project-2-lesson', title: 'Secondo progetto' })],
   });
-  const source = {
-    kind: 'archive' as const,
-    name: 'engine.zip',
-    file: {
-      data: '',
-      mimeType: 'application/zip',
-      name: 'engine.zip',
-    },
-    index: {
-      entries: [
-        {
-          byteSize: 64,
-          contentKind: 'text' as const,
-          kind: 'file' as const,
-          path: 'src/main.ts',
-          preview: 'export function main() {}',
-        },
-      ],
-    },
-    ref: {
-      byteSize: 128,
-      hash: 'a'.repeat(64),
-      id: 'source-engine',
-      mimeType: 'application/zip',
-      name: 'engine.zip',
-      objectPath: 'users/user/projects/engine/source-engine/original',
-    },
-  };
-  const createArchiveSubChapterMetadata = vi.fn(
-    async (
-      _input: Parameters<
-        typeof import('../../../services/openrouter/index.ts').createArchiveSubChapterMetadata
-      >[0]
-    ) => ({
-      id: 'deep-math',
-      title: 'Teoria delle code',
-      description: 'Approfondisce il modello matematico.',
-      contextPrompt: 'Spiega la teoria delle code collegandola al passaggio selezionato.',
-      isCompleted: false,
-      type: 'deep-dive' as const,
-      parentId: 'lesson-1',
-      sourceArchiveSelectors: [],
-    })
-  );
-  const generateResearchLessonContent = vi.fn(
-    async (
-      _input: Parameters<
-        typeof import('../../../services/openrouter/index.ts').generateResearchLessonContent
-      >[0]
-    ) => ({
-      content: '# Teoria delle code',
-      contentBlocks: [],
-      generatedVisuals: [],
-      learningAids: [],
-      quiz: [],
-    })
-  );
-  const generateSectionContent = vi.fn();
-  const { controller, domain, projectLibrary } = createControllerHarness({
+  let releasePersist: ((value: SavedProjectMeta | null) => void) | undefined;
+  let markPersistStarted: (() => void) | undefined;
+  const persistResult = new Promise<SavedProjectMeta | null>(resolve => {
+    releasePersist = resolve;
+  });
+  const persistStarted = new Promise<void>(resolve => {
+    markPersistStarted = resolve;
+  });
+  const generateDurableLesson = vi.fn();
+  const harness = createControllerHarness({
     domain: {
       activeSectionId: 'lesson-1',
-      learningPlan: plan,
-      source,
-      domainState: {
-        source,
-        learningPlan: plan,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: 'lesson-1',
+      isLearnMode: true,
+      learningPlan: firstPlan,
+    },
+    projectLibrary: {
+      currentProjectId: 'project-1',
+      patchCurrentProject: async () => {
+        markPersistStarted?.();
+        return persistResult;
       },
     },
-    projectLibrary: { currentProjectId: 'engine-project' },
-    openRouter: {
-      createArchiveSubChapterMetadata,
-      generateResearchLessonContent,
-      generateSectionContent,
-    },
+    openRouter: { generateDurableLesson },
   });
 
-  const result = await controller.createLessonFromSelection({
-    annotationNote: 'Collega questo passaggio alla teoria matematica.',
-    contextAfter: 'prima di notificare i listener',
-    contextBefore: 'dopo avere estratto un evento',
-    instructions: 'Approfondisci il modello astratto.',
-    parentContent: 'Il motore estrae gli eventi da una coda e li inoltra ai listener.',
-    selectedText: 'coda degli eventi',
+  const creation = harness.controller.createLessonFromSelection({
+    instructions: 'Approfondisci',
+    selectedText: 'testo',
   });
+  await persistStarted;
 
-  assert.equal(result.outcome, 'created');
-  assert.deepEqual(getLessons(domain.learningPlan)[1]?.sourceArchiveSelectors, []);
-  assert.equal(getLessons(domain.learningPlan)[1]?.content, '# Teoria delle code');
-  assert.equal(generateSectionContent.mock.calls.length, 0);
-  assert.equal(generateResearchLessonContent.mock.calls.length, 1);
-  assert.match(
-    generateResearchLessonContent.mock.calls[0]?.[0]?.contextPrompt || '',
-    /Il motore estrae gli eventi da una coda/
+  harness.projectLibrary.adapter.setCurrentProjectId('project-2');
+  harness.state.adapter.invalidateWorkflows(['createLesson']);
+  harness.domain.hydrateSnapshot(
+    createProjectSnapshot({
+      activeSectionId: 'project-2-lesson',
+      id: 'project-2',
+      isLearnMode: true,
+      learningPlan: secondPlan,
+    })
   );
-  assert.equal(
-    createArchiveSubChapterMetadata.mock.calls[0]?.[0]?.annotationNote,
-    'Collega questo passaggio alla teoria matematica.'
-  );
-  assert.equal(domain.isLearnMode, false);
-  assert.equal(projectLibrary.sectionProjectPatches.at(-1)?.isLearnMode, false);
+  releasePersist?.(buildMeta('project-1'));
+
+  assert.deepEqual(await creation, { outcome: 'ignored-busy' });
+  assert.equal(harness.domain.activeSectionId, 'project-2-lesson');
+  assert.equal(harness.domain.learningPlan?.modules[0]?.children[0]?.id, 'project-2-lesson');
+  assert.equal(generateDurableLesson.mock.calls.length, 0);
 });
 
 test('createLessonFromSelection inserts the deep dive after the parent subtree and opens it', async () => {
@@ -4074,6 +3263,7 @@ test('createLessonFromSelection inserts the deep dive after the parent subtree a
         activeSectionId: 'lesson-1',
       },
     },
+    projectLibrary: { currentProjectId: 'project-1' },
   });
 
   const result = await controller.createLessonFromSelection({
@@ -4084,7 +3274,7 @@ test('createLessonFromSelection inserts the deep dive after the parent subtree a
   assert.equal(result.outcome, 'created');
   assert.equal(getLessons(domain.learningPlan)[2]?.id, 'deep-1');
   assert.equal(domain.activeSectionId, 'deep-1');
-  assert.equal(getLessons(domain.learningPlan)[2]?.content, '# Lezione dal documento');
+  assert.equal(getLessons(domain.learningPlan)[2]?.content, '# Lezione generata');
 });
 
 test('createLessonFromSelection nests a child of child before the next sibling branch', async () => {
@@ -4150,6 +3340,7 @@ test('createLessonFromSelection nests a child of child before the next sibling b
         parentId: 'lesson-1-deep',
       }),
     },
+    projectLibrary: { currentProjectId: 'project-1' },
   });
 
   const result = await controller.createLessonFromSelection({
@@ -4163,7 +3354,7 @@ test('createLessonFromSelection nests a child of child before the next sibling b
     ['lesson-1', 'lesson-1-deep', 'deep-1-nested', 'lesson-1-deep-sibling', 'lesson-2']
   );
   assert.equal(domain.activeSectionId, 'deep-1-nested');
-  assert.equal(getLessons(domain.learningPlan)[2]?.content, '# Lezione dal documento');
+  assert.equal(getLessons(domain.learningPlan)[2]?.content, '# Lezione generata');
 });
 
 test('createLessonFromSelection rolls back the inserted lesson when generation fails', async () => {
@@ -4209,7 +3400,7 @@ test('createLessonFromSelection rolls back the inserted lesson when generation f
       },
     },
     openRouter: {
-      generateSectionContent: async () => {
+      generateDurableLesson: async () => {
         throw new Error('Risposta troncata');
       },
     },

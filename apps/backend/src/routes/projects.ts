@@ -447,11 +447,15 @@ router.post('/projects/by-id', async (req: Request, res: Response) => {
 
 router.get('/projects/:id', async (req: Request, res: Response) => {
   try {
-    const project = await getProjectStore().loadProject(
+    const projectRecord = await getProjectStore().loadProjectWithRevision(
       getCurrentUser(req).id,
       getRouteParam(req.params.id)
     );
-    res.json({ success: true, project });
+    res.json({
+      success: true,
+      project: projectRecord?.snapshot || null,
+      revision: projectRecord?.revision,
+    });
   } catch (error) {
     sendErrorResponse(res, 500, error, 'Failed to load project');
   }

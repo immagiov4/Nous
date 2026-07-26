@@ -8,6 +8,7 @@ import {
   buildCodexAppServerEnvironment,
   type CodexAppServerError,
   listCodexModels,
+  normalizeCodexReasoningEffort,
   readCodexAccount,
   runCodexAppServerTurnWithClient,
   startCodexAppServerClient,
@@ -58,6 +59,12 @@ describe('Codex app-server protocol client', () => {
 
   afterEach(() => {
     delete process.env.CODEX_APP_SERVER_ENABLED;
+  });
+
+  test('normalizes unsupported zero-effort values to the lowest Codex effort', () => {
+    expect(normalizeCodexReasoningEffort('none')).toBe('low');
+    expect(normalizeCodexReasoningEffort('minimal')).toBe('low');
+    expect(normalizeCodexReasoningEffort('high')).toBe('high');
   });
 
   test('starts with only safe host environment and keeps unrelated built-in capabilities disabled', () => {
@@ -308,6 +315,7 @@ describe('Codex app-server protocol client', () => {
         onToolStart: (callId, name, input, execution) =>
           toolEvents.push({ callId, name, input, execution }),
         reasoningEffort: 'medium',
+        serviceTier: 'fast',
         tools: [
           {
             description: 'Cerca nella libreria.',
@@ -390,6 +398,7 @@ describe('Codex app-server protocol client', () => {
         runtimeWorkspaceRoots: [],
         sandbox: 'read-only',
         selectedCapabilityRoots: [],
+        serviceTier: 'fast',
       },
     });
     expect(fakeProcess.received.find(message => message.method === 'turn/start')).toMatchObject({
@@ -496,7 +505,54 @@ describe('Codex app-server protocol client', () => {
       message: 'Codex turn failed: rate_limit: Too many requests.',
     });
     expect(fakeProcess.received.find(message => message.method === 'turn/start')).toMatchObject({
-      params: { effort: 'none', summary: 'none' },
+      params: { effort: 'low', summary: 'none' },
+    });
+    client.close();
+  });
+
+  test('interrupts the active Codex turn when its abort signal fires', async () => {
+    let fakeProcess: FakeCodexProcess;
+    fakeProcess = new FakeCodexProcess(message => {
+      if (message.method === 'initialize') {
+        respond(fakeProcess, message, {});
+      } else if (message.method === 'account/read') {
+        respond(fakeProcess, message, {
+          account: { type: 'chatgpt', planType: 'plus' },
+          requiresOpenaiAuth: true,
+        });
+      } else if (message.method === 'thread/start') {
+        respond(fakeProcess, message, { thread: { id: 'thread-abort' } });
+      } else if (message.method === 'turn/start') {
+        respond(fakeProcess, message, { turn: { id: 'turn-abort' } });
+      } else if (message.method === 'turn/interrupt') {
+        respond(fakeProcess, message, {});
+      }
+    });
+
+    const client = await startCodexAppServerClient(() => fakeProcess as never);
+    const controller = new AbortController();
+    const turnPromise = runCodexAppServerTurnWithClient(
+      {
+        developerInstructions: 'Tutor.',
+        input: [{ type: 'text', text: 'Ciao' }],
+        model: 'gpt-test-a',
+        reasoningEffort: 'low',
+        signal: controller.signal,
+      },
+      client
+    );
+    await vi.waitFor(() => {
+      expect(fakeProcess.received.some(message => message.method === 'turn/start')).toBe(true);
+    });
+    controller.abort();
+
+    await expect(turnPromise).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => {
+      expect(
+        fakeProcess.received.find(message => message.method === 'turn/interrupt')
+      ).toMatchObject({
+        params: { threadId: 'thread-abort', turnId: 'turn-abort' },
+      });
     });
     client.close();
   });

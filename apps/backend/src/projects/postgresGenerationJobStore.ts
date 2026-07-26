@@ -110,6 +110,24 @@ export class PostgresGenerationJobStore implements GenerationJobStore {
     return rows[0] ? mapJob(rows[0]) : null;
   }
 
+  async getLatestLessonForUser(
+    userId: string,
+    projectId: string,
+    sectionId: string
+  ): Promise<GenerationJob | null> {
+    const rows = await this.sql<GenerationJobRow[]>`
+      select *
+      from public.generation_jobs
+      where user_id = ${userId}
+        and project_id = ${projectId}
+        and kind = 'lesson'
+        and payload ->> 'sectionId' = ${sectionId}
+      order by created_at desc
+      limit 1
+    `;
+    return rows[0] ? mapJob(rows[0]) : null;
+  }
+
   async claimNext(): Promise<GenerationJob | null> {
     return this.sql.begin(async sql => {
       const rows = await sql<GenerationJobRow[]>`

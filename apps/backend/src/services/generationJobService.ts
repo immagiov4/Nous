@@ -99,12 +99,19 @@ export const enqueueGenerationJob = async (
 export const getGenerationJob = (userId: string, id: string): Promise<GenerationJob | null> =>
   getStore().getForUser(userId, id);
 
+export const getLatestLessonGenerationJob = (
+  userId: string,
+  projectId: string,
+  sectionId: string
+): Promise<GenerationJob | null> => getStore().getLatestLessonForUser(userId, projectId, sectionId);
+
 export const waitForGenerationJob = async (
   userId: string,
   id: string,
   signal: AbortSignal
 ): Promise<GenerationJob | null> => {
   const current = await getGenerationJob(userId, id);
+  if (signal.aborted) return null;
   if (!current || current.status === 'completed' || current.status === 'failed') return current;
 
   return new Promise(resolve => {
@@ -122,6 +129,10 @@ export const waitForGenerationJob = async (
     };
     generationJobEvents.once(id, onSettled);
     signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
     void getGenerationJob(userId, id).then(latest => {
       if (latest?.status === 'completed' || latest?.status === 'failed') void onSettled();
     });

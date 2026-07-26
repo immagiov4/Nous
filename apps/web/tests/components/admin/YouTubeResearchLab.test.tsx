@@ -186,7 +186,7 @@ describe('YouTubeResearchLab', () => {
     expect(screen.getAllByTitle('Pixel art curves')).toHaveLength(1);
     expect(screen.getByTitle('Pixel art curves')).toHaveAttribute(
       'src',
-      'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?autoplay=0&controls=1&end=93&playsinline=1&rel=0&start=65'
+      'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?autoplay=0&controls=1&end=93&enablejsapi=1&playsinline=1&rel=0&start=65'
     );
     expect(
       screen.getAllByText('The timestamp shows the curve being drawn step by step.')

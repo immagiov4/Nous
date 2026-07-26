@@ -27,6 +27,11 @@ export interface ProjectSaveResult {
   snapshot: ProjectSnapshot;
 }
 
+export interface ProjectSnapshotWithRevision {
+  revision: number;
+  snapshot: ProjectSnapshot;
+}
+
 export interface ProjectSaveOptions extends ProjectWriteOptions {
   archiveFile?: File;
 }
@@ -38,6 +43,7 @@ export interface ProjectRepository {
   listPlacements: () => Promise<LibraryPlacement[]>;
   listProjects: () => Promise<SavedProjectMeta[]>;
   loadProject: (id: ProjectId) => Promise<ProjectSnapshot | null>;
+  loadProjectWithRevision: (id: ProjectId) => Promise<ProjectSnapshotWithRevision | null>;
   loadProjectCover: (id: ProjectId) => Promise<FileData | null>;
   loadProjectSource: (id: ProjectId) => Promise<FileData | null>;
   loadProjectSources: (id: ProjectId) => Promise<StoredProjectSourceFile[]>;

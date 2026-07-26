@@ -12,6 +12,7 @@ import {
   getResolvedGlobalModelConfig,
   getResolvedModelConfigForProvider,
   resolveAiProviderForSlot,
+  resolveCodexServiceTierForSlot,
   resolveTextModelConfig,
 } from '../config/modelConfig.js';
 import {
@@ -116,7 +117,7 @@ const resolveProxyConfig = async (req: Request) => {
   );
   const provider = resolveAiProviderForSlot(modelConfig, modelSlot);
   return {
-    codexFast: modelConfig.codexFastModelSlots.includes(modelSlot),
+    codexServiceTier: resolveCodexServiceTierForSlot(modelConfig, modelSlot),
     modelSlot,
     provider,
     ...resolveTextModelConfig(modelConfig, modelSlot),
@@ -182,7 +183,8 @@ const buildProxyRequest = async (
   req: Request
 ): Promise<{ body: Record<string, unknown>; provider: AiProvider }> => {
   const requestBody = isRecord(req.body) ? req.body : {};
-  const { codexFast, model, modelSlot, provider, reasoningEffort } = await resolveProxyConfig(req);
+  const { codexServiceTier, model, modelSlot, provider, reasoningEffort } =
+    await resolveProxyConfig(req);
 
   if (provider === 'openai') {
     const {
@@ -221,7 +223,7 @@ const buildProxyRequest = async (
       body: {
         ...portableBody,
         nous_model_slot: modelSlot,
-        nous_service_tier: codexFast ? 'fast' : undefined,
+        nous_service_tier: codexServiceTier,
         model,
         reasoning_effort: reasoningEffort,
       },

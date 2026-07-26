@@ -5,8 +5,10 @@ import { getProjectStore } from '../projects/projectStore.js';
 import {
   enqueueGenerationJob,
   getGenerationJob,
+  getLatestLessonGenerationJob,
   waitForGenerationJob,
 } from '../services/generationJobService.js';
+import { isRecord } from '../utils/validation.js';
 
 const router = Router();
 const MAX_IMAGE_PROMPT_CHARS = 12_000;
@@ -53,6 +55,14 @@ router.post(
       projectId,
       userId: currentUser.id,
     });
+    const activeSectionId = isRecord(job.payload) ? job.payload.sectionId : undefined;
+    if (!created && typeof activeSectionId === 'string' && activeSectionId !== sectionId) {
+      return res.status(409).json({
+        success: false,
+        error: 'È già in corso la generazione di un’altra lezione di questo corso.',
+        job,
+      });
+    }
     return res.status(created ? 202 : 200).json({ success: true, job });
   })
 );
@@ -93,6 +103,20 @@ router.post(
       userId: currentUser.id,
     });
     return res.status(created ? 202 : 200).json({ success: true, job });
+  })
+);
+
+router.get(
+  '/lessons/:projectId/:sectionId/latest',
+  asyncRoute(async (req: Request, res: Response) => {
+    const currentUser = getCurrentUser(req);
+    const job = await getLatestLessonGenerationJob(
+      currentUser.id,
+      String(req.params.projectId),
+      String(req.params.sectionId)
+    );
+    if (!job) return res.status(404).json({ success: false, error: 'Generazione non trovata.' });
+    return res.json({ success: true, job });
   })
 );
 

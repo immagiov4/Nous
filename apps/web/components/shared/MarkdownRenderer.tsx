@@ -280,6 +280,7 @@ const buildMarkdownComponents = (
       <mark
         className="bg-orange-200 text-gray-900 dark:bg-amber-700/50 dark:text-amber-50"
         style={{
+          backgroundColor: 'var(--annotation-highlight-color)',
           border: 'none',
           borderRadius: '0.14em',
           boxDecorationBreak: 'clone',

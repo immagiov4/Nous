@@ -1,3 +1,4 @@
+import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
 import { sanitizePartialPages } from '@shared/sanitizePartialPages';
 import type {
   LessonImageRef,
@@ -24,7 +25,6 @@ const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession | null>>();
 const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const PDF_ASSET_CACHE_VERSION = 'resolution-metadata-v3';
 const IMAGE_ID_PREFIX = 'pdf-img-';
-const MAX_BACKEND_EXTRACTED_IMAGES = 36;
 const PDF_TEXT_QUALITY = {
   MIN_SHORT_DOCUMENT_CHARS: 240,
   MIN_MULTI_PAGE_DOCUMENT_CHARS: 800,
@@ -322,7 +322,7 @@ const extractPdfImagesViaBackend = async (
     },
     body: JSON.stringify({
       fileData: fileToDataUrl(file),
-      limit: MAX_BACKEND_EXTRACTED_IMAGES,
+      limit: LESSON_PDF_IMAGE_EXTRACTION_LIMIT,
       partialPages: sanitizePartialPages(partialPages),
     }),
   });

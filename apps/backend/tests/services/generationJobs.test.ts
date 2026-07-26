@@ -58,6 +58,24 @@ class MemoryGenerationJobStore implements GenerationJobStore {
     return this.jobs.find(job => job.userId === userId && job.id === id) ?? null;
   }
 
+  async getLatestLessonForUser(
+    userId: string,
+    projectId: string,
+    sectionId: string
+  ): Promise<GenerationJob | null> {
+    return (
+      [...this.jobs]
+        .reverse()
+        .find(
+          job =>
+            job.userId === userId &&
+            job.projectId === projectId &&
+            job.kind === 'lesson' &&
+            (job.payload as { sectionId?: string }).sectionId === sectionId
+        ) ?? null
+    );
+  }
+
   async recoverInterrupted(): Promise<void> {}
 
   async requeue(id: string): Promise<void> {

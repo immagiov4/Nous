@@ -93,6 +93,10 @@ export interface WorkspaceDomainControllerAdapter {
 }
 
 export interface WorkspaceProjectLibraryAdapter {
+  applyPersistedProjectRevision: (args: {
+    projectId: string;
+    revision: number;
+  }) => Promise<boolean>;
   createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;
   currentProjectId: string | null;
   getCurrentProjectId: () => string | null;
@@ -221,16 +225,7 @@ export type AdvanceSectionOutcome = 'opened-next' | 'journey-complete' | 'noop';
 
 export interface OpenSectionOptions {
   allowWhileBlocking?: boolean;
-  currentDocumentAssets?: PdfDocumentAssets | null;
-  currentDocumentIndex?: PdfTextIndex | null;
-  currentPlan?: LearningPlan | null;
-  currentResearchCoursePlan?: ResearchCoursePlan | null;
-  currentResearchDossiersBySectionId?: ResearchDossiersBySectionId;
-  currentSourceFile?: FileData | null;
-  currentSyllabus?: SyllabusItem[];
-  currentUserProfile?: UserProfile | null;
   forceRegenerate?: boolean;
-  isLearnMode?: boolean;
 }
 
 export interface WorkspaceControllerContext {

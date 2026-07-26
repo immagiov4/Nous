@@ -12,7 +12,6 @@ export {
   resolvePlanningSourceProfileFromSeed,
 } from '../planQuality.ts';
 export { LESSON_SCOPE_RULES, PLAN_PROPEDEUTIC_ORDER_RULES } from '../prompts.ts';
-export { generateSectionContent } from './content.ts';
 export {
   createArchiveSubChapterMetadata,
   createLearnSubChapterMetadata,

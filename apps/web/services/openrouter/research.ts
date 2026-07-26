@@ -1,11 +1,6 @@
 import type {
   LearningPlan,
   LearningSection,
-  LessonContentBlock,
-  LessonGeneratedVisual,
-  LessonLearningAid,
-  LessonVisualPlanningDecision,
-  QuizQuestion,
   ResearchCoursePlan,
   ResearchLessonDossier,
   ResearchLessonPlan,
@@ -14,13 +9,11 @@ import type {
   UserProfile,
 } from '../../types.ts';
 import {
-  buildLessonInstructionPackBlock,
   LESSON_INSTRUCTION_PACK_IDS,
   LESSON_INSTRUCTION_PACK_SELECTION_RULES,
   type LessonInstructionPackId,
   normalizeLessonInstructionPacks,
 } from '../../utils/learning/lessonInstructionPacks.ts';
-import { stripTerminalLessonSourcesSection } from '../../utils/markdown/lessonSources.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { extractYouTubeVideoId } from '../../utils/youtube.ts';
 import { groupSectionsIntoModules } from '../learning/groupSectionsIntoModules.ts';
@@ -30,22 +23,10 @@ import {
   MODEL_RESEARCH_DOSSIER,
   MODEL_RESEARCH_PLANNER,
   OPENROUTER_WEB_SEARCH_TOOL,
-  teacherInstruction,
 } from './config.ts';
 import type { GenerationStatusReporter } from './generationProgress.ts';
-import { LESSON_RESPONSE_SCHEMA, parseLessonContentPayload } from './lessonVerification.ts';
-import {
-  buildUserGenerationNotesBlock,
-  INTERNAL_FAST_TASK_INSTRUCTION,
-  YOUTUBE_CLIP_PEDAGOGY_RULES,
-} from './prompts.ts';
+import { INTERNAL_FAST_TASK_INSTRUCTION } from './prompts.ts';
 import { callOpenRouter, parseCleanJson, retryWithBackoff, sanitizeTitle } from './shared.ts';
-import { finalizeSourceFreeLesson } from './sourceFreeLessonFinalization.ts';
-import {
-  INTERACTIVE_VISUAL_VALUE_RULE,
-  MAX_GENERATED_VISUALS_PER_LESSON,
-  VISUAL_FORMAT_SELECTION_RULE,
-} from './visualExamples.ts';
 import {
   getYouTubeResearchContext,
   mergeYouTubeResearchContexts,
@@ -53,7 +34,6 @@ import {
 } from './youtubeResearchClient.ts';
 import {
   planCourseYouTubeSearchQueries,
-  planYouTubeSearchQuery,
   type YouTubeSearchQueryInput,
 } from './youtubeSearchQuery.ts';
 
@@ -662,12 +642,6 @@ export const generateResearchCoursePlan = async (
   return result;
 };
 
-const findResearchLesson = (
-  researchCoursePlan: ResearchCoursePlan | null,
-  sectionId: string
-): ResearchLessonPlan | null =>
-  researchCoursePlan?.lessons.find(lesson => lesson.id === sectionId) || null;
-
 const buildSourceHintBlock = (lesson: ResearchLessonPlan | null): string =>
   lesson?.sourceHints.length
     ? lesson.sourceHints
@@ -829,70 +803,6 @@ Return this JSON shape:
   "recentDevelopments": ["Recent updates from the last 12-24 months relevant to this lesson, with dates if available. Pull only from the brief; if the brief has no recent info, return an empty array."],
   "youtubeCandidateDecisions": [{"url": "https://www.youtube.com/watch?v=...", "decision": "selected-source", "reason": "Candidate-specific evidence-based reason"}]
 }`;
-};
-
-export const generateResearchLessonDossier = async (args: {
-  courseTitle?: string;
-  coverageGaps?: string[];
-  lesson: LearningSection;
-  moduleTitle: string;
-  profile: UserProfile | null;
-  researchCoursePlan: ResearchCoursePlan | null;
-  onStatusUpdate: GenerationStatusReporter;
-  onReasoningUpdate?: (reasoning: string) => void;
-}): Promise<ResearchLessonDossier> => {
-  const researchLesson = findResearchLesson(args.researchCoursePlan, args.lesson.id);
-  args.onStatusUpdate('Raccolta fonti della lezione...', 'sources');
-
-  const language = args.profile?.language || DEFAULT_RESEARCH_LANGUAGE;
-  const youtubeResearchPromise = planYouTubeSearchQuery({
-    context: args.lesson.contextPrompt,
-    courseTitle: args.courseTitle || args.researchCoursePlan?.title || args.profile?.topic || '',
-    keyConcepts: researchLesson?.keyConcepts,
-    language,
-    lessonDescription: args.lesson.description,
-    lessonTitle: args.lesson.title,
-    practicalTask: researchLesson?.miniLab,
-  }).then(async plan => {
-    const specificResult = await getYouTubeResearchContext(plan.specificQuery, language);
-    if (specificResult.discoveredVideoCount !== 0 || plan.fallbackQuery === plan.specificQuery) {
-      return specificResult;
-    }
-    console.info('[Nous] Nessun video per la query specifica; provo il fallback.', {
-      fallbackQuery: plan.fallbackQuery,
-      focusConcept: plan.focusConcept,
-      specificQuery: plan.specificQuery,
-    });
-    return getYouTubeResearchContext(plan.fallbackQuery, language);
-  });
-
-  const details = await generateResearchLessonDossierDetails({
-    ...args,
-    researchLesson,
-    youtubeResearch: youtubeResearchPromise,
-  });
-  const youtubeResearch = await youtubeResearchPromise;
-  const selectedDecisions = details.youtubeCandidateDecisions.filter(
-    decision => decision.decision !== 'rejected'
-  );
-  const youtubeDiagnostic = {
-    candidateDecisions: details.youtubeCandidateDecisions,
-    rationale: youtubeResearch.rationale,
-  };
-  if (youtubeResearch.failed) {
-    console.error(
-      '[Nous] Ricerca YouTube non completata per un errore tecnico.',
-      youtubeDiagnostic
-    );
-  } else {
-    console.info(
-      selectedDecisions.length
-        ? '[Nous] Fonti YouTube selezionate.'
-        : '[Nous] Non sono state selezionate fonti YouTube.',
-      youtubeDiagnostic
-    );
-  }
-  return details.dossier;
 };
 
 interface ResearchLessonDossierDetails {
@@ -1090,157 +1000,4 @@ export const evaluateYouTubeResearchLab = async (args: {
     researchBrief: details.researchBrief,
     youtubeCandidateDecisions: details.youtubeCandidateDecisions,
   };
-};
-
-const formatResearchSourceForPrompt = (
-  source: ResearchSourceReference,
-  sourceIndex: number
-): string => {
-  const transcript = source.youtubeTranscript
-    ? `\nTimestamped YouTube transcript (already bounded by the backend token budget; use only its timestamps):
-${source.youtubeTranscript.text}
-Use sourceIndex ${sourceIndex} in typed youtube-clips blocks when an interval is pedagogically useful.`
-    : '';
-  const sourceUrl = source.url ? `: ${source.url}` : '';
-  return `- ${source.title}${sourceUrl}${transcript}`;
-};
-
-export const formatResearchDossierForPrompt = (dossier: ResearchLessonDossier): string => {
-  const sources = dossier.sources
-    .map((source, sourceIndex) => formatResearchSourceForPrompt(source, sourceIndex))
-    .join('\n');
-  return [
-    `Factual summary:\n${dossier.factualSummary}`,
-    dossier.keyExamples.length ? `Key examples:\n- ${dossier.keyExamples.join('\n- ')}` : '',
-    dossier.difficultSteps.length
-      ? `Difficult steps:\n- ${dossier.difficultSteps.join('\n- ')}`
-      : '',
-    dossier.avoidOversimplifying.length
-      ? `Do not oversimplify:\n- ${dossier.avoidOversimplifying.join('\n- ')}`
-      : '',
-    dossier.controversies.length ? `Caveats:\n- ${dossier.controversies.join('\n- ')}` : '',
-    dossier.recentDevelopments?.length
-      ? `Sviluppi recenti (ultimi 12-24 mesi, da fonti web aggiornate):\n- ${dossier.recentDevelopments.join('\n- ')}`
-      : '',
-    sources ? `Sources:\n${sources}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-};
-
-export const generateResearchLessonContent = async (args: {
-  lessonTitle: string;
-  moduleTitle: string;
-  contextPrompt?: string;
-  profile: UserProfile | null;
-  syllabus: SyllabusItem[];
-  researchDossier: ResearchLessonDossier;
-  originalSourceContext?: string;
-  generationNotes?: string;
-  instructionPacks?: LessonInstructionPackId[];
-  onStatusUpdate: GenerationStatusReporter;
-  onReasoningUpdate?: (reasoning: string) => void;
-}): Promise<{
-  content: string;
-  contentBlocks?: LessonContentBlock[];
-  generatedVisuals: LessonGeneratedVisual[];
-  learningAids: LessonLearningAid[];
-  quiz: QuizQuestion[];
-  visualPlanningDecision?: LessonVisualPlanningDecision;
-}> => {
-  const profile = args.profile ?? {
-    topic: args.moduleTitle || args.lessonTitle || 'General Knowledge',
-    experienceLevel: 'Intermediate',
-    learningStyle: 'Practical',
-    goals: `Study ${args.lessonTitle}`,
-    context: 'General learner without a stored profile.',
-    language: DEFAULT_RESEARCH_LANGUAGE,
-  };
-  const userNotesBlock = buildUserGenerationNotesBlock(args.generationNotes);
-  const originalSourceBlock = args.originalSourceContext?.trim()
-    ? `\nMATERIALE ORIGINALE DEL CORSO:\n${args.originalSourceContext.trim()}\n`
-    : '';
-  args.onStatusUpdate('Scrittura lezione da fonti...', 'drafting');
-
-  const prompt = `${userNotesBlock}
-${buildLessonInstructionPackBlock(args.instructionPacks, 'writing')}
-
-LEZIONE: "${args.lessonTitle}" (Modulo: "${args.moduleTitle}")
-STUDENTE: ${profile.context || 'Studente generico'}
-LIVELLO: ${profile.experienceLevel || 'Intermediate'}
-LINGUA: ${profile.language || DEFAULT_RESEARCH_LANGUAGE}
-
-PIANO DELLA LEZIONE:
-${args.contextPrompt || 'Spiega chiaramente questo argomento.'}
-
-DOSSIER DI RICERCA (materiale sorgente):
-${formatResearchDossierForPrompt(args.researchDossier)}
-${originalSourceBlock}
-
-ISTRUZIONI:
-- Usa il dossier come fonte dei contenuti, ma NON copiarlo o riassumerlo punto per punto: rielaboralo come prosa di lezione.
-- Se e presente materiale originale, integra davvero entrambe le basi informative. Mantieni il lessico e le convenzioni del corso originale quando non confliggono con fonti online piu affidabili.
-- Non colmare lacune con supposizioni: usa solo contenuti sostenuti dal materiale originale o dal dossier di ricerca.
-- Il dossier è materiale grezzo strutturato in liste: il tuo compito è trasformarlo in PROSA DISCORSIVA. Il fatto che il dossier sia in bullet non autorizza la lezione a esserlo.
-- VINCOLO FORTE SULLA FORMA: il corpo della lezione deve essere paragrafi di prosa. I bullet sono ammessi solo in casi rari e davvero giustificati (un'enumerazione tassonomica corta, un comando con flag), non come modo di default per esporre concetti. Niente liste di "cosa significa", "cosa ottieni", "perché è utile". Quei contenuti vanno scritti come frasi piene dentro un paragrafo.
-- Niente sezione "In sintesi" o riepiloghi finali a bullet: la lezione si chiude con un paragrafo conclusivo se serve.
-- Limita le intestazioni \`##\`: una struttura con 8-12 sezioni numerate spezzetta troppo. Preferisci poche sezioni ampie con prosa continua.
-- Mantieni il focus stretto su questa lezione.
-- Non fingere che lo studente abbia un documento aperto.
-- Non usare diagrammi Mermaid.
-- Non aggiungere bibliografie o sezioni delle fonti nel corpo: le fonti vengono mostrate separatamente dall'interfaccia.
-- Per ogni fonte YouTube selezionata ricevi il transcript timestampato gia limitato dal budget del backend. Usalo come materiale della lezione: puo sostenere progressione, spiegazioni ed esempi, non soltanto la clip.
-- Sei tu a decidere quali intervalli video integrare mentre scrivi. Rappresentali con un blocco \`youtube-clips\` nel punto editoriale esatto. Ogni clip deve avere un \`title\` breve, concreto e specifico per quel momento. Il blocco puo contenere piu clip, anche da video diversi, ed e un unico player a micro-capitoli.
-- Preferisci piu intervalli dello stesso video quando copre bene l'intera sequenza; usa video diversi quando sono complementari. Usa soltanto indici e timestamp presenti nel dossier.
-- Per una procedura manuale o fisica che costituisce il nucleo della lezione, un transcript selezionato che mostra direttamente l'azione deve normalmente diventare una clip inline: una descrizione o un'immagine statica non sostituiscono il movimento. Omettila soltanto per una ragione concreta ricavabile dal transcript.
-${YOUTUBE_CLIP_PEDAGOGY_RULES}
-- Genera da 0 a 3 pause attive come blocchi \`inline-quiz\` autosufficienti, contenenti direttamente domanda, quattro opzioni e indice corretto. Ogni pausa deve richiedere applicazione, confronto, inferenza o diagnosi di un errore: se la soluzione sarebbe una parafrasi diretta del testo locale, riscrivila come caso nuovo oppure omettila. Inserisci ciascuna pausa subito dopo il blocco markdown che la prepara. Non restituire un array quiz separato.
-- Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} esempi visuali generati. Inserisci un blocco \`generated-visual\` con \`slotId\` nel punto editoriale esatto e aggiungi il piano corrispondente in \`visualPlanning.plans\`.
-- ${INTERACTIVE_VISUAL_VALUE_RULE}
-- ${VISUAL_FORMAT_SELECTION_RULE} Per HTML interattivo la grafica deve essere prodotta da regole o algoritmi, non disegnata a mano.
-- Se il dossier contiene "Sviluppi recenti", integra quei punti organicamente nel corpo della lezione (con date quando disponibili) dove sono pertinenti, invece di confinarli in una sezione separata. Non inventare aggiornamenti che non sono nel dossier.
-
-FORMATO: restituisci solo il JSON richiesto. \`imagePlacements\` deve essere vuoto; pause, clip e visuali devono stare nella sequenza ordinata \`contentBlocks\`.`;
-
-  const response = await retryWithBackoff(
-    () =>
-      callOpenRouter({
-        model: MODEL_REASONING,
-        modelSlot: 'lesson',
-        reasoning: MEDIUM_REASONING_CONFIG,
-        onReasoningUpdate: args.onReasoningUpdate,
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: teacherInstruction },
-          { role: 'user', content: prompt },
-        ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: LESSON_RESPONSE_SCHEMA,
-        },
-      }),
-    2,
-    1000
-  );
-
-  const parsedLesson = parseLessonContentPayload(response || '{}', args.lessonTitle);
-  const lessonContent = parsedLesson.contentMarkdown?.trim() || '';
-  const contentWithoutSources = stripTerminalLessonSourcesSection(lessonContent);
-
-  return finalizeSourceFreeLesson({
-    contentBlocks: parsedLesson.contentBlocks,
-    contentMarkdown: contentWithoutSources,
-    generationNotes: args.generationNotes,
-    instructionPacks: args.instructionPacks,
-    onReasoningUpdate: args.onReasoningUpdate,
-    onStatusUpdate: args.onStatusUpdate,
-    quiz: parsedLesson.quiz,
-    sectionDescription: args.contextPrompt || args.lessonTitle,
-    sectionTitle: args.lessonTitle,
-    sourceContext: formatResearchDossierForPrompt(args.researchDossier),
-    visualPlanning: parsedLesson.visualPlanning ?? {
-      plans: [],
-      rationale: 'La stesura non ha proposto esempi visuali generati.',
-    },
-  });
 };

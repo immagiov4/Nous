@@ -206,7 +206,11 @@ describe('MarkdownRenderer', () => {
     expect(mark).toHaveTextContent('Prima grassetto e un link.');
     expect(mark?.querySelector('strong')).toHaveTextContent('grassetto');
     expect(mark?.querySelector('a')).toHaveAttribute('href', 'https://example.com');
-    expect(mark).toHaveStyle({ margin: '0', padding: '0px 3px' });
+    expect(mark).toHaveStyle({
+      backgroundColor: 'var(--annotation-highlight-color)',
+      margin: '0',
+      padding: '0px 3px',
+    });
     expect(mark?.getAttribute('style')).toContain('border-radius: 0.14em');
     expect(mark?.getAttribute('style')).toContain('box-decoration-break: clone');
     expect(mark?.getAttribute('style')).toContain('text-decoration-line: underline');

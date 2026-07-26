@@ -277,6 +277,11 @@ export const resolveAiProviderForSlot = (
   slot: ModelProviderSlot
 ): AiProvider => config.aiProviderOverrides?.[slot] || config.aiProvider;
 
+export const resolveCodexServiceTierForSlot = (
+  config: GlobalModelConfig,
+  slot: TextModelSlot
+): 'fast' | undefined => (config.codexFastModelSlots.includes(slot) ? 'fast' : undefined);
+
 const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof GlobalModelConfig>> = {
   codex: {
     artifact: 'codexArtifactModel',

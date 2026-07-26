@@ -23,6 +23,7 @@ const repositoryMocks = vi.hoisted(() => ({
   listPlacements: vi.fn(),
   listProjects: vi.fn(),
   loadProject: vi.fn(),
+  loadProjectWithRevision: vi.fn(),
   loadProjectCover: vi.fn(),
   loadProjectSource: vi.fn(),
   loadProjectsById: vi.fn(),
@@ -113,6 +114,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.listPlacements.mockReset();
     repositoryMocks.listProjects.mockReset();
     repositoryMocks.loadProject.mockReset();
+    repositoryMocks.loadProjectWithRevision.mockReset();
     repositoryMocks.loadProjectCover.mockReset();
     repositoryMocks.loadProjectSource.mockReset();
     repositoryMocks.loadProjectsById.mockReset();
@@ -148,6 +150,7 @@ describe('useProjectLibrary', () => {
       snapshot,
     }));
     repositoryMocks.loadProject.mockResolvedValue(null);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue(null);
     repositoryMocks.importProject.mockImplementation(async (project: ProjectSnapshot) => ({
       meta: buildMeta(project.id, '2026-04-02T10:00:00.000Z'),
       snapshot: buildSnapshot(project.id),
@@ -555,6 +558,163 @@ describe('useProjectLibrary', () => {
         title: 'Nuovo percorso',
       },
     });
+  });
+
+  test('hydrates the authoritative snapshot returned for a persisted lesson revision', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    const baseState = createEmptyWorkspaceDomainState();
+    const generatedState: WorkspaceDomainState = {
+      ...baseState,
+      activeSectionId: 'lesson-1',
+      learningPlan: buildTestLearningPlan(
+        [buildTestLesson({ content: '# Lezione persistita', id: 'lesson-1' })],
+        { title: 'Percorso', summary: 'Sintesi' }
+      ),
+    };
+    const generatedSnapshot = buildSnapshot('project-1', generatedState);
+    const hydrateSnapshot = vi.fn();
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 5,
+      snapshot: generatedSnapshot,
+    });
+    const { result, rerender } = renderHook(
+      ({ domainState }) => useProjectLibrary({ domainState, hydrateSnapshot }),
+      { initialProps: { domainState: baseState } }
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+    let shouldApplyResult = false;
+    await act(async () => {
+      shouldApplyResult = await result.current.applyPersistedProjectRevision({
+        projectId: 'project-1',
+        revision: 5,
+      });
+    });
+
+    vi.useFakeTimers();
+    rerender({ domainState: generatedState });
+    await act(async () => {
+      vi.advanceTimersByTime(900);
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(shouldApplyResult).toBe(true);
+    expect(hydrateSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeSectionId: 'lesson-1',
+        id: 'project-1',
+        learningPlan: generatedState.learningPlan,
+      })
+    );
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+    expect(result.current.savedProjects[0]).toMatchObject({ revision: 5 });
+  });
+
+  test('hydrates a newer authoritative snapshot without applying a stale job result', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    const newerSnapshot = buildSnapshot('project-1', {
+      activeSectionId: 'lesson-1',
+      learningPlan: buildTestLearningPlan(
+        [buildTestLesson({ content: '# Revisione più nuova', id: 'lesson-1' })],
+        { title: 'Percorso', summary: 'Sintesi' }
+      ),
+    });
+    const hydrateSnapshot = vi.fn();
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 6,
+      snapshot: newerSnapshot,
+    });
+    repositoryMocks.patchProject.mockResolvedValue({ ...initialMeta, revision: 7 });
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot,
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+    let shouldApplyResult = true;
+    await act(async () => {
+      shouldApplyResult = await result.current.applyPersistedProjectRevision({
+        projectId: 'project-1',
+        revision: 5,
+      });
+    });
+
+    expect(shouldApplyResult).toBe(false);
+    expect(hydrateSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeSectionId: 'lesson-1',
+        id: 'project-1',
+        learningPlan: newerSnapshot.learningPlan,
+      })
+    );
+    await act(async () => {
+      await result.current.patchCurrentProject({ activeSectionId: 'lesson-1' });
+    });
+    expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
+      'project-1',
+      expect.objectContaining({ activeSectionId: 'lesson-1' }),
+      { expectedRevision: 6 }
+    );
+  });
+
+  test('does not hydrate a delayed snapshot older than a completed local write', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    let resolveRevisionLoad!: (value: { revision: number; snapshot: ProjectSnapshot }) => void;
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.loadProjectWithRevision.mockReturnValue(
+      new Promise(resolve => {
+        resolveRevisionLoad = resolve;
+      })
+    );
+    repositoryMocks.patchProject
+      .mockResolvedValueOnce({ ...initialMeta, revision: 6 })
+      .mockResolvedValueOnce({ ...initialMeta, revision: 7 });
+    const hydrateSnapshot = vi.fn();
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot,
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let applyResult!: Promise<boolean>;
+    act(() => {
+      applyResult = result.current.applyPersistedProjectRevision({
+        projectId: 'project-1',
+        revision: 5,
+      });
+    });
+    await act(async () => {
+      await result.current.patchCurrentProject({ state: AppState.READING });
+    });
+    resolveRevisionLoad({ revision: 5, snapshot: buildSnapshot('project-1') });
+
+    await expect(applyResult).resolves.toBe(false);
+    expect(hydrateSnapshot).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.patchCurrentProject({ activeSectionId: 'lesson-1' });
+    });
+    expect(repositoryMocks.patchProject).toHaveBeenLastCalledWith(
+      'project-1',
+      expect.objectContaining({ activeSectionId: 'lesson-1' }),
+      { expectedRevision: 6 }
+    );
   });
 
   test('downloadProject uses a zip-based backup filename', async () => {

@@ -39,6 +39,7 @@ import type {
   ProjectSaveOptions,
   ProjectSaveResult,
   ProjectSnapshot,
+  ProjectSnapshotWithRevision,
   ProjectSourceArchiveIndex,
   ProjectSourceFile,
   ProjectSourceRef,
@@ -132,6 +133,15 @@ export class InMemoryProjectStore implements ProjectStore {
     }
 
     return clone(record.snapshot);
+  }
+
+  async loadProjectWithRevision(
+    userId: string,
+    id: ProjectId
+  ): Promise<ProjectSnapshotWithRevision | null> {
+    const record = this.getProjects(userId).get(id);
+    if (!record) return null;
+    return { revision: record.meta.revision, snapshot: clone(record.snapshot) };
   }
 
   async loadProjectSource(userId: string, id: ProjectId): Promise<ProjectSourceFile | null> {
