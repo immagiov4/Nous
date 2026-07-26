@@ -470,6 +470,11 @@ mark {
   color: #111827;
 }
 
+.prose code[data-nous-annotation-inline-highlight="true"] {
+  border-radius: 0;
+  background-color: var(--annotation-highlight-color);
+}
+
 .nous-annotation-highlight-cap {
   position: absolute;
   background-color: var(--annotation-highlight-color);

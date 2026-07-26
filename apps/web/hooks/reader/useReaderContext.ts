@@ -48,6 +48,7 @@ interface UseReaderContextArgs {
   activeSectionId: string | null;
   contentRef: RefObject<HTMLDivElement | null>;
   isMobileViewport: boolean;
+  scrollContainerRef?: RefObject<HTMLElement | null>;
   sectionAnnotations?: SectionAnnotation[];
   sectionContent: string;
 }
@@ -97,6 +98,7 @@ export const useReaderContext = ({
   activeSectionId,
   contentRef,
   isMobileViewport,
+  scrollContainerRef,
   sectionAnnotations,
   sectionContent,
 }: UseReaderContextArgs) => {
@@ -118,11 +120,13 @@ export const useReaderContext = ({
   const contextAnswerPanelRef = useRef<HTMLDivElement>(null);
   const contextAnswerResizePreviewRef = useRef<HTMLDivElement>(null);
   const selectionMenuTimeoutRef = useRef<number | null>(null);
+  const contextMenuScrollTopRef = useRef<number | null>(null);
   const lastAnnotationMenuTransitionRef = useRef<{
     at: number;
     sectionId: string | null;
   } | null>(null);
   const suppressedSelectionMenuRef = useRef<{ key: string; until: number } | null>(null);
+  const pendingDesktopSelectionContextMenuRef = useRef<{ x: number; y: number } | null>(null);
   const contextAnswerResizeRef = useRef<ContextAnswerResizeState | null>(null);
   const contextAnswerDraftSizeRef = useRef<ContextAnswerSize>(CONTEXT_ANSWER_DEFAULT_SIZE);
   // Mirror of contextMenu state consumed from callbacks that must keep a stable
@@ -154,6 +158,10 @@ export const useReaderContext = ({
     globalThis.clearTimeout(selectionMenuTimeoutRef.current);
     selectionMenuTimeoutRef.current = null;
   }, []);
+
+  const captureContextMenuScrollTop = useCallback(() => {
+    contextMenuScrollTopRef.current = scrollContainerRef?.current?.scrollTop ?? null;
+  }, [scrollContainerRef]);
 
   const resetContextAnswerResizeStyles = useCallback(() => {
     document.body.style.removeProperty('user-select');
@@ -309,6 +317,7 @@ export const useReaderContext = ({
         placement,
       });
 
+      captureContextMenuScrollTop();
       setContextMenuOwnerSectionId(activeSectionId);
       contextMenuStateRef.current = nextMenu;
       setContextMenu(currentMenu => {
@@ -327,7 +336,7 @@ export const useReaderContext = ({
 
       return 'opened';
     },
-    [activeSectionId, contentRef]
+    [activeSectionId, captureContextMenuScrollTop, contentRef]
   );
 
   const openContextMenuFromSelection = useCallback(
@@ -379,6 +388,7 @@ export const useReaderContext = ({
         return 'closed';
       }
 
+      captureContextMenuScrollTop();
       setContextMenuOwnerSectionId(activeSectionId);
       contextMenuStateRef.current = nextMenu;
       setContextMenu(currentMenu => {
@@ -399,12 +409,19 @@ export const useReaderContext = ({
 
       return 'opened';
     },
-    [activeSectionId, closeContextMenu, contentRef]
+    [activeSectionId, captureContextMenuScrollTop, closeContextMenu, contentRef]
   );
 
   const handleContentContextMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>) => {
       if (isMobileViewport) {
+        return;
+      }
+
+      const pendingSelectionMenu = pendingDesktopSelectionContextMenuRef.current;
+      pendingDesktopSelectionContextMenuRef.current = null;
+      if (pendingSelectionMenu?.x === event.clientX && pendingSelectionMenu.y === event.clientY) {
+        event.preventDefault();
         return;
       }
 
@@ -439,6 +456,7 @@ export const useReaderContext = ({
 
   const handleContentPointerDownCapture = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
+      pendingDesktopSelectionContextMenuRef.current = null;
       if (isMobileViewport || event.button !== 2) {
         return;
       }
@@ -457,6 +475,10 @@ export const useReaderContext = ({
       );
 
       if (selectionMenuOutcome !== 'ignored') {
+        pendingDesktopSelectionContextMenuRef.current = {
+          x: event.clientX,
+          y: event.clientY,
+        };
         event.preventDefault();
       }
     },
@@ -557,11 +579,19 @@ export const useReaderContext = ({
         },
       });
 
+      captureContextMenuScrollTop();
       setContextMenuOwnerSectionId(activeSectionId);
       contextMenuStateRef.current = nextMenu;
       setContextMenu(nextMenu);
     },
-    [activeSectionId, closeContextMenu, contentRef, isMobileViewport, sectionAnnotations]
+    [
+      activeSectionId,
+      captureContextMenuScrollTop,
+      closeContextMenu,
+      contentRef,
+      isMobileViewport,
+      sectionAnnotations,
+    ]
   );
 
   const handleContextAnswerResizeStart = useCallback(
@@ -830,6 +860,7 @@ export const useReaderContext = ({
       contextAnswerSize,
       contextMenu: visibleContextMenu,
       contextMenuRef,
+      contextMenuScrollTopRef,
       handleContentClick,
       handleContentContextMenu,
       handleContentPointerDownCapture,

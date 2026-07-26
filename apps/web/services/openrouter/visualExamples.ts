@@ -3,6 +3,7 @@ import type {
   LessonVisualPlan,
   LessonVisualPlanningDecision,
   LessonVisualPlanningPass,
+  LessonVisualRetryPlan,
 } from '../../types.ts';
 import { timestampIso } from '../../utils/time.ts';
 import {
@@ -13,7 +14,7 @@ import {
 import { renderHtmlPreview } from '../../utils/visuals/htmlPreview.ts';
 import { pushNousDebugTrace } from '../core/debugTrace.ts';
 import { getErrorDiagnostic } from '../core/errorMessage.ts';
-import { requestGeneratedImage } from './imageClient.ts';
+import { type DurableImageGenerationScope, requestGeneratedImage } from './imageClient.ts';
 import {
   INTERNAL_FAST_TASK_INSTRUCTION,
   INTERNAL_REASONING_EFFICIENCY_INSTRUCTION,
@@ -62,6 +63,7 @@ const reportVisualWorkerFailure = ({
   const diagnostic = {
     concept: plan.concept,
     error: getErrorDiagnostic(error),
+    format: plan.visual_type,
     index,
     phase: 'visual-artifact-generation',
     ...(slotId ? { slotId } : {}),
@@ -309,20 +311,9 @@ interface VisualPlansResponse {
   plans?: VisualPlan[];
 }
 
-export interface VerifiedVisualSlotPlan {
-  slotId: string;
-  complexity: 'simple' | 'moderate' | 'complex';
-  concept: string;
-  coverage: 'all_elements' | 'single_complex' | 'complete_synthesis' | 'none';
-  coverageRationale: string;
-  factualRequirements: string[];
-  interactionLevel: 'none' | 'low' | 'high';
-  pedagogicalGoal: string;
-  reason: string;
-  requiresDepiction: boolean;
-  visualDirection: string;
+export type VerifiedVisualSlotPlan = LessonVisualRetryPlan & {
   visualType: GeneratedVisualType;
-}
+};
 
 interface SvgVisualResponse {
   loading_messages?: unknown;
@@ -527,6 +518,7 @@ const MERMAID_VISUAL_RESPONSE_SCHEMA = {
 } as const;
 
 export interface GenerateLessonVisualExampleInput {
+  durableImageScope?: DurableImageGenerationScope;
   generationNotes?: string;
   hasPdfImages: boolean;
   lessonMarkdown: string;
@@ -939,7 +931,15 @@ const materializeHtmlImages = async (
   const generatedImages = await Promise.all(
     requests.map(async request => ({
       id: request.id,
-      image: await requestGeneratedImage(buildEmbeddedImageGenerationPrompt(request, plan, input)),
+      image: await requestGeneratedImage(
+        buildEmbeddedImageGenerationPrompt(request, plan, input),
+        input.durableImageScope
+          ? {
+              ...input.durableImageScope,
+              dedupeKey: `${input.durableImageScope.dedupeKey}:${request.id}`,
+            }
+          : undefined
+      ),
     }))
   );
   let code = visual.code;
@@ -958,7 +958,10 @@ const generateImageVisual = async (
   visualId: string
 ): Promise<LessonGeneratedVisual> => {
   const subject = getImageSubject(plan, input);
-  const image = await requestGeneratedImage(buildImageGenerationPrompt(plan, input));
+  const image = await requestGeneratedImage(
+    buildImageGenerationPrompt(plan, input),
+    input.durableImageScope
+  );
 
   return {
     id: visualId,
@@ -1366,6 +1369,15 @@ export const generateVerifiedVisualSlots = async (
   input: GenerateLessonVisualExampleInput,
   plans: VerifiedVisualSlotPlan[]
 ): Promise<GeneratedVerifiedVisualSlot[]> => {
+  for (const plan of plans) {
+    pushNousDebugTrace('lesson:visual-slot-attempt', {
+      concept: plan.concept,
+      format: plan.visualType,
+      phase: 'started',
+      slotId: plan.slotId,
+      visualType: plan.visualType,
+    });
+  }
   const settledResults = await Promise.allSettled(
     plans.map((plan, index) =>
       generateVisualFromPlan(
@@ -1389,7 +1401,15 @@ export const generateVerifiedVisualSlots = async (
 
   return settledResults.flatMap((result, index) => {
     if (result.status === 'fulfilled') {
-      return result.value ? [{ slotId: plans[index].slotId, visual: result.value.visual }] : [];
+      const plan = plans[index];
+      pushNousDebugTrace('lesson:visual-slot-attempt', {
+        concept: plan.concept,
+        format: plan.visualType,
+        phase: result.value ? 'completed' : 'invalid-draft',
+        slotId: plan.slotId,
+        visualType: plan.visualType,
+      });
+      return result.value ? [{ slotId: plan.slotId, visual: result.value.visual }] : [];
     }
     reportVisualWorkerFailure({
       error: result.reason,

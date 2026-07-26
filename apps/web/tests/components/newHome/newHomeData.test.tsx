@@ -9,7 +9,7 @@ vi.mock('../../../services/projects/courseCover.ts', () => ({
   ensureProjectCover: ensureProjectCoverMock,
 }));
 
-const { useCourseCoverImages, useFavoriteProjectIds } = await import(
+const { useCourseCoverImages, useFavoriteProjectIds, useSourceLibrary } = await import(
   '../../../components/newHome/newHomeData.ts'
 );
 
@@ -109,5 +109,46 @@ describe('new home favorites', () => {
 
     rerender({ projects: [{ ...project, isFavorite: false }] });
     await waitFor(() => expect(result.current.favoriteIds).toEqual([]));
+  });
+});
+
+describe('new home source library', () => {
+  test('includes the original ZIP for existing codebase courses', async () => {
+    const project = { ...buildProject(1), sourceKind: 'codebase' as const };
+    const loadProjectsById = vi.fn().mockResolvedValue([
+      {
+        id: project.id,
+        source: {
+          file: { data: '', mimeType: 'application/zip', name: 'src.zip' },
+          index: { entries: [] },
+          kind: 'archive',
+          name: 'src.zip',
+          ref: {
+            byteSize: 1024,
+            hash: 'archive-hash',
+            id: 'source-archive',
+            mimeType: 'application/zip',
+            name: 'src.zip',
+            objectPath: 'sources/src.zip',
+          },
+        },
+      },
+    ]);
+
+    const { result } = renderHook(() =>
+      useSourceLibrary({ enabled: true, loadProjectsById, projects: [project] })
+    );
+
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    expect(result.current.items).toEqual([
+      expect.objectContaining({
+        isAvailable: true,
+        kind: 'archive',
+        projectId: project.id,
+        projectTitle: project.title,
+        requiresPrimarySourceLoad: true,
+      }),
+    ]);
+    expect(result.current.items[0]?.file.name).toBe('src.zip');
   });
 });

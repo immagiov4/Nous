@@ -56,7 +56,8 @@ export const ReadingScreenContainer = ({
     source,
     updateSection,
   } = controller;
-  const { closeContextMenu, contextMenu, openContextAnswer } = readerState.readerContext;
+  const { closeContextMenu, contextMenu, contextMenuScrollTopRef, openContextAnswer } =
+    readerState.readerContext;
   const { isMobileViewport, setIsMobileSidebarOpen } = readerState.readerChrome;
 
   const readerActions = useWorkspaceReaderActions({
@@ -66,6 +67,7 @@ export const ReadingScreenContainer = ({
     closeContextMenu,
     completeActiveSection,
     contextMenu,
+    contextMenuScrollTopRef,
     createLessonFromSelection,
     documentIndex,
     isMobileViewport,
@@ -78,6 +80,7 @@ export const ReadingScreenContainer = ({
     projectId: currentProjectId,
     regenerateActiveSection,
     sectionContent,
+    scrollContainerRef: readerState.scrollContainerRef,
     setIsMobileSidebarOpen,
     source,
     updateSection,

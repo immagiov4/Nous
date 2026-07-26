@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clock3,
   Download,
+  FileArchive,
   FileCode2,
   FileText,
   Flame,
@@ -30,6 +31,7 @@ import logoDarkModeUrl from '@/assets/logo_darkmode.svg';
 import { useLearningActivity } from '../../hooks/library/useLearningActivity.ts';
 import { usePersistedLibraryFolderExpansion } from '../../hooks/library/usePersistedLibraryFolderExpansion.ts';
 import { getAppLocale, translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { createFileObjectUrl } from '../../services/projects/projectSource.ts';
 import type {
   FileData,
   LibraryFolder,
@@ -42,7 +44,6 @@ import AccountMenu from '../account/AccountMenu.tsx';
 import HomeChatPanel from '../library/HomeChatPanel.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import {
-  createSourceObjectUrl,
   decodeSourceText,
   resolveSourceLibraryItemFile,
   type SourceLibraryItem,
@@ -1454,6 +1455,9 @@ const HomePage = ({
 };
 
 const getSourceIcon = (kind: SourceLibraryItem['kind']) => {
+  if (kind === 'archive') {
+    return FileArchive;
+  }
   if (kind === 'pdf') {
     return FileText;
   }
@@ -1461,6 +1465,77 @@ const getSourceIcon = (kind: SourceLibraryItem['kind']) => {
     return FileCode2;
   }
   return BookOpen;
+};
+
+const getSourceKindLabel = (item: SourceLibraryItem): string => {
+  if (!item.isAvailable) {
+    return t('File originale non disponibile');
+  }
+  if (item.kind === 'archive') {
+    return t('Archivio');
+  }
+  if (item.kind === 'pdf') {
+    return 'PDF';
+  }
+  return item.kind === 'markdown' ? 'Markdown' : t('Testo');
+};
+
+const SourceViewerContent = ({
+  file,
+  isDarkMode,
+  item,
+  objectUrl,
+}: {
+  file: FileData;
+  isDarkMode: boolean;
+  item: SourceLibraryItem;
+  objectUrl: string | null;
+}) => {
+  if (item.kind === 'archive') {
+    return (
+      <div className="mx-auto flex max-w-xl flex-col items-center px-6 py-16 text-center">
+        <FileArchive className="h-12 w-12 text-[#a95828] dark:text-[#f1c6a8]" />
+        <p className="mt-5 text-sm leading-6 text-stone-600 dark:text-stone-300">
+          {t('Archivio originale del corso')}
+        </p>
+        {objectUrl ? (
+          <a
+            className="mt-5 rounded-full bg-stone-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+            download={file.name}
+            href={objectUrl}
+          >
+            {t('Scarica archivio originale')}
+          </a>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (item.kind === 'pdf') {
+    return objectUrl ? (
+      <iframe src={objectUrl} title={file.name} className="h-full w-full border-0" />
+    ) : (
+      <p className="p-8 text-center text-sm text-stone-500">{t('Caricamento PDF...')}</p>
+    );
+  }
+
+  if (item.kind === 'markdown') {
+    return (
+      <article className="mx-auto max-w-4xl px-6 py-10 sm:px-10">
+        <MarkdownRenderer
+          content={decodeSourceText(file)}
+          isDarkMode={isDarkMode}
+          className="max-w-none dark:prose-invert"
+        />
+      </article>
+    );
+  }
+
+  return (
+    <pre className="mx-auto max-w-5xl whitespace-pre-wrap break-words px-6 py-10 font-sans text-sm leading-7 text-stone-800 dark:text-stone-200">
+      {decodeSourceText(file)}
+    </pre>
+  );
 };
 
 const SourceViewer = ({
@@ -1474,7 +1549,9 @@ const SourceViewer = ({
   item: SourceLibraryItem;
   onClose: () => void;
 }) => {
-  const [objectUrl] = useState(() => (item.kind === 'pdf' ? createSourceObjectUrl(file) : null));
+  const [objectUrl] = useState(() =>
+    item.kind === 'pdf' || item.kind === 'archive' ? createFileObjectUrl(file) : null
+  );
   useEffect(() => {
     return () => {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -1500,25 +1577,12 @@ const SourceViewer = ({
         </div>
       </header>
       <main className="min-h-0 flex-1 overflow-auto">
-        {item.kind === 'pdf' ? (
-          objectUrl ? (
-            <iframe src={objectUrl} title={file.name} className="h-full w-full border-0" />
-          ) : (
-            <p className="p-8 text-center text-sm text-stone-500">{t('Caricamento PDF...')}</p>
-          )
-        ) : item.kind === 'markdown' ? (
-          <article className="mx-auto max-w-4xl px-6 py-10 sm:px-10">
-            <MarkdownRenderer
-              content={decodeSourceText(file)}
-              isDarkMode={isDarkMode}
-              className="max-w-none dark:prose-invert"
-            />
-          </article>
-        ) : (
-          <pre className="mx-auto max-w-5xl whitespace-pre-wrap break-words px-6 py-10 font-sans text-sm leading-7 text-stone-800 dark:text-stone-200">
-            {decodeSourceText(file)}
-          </pre>
-        )}
+        <SourceViewerContent
+          file={file}
+          isDarkMode={isDarkMode}
+          item={item}
+          objectUrl={objectUrl}
+        />
       </main>
     </div>,
     document.body
@@ -1591,6 +1655,7 @@ const SourceLibraryPage = ({
             ['pdf', 'PDF'],
             ['markdown', 'Markdown'],
             ['text', t('Testo')],
+            ['archive', t('Archivio')],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -1685,13 +1750,7 @@ const SourceLibraryPage = ({
                               {item.file.name}
                             </span>
                             <span className="mt-1 block truncate text-xs text-stone-400">
-                              {item.isAvailable
-                                ? item.kind === 'pdf'
-                                  ? 'PDF'
-                                  : item.kind === 'markdown'
-                                    ? 'Markdown'
-                                    : t('Testo')
-                                : t('File originale non disponibile')}
+                              {getSourceKindLabel(item)}
                             </span>
                           </span>
                           {isOpening ? (

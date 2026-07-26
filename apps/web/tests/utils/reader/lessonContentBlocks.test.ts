@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
+  completeGeneratedVisualRetry,
   deriveQuizFromLessonContentBlocks,
   hasValidTypedQuizBlocks,
   legacyMarkdownToLessonContentBlocks,
+  materializeGeneratedVisualBlocks,
   normalizeLessonContentBlocks,
 } from '../../../utils/reader/lessonContentBlocks.ts';
 
@@ -85,5 +87,64 @@ test('normalizes legacy markers only when loading old content', () => {
     { type: 'markdown', markdown: 'Spiegazione.' },
     { type: 'inline-quiz', quiz },
     { type: 'markdown', markdown: 'Conclusione.' },
+  ]);
+});
+
+test('persists failed visual plans and maps partial success by slot id', () => {
+  const plans = [
+    {
+      slotId: 'slot-001',
+      complexity: 'simple' as const,
+      concept: 'Primo concetto',
+      coverage: 'single_complex' as const,
+      coverageRationale: 'Mostra il primo concetto.',
+      factualRequirements: ['Requisito uno'],
+      interactionLevel: 'none' as const,
+      pedagogicalGoal: 'Chiarire il primo concetto.',
+      reason: 'Serve un esempio.',
+      requiresDepiction: false,
+      visualDirection: 'Schema semplice.',
+      visualType: 'structural_svg' as const,
+    },
+    {
+      slotId: 'slot-002',
+      complexity: 'moderate' as const,
+      concept: 'Secondo concetto',
+      coverage: 'all_elements' as const,
+      coverageRationale: 'Mostra tutti gli elementi.',
+      factualRequirements: ['Requisito due'],
+      interactionLevel: 'low' as const,
+      pedagogicalGoal: 'Chiarire il secondo concetto.',
+      reason: 'Serve il confronto.',
+      requiresDepiction: true,
+      visualDirection: 'Confronto affiancato.',
+      visualType: 'illustrative_image' as const,
+    },
+  ];
+  const visual = {
+    code: 'data:image/png;base64,AAAA',
+    createdAt: '2026-07-26T00:00:00.000Z',
+    id: 'visual-002',
+    kind: 'image' as const,
+    title: 'Secondo concetto',
+  };
+
+  const blocks = materializeGeneratedVisualBlocks(
+    [
+      { slotId: 'slot-001', type: 'generated-visual' },
+      { slotId: 'slot-002', type: 'generated-visual' },
+    ],
+    plans,
+    [{ slotId: 'slot-002', visual }]
+  );
+
+  assert.deepEqual(blocks, [
+    { retryPlan: plans[0], slotId: 'slot-001', type: 'generated-visual' },
+    { slotId: 'slot-002', type: 'generated-visual', visualId: 'visual-002' },
+  ]);
+  assert.deepEqual(normalizeLessonContentBlocks(blocks), blocks);
+  assert.deepEqual(completeGeneratedVisualRetry(blocks, 'slot-001', 'visual-001'), [
+    { slotId: 'slot-001', type: 'generated-visual', visualId: 'visual-001' },
+    { slotId: 'slot-002', type: 'generated-visual', visualId: 'visual-002' },
   ]);
 });

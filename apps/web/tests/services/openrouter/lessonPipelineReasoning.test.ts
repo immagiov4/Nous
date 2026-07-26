@@ -73,6 +73,45 @@ describe('lesson pipeline reasoning callbacks', () => {
     expect(callOpenRouterMock.mock.calls[0]?.[0]?.onReasoningUpdate).toBe(onReasoningUpdate);
   });
 
+  test('allows verification to remove every active pause when none merits interruption', async () => {
+    callOpenRouterMock.mockResolvedValue(
+      JSON.stringify({
+        contentBlocks: [
+          { markdown: '## Concetto\n\nSpiegazione completa.', type: 'markdown' },
+          { markdown: '## Conclusione\n\nApplicazione conclusiva.', type: 'markdown' },
+        ],
+        imagePlacements: [],
+        verificationReport: buildLessonVerificationChecklist([]).map(check => ({
+          action: '',
+          checkId: check.checkId,
+          evidence: 'Controllo completato sulla bozza.',
+          status: 'pass',
+        })),
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
+      })
+    );
+
+    const verified = await verifyLessonDraft({
+      candidateImages: [],
+      continuityRule: 'Mantieni la continuita.',
+      draft: {
+        contentMarkdown: 'Bozza.',
+        imagePlacements: [],
+        quiz: [],
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
+      },
+      previousContext: '',
+      scopeRule: 'Resta nel tema.',
+      sectionDescription: 'Descrizione',
+      sectionTitle: 'Titolo',
+      sourceContext: 'Fonte',
+      targetQuizCount: 1,
+    });
+
+    expect(verified.quiz).toEqual([]);
+    expect(verified.contentBlocks).toHaveLength(2);
+  });
+
   test('forwards repair reasoning to the quiz-phase progress stream', async () => {
     const onReasoningUpdate = vi.fn();
     callOpenRouterMock.mockResolvedValue('## Sezione corretta\n\nTesto corretto.');
@@ -111,6 +150,22 @@ describe('lesson pipeline reasoning callbacks', () => {
         'Titolo'
       )
     ).toThrow(/contratto dei blocchi quiz inline/);
+  });
+
+  test('accepts a typed lesson without active pauses', () => {
+    const parsed = parseLessonContentPayload(
+      JSON.stringify({
+        contentBlocks: [
+          { markdown: '## Concetto\n\nSpiegazione completa.', type: 'markdown' },
+          { markdown: '## Conclusione\n\nApplicazione conclusiva.', type: 'markdown' },
+        ],
+        imagePlacements: [],
+        visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
+      }),
+      'Titolo'
+    );
+
+    expect(parsed.quiz).toEqual([]);
   });
 
   test('keeps the complete backend-bounded source context available to verification', () => {

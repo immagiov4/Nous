@@ -39,6 +39,7 @@ export const useWorkspaceController = ({
     assessmentMessages: controllerState.assessmentMessages,
     blockingMessage: selectBlockingMessage(controllerState.workflowState),
     currentProjectId: projectLibrary.currentProjectId,
+    getCurrentProjectId: projectLibrary.getCurrentProjectId,
     generatingSectionId,
     isBlocking: selectIsBlocking(controllerState.workflowState),
     isContextBusy: selectIsContextBusy(controllerState.workflowState),
@@ -49,6 +50,7 @@ export const useWorkspaceController = ({
       projectLibrary.currentProjectId
     ),
     isLibraryLoading: projectLibrary.isLibraryLoading,
+    loadStoredProjectSources: projectLibrary.loadStoredProjectSources,
     needsSourceFile:
       domain.needsSourceFile ||
       Boolean(

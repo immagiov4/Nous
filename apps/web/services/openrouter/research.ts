@@ -803,7 +803,8 @@ ${
               ? `${candidate.commentCount.toLocaleString('en-US')} comments`
               : '',
           ].filter(Boolean);
-          return `- ${candidate.url}${metrics.length ? ` | ${metrics.join(', ')}` : ''}`;
+          const metricsSuffix = metrics.length ? ` | ${metrics.join(', ')}` : '';
+          return `- ${candidate.url}${metricsSuffix}`;
         })
         .join('\n')
     : 'None'
@@ -1193,7 +1194,7 @@ ISTRUZIONI:
 - Preferisci piu intervalli dello stesso video quando copre bene l'intera sequenza; usa video diversi quando sono complementari. Usa soltanto indici e timestamp presenti nel dossier.
 - Per una procedura manuale o fisica che costituisce il nucleo della lezione, un transcript selezionato che mostra direttamente l'azione deve normalmente diventare una clip inline: una descrizione o un'immagine statica non sostituiscono il movimento. Omettila soltanto per una ragione concreta ricavabile dal transcript.
 ${YOUTUBE_CLIP_PEDAGOGY_RULES}
-- Genera da 1 a 3 pause attive come blocchi \`inline-quiz\` autosufficienti, contenenti direttamente domanda, quattro opzioni e indice corretto. Inserisci ciascuna pausa subito dopo il blocco markdown che la prepara. Non restituire un array quiz separato.
+- Genera da 0 a 3 pause attive come blocchi \`inline-quiz\` autosufficienti, contenenti direttamente domanda, quattro opzioni e indice corretto. Ogni pausa deve richiedere applicazione, confronto, inferenza o diagnosi di un errore: se la soluzione sarebbe una parafrasi diretta del testo locale, riscrivila come caso nuovo oppure omettila. Inserisci ciascuna pausa subito dopo il blocco markdown che la prepara. Non restituire un array quiz separato.
 - Mentre scrivi, decidi da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} esempi visuali generati. Inserisci un blocco \`generated-visual\` con \`slotId\` nel punto editoriale esatto e aggiungi il piano corrispondente in \`visualPlanning.plans\`.
 - ${INTERACTIVE_VISUAL_VALUE_RULE}
 - ${VISUAL_FORMAT_SELECTION_RULE} Per HTML interattivo la grafica deve essere prodotta da regole o algoritmi, non disegnata a mano.

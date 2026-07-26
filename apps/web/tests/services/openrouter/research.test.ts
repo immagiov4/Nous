@@ -8,6 +8,7 @@ const retryWithBackoffMock = vi.fn(async <T>(operation: () => Promise<T>) => awa
 const materializeGeneratedVisualSlotsMock = vi.fn(
   async ({ contentMarkdown }: { contentMarkdown: string }) => ({
     content: contentMarkdown,
+    generatedVisualSlots: [],
     generatedVisuals: [],
     visualPlanningDecision: {
       initial: { outcome: 'none' as const, plans: [], rationale: 'Nessuna visuale utile.' },

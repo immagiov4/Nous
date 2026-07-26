@@ -72,6 +72,7 @@ export const useWorkspaceReaderState = ({
     activeSectionId,
     contentRef,
     isMobileViewport: readerChrome.isMobileViewport,
+    scrollContainerRef,
     sectionAnnotations: activeSection?.annotations,
     sectionContent,
   });

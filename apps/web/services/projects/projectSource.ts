@@ -169,6 +169,18 @@ export const encodeTextBase64 = (text: string): string => {
 export const decodeTextBase64 = (value: string): string =>
   new TextDecoder().decode(decodeBase64Bytes(value));
 
+export const createFileObjectUrl = (file: FileData): string | null => {
+  if (!file.data) {
+    return null;
+  }
+  const bytes = decodeBase64Bytes(file.data);
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return URL.createObjectURL(
+    new Blob([buffer], { type: file.mimeType || 'application/octet-stream' })
+  );
+};
+
 export const decodeTextBase64Preview = (value: string, maxBytes: number): string => {
   if (maxBytes <= 0) {
     return '';

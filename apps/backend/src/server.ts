@@ -9,6 +9,7 @@ import {
 import { createApp } from './index.js';
 import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
 import { startFeedbackOutboxWorker, stopFeedbackOutboxWorker } from './services/feedbackService.js';
+import { startGenerationJobRunner } from './services/generationJobService.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
 
 const app = createApp();
@@ -16,6 +17,11 @@ const config = loadServerConfig();
 const backendConfig = getBackendServerConfig(config);
 
 startFeedbackOutboxWorker();
+try {
+  await startGenerationJobRunner();
+} catch (error) {
+  console.error('[Backend] Generation job runner failed to start.', error);
+}
 
 const server = app.listen(backendConfig.backendPort, backendConfig.backendHost, () => {
   const backendUrl = buildBackendServerUrl(backendConfig, { displayHost: true });

@@ -10,10 +10,12 @@ import type {
   AudioPanelTab,
   ContextMenuState,
   ContextScope,
+  FileData,
   LearningArtifactRenderPayload,
   LessonContentBlock,
   LessonCreationBlockReason,
   LessonGeneratedVisual,
+  LessonGeneratedVisualBlock,
   LessonImageRef,
   LessonLearningAid,
   LessonNode,
@@ -26,6 +28,7 @@ import type {
   SettingsPanelSectionId,
   VoiceProfileId,
 } from '../../../types.ts';
+import type { ResolvedLessonSourceReference } from '../../../utils/context/sourceMaterial.ts';
 import type { SidebarGroup } from '../../../utils/reader/workspaceReader.ts';
 
 export interface ContextAnswerState {
@@ -208,6 +211,8 @@ export interface WorkspaceReaderContentModel {
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
   learningAids: LessonLearningAid[];
+  documentSourceReferences?: ResolvedLessonSourceReference[];
+  loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
   lessonSources?: ResearchSourceReference[];
   onAdvanceSection: () => void;
   onCompleteSection: () => void;
@@ -217,6 +222,7 @@ export interface WorkspaceReaderContentModel {
   onContentPointerDownCapture: (event: ReactPointerEvent<HTMLElement>) => void;
   onSaveLearningAids: (learningAids: LessonLearningAid[]) => Promise<boolean>;
   onRequestExerciseFeedback: (exerciseId: string, internalText: string) => void;
+  onRetryGeneratedVisual?: (block: LessonGeneratedVisualBlock) => Promise<boolean>;
   onSelectQuizAnswer: (questionIndex: number, optionIndex: number) => void;
   onRemoveExerciseAttachment: (exerciseId: string, attachmentId: string) => void;
   onSetIsQuizSubmitted: (value: boolean) => void;

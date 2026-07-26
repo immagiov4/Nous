@@ -1,8 +1,7 @@
-import { Play } from 'lucide-react';
 import { type KeyboardEvent, useId, useMemo, useRef, useState } from 'react';
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import type { LessonYouTubeClip } from '../../../types.ts';
-import { buildYouTubeClipEmbedUrl } from '../../../utils/youtube.ts';
+import { buildYouTubeClipEmbedUrl, extractYouTubeVideoId } from '../../../utils/youtube.ts';
 
 const formatClipTime = (seconds: number): string => {
   const minutes = Math.floor(seconds / 60);
@@ -13,10 +12,33 @@ const formatClipRange = (clip: LessonYouTubeClip): string =>
   `${formatClipTime(clip.startSeconds)}–${formatClipTime(clip.endSeconds)}`;
 
 interface CarouselState {
-  isPlayerVisible: boolean;
+  playerIndex: number;
   selectedIndex: number;
   sequenceIdentity: string;
+  shouldAutoplay: boolean;
 }
+
+const YOUTUBE_EMBED_ORIGIN = 'https://www.youtube-nocookie.com';
+
+const playClipInExistingPlayer = (player: HTMLIFrameElement, clip: LessonYouTubeClip): void => {
+  const videoId = extractYouTubeVideoId(clip.url);
+  if (!videoId) return;
+
+  player.contentWindow?.postMessage(
+    JSON.stringify({
+      event: 'command',
+      func: 'loadVideoById',
+      args: [
+        {
+          endSeconds: clip.endSeconds,
+          startSeconds: clip.startSeconds,
+          videoId,
+        },
+      ],
+    }),
+    YOUTUBE_EMBED_ORIGIN
+  );
+};
 
 const buildClipSequenceIdentity = (clips: LessonYouTubeClip[]): string =>
   JSON.stringify(
@@ -30,40 +52,57 @@ const buildClipSequenceIdentity = (clips: LessonYouTubeClip[]): string =>
 
 export default function YouTubeClipCarousel({ clips }: { clips: LessonYouTubeClip[] }) {
   const carouselId = useId();
+  const playerRef = useRef<HTMLIFrameElement>(null);
+  const loadedPlayerUrlRef = useRef<string | null>(null);
   const tabListRef = useRef<HTMLDivElement>(null);
   const sequenceIdentity = useMemo(() => buildClipSequenceIdentity(clips), [clips]);
   const [carouselState, setCarouselState] = useState<CarouselState>(() => ({
-    isPlayerVisible: false,
+    playerIndex: 0,
     selectedIndex: 0,
     sequenceIdentity,
+    shouldAutoplay: false,
   }));
   const currentState =
     carouselState.sequenceIdentity === sequenceIdentity
       ? carouselState
-      : { isPlayerVisible: false, selectedIndex: 0, sequenceIdentity };
+      : { playerIndex: 0, selectedIndex: 0, sequenceIdentity, shouldAutoplay: false };
   const activeIndex = Math.min(currentState.selectedIndex, Math.max(0, clips.length - 1));
+  const playerIndex = Math.min(currentState.playerIndex, Math.max(0, clips.length - 1));
   const activeClip = clips[activeIndex];
-  if (!activeClip) {
+  const playerClip = clips[playerIndex];
+  if (!activeClip || !playerClip) {
     return null;
   }
 
   const embedUrl = buildYouTubeClipEmbedUrl(
-    activeClip.url,
-    activeClip.startSeconds,
-    activeClip.endSeconds
+    playerClip.url,
+    playerClip.startSeconds,
+    playerClip.endSeconds,
+    currentState.shouldAutoplay
   );
   if (!embedUrl) {
     return null;
   }
 
   const selectClip = (nextIndex: number) => {
-    if (nextIndex === activeIndex || !clips[nextIndex]) {
+    const nextClip = clips[nextIndex];
+    if (nextIndex === activeIndex || !nextClip) {
       return;
     }
+
+    const staysOnCurrentVideo =
+      extractYouTubeVideoId(nextClip.url) === extractYouTubeVideoId(playerClip.url) &&
+      loadedPlayerUrlRef.current === embedUrl;
+    if (staysOnCurrentVideo && playerRef.current) {
+      playClipInExistingPlayer(playerRef.current, nextClip);
+    } else {
+      loadedPlayerUrlRef.current = null;
+    }
     setCarouselState({
-      isPlayerVisible: false,
+      playerIndex: staysOnCurrentVideo ? playerIndex : nextIndex,
       selectedIndex: nextIndex,
       sequenceIdentity,
+      shouldAutoplay: true,
     });
   };
   const selectAndFocusClip = (nextIndex: number) => {
@@ -80,47 +119,25 @@ export default function YouTubeClipCarousel({ clips }: { clips: LessonYouTubeCli
     event.preventDefault();
     selectAndFocusClip(nextIndex);
   };
-  const activeTimeRange = formatClipRange(activeClip);
   const playerPanelId = `${carouselId}-player`;
   const hasMultipleClips = clips.length > 1;
 
   return (
     <section className="overflow-hidden rounded-[1.25rem] border border-stone-200/80 bg-white/80 dark:border-stone-700 dark:bg-stone-900/35">
       <div id={playerPanelId} role="tabpanel" aria-label={activeClip.title}>
-        {currentState.isPlayerVisible ? (
-          <iframe
-            src={embedUrl}
-            title={t('Dimostrazione video: {sourceTitle}', { sourceTitle: activeClip.title })}
-            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-            loading="lazy"
-            referrerPolicy="strict-origin-when-cross-origin"
-            className="aspect-video w-full border-0"
-          />
-        ) : (
-          <button
-            type="button"
-            aria-label={t('Riproduci la dimostrazione ({timeRange})', {
-              timeRange: activeTimeRange,
-            })}
-            onClick={() =>
-              setCarouselState({
-                ...currentState,
-                isPlayerVisible: true,
-                sequenceIdentity,
-              })
-            }
-            className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-stone-100 px-6 text-stone-800 transition-colors hover:bg-stone-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-orange-600 dark:bg-stone-950 dark:text-stone-100 dark:hover:bg-stone-900"
-          >
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-orange-600 text-white">
-              <Play className="ml-0.5 h-5 w-5" fill="currentColor" />
-            </span>
-            <span className="max-w-full truncate text-sm font-semibold">{activeClip.title}</span>
-            <span className="text-xs font-medium tabular-nums text-stone-600 dark:text-stone-300">
-              {activeTimeRange}
-            </span>
-          </button>
-        )}
+        <iframe
+          ref={playerRef}
+          src={embedUrl}
+          title={t('Dimostrazione video: {sourceTitle}', { sourceTitle: activeClip.title })}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          loading="lazy"
+          onLoad={() => {
+            loadedPlayerUrlRef.current = embedUrl;
+          }}
+          referrerPolicy="strict-origin-when-cross-origin"
+          className="aspect-video w-full border-0"
+        />
       </div>
 
       {hasMultipleClips ? (

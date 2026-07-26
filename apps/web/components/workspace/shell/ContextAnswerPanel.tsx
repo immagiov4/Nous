@@ -547,6 +547,7 @@ function ContextAnswerPanelSession({
             projectId: contextAnswer.projectId,
             projectTitle: contextAnswer.projectTitle || t('Corso'),
             prompt: artifactInput.prompt,
+            requestKey: toolCall.toolCallId,
             rasterImageRequested: artifactInput.rasterImageRequested,
             revisionInstructions: artifactInput.revisionInstructions,
             selectedText: currentState.selectedText,
@@ -810,6 +811,7 @@ function ContextAnswerPanelSession({
         prompt: t('Modifica l artefatto "{artifactTitle}".', {
           artifactTitle: payload.summary.title,
         }),
+        requestKey: `context-replacement-${artifactId}-${Date.now()}`,
         revisionInstructions: instructions,
         selectedText: currentState?.selectedText,
         sourceArtifact: payload,

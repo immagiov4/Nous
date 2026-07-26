@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WorkspaceReaderShellProps } from '../components/workspace/shell/types.ts';
 import type { useWorkspaceController } from '../hooks/workspace/useWorkspaceController.ts';
 import type { useWorkspaceReaderActions } from '../hooks/workspace/useWorkspaceReaderActions.ts';
@@ -11,10 +11,20 @@ import {
   withUpdatedExerciseDeliverable,
 } from '../services/exercises/plan.ts';
 import { getExercisePrerequisiteGaps } from '../services/openrouter/exercises/brief.ts';
-import type { ExerciseAttachment, LessonLearningAid } from '../types.ts';
-import { getLessonSourcePageLabel } from '../utils/context/sourceMaterial.ts';
+import { retryGeneratedVisualSlot } from '../services/openrouter/lessonImages.ts';
+import type {
+  ExerciseAttachment,
+  LessonGeneratedVisualBlock,
+  LessonLearningAid,
+  LessonNode,
+} from '../types.ts';
+import {
+  getLessonSourcePageLabel,
+  resolveLessonSourceReferences,
+} from '../utils/context/sourceMaterial.ts';
 import { collectSectionLearningArtifactPayloads } from '../utils/learning/artifacts.ts';
 import { findPathNodeById, flattenLessons } from '../utils/learning/pathNodes.ts';
+import { completeGeneratedVisualRetry } from '../utils/reader/lessonContentBlocks.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
@@ -32,6 +42,157 @@ interface UseReaderShellPropsArgs {
   syncState: 'saved' | 'saving' | 'error';
 }
 
+interface GeneratedVisualRetryContext {
+  activeSection: LessonNode | null;
+  activeSectionId: string | null;
+  generationNotes?: string;
+  lessonWorkflowRequestId: number;
+  patchSectionLessonContent: (
+    sectionId: string,
+    patch: Pick<LessonNode, 'contentBlocks' | 'generatedVisuals'>
+  ) => Promise<boolean>;
+  projectId: string | null;
+  sectionContent: string;
+  updateSection: (sectionId: string, updater: (section: LessonNode) => LessonNode) => void;
+}
+
+interface GeneratedVisualRetryCoordinator {
+  retry: (block: LessonGeneratedVisualBlock) => Promise<boolean>;
+  setContext: (context: GeneratedVisualRetryContext) => void;
+}
+
+const findRetryBlock = (
+  section: LessonNode,
+  slotId: string
+): LessonGeneratedVisualBlock | undefined =>
+  section.contentBlocks?.find(
+    (block): block is LessonGeneratedVisualBlock =>
+      block.type === 'generated-visual' && block.slotId === slotId && Boolean(block.retryPlan)
+  );
+
+const matchesRetryOrigin = (
+  context: GeneratedVisualRetryContext,
+  projectId: string | null,
+  sectionId: string,
+  workflowRequestId: number
+): boolean =>
+  context.projectId === projectId &&
+  context.activeSectionId === sectionId &&
+  context.lessonWorkflowRequestId === workflowRequestId;
+
+export const createGeneratedVisualRetryHandler = ({
+  getContext,
+  retrySlot = retryGeneratedVisualSlot,
+  setCurrentSection,
+}: {
+  getContext: () => GeneratedVisualRetryContext;
+  retrySlot?: typeof retryGeneratedVisualSlot;
+  setCurrentSection: (section: LessonNode) => void;
+}): ((block: LessonGeneratedVisualBlock) => Promise<boolean>) => {
+  const queues = new Map<string, Promise<void>>();
+
+  const runRetry = async (
+    block: LessonGeneratedVisualBlock,
+    projectId: string | null,
+    sectionId: string,
+    workflowRequestId: number
+  ): Promise<boolean> => {
+    let context = getContext();
+    if (
+      !matchesRetryOrigin(context, projectId, sectionId, workflowRequestId) ||
+      !context.activeSection
+    )
+      return false;
+    const currentBlock = findRetryBlock(context.activeSection, block.slotId);
+    if (!currentBlock?.retryPlan) return false;
+
+    const visual = await retrySlot({
+      contentMarkdown: context.activeSection.content || context.sectionContent,
+      generationNotes: context.generationNotes,
+      hasPdfImages: Boolean(context.activeSection.imageRefs?.length),
+      plan: currentBlock.retryPlan,
+      sectionDescription: context.activeSection.description,
+      sectionTitle: context.activeSection.title,
+    });
+    if (!visual) return false;
+
+    context = getContext();
+    if (
+      !matchesRetryOrigin(context, projectId, sectionId, workflowRequestId) ||
+      !context.activeSection
+    )
+      return false;
+    if (!findRetryBlock(context.activeSection, block.slotId)) return false;
+
+    const contentBlocks = completeGeneratedVisualRetry(
+      context.activeSection.contentBlocks || [],
+      block.slotId,
+      visual.id
+    );
+    const generatedVisuals = [
+      ...(context.activeSection.generatedVisuals || []).filter(
+        candidate => candidate.id !== visual.id
+      ),
+      visual,
+    ];
+    const didPersist = await context.patchSectionLessonContent(sectionId, {
+      contentBlocks,
+      generatedVisuals,
+    });
+    if (!didPersist) return false;
+
+    context = getContext();
+    if (
+      !matchesRetryOrigin(context, projectId, sectionId, workflowRequestId) ||
+      !context.activeSection
+    )
+      return false;
+    const nextSection = { ...context.activeSection, contentBlocks, generatedVisuals };
+    setCurrentSection(nextSection);
+    context.updateSection(sectionId, section => ({ ...section, contentBlocks, generatedVisuals }));
+    return true;
+  };
+
+  return block => {
+    const context = getContext();
+    const sectionId = context.activeSection?.id;
+    if (!sectionId || !block.retryPlan) return Promise.resolve(false);
+    const queueKey = `${context.projectId || 'local'}:${sectionId}`;
+    const previous = queues.get(queueKey) ?? Promise.resolve();
+    const result = previous.then(
+      () => runRetry(block, context.projectId, sectionId, context.lessonWorkflowRequestId),
+      () => runRetry(block, context.projectId, sectionId, context.lessonWorkflowRequestId)
+    );
+    const tail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    queues.set(queueKey, tail);
+    return result.finally(() => {
+      if (queues.get(queueKey) === tail) queues.delete(queueKey);
+    });
+  };
+};
+
+const createGeneratedVisualRetryCoordinator = (
+  initialContext: GeneratedVisualRetryContext
+): GeneratedVisualRetryCoordinator => {
+  let currentContext = initialContext;
+  return {
+    retry: createGeneratedVisualRetryHandler({
+      getContext: () => currentContext,
+      setCurrentSection: section => {
+        if (currentContext.activeSectionId === section.id) {
+          currentContext = { ...currentContext, activeSection: section };
+        }
+      },
+    }),
+    setContext: context => {
+      currentContext = context;
+    },
+  };
+};
+
 export const useReaderShellProps = ({
   controller,
   handleAttachSourceFile,
@@ -43,6 +204,30 @@ export const useReaderShellProps = ({
   readerState,
   syncState,
 }: UseReaderShellPropsArgs): WorkspaceReaderShellProps => {
+  const [visualRetryCoordinator] = useState(() =>
+    createGeneratedVisualRetryCoordinator({
+      activeSection: controller.activeSection,
+      activeSectionId: controller.activeSectionId,
+      generationNotes: controller.learningPlan?.generationNotes,
+      lessonWorkflowRequestId: controller.workflowState.loadSection.requestId,
+      patchSectionLessonContent: controller.patchSectionLessonContent,
+      projectId: controller.currentProjectId,
+      sectionContent: controller.sectionContent,
+      updateSection: controller.updateSection,
+    })
+  );
+  useEffect(() => {
+    visualRetryCoordinator.setContext({
+      activeSection: controller.activeSection,
+      activeSectionId: controller.activeSectionId,
+      generationNotes: controller.learningPlan?.generationNotes,
+      lessonWorkflowRequestId: controller.workflowState.loadSection.requestId,
+      patchSectionLessonContent: controller.patchSectionLessonContent,
+      projectId: controller.currentProjectId,
+      sectionContent: controller.sectionContent,
+      updateSection: controller.updateSection,
+    });
+  }, [controller, visualRetryCoordinator]);
   const activeSectionSourcePageRangeLabel = useMemo(
     () =>
       getLessonSourcePageLabel({
@@ -50,6 +235,35 @@ export const useReaderShellProps = ({
         documentIndex: controller.documentIndex,
       }),
     [controller.activeSection, controller.documentIndex]
+  );
+  const activeSectionSourceReferences = useMemo(
+    () =>
+      resolveLessonSourceReferences({
+        activeSection: controller.activeSection,
+        source: controller.source,
+      }),
+    [controller.activeSection, controller.source]
+  );
+  const loadDocumentSourceFile = useCallback(
+    async (sourceId: string) => {
+      const inMemoryFile = activeSectionSourceReferences.find(
+        reference => reference.sourceId === sourceId
+      )?.file;
+      if (inMemoryFile?.data) {
+        return inMemoryFile;
+      }
+
+      const projectId = controller.currentProjectId;
+      if (!projectId) {
+        return null;
+      }
+      const storedSources = await controller.loadStoredProjectSources(projectId);
+      if (controller.getCurrentProjectId() !== projectId) {
+        return null;
+      }
+      return storedSources.find(stored => stored.ref.id === sourceId)?.file || null;
+    },
+    [activeSectionSourceReferences, controller]
   );
   const activePathNode = useMemo(
     () => findPathNodeById(controller.learningPlan?.modules, controller.activeSectionId),
@@ -188,6 +402,7 @@ export const useReaderShellProps = ({
     },
     [controller]
   );
+  const handleRetryGeneratedVisual = visualRetryCoordinator.retry;
 
   return useMemo(
     () => ({
@@ -219,6 +434,8 @@ export const useReaderShellProps = ({
         isMobileViewport: readerState.readerChrome.isMobileViewport,
         isQuizSubmitted: readerState.isQuizSubmitted,
         learningAids: controller.activeSection?.learningAids || [],
+        documentSourceReferences: activeSectionSourceReferences,
+        loadDocumentSourceFile,
         lessonSources: controller.activeSection
           ? controller.researchDossiersBySectionId[controller.activeSection.id]?.sources || []
           : [],
@@ -234,6 +451,7 @@ export const useReaderShellProps = ({
         onContentPointerDownCapture: readerState.readerContext.handleContentPointerDownCapture,
         onSaveLearningAids: handleSaveLearningAids,
         onRequestExerciseFeedback: handleRequestExerciseFeedback,
+        onRetryGeneratedVisual: handleRetryGeneratedVisual,
         onSelectQuizAnswer: readerState.handleSelectQuizAnswer,
         onRemoveExerciseAttachment: handleRemoveExerciseAttachment,
         onSetIsQuizSubmitted: readerState.setIsQuizSubmitted,
@@ -372,6 +590,7 @@ export const useReaderShellProps = ({
       },
     }),
     [
+      activeSectionSourceReferences,
       activeSectionSourcePageRangeLabel,
       activeExercise,
       activePathNode,
@@ -408,12 +627,14 @@ export const useReaderShellProps = ({
       handleAttachExerciseFiles,
       handleRemoveExerciseAttachment,
       handleRequestExerciseFeedback,
+      handleRetryGeneratedVisual,
       handleUpdateExerciseInternalText,
       hasNextSection,
       isActiveSectionLoading,
       isRepairingApplicationExercises,
       isEvaluatingExercise,
       loadingStatus,
+      loadDocumentSourceFile,
       pdfMappingWarning,
       playerCurrentChunkIsLoading,
       readerActions,

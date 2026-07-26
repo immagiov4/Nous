@@ -15,7 +15,7 @@ export interface SourceLibraryItem {
   file: FileData;
   id: string;
   isAvailable: boolean;
-  kind: CourseSourceDescriptor['kind'];
+  kind: CourseSourceDescriptor['kind'] | 'archive';
   projectId: string;
   projectTitle: string;
   requiresPrimarySourceLoad: boolean;
@@ -147,6 +147,22 @@ export const useSourceLibrary = ({
           );
           if (!isCurrent) return;
           for (const snapshot of snapshots) {
+            const projectTitle = projectById.get(snapshot.id)?.title || 'Corso senza titolo';
+            const archiveSource = snapshot.source?.kind === 'archive' ? snapshot.source : null;
+            if (archiveSource) {
+              const isAvailable = Boolean(archiveSource.file.data || archiveSource.ref);
+              collectedItems.push({
+                file: archiveSource.file,
+                id: `${snapshot.id}:${archiveSource.ref?.id || archiveSource.file.sourceId || archiveSource.name}`,
+                isAvailable,
+                kind: 'archive',
+                projectId: snapshot.id,
+                projectTitle,
+                requiresPrimarySourceLoad: isAvailable && !archiveSource.file.data,
+              });
+              continue;
+            }
+
             const descriptors = buildFallbackDescriptor(snapshot);
             const pdfSource = snapshot.source?.kind === 'pdf' ? snapshot.source : null;
             const primarySourceId = pdfSource?.file.sourceId || '';
@@ -165,7 +181,7 @@ export const useSourceLibrary = ({
                 isAvailable,
                 kind: descriptor.kind,
                 projectId: snapshot.id,
-                projectTitle: projectById.get(snapshot.id)?.title || 'Corso senza titolo',
+                projectTitle,
                 requiresPrimarySourceLoad,
               });
             }
@@ -205,20 +221,6 @@ export const resolveSourceLibraryItemFile = async (
     : item.requiresPrimarySourceLoad
       ? loadProjectSource(item.projectId)
       : null;
-
-export const createSourceObjectUrl = (file: FileData): string | null => {
-  if (!file.data) {
-    return null;
-  }
-  const binary = globalThis.window.atob(file.data);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return URL.createObjectURL(
-    new Blob([bytes], { type: file.mimeType || 'application/octet-stream' })
-  );
-};
 
 export const decodeSourceText = (file: FileData): string => {
   if (!file.data) return '';

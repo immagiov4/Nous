@@ -362,6 +362,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       order: 1,
     }),
     currentProjectId: null,
+    getCurrentProjectId: () => adapter.currentProjectId,
     deleteStoredProject: async projectId => {
       deletedProjectIds.push(projectId);
     },

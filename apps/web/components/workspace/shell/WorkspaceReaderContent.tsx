@@ -25,6 +25,7 @@ import type {
   LearningArtifactRenderPayload,
   LessonContentBlock,
   LessonGeneratedVisual,
+  LessonGeneratedVisualBlock,
   ResearchSourceReference,
   SectionAnnotation,
 } from '../../../types.ts';
@@ -47,6 +48,7 @@ import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
+import LessonDocumentSources from './LessonDocumentSources.tsx';
 import LessonLearningAids from './LessonLearningAids.tsx';
 import type { WorkspaceReaderContentModel } from './types.ts';
 import WorkspaceReaderInlineQuestion from './WorkspaceReaderInlineQuestion.tsx';
@@ -54,6 +56,54 @@ import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 import YouTubeClipCarousel from './YouTubeClipCarousel.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
+
+function FailedVisualSlot({
+  block,
+  onRetry,
+}: {
+  block: LessonGeneratedVisualBlock;
+  onRetry?: (block: LessonGeneratedVisualBlock) => Promise<boolean>;
+}) {
+  const [status, setStatus] = useState<'error' | 'loading' | 'success'>('error');
+
+  const retry = async () => {
+    if (!onRetry || status === 'loading') return;
+    setStatus('loading');
+    try {
+      setStatus((await onRetry(block)) ? 'success' : 'error');
+    } catch {
+      setStatus('error');
+    }
+  };
+
+  return (
+    <output
+      className="my-8 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/20 dark:text-amber-100"
+      data-nous-speech="ignore"
+    >
+      <p className="text-sm font-semibold">
+        {t(
+          status === 'loading'
+            ? 'Generazione esempio visuale…'
+            : status === 'success'
+              ? 'Esempio visuale integrato'
+              : 'Esempio visuale non generato'
+        )}
+      </p>
+      {status !== 'success' ? (
+        <button
+          type="button"
+          className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-300 px-3 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-60 dark:border-amber-800"
+          disabled={!onRetry || status === 'loading'}
+          onClick={() => void retry()}
+        >
+          {status === 'loading' ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+          {t('Riprova')}
+        </button>
+      ) : null}
+    </output>
+  );
+}
 
 const createFallbackVisualArtifactPayload = ({
   activeSectionTitle,
@@ -739,10 +789,23 @@ const getSafeSourceUrl = (url: string | undefined): string | null => {
   }
 };
 
-function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference[] }) {
-  if (sources.length === 0) {
+function LessonSourceAttribution({
+  documentSources,
+  loadDocumentSourceFile,
+  sources,
+}: {
+  documentSources: WorkspaceReaderContentModel['documentSourceReferences'];
+  loadDocumentSourceFile: WorkspaceReaderContentModel['loadDocumentSourceFile'];
+  sources: ResearchSourceReference[];
+}) {
+  if (sources.length === 0 && !documentSources?.length) {
     return null;
   }
+
+  const documentSourceNames = new Set(
+    (documentSources || []).map(source => source.name.trim()).filter(Boolean)
+  );
+  const externalSources = sources.filter(source => !documentSourceNames.has(source.title.trim()));
 
   return (
     <aside
@@ -752,32 +815,38 @@ function LessonSourceAttribution({ sources }: { sources: ResearchSourceReference
       <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
         {t('Fonti della sezione')}
       </h2>
-      <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-700 dark:text-stone-300">
-        {sources.map((source, index) => {
-          const safeUrl = getSafeSourceUrl(source.url);
-          return (
-            <li key={`${source.title}:${source.url || index}`}>
-              {safeUrl ? (
-                <a
-                  href={safeUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-semibold text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 dark:text-orange-300 dark:hover:text-orange-100"
-                >
-                  {source.title}
-                </a>
-              ) : (
-                <span className="font-semibold text-stone-900 dark:text-stone-100">
-                  {source.title}
-                </span>
-              )}
-              {source.note ? (
-                <p className="mt-1 text-stone-600 dark:text-stone-400">{source.note}</p>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
+      <LessonDocumentSources
+        loadSourceFile={loadDocumentSourceFile}
+        sources={documentSources || []}
+      />
+      {externalSources.length > 0 ? (
+        <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-700 dark:text-stone-300">
+          {externalSources.map((source, index) => {
+            const safeUrl = getSafeSourceUrl(source.url);
+            return (
+              <li key={`${source.title}:${source.url || index}`}>
+                {safeUrl ? (
+                  <a
+                    href={safeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 dark:text-orange-300 dark:hover:text-orange-100"
+                  >
+                    {source.title}
+                  </a>
+                ) : (
+                  <span className="font-semibold text-stone-900 dark:text-stone-100">
+                    {source.title}
+                  </span>
+                )}
+                {source.note ? (
+                  <p className="mt-1 text-stone-600 dark:text-stone-400">{source.note}</p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </aside>
   );
 }
@@ -789,6 +858,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   activeSectionAssetsById,
   activeSectionGeneratedVisualsById = {},
   activeSectionImageRefsById,
+  documentSourceReferences = [],
+  loadDocumentSourceFile,
   hasNextSection,
   contentRef,
   currentLessonArtifactPayloads = [],
@@ -807,6 +878,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   onContentPointerDownCapture,
   onSaveLearningAids,
   onRequestExerciseFeedback,
+  onRetryGeneratedVisual,
   onSelectQuizAnswer,
   onRemoveExerciseAttachment,
   quiz,
@@ -1159,6 +1231,12 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                             title={visual.title}
                             visual={visual}
                           />
+                        ) : block.retryPlan ? (
+                          <FailedVisualSlot
+                            key={`visual:${block.slotId}`}
+                            block={block}
+                            onRetry={onRetryGeneratedVisual}
+                          />
                         ) : null;
                       })
                     : inlineQuizLayout.map(chunk => (
@@ -1274,7 +1352,11 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                   </section>
                 ) : null}
 
-                <LessonSourceAttribution sources={lessonSources} />
+                <LessonSourceAttribution
+                  documentSources={documentSourceReferences}
+                  loadDocumentSourceFile={loadDocumentSourceFile}
+                  sources={lessonSources}
+                />
 
                 <WorkspaceReaderQuizFooter
                   canComplete={canCompleteSection}

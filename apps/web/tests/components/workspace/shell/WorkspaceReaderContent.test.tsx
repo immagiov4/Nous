@@ -174,6 +174,59 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.queryByText('Questo fallback legacy non deve apparire.')).toBeNull();
   });
 
+  test('keeps a failed visual inline and retries only that slot', async () => {
+    let finishRetry: ((succeeded: boolean) => void) | undefined;
+    const onRetryGeneratedVisual = vi.fn(
+      () =>
+        new Promise<boolean>(resolve => {
+          finishRetry = resolve;
+        })
+    );
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          onRetryGeneratedVisual,
+          quiz: [],
+          sectionContentBlocks: [
+            { type: 'markdown', markdown: 'Prima spiegazione.' },
+            {
+              type: 'generated-visual',
+              slotId: 'slot-001',
+              retryPlan: {
+                slotId: 'slot-001',
+                complexity: 'simple',
+                concept: 'Confronto',
+                coverage: 'single_complex',
+                coverageRationale: 'Mostra il confronto.',
+                factualRequirements: ['Due stati distinti'],
+                interactionLevel: 'none',
+                pedagogicalGoal: 'Rendere visibile il confronto.',
+                reason: 'Il testo non basta.',
+                requiresDepiction: true,
+                visualDirection: 'Due stati affiancati.',
+                visualType: 'illustrative_image',
+              },
+            },
+            { type: 'markdown', markdown: 'Spiegazione successiva.' },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText('Esempio visuale non generato')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Riprova' }));
+    expect(onRetryGeneratedVisual).toHaveBeenCalledWith(
+      expect.objectContaining({ slotId: 'slot-001' })
+    );
+    expect(screen.getByText('Generazione esempio visuale…')).toBeInTheDocument();
+    finishRetry?.(false);
+    await waitFor(() =>
+      expect(screen.getByText('Esempio visuale non generato')).toBeInTheDocument()
+    );
+    expect(screen.getByRole('button', { name: 'Riprova' })).toBeEnabled();
+    expect(screen.getByText('Spiegazione successiva.')).toBeInTheDocument();
+  });
+
   test('resolves a typed YouTube chapter at its ordered block position', async () => {
     render(
       <WorkspaceReaderContent
@@ -579,6 +632,38 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByRole('complementary', { name: 'Fonti della sezione' })).toHaveTextContent(
       'Fonte canonica'
     );
+  });
+
+  test('does not repeat a cited course document in the generic source list', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          documentSourceReferences: [
+            {
+              chunkIds: ['source-course:chunk-1'],
+              file: {
+                data: '',
+                mimeType: 'application/pdf',
+                name: 'course.pdf',
+                sourceId: 'source-course',
+              },
+              kind: 'pdf',
+              name: 'course.pdf',
+              pageStart: 4,
+              sourceId: 'source-course',
+            },
+          ],
+          lessonSources: [
+            { title: 'course.pdf', note: 'Materiale originale del corso' },
+            { title: 'Fonte esterna', url: 'https://example.com/source' },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getAllByText('course.pdf')).toHaveLength(1);
+    expect(screen.queryByText('Materiale originale del corso')).toBeNull();
+    expect(screen.getByText('Fonte esterna')).toBeInTheDocument();
   });
 
   test('enables lesson completion once all inline questions have been answered', () => {

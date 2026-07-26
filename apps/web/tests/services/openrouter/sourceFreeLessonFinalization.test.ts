@@ -8,6 +8,7 @@ const verifyLessonDraftMock = vi.fn();
 const materializeGeneratedVisualSlotsMock = vi.fn(
   async ({ contentMarkdown }: { contentMarkdown: string }) => ({
     content: contentMarkdown,
+    generatedVisualSlots: [],
     generatedVisuals: [],
     visualPlanningDecision: {
       initial: { outcome: 'none' as const, plans: [], rationale: 'Nessuna visuale.' },
@@ -83,4 +84,33 @@ test('finalizeSourceFreeLesson falls back to the original validated lesson and q
   assert.equal(result.content, originalContent);
   assert.equal(result.quiz, quiz);
   assert.equal(hasExactInlineQuizMarkerContract(result.content, result.quiz.length), true);
+});
+
+test('finalizeSourceFreeLesson preserves a valid lesson without active pauses', async () => {
+  repairLessonMarkdownMock.mockReset();
+  verifyLessonDraftMock.mockReset();
+  materializeGeneratedVisualSlotsMock.mockClear();
+
+  const contentBlocks = [
+    { markdown: '## Concetto\n\nSpiegazione completa.', type: 'markdown' as const },
+    { markdown: '## Conclusione\n\nApplicazione conclusiva.', type: 'markdown' as const },
+  ];
+  const contentMarkdown = contentBlocks.map(block => block.markdown).join('\n\n');
+  verifyLessonDraftMock.mockResolvedValue({
+    contentBlocks,
+    contentMarkdown,
+    imagePlacements: [],
+    quiz: [],
+    visualPlanning: { plans: [], rationale: 'Nessun visuale.' },
+  });
+
+  const result = await finalizeSourceFreeLesson({
+    contentBlocks,
+    contentMarkdown,
+    sectionDescription: 'Applicazione del concetto.',
+    sectionTitle: 'Concetto',
+  });
+
+  assert.deepEqual(result.quiz, []);
+  assert.deepEqual(result.contentBlocks, contentBlocks);
 });

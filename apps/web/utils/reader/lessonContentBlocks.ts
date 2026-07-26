@@ -1,6 +1,7 @@
 import type {
   LessonContentBlock,
   LessonGeneratedVisual,
+  LessonVisualRetryPlan,
   LessonYouTubeClipsBlock,
   QuizQuestion,
 } from '../../types.ts';
@@ -142,7 +143,60 @@ const normalizeGeneratedVisualBlock = (block: Record<string, unknown>): LessonCo
   const slotId = typeof block.slotId === 'string' ? block.slotId.trim() : '';
   if (!slotId) return [];
   const visualId = typeof block.visualId === 'string' ? block.visualId.trim() : '';
-  return [{ slotId, type: 'generated-visual', ...(visualId ? { visualId } : {}) }];
+  const retryPlan = normalizeVisualRetryPlan(block.retryPlan, slotId);
+  return [
+    {
+      slotId,
+      type: 'generated-visual',
+      ...(visualId ? { visualId } : {}),
+      ...(retryPlan ? { retryPlan } : {}),
+    },
+  ];
+};
+
+const VISUAL_TYPES = new Set([
+  'chart_html',
+  'flowchart_svg',
+  'illustrative_image',
+  'interactive_html',
+  'mermaid_class',
+  'mermaid_erd',
+  'structural_svg',
+]);
+const VISUAL_COMPLEXITIES = new Set(['simple', 'moderate', 'complex']);
+const VISUAL_COVERAGE = new Set(['all_elements', 'single_complex', 'complete_synthesis', 'none']);
+const VISUAL_INTERACTION_LEVELS = new Set(['none', 'low', 'high']);
+
+const isAllowedString = (value: unknown, allowedValues: ReadonlySet<string>): value is string =>
+  typeof value === 'string' && allowedValues.has(value);
+
+const normalizeVisualRetryPlan = (
+  value: unknown,
+  slotId: string
+): LessonVisualRetryPlan | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const plan = value as Record<string, unknown>;
+  const requiredStrings = [
+    'concept',
+    'coverageRationale',
+    'pedagogicalGoal',
+    'reason',
+    'visualDirection',
+  ] as const;
+  if (
+    plan.slotId !== slotId ||
+    !requiredStrings.every(key => typeof plan[key] === 'string' && plan[key].trim()) ||
+    !isAllowedString(plan.complexity, VISUAL_COMPLEXITIES) ||
+    !isAllowedString(plan.coverage, VISUAL_COVERAGE) ||
+    !isAllowedString(plan.interactionLevel, VISUAL_INTERACTION_LEVELS) ||
+    !isAllowedString(plan.visualType, VISUAL_TYPES) ||
+    !Array.isArray(plan.factualRequirements) ||
+    !plan.factualRequirements.every(requirement => typeof requirement === 'string') ||
+    typeof plan.requiresDepiction !== 'boolean'
+  ) {
+    return undefined;
+  }
+  return plan as unknown as LessonVisualRetryPlan;
 };
 
 const normalizeYouTubeClipsBlock = (block: Record<string, unknown>): LessonContentBlock[] => {
@@ -192,18 +246,33 @@ export const deriveQuizFromLessonContentBlocks = (
 
 export const materializeGeneratedVisualBlocks = (
   blocks: LessonContentBlock[],
-  plans: Array<{ slotId: string }>,
-  visuals: LessonGeneratedVisual[]
+  plans: LessonVisualRetryPlan[],
+  generatedSlots: Array<{ slotId: string; visual: LessonGeneratedVisual }>
 ): LessonContentBlock[] => {
+  const planBySlotId = new Map(plans.map(plan => [plan.slotId, plan]));
   const visualIdBySlotId = new Map(
-    plans.flatMap((plan, index) => {
-      const visual = visuals[index];
-      return visual ? [[plan.slotId, visual.id] as const] : [];
-    })
+    generatedSlots.map(result => [result.slotId, result.visual.id] as const)
   );
   return blocks.flatMap((block): LessonContentBlock[] => {
     if (block.type !== 'generated-visual') return [block];
+    const retryPlan = planBySlotId.get(block.slotId);
+    if (!retryPlan) return [];
     const visualId = visualIdBySlotId.get(block.slotId);
-    return visualId ? [{ ...block, visualId }] : [];
+    return [
+      visualId
+        ? { slotId: block.slotId, type: 'generated-visual', visualId }
+        : { retryPlan, slotId: block.slotId, type: 'generated-visual' },
+    ];
   });
 };
+
+export const completeGeneratedVisualRetry = (
+  blocks: LessonContentBlock[],
+  slotId: string,
+  visualId: string
+): LessonContentBlock[] =>
+  blocks.map(block =>
+    block.type === 'generated-visual' && block.slotId === slotId
+      ? { slotId, type: 'generated-visual', visualId }
+      : block
+  );

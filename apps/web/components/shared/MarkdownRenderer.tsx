@@ -79,9 +79,53 @@ const EMPTY_LESSON_IMAGE_REFS_BY_ID: Record<string, LessonImageRef> = {};
 const EMPTY_SECTION_ANNOTATIONS: SectionAnnotation[] = [];
 const EMPTY_NOTE_ANNOTATION_IDS = new Set<string>();
 const ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX = 3;
+const ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE = 'data-nous-annotation-inline-highlight';
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex, rehypeRaw];
 const NORMALIZED_MARKDOWN_CACHE_LIMIT = 80;
+
+interface AnnotationHighlightLineRect {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
+const mergeAnnotationHighlightLineRects = (
+  entries: SectionAnnotationHighlightEntry[]
+): AnnotationHighlightLineRect[] => {
+  const rects = entries
+    .flatMap(entry => entry.ranges)
+    .flatMap(range => Array.from(range.getClientRects()))
+    .filter(rect => rect.width > 0 && rect.height > 0)
+    .sort((first, second) => first.top - second.top || first.left - second.left);
+  const mergedRects: AnnotationHighlightLineRect[] = [];
+
+  for (const rect of rects) {
+    const mergeTarget = mergedRects.find(
+      candidate =>
+        rect.top < candidate.bottom &&
+        rect.bottom > candidate.top &&
+        rect.left <= candidate.right + ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2
+    );
+    if (!mergeTarget) {
+      mergedRects.push({
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+      });
+      continue;
+    }
+
+    mergeTarget.bottom = Math.max(mergeTarget.bottom, rect.bottom);
+    mergeTarget.left = Math.min(mergeTarget.left, rect.left);
+    mergeTarget.right = Math.max(mergeTarget.right, rect.right);
+    mergeTarget.top = Math.min(mergeTarget.top, rect.top);
+  }
+
+  return mergedRects;
+};
 const CODE_LANGUAGE_ALIASES: Record<string, string> = {
   'c++': 'cpp',
   cs: 'csharp',
@@ -397,33 +441,33 @@ const MarkdownRenderer = ({
     const entries = resolveSectionAnnotationHighlightEntries(article, sectionAnnotations);
     annotationHighlightEntriesRef.current = entries;
     const unregisterHighlights = registerSectionAnnotationHighlights(entries);
+    const highlightedInlineCodeElements = Array.from(
+      article.querySelectorAll('code:not(pre code)')
+    ).filter(codeElement =>
+      entries.some(entry => entry.ranges.some(range => range.intersectsNode(codeElement)))
+    );
+    highlightedInlineCodeElements.forEach(codeElement => {
+      codeElement.setAttribute(ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE, 'true');
+    });
     const renderHighlightCaps = () => {
       const articleRect = article.getBoundingClientRect();
       const fragment = document.createDocumentFragment();
-      for (const entry of entries) {
-        for (const range of entry.ranges) {
-          for (const rect of range.getClientRects()) {
-            if (rect.width <= 0 || rect.height <= 0) {
-              continue;
-            }
+      for (const rect of mergeAnnotationHighlightLineRects(entries)) {
+        const leftCap = document.createElement('span');
+        leftCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-start';
+        leftCap.style.left = `${rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+        leftCap.style.top = `${rect.top - articleRect.top}px`;
+        leftCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+        leftCap.style.height = `${rect.bottom - rect.top}px`;
 
-            const leftCap = document.createElement('span');
-            leftCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-start';
-            leftCap.style.left = `${rect.left - articleRect.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-            leftCap.style.top = `${rect.top - articleRect.top}px`;
-            leftCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-            leftCap.style.height = `${rect.height}px`;
+        const rightCap = document.createElement('span');
+        rightCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-end';
+        rightCap.style.left = `${rect.right - articleRect.left}px`;
+        rightCap.style.top = `${rect.top - articleRect.top}px`;
+        rightCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
+        rightCap.style.height = `${rect.bottom - rect.top}px`;
 
-            const rightCap = document.createElement('span');
-            rightCap.className = 'nous-annotation-highlight-cap nous-annotation-highlight-cap-end';
-            rightCap.style.left = `${rect.right - articleRect.left}px`;
-            rightCap.style.top = `${rect.top - articleRect.top}px`;
-            rightCap.style.width = `${ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX}px`;
-            rightCap.style.height = `${rect.height}px`;
-
-            fragment.append(leftCap, rightCap);
-          }
-        }
+        fragment.append(leftCap, rightCap);
       }
       capsContainer.replaceChildren(fragment);
     };
@@ -435,6 +479,9 @@ const MarkdownRenderer = ({
     return () => {
       resizeObserver?.disconnect();
       capsContainer.replaceChildren();
+      highlightedInlineCodeElements.forEach(codeElement => {
+        codeElement.removeAttribute(ANNOTATION_INLINE_HIGHLIGHT_ATTRIBUTE);
+      });
       unregisterHighlights();
       if (annotationHighlightEntriesRef.current === entries) {
         annotationHighlightEntriesRef.current = [];

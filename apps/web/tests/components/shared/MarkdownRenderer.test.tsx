@@ -27,7 +27,12 @@ describe('MarkdownRenderer', () => {
     vi.stubGlobal('Highlight', TestHighlight);
     Object.defineProperty(Range.prototype, 'getClientRects', {
       configurable: true,
-      value: () => [{ bottom: 28, height: 18, left: 10, right: 80, top: 10, width: 70 }],
+      value: () => [
+        { bottom: 28, height: 18, left: 10, right: 35, top: 10, width: 25 },
+        { bottom: 29, height: 20, left: 35, right: 55, top: 9, width: 20 },
+        { bottom: 28, height: 18, left: 55, right: 80, top: 10, width: 25 },
+        { bottom: 50, height: 18, left: 10, right: 45, top: 32, width: 35 },
+      ],
     });
 
     const annotation = {
@@ -66,8 +71,14 @@ describe('MarkdownRenderer', () => {
     ).toBe(annotation.anchor.selector.exact);
     expect(annotationHighlight).toHaveLength(1);
     expect(noteHighlight?.size).toBe(annotationHighlight?.size);
+    expect(screen.getByText('codice')).toHaveAttribute(
+      'data-nous-annotation-inline-highlight',
+      'true'
+    );
     const highlightCaps = container.querySelectorAll('.nous-annotation-highlight-cap');
-    expect(highlightCaps).toHaveLength(2);
+    expect(highlightCaps).toHaveLength(4);
+    expect(container.querySelectorAll('.nous-annotation-highlight-cap-start')).toHaveLength(2);
+    expect(container.querySelectorAll('.nous-annotation-highlight-cap-end')).toHaveLength(2);
     expect(Array.from(highlightCaps).every(cap => (cap as HTMLElement).style.width === '3px')).toBe(
       true
     );

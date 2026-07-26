@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-
+import {
+  buildCourseSourceDescriptors,
+  createProjectSourceFromDescriptors,
+} from '../../../services/projects/courseSources.ts';
 import type { LessonNode, PdfTextIndex, ProjectSource } from '../../../types.ts';
 import {
   buildContextSourceMaterial,
   getLessonSourcePageLabel,
+  resolveLessonSourceReferences,
 } from '../../../utils/context/sourceMaterial.ts';
 
 test('returns the complete archive index in deterministic path order without concatenated content', () => {
@@ -223,4 +227,94 @@ test('getLessonSourcePageLabel keeps discontinuous source ranges visible', () =>
     }),
     'pag. 10-12, 18-20'
   );
+});
+
+test('resolveLessonSourceReferences keeps the original PDF identity, pages, and chunks', () => {
+  const descriptors = buildCourseSourceDescriptors([
+    { data: 'JVBERi0xLjQ=', mimeType: 'application/pdf', name: '01.pdf' },
+    { data: 'JVBERi0xLjQ=', mimeType: 'application/pdf', name: '049.pdf' },
+  ]);
+  const activeSection: LessonNode = {
+    id: 'lesson-final-source',
+    kind: 'lesson',
+    title: 'Lezione finale',
+    description: 'Usa la fonte finale senza fonderla con le precedenti.',
+    isCompleted: false,
+    type: 'core',
+    sourceReferences: [
+      {
+        chunkIds: ['chunk-049-a', 'chunk-049-b'],
+        pageEnd: 12,
+        pageStart: 11,
+        sourceId: descriptors[1]?.id || '',
+      },
+    ],
+  };
+
+  const references = resolveLessonSourceReferences({
+    activeSection,
+    source: createProjectSourceFromDescriptors(descriptors),
+  });
+
+  assert.equal(references.length, 1);
+  assert.equal(references[0]?.name, '049.pdf');
+  assert.equal(references[0]?.sourceId, descriptors[1]?.id);
+  assert.equal(references[0]?.pageStart, 11);
+  assert.equal(references[0]?.pageEnd, 12);
+  assert.deepEqual(references[0]?.chunkIds, ['chunk-049-a', 'chunk-049-b']);
+  assert.equal(
+    references.some(reference => reference.name.includes('merged')),
+    false
+  );
+});
+
+test('resolveLessonSourceReferences restores the original archive and exact lesson selectors', () => {
+  const source: ProjectSource = {
+    file: {
+      data: 'UEs=',
+      mimeType: 'application/zip',
+      name: 'src.zip',
+    },
+    index: {
+      entries: [
+        { kind: 'directory', path: 'luanti/src' },
+        {
+          byteSize: 128,
+          contentKind: 'text',
+          kind: 'file',
+          path: 'luanti/src/client.cpp',
+        },
+      ],
+    },
+    kind: 'archive',
+    name: 'src.zip',
+    ref: {
+      byteSize: 256,
+      hash: 'archive-hash',
+      id: 'source-archive',
+      mimeType: 'application/zip',
+      name: 'src.zip',
+      objectPath: 'sources/src.zip',
+    },
+  };
+  const activeSection: LessonNode = {
+    id: 'lesson-codebase',
+    kind: 'lesson',
+    title: 'Client',
+    description: 'Architettura del client.',
+    isCompleted: false,
+    type: 'core',
+    sourceArchiveSelectors: [
+      { kind: 'file', path: 'luanti/src/client.cpp' },
+      { kind: 'directory', path: 'luanti/src' },
+    ],
+  };
+
+  const references = resolveLessonSourceReferences({ activeSection, source });
+
+  assert.equal(references.length, 1);
+  assert.equal(references[0]?.name, 'src.zip');
+  assert.equal(references[0]?.sourceId, 'source-archive');
+  assert.equal(references[0]?.kind, 'archive');
+  assert.deepEqual(references[0]?.archiveSelectors, activeSection.sourceArchiveSelectors);
 });

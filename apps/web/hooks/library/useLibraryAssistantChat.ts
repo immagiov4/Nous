@@ -356,6 +356,7 @@ export const useLibraryAssistantChat = ({
             projectId: snapshot.id,
             projectTitle: snapshot.learningPlan.title,
             prompt: input.prompt,
+            requestKey: toolCall.toolCallId,
             revisionInstructions: input.revisionInstructions,
             sourceArtifact,
             sourceArtifactId: input.sourceArtifactId,
@@ -518,6 +519,7 @@ export const useLibraryAssistantChat = ({
       prompt: t('Modifica l artefatto "{artifactTitle}".', {
         artifactTitle: payload.summary.title,
       }),
+      requestKey: `library-replacement-${artifactId}-${Date.now()}`,
       revisionInstructions: instructions,
       sourceArtifact: payload,
       sourceArtifactId: artifactId,

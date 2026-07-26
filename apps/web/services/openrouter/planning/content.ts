@@ -245,12 +245,12 @@ ${LESSON_SHARED_WRITING_RULES}${imageRules}
 25. Vincoli di focus della lezione:
 ${scopeRule}
 26. L'output finale DEVE rispettare rigorosamente lo schema JSON richiesto. Non scrivere testo fuori dal JSON.
-27. \`quiz\` deve contenere da 1 a 3 pause attive con ESATTAMENTE 4 opzioni ciascuna.
-28. Usa il numero MINIMO necessario di pause attive: 1 se la lezione ha un solo snodo concettuale forte, 2 se ha piu passaggi da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
+27. \`contentBlocks\` puo contenere da 0 a 3 pause attive con ESATTAMENTE 4 opzioni ciascuna.
+28. Usa il numero MINIMO necessario di pause attive: 0 se nessuna domanda merita di interrompere la lettura, 1 se la lezione ha un solo snodo concettuale forte, 2 se ha piu passaggi da consolidare, 3 solo se la lezione e davvero ampia e segmentata.
 29. Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
 ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 30. Non generare sempre domande: alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
-31. Le pause del \`quiz\` NON devono mai limitarsi a chiedere la ripetizione letterale di una definizione, di una formula o di una frase appena letta.
+31. Confronta ogni pausa con il testo locale immediatamente precedente. Se la soluzione e una parafrasi diretta di quanto appena dichiarato, trasformala in un caso nuovo che richieda ragionamento oppure rimuovila; non mantenerla per raggiungere un numero prefissato.
 32. Ogni pausa deve richiedere applicazione, confronto, inferenza, diagnosi di errore, classificazione di un caso, sequenziamento, micro-sintesi oppure previsione di un effetto/conseguenza.
 33. Le quattro opzioni devono essere testualmente distinte. Le opzioni errate devono essere credibili e vicine agli errori concettuali tipici, non banalmente ridicole.
 34. **POSIZIONA OGNI PAUSA DOPO LE INFORMAZIONI NECESSARIE:** ogni pausa attiva deve arrivare DOPO che il contenuto necessario per rispondere e gia stato spiegato nel testo della lezione. In particolare, se la pausa e di tipo confronto (compare-contrast), non inserirla subito dopo il primo concetto: deve essere posizionata DOPO che ENTRAMBI i concetti / elementi da confrontare sono stati presentati e spiegati. Lo stesso vale per micro-sintesi, classificazione e previsione: il lettore deve avere tutti gli elementi per rispondere.
@@ -590,7 +590,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
     const contentBlocks = materializeGeneratedVisualBlocks(
       verifiedBlocks,
       verifiedDraft.visualPlanning.plans,
-      visualResult.generatedVisuals
+      visualResult.generatedVisualSlots
     );
     assertValidInlineQuizPair(contentBlocks, verifiedDraft.quiz);
 
@@ -732,7 +732,7 @@ Rispondi SOLO con un oggetto JSON valido con questa struttura:
   const contentBlocks = materializeGeneratedVisualBlocks(
     verifiedBlocks,
     verifiedDraft.visualPlanning.plans,
-    visualResult.generatedVisuals
+    visualResult.generatedVisualSlots
   );
   assertValidInlineQuizPair(contentBlocks, verifiedDraft.quiz);
 

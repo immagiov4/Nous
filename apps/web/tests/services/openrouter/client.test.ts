@@ -110,6 +110,7 @@ test('callOpenRouter streams reasoning chunks without paragraph-splitting duplic
 
   fetchMock.mockResolvedValue({
     body: stream,
+    headers: new Headers(),
     ok: true,
   });
 
@@ -158,6 +159,7 @@ test('callOpenRouter preserves paragraph breaks between distinct reasoning secti
 
   fetchMock.mockResolvedValue({
     body: stream,
+    headers: new Headers(),
     ok: true,
   });
 
@@ -198,7 +200,7 @@ test('callOpenRouter uses streamed content when a provider exposes no reasoning'
     },
   });
   const progressUpdates: string[] = [];
-  fetchMock.mockResolvedValue({ body: stream, ok: true });
+  fetchMock.mockResolvedValue({ body: stream, headers: new Headers(), ok: true });
 
   await callOpenRouter({
     model: 'provider/without-reasoning',
@@ -212,6 +214,7 @@ test('callOpenRouter uses streamed content when a provider exposes no reasoning'
 
 test('callOpenRouter preserves provider URL citations for the research structurer', async () => {
   fetchMock.mockResolvedValue({
+    headers: new Headers(),
     ok: true,
     json: async () => ({
       choices: [

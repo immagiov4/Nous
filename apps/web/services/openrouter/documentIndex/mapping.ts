@@ -81,7 +81,7 @@ interface ParsedChunkMappingsResult {
   rejectedLessonIds: string[];
 }
 
-const PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING =
+export const PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING =
   'Il mapping automatico del PDF non è riuscito dopo tutti i tentativi. Il corso continuerà a usare associazioni di fallback senza riprovare a ogni apertura.';
 
 const markPdfMappingRecoveryExhausted = (documentIndex: PdfTextIndex): PdfTextIndex => ({

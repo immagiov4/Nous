@@ -1,10 +1,15 @@
 import { resolvePdfChunkPageSpan } from '../../services/openrouter/documentIndex/index.ts';
+import { getCourseSourceDescriptors } from '../../services/projects/courseSources.ts';
 import type {
+  CourseSourceDescriptor,
+  FileData,
   LessonNode,
+  LessonSourceReference,
   PdfTextChunk,
   PdfTextIndex,
   ProjectSource,
   SourceArchiveEntry,
+  SourceArchiveSelector,
 } from '../../types.ts';
 import { clipText } from '../text.ts';
 
@@ -15,6 +20,13 @@ interface ResolvedPageSpan {
   endPage: number;
   exact: boolean;
   startPage: number;
+}
+
+export interface ResolvedLessonSourceReference extends LessonSourceReference {
+  archiveSelectors?: SourceArchiveSelector[];
+  file: FileData;
+  kind: CourseSourceDescriptor['kind'] | 'archive';
+  name: string;
 }
 
 const clip = (value: string) =>
@@ -172,6 +184,50 @@ export const getLessonSourcePageLabel = ({
     chunkIds: activeSection?.primaryChunkIds,
     documentIndex,
   });
+
+export const resolveLessonSourceReferences = ({
+  activeSection,
+  source,
+}: {
+  activeSection: LessonNode | null;
+  source: ProjectSource | null;
+}): ResolvedLessonSourceReference[] => {
+  if (source?.kind === 'archive') {
+    const archiveSelectors = activeSection?.sourceArchiveSelectors;
+    if (!archiveSelectors?.length) {
+      return [];
+    }
+
+    return [
+      {
+        archiveSelectors,
+        chunkIds: [],
+        file: source.file,
+        kind: source.kind,
+        name: source.name,
+        sourceId: source.ref?.id || source.file.sourceId || source.name,
+      },
+    ];
+  }
+
+  const referencesBySourceId = new Map(
+    (activeSection?.sourceReferences || []).map(reference => [reference.sourceId, reference])
+  );
+
+  return getCourseSourceDescriptors(source).flatMap(descriptor => {
+    const reference = referencesBySourceId.get(descriptor.id);
+    return reference
+      ? [
+          {
+            ...reference,
+            file: descriptor.file,
+            kind: descriptor.kind,
+            name: descriptor.name,
+          },
+        ]
+      : [];
+  });
+};
 
 export const buildContextSourceMaterial = ({
   activeSection,

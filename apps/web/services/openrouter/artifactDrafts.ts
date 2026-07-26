@@ -18,6 +18,7 @@ interface GenerateLessonArtifactDraftInput {
   projectId: ProjectId;
   projectTitle: string;
   prompt: string;
+  requestKey?: string;
   rasterImageRequested?: boolean;
   revisionInstructions?: string;
   selectedText?: string;
@@ -95,6 +96,7 @@ export const generateLessonArtifactDraft = async ({
   projectId,
   projectTitle,
   prompt,
+  requestKey,
   rasterImageRequested,
   revisionInstructions,
   selectedText,
@@ -113,6 +115,7 @@ export const generateLessonArtifactDraft = async ({
   });
 
   const result = await generateLessonVisualExample({
+    ...(requestKey ? { durableImageScope: { dedupeKey: requestKey, projectId } } : {}),
     generationNotes,
     hasPdfImages: false,
     lessonMarkdown,

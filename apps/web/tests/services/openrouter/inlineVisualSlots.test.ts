@@ -9,7 +9,10 @@ vi.mock('../../../services/openrouter/visualExamples.ts', async importOriginal =
   generateVerifiedVisualSlots: generateVerifiedVisualSlotsMock,
 }));
 
-import { materializeGeneratedVisualSlots } from '../../../services/openrouter/lessonImages.ts';
+import {
+  materializeGeneratedVisualSlots,
+  retryGeneratedVisualSlot,
+} from '../../../services/openrouter/lessonImages.ts';
 import type { VerifiedVisualSlotPlan } from '../../../services/openrouter/visualExamples.ts';
 
 const plan: VerifiedVisualSlotPlan = {
@@ -60,9 +63,10 @@ describe('inline visual slots', () => {
       'Prima.\n\n{{VISUAL_EXAMPLE:visual-001|title=confronto_visivo}}\n\nDopo.'
     );
     expect(result.generatedVisuals).toHaveLength(1);
+    expect(result.generatedVisualSlots).toEqual([expect.objectContaining({ slotId: 'slot-001' })]);
   });
 
-  test('removes an unresolved slot instead of moving it to the lesson end', async () => {
+  test('keeps unresolved slot metadata available to typed content while legacy text stays usable', async () => {
     generateVerifiedVisualSlotsMock.mockResolvedValue([]);
 
     const result = await materializeGeneratedVisualSlots({
@@ -75,6 +79,7 @@ describe('inline visual slots', () => {
 
     expect(result.content).toBe('Prima.\n\nDopo.');
     expect(result.content).not.toContain('VISUAL_');
+    expect(result.generatedVisualSlots).toEqual([]);
   });
 
   test('converts an SVG plan to an image when the lesson requires a depiction', async () => {
@@ -94,5 +99,62 @@ describe('inline visual slots', () => {
     expect(generateVerifiedVisualSlotsMock).toHaveBeenCalledWith(expect.any(Object), [
       expect.objectContaining({ visualType: 'illustrative_image' }),
     ]);
+  });
+
+  test('reports partial visual completion against the planned slot count', async () => {
+    const onStatusUpdate = vi.fn();
+    generateVerifiedVisualSlotsMock.mockResolvedValue([
+      {
+        slotId: 'slot-002',
+        visual: {
+          id: 'visual-002',
+          title: 'secondo_visuale',
+          kind: 'image',
+          code: 'data:image/png;base64,AAAA',
+          createdAt: '2026-07-26T00:00:00.000Z',
+        },
+      },
+    ]);
+
+    await materializeGeneratedVisualSlots({
+      contentMarkdown:
+        'Prima.\n\n{{VISUAL_SLOT:slot-001}}\n\nCentro.\n\n{{VISUAL_SLOT:slot-002}}\n\nDopo.',
+      hasPdfImages: false,
+      onStatusUpdate,
+      sectionDescription: 'Descrizione',
+      sectionTitle: 'Titolo',
+      visualPlanning: {
+        plans: [plan, { ...plan, slotId: 'slot-002' }],
+        rationale: 'Servono due esempi.',
+      },
+    });
+
+    expect(onStatusUpdate).toHaveBeenLastCalledWith('1 di 2 esempi visivi integrati');
+  });
+
+  test('retries only the requested visual slot', async () => {
+    generateVerifiedVisualSlotsMock.mockResolvedValue([
+      {
+        slotId: 'slot-001',
+        visual: {
+          id: 'temporary-id',
+          title: 'confronto_visivo',
+          kind: 'image',
+          code: 'data:image/png;base64,AAAA',
+          createdAt: '2026-07-26T00:00:00.000Z',
+        },
+      },
+    ]);
+
+    const visual = await retryGeneratedVisualSlot({
+      contentMarkdown: 'Prima. Dopo.',
+      hasPdfImages: false,
+      plan,
+      sectionDescription: 'Descrizione',
+      sectionTitle: 'Titolo',
+    });
+
+    expect(generateVerifiedVisualSlotsMock).toHaveBeenCalledWith(expect.any(Object), [plan]);
+    expect(visual?.id).toBe('visual-slot-001');
   });
 });

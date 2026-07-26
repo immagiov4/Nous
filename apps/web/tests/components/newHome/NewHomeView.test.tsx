@@ -284,4 +284,59 @@ describe('NewHomeView library rename', () => {
     expect(sourceFolder).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: /dispensa.pdf/ })).toBeInTheDocument();
   });
+
+  test('shows and opens the original ZIP for an existing codebase course', async () => {
+    globalThis.history.replaceState({}, '', '/library');
+    const user = userEvent.setup();
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:archive');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const file = {
+      data: 'UEs=',
+      mimeType: 'application/zip',
+      name: 'src.zip',
+      sourceId: 'source-archive',
+    };
+    const archiveProject = { ...project, sourceKind: 'codebase' as const };
+    const snapshot = {
+      id: archiveProject.id,
+      source: {
+        file,
+        index: { entries: [] },
+        kind: 'archive',
+        name: file.name,
+      },
+    } as unknown as ProjectSnapshot;
+
+    render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isLibraryLoading={false}
+        libraryFolders={[folder]}
+        libraryTree={tree}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => file)}
+        loadProjectsById={vi.fn(async () => [snapshot])}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={[archiveProject]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    const sourceFolder = await screen.findByRole('button', { name: /Corso Mobile/ });
+    await user.click(sourceFolder);
+    const archiveButton = screen.getByRole('button', { name: /src.zip/ });
+    expect(archiveButton).toHaveTextContent(/Archivio|Archive/);
+
+    await user.click(archiveButton);
+    const downloadLink = await screen.findByRole('link', {
+      name: /Scarica archivio originale|Download original archive/,
+    });
+    expect(downloadLink).toHaveAttribute('href', 'blob:archive');
+    expect(downloadLink).toHaveAttribute('download', 'src.zip');
+    expect(createObjectUrl).toHaveBeenCalled();
+  });
 });

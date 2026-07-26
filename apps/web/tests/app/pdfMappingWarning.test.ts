@@ -43,4 +43,17 @@ describe('resolvePdfMappingWarning', () => {
       )
     ).toBe('Mappatura PDF da controllare: copertura bassa');
   });
+
+  test('hides the exhausted-recovery detail when fallback associations are available', () => {
+    expect(
+      resolvePdfMappingWarning(
+        pdfSource,
+        buildDocumentIndex({
+          mappingWarnings: [
+            'Il mapping automatico del PDF non è riuscito dopo tutti i tentativi. Il corso continuerà a usare associazioni di fallback senza riprovare a ogni apertura.',
+          ],
+        })
+      )
+    ).toBeNull();
+  });
 });

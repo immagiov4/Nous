@@ -16,6 +16,7 @@ interface GenerateImageRequest {
   model?: string;
   prompt: string;
   provider?: 'codex' | 'openai' | 'openrouter';
+  signal?: AbortSignal;
 }
 
 interface GeneratedImageResult {
@@ -128,7 +129,7 @@ class ImageClient {
         : `${OPENROUTER_API_BASE_URL}/images`,
       {
         method: 'POST',
-        signal: AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS),
+        signal: request.signal ?? AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS),
         headers: usesOpenAi ? getOpenAiJsonHeaders() : getOpenRouterJsonHeaders(),
         body: JSON.stringify(
           usesOpenAi

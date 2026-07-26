@@ -12,6 +12,7 @@ import authRouter from './routes/auth.js';
 import chatRouter from './routes/chat.js';
 import codexRouter from './routes/codex.js';
 import feedbackRouter from './routes/feedback.js';
+import generationJobsRouter from './routes/generationJobs.js';
 import imagesRouter from './routes/images.js';
 import openRouterProxyRouter from './routes/openRouterProxy.js';
 import pdfRouter from './routes/pdf.js';
@@ -155,6 +156,7 @@ export const createApp = () => {
   app.use('/api/chat', resolveCurrentUser, chatRouter);
   app.use('/api/codex', resolveCurrentUser, codexRouter);
   app.use('/api/feedback', resolveCurrentUser, feedbackRouter);
+  app.use('/api/generation-jobs', resolveCurrentUser, generationJobsRouter);
   app.use('/api/openrouter', resolveCurrentUser, openRouterProxyRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/admin', resolveCurrentUser, adminRouter);

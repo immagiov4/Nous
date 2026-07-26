@@ -115,6 +115,51 @@ test('desktop right pointer-down opens the selection menu immediately', () => {
   selectionSpy.mockRestore();
 });
 
+test('desktop contextmenu keeps the selection captured before the native right-click mutation', () => {
+  const container = document.createElement('div');
+  const textNode = document.createTextNode('Alpha beta gamma delta');
+  container.append(textNode);
+  document.body.append(container);
+  const contentRef = { current: container };
+
+  const { result } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef,
+      isMobileViewport: false,
+      sectionContent: 'Alpha beta gamma delta',
+    })
+  );
+
+  const pointerSelection = buildSelection(container, textNode, 'beta gamma');
+  const mutatedContextMenuSelection = buildSelection(container, textNode, 'beta');
+  const selectionSpy = vi
+    .spyOn(globalThis, 'getSelection')
+    .mockReturnValueOnce(pointerSelection)
+    .mockReturnValue(mutatedContextMenuSelection);
+  const pointerPreventDefault = vi.fn();
+  const contextMenuPreventDefault = vi.fn();
+
+  act(() => {
+    result.current.handleContentPointerDownCapture({
+      button: 2,
+      clientX: 128,
+      clientY: 96,
+      preventDefault: pointerPreventDefault,
+    } as never);
+    result.current.handleContentContextMenu({
+      clientX: 128,
+      clientY: 96,
+      preventDefault: contextMenuPreventDefault,
+    } as never);
+  });
+
+  assert.equal(result.current.contextMenu.selectedText, 'beta gamma');
+  assert.equal(pointerPreventDefault.mock.calls.length, 1);
+  assert.equal(contextMenuPreventDefault.mock.calls.length, 1);
+  selectionSpy.mockRestore();
+});
+
 test('desktop context menu without selection opens a whole-lesson menu inside content only', () => {
   const container = document.createElement('div');
   container.innerHTML = '<p>Alpha beta gamma delta</p><button type="button">Azione</button>';

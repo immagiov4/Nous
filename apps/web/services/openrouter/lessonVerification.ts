@@ -416,11 +416,11 @@ ${checklist.map(item => `- ${item.checkId}: ${item.instruction}`).join('\n')}
 2. ${continuityRule}
 3. Devono valere tutti questi vincoli di focus:
 ${scopeRule}
-4. \`contentBlocks\` deve contenere ESATTAMENTE ${clampLessonQuizCount(targetQuizCount)} blocchi inline-quiz con ESATTAMENTE 4 opzioni ciascuno.
+4. \`contentBlocks\` puo contenere da 0 a ${clampLessonQuizCount(targetQuizCount)} blocchi inline-quiz con ESATTAMENTE 4 opzioni ciascuno. La qualita cognitiva prevale sul numero: non aggiungere o conservare una pausa solo per raggiungere il massimo disponibile.
 5. Ogni pausa deve avere \`exerciseType\` scelto da questo catalogo trasversale:
 ${ACTIVE_PAUSE_EXERCISE_TYPE_RULES}
 6. Non generare sempre domande: alterna consegne brevi, micro-casi, diagnosi, classificazioni, previsioni e sintesi quando sono pertinenti alla lezione.
-7. Le pause del \`quiz\` NON devono mai chiedere di ripetere alla lettera una definizione appena data o copiare una frase della lezione.
+7. Confronta ogni pausa con il testo locale immediatamente precedente. Se la soluzione e una parafrasi diretta di quanto appena dichiarato, riscrivila come caso nuovo che richieda ragionamento oppure rimuovila.
 8. Ogni pausa deve richiedere almeno una tra queste operazioni mentali: applicare un concetto a un caso, confrontare due casi, prevedere una conseguenza, riconoscere un errore, classificare un esempio, scegliere l'implicazione corretta.
 9. Le quattro opzioni di ogni pausa devono essere testualmente distinte. I distrattori devono essere plausibili: niente opzioni caricaturali o palesemente assurde.
 10. Le stringhe \`question\` e \`options\` dei blocchi inline-quiz devono essere testo normale: non racchiudere MAI l'intera consegna o opzione in backticks o code fence.
@@ -600,7 +600,8 @@ export const verifyLessonDraft = async ({
   });
   const quiz = parseQuizPayload(deriveQuizFromLessonContentBlocks(effectiveBlocks));
   const hasValidInlineQuizMarkers = hasValidTypedQuizBlocks(effectiveBlocks, {
-    exact: clampLessonQuizCount(targetQuizCount),
+    max: clampLessonQuizCount(targetQuizCount),
+    min: MIN_LESSON_QUIZ_QUESTIONS,
   });
   pushNousDebugTrace('lesson-forensics:verification-output', {
     contentMarkdown,

@@ -18,6 +18,8 @@ import { generateLessonLearningAids } from './learningAids.ts';
 import { materializeGeneratedVisualSlots } from './lessonImages.ts';
 import {
   estimateTargetQuizCount,
+  MAX_LESSON_QUIZ_QUESTIONS,
+  MIN_LESSON_QUIZ_QUESTIONS,
   repairLessonMarkdown,
   sanitizeLessonMarkdownContent,
 } from './lessonMarkdownQuality/index.ts';
@@ -58,7 +60,12 @@ export const finalizeSourceFreeLesson = async (args: {
   const originalQuiz = args.contentBlocks
     ? deriveQuizFromLessonContentBlocks(originalBlocks)
     : (args.quiz ?? []);
-  if (!hasValidTypedQuizBlocks(originalBlocks, { max: 3, min: 1 })) {
+  if (
+    !hasValidTypedQuizBlocks(originalBlocks, {
+      max: MAX_LESSON_QUIZ_QUESTIONS,
+      min: MIN_LESSON_QUIZ_QUESTIONS,
+    })
+  ) {
     throw new Error('Cannot finalize a lesson with an invalid typed inline quiz contract.');
   }
 
@@ -139,14 +146,19 @@ export const finalizeSourceFreeLesson = async (args: {
   ]);
 
   const verifiedBlocks = verifiedDraft.contentBlocks ?? originalBlocks;
-  if (!hasValidTypedQuizBlocks(verifiedBlocks, { exact: targetQuizCount })) {
+  if (
+    !hasValidTypedQuizBlocks(verifiedBlocks, {
+      max: targetQuizCount,
+      min: MIN_LESSON_QUIZ_QUESTIONS,
+    })
+  ) {
     throw new Error('Finalized lesson has an invalid typed inline quiz contract.');
   }
 
   const finalizedBlocks = materializeGeneratedVisualBlocks(
     verifiedBlocks,
     verifiedDraft.visualPlanning.plans,
-    visualResult.generatedVisuals
+    visualResult.generatedVisualSlots
   );
 
   return {

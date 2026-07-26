@@ -49,7 +49,8 @@ export const extractYouTubeVideoId = (rawUrl: string): string | null => {
 export const buildYouTubeClipEmbedUrl = (
   sourceUrl: string,
   startSeconds: number,
-  endSeconds: number
+  endSeconds: number,
+  autoplay = false
 ): string | null => {
   const videoId = extractYouTubeVideoId(sourceUrl);
   const interval = normalizeYouTubeClipInterval(sourceUrl, startSeconds, endSeconds);
@@ -58,9 +59,10 @@ export const buildYouTubeClipEmbedUrl = (
   }
 
   const params = new URLSearchParams({
-    autoplay: '0',
+    autoplay: autoplay ? '1' : '0',
     controls: '1',
     end: String(interval.endSeconds),
+    enablejsapi: '1',
     playsinline: '1',
     rel: '0',
     start: String(interval.startSeconds),

@@ -68,6 +68,7 @@ export interface LessonYouTubeClipsBlock {
 }
 
 export interface LessonGeneratedVisualBlock {
+  retryPlan?: LessonVisualRetryPlan;
   slotId: string;
   type: 'generated-visual';
   visualId?: string;
@@ -480,6 +481,21 @@ export type LessonVisualPlanType =
   | 'mermaid_class'
   | 'mermaid_erd'
   | 'structural_svg';
+
+export interface LessonVisualRetryPlan {
+  slotId: string;
+  complexity: 'simple' | 'moderate' | 'complex';
+  concept: string;
+  coverage: 'all_elements' | 'single_complex' | 'complete_synthesis' | 'none';
+  coverageRationale: string;
+  factualRequirements: string[];
+  interactionLevel: 'none' | 'low' | 'high';
+  pedagogicalGoal: string;
+  reason: string;
+  requiresDepiction: boolean;
+  visualDirection: string;
+  visualType: LessonVisualPlanType;
+}
 
 export interface LessonVisualPlan {
   anchorExcerpt?: null | string;

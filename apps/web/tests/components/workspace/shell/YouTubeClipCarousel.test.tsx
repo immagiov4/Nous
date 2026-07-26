@@ -2,7 +2,7 @@
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import YouTubeClipCarousel from '../../../../components/workspace/shell/YouTubeClipCarousel.tsx';
 import type { LessonYouTubeClip } from '../../../../types.ts';
 
@@ -44,21 +44,32 @@ test('uses one compact player with selectable chapters and no duration-share bar
   expect(
     screen.queryByText('Parla anche di passaggi che non coincidono con questo intervallo.')
   ).toBeNull();
-  expect(container.querySelector('iframe')).toBeNull();
-
-  await user.click(screen.getByRole('button', { name: 'Riproduci la dimostrazione (0:00–0:30)' }));
   expect(container.querySelectorAll('iframe')).toHaveLength(1);
   expect(screen.getByTitle('Dimostrazione video: Tecnica completa')).toHaveAttribute(
     'src',
     expect.stringContaining('autoplay=0')
   );
+  expect(screen.getByTitle('Dimostrazione video: Tecnica completa')).toHaveAttribute(
+    'src',
+    expect.stringContaining('enablejsapi=1')
+  );
 
+  const initialPlayer = screen.getByTitle(
+    'Dimostrazione video: Tecnica completa'
+  ) as HTMLIFrameElement;
+  const postMessage = vi.spyOn(initialPlayer.contentWindow as Window, 'postMessage');
+  fireEvent.load(initialPlayer);
   await user.click(chapterTabs[1] as HTMLElement);
-  expect(container.querySelector('iframe')).toBeNull();
+  expect(container.querySelectorAll('iframe')).toHaveLength(1);
+  expect(screen.getByTitle('Dimostrazione video: Tecnica completa')).toBe(initialPlayer);
+  expect(initialPlayer.src).toContain('start=0');
+  expect(postMessage).toHaveBeenCalledWith(
+    expect.stringContaining('"startSeconds":30'),
+    'https://www.youtube-nocookie.com'
+  );
   expect(screen.getAllByRole('tab')[1]).toHaveAttribute('aria-selected', 'true');
 
   await user.click(chapterTabs[2] as HTMLElement);
-  await user.click(screen.getByRole('button', { name: 'Riproduci la dimostrazione (0:00–0:30)' }));
   expect(container.querySelectorAll('iframe')).toHaveLength(1);
   expect(screen.getByTitle('Dimostrazione video: Dettaglio complementare')).toHaveAttribute(
     'src',
@@ -66,12 +77,11 @@ test('uses one compact player with selectable chapters and no duration-share bar
   );
 });
 
-test('resets selection and player visibility when the clip sequence identity changes', async () => {
+test('resets selection and autoplay when the clip sequence identity changes', async () => {
   const user = userEvent.setup();
   const { container, rerender } = render(<YouTubeClipCarousel clips={clips} />);
 
   await user.click(screen.getAllByRole('tab')[1] as HTMLElement);
-  await user.click(screen.getByRole('button', { name: 'Riproduci la dimostrazione (0:30–1:30)' }));
   expect(container.querySelector('iframe')).not.toBeNull();
 
   rerender(
@@ -89,11 +99,12 @@ test('resets selection and player visibility when the clip sequence identity cha
     />
   );
 
-  expect(container.querySelector('iframe')).toBeNull();
+  expect(container.querySelectorAll('iframe')).toHaveLength(1);
+  expect(screen.getByTitle('Dimostrazione video: Nuova sequenza')).toHaveAttribute(
+    'src',
+    expect.stringContaining('autoplay=0')
+  );
   expect(screen.queryByRole('tab')).toBeNull();
-  expect(
-    screen.getByRole('button', { name: 'Riproduci la dimostrazione (0:05–0:25)' })
-  ).toBeInTheDocument();
 });
 
 test('supports standard arrow, Home, and End navigation across the tablist', () => {

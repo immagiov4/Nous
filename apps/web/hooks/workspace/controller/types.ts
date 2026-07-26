@@ -95,6 +95,7 @@ export interface WorkspaceDomainControllerAdapter {
 export interface WorkspaceProjectLibraryAdapter {
   createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;
   currentProjectId: string | null;
+  getCurrentProjectId: () => string | null;
   deleteStoredProject: (projectId: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   downloadProject: (projectId?: string) => Promise<void>;

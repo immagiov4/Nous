@@ -285,6 +285,13 @@ const removeVisualSlotMarkers = (contentMarkdown: string): string =>
     .replaceAll(/\n{3,}/g, '\n\n')
     .trim();
 
+const getIntegratedVisualStatus = (completed: number, planned: number): string => {
+  if (completed < planned) {
+    return `${completed} di ${planned} esempi visivi integrati`;
+  }
+  return completed === 1 ? 'Esempio visivo integrato' : `${completed} esempi visivi integrati`;
+};
+
 export const materializeGeneratedVisualSlots = async ({
   contentMarkdown,
   generationNotes,
@@ -309,6 +316,7 @@ export const materializeGeneratedVisualSlots = async ({
   };
 }): Promise<{
   content: string;
+  generatedVisualSlots: Array<{ slotId: string; visual: LessonGeneratedVisual }>;
   generatedVisuals: LessonGeneratedVisual[];
   visualPlanningDecision: LessonVisualPlanningDecision;
 }> => {
@@ -336,6 +344,7 @@ export const materializeGeneratedVisualSlots = async ({
   if (!contentMarkdown.trim()) {
     return {
       content: contentMarkdown,
+      generatedVisualSlots: [],
       generatedVisuals: [],
       visualPlanningDecision: failedDecision(
         'La pianificazione visuale non può valutare una lezione vuota.'
@@ -346,6 +355,7 @@ export const materializeGeneratedVisualSlots = async ({
   if (validPlans.length === 0) {
     return {
       content: removeVisualSlotMarkers(contentMarkdown),
+      generatedVisualSlots: [],
       generatedVisuals: [],
       visualPlanningDecision: decision,
     };
@@ -368,6 +378,7 @@ export const materializeGeneratedVisualSlots = async ({
       onStatusUpdate?.('Esempio visivo non disponibile');
       return {
         content: removeVisualSlotMarkers(contentMarkdown),
+        generatedVisualSlots: [],
         generatedVisuals: [],
         visualPlanningDecision: decision,
       };
@@ -384,13 +395,10 @@ export const materializeGeneratedVisualSlots = async ({
       content = content.replace(marker, replacement);
     }
     content = removeVisualSlotMarkers(content);
-    onStatusUpdate?.(
-      results.length === 1
-        ? 'Esempio visivo integrato'
-        : `${results.length} esempi visivi integrati`
-    );
+    onStatusUpdate?.(getIntegratedVisualStatus(results.length, validPlans.length));
     return {
       content,
+      generatedVisualSlots: results,
       generatedVisuals: results.map(result => result.visual),
       visualPlanningDecision: decision,
     };
@@ -402,12 +410,41 @@ export const materializeGeneratedVisualSlots = async ({
     onStatusUpdate?.('Esempio visivo non disponibile');
     return {
       content: removeVisualSlotMarkers(contentMarkdown),
+      generatedVisualSlots: [],
       generatedVisuals: [],
       visualPlanningDecision: failedDecision(
         'La pianificazione o la generazione visuale non è stata completata.'
       ),
     };
   }
+};
+
+export const retryGeneratedVisualSlot = async ({
+  contentMarkdown,
+  generationNotes,
+  hasPdfImages,
+  plan,
+  sectionDescription,
+  sectionTitle,
+}: {
+  contentMarkdown: string;
+  generationNotes?: string;
+  hasPdfImages: boolean;
+  plan: VerifiedVisualSlotPlan;
+  sectionDescription: string;
+  sectionTitle: string;
+}): Promise<LessonGeneratedVisual | null> => {
+  const [result] = await generateVerifiedVisualSlots(
+    {
+      generationNotes,
+      hasPdfImages,
+      lessonMarkdown: contentMarkdown,
+      sectionDescription,
+      sectionTitle,
+    },
+    [enforceVerifiedVisualTypeContract(plan)]
+  );
+  return result ? { ...result.visual, id: `visual-${plan.slotId}` } : null;
 };
 
 const normalizeHeading = (text: string): string =>
