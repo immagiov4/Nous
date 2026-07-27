@@ -1,0 +1,18 @@
+services:
+  migrate:
+    networks: [default, supabase]
+  backend:
+    networks: [default, supabase]
+  admin-bootstrap:
+    networks: [default, supabase]
+  db-tools:
+    networks: [default, supabase]
+  smoke:
+    networks: [default, supabase]
+  contract-test:
+    networks: [default, supabase]
+
+networks:
+  supabase:
+    external: true
+    name: nous-reader-supabase_default

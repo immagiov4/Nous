@@ -1,0 +1,118 @@
+import { memo, startTransition, useCallback, useEffect, useRef, useState } from 'react';
+
+import MarkdownRenderer, { type MarkdownRendererProps } from './MarkdownRenderer.tsx';
+
+interface StreamingMarkdownRendererProps extends MarkdownRendererProps {
+  readonly isStreaming?: boolean;
+}
+
+const STREAMING_MARKDOWN_MIN_UPDATE_MS = 48;
+const STREAMING_MARKDOWN_MAX_STALENESS_MS = 140;
+const STREAMING_MARKDOWN_MIN_BATCH_CHARS = 12;
+
+const hasStreamingBoundary = (nextContent: string, committedContent: string): boolean => {
+  const appendedContent = nextContent.slice(committedContent.length);
+
+  if (!appendedContent) {
+    return false;
+  }
+
+  return (
+    appendedContent.length >= STREAMING_MARKDOWN_MIN_BATCH_CHARS ||
+    /\n{2,}/.test(appendedContent) ||
+    /(?:```|~~~)/.test(appendedContent) ||
+    /\n(?:[-*+]|\d+\.)\s/.test(appendedContent) ||
+    /[.!?;:]\s*$/.test(nextContent) ||
+    nextContent.endsWith('\n')
+  );
+};
+
+const StreamingMarkdownRenderer = ({
+  content,
+  isStreaming = false,
+  ...markdownProps
+}: StreamingMarkdownRendererProps) => {
+  const [committedContent, setCommittedContent] = useState(content);
+  const latestContentRef = useRef(content);
+  const lastCommitAtRef = useRef(0);
+  const flushTimeoutRef = useRef<number | null>(null);
+
+  const clearPendingFlush = useCallback(() => {
+    if (flushTimeoutRef.current === null) {
+      return;
+    }
+
+    globalThis.window.clearTimeout(flushTimeoutRef.current);
+    flushTimeoutRef.current = null;
+  }, []);
+
+  const commitContent = useCallback(
+    (nextContent: string) => {
+      clearPendingFlush();
+      latestContentRef.current = nextContent;
+      lastCommitAtRef.current = Date.now();
+      startTransition(() => {
+        setCommittedContent(currentContent =>
+          currentContent === nextContent ? currentContent : nextContent
+        );
+      });
+    },
+    [clearPendingFlush]
+  );
+
+  useEffect(() => {
+    latestContentRef.current = content;
+
+    if (!isStreaming || content.length <= committedContent.length) {
+      if (content !== committedContent) {
+        commitContent(content);
+      } else {
+        clearPendingFlush();
+      }
+      return;
+    }
+
+    if (!committedContent) {
+      commitContent(content);
+      return;
+    }
+
+    const now = Date.now();
+    if (lastCommitAtRef.current === 0) {
+      lastCommitAtRef.current = now;
+    }
+
+    const elapsedSinceLastCommit = now - lastCommitAtRef.current;
+    const reachedStreamingBoundary = hasStreamingBoundary(content, committedContent);
+
+    if (
+      elapsedSinceLastCommit >= STREAMING_MARKDOWN_MAX_STALENESS_MS ||
+      (elapsedSinceLastCommit >= STREAMING_MARKDOWN_MIN_UPDATE_MS && reachedStreamingBoundary)
+    ) {
+      commitContent(content);
+      return;
+    }
+
+    clearPendingFlush();
+    const nextFlushDelay = reachedStreamingBoundary
+      ? Math.max(STREAMING_MARKDOWN_MIN_UPDATE_MS - elapsedSinceLastCommit, 0)
+      : Math.max(STREAMING_MARKDOWN_MAX_STALENESS_MS - elapsedSinceLastCommit, 0);
+
+    flushTimeoutRef.current = globalThis.window.setTimeout(() => {
+      commitContent(latestContentRef.current);
+    }, nextFlushDelay);
+
+    return clearPendingFlush;
+  }, [clearPendingFlush, commitContent, committedContent, content, isStreaming]);
+
+  useEffect(
+    () => () => {
+      clearPendingFlush();
+    },
+    [clearPendingFlush]
+  );
+
+  return <MarkdownRenderer {...markdownProps} content={committedContent} />;
+};
+
+export default memo(StreamingMarkdownRenderer);

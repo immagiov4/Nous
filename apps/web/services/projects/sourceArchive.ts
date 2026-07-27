@@ -1,0 +1,232 @@
+import type { SourceArchiveIndex, SourceArchiveSelector } from '../../types.ts';
+import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { getBackendUrl } from '../openrouter/config.ts';
+import type { OpenRouterToolCall } from '../openrouter/types.ts';
+
+export const ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS = 20_000;
+
+export const SOURCE_ARCHIVE_ANALYSIS_TOOLS: Record<string, unknown>[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'list_source_directory',
+      description:
+        'List the immediate files and directories under an exact source archive directory path. Use an empty path for the archive root.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_source_file',
+      description:
+        'Read one bounded UTF-8 page from an exact source archive file. Start with cursorBytes 0, then continue with each returned nextCursorBytes until it is null.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          cursorBytes: { type: 'integer', minimum: 0 },
+          path: { type: 'string', minLength: 1 },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_source_text',
+      description:
+        'Search every textual source file for an exact literal string and return matching paths and lines.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { query: { type: 'string', minLength: 1 } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_source_tree',
+      description: 'Return the complete nested tree of the source archive.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {},
+      },
+    },
+  },
+];
+
+type ArchiveQuery =
+  | { operation: 'list-directory'; path: string }
+  | { cursorBytes?: number; operation: 'read-file'; path: string }
+  | { operation: 'resolve-selectors'; selectors: SourceArchiveSelector[] }
+  | { operation: 'search-text'; query: string }
+  | { operation: 'tree' };
+
+export interface SourceArchiveVersion {
+  sourceHash: string;
+  sourceId: string;
+}
+
+interface ArchiveQueryResponse {
+  error?: string;
+  result?: unknown;
+  success?: boolean;
+}
+
+const requireStringArgument = (
+  args: Record<string, unknown>,
+  name: 'path' | 'query',
+  allowEmpty = false
+): string => {
+  const value = args[name];
+  if (typeof value !== 'string' || (!allowEmpty && !value)) {
+    throw new Error(`Argomento tool sorgente non valido: ${name}.`);
+  }
+  return value;
+};
+
+const parseToolArguments = (value: string): Record<string, unknown> => {
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Argomenti tool sorgente non validi.');
+  }
+  return parsed as Record<string, unknown>;
+};
+
+const readOptionalCursor = (args: Record<string, unknown>): number | undefined => {
+  const cursorBytes = args.cursorBytes;
+  if (cursorBytes === undefined) {
+    return undefined;
+  }
+  if (!Number.isSafeInteger(cursorBytes) || (cursorBytes as number) < 0) {
+    throw new Error('Argomento tool sorgente non valido: cursorBytes.');
+  }
+  return cursorBytes as number;
+};
+
+const buildToolQuery = (toolCall: OpenRouterToolCall): ArchiveQuery => {
+  const args = parseToolArguments(toolCall.function.arguments);
+  switch (toolCall.function.name) {
+    case 'get_source_tree':
+      return { operation: 'tree' };
+    case 'list_source_directory':
+      return {
+        operation: 'list-directory',
+        path: requireStringArgument(args, 'path', true),
+      };
+    case 'read_source_file': {
+      const cursorBytes = readOptionalCursor(args);
+      return {
+        ...(cursorBytes === undefined ? {} : { cursorBytes }),
+        operation: 'read-file',
+        path: requireStringArgument(args, 'path'),
+      };
+    }
+    case 'search_source_text':
+      return {
+        operation: 'search-text',
+        query: requireStringArgument(args, 'query'),
+      };
+    default:
+      throw new Error(`Operazione tool sorgente non supportata: ${toolCall.function.name}.`);
+  }
+};
+
+const compareArchivePaths = (
+  left: SourceArchiveIndex['entries'][number],
+  right: SourceArchiveIndex['entries'][number]
+): number => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+
+export const formatSourceArchiveIndex = (
+  index: SourceArchiveIndex,
+  { previewBudgetChars }: { previewBudgetChars?: number } = {}
+): string => {
+  const entries = [...index.entries].sort(compareArchivePaths);
+  const textFileCount = entries.filter(
+    entry => entry.kind === 'file' && entry.contentKind === 'text'
+  ).length;
+  const budget = previewBudgetChars ?? Number.MAX_SAFE_INTEGER;
+  if (!Number.isSafeInteger(budget) || budget < 0) {
+    throw new RangeError('Source archive preview budget must be a non-negative safe integer.');
+  }
+  if (budget < textFileCount) {
+    throw new RangeError('Source archive preview budget must allow one character per text file.');
+  }
+  const baseQuota = textFileCount === 0 ? 0 : Math.floor(budget / textFileCount);
+  const extraQuotaCount = textFileCount === 0 ? 0 : budget % textFileCount;
+  let textFileIndex = 0;
+
+  return entries
+    .flatMap(entry => {
+      if (entry.kind === 'directory') {
+        return [`DIRECTORY ${entry.path}`];
+      }
+      const description = `FILE ${entry.path} | ${entry.contentKind} | ${entry.byteSize} bytes`;
+      if (entry.contentKind !== 'text') {
+        return [description];
+      }
+      const previewQuota = baseQuota + (textFileIndex < extraQuotaCount ? 1 : 0);
+      textFileIndex += 1;
+      return entry.preview === undefined
+        ? [description]
+        : [description, `PREVIEW ${entry.path}`, entry.preview.slice(0, previewQuota)];
+    })
+    .join('\n');
+};
+
+export class SourceArchiveClient {
+  private readonly baseUrl: string;
+
+  constructor(baseUrl = getBackendUrl()) {
+    this.baseUrl = baseUrl.replace(/\/$/u, '');
+  }
+
+  async resolveSelectors(
+    projectId: string,
+    archiveVersion: SourceArchiveVersion,
+    selectors: SourceArchiveSelector[]
+  ): Promise<Array<{ path: string; text: string }>> {
+    return (await this.query(projectId, archiveVersion, {
+      operation: 'resolve-selectors',
+      selectors,
+    })) as Array<{ path: string; text: string }>;
+  }
+
+  async runToolCall(
+    projectId: string,
+    archiveVersion: SourceArchiveVersion,
+    toolCall: OpenRouterToolCall
+  ): Promise<unknown> {
+    return this.query(projectId, archiveVersion, buildToolQuery(toolCall));
+  }
+
+  private async query(
+    projectId: string,
+    archiveVersion: SourceArchiveVersion,
+    query: ArchiveQuery
+  ): Promise<unknown> {
+    const response = await fetchWithSupabaseAuth(
+      `${this.baseUrl}/api/projects/projects/${encodeURIComponent(projectId)}/source/archive/query`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...query, archiveVersion }),
+      }
+    );
+    const payload = (await response.json()) as ArchiveQueryResponse;
+    if (!response.ok || payload.success !== true) {
+      throw new Error(payload.error || 'La sorgente archivio non è consultabile.');
+    }
+    return payload.result;
+  }
+}

@@ -1,0 +1,534 @@
+/* biome-ignore lint/suspicious/noUnknownAtRules: Tailwind directives are compiled by PostCSS. */
+@tailwind base;
+/* biome-ignore lint/suspicious/noUnknownAtRules: Tailwind directives are compiled by PostCSS. */
+@tailwind components;
+/* biome-ignore lint/suspicious/noUnknownAtRules: Tailwind directives are compiled by PostCSS. */
+@tailwind utilities;
+
+/* ============================================================
+   1. DESIGN TOKENS — CSS custom properties (light + dark)
+   ============================================================ */
+:root {
+  --font-serif: "Merriweather", serif;
+  --font-sans: "Inter", sans-serif;
+  --bg-paper: #fdfbf7;
+  --bg-surface: #ffffff;
+  --ink-primary: #1f1f1f;
+  --ink-secondary: #4a4a4a;
+  --accent: #d97757;
+  --annotation-highlight-color: #fed7aa;
+
+  --border-subtle: rgba(229, 231, 235, 1);
+  --border-strong: rgba(209, 213, 219, 1);
+  --panel-shadow: 0 12px 30px -8px rgba(15, 23, 42, 0.12), 0 28px 60px -22px rgba(15, 23, 42, 0.22);
+  --transition-fast: 0.18s ease;
+}
+
+.dark {
+  --bg-paper: #252526;
+  --bg-surface: #2f3031;
+  --ink-primary: #e4e4e7;
+  --ink-secondary: #a1a1aa;
+  --accent: #fb923c;
+  /* Keep fragmented inline highlights visually uniform when their painted edges overlap. */
+  --annotation-highlight-color: #6d3c18;
+  --border-subtle: rgba(113, 113, 122, 0.6);
+  --border-strong: rgba(161, 161, 170, 0.78);
+  --panel-shadow: 0 16px 34px -14px rgba(0, 0, 0, 0.35), 0 30px 60px -24px rgba(0, 0, 0, 0.38);
+}
+
+/* ============================================================
+   2. BASE / RESET — html, body, #root, backgrounds, helpers
+   ============================================================ */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg-paper);
+  background-image:
+    radial-gradient(
+      ellipse 64% 72% at 50% 42%,
+      var(--bg-paper) 0%,
+      var(--bg-paper) 52%,
+      rgba(253, 251, 247, 0) 100%
+    ),
+    linear-gradient(to right, rgba(24, 24, 27, 0.038) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(24, 24, 27, 0.038) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    28px 28px,
+    28px 28px;
+  background-attachment: fixed, fixed, fixed;
+  background-repeat: no-repeat, repeat, repeat;
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}
+
+.dark body {
+  background-image:
+    radial-gradient(
+      ellipse 64% 72% at 50% 42%,
+      var(--bg-paper) 0%,
+      var(--bg-paper) 52%,
+      rgba(37, 37, 38, 0) 100%
+    ),
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+@media (min-width: 768px) {
+  body {
+    background-image:
+      radial-gradient(
+        ellipse 80% 80% at 50% 50%,
+        var(--bg-paper) 0%,
+        var(--bg-paper) 55%,
+        rgba(253, 251, 247, 0) 100%
+      ),
+      linear-gradient(to right, rgba(24, 24, 27, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(24, 24, 27, 0.05) 1px, transparent 1px);
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(
+        ellipse 80% 80% at 50% 50%,
+        var(--bg-paper) 0%,
+        var(--bg-paper) 55%,
+        rgba(37, 37, 38, 0) 100%
+      ),
+      linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  }
+}
+
+#root {
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.font-serif {
+  font-family: var(--font-serif);
+}
+
+.font-mono {
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ============================================================
+   3. MODEL PANEL — OpenRouter model selector panel
+   ============================================================ */
+.model-panel-anchor {
+  position: fixed;
+  left: 50%;
+  top: 5.25rem;
+  z-index: 40;
+  transform: translateX(-50%);
+  width: min(22rem, calc(100vw - 3rem));
+}
+
+.model-panel-surface {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--panel-shadow);
+  scrollbar-gutter: stable;
+}
+
+.panel-shadow {
+  box-shadow: var(--panel-shadow);
+}
+
+.model-panel-divider {
+  border-color: var(--border-subtle);
+}
+
+.model-panel-title {
+  color: var(--ink-primary);
+}
+
+.model-panel-label {
+  color: rgba(156, 163, 175, 1);
+}
+
+.dark .model-panel-label {
+  color: rgba(113, 113, 122, 1);
+}
+
+.model-panel-help {
+  color: var(--ink-secondary);
+}
+
+.model-panel-reset {
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--ink-secondary);
+  transition:
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.model-panel-reset:hover {
+  border-color: var(--border-strong);
+  color: var(--ink-primary);
+}
+
+.model-panel-close {
+  color: rgba(156, 163, 175, 1);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.model-panel-close:hover {
+  background-color: rgba(243, 244, 246, 1);
+  color: var(--ink-primary);
+}
+
+.model-panel-section-toggle {
+  color: var(--ink-primary);
+  transition: color var(--transition-fast);
+}
+
+.model-panel-section-toggle:hover {
+  color: var(--ink-secondary);
+}
+
+.dark .model-panel-close {
+  color: rgba(113, 113, 122, 1);
+}
+
+.dark .model-panel-close:hover {
+  background-color: rgba(63, 63, 70, 1);
+  color: rgba(244, 244, 245, 1);
+}
+
+.model-panel-input {
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface);
+  color: var(--ink-primary);
+  caret-color: var(--ink-primary);
+  transition: border-color var(--transition-fast);
+}
+
+.model-panel-input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.model-panel-model-row {
+  color: var(--ink-secondary);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.model-panel-model-row:hover {
+  background-color: rgba(243, 244, 246, 1);
+  color: var(--ink-primary);
+}
+
+.dark .model-panel-model-row:hover {
+  background-color: rgba(63, 63, 70, 0.8);
+}
+
+.model-panel-clone-unavailable {
+  border: 1px dashed var(--border-subtle);
+  color: var(--ink-secondary);
+}
+
+/* ============================================================
+   4. READER SIDEBAR — scroll containers
+   ============================================================ */
+.reader-sidebar-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+.reader-sidebar-scroll-mobile {
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 640px) {
+  .model-panel-anchor {
+    position: absolute;
+    left: auto;
+    right: 0;
+    top: calc(100% + 0.75rem);
+    transform: none;
+    width: min(26rem, calc(100vw - 2rem));
+  }
+}
+
+/* ============================================================
+   5. SCROLLBAR — global webkit scrollbar styling
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+/* ============================================================
+   6. CUSTOM SCROLLBAR — utility class for scrollable panels
+   ============================================================ */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #a1a1aa transparent;
+}
+
+.dark .custom-scrollbar {
+  scrollbar-color: #71717a transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #a1a1aa;
+  border-radius: 3px;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #71717a;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+.home-chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #a1a1aa transparent;
+}
+
+.dark .home-chat-scrollbar {
+  scrollbar-color: #71717a transparent;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar {
+  width: 7px;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar-thumb {
+  background: #a1a1aa;
+  border-radius: 3px;
+}
+
+.dark .home-chat-scrollbar::-webkit-scrollbar-thumb {
+  background: #71717a;
+}
+
+.home-chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
+}
+
+.new-home-filter-scroll {
+  scrollbar-width: none;
+}
+
+.new-home-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.dark .home-chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+/* custom thin scrollbar for textareas (notes editor) */
+textarea::-webkit-scrollbar {
+  width: 5px;
+}
+
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+textarea::-webkit-scrollbar-thumb {
+  background: #a1a1aa;
+  border-radius: 3px;
+}
+
+.dark textarea::-webkit-scrollbar-thumb {
+  background: #71717a;
+}
+
+textarea::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
+}
+
+.dark textarea::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+/* ============================================================
+   7. PROSE — reader content typography
+   ============================================================ */
+.prose h1,
+.prose h2,
+.prose h3 {
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+}
+
+.prose p {
+  margin-bottom: 0.75em;
+  line-height: 1.8;
+}
+
+.prose blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 1rem;
+  font-style: italic;
+  color: var(--ink-secondary);
+}
+
+.user-chat-bubble .prose > :first-child {
+  margin-top: 0;
+}
+
+.user-chat-bubble .prose > :last-child {
+  margin-bottom: 0;
+}
+
+.user-chat-bubble .prose p,
+.user-chat-bubble .prose ul,
+.user-chat-bubble .prose ol,
+.user-chat-bubble .prose pre,
+.user-chat-bubble .prose blockquote {
+  margin-top: 0;
+  margin-bottom: 0;
+  line-height: 1.35;
+}
+
+mark {
+  background-color: var(--annotation-highlight-color);
+  color: #000;
+  padding: 0.1em 0.2em;
+  border-radius: 0.2em;
+  font-weight: 500;
+}
+
+.dark mark {
+  background-color: var(--annotation-highlight-color);
+  color: #000;
+}
+
+::highlight(nous-annotations) {
+  background-color: var(--annotation-highlight-color);
+  color: #111827;
+}
+
+.prose code[data-nous-annotation-inline-highlight="true"] {
+  border-radius: 0;
+  background-color: var(--annotation-highlight-color);
+}
+
+.nous-annotation-highlight-cap {
+  position: absolute;
+  background-color: var(--annotation-highlight-color);
+}
+
+.nous-annotation-highlight-cap-start {
+  border-radius: 0.14em 0 0 0.14em;
+}
+
+.nous-annotation-highlight-cap-end {
+  border-radius: 0 0.14em 0.14em 0;
+}
+
+::highlight(nous-annotation-notes) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: color-mix(in srgb, currentColor 65%, transparent);
+  text-underline-offset: 0.18em;
+}
+
+.dark ::highlight(nous-annotations) {
+  color: #fffbeb;
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    scale: 0.94;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes generationStepPop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.generation-progress-step-current {
+  animation: generationStepPop 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generation-progress-step-current {
+    animation: none;
+  }
+}

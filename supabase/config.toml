@@ -1,0 +1,59 @@
+project_id = "nous-reader"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://127.0.0.1:5173"]
+jwt_expiry = 3600
+enable_signup = false
+
+[auth.rate_limit]
+email_sent = 30
+
+[auth.email]
+# Keep the email provider enabled for password and magic-link login. Closed access
+# is enforced by [auth].enable_signup = false, so public signup remains disabled.
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+
+[auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 587
+user = "resend"
+pass = "env(SUPABASE_AUTH_SMTP_PASS)"
+admin_email = "no-reply@auth.giovbox.com"
+sender_name = "Nous"
+
+[auth.email.template.confirmation]
+subject = "Conferma il tuo account Nous"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.invite]
+subject = "Il tuo invito a Nous"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.magic_link]
+subject = "Accedi a Nous"
+content_path = "./supabase/templates/magic-link.html"
+
+[auth.email.template.recovery]
+subject = "Reimposta la password Nous"
+content_path = "./supabase/templates/recovery.html"
+
+[studio]
+enabled = true
+port = 54323

@@ -1,0 +1,4 @@
+export const MAX_LESSON_REPAIR_SOURCE_CHARS = 24_000;
+export const MIN_LESSON_QUIZ_QUESTIONS = 0;
+export { MAX_LESSON_QUIZ_QUESTIONS } from '@shared/lessonGenerationPolicy';
+export const LESSON_QUIZ_OPTION_COUNT = 4;

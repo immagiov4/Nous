@@ -1,0 +1,1 @@
+export const LESSON_PDF_IMAGE_EXTRACTION_LIMIT = 36;

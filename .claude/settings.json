@@ -1,0 +1,59 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npm test *)",
+      "Bash(bun run *)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/routes/projects.test.ts)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts)",
+      "Bash(node -e ' *)",
+      "Bash(graphify query *)",
+      "Bash(node --max-old-space-size=4096 -e ' *)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/components/workspace/)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/routes/projects.test.ts apps/web/tests/services/projects/httpProjectRepository.test.ts)",
+      "Bash(ls -la \"/c/Users/giovb/Desktop/Trace-20260507T030255.json\" 2>&1 | head -3)",
+      "Read(//c/Users/giovb/Desktop/**)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/hooks/library/useProjectLibrary.test.ts apps/web/tests/services/projects/projectTransfer.test.ts)",
+      "Bash(bunx vitest *)",
+      "Bash(git stash *)",
+      "mcp__github__issue_read",
+      "WebFetch(domain:github.com)",
+      "Bash(Get-ChildItem -Path . -Filter \"*.pen\" -Recurse -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -First 5 FullName)",
+      "PowerShell(Get-ChildItem -Path \"$env:USERPROFILE\" -Filter \"pencil-new.pen\" -Recurse -ErrorAction SilentlyContinue -Force -Depth 5 | Select-Object FullName | Format-List)",
+      "Bash(npx tsc *)",
+      "Bash(npx vitest *)",
+      "WebFetch(domain:openrouter.ai)",
+      "WebFetch(domain:docs.perplexity.ai)",
+      "Bash(bun install *)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/services/learning/groupSectionsIntoModules.test.ts)",
+      "Bash(bun --bun vitest run --config apps/web/vitest.config.ts apps/web/tests/utils/learning/pathNodes.test.ts)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat\\(learning\\): add pathNodes helpers for walking modules *)",
+      "Bash(git commit -m 'refactor\\(persistence\\): drop laboratory + activeLaboratoryExerciseId; sectionPatch walks modules *)",
+      "Bash(awk -F'\\(' '{print $1}')",
+      "mcp__graphify__get_node",
+      "mcp__graphify__query_graph",
+      "Bash(bun --bun vitest run apps/backend/tests/routes/projects.test.ts --config apps/web/vitest.config.ts)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\giovb\\.vscode\\extensions\\highagency.pencildev-0.6.49\\out\\data"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "graphify"
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(python3 -c \"import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',d).get('command',''))\" 2>/dev/null || true); case \"$CMD\" in *grep*|*rg\\ *|*ripgrep*|*find\\ *|*fd\\ *|*ack\\ *|*ag\\ *)   [ -f graphify-out/graph.json ] &&   echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: Knowledge graph exists. Read graphify-out/GRAPH_REPORT.md for god nodes and community structure before searching raw files.\"}}'   || true ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}

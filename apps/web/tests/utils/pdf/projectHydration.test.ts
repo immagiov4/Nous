@@ -1,0 +1,179 @@
+import assert from 'node:assert/strict';
+import { test } from 'vitest';
+import type { FileData, LearningPlan, PdfTextIndex } from '../../../types';
+import {
+  getPdfProjectHydrationState,
+  needsPdfProjectHydration,
+} from '../../../utils/pdf/projectHydration.ts';
+import { buildTestLearningPlan, buildTestLesson } from '../../helpers/learningPlan.ts';
+
+const pdfFile: FileData = {
+  name: 'dispensa.pdf',
+  mimeType: 'application/pdf',
+  data: 'ZmFrZQ==',
+};
+
+const basePlan: LearningPlan = buildTestLearningPlan([
+  buildTestLesson({
+    id: 'lesson-1',
+    title: 'Lezione 1',
+    description: 'Intro',
+  }),
+]);
+
+const readyIndex: PdfTextIndex = {
+  kind: 'pdf-text-index',
+  parsedAt: '2026-03-20T10:00:00.000Z',
+  sourceHash: 'hash-1',
+  chunks: [
+    {
+      id: 'chunk-001',
+      text: 'Contenuto',
+      headingPath: ['Intro'],
+      sequence: 0,
+      startOffset: 0,
+      endOffset: 9,
+    },
+  ],
+};
+
+const largeReadyIndex: PdfTextIndex = {
+  kind: 'pdf-text-index',
+  parsedAt: '2026-03-20T10:00:00.000Z',
+  sourceHash: 'hash-2',
+  chunks: Array.from({ length: 8 }, (_, index) => ({
+    id: `chunk-00${index + 1}`,
+    text: `Chunk ${index + 1}`,
+    headingPath: [`Chapter ${index + 1}`],
+    sequence: index,
+    startOffset: index * 10,
+    endOffset: index * 10 + 8,
+  })),
+};
+
+test('stays idle for non-pdf or fileless projects', () => {
+  assert.equal(getPdfProjectHydrationState(null, basePlan, null), 'idle');
+  assert.equal(
+    getPdfProjectHydrationState(
+      {
+        name: 'repo.zip',
+        mimeType: 'application/zip',
+        data: 'ZmFrZQ==',
+      },
+      basePlan,
+      null
+    ),
+    'idle'
+  );
+});
+
+test('requires a document index when a pdf-backed project has a plan but no chunks', () => {
+  assert.equal(getPdfProjectHydrationState(pdfFile, basePlan, null), 'missing-document-index');
+  assert.equal(needsPdfProjectHydration(pdfFile, basePlan, null), true);
+});
+
+test('requires chunk mappings when the document index exists but lessons are still unmapped', () => {
+  assert.equal(
+    getPdfProjectHydrationState(pdfFile, basePlan, readyIndex),
+    'missing-primary-chunk-mappings'
+  );
+});
+
+test('is ready only when the pdf plan already has a chunk index and primary mappings', () => {
+  const mappedPlan: LearningPlan = {
+    ...basePlan,
+    modules: basePlan.modules.map(module => ({
+      ...module,
+      children: module.children.map(node =>
+        node.kind === 'lesson' ? { ...node, primaryChunkIds: ['chunk-001'] } : node
+      ),
+    })),
+  };
+
+  assert.equal(getPdfProjectHydrationState(pdfFile, mappedPlan, readyIndex), 'ready');
+  assert.equal(needsPdfProjectHydration(pdfFile, mappedPlan, readyIndex), false);
+});
+
+test('treats explicit fallback mapping markers as stale even when chunk ids vary across lessons', () => {
+  const stalePlan: LearningPlan = buildTestLearningPlan(
+    Array.from({ length: 4 }, (_, index) =>
+      buildTestLesson({
+        id: `lesson-${index + 1}`,
+        title: `Lezione ${index + 1}`,
+        description: 'Intro',
+        primaryChunkIds: [`chunk-00${index + 1}`],
+        primaryChunkMappingSource: 'fallback' as const,
+      })
+    )
+  );
+
+  assert.equal(
+    getPdfProjectHydrationState(pdfFile, stalePlan, largeReadyIndex),
+    'missing-primary-chunk-mappings'
+  );
+  assert.equal(needsPdfProjectHydration(pdfFile, stalePlan, largeReadyIndex), true);
+});
+
+test('does not retry automatic hydration after mapping recovery was exhausted', () => {
+  const fallbackPlan: LearningPlan = buildTestLearningPlan(
+    Array.from({ length: 4 }, (_, index) =>
+      buildTestLesson({
+        id: `lesson-${index + 1}`,
+        title: `Lezione ${index + 1}`,
+        description: 'Intro',
+        primaryChunkIds: [`chunk-00${index + 1}`],
+        primaryChunkMappingSource: 'fallback' as const,
+      })
+    )
+  );
+  const exhaustedIndex: PdfTextIndex = {
+    ...largeReadyIndex,
+    mappingRecovery: {
+      status: 'exhausted',
+      updatedAt: '2026-07-09T18:00:00.000Z',
+    },
+  };
+
+  assert.equal(
+    getPdfProjectHydrationState(pdfFile, fallbackPlan, exhaustedIndex),
+    'mapping-recovery-exhausted'
+  );
+  assert.equal(needsPdfProjectHydration(pdfFile, fallbackPlan, exhaustedIndex), false);
+});
+
+test('does not flag small documents that only have the first chunks available', () => {
+  const smallDocPlan: LearningPlan = buildTestLearningPlan(
+    Array.from({ length: 4 }, (_, index) =>
+      buildTestLesson({
+        id: `lesson-${index + 1}`,
+        title: `Lezione ${index + 1}`,
+        description: 'Intro',
+        primaryChunkIds: ['chunk-001'],
+      })
+    )
+  );
+
+  assert.equal(getPdfProjectHydrationState(pdfFile, smallDocPlan, readyIndex), 'ready');
+  assert.equal(needsPdfProjectHydration(pdfFile, smallDocPlan, readyIndex), false);
+});
+
+test('ignores unmapped summary sections when deciding if a pdf plan is hydrated', () => {
+  const planWithSummary: LearningPlan = buildTestLearningPlan([
+    buildTestLesson({
+      id: 'lesson-1',
+      title: 'Lezione 1',
+      description: 'Intro',
+      primaryChunkIds: ['chunk-001'],
+      primaryChunkMappingSource: 'mapped',
+    }),
+    buildTestLesson({
+      id: 'summary-1',
+      title: 'Riepilogo',
+      description: 'Sintesi',
+      type: 'summary',
+    }),
+  ]);
+
+  assert.equal(getPdfProjectHydrationState(pdfFile, planWithSummary, readyIndex), 'ready');
+  assert.equal(needsPdfProjectHydration(pdfFile, planWithSummary, readyIndex), false);
+});

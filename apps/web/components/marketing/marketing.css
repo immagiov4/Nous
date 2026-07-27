@@ -1,0 +1,1597 @@
+.marketing-page,
+body:has(.marketing-page),
+html:has(.marketing-page) {
+  overflow-x: clip;
+}
+
+body:has(.marketing-page) {
+  height: auto;
+  overflow-y: visible;
+}
+
+html:has(.marketing-page) {
+  height: auto;
+  overflow-y: auto;
+  scroll-behavior: auto;
+}
+
+.marketing-page {
+  --marketing-paper: #fcfaf7;
+  --marketing-surface: #ffffff;
+  --marketing-ink: #1a1917;
+  --marketing-muted: #66615b;
+  --marketing-faint: #eee9e2;
+  --marketing-line: #dcd5cc;
+  --marketing-accent: #c4622a;
+  --marketing-accent-dark: #9f451d;
+  --marketing-serif: "Playfair Display", "Merriweather", serif;
+  --marketing-sans: "Inter", sans-serif;
+  --marketing-page-width: 92rem;
+  --marketing-reading-width: 76rem;
+  min-height: 100dvh;
+  background: var(--marketing-paper);
+  color: var(--marketing-ink);
+  font-family: var(--marketing-sans);
+}
+
+.marketing-page *,
+.marketing-page *::before,
+.marketing-page *::after {
+  box-sizing: border-box;
+}
+
+.marketing-page a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.marketing-page button,
+.marketing-page input,
+.marketing-page select {
+  font: inherit;
+}
+
+.marketing-header {
+  position: relative;
+  z-index: 90;
+  display: flex;
+  width: min(100% - 3rem, var(--marketing-page-width));
+  min-height: 5rem;
+  margin: 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--marketing-faint);
+}
+
+.marketing-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-family: var(--marketing-serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.marketing-brand img {
+  width: 2rem;
+  height: 2rem;
+}
+
+.marketing-nav,
+.marketing-footer nav {
+  display: flex;
+  align-items: center;
+  gap: 1.8rem;
+  color: var(--marketing-muted);
+  font-size: 0.86rem;
+  font-weight: 500;
+}
+
+.marketing-nav button,
+.marketing-footer button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.marketing-nav button:not(.marketing-header-cta):hover,
+.marketing-footer a:hover,
+.marketing-footer button:hover {
+  color: var(--marketing-ink);
+}
+
+.marketing-page .marketing-header-cta,
+.marketing-page .marketing-primary-button {
+  display: inline-flex;
+  min-height: 3rem;
+  padding: 0 1.4rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  border: 1px solid var(--marketing-ink);
+  border-radius: 999px;
+  background: var(--marketing-ink);
+  color: var(--marketing-paper);
+  cursor: pointer;
+  font-weight: 650;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.marketing-page .marketing-header-cta {
+  min-height: 2.65rem;
+  padding: 0 1.25rem;
+}
+
+.marketing-page .marketing-header-cta:hover,
+.marketing-page .marketing-primary-button:hover:not(:disabled) {
+  border-color: var(--marketing-accent-dark);
+  background: var(--marketing-accent-dark);
+  transform: translateY(-1px);
+}
+
+.marketing-page .marketing-primary-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.marketing-menu-button {
+  display: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--marketing-faint);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--marketing-ink);
+}
+
+.marketing-hero {
+  display: grid;
+  width: min(100% - 3rem, var(--marketing-page-width));
+  margin: 0 auto;
+  padding: clamp(2.5rem, 4vw, 4rem) 0 clamp(3rem, 4.5vw, 4.5rem);
+  align-items: center;
+  border-bottom: 1px solid var(--marketing-line);
+  grid-template-columns: minmax(0, 1fr) minmax(25rem, 0.82fr);
+  gap: clamp(3rem, 6vw, 6rem);
+}
+
+.marketing-eyebrow {
+  margin: 0 0 1.1rem;
+  color: var(--marketing-accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.marketing-hero h1 {
+  max-width: 16ch;
+  margin: 0;
+  font-family: var(--marketing-serif);
+  font-size: clamp(2.45rem, 3.5vw, 3.4rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.marketing-hero-kicker,
+.marketing-study-flow-heading > p {
+  margin: 0 0 1.2rem;
+  color: var(--marketing-accent-dark);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.marketing-hero-hook {
+  max-width: 41rem;
+  margin: 1.5rem 0 0;
+  color: var(--marketing-ink);
+  font-size: clamp(1.12rem, 1.5vw, 1.35rem);
+  font-weight: 650;
+  line-height: 1.52;
+  text-wrap: pretty;
+}
+
+.marketing-hero-description {
+  max-width: 42rem;
+  margin: 1rem 0 0;
+  color: #4f4a44;
+  font-size: 1rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.marketing-hero-access {
+  display: grid;
+  max-width: 38rem;
+  margin-top: 1.75rem;
+  gap: 0.7rem;
+}
+
+.marketing-hero-access > p,
+.marketing-hero-access > small {
+  margin: 0;
+  color: var(--marketing-muted);
+  font-size: 0.75rem;
+}
+
+.marketing-hero-access > p {
+  color: var(--marketing-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.marketing-waitlist-form {
+  display: flex;
+  width: 100%;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.marketing-email-field {
+  min-width: 12rem;
+  flex: 1;
+}
+
+.marketing-email-field input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0 1.05rem;
+  border: 1px solid #d3ccc3;
+  border-radius: 999px;
+  outline: none;
+  background: var(--marketing-surface);
+  color: var(--marketing-ink);
+}
+
+.marketing-email-field input:focus {
+  border-color: var(--marketing-accent);
+  box-shadow: 0 0 0 3px rgb(196 98 42 / 13%);
+}
+
+.marketing-form-note {
+  margin: 0.75rem 0 0;
+  color: #89837c;
+  font-size: 0.73rem;
+}
+
+.marketing-waitlist-error,
+.marketing-waitlist-success {
+  width: 100%;
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.marketing-waitlist-error {
+  color: #a43722;
+}
+
+.marketing-waitlist-success {
+  padding: 0.9rem 1rem;
+  border: 1px solid #c9d9c5;
+  border-radius: 0.8rem;
+  background: #f1f7ef;
+  color: #2f5f36;
+}
+
+.marketing-hero-visual {
+  display: block;
+  width: min(100%, 48rem);
+  height: auto;
+  justify-self: end;
+}
+
+.marketing-journey-intro h2,
+.marketing-final-cta h2 {
+  max-width: 22ch;
+  margin: 0;
+  font-family: var(--marketing-serif);
+  font-size: clamp(2.1rem, 3.6vw, 3.5rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.04;
+  text-wrap: balance;
+}
+
+.marketing-journey {
+  padding: clamp(5rem, 8vw, 8rem) max(1.5rem, calc((100% - var(--marketing-page-width)) / 2));
+  background: var(--marketing-ink);
+  color: var(--marketing-paper);
+}
+
+.marketing-journey-intro {
+  max-width: 70rem;
+  margin-bottom: clamp(2rem, 4vw, 3.5rem);
+}
+
+.marketing-journey-intro h2 {
+  max-width: 28ch;
+  font-size: clamp(2rem, 3.2vw, 3.1rem);
+}
+
+.marketing-journey-layout {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(20rem, 0.58fr) minmax(38rem, 1.42fr);
+  gap: clamp(3rem, 6vw, 7rem);
+}
+
+.marketing-journey-steps article {
+  display: flex;
+  min-height: 58vh;
+  padding: 2.5rem 0;
+  border-top: 1px solid #48433e;
+  flex-direction: column;
+  justify-content: center;
+  opacity: 0.42;
+  transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.marketing-journey-steps article:last-child {
+  min-height: 100vh;
+}
+
+.marketing-journey-steps article.is-active {
+  opacity: 1;
+}
+
+.marketing-journey-steps article > span {
+  color: #d9966d;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.marketing-journey-steps h3 {
+  max-width: 14ch;
+  margin: 2rem 0 1.2rem;
+  font-family: var(--marketing-serif);
+  font-size: clamp(1.8rem, 2.7vw, 2.65rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+
+.marketing-journey-steps p {
+  max-width: 33rem;
+  margin: 0;
+  color: #c7c0b8;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.marketing-journey-steps ul {
+  display: grid;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  gap: 0.7rem;
+  list-style: none;
+}
+
+.marketing-journey-steps li {
+  display: flex;
+  align-items: center;
+  color: #f0ebe5;
+  font-size: 0.75rem;
+  font-weight: 600;
+  gap: 0.7rem;
+}
+
+.marketing-journey-steps li svg {
+  width: 1rem;
+  height: 1rem;
+  color: #d9966d;
+}
+
+.marketing-journey-demo {
+  position: sticky;
+  top: 2rem;
+  display: grid;
+  height: calc(100dvh - 4rem);
+  place-items: center;
+}
+
+:where(.marketing-journey-demo) .marketing-product-demo {
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.marketing-journey-mobile {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.marketing-journey-mobile-copy {
+  min-height: 10.5rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid #48433e;
+  animation: marketing-journey-copy-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.marketing-journey-mobile-copy > span {
+  color: #d9966d;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.marketing-journey-mobile-copy h3 {
+  margin: 0.75rem 0 0.65rem;
+  font-family: var(--marketing-serif);
+  font-size: clamp(1.75rem, 9vw, 2.25rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.03;
+}
+
+.marketing-journey-mobile-copy p {
+  margin: 0;
+  color: #c7c0b8;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.marketing-journey-mobile-demo {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 1rem;
+  color: var(--marketing-ink);
+}
+
+.marketing-journey-mobile-demo .marketing-product-demo {
+  height: auto;
+}
+
+.marketing-journey-mobile-controls {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.55rem;
+}
+
+.marketing-journey-mobile-controls button {
+  min-height: 2.5rem;
+  border: 1px solid #514a44;
+  border-radius: 999px;
+  background: transparent;
+  color: #9f978f;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.marketing-journey-mobile-controls button[aria-pressed="true"] {
+  border-color: #d9966d;
+  background: #d9966d;
+  color: #181614;
+}
+
+@keyframes marketing-journey-copy-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.35rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.marketing-product-section {
+  width: min(100% - 3rem, var(--marketing-page-width));
+  margin: 0 auto;
+  padding: clamp(3.75rem, 6vw, 5.5rem) 0;
+}
+
+.marketing-product-heading {
+  display: grid;
+  width: 100%;
+  margin: 0 0 clamp(1.75rem, 3vw, 2.5rem);
+  align-items: end;
+  grid-template-columns: 1fr minmax(20rem, 0.65fr);
+  gap: clamp(3rem, 7vw, 7rem);
+}
+
+.marketing-product-heading h2,
+.marketing-section h2,
+.marketing-final-cta h2 {
+  margin: 0;
+  font-family: var(--marketing-serif);
+  font-size: clamp(2.25rem, 3.5vw, 3.75rem);
+  font-weight: 500;
+  letter-spacing: -0.052em;
+  line-height: 1;
+}
+
+.marketing-product-heading > p,
+.marketing-section-description,
+.marketing-final-cta > p:not(.marketing-eyebrow) {
+  margin: 0;
+  color: var(--marketing-muted);
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.marketing-product-demo {
+  border: 1px solid #d7d0c7;
+  border-radius: 1rem;
+  background: var(--marketing-surface);
+  box-shadow: 0 3rem 7rem -4rem rgb(42 32 23 / 48%);
+}
+
+.marketing-product-video {
+  width: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.marketing-demo-controls {
+  display: flex;
+  min-height: 4.25rem;
+  padding: 0.75rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--marketing-faint);
+  gap: 1rem;
+}
+
+.marketing-demo-controls > div {
+  display: inline-flex;
+  padding: 0.25rem;
+  border: 1px solid var(--marketing-faint);
+  border-radius: 999px;
+  background: #faf8f4;
+}
+
+.marketing-demo-controls button {
+  display: inline-flex;
+  min-height: 2.35rem;
+  padding: 0 0.9rem;
+  align-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--marketing-muted);
+  cursor: pointer;
+  gap: 0.45rem;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.marketing-demo-controls button.is-active {
+  background: var(--marketing-ink);
+  color: #fff;
+}
+
+.marketing-product-window {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.marketing-product-window > [data-reader-display-mode="embedded"] {
+  height: 100%;
+  min-height: 100%;
+}
+
+.marketing-demo-library {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  padding: clamp(2rem, 4vw, 3.5rem);
+  background: #f8f6f2;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.marketing-demo-plan {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  background: #fbfaf8;
+  grid-template-columns: minmax(13rem, 0.68fr) minmax(0, 1.32fr);
+}
+
+.marketing-demo-plan > aside {
+  padding: clamp(1.5rem, 3vw, 2.4rem);
+  border-right: 1px solid var(--marketing-line);
+  background: #f3f0eb;
+}
+
+.marketing-demo-plan > aside > p,
+.marketing-demo-plan-main header > span {
+  margin: 0;
+  color: var(--marketing-accent-dark);
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.marketing-demo-plan > aside h3 {
+  margin: 0.65rem 0 0.25rem;
+  font-family: var(--marketing-serif);
+  font-size: clamp(1.35rem, 2.2vw, 1.9rem);
+  font-weight: 550;
+  letter-spacing: -0.035em;
+}
+
+.marketing-demo-plan > aside > span {
+  color: var(--marketing-muted);
+  font-size: 0.72rem;
+}
+
+.marketing-demo-source {
+  display: grid;
+  margin-top: 1rem;
+  padding: 0.85rem;
+  align-items: center;
+  border: 1px solid #ddd6ce;
+  border-radius: 0.7rem;
+  background: #fff;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.marketing-demo-source > svg {
+  width: 1.05rem;
+  color: var(--marketing-accent-dark);
+}
+
+.marketing-demo-source > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.marketing-demo-source strong {
+  overflow: hidden;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketing-demo-source small {
+  color: var(--marketing-muted);
+  font-size: 0.65rem;
+}
+
+.marketing-demo-plan-main {
+  padding: clamp(1.5rem, 3vw, 2.4rem);
+}
+
+.marketing-demo-plan-main header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.marketing-demo-plan-main header button {
+  display: inline-flex;
+  min-height: 2.3rem;
+  padding: 0 0.9rem;
+  align-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--marketing-ink);
+  color: #fff;
+  gap: 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.marketing-demo-plan-main header button svg {
+  width: 0.9rem;
+}
+
+.marketing-demo-plan-main ol {
+  display: grid;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--marketing-line);
+  list-style: none;
+}
+
+.marketing-demo-plan-main li {
+  display: grid;
+  padding: 1rem 0;
+  align-items: center;
+  border-bottom: 1px solid var(--marketing-line);
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+
+.marketing-demo-plan-main li > span,
+.marketing-demo-plan-main li > small {
+  color: #9a9289;
+  font-size: 0.66rem;
+}
+
+.marketing-demo-plan-main li > strong {
+  font-family: var(--marketing-serif);
+  font-size: 0.92rem;
+  font-weight: 550;
+}
+
+.marketing-demo-library > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.marketing-demo-library header p,
+.marketing-demo-generation aside > p,
+.marketing-demo-generation-status p {
+  margin: 0 0 0.45rem;
+  color: var(--marketing-accent-dark);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.marketing-demo-library h3,
+.marketing-demo-generation h3 {
+  margin: 0;
+  font-family: var(--marketing-serif);
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+
+.marketing-demo-course {
+  display: grid;
+  width: 100%;
+  margin-top: 2rem;
+  padding: 1.25rem;
+  align-items: center;
+  border: 1px solid var(--marketing-line);
+  border-radius: 0.8rem;
+  background: #fff;
+  color: var(--marketing-ink);
+  cursor: pointer;
+  grid-template-columns: auto minmax(0, 1fr) minmax(12rem, 0.45fr);
+  gap: 1rem;
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.marketing-demo-course:hover {
+  border-color: #b9afa4;
+  transform: translateY(-2px);
+}
+
+.marketing-demo-course-icon {
+  display: grid;
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 0.65rem;
+  background: #f4e7da;
+  color: var(--marketing-accent-dark);
+  place-items: center;
+}
+
+.marketing-demo-course-icon svg {
+  width: 1.4rem;
+}
+
+.marketing-demo-course-copy,
+.marketing-demo-course-progress {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.marketing-demo-course-copy strong {
+  font-family: var(--marketing-serif);
+  font-size: 1.15rem;
+  font-weight: 550;
+}
+
+.marketing-demo-course small,
+.marketing-demo-course-progress span {
+  color: var(--marketing-muted);
+  font-size: 0.72rem;
+}
+
+.marketing-demo-course-progress > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.marketing-demo-course-progress svg {
+  width: 0.85rem;
+}
+
+.marketing-demo-progress-track,
+.marketing-demo-generation-progress {
+  display: block;
+  height: 0.25rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7e1da;
+}
+
+.marketing-demo-progress-track span,
+.marketing-demo-generation-progress span {
+  display: block;
+  width: 25%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--marketing-accent);
+}
+
+.marketing-demo-generation {
+  display: grid;
+  min-height: 30rem;
+  background: #fbfaf8;
+  grid-template-columns: minmax(15rem, 0.72fr) minmax(0, 1.28fr);
+}
+
+.marketing-demo-generation aside {
+  padding: 2rem;
+  border-right: 1px solid var(--marketing-line);
+  background: #f3f0eb;
+}
+
+.marketing-demo-generation aside h3 {
+  font-size: 1.35rem;
+}
+
+.marketing-demo-generation ol {
+  display: grid;
+  margin: 1.75rem 0 0;
+  padding: 0;
+  gap: 0.35rem;
+  list-style: none;
+}
+
+.marketing-demo-generation li {
+  display: grid;
+  padding: 0.75rem;
+  align-items: center;
+  border-radius: 0.5rem;
+  color: var(--marketing-muted);
+  font-size: 0.75rem;
+  grid-template-columns: 1.8rem 1fr;
+  line-height: 1.35;
+}
+
+.marketing-demo-generation li span {
+  color: #a79e95;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.65rem;
+}
+
+.marketing-demo-generation li.is-active {
+  background: #fff;
+  color: var(--marketing-ink);
+  box-shadow: 0 0 0 1px var(--marketing-line);
+}
+
+.marketing-demo-generation-main {
+  display: flex;
+  padding: clamp(2rem, 5vw, 4.5rem);
+  flex-direction: column;
+  justify-content: center;
+}
+
+.marketing-demo-generation-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.marketing-demo-generation-status > svg {
+  width: 1.4rem;
+  color: var(--marketing-accent);
+  animation: marketing-spin 1.1s linear infinite;
+}
+
+.marketing-demo-generation-status h3 {
+  max-width: 20ch;
+  font-size: clamp(1.6rem, 3vw, 2.4rem);
+}
+
+.marketing-demo-generation-steps {
+  display: grid;
+  margin-top: 2rem;
+  gap: 0.8rem;
+}
+
+.marketing-demo-generation-steps > div {
+  display: grid;
+  align-items: start;
+  color: var(--marketing-muted);
+  font-size: 0.78rem;
+  grid-template-columns: 1.25rem 1fr;
+  line-height: 1.55;
+}
+
+.marketing-demo-generation-steps p {
+  margin: 0;
+}
+
+.marketing-demo-generation-steps span {
+  color: #6f8b68;
+}
+
+.marketing-demo-generation-steps .is-current {
+  color: var(--marketing-ink);
+}
+
+.marketing-demo-generation-steps .is-current span {
+  color: var(--marketing-accent);
+}
+
+.marketing-demo-generation-progress {
+  margin-top: 2rem;
+}
+
+.marketing-demo-generation-progress span {
+  width: 68%;
+}
+
+.marketing-demo-controls button span {
+  color: #a69f96;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.66rem;
+}
+
+.marketing-demo-controls button.is-active span {
+  color: #efc8ae;
+}
+
+.marketing-demo-library > header > span {
+  color: var(--marketing-muted);
+  font-size: 0.78rem;
+}
+
+@keyframes marketing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.marketing-product-window [data-reader-display-mode="embedded"] > div:last-child {
+  overflow: hidden;
+}
+
+.marketing-demo-loading {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  background: #fcfaf7;
+}
+
+.marketing-demo-interaction {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.marketing-demo-cursor {
+  position: absolute;
+  top: 54%;
+  left: 58%;
+  width: 1.7rem;
+  height: 1.7rem;
+  color: #171614;
+  filter: drop-shadow(0 2px 2px rgb(255 255 255 / 85%));
+  animation: marketing-demo-cursor-path 4.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.marketing-demo-question {
+  position: absolute;
+  top: 27%;
+  right: 5%;
+  width: min(22rem, 46%);
+  padding: 1rem;
+  border: 1px solid #d8d1c9;
+  border-radius: 0.85rem;
+  background: #fff;
+  box-shadow: 0 1.4rem 3rem -1.6rem rgb(20 18 16 / 48%);
+  opacity: 0;
+  animation: marketing-demo-question 4.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.marketing-demo-question span {
+  color: var(--marketing-accent-dark);
+  font-size: 0.65rem;
+  font-weight: 750;
+}
+
+.marketing-demo-question p,
+.marketing-demo-question strong {
+  display: block;
+  margin: 0.65rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.marketing-demo-question strong {
+  padding-top: 0.65rem;
+  border-top: 1px solid #eee9e2;
+  color: #5f5952;
+  font-weight: 500;
+}
+
+@keyframes marketing-demo-cursor-path {
+  0%,
+  8% {
+    transform: translate(-9rem, 8rem);
+    opacity: 0;
+  }
+  16%,
+  32% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  42%,
+  100% {
+    transform: translate(8rem, -4rem);
+    opacity: 0;
+  }
+}
+
+@keyframes marketing-demo-question {
+  0%,
+  24% {
+    transform: translateY(0.75rem) scale(0.98);
+    opacity: 0;
+  }
+  34%,
+  92% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.marketing-section {
+  width: min(100% - 3rem, var(--marketing-reading-width));
+  margin: 0 auto;
+  padding: clamp(4rem, 6vw, 6rem) 0;
+}
+
+.marketing-section-heading {
+  display: grid;
+  align-items: end;
+  grid-template-columns: 1fr minmax(20rem, 0.65fr);
+  gap: clamp(3rem, 7vw, 7rem);
+}
+
+.marketing-section-heading .marketing-section-description {
+  margin-bottom: 0.2rem;
+}
+
+.marketing-step-list {
+  display: grid;
+  margin: clamp(3rem, 6vw, 5rem) 0 0;
+  padding: 0;
+  border-top: 1px solid var(--marketing-line);
+  border-bottom: 1px solid var(--marketing-line);
+  list-style: none;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.marketing-step-list li {
+  min-height: 15rem;
+  padding: 1.6rem 2rem 2rem 0;
+}
+
+.marketing-step-list li + li {
+  padding-left: 2rem;
+  border-left: 1px solid var(--marketing-line);
+}
+
+.marketing-step-number {
+  color: var(--marketing-accent);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+}
+
+.marketing-step-list h3 {
+  max-width: 15rem;
+  margin: 3.75rem 0 0.9rem;
+  font-family: var(--marketing-serif);
+  font-size: 1.55rem;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.marketing-step-list p {
+  max-width: 17rem;
+  margin: 0;
+  color: var(--marketing-muted);
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+.marketing-difference {
+  display: grid;
+  width: 100%;
+  max-width: none;
+  padding-right: max(1.5rem, calc((100% - var(--marketing-reading-width)) / 2));
+  padding-left: max(1.5rem, calc((100% - var(--marketing-reading-width)) / 2));
+  background: var(--marketing-ink);
+  color: var(--marketing-paper);
+  grid-template-columns: minmax(0, 0.88fr) minmax(30rem, 1.12fr);
+  gap: clamp(4rem, 8vw, 8rem);
+}
+
+.marketing-difference-statement .marketing-section-description {
+  margin-top: 1.5rem;
+  color: #bdb6ae;
+}
+
+.marketing-comparison {
+  width: 100%;
+  align-self: center;
+  border-collapse: collapse;
+  border-top: 1px solid #4b4640;
+}
+
+.marketing-comparison tr {
+  min-height: 5.4rem;
+  border-bottom: 1px solid #4b4640;
+}
+
+.marketing-comparison th,
+.marketing-comparison td {
+  width: 50%;
+  padding: 1rem 1.4rem;
+  color: #aaa29a;
+  font-size: 0.84rem;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.marketing-comparison th + th,
+.marketing-comparison td + td {
+  border-left: 1px solid #4b4640;
+  color: #f3eee8;
+}
+
+.marketing-comparison .marketing-comparison-header {
+  min-height: 3.5rem;
+}
+
+.marketing-comparison-header th {
+  color: #7f7770;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.marketing-comparison-header th + th {
+  color: #dfa67f;
+}
+
+.marketing-final-cta {
+  display: flex;
+  min-height: 0;
+  padding: clamp(3.75rem, 6vw, 5.5rem) 1.5rem;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  border-top: 1px solid var(--marketing-faint);
+  text-align: center;
+}
+
+.marketing-final-cta h2 {
+  max-width: 15ch;
+}
+
+.marketing-final-cta > p:not(.marketing-eyebrow) {
+  max-width: 34rem;
+  margin-top: 1.4rem;
+}
+
+.marketing-final-cta .marketing-primary-button {
+  margin-top: 2.25rem;
+}
+
+.marketing-final-cta svg {
+  width: 1rem;
+}
+
+.marketing-final-actions {
+  display: flex;
+  margin-top: 2.25rem;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.marketing-final-actions .marketing-primary-button {
+  margin-top: 0;
+}
+
+.marketing-final-actions > button {
+  min-height: 3rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--marketing-muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.marketing-final-actions > button:hover {
+  color: var(--marketing-ink);
+}
+
+.marketing-footer {
+  display: flex;
+  width: min(100% - 3rem, var(--marketing-page-width));
+  min-height: 6rem;
+  margin: 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--marketing-faint);
+}
+
+.marketing-footer .marketing-brand {
+  font-size: 1rem;
+}
+
+.marketing-footer .marketing-brand img {
+  width: 1.6rem;
+  height: 1.6rem;
+}
+
+.marketing-contact {
+  display: flex;
+  width: min(100% - 3rem, var(--marketing-page-width));
+  min-height: 4.5rem;
+  margin: 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--marketing-faint);
+  color: var(--marketing-muted);
+  font-size: 0.78rem;
+}
+
+.marketing-contact a:hover {
+  color: var(--marketing-ink);
+}
+
+.marketing-login-dialog {
+  width: min(100%, 30rem);
+  max-height: calc(100dvh - 2.5rem);
+  overflow-y: auto;
+  padding: 1.75rem;
+  border: 1px solid #d9d2ca;
+  border-radius: 0.9rem;
+  background: var(--marketing-paper);
+  box-shadow: 0 2rem 6rem -2rem rgb(0 0 0 / 52%);
+  color: inherit;
+  margin: auto;
+}
+
+.marketing-login-dialog::backdrop {
+  background: rgb(26 25 23 / 58%);
+  backdrop-filter: blur(6px);
+}
+
+.marketing-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.marketing-dialog-heading .marketing-eyebrow {
+  margin-bottom: 0.6rem;
+}
+
+.marketing-dialog-heading h2 {
+  margin: 0;
+  font-family: var(--marketing-serif);
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.marketing-dialog-heading button {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d9d2ca;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--marketing-ink);
+  cursor: pointer;
+}
+
+.marketing-dialog-heading svg {
+  width: 1.05rem;
+}
+
+.marketing-login-panel {
+  margin-top: 2rem;
+}
+
+.marketing-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.marketing-page :focus-visible {
+  outline: 3px solid rgb(196 98 42 / 32%);
+  outline-offset: 3px;
+}
+
+@media (max-width: 70rem) {
+  .marketing-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.72fr);
+    gap: 4rem;
+  }
+
+  .marketing-journey-layout {
+    grid-template-columns: minmax(17rem, 0.48fr) minmax(31rem, 1.52fr);
+    gap: 3rem;
+  }
+
+  .marketing-product-heading,
+  .marketing-section-heading {
+    grid-template-columns: 1fr minmax(18rem, 0.6fr);
+    gap: 3rem;
+  }
+
+  .marketing-difference {
+    grid-template-columns: 0.8fr 1.2fr;
+    gap: 4rem;
+  }
+}
+
+@media (max-width: 52rem) {
+  .marketing-header,
+  .marketing-hero,
+  .marketing-product-section,
+  .marketing-section,
+  .marketing-footer,
+  .marketing-contact {
+    width: min(100% - 2rem, var(--marketing-page-width));
+  }
+
+  .marketing-menu-button {
+    display: inline-flex;
+  }
+
+  .marketing-nav {
+    position: absolute;
+    top: calc(100% + 0.6rem);
+    right: 0;
+    left: 0;
+    display: none;
+    padding: 1.2rem;
+    align-items: stretch;
+    border: 1px solid var(--marketing-line);
+    border-radius: 0.8rem;
+    background: var(--marketing-surface);
+    box-shadow: 0 1.5rem 4rem -2.2rem rgb(44 36 27 / 40%);
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+
+  .marketing-nav.is-open {
+    display: flex;
+  }
+
+  .marketing-nav > button:not(.marketing-header-cta) {
+    min-height: 2.5rem;
+    text-align: left;
+  }
+
+  .marketing-hero {
+    padding: 2.4rem 0 2.8rem;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .marketing-hero-access {
+    margin-top: 1.65rem;
+    padding: 0;
+    border: 0;
+  }
+
+  .marketing-hero-visual {
+    display: none;
+  }
+
+  .marketing-journey {
+    padding-top: 3.5rem;
+    padding-bottom: 4rem;
+  }
+
+  .marketing-journey-intro {
+    margin-bottom: 1.4rem;
+  }
+
+  .marketing-journey-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .marketing-journey-steps article,
+  .marketing-journey-steps article:last-child {
+    min-height: auto;
+    padding: 3rem 0;
+  }
+
+  .marketing-product-heading,
+  .marketing-section-heading,
+  .marketing-difference {
+    grid-template-columns: 1fr;
+  }
+
+  .marketing-product-heading,
+  .marketing-section-heading {
+    gap: 1.8rem;
+  }
+
+  .marketing-demo-controls {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .marketing-demo-controls > p {
+    padding-left: 0.25rem;
+  }
+
+  .marketing-demo-generation {
+    grid-template-columns: 1fr;
+  }
+
+  .marketing-demo-generation aside {
+    border-right: 0;
+    border-bottom: 1px solid var(--marketing-line);
+  }
+
+  .marketing-step-list {
+    grid-template-columns: 1fr;
+  }
+
+  .marketing-step-list li {
+    min-height: auto;
+    padding: 1.6rem 0 2.5rem;
+  }
+
+  .marketing-step-list li + li {
+    padding-left: 0;
+    border-top: 1px solid var(--marketing-line);
+    border-left: 0;
+  }
+
+  .marketing-step-list h3 {
+    margin-top: 2rem;
+  }
+
+  .marketing-difference {
+    width: 100%;
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  .marketing-footer {
+    padding: 2rem 0;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .marketing-footer nav {
+    width: 100%;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+  }
+
+  .marketing-contact {
+    padding: 1.25rem 0;
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 36rem) {
+  .marketing-hero h1 {
+    font-size: clamp(2.65rem, 12vw, 3.4rem);
+  }
+
+  .marketing-waitlist-form {
+    flex-direction: column;
+  }
+
+  .marketing-email-field,
+  .marketing-waitlist-form .marketing-primary-button {
+    width: 100%;
+  }
+
+  .marketing-product-section {
+    width: 100%;
+  }
+
+  .marketing-final-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .marketing-final-actions .marketing-primary-button,
+  .marketing-final-actions > button {
+    width: 100%;
+  }
+
+  .marketing-product-heading {
+    padding: 0 1rem;
+  }
+
+  .marketing-product-demo {
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+  }
+
+  .marketing-demo-controls > div {
+    width: 100%;
+  }
+
+  .marketing-demo-controls button {
+    min-width: 0;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .marketing-demo-controls > p {
+    line-height: 1.4;
+  }
+
+  .marketing-comparison th,
+  .marketing-comparison td {
+    padding: 0.9rem;
+    font-size: 0.76rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-page *,
+  .marketing-page *::before,
+  .marketing-page *::after {
+    scroll-behavior: auto;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+  }
+}

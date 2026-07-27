@@ -1,0 +1,217 @@
+name: nous-reader
+
+services:
+  migrate:
+    build:
+      context: .
+      target: tooling
+    command:
+      [
+        "sh",
+        "-c",
+        "bun run scripts/migrate-project-sources-to-storage.ts && bunx supabase db push --debug --db-url \"$$DATABASE_URL\"",
+      ]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the deployment env file}
+      SUPABASE_DEPLOYMENT: ${SUPABASE_DEPLOYMENT:?Set SUPABASE_DEPLOYMENT}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Set SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      target: backend
+    init: true
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      AUTH_MODE: supabase
+      AI_PROVIDER: ${AI_PROVIDER:-openrouter}
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 3301
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS}
+      CODEX_APP_SERVER_ENABLED: ${CODEX_APP_SERVER_ENABLED:-false}
+      CODEX_BINARY: ${CODEX_BINARY:-/usr/local/bin/codex}
+      CODEX_HOME: ${CODEX_HOME:-/home/bun/.codex}
+      CODEX_MODEL_CONTEXT: ${CODEX_MODEL_CONTEXT:-}
+      CODEX_MODEL_COURSE: ${CODEX_MODEL_COURSE:-}
+      CODEX_MODEL_LESSON: ${CODEX_MODEL_LESSON:-}
+      CODEX_WORKING_DIRECTORY: ${CODEX_WORKING_DIRECTORY:-/tmp}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      DECODO_SCRAPING_API_KEY: ${DECODO_SCRAPING_API_KEY:-}
+      GITHUB_FEEDBACK_REPOSITORY: ${GITHUB_FEEDBACK_REPOSITORY:-}
+      GITHUB_FEEDBACK_TOKEN: ${GITHUB_FEEDBACK_TOKEN:-}
+      MAX_OUTPUT_TOKENS: ${MAX_OUTPUT_TOKENS:-32000}
+      MODEL_ASSESSMENT: ${MODEL_ASSESSMENT:-}
+      MODEL_CONTEXT: ${MODEL_CONTEXT:-}
+      MODEL_COURSE: ${MODEL_COURSE:-}
+      MODEL_FLASH: ${MODEL_FLASH:-}
+      MODEL_IMAGE: ${MODEL_IMAGE:-}
+      MODEL_LESSON: ${MODEL_LESSON:-}
+      MODEL_PROGRESS: ${MODEL_PROGRESS:-}
+      MODEL_REASONING: ${MODEL_REASONING:-}
+      MODEL_RESEARCH_DOSSIER: ${MODEL_RESEARCH_DOSSIER:-}
+      MODEL_RESEARCH_PLANNER: ${MODEL_RESEARCH_PLANNER:-}
+      MODEL_STT: ${MODEL_STT:-}
+      MODEL_TTS: ${MODEL_TTS:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL_CONTEXT: ${OPENAI_MODEL_CONTEXT:-}
+      OPENAI_MODEL_COURSE: ${OPENAI_MODEL_COURSE:-}
+      OPENAI_MODEL_LESSON: ${OPENAI_MODEL_LESSON:-}
+      OPENROUTER_APP_REFERER: ${NOUS_PUBLIC_URL:?Set NOUS_PUBLIC_URL}
+      PROJECT_IMPORT_ACTIVE_UPLOADS_GLOBAL: ${PROJECT_IMPORT_ACTIVE_UPLOADS_GLOBAL:-}
+      PROJECT_IMPORT_ACTIVE_UPLOADS_PER_USER: ${PROJECT_IMPORT_ACTIVE_UPLOADS_PER_USER:-}
+      PROJECT_IMPORT_CLEANUP_INTERVAL_MS: ${PROJECT_IMPORT_CLEANUP_INTERVAL_MS:-}
+      PROJECT_IMPORT_COMPLETED_TTL_MS: ${PROJECT_IMPORT_COMPLETED_TTL_MS:-}
+      PROJECT_IMPORT_DIRECT_MAX_BYTES: ${PROJECT_IMPORT_DIRECT_MAX_BYTES:-}
+      PROJECT_IMPORT_FINALIZATIONS_GLOBAL: ${PROJECT_IMPORT_FINALIZATIONS_GLOBAL:-}
+      PROJECT_IMPORT_MAX_CHUNK_BYTES: ${PROJECT_IMPORT_MAX_CHUNK_BYTES:-}
+      PROJECT_IMPORT_MAX_CHUNK_COUNT: ${PROJECT_IMPORT_MAX_CHUNK_COUNT:-}
+      PROJECT_IMPORT_MAX_SERIALIZED_BYTES: ${PROJECT_IMPORT_MAX_SERIALIZED_BYTES:-}
+      PROJECT_IMPORT_RECEIVING_TTL_MS: ${PROJECT_IMPORT_RECEIVING_TTL_MS:-}
+      PROJECT_IMPORT_REQUESTS_GLOBAL: ${PROJECT_IMPORT_REQUESTS_GLOBAL:-}
+      PROJECT_IMPORT_REQUESTS_PER_USER: ${PROJECT_IMPORT_REQUESTS_PER_USER:-}
+      PROJECT_IMPORT_REQUEST_TIMEOUT_MS: ${PROJECT_IMPORT_REQUEST_TIMEOUT_MS:-}
+      SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL:-}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Set SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
+      SUPABASE_DEPLOYMENT: ${SUPABASE_DEPLOYMENT:?Set SUPABASE_DEPLOYMENT}
+      TTS_VOICE: ${TTS_VOICE:-coral}
+    ports:
+      - "${NOUS_BACKEND_BIND:-127.0.0.1}:${NOUS_BACKEND_PORT:-3301}:3301"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r=await fetch('http://127.0.0.1:3301/health');if(!r.ok)process.exit(1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    mem_limit: ${NOUS_BACKEND_MEMORY_LIMIT:-2g}
+    cpus: ${NOUS_BACKEND_CPU_LIMIT:-2}
+    read_only: true
+    tmpfs:
+      - /tmp:size=${NOUS_BACKEND_TMPFS_SIZE:-1g}
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+    init: true
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      FRONTEND_PORT: 8080
+      NOUS_BACKEND_PUBLIC_URL: ${NOUS_BACKEND_PUBLIC_URL:?Set NOUS_BACKEND_PUBLIC_URL}
+      NOUS_SUPABASE_ANON_KEY: ${NOUS_SUPABASE_ANON_KEY:?Set NOUS_SUPABASE_ANON_KEY}
+      NOUS_SUPABASE_PUBLIC_URL: ${NOUS_SUPABASE_PUBLIC_URL:?Set NOUS_SUPABASE_PUBLIC_URL}
+    ports:
+      - "${NOUS_FRONTEND_BIND:-127.0.0.1}:${NOUS_FRONTEND_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r=await fetch('http://127.0.0.1:8080/health');if(!r.ok)process.exit(1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    mem_limit: ${NOUS_FRONTEND_MEMORY_LIMIT:-256m}
+    cpus: ${NOUS_FRONTEND_CPU_LIMIT:-0.5}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    security_opt:
+      - no-new-privileges:true
+
+  admin-bootstrap:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: tooling
+    command: ["bun", "run", "scripts/bootstrap-admin.ts"]
+    environment:
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Set SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  db-tools:
+    profiles: ["tools"]
+    image: postgres:17-alpine
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+    volumes:
+      - ./deploy/backups:/backups
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  source-storage-tools:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: tooling
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Set SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
+    volumes:
+      - ./deploy/backups:/backups
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  smoke:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: tooling
+    command: ["bun", "run", "deploy/health-smoke.mjs"]
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    environment:
+      NOUS_SUPABASE_ANON_KEY: ${NOUS_SUPABASE_ANON_KEY:?Set NOUS_SUPABASE_ANON_KEY}
+      NOUS_SMOKE_BACKEND_URL: http://backend:3301/health
+      NOUS_SMOKE_FRONTEND_URL: http://frontend:8080/health
+      NOUS_SMOKE_SUPABASE_AUTH_URL: ${SUPABASE_URL:?Set SUPABASE_URL}/auth/v1/health
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  contract-test:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: contract
+    command: ["bun", "run", "test:supabase-contract"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      RUN_SUPABASE_LOCAL_TESTS: "1"
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Set SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

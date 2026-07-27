@@ -1,0 +1,21 @@
+rules:
+  - id: ts-simplify-boolean-return
+    message: Replace the branch-only boolean return with Boolean(condition) or !condition.
+    severity: WARNING
+    languages: [typescript]
+    metadata:
+      category: maintainability
+      confidence: HIGH
+    pattern-either:
+      - pattern: |-
+          if ($CONDITION) {
+            return true;
+          } else {
+            return false;
+          }
+      - pattern: |-
+          if ($CONDITION) {
+            return false;
+          } else {
+            return true;
+          }

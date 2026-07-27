@@ -1,0 +1,1376 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE } from '../../services/audio/voiceProfile';
+import * as OpenRouterService from '../../services/openrouter';
+import type { AudioChunk, AudioState, TtsModelSummary, VoiceProfileId } from '../../types';
+import { prepareMarkdownForSpeech } from '../../utils/reader/readingText';
+
+const CHUNK_SIZE_APPROX = 580;
+const CHUNK_LABEL_MAX_CHARACTERS = 72;
+const CHUNK_CROSSFADE_SECONDS = 0.035;
+const TTS_GENERATION_MAX_RETRIES = 1;
+const TTS_GENERATION_RETRY_DELAY_MS = 750;
+const DEBUG_TTS_PLAYER = false;
+
+const isRetryableTtsError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object' || !('status' in error)) {
+    return false;
+  }
+
+  const status = (error as { status?: unknown }).status;
+  return (
+    typeof status === 'number' &&
+    (status === 408 || status === 425 || status === 429 || status >= 500)
+  );
+};
+
+interface UseTtsPlayerParams {
+  activeSectionId: string | null;
+  sectionContent: string;
+  speechBlocks: string[];
+}
+
+interface UseTtsPlayerResult {
+  availableModels: TtsModelSummary[];
+  availableVoices: Array<{ id: VoiceProfileId; label: string; language: string }>;
+  audioState: AudioState;
+  chunkOptions: Array<{ index: number; label: string }>;
+  chunkTexts: string[];
+  errorMessage: string | null;
+  handleModelChange: (model: string) => void;
+  handleSeek: (time: number) => void;
+  handleSelectChunk: (chunkIndex: number) => void;
+  handleSkipChunk: (direction: 'prev' | 'next') => void;
+  handleSpeedChange: (speed: number) => void;
+  handleVoiceChange: (voice: VoiceProfileId) => void;
+  playerCurrentTime: number;
+  playerDuration: number;
+  stopAudio: (clearChunks?: boolean) => void;
+  togglePlayPause: () => void;
+  ttsConnected: boolean;
+}
+
+type PlaybackStatus = 'idle' | 'starting' | 'playing' | 'crossfading' | 'paused' | 'stopping';
+
+interface PlaybackRun {
+  runId: number;
+  status: PlaybackStatus;
+  currentChunkIndex: number;
+  currentAudio: HTMLAudioElement | null;
+  pendingAudio: HTMLAudioElement | null;
+  crossfadeIntervalId: number | null;
+  cancelled: boolean;
+}
+
+const splitSentencesByTerminator = (text: string): string[] => {
+  const sentences: string[] = [];
+  let segmentStartIndex = 0;
+  let index = 0;
+
+  while (index < text.length) {
+    const character = text[index];
+    if (character !== '.' && character !== '!' && character !== '?') {
+      index += 1;
+      continue;
+    }
+
+    let nextIndex = index + 1;
+    while (nextIndex < text.length && /\s/u.test(text[nextIndex] || '')) {
+      nextIndex += 1;
+    }
+
+    sentences.push(text.slice(segmentStartIndex, nextIndex));
+    segmentStartIndex = nextIndex;
+    index = nextIndex;
+  }
+
+  if (segmentStartIndex < text.length) {
+    sentences.push(text.slice(segmentStartIndex));
+  }
+
+  return sentences.filter(sentence => sentence.trim().length > 0);
+};
+
+export const splitOversizedText = (text: string, maxLength: number): string[] => {
+  if (text.length <= maxLength) {
+    return [text];
+  }
+
+  const clauseParts = text.split(/(?<=[,;:])\s+/);
+  if (clauseParts.length > 1) {
+    return clauseParts.flatMap(part => splitOversizedText(part.trim(), maxLength));
+  }
+
+  const wordParts = text.split(/\s+/);
+  if (wordParts.length > 1) {
+    const segments: string[] = [];
+    let currentSegment = '';
+
+    wordParts.forEach(word => {
+      const candidate = currentSegment ? `${currentSegment} ${word}` : word;
+      if (candidate.length <= maxLength) {
+        currentSegment = candidate;
+        return;
+      }
+
+      if (currentSegment) {
+        segments.push(currentSegment);
+      }
+
+      if (word.length <= maxLength) {
+        currentSegment = word;
+        return;
+      }
+
+      for (let index = 0; index < word.length; index += maxLength) {
+        segments.push(word.slice(index, index + maxLength));
+      }
+      currentSegment = '';
+    });
+
+    if (currentSegment) {
+      segments.push(currentSegment);
+    }
+
+    return segments;
+  }
+
+  const segments: string[] = [];
+  for (let index = 0; index < text.length; index += maxLength) {
+    segments.push(text.slice(index, index + maxLength));
+  }
+  return segments;
+};
+
+export const splitContentIntoChunks = (text: string, speechBlocks: string[]): string[] => {
+  const normalizedBlocks = speechBlocks
+    .map(block => block.replaceAll(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (normalizedBlocks.length > 0) {
+    const chunks: string[] = [];
+    let currentChunk = '';
+
+    const flushChunk = () => {
+      if (currentChunk.trim()) {
+        chunks.push(currentChunk.trim());
+        currentChunk = '';
+      }
+    };
+
+    const appendUnit = (unit: string, separator = '\n\n') => {
+      if (!unit) {
+        return;
+      }
+
+      if (!currentChunk) {
+        currentChunk = unit;
+        return;
+      }
+
+      if (currentChunk.length + separator.length + unit.length > CHUNK_SIZE_APPROX) {
+        flushChunk();
+        currentChunk = unit;
+        return;
+      }
+
+      currentChunk += `${separator}${unit}`;
+    };
+
+    const appendBoundedUnit = (unit: string, separator = '\n\n') => {
+      splitOversizedText(unit, CHUNK_SIZE_APPROX).forEach((part, index) => {
+        appendUnit(part.trim(), index === 0 ? separator : ' ');
+      });
+    };
+
+    normalizedBlocks.forEach(block => {
+      if (block.length <= CHUNK_SIZE_APPROX) {
+        appendUnit(block);
+        return;
+      }
+
+      const sentences = splitSentencesByTerminator(block);
+      sentences.forEach(sentence => {
+        appendBoundedUnit(sentence.trim(), ' ');
+      });
+    });
+
+    flushChunk();
+    return chunks;
+  }
+
+  const cleanText = prepareMarkdownForSpeech(text);
+  const paragraphs = cleanText.split(/\n\n+/);
+  const chunks: string[] = [];
+  let currentChunk = '';
+
+  const pushCurrentChunk = () => {
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+      currentChunk = '';
+    }
+  };
+
+  const appendParagraphPart = (part: string, separator = '\n\n') => {
+    if (!part) {
+      return;
+    }
+
+    if (!currentChunk) {
+      currentChunk = part;
+      return;
+    }
+
+    if (currentChunk.length + separator.length + part.length > CHUNK_SIZE_APPROX) {
+      pushCurrentChunk();
+      currentChunk = part;
+      return;
+    }
+
+    currentChunk += `${separator}${part}`;
+  };
+
+  paragraphs.forEach(paragraph => {
+    if (paragraph.length > CHUNK_SIZE_APPROX) {
+      const sentences = splitSentencesByTerminator(paragraph);
+      sentences.forEach(sentence => {
+        splitOversizedText(sentence.trim(), CHUNK_SIZE_APPROX).forEach(part => {
+          appendParagraphPart(part, ' ');
+        });
+      });
+      return;
+    }
+
+    if (currentChunk.length + paragraph.length > CHUNK_SIZE_APPROX) {
+      pushCurrentChunk();
+      currentChunk = paragraph;
+    } else {
+      currentChunk += `${currentChunk ? '\n\n' : ''}${paragraph}`;
+    }
+  });
+
+  pushCurrentChunk();
+
+  return chunks;
+};
+
+const createAudioChunks = (chunks: string[]): AudioChunk[] =>
+  chunks.map((text, index) => ({
+    text,
+    index,
+    blobUrl: null,
+    duration: 0,
+    isLoading: false,
+  }));
+
+const buildChunkOptionLabel = (text: string, index: number): string => {
+  const normalizedText = text.replaceAll(/\s+/g, ' ').trim();
+  const preview =
+    normalizedText.length > CHUNK_LABEL_MAX_CHARACTERS
+      ? `${normalizedText.slice(0, CHUNK_LABEL_MAX_CHARACTERS - 1).trimEnd()}…`
+      : normalizedText;
+  return `${t('Parte {partNumber}', { partNumber: index + 1 })} — ${preview}`;
+};
+
+const createIdlePlaybackRun = (): PlaybackRun => ({
+  runId: 0,
+  status: 'idle',
+  currentChunkIndex: 0,
+  currentAudio: null,
+  pendingAudio: null,
+  crossfadeIntervalId: null,
+  cancelled: false,
+});
+
+export const useTtsPlayer = ({
+  activeSectionId,
+  sectionContent,
+  speechBlocks,
+}: UseTtsPlayerParams): UseTtsPlayerResult => {
+  const preparedChunkTexts = useMemo(
+    () => splitContentIntoChunks(sectionContent, speechBlocks),
+    [sectionContent, speechBlocks]
+  );
+  const chunkOptions = useMemo(
+    () =>
+      preparedChunkTexts.map((text, index) => ({
+        index,
+        label: buildChunkOptionLabel(text, index),
+      })),
+    [preparedChunkTexts]
+  );
+  const [availableVoices, setAvailableVoices] = useState<
+    Array<{ id: VoiceProfileId; label: string; language: string }>
+  >([{ id: DEFAULT_TTS_VOICE, label: DEFAULT_TTS_VOICE, language: 'it-IT' }]);
+  const [availableModels, setAvailableModels] = useState<TtsModelSummary[]>([]);
+  const [audioState, setAudioState] = useState<AudioState>({
+    isPlaying: false,
+    currentVoice: DEFAULT_TTS_VOICE,
+    currentModel: DEFAULT_TTS_MODEL,
+    playbackRate: 1,
+    chunks: [],
+    currentChunkIndex: 0,
+    audioElement: null,
+  });
+  const [playerCurrentTime, setPlayerCurrentTime] = useState(0);
+  const [playerDuration, setPlayerDuration] = useState(0);
+  const [ttsConnected, setTtsConnected] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const audioStateRef = useRef(audioState);
+  const shouldPlayRef = useRef(false);
+  const chunkPromisesRef = useRef<Partial<Record<number, Promise<string | null>>>>({});
+  const failedChunkIndexesRef = useRef<Set<number>>(new Set());
+  const playbackSessionRef = useRef(0);
+  const playbackRunIdRef = useRef(0);
+  const playRequestIdRef = useRef(0);
+  const generatedObjectUrlsRef = useRef<Set<string>>(new Set());
+  const ttsCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playbackRunRef = useRef<PlaybackRun>(createIdlePlaybackRun());
+  const pausedTimeRef = useRef(0);
+  const activeSectionIdRef = useRef(activeSectionId);
+  const speechBlocksVersionRef = useRef(0);
+
+  // Reset playback state when the active section changes or speech blocks are
+  // rebuilt (e.g. after the DOM re-renders a chapter that contains images).
+  // Without this, stale chunks from the previous section can survive inside
+  // audioStateRef and the player may try to generate audio for text that no
+  // longer matches the visible content — causing a silent stall.
+  useEffect(() => {
+    const sectionChanged = activeSectionIdRef.current !== activeSectionId;
+    if (sectionChanged) {
+      activeSectionIdRef.current = activeSectionId;
+    }
+
+    // Bump a version counter whenever the speech-block array identity changes
+    // (useReaderSpeech returns a new array on every update).
+    speechBlocksVersionRef.current += 1;
+
+    if (!sectionChanged) {
+      return;
+    }
+
+    // Abort any in-flight playback and drop stale chunks so the next
+    // togglePlayPause() call will re-chunk from the fresh content.
+    // We manipulate refs directly here instead of calling abortCurrentRun()
+    // because this useEffect is declared before abortCurrentRun (a const
+    // defined via useCallback below) and would hit a TDZ error otherwise.
+    const run = playbackRunRef.current;
+    run.cancelled = true;
+    run.status = 'idle';
+    if (run.currentAudio) {
+      run.currentAudio.onended = null;
+      run.currentAudio.onerror = null;
+      run.currentAudio.pause();
+      run.currentAudio.src = '';
+      run.currentAudio.load();
+      run.currentAudio = null;
+    }
+    if (run.pendingAudio) {
+      run.pendingAudio.onended = null;
+      run.pendingAudio.onerror = null;
+      run.pendingAudio.pause();
+      run.pendingAudio.src = '';
+      run.pendingAudio.load();
+      run.pendingAudio = null;
+    }
+    if (run.crossfadeIntervalId !== null) {
+      globalThis.clearInterval(run.crossfadeIntervalId);
+      run.crossfadeIntervalId = null;
+    }
+
+    shouldPlayRef.current = false;
+    playRequestIdRef.current += 1;
+    playbackSessionRef.current += 1;
+    chunkPromisesRef.current = {};
+    failedChunkIndexesRef.current.clear();
+    pausedTimeRef.current = 0;
+
+    // Use setAudioState directly instead of setTrackedAudioState (defined
+    // later via useCallback) to avoid a TDZ reference error.
+    setAudioState(previousState => ({
+      ...previousState,
+      chunks: [],
+      currentChunkIndex: 0,
+      audioElement: null,
+      isPlaying: false,
+    }));
+    audioStateRef.current = {
+      ...audioStateRef.current,
+      chunks: [],
+      currentChunkIndex: 0,
+      audioElement: null,
+      isPlaying: false,
+    };
+    setPlayerCurrentTime(0);
+    setPlayerDuration(0);
+  }, [activeSectionId]);
+
+  const logPlayback = useCallback((event: string, details: Record<string, unknown> = {}) => {
+    if (!DEBUG_TTS_PLAYER) {
+      return;
+    }
+
+    console.log('[tts-player]', event, details);
+  }, []);
+
+  const setTrackedAudioState = useCallback(
+    (updater: AudioState | ((previousState: AudioState) => AudioState)) => {
+      const nextState =
+        typeof updater === 'function'
+          ? (updater as (previousState: AudioState) => AudioState)(audioStateRef.current)
+          : updater;
+
+      audioStateRef.current = nextState;
+      setAudioState(nextState);
+    },
+    []
+  );
+
+  const syncReactAudioStateFromRun = useCallback(
+    (run: PlaybackRun) => {
+      const isPlaying = run.status === 'playing' || run.status === 'crossfading';
+      setTrackedAudioState(previousState => ({
+        ...previousState,
+        isPlaying,
+        currentChunkIndex: run.currentChunkIndex,
+        audioElement: run.currentAudio,
+      }));
+    },
+    [setTrackedAudioState]
+  );
+
+  const revokeTrackedUrl = useCallback((url: string | null | undefined) => {
+    if (!url) {
+      return;
+    }
+
+    if (generatedObjectUrlsRef.current.has(url)) {
+      URL.revokeObjectURL(url);
+      generatedObjectUrlsRef.current.delete(url);
+    }
+  }, []);
+
+  const disposeAudioElement = useCallback((audio: HTMLAudioElement | null) => {
+    if (!audio) {
+      return;
+    }
+
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.src = '';
+    audio.load();
+  }, []);
+
+  const stopAndDisposeAudio = useCallback(
+    (audio: HTMLAudioElement | null, label: 'current' | 'pending') => {
+      if (!audio) {
+        return;
+      }
+
+      logPlayback(`dispose ${label}`, {
+        runId: playbackRunRef.current.runId,
+        status: playbackRunRef.current.status,
+        chunkIndex: playbackRunRef.current.currentChunkIndex,
+      });
+      disposeAudioElement(audio);
+    },
+    [disposeAudioElement, logPlayback]
+  );
+
+  const clearCrossfadeInterval = useCallback((run: PlaybackRun) => {
+    if (run.crossfadeIntervalId !== null) {
+      globalThis.clearInterval(run.crossfadeIntervalId);
+      run.crossfadeIntervalId = null;
+    }
+  }, []);
+
+  const abortCurrentRun = useCallback(
+    (reason: 'stop' | 'pause' | 'skip' | 'replace' | 'ended' | 'error' | 'unmount') => {
+      const run = playbackRunRef.current;
+      if (run.runId === 0 && !run.currentAudio && !run.pendingAudio) {
+        return;
+      }
+
+      logPlayback('abort', {
+        reason,
+        runId: run.runId,
+        status: run.status,
+        chunkIndex: run.currentChunkIndex,
+      });
+
+      if (reason === 'pause') {
+        pausedTimeRef.current = run.currentAudio?.currentTime ?? pausedTimeRef.current;
+        setPlayerCurrentTime(pausedTimeRef.current);
+      } else {
+        pausedTimeRef.current = 0;
+      }
+
+      run.cancelled = true;
+      run.status = 'stopping';
+      clearCrossfadeInterval(run);
+      stopAndDisposeAudio(run.pendingAudio, 'pending');
+      stopAndDisposeAudio(run.currentAudio, 'current');
+      run.pendingAudio = null;
+      run.currentAudio = null;
+      run.status = reason === 'pause' ? 'paused' : 'idle';
+      syncReactAudioStateFromRun(run);
+    },
+    [clearCrossfadeInterval, logPlayback, stopAndDisposeAudio, syncReactAudioStateFromRun]
+  );
+
+  const beginNewRun = useCallback(
+    (startChunkIndex: number) => {
+      playbackSessionRef.current += 1;
+      playbackRunIdRef.current += 1;
+
+      const run: PlaybackRun = {
+        runId: playbackRunIdRef.current,
+        status: 'starting',
+        currentChunkIndex: startChunkIndex,
+        currentAudio: null,
+        pendingAudio: null,
+        crossfadeIntervalId: null,
+        cancelled: false,
+      };
+
+      playbackRunRef.current = run;
+      logPlayback('run start', {
+        runId: run.runId,
+        status: run.status,
+        chunkIndex: run.currentChunkIndex,
+      });
+      syncReactAudioStateFromRun(run);
+      return run;
+    },
+    [logPlayback, syncReactAudioStateFromRun]
+  );
+
+  const registerCurrentAudio = useCallback(
+    (audio: HTMLAudioElement, chunkIndex: number, runId: number) => {
+      const run = playbackRunRef.current;
+      if (run.runId !== runId || run.cancelled) {
+        stopAndDisposeAudio(audio, 'current');
+        return false;
+      }
+
+      if (run.currentAudio && run.currentAudio !== audio) {
+        stopAndDisposeAudio(run.currentAudio, 'current');
+      }
+
+      run.currentAudio = audio;
+      run.currentChunkIndex = chunkIndex;
+      run.status = 'starting';
+      logPlayback('current registered', {
+        runId,
+        status: run.status,
+        chunkIndex,
+      });
+      syncReactAudioStateFromRun(run);
+      return true;
+    },
+    [logPlayback, stopAndDisposeAudio, syncReactAudioStateFromRun]
+  );
+
+  const registerPendingAudio = useCallback(
+    (audio: HTMLAudioElement, runId: number) => {
+      const run = playbackRunRef.current;
+      if (run.runId !== runId || run.cancelled) {
+        stopAndDisposeAudio(audio, 'pending');
+        return false;
+      }
+
+      if (run.pendingAudio && run.pendingAudio !== audio) {
+        stopAndDisposeAudio(run.pendingAudio, 'pending');
+      }
+
+      run.pendingAudio = audio;
+      run.status = 'crossfading';
+      logPlayback('pending registered', {
+        runId,
+        status: run.status,
+        chunkIndex: run.currentChunkIndex,
+      });
+      syncReactAudioStateFromRun(run);
+      return true;
+    },
+    [logPlayback, stopAndDisposeAudio, syncReactAudioStateFromRun]
+  );
+
+  const promotePendingAudio = useCallback(
+    (runId: number, nextChunkIndex: number) => {
+      const run = playbackRunRef.current;
+      if (run.runId !== runId || run.cancelled || !run.pendingAudio) {
+        return false;
+      }
+
+      run.currentAudio = run.pendingAudio;
+      run.pendingAudio = null;
+      run.currentChunkIndex = nextChunkIndex;
+      run.status = 'playing';
+      pausedTimeRef.current = 0;
+      logPlayback('promote pending', {
+        runId,
+        status: run.status,
+        chunkIndex: nextChunkIndex,
+      });
+      syncReactAudioStateFromRun(run);
+      return true;
+    },
+    [logPlayback, syncReactAudioStateFromRun]
+  );
+
+  const generateChunkAudio = useCallback(
+    async (index: number, retries = TTS_GENERATION_MAX_RETRIES): Promise<string | null> => {
+      const generateChunkAudioWithRetries = async (
+        retryIndex: number,
+        remainingRetries: number
+      ): Promise<string | null> => {
+        const chunk = audioStateRef.current.chunks[retryIndex];
+        if (!chunk?.text.trim()) {
+          // Empty chunk (e.g. produced from an image-only section). Skip the
+          // TTS API call entirely and signal the caller to advance.
+          return null;
+        }
+
+        setTrackedAudioState(previousState => {
+          const nextChunks = [...previousState.chunks];
+          if (nextChunks[retryIndex]) {
+            nextChunks[retryIndex] = { ...nextChunks[retryIndex], isLoading: true };
+          }
+
+          return { ...previousState, chunks: nextChunks };
+        });
+
+        try {
+          const requestedVoice = audioStateRef.current.currentVoice;
+          const requestedText = chunk.text;
+          const requestedModel = audioStateRef.current.currentModel;
+          const speechAudio = await OpenRouterService.generateSpeech(
+            requestedText,
+            requestedVoice,
+            requestedModel
+          );
+          const audioBlob = new Blob([speechAudio.audioBuffer], { type: speechAudio.contentType });
+          const url = URL.createObjectURL(audioBlob);
+          generatedObjectUrlsRef.current.add(url);
+
+          const latestChunk = audioStateRef.current.chunks[retryIndex];
+          if (
+            !latestChunk ||
+            latestChunk.text !== requestedText ||
+            audioStateRef.current.currentVoice !== requestedVoice ||
+            audioStateRef.current.currentModel !== requestedModel
+          ) {
+            revokeTrackedUrl(url);
+            delete chunkPromisesRef.current[retryIndex];
+            return null;
+          }
+
+          const previousUrl = latestChunk.blobUrl;
+          if (previousUrl && previousUrl !== url) {
+            revokeTrackedUrl(previousUrl);
+          }
+
+          setTrackedAudioState(previousState => {
+            const nextChunks = [...previousState.chunks];
+            if (nextChunks[retryIndex]) {
+              nextChunks[retryIndex] = {
+                ...nextChunks[retryIndex],
+                blobUrl: url,
+                isLoading: false,
+              };
+            }
+
+            return { ...previousState, chunks: nextChunks };
+          });
+
+          delete chunkPromisesRef.current[retryIndex];
+          failedChunkIndexesRef.current.delete(retryIndex);
+          setErrorMessage(null);
+          return url;
+        } catch (error) {
+          if (remainingRetries > 0 && isRetryableTtsError(error)) {
+            delete chunkPromisesRef.current[retryIndex];
+            await new Promise(resolve => setTimeout(resolve, TTS_GENERATION_RETRY_DELAY_MS));
+            return generateChunkAudioWithRetries(retryIndex, remainingRetries - 1);
+          }
+
+          console.error(`[Nous] TTS generation failed for chunk ${retryIndex}`, error);
+          failedChunkIndexesRef.current.add(retryIndex);
+          setErrorMessage(t('Non sono riuscito a generare l’audio. Riprova tra poco.'));
+
+          setTrackedAudioState(previousState => {
+            const nextChunks = [...previousState.chunks];
+            if (nextChunks[retryIndex]) {
+              nextChunks[retryIndex] = { ...nextChunks[retryIndex], isLoading: false };
+            }
+
+            return { ...previousState, chunks: nextChunks };
+          });
+
+          delete chunkPromisesRef.current[retryIndex];
+          return null;
+        }
+      };
+
+      if (audioStateRef.current.chunks[index]?.blobUrl) {
+        return audioStateRef.current.chunks[index].blobUrl;
+      }
+
+      if (failedChunkIndexesRef.current.has(index)) {
+        return null;
+      }
+
+      if (chunkPromisesRef.current[index] !== undefined) {
+        return chunkPromisesRef.current[index];
+      }
+
+      const promise = (async () => {
+        return generateChunkAudioWithRetries(index, retries);
+      })();
+
+      chunkPromisesRef.current[index] = promise;
+      return promise;
+    },
+    [revokeTrackedUrl, setTrackedAudioState]
+  );
+
+  const playAudioRef = useRef<(startIndex?: number, startTime?: number) => Promise<void>>(
+    async () => {}
+  );
+
+  const handleChunkEnded = useCallback(
+    (chunkIndex: number, requestId: number, sessionId: number, runId: number) => {
+      const run = playbackRunRef.current;
+      if (
+        requestId !== playRequestIdRef.current ||
+        sessionId !== playbackSessionRef.current ||
+        runId !== run.runId ||
+        run.cancelled
+      ) {
+        return;
+      }
+
+      const followingIndex = chunkIndex + 1;
+      if (followingIndex < audioStateRef.current.chunks.length) {
+        if (shouldPlayRef.current) {
+          void playAudioRef.current(followingIndex, 0);
+        }
+        return;
+      }
+
+      pausedTimeRef.current = 0;
+      abortCurrentRun('ended');
+      setTrackedAudioState(previousState => ({
+        ...previousState,
+        isPlaying: false,
+        currentChunkIndex: 0,
+        audioElement: null,
+      }));
+      setPlayerCurrentTime(0);
+      setPlayerDuration(0);
+      shouldPlayRef.current = false;
+      playbackRunRef.current.currentChunkIndex = 0;
+    },
+    [abortCurrentRun, setTrackedAudioState]
+  );
+
+  const attachAudioLifecycle = useCallback(
+    (
+      audio: HTMLAudioElement,
+      chunkIndex: number,
+      requestId: number,
+      sessionId: number,
+      runId: number
+    ) => {
+      audio.onended = () => {
+        const run = playbackRunRef.current;
+        if (run.runId === runId && run.status === 'crossfading' && run.currentAudio === audio) {
+          return;
+        }
+
+        handleChunkEnded(chunkIndex, requestId, sessionId, runId);
+      };
+
+      audio.onerror = () => {
+        const run = playbackRunRef.current;
+        if (
+          requestId !== playRequestIdRef.current ||
+          sessionId !== playbackSessionRef.current ||
+          runId !== run.runId ||
+          run.cancelled
+        ) {
+          return;
+        }
+
+        shouldPlayRef.current = false;
+        abortCurrentRun('error');
+        setTrackedAudioState(previousState => ({
+          ...previousState,
+          isPlaying: false,
+          audioElement: null,
+        }));
+      };
+    },
+    [abortCurrentRun, handleChunkEnded, setTrackedAudioState]
+  );
+
+  const playAudio = useCallback(
+    async (startIndex = 0, startTime = 0): Promise<void> => {
+      const run = playbackRunRef.current;
+      if (run.runId === 0 || run.cancelled) {
+        return;
+      }
+
+      const requestId = ++playRequestIdRef.current;
+      const sessionId = playbackSessionRef.current;
+      const runId = run.runId;
+      const chunk = audioStateRef.current.chunks[startIndex];
+      if (!chunk) {
+        return;
+      }
+
+      let url = chunk.blobUrl;
+      if (!url) {
+        url = await generateChunkAudio(startIndex);
+        if (!url) {
+          shouldPlayRef.current = false;
+          abortCurrentRun('error');
+          setTrackedAudioState(previousState => ({
+            ...previousState,
+            isPlaying: false,
+            audioElement: null,
+          }));
+          return;
+        }
+
+        if (
+          !shouldPlayRef.current ||
+          requestId !== playRequestIdRef.current ||
+          sessionId !== playbackSessionRef.current ||
+          runId !== playbackRunRef.current.runId ||
+          playbackRunRef.current.cancelled
+        ) {
+          return;
+        }
+      }
+
+      if (
+        !shouldPlayRef.current ||
+        requestId !== playRequestIdRef.current ||
+        sessionId !== playbackSessionRef.current ||
+        runId !== playbackRunRef.current.runId ||
+        playbackRunRef.current.cancelled
+      ) {
+        return;
+      }
+
+      const audio = new Audio(url);
+      audio.playbackRate = audioStateRef.current.playbackRate;
+      audio.volume = 1;
+
+      if (!registerCurrentAudio(audio, startIndex, runId)) {
+        return;
+      }
+
+      attachAudioLifecycle(audio, startIndex, requestId, sessionId, runId);
+
+      if (startTime > 0) {
+        try {
+          audio.currentTime = startTime;
+        } catch (error) {
+          console.error('Resume seek failed', error);
+        }
+      }
+
+      const nextIndex = startIndex + 1;
+      if (nextIndex < audioStateRef.current.chunks.length) {
+        void generateChunkAudio(nextIndex);
+      }
+
+      try {
+        await audio.play();
+      } catch (error) {
+        console.error('Play failed', error);
+        if (
+          requestId === playRequestIdRef.current &&
+          sessionId === playbackSessionRef.current &&
+          runId === playbackRunRef.current.runId &&
+          !playbackRunRef.current.cancelled &&
+          playbackRunRef.current.currentAudio === audio
+        ) {
+          stopAndDisposeAudio(audio, 'current');
+          playbackRunRef.current.currentAudio = null;
+          playbackRunRef.current.status = 'paused';
+          syncReactAudioStateFromRun(playbackRunRef.current);
+        }
+        return;
+      }
+
+      const latestRun = playbackRunRef.current;
+      if (
+        requestId !== playRequestIdRef.current ||
+        sessionId !== playbackSessionRef.current ||
+        runId !== latestRun.runId ||
+        latestRun.cancelled ||
+        latestRun.currentAudio !== audio
+      ) {
+        stopAndDisposeAudio(audio, 'current');
+        return;
+      }
+
+      latestRun.status = 'playing';
+      pausedTimeRef.current = 0;
+      syncReactAudioStateFromRun(latestRun);
+    },
+    [
+      attachAudioLifecycle,
+      abortCurrentRun,
+      generateChunkAudio,
+      registerCurrentAudio,
+      setTrackedAudioState,
+      stopAndDisposeAudio,
+      syncReactAudioStateFromRun,
+    ]
+  );
+
+  useEffect(() => {
+    playAudioRef.current = playAudio;
+  }, [playAudio]);
+
+  const startFromScratch = useCallback(
+    async (chunks: AudioChunk[]) => {
+      shouldPlayRef.current = false;
+      playRequestIdRef.current += 1;
+      abortCurrentRun('replace');
+
+      setTrackedAudioState(previousState => ({
+        ...previousState,
+        chunks,
+        currentChunkIndex: 0,
+        audioElement: null,
+        isPlaying: false,
+      }));
+
+      chunkPromisesRef.current = {};
+      failedChunkIndexesRef.current.clear();
+      setErrorMessage(null);
+      pausedTimeRef.current = 0;
+      shouldPlayRef.current = true;
+      beginNewRun(0);
+      await playAudio(0, 0);
+    },
+    [abortCurrentRun, beginNewRun, playAudio, setTrackedAudioState]
+  );
+
+  const stopAudio = useCallback(
+    (clearChunks = false) => {
+      shouldPlayRef.current = false;
+      playbackSessionRef.current += 1;
+      playRequestIdRef.current += 1;
+      abortCurrentRun('stop');
+      chunkPromisesRef.current = {};
+      if (clearChunks) {
+        failedChunkIndexesRef.current.clear();
+      }
+
+      if (clearChunks) {
+        audioStateRef.current.chunks.forEach(chunk => {
+          revokeTrackedUrl(chunk.blobUrl);
+        });
+      }
+
+      setTrackedAudioState(previousState => ({
+        ...previousState,
+        isPlaying: false,
+        currentChunkIndex: 0,
+        audioElement: null,
+        chunks: clearChunks ? [] : previousState.chunks,
+      }));
+      playbackRunRef.current = createIdlePlaybackRun();
+      setPlayerCurrentTime(0);
+      setPlayerDuration(0);
+    },
+    [abortCurrentRun, revokeTrackedUrl, setTrackedAudioState]
+  );
+
+  const togglePlayPause = useCallback(() => {
+    const currentState = audioStateRef.current;
+
+    if (shouldPlayRef.current) {
+      shouldPlayRef.current = false;
+      playbackSessionRef.current += 1;
+      playRequestIdRef.current += 1;
+      abortCurrentRun('pause');
+      return;
+    }
+
+    if (currentState.chunks.length === 0) {
+      const audioChunks = createAudioChunks(preparedChunkTexts);
+
+      setTrackedAudioState(previousState => ({ ...previousState, chunks: audioChunks }));
+      globalThis.setTimeout(() => {
+        void startFromScratch(audioChunks);
+      }, 0);
+      return;
+    }
+
+    shouldPlayRef.current = true;
+    beginNewRun(currentState.currentChunkIndex);
+    void playAudio(currentState.currentChunkIndex, pausedTimeRef.current);
+  }, [
+    abortCurrentRun,
+    beginNewRun,
+    playAudio,
+    preparedChunkTexts,
+    setTrackedAudioState,
+    startFromScratch,
+  ]);
+
+  const handleVoiceChange = useCallback(
+    (voice: VoiceProfileId) => {
+      const trimmedVoice = voice.trim() || DEFAULT_TTS_VOICE;
+      if (audioStateRef.current.currentVoice === trimmedVoice) {
+        return;
+      }
+
+      stopAudio(true);
+      setTrackedAudioState(previousState => ({ ...previousState, currentVoice: trimmedVoice }));
+    },
+    [setTrackedAudioState, stopAudio]
+  );
+
+  const handleModelChange = useCallback(
+    (model: string) => {
+      const trimmedModel = model.trim() || DEFAULT_TTS_MODEL;
+      if (audioStateRef.current.currentModel === trimmedModel) {
+        return;
+      }
+
+      stopAudio(true);
+      setTrackedAudioState(previousState => ({ ...previousState, currentModel: trimmedModel }));
+    },
+    [setTrackedAudioState, stopAudio]
+  );
+
+  const handleSpeedChange = useCallback(
+    (speed: number) => {
+      if (audioStateRef.current.playbackRate === speed) {
+        return;
+      }
+
+      setTrackedAudioState(previousState => ({ ...previousState, playbackRate: speed }));
+    },
+    [setTrackedAudioState]
+  );
+
+  const handleSeek = (time: number) => {
+    const currentAudio = playbackRunRef.current.currentAudio;
+    if (currentAudio) {
+      currentAudio.currentTime = time;
+      setPlayerCurrentTime(time);
+      return;
+    }
+
+    if (playbackRunRef.current.status !== 'paused') {
+      return;
+    }
+
+    pausedTimeRef.current = time;
+    setPlayerCurrentTime(time);
+  };
+
+  const handleSelectChunk = useCallback(
+    (nextIndex: number) => {
+      const currentState = audioStateRef.current;
+      const chunks =
+        currentState.chunks.length === preparedChunkTexts.length
+          ? currentState.chunks
+          : createAudioChunks(preparedChunkTexts);
+      if (nextIndex < 0 || nextIndex >= chunks.length) {
+        return;
+      }
+      shouldPlayRef.current = false;
+      playbackSessionRef.current += 1;
+      playRequestIdRef.current += 1;
+      abortCurrentRun('skip');
+      pausedTimeRef.current = 0;
+
+      setTrackedAudioState(previousState => ({
+        ...previousState,
+        chunks,
+        currentChunkIndex: nextIndex,
+        audioElement: null,
+        isPlaying: false,
+      }));
+
+      shouldPlayRef.current = true;
+      beginNewRun(nextIndex);
+      void playAudio(nextIndex, 0);
+    },
+    [abortCurrentRun, beginNewRun, playAudio, preparedChunkTexts, setTrackedAudioState]
+  );
+
+  const handleSkipChunk = (direction: 'prev' | 'next') => {
+    const currentIndex = audioStateRef.current.currentChunkIndex;
+    handleSelectChunk(direction === 'next' ? currentIndex + 1 : currentIndex - 1);
+  };
+
+  useEffect(() => {
+    audioStateRef.current = audioState;
+  }, [audioState]);
+
+  useEffect(() => {
+    let hasLoadedTtsModels = false;
+    let hasLoadedTtsVoices = false;
+
+    const refreshTtsVoices = async () => {
+      if (hasLoadedTtsVoices) {
+        return;
+      }
+
+      const voices = await OpenRouterService.getTTSVoices();
+      hasLoadedTtsVoices = true;
+      if (voices.length === 0) {
+        return;
+      }
+
+      setAvailableVoices(voices);
+      const defaultVoice = voices[0].id;
+      if (!voices.some(voice => voice.id === audioStateRef.current.currentVoice)) {
+        setTrackedAudioState(previousState => ({
+          ...previousState,
+          currentVoice: defaultVoice,
+        }));
+      }
+    };
+
+    const refreshTtsState = async () => {
+      try {
+        const status = await OpenRouterService.checkTTSStatus();
+        setTtsConnected(status.isReady);
+        await refreshTtsVoices();
+
+        if (!hasLoadedTtsModels) {
+          const modelCatalog = await OpenRouterService.getTTSModels();
+          hasLoadedTtsModels = true;
+          setAvailableModels(modelCatalog.models);
+          if (!audioStateRef.current.currentModel) {
+            setTrackedAudioState(previousState => ({
+              ...previousState,
+              currentModel: modelCatalog.defaultModel || DEFAULT_TTS_MODEL,
+            }));
+          }
+        }
+      } catch (error) {
+        console.warn('[Nous] TTS status/voices refresh failed', error);
+        setTtsConnected(false);
+      }
+    };
+
+    void refreshTtsState();
+    ttsCheckIntervalRef.current = setInterval(refreshTtsState, 10000);
+
+    return () => {
+      if (ttsCheckIntervalRef.current) {
+        clearInterval(ttsCheckIntervalRef.current);
+      }
+    };
+  }, [setTrackedAudioState]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: this polling loop intentionally uses refs to read fresh playback state without recreating the interval on every render.
+  useEffect(() => {
+    const interval = globalThis.setInterval(() => {
+      const currentState = audioStateRef.current;
+      const run = playbackRunRef.current;
+      const audio = run.currentAudio;
+      if (!audio) {
+        return;
+      }
+
+      if (audio.playbackRate !== currentState.playbackRate) {
+        audio.playbackRate = currentState.playbackRate;
+      }
+
+      if (run.pendingAudio && run.pendingAudio.playbackRate !== currentState.playbackRate) {
+        run.pendingAudio.playbackRate = currentState.playbackRate;
+      }
+
+      setPlayerCurrentTime(audio.currentTime);
+      setPlayerDuration(audio.duration);
+
+      if (audio.paused) {
+        return;
+      }
+
+      if (
+        shouldPlayRef.current &&
+        run.status === 'playing' &&
+        !run.pendingAudio &&
+        run.crossfadeIntervalId === null &&
+        audio.duration > 0 &&
+        run.currentChunkIndex + 1 < currentState.chunks.length &&
+        audio.duration - audio.currentTime <= CHUNK_CROSSFADE_SECONDS
+      ) {
+        const nextIndex = run.currentChunkIndex + 1;
+        const requestId = playRequestIdRef.current;
+        const sessionId = playbackSessionRef.current;
+        const runId = run.runId;
+
+        void (async () => {
+          let nextUrl = currentState.chunks[nextIndex]?.blobUrl;
+          if (!nextUrl) {
+            nextUrl = await generateChunkAudio(nextIndex);
+          }
+
+          const latestRun = playbackRunRef.current;
+          if (
+            !nextUrl ||
+            requestId !== playRequestIdRef.current ||
+            sessionId !== playbackSessionRef.current ||
+            runId !== latestRun.runId ||
+            latestRun.cancelled ||
+            latestRun.currentAudio !== audio ||
+            latestRun.pendingAudio ||
+            !shouldPlayRef.current
+          ) {
+            return;
+          }
+
+          const nextAudio = new Audio(nextUrl);
+          nextAudio.playbackRate = currentState.playbackRate;
+          nextAudio.volume = 0;
+          if (!registerPendingAudio(nextAudio, runId)) {
+            return;
+          }
+
+          attachAudioLifecycle(nextAudio, nextIndex, requestId, sessionId, runId);
+          logPlayback('crossfade start', {
+            runId,
+            status: 'crossfading',
+            chunkIndex: nextIndex,
+          });
+
+          try {
+            await nextAudio.play();
+          } catch (error) {
+            console.error('Chunk crossfade start failed', error);
+            const failedRun = playbackRunRef.current;
+            if (failedRun.runId === runId && failedRun.pendingAudio === nextAudio) {
+              stopAndDisposeAudio(nextAudio, 'pending');
+              failedRun.pendingAudio = null;
+              failedRun.status = failedRun.currentAudio ? 'playing' : 'paused';
+              syncReactAudioStateFromRun(failedRun);
+            } else {
+              stopAndDisposeAudio(nextAudio, 'pending');
+            }
+            return;
+          }
+
+          const validatedRun = playbackRunRef.current;
+          if (
+            requestId !== playRequestIdRef.current ||
+            sessionId !== playbackSessionRef.current ||
+            runId !== validatedRun.runId ||
+            validatedRun.cancelled ||
+            validatedRun.currentAudio !== audio ||
+            validatedRun.pendingAudio !== nextAudio ||
+            !shouldPlayRef.current
+          ) {
+            stopAndDisposeAudio(nextAudio, 'pending');
+            if (validatedRun.runId === runId && validatedRun.pendingAudio === nextAudio) {
+              validatedRun.pendingAudio = null;
+              validatedRun.status = validatedRun.currentAudio ? 'playing' : 'paused';
+              syncReactAudioStateFromRun(validatedRun);
+            }
+            return;
+          }
+
+          const fadeStart = performance.now();
+          validatedRun.crossfadeIntervalId = globalThis.window.setInterval(() => {
+            const activeRun = playbackRunRef.current;
+            if (
+              activeRun.runId !== runId ||
+              activeRun.cancelled ||
+              activeRun.currentAudio !== audio ||
+              activeRun.pendingAudio !== nextAudio
+            ) {
+              clearCrossfadeInterval(activeRun);
+              return;
+            }
+
+            const crossfadeProgress = Math.min(
+              1,
+              (performance.now() - fadeStart) / (CHUNK_CROSSFADE_SECONDS * 1000)
+            );
+
+            audio.volume = 1 - crossfadeProgress;
+            nextAudio.volume = crossfadeProgress;
+
+            if (crossfadeProgress < 1) {
+              return;
+            }
+
+            clearCrossfadeInterval(activeRun);
+            audio.volume = 1;
+            nextAudio.volume = 1;
+            stopAndDisposeAudio(audio, 'current');
+
+            if (!promotePendingAudio(runId, nextIndex)) {
+              stopAndDisposeAudio(nextAudio, 'pending');
+              return;
+            }
+
+            const followingIndex = nextIndex + 1;
+            if (followingIndex < audioStateRef.current.chunks.length) {
+              void generateChunkAudio(followingIndex);
+            }
+          }, 10);
+        })();
+      }
+    }, 50);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the interval intentionally reads fresh state from refs; recreating it on every callback change would interrupt crossfades.
+
+  useEffect(
+    () => () => {
+      shouldPlayRef.current = false;
+      playbackSessionRef.current += 1;
+      playRequestIdRef.current += 1;
+      abortCurrentRun('unmount');
+      playbackRunRef.current = createIdlePlaybackRun();
+      generatedObjectUrlsRef.current.forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+      generatedObjectUrlsRef.current.clear();
+      chunkPromisesRef.current = {};
+      failedChunkIndexesRef.current.clear();
+    },
+    [abortCurrentRun]
+  );
+
+  return {
+    availableModels,
+    availableVoices,
+    audioState,
+    chunkOptions,
+    chunkTexts: preparedChunkTexts,
+    errorMessage,
+    handleModelChange,
+    handleSeek,
+    handleSelectChunk,
+    handleSkipChunk,
+    handleSpeedChange,
+    handleVoiceChange,
+    playerCurrentTime,
+    playerDuration,
+    stopAudio,
+    togglePlayPause,
+    ttsConnected,
+  };
+};

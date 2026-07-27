@@ -1,0 +1,573 @@
+import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
+import { sanitizePartialPages } from '@shared/sanitizePartialPages';
+import type {
+  LessonImageRef,
+  PdfDocumentAssets,
+  PdfImageAsset,
+  PdfTextPage,
+  SourceOutlineNode,
+} from '../../types.ts';
+import { normalizeLineEndings } from '../../utils/text.ts';
+import { timestampIso } from '../../utils/time.ts';
+import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
+import { isOpenRouterDataUrlInlineSafe } from './payloadLimits.ts';
+import {
+  callOpenRouter,
+  type FileData,
+  fileToDataUrl,
+  getBackendUrl,
+  isPdfFile,
+  MODEL_PDF_IMAGE_CAPTION,
+  retryWithBackoff,
+} from './shared.ts';
+
+const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession | null>>();
+const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
+const PDF_ASSET_CACHE_VERSION = 'resolution-metadata-v3';
+const IMAGE_ID_PREFIX = 'pdf-img-';
+const PDF_TEXT_QUALITY = {
+  MIN_SHORT_DOCUMENT_CHARS: 240,
+  MIN_MULTI_PAGE_DOCUMENT_CHARS: 800,
+  SHORT_DOCUMENT_MAX_PAGES: 2,
+  MIN_AVERAGE_CHARS_PER_PAGE: 35,
+  MIN_TEXT_PAGE_RATIO: 0.1,
+  SUBSTANTIVE_PAGE_MIN_CHARS: 80,
+} as const;
+
+interface BackendPdfImage {
+  id: string;
+  mimeType: string;
+  dataUrl: string;
+  sizeBytes: number;
+  hash: string;
+  pageNumber: number;
+  intrinsicWidth?: number;
+  intrinsicHeight?: number;
+  textBefore?: string;
+  textCurrent?: string;
+  textAfter?: string;
+}
+
+interface BackendPdfExtractResponse {
+  success: boolean;
+  imageCount?: number;
+  images?: BackendPdfImage[];
+  error?: string;
+}
+
+interface BackendPdfTextResponse {
+  success: boolean;
+  text?: string;
+  pages?: PdfTextPage[];
+  textLength?: number;
+  parser?: 'pdftotext' | 'pdf-parse';
+  sourceHash?: string;
+  pageCount?: number;
+  error?: string;
+  outline?: SourceOutlineNode[];
+  outlineOrigin?: 'deterministic' | 'native' | 'none';
+}
+
+export interface PdfAssetSession {
+  images: PdfImageAsset[];
+  extractedText: string;
+  pages: PdfTextPage[];
+  pageCount?: number;
+  parser?: 'pdftotext' | 'pdf-parse';
+  parsedAt: string;
+  sourceHash?: string;
+  outline: SourceOutlineNode[];
+  outlineOrigin: 'deterministic' | 'native' | 'none';
+}
+
+export interface PdfTextQualityReport {
+  averageCharsPerPage: number;
+  extractedCharacterCount: number;
+  pageCount: number;
+  status: 'low-text' | 'no-text' | 'ok';
+  substantivePageCount: number;
+  substantivePageRatio: number;
+}
+
+class PdfTextQualityError extends Error {
+  readonly code = 'PDF_TEXT_QUALITY_INSUFFICIENT';
+  readonly report: PdfTextQualityReport;
+
+  constructor(fileName: string, report: PdfTextQualityReport) {
+    super(
+      `Questo PDF non contiene abbastanza testo selezionabile per generare un percorso affidabile. Se e un libro scannerizzato, serve una versione con OCR o testo estraibile.`
+    );
+    this.name = 'PdfTextQualityError';
+    this.report = report;
+    console.warn('[Nous][PDF] Insufficient text quality', {
+      fileName,
+      report,
+    });
+  }
+}
+
+const logPdfAssetDebug = (label: string, payload: Record<string, unknown>) => {
+  console.groupCollapsed(`[Nous][PDF] ${label}`);
+  Object.entries(payload).forEach(([key, value]) => {
+    console.info(key, value);
+  });
+  console.groupEnd();
+};
+
+const countNormalizedTextChars = (text: string): number =>
+  text.replaceAll(/\s+/g, ' ').trim().length;
+
+const canCaptionBackendImage = (image: BackendPdfImage): boolean =>
+  isOpenRouterDataUrlInlineSafe(image.dataUrl);
+
+const assessPdfTextQuality = (session: PdfAssetSession): PdfTextQualityReport => {
+  const extractedCharacterCount = countNormalizedTextChars(session.extractedText);
+  const pageCount = Math.max(session.pageCount || session.pages.length || 1, 1);
+  const substantivePageCount = session.pages.filter(
+    page => countNormalizedTextChars(page.text) >= PDF_TEXT_QUALITY.SUBSTANTIVE_PAGE_MIN_CHARS
+  ).length;
+  const substantivePageRatio =
+    session.pages.length > 0 ? substantivePageCount / session.pages.length : 0;
+  const averageCharsPerPage = extractedCharacterCount / pageCount;
+  const minTotalChars =
+    pageCount <= PDF_TEXT_QUALITY.SHORT_DOCUMENT_MAX_PAGES
+      ? PDF_TEXT_QUALITY.MIN_SHORT_DOCUMENT_CHARS
+      : PDF_TEXT_QUALITY.MIN_MULTI_PAGE_DOCUMENT_CHARS;
+
+  const hasEnoughTotalText = extractedCharacterCount >= minTotalChars;
+  const hasEnoughTextDensity = averageCharsPerPage >= PDF_TEXT_QUALITY.MIN_AVERAGE_CHARS_PER_PAGE;
+  const hasEnoughPageCoverage =
+    session.pages.length === 0 ||
+    pageCount <= PDF_TEXT_QUALITY.SHORT_DOCUMENT_MAX_PAGES ||
+    substantivePageRatio >= PDF_TEXT_QUALITY.MIN_TEXT_PAGE_RATIO;
+
+  const status = resolvePdfTextQualityStatus({
+    extractedCharacterCount,
+    hasEnoughPageCoverage,
+    hasEnoughTextDensity,
+    hasEnoughTotalText,
+  });
+
+  return {
+    averageCharsPerPage: Number.parseFloat(averageCharsPerPage.toFixed(2)),
+    extractedCharacterCount,
+    pageCount,
+    status,
+    substantivePageCount,
+    substantivePageRatio: Number.parseFloat(substantivePageRatio.toFixed(4)),
+  };
+};
+
+const resolvePdfTextQualityStatus = ({
+  extractedCharacterCount,
+  hasEnoughPageCoverage,
+  hasEnoughTextDensity,
+  hasEnoughTotalText,
+}: {
+  extractedCharacterCount: number;
+  hasEnoughPageCoverage: boolean;
+  hasEnoughTextDensity: boolean;
+  hasEnoughTotalText: boolean;
+}): PdfTextQualityReport['status'] => {
+  if (extractedCharacterCount === 0) {
+    return 'no-text';
+  }
+
+  if (hasEnoughTotalText && hasEnoughTextDensity && hasEnoughPageCoverage) {
+    return 'ok';
+  }
+
+  return 'low-text';
+};
+
+export const validatePdfTextSource = async (
+  file: FileData
+): Promise<PdfTextQualityReport | null> => {
+  if (!isPdfFile(file)) {
+    return null;
+  }
+
+  const session = await getPdfTextSession(file);
+  if (!session) {
+    return null;
+  }
+
+  const report = assessPdfTextQuality(session);
+  if (report.status !== 'ok') {
+    throw new PdfTextQualityError(file.name, report);
+  }
+
+  return report;
+};
+
+const getPdfCacheKey = (file: FileData, partialPages?: number[]): string => {
+  const partialPageKey = sanitizePartialPages(partialPages)?.join(',') || 'all-pages';
+  return `${PDF_ASSET_CACHE_VERSION}:${file.name}:${file.data.length}:${file.data.slice(0, 96)}:${partialPageKey}`;
+};
+
+const normalizeCaptionResponse = (value: string): string => {
+  const trimmed = value.trim();
+  return /^DECORATIVE$/iu.test(trimmed) ? '' : trimmed;
+};
+
+const normalizePageContextText = (pageText: string): string =>
+  normalizeLineEndings(pageText).trim();
+
+const buildImageSourceContext = (
+  image: BackendPdfImage,
+  _pages: PdfTextPage[] | undefined
+): { promptContext: string; textBefore: string; textCurrent: string; textAfter: string } => {
+  const backendTextBefore = normalizePageContextText(image.textBefore || '');
+  const backendTextCurrent = normalizePageContextText(image.textCurrent || '');
+  const backendTextAfter = normalizePageContextText(image.textAfter || '');
+
+  if (backendTextBefore || backendTextCurrent || backendTextAfter) {
+    return {
+      promptContext: [
+        backendTextBefore ? `Text immediately above the image:\n${backendTextBefore}` : '',
+        backendTextCurrent ? `Text aligned with the image area:\n${backendTextCurrent}` : '',
+        backendTextAfter ? `Text immediately below the image:\n${backendTextAfter}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+      textBefore: backendTextBefore,
+      textCurrent: backendTextCurrent,
+      textAfter: backendTextAfter,
+    };
+  }
+
+  return {
+    textBefore: '',
+    promptContext: '',
+    textCurrent: '',
+    textAfter: '',
+  };
+};
+
+const requestImageCaption = async (image: BackendPdfImage, prompt: string): Promise<string> => {
+  const response = await retryWithBackoff(
+    () =>
+      callOpenRouter({
+        model: MODEL_PDF_IMAGE_CAPTION,
+        modelSlot: 'research',
+        max_tokens: 120,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: image.dataUrl } },
+              { type: 'text', text: prompt },
+            ],
+          },
+        ],
+      }),
+    2,
+    500
+  );
+
+  return normalizeCaptionResponse(response || '');
+};
+
+const captionBackendImage = async (
+  image: BackendPdfImage,
+  index: number,
+  pages: PdfTextPage[]
+): Promise<PdfImageAsset> => {
+  const sourceContext = buildImageSourceContext(image, pages);
+  const prompt = `Describe this technical PDF figure in Italian with a concise, factual caption.
+Rules:
+- Mention the figure type when visible: diagram, schema, chart, UI mockup, architecture, map, raycast/visibility cone, labeled components, timeline, code screenshot, or illustration.
+- Mention labels, geometric relations, arrows, regions, overlays, or compared elements if clearly visible.
+- Max 45 words.
+- No speculation.
+- Use nearby PDF text only to disambiguate a figure that is already visually recognizable. Do not use the PDF text to guess the content of a blurry, partial, cropped, or unreadable image.
+- If the image is decorative, partial, heavily cropped, blurry, mostly empty background, just a border/frame/wrapper, a section box, a separator, an icon, a badge, a ribbon, a logo, an ornament, or if the main subject is not clearly distinguishable, answer exactly: DECORATIVE
+${
+  sourceContext.promptContext
+    ? `
+
+PDF text context near the image (same/adjacent pages; use only to disambiguate labels/topic when consistent with the visible figure):
+Page ${image.pageNumber}
+${sourceContext.promptContext}`
+    : ''
+}`;
+
+  const normalizedCaption = await requestImageCaption(image, prompt);
+
+  return {
+    id: image.id || `${IMAGE_ID_PREFIX}${String(index + 1).padStart(3, '0')}`,
+    mimeType: image.mimeType || 'image/png',
+    dataUrl: image.dataUrl,
+    intrinsicWidth: image.intrinsicWidth,
+    intrinsicHeight: image.intrinsicHeight,
+    sizeBytes: image.sizeBytes,
+    caption: normalizedCaption || undefined,
+    textBefore: sourceContext.textBefore,
+    textCurrent: sourceContext.textCurrent,
+    textAfter: sourceContext.textAfter,
+    sourceOrder: index + 1,
+    pageNumber: image.pageNumber,
+  };
+};
+
+const extractPdfImagesViaBackend = async (
+  file: FileData,
+  pages: PdfTextPage[],
+  partialPages?: number[]
+): Promise<PdfImageAsset[]> => {
+  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/pdf/extract-images`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fileData: fileToDataUrl(file),
+      limit: LESSON_PDF_IMAGE_EXTRACTION_LIMIT,
+      partialPages: sanitizePartialPages(partialPages),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`PDF extraction backend error: ${response.status} ${errorText}`);
+  }
+
+  const payload = (await response.json()) as BackendPdfExtractResponse;
+  if (!payload.success) {
+    throw new Error(payload.error || 'Unknown PDF extraction backend error');
+  }
+
+  const images = Array.isArray(payload.images) ? payload.images : [];
+  logPdfAssetDebug('Backend extraction result', {
+    filename: file.name,
+    imageCount: images.length,
+    images: images.slice(0, 12).map(image => ({
+      id: image.id,
+      pageNumber: image.pageNumber,
+      intrinsicWidth: image.intrinsicWidth,
+      intrinsicHeight: image.intrinsicHeight,
+      sizeBytes: image.sizeBytes,
+      hash: image.hash,
+    })),
+  });
+
+  const captionableImages = images
+    .map((image, index) => ({ image, index }))
+    .filter(({ image }) => canCaptionBackendImage(image));
+  const skippedOversizedImageCount = images.length - captionableImages.length;
+  if (skippedOversizedImageCount > 0) {
+    logPdfAssetDebug('Skipped oversized backend images before captioning', {
+      filename: file.name,
+      skippedOversizedImageCount,
+      skippedImages: images
+        .filter(image => !canCaptionBackendImage(image))
+        .slice(0, 12)
+        .map(image => ({
+          id: image.id,
+          pageNumber: image.pageNumber,
+          sizeBytes: image.sizeBytes,
+          dataUrlChars: image.dataUrl.length,
+        })),
+    });
+  }
+
+  const captionedImages = await Promise.all(
+    captionableImages.map(({ image, index }) => captionBackendImage(image, index, pages))
+  );
+
+  logPdfAssetDebug('Backend image captions', {
+    filename: file.name,
+    captionModel: MODEL_PDF_IMAGE_CAPTION,
+    captionedImageCount: captionedImages.length,
+    skippedOversizedImageCount,
+    emptyCaptionCount: captionedImages.filter(image => !image.caption?.trim()).length,
+    captionedImages: captionedImages.map(image => ({
+      id: image.id,
+      caption: image.caption || '',
+      sourceTextBeforeChars: image.textBefore.length,
+      sourceTextCurrentChars: image.textCurrent?.length || 0,
+      sourceTextAfterChars: image.textAfter.length,
+      pageNumber: image.pageNumber,
+      sourceOrder: image.sourceOrder,
+    })),
+  });
+
+  return captionedImages;
+};
+
+const extractPdfTextViaBackend = async (file: FileData): Promise<PdfAssetSession> => {
+  const response = await fetchWithSupabaseAuth(`${getBackendUrl()}/api/pdf/extract-text`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fileData: fileToDataUrl(file),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`PDF text backend error: ${response.status} ${errorText}`);
+  }
+
+  const payload = (await response.json()) as BackendPdfTextResponse;
+  if (!payload.success) {
+    throw new Error(payload.error || 'Unknown PDF text backend error');
+  }
+
+  const extractedText = typeof payload.text === 'string' ? payload.text : '';
+  let outlineSequence = 0;
+  const normalizeOutline = (nodes: SourceOutlineNode[], level = 1): SourceOutlineNode[] =>
+    nodes
+      .filter(node => Boolean(node) && typeof node.title === 'string' && node.title.trim())
+      .map(node => {
+        outlineSequence += 1;
+        const outlineId = `${file.sourceId || 'source'}:outline:pdf-${outlineSequence}`;
+        return {
+          children: normalizeOutline(Array.isArray(node.children) ? node.children : [], level + 1),
+          id: outlineId,
+          level,
+          page: Number.isInteger(node.page) && (node.page || 0) > 0 ? node.page : undefined,
+          title: node.title.trim(),
+        };
+      });
+  const outline = normalizeOutline(Array.isArray(payload.outline) ? payload.outline : []);
+  const pages = Array.isArray(payload.pages)
+    ? payload.pages
+        .filter(
+          (page): page is PdfTextPage =>
+            Boolean(page) && Number.isInteger(page.pageNumber) && typeof page.text === 'string'
+        )
+        .map(page => ({
+          pageNumber: page.pageNumber,
+          text: page.text,
+        }))
+    : [];
+  logPdfAssetDebug('Backend text extraction result', {
+    filename: file.name,
+    parser: payload.parser,
+    pageCount: payload.pageCount,
+    pageTextCount: pages.length,
+    textLength: extractedText.length,
+    sourceHash: payload.sourceHash,
+    preview: extractedText.slice(0, 400),
+  });
+
+  return {
+    images: [],
+    extractedText,
+    pages,
+    pageCount: payload.pageCount,
+    parser: payload.parser,
+    parsedAt: timestampIso(),
+    sourceHash: payload.sourceHash,
+    outline,
+    outlineOrigin: outline.length > 0 ? payload.outlineOrigin || 'deterministic' : 'none',
+  };
+};
+
+export const getPdfTextSession = async (file: FileData): Promise<PdfAssetSession | null> => {
+  if (!isPdfFile(file)) {
+    return null;
+  }
+
+  const cacheKey = getPdfCacheKey(file);
+  const cached = PDF_TEXT_PARSE_CACHE.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const nextPromise = extractPdfTextViaBackend(file).catch(error => {
+    PDF_TEXT_PARSE_CACHE.delete(cacheKey);
+    throw error;
+  });
+
+  PDF_TEXT_PARSE_CACHE.set(cacheKey, nextPromise);
+  return nextPromise;
+};
+
+export const getPdfAssetSession = async (
+  file: FileData,
+  options?: { partialPages?: number[] }
+): Promise<PdfAssetSession | null> => {
+  if (!isPdfFile(file)) {
+    return null;
+  }
+
+  const sanitizedPartialPages = sanitizePartialPages(options?.partialPages);
+  const cacheKey = getPdfCacheKey(file, sanitizedPartialPages);
+  const cached = PDF_PARSE_CACHE.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const nextPromise = (async () => {
+    const parsedResult = await getPdfTextSession(file);
+    if (!parsedResult) {
+      return null;
+    }
+
+    if (parsedResult.images.length > 0) {
+      return parsedResult;
+    }
+
+    try {
+      const backendImages = await extractPdfImagesViaBackend(
+        file,
+        parsedResult.pages,
+        sanitizedPartialPages
+      );
+      if (backendImages.length > 0) {
+        return {
+          ...parsedResult,
+          images: backendImages,
+        } satisfies PdfAssetSession;
+      }
+
+      logPdfAssetDebug('Backend extraction returned no usable images', {
+        filename: file.name,
+      });
+    } catch (error) {
+      console.warn('[Nous][PDF] Backend extraction failed, using text-only parsed session.', error);
+    }
+
+    return parsedResult;
+  })().catch(error => {
+    PDF_PARSE_CACHE.delete(cacheKey);
+    throw error;
+  });
+
+  PDF_PARSE_CACHE.set(cacheKey, nextPromise);
+  return nextPromise;
+};
+
+export const buildStoredPdfDocumentAssets = (
+  session: PdfAssetSession,
+  imageRefs: LessonImageRef[],
+  existingAssets?: PdfDocumentAssets | null
+): PdfDocumentAssets => {
+  const availableAssets = new Map<string, PdfImageAsset>();
+
+  session.images.forEach(asset => {
+    availableAssets.set(asset.id, asset);
+  });
+
+  existingAssets?.usedImages.forEach(asset => {
+    if (!availableAssets.has(asset.id)) {
+      availableAssets.set(asset.id, asset);
+    }
+  });
+
+  const usedImages = Array.from(new Set(imageRefs.map(ref => ref.assetId)))
+    .map(assetId => availableAssets.get(assetId))
+    .filter((asset): asset is PdfImageAsset => Boolean(asset));
+
+  return {
+    kind: 'pdf',
+    parsedAt: session.parsedAt,
+    imageCount: session.images.length,
+    sourceHash: session.sourceHash,
+    usedImages,
+  };
+};

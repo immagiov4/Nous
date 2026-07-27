@@ -1,0 +1,2 @@
+alter table public.project_source_entries
+drop constraint project_source_entries_path_check;

@@ -1,0 +1,45 @@
+{
+  "profiles": [
+    {
+      "id": "Ara",
+      "name": "Ara",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "Ara",
+      "modelSettings": { "temperature": 0.7, "speed": 1.0 }
+    },
+    {
+      "id": "Eve",
+      "name": "Eve",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "Eve",
+      "modelSettings": { "temperature": 0.7, "speed": 1.0 }
+    },
+    {
+      "id": "Rex",
+      "name": "Rex",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "Rex",
+      "modelSettings": { "temperature": 0.7, "speed": 1.0 }
+    },
+    {
+      "id": "Sal",
+      "name": "Sal",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "Sal",
+      "modelSettings": { "temperature": 0.7, "speed": 1.0 }
+    },
+    {
+      "id": "Leo",
+      "name": "Leo",
+      "language": "it-IT",
+      "mode": "openrouter_voice",
+      "voiceDesignPrompt": "Leo",
+      "modelSettings": { "temperature": 0.7, "speed": 1.0 }
+    }
+  ],
+  "defaultProfile": "Ara"
+}

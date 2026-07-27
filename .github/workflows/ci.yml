@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          version: '0.11.16'
+
+      - name: Run Quality Checks (TypeScript + Biome)
+        run: bun run quality
+
+      - name: Verify Semgrep Rules
+        run: bun run check:semgrep:rules
+
+      - name: Run Semgrep Maintainability Checks
+        run: bun run check:semgrep
+
+      - name: Run Fallow Static Analysis (regression check)
+        run: bun run check:fallow:ci
+
+      - name: Run Test Suite
+        run: bun run test
+
+      - name: Run Coverage
+        run: bun run test:coverage
+
+  supabase-contract:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Start Local Supabase
+        env:
+          SUPABASE_AUTH_SMTP_PASS: ci-placeholder-not-used
+        run: bunx supabase start
+
+      - name: Verify Private Project Source Storage
+        run: |
+          eval "$(bunx supabase status -o env)"
+          DATABASE_URL="$DB_URL" SUPABASE_URL="$API_URL" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" \
+            bun run scripts/migrate-project-sources-to-storage.ts
+
+      - name: Run Canonical Auth/RLS Contract
+        run: bun run test:supabase-contract
+
+      - name: Stop Local Supabase
+        if: always()
+        run: bunx supabase stop --no-backup
+
+  managed-staging-contract:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.SUPABASE_STAGING_DATABASE_URL }}
+      SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_STAGING_JWT_SECRET }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_STAGING_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install Dependencies
+        if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''
+        run: bun install --frozen-lockfile
+
+      - name: Run Canonical Contract Against Managed Staging
+        if: env.DATABASE_URL != '' && env.SUPABASE_JWT_SECRET != '' && env.SUPABASE_URL != ''
+        run: bun run test:supabase-contract
