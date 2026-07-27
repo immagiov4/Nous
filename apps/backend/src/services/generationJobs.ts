@@ -78,6 +78,20 @@ const getErrorCode = (error: unknown): string => {
   return GENERATION_FAILURE_CODE;
 };
 
+const describeError = (error: unknown): Record<string, unknown> => {
+  if (!(error instanceof Error)) return { message: String(error), type: typeof error };
+  const record = error as Error & { code?: unknown; details?: unknown; status?: unknown };
+  const cause = error.cause;
+  return {
+    type: error.name,
+    message: error.message,
+    ...(typeof record.code === 'string' ? { code: record.code } : {}),
+    ...(typeof record.status === 'number' ? { status: record.status } : {}),
+    ...(typeof record.details === 'string' ? { details: record.details } : {}),
+    ...(cause === undefined ? {} : { cause: describeError(cause) }),
+  };
+};
+
 const getConfiguredConcurrency = (): number => {
   const configured = process.env.GENERATION_JOB_CONCURRENCY;
   if (configured === undefined) return DEFAULT_MAX_CONCURRENT_GENERATION_JOBS;
@@ -194,6 +208,7 @@ export class GenerationJobRunner {
         await this.store.requeue(job.id);
         console.warn('[Generation job] Retrying transient failure.', {
           attempt: job.attemptCount,
+          error: describeError(error),
           errorCode: error.code,
           jobId: job.id,
           kind: job.kind,
@@ -205,6 +220,7 @@ export class GenerationJobRunner {
       await this.store.fail(job.id, errorCode);
       console.error('[Generation job] Failed.', {
         attempt: job.attemptCount,
+        error: describeError(error),
         errorCode,
         jobId: job.id,
         kind: job.kind,

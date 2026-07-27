@@ -140,8 +140,11 @@ describe('GenerationJobRunner', () => {
 
   test('records a terminal failure after the approved single retry', async () => {
     const store = new MemoryGenerationJobStore([makeJob('failed')]);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const run = vi.fn(async () => {
-      throw new TransientGenerationJobError('provider_unavailable');
+      throw new TransientGenerationJobError('provider_unavailable', 'Provider failed.', {
+        cause: new Error('Upstream rejected the response.'),
+      });
     });
     const runner = new GenerationJobRunner({ run, store });
 
@@ -150,5 +153,17 @@ describe('GenerationJobRunner', () => {
     await vi.waitFor(() => expect(store.jobs[0]?.status).toBe('failed'));
     expect(run).toHaveBeenCalledTimes(2);
     expect(store.jobs[0]?.errorCode).toBe('provider_unavailable');
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[Generation job] Failed.',
+      expect.objectContaining({
+        error: {
+          cause: { message: 'Upstream rejected the response.', type: 'Error' },
+          code: 'provider_unavailable',
+          message: 'Provider failed.',
+          type: 'TransientGenerationJobError',
+        },
+      })
+    );
+    errorSpy.mockRestore();
   });
 });

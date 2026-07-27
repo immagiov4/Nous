@@ -124,13 +124,7 @@ export const buildLocalImageTextContext = (
   };
 };
 
-const getPdfJsModule = async () =>
-  await import(
-    new URL(
-      '../../node_modules/pdf-parse/node_modules/pdfjs-dist/legacy/build/pdf.mjs',
-      import.meta.url
-    ).href
-  );
+const getPdfJsModule = async () => await import('pdfjs-dist/legacy/build/pdf.mjs');
 
 const transformPoint = (matrix: number[], x: number, y: number) => ({
   x: matrix[0] * x + matrix[2] * y + matrix[4],

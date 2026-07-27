@@ -67,6 +67,7 @@
         "express": "^4.21.2",
         "jszip": "3.10.1",
         "pdf-parse": "^2.4.5",
+        "pdfjs-dist": "5.4.296",
         "postgres": "^3.4.9",
       },
       "devDependencies": {
