@@ -125,7 +125,11 @@ describe('lesson generation job', () => {
   test('generates from explicitly mapped chunks and persists before completion', async () => {
     const store = new InMemoryProjectStore();
     await store.saveProject('local-user', snapshot);
-    const generate = vi.fn(async () => lessonDraft);
+    const generate = vi.fn(async input => {
+      await input.onProgressStage?.('quiz');
+      await input.onProgressStage?.('verification');
+      return lessonDraft;
+    });
     const run = createLessonGenerationHandler({
       generate,
       getConfig: async () => ({}) as GlobalModelConfig,
@@ -138,7 +142,10 @@ describe('lesson generation job', () => {
       revisionEvents.push(event)
     );
 
-    const result = await run(job, new AbortController().signal);
+    const stages: string[] = [];
+    const result = await run(job, new AbortController().signal, async stage => {
+      stages.push(stage);
+    });
     unsubscribe();
     const persisted = await store.loadProject('local-user', 'project-1');
     const lesson = persisted?.learningPlan?.modules?.[0]?.children?.[0];
@@ -157,6 +164,7 @@ describe('lesson generation job', () => {
       sources: [{ title: 'biologia.pdf' }],
     });
     expect(revisionEvents).toHaveLength(1);
+    expect(stages).toEqual(['sources', 'structure', 'drafting', 'quiz', 'verification']);
     expect(result).toMatchObject({
       projectId: 'project-1',
       projectRevision: 2,
@@ -357,6 +365,7 @@ describe('lesson generation job', () => {
       ],
     }));
     const run = createLessonGenerationHandler({
+      captionImage: async () => 'Schema chiaro di un cloroplasto.',
       extractImages,
       generate,
       getConfig: async () => ({}) as GlobalModelConfig,
@@ -370,7 +379,8 @@ describe('lesson generation job', () => {
     expect(extractImages).toHaveBeenCalledWith(
       expect.stringMatching(/^data:application\/pdf;base64,/u),
       36,
-      [3, 4]
+      [3, 4],
+      expect.any(AbortSignal)
     );
     const persisted = await store.loadProject('local-user', 'project-1');
     expect(persisted?.learningPlan?.modules?.[0]?.children?.[0]?.imageRefs).toEqual([
@@ -500,13 +510,14 @@ describe('lesson generation job', () => {
       slotId: `visual-${index + 1}`,
     }));
     const quizBlock = lessonDraft.contentBlocks[1];
-    const contentBlocks = [
-      lessonDraft.contentBlocks[0],
-      ...plans.flatMap((plan, index) => [
-        { ...quizBlock, quiz: { ...quizBlock.quiz, question: `Domanda ${index + 1}` } },
-        { slotId: plan.slotId, type: 'generated-visual' as const },
-      ]),
-    ];
+    const contentBlocks = plans.flatMap((plan, index) => [
+      {
+        markdown: `## Passaggio ${index + 1}\n\nSpiegazione didattica ${index + 1}.`,
+        type: 'markdown' as const,
+      },
+      { ...quizBlock, quiz: { ...quizBlock.quiz, question: `Domanda ${index + 1}` } },
+      { slotId: plan.slotId, type: 'generated-visual' as const },
+    ]);
     const run = createLessonGenerationHandler({
       generate: async () => ({ ...lessonDraft, contentBlocks, generatedVisuals: plans }),
       getConfig: async () => ({}) as GlobalModelConfig,
@@ -554,7 +565,16 @@ describe('lesson generation job', () => {
     const run = createLessonGenerationHandler({
       generate,
       getConfig: async () => ({}) as GlobalModelConfig,
-      research: researchLesson,
+      research: async () => ({
+        ...lessonDraft.researchSummary,
+        youtubeCandidateDecisions: [
+          {
+            decision: 'selected-source' as const,
+            reason: 'Il transcript mostra il processo descritto dalla lezione.',
+            url: 'https://www.youtube.com/watch?v=test',
+          },
+        ],
+      }),
       researchYouTube: async () => ({
         context: 'Transcript',
         discoveredVideoCount: 1,
@@ -583,6 +603,111 @@ describe('lesson generation job', () => {
         expect.objectContaining({ title: 'Fotosintesi osservata' }),
       ]),
     });
+  });
+
+  test('uses the planned fallback YouTube query only when the specific query finds no videos', async () => {
+    const store = new InMemoryProjectStore();
+    await store.saveProject('local-user', snapshot);
+    const planYouTube = vi.fn(async () => ({
+      fallbackQuery: 'fotosintesi',
+      focusConcept: 'fase luminosa',
+      specificQuery: 'fase luminosa cloroplasto',
+    }));
+    const researchYouTube = vi.fn(emptyYouTubeResearch);
+    const run = createLessonGenerationHandler({
+      generate: async () => lessonDraft,
+      getConfig: async () => ({}) as GlobalModelConfig,
+      planYouTube,
+      research: researchLesson,
+      researchYouTube,
+      store,
+    });
+
+    await run(job, new AbortController().signal);
+
+    expect(planYouTube).toHaveBeenCalledOnce();
+    expect(researchYouTube.mock.calls.map(call => call[0])).toEqual([
+      'fase luminosa cloroplasto',
+      'fotosintesi',
+    ]);
+  });
+
+  test('only selected YouTube transcripts reach lesson writing and persisted sources', async () => {
+    const store = new InMemoryProjectStore();
+    await store.saveProject('local-user', snapshot);
+    const selectedUrl = 'https://www.youtube.com/watch?v=selected';
+    const rejectedUrl = 'https://www.youtube.com/watch?v=rejected';
+    const generate = vi.fn(async () => lessonDraft);
+    const run = createLessonGenerationHandler({
+      generate,
+      getConfig: async () => ({}) as GlobalModelConfig,
+      research: async () => ({
+        ...lessonDraft.researchSummary,
+        youtubeCandidateDecisions: [
+          { decision: 'selected-source' as const, reason: 'Pertinente.', url: selectedUrl },
+          { decision: 'rejected' as const, reason: 'Non pertinente.', url: rejectedUrl },
+        ],
+      }),
+      researchYouTube: async () => ({
+        context: 'Transcript candidati',
+        discoveredVideoCount: 2,
+        rationale: 'Due candidati.',
+        videoCandidates: [
+          {
+            ranges: [{ endSeconds: 60, startSeconds: 0 }],
+            title: 'Video selezionato',
+            transcript: '[00:00] Contenuto pertinente.',
+            url: selectedUrl,
+          },
+          {
+            ranges: [{ endSeconds: 60, startSeconds: 0 }],
+            title: 'Video rifiutato',
+            transcript: '[00:00] Contenuto fuori tema.',
+            url: rejectedUrl,
+          },
+        ],
+      }),
+      store,
+    });
+
+    await run(job, new AbortController().signal);
+
+    const lessonSources = generate.mock.calls[0]?.[0]?.sources || [];
+    expect(lessonSources.some(source => source.url === selectedUrl)).toBe(true);
+    expect(lessonSources.some(source => source.url === rejectedUrl)).toBe(false);
+    const persistedSources = (await store.loadProject('local-user', 'project-1'))
+      ?.researchDossiersBySectionId?.['lesson-1']?.sources as Array<{ url?: string }>;
+    expect(persistedSources.some(source => source.url === selectedUrl)).toBe(true);
+    expect(persistedSources.some(source => source.url === rejectedUrl)).toBe(false);
+  });
+
+  test('passes prerequisite source gaps into targeted research without altering normal lessons', async () => {
+    const store = new InMemoryProjectStore();
+    const prerequisiteSnapshot = structuredClone(snapshot);
+    const lesson = prerequisiteSnapshot.learningPlan.modules[0]?.children[0];
+    if (!lesson) throw new Error('Expected prerequisite test lesson.');
+    lesson.type = 'prerequisite';
+    await store.saveProject('local-user', prerequisiteSnapshot);
+    const coverage = vi.fn(async () => ({
+      missingTopics: ['Ruolo della clorofilla'],
+      needsResearch: true,
+    }));
+    const research = vi.fn(researchLesson);
+    const run = createLessonGenerationHandler({
+      coverage,
+      generate: async () => lessonDraft,
+      getConfig: async () => ({}) as GlobalModelConfig,
+      research,
+      researchYouTube: emptyYouTubeResearch,
+      store,
+    });
+
+    await run(job, new AbortController().signal);
+
+    expect(coverage).toHaveBeenCalledOnce();
+    expect(research).toHaveBeenCalledWith(
+      expect.objectContaining({ coverageGaps: ['Ruolo della clorofilla'] })
+    );
   });
 
   test('retries only the final project patch after a revision conflict', async () => {

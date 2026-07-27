@@ -433,6 +433,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'ignored-busy';
     }
 
+    const progressObserver = openRouter.createGenerationProgressObserver({
+      language: domain.userProfile?.language || 'Italiano',
+      onUpdate: progress => state.setWorkflowProgress('loadSection', requestId, progress),
+      operation: 'lesson',
+      subject: section.title,
+    });
     state.setWorkflowMessage(
       'loadSection',
       requestId,
@@ -441,6 +447,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     try {
       const result = await openRouter.generateDurableLesson({
         forceRegenerate,
+        onProgressStage: progressObserver.setStage,
         projectId,
         sectionId: section.id,
       });
@@ -454,6 +461,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         }))
       ) {
         if (!isGenerationRequestCurrent()) return 'ignored-busy';
+        await progressObserver.finish();
+        progressObserver.complete();
         state.succeedWorkflow('loadSection', requestId);
         return 'loaded';
       }
@@ -471,6 +480,8 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       }));
       if (result.researchDossier) domain.setResearchLessonDossier(result.researchDossier);
       if (result.documentAssets !== undefined) domain.setDocumentAssets(result.documentAssets);
+      await progressObserver.finish();
+      progressObserver.complete();
       state.succeedWorkflow('loadSection', requestId);
       return 'loaded';
     } catch (error) {
@@ -478,6 +489,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       state.failWorkflow('loadSection', requestId, getErrorMessage(error));
       throw error;
     } finally {
+      progressObserver.dispose();
       if (ownsGenerationGate) state.finishGeneration(projectId, activeGeneration.token);
     }
   }

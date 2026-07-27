@@ -57,6 +57,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/react-syntax-highlighter": "^15.5.13",
     "acorn": "^8.16.0",
     "ai": "^6.0.137",
@@ -78,7 +79,6 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
     "@remotion/cli": "4.0.487",
-    "@resvg/resvg-js": "^2.6.2",
     "@sonar/scan": "^4.3.6",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

@@ -20,14 +20,16 @@ interface ConfiguredTextModel {
 export const createConfiguredTextModel = (
   config: GlobalModelConfig,
   slot: TextModelSlot,
-  { webSearch = false }: { webSearch?: boolean } = {}
+  { model: modelOverride, webSearch = false }: { model?: string; webSearch?: boolean } = {}
 ): ConfiguredTextModel => {
   const provider = resolveAiProviderForSlot(config, slot);
   if (provider === 'codex') {
     throw new Error('Codex app-server requires its dedicated streaming adapter.');
   }
 
-  const { model: modelName, reasoningEffort } = resolveTextModelConfig(config, slot);
+  const resolved = resolveTextModelConfig(config, slot);
+  const modelName = modelOverride || resolved.model;
+  const { reasoningEffort } = resolved;
 
   if (provider === 'openai') {
     const openAi = createOpenAI({ apiKey: requireOpenAiApiKey() });

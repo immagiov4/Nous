@@ -1,3 +1,4 @@
+import type { LessonGenerationJobStage } from '@shared/generationJobContract';
 import { describe, expect, test, vi } from 'vitest';
 
 import {
@@ -82,6 +83,12 @@ class MemoryGenerationJobStore implements GenerationJobStore {
     const job = this.jobs.find(candidate => candidate.id === id);
     if (!job) throw new Error('Missing job');
     job.status = 'queued';
+  }
+
+  async updateStage(id: string, stage: LessonGenerationJobStage): Promise<void> {
+    const job = this.jobs.find(candidate => candidate.id === id);
+    if (!job) throw new Error('Missing job');
+    job.stage = stage;
   }
 }
 

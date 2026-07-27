@@ -1,3 +1,4 @@
+import type { LessonGenerationJobStage } from '@shared/generationJobContract';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
@@ -70,6 +71,11 @@ class QueuedGenerationJobStore implements GenerationJobStore {
   async fail() {}
   async recoverInterrupted() {}
   async requeue() {}
+  async updateStage(id: string, stage: LessonGenerationJobStage) {
+    const job = this.jobs.find(candidate => candidate.id === id);
+    if (!job) throw new Error('Missing job');
+    job.stage = stage;
+  }
 }
 
 const createSnapshot = (): ProjectSnapshot => ({
@@ -147,6 +153,7 @@ describe('/api/generation-jobs', () => {
     });
 
     expect(status.status).toBe(200);
+    expect(status.headers['cache-control']).toBe('private, no-store');
     expect(status.body.job.status).toBe('queued');
     expect(missingProject.status).toBe(404);
   });
@@ -199,6 +206,7 @@ describe('/api/generation-jobs', () => {
     );
 
     expect(latest.status).toBe(200);
+    expect(latest.headers['cache-control']).toBe('private, no-store');
     expect(latest.body.job).toMatchObject({
       errorCode: 'lesson_provider_failed',
       id: created.body.job.id,

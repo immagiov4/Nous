@@ -1,5 +1,5 @@
+import type { GenerationJobStage, LessonGenerationJobStage } from '@shared/generationJobContract';
 import postgres, { type Sql } from 'postgres';
-
 import type {
   EnqueueGenerationJobInput,
   GenerationJob,
@@ -19,7 +19,7 @@ interface GenerationJobRow {
   payload: unknown;
   project_id: string;
   result: unknown;
-  stage: string;
+  stage: GenerationJobStage;
   started_at: Date | string | null;
   status: GenerationJobStatus;
   updated_at: Date | string;
@@ -176,6 +176,14 @@ export class PostgresGenerationJobStore implements GenerationJobStore {
       update public.generation_jobs
       set status = 'queued', stage = 'queued', started_at = null, updated_at = now()
       where id = ${id} and status = 'running' and attempt_count < 2
+    `;
+  }
+
+  async updateStage(id: string, stage: LessonGenerationJobStage): Promise<void> {
+    await this.sql`
+      update public.generation_jobs
+      set stage = ${stage}, updated_at = now()
+      where id = ${id} and status = 'running'
     `;
   }
 

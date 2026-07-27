@@ -674,8 +674,10 @@ const createOpenRouterMock = (
       });
       return {
         complete: vi.fn(),
+        dispose: vi.fn(),
         finish: vi.fn(async () => undefined),
         push: vi.fn(),
+        setStage: vi.fn(),
         updateStatus: vi.fn(),
       };
     },
@@ -2351,29 +2353,35 @@ test('openSection delegates production lesson work to the durable backend job', 
       },
     ],
   });
-  const generateDurableLesson = vi.fn(async () => ({
-    content: '# Lezione durevole',
-    contentBlocks: [{ markdown: '# Lezione durevole', type: 'markdown' as const }],
-    generatedVisuals: [],
-    imageRefs: [],
-    learningAids: [],
-    projectId: 'project-1',
-    projectRevision: 7,
-    quiz: [],
-    researchDossier: {
-      avoidOversimplifying: [],
-      controversies: [],
-      difficultSteps: [],
-      factualSummary: 'Dossier salvato dal backend.',
-      generatedAt: '2026-07-26T12:00:00.000Z',
-      keyExamples: [],
-      recentDevelopments: [],
+  const generateDurableLesson = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').generateDurableLesson
+      >[0]
+    ) => ({
+      content: '# Lezione durevole',
+      contentBlocks: [{ markdown: '# Lezione durevole', type: 'markdown' as const }],
+      generatedVisuals: [],
+      imageRefs: [],
+      learningAids: [],
+      projectId: 'project-1',
+      projectRevision: 7,
+      quiz: [],
+      researchDossier: {
+        avoidOversimplifying: [],
+        controversies: [],
+        difficultSteps: [],
+        factualSummary: 'Dossier salvato dal backend.',
+        generatedAt: '2026-07-26T12:00:00.000Z',
+        keyExamples: [],
+        recentDevelopments: [],
+        sectionId: 'lesson-1',
+        sources: [],
+        title: 'Fotosintesi',
+      },
       sectionId: 'lesson-1',
-      sources: [],
-      title: 'Fotosintesi',
-    },
-    sectionId: 'lesson-1',
-  }));
+    })
+  );
   const { controller, domain, projectLibrary } = createControllerHarness({
     domain: { learningPlan: plan },
     projectLibrary: { currentProjectId: 'project-1' },
@@ -2392,10 +2400,13 @@ test('openSection delegates production lesson work to the durable backend job', 
   assert.deepEqual(projectLibrary.appliedProjectRevisions, [
     { projectId: 'project-1', revision: 7 },
   ]);
+  const generationRequest = generateDurableLesson.mock.calls[0]?.[0];
+  assert.equal(typeof generationRequest?.onProgressStage, 'function');
   assert.deepEqual(generateDurableLesson.mock.calls, [
     [
       {
         forceRegenerate: false,
+        onProgressStage: generationRequest?.onProgressStage,
         projectId: 'project-1',
         sectionId: 'lesson-1',
       },
@@ -2416,10 +2427,19 @@ test('openSection exposes a durable busy error instead of silently ignoring it',
     ],
   });
   const busyError = new LessonGenerationBusyError('lesson-2');
+  const disposeProgressObserver = vi.fn();
   const { controller, state } = createControllerHarness({
     domain: { learningPlan: plan },
     projectLibrary: { currentProjectId: 'project-1' },
     openRouter: {
+      createGenerationProgressObserver: vi.fn(() => ({
+        complete: vi.fn(),
+        dispose: disposeProgressObserver,
+        finish: vi.fn(async () => undefined),
+        push: vi.fn(),
+        setStage: vi.fn(),
+        updateStatus: vi.fn(),
+      })),
       generateDurableLesson: vi.fn(async () => {
         throw busyError;
       }),
@@ -2429,6 +2449,7 @@ test('openSection exposes a durable busy error instead of silently ignoring it',
   await assert.rejects(controller.openSection(getLessons(plan)[0]), busyError);
   assert.equal(state.internalState.workflowState.loadSection.status, 'failed');
   assert.equal(state.internalState.workflowState.loadSection.error, busyError.message);
+  assert.equal(disposeProgressObserver.mock.calls.length, 1);
 });
 
 test('openSection ignores a durable result older than the known project revision', async () => {
@@ -2687,6 +2708,7 @@ test('lesson generation keeps its gate after workflow invalidation until the pro
   const generationStarted = new Promise<void>(resolve => {
     markGenerationStarted = resolve;
   });
+  const disposeProgressObserver = vi.fn();
   const { controller, state } = createControllerHarness({
     domain: {
       file: pdfFile,
@@ -2695,6 +2717,14 @@ test('lesson generation keeps its gate after workflow invalidation until the pro
     },
     projectLibrary: { currentProjectId: 'project-1' },
     openRouter: {
+      createGenerationProgressObserver: vi.fn(() => ({
+        complete: vi.fn(),
+        dispose: disposeProgressObserver,
+        finish: vi.fn(async () => undefined),
+        push: vi.fn(),
+        setStage: vi.fn(),
+        updateStatus: vi.fn(),
+      })),
       generateDurableLesson: async () => {
         generationCalls += 1;
         if (generationCalls === 1) {
@@ -2729,6 +2759,7 @@ test('lesson generation keeps its gate after workflow invalidation until the pro
   releaseGeneration?.();
 
   assert.equal(await invalidatedGeneration, 'ignored-busy');
+  assert.equal(disposeProgressObserver.mock.calls.length, 1);
   assert.equal(state.adapter.isLessonGenerationActive('project-1'), false);
   assert.equal(state.adapter.getGeneratingSectionId('project-1'), null);
 

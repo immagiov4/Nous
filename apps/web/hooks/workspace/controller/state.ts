@@ -118,7 +118,6 @@ export const useWorkspaceControllerState = () => {
       invalidateWorkflows: workflowIds => {
         const nextState = invalidateWorkspaceWorkflows(workflowStateRef.current, workflowIds);
         commitWorkflowState(nextState);
-        pushNousDebugTrace('workflow:invalidate', { workflowIds });
       },
       isGenerationActive: projectId => generationByProjectRef.current.has(projectId),
       isLessonGenerationActive: projectId =>
@@ -201,7 +200,10 @@ export const useWorkspaceControllerState = () => {
       },
       setWorkflowProgress: (workflowId, requestId, progress) => {
         const currentState = workflowStateRef.current;
-        if (currentState[workflowId].requestId !== requestId) {
+        if (
+          currentState[workflowId].requestId !== requestId ||
+          currentState[workflowId].status !== 'pending'
+        ) {
           return;
         }
 

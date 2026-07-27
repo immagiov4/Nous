@@ -1,8 +1,14 @@
 export type GenerationJobKind = 'image' | 'lesson';
 
-import type { GenerationJobStatus } from '@shared/generationJobContract';
+import type {
+  GenerationJobStage,
+  GenerationJobStatus,
+  LessonGenerationJobStage,
+} from '@shared/generationJobContract';
 
 export type { GenerationJobStatus } from '@shared/generationJobContract';
+
+export type GenerationJobStageReporter = (stage: LessonGenerationJobStage) => Promise<void>;
 
 export interface GenerationJob {
   attemptCount: number;
@@ -15,7 +21,7 @@ export interface GenerationJob {
   payload: unknown;
   projectId: string;
   result?: unknown;
-  stage: string;
+  stage: GenerationJobStage;
   startedAt?: string;
   status: GenerationJobStatus;
   updatedAt: string;
@@ -44,6 +50,7 @@ export interface GenerationJobStore {
   ): Promise<GenerationJob | null>;
   recoverInterrupted(): Promise<void>;
   requeue(id: string): Promise<void>;
+  updateStage(id: string, stage: LessonGenerationJobStage): Promise<void>;
 }
 
 export class TransientGenerationJobError extends Error {

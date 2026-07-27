@@ -1,4 +1,8 @@
+import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
 import type { LessonInstructionPackId } from './utils/learning/lessonInstructionPacks.ts';
+
+export type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
+export { ACTIVE_PAUSE_EXERCISE_TYPES } from '@shared/lessonGenerationPolicy';
 
 export interface UserProfile {
   topic: string;
@@ -307,19 +311,6 @@ export interface LibraryScopeSummary {
   scopeProjectIds: ProjectId[];
   scopeSummary: string;
 }
-
-export const ACTIVE_PAUSE_EXERCISE_TYPES = [
-  'concept-check',
-  'application-card',
-  'prediction',
-  'error-diagnosis',
-  'classification',
-  'compare-contrast',
-  'sequence',
-  'micro-synthesis',
-] as const;
-
-export type ActivePauseExerciseType = (typeof ACTIVE_PAUSE_EXERCISE_TYPES)[number];
 
 export interface QuizQuestion {
   anchorExcerpt?: string;

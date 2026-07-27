@@ -300,4 +300,34 @@ describe('generation progress observer', () => {
 
     expect(callOpenRouterMock).toHaveBeenCalledTimes(2);
   });
+
+  test('dispose aborts an active observation and prevents later updates or timers', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | undefined;
+    callOpenRouterMock.mockImplementation(
+      ({ signal }: { signal: AbortSignal }) =>
+        new Promise<string>((_resolve, reject) => {
+          requestSignal = signal;
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        })
+    );
+    const onUpdate = vi.fn();
+    const observer = createGenerationProgressObserver({
+      idleObservationDelayMs: 100,
+      operation: 'lesson',
+      revealIntervalMs: 0,
+      subject: 'Memoria',
+      onUpdate,
+    });
+
+    observer.updateStatus('Analisi in corso');
+    expect(callOpenRouterMock).toHaveBeenCalledOnce();
+
+    observer.dispose();
+    await vi.runAllTimersAsync();
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(callOpenRouterMock).toHaveBeenCalledOnce();
+    expect(onUpdate).toHaveBeenCalledOnce();
+  });
 });

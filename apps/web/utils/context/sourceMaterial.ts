@@ -194,13 +194,9 @@ export const resolveLessonSourceReferences = ({
 }): ResolvedLessonSourceReference[] => {
   if (source?.kind === 'archive') {
     const archiveSelectors = activeSection?.sourceArchiveSelectors;
-    if (!archiveSelectors?.length) {
-      return [];
-    }
-
     return [
       {
-        archiveSelectors,
+        ...(archiveSelectors?.length ? { archiveSelectors } : {}),
         chunkIds: [],
         file: source.file,
         kind: source.kind,

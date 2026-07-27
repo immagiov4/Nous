@@ -318,3 +318,35 @@ test('resolveLessonSourceReferences restores the original archive and exact less
   assert.equal(references[0]?.kind, 'archive');
   assert.deepEqual(references[0]?.archiveSelectors, activeSection.sourceArchiveSelectors);
 });
+
+test('resolveLessonSourceReferences keeps legacy archive provenance without selectors', () => {
+  const source: ProjectSource = {
+    file: { data: '', mimeType: 'application/zip', name: 'legacy-codebase.zip' },
+    index: { entries: [] },
+    kind: 'archive',
+    name: 'legacy-codebase.zip',
+    ref: {
+      byteSize: 512,
+      hash: 'legacy-hash',
+      id: 'legacy-archive-source',
+      mimeType: 'application/zip',
+      name: 'legacy-codebase.zip',
+      objectPath: 'sources/legacy-codebase.zip',
+    },
+  };
+  const activeSection: LessonNode = {
+    description: 'Lezione creata prima dei selector per archivio.',
+    id: 'legacy-lesson',
+    isCompleted: true,
+    kind: 'lesson',
+    title: 'Architettura',
+    type: 'core',
+  };
+
+  const references = resolveLessonSourceReferences({ activeSection, source });
+
+  assert.equal(references.length, 1);
+  assert.equal(references[0]?.name, 'legacy-codebase.zip');
+  assert.equal(references[0]?.sourceId, 'legacy-archive-source');
+  assert.equal(references[0]?.archiveSelectors, undefined);
+});

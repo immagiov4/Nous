@@ -45,6 +45,7 @@ test('returns immediately when the observer disconnects during the initial job l
     getLatestLessonForUser: async () => activeJob,
     recoverInterrupted: async () => {},
     requeue: async () => {},
+    updateStage: async () => {},
   };
   setGenerationJobStoreForTests(store);
 

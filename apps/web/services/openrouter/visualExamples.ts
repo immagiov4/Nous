@@ -1,7 +1,19 @@
 import {
   MAX_GENERATED_VISUALS_PER_LESSON,
   MAX_VISUAL_LESSON_CHARS,
+  NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
 } from '@shared/lessonGenerationPolicy';
+import {
+  buildEmbeddedArtifactImagePrompt,
+  buildLessonRasterImagePrompt,
+  getLessonRasterImageSubject,
+  HTML_ARTIFACT_RENDER_RULES,
+  type HtmlArtifactImageRequest,
+  LESSON_VISUAL_PLANNING_RULES,
+  MERMAID_ARTIFACT_RENDER_RULES,
+  normalizeHtmlArtifactImageRequests,
+  SVG_ARTIFACT_RENDER_RULES,
+} from '@shared/lessonVisualContracts';
 import type {
   LessonGeneratedVisual,
   LessonVisualPlan,
@@ -39,17 +51,13 @@ import type { ChatMessage } from './types.ts';
 const VISUAL_ID_PREFIX = 'visual-';
 const GENERATED_IMAGE_PLACEHOLDER_PATTERN = /\{\{GENERATED_IMAGE:([a-z][a-z0-9_-]{0,63})\}\}/g;
 
-export { MAX_GENERATED_VISUALS_PER_LESSON } from '@shared/lessonGenerationPolicy';
-export const INTERACTIVE_VISUAL_VALUE_RULE =
-  'Tratta interactive_html come un formato costoso: usalo solo quando l’utente deve esplorare, modificare o confrontare stati e questa interazione produce una comprensione importante che testo, video o una o due immagini statiche non possono offrire altrettanto bene. Non usarlo per dimostrazioni cosmetiche, controlli banali o esempi statici travestiti da interattivi; se l’interazione non è essenziale, scegli il formato più semplice.';
-export const VISUAL_FORMAT_SELECTION_RULE =
-  'Imposta requiresDepiction=true quando lo studente deve vedere l’aspetto di un oggetto, stato, scena, risultato grafico o trasformazione visiva, inclusi passaggi che mostrano come cambia un soggetto. In quel caso usa illustrative_image: un processo visivo non è un flowchart. SVG è consentito soltanto con requiresDepiction=false per relazioni astratte fra brevi etichette testuali, box generici e frecce; i nodi non possono contenere disegni, sagome, pixel art, oggetti, scene o esempi del risultato. Se la visuale deve mostrare esempi programmabili — inclusi pixel art, shader semplici, pattern generativi, confronti di filtri o effetti — usa interactive_html anche quando non richiede controlli; il formato può essere una dimostrazione HTML/JavaScript passiva. Usa interactive_html con controlli solo quando la manipolazione aggiunge valore didattico essenziale. Per una visuale programmabile passiva, imposta interaction_justification=null.';
-export const NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT = `CONTRATTO VISIVO NOUS:
-- Base calda e neutra: avorio/carta, pietra e antracite; superfici sobrie, bordi leggeri, ombre minime e tipografia editoriale.
-- Usa un solo accento coerente col soggetto, scelto tra rosso smorzato, borgogna, verde terroso e rame/arancio smorzato.
-- Vietate palette SaaS blu/viola, neon, glow, gradienti decorativi e ombre sovradimensionate, salvo colore semanticamente necessario al contenuto.
-- Il medium segue lo scopo pedagogico: illustrazioni 2D editoriali sono pienamente ammesse; non usare oggetti o render 3D come default decorativo.
-- In HTML e SVG usa le variabili CSS dell'host (--bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong) invece di colori tema hard-coded e mantieni leggibili tema chiaro e scuro.`;
+export {
+  INTERACTIVE_VISUAL_VALUE_RULE,
+  MAX_GENERATED_VISUALS_PER_LESSON,
+  NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
+  VISUAL_FORMAT_SELECTION_RULE,
+} from '@shared/lessonGenerationPolicy';
+
 const GENERATED_IMAGE_PREVIEW_DATA_URL =
   'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 9%22%3E%3Crect width=%2216%22 height=%229%22 fill=%22%23eeeae4%22/%3E%3C/svg%3E';
 
@@ -97,29 +105,13 @@ Scegli esattamente un tipo per ciascun piano:
 - none: nessuna visuale utile, oppure la lezione e gia sufficientemente visuale.
 
 Regole:
-- ${INTERACTIVE_VISUAL_VALUE_RULE}
-- Per una richiesta esplicita pianifica un solo artefatto. Per la generazione automatica pianifica normalmente zero o un artefatto, due solo se rispondono a domande pedagogiche diverse e complementari, tre solo se sono tutti indispensabili. Mai produrre varianti estetiche dello stesso contenuto.
-- La varieta dei formati non e mai un obiettivo o un vincolo. Scegli ogni formato soltanto in base al contenuto che deve insegnare: due o tre immagini raster sono corrette quando sono la soluzione pedagogica migliore. Non inserire SVG, HTML o Mermaid per diversificare un insieme di artefatti.
-- **Decisione obbligatoria, in quest'ordine.** (1) Se lo studente deve vedere l'aspetto di un oggetto, stato, scena, risultato grafico o trasformazione visiva, imposta "requires_depiction": true e scegli illustrative_image oppure un video pertinente. (2) Se una regola o simulazione verificabile deve essere manipolata dallo studente, scegli interactive_html. (3) Se servono dati quantitativi, scegli chart_html. (4) Scegli SVG soltanto per relazioni astratte fra etichette testuali: nodi, box e frecce generici, senza raffigurare oggetti o risultati visivi. (5) Altrimenti scegli none.
-- "requires_depiction" e true anche quando una sequenza mostra come cambia visivamente un soggetto a ogni passaggio. Un processo visivo non diventa un flowchart: se i nodi dovrebbero contenere disegni, sagome, pixel art, icone illustrative, scene o esempi del risultato, SVG e vietato.
-- interactive_html e valido soltanto quando l'interazione aggiunge valore essenziale e la grafica deriva da una regola o algoritmo verificabile. Non disegnare a mano scene, oggetti complessi o pixel art; per asset artistici usa immagini generate.
-- Non simulare immagini con ASCII art, testo monospace, celle, coordinate, box geometrici o SVG. Se l'aspetto concreto conta, usa illustrative_image.
+${LESSON_VISUAL_PLANNING_RULES}
+- Per una richiesta esplicita pianifica un solo artefatto.
 - Inferisci la lingua dal testo finale della lezione. La visuale deve usare la stessa lingua della lezione.
-- Non generare visuali decorative. La visuale deve insegnare qualcosa che il testo da solo rende piu faticoso.
 - Se "Immagini PDF gia integrate" e "si", trattale come materiale visivo primario. Aggiungi una visuale generata solo se risponde a una domanda pedagogica distinta che le immagini della fonte non coprono; altrimenti non pianificare nulla.
 - Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
 - In "anchor_excerpt" copia un breve estratto ESATTO dell'ultimo paragrafo che lo studente deve leggere prima della visuale. Questo estratto decide la posizione tra i paragrafi; il codice non la reinterpretara. Usa null solo se non esiste un punto locale sensato.
-- **Un piano, una sezione locale.** Il contenuto della visuale deve derivare soltanto dalla sezione identificata da "anchor_heading" e dal suo testo, fino al heading successivo. Non anticipare concetti introdotti in sezioni successive e non fondere argomenti lontani solo per riempire il widget. Se il valore pedagogico nasce da un concetto successivo, usa il heading successivo corretto oppure crea un piano separato.
-- **Comprensibile senza decifrazione.** Lo studente deve capire in pochi secondi cosa sta guardando e perche. Usa soltanto termini naturali gia introdotti nel testo vicino oppure definizioni immediatamente comprensibili. Vietati gergo inventato, etichette esoteriche, formule nominali ambigue e controlli il cui effetto non sia osservabile. Se il concetto richiede molte spiegazioni dentro la visuale per avere senso, semplificalo o scegli none.
-- **Copertura completa di elementi co-presenti.** Se la lezione presenta un insieme di elementi equivalenti (es. un elenco di N regole, N principi, N caratteristiche, N passaggi, N tipologie), la visuale deve rappresentarli TUTTI in un unico grafico. Non e accettabile scegliere un solo sottoelemento e ignorare gli altri. L'unica eccezione e quando un elemento e oggettivamente molto piu complesso degli altri e necessita una visuale dedicata mentre gli altri sono banali e auto-esplicativi; in quel caso la scelta deve essere giustificata nel campo "reason".
-- **La visuale deve aggiungere valore informativo, non riassumere.** Se la visuale si limiterebbe a elencare visivamente cio che il testo dice gia chiaramente (es. un elenco puntato di concetti semplici gia ben descritti), scegli "none": la visuale deve insegnare qualcosa che il testo da solo rende piu faticoso da capire, non decorare ne parafrasare.
-- **Niente narrazione, takeaway, "moral of the story", riepiloghi.** La visuale non e un'estensione del testo della lezione: e un grafico didattico. Non deve contenere paragrafi narrativi, sintesi finali, "cambio di paradigma", "concetto chiave", "punto fondamentale", "in una frase". Quei contenuti vanno nel testo della lezione, non nella visuale.
-- **Scala la complessita in base al numero di elementi.** Se ci sono molti elementi da rappresentare (es. 5+ regole), usa layout a griglia, non una fila orizzontale ne una torre verticale. Se gli elementi sono troppi per un unico grafico leggibile, valuta se una sintesi visuale ha senso o se e meglio "none".
 - Usa Mermaid solo per ER e class diagram.
-- **Scegli il tipo visuale in base allo spazio disponibile.** Preferisci tipi che richiedono pochi elementi grafici ma sono informativi. Se il concetto ha molti sotto-elementi, prediligi layout verticale o a griglia compatta, non una fila orizzontale di blocchi.
-- **Minimizza il numero di entita grafiche.** Ogni blocco, nodo o forma aggiunge complessita visiva. Chiediti se puoi eliminare elementi senza perdere informazione. Meglio 3 blocchi ben spaziati che 5 compressi.
-- **Non sovraccaricare ne in orizzontale ne in verticale.** Distribuisci gli elementi in modo bilanciato. Se la visuale richiede piu di 3 elementi con testo, usa griglie compatte o layout a colonne. Evita sia file orizzontali interminabili sia torri verticali senza fine.
-- **Stima la larghezza del testo.** Titoli di 1-2 parole sono ideali. Se il testo descrittivo e lungo, scegli un layout verticale che dia spazio sufficiente.
 - Segui esattamente il formato di output richiesto in fondo.`;
 
 const SINGLE_VISUAL_PLANNER_OUTPUT_INSTRUCTION = `Rispondi SOLO con JSON:
@@ -179,33 +171,7 @@ Output SOLO JSON:
   "svg_code": "<svg ...>...</svg>"
 }
 
-Regole SVG obbligatorie:
-- SVG e riservato a riepiloghi schematici informativi semplici: pochi nodi, box, linee, frecce ed etichette per relazioni, gerarchie, contenimento e architetture astratte. Sono vietati realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, illustrazioni, forme organiche, persone, anatomia, gesti, oggetti raffigurati e scene. Non approssimare questi soggetti con box, omini stilizzati o disegni geometrici: richiedono un'immagine raster.
-- Le tue capacita di disegnare a mano asset grafici sono quelle di un bambino di seconda elementare non particolarmente dotato. Se quel livello non sarebbe accettabile, non tentare di rappresentare il soggetto in SVG: questo renderer deve produrre soltanto schemi astratti semplici e deterministici.
-- **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", la visuale SVG deve rappresentare TUTTI gli elementi dell'insieme in un unico grafico. Non puoi sceglierne solo uno. Usa layout a griglia o a colonne per distribuirli bilanciatamente.
-- Tutto il testo visibile dentro l'SVG deve essere nella stessa lingua della lezione fornita. Non tradurre in inglese se la lezione non e in inglese.
-- Usa soltanto termini naturali gia presenti nel testo locale della lezione. Ogni etichetta deve indicare senza ambiguita un'entita, uno stato o una relazione visibile; non inventare gergo, categorie o sintesi che il testo vicino non introduce.
-- svg_code deve essere un singolo elemento <svg>, senza wrapper, DOCTYPE o tag HTML.
-- viewBox sempre "0 0 680 H"; larghezza 680 obbligatoria. width="100%".
-- Sfondo trasparente. Nessun rettangolo esterno di background.
-- Primo figlio: <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
-- Usa solo classi gia disponibili: .t, .ts, .th, .box, .arr, .leader, .node, .c-purple, .c-teal, .c-coral, .c-pink, .c-gray, .c-blue, .c-green, .c-amber, .c-red.
-- Ogni <text> deve avere class .t, .ts o .th e dominant-baseline="central".
-- Usa sentence case, non Title Case e non tutto maiuscolo.
-- Connettori <path> e <polyline> sempre fill="none"; frecce con marker-end="url(#arrow)".
-- Niente gradienti salvo una sola linearGradient per proprieta fisiche continue.
-- Niente shadow, blur, glow, filter, emoji, HTML o commenti.
-- Usa al massimo due rampe colore; c-gray come default, c-amber/c-red/c-green solo semanticamente.
-- Altezza viewBox = ultimo elemento + 40px.
-- **Larghezza box dal testo:** prima di scrivere un <rect>, trova la label piu lunga tra titolo e sottotitolo. A 14px weight-500: ~8px/char; a 12px: ~7px/char. Formula: rect_width = max(titolo_chars × 8, sottotitolo_chars × 7) + 24. Esempio: sottotitolo di 20 char → min 164px. Se il testo e piu lungo del box, abbrevia il testo — non sperare che vada bene.
-- **Altezze canoniche:** single-line box = 44px; two-line box (titolo + sottotitolo) = 56px con 22px di distanza tra le due righe. y del titolo = cy - 9; y del sottotitolo = cy + 13 (dove cy e il centro verticale del box).
-- **Spaziatura:** padding interno box ≥ 24px; gap minimo tra box adiacenti = 60px; gap freccia-bordo ≥ 10px.
-- **Tier packing:** prima di posizionare una riga di N box, verifica che N × box_width + (N-1) × gap ≤ 600. Se non entra, riduci la larghezza dei box oppure distribuisci su 2 righe. Mai stimare a occhio.
-- **Frecce che deviano:** se il percorso diretto di una freccia attraversa un box non collegato, usa un L-bend: <path d="M x1 y1 L x1 ymid L x2 ymid L x2 y2" fill="none" class="arr" marker-end="url(#arrow)"/>. Scegli ymid in uno spazio libero tra i box.
-- **Uso c-{ramp}:** wrappa sempre rect + text in un <g class="c-*"> — cosi sia il fill del box sia il colore del testo vengono applicati. Se metti c-* direttamente sul <rect> il testo sibling non prende il colore. Non annidare un <g> dentro un <g class="c-*"> (le shape diventano nipoti e il CSS non le raggiunge).
-- **Adatta il testo alla viewBox:** la viewBox e fissa a 680px. Se il testo sfora, abbrevia prima di allargare i box.
-- **Niente caption narrativa, niente box di sintesi, niente "takeaway".** Non aggiungere riquadri finali con titoli tipo "Cambio di paradigma", "Concetto chiave", "In sintesi", "In una frase", "Punto chiave", "Conclusione", o simili. Non scrivere paragrafi di prosa dentro l'SVG. Ogni <text> deve essere un'etichetta breve (1-6 parole) o una label di nodo, MAI una frase narrativa multi-riga che riassume la lezione. Se senti il bisogno di "spiegare" la visuale dentro l'SVG, la visuale e gia sbagliata: rifalla con etichette piu chiare.
-- **Vietate frasi complete di prosa.** Niente periodi che iniziano con "Il...", "La...", "Quando...", "Mentre...", "Perche...", "In Rust...", "Nei linguaggi...", o costruzioni soggetto-verbo-complemento estese. Le label sono nominali e telegrafiche, non discorsive.`;
+${SVG_ARTIFACT_RENDER_RULES}`;
 
 const RENDERER_HTML_PROMPT = String.raw`SYSTEM:
 Sei un generatore esperto di visuali programmate HTML per Nous Reader.
@@ -225,40 +191,7 @@ Output SOLO JSON:
   ]
 }
 
-Regole:
-- **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", il widget deve rappresentare TUTTI gli elementi dell'insieme, non solo uno. Usa schede, stepper, pannelli o layout a griglia per distribuirli.
-- Tutto il testo visibile nel widget deve essere nella stessa lingua della lezione fornita. Non tradurre in inglese se la lezione non e in inglese.
-- Il widget deve spiegarsi in pochi secondi. Titoli, label, badge e controlli usano soltanto termini naturali gia introdotti nel testo locale della lezione; non inventare gergo o descrizioni astratte. Ogni controllo deve dichiarare un effetto osservabile e produrre davvero quell'effetto.
-- Nessun DOCTYPE, <html>, <head>, <body>.
-- Ordine immutabile: <style> prima, HTML in mezzo, <script> ultimo.
-- Ogni ID usato in document.getElementById deve esistere letteralmente nell'HTML prima dello script. Non creare quegli elementi via JavaScript.
-- Vietato dereferenziare direttamente document.getElementById(...).property. Salva prima il risultato in una variabile e gestisci esplicitamente il caso null prima di leggere o assegnare proprieta. Questa regola vale anche nei cicli e nei forEach.
-- In modalita replacement-draft non copiare ciecamente il JavaScript sorgente: correggi eventuali lookup DOM incoerenti o errori runtime prima di restituire la bozza.
-- Usa sempre variabili CSS: --bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong.
-- Niente @media (prefers-color-scheme: dark); host gestisce .dark.
-- Niente position:fixed, shadow pesanti, blur, filter, backdrop-filter, gradienti.
-- Container in flow: display:block; width:100%.
-- Range input sempre con step.
-- Numeri mostrati sempre arrotondati/formattati.
-- CDN consentiti solo: cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com, esm.sh.
-- Non creare pulsanti finti per link esterni o chat.
-- Usa HTML/CSS/JavaScript per ciò che è naturalmente programmabile: griglie di pixel/pixel art, pattern generativi, confronti visivi CSS, simulazioni, stati, trasformazioni e shader semplici compatibili con il browser. Non renderizzare ASCII art, mosaici di caratteri o pseudo-pixel con testo monospace.
-- Ragiona come programmatore, non come illustratore: il JavaScript deve generare la grafica da una legge o procedura verificabile. Per un bordo pixel, crea una silhouette elementare e calcola il bordo dai vicini; per un pattern, calcola ogni elemento dalla formula. Non codificare a mano illustrazioni, modelli 3D o pixel art complessa come array di coordinate/celle/colori. Se il soggetto richiede giudizio artistico o comprensione spaziale reale, il formato corretto è illustrative_image, non HTML.
-- Le tue capacita di disegnare a mano asset grafici nel codice sono quelle di un bambino di seconda elementare non particolarmente dotato. Applica questo test letteralmente: se quel risultato non sarebbe accettabile, non disegnarlo con coordinate, CSS, celle, canvas o SVG improvvisati.
-- Quando il widget ha davvero bisogno di asset artistici, usa image_requests. Inserisci ogni asset nel widget esclusivamente come <img src="{{GENERATED_IMAGE:asset-id-univoco}}" alt="...">; la pipeline generera le immagini in parallelo e sostituira i placeholder prima del salvataggio.
-- Ogni placeholder deve avere una image_request con lo stesso id e ogni image_request deve essere usata nel widget. Gli id usano solo minuscole, numeri, trattini e underscore e iniziano con una lettera.
-- I prompt delle immagini devono essere autonomi, concreti e coerenti tra loro quando mostrano varianti o confronti. Non usare riferimenti vaghi come "come sopra".
-- Fai economia: non esiste un limite numerico artificiale, ma ogni richiesta costa tempo e denaro. Richiedi soltanto le immagini indispensabili; se una sola immagine composita comunica bene il concetto, preferiscila.
-- Se non servono immagini generate, restituisci image_requests come array vuoto. Non usare URL esterni, base64 inventati o placeholder diversi dal formato prescritto.
-- Interazione appropriata quando serve: calculator, stepper, comparison, state-machine, layered-view, simulation o chart. Se l'esplorazione non aggiunge valore, non aggiungere controlli finti: una dimostrazione passiva è valida.
-- **Gestione dello spazio:** il container e width:100% ma non devi riempirlo tutto. Usa lo spazio in modo parsimonioso. Preferisci colonne verticali a righe orizzontali quando ci sono molti elementi.
-- **Aria tra sezioni:** aggiungi margin-bottom e padding generosi. Non accostare elementi senza spazio intermedio.
-- **Titoli compatti:** usa titoli brevi (1-3 parole). Il testo lungo va in descrizioni sotto il titolo, non nel titolo stesso.
-- **Non sovraccaricare:** se l'interazione richiede molti elementi di UI, scegli un design essenziale. Ogni input, label, bottone extra aumenta la densita visiva. Non accumulare troppi widget in verticale ne in orizzontale.
-- **Controlli e risultato insieme:** input, slider, pulsanti e il risultato che modificano devono stare nello stesso pannello o nella stessa riga logica, senza costringere a scorrere per vedere l'effetto dell'interazione.
-- **Griglia compatta:** per piu controlli o valori usa una griglia compatta e responsive, evitando una lunga colonna di schede a tutta larghezza.
-- **Altezza contenuta:** progetta il widget per mostrare interazione e risultato nell'altezza minima utile. Evita spazi vuoti, sezioni decorative e contenitori con min-height arbitrari.
-- **Niente caption narrativa, niente box di sintesi, niente "takeaway".** Non aggiungere sezioni finali con titoli tipo "Cambio di paradigma", "Concetto chiave", "In sintesi", "In una frase", "Punto chiave", "Conclusione". Non scrivere paragrafi di prosa dentro il widget. Le label sono nominali e brevi (1-6 parole), non frasi discorsive che riassumono la lezione. Il widget insegna interagendo, non recitando un riepilogo.`;
+${HTML_ARTIFACT_RENDER_RULES}`;
 
 const RENDERER_MERMAID_PROMPT = `SYSTEM:
 Sei un generatore di diagrammi Mermaid solo per database e classi.
@@ -270,17 +203,7 @@ Output SOLO JSON:
   "mermaid_code": "..."
 }
 
-Regole:
-- **Copertura completa.** Se il planner ha indicato "coverage": "all_elements", il diagramma deve includere TUTTE le entita o classi dell'insieme, non un sottoinsieme.
-- Tutti i nomi visibili, campi e relazioni devono essere nella stessa lingua della lezione fornita quando non sono termini tecnici obbligati.
-- Usa erDiagram solo per modelli entita-relazione.
-- Usa classDiagram solo per strutture OOP.
-- Non usare flowchart, sequenceDiagram o altri tipi Mermaid.
-- Nessun markdown fence.
-- **Entita minime:** tieni il diagramma compatto. Non aggiungere campi o relazioni decorative. Mostra solo le entita essenziali per il concetto.
-- **Nomi brevi:** usa nomi di entita e campi brevi (1-3 parole). Se un nome naturale e lungo, accorcialo e usa un alias descrittivo.
-- **Spaziatura:** Mermaid gestisce il layout automaticamente, ma istruisci il diagramma per evitare sovraffollamento in qualsiasi direzione. Poche entita per riga e poche righe totali. Se servono molte entita, suddividi in piu diagrammi.
-- Etichetta relazioni chiaramente; annota tipi, PK/FK quando pertinenti.`;
+${MERMAID_ARTIFACT_RENDER_RULES}`;
 
 type VisualType =
   | 'chart_html'
@@ -332,11 +255,7 @@ interface HtmlVisualResponse {
   widget_code?: unknown;
 }
 
-interface HtmlImageRequest {
-  alt: string;
-  id: string;
-  prompt: string;
-}
+type HtmlImageRequest = HtmlArtifactImageRequest;
 
 interface RenderedVisualDraft {
   imageRequests: HtmlImageRequest[];
@@ -608,40 +527,6 @@ const normalizeLoadingMessages = (messages: unknown): string[] =>
     ? messages.filter((message): message is string => typeof message === 'string').slice(0, 3)
     : [];
 
-const normalizeHtmlImageRequests = (requests: unknown, code: string): HtmlImageRequest[] | null => {
-  const placeholderIds = new Set(
-    Array.from(code.matchAll(GENERATED_IMAGE_PLACEHOLDER_PATTERN), match => match[1])
-  );
-  const normalized: HtmlImageRequest[] = [];
-  const requestIds = new Set<string>();
-
-  for (const request of Array.isArray(requests) ? requests : []) {
-    if (!request || typeof request !== 'object') {
-      return null;
-    }
-    const record = request as Record<string, unknown>;
-    const id = typeof record.id === 'string' ? record.id.trim() : '';
-    const prompt = typeof record.prompt === 'string' ? record.prompt.trim() : '';
-    const alt = typeof record.alt === 'string' ? record.alt.trim() : '';
-    if (
-      !/^[a-z][a-z0-9_-]{0,63}$/.test(id) ||
-      !prompt ||
-      !alt ||
-      requestIds.has(id) ||
-      !placeholderIds.has(id)
-    ) {
-      return null;
-    }
-    requestIds.add(id);
-    normalized.push({ alt, id, prompt });
-  }
-
-  const hasMalformedPlaceholder = code
-    .replaceAll(GENERATED_IMAGE_PLACEHOLDER_PATTERN, '')
-    .includes('{{GENERATED_IMAGE:');
-  return !hasMalformedPlaceholder && placeholderIds.size === requestIds.size ? normalized : null;
-};
-
 const hasFullHtmlDocument = (code: string): boolean =>
   /<!doctype|<html\b|<head\b|<body\b/i.test(code);
 
@@ -703,7 +588,7 @@ const normalizeHtmlVisual = (
 ): RenderedVisualDraft | null => {
   const code =
     typeof response.widget_code === 'string' ? stripFence(response.widget_code, 'html') : '';
-  const imageRequests = normalizeHtmlImageRequests(response.image_requests, code);
+  const imageRequests = normalizeHtmlArtifactImageRequests(response.image_requests, code);
   if (
     !code ||
     !imageRequests ||
@@ -850,79 +735,6 @@ const buildExplicitVisualPlan = (
   requires_depiction: visualType === 'illustrative_image',
 });
 
-const getImageSubject = (plan: VisualPlan, input: GenerateLessonVisualExampleInput): string => {
-  const plannedConcept = typeof plan.concept === 'string' ? plan.concept.trim() : '';
-  const subject = plannedConcept || input.sectionDescription.trim() || input.sectionTitle;
-  return subject.split(/\n+\s*Richiesta:/i)[0]?.trim() || input.sectionTitle;
-};
-
-const buildImageGenerationPrompt = (
-  plan: VisualPlan,
-  input: GenerateLessonVisualExampleInput
-): string => {
-  const subject = getImageSubject(plan, input);
-  const factualRequirements = plan.factual_requirements?.filter(Boolean).join('\n- ') || subject;
-  const visualDirection =
-    plan.visual_direction?.trim() ||
-    'Composizione orizzontale chiara, soggetto principale immediatamente riconoscibile e gerarchia visiva semplice.';
-
-  return [
-    'SCOPO',
-    `Crea una singola immagine pedagogica accurata per aiutare a comprendere: ${plan.pedagogical_goal || 'il concetto centrale'}.`,
-    '',
-    'SOGGETTO E CONTESTO',
-    `Soggetto: ${subject}`,
-    `Lezione: ${input.sectionTitle}. ${input.sectionDescription}`,
-    '',
-    'REQUISITI FATTUALI OBBLIGATORI',
-    `- ${factualRequirements}`,
-    '',
-    'COMPOSIZIONE',
-    visualDirection,
-    'Formato orizzontale 16:9. Mostra solo elementi utili alla comprensione.',
-    '',
-    'STILE',
-    'Illustrazione educativa precisa, leggibile, visivamente coerente e non decorativa. Materiali, luce, anatomia, prospettiva e relazioni spaziali devono essere plausibili per il soggetto.',
-    NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
-    '',
-    'VINCOLI',
-    '- Usa testo, numeri, etichette o frecce solo quando sono necessari per leggere il contenuto pedagogico; mantienili brevi, corretti e nella lingua della lezione.',
-    '- Nessun logo, watermark, didascalia narrativa o testo decorativo.',
-    '- Nessuna interfaccia grafica, cornice decorativa o elemento estraneo.',
-    '- Non trasformare il soggetto in un diagramma di blocchi: questa richiesta è raster perché il suo aspetto concreto o la sua complessità spaziale sono informativi.',
-    '',
-    `CONTESTO FATTUALE DELLA LEZIONE\n${input.lessonMarkdown.slice(0, 4_000)}`,
-  ].join('\n');
-};
-
-const buildEmbeddedImageGenerationPrompt = (
-  request: HtmlImageRequest,
-  plan: VisualPlan,
-  input: GenerateLessonVisualExampleInput
-): string =>
-  [
-    'SCOPO',
-    'Genera un singolo asset raster che verra inserito dentro un artefatto didattico HTML.',
-    '',
-    'ASSET RICHIESTO',
-    request.prompt,
-    `Testo alternativo previsto: ${request.alt}`,
-    '',
-    'COERENZA DIDATTICA',
-    `Lezione: ${input.sectionTitle}. ${input.sectionDescription}`,
-    `Artefatto: ${plan.concept || 'esempio visuale interattivo'}`,
-    '',
-    NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
-    '',
-    'VINCOLI',
-    '- L’immagine deve essere autonoma, accurata e immediatamente leggibile nel widget.',
-    '- Nessuna interfaccia, cornice, watermark, logo o decorazione estranea.',
-    '- Non aggiungere testo salvo quando esplicitamente necessario nel prompt; in quel caso usa la lingua della lezione.',
-    '- Mantieni il soggetto principale ben dentro i bordi e lascia margine sufficiente per eventuali ritagli responsive.',
-    '',
-    `CONTESTO FATTUALE DELLA LEZIONE\n${input.lessonMarkdown.slice(0, 3_000)}`,
-  ].join('\n');
-
 const buildHtmlReviewPreviewCode = (code: string): string =>
   code.replaceAll(GENERATED_IMAGE_PLACEHOLDER_PATTERN, GENERATED_IMAGE_PREVIEW_DATA_URL);
 
@@ -936,7 +748,12 @@ const materializeHtmlImages = async (
     requests.map(async request => ({
       id: request.id,
       image: await requestGeneratedImage(
-        buildEmbeddedImageGenerationPrompt(request, plan, input),
+        buildEmbeddedArtifactImagePrompt(request, {
+          concept: plan.concept || '',
+          lessonMarkdown: input.lessonMarkdown,
+          sectionDescription: input.sectionDescription,
+          sectionTitle: input.sectionTitle,
+        }),
         input.durableImageScope
           ? {
               ...input.durableImageScope,
@@ -961,9 +778,18 @@ const generateImageVisual = async (
   input: GenerateLessonVisualExampleInput,
   visualId: string
 ): Promise<LessonGeneratedVisual> => {
-  const subject = getImageSubject(plan, input);
+  const promptInput = {
+    concept: plan.concept || '',
+    factualRequirements: plan.factual_requirements || [],
+    lessonMarkdown: input.lessonMarkdown,
+    pedagogicalGoal: plan.pedagogical_goal || '',
+    sectionDescription: input.sectionDescription,
+    sectionTitle: input.sectionTitle,
+    visualDirection: plan.visual_direction || '',
+  };
+  const subject = getLessonRasterImageSubject(promptInput);
   const image = await requestGeneratedImage(
-    buildImageGenerationPrompt(plan, input),
+    buildLessonRasterImagePrompt(promptInput),
     input.durableImageScope
   );
 

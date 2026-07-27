@@ -1,5 +1,14 @@
 export type GenerationJobStatus = 'completed' | 'failed' | 'queued' | 'running';
 
+export type LessonGenerationJobStage =
+  | 'sources'
+  | 'structure'
+  | 'drafting'
+  | 'quiz'
+  | 'verification';
+
+export type GenerationJobStage = GenerationJobStatus | LessonGenerationJobStage;
+
 export interface DurableLessonGenerationResult {
   alreadyCompleted?: boolean;
   content: string;
@@ -22,6 +31,7 @@ export interface GenerationJobWire {
   kind: 'image' | 'lesson';
   payload?: unknown;
   result?: unknown;
+  stage: GenerationJobStage;
   status: GenerationJobStatus;
 }
 

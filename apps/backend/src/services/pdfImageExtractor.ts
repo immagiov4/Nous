@@ -609,15 +609,22 @@ const fetchImagesForPages = async (
 export const extractPdfImages = async (
   pdfDataUrl: string,
   limit = 36,
-  partialPages?: number[]
+  partialPages?: number[],
+  signal?: AbortSignal
 ): Promise<ExtractedPdfImage[]> => {
+  signal?.throwIfAborted();
   const pdfBuffer = decodePdfDataUrl(pdfDataUrl);
   const parser = new PDFParse({ data: pdfBuffer });
+  const abortExtraction = () => {
+    void parser.destroy().catch(() => undefined);
+  };
+  signal?.addEventListener('abort', abortExtraction, { once: true });
   const dedupedImages = new Map<string, ExtractedPdfImage>();
   const sanitizedPartialPages = sanitizePartialPages(partialPages);
 
   try {
     const imagePages = await fetchImagesForPages(parser, sanitizedPartialPages);
+    signal?.throwIfAborted();
     const pdfDocument = (
       parser as unknown as {
         doc?: {
@@ -643,6 +650,7 @@ export const extractPdfImages = async (
     ).doc;
 
     for (const page of imagePages) {
+      signal?.throwIfAborted();
       const pageProxy = pdfDocument ? await pdfDocument.getPage(page.pageNumber) : null;
       const [pageLines, pagePlacements] = pageProxy
         ? await Promise.all([
@@ -652,6 +660,7 @@ export const extractPdfImages = async (
         : [[], []];
 
       for (const [pageImageIndex, image] of page.images.entries()) {
+        signal?.throwIfAborted();
         if (!image.dataUrl) {
           continue;
         }
@@ -720,6 +729,7 @@ export const extractPdfImages = async (
       }
     }
   } finally {
+    signal?.removeEventListener('abort', abortExtraction);
     await parser.destroy().catch(() => undefined);
   }
 

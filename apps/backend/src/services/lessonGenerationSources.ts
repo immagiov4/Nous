@@ -6,7 +6,7 @@ import {
 } from '@shared/lessonSourceContext';
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
-
+import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { SourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
@@ -18,6 +18,7 @@ export interface ResearchSource {
   note?: string;
   title: string;
   url?: string;
+  videoClip?: { endSeconds: number; startSeconds: number };
   youtubeTranscript?: {
     ranges: Array<{ endSeconds: number; startSeconds: number }>;
     text: string;
@@ -42,11 +43,63 @@ export interface LessonPdfImageAsset {
 export interface LessonImageCandidate {
   caption?: string;
   id: string;
+  intrinsicHeight?: number;
+  intrinsicWidth?: number;
   pageNumber?: number;
+  sizeBytes?: number;
+  sourceOrder: number;
   textAfter?: string;
   textBefore?: string;
   textCurrent?: string;
+  visibleLabel: string;
 }
+
+type CaptionPdfImage = (
+  image: ExtractedPdfImage,
+  config: GlobalModelConfig,
+  signal: AbortSignal
+) => Promise<string | null>;
+
+const PDF_ASSET_SESSION_TIMEOUT_MS = 90_000;
+
+class PdfAssetSoftTimeoutError extends Error {
+  constructor() {
+    super(`PDF image extraction exceeded ${PDF_ASSET_SESSION_TIMEOUT_MS}ms.`);
+    this.name = 'PdfAssetSoftTimeoutError';
+  }
+}
+
+export const withPdfAssetSoftTimeout = async <T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  parentSignal: AbortSignal
+): Promise<T> => {
+  const operationController = new AbortController();
+  const timeoutError = new PdfAssetSoftTimeoutError();
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const abortFromParent = () => operationController.abort(parentSignal.reason);
+  if (parentSignal.aborted) {
+    abortFromParent();
+  } else {
+    parentSignal.addEventListener('abort', abortFromParent, { once: true });
+  }
+  try {
+    return await Promise.race([
+      operation(operationController.signal),
+      new Promise<T>((_resolve, reject) => {
+        timeoutHandle = setTimeout(() => {
+          operationController.abort(timeoutError);
+          reject(timeoutError);
+        }, PDF_ASSET_SESSION_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    parentSignal.removeEventListener('abort', abortFromParent);
+  }
+};
+
+export const isPdfAssetSoftTimeoutError = (error: unknown): error is PdfAssetSoftTimeoutError =>
+  error instanceof PdfAssetSoftTimeoutError;
 
 const clipSourceContext = (value: string, maxChars: number): string => {
   const trimmed = value.trim();
@@ -142,7 +195,13 @@ export const buildMappedSourceContext = (
   return [...contextIndexes]
     .sort((left, right) => left - right)
     .map(index => chunks[index])
-    .map(chunk => (isRecord(chunk) && typeof chunk.text === 'string' ? chunk.text.trim() : ''))
+    .map(chunk => {
+      if (!isRecord(chunk) || typeof chunk.text !== 'string' || !chunk.text.trim()) return '';
+      const headingPath = Array.isArray(chunk.headingPath)
+        ? chunk.headingPath.filter((heading): heading is string => typeof heading === 'string')
+        : [];
+      return `CHUNK ${String(chunk.id)}\nHeading path: ${headingPath.join(' > ') || 'Nessuno'}\n${chunk.text.trim()}`;
+    })
     .filter(Boolean)
     .join('\n\n---\n\n');
 };
@@ -268,6 +327,7 @@ export const buildArchiveSourceContext = async (
 export const parseResearchSource = (value: unknown): ResearchSource | null => {
   if (!isRecord(value) || typeof value.title !== 'string' || !value.title.trim()) return null;
   const transcript = isRecord(value.youtubeTranscript) ? value.youtubeTranscript : null;
+  const videoClip = isRecord(value.videoClip) ? value.videoClip : null;
   const ranges = Array.isArray(transcript?.ranges)
     ? transcript.ranges.flatMap(range =>
         isRecord(range) &&
@@ -281,6 +341,16 @@ export const parseResearchSource = (value: unknown): ResearchSource | null => {
     title: value.title.trim(),
     ...(typeof value.url === 'string' && value.url.trim() ? { url: value.url.trim() } : {}),
     ...(typeof value.note === 'string' && value.note.trim() ? { note: value.note.trim() } : {}),
+    ...(videoClip &&
+    typeof videoClip.startSeconds === 'number' &&
+    typeof videoClip.endSeconds === 'number'
+      ? {
+          videoClip: {
+            endSeconds: videoClip.endSeconds,
+            startSeconds: videoClip.startSeconds,
+          },
+        }
+      : {}),
     ...(transcript && typeof transcript.text === 'string' && transcript.text.trim() && ranges.length
       ? { youtubeTranscript: { ranges, text: transcript.text.trim() } }
       : {}),
@@ -295,15 +365,28 @@ export const readExistingDossier = (project: ProjectSnapshot, sectionId: string)
 export const readProjectLanguage = (project: ProjectSnapshot): string =>
   project.userProfile?.language || 'Italiano';
 
-const sourceKey = (source: ResearchSource): string =>
-  source.url || source.title.toLocaleLowerCase();
+const sourceKey = (source: ResearchSource): string => {
+  let url = source.url?.trim().toLocaleLowerCase();
+  while (url?.endsWith('/')) url = url.slice(0, -1);
+  return url || source.title.trim().normalize('NFKC').toLocaleLowerCase();
+};
 
 export const mergeSources = (...sourceGroups: ResearchSource[][]): ResearchSource[] => {
   const sources = new Map<string, ResearchSource>();
   for (const source of sourceGroups.flat()) {
     const key = sourceKey(source);
     const existing = sources.get(key);
-    sources.set(key, existing?.youtubeTranscript ? existing : { ...existing, ...source });
+    sources.set(key, {
+      title: existing?.title || source.title,
+      ...(existing?.url || source.url ? { url: existing?.url || source.url } : {}),
+      ...(existing?.note || source.note ? { note: existing?.note || source.note } : {}),
+      ...(source.videoClip || existing?.videoClip
+        ? { videoClip: source.videoClip || existing?.videoClip }
+        : {}),
+      ...(source.youtubeTranscript || existing?.youtubeTranscript
+        ? { youtubeTranscript: source.youtubeTranscript || existing?.youtubeTranscript }
+        : {}),
+    });
   }
   return [...sources.values()];
 };
@@ -315,12 +398,17 @@ export const readOriginalSourceNames = (
   if (!isRecord(project.source)) return [];
   const selectedSourceIds = readSectionSourceIds(project, section);
   const descriptors = Array.isArray(project.source.sources) ? project.source.sources : [];
+  const hasKnownSelectedSource = descriptors.some(
+    descriptor =>
+      isRecord(descriptor) &&
+      typeof descriptor.id === 'string' &&
+      selectedSourceIds.has(descriptor.id)
+  );
   const descriptorSources = descriptors.flatMap(descriptor => {
     if (!isRecord(descriptor)) return [];
     if (
-      selectedSourceIds.size > 0 &&
-      typeof descriptor.id === 'string' &&
-      !selectedSourceIds.has(descriptor.id)
+      hasKnownSelectedSource &&
+      (typeof descriptor.id !== 'string' || !selectedSourceIds.has(descriptor.id))
     ) {
       return [];
     }
@@ -404,16 +492,7 @@ export const readExistingPdfImageAssets = (project: ProjectSnapshot): LessonPdfI
   });
 };
 
-export const toImageCandidate = (image: LessonPdfImageAsset): LessonImageCandidate => ({
-  caption: image.caption,
-  id: image.id,
-  pageNumber: image.pageNumber,
-  textAfter: image.textAfter || undefined,
-  textBefore: image.textBefore || undefined,
-  textCurrent: image.textCurrent || undefined,
-});
-
-const readMappedPdfPages = (
+export const readMappedPdfPages = (
   project: ProjectSnapshot,
   section: Record<string, unknown>
 ): number[] | undefined => {
@@ -443,7 +522,12 @@ const readMappedPdfPages = (
   return pages.size ? [...pages].sort((left, right) => left - right) : undefined;
 };
 
-const toPdfImageAsset = (image: ExtractedPdfImage, sourceOrder: number): LessonPdfImageAsset => ({
+const toPdfImageAsset = (
+  image: ExtractedPdfImage,
+  sourceOrder: number,
+  caption: string | null
+): LessonPdfImageAsset => ({
+  ...(caption ? { caption } : {}),
   dataUrl: image.dataUrl,
   id: `pdf-img-${image.hash.slice(0, 24)}`,
   intrinsicHeight: image.intrinsicHeight,
@@ -458,6 +542,8 @@ const toPdfImageAsset = (image: ExtractedPdfImage, sourceOrder: number): LessonP
 });
 
 export const extractStoredPdfImageAssets = async ({
+  captionImage,
+  config,
   extractImages,
   project,
   section,
@@ -465,6 +551,8 @@ export const extractStoredPdfImageAssets = async ({
   store,
   userId,
 }: {
+  captionImage: CaptionPdfImage;
+  config: GlobalModelConfig;
   extractImages: typeof extractPdfImages;
   project: ProjectSnapshot;
   section: Record<string, unknown>;
@@ -485,15 +573,32 @@ export const extractStoredPdfImageAssets = async ({
       const images = await extractImages(
         `data:${source.file.mimeType};base64,${source.file.data}`,
         LESSON_PDF_IMAGE_EXTRACTION_LIMIT,
-        partialPages
+        partialPages,
+        signal
       );
-      for (const image of images) {
-        if (assets.some(candidate => candidate.id === `pdf-img-${image.hash.slice(0, 24)}`)) {
-          continue;
-        }
-        assets.push(toPdfImageAsset(image, assets.length + 1));
-      }
+      const uniqueImages = images.filter(
+        image => !assets.some(candidate => candidate.id === `pdf-img-${image.hash.slice(0, 24)}`)
+      );
+      const captions = await Promise.all(
+        uniqueImages.map(async image => {
+          try {
+            return await captionImage(image, config, signal);
+          } catch (error) {
+            if (signal.aborted) throw error;
+            console.warn('[Generation job] Optional PDF image caption failed.', {
+              error,
+              pageNumber: image.pageNumber,
+              projectId: project.id,
+            });
+            return null;
+          }
+        })
+      );
+      uniqueImages.forEach((image, index) => {
+        assets.push(toPdfImageAsset(image, assets.length + 1, captions[index] || null));
+      });
     } catch (error) {
+      if (signal.aborted) throw error;
       console.warn('[Generation job] Optional PDF image extraction failed.', {
         error,
         projectId: project.id,

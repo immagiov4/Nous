@@ -1,22 +1,28 @@
+import { sanitizeImagePlaceholderValue as sanitizePlaceholderValue } from '@shared/lessonPdfImageSelection';
 import type {
   LessonGeneratedVisual,
   LessonImageRef,
   LessonVisualPlan,
   LessonVisualPlanningDecision,
   LessonVisualPlanningPass,
-  PdfDocumentAssets,
 } from '../../types.ts';
 import { timestampIso } from '../../utils/time.ts';
-import { getSearchKeywords, normalizeSearchText } from './planQuality.ts';
+import { normalizeSearchText } from './planQuality.ts';
 import {
   enforceVerifiedVisualTypeContract,
   generateVerifiedVisualSlots,
   type VerifiedVisualSlotPlan,
 } from './visualExamples.ts';
 
-const MIN_FALLBACK_IMAGE_SCORE = 2;
 const PDF_PLACEHOLDER_PREFIX = '{{PDF_IMAGE:';
 const VISUAL_PLACEHOLDER_PREFIX = '{{VISUAL_EXAMPLE:';
+
+export {
+  buildFallbackImageRefs,
+  buildVisibleImageLabel,
+  getMarkdownHeadings,
+  selectCandidatePdfImages,
+} from '@shared/lessonPdfImageSelection';
 
 export interface SectionImagePlacement {
   assetId: string;
@@ -24,235 +30,6 @@ export interface SectionImagePlacement {
   caption?: string | null;
   anchorHeading?: string | null;
 }
-
-const getPdfImageSearchText = (image: PdfDocumentAssets['usedImages'][number]): string =>
-  [image.caption || '', image.textBefore, image.textCurrent || '', image.textAfter]
-    .filter(Boolean)
-    .join(' ');
-
-const scorePageProximity = (pageNumber: number | undefined, targetedPages: number[]): number => {
-  if (!Number.isInteger(pageNumber) || targetedPages.length === 0) {
-    return 0;
-  }
-
-  const centerPage = (targetedPages[0] + (targetedPages.at(-1) as number)) / 2;
-  const distance = Math.abs((pageNumber as number) - centerPage);
-  if (distance <= 0.5) {
-    return 4;
-  }
-
-  if (distance <= 1.5) {
-    return 3;
-  }
-
-  if (distance <= 2.5) {
-    return 2;
-  }
-
-  if (distance <= 3.5) {
-    return 1;
-  }
-
-  return 0;
-};
-
-const scoreKeywordHits = (haystack: string, keywords: Iterable<string>): number =>
-  Array.from(keywords).reduce((total, keyword) => total + (haystack.includes(keyword) ? 1 : 0), 0);
-
-const trimLeadingSummaryPunctuation = (value: string): string => {
-  let startIndex = 0;
-
-  while (startIndex < value.length) {
-    const character = value[startIndex];
-    if (
-      character !== ':' &&
-      character !== ';' &&
-      character !== ',' &&
-      character !== '-' &&
-      character !== ' '
-    ) {
-      break;
-    }
-
-    startIndex += 1;
-  }
-
-  return value.slice(startIndex);
-};
-
-const trimAfterSentencePunctuation = (value: string): string => {
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (
-      character === '.' ||
-      character === ':' ||
-      character === ';' ||
-      character === '!' ||
-      character === '?'
-    ) {
-      return value.slice(0, index);
-    }
-  }
-
-  return value;
-};
-
-export const selectCandidatePdfImages = (
-  images: PdfDocumentAssets['usedImages'],
-  sectionTitle: string,
-  sectionDescription: string,
-  targetedPages: number[] = []
-) => {
-  const visuallyClearImages = images.filter(image => Boolean(image.caption?.trim()));
-  if (visuallyClearImages.length === 0) {
-    return [];
-  }
-
-  const keywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
-  const scored = visuallyClearImages
-    .map(image => {
-      const haystack = normalizeSearchText(getPdfImageSearchText(image));
-      const keywordScore = scoreKeywordHits(haystack, keywords);
-      const pageScore = scorePageProximity(image.pageNumber, targetedPages);
-      const score = keywordScore * 3 + pageScore;
-      return { image, score };
-    })
-    .sort((left, right) =>
-      right.score === left.score
-        ? left.image.sourceOrder - right.image.sourceOrder
-        : right.score - left.score
-    );
-
-  const relevant = scored.filter(item => item.score > 0).map(item => item.image);
-  if (relevant.length > 0) {
-    return relevant;
-  }
-
-  // Use only figures that the vision pass considered clear enough to describe.
-  return scored.map(item => item.image);
-};
-
-export const getMarkdownHeadings = (contentMarkdown: string): string[] =>
-  contentMarkdown
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => /^(#{1,6})\s+/.test(line))
-    .map(line => line.replace(/^(#{1,6})\s+/, '').trim())
-    .filter(Boolean);
-
-const buildImageContextSummary = (
-  image: PdfDocumentAssets['usedImages'][number],
-  sectionTitle: string,
-  sectionDescription: string
-): string => {
-  const joinedContext = getPdfImageSearchText(image).trim();
-  const normalized = joinedContext.replaceAll(/\s+/g, ' ').trim();
-  const sentenceCandidates = normalized
-    .split(/(?<=[.!?])\s+/)
-    .map(sentence => sentence.trim())
-    .filter(Boolean);
-  const sectionKeywords = getSearchKeywords(`${sectionTitle} ${sectionDescription}`);
-  const bestSentence = sentenceCandidates
-    .map(sentence => ({
-      sentence,
-      score: scoreKeywordHits(normalizeSearchText(sentence), sectionKeywords),
-    }))
-    .sort((left, right) => right.score - left.score)[0]?.sentence;
-
-  const chosen =
-    image.caption?.trim() || bestSentence || sentenceCandidates[0] || normalized || sectionTitle;
-  const compact = trimLeadingSummaryPunctuation(chosen).replaceAll(/[|}]/g, ' ').trim();
-
-  return compact.length > 140 ? `${compact.slice(0, 137).trim()}...` : compact;
-};
-
-export const buildVisibleImageLabel = (
-  image: PdfDocumentAssets['usedImages'][number],
-  sectionTitle: string,
-  sectionDescription: string
-): string => {
-  const summary = buildImageContextSummary(image, sectionTitle, sectionDescription)
-    .replace(/^(la|il|lo|i|gli|le|una|un|uno)\s+/i, '')
-    .trim();
-  const compactSummary = trimAfterSentencePunctuation(summary).trim();
-
-  if (!compactSummary) {
-    return `Figura del PDF: ${sectionTitle}`;
-  }
-
-  return compactSummary.length > 72 ? `${compactSummary.slice(0, 69).trim()}...` : compactSummary;
-};
-
-const pickFallbackAnchorHeading = (
-  image: PdfDocumentAssets['usedImages'][number],
-  headings: string[],
-  sectionTitle: string,
-  sectionDescription: string
-): string | undefined => {
-  if (headings.length === 0) {
-    return undefined;
-  }
-
-  const imageHaystack = normalizeSearchText(getPdfImageSearchText(image));
-  const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
-  const bestHeading = headings
-    .map(heading => {
-      const headingKeywords = new Set(getSearchKeywords(heading));
-      const headingScore = scoreKeywordHits(imageHaystack, headingKeywords);
-      const sectionScore = scoreKeywordHits(normalizeSearchText(heading), sectionKeywords);
-      return {
-        heading,
-        score: headingScore * 2 + sectionScore,
-      };
-    })
-    .sort((left, right) => right.score - left.score)[0];
-
-  return bestHeading && bestHeading.score > 0 ? bestHeading.heading : undefined;
-};
-
-export const buildFallbackImageRefs = (
-  images: PdfDocumentAssets['usedImages'],
-  sectionTitle: string,
-  sectionDescription: string,
-  contentMarkdown: string,
-  visibleLabelByAssetId: Map<string, string>
-): LessonImageRef[] => {
-  const sectionKeywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
-  const headings = getMarkdownHeadings(contentMarkdown);
-
-  return images
-    .map(image => {
-      const imageHaystack = normalizeSearchText(getPdfImageSearchText(image));
-      const headingScore = headings.reduce((total, heading) => {
-        const headingKeywords = getSearchKeywords(heading);
-        return Math.max(total, scoreKeywordHits(imageHaystack, headingKeywords));
-      }, 0);
-      const sectionScore = scoreKeywordHits(imageHaystack, sectionKeywords);
-
-      return {
-        image,
-        score: sectionScore * 2 + headingScore,
-      };
-    })
-    .filter(item => item.score >= MIN_FALLBACK_IMAGE_SCORE)
-    .sort((left, right) =>
-      right.score === left.score
-        ? left.image.sourceOrder - right.image.sourceOrder
-        : right.score - left.score
-    )
-    .map(({ image }) => ({
-      assetId: image.id,
-      alt: sanitizePlaceholderValue(
-        buildImageContextSummary(image, sectionTitle, sectionDescription) ||
-          `Figura dal PDF: ${sectionTitle}`
-      ),
-      caption: sanitizePlaceholderValue(visibleLabelByAssetId.get(image.id) || ''),
-      anchorHeading: pickFallbackAnchorHeading(image, headings, sectionTitle, sectionDescription),
-    }));
-};
-
-const sanitizePlaceholderValue = (value: string): string =>
-  value.replaceAll(/[|}]/g, ' ').replaceAll(/\s+/g, ' ').trim();
 
 const buildPdfImagePlaceholder = (imageRef: LessonImageRef): string => {
   const alt = sanitizePlaceholderValue(imageRef.alt || 'Figura dal PDF');

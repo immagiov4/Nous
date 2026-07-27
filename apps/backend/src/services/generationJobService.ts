@@ -12,6 +12,7 @@ import {
   type EnqueueGenerationJobInput,
   type GenerationJob,
   GenerationJobRunner,
+  type GenerationJobStageReporter,
   type GenerationJobStore,
   TransientGenerationJobError,
 } from './generationJobs.js';
@@ -74,9 +75,16 @@ const runImageJob = async (job: GenerationJob, signal: AbortSignal): Promise<unk
   }
 };
 
+const reportLessonGenerationStage =
+  (jobId: string): GenerationJobStageReporter =>
+  async stage => {
+    await getStore().updateStage(jobId, stage);
+    generationJobEvents.emit(jobId);
+  };
+
 const runGenerationJob = (job: GenerationJob, signal: AbortSignal): Promise<unknown> => {
   if (job.kind === 'image') return runImageJob(job, signal);
-  return runLessonGenerationJob(job, signal);
+  return runLessonGenerationJob(job, signal, reportLessonGenerationStage(job.id));
 };
 
 const getRunner = (): GenerationJobRunner => {
@@ -108,11 +116,19 @@ export const getLatestLessonGenerationJob = (
 export const waitForGenerationJob = async (
   userId: string,
   id: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  afterStage?: string
 ): Promise<GenerationJob | null> => {
   const current = await getGenerationJob(userId, id);
   if (signal.aborted) return null;
-  if (!current || current.status === 'completed' || current.status === 'failed') return current;
+  if (
+    !current ||
+    current.status === 'completed' ||
+    current.status === 'failed' ||
+    (afterStage !== undefined && current.stage !== afterStage)
+  ) {
+    return current;
+  }
 
   return new Promise(resolve => {
     const cleanup = () => {
@@ -134,7 +150,13 @@ export const waitForGenerationJob = async (
       return;
     }
     void getGenerationJob(userId, id).then(latest => {
-      if (latest?.status === 'completed' || latest?.status === 'failed') void onSettled();
+      if (
+        latest?.status === 'completed' ||
+        latest?.status === 'failed' ||
+        latest?.stage !== current.stage
+      ) {
+        void onSettled();
+      }
     });
   });
 };

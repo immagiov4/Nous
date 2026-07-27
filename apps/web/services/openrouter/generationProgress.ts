@@ -141,6 +141,7 @@ const requestProgressSummary = async ({
   language,
   operation,
   previousSections,
+  signal,
   subject,
 }: {
   currentStage: GenerationStage;
@@ -149,6 +150,7 @@ const requestProgressSummary = async ({
   language: string;
   operation: GenerationOperation;
   previousSections: string[];
+  signal: AbortSignal;
   subject: string;
 }): Promise<Pick<GenerationProgressSnapshot, 'sections'> | null> => {
   const locale = resolveProgressLocale(language);
@@ -188,7 +190,7 @@ ${idle ? 'STREAM_DATA: not available yet' : `STREAM_DATA:\n${input}`}`,
       type: 'json_schema',
       json_schema: PROGRESS_RESPONSE_SCHEMA,
     },
-    signal: AbortSignal.timeout(OBSERVER_TIMEOUT_MS),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(OBSERVER_TIMEOUT_MS)]),
     temperature: 0.1,
   });
 
@@ -206,6 +208,8 @@ export const createGenerationProgressObserver = ({
   const locale = resolveProgressLocale(language);
   const initialTitle = getStageTitle(operation, 'sources', locale);
   let buffer = '';
+  let disposed = false;
+  const observerAbortController = new AbortController();
   let currentStage: GenerationStage = 'sources';
   let inFlight: Promise<void> | null = null;
   let pendingForcedObservation = false;
@@ -235,6 +239,7 @@ export const createGenerationProgressObserver = ({
   };
 
   const emit = (patch: Partial<GenerationProgressSnapshot>) => {
+    if (disposed) return;
     latestSnapshot = { ...latestSnapshot, ...patch, operation, stage: currentStage, subject };
     onUpdate(latestSnapshot);
   };
@@ -309,6 +314,7 @@ export const createGenerationProgressObserver = ({
     clearIdleObservationTimer();
     const stageUpdateCount = observerUpdatesByStage.get(currentStage) || 0;
     if (
+      disposed ||
       currentStage === 'ready' ||
       inFlight !== null ||
       stageUpdateCount >= OBSERVER_MAX_UPDATES_PER_STAGE
@@ -322,6 +328,7 @@ export const createGenerationProgressObserver = ({
   };
 
   const runObserver = (force = false, bypassStageBudget = false, idle = false): void => {
+    if (disposed) return;
     const stageUpdateCount = observerUpdatesByStage.get(currentStage) || 0;
     if (inFlight !== null) {
       pendingForcedObservation ||= force;
@@ -346,19 +353,23 @@ export const createGenerationProgressObserver = ({
       language,
       operation,
       previousSections: latestSnapshot.sections,
+      signal: observerAbortController.signal,
       subject,
     })
       .then(summary => {
-        if (!summary || currentStage !== requestStage) {
+        if (disposed || !summary || currentStage !== requestStage) {
           return;
         }
         enqueuePoints(summary.sections.map(title => ({ title })));
       })
       .catch(error => {
-        console.warn('[Nous][Generation progress] Observer update skipped.', error);
+        if (!disposed) {
+          console.warn('[Nous][Generation progress] Observer update skipped.', error);
+        }
       })
       .finally(() => {
         inFlight = null;
+        if (disposed) return;
         if (pendingForcedObservation) {
           const bypassBudget = pendingStageBudgetBypass;
           pendingForcedObservation = false;
@@ -375,14 +386,33 @@ export const createGenerationProgressObserver = ({
   emit({});
   scheduleIdleObservation();
 
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    observerAbortController.abort();
+    clearIdleObservationTimer();
+    if (revealTimer) {
+      clearTimeout(revealTimer);
+      revealTimer = null;
+    }
+    pendingPoints.length = 0;
+    pendingForcedObservation = false;
+    pendingStageBudgetBypass = false;
+    buffer = '';
+    resolvePointQueueWaiters();
+  };
+
   return {
     complete: () => {
+      if (disposed) return;
       clearIdleObservationTimer();
       currentStage = 'ready';
       emit({});
       enqueueStagePoint();
     },
+    dispose,
     finish: async () => {
+      if (disposed) return;
       clearIdleObservationTimer();
       while (inFlight !== null) {
         await inFlight;
@@ -397,7 +427,7 @@ export const createGenerationProgressObserver = ({
       clearIdleObservationTimer();
     },
     push: (streamText: string) => {
-      if (!streamText) {
+      if (disposed || !streamText) {
         return;
       }
 
@@ -413,6 +443,7 @@ export const createGenerationProgressObserver = ({
       }
     },
     setStage: (stage: GenerationStage) => {
+      if (disposed) return;
       if (STAGE_ORDER.indexOf(stage) <= STAGE_ORDER.indexOf(currentStage)) {
         return;
       }
@@ -425,6 +456,7 @@ export const createGenerationProgressObserver = ({
       scheduleIdleObservation();
     },
     updateStatus: (status: string) => {
+      if (disposed) return;
       const normalizedStatus = status.trim();
       if (!normalizedStatus) {
         return;

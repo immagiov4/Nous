@@ -1,76 +1,10 @@
+import { getSearchKeywords, normalizeSearchText } from '@shared/searchText';
+
 import { decodeTextBase64, detectStoredSourceFileKind } from '../projects/projectSource.ts';
 import { getPdfTextSession } from './pdfAssets.ts';
 import type { FileData, LearningSection } from './types.ts';
 
-const PDF_KEYWORD_STOP_WORDS = new Set([
-  'about',
-  'agli',
-  'alla',
-  'alle',
-  'anche',
-  'avere',
-  'bene',
-  'che',
-  'come',
-  'con',
-  'core',
-  'dall',
-  'dalla',
-  'dalle',
-  'degli',
-  'della',
-  'delle',
-  'dello',
-  'dopo',
-  'dove',
-  'ecco',
-  'fare',
-  'figura',
-  'figure',
-  'from',
-  'have',
-  'into',
-  'lesson',
-  'lezione',
-  'line',
-  'nelle',
-  'nella',
-  'nelle',
-  'nello',
-  'niente',
-  'only',
-  'oppure',
-  'over',
-  'pero',
-  'perche',
-  'prima',
-  'quale',
-  'quali',
-  'quando',
-  'questa',
-  'queste',
-  'questi',
-  'questo',
-  'sara',
-  'same',
-  'section',
-  'sempre',
-  'senza',
-  'sono',
-  'solo',
-  'sotto',
-  'sugli',
-  'sulla',
-  'sulle',
-  'that',
-  'them',
-  'they',
-  'through',
-  'titolo',
-  'tutto',
-  'with',
-  'your',
-]);
+export { getSearchKeywords, normalizeSearchText } from '@shared/searchText';
 
 type PlanningSourceKind = 'pdf' | 'text' | 'other';
 export type PlanningSourceSizeTier = 'tiny' | 'small' | 'medium' | 'large';
@@ -96,20 +30,6 @@ interface PlanningSourceProfileSeed {
   kind: PlanningSourceKind;
   pageCount?: number;
 }
-
-export const normalizeSearchText = (text: string): string =>
-  text
-    .toLowerCase()
-    .normalize('NFD')
-    .replaceAll(/[\u0300-\u036f]/g, '')
-    .replaceAll(/[^a-z0-9\s]/g, ' ')
-    .replaceAll(/\s+/g, ' ')
-    .trim();
-
-export const getSearchKeywords = (text: string): string[] =>
-  normalizeSearchText(text)
-    .split(' ')
-    .filter(word => word.length >= 4 && !PDF_KEYWORD_STOP_WORDS.has(word));
 
 const PDF_SUBSTANTIVE_PAGE_COVERAGE_RATIO = 0.9;
 const LARGE_PDF_SOFT_MIN_PAGES_PER_LESSON = 10;

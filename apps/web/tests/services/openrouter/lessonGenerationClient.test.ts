@@ -44,6 +44,7 @@ describe('generateDurableLesson', () => {
               id: 'job-1',
               kind: 'lesson',
               payload: { projectId: 'project-1', sectionId: 'lesson-1' },
+              stage: 'running',
               status: 'running',
             },
           }),
@@ -58,6 +59,7 @@ describe('generateDurableLesson', () => {
               id: 'job-1',
               kind: 'lesson',
               result: completedResult,
+              stage: 'completed',
               status: 'completed',
             },
           }),
@@ -70,7 +72,8 @@ describe('generateDurableLesson', () => {
     ).resolves.toMatchObject(completedResult);
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       3,
-      'http://localhost:3301/api/generation-jobs/job-1/wait'
+      'http://localhost:3301/api/generation-jobs/job-1/wait?afterStage=running',
+      { cache: 'no-store' }
     );
   });
 
@@ -80,7 +83,12 @@ describe('generateDurableLesson', () => {
         new Response(
           JSON.stringify({
             success: true,
-            job: { id: 'job-reconnected', kind: 'lesson', status: 'running' },
+            job: {
+              id: 'job-reconnected',
+              kind: 'lesson',
+              stage: 'running',
+              status: 'running',
+            },
           }),
           { status: 200 }
         )
@@ -93,6 +101,7 @@ describe('generateDurableLesson', () => {
               id: 'job-reconnected',
               kind: 'lesson',
               result: completedResult,
+              stage: 'completed',
               status: 'completed',
             },
           }),
@@ -106,7 +115,62 @@ describe('generateDurableLesson', () => {
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(2);
     expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
       1,
-      'http://localhost:3301/api/generation-jobs/lessons/project-1/lesson-1/latest'
+      'http://localhost:3301/api/generation-jobs/lessons/project-1/lesson-1/latest',
+      { cache: 'no-store' }
+    );
+  });
+
+  test('reports every authoritative backend stage while waiting for the lesson', async () => {
+    const stages = ['sources', 'structure', 'drafting', 'quiz', 'verification'] as const;
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(new Response('', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            job: { id: 'job-progress', kind: 'lesson', stage: 'queued', status: 'queued' },
+          }),
+          { status: 202 }
+        )
+      );
+    for (const stage of stages) {
+      fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            job: { id: 'job-progress', kind: 'lesson', stage, status: 'running' },
+          }),
+          { status: 200 }
+        )
+      );
+    }
+    fetchWithSupabaseAuthMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          job: {
+            id: 'job-progress',
+            kind: 'lesson',
+            result: completedResult,
+            stage: 'completed',
+            status: 'completed',
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const onProgressStage = vi.fn();
+
+    await generateDurableLesson({
+      onProgressStage,
+      projectId: 'project-1',
+      sectionId: 'lesson-1',
+    });
+
+    expect(onProgressStage.mock.calls.map(([stage]) => stage)).toEqual(stages);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenLastCalledWith(
+      'http://localhost:3301/api/generation-jobs/job-progress/wait?afterStage=verification',
+      { cache: 'no-store' }
     );
   });
 
@@ -122,6 +186,7 @@ describe('generateDurableLesson', () => {
               id: 'job-1',
               kind: 'lesson',
               payload: { projectId: 'project-1', sectionId: 'lesson-2' },
+              stage: 'running',
               status: 'running',
             },
           }),
@@ -143,6 +208,7 @@ describe('generateDurableLesson', () => {
             id: 'job-1',
             kind: 'lesson',
             result: { ...completedResult, sectionId: 'lesson-2' },
+            stage: 'completed',
             status: 'completed',
           },
         }),
@@ -164,6 +230,7 @@ describe('generateDurableLesson', () => {
             errorCode: 'lesson_provider_failed',
             id: 'failed-job',
             kind: 'lesson',
+            stage: 'failed',
             status: 'failed',
           },
         }),
@@ -177,13 +244,56 @@ describe('generateDurableLesson', () => {
     expect(fetchWithSupabaseAuthMock).toHaveBeenCalledTimes(1);
   });
 
+  test('starts a replacement job when the backend interrupted the previous attempt', async () => {
+    fetchWithSupabaseAuthMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            job: {
+              errorCode: 'backend_restarted',
+              id: 'interrupted-job',
+              kind: 'lesson',
+              stage: 'failed',
+              status: 'failed',
+            },
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            job: {
+              id: 'replacement-job',
+              kind: 'lesson',
+              result: completedResult,
+              stage: 'completed',
+              status: 'completed',
+            },
+          }),
+          { status: 202 }
+        )
+      );
+
+    await expect(
+      generateDurableLesson({ projectId: 'project-1', sectionId: 'lesson-1' })
+    ).resolves.toMatchObject(completedResult);
+    expect(fetchWithSupabaseAuthMock).toHaveBeenNthCalledWith(
+      2,
+      'http://localhost:3301/api/generation-jobs/lessons',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
   test('reuses the regeneration request key after a disconnected wait', async () => {
     fetchWithSupabaseAuthMock
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             success: true,
-            job: { id: 'job-1', kind: 'lesson', status: 'running' },
+            job: { id: 'job-1', kind: 'lesson', stage: 'running', status: 'running' },
           }),
           { status: 200 }
         )
@@ -193,7 +303,13 @@ describe('generateDurableLesson', () => {
         new Response(
           JSON.stringify({
             success: true,
-            job: { id: 'job-1', kind: 'lesson', result: completedResult, status: 'completed' },
+            job: {
+              id: 'job-1',
+              kind: 'lesson',
+              result: completedResult,
+              stage: 'completed',
+              status: 'completed',
+            },
           }),
           { status: 200 }
         )

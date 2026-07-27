@@ -78,7 +78,7 @@ function FailedVisualSlot({
 
   return (
     <output
-      className="my-8 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/20 dark:text-amber-100"
+      className="my-8 block rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/20 dark:text-amber-100"
       data-nous-speech="ignore"
     >
       <p className="text-sm font-semibold">

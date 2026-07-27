@@ -2,6 +2,7 @@ import type {
   DurableLessonGenerationResult,
   GenerationJobResponse,
   GenerationJobWire,
+  LessonGenerationJobStage,
 } from '@shared/generationJobContract';
 
 import type { LessonNode, PdfDocumentAssets, ResearchLessonDossier } from '../../types.ts';
@@ -127,15 +128,39 @@ const clearRegenerationRequestKey = (projectId: string, sectionId: string): void
   }
 };
 
-const waitForTerminalJob = async (job: GenerationJobWire): Promise<GenerationJobResponse> => {
-  if (job.status !== 'queued' && job.status !== 'running') {
-    return { job, success: true };
+const reportLessonStage = (
+  stage: GenerationJobWire['stage'],
+  onProgressStage?: (stage: LessonGenerationJobStage) => void
+): void => {
+  if (
+    stage === 'sources' ||
+    stage === 'structure' ||
+    stage === 'drafting' ||
+    stage === 'quiz' ||
+    stage === 'verification'
+  ) {
+    onProgressStage?.(stage);
   }
-  const response = await fetchWithSupabaseAuth(
-    `${getBackendUrl()}/api/generation-jobs/${encodeURIComponent(job.id)}/wait`
-  );
-  if (!response.ok) throw new Error(LESSON_GENERATION_ERROR);
-  return readJobResponse(response);
+};
+
+const waitForTerminalJob = async (
+  job: GenerationJobWire,
+  onProgressStage?: (stage: LessonGenerationJobStage) => void
+): Promise<GenerationJobResponse> => {
+  let currentJob = job;
+  while (currentJob.status === 'queued' || currentJob.status === 'running') {
+    reportLessonStage(currentJob.stage, onProgressStage);
+    const response = await fetchWithSupabaseAuth(
+      `${getBackendUrl()}/api/generation-jobs/${encodeURIComponent(currentJob.id)}/wait?afterStage=${encodeURIComponent(currentJob.stage)}`,
+      { cache: 'no-store' }
+    );
+    if (!response.ok) throw new Error(LESSON_GENERATION_ERROR);
+    const payload = await readJobResponse(response);
+    if (!payload.job) throw new Error(LESSON_GENERATION_ERROR);
+    currentJob = payload.job;
+  }
+  reportLessonStage(currentJob.stage, onProgressStage);
+  return { job: currentJob, success: true };
 };
 
 const readLatestLessonJob = async (
@@ -143,7 +168,8 @@ const readLatestLessonJob = async (
   sectionId: string
 ): Promise<GenerationJobWire | null> => {
   const response = await fetchWithSupabaseAuth(
-    `${getBackendUrl()}/api/generation-jobs/lessons/${encodeURIComponent(projectId)}/${encodeURIComponent(sectionId)}/latest`
+    `${getBackendUrl()}/api/generation-jobs/lessons/${encodeURIComponent(projectId)}/${encodeURIComponent(sectionId)}/latest`,
+    { cache: 'no-store' }
   );
   if (response.status === 404) return null;
   const payload = await readJobResponse(response);
@@ -161,21 +187,26 @@ const throwForTerminalFailure = (job: GenerationJobWire | undefined): never => {
 
 export const generateDurableLesson = async ({
   forceRegenerate = false,
+  onProgressStage,
   projectId,
   sectionId,
 }: {
   forceRegenerate?: boolean;
+  onProgressStage?: (stage: LessonGenerationJobStage) => void;
   projectId: string;
   sectionId: string;
 }): Promise<DurableLessonResult> => {
   if (!forceRegenerate) {
     const latestJob = await readLatestLessonJob(projectId, sectionId);
     if (latestJob) {
-      const latestPayload = await waitForTerminalJob(latestJob);
+      const latestPayload = await waitForTerminalJob(latestJob, onProgressStage);
       if (latestPayload.job?.status === 'completed') {
         return parseCompletedResult(latestPayload.job, projectId, sectionId);
       }
-      if (latestPayload.job?.status === 'failed') {
+      if (
+        latestPayload.job?.status === 'failed' &&
+        latestPayload.job.errorCode !== 'backend_restarted'
+      ) {
         throwForTerminalFailure(latestPayload.job);
       }
     }
@@ -203,7 +234,7 @@ export const generateDurableLesson = async ({
   }
   if (!queuedResponse.ok || !payload.job) throw new Error(LESSON_GENERATION_ERROR);
 
-  payload = await waitForTerminalJob(payload.job);
+  payload = await waitForTerminalJob(payload.job, onProgressStage);
 
   const terminalJob = payload.job;
   if (!terminalJob) throw new Error(LESSON_GENERATION_ERROR);

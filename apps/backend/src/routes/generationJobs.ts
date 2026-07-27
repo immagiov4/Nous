@@ -13,6 +13,7 @@ import { isRecord } from '../utils/validation.js';
 const router = Router();
 const MAX_IMAGE_PROMPT_CHARS = 12_000;
 const MAX_DEDUPE_KEY_CHARS = 200;
+const GENERATION_JOB_CACHE_CONTROL = 'private, no-store';
 const asyncRoute =
   (handler: (req: Request, res: Response) => Promise<unknown>) =>
   (req: Request, res: Response, next: NextFunction): void => {
@@ -109,6 +110,7 @@ router.post(
 router.get(
   '/lessons/:projectId/:sectionId/latest',
   asyncRoute(async (req: Request, res: Response) => {
+    res.set('Cache-Control', GENERATION_JOB_CACHE_CONTROL);
     const currentUser = getCurrentUser(req);
     const job = await getLatestLessonGenerationJob(
       currentUser.id,
@@ -123,6 +125,7 @@ router.get(
 router.get(
   '/:jobId',
   asyncRoute(async (req: Request, res: Response) => {
+    res.set('Cache-Control', GENERATION_JOB_CACHE_CONTROL);
     const currentUser = getCurrentUser(req);
     const job = await getGenerationJob(currentUser.id, String(req.params.jobId));
     if (!job) return res.status(404).json({ success: false, error: 'Generazione non trovata.' });
@@ -133,6 +136,7 @@ router.get(
 router.get(
   '/:jobId/wait',
   asyncRoute(async (req: Request, res: Response) => {
+    res.set('Cache-Control', GENERATION_JOB_CACHE_CONTROL);
     const currentUser = getCurrentUser(req);
     const controller = new AbortController();
     const onClientDisconnect = () => {
@@ -146,7 +150,8 @@ router.get(
     const job = await waitForGenerationJob(
       currentUser.id,
       String(req.params.jobId),
-      controller.signal
+      controller.signal,
+      typeof req.query.afterStage === 'string' ? req.query.afterStage : undefined
     );
     res.off('close', onClientDisconnect);
     if (controller.signal.aborted) return;

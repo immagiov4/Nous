@@ -6,6 +6,7 @@
       "name": "nous-reader",
       "dependencies": {
         "@ai-sdk/react": "^3.0.139",
+        "@resvg/resvg-js": "^2.6.2",
         "@types/react-syntax-highlighter": "^15.5.13",
         "acorn": "^8.16.0",
         "ai": "^6.0.137",
@@ -27,7 +28,6 @@
       "devDependencies": {
         "@biomejs/biome": "^2.4.6",
         "@remotion/cli": "4.0.487",
-        "@resvg/resvg-js": "^2.6.2",
         "@sonar/scan": "^4.3.6",
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
@@ -60,6 +60,7 @@
       "dependencies": {
         "@ai-sdk/openai": "3.0.84",
         "@openrouter/ai-sdk-provider": "^2.3.3",
+        "@resvg/resvg-js": "^2.6.2",
         "ai": "^6.0.137",
         "cors": "^2.8.5",
         "dotenv": "^17.3.1",
@@ -1413,7 +1414,6 @@
     "pify": ["pify@2.3.0", "", {}, "sha512-udgsAY+fTnvv7kI7aaxbqwWNb0AHiB0qBO89PZKPkoTmGOgdbrHDKD+0B2X4uTfJ/FT1R09r9gTsjUjNJotuog=="],
 
     "pirates": ["pirates@4.0.7", "", {}, "sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA=="],
-
 
     "postcss": ["postcss@8.5.6", "", { "dependencies": { "nanoid": "^3.3.11", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg=="],
 
