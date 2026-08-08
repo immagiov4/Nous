@@ -4,12 +4,20 @@ import { createProjectSnapshot } from '../../../../services/projects/projectSnap
 import {
   prepareSnapshotForHydration,
   prepareSnapshotForHydrationResult,
+  resolveScreenStateForSnapshot,
 } from '../../../../services/workspace/controller/snapshotHydration.ts';
 import { AppState, type LearningPlan, type ProjectSnapshot } from '../../../../types.ts';
 import { flattenLessons, flattenPathNodes } from '../../../../utils/learning/pathNodes.ts';
 import { buildTestLearningPlan, buildTestLesson } from '../../../helpers/learningPlan.ts';
 
 const CURRENT_LEGACY_LABORATORY_SCHEMA_VERSION = 3;
+
+test('unfinished interviews reopen in the home instead of the removed assessment screen', () => {
+  assert.equal(
+    resolveScreenStateForSnapshot({ learningPlan: null, source: null, state: AppState.ASSESSMENT }),
+    AppState.LIBRARY
+  );
+});
 
 test('prepareSnapshotForHydrationResult preserves unchanged modern snapshots by reference', () => {
   const originalPlan = buildTestLearningPlan(

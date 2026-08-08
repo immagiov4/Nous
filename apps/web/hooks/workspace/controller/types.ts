@@ -174,6 +174,7 @@ export interface WorkspaceControllerStateAdapter {
   failWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, errorMessage: string) => void;
   finishGeneration: (projectId: string | null, token: number) => void;
   getAssessmentMessages: () => Message[];
+  getCourseProposal: () => UserProfile | null;
   getGeneratingSectionId: (projectId: string | null) => string | null;
   getOpeningProjectId: () => string | null;
   getScreenState: () => AppState;
@@ -186,6 +187,7 @@ export interface WorkspaceControllerStateAdapter {
   setAssessmentMessages: (
     nextMessages: Message[] | ((previousMessages: Message[]) => Message[])
   ) => void;
+  setCourseProposal: (proposal: UserProfile | null) => void;
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
   setGeneratingSectionId: (projectId: string | null, token: number, sectionId: string) => void;

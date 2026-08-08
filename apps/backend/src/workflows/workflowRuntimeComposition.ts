@@ -26,6 +26,7 @@ import { createProductionCourseGenerationServices } from './courseGenerationProd
 import { createCourseGenerationStarter } from './courseGenerationStart.js';
 import {
   COURSE_GENERATION_WORKFLOW_ID,
+  CourseGenerationWorkflowConfigSchema,
   createCourseGenerationWorkflow,
 } from './courseGenerationWorkflow.js';
 import {
@@ -38,6 +39,7 @@ import { createProductionCourseInterviewServices } from './courseInterviewProduc
 import { createCourseInterviewStarter } from './courseInterviewStart.js';
 import {
   COURSE_INTERVIEW_WORKFLOW_ID,
+  CourseInterviewWorkflowConfigSchema,
   createCourseInterviewWorkflow,
 } from './courseInterviewWorkflow.js';
 import { createWorkflowRegistry, type WorkflowRegistry } from './definition.js';
@@ -51,7 +53,10 @@ import {
   createLessonGenerationStarter,
   LESSON_GENERATION_WORKFLOW_ID,
 } from './lessonGenerationStart.js';
-import { createLessonGenerationWorkflow } from './lessonGenerationWorkflow.js';
+import {
+  createLessonGenerationWorkflow,
+  LessonGenerationWorkflowConfigSchema,
+} from './lessonGenerationWorkflow.js';
 import {
   createLessonVisualRetryStarter,
   type LessonVisualRetryStarter,
@@ -61,6 +66,7 @@ import {
   createLessonVisualWorkflows,
   LESSON_VISUAL_RETRY_WORKFLOW_ID,
 } from './lessonVisualWorkflow.js';
+import { PreviousGlobalModelConfigSchema } from './modelConfigSchema.js';
 import {
   createPdfMappingRepairApi,
   createPdfMappingRepairStarter,
@@ -168,6 +174,15 @@ const createProductionRegistry = (): WorkflowRegistry => {
   const registry = createWorkflowRegistry();
   const models = getGlobalModelConfig();
   const visual = resolveLessonVisualModelConfig(models);
+  const previousCourseConfigSchema = CourseGenerationWorkflowConfigSchema.extend({
+    models: PreviousGlobalModelConfigSchema,
+  }) as unknown as typeof CourseGenerationWorkflowConfigSchema;
+  const previousInterviewConfigSchema = CourseInterviewWorkflowConfigSchema.extend({
+    models: PreviousGlobalModelConfigSchema,
+  }) as unknown as typeof CourseInterviewWorkflowConfigSchema;
+  const previousLessonConfigSchema = LessonGenerationWorkflowConfigSchema.extend({
+    models: PreviousGlobalModelConfigSchema,
+  }) as unknown as typeof LessonGenerationWorkflowConfigSchema;
   const retryWorkflow = createLessonVisualWorkflows({
     maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
     timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
@@ -183,6 +198,10 @@ const createProductionRegistry = (): WorkflowRegistry => {
     models,
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
   });
+  const previousCourseWorkflow = createCourseGenerationWorkflow(
+    courseWorkflow.executionDefaults,
+    previousCourseConfigSchema
+  );
   const courseInterviewWorkflow = createCourseInterviewWorkflow(
     {
       maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -191,23 +210,42 @@ const createProductionRegistry = (): WorkflowRegistry => {
     },
     COURSE_INTERVIEW_MAX_ITERATIONS
   );
+  const previousCourseInterviewWorkflow = createCourseInterviewWorkflow(
+    courseInterviewWorkflow.executionDefaults,
+    COURSE_INTERVIEW_MAX_ITERATIONS,
+    previousInterviewConfigSchema
+  );
   const lessonWorkflow = createLessonGenerationWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
     models,
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
     visual,
   });
+  const previousLessonWorkflow = createLessonGenerationWorkflow(
+    lessonWorkflow.executionDefaults,
+    previousLessonConfigSchema
+  );
   const pdfMappingRepairWorkflow = createPdfMappingRepairWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
     models,
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
   });
+  const previousPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
+    pdfMappingRepairWorkflow.executionDefaults,
+    previousCourseConfigSchema
+  );
   registry.register({ current: artifactDraftWorkflow });
   registry.register({ current: retryWorkflow });
-  registry.register({ current: courseInterviewWorkflow });
-  registry.register({ current: courseWorkflow });
-  registry.register({ current: lessonWorkflow });
-  registry.register({ current: pdfMappingRepairWorkflow });
+  registry.register({
+    current: courseInterviewWorkflow,
+    resumableDefinitions: [previousCourseInterviewWorkflow],
+  });
+  registry.register({ current: courseWorkflow, resumableDefinitions: [previousCourseWorkflow] });
+  registry.register({ current: lessonWorkflow, resumableDefinitions: [previousLessonWorkflow] });
+  registry.register({
+    current: pdfMappingRepairWorkflow,
+    resumableDefinitions: [previousPdfMappingRepairWorkflow],
+  });
   return registry;
 };
 

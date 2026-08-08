@@ -78,7 +78,7 @@ export const LibraryScreenContainer = ({
   useEffect(() => {
     learningPlanRef.current = controller.learningPlan;
   }, [controller.learningPlan]);
-  const [assessmentComplete, setAssessmentComplete] = useState(false);
+  const [isAddingAssessmentDetails, setIsAddingAssessmentDetails] = useState(false);
   const [homeChatMode, setHomeChatMode] = useState<HomeChatMode>(() =>
     typeof globalThis.window !== 'undefined' &&
     isLibraryQueryPath(globalThis.window.location.pathname)
@@ -97,6 +97,8 @@ export const LibraryScreenContainer = ({
     startHomeChat,
     submitAssessment,
   } = controller;
+  const assessmentComplete = Boolean(controller.courseProposal) && !isAddingAssessmentDetails;
+  const visibleHomeChatMode = assessmentMessages.length > 0 ? 'new-course' : homeChatMode;
   const { consumeCourseAssessmentRequest, courseAssessmentRequest } = libraryAssistantChat;
 
   const handleHomeSourceFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,13 +115,11 @@ export const LibraryScreenContainer = ({
   const handleNewCourseMessage = useCallback(
     async (message: string) => {
       const toolPreferences: HomeChatToolPreferences = {
-        addingAssessmentDetails: assessmentComplete,
+        addingAssessmentDetails: isAddingAssessmentDetails,
         mode: 'new-course',
         newCourse: true,
       };
-      if (assessmentComplete) {
-        setAssessmentComplete(false);
-      }
+      setIsAddingAssessmentDetails(false);
       const result = assessmentMessages.length
         ? await submitAssessment(message, toolPreferences)
         : await startHomeChat({
@@ -128,15 +128,8 @@ export const LibraryScreenContainer = ({
             toolPreferences,
           });
 
-      if (result.outcome === 'assessment-complete') {
-        setAssessmentComplete(true);
-      } else if (result.outcome === 'abandoned') {
-        setAssessmentComplete(false);
+      if (result.outcome === 'abandoned') {
         setHomeChatMode('library-query');
-      } else if (result.outcome === 'continued') {
-        setAssessmentComplete(false);
-      } else if (result.outcome === 'imported') {
-        setAssessmentComplete(false);
       }
 
       if (result.outcome !== 'failed' && result.outcome !== 'noop') {
@@ -155,8 +148,8 @@ export const LibraryScreenContainer = ({
       }
     },
     [
-      assessmentComplete,
       assessmentMessages.length,
+      isAddingAssessmentDetails,
       notify,
       pendingHomeSourceFiles,
       startHomeChat,
@@ -167,7 +160,7 @@ export const LibraryScreenContainer = ({
   const cancelNewCourse = useCallback(() => {
     void cancelAssessment()
       .then(() => {
-        setAssessmentComplete(false);
+        setIsAddingAssessmentDetails(false);
         setPendingHomeSourceFiles([]);
         setHomeChatMode('library-query');
       })
@@ -185,7 +178,7 @@ export const LibraryScreenContainer = ({
         return;
       }
       consumeCourseAssessmentRequest();
-      setAssessmentComplete(false);
+      setIsAddingAssessmentDetails(false);
       setHomeChatMode('new-course');
       void handleNewCourseMessage(courseAssessmentRequest.topic);
     });
@@ -196,7 +189,7 @@ export const LibraryScreenContainer = ({
   }, [consumeCourseAssessmentRequest, courseAssessmentRequest, handleNewCourseMessage]);
 
   const handleConfirmGenerate = async () => {
-    setAssessmentComplete(false);
+    setIsAddingAssessmentDetails(false);
     const result = await confirmPlanGeneration();
     if (result.errorMessage) {
       notify(result.errorMessage);
@@ -229,7 +222,7 @@ export const LibraryScreenContainer = ({
         chatProps={{
           assessmentComplete,
           assessmentMessages,
-          homeChatMode,
+          homeChatMode: visibleHomeChatMode,
           isDarkMode: readerState.readerChrome.isDarkMode,
           isLibraryLoading,
           isLibraryModeLoading: libraryAssistantChat.isLoading,
@@ -249,7 +242,7 @@ export const LibraryScreenContainer = ({
           onClearPendingFile: () => setPendingHomeSourceFiles([]),
           onClearLibraryMessages: libraryAssistantChat.clearLibraryMessages,
           onCancelNewCourse: cancelNewCourse,
-          onContinueAssessment: () => setAssessmentComplete(false),
+          onContinueAssessment: () => setIsAddingAssessmentDetails(true),
           onConfirmGenerate: handleConfirmGenerate,
           onHomeChatModeChange: setHomeChatMode,
           onLibraryMessageSend: libraryAssistantChat.sendLibraryMessage,

@@ -6,12 +6,13 @@ import {
   type WorkspaceWorkflowId,
   type WorkspaceWorkflowState,
 } from '../../../services/workspace/workflow.ts';
-import { AppState, type Message } from '../../../types.ts';
+import { AppState, type Message, type UserProfile } from '../../../types.ts';
 import type { WorkspaceControllerStateAdapter, WorkspaceGenerationKind } from './types.ts';
 
 export const useWorkspaceControllerState = () => {
   const [screenState, setScreenStateValue] = useState<AppState>(AppState.LIBRARY);
   const [assessmentMessages, setAssessmentMessages] = useState<Message[]>([]);
+  const [courseProposal, setCourseProposal] = useState<UserProfile | null>(null);
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const openingProjectIdRef = useRef<string | null>(null);
   const [workflowState, setWorkflowState] = useState<WorkspaceWorkflowState>(
@@ -21,6 +22,7 @@ export const useWorkspaceControllerState = () => {
   const [, commitGenerationChange] = useReducer(currentRevision => currentRevision + 1, 0);
 
   const assessmentMessagesRef = useRef(assessmentMessages);
+  const courseProposalRef = useRef(courseProposal);
   const generationByProjectRef = useRef(
     new Map<
       string | null,
@@ -34,6 +36,10 @@ export const useWorkspaceControllerState = () => {
   useEffect(() => {
     assessmentMessagesRef.current = assessmentMessages;
   }, [assessmentMessages]);
+
+  useEffect(() => {
+    courseProposalRef.current = courseProposal;
+  }, [courseProposal]);
 
   useEffect(() => {
     workflowStateRef.current = workflowState;
@@ -51,6 +57,7 @@ export const useWorkspaceControllerState = () => {
 
   return {
     assessmentMessages,
+    courseProposal,
     openingProjectId,
     screenState,
     stateAdapter: {
@@ -102,6 +109,7 @@ export const useWorkspaceControllerState = () => {
         commitGenerationChange();
       },
       getAssessmentMessages: () => assessmentMessagesRef.current,
+      getCourseProposal: () => courseProposalRef.current,
       getGeneratingSectionId: projectId =>
         generationByProjectRef.current.get(projectId)?.sectionId ?? null,
       getOpeningProjectId: () => openingProjectIdRef.current,
@@ -119,6 +127,8 @@ export const useWorkspaceControllerState = () => {
       resetSessionState: () => {
         setAssessmentMessages([]);
         assessmentMessagesRef.current = [];
+        setCourseProposal(null);
+        courseProposalRef.current = null;
         openingProjectIdRef.current = null;
         setOpeningProjectId(null);
         setMissingSourceProjectId(null);
@@ -130,6 +140,10 @@ export const useWorkspaceControllerState = () => {
           assessmentMessagesRef.current = resolvedMessages;
           return resolvedMessages;
         });
+      },
+      setCourseProposal: proposal => {
+        courseProposalRef.current = proposal;
+        setCourseProposal(proposal);
       },
       setGeneratingSectionId: (projectId, token, sectionId) => {
         const activeGeneration = generationByProjectRef.current.get(projectId);

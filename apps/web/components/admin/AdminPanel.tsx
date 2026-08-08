@@ -163,7 +163,8 @@ type AdminReasoningKey =
   | 'contextReasoningEffort'
   | 'courseReasoningEffort'
   | 'lessonReasoningEffort'
-  | 'progressReasoningEffort';
+  | 'progressReasoningEffort'
+  | 'researchReasoningEffort';
 type AdminTextModelSlot = Exclude<AdminModelProviderSlot, 'image'>;
 
 const TEXT_MODEL_LABELS = {
@@ -269,6 +270,7 @@ const TEXT_MODEL_ROWS: ReadonlyArray<{
       openai: 'openAiResearchModel',
       codex: 'codexResearchModel',
     },
+    reasoning: 'researchReasoningEffort',
     slot: 'research',
   },
 ];

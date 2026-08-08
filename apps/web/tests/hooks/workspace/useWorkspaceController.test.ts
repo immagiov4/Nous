@@ -513,6 +513,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
 const createStateAdapter = () => {
   const internalState = {
     assessmentMessages: [] as Message[],
+    courseProposal: null as UserProfile | null,
     generationByProject: new Map<
       string | null,
       { kind: WorkspaceGenerationKind; sectionId: string | null; token: number }
@@ -559,6 +560,7 @@ const createStateAdapter = () => {
       }
     },
     getAssessmentMessages: () => internalState.assessmentMessages,
+    getCourseProposal: () => internalState.courseProposal,
     getGeneratingSectionId: projectId =>
       internalState.generationByProject.get(projectId)?.sectionId ?? null,
     getOpeningProjectId: () => internalState.openingProjectId,
@@ -577,6 +579,7 @@ const createStateAdapter = () => {
       internalState.workflowState[workflowId].requestId === requestId,
     resetSessionState: () => {
       internalState.assessmentMessages = [];
+      internalState.courseProposal = null;
       internalState.openingProjectId = null;
       internalState.missingSourceProjectId = null;
     },
@@ -585,6 +588,9 @@ const createStateAdapter = () => {
         typeof nextMessages === 'function'
           ? nextMessages(internalState.assessmentMessages)
           : nextMessages;
+    },
+    setCourseProposal: proposal => {
+      internalState.courseProposal = proposal;
     },
     setGeneratingSectionId: (projectId, token, sectionId) => {
       const activeGeneration = internalState.generationByProject.get(projectId);
@@ -901,7 +907,7 @@ test('openProject starts document assessment when a stored project has a source 
 
   assert.equal(result.outcome, 'opened');
   assert.equal(projectLibrary.adapter.currentProjectId, 'project-doc');
-  assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
 });
 
@@ -1672,7 +1678,7 @@ test('handleSourceUpload creates a fresh project and lands in assessment for doc
   });
 
   assert.equal(result.outcome, 'started-assessment');
-  assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.equal(domain.source?.kind, 'pdf');
   assert.equal(projectLibrary.persistedSnapshots.length, 1);
   assert.equal(projectLibrary.persistedSnapshots[0]?.state, AppState.ASSESSMENT);
@@ -1946,7 +1952,7 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
 
   assert.equal(result.outcome, 'started-assessment');
   assert.equal(result.errorMessage, undefined);
-  assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.equal(domain.source?.kind, 'document');
   assert.equal(projectLibrary.persistedSnapshots[0]?.sourceKind, 'document');
   assert.equal(projectLibrary.persistedSnapshots[0]?.source?.kind, 'document');
@@ -2277,7 +2283,7 @@ test('submitAssessment sends the durable user-answer signal and applies the prop
       >[0]
     ) => createProposalSnapshot('learn-project')
   );
-  const { controller, domain } = createControllerHarness({
+  const { controller, domain, state } = createControllerHarness({
     projectLibrary: {
       currentProjectId: 'learn-project',
     },
@@ -2290,7 +2296,8 @@ test('submitAssessment sends the durable user-answer signal and applies the prop
   const result = await controller.submitAssessment('Fammi imparare TypeScript');
 
   assert.equal(result.outcome, 'assessment-complete');
-  assert.equal(domain.userProfile?.topic, 'TypeScript');
+  assert.equal(state.internalState.courseProposal?.topic, 'TypeScript');
+  assert.equal(domain.userProfile, null);
   assert.deepEqual(sendCourseInterviewAnswer.mock.calls[0]?.[0], {
     projectId: 'learn-project',
     runId: 'interview-run',
@@ -2327,8 +2334,7 @@ test('submitAssessment sends add-details when the durable proposal awaits a deci
 });
 
 test('submitAssessment clears the old proposal when add-details opens another question', async () => {
-  const { controller, domain } = createControllerHarness({
-    domain: { userProfile: createProposalSnapshot('learn-project').proposal },
+  const { controller, domain, state } = createControllerHarness({
     projectLibrary: { currentProjectId: 'learn-project' },
     openRouter: {
       getActiveCourseInterview: async () => createProposalSnapshot('learn-project'),
@@ -2344,10 +2350,12 @@ test('submitAssessment clears the old proposal when add-details opens another qu
         }),
     },
   });
+  state.adapter.setCourseProposal(createProposalSnapshot('learn-project').proposal);
 
   const result = await controller.submitAssessment('Aggiungi più esercizi pratici');
 
   assert.equal(result.outcome, 'continued');
+  assert.equal(state.internalState.courseProposal, null);
   assert.equal(domain.userProfile, null);
 });
 
@@ -2456,6 +2464,10 @@ test('submitAssessment exposes exhausted durable interviews as a controlled fail
 });
 
 test('confirmPlanGeneration approves the durable proposal and resumes its course run', async () => {
+  let completeDecision: (() => void) | undefined;
+  const decisionGate = new Promise<void>(resolve => {
+    completeDecision = resolve;
+  });
   const resumeActiveDurableCourse = vi.fn(
     async (
       input: Parameters<
@@ -2468,8 +2480,9 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
       _input: Parameters<
         typeof import('../../../services/openrouter/index.ts').sendCourseInterviewDecision
       >[0]
-    ) =>
-      createInterviewSnapshot({
+    ) => {
+      await decisionGate;
+      return createInterviewSnapshot({
         generationRunId: 'course-run-1',
         projectId: 'document-project',
         result: {
@@ -2479,7 +2492,8 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
         },
         status: 'completed',
         wait: null,
-      })
+      });
+    }
   );
   const { controller, projectLibrary, state } = createControllerHarness({
     domain: {
@@ -2495,7 +2509,15 @@ test('confirmPlanGeneration approves the durable proposal and resumes its course
     },
   });
 
-  const result = await controller.confirmPlanGeneration();
+  const generation = controller.confirmPlanGeneration();
+  await vi.waitFor(() => assert.equal(sendCourseInterviewDecision.mock.calls.length, 1));
+
+  assert.equal(state.internalState.screenState, AppState.PLANNING);
+  assert.equal(state.internalState.workflowState.generatePlan.progress?.operation, 'plan');
+  assert.equal(state.internalState.workflowState.generatePlan.progress?.stage, 'sources');
+
+  completeDecision?.();
+  const result = await generation;
 
   assert.equal(result.outcome, 'planned');
   assert.equal(state.internalState.screenState, AppState.READING);

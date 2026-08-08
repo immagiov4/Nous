@@ -15,7 +15,7 @@ const TextModelSlotSchema = z.enum([
 ]);
 const ModelProviderSlotSchema = z.enum([...TextModelSlotSchema.options, 'image']);
 
-export const GlobalModelConfigSchema: z.ZodType<GlobalModelConfig> = z.object({
+export const GlobalModelConfigSchema = z.object({
   aiProvider: AiProviderSchema,
   aiProviderOverrides: z.partialRecord(ModelProviderSlotSchema, AiProviderSchema).optional(),
   artifactInteractiveModel: z.string(),
@@ -54,7 +54,13 @@ export const GlobalModelConfigSchema: z.ZodType<GlobalModelConfig> = z.object({
   progressModel: z.string(),
   progressReasoningEffort: ReasoningEffortSchema,
   researchModel: z.string(),
+  researchReasoningEffort: ReasoningEffortSchema,
   ttsModel: z.string(),
   ttsVoice: z.string(),
   updatedAt: z.string(),
-});
+}) satisfies z.ZodType<GlobalModelConfig>;
+
+const { researchReasoningEffort: _researchReasoningEffort, ...previousGlobalModelConfigShape } =
+  GlobalModelConfigSchema.shape;
+
+export const PreviousGlobalModelConfigSchema = z.object(previousGlobalModelConfigShape);

@@ -63,6 +63,7 @@ export interface GlobalModelConfig {
   progressModel: string;
   progressReasoningEffort: ReasoningEffort;
   researchModel: string;
+  researchReasoningEffort: ReasoningEffort;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
@@ -109,6 +110,7 @@ export type GlobalModelConfigPatch = Partial<
     | 'progressModel'
     | 'progressReasoningEffort'
     | 'researchModel'
+    | 'researchReasoningEffort'
     | 'ttsModel'
     | 'ttsVoice'
   >
@@ -162,6 +164,7 @@ const DEFAULT_MODEL_CONFIG: Omit<GlobalModelConfig, 'updatedAt'> = {
   progressModel: process.env.MODEL_PROGRESS || 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low',
   researchModel: process.env.MODEL_RESEARCH_PLANNER || 'perplexity/sonar-pro-search',
+  researchReasoningEffort: 'none',
   ttsModel: process.env.MODEL_TTS || DEFAULT_TTS_MODEL,
   ttsVoice: process.env.TTS_VOICE || DEFAULT_TTS_VOICE,
 };
@@ -212,6 +215,7 @@ interface PersistedModelConfigRow {
   progress_model?: string;
   progress_reasoning_effort?: string;
   research_model?: string;
+  research_reasoning_effort?: string;
   tts_model?: string;
   tts_voice?: string;
   updated_at?: string;
@@ -315,10 +319,7 @@ const PROVIDER_MODEL_FIELDS: Record<AiProvider, Record<TextModelSlot, keyof Glob
   },
 };
 
-const REASONING_EFFORT_FIELDS: Record<
-  Exclude<TextModelSlot, 'research'>,
-  keyof GlobalModelConfig
-> = {
+const REASONING_EFFORT_FIELDS: Record<TextModelSlot, keyof GlobalModelConfig> = {
   artifact: 'artifactReasoningEffort',
   artifactInteractive: 'artifactInteractiveReasoningEffort',
   assessment: 'assessmentReasoningEffort',
@@ -326,6 +327,7 @@ const REASONING_EFFORT_FIELDS: Record<
   course: 'courseReasoningEffort',
   lesson: 'lessonReasoningEffort',
   progress: 'progressReasoningEffort',
+  research: 'researchReasoningEffort',
 };
 
 export const resolveTextModelConfig = (
@@ -334,7 +336,10 @@ export const resolveTextModelConfig = (
 ): { model: string; reasoningEffort: ReasoningEffort } => {
   const provider = resolveAiProviderForSlot(config, slot);
   const model = config[PROVIDER_MODEL_FIELDS[provider][slot]];
-  const reasoningEffort = slot === 'research' ? 'none' : config[REASONING_EFFORT_FIELDS[slot]];
+  const reasoningEffort =
+    slot === 'research'
+      ? (config.researchReasoningEffort ?? 'none')
+      : config[REASONING_EFFORT_FIELDS[slot]];
   return {
     model: model as string,
     reasoningEffort: reasoningEffort as ReasoningEffort,
@@ -485,6 +490,9 @@ const buildPatchedGlobalModelConfig = (
   ...(readConfigValue(patch.researchModel)
     ? { researchModel: readConfigValue(patch.researchModel) }
     : {}),
+  ...(isReasoningEffort(patch.researchReasoningEffort)
+    ? { researchReasoningEffort: patch.researchReasoningEffort }
+    : {}),
   ...(readConfigValue(patch.ttsModel) ? { ttsModel: readConfigValue(patch.ttsModel) } : {}),
   ...(readConfigValue(patch.ttsVoice) ? { ttsVoice: readConfigValue(patch.ttsVoice) } : {}),
   updatedAt: new Date().toISOString(),
@@ -544,6 +552,7 @@ const buildPersistedModelConfig = (config: GlobalModelConfig): PersistedModelCon
   progress_model: config.progressModel,
   progress_reasoning_effort: config.progressReasoningEffort,
   research_model: config.researchModel,
+  research_reasoning_effort: config.researchReasoningEffort,
   tts_model: config.ttsModel,
   tts_voice: config.ttsVoice,
   updated_at: config.updatedAt,
@@ -643,6 +652,10 @@ const readPersistedModelConfig = (row: PersistedModelConfigRow): GlobalModelConf
       activeModelConfig.progressReasoningEffort
     ),
     researchModel: readConfigValue(row.research_model) || activeModelConfig.researchModel,
+    researchReasoningEffort: readReasoningEffort(
+      row.research_reasoning_effort,
+      activeModelConfig.researchReasoningEffort
+    ),
     ttsModel: usesUnavailableTtsModel
       ? DEFAULT_TTS_MODEL
       : persistedTtsModel || activeModelConfig.ttsModel,

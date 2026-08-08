@@ -65,7 +65,7 @@ const readThrownProviderFields = (value: unknown): ProviderDiagnosticFields => {
   const metadata = isRecord(providerError.metadata) ? providerError.metadata : {};
   const code = readDiagnosticCode(providerError.code);
   const parameter = readTechnicalIdentifier(providerError.param);
-  const providerCode = readDiagnosticCode(metadata.provider_code);
+  const providerCode = readDiagnosticCode(metadata.provider_error_code ?? metadata.provider_code);
   const providerErrorType = readTechnicalIdentifier(
     metadata.error_type ?? providerError.error_type ?? providerError.type
   );

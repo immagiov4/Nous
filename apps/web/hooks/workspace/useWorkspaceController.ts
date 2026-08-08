@@ -37,6 +37,7 @@ export const useWorkspaceController = ({
     ...domain,
     applyPersistedProjectRevision: projectLibrary.applyPersistedProjectRevision,
     assessmentMessages: controllerState.assessmentMessages,
+    courseProposal: controllerState.courseProposal,
     blockingMessage: selectBlockingMessage(controllerState.workflowState),
     currentProjectId: projectLibrary.currentProjectId,
     getCurrentProjectId: projectLibrary.getCurrentProjectId,

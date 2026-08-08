@@ -167,6 +167,34 @@ describe('course generation structured model adapter', () => {
     expect(outputSchema.properties.sources.items).not.toHaveProperty('format');
   });
 
+  test('removes the unsupported URI format before calling a hosted provider', async () => {
+    const urlSchema = z.object({ sources: z.array(z.url()) }).strict();
+    const runAiObject = vi.fn().mockResolvedValue({ sources: ['https://example.com/'] });
+    const generate = createCourseObjectGenerator({ runAiObject, runCodexObject: vi.fn() });
+    const config = {
+      ...getGlobalModelConfig(),
+      aiProvider: 'openrouter' as const,
+      aiProviderOverrides: { course: 'openrouter' as const },
+    };
+
+    await expect(
+      generate({
+        config,
+        developerInstructions: 'Restituisci le fonti.',
+        name: 'course_sources',
+        prompt: 'Elenca le fonti.',
+        schema: urlSchema,
+        signal: new AbortController().signal,
+        slot: 'course',
+      })
+    ).resolves.toEqual({ sources: ['https://example.com/'] });
+
+    const outputSchema = runAiObject.mock.calls[0]?.[0].outputSchema as {
+      properties: { sources: { items: Record<string, unknown> } };
+    };
+    expect(outputSchema.properties.sources.items).not.toHaveProperty('format');
+  });
+
   test('routes hosted providers through the AI SDK and makes invalid structure corrective', async () => {
     const runAiObject = vi.fn().mockRejectedValue(
       new NoObjectGeneratedError({

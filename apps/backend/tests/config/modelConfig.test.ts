@@ -99,6 +99,21 @@ describe('global AI provider model mapping', () => {
     expect(getGlobalModelConfig().openAiResearchModel).toBe('gpt-5-search-api');
   });
 
+  test('uses the configured research reasoning effort', () => {
+    const config = patchGlobalModelConfig({ researchReasoningEffort: 'high' });
+
+    expect(resolveTextModelConfig(config, 'research').reasoningEffort).toBe('high');
+  });
+
+  test('keeps resumable workflows without a research effort compatible', () => {
+    const { researchReasoningEffort: _researchReasoningEffort, ...previousConfig } =
+      getGlobalModelConfig();
+
+    expect(
+      resolveTextModelConfig(previousConfig as ReturnType<typeof getGlobalModelConfig>, 'research')
+    ).toMatchObject({ reasoningEffort: 'none' });
+  });
+
   test('resolves the Codex service tier from the configured model slots', () => {
     const config = patchGlobalModelConfig({ codexFastModelSlots: ['course', 'lesson'] });
 

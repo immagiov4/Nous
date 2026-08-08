@@ -87,6 +87,7 @@ const defaultModelConfig = {
   progressModel: 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low' as const,
   researchModel: 'perplexity/sonar-pro-search',
+  researchReasoningEffort: 'none' as const,
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   ttsVoice: 'Ara',
   updatedAt: '2026-07-07T00:00:00.000Z',
@@ -197,6 +198,14 @@ describe('AdminPanel', () => {
     expect(
       screen.getAllByRole('combobox', { name: /Ragionamento Avanzamento per/ })[0]
     ).toHaveValue('low');
+    const researchReasoningSelects = screen.getAllByRole('combobox', {
+      name: /Ragionamento Ricerca per/,
+    });
+    expect(researchReasoningSelects).toHaveLength(3);
+    researchReasoningSelects.forEach(select => {
+      expect(select).toBeEnabled();
+      expect(select).toHaveValue('none');
+    });
     expect(screen.queryByRole('combobox', { name: 'Ragionamento TTS' })).toBeNull();
   });
 
