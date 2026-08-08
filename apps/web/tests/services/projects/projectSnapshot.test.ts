@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { formatYouTubeTranscript } from '@shared/youtubeTranscript';
 import { test } from 'vitest';
 import {
   buildCourseSourceDescriptors,
@@ -33,6 +34,54 @@ test('an explicit project title survives normalization and stays aligned with th
   assert.equal(snapshot.title, 'Titolo scelto');
   assert.equal(snapshot.learningPlan?.title, 'Titolo scelto');
   assert.equal(exportProjectData(snapshot).title, 'Titolo scelto');
+});
+
+test('normalizes durable PDF image references without converting them to legacy data URLs', () => {
+  const imported = normalizeImportedProject({
+    documentAssets: {
+      imageCount: 1,
+      kind: 'pdf',
+      parsedAt: '2026-07-29T00:00:00.000Z',
+      sourceHash: 'source-hash',
+      usedImages: [
+        {
+          asset: {
+            byteSize: 4,
+            hash: 'b'.repeat(64),
+            id: 'a'.repeat(64),
+            mediaType: 'image/png',
+          },
+          id: 'pdf-image-logical-1',
+          pageNumber: 2,
+          sourceOrder: 1,
+          textAfter: 'after',
+          textBefore: 'before',
+        },
+      ],
+    },
+    id: 'durable-pdf-images',
+    version: '4.1',
+  });
+
+  assert.deepEqual(imported.documentAssets?.usedImages, [
+    {
+      asset: {
+        byteSize: 4,
+        hash: 'b'.repeat(64),
+        id: 'a'.repeat(64),
+        mediaType: 'image/png',
+      },
+      caption: undefined,
+      id: 'pdf-image-logical-1',
+      intrinsicHeight: undefined,
+      intrinsicWidth: undefined,
+      pageNumber: 2,
+      sourceOrder: 1,
+      textAfter: 'after',
+      textBefore: 'before',
+      textCurrent: '',
+    },
+  ]);
 });
 
 test('modern archive exports round-trip raw bytes, storage reference, and the complete index', () => {
@@ -238,13 +287,54 @@ test('normalizeImportedProject preserves validated YouTube clip evidence', () =>
     endSeconds: 92,
   });
   assert.deepEqual(imported.researchDossiersBySectionId?.lesson?.sources[0]?.youtubeTranscript, {
-    ranges: [{ startSeconds: 65, endSeconds: 93 }],
-    text: '[01:05-01:33] Traccio le linee di ombra.',
+    segments: [{ startSeconds: 65, endSeconds: 93, text: 'Traccio le linee di ombra.' }],
   });
   assert.deepEqual(imported.researchDossiersBySectionId?.lesson?.sources[1]?.videoClip, {
     startSeconds: 10,
     endSeconds: 400,
   });
+});
+
+test('new exports keep one inspectable transcript representation and round-trip overlapping cues', () => {
+  const realisticSegmentCount = 1_529;
+  const segments = Array.from({ length: realisticSegmentCount }, (_, index) => ({
+    endSeconds: index * 4 + 6,
+    startSeconds: index * 4,
+    text: `Cue numero ${index + 1}`,
+  }));
+  const snapshot = normalizeImportedProject({
+    id: 'video-export-v2',
+    researchDossiersBySectionId: {
+      lesson: {
+        sectionId: 'lesson',
+        sources: [
+          {
+            title: 'Lezione lunga',
+            url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+            youtubeTranscript: { segments },
+          },
+        ],
+        title: 'Lezione',
+      },
+    },
+  });
+
+  const exported = exportProjectData(snapshot);
+  const transcript = exported.researchDossiersBySectionId?.lesson?.sources[0]?.youtubeTranscript;
+  assert.deepEqual(transcript, { segments });
+  assert.equal(Object.hasOwn(transcript ?? {}, 'text'), false);
+  assert.equal(Object.hasOwn(transcript ?? {}, 'ranges'), false);
+  assert.deepEqual(
+    normalizeImportedProject(exported).researchDossiersBySectionId?.lesson?.sources[0]
+      ?.youtubeTranscript,
+    { segments }
+  );
+
+  const legacyTranscript = {
+    ranges: segments.map(({ endSeconds, startSeconds }) => ({ endSeconds, startSeconds })),
+    text: formatYouTubeTranscript(segments),
+  };
+  assert.ok(JSON.stringify(transcript).length < JSON.stringify(legacyTranscript).length);
 });
 
 test('normalizeImportedProject preserves YouTube research decisions and rationale', () => {

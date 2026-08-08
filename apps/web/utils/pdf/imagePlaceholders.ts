@@ -1,4 +1,9 @@
-import type { LessonGeneratedVisual, LessonImageRef, PdfImageAsset } from '../../types';
+import type {
+  LessonImageRef,
+  PdfDocumentImageAsset,
+  PdfImageAsset,
+  StoredLessonVisual,
+} from '../../types';
 
 const PDF_IMAGE_PLACEHOLDER_REGEX =
   /\{\{PDF_IMAGE:([^|}]+)(?:\|alt=([^|}]*))?(?:\|caption=([^}]*))?\}\}/g;
@@ -9,19 +14,19 @@ const LEGACY_PDF_IMAGE_REGEX = /<img\b[^>]*data-pdf-asset-id=(["'])([^"'<>]+)\1[
 
 const escapeHtml = (value: string): string =>
   value
-    .replaceAll(/&/g, '&amp;')
-    .replaceAll(/</g, '&lt;')
-    .replaceAll(/>/g, '&gt;')
-    .replaceAll(/"/g, '&quot;')
-    .replaceAll(/'/g, '&#39;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 
 const decodeHtml = (value: string): string =>
   value
-    .replaceAll(/&quot;/g, '"')
-    .replaceAll(/&#39;/g, "'")
-    .replaceAll(/&lt;/g, '<')
-    .replaceAll(/&gt;/g, '>')
-    .replaceAll(/&amp;/g, '&');
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&');
 
 const escapePlaceholderValue = (value: string): string => value.replaceAll(/[|}]/g, ' ').trim();
 
@@ -155,7 +160,7 @@ export interface ParsedMarkdownPart {
 export interface ParsedPdfImagePart {
   key: string;
   type: 'image';
-  asset: PdfImageAsset;
+  asset: PdfDocumentImageAsset;
   imageRef?: LessonImageRef;
   alt: string;
   caption?: string;
@@ -165,7 +170,7 @@ export interface ParsedGeneratedVisualPart {
   key: string;
   type: 'visual';
   title: string;
-  visual: LessonGeneratedVisual;
+  visual: StoredLessonVisual;
 }
 
 export type ParsedPdfContentPart =
@@ -221,9 +226,9 @@ const getPlaceholderMatches = (content: string): PlaceholderMatch[] => {
 
 export const parsePdfContentParts = (
   content: string,
-  lessonAssetsById: Record<string, PdfImageAsset> = {},
+  lessonAssetsById: Record<string, PdfDocumentImageAsset> = {},
   lessonImageRefsById: Record<string, LessonImageRef> = {},
-  generatedVisualsById: Record<string, LessonGeneratedVisual> = {}
+  generatedVisualsById: Record<string, StoredLessonVisual> = {}
 ): ParsedPdfContentPart[] => {
   const parts: ParsedPdfContentPart[] = [];
   let lastIndex = 0;
@@ -260,7 +265,7 @@ export const parsePdfContentParts = (
         parts.push({
           key: `visual-${normalizedVisualId}-${matchIndex}`,
           type: 'visual',
-          title: String(match.titleFallback || '').trim() || visual.title,
+          title: String(match.titleFallback || '').trim() || visual.title || 'Esempio visuale',
           visual,
         });
       }

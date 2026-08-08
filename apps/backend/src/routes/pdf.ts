@@ -69,11 +69,12 @@ router.post('/extract-images', async (req, res) => {
       });
     }
 
-    const images = await extractPdfImages(fileData, limit, partialPages);
+    const result = await extractPdfImages(fileData, limit, partialPages);
     return res.json({
       success: true,
-      imageCount: images.length,
-      images,
+      failedPages: result.failedPages,
+      imageCount: result.images.length,
+      images: result.images,
     });
   } catch (error) {
     console.error('[Backend] PDF image extraction failed:', error);

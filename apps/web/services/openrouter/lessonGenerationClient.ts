@@ -1,18 +1,76 @@
 import type {
-  DurableLessonGenerationResult,
-  GenerationJobResponse,
-  GenerationJobWire,
-  LessonGenerationJobStage,
-} from '@shared/generationJobContract';
+  LessonWorkflowResult,
+  LessonWorkflowSnapshot,
+  LessonWorkflowStage,
+} from '@shared/lessonWorkflowContract';
 
 import type { LessonNode, PdfDocumentAssets, ResearchLessonDossier } from '../../types.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
+import {
+  acquireWorkflowRequestKey,
+  assertWorkflowPollResponse,
+  isDefinitiveWorkflowStartRejection,
+  isWorkflowSnapshotEnvelope,
+  pollWorkflow,
+  readWorkflowJson,
+  readWorkflowPollJson,
+  resolveWorkflowFailureMessage,
+} from './workflowClientTransport.ts';
 
 const LESSON_GENERATION_ERROR = 'La generazione della lezione non è riuscita. Riprova.';
 const LESSON_GENERATION_TIMEOUT_ERROR =
   'La generazione della lezione ha superato il tempo disponibile. Riprova.';
-const LESSON_REGENERATION_REQUEST_KEY_PREFIX = 'nous:lesson-regeneration-request:';
+const LESSON_TERMINAL_PHASE_MESSAGES: Readonly<Record<string, string>> = {
+  lesson_document_sources_failed:
+    'Non è stato possibile elaborare le immagini delle fonti PDF. Riprova.',
+  lesson_draft_failed: 'Non è stato possibile creare la bozza della lezione. Riprova.',
+  lesson_finalization_failed:
+    'Non è stato possibile completare il salvataggio della lezione. Riprova.',
+  lesson_learning_aids_failed: 'Non è stato possibile preparare gli aiuti didattici. Riprova.',
+  lesson_normalization_failed:
+    'Non è stato possibile preparare il contenuto finale della lezione. Riprova.',
+  lesson_persistence_failed: 'Non è stato possibile salvare la lezione. Riprova.',
+  lesson_preparation_failed:
+    'Non è stato possibile preparare la generazione della lezione. Riprova.',
+  lesson_research_failed: 'La ricerca per la lezione non è riuscita. Riprova.',
+  lesson_review_failed: 'La verifica della lezione non è riuscita. Riprova.',
+  lesson_source_coverage_failed:
+    'Non è stato possibile verificare la copertura delle fonti. Riprova.',
+  lesson_youtube_research_failed: 'La ricerca nei video non è riuscita. Riprova.',
+  sublesson_planning_failed:
+    'Non è stato possibile preparare la lezione di approfondimento. Riprova.',
+  sublesson_source_mapping_failed:
+    'Non è stato possibile preparare le fonti della lezione di approfondimento. Riprova.',
+};
+const LESSON_REQUEST_KEY_PREFIX = 'nous:lesson-workflow-request:';
+const LESSON_WORKFLOW_FAILURE_KINDS: ReadonlySet<string> = new Set([
+  'corrective',
+  'operational',
+  'permanent',
+]);
+const LESSON_WORKFLOW_STAGES: ReadonlySet<string> = new Set([
+  'sources',
+  'structure',
+  'drafting',
+  'quiz',
+  'verification',
+]);
+const LESSON_WORKFLOW_STATUSES: ReadonlySet<string> = new Set([
+  'completed',
+  'failed',
+  'queued',
+  'running',
+]);
+export const LESSON_SOURCE_UNAVAILABLE_MESSAGE =
+  'Il materiale sorgente originale non e disponibile. Ricollegalo per generare o rigenerare le lezioni.' as const;
+
+export class LessonSourceUnavailableError extends Error {
+  constructor() {
+    super(LESSON_SOURCE_UNAVAILABLE_MESSAGE);
+    this.name = 'LessonSourceUnavailableError';
+  }
+}
 
 export class LessonGenerationBusyError extends Error {
   constructor(readonly activeSectionId?: string) {
@@ -22,7 +80,7 @@ export class LessonGenerationBusyError extends Error {
 }
 
 export type DurableLessonResult = Omit<
-  DurableLessonGenerationResult,
+  LessonWorkflowResult,
   | 'contentBlocks'
   | 'documentAssets'
   | 'generatedVisuals'
@@ -42,23 +100,22 @@ export type DurableLessonResult = Omit<
   visualPlanningDecision?: LessonNode['visualPlanningDecision'];
 };
 
-const readSectionId = (job: GenerationJobWire): string | undefined => {
-  const payload = job.payload;
-  if (!payload || typeof payload !== 'object') return undefined;
-  const sectionId = (payload as Record<string, unknown>).sectionId;
-  return typeof sectionId === 'string' ? sectionId : undefined;
-};
+export interface DurableSublessonFocus {
+  annotationNote?: string;
+  contextAfter?: string;
+  contextBefore?: string;
+  instructions: string;
+  selectedText: string;
+}
 
 const parseCompletedResult = (
-  job: GenerationJobWire,
+  job: LessonWorkflowSnapshot,
   projectId: string,
   sectionId: string
 ): DurableLessonResult => {
-  const result = job.result;
-  if (!result || typeof result !== 'object') throw new TypeError(LESSON_GENERATION_ERROR);
-  const lesson = result as Partial<DurableLessonGenerationResult>;
+  const lesson = job.result;
   if (
-    lesson.projectId !== projectId ||
+    lesson?.projectId !== projectId ||
     lesson.sectionId !== sectionId ||
     typeof lesson.content !== 'string' ||
     !lesson.content.trim() ||
@@ -84,6 +141,7 @@ const parseCompletedResult = (
       : {}),
     quiz: (Array.isArray(lesson.quiz) ? lesson.quiz : []) as NonNullable<LessonNode['quiz']>,
     sectionId,
+    warnings: lesson.warnings,
     ...(lesson.alreadyCompleted ? { alreadyCompleted: true } : {}),
     ...(lesson.documentAssets !== undefined
       ? { documentAssets: lesson.documentAssets as PdfDocumentAssets | null }
@@ -101,149 +159,185 @@ const parseCompletedResult = (
   };
 };
 
-const readJobResponse = async (response: Response): Promise<GenerationJobResponse> =>
-  (await response.json().catch(() => ({ success: false }))) as GenerationJobResponse;
-
-const regenerationStorageKey = (projectId: string, sectionId: string): string =>
-  `${LESSON_REGENERATION_REQUEST_KEY_PREFIX}${projectId}:${sectionId}`;
-
-const readOrCreateRegenerationRequestKey = (projectId: string, sectionId: string): string => {
-  const storageKey = regenerationStorageKey(projectId, sectionId);
-  try {
-    const existing = globalThis.sessionStorage.getItem(storageKey);
-    if (existing) return existing;
-    const created = globalThis.crypto.randomUUID();
-    globalThis.sessionStorage.setItem(storageKey, created);
-    return created;
-  } catch {
-    return globalThis.crypto.randomUUID();
-  }
-};
-
-const clearRegenerationRequestKey = (projectId: string, sectionId: string): void => {
-  try {
-    globalThis.sessionStorage.removeItem(regenerationStorageKey(projectId, sectionId));
-  } catch {
-    // Session storage is optional; the backend dedupe key still covers the current request.
-  }
-};
-
-const reportLessonStage = (
-  stage: GenerationJobWire['stage'],
-  onProgressStage?: (stage: LessonGenerationJobStage) => void
-): void => {
-  if (
-    stage === 'sources' ||
-    stage === 'structure' ||
-    stage === 'drafting' ||
-    stage === 'quiz' ||
-    stage === 'verification'
-  ) {
-    onProgressStage?.(stage);
-  }
-};
-
-const waitForTerminalJob = async (
-  job: GenerationJobWire,
-  onProgressStage?: (stage: LessonGenerationJobStage) => void
-): Promise<GenerationJobResponse> => {
-  let currentJob = job;
-  while (currentJob.status === 'queued' || currentJob.status === 'running') {
-    reportLessonStage(currentJob.stage, onProgressStage);
-    const response = await fetchWithSupabaseAuth(
-      `${getBackendUrl()}/api/generation-jobs/${encodeURIComponent(currentJob.id)}/wait?afterStage=${encodeURIComponent(currentJob.stage)}`,
-      { cache: 'no-store' }
-    );
-    if (!response.ok) throw new Error(LESSON_GENERATION_ERROR);
-    const payload = await readJobResponse(response);
-    if (!payload.job) throw new Error(LESSON_GENERATION_ERROR);
-    currentJob = payload.job;
-  }
-  reportLessonStage(currentJob.stage, onProgressStage);
-  return { job: currentJob, success: true };
-};
-
-const readLatestLessonJob = async (
-  projectId: string,
-  sectionId: string
-): Promise<GenerationJobWire | null> => {
-  const response = await fetchWithSupabaseAuth(
-    `${getBackendUrl()}/api/generation-jobs/lessons/${encodeURIComponent(projectId)}/${encodeURIComponent(sectionId)}/latest`,
-    { cache: 'no-store' }
+const isLessonWorkflowSnapshot = (value: unknown): value is LessonWorkflowSnapshot => {
+  if (!isWorkflowSnapshotEnvelope(value)) return false;
+  const failure = value.failure;
+  return (
+    typeof value.retrying === 'boolean' &&
+    typeof value.sectionId === 'string' &&
+    Boolean(value.sectionId.trim()) &&
+    LESSON_WORKFLOW_STAGES.has(value.stage) &&
+    LESSON_WORKFLOW_STATUSES.has(value.status) &&
+    (failure === undefined ||
+      (typeof failure === 'object' &&
+        failure !== null &&
+        !Array.isArray(failure) &&
+        'code' in failure &&
+        typeof failure.code === 'string' &&
+        Boolean(failure.code.trim()) &&
+        'kind' in failure &&
+        typeof failure.kind === 'string' &&
+        LESSON_WORKFLOW_FAILURE_KINDS.has(failure.kind)))
   );
-  if (response.status === 404) return null;
-  const payload = await readJobResponse(response);
-  if (!response.ok || !payload.job) throw new Error(LESSON_GENERATION_ERROR);
-  return payload.job;
 };
 
-const throwForTerminalFailure = (job: GenerationJobWire | undefined): never => {
-  throw new Error(
-    job?.errorCode === 'generation_timeout'
+const readWorkflowJob = (
+  payload: unknown,
+  requireSuccess = true
+): LessonWorkflowSnapshot | null => {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+  const response = payload as Record<string, unknown>;
+  if (requireSuccess && response.success !== true) return null;
+  return isLessonWorkflowSnapshot(response.job) ? response.job : null;
+};
+
+const waitForTerminalRun = async (
+  initialJob: LessonWorkflowSnapshot,
+  onProgressStage?: (stage: LessonWorkflowStage) => void,
+  onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void
+): Promise<LessonWorkflowSnapshot> => {
+  let reportedStage: LessonWorkflowStage | null = null;
+  return pollWorkflow({
+    initialState: initialJob,
+    isTerminal: job => job.status !== 'queued' && job.status !== 'running',
+    onState: job => {
+      onWorkflowSnapshot?.(job);
+      if (job.stage === reportedStage) return;
+      onProgressStage?.(job.stage);
+      reportedStage = job.stage;
+    },
+    readState: async currentJob => {
+      const response = await fetchWithSupabaseAuth(
+        `${getBackendUrl()}/api/lesson-workflows/runs/${encodeURIComponent(currentJob.id)}`,
+        { cache: 'no-store' }
+      );
+      assertWorkflowPollResponse(response, LESSON_GENERATION_ERROR);
+      const job = readWorkflowJob(await readWorkflowPollJson(response, LESSON_GENERATION_ERROR));
+      if (
+        job?.id !== currentJob.id ||
+        job.projectId !== currentJob.projectId ||
+        job.sectionId !== currentJob.sectionId
+      ) {
+        throw new Error(LESSON_GENERATION_ERROR);
+      }
+      return job;
+    },
+  });
+};
+
+const throwForTerminalFailure = (job: LessonWorkflowSnapshot): never => {
+  if (job.errorCode === 'lesson_source_unavailable') {
+    throw new LessonSourceUnavailableError();
+  }
+  const fallbackMessage =
+    job.errorCode === 'workflow_step_timeout'
       ? LESSON_GENERATION_TIMEOUT_ERROR
-      : LESSON_GENERATION_ERROR
+      : (job.errorCode && LESSON_TERMINAL_PHASE_MESSAGES[job.errorCode]) || LESSON_GENERATION_ERROR;
+  throw new Error(resolveWorkflowFailureMessage(job.errorCode, fallbackMessage));
+};
+
+interface DurableLessonRequest {
+  endpoint: 'lessons' | 'sublessons';
+  expectedSectionId?: string;
+  onProgressStage?: (stage: LessonWorkflowStage) => void;
+  onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void;
+  payload: Record<string, unknown>;
+  projectId: string;
+  requestIdentity: string;
+}
+
+const runDurableLessonRequest = async ({
+  endpoint,
+  expectedSectionId,
+  onProgressStage,
+  onWorkflowSnapshot,
+  payload: requestPayload,
+  projectId,
+  requestIdentity,
+}: DurableLessonRequest): Promise<DurableLessonResult> => {
+  const request = acquireWorkflowRequestKey(
+    `${LESSON_REQUEST_KEY_PREFIX}${projectId}:${requestIdentity}`
   );
+  const response = await fetchWithSupabaseAuth(
+    `${getBackendUrl()}/api/lesson-workflows/${endpoint}`,
+    {
+      body: JSON.stringify({ ...requestPayload, projectId, requestKey: request.requestKey }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    }
+  );
+  if (isDefinitiveWorkflowStartRejection(response)) request.clear();
+  const payload = await readWorkflowJson(response);
+  const busyJob = response.status === 409 ? readWorkflowJob(payload, false) : null;
+  if (busyJob) {
+    throw new LessonGenerationBusyError(busyJob.sectionId);
+  }
+  const job = readWorkflowJob(payload);
+  if (
+    !response.ok ||
+    job?.projectId !== projectId ||
+    (expectedSectionId !== undefined && job.sectionId !== expectedSectionId)
+  ) {
+    throw new Error(LESSON_GENERATION_ERROR);
+  }
+
+  const terminalJob = await waitForTerminalRun(job, onProgressStage, onWorkflowSnapshot);
+  request.clear();
+  if (terminalJob.status !== 'completed') throwForTerminalFailure(terminalJob);
+  return parseCompletedResult(terminalJob, projectId, expectedSectionId ?? terminalJob.sectionId);
 };
 
 export const generateDurableLesson = async ({
   forceRegenerate = false,
   onProgressStage,
+  onWorkflowSnapshot,
   projectId,
   sectionId,
 }: {
   forceRegenerate?: boolean;
-  onProgressStage?: (stage: LessonGenerationJobStage) => void;
+  onProgressStage?: (stage: LessonWorkflowStage) => void;
+  onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void;
   projectId: string;
   sectionId: string;
-}): Promise<DurableLessonResult> => {
-  if (!forceRegenerate) {
-    const latestJob = await readLatestLessonJob(projectId, sectionId);
-    if (latestJob) {
-      const latestPayload = await waitForTerminalJob(latestJob, onProgressStage);
-      if (latestPayload.job?.status === 'completed') {
-        return parseCompletedResult(latestPayload.job, projectId, sectionId);
-      }
-      if (
-        latestPayload.job?.status === 'failed' &&
-        latestPayload.job.errorCode !== 'backend_restarted'
-      ) {
-        throwForTerminalFailure(latestPayload.job);
-      }
-    }
-  }
-  const regenerationRequestKey = forceRegenerate
-    ? readOrCreateRegenerationRequestKey(projectId, sectionId)
-    : undefined;
-  const queuedResponse = await fetchWithSupabaseAuth(
-    `${getBackendUrl()}/api/generation-jobs/lessons`,
-    {
-      body: JSON.stringify({
-        forceRegenerate,
-        projectId,
-        ...(regenerationRequestKey ? { requestKey: regenerationRequestKey } : {}),
-        sectionId,
-      }),
-      headers: { 'Content-Type': 'application/json' },
-      method: 'POST',
-    }
-  );
-  let payload = await readJobResponse(queuedResponse);
-  if (queuedResponse.status === 409 && payload.job) {
-    if (forceRegenerate) clearRegenerationRequestKey(projectId, sectionId);
-    throw new LessonGenerationBusyError(readSectionId(payload.job));
-  }
-  if (!queuedResponse.ok || !payload.job) throw new Error(LESSON_GENERATION_ERROR);
+}): Promise<DurableLessonResult> =>
+  runDurableLessonRequest({
+    endpoint: 'lessons',
+    expectedSectionId: sectionId,
+    onProgressStage,
+    onWorkflowSnapshot,
+    payload: { forceRegenerate, sectionId },
+    projectId,
+    requestIdentity: sectionId,
+  });
 
-  payload = await waitForTerminalJob(payload.job, onProgressStage);
-
-  const terminalJob = payload.job;
-  if (!terminalJob) throw new Error(LESSON_GENERATION_ERROR);
-  if (terminalJob.status !== 'completed') {
-    if (forceRegenerate && terminalJob?.status === 'failed') {
-      clearRegenerationRequestKey(projectId, sectionId);
-    }
-    throwForTerminalFailure(terminalJob);
-  }
-  if (forceRegenerate) clearRegenerationRequestKey(projectId, sectionId);
-  return parseCompletedResult(terminalJob, projectId, sectionId);
-};
+export const generateDurableSublesson = async ({
+  annotationNote,
+  contextAfter,
+  contextBefore,
+  instructions,
+  onProgressStage,
+  onWorkflowSnapshot,
+  parentSectionId,
+  projectId,
+  selectedText,
+}: DurableSublessonFocus & {
+  onProgressStage?: (stage: LessonWorkflowStage) => void;
+  onWorkflowSnapshot?: (snapshot: LessonWorkflowSnapshot) => void;
+  parentSectionId: string;
+  projectId: string;
+}): Promise<DurableLessonResult> =>
+  runDurableLessonRequest({
+    endpoint: 'sublessons',
+    onProgressStage,
+    onWorkflowSnapshot,
+    payload: {
+      annotationNote,
+      contextAfter,
+      contextBefore,
+      instructions,
+      parentSectionId,
+      selectedText,
+    },
+    projectId,
+    requestIdentity: `sublesson:${parentSectionId}`,
+  });

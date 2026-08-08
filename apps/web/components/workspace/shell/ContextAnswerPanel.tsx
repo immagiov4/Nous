@@ -33,7 +33,7 @@ import { getBackendUrl } from '../../../services/openrouter/config.ts';
 import type {
   LearningArtifactRenderPayload,
   LearningSection,
-  LessonGeneratedVisual,
+  StoredLessonVisual,
 } from '../../../types.ts';
 import { buildConversationNoteSaveCandidates } from '../../../utils/context/conversationNote.ts';
 import {
@@ -46,6 +46,10 @@ import {
   getUiMessageText,
   hasSuccessfulToolOutput,
 } from '../../../utils/uiChat.ts';
+import {
+  getStoredLessonVisualKind,
+  isStoredLessonVisualKind,
+} from '../../../utils/visuals/storedLessonVisual.ts';
 import type {
   ChatArtifactActionRequest,
   ChatArtifactRegenerateRequest,
@@ -97,7 +101,7 @@ interface CurrentLessonArtifactsToolInput {
 interface GenerateCurrentLessonArtifactInput {
   mode?: 'new' | 'replacement-draft';
   prompt: string;
-  rasterImageRequested?: boolean;
+  requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
   revisionInstructions?: string;
   sourceArtifactId?: string;
 }
@@ -170,7 +174,9 @@ const readGenerateCurrentLessonArtifactInput = (
     ? {
         mode: candidate.mode === 'replacement-draft' ? 'replacement-draft' : 'new',
         prompt: candidate.prompt.trim(),
-        rasterImageRequested: candidate.rasterImageRequested === true,
+        requestedVisualKind: isStoredLessonVisualKind(candidate.requestedVisualKind)
+          ? candidate.requestedVisualKind
+          : undefined,
         revisionInstructions:
           typeof candidate.revisionInstructions === 'string'
             ? candidate.revisionInstructions.trim()
@@ -261,13 +267,13 @@ interface ContextAnswerPanelProps {
   ) => Promise<SaveConversationNoteResult>;
   /** Saves a generated visual artifact directly as a lesson-level annotation. */
   readonly onSaveArtifactToLesson?: (
-    visual: LessonGeneratedVisual,
+    visual: StoredLessonVisual,
     artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
   ) => Promise<void>;
   /** Replaces an already saved generated visual while preserving its artifact identity. */
   readonly onReplaceArtifactInLesson?: (
     artifactId: string,
-    visual: LessonGeneratedVisual
+    visual: StoredLessonVisual
   ) => Promise<void>;
 }
 
@@ -330,7 +336,7 @@ function ContextAnswerPanelSession({
     Record<string, LearningArtifactRenderPayload[]>
   >({});
   const [generatedVisualsByArtifactId, setGeneratedVisualsByArtifactId] = useState<
-    Record<string, LessonGeneratedVisual>
+    Record<string, StoredLessonVisual>
   >({});
   const [artifactRegenerationStates, setArtifactRegenerationStates] =
     useState<ChatArtifactRegenerationStates>({});
@@ -548,7 +554,7 @@ function ContextAnswerPanelSession({
             projectTitle: contextAnswer.projectTitle || t('Corso'),
             prompt: artifactInput.prompt,
             requestKey: toolCall.toolCallId,
-            rasterImageRequested: artifactInput.rasterImageRequested,
+            requestedVisualKind: artifactInput.requestedVisualKind,
             revisionInstructions: artifactInput.revisionInstructions,
             selectedText: currentState.selectedText,
             sourceArtifact,
@@ -811,7 +817,8 @@ function ContextAnswerPanelSession({
         prompt: t('Modifica l artefatto "{artifactTitle}".', {
           artifactTitle: payload.summary.title,
         }),
-        requestKey: `context-replacement-${artifactId}-${Date.now()}`,
+        requestKey: `context-replacement-${artifactId}`,
+        requestedVisualKind: getStoredLessonVisualKind(payload.visual),
         revisionInstructions: instructions,
         selectedText: currentState?.selectedText,
         sourceArtifact: payload,

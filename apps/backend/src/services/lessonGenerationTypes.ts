@@ -1,4 +1,3 @@
-import type { LessonGenerationJobStage } from '@shared/generationJobContract';
 import type { LessonInstructionPackId } from '@shared/lessonInstructionPacks';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
@@ -44,7 +43,7 @@ export type LessonGenerationDraftBlock =
   | { slotId: string; type: 'generated-visual' };
 
 export type NormalizedLessonBlock =
-  | LessonGenerationDraftBlock
+  | Exclude<LessonGenerationDraftBlock, { type: 'generated-visual' }>
   | {
       retryPlan: LessonVisualRetryPlan;
       slotId: string;
@@ -74,7 +73,6 @@ export interface LessonGenerationInput {
   imageCandidates: LessonImageCandidate[];
   instructionPacks: LessonInstructionPackId[];
   language: string;
-  onProgressStage?: (stage: LessonGenerationJobStage) => Promise<void>;
   pedagogicalContext: string;
   previousLessonTitles: string[];
   researchContext: string;
@@ -84,5 +82,5 @@ export interface LessonGenerationInput {
   sources: ResearchSource[];
 }
 
-export type GenerateLesson = (input: LessonGenerationInput) => Promise<LessonGenerationDraft>;
+export type GenerateLessonContent = (input: LessonGenerationInput) => Promise<LessonContentDraft>;
 export type GenerateResearch = (input: LessonGenerationInput) => Promise<LessonResearchSummary>;

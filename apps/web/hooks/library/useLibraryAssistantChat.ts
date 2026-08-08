@@ -22,7 +22,6 @@ import { getBackendUrl } from '../../services/openrouter/config.ts';
 import type {
   HomeChatToolPreferences,
   LearningArtifactRenderPayload,
-  LessonGeneratedVisual,
   LibraryContextRef,
   LibraryFolder,
   LibraryScopeSummary,
@@ -30,10 +29,15 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
   SectionAnnotationArtifactRef,
+  StoredLessonVisual,
 } from '../../types.ts';
 import { flattenLessons } from '../../utils/learning/pathNodes.ts';
 import { buildLibraryScopeSummary } from '../../utils/library/assistant.ts';
 import { hasSuccessfulToolOutput } from '../../utils/uiChat.ts';
+import {
+  getStoredLessonVisualKind,
+  isStoredLessonVisualKind,
+} from '../../utils/visuals/storedLessonVisual.ts';
 
 interface LibraryAssistantTools {
   [key: string]: {
@@ -90,7 +94,7 @@ interface UseLibraryAssistantChatArgs {
   projects: SavedProjectMeta[];
   saveLessonArtifactNote?: (input: {
     artifactRefs?: SectionAnnotationArtifactRef[];
-    generatedVisuals?: LessonGeneratedVisual[];
+    generatedVisuals?: StoredLessonVisual[];
     lessonId: string;
     note: string;
     projectId: string;
@@ -99,7 +103,7 @@ interface UseLibraryAssistantChatArgs {
     artifactId: string;
     lessonId: string;
     projectId: string;
-    visual: LessonGeneratedVisual;
+    visual: StoredLessonVisual;
   }) => Promise<{ error?: string; replaced: boolean }>;
   tree: LibraryTree;
 }
@@ -109,6 +113,7 @@ interface GenerateLearningArtifactInput {
   mode?: 'new' | 'replacement-draft';
   projectId: string;
   prompt: string;
+  requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
   revisionInstructions?: string;
   sourceArtifactId?: string;
 }
@@ -147,6 +152,9 @@ const readGenerateLearningArtifactInput = (
         mode: candidate.mode === 'replacement-draft' ? 'replacement-draft' : 'new',
         projectId: candidate.projectId,
         prompt: candidate.prompt.trim(),
+        requestedVisualKind: isStoredLessonVisualKind(candidate.requestedVisualKind)
+          ? candidate.requestedVisualKind
+          : undefined,
         revisionInstructions:
           typeof candidate.revisionInstructions === 'string'
             ? candidate.revisionInstructions.trim()
@@ -197,7 +205,7 @@ export const useLibraryAssistantChat = ({
     Record<string, LearningArtifactRenderPayload[]>
   >({});
   const [generatedVisualsByArtifactId, setGeneratedVisualsByArtifactId] = useState<
-    Record<string, LessonGeneratedVisual>
+    Record<string, StoredLessonVisual>
   >({});
   const [webSearch, setWebSearch] = useState(false);
   const [generateArtifacts, setGenerateArtifacts] = useState(false);
@@ -356,6 +364,7 @@ export const useLibraryAssistantChat = ({
             projectId: snapshot.id,
             projectTitle: snapshot.learningPlan.title,
             prompt: input.prompt,
+            requestedVisualKind: input.requestedVisualKind,
             requestKey: toolCall.toolCallId,
             revisionInstructions: input.revisionInstructions,
             sourceArtifact,
@@ -519,7 +528,8 @@ export const useLibraryAssistantChat = ({
       prompt: t('Modifica l artefatto "{artifactTitle}".', {
         artifactTitle: payload.summary.title,
       }),
-      requestKey: `library-replacement-${artifactId}-${Date.now()}`,
+      requestKey: `library-replacement-${artifactId}`,
+      requestedVisualKind: getStoredLessonVisualKind(payload.visual),
       revisionInstructions: instructions,
       sourceArtifact: payload,
       sourceArtifactId: artifactId,

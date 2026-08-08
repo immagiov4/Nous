@@ -14,7 +14,9 @@ export const createWorkspaceController = (
   });
   const projectLifecycleCommands = createProjectLifecycleCommands(context, {
     openSection: sectionCommands.openSection,
+    resumePlanGeneration: assessmentCommands.resumePlanGeneration,
     startAssessment: assessmentCommands.startAssessment,
+    startLearnAssessment: assessmentCommands.startLearnAssessment,
   });
 
   return {
@@ -24,7 +26,6 @@ export const createWorkspaceController = (
     confirmPlanGeneration: assessmentCommands.confirmPlanGeneration,
     exportProject: context.projectLibrary.downloadProject,
     startHomeChat: assessmentCommands.startHomeChat,
-    startLearnJourney: assessmentCommands.startLearnJourney,
     submitAssessment: assessmentCommands.submitAssessment,
   };
 };

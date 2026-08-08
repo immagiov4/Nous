@@ -11,7 +11,7 @@ import {
   withUpdatedExerciseDeliverable,
 } from '../services/exercises/plan.ts';
 import { getExercisePrerequisiteGaps } from '../services/openrouter/exercises/brief.ts';
-import { retryGeneratedVisualSlot } from '../services/openrouter/lessonImages.ts';
+import { retryDurableLessonVisual } from '../services/openrouter/lessonVisualRetryClient.ts';
 import type {
   ExerciseAttachment,
   LessonGeneratedVisualBlock,
@@ -24,7 +24,6 @@ import {
 } from '../utils/context/sourceMaterial.ts';
 import { collectSectionLearningArtifactPayloads } from '../utils/learning/artifacts.ts';
 import { findPathNodeById, flattenLessons } from '../utils/learning/pathNodes.ts';
-import { completeGeneratedVisualRetry } from '../utils/reader/lessonContentBlocks.ts';
 
 type WorkspaceController = ReturnType<typeof useWorkspaceController>;
 type WorkspaceReaderState = ReturnType<typeof useWorkspaceReaderState>;
@@ -45,20 +44,26 @@ interface UseReaderShellPropsArgs {
 interface GeneratedVisualRetryContext {
   activeSection: LessonNode | null;
   activeSectionId: string | null;
-  generationNotes?: string;
+  applyPersistedProjectRevision: (args: {
+    projectId: string;
+    revision: number;
+  }) => Promise<boolean>;
   lessonWorkflowRequestId: number;
-  patchSectionLessonContent: (
-    sectionId: string,
-    patch: Pick<LessonNode, 'contentBlocks' | 'generatedVisuals'>
-  ) => Promise<boolean>;
   projectId: string | null;
-  sectionContent: string;
-  updateSection: (sectionId: string, updater: (section: LessonNode) => LessonNode) => void;
 }
 
 interface GeneratedVisualRetryCoordinator {
+  dispose: () => void;
   retry: (block: LessonGeneratedVisualBlock) => Promise<boolean>;
   setContext: (context: GeneratedVisualRetryContext) => void;
+}
+
+interface ActiveGeneratedVisualRetry {
+  abortController: AbortController;
+  projectId: string;
+  promise: Promise<boolean>;
+  sectionId: string;
+  workflowRequestId: number;
 }
 
 const findRetryBlock = (
@@ -80,25 +85,30 @@ const matchesRetryOrigin = (
   context.activeSectionId === sectionId &&
   context.lessonWorkflowRequestId === workflowRequestId;
 
-export const createGeneratedVisualRetryHandler = ({
-  getContext,
-  retrySlot = retryGeneratedVisualSlot,
-  setCurrentSection,
+const isAbortError = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'AbortError';
+
+export const createGeneratedVisualRetryCoordinator = ({
+  initialContext,
+  retryVisual = retryDurableLessonVisual,
 }: {
-  getContext: () => GeneratedVisualRetryContext;
-  retrySlot?: typeof retryGeneratedVisualSlot;
-  setCurrentSection: (section: LessonNode) => void;
-}): ((block: LessonGeneratedVisualBlock) => Promise<boolean>) => {
-  const queues = new Map<string, Promise<void>>();
+  initialContext: GeneratedVisualRetryContext;
+  retryVisual?: typeof retryDurableLessonVisual;
+}): GeneratedVisualRetryCoordinator => {
+  let currentContext = initialContext;
+  let disposed = false;
+  const activeRetries = new Map<string, ActiveGeneratedVisualRetry>();
 
   const runRetry = async (
     block: LessonGeneratedVisualBlock,
-    projectId: string | null,
+    projectId: string,
     sectionId: string,
-    workflowRequestId: number
+    workflowRequestId: number,
+    signal: AbortSignal
   ): Promise<boolean> => {
-    let context = getContext();
+    const context = currentContext;
     if (
+      disposed ||
       !matchesRetryOrigin(context, projectId, sectionId, workflowRequestId) ||
       !context.activeSection
     )
@@ -106,91 +116,107 @@ export const createGeneratedVisualRetryHandler = ({
     const currentBlock = findRetryBlock(context.activeSection, block.slotId);
     if (!currentBlock?.retryPlan) return false;
 
-    const visual = await retrySlot({
-      contentMarkdown: context.activeSection.content || context.sectionContent,
-      generationNotes: context.generationNotes,
-      hasPdfImages: Boolean(context.activeSection.imageRefs?.length),
-      plan: currentBlock.retryPlan,
-      sectionDescription: context.activeSection.description,
-      sectionTitle: context.activeSection.title,
-    });
-    if (!visual) return false;
-
-    context = getContext();
+    let result: Awaited<ReturnType<typeof retryVisual>>;
+    try {
+      result = await retryVisual(
+        {
+          projectId,
+          sectionId,
+          slotId: currentBlock.slotId,
+        },
+        { signal }
+      );
+    } catch (error) {
+      if (isAbortError(error)) return false;
+      throw error;
+    }
+    const latestContext = currentContext;
     if (
-      !matchesRetryOrigin(context, projectId, sectionId, workflowRequestId) ||
-      !context.activeSection
+      disposed ||
+      !matchesRetryOrigin(latestContext, projectId, sectionId, workflowRequestId) ||
+      !latestContext.activeSection
     )
       return false;
-    if (!findRetryBlock(context.activeSection, block.slotId)) return false;
-
-    const contentBlocks = completeGeneratedVisualRetry(
-      context.activeSection.contentBlocks || [],
-      block.slotId,
-      visual.id
-    );
-    const generatedVisuals = [
-      ...(context.activeSection.generatedVisuals || []).filter(
-        candidate => candidate.id !== visual.id
-      ),
-      visual,
-    ];
-    const didPersist = await context.patchSectionLessonContent(sectionId, {
-      contentBlocks,
-      generatedVisuals,
+    return latestContext.applyPersistedProjectRevision({
+      projectId,
+      revision: result.projectRevision,
     });
-    if (!didPersist) return false;
-
-    context = getContext();
-    if (
-      !matchesRetryOrigin(context, projectId, sectionId, workflowRequestId) ||
-      !context.activeSection
-    )
-      return false;
-    const nextSection = { ...context.activeSection, contentBlocks, generatedVisuals };
-    setCurrentSection(nextSection);
-    context.updateSection(sectionId, section => ({ ...section, contentBlocks, generatedVisuals }));
-    return true;
   };
 
-  return block => {
-    const context = getContext();
+  const retry = (block: LessonGeneratedVisualBlock): Promise<boolean> => {
+    if (disposed) return Promise.resolve(false);
+    const context = currentContext;
     const sectionId = context.activeSection?.id;
-    if (!sectionId || !block.retryPlan) return Promise.resolve(false);
-    const queueKey = `${context.projectId || 'local'}:${sectionId}`;
-    const previous = queues.get(queueKey) ?? Promise.resolve();
-    const result = previous.then(
-      () => runRetry(block, context.projectId, sectionId, context.lessonWorkflowRequestId),
-      () => runRetry(block, context.projectId, sectionId, context.lessonWorkflowRequestId)
+    const projectId = context.projectId;
+    if (!projectId || !sectionId || !block.retryPlan) return Promise.resolve(false);
+    const retryKey = `${projectId}:${sectionId}:${block.slotId}`;
+    const existing = activeRetries.get(retryKey);
+    if (existing !== undefined) return existing.promise;
+    const abortController = new AbortController();
+    const workflowRequestId = context.lessonWorkflowRequestId;
+    const promise = runRetry(
+      block,
+      projectId,
+      sectionId,
+      workflowRequestId,
+      abortController.signal
     );
-    const tail = result.then(
-      () => undefined,
-      () => undefined
-    );
-    queues.set(queueKey, tail);
-    return result.finally(() => {
-      if (queues.get(queueKey) === tail) queues.delete(queueKey);
+    const activeRetry = {
+      abortController,
+      projectId,
+      promise,
+      sectionId,
+      workflowRequestId,
+    };
+    activeRetries.set(retryKey, activeRetry);
+    return promise.finally(() => {
+      if (activeRetries.get(retryKey) === activeRetry) activeRetries.delete(retryKey);
     });
+  };
+
+  return {
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      for (const activeRetry of activeRetries.values()) {
+        activeRetry.abortController.abort();
+      }
+      activeRetries.clear();
+    },
+    retry,
+    setContext: context => {
+      if (disposed) return;
+      currentContext = context;
+      for (const activeRetry of activeRetries.values()) {
+        if (
+          !context.activeSection ||
+          !matchesRetryOrigin(
+            context,
+            activeRetry.projectId,
+            activeRetry.sectionId,
+            activeRetry.workflowRequestId
+          )
+        ) {
+          activeRetry.abortController.abort();
+        }
+      }
+    },
   };
 };
 
-const createGeneratedVisualRetryCoordinator = (
-  initialContext: GeneratedVisualRetryContext
-): GeneratedVisualRetryCoordinator => {
-  let currentContext = initialContext;
-  return {
-    retry: createGeneratedVisualRetryHandler({
-      getContext: () => currentContext,
-      setCurrentSection: section => {
-        if (currentContext.activeSectionId === section.id) {
-          currentContext = { ...currentContext, activeSection: section };
-        }
-      },
-    }),
-    setContext: context => {
-      currentContext = context;
-    },
-  };
+export const useGeneratedVisualRetryCoordinator = ({
+  context,
+  retryVisual,
+}: {
+  context: GeneratedVisualRetryContext;
+  retryVisual?: typeof retryDurableLessonVisual;
+}): GeneratedVisualRetryCoordinator => {
+  const [coordinator] = useState(() =>
+    createGeneratedVisualRetryCoordinator({ initialContext: context, retryVisual })
+  );
+  useEffect(() => coordinator.setContext(context), [context, coordinator]);
+  useEffect(() => () => coordinator.dispose(), [coordinator]);
+  return coordinator;
 };
 
 export const useReaderShellProps = ({
@@ -204,30 +230,25 @@ export const useReaderShellProps = ({
   readerState,
   syncState,
 }: UseReaderShellPropsArgs): WorkspaceReaderShellProps => {
-  const [visualRetryCoordinator] = useState(() =>
-    createGeneratedVisualRetryCoordinator({
+  const visualRetryContext = useMemo<GeneratedVisualRetryContext>(
+    () => ({
       activeSection: controller.activeSection,
       activeSectionId: controller.activeSectionId,
-      generationNotes: controller.learningPlan?.generationNotes,
+      applyPersistedProjectRevision: controller.applyPersistedProjectRevision,
       lessonWorkflowRequestId: controller.workflowState.loadSection.requestId,
-      patchSectionLessonContent: controller.patchSectionLessonContent,
       projectId: controller.currentProjectId,
-      sectionContent: controller.sectionContent,
-      updateSection: controller.updateSection,
-    })
+    }),
+    [
+      controller.activeSection,
+      controller.activeSectionId,
+      controller.applyPersistedProjectRevision,
+      controller.currentProjectId,
+      controller.workflowState.loadSection.requestId,
+    ]
   );
-  useEffect(() => {
-    visualRetryCoordinator.setContext({
-      activeSection: controller.activeSection,
-      activeSectionId: controller.activeSectionId,
-      generationNotes: controller.learningPlan?.generationNotes,
-      lessonWorkflowRequestId: controller.workflowState.loadSection.requestId,
-      patchSectionLessonContent: controller.patchSectionLessonContent,
-      projectId: controller.currentProjectId,
-      sectionContent: controller.sectionContent,
-      updateSection: controller.updateSection,
-    });
-  }, [controller, visualRetryCoordinator]);
+  const visualRetryCoordinator = useGeneratedVisualRetryCoordinator({
+    context: visualRetryContext,
+  });
   const activeSectionSourcePageRangeLabel = useMemo(
     () =>
       getLessonSourcePageLabel({
@@ -434,11 +455,13 @@ export const useReaderShellProps = ({
         isMobileViewport: readerState.readerChrome.isMobileViewport,
         isQuizSubmitted: readerState.isQuizSubmitted,
         learningAids: controller.activeSection?.learningAids || [],
+        projectId: controller.currentProjectId,
         documentSourceReferences: activeSectionSourceReferences,
         loadDocumentSourceFile,
         lessonSources: controller.activeSection
           ? controller.researchDossiersBySectionId[controller.activeSection.id]?.sources || []
           : [],
+        lessonWarnings: controller.activeSection?.generationWarnings || [],
         onAdvanceSection: () => {
           void readerActions.handleAdvanceSection();
         },
@@ -605,6 +628,7 @@ export const useReaderShellProps = ({
       controller.learningPlan,
       controller.musicUrl,
       controller.needsSourceFile,
+      controller.currentProjectId,
       controller.quiz,
       controller.researchDossiersBySectionId,
       controller.sectionContent,

@@ -1,3 +1,5 @@
+import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
+
 import type {
   FileData,
   LibraryFolder,
@@ -113,6 +115,12 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
   return new ProjectStorageError(PROJECT_SYNC_ERROR_MESSAGE, 'persistence-failed');
 };
 
+const responseErrorCode = (status: number): ProjectStorageError['code'] => {
+  if (status === 409) return 'revision-conflict';
+  if (status === 429) return 'quota-exceeded';
+  return 'persistence-failed';
+};
+
 const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> => {
   try {
     return (await response.json()) as ApiResponse & T;
@@ -190,14 +198,15 @@ export class HttpProjectRepository implements ProjectRepository {
       revision?: number;
     }>(`/api/projects/projects/${encodeURIComponent(id)}`);
     if (!response.project) return null;
-    if (!Number.isSafeInteger(response.revision) || (response.revision as number) < 1) {
+    const revision = response.revision;
+    if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 1) {
       throw new ProjectStorageError(
         'La revisione del progetto sincronizzato non è valida.',
         'persistence-failed'
       );
     }
     return {
-      revision: response.revision as number,
+      revision,
       snapshot: normalizeStoredProject(response.project),
     };
   }
@@ -368,29 +377,8 @@ export class HttpProjectRepository implements ProjectRepository {
       );
     }
     const sourceFile = snapshot.source.file;
-    const uploadId = globalThis.crypto.randomUUID();
-    const chunkCount = Math.ceil(archiveFile.size / config.maxChunkBytes);
-    if (chunkCount > config.maxChunkCount || archiveFile.size > config.maxSerializedBytes) {
-      throw new ProjectStorageError(
-        'Il backup supera il limite massimo di importazione configurato sul server.',
-        'quota-exceeded'
-      );
-    }
+    const uploadId = await this.uploadBinaryProjectImport(archiveFile, config);
     try {
-      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
-        await this.requestImportUpload(
-          `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/${chunkIndex}?chunkCount=${chunkCount}`,
-          {
-            body: archiveFile.slice(
-              chunkIndex * config.maxChunkBytes,
-              Math.min(archiveFile.size, (chunkIndex + 1) * config.maxChunkBytes)
-            ),
-            headers: { 'Content-Type': 'application/octet-stream' },
-            method: 'PUT',
-          },
-          config.requestTimeoutMs
-        );
-      }
       const response = await this.requestImportUpload<{
         meta?: SavedProjectMeta;
         snapshot?: ProjectSnapshot;
@@ -398,6 +386,7 @@ export class HttpProjectRepository implements ProjectRepository {
         `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
         {
           body: JSON.stringify({
+            payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
             snapshot,
             sourceFile: { name: sourceFile.name, mimeType: sourceFile.mimeType },
           }),
@@ -452,11 +441,11 @@ export class HttpProjectRepository implements ProjectRepository {
 
   subscribeToProjectRevisions(
     listener: (event: ProjectRevisionEvent) => void,
-    onReconnect: () => void
+    requestCatchUp: () => void
   ): () => void {
     return subscribeToProjectRevisionStream({
       listener,
-      onReconnect,
+      onCatchUp: requestCatchUp,
       url: `${this.baseUrl}/api/projects/events`,
     });
   }
@@ -549,6 +538,48 @@ export class HttpProjectRepository implements ProjectRepository {
     };
   }
 
+  async importProjectArchive(
+    archive: Blob,
+    targetProjectId: ProjectId
+  ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
+    const importConfig = await this.getProjectImportConfig();
+    if (archive.size === 0) {
+      throw new ProjectStorageError(
+        'Il backup supera il limite massimo di importazione configurato sul server.',
+        'quota-exceeded'
+      );
+    }
+    const uploadId = await this.uploadBinaryProjectImport(archive, importConfig);
+
+    let response: ApiResponse & { meta?: SavedProjectMeta; snapshot?: ProjectSnapshot };
+    try {
+      response = await this.requestImportUpload(
+        `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
+        {
+          body: JSON.stringify({
+            payloadKind: PROJECT_IMPORT_BINARY_KIND.backup,
+            targetProjectId,
+          }),
+          method: 'POST',
+        },
+        importConfig.requestTimeoutMs
+      );
+    } catch (error) {
+      const status = await this.waitForCompletedProjectImport(
+        uploadId,
+        importConfig.requestTimeoutMs
+      );
+      if (!status?.complete) throw error;
+      response = status;
+    }
+    return {
+      meta: assertValue(response.meta, 'Il progetto sincronizzato non e stato importato.'),
+      snapshot: normalizeStoredProject(
+        assertValue(response.snapshot, 'Il progetto sincronizzato non e stato importato.')
+      ),
+    };
+  }
+
   async exportProject(id: ProjectId): Promise<ProjectExportData | null> {
     const response = await this.request<{ data?: ProjectExportData | null }>(
       `/api/projects/projects/${encodeURIComponent(id)}/export`,
@@ -577,6 +608,40 @@ export class HttpProjectRepository implements ProjectRepository {
         throw error;
       });
     return this.projectImportConfigPromise;
+  }
+
+  private async uploadBinaryProjectImport(
+    archive: Blob,
+    config: ProjectImportConfig
+  ): Promise<string> {
+    const chunkCount = Math.ceil(archive.size / config.maxChunkBytes);
+    if (chunkCount > config.maxChunkCount || archive.size > config.maxSerializedBytes) {
+      throw new ProjectStorageError(
+        'Il backup supera il limite massimo di importazione configurato sul server.',
+        'quota-exceeded'
+      );
+    }
+    const uploadId = globalThis.crypto.randomUUID();
+    try {
+      for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+        await this.requestImportUpload(
+          `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/${chunkIndex}?chunkCount=${chunkCount}`,
+          {
+            body: archive.slice(
+              chunkIndex * config.maxChunkBytes,
+              Math.min(archive.size, (chunkIndex + 1) * config.maxChunkBytes)
+            ),
+            headers: { 'Content-Type': 'application/octet-stream' },
+            method: 'PUT',
+          },
+          config.requestTimeoutMs
+        );
+      }
+      return uploadId;
+    } catch (error) {
+      await this.cancelProjectImportUpload(uploadId, config.requestTimeoutMs);
+      throw error;
+    }
   }
 
   private async cancelProjectImportUpload(uploadId: string, timeoutMs: number): Promise<void> {
@@ -668,11 +733,7 @@ export class HttpProjectRepository implements ProjectRepository {
       if (!response.ok || data.success === false) {
         throw new ProjectStorageError(
           data.error || response.statusText || 'Richiesta server non riuscita.',
-          response.status === 409
-            ? 'revision-conflict'
-            : response.status === 429
-              ? 'quota-exceeded'
-              : 'persistence-failed'
+          responseErrorCode(response.status)
         );
       }
 

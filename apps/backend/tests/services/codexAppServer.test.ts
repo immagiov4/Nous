@@ -13,6 +13,7 @@ import {
   runCodexAppServerTurnWithClient,
   startCodexAppServerClient,
 } from '../../src/services/codexAppServer.js';
+import { runWithWorkflowAttemptMetering } from '../../src/workflows/workflowAiMetering.js';
 
 type WireMessage = Record<string, unknown>;
 
@@ -247,6 +248,30 @@ describe('Codex app-server protocol client', () => {
           },
         });
         fakeProcess.send({
+          method: 'thread/tokenUsage/updated',
+          params: {
+            threadId: 'thread-nous',
+            tokenUsage: {
+              last: {
+                cachedInputTokens: 6,
+                inputTokens: 20,
+                outputTokens: 8,
+                reasoningOutputTokens: 3,
+                totalTokens: 28,
+              },
+              modelContextWindow: 100_000,
+              total: {
+                cachedInputTokens: 6,
+                inputTokens: 20,
+                outputTokens: 8,
+                reasoningOutputTokens: 3,
+                totalTokens: 28,
+              },
+            },
+            turnId: 'turn-nous',
+          },
+        });
+        fakeProcess.send({
           method: 'item/reasoning/summaryTextDelta',
           params: { threadId: 'thread-nous', turnId: 'turn-nous', delta: 'Analizzo.' },
         });
@@ -303,48 +328,70 @@ describe('Codex app-server protocol client', () => {
     const imageResults: string[] = [];
     const reasoningDeltas: string[] = [];
     const toolEvents: unknown[] = [];
-    const result = await runCodexAppServerTurnWithClient(
+    const recordAiUsage = vi.fn(async () => undefined);
+    const result = await runWithWorkflowAttemptMetering(
       {
-        developerInstructions: 'Rispondi come tutor.',
-        input: [{ type: 'text', text: 'Spiega i grafi.' }],
-        model: 'gpt-test-a',
-        onImageGenerated: image => imageResults.push(image),
-        onReasoningDelta: delta => reasoningDeltas.push(delta),
-        onTextDelta: delta => deltas.push(delta),
-        onToolEnd: (callId, output) => toolEvents.push({ callId, output }),
-        onToolStart: (callId, name, input, execution) =>
-          toolEvents.push({ callId, name, input, execution }),
-        reasoningEffort: 'medium',
-        serviceTier: 'fast',
-        tools: [
-          {
-            description: 'Cerca nella libreria.',
-            execute: async input => ({ input, matches: 3 }),
-            inputSchema: {
-              type: 'object',
-              properties: { query: { type: 'string' } },
-              required: ['query'],
-            },
-            name: 'searchLibrary',
-          },
-          {
-            description: 'Propone una nota nel client.',
-            inputSchema: {
-              type: 'object',
-              properties: { noteDraft: { type: 'string' } },
-              required: ['noteDraft'],
-            },
-            name: 'requestAddToNotes',
-          },
-        ],
+        attemptNumber: 2,
+        nodeInstanceId: 'root/codex',
+        record: recordAiUsage,
+        runId: '11111111-1111-4111-8111-111111111111',
       },
-      client
+      () =>
+        runCodexAppServerTurnWithClient(
+          {
+            developerInstructions: 'Rispondi come tutor.',
+            input: [{ type: 'text', text: 'Spiega i grafi.' }],
+            model: 'gpt-test-a',
+            onImageGenerated: image => imageResults.push(image),
+            onReasoningDelta: delta => reasoningDeltas.push(delta),
+            onTextDelta: delta => deltas.push(delta),
+            onToolEnd: (callId, output) => toolEvents.push({ callId, output }),
+            onToolStart: (callId, name, input, execution) =>
+              toolEvents.push({ callId, name, input, execution }),
+            reasoningEffort: 'medium',
+            serviceTier: 'fast',
+            tools: [
+              {
+                description: 'Cerca nella libreria.',
+                execute: async input => ({ input, matches: 3 }),
+                inputSchema: {
+                  type: 'object',
+                  properties: { query: { type: 'string' } },
+                  required: ['query'],
+                },
+                name: 'searchLibrary',
+              },
+              {
+                description: 'Propone una nota nel client.',
+                inputSchema: {
+                  type: 'object',
+                  properties: { noteDraft: { type: 'string' } },
+                  required: ['noteDraft'],
+                },
+                name: 'requestAddToNotes',
+              },
+            ],
+          },
+          client
+        )
     );
 
     expect(reasoningDeltas).toEqual(['Analizzo.', '\nControllo la risposta.']);
     expect(imageResults).toEqual(['ZmFrZS1pbWFnZQ==']);
 
     expect(result).toBe('Risposta\n\nfinale');
+    expect(recordAiUsage).toHaveBeenCalledWith({
+      attemptNumber: 2,
+      cacheReadTokens: 6,
+      id: expect.any(String),
+      inputTokens: 20,
+      model: 'gpt-test-a',
+      nodeInstanceId: 'root/codex',
+      outputTokens: 8,
+      provider: 'codex',
+      reasoningTokens: 3,
+      runId: '11111111-1111-4111-8111-111111111111',
+    });
     expect(deltas).toEqual(['Risposta', '\n\n', 'finale']);
     expect(toolEvents).toEqual([
       {

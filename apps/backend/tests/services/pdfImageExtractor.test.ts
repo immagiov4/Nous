@@ -1,9 +1,74 @@
-import { describe, expect, test } from 'vitest';
+import { PDFParse } from 'pdf-parse';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
   buildLocalImageTextContext,
+  extractPdfImages,
   isPdfImageTooSmallForStandaloneFigure,
+  PdfImageExtractionError,
 } from '../../src/services/pdfImageExtractor.js';
+
+const buildMinimalPdfDataUrl = (): string => {
+  const header = '%PDF-1.4\n';
+  const objects = [
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n',
+    '4 0 obj\n<< /Length 43 >>\nstream\nBT /F1 12 Tf 30 100 Td (PDF smoke) Tj ET\nendstream\nendobj\n',
+    '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+  ];
+  const offsets: number[] = [];
+  let body = header;
+  for (const object of objects) {
+    offsets.push(Buffer.byteLength(body));
+    body += object;
+  }
+  const xrefOffset = Buffer.byteLength(body);
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  body += offsets.map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return `data:application/pdf;base64,${Buffer.from(body).toString('base64')}`;
+};
+
+test('loads the production PDF.js path and extracts a real minimal PDF', async () => {
+  await expect(extractPdfImages(buildMinimalPdfDataUrl(), 1, [1])).resolves.toEqual({
+    failedPages: [],
+    images: [],
+  });
+});
+
+describe('PDF page extraction diagnostics', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('returns sorted failed-page diagnostics when another requested page succeeds', async () => {
+    vi.spyOn(PDFParse.prototype, 'getImage')
+      .mockRejectedValueOnce(new Error('page 1 failed'))
+      .mockResolvedValueOnce({ pages: [{ images: [], pageNumber: 2 }] } as never);
+    vi.spyOn(PDFParse.prototype, 'destroy').mockResolvedValue(undefined);
+
+    await expect(extractPdfImages(buildMinimalPdfDataUrl(), 1, [2, 1, 2])).resolves.toEqual({
+      failedPages: [1],
+      images: [],
+    });
+  });
+
+  test('rejects instead of reporting an empty success when every requested page fails', async () => {
+    vi.spyOn(PDFParse.prototype, 'getImage').mockRejectedValue(new Error('page failed'));
+    vi.spyOn(PDFParse.prototype, 'destroy').mockResolvedValue(undefined);
+
+    const failure = await extractPdfImages(buildMinimalPdfDataUrl(), 1, [2, 1]).catch(
+      error => error
+    );
+
+    expect(failure).toBeInstanceOf(PdfImageExtractionError);
+    expect(failure).toMatchObject({
+      code: 'pdf_image_extraction_failed',
+      failedPages: [1, 2],
+    });
+  });
+});
 
 describe('buildLocalImageTextContext', () => {
   test('keeps only the nearest lines above and below the image rect', () => {

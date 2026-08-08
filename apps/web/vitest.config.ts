@@ -29,7 +29,7 @@ export default defineConfig({
         'apps/web/dist/**',
         'apps/backend/dist/**',
         '**/node_modules/**',
-        'apps/web/tests/**',
+        '**/tests/**',
         'services/tts-server/**',
       ],
     },

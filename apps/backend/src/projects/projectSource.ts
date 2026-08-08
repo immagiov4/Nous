@@ -11,6 +11,14 @@ import type {
 
 const STORED_SOURCE_KINDS = new Set(['archive', 'document', 'pdf']);
 
+export const resolveProjectSourceTextKind = (
+  file: Pick<ProjectSourceFile, 'mimeType' | 'name'>
+): 'markdown' | 'pdf' | 'text' => {
+  if (file.mimeType === 'application/pdf') return 'pdf';
+  if (file.mimeType === 'text/markdown' || file.name.endsWith('.md')) return 'markdown';
+  return 'text';
+};
+
 export const readEmbeddedProjectSource = (snapshot: ProjectSnapshot): ProjectSourceFile | null => {
   if (
     !isRecord(snapshot.source) ||

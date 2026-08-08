@@ -89,7 +89,7 @@ test('source merge deduplicates equivalent URLs while preserving original proven
   ]);
 });
 
-test('existing YouTube transcript and clip metadata survive source normalization and merging', () => {
+test('legacy YouTube transcript metadata becomes canonical before source merging', () => {
   const parsed = parseResearchSource({
     title: 'Tutorial pratico',
     url: 'https://www.youtube.com/watch?v=test',
@@ -107,7 +107,9 @@ test('existing YouTube transcript and clip metadata survive source normalization
   );
 
   expect(merged?.videoClip).toEqual({ endSeconds: 92, startSeconds: 65 });
-  expect(merged?.youtubeTranscript).toEqual(parsed.youtubeTranscript);
+  expect(merged?.youtubeTranscript).toEqual({
+    segments: [{ endSeconds: 93, startSeconds: 65, text: 'Primo passaggio.' }],
+  });
 });
 
 test('legacy unknown source references do not hide every original course source', () => {
@@ -124,4 +126,38 @@ test('legacy unknown source references do not hide every original course source'
   );
 
   expect(sources.map(source => source.title)).toEqual(['dispensa-a.pdf', 'dispensa-b.pdf']);
+});
+
+test('original course sources retain their stable id, chunks, and original page range', () => {
+  const sources = readOriginalSourceNames(
+    {
+      source: {
+        sources: [
+          { id: 'source-a', name: 'dispensa-a.pdf' },
+          { id: 'source-b', name: 'dispensa-b.pdf' },
+        ],
+      },
+    } as never,
+    {
+      sourceReferences: [
+        {
+          chunkIds: ['source-b:chunk-4', 'source-b:chunk-5'],
+          pageEnd: 12,
+          pageStart: 10,
+          sourceId: 'source-b',
+        },
+      ],
+    }
+  );
+
+  expect(sources).toEqual([
+    {
+      chunkIds: ['source-b:chunk-4', 'source-b:chunk-5'],
+      note: 'Materiale originale del corso',
+      pageEnd: 12,
+      pageStart: 10,
+      sourceId: 'source-b',
+      title: 'dispensa-b.pdf',
+    },
+  ]);
 });

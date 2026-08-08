@@ -1,11 +1,11 @@
-import type { ExerciseAttachment } from '../../types.ts';
-import { createEntityId } from '../../utils/ids.ts';
-import { isBinaryFile } from '../../utils/project/codebaseBundle.ts';
 import {
   getSafeZipEntryPath,
   loadZipSafely,
   readZipEntryBytesWithinLimit,
-} from '../../utils/project/zipSafety.ts';
+} from '@shared/zipSafety';
+import type { ExerciseAttachment } from '../../types.ts';
+import { createEntityId } from '../../utils/ids.ts';
+import { isBinaryFile } from '../../utils/project/codebaseBundle.ts';
 import { normalizeLineEndings } from '../../utils/text.ts';
 import { timestampIso } from '../../utils/time.ts';
 import { decodeBase64Bytes, encodeBytesBase64 } from '../projects/projectSource.ts';
@@ -35,6 +35,7 @@ const TEXT_MIME_TYPE_FALLBACK = 'text/plain';
 const ZIP_MIME_TYPE_FALLBACK = 'application/zip';
 const EXERCISE_MAX_ZIP_ENTRIES = 200;
 const EXERCISE_MAX_ZIP_ENTRY_BYTES = 512_000;
+const EXERCISE_MAX_ZIP_TOTAL_BYTES = EXERCISE_MAX_ZIP_ENTRIES * EXERCISE_MAX_ZIP_ENTRY_BYTES;
 const INVALID_EXERCISE_ZIP_MESSAGE = 'Archivio ZIP non valido.';
 
 const createExerciseAttachmentId = () => createEntityId({ fallbackPrefix: 'exercise-attachment' });
@@ -199,6 +200,7 @@ export const validateExerciseDeliverable = async (args: {
     const zip = await loadZipSafely(decodeBase64Bytes(attachment.data), {
       invalidArchiveMessage: INVALID_EXERCISE_ZIP_MESSAGE,
       maxEntries: EXERCISE_MAX_ZIP_ENTRIES,
+      maxTotalUncompressedBytes: EXERCISE_MAX_ZIP_TOTAL_BYTES,
     });
     const candidates = sortZipEntries(
       Object.values(zip.files)

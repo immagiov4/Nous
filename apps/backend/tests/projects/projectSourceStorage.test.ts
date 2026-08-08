@@ -16,7 +16,7 @@ const createStorage = (fetcher: typeof fetch) =>
   new SupabaseProjectSourceStorage({
     fetcher,
     serviceRoleKey: SERVICE_ROLE_KEY,
-    supabaseUrl: `${SUPABASE_URL}/`,
+    supabaseUrl: `${SUPABASE_URL}///`,
   });
 
 const createFetchMock = (response: Response) =>
@@ -27,8 +27,9 @@ describe('SupabaseProjectSourceStorage', () => {
     const fetcher = createFetchMock(new Response('{}', { status: 200 }));
     const storage = createStorage(fetcher);
     const bytes = new TextEncoder().encode('source');
+    const signal = new AbortController().signal;
 
-    await storage.upload('user-1/project 1/hash', bytes, 'application/pdf');
+    await storage.upload('user-1/project 1/hash', bytes, 'application/pdf', signal);
 
     expect(PROJECT_SOURCE_BUCKET).toBe('project-sources');
     expect(fetcher).toHaveBeenCalledWith(
@@ -42,7 +43,35 @@ describe('SupabaseProjectSourceStorage', () => {
           'x-upsert': 'false',
         },
         method: 'POST',
+        signal,
       }
+    );
+  });
+
+  test('aborts an in-flight upload with the workflow signal', async () => {
+    const fetcher = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    }) as unknown as typeof fetch;
+    const storage = createStorage(fetcher);
+    const abortController = new AbortController();
+
+    const upload = storage.upload(
+      'user-1/project-1/hash',
+      new Uint8Array([1]),
+      'image/png',
+      abortController.signal
+    );
+    abortController.abort();
+
+    await expect(upload).rejects.toMatchObject({
+      cause: expect.objectContaining({ name: 'AbortError' }),
+      code: 'upload-failed',
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: abortController.signal })
     );
   });
 
@@ -67,6 +96,22 @@ describe('SupabaseProjectSourceStorage', () => {
         method: 'GET',
       }
     );
+  });
+
+  test('verifies an expected immutable object media type when supplied', async () => {
+    const bytes = new TextEncoder().encode('not an image');
+    const fetcher = createFetchMock(
+      new Response(bytes, { headers: { 'Content-Type': 'application/octet-stream' }, status: 200 })
+    );
+    const storage = createStorage(fetcher);
+
+    await expect(
+      storage.download('user-1/project-1/hash', {
+        byteSize: bytes.byteLength,
+        hash: createHash('sha256').update(bytes).digest('hex'),
+        mimeType: 'image/png',
+      })
+    ).rejects.toMatchObject({ code: 'integrity-mismatch' });
   });
 
   test('downloads an exact authenticated byte range without falling back to the full object', async () => {

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, openAsBlob } from 'node:fs';
 import {
   lstat,
   mkdir,
@@ -454,7 +454,7 @@ const restoreObject = async (
     fetcher,
     url,
     {
-      body: Bun.file(filePath),
+      body: await openAsBlob(filePath),
       headers: {
         ...headers,
         'Content-Type': 'application/octet-stream',

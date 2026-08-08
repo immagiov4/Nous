@@ -1,3 +1,5 @@
+import { PROJECT_REVISION_RESYNC_EVENT } from '@shared/projectContract';
+
 import type { ProjectRevisionEvent } from '../../types.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 
@@ -26,7 +28,8 @@ const readProjectRevisionEvent = (data: string): ProjectRevisionEvent | null => 
 
 export const consumeProjectRevisionStream = async (
   stream: ReadableStream<Uint8Array>,
-  listener: (event: ProjectRevisionEvent) => void
+  listener: (event: ProjectRevisionEvent) => void,
+  onResync: () => void = () => undefined
 ): Promise<void> => {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -39,8 +42,16 @@ export const consumeProjectRevisionStream = async (
     buffer = messages.pop() || '';
 
     for (const message of messages) {
-      const data = message
-        .split(/\r?\n/)
+      const lines = message.split(/\r?\n/);
+      const eventName = lines
+        .find(line => line.startsWith('event:'))
+        ?.slice(6)
+        .trimStart();
+      if (eventName === PROJECT_REVISION_RESYNC_EVENT) {
+        onResync();
+        continue;
+      }
+      const data = lines
         .filter(line => line.startsWith('data:'))
         .map(line => line.slice(5).trimStart())
         .join('\n');
@@ -58,17 +69,16 @@ export const consumeProjectRevisionStream = async (
 
 export const subscribeToProjectRevisionStream = ({
   listener,
-  onReconnect,
+  onCatchUp,
   url,
 }: {
   listener: (event: ProjectRevisionEvent) => void;
-  onReconnect: () => void;
+  onCatchUp: () => void;
   url: string;
 }): (() => void) => {
   let abortController: AbortController | null = null;
   let reconnectTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
   let stopped = false;
-  let hasConnected = false;
 
   const connect = async (): Promise<void> => {
     abortController = new AbortController();
@@ -81,11 +91,8 @@ export const subscribeToProjectRevisionStream = ({
       if (!response.ok || !response.body) {
         throw new Error(`Project revision stream unavailable (${response.status}).`);
       }
-      if (hasConnected) {
-        onReconnect();
-      }
-      hasConnected = true;
-      await consumeProjectRevisionStream(response.body, listener);
+      onCatchUp();
+      await consumeProjectRevisionStream(response.body, listener, onCatchUp);
     } catch (error) {
       if (!stopped && !(error instanceof Error && error.name === 'AbortError')) {
         console.warn('[Nous] Project revision stream disconnected', error);

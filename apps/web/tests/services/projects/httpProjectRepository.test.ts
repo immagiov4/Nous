@@ -7,7 +7,10 @@ import {
 } from '../../../services/projects/courseSources.ts';
 import { HttpProjectRepository } from '../../../services/projects/httpProjectRepository.ts';
 import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
-import { consumeProjectRevisionStream } from '../../../services/projects/projectRevisionStream.ts';
+import {
+  consumeProjectRevisionStream,
+  subscribeToProjectRevisionStream,
+} from '../../../services/projects/projectRevisionStream.ts';
 import { normalizeStoredProject } from '../../../services/projects/projectSnapshot.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 
@@ -578,6 +581,50 @@ test('HttpProjectRepository does not fall back to Base64 JSON for archives', asy
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+test('HttpProjectRepository labels self-contained backup uploads explicitly', async () => {
+  const targetProjectId = 'restored-project';
+  const restoredSnapshot = { ...buildPdfSnapshot(), id: targetProjectId };
+  fetchMock
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        config: {
+          import: {
+            directMaxBytes: 20_000_000,
+            maxChunkBytes: 16_000_000,
+            maxChunkCount: 32,
+            maxSerializedBytes: 280_000_000,
+            requestTimeoutMs: 120_000,
+          },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ success: true }) })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        meta: { id: targetProjectId },
+        snapshot: restoredSnapshot,
+      }),
+    });
+
+  const imported = await new HttpProjectRepository('http://localhost:3301').importProjectArchive(
+    new Blob(['project backup'], { type: 'application/zip' }),
+    targetProjectId
+  );
+
+  expect(imported.snapshot.id).toBe(targetProjectId);
+  expect(fetchMock.mock.calls[1]?.[1]?.body).toBeInstanceOf(Blob);
+  expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+    payloadKind: 'project-backup',
+    targetProjectId,
+  });
+});
+
 test('HttpProjectRepository sends the expected revision and preserves a 409 conflict', async () => {
   fetchMock.mockResolvedValueOnce({
     ok: false,
@@ -739,4 +786,40 @@ test('consumeProjectRevisionStream emits only complete valid SSE events', async 
   await consumeProjectRevisionStream(stream, event => events.push(event));
 
   expect(events).toEqual([{ projectId: 'project-1', revision: 2 }]);
+});
+
+test('consumeProjectRevisionStream requests catch-up for an explicit server resync event', async () => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode('event: project-revision-resync\ndata: {}\n\n'));
+      controller.close();
+    },
+  });
+  const listener = vi.fn();
+  const onResync = vi.fn();
+
+  await consumeProjectRevisionStream(stream, listener, onResync);
+
+  expect(listener).not.toHaveBeenCalled();
+  expect(onResync).toHaveBeenCalledOnce();
+});
+
+test('subscribeToProjectRevisionStream requests catch-up on the first successful connection', async () => {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.close();
+    },
+  });
+  fetchMock.mockResolvedValueOnce({ body: stream, ok: true, status: 200 });
+  const requestCatchUp = vi.fn();
+
+  const unsubscribe = subscribeToProjectRevisionStream({
+    listener: vi.fn(),
+    onCatchUp: requestCatchUp,
+    url: 'http://localhost:3301/api/projects/events',
+  });
+
+  await vi.waitFor(() => expect(requestCatchUp).toHaveBeenCalledOnce());
+  unsubscribe();
 });

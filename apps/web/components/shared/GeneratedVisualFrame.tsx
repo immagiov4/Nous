@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
+import { useResolvedProjectVisual } from '../../hooks/useResolvedProjectVisual.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
-import type { LessonGeneratedVisual } from '../../types.ts';
+import type { LessonGeneratedVisual, StoredLessonVisual } from '../../types.ts';
 import { isSafeGeneratedImageSource } from '../../utils/visuals/generatedImage.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
 import {
@@ -11,8 +12,9 @@ import {
 interface GeneratedVisualFrameProps {
   readonly className?: string;
   readonly isDarkMode?: boolean;
+  readonly projectId?: string | null;
   readonly title: string;
-  readonly visual: LessonGeneratedVisual;
+  readonly visual: StoredLessonVisual;
 }
 
 const GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE = `
@@ -34,7 +36,7 @@ body > * {
 const GENERATED_VISUAL_ROOT_ID = 'nous-generated-visual-root';
 
 const toSafeScriptJson = (value: string): string =>
-  JSON.stringify(value).replaceAll(/<\//g, String.raw`<\/`);
+  JSON.stringify(value).replaceAll('</', String.raw`<\/`);
 
 const buildGeneratedVisualBootstrapScript = (visual: LessonGeneratedVisual): string => `
 const visualCode = ${toSafeScriptJson(visual.code)};
@@ -501,9 +503,51 @@ export const buildVisualHost = (visual: LessonGeneratedVisual, isDarkMode: boole
 const GeneratedVisualFrame = ({
   className = 'my-10',
   isDarkMode = false,
+  projectId,
   title,
   visual,
 }: GeneratedVisualFrameProps) => {
+  const resolution = useResolvedProjectVisual(visual, projectId);
+  if (resolution.status !== 'ready' || !resolution.result) {
+    return (
+      <output
+        aria-busy={resolution.status === 'loading'}
+        className={`${className} block min-h-40 rounded-2xl border border-stone-200 bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900`}
+        data-nous-speech="ignore"
+      >
+        {resolution.status === 'failed' ? (
+          <span className="block px-4 py-8 text-center text-sm text-stone-500 dark:text-zinc-400">
+            {t('Esempio visuale non disponibile')}
+          </span>
+        ) : null}
+      </output>
+    );
+  }
+
+  return (
+    <ResolvedGeneratedVisualFrame
+      className={className}
+      isDarkMode={isDarkMode}
+      title={title}
+      trustedImageUrl={resolution.result.trustedImageUrl}
+      visual={resolution.result.visual}
+    />
+  );
+};
+
+const ResolvedGeneratedVisualFrame = ({
+  className,
+  isDarkMode,
+  title,
+  trustedImageUrl,
+  visual,
+}: {
+  readonly className: string;
+  readonly isDarkMode: boolean;
+  readonly title: string;
+  readonly trustedImageUrl: boolean;
+  readonly visual: LessonGeneratedVisual;
+}) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Rebuild the iframe document on render so visual-host HMR updates only this
   // frame instead of requiring a full application reload.
@@ -544,7 +588,7 @@ const GeneratedVisualFrame = ({
 
     return (
       <figure className={`${className} overflow-hidden bg-transparent`} data-nous-speech="ignore">
-        {isSafeGeneratedImageSource(visual.code) ? (
+        {trustedImageUrl || isSafeGeneratedImageSource(visual.code) ? (
           <img
             src={visual.code}
             alt={imageAltText}

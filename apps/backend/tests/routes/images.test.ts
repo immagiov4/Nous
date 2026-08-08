@@ -17,6 +17,8 @@ vi.mock('../../src/services/imageClient.js', () => ({
     listOpenAiModels: imageClientMocks.listOpenAiModels,
   },
   DEFAULT_IMAGE_MODEL: 'google/gemini-3.1-flash-lite-image',
+  toGeneratedImageDataUrl: (image: { bytes: Uint8Array; mediaType: string }) =>
+    `data:${image.mediaType};base64,${Buffer.from(image.bytes).toString('base64')}`,
 }));
 
 const { createApp } = await import('../../src/index.js');
@@ -34,7 +36,7 @@ describe('POST /api/images/generate', () => {
     ]);
     imageClientMocks.listOpenAiModels.mockReturnValue([{ id: 'gpt-image-2', name: 'gpt-image-2' }]);
     imageClientMocks.generateImage.mockResolvedValue({
-      dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+      bytes: new TextEncoder().encode('fake-image'),
       generationId: 'image-gen-123',
       mediaType: 'image/png',
       usage: { cost: 0.02 },

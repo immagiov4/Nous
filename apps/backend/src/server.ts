@@ -1,6 +1,7 @@
 // Express server bootstrap for the backend API.
 import './config/env.js';
 
+import { closeBackendResources } from './backendShutdown.js';
 import {
   buildBackendServerUrl,
   getBackendServerConfig,
@@ -9,20 +10,31 @@ import {
 import { createApp } from './index.js';
 import { closeManagedCodexAccountClient } from './services/codexAppServer.js';
 import { startFeedbackOutboxWorker, stopFeedbackOutboxWorker } from './services/feedbackService.js';
-import { startGenerationJobRunner } from './services/generationJobService.js';
 import { DEFAULT_TTS_MODEL } from './services/ttsClient.js';
+import { createWorkflowRuntimeComposition } from './workflows/workflowRuntimeComposition.js';
 
-const app = createApp();
+const workflowRuntime = createWorkflowRuntimeComposition();
+const app = createApp({
+  artifactDraftApi: workflowRuntime.artifactDraftApi,
+  courseGenerationApi: workflowRuntime.courseGenerationApi,
+  courseInterviewApi: workflowRuntime.courseInterviewApi,
+  lessonGenerationApi: workflowRuntime.lessonGenerationApi,
+  lessonVisualRetryStarter: workflowRuntime.lessonVisualRetryStarter,
+  pdfMappingRepairApi: workflowRuntime.pdfMappingRepairApi,
+  projectAssetReader: workflowRuntime.projectAssetReader,
+  workflowRuntimeApi: workflowRuntime.api,
+});
 const config = loadServerConfig();
 const backendConfig = getBackendServerConfig(config);
 
 startFeedbackOutboxWorker();
 try {
-  await startGenerationJobRunner();
+  await workflowRuntime.start();
 } catch (error) {
-  console.error('[Backend] Generation job runner failed to start.', error);
+  console.error('[Backend] Workflow runtime failed to start.', error);
+  await workflowRuntime.close();
+  throw error;
 }
-
 const server = app.listen(backendConfig.backendPort, backendConfig.backendHost, () => {
   const backendUrl = buildBackendServerUrl(backendConfig, { displayHost: true });
   console.log(`[Backend] Server running on ${backendUrl}`);
@@ -59,11 +71,24 @@ const shutdown = async (signal: 'SIGINT' | 'SIGTERM') => {
 
   isShuttingDown = true;
   console.log(`[Backend] ${signal} received, shutting down...`);
-  stopFeedbackOutboxWorker();
-  await closeManagedCodexAccountClient();
-  server.close(() => {
+  try {
+    await closeBackendResources({
+      closeCodex: closeManagedCodexAccountClient,
+      closeHttpServer: () =>
+        new Promise((resolve, reject) => {
+          server.close(error => {
+            if (error) reject(error);
+            else resolve();
+          });
+        }),
+      closeWorkflow: workflowRuntime.close,
+      stopFeedback: stopFeedbackOutboxWorker,
+    });
     process.exit(0);
-  });
+  } catch (error) {
+    console.error('[Backend] Shutdown failed.', error);
+    process.exit(1);
+  }
 };
 
 process.on('SIGTERM', () => {

@@ -18,6 +18,7 @@ const repositoryMocks = vi.hoisted(() => ({
   deleteProject: vi.fn(),
   deleteFolder: vi.fn(),
   exportProject: vi.fn(),
+  importProjectArchive: vi.fn(),
   importProject: vi.fn(),
   listFolders: vi.fn(),
   listPlacements: vi.fn(),
@@ -109,6 +110,7 @@ describe('useProjectLibrary', () => {
     repositoryMocks.deleteProject.mockReset();
     repositoryMocks.deleteFolder.mockReset();
     repositoryMocks.exportProject.mockReset();
+    repositoryMocks.importProjectArchive.mockReset();
     repositoryMocks.importProject.mockReset();
     repositoryMocks.listFolders.mockReset();
     repositoryMocks.listPlacements.mockReset();
@@ -155,6 +157,12 @@ describe('useProjectLibrary', () => {
       meta: buildMeta(project.id, '2026-04-02T10:00:00.000Z'),
       snapshot: buildSnapshot(project.id),
     }));
+    repositoryMocks.importProjectArchive.mockImplementation(
+      async (_archive: Blob, targetProjectId: string) => ({
+        meta: buildMeta(targetProjectId, '2026-04-02T10:00:00.000Z'),
+        snapshot: buildSnapshot(targetProjectId),
+      })
+    );
     revisionListener = null;
     revisionReconnect = null;
     repositoryMocks.subscribeToProjectRevisions.mockImplementation(
@@ -300,8 +308,8 @@ describe('useProjectLibrary', () => {
       await result.current.importLibraryBackup(file);
     });
 
-    expect(repositoryMocks.importProject).toHaveBeenCalledTimes(1);
-    const importedProjectId = repositoryMocks.importProject.mock.calls[0]?.[0].id;
+    expect(repositoryMocks.importProjectArchive).toHaveBeenCalledTimes(1);
+    const importedProjectId = repositoryMocks.importProjectArchive.mock.calls[0]?.[1];
     expect(importedProjectId).not.toBe('course-one');
     expect(repositoryMocks.createFolder).toHaveBeenCalledWith({
       name: 'Matematica',
@@ -329,7 +337,7 @@ describe('useProjectLibrary', () => {
     await expect(result.current.importLibraryBackup(file)).rejects.toThrow('placement failed');
 
     expect(repositoryMocks.deleteProject).toHaveBeenCalledWith(
-      repositoryMocks.importProject.mock.calls[0]?.[0].id
+      repositoryMocks.importProjectArchive.mock.calls[0]?.[1]
     );
   });
 
@@ -614,6 +622,54 @@ describe('useProjectLibrary', () => {
     expect(result.current.savedProjects[0]).toMatchObject({ revision: 5 });
   });
 
+  test('completes hydration from the authoritative snapshot without treating it as a local edit', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    const baseState = createEmptyWorkspaceDomainState();
+    const repairedState: WorkspaceDomainState = {
+      ...baseState,
+      activeSectionId: 'lesson-1',
+      learningPlan: buildTestLearningPlan(
+        [buildTestLesson({ content: '# Lezione riparata', id: 'lesson-1' })],
+        { summary: 'Sintesi', title: 'Percorso' }
+      ),
+    };
+    const repairedSnapshot = buildSnapshot('project-1', repairedState);
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.patchProject.mockResolvedValue({ ...initialMeta, revision: 6 });
+    const { rerender, result } = renderHook(
+      ({ domainState }) => useProjectLibrary({ domainState, hydrateSnapshot: vi.fn() }),
+      { initialProps: { domainState: baseState } }
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        result.current.setCurrentProjectId('project-1');
+        result.current.setProjectHydrated(false);
+        result.current.completeProjectHydration({ revision: 5, snapshot: repairedSnapshot });
+      });
+      rerender({ domainState: repairedState });
+      await act(async () => {
+        vi.advanceTimersByTime(900);
+        await vi.runOnlyPendingTimersAsync();
+      });
+
+      expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+      await act(async () => {
+        await result.current.patchCurrentProject({ activeSectionId: 'lesson-1' });
+      });
+      expect(repositoryMocks.patchProject).toHaveBeenCalledWith(
+        'project-1',
+        expect.objectContaining({ activeSectionId: 'lesson-1' }),
+        { expectedRevision: 5 }
+      );
+      expect(result.current.savedProjects[0]).toMatchObject({ revision: 6 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('hydrates a newer authoritative snapshot without applying a stale job result', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     const newerSnapshot = buildSnapshot('project-1', {
@@ -745,6 +801,32 @@ describe('useProjectLibrary', () => {
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(objectUrlSpy).toHaveBeenCalledTimes(1);
     expect(repositoryMocks.exportProject).toHaveBeenCalledWith('project-export');
+  });
+
+  test('downloadLibraryBackup preserves project ids used by library placements', async () => {
+    const timestamp = '2026-04-02T10:00:00.000Z';
+    const objectUrlSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:nous-library');
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    repositoryMocks.listProjects.mockResolvedValue([buildMeta('project-export', timestamp)]);
+    repositoryMocks.listFolders.mockResolvedValue([]);
+    repositoryMocks.listPlacements.mockResolvedValue([
+      { folderId: null, order: 0, projectId: 'project-export', updatedAt: timestamp },
+    ]);
+    repositoryMocks.exportProject.mockResolvedValue(buildSnapshot('project-export'));
+    repositoryMocks.loadProjectCover.mockResolvedValue(null);
+
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    await expect(result.current.downloadLibraryBackup()).resolves.toBe(1);
+
+    expect(repositoryMocks.exportProject).toHaveBeenCalledWith('project-export');
+    expect(objectUrlSpy).toHaveBeenCalledWith(expect.any(Blob));
   });
 
   test('createFolder refreshes library organization and rebuilds the tree', async () => {
@@ -919,6 +1001,39 @@ describe('useProjectLibrary', () => {
     await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
 
     expect(repositoryMocks.loadProject).not.toHaveBeenCalled();
+  });
+
+  test('serializes revision catch-up requests so an older response cannot overwrite a newer one', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    let resolveFirstCatchUp!: (projects: SavedProjectMeta[]) => void;
+    let resolveSecondCatchUp!: (projects: SavedProjectMeta[]) => void;
+    repositoryMocks.listProjects
+      .mockResolvedValueOnce([initialMeta])
+      .mockImplementationOnce(() => new Promise(resolve => (resolveFirstCatchUp = resolve)))
+      .mockImplementationOnce(() => new Promise(resolve => (resolveSecondCatchUp = resolve)));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    act(() => {
+      revisionReconnect?.();
+      revisionReconnect?.();
+    });
+    expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveFirstCatchUp([buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2)]);
+    });
+    await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(3));
+    await act(async () => {
+      resolveSecondCatchUp([buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3)]);
+    });
+
+    await waitFor(() => expect(result.current.savedProjects[0]?.revision).toBe(3));
   });
 
   test('waits for an in-flight local write before applying a remote revision', async () => {

@@ -1,3 +1,4 @@
+import type { YouTubeTranscriptSegment } from '@shared/youtubeTranscript';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 
@@ -151,9 +152,8 @@ export interface AdminYouTubeResearchCandidate {
     characterCount: number;
     kind: 'automatic' | 'manual' | 'translated';
     language: string;
-    ranges: Array<{ endSeconds: number; startSeconds: number }>;
+    segments: YouTubeTranscriptSegment[];
     segmentCount: number;
-    text: string;
   };
   transcriptAttempts: AdminYouTubeTranscriptAttempt[];
   transcriptCached?: boolean;
@@ -184,9 +184,8 @@ export interface AdminYouTubeResearchLabResult {
     bundle: {
       context: string;
       videoCandidates: Array<{
-        ranges: Array<{ endSeconds: number; startSeconds: number }>;
+        segments: YouTubeTranscriptSegment[];
         title: string;
-        transcript: string;
         url: string;
       }>;
     };

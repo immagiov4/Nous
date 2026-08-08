@@ -9,7 +9,6 @@ import {
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
 import type { ExtractedPdfImage } from './pdfImageExtractor.js';
-import { retryProviderCall } from './providerRetry.js';
 
 const OPENROUTER_PDF_IMAGE_CAPTION_MODEL =
   process.env.MODEL_PDF_IMAGE_CAPTION || 'nvidia/nemotron-nano-12b-v2-vl';
@@ -50,44 +49,42 @@ export const captionPdfImage = async (
 ): Promise<string | null> => {
   const prompt = buildCaptionPrompt(image);
   const provider = resolveAiProviderForSlot(config, 'research');
-  const caption = await retryProviderCall(
-    async () => {
-      if (provider === 'codex') {
-        return runCodexAppServerTurn({
-          allowWebSearch: false,
-          developerInstructions:
-            'Describe only what is visibly recognizable in the supplied PDF figure. Do not use tools or access local files.',
-          input: [
-            { type: 'image', url: image.dataUrl },
+  let caption: string;
+  if (provider === 'codex') {
+    caption = await runCodexAppServerTurn({
+      allowWebSearch: false,
+      developerInstructions:
+        'Describe only what is visibly recognizable in the supplied PDF figure. Do not use tools or access local files.',
+      input: [
+        { type: 'image', url: image.dataUrl },
+        { text: prompt, type: 'text' },
+      ],
+      model: resolveCaptionModel(config),
+      reasoningEffort: resolveTextModelConfig(config, 'lesson').reasoningEffort,
+      serviceTier: resolveCodexServiceTierForSlot(config, 'lesson'),
+      signal,
+    });
+  } else {
+    const configured = createConfiguredTextModel(config, 'research', {
+      model: resolveCaptionModel(config),
+    });
+    const response = await generateText({
+      abortSignal: signal,
+      maxRetries: 0,
+      messages: [
+        {
+          content: [
+            { image: image.dataUrl, type: 'image' },
             { text: prompt, type: 'text' },
           ],
-          model: resolveCaptionModel(config),
-          reasoningEffort: resolveTextModelConfig(config, 'lesson').reasoningEffort,
-          serviceTier: resolveCodexServiceTierForSlot(config, 'lesson'),
-          signal,
-        });
-      }
-      const configured = createConfiguredTextModel(config, 'research', {
-        model: resolveCaptionModel(config),
-      });
-      const response = await generateText({
-        abortSignal: signal,
-        messages: [
-          {
-            content: [
-              { image: image.dataUrl, type: 'image' },
-              { text: prompt, type: 'text' },
-            ],
-            role: 'user',
-          },
-        ],
-        model: configured.model,
-        providerOptions: configured.providerOptions,
-      });
-      return response.text;
-    },
-    { delay: 500, retries: 2, signal }
-  );
+          role: 'user',
+        },
+      ],
+      model: configured.model,
+      providerOptions: configured.providerOptions,
+    });
+    caption = response.text;
+  }
 
   const normalized = caption.trim();
   return !normalized || /^DECORATIVE$/iu.test(normalized) ? null : normalized;

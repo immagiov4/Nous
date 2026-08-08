@@ -1,3 +1,4 @@
+import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import type { UIMessage } from 'ai';
 import type {
   MouseEvent as ReactMouseEvent,
@@ -14,18 +15,18 @@ import type {
   LearningArtifactRenderPayload,
   LessonContentBlock,
   LessonCreationBlockReason,
-  LessonGeneratedVisual,
   LessonGeneratedVisualBlock,
   LessonImageRef,
   LessonLearningAid,
   LessonNode,
-  PdfImageAsset,
+  PdfDocumentImageAsset,
   ProjectSource,
   QuizQuestion,
   ResearchSourceReference,
   SectionAnnotation,
   SectionAnnotationArtifactRef,
   SettingsPanelSectionId,
+  StoredLessonVisual,
   VoiceProfileId,
 } from '../../../types.ts';
 import type { ResolvedLessonSourceReference } from '../../../utils/context/sourceMaterial.ts';
@@ -67,7 +68,7 @@ export interface ContextChatToolPreferences {
 
 export interface SaveConversationNoteToolInput extends ConversationSelectionAnchor {
   artifactRefs?: SectionAnnotationArtifactRef[];
-  generatedVisuals?: LessonGeneratedVisual[];
+  generatedVisuals?: StoredLessonVisual[];
   note: string;
 }
 
@@ -198,8 +199,8 @@ export interface WorkspaceReaderContentModel {
   activeExercise?: ApplicationExerciseNode | null;
   exercisePrerequisiteGaps?: Array<{ id: string; title: string }>;
   activeSectionTitle?: string | null;
-  activeSectionAssetsById: Record<string, PdfImageAsset>;
-  activeSectionGeneratedVisualsById?: Record<string, LessonGeneratedVisual>;
+  activeSectionAssetsById: Record<string, PdfDocumentImageAsset>;
+  activeSectionGeneratedVisualsById?: Record<string, StoredLessonVisual>;
   activeSectionImageRefsById: Record<string, LessonImageRef>;
   hasNextSection: boolean;
   currentLessonArtifactPayloads?: LearningArtifactRenderPayload[];
@@ -211,9 +212,11 @@ export interface WorkspaceReaderContentModel {
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
   learningAids: LessonLearningAid[];
+  lessonWarnings?: LessonWorkflowWarning[];
   documentSourceReferences?: ResolvedLessonSourceReference[];
   loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
   lessonSources?: ResearchSourceReference[];
+  projectId?: string | null;
   onAdvanceSection: () => void;
   onCompleteSection: () => void;
   onAttachExerciseFiles: (exerciseId: string, files: FileList | null) => void;
@@ -281,10 +284,10 @@ export interface WorkspaceReaderOverlaysModel {
   ) => Promise<SaveConversationNoteResult>;
   onSaveNote: (note: string, artifactRefs?: SectionAnnotationArtifactRef[]) => void;
   onSaveArtifactToLesson?: (
-    visual: LessonGeneratedVisual,
+    visual: StoredLessonVisual,
     artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
   ) => Promise<void>;
-  onReplaceArtifactInLesson?: (artifactId: string, visual: LessonGeneratedVisual) => Promise<void>;
+  onReplaceArtifactInLesson?: (artifactId: string, visual: StoredLessonVisual) => Promise<void>;
 }
 
 export interface WorkspaceReaderShellProps {

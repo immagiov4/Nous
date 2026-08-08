@@ -36,9 +36,10 @@ describe('POST /api/pdf', () => {
       qualityWarning:
         'Estrazione testo eseguita con parser di fallback; qualita e impaginazione potrebbero essere meno fedeli.',
     });
-    pdfServiceMocks.extractPdfImages.mockResolvedValue([
-      { id: 'img-1', dataUrl: 'data:image/png;base64,ZmFrZQ==', pageNumber: 4 },
-    ]);
+    pdfServiceMocks.extractPdfImages.mockResolvedValue({
+      failedPages: [5],
+      images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,ZmFrZQ==', pageNumber: 4 }],
+    });
   });
 
   test('validates the PDF data url for text extraction', async () => {
@@ -92,6 +93,7 @@ describe('POST /api/pdf', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
       success: true,
+      failedPages: [5],
       imageCount: 1,
       images: [{ id: 'img-1', dataUrl: 'data:image/png;base64,ZmFrZQ==', pageNumber: 4 }],
     });

@@ -9,11 +9,11 @@ import type {
   ContextMenuState,
   ContextScope,
   LearningPlan,
-  LessonGeneratedVisual,
   LessonNode,
   PdfTextIndex,
   ProjectSource,
   SectionAnnotationArtifactRef,
+  StoredLessonVisual,
 } from '../../types.ts';
 import { buildContextSourceMaterial } from '../../utils/context/sourceMaterial.ts';
 import { replaceGeneratedVisualPreservingId } from '../../utils/learning/artifacts.ts';
@@ -48,7 +48,6 @@ interface UseWorkspaceReaderActionsArgs {
     contextAfter?: string;
     contextBefore?: string;
     instructions: string;
-    parentContent?: string;
     selectedText: string;
   }) => Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }>;
   documentIndex: PdfTextIndex | null;
@@ -80,7 +79,7 @@ interface UseWorkspaceReaderActionsArgs {
     sectionId: string,
     annotations: unknown,
     content?: string,
-    generatedVisuals?: LessonGeneratedVisual[]
+    generatedVisuals?: StoredLessonVisual[]
   ) => Promise<void>;
   projectId: string | null;
   regenerateActiveSection: () => Promise<unknown>;
@@ -108,9 +107,9 @@ const buildWholeLessonContextLabel = (lessonTitle?: string) => {
 };
 
 const mergeGeneratedVisuals = (
-  existingVisuals: LessonGeneratedVisual[] | undefined,
-  addedVisuals: LessonGeneratedVisual[] | undefined
-): LessonGeneratedVisual[] | undefined => {
+  existingVisuals: StoredLessonVisual[] | undefined,
+  addedVisuals: StoredLessonVisual[] | undefined
+): StoredLessonVisual[] | undefined => {
   const visualById = new Map((existingVisuals || []).map(visual => [visual.id, visual]));
   (addedVisuals || []).forEach(visual => {
     if (!visualById.has(visual.id)) {
@@ -317,7 +316,6 @@ export const useWorkspaceReaderActions = ({
         contextAfter: contextMenu.contextAfter,
         contextBefore: contextMenu.contextBefore,
         instructions,
-        parentContent: activeSection?.content || sectionContent,
         selectedText,
       });
 
@@ -838,7 +836,7 @@ export const useWorkspaceReaderActions = ({
 
   const handleSaveArtifactToLesson = useCallback(
     async (
-      visual: LessonGeneratedVisual,
+      visual: StoredLessonVisual,
       artifactRef: { artifactId: string; kind: 'generated-visual'; title: string }
     ): Promise<void> => {
       if (!activeSectionId) return;
@@ -876,7 +874,7 @@ export const useWorkspaceReaderActions = ({
   );
 
   const handleReplaceArtifactInLesson = useCallback(
-    async (artifactId: string, visual: LessonGeneratedVisual): Promise<void> => {
+    async (artifactId: string, visual: StoredLessonVisual): Promise<void> => {
       if (!activeSectionId) return;
 
       const currentSection = getCurrentSection();

@@ -1,6 +1,5 @@
 import { ArrowLeft, BrainCircuit, Sparkles } from 'lucide-react';
 import type { FormEvent, RefObject } from 'react';
-import { ASSESSMENT_MIN_TURNS } from '../../constants';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { Message } from '../../types';
 import MarkdownRenderer from '../shared/MarkdownRenderer';
@@ -9,12 +8,15 @@ interface AssessmentViewProps {
   readonly assessmentInputId: string;
   readonly assessmentInputRef: RefObject<HTMLInputElement | null>;
   readonly currentAssessmentInput: string;
+  readonly hasCourseProposal: boolean;
   readonly isDarkMode: boolean;
   readonly isLoading: boolean;
   readonly loadingStatus: string;
   readonly messages: Message[];
   readonly messagesEndRef: RefObject<HTMLDivElement | null>;
   readonly onBackToLibrary: () => void;
+  readonly onCancelAssessment: () => void;
+  readonly onConfirmGenerate: () => void;
   readonly onInputChange: (value: string) => void;
   readonly onSubmit: (event: FormEvent) => void;
 }
@@ -23,17 +25,18 @@ const AssessmentView = ({
   assessmentInputId,
   assessmentInputRef,
   currentAssessmentInput,
+  hasCourseProposal,
   isDarkMode,
   isLoading,
   loadingStatus,
   messages,
   messagesEndRef,
   onBackToLibrary,
+  onCancelAssessment,
+  onConfirmGenerate,
   onInputChange,
   onSubmit,
 }: AssessmentViewProps) => {
-  const currentTurn = messages.filter(message => message.role === 'user').length + 1;
-  const progress = Math.min(currentTurn / ASSESSMENT_MIN_TURNS, 1);
   const showTips = messages.length <= 1;
   const messageKeyCounts = new Map<string, number>();
   const tips = [
@@ -65,22 +68,16 @@ const AssessmentView = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 sm:flex">
-              <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-200 dark:bg-zinc-800">
-                <div
-                  className="h-full rounded-full bg-orange-500 transition-[width] duration-300"
-                  style={{ width: `${progress * 100}%` }}
-                />
-              </div>
-              <span className="text-xs tabular-nums text-gray-500 dark:text-zinc-500">
-                {Math.round(progress * 100)}%
-              </span>
-            </div>
-            <div className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-orange-700 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-300">
-              {currentTurn}/{ASSESSMENT_MIN_TURNS}
-            </div>
+          <div className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-[11px] font-semibold text-orange-700 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-300">
+            {hasCourseProposal ? t('Proposta pronta') : t('Intervista in corso')}
           </div>
+          <button
+            type="button"
+            onClick={onCancelAssessment}
+            className="text-xs font-medium text-gray-500 transition-colors hover:text-red-600 dark:text-zinc-400 dark:hover:text-red-400"
+          >
+            {t('Annulla creazione corso')}
+          </button>
         </div>
       </header>
 
@@ -103,7 +100,7 @@ const AssessmentView = ({
           ) : null}
 
           {messages.map(message => {
-            const displayContent = message.text.replace('[ASSESSMENT_COMPLETE]', '');
+            const displayContent = message.text;
             const messageSignature = `${message.role}:${displayContent}`;
             const occurrenceCount = (messageKeyCounts.get(messageSignature) ?? 0) + 1;
 
@@ -160,6 +157,21 @@ const AssessmentView = ({
 
       {/* Input pinned to bottom */}
       <div className="border-t border-gray-200/80 bg-white/96 px-4 py-3 backdrop-blur-sm dark:border-zinc-700/80 dark:bg-paper-surface/95 sm:px-6">
+        {hasCourseProposal && !isLoading ? (
+          <div className="mx-auto mb-3 flex max-w-3xl flex-col items-center gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/60 px-5 py-4 dark:border-amber-700/40 dark:bg-amber-950/20">
+            <p className="text-center text-sm font-medium text-amber-800 dark:text-amber-200">
+              {t('Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?')}
+            </p>
+            <button
+              type="button"
+              onClick={onConfirmGenerate}
+              className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-600"
+            >
+              <Sparkles className="h-4 w-4" />
+              {t('Sì, genera il corso')}
+            </button>
+          </div>
+        ) : null}
         <form onSubmit={onSubmit} className="mx-auto flex max-w-3xl gap-3">
           <input
             id={assessmentInputId}
@@ -167,7 +179,11 @@ const AssessmentView = ({
             type="text"
             value={currentAssessmentInput}
             onChange={event => onInputChange(event.target.value)}
-            placeholder={t('Descrivi obiettivi, livello e come preferisci imparare…')}
+            placeholder={
+              hasCourseProposal
+                ? t('Aggiungi altri dettagli…')
+                : t('Descrivi obiettivi, livello e come preferisci imparare…')
+            }
             className="flex-1 rounded-xl border border-gray-200 bg-[#fcfaf6] px-4 py-3 text-sm text-gray-900 outline-none transition-colors focus:border-orange-300 dark:border-zinc-600/80 dark:bg-paper-surface dark:text-white dark:focus:border-orange-800"
             disabled={isLoading}
           />
@@ -176,7 +192,7 @@ const AssessmentView = ({
             disabled={isLoading || !currentAssessmentInput.trim()}
             className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {t('Invia')}
+            {hasCourseProposal ? t('Aggiungi dettagli') : t('Invia')}
           </button>
         </form>
       </div>

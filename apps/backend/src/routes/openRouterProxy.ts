@@ -9,7 +9,6 @@ import { requireOpenAiApiKey, requireOpenRouterApiKey } from '../config/chatConf
 import {
   type AiProvider,
   DEFAULT_OPENAI_RESEARCH_MODEL,
-  getResolvedGlobalModelConfig,
   getResolvedModelConfigForProvider,
   resolveAiProviderForSlot,
   resolveCodexServiceTierForSlot,
@@ -25,10 +24,10 @@ import {
   type CodexTurnTool,
   runCodexAppServerTurn,
 } from '../services/codexAppServer.js';
+import { openRouterModelSupportsImages } from '../services/openRouterModelCapabilities.js';
 import { isRecord } from '../utils/validation.js';
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODEL_URL = 'https://openrouter.ai/api/v1/model';
 const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENROUTER_WEB_SEARCH_TOOL_TYPE = 'openrouter:web_search';
 const OPENROUTER_ECONOMY_SERVICE_TIER = 'flex';
@@ -39,7 +38,6 @@ const RESOLVED_AI_ROUTE_HEADERS = {
   reasoningEffort: 'X-Nous-Resolved-AI-Reasoning-Effort',
   serviceTier: 'X-Nous-Resolved-AI-Service-Tier',
 } as const;
-const openRouterImageSupportByModel = new Map<string, boolean>();
 const CODEX_PRODUCT_INSTRUCTIONS =
   'Opera solo come motore didattico di Nous Reader. Non ispezionare file locali, non eseguire comandi e non modificare il computer. Rispetta le istruzioni e i dati forniti nella richiesta.';
 
@@ -124,36 +122,6 @@ const resolveProxyConfig = async (req: Request) => {
   };
 };
 
-const readOpenRouterImageSupport = async (model: string): Promise<boolean> => {
-  const cachedSupport = openRouterImageSupportByModel.get(model);
-  if (cachedSupport !== undefined) {
-    return cachedSupport;
-  }
-
-  try {
-    const response = await fetch(`${OPENROUTER_MODEL_URL}/${model}`, {
-      headers: { Authorization: `Bearer ${requireOpenRouterApiKey()}` },
-    });
-    if (!response.ok) {
-      return false;
-    }
-
-    const payload = (await response.json()) as unknown;
-    const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null;
-    const architecture = data && isRecord(data.architecture) ? data.architecture : null;
-    const inputModalities = architecture?.input_modalities;
-    const supportsImages = Array.isArray(inputModalities) && inputModalities.includes('image');
-    openRouterImageSupportByModel.set(model, supportsImages);
-    return supportsImages;
-  } catch (error) {
-    console.warn('[Nous][OpenRouter] Model capabilities unavailable; using text-only fallback.', {
-      error,
-      model,
-    });
-    return false;
-  }
-};
-
 const removeImageInput = (requestBody: Record<string, unknown>): Record<string, unknown> => ({
   ...requestBody,
   messages: Array.isArray(requestBody.messages)
@@ -233,7 +201,7 @@ const buildProxyRequest = async (
   const openRouterRequestBody =
     req.get('x-nous-allow-text-only-image-fallback') === 'true' &&
     hasImageInput(requestBody) &&
-    !(await readOpenRouterImageSupport(model))
+    !(await openRouterModelSupportsImages(model))
       ? removeImageInput(requestBody)
       : requestBody;
 
@@ -522,14 +490,6 @@ const pipeAiResponse = (upstreamResponse: globalThis.Response, res: Response): v
 };
 
 const router = Router();
-
-router.get('/artifact-settings', async (_req: Request, res: Response) => {
-  const config = await getResolvedGlobalModelConfig();
-  res.json({
-    visualReviewEnabled: config.artifactVisualReviewEnabled,
-    visualReviewMaxRounds: config.artifactVisualReviewMaxRounds,
-  });
-});
 
 router.post('/chat/completions', async (req: Request, res: Response) => {
   let resolvedRequest: Awaited<ReturnType<typeof buildProxyRequest>> | null = null;

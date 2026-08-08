@@ -1,0 +1,186 @@
+import { createHash } from 'node:crypto';
+
+import {
+  isProjectAssetId,
+  isValidProjectAssetRef,
+  normalizeProjectAssetMediaType,
+  validateProjectAssetHtmlReferences,
+} from '@shared/projectAsset';
+import {
+  buildImportedProjectAssetIdentity,
+  collectProjectAssetReferences,
+  InvalidProjectBackupAssetError,
+  remapProjectAssetReferences,
+} from '@shared/projectBackupAssets';
+import { describe, expect, test } from 'vitest';
+
+const imageRef = {
+  byteSize: 3,
+  hash: 'b'.repeat(64),
+  id: 'a'.repeat(64),
+  mediaType: 'image/png',
+};
+const embeddedRef = {
+  byteSize: 4,
+  hash: 'd'.repeat(64),
+  id: 'c'.repeat(64),
+  mediaType: 'image/webp',
+};
+
+const projectWithAssets = () => ({
+  documentAssets: {
+    kind: 'pdf',
+    usedImages: [{ asset: embeddedRef, id: 'pdf-image' }],
+  },
+  learningPlan: {
+    modules: [
+      {
+        children: [
+          {
+            generatedVisuals: [
+              { render: { asset: imageRef, kind: 'image' } },
+              {
+                render: {
+                  code: `<img src="{{PROJECT_ASSET:${embeddedRef.id}}}"><img src="{{PROJECT_ASSET:${embeddedRef.id}}}">`,
+                  embeddedAssets: [embeddedRef],
+                  kind: 'html',
+                },
+              },
+              { render: { code: '<svg />', kind: 'svg' } },
+            ],
+          },
+        ],
+      },
+    ],
+    sections: [
+      {
+        generatedVisuals: [
+          {
+            render: {
+              code: `<img src="{{PROJECT_ASSET:${embeddedRef.id}}}">`,
+              embeddedAssets: [embeddedRef],
+              kind: 'html',
+            },
+          },
+        ],
+      },
+    ],
+  },
+});
+
+describe('project backup asset references', () => {
+  test('shares one asset identity, reference, media type, and HTML placeholder contract', () => {
+    expect(isProjectAssetId(imageRef.id)).toBe(true);
+    expect(isProjectAssetId('../asset')).toBe(false);
+    expect(isValidProjectAssetRef(imageRef)).toBe(true);
+    expect(isValidProjectAssetRef({ ...imageRef, mediaType: '; charset=binary' })).toBe(false);
+    expect(normalizeProjectAssetMediaType('IMAGE/PNG; charset=binary')).toBe('image/png');
+
+    expect(
+      validateProjectAssetHtmlReferences(`<img src="{{PROJECT_ASSET:${imageRef.id}}}">`, [imageRef])
+    ).toMatchObject({ valid: true });
+    expect(validateProjectAssetHtmlReferences('<p>No asset</p>', [imageRef])).toEqual({
+      reason: 'placeholder-invalid',
+      valid: false,
+    });
+    expect(
+      validateProjectAssetHtmlReferences(`<img src="{{PROJECT_ASSET:${imageRef.id}}}">`, [
+        { ...imageRef, hash: 'invalid' },
+      ])
+    ).toEqual({ reason: 'asset-reference-invalid', valid: false });
+    expect(
+      validateProjectAssetHtmlReferences(`<img src="{{PROJECT_ASSET:${imageRef.id}}}">`, [
+        imageRef,
+        { ...imageRef, byteSize: imageRef.byteSize + 1 },
+      ])
+    ).toEqual({ reason: 'asset-reference-invalid', valid: false });
+  });
+
+  test('collects generated, embedded HTML, and structured PDF assets once in stable order', () => {
+    expect(collectProjectAssetReferences(projectWithAssets())).toEqual([imageRef, embeddedRef]);
+  });
+
+  test('returns no references for a project without a learning plan', () => {
+    expect(collectProjectAssetReferences({ id: 'project-without-plan' })).toEqual([]);
+  });
+
+  test('remaps structured references and every exact HTML placeholder without changing inline visuals', () => {
+    const nextImageId = 'e'.repeat(64);
+    const nextEmbeddedId = 'f'.repeat(64);
+    const remapped = remapProjectAssetReferences(
+      projectWithAssets(),
+      new Map([
+        [imageRef.id, nextImageId],
+        [embeddedRef.id, nextEmbeddedId],
+      ])
+    ) as ReturnType<typeof projectWithAssets>;
+
+    const visuals = remapped.learningPlan.modules[0]?.children[0]?.generatedVisuals ?? [];
+    expect(visuals[0]?.render).toMatchObject({ asset: { id: nextImageId }, kind: 'image' });
+    expect(visuals[1]?.render).toMatchObject({
+      embeddedAssets: [{ id: nextEmbeddedId }],
+      kind: 'html',
+    });
+    expect((visuals[1]?.render as { code: string }).code).toBe(
+      `<img src="{{PROJECT_ASSET:${nextEmbeddedId}}}"><img src="{{PROJECT_ASSET:${nextEmbeddedId}}}">`
+    );
+    expect(visuals[2]?.render).toEqual({ code: '<svg />', kind: 'svg' });
+    expect(remapped.documentAssets.usedImages[0]?.asset.id).toBe(nextEmbeddedId);
+    expect(
+      projectWithAssets().learningPlan.modules[0]?.children[0]?.generatedVisuals[0]
+    ).toMatchObject({ render: { asset: { id: imageRef.id } } });
+  });
+
+  test('rejects HTML whose declared assets and placeholders disagree', () => {
+    const invalid = projectWithAssets();
+    const visual = invalid.learningPlan.modules[0]?.children[0]?.generatedVisuals[1];
+    if (visual?.render.kind === 'html') visual.render.code = '<p>No placeholder</p>';
+
+    expect(() => collectProjectAssetReferences(invalid)).toThrow(
+      'Project backup contains invalid asset references.'
+    );
+  });
+
+  test('rejects malformed structured references instead of losing their assets', () => {
+    const invalid = projectWithAssets();
+    const visual = invalid.learningPlan.modules[0]?.children[0]?.generatedVisuals[0];
+    if (visual?.render.kind === 'image') {
+      visual.render.asset = { ...visual.render.asset, hash: 'invalid' };
+    }
+
+    expect(() => collectProjectAssetReferences(invalid)).toThrow(InvalidProjectBackupAssetError);
+  });
+});
+
+describe('imported project asset identity', () => {
+  test('is deterministic for one tenant and project and isolated across destinations', async () => {
+    const input = {
+      contentHash: imageRef.hash,
+      projectId: 'project-1',
+      sourceAssetId: imageRef.id,
+      userId: '00000000-0000-4000-8000-000000000001',
+    };
+    const first = await buildImportedProjectAssetIdentity(input);
+    const second = await buildImportedProjectAssetIdentity(input);
+    const otherProject = await buildImportedProjectAssetIdentity({
+      ...input,
+      projectId: 'project-2',
+    });
+    const expectedId = createHash('sha256')
+      .update(
+        JSON.stringify([
+          'project-asset-import-v1',
+          input.userId,
+          input.projectId,
+          input.sourceAssetId,
+          input.contentHash,
+        ])
+      )
+      .digest('hex');
+
+    expect(first).toEqual(second);
+    expect(first.id).toBe(expectedId);
+    expect(first.objectPath).toContain(`/archive/${expectedId}/${imageRef.hash}`);
+    expect(otherProject.id).not.toBe(first.id);
+  });
+});

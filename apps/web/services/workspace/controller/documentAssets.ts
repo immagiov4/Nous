@@ -1,4 +1,4 @@
-import type { LearningPlan, PdfDocumentAssets, PdfImageAsset } from '../../../types.ts';
+import type { LearningPlan, PdfDocumentAssets, PdfDocumentImageAsset } from '../../../types.ts';
 import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
 
 export const mergeDocumentAssetsForPlan = (
@@ -16,7 +16,7 @@ export const mergeDocumentAssetsForPlan = (
       (section.imageRefs || []).map(imageRef => imageRef.assetId)
     )
   );
-  const availableAssets = new Map<string, PdfImageAsset>();
+  const availableAssets = new Map<string, PdfDocumentImageAsset>();
 
   currentAssets?.usedImages.forEach(asset => {
     availableAssets.set(asset.id, asset);
@@ -32,6 +32,6 @@ export const mergeDocumentAssetsForPlan = (
     sourceHash: incomingAssets?.sourceHash || currentAssets?.sourceHash,
     usedImages: Array.from(referencedAssetIds)
       .map(assetId => availableAssets.get(assetId))
-      .filter((asset): asset is PdfImageAsset => Boolean(asset)),
+      .filter((asset): asset is PdfDocumentImageAsset => Boolean(asset)),
   };
 };

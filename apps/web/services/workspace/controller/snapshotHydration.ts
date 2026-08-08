@@ -196,10 +196,10 @@ export const resolvePlanLesson = (
 };
 
 export const resolveScreenStateForSnapshot = (
-  snapshot: Pick<ProjectSnapshot, 'learningPlan' | 'source'>
+  snapshot: Pick<ProjectSnapshot, 'learningPlan' | 'source' | 'state'>
 ): AppState => {
   if (snapshot.learningPlan) return AppState.READING;
-  if (snapshot.source) return AppState.ASSESSMENT;
+  if (snapshot.source || snapshot.state === AppState.ASSESSMENT) return AppState.ASSESSMENT;
   return AppState.LIBRARY;
 };
 

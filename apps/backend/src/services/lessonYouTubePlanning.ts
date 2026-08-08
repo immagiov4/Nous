@@ -9,7 +9,6 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import { retryProviderCall } from './providerRetry.js';
 
 const MAX_QUERY_CHARS = 80;
 const MIN_QUERY_TERMS = 2;
@@ -111,40 +110,38 @@ ${JSON.stringify({
 })}`;
 
   try {
-    const plan = await retryProviderCall(
-      async () => {
-        if (resolveAiProviderForSlot(input.config, 'research') === 'codex') {
-          const modelConfig = resolveTextModelConfig(input.config, 'research');
-          const response = await runCodexAppServerTurn({
-            allowWebSearch: false,
-            developerInstructions: `${YOUTUBE_QUERY_SYSTEM_INSTRUCTION} Non usare strumenti e non accedere a file locali.`,
-            input: [{ text: prompt, type: 'text' }],
-            model: modelConfig.model,
-            outputSchema: YOUTUBE_SEARCH_PLAN_SCHEMA.schema,
-            reasoningEffort: modelConfig.reasoningEffort,
-            serviceTier: resolveCodexServiceTierForSlot(input.config, 'research'),
-            signal: input.signal,
-          });
-          return JSON.parse(response) as LessonYouTubeSearchPlan;
-        }
-        const configured = createConfiguredTextModel(input.config, 'research');
-        const { output } = await generateText({
-          abortSignal: input.signal,
-          model: configured.model,
-          output: Output.object({
-            name: YOUTUBE_SEARCH_PLAN_SCHEMA.name,
-            schema: jsonSchema<LessonYouTubeSearchPlan>(
-              YOUTUBE_SEARCH_PLAN_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
-            ),
-          }),
-          prompt,
-          providerOptions: configured.providerOptions,
-          system: YOUTUBE_QUERY_SYSTEM_INSTRUCTION,
-        });
-        return output;
-      },
-      { delay: 300, retries: 1, signal: input.signal }
-    );
+    let plan: LessonYouTubeSearchPlan;
+    if (resolveAiProviderForSlot(input.config, 'research') === 'codex') {
+      const modelConfig = resolveTextModelConfig(input.config, 'research');
+      const response = await runCodexAppServerTurn({
+        allowWebSearch: false,
+        developerInstructions: `${YOUTUBE_QUERY_SYSTEM_INSTRUCTION} Non usare strumenti e non accedere a file locali.`,
+        input: [{ text: prompt, type: 'text' }],
+        model: modelConfig.model,
+        outputSchema: YOUTUBE_SEARCH_PLAN_SCHEMA.schema,
+        reasoningEffort: modelConfig.reasoningEffort,
+        serviceTier: resolveCodexServiceTierForSlot(input.config, 'research'),
+        signal: input.signal,
+      });
+      plan = JSON.parse(response) as LessonYouTubeSearchPlan;
+    } else {
+      const configured = createConfiguredTextModel(input.config, 'research');
+      const { output } = await generateText({
+        abortSignal: input.signal,
+        maxRetries: 0,
+        model: configured.model,
+        output: Output.object({
+          name: YOUTUBE_SEARCH_PLAN_SCHEMA.name,
+          schema: jsonSchema<LessonYouTubeSearchPlan>(
+            YOUTUBE_SEARCH_PLAN_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
+          ),
+        }),
+        prompt,
+        providerOptions: configured.providerOptions,
+        system: YOUTUBE_QUERY_SYSTEM_INSTRUCTION,
+      });
+      plan = output;
+    }
     return {
       fallbackQuery: normalizeQuery(plan.fallbackQuery),
       focusConcept: plan.focusConcept.trim(),
@@ -152,7 +149,7 @@ ${JSON.stringify({
     };
   } catch (error) {
     if (input.signal.aborted) throw error;
-    console.warn('[Generation job] YouTube query planning failed; using lesson titles.', error);
+    console.warn('[Lesson workflow] YouTube query planning failed; using lesson titles.', error);
     return fallbackPlan(input);
   }
 };

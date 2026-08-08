@@ -4,25 +4,32 @@ import {
   MAX_LESSON_CONTEXT_CHUNKS,
   MAX_LESSON_SOURCE_CONTEXT_CHARS,
 } from '@shared/lessonSourceContext';
+import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
+import {
+  formatYouTubeTranscript,
+  parseYouTubeTranscript,
+  type YouTubeTranscript,
+} from '@shared/youtubeTranscript';
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import { SourceArchiveAccess } from '../projects/sourceArchiveAccess.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
 import type { ExtractedPdfImage, extractPdfImages } from './pdfImageExtractor.js';
-import { extractPdfText } from './pdfTextExtractor.js';
+import { isPdfProjectSourceFile, readProjectSourceText } from './projectSourceText.js';
 import type { YouTubeResearchOutcome } from './youtubeResearch.js';
 
 export interface ResearchSource {
+  chunkIds?: string[];
   note?: string;
+  pageEnd?: number;
+  pageStart?: number;
+  sourceId?: string;
   title: string;
   url?: string;
   videoClip?: { endSeconds: number; startSeconds: number };
-  youtubeTranscript?: {
-    ranges: Array<{ endSeconds: number; startSeconds: number }>;
-    text: string;
-  };
+  youtubeTranscript?: YouTubeTranscript;
 }
 
 export interface LessonPdfImageAsset {
@@ -34,10 +41,25 @@ export interface LessonPdfImageAsset {
   mimeType: string;
   pageNumber?: number;
   sizeBytes?: number;
+  sourceId?: string;
   sourceOrder: number;
   textAfter: string;
   textBefore: string;
   textCurrent?: string;
+}
+
+export interface LessonPdfImageExtractionOutcome {
+  assets: LessonPdfImageAsset[];
+  warnings: LessonWorkflowWarning[];
+}
+
+export class LessonPdfImageExtractionError extends Error {
+  readonly code = 'lesson_pdf_image_extraction_failed';
+
+  constructor(cause: unknown) {
+    super('Every stored PDF source failed image extraction.', { cause });
+    this.name = 'LessonPdfImageExtractionError';
+  }
 }
 
 export interface LessonImageCandidate {
@@ -107,7 +129,26 @@ const clipSourceContext = (value: string, maxChars: number): string => {
   return `${trimmed.slice(0, maxChars).trimEnd()}\n[estratto della fonte troncato]`;
 };
 
-const readSectionSourceIds = (
+const readReferenceChunkIds = (section: Record<string, unknown>, sourceId?: string): string[] =>
+  Array.isArray(section.sourceReferences)
+    ? section.sourceReferences.flatMap(reference =>
+        isRecord(reference) &&
+        (sourceId === undefined || reference.sourceId === sourceId) &&
+        Array.isArray(reference.chunkIds)
+          ? reference.chunkIds.filter((id): id is string => typeof id === 'string')
+          : []
+      )
+    : [];
+
+const readSectionChunkIds = (section: Record<string, unknown>): Set<string> =>
+  new Set([
+    ...(Array.isArray(section.primaryChunkIds)
+      ? section.primaryChunkIds.filter((id): id is string => typeof id === 'string')
+      : []),
+    ...readReferenceChunkIds(section),
+  ]);
+
+export const readSectionSourceIds = (
   project: ProjectSnapshot,
   section: Record<string, unknown>
 ): Set<string> => {
@@ -122,18 +163,7 @@ const readSectionSourceIds = (
   if (!isRecord(project.documentIndex) || !Array.isArray(project.documentIndex.chunks)) {
     return sourceIds;
   }
-  const selectedChunkIds = new Set([
-    ...(Array.isArray(section.primaryChunkIds)
-      ? section.primaryChunkIds.filter((id): id is string => typeof id === 'string')
-      : []),
-    ...(Array.isArray(section.sourceReferences)
-      ? section.sourceReferences.flatMap(reference =>
-          isRecord(reference) && Array.isArray(reference.chunkIds)
-            ? reference.chunkIds.filter((id): id is string => typeof id === 'string')
-            : []
-        )
-      : []),
-  ]);
+  const selectedChunkIds = readSectionChunkIds(section);
   for (const chunk of project.documentIndex.chunks) {
     if (
       isRecord(chunk) &&
@@ -151,18 +181,8 @@ export const buildMappedSourceContext = (
   section: Record<string, unknown>
 ) => {
   if (!isRecord(project.documentIndex) || !Array.isArray(project.documentIndex.chunks)) return '';
-  const primaryChunkIds = Array.isArray(section.primaryChunkIds)
-    ? section.primaryChunkIds.filter((id): id is string => typeof id === 'string')
-    : [];
-  const referencedChunkIds = Array.isArray(section.sourceReferences)
-    ? section.sourceReferences.flatMap(reference =>
-        isRecord(reference) && Array.isArray(reference.chunkIds)
-          ? reference.chunkIds.filter((id): id is string => typeof id === 'string')
-          : []
-      )
-    : [];
   const chunks = project.documentIndex.chunks.filter(isRecord);
-  const selectedIds = new Set([...primaryChunkIds, ...referencedChunkIds]);
+  const selectedIds = readSectionChunkIds(section);
   const selectedIndexes = chunks.flatMap((chunk, index) =>
     selectedIds.has(String(chunk.id)) ? [index] : []
   );
@@ -206,23 +226,16 @@ export const buildMappedSourceContext = (
     .join('\n\n---\n\n');
 };
 
-const isPdfSourceFile = (file: { mimeType: string; name: string }): boolean =>
-  file.mimeType.toLowerCase() === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-
-const decodeStoredSourceText = async (file: {
-  data: string;
-  mimeType: string;
-  name: string;
-}): Promise<string> => {
-  if (isPdfSourceFile(file)) {
-    return (await extractPdfText(`data:${file.mimeType};base64,${file.data}`)).text;
-  }
-  return Buffer.from(file.data, 'base64').toString('utf8');
-};
-
 interface StoredSourceCandidate {
   file: { data: string; mimeType: string; name: string };
   id: string;
+}
+
+export class LessonSourceUnavailableError extends Error {
+  constructor() {
+    super('The requested lesson source is unavailable.');
+    this.name = 'LessonSourceUnavailableError';
+  }
 }
 
 const loadStoredSourceCandidates = async (
@@ -272,7 +285,7 @@ export const buildStoredDocumentSourceContext = async (
   for (const candidate of candidates) {
     signal.throwIfAborted();
     const content = clipSourceContext(
-      await decodeStoredSourceText(candidate.file),
+      await readProjectSourceText(candidate.file),
       MAX_LESSON_SOURCE_CONTEXT_CHARS
     );
     if (content) blocks.push(`FONTE ORIGINALE: ${candidate.file.name}\n${content}`);
@@ -296,7 +309,7 @@ export const buildArchiveSourceContext = async (
     : [];
   if (selectors.length === 0) return '';
   const index = await store.loadProjectSourceArchiveIndex(userId, projectId);
-  if (!index) throw new Error('Source archive not found for lesson generation.');
+  if (!index) throw new LessonSourceUnavailableError();
   const access = new SourceArchiveAccess({
     index: { entries: index.entries },
     maxContextBytes: SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES,
@@ -326,19 +339,23 @@ export const buildArchiveSourceContext = async (
 
 export const parseResearchSource = (value: unknown): ResearchSource | null => {
   if (!isRecord(value) || typeof value.title !== 'string' || !value.title.trim()) return null;
-  const transcript = isRecord(value.youtubeTranscript) ? value.youtubeTranscript : null;
+  const transcript = parseYouTubeTranscript(value.youtubeTranscript);
   const videoClip = isRecord(value.videoClip) ? value.videoClip : null;
-  const ranges = Array.isArray(transcript?.ranges)
-    ? transcript.ranges.flatMap(range =>
-        isRecord(range) &&
-        typeof range.startSeconds === 'number' &&
-        typeof range.endSeconds === 'number'
-          ? [{ endSeconds: range.endSeconds, startSeconds: range.startSeconds }]
-          : []
-      )
-    : [];
   return {
     title: value.title.trim(),
+    ...(typeof value.sourceId === 'string' && value.sourceId.trim()
+      ? { sourceId: value.sourceId.trim() }
+      : {}),
+    ...(Array.isArray(value.chunkIds)
+      ? {
+          chunkIds: value.chunkIds.filter(
+            (chunkId: unknown): chunkId is string =>
+              typeof chunkId === 'string' && Boolean(chunkId.trim())
+          ),
+        }
+      : {}),
+    ...(typeof value.pageStart === 'number' ? { pageStart: value.pageStart } : {}),
+    ...(typeof value.pageEnd === 'number' ? { pageEnd: value.pageEnd } : {}),
     ...(typeof value.url === 'string' && value.url.trim() ? { url: value.url.trim() } : {}),
     ...(typeof value.note === 'string' && value.note.trim() ? { note: value.note.trim() } : {}),
     ...(videoClip &&
@@ -351,9 +368,7 @@ export const parseResearchSource = (value: unknown): ResearchSource | null => {
           },
         }
       : {}),
-    ...(transcript && typeof transcript.text === 'string' && transcript.text.trim() && ranges.length
-      ? { youtubeTranscript: { ranges, text: transcript.text.trim() } }
-      : {}),
+    ...(transcript ? { youtubeTranscript: transcript } : {}),
   };
 };
 
@@ -366,27 +381,34 @@ export const readProjectLanguage = (project: ProjectSnapshot): string =>
   project.userProfile?.language || 'Italiano';
 
 const sourceKey = (source: ResearchSource): string => {
+  if (source.sourceId?.trim()) return `source:${source.sourceId.trim()}`;
   let url = source.url?.trim().toLocaleLowerCase();
   while (url?.endsWith('/')) url = url.slice(0, -1);
   return url || source.title.trim().normalize('NFKC').toLocaleLowerCase();
+};
+
+const mergeSource = (
+  existing: ResearchSource | undefined,
+  incoming: ResearchSource
+): ResearchSource => {
+  if (!existing) return { ...incoming };
+  return {
+    ...incoming,
+    ...existing,
+    title: existing.title || incoming.title,
+    ...(existing.chunkIds || incoming.chunkIds
+      ? { chunkIds: [...new Set([...(existing.chunkIds || []), ...(incoming.chunkIds || [])])] }
+      : {}),
+    ...(incoming.videoClip ? { videoClip: incoming.videoClip } : {}),
+    ...(incoming.youtubeTranscript ? { youtubeTranscript: incoming.youtubeTranscript } : {}),
+  };
 };
 
 export const mergeSources = (...sourceGroups: ResearchSource[][]): ResearchSource[] => {
   const sources = new Map<string, ResearchSource>();
   for (const source of sourceGroups.flat()) {
     const key = sourceKey(source);
-    const existing = sources.get(key);
-    sources.set(key, {
-      title: existing?.title || source.title,
-      ...(existing?.url || source.url ? { url: existing?.url || source.url } : {}),
-      ...(existing?.note || source.note ? { note: existing?.note || source.note } : {}),
-      ...(source.videoClip || existing?.videoClip
-        ? { videoClip: source.videoClip || existing?.videoClip }
-        : {}),
-      ...(source.youtubeTranscript || existing?.youtubeTranscript
-        ? { youtubeTranscript: source.youtubeTranscript || existing?.youtubeTranscript }
-        : {}),
-    });
+    sources.set(key, mergeSource(sources.get(key), source));
   }
   return [...sources.values()];
 };
@@ -417,7 +439,37 @@ export const readOriginalSourceNames = (
       (isRecord(descriptor.file) && typeof descriptor.file.name === 'string'
         ? descriptor.file.name.trim()
         : '');
-    return name ? [{ note: 'Materiale originale del corso', title: name }] : [];
+    if (!name) return [];
+    const sourceId = typeof descriptor.id === 'string' ? descriptor.id : undefined;
+    const references = Array.isArray(section.sourceReferences)
+      ? section.sourceReferences.filter(
+          reference => isRecord(reference) && reference.sourceId === sourceId
+        )
+      : [];
+    const chunkIds = references.flatMap(reference =>
+      Array.isArray(reference.chunkIds)
+        ? reference.chunkIds.filter(
+            (chunkId: unknown): chunkId is string =>
+              typeof chunkId === 'string' && Boolean(chunkId.trim())
+          )
+        : []
+    );
+    const pageStarts = references.flatMap(reference =>
+      typeof reference.pageStart === 'number' ? [reference.pageStart] : []
+    );
+    const pageEnds = references.flatMap(reference =>
+      typeof reference.pageEnd === 'number' ? [reference.pageEnd] : []
+    );
+    return [
+      {
+        ...(chunkIds.length ? { chunkIds: [...new Set(chunkIds)] } : {}),
+        note: 'Materiale originale del corso',
+        ...(pageEnds.length ? { pageEnd: Math.max(...pageEnds) } : {}),
+        ...(pageStarts.length ? { pageStart: Math.min(...pageStarts) } : {}),
+        ...(sourceId ? { sourceId } : {}),
+        title: name,
+      },
+    ];
   });
   const fileName =
     isRecord(project.source.file) && typeof project.source.file.name === 'string'
@@ -441,7 +493,7 @@ export const youtubeSources = (outcome: YouTubeResearchOutcome): ResearchSource[
     note: 'Video con transcript consultato per questa lezione',
     title: video.title,
     url: video.url,
-    youtubeTranscript: { ranges: video.ranges, text: video.transcript },
+    youtubeTranscript: { segments: video.segments },
   }));
 
 export const formatSourcesForPrompt = (sources: ResearchSource[]): string =>
@@ -449,7 +501,7 @@ export const formatSourcesForPrompt = (sources: ResearchSource[]): string =>
     .map((source, sourceIndex) => {
       const sourceUrl = source.url ? ` — ${source.url}` : '';
       const transcript = source.youtubeTranscript
-        ? `\nTranscript timestampato:\n${source.youtubeTranscript.text}\nIntervalli consentiti: ${JSON.stringify(source.youtubeTranscript.ranges)}\nUsa sourceIndex ${sourceIndex} per le clip.`
+        ? `\nTranscript timestampato:\n${formatYouTubeTranscript(source.youtubeTranscript.segments)}\nUsa sourceIndex ${sourceIndex} per le clip.`
         : '';
       return `[${sourceIndex}] ${source.title}${sourceUrl}${transcript}`;
     })
@@ -478,6 +530,9 @@ const parsePdfImageAsset = (image: unknown): LessonPdfImageAsset | null => {
     ...(typeof image.intrinsicWidth === 'number' ? { intrinsicWidth: image.intrinsicWidth } : {}),
     ...(typeof image.pageNumber === 'number' ? { pageNumber: image.pageNumber } : {}),
     ...(typeof image.sizeBytes === 'number' ? { sizeBytes: image.sizeBytes } : {}),
+    ...(typeof image.sourceId === 'string' && image.sourceId.trim()
+      ? { sourceId: image.sourceId.trim() }
+      : {}),
     ...(typeof image.textCurrent === 'string' ? { textCurrent: image.textCurrent } : {}),
   };
 };
@@ -492,31 +547,46 @@ export const readExistingPdfImageAssets = (project: ProjectSnapshot): LessonPdfI
   });
 };
 
+const isChunkMappedToSource = (
+  chunk: Record<string, unknown>,
+  sourceId: string | undefined,
+  sourceReferenceChunkIds: Set<string>
+): boolean => {
+  if (sourceId === undefined) return true;
+  return typeof chunk.sourceId === 'string'
+    ? chunk.sourceId === sourceId
+    : sourceReferenceChunkIds.has(String(chunk.id));
+};
+
+const readPdfPageRange = (chunk: Record<string, unknown>): [number, number] | null => {
+  const pageStart = typeof chunk.pageStart === 'number' ? Math.trunc(chunk.pageStart) : null;
+  const pageEnd = typeof chunk.pageEnd === 'number' ? Math.trunc(chunk.pageEnd) : pageStart;
+  return pageStart === null || pageEnd === null || pageStart < 1 || pageEnd < pageStart
+    ? null
+    : [pageStart, pageEnd];
+};
+
 export const readMappedPdfPages = (
   project: ProjectSnapshot,
-  section: Record<string, unknown>
+  section: Record<string, unknown>,
+  sourceId?: string
 ): number[] | undefined => {
   if (!isRecord(project.documentIndex) || !Array.isArray(project.documentIndex.chunks)) {
     return undefined;
   }
-  const selectedChunkIds = new Set([
-    ...(Array.isArray(section.primaryChunkIds)
-      ? section.primaryChunkIds.filter((id): id is string => typeof id === 'string')
-      : []),
-    ...(Array.isArray(section.sourceReferences)
-      ? section.sourceReferences.flatMap(reference =>
-          isRecord(reference) && Array.isArray(reference.chunkIds)
-            ? reference.chunkIds.filter((id): id is string => typeof id === 'string')
-            : []
-        )
-      : []),
-  ]);
+  const selectedChunkIds = readSectionChunkIds(section);
+  const sourceReferenceChunkIds = new Set(
+    sourceId === undefined ? [] : readReferenceChunkIds(section, sourceId)
+  );
   const pages = new Set<number>();
   for (const chunk of project.documentIndex.chunks) {
-    if (!isRecord(chunk) || !selectedChunkIds.has(String(chunk.id))) continue;
-    const pageStart = typeof chunk.pageStart === 'number' ? Math.trunc(chunk.pageStart) : null;
-    const pageEnd = typeof chunk.pageEnd === 'number' ? Math.trunc(chunk.pageEnd) : pageStart;
-    if (pageStart === null || pageEnd === null || pageStart < 1 || pageEnd < pageStart) continue;
+    if (!isRecord(chunk)) continue;
+    const chunkId = String(chunk.id);
+    if (!selectedChunkIds.has(chunkId)) continue;
+    if (!isChunkMappedToSource(chunk, sourceId, sourceReferenceChunkIds)) continue;
+    const pageRange = readPdfPageRange(chunk);
+    if (!pageRange) continue;
+    const [pageStart, pageEnd] = pageRange;
     for (let page = pageStart; page <= pageEnd; page += 1) pages.add(page);
   }
   return pages.size ? [...pages].sort((left, right) => left - right) : undefined;
@@ -525,7 +595,8 @@ export const readMappedPdfPages = (
 const toPdfImageAsset = (
   image: ExtractedPdfImage,
   sourceOrder: number,
-  caption: string | null
+  caption: string | null,
+  sourceId: string
 ): LessonPdfImageAsset => ({
   ...(caption ? { caption } : {}),
   dataUrl: image.dataUrl,
@@ -535,6 +606,7 @@ const toPdfImageAsset = (
   mimeType: image.mimeType,
   pageNumber: image.pageNumber,
   sizeBytes: image.sizeBytes,
+  sourceId,
   sourceOrder,
   textAfter: image.textAfter?.trim() || '',
   textBefore: image.textBefore?.trim() || '',
@@ -559,24 +631,39 @@ export const extractStoredPdfImageAssets = async ({
   signal: AbortSignal;
   store: ProjectStore;
   userId: string;
-}): Promise<LessonPdfImageAsset[]> => {
-  if (project.sourceKind !== 'document') return [];
+}): Promise<LessonPdfImageExtractionOutcome> => {
+  if (project.sourceKind !== 'document') return { assets: [], warnings: [] };
   const storedSources = filterReferencedStoredSources(
     await loadStoredSourceCandidates(store, userId, project.id),
     section
-  ).filter(candidate => isPdfSourceFile(candidate.file));
-  const partialPages = readMappedPdfPages(project, section);
+  ).filter(candidate => isPdfProjectSourceFile(candidate.file));
+  const singleSourcePartialPages =
+    storedSources.length === 1 ? readMappedPdfPages(project, section) : undefined;
   const assets: LessonPdfImageAsset[] = [];
+  const warnings: LessonWorkflowWarning[] = [];
+  const extractionFailures: unknown[] = [];
+  let successfulSourceCount = 0;
   for (const source of storedSources) {
     signal.throwIfAborted();
     try {
-      const images = await extractImages(
+      const partialPages =
+        readMappedPdfPages(project, section, source.id) ?? singleSourcePartialPages;
+      const extraction = await extractImages(
         `data:${source.file.mimeType};base64,${source.file.data}`,
         LESSON_PDF_IMAGE_EXTRACTION_LIMIT,
         partialPages,
         signal
       );
-      const uniqueImages = images.filter(
+      successfulSourceCount += 1;
+      warnings.push(
+        ...extraction.failedPages.map(pageNumber => ({
+          code: 'lesson_pdf_image_extraction_incomplete' as const,
+          pageNumber,
+          sourceId: source.id,
+          stage: 'sources' as const,
+        }))
+      );
+      const uniqueImages = extraction.images.filter(
         image => !assets.some(candidate => candidate.id === `pdf-img-${image.hash.slice(0, 24)}`)
       );
       const captions = await Promise.all(
@@ -585,7 +672,7 @@ export const extractStoredPdfImageAssets = async ({
             return await captionImage(image, config, signal);
           } catch (error) {
             if (signal.aborted) throw error;
-            console.warn('[Generation job] Optional PDF image caption failed.', {
+            console.warn('[Lesson workflow] Optional PDF image caption failed.', {
               error,
               pageNumber: image.pageNumber,
               projectId: project.id,
@@ -595,11 +682,17 @@ export const extractStoredPdfImageAssets = async ({
         })
       );
       uniqueImages.forEach((image, index) => {
-        assets.push(toPdfImageAsset(image, assets.length + 1, captions[index] || null));
+        assets.push(toPdfImageAsset(image, assets.length + 1, captions[index] || null, source.id));
       });
     } catch (error) {
       if (signal.aborted) throw error;
-      console.warn('[Generation job] Optional PDF image extraction failed.', {
+      extractionFailures.push(error);
+      warnings.push({
+        code: 'lesson_pdf_image_extraction_incomplete',
+        sourceId: source.id,
+        stage: 'sources',
+      });
+      console.warn('[Lesson workflow] PDF image extraction failed for a stored source.', {
         error,
         projectId: project.id,
         sourceName: source.file.name,
@@ -607,49 +700,19 @@ export const extractStoredPdfImageAssets = async ({
     }
   }
   signal.throwIfAborted();
-  return assets;
+  if (storedSources.length > 0 && successfulSourceCount === 0) {
+    throw new LessonPdfImageExtractionError(extractionFailures[0]);
+  }
+  return { assets, warnings };
 };
 
-export const mergePdfImageAssets = (
-  existing: LessonPdfImageAsset[],
-  extracted: LessonPdfImageAsset[]
-): LessonPdfImageAsset[] => {
-  const byId = new Map(existing.map(image => [image.id, image]));
-  for (const image of extracted) byId.set(image.id, image);
-  return [...byId.values()];
-};
+type StoredDocumentImage = Record<string, unknown> & { id: string };
 
-export const buildDocumentAssets = (
-  project: ProjectSnapshot,
-  availableImages: LessonPdfImageAsset[],
-  imageRefs: Array<{ assetId: string }>
-): Record<string, unknown> | undefined => {
-  if (!isRecord(project.documentAssets) && availableImages.length === 0) return undefined;
-  const selectedIds = new Set(imageRefs.map(image => image.assetId));
-  const usedImages = availableImages.filter(image => selectedIds.has(image.id));
-  const source = isRecord(project.source) ? project.source : null;
-  const sourceRef = source && isRecord(source.ref) ? source.ref : null;
-  return {
-    ...(isRecord(project.documentAssets) ? project.documentAssets : {}),
-    imageCount: Math.max(
-      availableImages.length,
-      isRecord(project.documentAssets) && typeof project.documentAssets.imageCount === 'number'
-        ? project.documentAssets.imageCount
-        : 0
-    ),
-    kind: 'pdf',
-    parsedAt: new Date().toISOString(),
-    ...(sourceRef && typeof sourceRef.hash === 'string' ? { sourceHash: sourceRef.hash } : {}),
-    usedImages,
-  };
-};
-
-const readDocumentAssetImages = (value: unknown): LessonPdfImageAsset[] => {
+const readDocumentAssetImages = (value: unknown): StoredDocumentImage[] => {
   if (!isRecord(value) || !Array.isArray(value.usedImages)) return [];
-  return value.usedImages.flatMap(image => {
-    const parsed = parsePdfImageAsset(image);
-    return parsed ? [parsed] : [];
-  });
+  return value.usedImages.flatMap(image =>
+    isRecord(image) && typeof image.id === 'string' ? [{ ...image, id: image.id }] : []
+  );
 };
 
 const readImageRefIds = (value: unknown): string[] =>
@@ -665,12 +728,14 @@ const collectReferencedAssetIds = (
   nextSectionImageRefs: unknown
 ): Set<string> => {
   const referencedAssetIds = new Set<string>();
-  for (const module of project.learningPlan?.modules || []) {
-    for (const candidate of module.children || []) {
-      if (!isRecord(candidate) || candidate.kind === 'exercise') continue;
-      const imageRefs = candidate.id === sectionId ? nextSectionImageRefs : candidate.imageRefs;
-      for (const assetId of readImageRefIds(imageRefs)) referencedAssetIds.add(assetId);
-    }
+  const candidates = [
+    ...(project.learningPlan?.modules || []).flatMap(module => module.children || []),
+    ...(project.learningPlan?.sections || []),
+  ];
+  for (const candidate of candidates) {
+    if (!isRecord(candidate) || candidate.kind === 'exercise') continue;
+    const imageRefs = candidate.id === sectionId ? nextSectionImageRefs : candidate.imageRefs;
+    for (const assetId of readImageRefIds(imageRefs)) referencedAssetIds.add(assetId);
   }
   return referencedAssetIds;
 };
@@ -678,7 +743,7 @@ const collectReferencedAssetIds = (
 const indexDocumentAssetImages = (
   currentAssets: Record<string, unknown> | null,
   incomingAssets: Record<string, unknown> | null
-): Map<string, LessonPdfImageAsset> =>
+): Map<string, StoredDocumentImage> =>
   new Map(
     [...readDocumentAssetImages(currentAssets), ...readDocumentAssetImages(incomingAssets)].map(
       image => [image.id, image]

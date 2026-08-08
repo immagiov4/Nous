@@ -9,7 +9,6 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import { retryProviderCall } from './providerRetry.js';
 
 export type LessonLearningAidKind = 'analogy' | 'definition' | 'formula';
 
@@ -35,7 +34,7 @@ const MAX_OTHER_KIND_COUNT = 1;
 const MAX_LEARNING_AID_COUNT = 4;
 const MAX_LESSON_MARKDOWN_CHARS = 24_000;
 const LEARNING_AIDS_SYSTEM_INSTRUCTION =
-  'Sei Lia, un tutor rigoroso. Estrai solo supporti didattici brevi e verificabili dal testo fornito.';
+  'Sei Lia, un tutor rigoroso. Estrai solo supporti didattici brevi e verificabili dal testo fornito. Rispondi esclusivamente con un oggetto JSON valido conforme allo schema richiesto.';
 
 const LEARNING_AIDS_RESPONSE_SCHEMA = {
   name: 'lesson_learning_aids',
@@ -202,6 +201,7 @@ const requestLessonLearningAidDrafts: RequestLessonLearningAidDrafts = async (in
   const configured = createConfiguredTextModel(input.config, 'lesson');
   const { output } = await generateText({
     abortSignal: input.signal,
+    maxRetries: 0,
     model: configured.model,
     output: Output.object({
       name: LEARNING_AIDS_RESPONSE_SCHEMA.name,
@@ -224,16 +224,8 @@ export const createLessonLearningAidGenerator =
       input.sectionDescription,
       input.sectionTitle
     );
-    try {
-      const drafts = await retryProviderCall(() => requestDrafts(input, prompt), {
-        signal: input.signal,
-      });
-      return normalizeLessonLearningAids(drafts, input.contentMarkdown);
-    } catch (error) {
-      if (input.signal.aborted) throw error;
-      console.warn('[Generation job] Optional learning-aid generation failed.', error);
-      return [];
-    }
+    const drafts = await requestDrafts(input, prompt);
+    return normalizeLessonLearningAids(drafts, input.contentMarkdown);
   };
 
 export const generateLessonLearningAids = createLessonLearningAidGenerator();
