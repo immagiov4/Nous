@@ -44,7 +44,10 @@ import {
   resolveTypedYouTubeClips,
   splitYouTubeClipCarouselContent,
 } from '../../../utils/reader/youtubeClipCarousel.ts';
-import { getStoredLessonVisualKind } from '../../../utils/visuals/storedLessonVisual.ts';
+import {
+  getStoredLessonVisualKind,
+  isUserGeneratedLessonArtifact,
+} from '../../../utils/visuals/storedLessonVisual.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
@@ -215,15 +218,19 @@ const resolveAnnotationArtifactPayloads = ({
       : [];
   });
 
+const getArtifactIdentity = (payload: LearningArtifactRenderPayload): string =>
+  'visual' in payload ? `generated-visual:${payload.visual.id}` : payload.summary.id;
+
 const dedupeArtifactPayloads = (
   payloads: LearningArtifactRenderPayload[]
 ): LearningArtifactRenderPayload[] => {
   const seenIds = new Set<string>();
   return payloads.filter(payload => {
-    if (seenIds.has(payload.summary.id)) {
+    const artifactId = getArtifactIdentity(payload);
+    if (seenIds.has(artifactId)) {
       return false;
     }
-    seenIds.add(payload.summary.id);
+    seenIds.add(artifactId);
     return true;
   });
 };
@@ -231,7 +238,7 @@ const dedupeArtifactPayloads = (
 const isSavedGeneratedVisualPayload = (payload: LearningArtifactRenderPayload) =>
   payload.summary.kind === 'generated-visual' &&
   'visual' in payload &&
-  payload.visual.id.startsWith('visual-draft-');
+  isUserGeneratedLessonArtifact(payload.visual);
 
 function LessonGenerationSkeleton({
   isDarkMode,
@@ -878,12 +885,16 @@ function LessonSourceAttribution({
                     href={safeUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-semibold text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 dark:text-orange-300 dark:hover:text-orange-100"
+                    className="block max-w-full truncate font-semibold text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 dark:text-orange-300 dark:hover:text-orange-100"
+                    title={source.title}
                   >
                     {source.title}
                   </a>
                 ) : (
-                  <span className="font-semibold text-stone-900 dark:text-stone-100">
+                  <span
+                    className="block max-w-full truncate font-semibold text-stone-900 dark:text-stone-100"
+                    title={source.title}
+                  >
                     {source.title}
                   </span>
                 )}
@@ -1042,54 +1053,32 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     () => new Map(currentLessonArtifactPayloads.map(payload => [payload.summary.id, payload])),
     [currentLessonArtifactPayloads]
   );
-  const lessonAnnotationArtifactIds = useMemo(
+  const visibleArtifactPayloads = useMemo(
     () =>
-      new Set(
-        lessonAnnotations.flatMap(annotation =>
+      dedupeArtifactPayloads([
+        ...currentLessonArtifactPayloads.filter(isSavedGeneratedVisualPayload),
+        ...(sectionAnnotations || []).flatMap(annotation =>
           resolveAnnotationArtifactPayloads({
             activeSectionGeneratedVisualsById,
             activeSectionTitle,
             annotation,
             artifactPayloadById,
             projectId,
-          }).map(payload => payload.summary.id)
-        )
-      ),
-    [
-      activeSectionGeneratedVisualsById,
-      activeSectionTitle,
-      artifactPayloadById,
-      lessonAnnotations,
-      projectId,
-    ]
-  );
-  const sectionArtifactPayloads = useMemo(
-    () =>
-      dedupeArtifactPayloads([
-        ...currentLessonArtifactPayloads
-          .filter(isSavedGeneratedVisualPayload)
-          .filter(payload => !lessonAnnotationArtifactIds.has(payload.summary.id)),
-        ...(sectionAnnotations || [])
-          .filter(annotation => annotation.anchor?.kind !== 'lesson')
-          .flatMap(annotation =>
-            resolveAnnotationArtifactPayloads({
-              activeSectionGeneratedVisualsById,
-              activeSectionTitle,
-              annotation,
-              artifactPayloadById,
-              projectId,
-            })
-          ),
+          })
+        ),
       ]),
     [
       activeSectionGeneratedVisualsById,
       activeSectionTitle,
       artifactPayloadById,
       currentLessonArtifactPayloads,
-      lessonAnnotationArtifactIds,
       projectId,
       sectionAnnotations,
     ]
+  );
+  const lessonNotes = useMemo(
+    () => lessonAnnotations.filter(annotation => annotation.note.trim().length > 0),
+    [lessonAnnotations]
   );
   const unansweredQuestionCount = useMemo(
     () => effectiveQuiz.filter((_, index) => (quizAnswers[index] ?? -1) < 0).length,
@@ -1360,59 +1349,32 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                       ))}
                 </div>
 
-                {sectionArtifactPayloads.length > 0 ? (
+                {visibleArtifactPayloads.length > 0 || lessonNotes.length > 0 ? (
                   <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
                     <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
                       {t('Artefatti')}
                     </h2>
-                    <ChatArtifactRenderer
-                      artifacts={sectionArtifactPayloads}
-                      className="grid gap-2 sm:grid-cols-2"
-                      isDarkMode={isDarkMode}
-                    />
-                  </section>
-                ) : null}
-
-                {lessonAnnotations.length > 0 ? (
-                  <section className="mt-10 space-y-3 border-t border-stone-200/80 pt-6 dark:border-stone-700">
-                    <h2 className="font-serif text-2xl font-normal text-gray-900 dark:text-white">
-                      {t('Artefatti della lezione')}
-                    </h2>
-                    {lessonAnnotations.map(annotation => {
-                      const annotationArtifacts = resolveAnnotationArtifactPayloads({
-                        activeSectionGeneratedVisualsById,
-                        activeSectionTitle,
-                        annotation,
-                        artifactPayloadById,
-                        projectId,
-                      });
-                      const hasNoteText = annotation.note?.trim().length > 0;
-
-                      return (
-                        <article key={annotation.id}>
-                          {hasNoteText ? (
-                            <div className="rounded-[1.2rem] border border-stone-200/80 bg-white/80 px-4 py-4 shadow-[0_12px_34px_-30px_rgba(46,34,16,0.45)] dark:border-stone-700 dark:bg-stone-900/35">
-                              <MarkdownRenderer
-                                content={annotation.note}
-                                isDarkMode={isDarkMode}
-                                className={`prose-sm max-w-none leading-6 text-stone-800 dark:text-stone-100 ${
-                                  isDarkMode ? 'prose-invert' : ''
-                                }`}
-                              />
-                            </div>
-                          ) : null}
-                          {annotationArtifacts.length > 0 ? (
-                            <div className={hasNoteText ? 'mt-3' : ''}>
-                              <ChatArtifactRenderer
-                                artifacts={annotationArtifacts}
-                                className="grid gap-2 sm:grid-cols-2"
-                                isDarkMode={isDarkMode}
-                              />
-                            </div>
-                          ) : null}
-                        </article>
-                      );
-                    })}
+                    {visibleArtifactPayloads.length > 0 ? (
+                      <ChatArtifactRenderer
+                        artifacts={visibleArtifactPayloads}
+                        className="grid gap-2 sm:grid-cols-2"
+                        isDarkMode={isDarkMode}
+                      />
+                    ) : null}
+                    {lessonNotes.map(annotation => (
+                      <article
+                        className="rounded-[1.2rem] border border-stone-200/80 bg-white/80 px-4 py-4 shadow-[0_12px_34px_-30px_rgba(46,34,16,0.45)] dark:border-stone-700 dark:bg-stone-900/35"
+                        key={annotation.id}
+                      >
+                        <MarkdownRenderer
+                          content={annotation.note}
+                          isDarkMode={isDarkMode}
+                          className={`prose-sm max-w-none leading-6 text-stone-800 dark:text-stone-100 ${
+                            isDarkMode ? 'prose-invert' : ''
+                          }`}
+                        />
+                      </article>
+                    ))}
                   </section>
                 ) : null}
 

@@ -1,3 +1,4 @@
+import { ARTIFACT_DRAFT_SLOT_ID } from '@shared/artifactDraftWorkflowContract';
 import * as z from 'zod';
 import type { ProjectAssetWriter } from '../projects/projectAsset.js';
 import {
@@ -23,7 +24,7 @@ import {
 import { retryCorrective, runWorkflowStage } from './retryPolicy.js';
 import type { WorkflowExecutionDefaults } from './types.js';
 
-export const ARTIFACT_DRAFT_SLOT_ID = 'artifact-draft';
+export { ARTIFACT_DRAFT_SLOT_ID };
 
 export const ARTIFACT_DRAFT_WORKFLOW_ID = 'lesson-artifact-draft';
 

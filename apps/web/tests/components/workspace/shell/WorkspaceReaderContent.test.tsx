@@ -487,6 +487,22 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getByText('Lessico del corso.')).toBeInTheDocument();
   });
 
+  test('keeps long external source titles on one line while preserving the full title', () => {
+    const longTitle =
+      'Una documentazione ufficiale con un titolo volutamente molto lungo per la colonna di lettura';
+
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          lessonSources: [{ title: longTitle, url: 'https://example.com/docs' }],
+        })}
+      />
+    );
+
+    expect(screen.getByRole('link', { name: longTitle })).toHaveAttribute('title', longTitle);
+    expect(screen.getByRole('link', { name: longTitle })).toHaveClass('truncate');
+  });
+
   test('loads a validated timestamped YouTube demonstration without an extra play gate', async () => {
     render(
       <WorkspaceReaderContent
@@ -777,6 +793,73 @@ describe('WorkspaceReaderContent', () => {
 
     expect(screen.getByRole('heading', { name: 'Artefatti' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Apri Flashcard interattive/i })).toBeInTheDocument();
+  });
+
+  test('renders a saved visual attached to the whole lesson only once in one artifact section', () => {
+    const secondSavedArtifact: LearningArtifactRenderPayload = {
+      ...savedSelectionArtifact,
+      summary: {
+        ...savedSelectionArtifact.summary,
+        id: 'project-1:section-1:generated-visual:visual-draft-2',
+        title: 'Seconda mappa interattiva',
+      },
+      visual: {
+        ...savedSelectionArtifact.visual,
+        id: 'visual-draft-2',
+        title: 'Seconda mappa interattiva',
+      },
+    };
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          activeSectionGeneratedVisualsById: {
+            'visual-draft-1': savedSelectionArtifact.visual,
+            'visual-draft-2': secondSavedArtifact.visual,
+          },
+          currentLessonArtifactPayloads: [savedSelectionArtifact, secondSavedArtifact],
+          sectionAnnotations: [
+            {
+              anchor: { kind: 'lesson' },
+              artifactRefs: [
+                {
+                  artifactId: 'legacy:generated-visual:visual-draft-1',
+                  kind: 'generated-visual',
+                  title: 'Flashcard interattive',
+                },
+              ],
+              createdAt: '2026-05-06T10:00:00.000Z',
+              id: 'lesson-annotation-1',
+              note: '',
+              updatedAt: '2026-05-06T10:00:00.000Z',
+            },
+            {
+              anchor: { kind: 'lesson' },
+              artifactRefs: [
+                {
+                  artifactId: 'legacy:generated-visual:visual-draft-2',
+                  kind: 'generated-visual',
+                  title: 'Seconda mappa interattiva',
+                },
+              ],
+              createdAt: '2026-05-06T10:01:00.000Z',
+              id: 'lesson-annotation-2',
+              note: '',
+              updatedAt: '2026-05-06T10:01:00.000Z',
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getAllByRole('heading', { name: 'Artefatti' })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Artefatti della lezione' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: /Apri Flashcard interattive/i })).toHaveLength(1);
+    const artifactButtons = [
+      screen.getByRole('button', { name: /Apri Flashcard interattive/i }),
+      screen.getByRole('button', { name: /Apri Seconda mappa interattiva/i }),
+    ];
+    expect(artifactButtons[0].closest('.grid')).toBe(artifactButtons[1].closest('.grid'));
+    expect(artifactButtons[0].closest('.grid')).toHaveClass('sm:grid-cols-2');
   });
 
   test('persists dismissal of the context hint banner', async () => {

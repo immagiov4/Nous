@@ -11,6 +11,7 @@ import {
 
 interface GeneratedVisualFrameProps {
   readonly className?: string;
+  readonly displayMode?: 'full' | 'thumbnail';
   readonly isDarkMode?: boolean;
   readonly projectId?: string | null;
   readonly title: string;
@@ -34,6 +35,29 @@ body > * {
 `;
 
 const GENERATED_VISUAL_ROOT_ID = 'nous-generated-visual-root';
+
+const GENERATED_VISUAL_THUMBNAIL_HOST_OVERRIDE = `
+html, body {
+  height: 100%;
+}
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#${GENERATED_VISUAL_ROOT_ID},
+.mermaid {
+  width: 100%;
+  height: 100%;
+}
+#${GENERATED_VISUAL_ROOT_ID} > svg,
+.mermaid > svg {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+}
+`;
 
 const toSafeScriptJson = (value: string): string =>
   JSON.stringify(value).replaceAll('</', String.raw`<\/`);
@@ -460,7 +484,11 @@ setTimeout(normalizeAndMeasure, 500);
 setTimeout(normalizeAndMeasure, 1500);
 `;
 
-const buildMermaidHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): string => `
+const buildMermaidHost = (
+  visual: LessonGeneratedVisual,
+  isDarkMode: boolean,
+  isThumbnail: boolean
+): string => `
 <!DOCTYPE html>
 <html class="${isDarkMode ? 'dark' : ''}">
   <head>
@@ -469,6 +497,7 @@ const buildMermaidHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): s
       body { padding: 0; }
       .mermaid { display: flex; justify-content: center; }
       ${GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE}
+      ${isThumbnail ? GENERATED_VISUAL_THUMBNAIL_HOST_OVERRIDE : ''}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   </head>
@@ -485,7 +514,11 @@ const buildMermaidHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): s
   </body>
 </html>`;
 
-export const buildVisualHost = (visual: LessonGeneratedVisual, isDarkMode: boolean): string => `
+export const buildVisualHost = (
+  visual: LessonGeneratedVisual,
+  isDarkMode: boolean,
+  isThumbnail = false
+): string => `
 <!DOCTYPE html>
 <html class="${isDarkMode ? 'dark' : ''}">
   <head>
@@ -495,6 +528,7 @@ export const buildVisualHost = (visual: LessonGeneratedVisual, isDarkMode: boole
   <body>
     <div id="${GENERATED_VISUAL_ROOT_ID}"></div>
     <style>${GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE}</style>
+    <style>${isThumbnail ? GENERATED_VISUAL_THUMBNAIL_HOST_OVERRIDE : ''}</style>
     <script>${buildGeneratedVisualBootstrapScript(visual)}</script>
     <script>${RESIZE_SCRIPT}</script>
   </body>
@@ -502,6 +536,7 @@ export const buildVisualHost = (visual: LessonGeneratedVisual, isDarkMode: boole
 
 const GeneratedVisualFrame = ({
   className = 'my-10',
+  displayMode = 'full',
   isDarkMode = false,
   projectId,
   title,
@@ -527,6 +562,7 @@ const GeneratedVisualFrame = ({
   return (
     <ResolvedGeneratedVisualFrame
       className={className}
+      displayMode={displayMode}
       isDarkMode={isDarkMode}
       title={title}
       trustedImageUrl={resolution.result.trustedImageUrl}
@@ -537,26 +573,29 @@ const GeneratedVisualFrame = ({
 
 const ResolvedGeneratedVisualFrame = ({
   className,
+  displayMode,
   isDarkMode,
   title,
   trustedImageUrl,
   visual,
 }: {
   readonly className: string;
+  readonly displayMode: 'full' | 'thumbnail';
   readonly isDarkMode: boolean;
   readonly title: string;
   readonly trustedImageUrl: boolean;
   readonly visual: LessonGeneratedVisual;
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const isThumbnail = displayMode === 'thumbnail';
   // Rebuild the iframe document on render so visual-host HMR updates only this
   // frame instead of requiring a full application reload.
   const hostDocument =
     visual.kind === 'image'
       ? ''
       : visual.kind === 'mermaid'
-        ? buildMermaidHost(visual, isDarkMode)
-        : buildVisualHost(visual, isDarkMode);
+        ? buildMermaidHost(visual, isDarkMode, isThumbnail)
+        : buildVisualHost(visual, isDarkMode, isThumbnail);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -565,6 +604,7 @@ const ResolvedGeneratedVisualFrame = ({
       }
 
       if (event.data?.type === 'generated-visual-resize') {
+        if (isThumbnail) return;
         const nextHeight = Math.max(Number(event.data.height) || 0, 180);
         const currentHeight = Number.parseFloat(iframeRef.current.style.height || '0');
         if (Math.abs(currentHeight - nextHeight) > 1) {
@@ -580,7 +620,7 @@ const ResolvedGeneratedVisualFrame = ({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [isThumbnail]);
 
   if (visual.kind === 'image') {
     const imageAltText =
@@ -611,11 +651,15 @@ const ResolvedGeneratedVisualFrame = ({
         key={`${visual.id}-${visual.kind}-${isDarkMode ? 'dark' : 'light'}`}
         ref={iframeRef}
         title={title}
-        className="block w-full border-0 bg-transparent"
+        className={`block w-full border-0 bg-transparent ${isThumbnail ? 'h-full' : ''}`}
         sandbox="allow-scripts allow-forms"
         srcDoc={hostDocument}
         scrolling="no"
-        style={{ minHeight: visual.kind === 'html' ? 240 : 180, overflow: 'hidden' }}
+        style={
+          isThumbnail
+            ? { height: '100%', minHeight: 0, overflow: 'hidden' }
+            : { minHeight: visual.kind === 'html' ? 240 : 180, overflow: 'hidden' }
+        }
       />
     </figure>
   );

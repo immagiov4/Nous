@@ -39,7 +39,10 @@ import type {
 } from '../../types';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
-import { getStoredLessonVisualKind } from '../../utils/visuals/storedLessonVisual.ts';
+import {
+  getStoredLessonVisualKind,
+  isUserGeneratedLessonArtifact,
+} from '../../utils/visuals/storedLessonVisual.ts';
 import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechInputButton.tsx';
@@ -179,7 +182,8 @@ const ContextMenu = ({
       payload =>
         !attachedArtifactIds.has(payload.summary.id) &&
         payload.summary.kind === 'generated-visual' &&
-        'visual' in payload
+        'visual' in payload &&
+        isUserGeneratedLessonArtifact(payload.visual)
     );
   }, [activeAnnotationArtifactRefs, artifactPayloads]);
   const hasSavedAnnotationNote = annotationNote.trim().length > 0;

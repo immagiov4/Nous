@@ -80,16 +80,22 @@ function DocumentSourceLink({
   };
 
   let sourceControl = (
-    <span className="font-semibold text-stone-900 dark:text-stone-100">{source.name}</span>
+    <span
+      className="block w-full truncate text-left font-semibold text-stone-900 dark:text-stone-100"
+      title={source.name}
+    >
+      {source.name}
+    </span>
   );
   if (canOpenSource) {
     sourceControl = (
       <button
-        className="font-semibold text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 disabled:cursor-wait disabled:text-stone-500 dark:text-orange-300 dark:hover:text-orange-100 dark:disabled:text-stone-400"
+        className="block w-full truncate text-left font-semibold text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 disabled:cursor-wait disabled:text-stone-500 dark:text-orange-300 dark:hover:text-orange-100 dark:disabled:text-stone-400"
         disabled={isLoading}
         onClick={() => {
           void openSource();
         }}
+        title={source.name}
         type="button"
       >
         {isLoading ? t('Apertura documento...') : source.name}

@@ -129,3 +129,31 @@ test('shows the original archive and exact code paths used by a legacy lesson', 
   expect(screen.getByText('luanti/src/client')).toBeInTheDocument();
   expect(screen.queryByText('source-archive')).not.toBeInTheDocument();
 });
+
+test('keeps a long original document title on one line while preserving its full name', () => {
+  const longName =
+    'advanced-context-engineering-for-coding-agents_wsff.md at main - humanlayer_advanced-context-engineering-for-coding-agents - GitHub.pdf';
+
+  render(
+    <LessonDocumentSources
+      sources={[
+        {
+          chunkIds: ['source-long:chunk-a'],
+          file: {
+            data: '',
+            mimeType: 'application/pdf',
+            name: longName,
+            sourceId: 'source-long',
+          },
+          kind: 'pdf',
+          name: longName,
+          sourceId: 'source-long',
+        },
+      ]}
+    />
+  );
+
+  const sourceTitle = screen.getByText(longName);
+  expect(sourceTitle).toHaveAttribute('title', longName);
+  expect(sourceTitle).toHaveClass('truncate');
+});

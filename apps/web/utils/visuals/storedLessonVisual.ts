@@ -1,3 +1,4 @@
+import { ARTIFACT_DRAFT_SLOT_ID } from '@shared/artifactDraftWorkflowContract';
 import type { ProjectLessonVisual } from '@shared/projectAsset';
 import type {
   LessonGeneratedVisual,
@@ -17,6 +18,11 @@ export const isStoredLessonVisualKind = (value: unknown): value is LessonGenerat
 
 export const isProjectLessonVisual = (visual: StoredLessonVisual): visual is ProjectLessonVisual =>
   'render' in visual;
+
+export const isUserGeneratedLessonArtifact = (visual: StoredLessonVisual): boolean =>
+  isProjectLessonVisual(visual)
+    ? visual.slotId === ARTIFACT_DRAFT_SLOT_ID
+    : visual.id.startsWith('visual-draft-');
 
 export const getStoredLessonVisualKind = (visual: StoredLessonVisual): LessonGeneratedVisualKind =>
   isProjectLessonVisual(visual) ? visual.render.kind : visual.kind;
