@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import {
-  completeGeneratedVisualRetry,
   deriveQuizFromLessonContentBlocks,
   hasValidTypedQuizBlocks,
   legacyMarkdownToLessonContentBlocks,
@@ -143,8 +142,4 @@ test('persists failed visual plans and maps partial success by slot id', () => {
     { slotId: 'slot-002', type: 'generated-visual', visualId: 'visual-002' },
   ]);
   assert.deepEqual(normalizeLessonContentBlocks(blocks), blocks);
-  assert.deepEqual(completeGeneratedVisualRetry(blocks, 'slot-001', 'visual-001'), [
-    { slotId: 'slot-001', type: 'generated-visual', visualId: 'visual-001' },
-    { slotId: 'slot-002', type: 'generated-visual', visualId: 'visual-002' },
-  ]);
 });

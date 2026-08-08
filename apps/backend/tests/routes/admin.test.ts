@@ -492,7 +492,7 @@ describe('/api/admin', () => {
         })
       )
       .mockResolvedValueOnce(new Response('delivery failure', { status: 503 }))
-      .mockResolvedValueOnce(new Response('', { status: 204 }));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await request(app)

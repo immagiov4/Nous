@@ -1,6 +1,6 @@
 import { Resvg } from '@resvg/resvg-js';
 
-const SVG_WIDTH = 680;
+const SVG_PREVIEW_WIDTH = 680;
 const TEXT_HEIGHT = 18;
 
 export interface ReviewableLessonVisual {
@@ -38,20 +38,31 @@ const readAttribute = (attributes: string, name: string): string => {
   return '';
 };
 
-const readViewBoxHeight = (svgCode: string): number => {
+interface SvgViewBox {
+  height: number;
+  width: number;
+}
+
+const readViewBox = (svgCode: string): SvgViewBox => {
   const svgStart = svgCode.toLowerCase().indexOf('<svg');
   const svgTagEnd = svgCode.indexOf('>', svgStart);
   const attributes =
     svgStart >= 0 && svgTagEnd > svgStart ? svgCode.slice(svgStart + 4, svgTagEnd) : '';
   const [minX, minY, width, rawHeight] = readAttribute(attributes, 'viewBox').trim().split(/\s+/u);
+  const parsedWidth = Number.parseFloat(width || '');
   const height = Number.parseFloat(rawHeight || '');
-  if (!Number.isFinite(height) || height <= 0) {
+  if (
+    !Number.isFinite(parsedWidth) ||
+    parsedWidth <= 0 ||
+    !Number.isFinite(height) ||
+    height <= 0
+  ) {
     throw new Error('La bozza SVG non ha una viewBox valida.');
   }
-  if (minX !== '0' || minY !== '0' || Number.parseFloat(width || '') !== SVG_WIDTH) {
+  if (minX !== '0' || minY !== '0') {
     throw new Error('La bozza SVG non usa la viewBox prevista.');
   }
-  return height;
+  return { height, width: parsedWidth };
 };
 
 const stripMarkup = (value: string): string => {
@@ -78,6 +89,7 @@ const getTextLeft = (x: number, estimatedWidth: number, anchor: string): number 
 const collectTextRects = (
   svgCode: string,
   height: number,
+  width: number,
   issues: string[]
 ): EstimatedTextRect[] => {
   const textRects: EstimatedTextRect[] = [];
@@ -100,7 +112,7 @@ const collectTextRects = (
     const y = Number.parseFloat(readAttribute(attributes, 'y') || '0');
     const estimatedWidth = label.length * 8;
     const left = getTextLeft(x, estimatedWidth, readAttribute(attributes, 'text-anchor'));
-    if (left < 0 || left + estimatedWidth > SVG_WIDTH || y < 0 || y > height) {
+    if (left < 0 || left + estimatedWidth > width || y < 0 || y > height) {
       issues.push(`Possibile testo fuori dai bordi: "${label}".`);
     }
     if (label.split(/\s+/u).length > 6) {
@@ -136,55 +148,40 @@ const appendOverlapIssues = (textRects: EstimatedTextRect[], issues: string[]): 
 };
 
 export const lintLessonSvg = (svgCode: string): string[] => {
-  const height = readViewBoxHeight(svgCode);
+  const { height, width } = readViewBox(svgCode);
   const issues: string[] = [];
-  const textRects = collectTextRects(svgCode, height, issues);
+  const textRects = collectTextRects(svgCode, height, width, issues);
   appendOverlapIssues(textRects, issues);
   return issues;
 };
 
 const renderLessonSvgPreview = (svgCode: string): string => {
-  readViewBoxHeight(svgCode);
+  readViewBox(svgCode);
   const png = new Resvg(svgCode, {
     background: '#ffffff',
-    fitTo: { mode: 'width', value: SVG_WIDTH },
+    fitTo: { mode: 'width', value: SVG_PREVIEW_WIDTH },
   })
     .render()
     .asPng();
   return `data:image/png;base64,${Buffer.from(png).toString('base64')}`;
 };
 
-export type RequestLessonVisualRevision<TVisual extends ReviewableLessonVisual> = (input: {
+export interface LessonVisualReviewRequest {
   issues: string[];
   preview?: string;
-  visual: TVisual;
-}) => Promise<TVisual | null>;
+}
 
-export const reviewLessonVisual = async <TVisual extends ReviewableLessonVisual>({
+export const inspectLessonVisualForReview = ({
   lintSvg = lintLessonSvg,
-  maxRounds,
   renderSvgPreview = renderLessonSvgPreview,
-  requestRevision,
   visual,
 }: {
   lintSvg?: (svgCode: string) => string[];
-  maxRounds: number;
   renderSvgPreview?: (svgCode: string) => string;
-  requestRevision: RequestLessonVisualRevision<TVisual>;
-  visual: TVisual;
-}): Promise<TVisual> => {
-  if (visual.kind !== 'svg' && visual.kind !== 'html') return visual;
-  let reviewed = visual;
-  for (let round = 0; round < maxRounds; round += 1) {
-    const issues = reviewed.kind === 'svg' ? lintSvg(reviewed.code) : [];
-    if (reviewed.kind === 'svg' && issues.length === 0) break;
-    const revision = await requestRevision({
-      issues,
-      ...(reviewed.kind === 'svg' ? { preview: renderSvgPreview(reviewed.code) } : {}),
-      visual: reviewed,
-    });
-    if (!revision || revision.kind !== reviewed.kind) break;
-    reviewed = revision;
-  }
-  return reviewed;
+  visual: ReviewableLessonVisual;
+}): LessonVisualReviewRequest | null => {
+  if (visual.kind === 'html') return { issues: [] };
+  if (visual.kind !== 'svg') return null;
+  const issues = lintSvg(visual.code);
+  return issues.length > 0 ? { issues, preview: renderSvgPreview(visual.code) } : null;
 };

@@ -89,10 +89,12 @@ export const ReadingScreenContainer = ({
   const { acknowledgeGenerationNotesDialog, isNotesDialogOpen } = useInitialSectionAutoOpen({
     activeSection,
     currentProjectId,
+    documentIndex,
     isBlocking,
     learningPlan,
     openSection,
     screenState,
+    source,
   });
 
   const pdfMappingWarning = resolvePdfMappingWarning(controller.source, controller.documentIndex);

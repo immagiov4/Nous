@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, type LearningPlan, type LessonNode } from '../types.ts';
+import {
+  AppState,
+  type LearningPlan,
+  type LessonNode,
+  type PdfTextIndex,
+  type ProjectSource,
+} from '../types.ts';
 import { flattenLessons } from '../utils/learning/pathNodes.ts';
+import { needsPdfProjectHydration } from '../utils/pdf/projectHydration.ts';
 
 interface UseInitialSectionAutoOpenArgs {
   activeSection: LessonNode | null;
   currentProjectId: string | null;
+  documentIndex: PdfTextIndex | null;
   isBlocking: boolean;
   learningPlan: LearningPlan | null;
   openSection: (section: LessonNode) => Promise<unknown>;
   screenState: AppState;
+  source: ProjectSource | null;
 }
 
 const getPlanAcknowledgementKey = ({
@@ -20,10 +29,12 @@ const getPlanAcknowledgementKey = ({
 export const useInitialSectionAutoOpen = ({
   activeSection,
   currentProjectId,
+  documentIndex,
   isBlocking,
   learningPlan,
   openSection,
   screenState,
+  source,
 }: UseInitialSectionAutoOpenArgs) => {
   const [isNotesDialogOpen, setIsNotesDialogOpen] = useState(false);
   const notesDialogAckedPlanIdsRef = useRef<Set<string>>(new Set());
@@ -39,7 +50,14 @@ export const useInitialSectionAutoOpen = ({
   }, [currentProjectId, learningPlan]);
 
   useEffect(() => {
-    if (screenState !== AppState.READING || !learningPlan || !activeSection || isBlocking) {
+    const pdfFile = source?.kind === 'pdf' ? source.file : null;
+    if (
+      screenState !== AppState.READING ||
+      !learningPlan ||
+      !activeSection ||
+      isBlocking ||
+      needsPdfProjectHydration(pdfFile, learningPlan, documentIndex)
+    ) {
       return;
     }
     if (activeSection.content) {
@@ -70,11 +88,13 @@ export const useInitialSectionAutoOpen = ({
   }, [
     activeSection,
     currentProjectId,
+    documentIndex,
     isBlocking,
     isNotesDialogOpen,
     learningPlan,
     openSection,
     screenState,
+    source,
   ]);
 
   useEffect(() => {

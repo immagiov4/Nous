@@ -1,3 +1,4 @@
+import { PDF_TEXT_QUALITY } from '@shared/pdfDocumentPolicy';
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
 import { sanitizePartialPages } from '@shared/sanitizePartialPages';
 import type {
@@ -25,14 +26,6 @@ const PDF_PARSE_CACHE = new Map<string, Promise<PdfAssetSession | null>>();
 const PDF_TEXT_PARSE_CACHE = new Map<string, Promise<PdfAssetSession>>();
 const PDF_ASSET_CACHE_VERSION = 'resolution-metadata-v3';
 const IMAGE_ID_PREFIX = 'pdf-img-';
-const PDF_TEXT_QUALITY = {
-  MIN_SHORT_DOCUMENT_CHARS: 240,
-  MIN_MULTI_PAGE_DOCUMENT_CHARS: 800,
-  SHORT_DOCUMENT_MAX_PAGES: 2,
-  MIN_AVERAGE_CHARS_PER_PAGE: 35,
-  MIN_TEXT_PAGE_RATIO: 0.1,
-  SUBSTANTIVE_PAGE_MIN_CHARS: 80,
-} as const;
 
 interface BackendPdfImage {
   id: string;
@@ -554,7 +547,7 @@ export const buildStoredPdfDocumentAssets = (
   });
 
   existingAssets?.usedImages.forEach(asset => {
-    if (!availableAssets.has(asset.id)) {
+    if ('dataUrl' in asset && !availableAssets.has(asset.id)) {
       availableAssets.set(asset.id, asset);
     }
   });

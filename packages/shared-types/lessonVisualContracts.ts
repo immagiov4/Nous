@@ -1,6 +1,7 @@
 import {
   INTERACTIVE_VISUAL_VALUE_RULE,
   MAX_GENERATED_VISUALS_PER_LESSON,
+  MAX_VISUAL_LESSON_CHARS,
   NOUS_ARTIFACT_VISUAL_STYLE_CONTRACT,
   VISUAL_FORMAT_SELECTION_RULE,
 } from './lessonGenerationPolicy';
@@ -161,6 +162,80 @@ export const LESSON_VISUAL_PLANNING_RULES = `- ${INTERACTIVE_VISUAL_VALUE_RULE}
 - Niente narrazione, takeaway, riepiloghi o box conclusivi dentro la visuale. Il testo visibile deve servire a leggere entita, stati, relazioni o controlli.
 - Scala il layout al numero di elementi: con molti elementi usa griglie o colonne compatte, minimizza le entita grafiche e abbrevia le etichette invece di comprimere il contenuto.
 - Restituisci da zero a ${MAX_GENERATED_VISUALS_PER_LESSON} piani e usa soltanto il numero minimo necessario.`;
+
+export const LESSON_VISUAL_PLANNER_SYSTEM_PROMPT = `SYSTEM:
+Sei un pianificatore pedagogico di esempi visivi per Nous Reader.
+Dato il testo finale di una lezione, decidi quali rappresentazioni visive generate servono davvero.
+
+Scegli esattamente un tipo per ciascun piano:
+- illustrative_image: illustrazione raster per realta fisica o stilizzata, forma dimensionale, luce, ombreggiatura, volume, prospettiva, materiali, superfici, texture, anatomia, gesti, oggetti, scene, luoghi e fenomeni. Puo anche avere una composizione diagrammatica con frecce ed etichette quando queste aiutano a leggere l'immagine.
+- flowchart_svg: solo relazioni astratte tra passaggi testuali di un processo, pipeline o albero decisionale. I nodi non possono raffigurare gli stati visivi prodotti dai passaggi.
+- structural_svg: solo schema informativo semplice di contenimento, architettura, strati o parti dentro un sistema.
+- interactive_html: laboratorio HTML/CSS/JavaScript in cui l'interazione reale e indispensabile per esplorare, modificare o confrontare il concetto.
+- chart_html: dati quantitativi, confronti numerici, distribuzioni, trend.
+- mermaid_erd: solo schema entita-relazioni.
+- mermaid_class: solo classi, ereditarieta, interfacce, associazioni.
+- none: nessuna visuale utile, oppure la lezione e gia sufficientemente visuale.
+
+Regole:
+${LESSON_VISUAL_PLANNING_RULES}
+- Per una richiesta esplicita pianifica un solo artefatto.
+- Inferisci la lingua dal testo finale della lezione. La visuale deve usare la stessa lingua della lezione.
+- Se "Immagini PDF gia integrate" e "si", trattale come materiale visivo primario. Aggiungi una visuale generata solo se risponde a una domanda pedagogica distinta che le immagini della fonte non coprono; altrimenti non pianificare nulla.
+- Il posizionamento e parte della scelta pedagogica. Se generi una visuale, scegli in "anchor_heading" il heading ESATTO sotto cui il testo usa o introduce quel concetto. Usa null solo per visuali davvero conclusive.
+- Usa Mermaid solo per ER e class diagram.
+- Segui esattamente il formato di output richiesto in fondo.`;
+
+const normalizeHeadingTitle = (value: string): string =>
+  value
+    .replace(/^#{1,6}\s+/, '')
+    .replaceAll(/[*_`]/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+export const getMarkdownHeadingTitles = (markdown: string): string[] =>
+  markdown
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => /^#{1,6}\s+/.test(line))
+    .map(line => line.replace(/^#{1,6}\s+/, '').trim())
+    .filter(Boolean);
+
+export const resolveLessonVisualAnchorHeading = (
+  plannedAnchorHeading: unknown,
+  availableHeadings: readonly string[]
+): string | undefined => {
+  if (typeof plannedAnchorHeading !== 'string' || !plannedAnchorHeading.trim()) return undefined;
+  const headingByNormalized = new Map(
+    availableHeadings.map(heading => [normalizeHeadingTitle(heading), heading])
+  );
+  return headingByNormalized.get(normalizeHeadingTitle(plannedAnchorHeading));
+};
+
+interface LessonVisualPlannerRequestInput {
+  readonly generationNotes?: string;
+  readonly hasPdfImages: boolean;
+  readonly lessonMarkdown: string;
+  readonly sectionDescription: string;
+  readonly sectionTitle: string;
+}
+
+export const buildLessonVisualPlannerRequest = (input: LessonVisualPlannerRequestInput): string =>
+  `Lezione: "${input.sectionTitle}"
+Descrizione: "${input.sectionDescription}"
+Immagini PDF gia integrate: ${input.hasPdfImages ? 'si' : 'no'}
+Note corso: ${input.generationNotes?.trim() || 'nessuna'}
+Lingua target: inferiscila dal testo della lezione e mantienila in ogni testo visibile dell'esempio.
+Heading disponibili per il posizionamento:
+${
+  getMarkdownHeadingTitles(input.lessonMarkdown)
+    .map(heading => `- ${heading}`)
+    .join('\n') || '- nessun heading disponibile'
+}
+
+Testo lezione:
+${input.lessonMarkdown.slice(0, MAX_VISUAL_LESSON_CHARS)}`;
 
 export const SVG_ARTIFACT_RENDER_RULES = `Regole SVG obbligatorie:
 - SVG e riservato a schemi informativi semplici: pochi nodi, box, linee, frecce ed etichette per relazioni, gerarchie, contenimento e architetture astratte. Sono vietati realta fisica o stilizzata, forma dimensionale, luce, volume, prospettiva, materiali, superfici, texture, illustrazioni, forme organiche, persone, anatomia, gesti, oggetti raffigurati e scene. Non approssimare questi soggetti con box o disegni geometrici: richiedono un'immagine raster.

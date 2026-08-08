@@ -1,21 +1,22 @@
 export {
-  createAssessmentChat,
-  createAssessmentChatFromSourceSet,
-  createAssessmentChatFromTextSource,
-  createEmbeddedAssessmentChat,
-  createEmbeddedAssessmentChatFromSourceSet,
-  createEmbeddedAssessmentChatFromTextSource,
-  createEmbeddedLearnAssessmentChat,
-  createLearnAssessmentChat,
+  buildAssessmentDocumentContextFromSourceSet,
+  buildAssessmentDocumentContextFromTextSource,
+  buildAssessmentDocumentPrompt,
 } from './assessment.ts';
+export { askContextualQuestion } from './contextChat.ts';
 export {
-  buildLessonChunkContext,
-  buildPdfTextIndex,
-  getPdfLessonMappingState,
-  needsPdfLessonMappingMigration,
-  preparePdfLessonMappings,
-  prepareSourceSetLessonMappings,
-} from './documentIndex/index.ts';
+  generateDurableCourse,
+  repairDurablePdfMapping,
+  resumeActiveDurableCourse,
+} from './courseGenerationClient.ts';
+export {
+  cancelCourseInterview,
+  getActiveCourseInterview,
+  sendCourseInterviewAnswer,
+  sendCourseInterviewDecision,
+  startCourseInterview,
+} from './courseInterviewClient.ts';
+export { buildPdfTextIndex } from './documentIndex/index.ts';
 export {
   generateApplicationExerciseBrief,
   getExercisePrerequisiteGaps,
@@ -29,23 +30,10 @@ export type {
 export { createGenerationProgressObserver } from './generationProgress.ts';
 export {
   generateDurableLesson,
+  generateDurableSublesson,
   LessonGenerationBusyError,
 } from './lessonGenerationClient.ts';
 export { getPdfTextSession, validatePdfTextSource } from './pdfAssets.ts';
-export {
-  askContextualQuestion,
-  createArchiveSubChapterMetadata,
-  createLearnSubChapterMetadata,
-  createSubChapterMetadata,
-  generateLearningPlan,
-  generateLearningPlanFromSourceArchive,
-  generateLearningPlanFromSourceSet,
-  planLessonInstructionPacks,
-} from './planning/index.ts';
-export {
-  buildLearningPlanFromResearchCourse,
-  generateResearchCoursePlan,
-} from './research.ts';
 export {
   MODEL_ASSESSMENT,
   MODEL_CONTEXT,
@@ -55,4 +43,3 @@ export {
   MODEL_RESEARCH_PLANNER,
 } from './shared.ts';
 export { checkTTSStatus, generateSpeech, getTTSModels, getTTSVoices } from './tts.ts';
-export { generateLessonVisualExample } from './visualExamples.ts';

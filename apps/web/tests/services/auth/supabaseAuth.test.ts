@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-
 import {
   clearSupabaseSession,
   completeSupabasePasswordSetup,
@@ -23,6 +22,7 @@ import {
   signOutSupabase,
   updateSupabasePassword,
 } from '../../../services/auth/supabaseAuth.ts';
+import { TransientRequestError } from '../../../services/core/errorMessage.ts';
 
 const createAccessToken = ({
   passwordSetupRequired = false,
@@ -377,10 +377,144 @@ describe('Supabase auth session storage', () => {
     });
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
 
-    await expect(getValidSupabaseSession()).rejects.toThrow(
+    const refresh = getValidSupabaseSession();
+    await expect(refresh).rejects.toBeInstanceOf(TransientRequestError);
+    await expect(refresh).rejects.toThrow(
       'Aggiornamento sessione temporaneamente non disponibile.'
     );
     expect(readSupabaseSession()?.refreshToken).toBe('refresh-token');
+  });
+
+  test('keeps refresh credentials when reading a successful refresh body is interrupted', async () => {
+    saveSupabaseSession({
+      accessToken: 'expired-token',
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+      refreshToken: 'refresh-token',
+    });
+    fetchMock.mockResolvedValueOnce({
+      json: vi.fn().mockRejectedValue(new TypeError('response stream interrupted')),
+      ok: true,
+      status: 200,
+    });
+
+    await expect(getValidSupabaseSession()).rejects.toBeInstanceOf(TransientRequestError);
+    expect(readSupabaseSession()?.refreshToken).toBe('refresh-token');
+  });
+
+  test('keeps refresh credentials when a successful refresh body contains malformed JSON', async () => {
+    saveSupabaseSession({
+      accessToken: 'expired-token',
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+      refreshToken: 'refresh-token',
+    });
+    fetchMock.mockResolvedValueOnce({
+      json: vi.fn().mockRejectedValue(new SyntaxError('Unexpected end of JSON input')),
+      ok: true,
+      status: 200,
+    });
+
+    await expect(getValidSupabaseSession()).rejects.toBeInstanceOf(TransientRequestError);
+    expect(readSupabaseSession()?.refreshToken).toBe('refresh-token');
+  });
+
+  test('keeps refresh credentials when a successful refresh body violates the session contract', async () => {
+    saveSupabaseSession({
+      accessToken: 'expired-token',
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+      refreshToken: 'refresh-token',
+    });
+    fetchMock.mockResolvedValueOnce({
+      json: vi.fn().mockResolvedValue({ success: true }),
+      ok: true,
+      status: 200,
+    });
+
+    await expect(getValidSupabaseSession()).rejects.toBeInstanceOf(TransientRequestError);
+    expect(readSupabaseSession()?.refreshToken).toBe('refresh-token');
+  });
+
+  test('does not restore a session when its in-flight refresh completes after sign out', async () => {
+    saveSupabaseSession({
+      accessToken: 'expired-token',
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+      refreshToken: 'refresh-token-old',
+      user: { id: 'old-user' },
+    });
+    let finishRefresh: ((response: unknown) => void) | undefined;
+    fetchMock
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishRefresh = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+
+    const refresh = getValidSupabaseSession();
+    await signOutSupabase();
+    finishRefresh?.({
+      json: async () => ({
+        access_token: 'access-token-refreshed',
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        refresh_token: 'refresh-token-refreshed',
+        user: { id: 'old-user' },
+      }),
+      ok: true,
+      status: 200,
+    });
+
+    await expect(refresh).resolves.toBeNull();
+    expect(readSupabaseSession()).toBeNull();
+  });
+
+  test('does not overwrite a newer account when an older refresh completes', async () => {
+    saveSupabaseSession({
+      accessToken: 'expired-token',
+      expiresAt: Math.floor(Date.now() / 1000) - 60,
+      refreshToken: 'refresh-token-old',
+      user: { id: 'old-user' },
+    });
+    let finishRefresh: ((response: unknown) => void) | undefined;
+    fetchMock
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            finishRefresh = resolve;
+          })
+      )
+      .mockResolvedValueOnce({
+        json: async () => ({
+          access_token: createAccessToken({ userId: 'new-user' }),
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          refresh_token: 'refresh-token-new',
+          user: { id: 'new-user' },
+        }),
+        ok: true,
+        status: 200,
+      });
+
+    const refresh = getValidSupabaseSession();
+    const newSession = await signInWithPassword({
+      email: 'new-user@example.com',
+      password: 'password',
+    });
+    finishRefresh?.({
+      json: async () => ({
+        access_token: 'access-token-refreshed-old-user',
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        refresh_token: 'refresh-token-refreshed-old-user',
+        user: { id: 'old-user' },
+      }),
+      ok: true,
+      status: 200,
+    });
+
+    await expect(refresh).resolves.toMatchObject({ accessToken: newSession.accessToken });
+    expect(readSupabaseSession()).toMatchObject({
+      accessToken: newSession.accessToken,
+      refreshToken: 'refresh-token-new',
+      user: { id: 'new-user' },
+    });
   });
 
   test('never writes session credentials to console logs', async () => {

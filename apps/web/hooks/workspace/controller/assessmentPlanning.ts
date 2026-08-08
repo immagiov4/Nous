@@ -1,9 +1,18 @@
+import {
+  COURSE_INTERVIEW_DECISION_SIGNAL,
+  COURSE_INTERVIEW_USER_ANSWER_SIGNAL,
+} from '@shared/courseInterviewContract';
+import type {
+  CourseWorkflowResult,
+  CourseWorkflowSnapshot,
+  CourseWorkflowStage,
+} from '@shared/courseWorkflowContract';
+
 import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import { getErrorMessage } from '../../../services/core/errorMessage.ts';
-import { markApplicationExercisePlanningFailed } from '../../../services/exercises/plan.ts';
-import type { GenerationStatusReporter } from '../../../services/openrouter/generationProgress.ts';
-import { getCourseSourceDescriptors } from '../../../services/projects/courseSources.ts';
+import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
+import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
 import {
   createProjectId,
   createProjectSnapshot,
@@ -21,20 +30,11 @@ import {
   AppState,
   type FileData,
   type HomeChatToolPreferences,
-  type LearningPlan,
   type LessonNode,
-  type Message,
   type ProjectSource,
-  type ResearchCoursePlan,
-  type SyllabusItem,
   type UserProfile,
 } from '../../../types.ts';
-import { flattenLessons } from '../../../utils/learning/pathNodes.ts';
-import {
-  loadProjectSourceFile,
-  prepareUploadedCourseSource,
-  readSourceFileData,
-} from './controllerContext.ts';
+import { prepareUploadedCourseSource, readSourceFileData } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
   AssessmentSourceInput,
@@ -47,190 +47,96 @@ interface AssessmentPlanningDependencies {
   openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
 }
 
-const DEFAULT_ASSESSMENT_GREETING =
-  'Ciao! Sono il tuo Architect. Cosa vuoi imparare esattamente oggi, e qual è il tuo obiettivo finale?';
-const MIN_DOCUMENT_USER_TURNS_BEFORE_PLANNING = 2;
-const TARGET_DOCUMENT_USER_TURNS_BEFORE_AUTO_COMPLETE = 3;
-const LOCAL_ASSESSMENT_COMPLETE_MESSAGE =
-  'Ho tutte le info ad alto impatto che mi servono per costruire il percorso. Se vuoi posso generare il corso ora, oppure puoi aggiungere un ultimo dettaglio davvero importante.';
+type CourseInterviewOutcome = 'abandoned' | 'assessment-complete' | 'continued';
 
-const buildHomeChatMessageForModel = (
-  input: string,
-  toolPreferences?: HomeChatToolPreferences
-): string => {
-  const trimmedInput = input.trim();
-  if (!toolPreferences?.newCourse) {
-    return trimmedInput;
+const getCourseInterviewOutcome = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
+  if (snapshot.status === 'cancelled' || snapshot.result?.kind === 'cancelled') return 'abandoned';
+  if (snapshot.result?.kind === 'exhausted') {
+    throw new Error('L’intervista ha raggiunto il limite di sicurezza. Riprova.');
   }
-
-  return `[Preferenza utente attiva: Nuovo corso]
-L'utente sta usando questa conversazione per impostare o costruire un nuovo corso.
-Tratta quindi la richiesta come orientata alla definizione del percorso, dei materiali, dell'obiettivo finale e dei confini del corso, invece che come una semplice query generica.
-Non parlare esplicitamente di questa preferenza se non serve, ma tienila a mente mentre rispondi.
-  ${
-    toolPreferences.addingAssessmentDetails
-      ? "\nStato UI: l'utente ha premuto \"No, voglio aggiungere...\". Tratta il prossimo messaggio come integrazione dell'intervista: se chiarisce il dubbio, chiudi l'intervista con [ASSESSMENT_COMPLETE]; se manca ancora qualcosa, fai solo un'altra domanda. Non iniziare mai a scrivere il corso in chat."
-      : ''
+  if (snapshot.status === 'failed' || snapshot.status === 'expired') {
+    throw new Error('L’intervista per il corso non è riuscita. Riprova.');
   }
-
-Messaggio utente:
-${trimmedInput}`;
-};
-
-const normalizeAssessmentText = (value: string): string =>
-  value
-    .normalize('NFD')
-    .replaceAll(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-const matchesAnyAssessmentPattern = (value: string, patterns: RegExp[]): boolean =>
-  patterns.some(pattern => pattern.test(value));
-
-const hasEnoughHighImpactAssessmentSignals = (messages: Message[]): boolean => {
-  const userMessages = messages.filter(message => message.role === 'user');
-  if (userMessages.length < TARGET_DOCUMENT_USER_TURNS_BEFORE_AUTO_COMPLETE) {
-    return false;
+  if (snapshot.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL && snapshot.proposal) {
+    return 'assessment-complete';
   }
-
-  const normalizedText = normalizeAssessmentText(
-    userMessages.map(message => message.text).join('\n')
-  );
-
-  const hasGoalSignal = matchesAnyAssessmentPattern(normalizedText, [
-    /\besame\b/,
-    /\buniversit(?:a|ario)?\b/,
-    /\blaurea\b/,
-    /\bcorso\b/,
-    /\blibro\b/,
-    /\bconsigliat/,
-    /\bapprofond/,
-    /\bprogetto\b/,
-    /\bprepar/,
-    /\bobiettivo\b/,
-    /\bincludi tutto\b/,
-  ]);
-
-  const hasBackgroundSignal = matchesAnyAssessmentPattern(normalizedText, [
-    /\bho fatto\b/,
-    /\bho studiato\b/,
-    /\bstudiato\b/,
-    /\bsviluppator/,
-    /\balgoritm/,
-    /\bstruttur[ea] dati\b/,
-    /\binduttiv/,
-    /\balgebra booleana\b/,
-    /\bautomi\b/,
-    /\bgrammatic/,
-    /\bformalism/,
-    /\bcomplessit/,
-    /\bnon ho letto niente\b/,
-    /\bnon conosco\b/,
-    /\bun minimo\b/,
-  ]);
-
-  const hasPreferenceSignal = matchesAnyAssessmentPattern(normalizedText, [
-    /\bpreferisc/,
-    /\bmeglio\b/,
-    /\bimparo\b/,
-    /\bconcett/,
-    /\bteori/,
-    /\bpratic/,
-    /\besempi/,
-    /\blinguaggio naturale\b/,
-    /\bnotazioni simboliche\b/,
-    /\bnon sono tanto bravo\b/,
-    /\bmi rincoglioniscono\b/,
-    /\bpartendo dal perche\b/,
-  ]);
-
-  const highImpactSignalCount = [hasGoalSignal, hasBackgroundSignal, hasPreferenceSignal].filter(
-    Boolean
-  ).length;
-
-  return highImpactSignalCount >= 3;
-};
-
-const getSeededAssessmentQuestion = (session: {
-  getHistory?: () => Array<{ role: string; content?: unknown }>;
-}): string | null => {
-  const history = session.getHistory?.() || [];
-
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const message = history[index];
-    if (
-      message.role === 'assistant' &&
-      typeof message.content === 'string' &&
-      message.content.trim()
-    ) {
-      return message.content;
-    }
+  if (snapshot.status === 'completed' && !snapshot.result) {
+    throw new Error('L’intervista si è conclusa senza un risultato valido. Riprova.');
   }
-
-  return null;
+  return 'continued';
 };
 
 export const createAssessmentPlanningCommands = (
   context: WorkspaceControllerContext,
   _: AssessmentPlanningDependencies
 ) => {
-  const { domain, openRouter, projectLibrary, sleep, state } = context;
+  const { domain, openRouter, projectLibrary, state } = context;
 
-  const readAttemptCount = (error: unknown): number =>
-    typeof (error as { attempts?: unknown }).attempts === 'number'
-      ? (error as { attempts: number }).attempts
-      : 1;
-
-  const planApplicationExercises = async (args: {
-    courseIntent?: string;
-    plan: LearningPlan;
-    profile: UserProfile | null;
-    requestId: number;
-    researchCoursePlan?: ResearchCoursePlan | null;
-    onProgressStatus?: (status: string) => void;
-    onProgressStream?: (stream: string) => void;
-  }) => {
-    try {
-      const result = await openRouter.generateApplicationExercisePlacements({
-        courseIntent: args.courseIntent || args.plan.summary || args.plan.title,
-        learningPlan: args.plan,
-        profile: args.profile,
-        researchCoursePlan: args.researchCoursePlan,
-        onStatusUpdate: message => {
-          state.setWorkflowMessage('generatePlan', args.requestId, message);
-          args.onProgressStatus?.(message);
-        },
-        onReasoningUpdate: reasoning => {
-          args.onProgressStream?.(reasoning);
-        },
-      });
-      return result.plan;
-    } catch (error) {
-      return markApplicationExercisePlanningFailed(
-        args.plan,
-        error instanceof Error ? error : new Error(getErrorMessage(error)),
-        readAttemptCount(error)
-      );
-    }
+  const applyInterviewSnapshot = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
+    state.setAssessmentMessages([...snapshot.messages]);
+    domain.setUserProfile(snapshot.proposal);
+    return getCourseInterviewOutcome(snapshot);
   };
 
-  const finalizeLearnProfile = async (profile: UserProfile) => {
-    domain.setUserProfile(profile);
+  const resetInterviewClientState = (): void => {
+    domain.resetDomain();
+    state.resetSessionState();
+    projectLibrary.setCurrentProjectId(null);
+    projectLibrary.setProjectHydrated(true);
+    state.setScreenState(AppState.LIBRARY);
+  };
 
-    if (projectLibrary.currentProjectId) {
-      await projectLibrary.saveCurrentProject({
-        userProfile: profile,
-        isLearnMode: true,
-        state: AppState.ASSESSMENT,
-      });
+  const ensureInterviewProject = async (mode: 'document' | 'learn'): Promise<string> => {
+    const existingProjectId = projectLibrary.getCurrentProjectId();
+    if (existingProjectId) {
+      const saved = await projectLibrary.saveCurrentProject(
+        { isLearnMode: mode === 'learn', state: AppState.ASSESSMENT },
+        { throwOnError: true }
+      );
+      if (!saved) throw new Error('Non è stato possibile preparare l’intervista del corso.');
+      return existingProjectId;
     }
 
-    state.setAssessmentMessages(currentMessages => [
-      ...currentMessages,
-      {
-        role: 'model',
-        text: 'Perfetto, ho capito le tue esigenze. Sto creando il tuo piano di studi personalizzato...',
-      } satisfies Message,
-    ]);
+    const projectId = createProjectId();
+    projectLibrary.setCurrentProjectId(projectId);
+    projectLibrary.setProjectHydrated(false);
+    const saved = await projectLibrary.persistSnapshot(
+      createProjectSnapshot({
+        documentAssets: domain.documentAssets,
+        documentIndex: domain.documentIndex,
+        id: projectId,
+        isLearnMode: mode === 'learn',
+        researchCoursePlan: domain.researchCoursePlan,
+        researchDossiersBySectionId: domain.researchDossiersBySectionId,
+        source: domain.source,
+        state: AppState.ASSESSMENT,
+        syllabus: domain.syllabus,
+      }),
+      { throwOnError: true }
+    );
+    if (!saved) throw new Error('Non è stato possibile preparare l’intervista del corso.');
+    projectLibrary.setProjectHydrated(true);
+    return projectId;
+  };
+
+  const startOrResumeInterview = async (input: {
+    hasReliableSourceContext: boolean;
+    initialMessage?: string;
+    mode: 'document' | 'learn';
+    projectId: string;
+    sourceContext?: string;
+  }): Promise<CourseInterviewOutcome> => {
+    const active = await openRouter.getActiveCourseInterview(input.projectId);
+    const snapshot =
+      active ??
+      (await openRouter.startCourseInterview({
+        hasReliableSourceContext: input.hasReliableSourceContext,
+        ...(input.initialMessage ? { initialMessage: input.initialMessage } : {}),
+        mode: input.mode,
+        projectId: input.projectId,
+        ...(input.sourceContext ? { sourceContext: input.sourceContext } : {}),
+      }));
+    return applyInterviewSnapshot(snapshot);
   };
 
   async function startAssessment({
@@ -250,53 +156,25 @@ export const createAssessmentPlanningCommands = (
     });
 
     try {
-      const session = sources?.length
-        ? await openRouter.createAssessmentChatFromSourceSet(sources, status => {
-            state.setWorkflowMessage('assessment', requestId, status);
-          })
+      const assessmentContext = sources?.length
+        ? openRouter.buildAssessmentDocumentContextFromSourceSet(sources)
         : textSource
-          ? await openRouter.createAssessmentChatFromTextSource(textSource, status => {
-              state.setWorkflowMessage('assessment', requestId, status);
-            })
+          ? openRouter.buildAssessmentDocumentContextFromTextSource(textSource)
           : file
-            ? await openRouter.createAssessmentChat(file, status => {
+            ? await openRouter.buildAssessmentDocumentPrompt(file, status => {
                 state.setWorkflowMessage('assessment', requestId, status);
               })
             : (() => {
                 throw new Error('Missing source input for assessment');
               })();
-      if (!state.isWorkflowCurrent('assessment', requestId)) {
-        pushNousDebugTrace('assessment:stale-after-session', { requestId });
-        return;
-      }
-
-      state.setChatSession(session);
-      state.setWorkflowMessage('assessment', requestId, t('Avvio domande valutazione...'));
-      const seededQuestion = getSeededAssessmentQuestion(session);
-      if (seededQuestion) {
-        pushNousDebugTrace('assessment:seeded-question', {
-          preview: seededQuestion.slice(0, 120),
-          requestId,
-        });
-        state.setAssessmentMessages([{ role: 'model', text: seededQuestion } satisfies Message]);
-        state.succeedWorkflow('assessment', requestId);
-        return;
-      }
-
-      pushNousDebugTrace('assessment:fallback-first-message', { requestId });
-      const result = await session.sendMessage({
-        message: 'Inizia la valutazione con una prima domanda breve e concreta.',
+      const projectId = await ensureInterviewProject('document');
+      await startOrResumeInterview({
+        hasReliableSourceContext: assessmentContext.hasReliableSourceContext,
+        mode: 'document',
+        projectId,
+        sourceContext: assessmentContext.content,
       });
-      if (!state.isWorkflowCurrent('assessment', requestId)) {
-        pushNousDebugTrace('assessment:stale-after-first-message', { requestId });
-        return;
-      }
-
-      state.setAssessmentMessages([{ role: 'model', text: result.text || '' } satisfies Message]);
-      pushNousDebugTrace('assessment:first-message-generated', {
-        preview: (result.text || '').slice(0, 120),
-        requestId,
-      });
+      if (!state.isWorkflowCurrent('assessment', requestId)) return;
       state.succeedWorkflow('assessment', requestId);
     } catch (error) {
       state.setScreenState(AppState.LIBRARY);
@@ -314,11 +192,12 @@ export const createAssessmentPlanningCommands = (
     state.setScreenState(AppState.ASSESSMENT);
 
     try {
-      const session = openRouter.createLearnAssessmentChat('Italiano');
-      state.setChatSession(session);
-      state.setAssessmentMessages([
-        { role: 'model', text: DEFAULT_ASSESSMENT_GREETING } satisfies Message,
-      ]);
+      const projectId = await ensureInterviewProject('learn');
+      await startOrResumeInterview({
+        hasReliableSourceContext: false,
+        mode: 'learn',
+        projectId,
+      });
       state.succeedWorkflow('assessment', requestId);
     } catch (error) {
       state.setScreenState(AppState.LIBRARY);
@@ -327,254 +206,106 @@ export const createAssessmentPlanningCommands = (
     }
   }
 
-  async function runPlanGeneration(args: {
-    history?: Message[];
-    mode: 'document' | 'learn';
-    profile?: UserProfile;
-  }): Promise<void> {
-    const requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
-    state.setScreenState(AppState.PLANNING);
-    const profile = args.profile || domain.userProfile;
+  const runDurableCourse = async ({
+    execute,
+    profile,
+    projectId,
+    requestId,
+  }: {
+    execute: (callbacks: {
+      onProgressStage: (stage: CourseWorkflowStage) => void;
+      onWorkflowSnapshot: (snapshot: CourseWorkflowSnapshot) => void;
+    }) => Promise<CourseWorkflowResult | null>;
+    profile: UserProfile | null;
+    projectId: string;
+    requestId: number;
+  }): Promise<boolean> => {
+    const progressBridge = createGenerationProgressBridge({
+      getProgress: () => state.getWorkflowState().generatePlan.progress,
+      setProgress: progress => state.setWorkflowProgress('generatePlan', requestId, progress),
+    });
     const progressObserver = openRouter.createGenerationProgressObserver({
       language: profile?.language || 'Italiano',
-      onUpdate: progress => state.setWorkflowProgress('generatePlan', requestId, progress),
+      onUpdate: progress => progressBridge.updateFromObserver(progress),
       operation: 'plan',
       subject: profile?.topic || getProjectSourceName(domain.source) || 'Nuovo percorso',
     });
 
-    const reportStatus: GenerationStatusReporter = (status, stage) => {
-      state.setWorkflowMessage('generatePlan', requestId, status);
-      if (stage) {
-        progressObserver.setStage(stage);
-      }
-      progressObserver.updateStatus(status);
-    };
-
     try {
-      if (args.mode === 'learn') {
-        if (!args.profile) {
-          throw new Error('Missing learn-mode profile');
-        }
+      const result = await execute({
+        onProgressStage: progressObserver.setStage,
+        onWorkflowSnapshot: snapshot => {
+          if (!state.isWorkflowCurrent('generatePlan', requestId)) return;
+          progressBridge.updateFromWorkflow(snapshot);
+        },
+      });
+      if (!result) return false;
+      if (!state.isWorkflowCurrent('generatePlan', requestId)) return true;
 
-        const researchResult = await openRouter.generateResearchCoursePlan(
-          args.profile,
-          reportStatus,
-          items => {
-            domain.setSyllabus(items as SyllabusItem[]);
-          },
-          progressObserver.push
-        );
-        const newSyllabus = researchResult.syllabus;
-
-        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
-          return;
-        }
-
-        const basePlan = openRouter.buildLearningPlanFromResearchCourse(
-          args.profile,
-          researchResult.researchCoursePlan,
-          newSyllabus
-        );
-        const plan = await planApplicationExercises({
-          plan: basePlan,
-          profile: args.profile,
-          requestId,
-          researchCoursePlan: researchResult.researchCoursePlan,
-          onProgressStatus: progressObserver.updateStatus,
-          onProgressStream: progressObserver.push,
-        });
-        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
-          return;
-        }
-        domain.setLearningPlan(plan);
-        domain.setDocumentAssets(null);
-        domain.setDocumentIndex(null);
-        domain.setSyllabus(newSyllabus);
-        domain.setResearchCoursePlan(researchResult.researchCoursePlan);
-        domain.setResearchDossiers({});
-        domain.setUserProfile(args.profile);
-        domain.setIsLearnMode(true);
-        state.setScreenState(AppState.READING);
-
-        const firstSection = flattenLessons(plan.modules)[0] || null;
-        if (firstSection) {
-          const projectId = projectLibrary.currentProjectId || createProjectId();
-          if (!projectLibrary.currentProjectId) {
-            projectLibrary.setCurrentProjectId(projectId);
-            projectLibrary.setProjectHydrated(true);
-          }
-          domain.setActiveSectionId(firstSection.id);
-          await projectLibrary.persistSnapshot(
-            createProjectSnapshot({
-              id: projectId,
-              state: AppState.READING,
-              source: domain.source,
-              learningPlan: plan,
-              documentAssets: null,
-              documentIndex: null,
-              isLearnMode: true,
-              userProfile: args.profile,
-              syllabus: newSyllabus,
-              researchCoursePlan: researchResult.researchCoursePlan,
-              researchDossiersBySectionId: {},
-              activeSectionId: firstSection.id,
-            })
-          );
-        }
-      } else {
-        const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
-        const sourceFile = await loadProjectSourceFile(context, () =>
-          state.isWorkflowCurrent('generatePlan', requestId)
-        );
-        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
-          return;
-        }
-        if (!sourceFile && !archiveSource) {
-          throw new Error('Missing source file for plan generation');
-        }
-
-        if (domain.source?.kind === 'pdf') {
-          state.setWorkflowMessage('generatePlan', requestId, t('Verifica testo PDF...'));
-          await openRouter.validatePdfTextSource(sourceFile as FileData);
-        }
-
-        let sourceProjectId = projectLibrary.currentProjectId;
-        if (archiveSource && !sourceProjectId) {
-          sourceProjectId = createProjectId();
-          projectLibrary.setCurrentProjectId(sourceProjectId);
-          projectLibrary.setProjectHydrated(true);
-          await projectLibrary.persistSnapshot(
-            createProjectSnapshot({
-              id: sourceProjectId,
-              state: AppState.PLANNING,
-              source: archiveSource,
-            })
-          );
-        }
-
-        const sources = getCourseSourceDescriptors(domain.source);
-        const plan =
-          sources.length > 1
-            ? await openRouter.generateLearningPlanFromSourceSet(sources, args.history || [], {
-                language: profile?.language,
-                onReasoningUpdate: progressObserver.push,
-                onStatusUpdate: reportStatus,
-              })
-            : archiveSource && sourceProjectId
-              ? await openRouter.generateLearningPlanFromSourceArchive(
-                  { projectId: sourceProjectId, source: archiveSource },
-                  args.history || [],
-                  {
-                    language: profile?.language,
-                    onReasoningUpdate: progressObserver.push,
-                    onStatusUpdate: reportStatus,
-                  }
-                )
-              : await openRouter.generateLearningPlan(sourceFile as FileData, args.history || [], {
-                  language: profile?.language,
-                  onReasoningUpdate: progressObserver.push,
-                  onStatusUpdate: reportStatus,
-                });
-
-        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
-          return;
-        }
-
-        const prepared = archiveSource
-          ? { learningPlan: plan, documentIndex: null }
-          : await context.preparePdfLessonPlan(sourceFile as FileData, plan, domain.documentIndex);
-        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
-          return;
-        }
-
-        const plannedWithExercises = await planApplicationExercises({
-          courseIntent: args.history?.map(message => message.text).join('\n'),
-          plan: prepared.learningPlan,
-          profile: domain.userProfile,
-          requestId,
-          onProgressStatus: progressObserver.updateStatus,
-          onProgressStream: progressObserver.push,
-        });
-        if (!state.isWorkflowCurrent('generatePlan', requestId)) {
-          return;
-        }
-
-        domain.setLearningPlan(plannedWithExercises);
-        domain.setDocumentAssets(null);
-        domain.setDocumentIndex(prepared.documentIndex);
-        state.setScreenState(AppState.READING);
-
-        const firstSection = flattenLessons(plannedWithExercises.modules)[0] || null;
-        if (firstSection) {
-          const projectId = projectLibrary.currentProjectId || createProjectId();
-          if (!projectLibrary.currentProjectId) {
-            projectLibrary.setCurrentProjectId(projectId);
-            projectLibrary.setProjectHydrated(true);
-          }
-          domain.setActiveSectionId(firstSection.id);
-          await projectLibrary.persistSnapshot(
-            createProjectSnapshot({
-              id: projectId,
-              state: AppState.READING,
-              source: domain.source,
-              learningPlan: plannedWithExercises,
-              documentAssets: null,
-              documentIndex: prepared.documentIndex,
-              isLearnMode: domain.isLearnMode,
-              userProfile: domain.userProfile,
-              syllabus: domain.syllabus,
-              activeSectionId: firstSection.id,
-            })
-          );
-        }
+      const applied = await projectLibrary.applyPersistedProjectRevision({
+        projectId: result.projectId,
+        revision: result.projectRevision,
+      });
+      if (
+        !state.isWorkflowCurrent('generatePlan', requestId) ||
+        projectLibrary.getCurrentProjectId() !== projectId
+      ) {
+        return true;
+      }
+      if (!applied && !domain.learningPlan) {
+        throw new Error('Il corso è stato generato, ma non è stato possibile caricarlo.');
       }
 
+      state.setScreenState(AppState.READING);
       await progressObserver.finish();
       progressObserver.complete();
-      state.succeedWorkflow('generatePlan', requestId);
-    } catch (error) {
-      if (!state.isWorkflowCurrent('generatePlan', requestId)) {
-        return;
+      return true;
+    } finally {
+      progressObserver.dispose();
+    }
+  };
+
+  async function resumePlanGeneration(projectId: string): Promise<'not-found' | 'resumed'> {
+    const requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
+    state.setScreenState(AppState.PLANNING);
+
+    try {
+      const resumed = await runDurableCourse({
+        execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
+        profile: domain.userProfile,
+        projectId,
+        requestId,
+      });
+      if (state.isWorkflowCurrent('generatePlan', requestId)) {
+        state.succeedWorkflow('generatePlan', requestId);
       }
-      state.setScreenState(AppState.LIBRARY);
-      state.failWorkflow('generatePlan', requestId, getErrorMessage(error));
+      return resumed ? 'resumed' : 'not-found';
+    } catch (error) {
+      if (state.isWorkflowCurrent('generatePlan', requestId)) {
+        state.setScreenState(AppState.LIBRARY);
+        state.failWorkflow('generatePlan', requestId, getErrorMessage(error));
+      }
       throw error;
     }
   }
 
-  async function startLearnJourney(): Promise<{
-    errorMessage?: string;
-    outcome: 'failed' | 'started';
-  }> {
-    try {
-      const nextProjectId = createProjectId();
-      projectLibrary.setProjectHydrated(false);
-      domain.resetDomain();
-      state.resetSessionState();
-      projectLibrary.setCurrentProjectId(nextProjectId);
-      domain.setIsLearnMode(true);
-      projectLibrary.setProjectHydrated(true);
-      await projectLibrary.persistSnapshot(
-        createProjectSnapshot({
-          id: nextProjectId,
-          state: AppState.ASSESSMENT,
-          source: null,
-          isLearnMode: true,
-        })
-      );
-      await startLearnAssessment();
-      return { outcome: 'started' };
-    } catch (error) {
-      return { outcome: 'failed', errorMessage: getErrorMessage(error) };
+  async function cancelAssessment(): Promise<void> {
+    const projectId = projectLibrary.getCurrentProjectId();
+    if (projectId) {
+      const interview = await openRouter.getActiveCourseInterview(projectId);
+      if (interview?.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL) {
+        await openRouter.sendCourseInterviewDecision({
+          decision: { kind: 'cancel' },
+          projectId,
+          runId: interview.runId,
+          waitId: interview.wait.waitId,
+        });
+      } else if (interview) {
+        await openRouter.cancelCourseInterview({ projectId, runId: interview.runId });
+      }
+      await projectLibrary.refreshLibraryState();
     }
-  }
-
-  function cancelAssessment(): void {
-    domain.resetDomain();
-    state.resetSessionState();
-    projectLibrary.setCurrentProjectId(null);
-    projectLibrary.setProjectHydrated(true);
-    state.setScreenState(AppState.LIBRARY);
+    resetInterviewClientState();
   }
 
   async function startHomeChat(args: {
@@ -615,10 +346,9 @@ export const createAssessmentPlanningCommands = (
       projectLibrary.setCurrentProjectId(null);
       projectLibrary.setProjectHydrated(false);
 
-      let session:
-        | Awaited<ReturnType<typeof openRouter.createAssessmentChat>>
-        | ReturnType<typeof openRouter.createEmbeddedLearnAssessmentChat>;
-      let learnMode = false;
+      let hasReliableSourceContext = false;
+      let mode: 'document' | 'learn' = 'learn';
+      let sourceContext: string | undefined;
       let sourceWarnings: Array<{ message: string; name: string }> = [];
 
       if (selectedFiles.length > 0) {
@@ -709,183 +439,101 @@ export const createAssessmentPlanningCommands = (
           projectLibrary.setProjectHydrated(true);
         }
         domain.setIsLearnMode(false);
-        learnMode = false;
+        mode = 'document';
 
-        session =
-          nextSource.sources && nextSource.sources.length > 1
-            ? await openRouter.createEmbeddedAssessmentChatFromSourceSet(nextSource.sources)
-            : nextSource.kind === 'archive'
-              ? await openRouter.createEmbeddedAssessmentChatFromTextSource({
-                  name: nextSource.name,
-                  text: formatSourceArchiveIndex(nextSource.index, {
-                    previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
-                  }),
-                })
-              : await openRouter.createEmbeddedAssessmentChat(nextFile, status => {
-                  state.setWorkflowMessage('assessment', requestId, status);
-                });
+        const assessmentContext = nextSource.sources?.length
+          ? openRouter.buildAssessmentDocumentContextFromSourceSet(nextSource.sources)
+          : nextSource.kind === 'archive'
+            ? openRouter.buildAssessmentDocumentContextFromTextSource({
+                name: nextSource.name,
+                text: formatSourceArchiveIndex(nextSource.index, {
+                  previewBudgetChars: ASSESSMENT_SOURCE_ARCHIVE_PREVIEW_BUDGET_CHARS,
+                }),
+              })
+            : await openRouter.buildAssessmentDocumentPrompt(nextFile, status => {
+                state.setWorkflowMessage('assessment', requestId, status);
+              });
+        hasReliableSourceContext = assessmentContext.hasReliableSourceContext;
+        sourceContext = assessmentContext.content;
       } else {
         domain.setSource(null);
         domain.setIsLearnMode(true);
-        learnMode = true;
-        session = openRouter.createEmbeddedLearnAssessmentChat('Italiano');
       }
 
-      state.setChatSession(session);
-      state.setAssessmentMessages([{ role: 'user', text: trimmedInput } satisfies Message]);
-
-      const response = await session.sendMessage({
-        message: buildHomeChatMessageForModel(trimmedInput, args.toolPreferences),
+      const projectId = await ensureInterviewProject(mode);
+      const outcome = await startOrResumeInterview({
+        hasReliableSourceContext,
+        initialMessage: trimmedInput,
+        mode,
+        projectId,
+        ...(sourceContext ? { sourceContext } : {}),
       });
-
-      if (learnMode) {
-        const call = response.functionCalls?.[0];
-
-        if (call?.name === 'abandonAssessment') {
-          cancelAssessment();
-          state.succeedWorkflow('assessment', requestId);
-          return { outcome: 'abandoned', sourceWarnings };
-        }
-
-        if (call && call.name === 'finalizeProfile') {
-          const profileArgs = (call.args ?? {}) as Partial<UserProfile>;
-          const profile = {
-            ...profileArgs,
-            language: 'Italiano',
-          } as UserProfile;
-
-          await finalizeLearnProfile(profile);
-          state.succeedWorkflow('assessment', requestId);
-          await sleep(1500);
-          await runPlanGeneration({ mode: 'learn', profile });
-          return { outcome: 'planned', sourceWarnings };
-        }
-
-        state.setAssessmentMessages(currentMessages => [
-          ...currentMessages,
-          { role: 'model', text: response.text || '' } satisfies Message,
-        ]);
-        state.succeedWorkflow('assessment', requestId);
-        return { outcome: 'continued', sourceWarnings };
-      }
-
-      const modelText = response.text || '';
-      const nextHistory: Message[] = [
-        { role: 'user', text: trimmedInput },
-        { role: 'model', text: modelText },
-      ];
-
-      state.setAssessmentMessages(nextHistory);
-
-      const userTurns = nextHistory.filter(message => message.role === 'user').length;
-      const isAssessmentComplete =
-        modelText.includes('[ASSESSMENT_COMPLETE]') &&
-        userTurns >= MIN_DOCUMENT_USER_TURNS_BEFORE_PLANNING;
-
       state.succeedWorkflow('assessment', requestId);
-
-      if (isAssessmentComplete) {
-        return { outcome: 'assessment-complete' as const, sourceWarnings };
+      if (outcome === 'abandoned') {
+        await projectLibrary.refreshLibraryState();
+        resetInterviewClientState();
       }
-
-      return { outcome: 'continued', sourceWarnings };
+      return { outcome, sourceWarnings };
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('assessment', requestId, errorMessage);
+      const draftProjectId = projectLibrary.getCurrentProjectId();
+      if (draftProjectId) {
+        try {
+          const activeInterview = await openRouter.getActiveCourseInterview(draftProjectId);
+          if (!activeInterview) await projectLibrary.deleteStoredProject(draftProjectId);
+        } catch (cleanupError) {
+          pushNousDebugTrace('assessment:draft-cleanup-failed', {
+            errorMessage: getErrorMessage(cleanupError),
+            projectId: draftProjectId,
+          });
+        }
+      }
+      resetInterviewClientState();
       return { outcome: 'failed', errorMessage };
     }
   }
 
   async function submitAssessment(
     input: string,
-    toolPreferences?: HomeChatToolPreferences
+    _toolPreferences?: HomeChatToolPreferences
   ): Promise<{
     errorMessage?: string;
     outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
     sourceWarnings?: Array<{ message: string; name: string }>;
   }> {
     const trimmedInput = input.trim();
-    const chatSession = state.getChatSession();
-    if (!trimmedInput || !chatSession) {
+    const projectId = projectLibrary.getCurrentProjectId();
+    if (!trimmedInput || !projectId) {
       return { outcome: 'noop' };
     }
 
     const requestId = state.beginWorkflow('assessment', t('Valutazione risposta...'));
-    const userMessage: Message = { role: 'user', text: trimmedInput };
-    const previousMessages = state.getAssessmentMessages();
-    state.setAssessmentMessages([...previousMessages, userMessage]);
 
     try {
-      if (domain.isLearnMode) {
-        const response = await chatSession.sendMessage({
-          message: buildHomeChatMessageForModel(trimmedInput, toolPreferences),
-        });
-        const call = response.functionCalls?.[0];
-
-        if (call?.name === 'abandonAssessment') {
-          cancelAssessment();
-          state.succeedWorkflow('assessment', requestId);
-          return { outcome: 'abandoned' };
-        }
-
-        if (call && call.name === 'finalizeProfile') {
-          const profileArgs = (call.args ?? {}) as Partial<UserProfile>;
-          const profile = {
-            ...profileArgs,
-            language: 'Italiano',
-          } as UserProfile;
-          await finalizeLearnProfile(profile);
-          state.succeedWorkflow('assessment', requestId);
-          await sleep(1500);
-          await runPlanGeneration({ mode: 'learn', profile });
-          return { outcome: 'planned' };
-        }
-
-        state.setAssessmentMessages(currentMessages => [
-          ...currentMessages,
-          { role: 'model', text: response.text || '' } satisfies Message,
-        ]);
-        state.succeedWorkflow('assessment', requestId);
-        return { outcome: 'continued' };
-      }
-
-      const userHistory: Message[] = [...previousMessages, userMessage];
-      if (hasEnoughHighImpactAssessmentSignals(userHistory)) {
-        pushNousDebugTrace('assessment:local-complete-from-signals', {
-          requestId,
-          userTurns: userHistory.filter(message => message.role === 'user').length,
-        });
-        state.setAssessmentMessages([
-          ...userHistory,
-          { role: 'model', text: LOCAL_ASSESSMENT_COMPLETE_MESSAGE } satisfies Message,
-        ]);
-        state.succeedWorkflow('assessment', requestId);
-        return { outcome: 'assessment-complete' };
-      }
-
-      const response = await chatSession.sendMessage({
-        message: buildHomeChatMessageForModel(trimmedInput, toolPreferences),
-      });
-      const modelText = response.text || '';
-      const nextHistory: Message[] = [
-        ...previousMessages,
-        userMessage,
-        { role: 'model', text: modelText },
-      ];
-      state.setAssessmentMessages(nextHistory);
-
-      const userTurns = nextHistory.filter(message => message.role === 'user').length;
-      const isAssessmentComplete =
-        modelText.includes('[ASSESSMENT_COMPLETE]') &&
-        userTurns >= MIN_DOCUMENT_USER_TURNS_BEFORE_PLANNING;
-
+      const interview = await openRouter.getActiveCourseInterview(projectId);
+      if (!interview?.wait) throw new Error('L’intervista non è pronta per una risposta.');
+      const snapshot =
+        interview.wait.signalType === COURSE_INTERVIEW_USER_ANSWER_SIGNAL
+          ? await openRouter.sendCourseInterviewAnswer({
+              projectId,
+              runId: interview.runId,
+              text: trimmedInput,
+              waitId: interview.wait.waitId,
+            })
+          : await openRouter.sendCourseInterviewDecision({
+              decision: { details: trimmedInput, kind: 'add-details' },
+              projectId,
+              runId: interview.runId,
+              waitId: interview.wait.waitId,
+            });
+      const outcome = applyInterviewSnapshot(snapshot);
       state.succeedWorkflow('assessment', requestId);
-
-      if (isAssessmentComplete) {
-        return { outcome: 'assessment-complete' as const };
+      if (outcome === 'abandoned') {
+        await projectLibrary.refreshLibraryState();
+        resetInterviewClientState();
       }
-
-      return { outcome: 'continued' };
+      return { outcome };
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       state.failWorkflow('assessment', requestId, errorMessage);
@@ -897,24 +545,50 @@ export const createAssessmentPlanningCommands = (
     errorMessage?: string;
     outcome: 'failed' | 'planned';
   }> {
+    let requestId: number | undefined;
     try {
-      const history = state.getAssessmentMessages();
-      const mode = domain.isLearnMode ? 'learn' : 'document';
-      const profile = domain.userProfile ?? undefined;
-      await runPlanGeneration({ history, mode, profile });
+      const projectId = projectLibrary.getCurrentProjectId();
+      if (!projectId) throw new Error('Nessun corso da generare.');
+      const interview = await openRouter.getActiveCourseInterview(projectId);
+      if (interview?.wait?.signalType !== COURSE_INTERVIEW_DECISION_SIGNAL) {
+        throw new Error('La proposta del corso non è pronta.');
+      }
+      requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
+      state.setScreenState(AppState.PLANNING);
+      await openRouter.sendCourseInterviewDecision({
+        decision: { kind: 'approve' },
+        projectId,
+        runId: interview.runId,
+        waitId: interview.wait.waitId,
+      });
+      const generated = await runDurableCourse({
+        execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
+        profile: domain.userProfile,
+        projectId,
+        requestId,
+      });
+      if (!generated) throw new Error('La generazione del corso non è stata avviata.');
+      if (state.isWorkflowCurrent('generatePlan', requestId)) {
+        state.succeedWorkflow('generatePlan', requestId);
+      }
       return { outcome: 'planned' };
     } catch (error) {
-      return { outcome: 'failed', errorMessage: getErrorMessage(error) };
+      const errorMessage = getErrorMessage(error);
+      if (requestId !== undefined && state.isWorkflowCurrent('generatePlan', requestId)) {
+        state.setScreenState(AppState.LIBRARY);
+        state.failWorkflow('generatePlan', requestId, errorMessage);
+      }
+      return { outcome: 'failed', errorMessage };
     }
   }
 
   return {
     cancelAssessment,
     confirmPlanGeneration,
+    resumePlanGeneration,
     startHomeChat,
     startAssessment,
     startLearnAssessment,
-    startLearnJourney,
     submitAssessment,
   };
 };

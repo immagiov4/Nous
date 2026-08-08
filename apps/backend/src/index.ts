@@ -5,25 +5,63 @@ import cors from 'cors';
 import express from 'express';
 import { resolveCurrentUser, resolveCurrentUserForPasswordSetup } from './auth/currentUser.js';
 import { getBackendServerConfig, loadServerConfig } from './config/serverConfig.js';
+import {
+  type ProjectAssetReader,
+  unavailableProjectAssetReader,
+} from './projects/projectAssetReader.js';
 import { admitProjectImportRequest } from './projects/projectImportAdmission.js';
 import { projectImportConfig } from './projects/projectImportConfig.js';
 import adminRouter from './routes/admin.js';
+import { createArtifactDraftRouter } from './routes/artifactDrafts.js';
 import authRouter from './routes/auth.js';
 import chatRouter from './routes/chat.js';
 import codexRouter from './routes/codex.js';
+import { createCourseInterviewRouter } from './routes/courseInterviews.js';
+import { createCourseWorkflowRouter } from './routes/courseWorkflows.js';
 import feedbackRouter from './routes/feedback.js';
-import generationJobsRouter from './routes/generationJobs.js';
 import imagesRouter from './routes/images.js';
+import { createLessonVisualRetryRouter } from './routes/lessonVisualRetries.js';
+import { createLessonWorkflowRouter } from './routes/lessonWorkflows.js';
 import openRouterProxyRouter from './routes/openRouterProxy.js';
 import pdfRouter from './routes/pdf.js';
+import { createProjectAssetRouter } from './routes/projectAssets.js';
 import projectsRouter from './routes/projects.js';
 import statusRouter from './routes/status.js';
 import sttRouter from './routes/stt.js';
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
 import waitlistRouter from './routes/waitlist.js';
+import { createWorkflowRouter } from './routes/workflows.js';
 import youtubeRouter from './routes/youtube.js';
 import { timestampIso } from './utils/time.js';
+import {
+  type ArtifactDraftApi,
+  unavailableArtifactDraftApi,
+} from './workflows/artifactDraftApi.js';
+import {
+  type CourseGenerationApi,
+  unavailableCourseGenerationApi,
+} from './workflows/courseGenerationApi.js';
+import {
+  type CourseInterviewApi,
+  unavailableCourseInterviewApi,
+} from './workflows/courseInterviewApi.js';
+import {
+  type LessonGenerationApi,
+  unavailableLessonGenerationApi,
+} from './workflows/lessonGenerationApi.js';
+import {
+  type LessonVisualRetryStarter,
+  unavailableLessonVisualRetryStarter,
+} from './workflows/lessonVisualRetryStart.js';
+import {
+  type PdfMappingRepairApi,
+  unavailablePdfMappingRepairApi,
+} from './workflows/pdfMappingRepairApi.js';
+import {
+  unavailableWorkflowRuntimeApi,
+  type WorkflowRuntimeApi,
+} from './workflows/workflowRuntimeApi.js';
 
 const DEFAULT_FRONTEND_PORT = '5173';
 const DEFAULT_FRONTEND_ORIGINS = [
@@ -78,6 +116,17 @@ const shouldLogRequest = (method: string, path: string, statusCode: number): boo
 const getRequestLogPath = (req: express.Request): string =>
   req.originalUrl.split('?')[0] || req.path;
 
+const requireProjectImportChunkContentType: express.RequestHandler = (req, res, next) => {
+  if (req.is('application/octet-stream') || req.is('text/plain')) {
+    next();
+    return;
+  }
+  res.status(415).json({
+    error: 'Tipo di contenuto del blocco di importazione non supportato.',
+    success: false,
+  });
+};
+
 const parseAllowedOrigins = (): Set<string> => {
   const configuredOrigins = process.env.CORS_ALLOWED_ORIGINS?.split(',')
     .map(origin => origin.trim())
@@ -88,7 +137,18 @@ const parseAllowedOrigins = (): Set<string> => {
   );
 };
 
-export const createApp = () => {
+export interface CreateAppOptions {
+  artifactDraftApi?: ArtifactDraftApi;
+  courseGenerationApi?: CourseGenerationApi;
+  courseInterviewApi?: CourseInterviewApi;
+  lessonGenerationApi?: LessonGenerationApi;
+  lessonVisualRetryStarter?: LessonVisualRetryStarter;
+  pdfMappingRepairApi?: PdfMappingRepairApi;
+  projectAssetReader?: ProjectAssetReader;
+  workflowRuntimeApi?: WorkflowRuntimeApi;
+}
+
+export const createApp = (options: CreateAppOptions = {}) => {
   const app = express();
   const allowedOrigins = parseAllowedOrigins();
   const backendConfig = getBackendServerConfig(loadServerConfig());
@@ -120,7 +180,9 @@ export const createApp = () => {
   app.use('/api/projects', resolveCurrentUser);
   app.put(
     '/api/projects/import/chunks/:uploadId/:chunkIndex',
+    requireProjectImportChunkContentType,
     admitProjectImportRequest,
+    express.raw({ limit: projectImportConfig.maxChunkBytes, type: 'application/octet-stream' }),
     express.text({ limit: projectImportConfig.maxChunkBytes, type: 'text/plain' })
   );
   app.post('/api/projects/import/chunks/:uploadId/complete', admitProjectImportRequest);
@@ -156,8 +218,45 @@ export const createApp = () => {
   app.use('/api/chat', resolveCurrentUser, chatRouter);
   app.use('/api/codex', resolveCurrentUser, codexRouter);
   app.use('/api/feedback', resolveCurrentUser, feedbackRouter);
-  app.use('/api/generation-jobs', resolveCurrentUser, generationJobsRouter);
+  app.use(
+    '/api/artifact-drafts',
+    resolveCurrentUser,
+    createArtifactDraftRouter(options.artifactDraftApi ?? unavailableArtifactDraftApi)
+  );
+  app.use(
+    '/api/course-interviews',
+    resolveCurrentUser,
+    createCourseInterviewRouter(options.courseInterviewApi ?? unavailableCourseInterviewApi)
+  );
+  app.use(
+    '/api/course-workflows',
+    resolveCurrentUser,
+    createCourseWorkflowRouter(
+      options.courseGenerationApi ?? unavailableCourseGenerationApi,
+      options.pdfMappingRepairApi ?? unavailablePdfMappingRepairApi
+    )
+  );
+  app.use(
+    '/api/lesson-workflows',
+    resolveCurrentUser,
+    createLessonWorkflowRouter(options.lessonGenerationApi ?? unavailableLessonGenerationApi)
+  );
+  app.use(
+    '/api/workflows',
+    resolveCurrentUser,
+    createWorkflowRouter(options.workflowRuntimeApi ?? unavailableWorkflowRuntimeApi)
+  );
   app.use('/api/openrouter', resolveCurrentUser, openRouterProxyRouter);
+  app.use(
+    '/api/projects',
+    createProjectAssetRouter(options.projectAssetReader ?? unavailableProjectAssetReader)
+  );
+  app.use(
+    '/api/projects',
+    createLessonVisualRetryRouter(
+      options.lessonVisualRetryStarter ?? unavailableLessonVisualRetryStarter
+    )
+  );
   app.use('/api/projects', projectsRouter);
   app.use('/api/admin', resolveCurrentUser, adminRouter);
 

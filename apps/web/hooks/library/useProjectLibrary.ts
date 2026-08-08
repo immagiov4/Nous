@@ -17,14 +17,16 @@ import {
   createProjectArchiveBlob,
   getProjectArchiveExtension,
 } from '../../services/projects/projectArchive.ts';
+import { downloadProjectAssetBytes } from '../../services/projects/projectAssetClient.ts';
 import {
   type ProjectSaveResult,
+  type ProjectSnapshotWithRevision,
   ProjectStorageError,
 } from '../../services/projects/projectRepository';
 import {
   createProjectId,
   createProjectSnapshot,
-  normalizeImportedProject,
+  normalizeStoredProject,
 } from '../../services/projects/projectSnapshot';
 import { markSyncError, markSyncSaved, markSyncSaving } from '../../services/projects/syncState.ts';
 import { prepareSnapshotForHydration } from '../../services/workspace/controller/snapshotHydration.ts';
@@ -41,6 +43,7 @@ import type {
   ProjectSource,
   SavedProjectMeta,
   SectionAnnotationArtifactRef,
+  StoredLessonVisual,
   WorkspaceDomainState,
 } from '../../types';
 import { replaceGeneratedVisualPreservingId } from '../../utils/learning/artifacts.ts';
@@ -59,8 +62,6 @@ interface PersistSnapshotOptions {
   archiveFile?: File;
   throwOnError?: boolean;
 }
-
-type LessonGeneratedVisualInput = NonNullable<LearningSection['generatedVisuals']>[number];
 
 const sortProjects = (projects: SavedProjectMeta[]) =>
   projects
@@ -92,6 +93,8 @@ export const useProjectLibrary = ({
   const projectWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingRemoteRevisionRef = useRef<ProjectRevisionEvent | null>(null);
   const isApplyingRemoteRevisionRef = useRef(false);
+  const isRevisionCatchUpActiveRef = useRef(false);
+  const revisionCatchUpRequestedRef = useRef(false);
   const processPendingRemoteRevisionRef = useRef<() => Promise<void>>(async () => {});
   const domainStateRef = useRef<WorkspaceDomainState>(domainState);
   const hydrateSnapshotRef = useRef(hydrateSnapshot);
@@ -192,6 +195,29 @@ export const useProjectLibrary = ({
     pendingRemoteRevisionRef.current = null;
     setCurrentProjectId(projectId);
   }, []);
+
+  const completeProjectHydration = useCallback(
+    ({ revision, snapshot }: ProjectSnapshotWithRevision) => {
+      if (currentProjectIdRef.current !== snapshot.id) return;
+
+      const currentMeta = savedProjectsRef.current.find(project => project.id === snapshot.id);
+      loadedProjectRevisionRef.current = { projectId: snapshot.id, revision };
+      if (
+        pendingRemoteRevisionRef.current?.projectId === snapshot.id &&
+        pendingRemoteRevisionRef.current.revision <= revision
+      ) {
+        pendingRemoteRevisionRef.current = null;
+      }
+      if (currentMeta && (currentMeta.revision === undefined || revision > currentMeta.revision)) {
+        syncProjectMeta({ ...currentMeta, revision });
+      }
+      lastPersistedSignatureRef.current = buildAutosaveSignature(snapshot);
+      isProjectHydratedRef.current = true;
+      setStorageError(null);
+      void processPendingRemoteRevisionRef.current();
+    },
+    [syncProjectMeta]
+  );
 
   const getExpectedRevision = useCallback((projectId: string): number | undefined => {
     if (loadedProjectRevisionRef.current.projectId === projectId) {
@@ -313,7 +339,7 @@ export const useProjectLibrary = ({
     persistentStorageRequestedRef.current = true;
 
     if (
-      typeof globalThis.window === 'undefined' ||
+      globalThis.window === undefined ||
       !globalThis.isSecureContext ||
       !navigator.storage?.persist
     ) {
@@ -494,9 +520,7 @@ export const useProjectLibrary = ({
         patch.researchDossiersBySectionId = overrides.researchDossiersBySectionId;
       if (overrides.documentAssets !== undefined) patch.documentAssets = overrides.documentAssets;
       if (overrides.documentIndex !== undefined) {
-        // Anti-data-loss guard: se chi chiama passa documentIndex:null ma in memoria
-        // ce n'è uno valido, è quasi sempre un mapping PDF fallito (vedi
-        // preparePdfLessonMappings) — non vogliamo sovrascrivere l'indice buono.
+        // A failed background refresh must not erase an index that is still usable in memory.
         if (overrides.documentIndex === null && domainStateRef.current.documentIndex != null) {
           console.warn(
             '[Nous][patchCurrentProject] Skipping documentIndex:null patch because in-memory documentIndex is non-null.',
@@ -588,6 +612,7 @@ export const useProjectLibrary = ({
           LearningSection,
           | 'content'
           | 'contentBlocks'
+          | 'generationWarnings'
           | 'generatedVisuals'
           | 'imageRefs'
           | 'instructionPacks'
@@ -693,7 +718,7 @@ export const useProjectLibrary = ({
       artifactId: string;
       lessonId: string;
       projectId: string;
-      visual: LessonGeneratedVisualInput;
+      visual: StoredLessonVisual;
     }): Promise<{ error?: string; replaced: boolean }> => {
       const snapshot = await projectRepositoryRef.current.loadProject(projectId);
       const learningPlan = snapshot?.learningPlan;
@@ -756,7 +781,14 @@ export const useProjectLibrary = ({
         throw new Error('The selected project could not be exported.');
       }
 
-      const archive = await createProjectArchiveBlob(normalizeImportedProject(exportData));
+      const [cover, snapshot] = await Promise.all([
+        projectRepositoryRef.current.loadProjectCover(targetProjectId),
+        Promise.resolve(normalizeStoredProject(exportData)),
+      ]);
+      const archive = await createProjectArchiveBlob(snapshot, {
+        cover,
+        loadAsset: ref => downloadProjectAssetBytes(targetProjectId, ref),
+      });
       downloadBlob(
         archive,
         `nous-backup-${timestampIso().slice(0, 10)}${getProjectArchiveExtension()}`
@@ -778,10 +810,20 @@ export const useProjectLibrary = ({
       if (!exportData) {
         throw new Error(`Il corso ${projectMeta.title} non può essere esportato.`);
       }
-      projects.push(normalizeImportedProject(exportData));
+      projects.push(normalizeStoredProject(exportData));
     }
 
-    const archive = await createLibraryArchiveBlob(projects, { folders, placements });
+    const archive = await createLibraryArchiveBlob(
+      projects,
+      { folders, placements },
+      {
+        createProjectArchive: async project =>
+          createProjectArchiveBlob(project, {
+            cover: await projectRepositoryRef.current.loadProjectCover(project.id),
+            loadAsset: ref => downloadProjectAssetBytes(project.id, ref),
+          }),
+      }
+    );
     downloadBlob(
       archive,
       `nous-library-backup-${timestampIso().slice(0, 10)}${getLibraryArchiveExtension()}`
@@ -792,6 +834,9 @@ export const useProjectLibrary = ({
   const importLibraryBackup = useCallback(
     async (file: File): Promise<number> => {
       const archive = await readLibraryArchive(file);
+      const projectArchivesById = new Map(
+        archive.projectArchives.map(project => [project.id, project.archive])
+      );
       const projectIdMap = new Map<string, string>();
       const importedProjectIds: string[] = [];
       try {
@@ -802,10 +847,14 @@ export const useProjectLibrary = ({
           }
           const importedProjectId = createProjectId();
           importedProjectIds.push(importedProjectId);
-          const imported = await projectRepositoryRef.current.importProject({
-            ...project,
-            id: importedProjectId,
-          });
+          const projectArchive = projectArchivesById.get(originalProjectId);
+          if (!projectArchive) {
+            throw new Error('Il backup contiene un corso senza archivio.');
+          }
+          const imported = await projectRepositoryRef.current.importProjectArchive(
+            projectArchive,
+            importedProjectId
+          );
           if (imported.snapshot.id !== importedProjectId) {
             throw new Error('Il server ha restituito un identificatore corso inatteso.');
           }
@@ -818,7 +867,8 @@ export const useProjectLibrary = ({
         );
       } catch (error) {
         let rollbackFailed = error instanceof LibraryArchiveRollbackError;
-        for (const projectId of importedProjectIds.reverse()) {
+        const rollbackProjectIds = [...importedProjectIds].reverse();
+        for (const projectId of rollbackProjectIds) {
           try {
             await projectRepositoryRef.current.deleteProject(projectId);
           } catch (cleanupError) {
@@ -851,7 +901,7 @@ export const useProjectLibrary = ({
   const processPendingRemoteRevision = useCallback(async (): Promise<void> => {
     const pendingEvent = pendingRemoteRevisionRef.current;
     const loadedProject = loadedProjectRevisionRef.current;
-    if (!pendingEvent || pendingEvent.projectId !== currentProjectIdRef.current) {
+    if (pendingEvent?.projectId !== currentProjectIdRef.current) {
       return;
     }
     if (pendingEvent.deleted) {
@@ -892,7 +942,7 @@ export const useProjectLibrary = ({
       }
 
       const latestPendingEvent = pendingRemoteRevisionRef.current;
-      if (!latestPendingEvent || latestPendingEvent.projectId !== pendingEvent.projectId) {
+      if (latestPendingEvent?.projectId !== pendingEvent.projectId) {
         return;
       }
       const hydratedSnapshot = prepareSnapshotForHydration(snapshot);
@@ -951,9 +1001,20 @@ export const useProjectLibrary = ({
   }, [storeSavedProjects]);
 
   const requestRevisionCatchUp = useCallback(() => {
-    void reconcileProjectRevisions().catch(error => {
-      console.warn('[Nous] Project revision catch-up failed', error);
-    });
+    revisionCatchUpRequestedRef.current = true;
+    if (isRevisionCatchUpActiveRef.current) return;
+    isRevisionCatchUpActiveRef.current = true;
+    void (async () => {
+      while (revisionCatchUpRequestedRef.current) {
+        revisionCatchUpRequestedRef.current = false;
+        try {
+          await reconcileProjectRevisions();
+        } catch (error) {
+          console.warn('[Nous] Project revision catch-up failed', error);
+        }
+      }
+      isRevisionCatchUpActiveRef.current = false;
+    })();
   }, [reconcileProjectRevisions]);
 
   useEffect(() => {
@@ -970,7 +1031,7 @@ export const useProjectLibrary = ({
   }, [projectRepository, requestRevisionCatchUp]);
 
   useEffect(() => {
-    if (typeof globalThis.window === 'undefined') {
+    if (globalThis.window === undefined) {
       return;
     }
     const catchUp = () => {
@@ -1046,6 +1107,16 @@ export const useProjectLibrary = ({
       const project = await projectRepositoryRef.current.loadProject(projectId);
       if (project) {
         rememberExplicitProjectTitle(project);
+      }
+      return project;
+    },
+    [rememberExplicitProjectTitle]
+  );
+  const loadStoredProjectWithRevision = useCallback(
+    async (projectId: string) => {
+      const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
+      if (project) {
+        rememberExplicitProjectTitle(project.snapshot);
       }
       return project;
     },
@@ -1149,6 +1220,7 @@ export const useProjectLibrary = ({
 
   return {
     applyPersistedProjectRevision,
+    completeProjectHydration,
     createFolder: async (args: { name: string; parentFolderId?: string | null }) => {
       const folder = await projectRepositoryRef.current.createFolder(args);
       await refreshLibraryOrganization();
@@ -1167,6 +1239,9 @@ export const useProjectLibrary = ({
     downloadProject,
     downloadLibraryBackup,
     importLibraryBackup,
+    importProjectArchive: async (archive: Blob, targetProjectId: string) => {
+      return projectRepositoryRef.current.importProjectArchive(archive, targetProjectId);
+    },
     importProjectData: async (data: unknown) => {
       const imported = await projectRepositoryRef.current.importProject(data);
       await refreshLibraryState();
@@ -1179,6 +1254,7 @@ export const useProjectLibrary = ({
     libraryTree,
     loadProjectsById,
     loadStoredProject,
+    loadStoredProjectWithRevision,
     loadStoredProjectCover,
     loadStoredProjectSource,
     loadStoredProjectSources,

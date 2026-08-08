@@ -11,16 +11,14 @@ const sources: ResearchSourceReference[] = [
     title: 'Tecnica completa',
     url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
     youtubeTranscript: {
-      ranges: [{ startSeconds: 0, endSeconds: 180 }],
-      text: 'Transcript timestampato.',
+      segments: [{ startSeconds: 0, endSeconds: 180, text: 'Transcript timestampato.' }],
     },
   },
   {
     title: 'Dettaglio complementare',
     url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     youtubeTranscript: {
-      ranges: [{ startSeconds: 0, endSeconds: 90 }],
-      text: 'Transcript complementare.',
+      segments: [{ startSeconds: 0, endSeconds: 90, text: 'Transcript complementare.' }],
     },
   },
 ];

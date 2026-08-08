@@ -34,7 +34,7 @@ test('PDF image candidates exclude unclear figures and preserve relevance orderi
     ],
     'Drittofilo e cimosa',
     'Riconoscere la direzione del tessuto',
-    [8]
+    () => [8]
   );
 
   assert.deepEqual(

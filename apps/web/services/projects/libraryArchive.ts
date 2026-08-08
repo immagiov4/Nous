@@ -1,18 +1,13 @@
 import { buildOrderedSiblingItems } from '@shared/libraryOrdering';
-import JSZip from 'jszip';
-import type {
-  LibraryFolder,
-  LibraryPlacement,
-  ProjectExportData,
-  ProjectSnapshot,
-} from '../../types.ts';
 import {
   loadZipSafely,
   readZipEntryBytesWithinLimit,
   readZipEntryTextWithinLimit,
-} from '../../utils/project/zipSafety.ts';
+} from '@shared/zipSafety';
+import JSZip from 'jszip';
+import type { LibraryFolder, LibraryPlacement, ProjectSnapshot } from '../../types.ts';
 import { isRecord } from '../../utils/records.ts';
-import { createProjectArchiveBlob, readProjectImportData } from './projectArchive.ts';
+import { createProjectArchiveBlob, inspectProjectArchiveData } from './projectArchive.ts';
 import type { ProjectRepository } from './projectRepository.ts';
 
 const LIBRARY_ARCHIVE_FORMAT = 'nous-library-archive';
@@ -62,7 +57,7 @@ export class LibraryArchiveRollbackError extends Error {
   }
 }
 
-interface LibraryArchiveProjectEntry {
+export interface LibraryArchiveProjectEntry {
   id: string;
   path: string;
   title: string;
@@ -83,7 +78,8 @@ const isValidOrder = (value: unknown): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0;
 
 export interface LibraryArchiveData {
-  projects: ProjectExportData[];
+  projects: LibraryArchiveProjectEntry[];
+  projectArchives: Array<{ archive: Blob; id: string }>;
   folders: LibraryFolder[];
   placements: LibraryPlacement[];
 }
@@ -97,6 +93,9 @@ const sanitizeArchivePathSegment = (value: string): string => {
   const normalized = value.trim().replaceAll(/[^a-zA-Z0-9._-]+/g, '_');
   return normalized || 'course';
 };
+
+const formatArchiveVersion = (value: unknown): string =>
+  typeof value === 'number' || typeof value === 'string' ? String(value) : 'sconosciuta';
 
 const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
   const manifestEntry = zip.file(LIBRARY_ARCHIVE_MANIFEST_PATH);
@@ -135,7 +134,7 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
   if (isRecord(parsed) && parsed.format === LIBRARY_ARCHIVE_FORMAT) {
     if (parsed.archiveVersion !== 1 && parsed.archiveVersion !== LIBRARY_ARCHIVE_VERSION) {
       throw new LibraryArchiveError(
-        `La versione ${String(parsed.archiveVersion)} del backup non è supportata.`,
+        `La versione ${formatArchiveVersion(parsed.archiveVersion)} del backup non è supportata.`,
         'LIBRARY_ARCHIVE_VERSION_UNSUPPORTED',
         'manifest-read'
       );
@@ -298,7 +297,10 @@ const readManifest = async (zip: JSZip): Promise<LibraryArchiveManifest> => {
 
 export const createLibraryArchiveBlob = async (
   projects: ProjectSnapshot[],
-  organization: LibraryArchiveOrganization
+  organization: LibraryArchiveOrganization,
+  options: {
+    createProjectArchive?: (project: ProjectSnapshot) => Promise<Blob>;
+  } = {}
 ): Promise<Blob> => {
   if (projects.length === 0) {
     throw new Error('Non ci sono corsi da esportare.');
@@ -322,7 +324,9 @@ export const createLibraryArchiveBlob = async (
   for (const [index, project] of projects.entries()) {
     const title = project.learningPlan?.title || `Corso ${index + 1}`;
     const path = `${LIBRARY_ARCHIVE_PROJECTS_DIR}/${String(index + 1).padStart(3, '0')}-${sanitizeArchivePathSegment(project.id)}.nous.zip`;
-    const projectArchive = await createProjectArchiveBlob(project);
+    const projectArchive = options.createProjectArchive
+      ? await options.createProjectArchive(project)
+      : await createProjectArchiveBlob(project);
     zip.file(path, new Uint8Array(await projectArchive.arrayBuffer()), {
       binary: true,
       compression: 'STORE',
@@ -352,9 +356,11 @@ export const createLibraryArchiveBlob = async (
 export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData> => {
   let zip: JSZip;
   try {
+    // Nested project archives are stored verbatim; only library.json may expand materially.
     zip = await loadZipSafely(new Uint8Array(await file.arrayBuffer()), {
       invalidArchiveMessage: INVALID_LIBRARY_ARCHIVE_MESSAGE,
       maxEntries: LIBRARY_ARCHIVE_MAX_ENTRIES,
+      maxTotalUncompressedBytes: file.size + LIBRARY_ARCHIVE_MAX_MANIFEST_BYTES,
     });
   } catch {
     throw new LibraryArchiveError(
@@ -364,7 +370,8 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
     );
   }
   const manifest = await readManifest(zip);
-  const projects: ProjectExportData[] = [];
+  const projects: LibraryArchiveProjectEntry[] = [];
+  const projectArchives: Array<{ archive: Blob; id: string }> = [];
 
   for (const [index, project] of manifest.projects.entries()) {
     const projectIndex = index + 1;
@@ -386,9 +393,8 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
         LIBRARY_ARCHIVE_MAX_PROJECT_BYTES,
         `Il corso ${projectIndex} di ${projectCount} supera il limite di ${LIBRARY_ARCHIVE_MAX_PROJECT_BYTES} byte.`
       );
-      const importedProject = (await readProjectImportData(
-        new Blob([new Uint8Array(bytes)])
-      )) as ProjectExportData;
+      const projectArchive = new Blob([Uint8Array.from(bytes).buffer]);
+      const importedProject = await inspectProjectArchiveData(projectArchive);
       if (importedProject.id !== project.id) {
         throw new LibraryArchiveError(
           `Il corso ${projectIndex} di ${projectCount} non corrisponde al manifest.`,
@@ -398,7 +404,8 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
           projectCount
         );
       }
-      projects.push(importedProject);
+      projects.push(project);
+      projectArchives.push({ archive: projectArchive, id: project.id });
     } catch (error) {
       const tooLarge = error instanceof Error && error.message.includes('limite');
       throw new LibraryArchiveError(
@@ -416,13 +423,11 @@ export const readLibraryArchive = async (file: Blob): Promise<LibraryArchiveData
 
   return {
     projects,
+    projectArchives,
     folders: manifest.folders,
     placements: manifest.placements,
   };
 };
-
-export const readLibraryArchiveProjects = async (file: Blob): Promise<ProjectExportData[]> =>
-  (await readLibraryArchive(file)).projects;
 
 type LibraryOrganizationRepository = Pick<
   ProjectRepository,
@@ -492,7 +497,8 @@ export const restoreLibraryArchiveOrganization = async (
     }
   } catch (error) {
     let rollbackFailed = false;
-    for (const folderId of createdFolderIds.reverse()) {
+    const rollbackFolderIds = [...createdFolderIds].reverse();
+    for (const folderId of rollbackFolderIds) {
       try {
         await repository.deleteFolder(folderId);
       } catch (cleanupError) {

@@ -39,10 +39,10 @@ import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import type {
-  LessonGeneratedVisual,
   LessonImageRef,
-  PdfImageAsset,
+  PdfDocumentImageAsset,
   SectionAnnotation,
+  StoredLessonVisual,
 } from '../../types';
 import {
   findSectionAnnotationHighlightHit,
@@ -55,6 +55,7 @@ import {
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { parsePdfContentParts } from '../../utils/pdf/imagePlaceholders';
 import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
+import ResolvedPdfImage from './ResolvedPdfImage.tsx';
 
 export interface MarkdownRendererProps {
   readonly content: string;
@@ -62,9 +63,10 @@ export interface MarkdownRendererProps {
   readonly isDarkMode?: boolean;
   readonly onClick?: (e: MouseEvent<HTMLElement>) => void;
   readonly onContextMenu?: (e: MouseEvent<HTMLElement>) => void;
-  readonly lessonAssetsById?: Record<string, PdfImageAsset>;
-  readonly generatedVisualsById?: Record<string, LessonGeneratedVisual>;
+  readonly lessonAssetsById?: Record<string, PdfDocumentImageAsset>;
+  readonly generatedVisualsById?: Record<string, StoredLessonVisual>;
   readonly lessonImageRefsById?: Record<string, LessonImageRef>;
+  readonly projectId?: string | null;
   readonly sectionAnnotations?: SectionAnnotation[];
 }
 
@@ -73,8 +75,8 @@ interface CodeRendererProps extends HTMLAttributes<HTMLElement> {
   readonly children?: ReactNode;
 }
 
-const EMPTY_GENERATED_VISUALS_BY_ID: Record<string, LessonGeneratedVisual> = {};
-const EMPTY_LESSON_ASSETS_BY_ID: Record<string, PdfImageAsset> = {};
+const EMPTY_GENERATED_VISUALS_BY_ID: Record<string, StoredLessonVisual> = {};
+const EMPTY_LESSON_ASSETS_BY_ID: Record<string, PdfDocumentImageAsset> = {};
 const EMPTY_LESSON_IMAGE_REFS_BY_ID: Record<string, LessonImageRef> = {};
 const EMPTY_SECTION_ANNOTATIONS: SectionAnnotation[] = [];
 const EMPTY_NOTE_ANNOTATION_IDS = new Set<string>();
@@ -359,17 +361,19 @@ MarkdownPart.displayName = 'MarkdownPart';
 
 interface PdfImageFigureProps {
   readonly alt: string;
-  readonly asset: PdfImageAsset;
+  readonly asset: PdfDocumentImageAsset;
   readonly caption?: string;
+  readonly projectId?: string | null;
 }
 
-const PdfImageFigure = memo(({ alt, asset, caption }: PdfImageFigureProps) => (
+const PdfImageFigure = memo(({ alt, asset, caption, projectId }: PdfImageFigureProps) => (
   <figure
     className="my-10 overflow-hidden rounded-[28px] border border-gray-200/80 bg-white/85 shadow-sm [content-visibility:auto] [contain-intrinsic-size:auto_520px] dark:border-zinc-700/80 dark:bg-zinc-900/85"
     data-nous-speech="ignore"
   >
-    <img
-      src={asset.dataUrl}
+    <ResolvedPdfImage
+      image={asset}
+      projectId={projectId}
       alt={alt}
       loading="lazy"
       data-pdf-asset-id={asset.id}
@@ -394,6 +398,7 @@ const MarkdownRenderer = ({
   generatedVisualsById = EMPTY_GENERATED_VISUALS_BY_ID,
   lessonAssetsById = EMPTY_LESSON_ASSETS_BY_ID,
   lessonImageRefsById = EMPTY_LESSON_IMAGE_REFS_BY_ID,
+  projectId,
   sectionAnnotations = EMPTY_SECTION_ANNOTATIONS,
 }: MarkdownRendererProps) => {
   const articleRef = useRef<HTMLElement>(null);
@@ -531,13 +536,24 @@ const MarkdownRenderer = ({
         part.type === 'markdown' ? (
           <MarkdownPart key={part.key} content={part.content} components={markdownComponents} />
         ) : part.type === 'image' ? (
-          <PdfImageFigure key={part.key} alt={part.alt} asset={part.asset} caption={part.caption} />
+          <PdfImageFigure
+            key={part.key}
+            alt={part.alt}
+            asset={part.asset}
+            caption={part.caption}
+            projectId={projectId}
+          />
         ) : (
           <div
             key={part.key}
             className="[content-visibility:auto] [contain-intrinsic-size:auto_520px]"
           >
-            <GeneratedVisualFrame isDarkMode={isDarkMode} title={part.title} visual={part.visual} />
+            <GeneratedVisualFrame
+              isDarkMode={isDarkMode}
+              projectId={projectId}
+              title={part.title}
+              visual={part.visual}
+            />
           </div>
         )
       )}

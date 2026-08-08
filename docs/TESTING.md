@@ -74,3 +74,52 @@ bun run test:supabase-local
 
 Both names run the canonical local Auth/RLS contract. See [Deployment](DEPLOYMENT.md) for local and
 managed staging prerequisites.
+
+## Durable workflow PostgreSQL contract
+
+Run the real persistence, claim, fencing, recovery, signal, fan-out, outbox, undo, and abrupt
+worker-process recovery contract against an isolated migrated PostgreSQL database:
+
+```bash
+WORKFLOW_INTEGRATION_DATABASE_URL=postgresql://... bun run test:workflow-postgres
+```
+
+The command is intentionally opt-in because it writes temporary users, projects, workflow runs,
+and attempts. Never point it at production. Every fixture uses unique identifiers and removes its
+own data; `WORKFLOW_INTEGRATION_DATABASE_URL` is mandatory so the suite cannot silently reuse the
+application database. The test files run in parallel. Only fixtures that consume one of the two
+genuinely global queues share a transaction-scoped PostgreSQL advisory lock; ordinary workflow
+fixtures remain independent. The suite also covers rolling-definition authority, stale replicas,
+workflow-set version ordering, late checkpoint/undo fencing, worker crashes, and cross-replica
+project-revision inbox delivery.
+
+## Real Codex workflow smoke test (manual and paid)
+
+The course, lesson, and visual-artifact smoke flow is deliberately outside `test`, `gate`, and CI.
+It exercises the real HTTP routes on an ephemeral loopback server, the durable worker, and
+PostgreSQL checkpoints with a temporary learn-mode project. Generated assets use process-local
+memory storage and the temporary project is removed at the end. The database must be a migrated,
+workflow-runtime-empty loopback instance; remote databases are rejected.
+
+Validate the harness and resolved models without a database or provider request:
+
+```bash
+bun run test:workflow-codex -- --dry-run
+```
+
+To make the paid Codex run explicit in PowerShell:
+
+```powershell
+$env:REAL_WORKFLOW_PROVIDER_DATABASE_URL = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+$env:RUN_REAL_WORKFLOW_PROVIDER_TESTS = 'I_ACCEPT_REAL_PROVIDER_COSTS'
+bun run test:workflow-codex -- --run
+```
+
+This is intentionally a Codex-only smoke test; it does not claim live coverage of OpenRouter or
+OpenAI billing. It freezes course and lesson on `gpt-5.6-luna` with low reasoning and normal
+service tier, and visual work on `gpt-5.6-sol` with low reasoning. Auxiliary research uses Luna.
+These overrides exist only in the test process and are not persisted. The harness runs at most two
+workflow steps concurrently (hard cap: four) and gives each of the three workflow runs 15 minutes
+by default. Override those test-only limits with `REAL_WORKFLOW_PROVIDER_CONCURRENCY` and
+`REAL_WORKFLOW_PROVIDER_TIMEOUT_MS`. It also verifies the persisted model snapshot and positive
+input/output usage for every run. The Codex app server must already be authenticated.

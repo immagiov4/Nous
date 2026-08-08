@@ -2,6 +2,8 @@ import { expect, test, vi } from 'vitest';
 
 import {
   publishProjectRevision,
+  requestProjectRevisionCatchUp,
+  subscribeToProjectRevisionCatchUps,
   subscribeToProjectRevisions,
 } from '../../src/projects/projectEvents.js';
 
@@ -23,4 +25,19 @@ test('project revision events reach every session for the same user and no other
   unsubscribeFirst();
   unsubscribeSecond();
   unsubscribeOther();
+});
+
+test('project revision catch-up reaches every local SSE session', () => {
+  const firstSession = vi.fn();
+  const secondSession = vi.fn();
+  const unsubscribeFirst = subscribeToProjectRevisionCatchUps(firstSession);
+  const unsubscribeSecond = subscribeToProjectRevisionCatchUps(secondSession);
+
+  requestProjectRevisionCatchUp();
+
+  expect(firstSession).toHaveBeenCalledOnce();
+  expect(secondSession).toHaveBeenCalledOnce();
+
+  unsubscribeFirst();
+  unsubscribeSecond();
 });

@@ -10,7 +10,6 @@ import type { UseWorkspaceControllerArgs } from './controller/types.ts';
 export { createWorkspaceController } from './controller/createWorkspaceController.ts';
 export type {
   UseWorkspaceControllerArgs,
-  WorkspaceChatSession,
   WorkspaceDomainControllerAdapter,
   WorkspaceProjectLibraryAdapter,
 } from './controller/types.ts';
@@ -36,6 +35,7 @@ export const useWorkspaceController = ({
   return {
     ...commands,
     ...domain,
+    applyPersistedProjectRevision: projectLibrary.applyPersistedProjectRevision,
     assessmentMessages: controllerState.assessmentMessages,
     blockingMessage: selectBlockingMessage(controllerState.workflowState),
     currentProjectId: projectLibrary.currentProjectId,

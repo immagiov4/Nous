@@ -216,13 +216,14 @@ const resolveImageModel = (config: GlobalModelConfig): string => {
   return config.imageModel;
 };
 
-const buildCoverFile = (projectId: string, dataUrl: string): ProjectCoverFile => {
-  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/u.exec(dataUrl);
-  if (!match) throw new Error('Generated course cover is not a supported image data URL.');
-  const mimeType = match[1];
+const buildCoverFile = (
+  projectId: string,
+  image: { bytes: Uint8Array; mediaType: ProjectCoverFile['mimeType'] }
+): ProjectCoverFile => {
+  const mimeType = image.mediaType;
   const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.slice('image/'.length);
   return {
-    data: match[2],
+    data: Buffer.from(image.bytes).toString('base64'),
     mimeType,
     name: `${projectId}-cover-v${COURSE_COVER_PROMPT_VERSION}.${extension}`,
   };
@@ -250,12 +251,11 @@ const regenerateProjectCover = (
         prompt: buildCourseCoverPrompt(project.title, visualDirection),
         provider: resolveAiProviderForSlot(config, 'image'),
       });
-      const cover = buildCoverFile(project.id, image.dataUrl);
+      const cover = buildCoverFile(project.id, image);
       const currentProject = await store.loadProject(userId, project.id);
       if (
-        !currentProject ||
-        currentProject.title !== project.title ||
-        currentProject.updatedAt !== project.updatedAt
+        currentProject?.title !== project.title ||
+        currentProject?.updatedAt !== project.updatedAt
       ) {
         return skippedResult(project);
       }

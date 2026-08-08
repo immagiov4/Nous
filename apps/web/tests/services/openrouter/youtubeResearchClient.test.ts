@@ -27,9 +27,8 @@ describe('getYouTubeResearchContext', () => {
           rationale: 'Un transcript pertinente incluso.',
           videoCandidates: [
             {
-              ranges: [{ startSeconds: 12, endSeconds: 18 }],
+              segments: [{ startSeconds: 12, endSeconds: 18, text: 'Traccio la prima linea.' }],
               title: 'Prima linea',
-              transcript: '[00:12-00:18] Traccio la prima linea.',
               url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
             },
           ],
@@ -44,9 +43,8 @@ describe('getYouTubeResearchContext', () => {
       rationale: 'Un transcript pertinente incluso.',
       videoCandidates: [
         {
-          ranges: [{ startSeconds: 12, endSeconds: 18 }],
+          segments: [{ startSeconds: 12, endSeconds: 18, text: 'Traccio la prima linea.' }],
           title: 'Prima linea',
-          transcript: '[00:12-00:18] Traccio la prima linea.',
           url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
         },
       ],
@@ -99,9 +97,8 @@ describe('getYouTubeResearchContext', () => {
           rationale: 'Ricerca generale.',
           videoCandidates: [
             {
-              ranges: [{ startSeconds: 1, endSeconds: 4 }],
+              segments: [{ startSeconds: 1, endSeconds: 4, text: 'Introduzione.' }],
               title: 'Fondamenti',
-              transcript: 'Introduzione.',
               url: 'https://youtube.test/shared',
             },
           ],
@@ -112,9 +109,8 @@ describe('getYouTubeResearchContext', () => {
           rationale: 'Ricerca applicata.',
           videoCandidates: [
             {
-              ranges: [{ startSeconds: 5, endSeconds: 9 }],
+              segments: [{ startSeconds: 5, endSeconds: 9, text: 'Duplicato.' }],
               title: 'Percorso pratico',
-              transcript: 'Duplicato.',
               url: 'https://youtube.test/shared',
             },
           ],
@@ -127,9 +123,8 @@ describe('getYouTubeResearchContext', () => {
       rationale: 'Ricerca generale. Ricerca applicata.',
       videoCandidates: [
         {
-          ranges: [{ startSeconds: 1, endSeconds: 4 }],
+          segments: [{ startSeconds: 1, endSeconds: 4, text: 'Introduzione.' }],
           title: 'Fondamenti',
-          transcript: 'Introduzione.',
           url: 'https://youtube.test/shared',
         },
       ],

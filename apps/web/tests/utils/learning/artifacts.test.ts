@@ -149,11 +149,16 @@ describe('learning artifacts', () => {
             imageRefs: [{ assetId: 'pdf-img-2', alt: 'Dipendenze funzionali' }],
             generatedVisuals: [
               {
-                id: 'visual-2',
-                title: 'simulatore_chiusura',
-                kind: 'html',
-                code: '<style></style><div>Simulazione</div><script></script>',
+                altText: 'Simulatore della chiusura degli attributi',
                 createdAt: '2026-05-01T11:00:00.000Z',
+                id: 'visual-2',
+                render: {
+                  code: '<style></style><div>Simulazione</div><script></script>',
+                  embeddedAssets: [],
+                  kind: 'html',
+                },
+                slotId: 'slot-2',
+                title: 'simulatore_chiusura',
               },
             ],
           }),
@@ -259,11 +264,15 @@ describe('learning artifacts', () => {
     const nextVisuals = replaceGeneratedVisualPreservingId({
       artifactId: 'project-1:lesson-1:generated-visual:visual-1',
       replacementVisual: {
-        id: 'visual-draft-9',
-        title: 'mappa_nuova',
-        kind: 'svg',
-        code: '<svg data-new="true"></svg>',
+        altText: 'Nuova mappa persistente',
         createdAt: '2026-05-02T10:00:00.000Z',
+        id: 'visual-draft-9',
+        render: {
+          code: '<svg data-new="true"></svg>',
+          kind: 'svg',
+        },
+        slotId: 'artifact-draft',
+        title: 'mappa_nuova',
       },
       visuals: [
         {
@@ -287,7 +296,8 @@ describe('learning artifacts', () => {
       expect.objectContaining({
         id: 'visual-1',
         title: 'mappa_nuova',
-        code: '<svg data-new="true"></svg>',
+        render: { code: '<svg data-new="true"></svg>', kind: 'svg' },
+        slotId: 'artifact-draft',
       }),
       expect.objectContaining({
         id: 'visual-2',

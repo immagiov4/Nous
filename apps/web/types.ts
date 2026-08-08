@@ -1,4 +1,7 @@
 import type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
+import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
+import type { ProjectDocumentImageAsset, ProjectLessonVisual } from '@shared/projectAsset';
+import type { YouTubeTranscript } from '@shared/youtubeTranscript';
 import type { LessonInstructionPackId } from './utils/learning/lessonInstructionPacks.ts';
 
 export type { ActivePauseExerciseType } from '@shared/lessonGenerationPolicy';
@@ -28,13 +31,7 @@ export interface ResearchSourceReference {
   title: string;
   url?: string;
   note?: string;
-  youtubeTranscript?: {
-    ranges: Array<{
-      endSeconds: number;
-      startSeconds: number;
-    }>;
-    text: string;
-  };
+  youtubeTranscript?: YouTubeTranscript;
   videoClip?: {
     endSeconds: number;
     startSeconds: number;
@@ -354,6 +351,8 @@ export interface LessonGeneratedVisual {
   createdAt: string;
 }
 
+export type StoredLessonVisual = LessonGeneratedVisual | ProjectLessonVisual;
+
 export type LearningArtifactKind = 'future-asset' | 'generated-visual' | 'pdf-image';
 export type LearningArtifactPreviewMode = 'chip-only' | 'thumbnail';
 
@@ -374,7 +373,7 @@ export interface LearningArtifactSummary {
 
 export type LearningArtifactRenderPayload =
   | {
-      image: PdfImageAsset;
+      image: PdfDocumentImageAsset;
       searchText?: string;
       summary: LearningArtifactSummary & {
         kind: 'pdf-image';
@@ -385,7 +384,7 @@ export type LearningArtifactRenderPayload =
         kind: 'generated-visual';
       };
       searchText?: string;
-      visual: LessonGeneratedVisual;
+      visual: StoredLessonVisual;
     }
   | {
       searchText?: string;
@@ -414,12 +413,14 @@ export interface PdfImageAsset {
   pageNumber?: number;
 }
 
+export type PdfDocumentImageAsset = PdfImageAsset | ProjectDocumentImageAsset;
+
 export interface PdfDocumentAssets {
   kind: 'pdf';
   parsedAt: string;
   imageCount: number;
   sourceHash?: string;
-  usedImages: PdfImageAsset[];
+  usedImages: PdfDocumentImageAsset[];
 }
 
 export interface PdfTextChunk {
@@ -474,7 +475,10 @@ export type LessonVisualPlanType =
   | 'structural_svg';
 
 export interface LessonVisualRetryPlan {
+  altText?: string;
+  anchorHeading?: string;
   slotId: string;
+  title?: string;
   complexity: 'simple' | 'moderate' | 'complex';
   concept: string;
   coverage: 'all_elements' | 'single_complex' | 'complete_synthesis' | 'none';
@@ -519,9 +523,10 @@ export interface LearningSection {
   parentId?: string; // ID of the parent section if this is a sub-chapter
   content?: string; // The generated full lesson content (persisted)
   contentBlocks?: LessonContentBlock[]; // Ordered first-class lesson content (new generations)
+  generationWarnings?: LessonWorkflowWarning[];
   quiz?: QuizQuestion[]; // The generated quiz (persisted)
   imageRefs?: LessonImageRef[]; // PDF image references selected for this lesson
-  generatedVisuals?: LessonGeneratedVisual[]; // Generated pedagogical visuals for missing examples
+  generatedVisuals?: StoredLessonVisual[]; // Generated pedagogical visuals for missing examples
   visualPlanningDecision?: LessonVisualPlanningDecision; // Planner and reviewer verdicts
   learningAids?: LessonLearningAid[]; // Compact definitions, formulas, symbols, and analogies
   contextPrompt?: string; // For Learn Mode

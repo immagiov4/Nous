@@ -9,6 +9,7 @@ const codexMocks = vi.hoisted(() => ({
   listCodexModels: vi.fn(),
   logoutCodexAccount: vi.fn(),
   readCodexAccount: vi.fn(),
+  runCodexAppServerTurn: vi.fn(),
   startCodexDeviceLogin: vi.fn(),
 }));
 const ORIGINAL_ENV = { ...process.env };

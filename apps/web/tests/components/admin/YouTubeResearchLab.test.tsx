@@ -48,9 +48,8 @@ const researchResult = {
         'SOURCE Pixel art curves\nURL: https://www.youtube.com/watch?v=M7lc1UVf-VE\n[01:05-01:32] Draw the curve.',
       videoCandidates: [
         {
-          ranges: [{ startSeconds: 65, endSeconds: 93 }],
+          segments: [{ startSeconds: 65, endSeconds: 93, text: 'Draw the curve.' }],
           title: 'Pixel art curves',
-          transcript: '[01:05-01:33] Draw the curve.',
           url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
         },
       ],
@@ -69,9 +68,8 @@ const researchResult = {
           characterCount: 48,
           kind: 'manual',
           language: 'en',
-          ranges: [{ startSeconds: 65, endSeconds: 93 }],
+          segments: [{ startSeconds: 65, endSeconds: 93, text: 'Draw the curve.' }],
           segmentCount: 1,
-          text: '[01:05-01:32] Draw the curve.',
         },
         transcriptAttempts: [
           {

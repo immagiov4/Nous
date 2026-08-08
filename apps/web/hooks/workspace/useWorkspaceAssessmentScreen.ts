@@ -1,11 +1,16 @@
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { AppState, type Message } from '../../types.ts';
 
 interface UseWorkspaceAssessmentScreenArgs {
   assessmentMessages: Message[];
+  cancelAssessment: () => Promise<void>;
+  confirmPlanGeneration: () => Promise<{
+    errorMessage?: string;
+    outcome: 'failed' | 'planned';
+  }>;
   notify: (message: string) => void;
   screenState: AppState;
-  startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
   submitAssessment: (input: string) => Promise<{
     errorMessage?: string;
     outcome: 'abandoned' | 'assessment-complete' | 'continued' | 'failed' | 'noop' | 'planned';
@@ -14,9 +19,10 @@ interface UseWorkspaceAssessmentScreenArgs {
 
 export const useWorkspaceAssessmentScreen = ({
   assessmentMessages,
+  cancelAssessment,
+  confirmPlanGeneration,
   notify,
   screenState,
-  startLearnJourney,
   submitAssessment,
 }: UseWorkspaceAssessmentScreenArgs) => {
   const [currentAssessmentInput, setCurrentAssessmentInput] = useState('');
@@ -36,11 +42,17 @@ export const useWorkspaceAssessmentScreen = ({
     assessmentInputRef.current?.focus();
   }, [assessmentMessageCount, screenState]);
 
-  const handleStartLearnJourney = async () => {
-    const result = await startLearnJourney();
-    if (result.errorMessage) {
-      notify(result.errorMessage);
+  const handleCancelAssessment = async () => {
+    try {
+      await cancelAssessment();
+    } catch (error) {
+      notify(getErrorMessage(error));
     }
+  };
+
+  const handleConfirmPlanGeneration = async () => {
+    const result = await confirmPlanGeneration();
+    if (result.errorMessage) notify(result.errorMessage);
   };
 
   const handleAssessmentSubmit = async (event: FormEvent) => {
@@ -60,8 +72,9 @@ export const useWorkspaceAssessmentScreen = ({
     assessmentInputId,
     assessmentInputRef,
     currentAssessmentInput,
+    handleCancelAssessment,
     handleAssessmentSubmit,
-    handleStartLearnJourney,
+    handleConfirmPlanGeneration,
     messagesEndRef,
     setCurrentAssessmentInput,
   };
