@@ -146,7 +146,20 @@ export default function GenerationProgress({
         <PreviewSections progress={progress} />
       </section>
 
-      <p className="mt-3 flex items-center gap-2 text-xs text-stone-500 sm:mt-5 sm:text-sm dark:text-zinc-400">
+      {progress.retrying ? (
+        <p className="mt-3 text-xs font-medium text-amber-700 sm:mt-5 sm:text-sm dark:text-amber-400">
+          {t(
+            progress.failure
+              ? 'Un passaggio non è riuscito. Riprovo automaticamente.'
+              : 'Nuovo tentativo in corso.'
+          )}
+          {progress.attempt === undefined ? null : ` · ${t('Tentativo')} ${progress.attempt}`}
+        </p>
+      ) : null}
+
+      <p
+        className={`${progress.retrying ? 'mt-1.5' : 'mt-3 sm:mt-5'} flex items-center gap-2 text-xs text-stone-500 sm:text-sm dark:text-zinc-400`}
+      >
         <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
         {t('Elaborazione in corso')} · {t('Tempo trascorso')}:{' '}
         {formatElapsedTime(visibleElapsedSeconds)}

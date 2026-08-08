@@ -4,24 +4,16 @@ import {
   attachStoredSources,
   buildCourseSourceDescriptors,
   createProjectSourceFromDescriptors,
-  getCourseSourceDescriptors,
   sortSourceFiles,
 } from '../../../services/projects/courseSources.ts';
 import {
   detectSourceFileKind,
   encodeBytesBase64,
   getProjectSourceFile,
-  isPdfFileData,
   normalizeSourceFileMimeType,
 } from '../../../services/projects/projectSource.ts';
 import { resolveScreenStateForSnapshot } from '../../../services/workspace/controller/snapshotHydration.ts';
-import type {
-  CourseSourceDescriptor,
-  FileData,
-  LearningPlan,
-  PdfTextIndex,
-  ProjectSource,
-} from '../../../types.ts';
+import type { CourseSourceDescriptor, FileData, ProjectSource } from '../../../types.ts';
 import type { CreateWorkspaceControllerArgs, WorkspaceControllerContext } from './types.ts';
 
 const createSleep = (ms: number) =>
@@ -171,31 +163,19 @@ export const createWorkspaceControllerContext = ({
 }: CreateWorkspaceControllerArgs): WorkspaceControllerContext => ({
   domain,
   openRouter,
-  persistHydratedSnapshot: snapshot => {
+  persistHydratedSnapshot: (snapshot, revision) => {
     projectLibrary.setCurrentProjectId(snapshot.id);
     projectLibrary.setProjectHydrated(false);
     domain.hydrateSnapshot(snapshot);
     state.resetSessionState();
     state.setScreenState(resolveScreenStateForSnapshot(snapshot));
     scheduleHydration(() => {
-      projectLibrary.setProjectHydrated(true);
+      if (revision === undefined) {
+        projectLibrary.setProjectHydrated(true);
+      } else {
+        projectLibrary.completeProjectHydration({ revision, snapshot });
+      }
     });
-  },
-  preparePdfLessonPlan: async (
-    sourceFile: FileData | null,
-    plan: LearningPlan,
-    existingIndex?: PdfTextIndex | null,
-    sectionIds?: string[]
-  ): Promise<{ learningPlan: LearningPlan; documentIndex: PdfTextIndex | null }> => {
-    const sources = getCourseSourceDescriptors(domain.source);
-    if (sources.length > 1) {
-      return openRouter.prepareSourceSetLessonMappings(sources, plan, sectionIds);
-    }
-    if (!sourceFile || !isPdfFileData(sourceFile)) {
-      return { learningPlan: plan, documentIndex: existingIndex ?? null };
-    }
-
-    return openRouter.preparePdfLessonMappings(sourceFile, plan, existingIndex, sectionIds);
   },
   projectLibrary,
   scheduleHydration,

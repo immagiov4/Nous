@@ -23,7 +23,6 @@ interface HttpError extends Error {
 }
 
 const OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH = '/api/openrouter/chat/completions';
-const ARTIFACT_SETTINGS_PATH = '/api/openrouter/artifact-settings';
 let forensicRequestSequence = 0;
 
 const shouldTraceModelCall = (options: ChatCompletionOptions): boolean =>
@@ -34,29 +33,6 @@ const nextForensicRequestId = (options: ChatCompletionOptions): string =>
 
 const getOpenRouterProxyUrl = (): string =>
   `${getBackendUrl()}${OPENROUTER_PROXY_CHAT_COMPLETIONS_PATH}`;
-
-export const getArtifactVisualReviewSettings = async (): Promise<{
-  enabled: boolean;
-  maxRounds: number;
-}> => {
-  try {
-    const response = await fetchWithSupabaseAuth(`${getBackendUrl()}${ARTIFACT_SETTINGS_PATH}`);
-    if (!response.ok) {
-      return { enabled: true, maxRounds: 1 };
-    }
-    const payload = (await response.json()) as {
-      visualReviewEnabled?: unknown;
-      visualReviewMaxRounds?: unknown;
-    };
-    const maxRounds = Number(payload.visualReviewMaxRounds);
-    return {
-      enabled: payload.visualReviewEnabled !== false,
-      maxRounds: Number.isInteger(maxRounds) && maxRounds >= 1 && maxRounds <= 4 ? maxRounds : 1,
-    };
-  } catch {
-    return { enabled: true, maxRounds: 1 };
-  }
-};
 
 const getHeaders = (
   modelSlot: ChatCompletionOptions['modelSlot'],
@@ -543,8 +519,8 @@ export const callOpenRouter = async (options: ChatCompletionOptions): Promise<st
   }
 };
 
-const MAX_LOCAL_TOOL_ROUNDS = 12;
-export const MAX_LOCAL_TOOL_CONTEXT_BYTES = 8 * 1024 * 1024;
+const MAX_LOCAL_TOOL_ROUNDS = SOURCE_ARCHIVE_TOOL_STEP_LIMIT;
+export const MAX_LOCAL_TOOL_CONTEXT_BYTES = SOURCE_ARCHIVE_TOOL_CONTEXT_MAX_BYTES;
 const TOOL_CONTEXT_LIMIT_MESSAGE =
   'Il modello ha superato il limite cumulativo di consultazione della sorgente.';
 
@@ -597,3 +573,8 @@ export const callOpenRouterWithTools = async (
 
   throw new Error('Il modello ha superato il limite di consultazione della sorgente.');
 };
+
+import {
+  SOURCE_ARCHIVE_TOOL_CONTEXT_MAX_BYTES,
+  SOURCE_ARCHIVE_TOOL_STEP_LIMIT,
+} from '@shared/sourceArchiveIndex';

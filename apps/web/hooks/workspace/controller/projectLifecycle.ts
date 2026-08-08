@@ -25,13 +25,11 @@ import {
   prepareSnapshotForHydrationResult,
   resolvePlanLesson,
 } from '../../../services/workspace/controller/snapshotHydration.ts';
+import { AppState, type FileData, type LessonNode, type ProjectSource } from '../../../types.ts';
 import {
-  AppState,
-  type FileData,
-  type LearningPlan,
-  type LessonNode,
-  type ProjectSource,
-} from '../../../types.ts';
+  getPdfProjectHydrationState,
+  needsPdfProjectHydration,
+} from '../../../utils/pdf/projectHydration.ts';
 import { prepareUploadedCourseSource, readSourceFileData } from './controllerContext.ts';
 import { importProjectBackupFile, isNousBackupArchive } from './projectImport.ts';
 import type {
@@ -43,10 +41,31 @@ import type {
 
 interface ProjectLifecycleDependencies {
   openSection: (section: LessonNode, options?: OpenSectionOptions) => Promise<OpenSectionOutcome>;
+  resumePlanGeneration: (projectId: string) => Promise<'not-found' | 'resumed'>;
   startAssessment: (input: AssessmentSourceInput) => Promise<void>;
+  startLearnAssessment: () => Promise<void>;
 }
 
-const OPEN_PROJECT_PDF_HYDRATION_TIMEOUT_MS = 20_000;
+const OPEN_PROJECT_PDF_REPAIR_TIMEOUT_MS = 20_000;
+
+const waitWithTimeout = async <T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number
+): Promise<T | null> => {
+  const controller = new AbortController();
+  let timeoutHandle: ReturnType<typeof globalThis.setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(controller.signal),
+      new Promise<null>(resolve => {
+        timeoutHandle = globalThis.setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle !== undefined) globalThis.clearTimeout(timeoutHandle);
+    controller.abort();
+  }
+};
 
 const REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE = [
   'openProject',
@@ -61,31 +80,14 @@ const REATTACH_SOURCE_WORKFLOWS_TO_INVALIDATE = [
   'completeSection',
 ] as const;
 
-const withTimeoutFallback = async <T>(
-  promise: Promise<T>,
-  timeoutMs: number
-): Promise<T | null> => {
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<null>(resolve => {
-        timeoutHandle = setTimeout(() => {
-          resolve(null);
-        }, timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-  }
-};
-
 export const createProjectLifecycleCommands = (
   context: WorkspaceControllerContext,
-  { openSection, startAssessment }: ProjectLifecycleDependencies
+  {
+    openSection,
+    resumePlanGeneration,
+    startAssessment,
+    startLearnAssessment,
+  }: ProjectLifecycleDependencies
 ) => {
   const { domain, openRouter, persistHydratedSnapshot, projectLibrary, state, stopAudio } = context;
 
@@ -369,6 +371,7 @@ export const createProjectLifecycleCommands = (
 
       if (!snapshot) {
         pushNousDebugTrace('open-project:missing-snapshot', { projectId, requestId });
+        await projectLibrary.refreshLibraryState();
         state.succeedWorkflow('openProject', requestId);
         return { outcome: 'missing' };
       }
@@ -383,84 +386,69 @@ export const createProjectLifecycleCommands = (
           snapshot.source?.kind === 'archive' ? snapshot.source.index.entries.length : null,
       });
 
-      let nextSnapshot = snapshot;
-      const snapshotFile = snapshot.source?.kind === 'pdf' ? snapshot.source.file : null;
-      const pdfHydrationState = openRouter.getPdfLessonMappingState(
-        snapshotFile,
-        snapshot.learningPlan,
-        snapshot.documentIndex
-      );
+      if (!state.isWorkflowCurrent('openProject', requestId)) {
+        pushNousDebugTrace('open-project:stale-before-hydration', { projectId, requestId });
+        return { outcome: 'stale' };
+      }
 
-      if (
-        pdfHydrationState === 'missing-document-index' ||
-        pdfHydrationState === 'missing-primary-chunk-mappings'
-      ) {
+      let snapshotToHydrate = snapshot;
+      let repairedProjectRevision: number | undefined;
+      const pdfFile = snapshot.source?.kind === 'pdf' ? snapshot.source.file : null;
+      if (needsPdfProjectHydration(pdfFile, snapshot.learningPlan, snapshot.documentIndex)) {
+        const repairState = getPdfProjectHydrationState(
+          pdfFile,
+          snapshot.learningPlan,
+          snapshot.documentIndex
+        );
         state.setWorkflowMessage(
           'openProject',
           requestId,
-          pdfHydrationState === 'missing-document-index'
+          repairState === 'missing-document-index'
             ? t('Indicizzazione capitoli del PDF...')
             : t('Allineamento lezioni con il PDF...')
         );
-
-        let prepared: Awaited<ReturnType<typeof context.preparePdfLessonPlan>> | null = null;
-
         try {
-          const hydrationSourceFile =
-            snapshotFile?.data || snapshot.source?.kind !== 'pdf'
-              ? snapshotFile
-              : await projectLibrary.loadStoredProjectSource(projectId);
-          prepared = await withTimeoutFallback(
-            context.preparePdfLessonPlan(
-              hydrationSourceFile,
-              snapshot.learningPlan as LearningPlan,
-              snapshot.documentIndex
-            ),
-            OPEN_PROJECT_PDF_HYDRATION_TIMEOUT_MS
+          const repair = await waitWithTimeout(
+            signal => openRouter.repairDurablePdfMapping({ projectId, signal }),
+            OPEN_PROJECT_PDF_REPAIR_TIMEOUT_MS
           );
+          const knownProjectRevision = projectLibrary.savedProjects.find(
+            project => project.id === projectId
+          )?.revision;
+          if (
+            repair &&
+            (repair.repaired ||
+              knownProjectRevision === undefined ||
+              repair.projectRevision > knownProjectRevision)
+          ) {
+            const repairedProject = await projectLibrary.loadStoredProjectWithRevision(projectId);
+            if (repairedProject) {
+              snapshotToHydrate = repairedProject.snapshot;
+              repairedProjectRevision = repairedProject.revision;
+            }
+          } else if (!repair) {
+            pushNousDebugTrace('open-project:pdf-repair-timeout', {
+              projectId,
+              requestId,
+              timeoutMs: OPEN_PROJECT_PDF_REPAIR_TIMEOUT_MS,
+            });
+          }
         } catch (error) {
-          console.warn(
-            '[Nous][OpenProject] PDF hydration failed, opening the stored snapshot without remapping.',
-            error
-          );
-          pushNousDebugTrace('open-project:pdf-prepare-failed', {
+          pushNousDebugTrace('open-project:pdf-repair-failed', {
             errorMessage: getErrorMessage(error),
             projectId,
             requestId,
           });
         }
         if (!state.isWorkflowCurrent('openProject', requestId)) {
-          pushNousDebugTrace('open-project:stale-after-pdf-prepare', { projectId, requestId });
+          pushNousDebugTrace('open-project:stale-after-pdf-repair', { projectId, requestId });
           return { outcome: 'stale' };
         }
-
-        if (!prepared) {
-          console.warn(
-            '[Nous][OpenProject] PDF hydration timed out, opening the stored snapshot without remapping.'
-          );
-          pushNousDebugTrace('open-project:pdf-prepare-timeout', {
-            projectId,
-            requestId,
-            timeoutMs: OPEN_PROJECT_PDF_HYDRATION_TIMEOUT_MS,
-          });
-        } else {
-          nextSnapshot = createProjectSnapshot({
-            ...snapshot,
-            learningPlan: prepared.learningPlan,
-            documentIndex: prepared.documentIndex,
-          });
-          await projectLibrary.persistSnapshot(nextSnapshot);
-        }
       }
 
-      if (!state.isWorkflowCurrent('openProject', requestId)) {
-        pushNousDebugTrace('open-project:stale-before-hydration', { projectId, requestId });
-        return { outcome: 'stale' };
-      }
-
-      const hydration = prepareSnapshotForHydrationResult(nextSnapshot);
-      const preparedSnapshot = hydration.snapshot;
-      persistHydratedSnapshot(preparedSnapshot);
+      const hydration = prepareSnapshotForHydrationResult(snapshotToHydrate);
+      let preparedSnapshot = hydration.snapshot;
+      persistHydratedSnapshot(preparedSnapshot, repairedProjectRevision);
       pushNousDebugTrace('open-project:hydrated-snapshot', {
         hasLearningPlan: Boolean(preparedSnapshot.learningPlan),
         projectId,
@@ -480,6 +468,20 @@ export const createProjectLifecycleCommands = (
         persistHydrationMigrationInBackground(preparedSnapshot, requestId);
       }
       refreshLibraryMetadataInBackground(projectId, requestId);
+
+      if (!preparedSnapshot.learningPlan) {
+        const resumeOutcome = await resumePlanGeneration(projectId);
+        if (resumeOutcome === 'resumed') {
+          pushNousDebugTrace('open-project:course-generation-resumed', { projectId, requestId });
+          return { outcome: 'opened' };
+        }
+
+        const latestSnapshot = await projectLibrary.loadStoredProject(projectId);
+        if (latestSnapshot) {
+          preparedSnapshot = prepareSnapshotForHydrationResult(latestSnapshot).snapshot;
+          persistHydratedSnapshot(preparedSnapshot);
+        }
+      }
 
       if (!preparedSnapshot.learningPlan) {
         const assessmentSources = getCourseSourceDescriptors(preparedSnapshot.source);
@@ -522,13 +524,25 @@ export const createProjectLifecycleCommands = (
             getProjectSourceFile(preparedSnapshot.source) ??
             (await projectLibrary.loadStoredProjectSource(projectId));
           await startAssessment({ file: assessmentFile });
+        } else if (preparedSnapshot.isLearnMode) {
+          await startLearnAssessment();
         }
       } else if (preparedSnapshot.learningPlan) {
         const nextSection = resolvePlanLesson(
           preparedSnapshot.learningPlan,
           preparedSnapshot.activeSectionId
         );
-        if (nextSection && (!nextSection.content || nextSection.content.length === 0)) {
+        const hydratedPdfFile =
+          preparedSnapshot.source?.kind === 'pdf' ? preparedSnapshot.source.file : null;
+        if (
+          !needsPdfProjectHydration(
+            hydratedPdfFile,
+            preparedSnapshot.learningPlan,
+            preparedSnapshot.documentIndex
+          ) &&
+          nextSection &&
+          (!nextSection.content || nextSection.content.length === 0)
+        ) {
           void (async () => {
             if (
               projectLibrary.currentProjectId !== projectId ||

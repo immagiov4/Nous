@@ -1,3 +1,10 @@
+import {
+  createProjectBackupArchive,
+  PROJECT_BACKUP_MAX_ENTRIES,
+  PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+  PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+} from '@shared/projectBackupArchive';
+import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import JSZip from 'jszip';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -331,6 +338,7 @@ describe('/api/projects', () => {
 
   test('imports a binary source archive in bounded chunks', async () => {
     const app = createApp();
+    const arrayBufferSpy = vi.spyOn(globalThis.Request.prototype, 'arrayBuffer');
     const uploadId = '223e4567-e89b-42d3-a456-426614174000';
     const sourceZip = new JSZip();
     sourceZip.file('main.ts', 'export const ready = true;');
@@ -363,11 +371,73 @@ describe('/api/projects', () => {
     const response = await request(app)
       .post(`/api/projects/import/chunks/${uploadId}/complete`)
       .send({
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
         snapshot,
         sourceFile: { mimeType: 'application/zip', name: 'engine.zip' },
       });
     expect(response.status).toBe(200);
     expect(response.body.snapshot).toMatchObject({ id: 'binary-import-project' });
+    expect(arrayBufferSpy).not.toHaveBeenCalled();
+  });
+
+  test('rejects unsupported chunk content types before a generic body parser can buffer them', async () => {
+    const app = createApp();
+    const uploadId = '423e4567-e89b-42d3-a456-426614174000';
+
+    const response = await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/json')
+      .send({ unexpected: 'body' });
+
+    expect(response.status).toBe(415);
+    expect(response.body).toEqual({
+      error: 'Tipo di contenuto del blocco di importazione non supportato.',
+      success: false,
+    });
+  });
+
+  test('imports a self-contained project backup with an explicit binary payload kind', async () => {
+    const app = createApp();
+    const uploadId = '323e4567-e89b-42d3-a456-426614174000';
+    const targetProjectId = 'restored-project';
+    const backupBytes = await createProjectBackupArchive(
+      {
+        cover: {
+          data: Buffer.from('cover bytes').toString('base64'),
+          mimeType: 'image/png',
+          name: 'cover.png',
+        },
+        project: createSnapshot('archived-project', 'Corso ripristinato'),
+      },
+      {
+        invalidArchiveMessage: 'Invalid project backup.',
+        maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
+        maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+        maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+      }
+    );
+
+    const chunkResponse = await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.from(backupBytes));
+    expect(chunkResponse.status).toBe(202);
+
+    const completionResponse = await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .send({ payloadKind: PROJECT_IMPORT_BINARY_KIND.backup, targetProjectId });
+
+    expect(completionResponse.status).toBe(200);
+    expect(completionResponse.body.snapshot).toMatchObject({
+      id: targetProjectId,
+      learningPlan: { title: 'Corso ripristinato' },
+    });
+    const coverResponse = await request(app).get(`/api/projects/projects/${targetProjectId}/cover`);
+    expect(coverResponse.body.cover).toEqual({
+      data: Buffer.from('cover bytes').toString('base64'),
+      mimeType: 'image/png',
+      name: 'cover.png',
+    });
   });
 
   test('round-trips every modern course source while snapshots remain byte-free', async () => {

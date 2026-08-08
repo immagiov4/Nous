@@ -1,5 +1,6 @@
 import { DEFAULT_OPENAI_IMAGE_MODEL, getResolvedGlobalModelConfig } from '../config/modelConfig.js';
 import { isRecord } from '../utils/validation.js';
+import { recordWorkflowAiUsage, type WorkflowAiUsage } from '../workflows/workflowAiMetering.js';
 import { generateCodexAppServerImage } from './codexAppServer.js';
 import { getOpenAiJsonHeaders, OPENAI_API_BASE_URL } from './openAiApi.js';
 import {
@@ -19,14 +20,18 @@ interface GenerateImageRequest {
   signal?: AbortSignal;
 }
 
-interface GeneratedImageResult {
-  dataUrl: string;
+export interface GeneratedImageResult {
+  bytes: Uint8Array;
   generationId?: string;
   mediaType: GeneratedImageMediaType;
   usage?: Record<string, unknown>;
 }
 
-export interface ImageGenerationModel {
+export const toGeneratedImageDataUrl = (
+  image: Pick<GeneratedImageResult, 'bytes' | 'mediaType'>
+): string => `data:${image.mediaType};base64,${Buffer.from(image.bytes).toString('base64')}`;
+
+interface ImageGenerationModel {
   id: string;
   name: string;
 }
@@ -57,6 +62,28 @@ const normalizeImageMediaType = (value: unknown): GeneratedImageMediaType | null
   typeof value === 'string' && ALLOWED_IMAGE_MEDIA_TYPES.has(value as GeneratedImageMediaType)
     ? (value as GeneratedImageMediaType)
     : null;
+
+const usageNumber = (usage: Record<string, unknown> | null, ...names: string[]) => {
+  const value = names.map(name => usage?.[name]).find(candidate => candidate !== undefined);
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+};
+
+const normalizeImageUsage = (
+  provider: 'openai' | 'openrouter',
+  model: string,
+  usage: Record<string, unknown> | null
+): WorkflowAiUsage => {
+  const inputTokens = usageNumber(usage, 'input_tokens', 'prompt_tokens');
+  const outputTokens = usageNumber(usage, 'output_tokens', 'completion_tokens');
+  const providerCost = usageNumber(usage, 'cost');
+  return {
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    model,
+    ...(outputTokens === undefined ? {} : { outputTokens }),
+    provider,
+    ...(providerCost === undefined ? {} : { providerCost }),
+  };
+};
 
 class ImageClient {
   listOpenAiModels(): ImageGenerationModel[] {
@@ -101,12 +128,19 @@ class ImageClient {
   }
 
   async generateImage(request: GenerateImageRequest): Promise<GeneratedImageResult> {
-    const modelConfig = await getResolvedGlobalModelConfig();
-    const requestedProvider = request.provider ?? modelConfig.aiProvider;
+    const modelConfig =
+      request.provider && request.model ? undefined : await getResolvedGlobalModelConfig();
+    const requestedProvider = request.provider ?? modelConfig?.aiProvider;
+    if (!requestedProvider) {
+      throw new Error('Il provider immagini non è configurato.');
+    }
     if (requestedProvider === 'codex') {
+      const model = request.model || modelConfig?.codexArtifactModel;
+      if (!model) throw new Error('Il modello immagini non è configurato.');
       const result = await generateCodexAppServerImage({
-        model: request.model || modelConfig.codexArtifactModel,
+        model,
         prompt: request.prompt,
+        signal: request.signal ?? AbortSignal.timeout(IMAGE_GENERATION_TIMEOUT_MS),
       });
       const imageBase64 = result.startsWith('data:image/png;base64,')
         ? result.slice('data:image/png;base64,'.length)
@@ -115,14 +149,17 @@ class ImageClient {
         throw new Error('Codex non ha restituito un risultato immagine valido.');
       }
       return {
-        dataUrl: `data:image/png;base64,${imageBase64}`,
+        bytes: new Uint8Array(Buffer.from(imageBase64, 'base64')),
         mediaType: 'image/png',
       };
     }
 
     const usesOpenAi = requestedProvider === 'openai';
     const model =
-      request.model || (usesOpenAi ? modelConfig.openAiImageModel : modelConfig.imageModel);
+      request.model || (usesOpenAi ? modelConfig?.openAiImageModel : modelConfig?.imageModel);
+    if (!model) {
+      throw new Error('Il modello immagini non è configurato.');
+    }
     const response = await fetch(
       usesOpenAi
         ? `${OPENAI_API_BASE_URL}/images/generations`
@@ -176,12 +213,15 @@ class ImageClient {
       throw new Error('Il servizio immagini non ha restituito un risultato valido.');
     }
 
+    const usage = isRecord(payloadRecord?.usage) ? payloadRecord.usage : null;
+    await recordWorkflowAiUsage(normalizeImageUsage(requestedProvider, model, usage));
+
     return {
-      dataUrl: `data:${mediaType};base64,${imageBase64}`,
+      bytes: new Uint8Array(Buffer.from(imageBase64, 'base64')),
       generationId:
         response.headers.get(usesOpenAi ? 'x-request-id' : 'x-generation-id') || undefined,
       mediaType,
-      usage: isRecord(payloadRecord?.usage) ? payloadRecord.usage : undefined,
+      usage: usage ?? undefined,
     };
   }
 }

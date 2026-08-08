@@ -457,6 +457,11 @@ describe('ContextAnswerPanel', () => {
     const draftButton = await screen.findByRole('button', {
       name: /Apri mappa concettuale rivista/i,
     });
+    expect(generateLessonArtifactDraftMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestKey: `context-replacement-${currentLessonArtifact.summary.id}`,
+      })
+    );
     expect(screen.queryByRole('button', { name: /Apri mappa concettuale$/i })).toBeNull();
     expect(screen.queryByText('Nuova bozza pronta.')).toBeNull();
 

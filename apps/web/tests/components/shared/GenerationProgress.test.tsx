@@ -89,6 +89,31 @@ describe('GenerationProgress', () => {
     expect(screen.getByText(/1:12$/)).toBeInTheDocument();
   });
 
+  test('shows an authoritative retry without exposing its technical failure code', () => {
+    render(
+      <GenerationProgress
+        elapsedSecondsOverride={65}
+        progress={{
+          attempt: 2,
+          failure: { code: 'lesson_provider_secret_failure', kind: 'operational' },
+          operation: 'lesson',
+          retrying: true,
+          sections: ['Ricerco le fonti.'],
+          stage: 'structure',
+          startedAt: Date.now(),
+          stepOffset: 0,
+          subject: 'Memoria',
+        }}
+      />
+    );
+
+    expect(screen.getByText(/(Riprovo automaticamente|Retrying automatically)/i)).toHaveTextContent(
+      /(?:Tentativo|Attempt) 2/
+    );
+    expect(screen.getByText(/1:05$/)).toBeInTheDocument();
+    expect(screen.queryByText(/lesson_provider_secret_failure/i)).not.toBeInTheDocument();
+  });
+
   test('renders a three-point progress window without clipping rows in the component', () => {
     render(
       <GenerationProgress

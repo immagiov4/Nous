@@ -138,11 +138,11 @@ const createContextSearchWebTool = ({
 const contextChatTools = {
   generateCurrentLessonArtifact: tool({
     description:
-      'Genera un nuovo artefatto visuale temporaneo per la lezione corrente in base alla richiesta dell utente. Usalo per immagini raster, mappe concettuali, grafici, diagrammi o widget HTML interattivi richiesti sul momento. Una richiesta raster successiva a un diagramma precedente deve creare un nuovo artefatto con rasterImageRequested true. Dopo averlo mostrato, se l utente chiede di salvarlo chiama requestAddToNotes includendo artifactIds.',
+      'Genera un nuovo artefatto visuale temporaneo per la lezione corrente in base alla richiesta dell utente. Usalo per immagini raster, mappe concettuali, grafici, diagrammi o widget HTML interattivi richiesti sul momento. Se l utente specifica il formato, riportalo in requestedVisualKind. Dopo averlo mostrato, se l utente chiede di salvarlo chiama requestAddToNotes includendo artifactIds.',
     inputSchema: jsonSchema<{
       mode?: 'new' | 'replacement-draft';
       prompt: string;
-      rasterImageRequested?: boolean;
+      requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
       revisionInstructions?: string;
       sourceArtifactId?: string;
     }>({
@@ -160,10 +160,11 @@ const contextChatTools = {
           description:
             'Richiesta visuale precisa da soddisfare, includendo concetto, taglio didattico e tipo di artefatto desiderato se indicato.',
         },
-        rasterImageRequested: {
-          type: 'boolean',
+        requestedVisualKind: {
+          type: 'string',
+          enum: ['html', 'image', 'mermaid', 'svg'],
           description:
-            'Imposta true quando l utente chiede esplicitamente una nuova immagine o illustrazione raster, anche se un turno precedente ha gia prodotto un diagramma o SVG dello stesso concetto.',
+            'Categoria di rendering chiesta esplicitamente dall utente: image per immagini o illustrazioni raster, svg o mermaid per diagrammi, html per widget interattivi.',
         },
         revisionInstructions: {
           type: 'string',

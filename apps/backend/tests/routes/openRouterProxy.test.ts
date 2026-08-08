@@ -63,18 +63,6 @@ describe('/api/openrouter proxy', () => {
     vi.unstubAllGlobals();
   });
 
-  test('returns the artifact visual feedback settings', async () => {
-    patchGlobalModelConfig({
-      artifactVisualReviewEnabled: false,
-      artifactVisualReviewMaxRounds: 3,
-    });
-
-    const response = await request(createApp()).get('/api/openrouter/artifact-settings');
-
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ visualReviewEnabled: false, visualReviewMaxRounds: 3 });
-  });
-
   test('overrides client-provided models with the backend global slot model', async () => {
     patchGlobalModelConfig({
       assessmentModel: 'server/assessment-model',

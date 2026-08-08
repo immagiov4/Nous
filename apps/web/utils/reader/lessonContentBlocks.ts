@@ -13,35 +13,6 @@ const YOUTUBE_CLIP_PREFIX = '{{YOUTUBE_CLIP_SOURCE:';
 const VISUAL_SLOT_PREFIX = '{{VISUAL_SLOT:';
 const VISUAL_EXAMPLE_PREFIX = '{{VISUAL_EXAMPLE:';
 
-export const lessonContentBlocksToLegacyMarkdown = (blocks: LessonContentBlock[]): string => {
-  let quizIndex = 0;
-  return blocks
-    .map(block => {
-      switch (block.type) {
-        case 'markdown':
-          return block.markdown.trim();
-        case 'inline-quiz':
-          return `{{INLINE_QUIZ:${quizIndex++}}}`;
-        case 'youtube-clips':
-          return block.clips
-            .map(
-              clip =>
-                `{{YOUTUBE_CLIP_SOURCE:${clip.sourceIndex}|START:${clip.startSeconds}|END:${clip.endSeconds}}}`
-            )
-            .join('\n');
-        case 'generated-visual':
-          return block.visualId
-            ? `{{VISUAL_EXAMPLE:${block.visualId}}}`
-            : `{{VISUAL_SLOT:${block.slotId}}}`;
-        default:
-          return '';
-      }
-    })
-    .filter(Boolean)
-    .join('\n\n')
-    .trim();
-};
-
 export const legacyMarkdownToLessonContentBlocks = (
   content: string,
   quiz: QuizQuestion[] = []
@@ -183,9 +154,11 @@ const normalizeVisualRetryPlan = (
     'reason',
     'visualDirection',
   ] as const;
+  const optionalStrings = ['altText', 'anchorHeading', 'title'] as const;
   if (
     plan.slotId !== slotId ||
     !requiredStrings.every(key => typeof plan[key] === 'string' && plan[key].trim()) ||
+    !optionalStrings.every(key => plan[key] === undefined || typeof plan[key] === 'string') ||
     !isAllowedString(plan.complexity, VISUAL_COMPLEXITIES) ||
     !isAllowedString(plan.coverage, VISUAL_COVERAGE) ||
     !isAllowedString(plan.interactionLevel, VISUAL_INTERACTION_LEVELS) ||
@@ -265,14 +238,3 @@ export const materializeGeneratedVisualBlocks = (
     ];
   });
 };
-
-export const completeGeneratedVisualRetry = (
-  blocks: LessonContentBlock[],
-  slotId: string,
-  visualId: string
-): LessonContentBlock[] =>
-  blocks.map(block =>
-    block.type === 'generated-visual' && block.slotId === slotId
-      ? { slotId, type: 'generated-visual', visualId }
-      : block
-  );

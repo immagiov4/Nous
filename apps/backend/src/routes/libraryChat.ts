@@ -251,6 +251,7 @@ const libraryChatTools = {
       mode?: 'new' | 'replacement-draft';
       projectId: string;
       prompt: string;
+      requestedVisualKind?: 'html' | 'image' | 'mermaid' | 'svg';
       revisionInstructions?: string;
       sourceArtifactId?: string;
     }>({
@@ -275,6 +276,12 @@ const libraryChatTools = {
           type: 'string',
           description:
             'Richiesta visuale precisa da soddisfare, con concetto e tipo di artefatto desiderato se indicato.',
+        },
+        requestedVisualKind: {
+          type: 'string',
+          enum: ['html', 'image', 'mermaid', 'svg'],
+          description:
+            'Categoria di rendering chiesta esplicitamente dall utente: image, svg, mermaid oppure html.',
         },
         revisionInstructions: {
           type: 'string',

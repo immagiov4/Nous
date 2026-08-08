@@ -72,10 +72,14 @@ export interface ProjectRepository {
   ) => Promise<SavedProjectMeta>;
   subscribeToProjectRevisions: (
     listener: (event: ProjectRevisionEvent) => void,
-    onReconnect: () => void
+    requestCatchUp: () => void
   ) => () => void;
   deleteProject: (id: ProjectId) => Promise<void>;
   importProject: (data: unknown) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
+  importProjectArchive: (
+    archive: Blob,
+    targetProjectId: ProjectId
+  ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   exportProject: (id: ProjectId) => Promise<ProjectExportData | null>;
   touchProject: (id: ProjectId) => Promise<void>;
 }

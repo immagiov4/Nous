@@ -1,9 +1,11 @@
+import { parseYouTubeTranscript } from '@shared/youtubeTranscript';
 import {
   AppState,
   type CourseSourceDescriptor,
   type FileData,
   type LearningPlan,
   type PdfDocumentAssets,
+  type PdfDocumentImageAsset,
   type PdfTextIndex,
   type ProjectExportData,
   type ProjectId,
@@ -428,20 +430,48 @@ const parseDocumentAssets = (value: unknown): PdfDocumentAssets | null => {
     parsedAt: ensureString(value.parsedAt, timestampIso()),
     imageCount: typeof value.imageCount === 'number' ? value.imageCount : value.usedImages.length,
     sourceHash: ensureString(value.sourceHash),
-    usedImages: value.usedImages
-      .filter(isRecord)
-      .map(image => ({
-        id: ensureString(image.id),
-        mimeType: ensureString(image.mimeType, 'image/png'),
-        dataUrl: ensureString(image.dataUrl),
+    usedImages: value.usedImages.flatMap((image): PdfDocumentImageAsset[] => {
+      if (!isRecord(image)) return [];
+      const id = ensureString(image.id);
+      const shared = {
+        id,
         caption: ensureString(image.caption) || undefined,
+        intrinsicHeight:
+          typeof image.intrinsicHeight === 'number' ? image.intrinsicHeight : undefined,
+        intrinsicWidth: typeof image.intrinsicWidth === 'number' ? image.intrinsicWidth : undefined,
+        pageNumber: typeof image.pageNumber === 'number' ? image.pageNumber : undefined,
+        sourceOrder: typeof image.sourceOrder === 'number' ? image.sourceOrder : 0,
+        textAfter: ensureString(image.textAfter),
         textBefore: ensureString(image.textBefore),
         textCurrent: ensureString(image.textCurrent),
-        textAfter: ensureString(image.textAfter),
-        sourceOrder: typeof image.sourceOrder === 'number' ? image.sourceOrder : 0,
-        pageNumber: typeof image.pageNumber === 'number' ? image.pageNumber : undefined,
-      }))
-      .filter(image => image.id && image.dataUrl),
+      };
+      if (isRecord(image.asset)) {
+        const byteSize = image.asset.byteSize;
+        const hash = ensureString(image.asset.hash);
+        const assetId = ensureString(image.asset.id);
+        const mediaType = ensureString(image.asset.mediaType);
+        return id &&
+          typeof byteSize === 'number' &&
+          Number.isSafeInteger(byteSize) &&
+          byteSize >= 0 &&
+          hash &&
+          assetId &&
+          mediaType
+          ? [{ ...shared, asset: { byteSize, hash, id: assetId, mediaType } }]
+          : [];
+      }
+      const dataUrl = ensureString(image.dataUrl);
+      return id && dataUrl
+        ? [
+            {
+              ...shared,
+              dataUrl,
+              mimeType: ensureString(image.mimeType, 'image/png'),
+              sizeBytes: typeof image.sizeBytes === 'number' ? image.sizeBytes : undefined,
+            },
+          ]
+        : [];
+    }),
   };
 };
 
@@ -548,31 +578,12 @@ const parseResearchSourceReferences = (value: unknown) =>
         .map(source => {
           const url = ensureString(source.url) || undefined;
           const videoClip = parseResearchVideoClip(source, url);
-          const youtubeTranscript = isRecord(source.youtubeTranscript)
-            ? {
-                text: ensureString(source.youtubeTranscript.text),
-                ranges: Array.isArray(source.youtubeTranscript.ranges)
-                  ? source.youtubeTranscript.ranges.flatMap(range => {
-                      if (!isRecord(range)) return [];
-                      const startSeconds = Number(range.startSeconds);
-                      const endSeconds = Number(range.endSeconds);
-                      return Number.isFinite(startSeconds) &&
-                        Number.isFinite(endSeconds) &&
-                        startSeconds >= 0 &&
-                        endSeconds > startSeconds
-                        ? [{ endSeconds, startSeconds }]
-                        : [];
-                    })
-                  : [],
-              }
-            : undefined;
+          const youtubeTranscript = parseYouTubeTranscript(source.youtubeTranscript) || undefined;
           return {
             title: ensureString(source.title),
             url,
             note: ensureString(source.note) || undefined,
-            ...(youtubeTranscript?.text && youtubeTranscript.ranges.length
-              ? { youtubeTranscript }
-              : {}),
+            ...(youtubeTranscript ? { youtubeTranscript } : {}),
             ...(videoClip ? { videoClip } : {}),
           };
         })

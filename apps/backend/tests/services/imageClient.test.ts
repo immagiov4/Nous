@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { runWithWorkflowAttemptMetering } from '../../src/workflows/workflowAiMetering.js';
 
 const modelConfigMocks = vi.hoisted(() => ({
   getResolvedGlobalModelConfig: vi.fn(),
@@ -42,18 +43,29 @@ describe('ImageClient', () => {
         new Response(
           JSON.stringify({
             data: [{ b64_json: 'ZmFrZS1pbWFnZQ==', media_type: 'image/png' }],
+            usage: { cost: 0.02, input_tokens: 11, output_tokens: 7 },
           }),
           { status: 200 }
         )
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await imageClient.generateImage({ prompt: 'Schema didattico' });
+    const recordAiUsage = vi.fn(async () => undefined);
+    const result = await runWithWorkflowAttemptMetering(
+      {
+        attemptNumber: 1,
+        nodeInstanceId: 'root/image',
+        record: recordAiUsage,
+        runId: '11111111-1111-4111-8111-111111111111',
+      },
+      () => imageClient.generateImage({ prompt: 'Schema didattico' })
+    );
 
     expect(result).toMatchObject({
-      dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+      bytes: new TextEncoder().encode('fake-image'),
       mediaType: 'image/png',
     });
+    expect(result).not.toHaveProperty('dataUrl');
     expect(fetchMock).toHaveBeenCalledWith(
       'https://openrouter.ai/api/v1/images',
       expect.objectContaining({
@@ -70,6 +82,47 @@ describe('ImageClient', () => {
     expect(requestBody).toMatchObject({
       model: 'google/configured-image-model',
       prompt: 'Schema didattico',
+    });
+    expect(recordAiUsage).toHaveBeenCalledWith({
+      attemptNumber: 1,
+      id: expect.any(String),
+      inputTokens: 11,
+      model: 'google/configured-image-model',
+      nodeInstanceId: 'root/image',
+      outputTokens: 7,
+      provider: 'openrouter',
+      providerCost: 0.02,
+      runId: '11111111-1111-4111-8111-111111111111',
+    });
+  });
+
+  test('does not reload mutable global configuration for an explicitly resolved request', async () => {
+    modelConfigMocks.getResolvedGlobalModelConfig.mockRejectedValue(
+      new Error('configuration store unavailable')
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ b64_json: 'ZmFrZS1pbWFnZQ==', media_type: 'image/png' }],
+          }),
+          { status: 200 }
+        )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      imageClient.generateImage({
+        model: 'google/frozen-image-model',
+        prompt: 'Schema didattico',
+        provider: 'openrouter',
+      })
+    ).resolves.toMatchObject({ mediaType: 'image/png' });
+
+    expect(modelConfigMocks.getResolvedGlobalModelConfig).not.toHaveBeenCalled();
+    const options = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(options.body))).toMatchObject({
+      model: 'google/frozen-image-model',
     });
   });
 
@@ -117,7 +170,7 @@ describe('ImageClient', () => {
     const result = await imageClient.generateImage({ prompt: 'Schema didattico' });
 
     expect(result).toMatchObject({
-      dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+      bytes: new TextEncoder().encode('fake-image'),
       generationId: 'openai-request-1',
       mediaType: 'image/png',
     });
@@ -144,16 +197,21 @@ describe('ImageClient', () => {
     codexMocks.generateCodexAppServerImage.mockResolvedValueOnce('ZmFrZS1pbWFnZQ==');
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
 
-    const result = await imageClient.generateImage({ prompt: 'Personaggio da più prospettive' });
+    const result = await imageClient.generateImage({
+      prompt: 'Personaggio da più prospettive',
+      signal: controller.signal,
+    });
 
     expect(result).toEqual({
-      dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+      bytes: new TextEncoder().encode('fake-image'),
       mediaType: 'image/png',
     });
     expect(codexMocks.generateCodexAppServerImage).toHaveBeenCalledWith({
       model: 'gpt-codex-artifact',
       prompt: 'Personaggio da più prospettive',
+      signal: controller.signal,
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

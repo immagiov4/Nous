@@ -38,6 +38,22 @@ export interface ExtractedPdfImage {
   textAfter?: string;
 }
 
+export interface PdfImageExtractionResult {
+  failedPages: number[];
+  images: ExtractedPdfImage[];
+}
+
+export class PdfImageExtractionError extends Error {
+  readonly code = 'pdf_image_extraction_failed';
+  readonly failedPages: number[];
+
+  constructor(failedPages: number[], cause?: unknown) {
+    super('PDF image extraction failed for every attempted page.', { cause });
+    this.name = 'PdfImageExtractionError';
+    this.failedPages = [...new Set(failedPages)].sort((left, right) => left - right);
+  }
+}
+
 interface ImageDimensions {
   width: number;
   height: number;
@@ -355,35 +371,90 @@ const resolveEmbeddedImage = (
     });
   });
 
-const extractPageTextLines = async (page: {
-  getViewport: (params: { scale: number }) => {
-    convertToViewportPoint: (x: number, y: number) => [number, number];
+interface PdfPageProxy {
+  cleanup: () => void;
+  commonObjs: {
+    has: (name: unknown) => boolean;
+    get: (name: unknown, callback: (imgData: unknown) => void) => void;
   };
+  getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
   getTextContent: (params: {
     includeMarkedContent: boolean;
     disableNormalization: boolean;
   }) => Promise<{ items: unknown[] }>;
-}): Promise<PositionedPdfTextLine[]> => {
+  getViewport: (params: { scale: number }) => {
+    convertToViewportPoint: (x: number, y: number) => [number, number];
+    transform: number[];
+  };
+  objs: { get: (name: unknown, callback: (imgData: unknown) => void) => void };
+}
+
+interface PdfDocumentProxy {
+  getPage: (pageNumber: number) => Promise<PdfPageProxy>;
+}
+
+interface PendingPdfTextLine {
+  baselineY: number;
+  bottom: number;
+  lastX?: number;
+  parts: string[];
+  top: number;
+}
+
+interface PositionedPdfTextFragment {
+  baselineY: number;
+  bottom: number;
+  endsLine: boolean;
+  left: number;
+  text: string;
+  top: number;
+  width: number;
+}
+
+const readPositionedPdfTextFragment = (
+  value: unknown,
+  viewport: ReturnType<PdfPageProxy['getViewport']>
+): PositionedPdfTextFragment | null => {
+  if (!value || typeof value !== 'object' || !('str' in value)) return null;
+
+  const text = typeof value.str === 'string' ? value.str : '';
+  if (!text.trim()) return null;
+
+  const metrics = value as {
+    hasEOL?: boolean;
+    height?: number;
+    transform?: number[];
+    width?: number;
+  };
+  const transform =
+    Array.isArray(metrics.transform) && metrics.transform.length >= 6
+      ? metrics.transform
+      : [1, 0, 0, 1, 0, 0];
+  const [left, baselineY] = viewport.convertToViewportPoint(transform[4], transform[5]);
+  const height = Math.max(
+    1,
+    Math.abs(typeof metrics.height === 'number' ? metrics.height : transform[3])
+  );
+  return {
+    baselineY,
+    bottom: Math.max(baselineY, baselineY - height),
+    endsLine: metrics.hasEOL === true || text.endsWith('\n'),
+    left,
+    text,
+    top: Math.min(baselineY, baselineY - height),
+    width: typeof metrics.width === 'number' ? metrics.width : 0,
+  };
+};
+
+const extractPageTextLines = async (page: PdfPageProxy): Promise<PositionedPdfTextLine[]> => {
   const viewport = page.getViewport({ scale: 1 });
   const textContent = await page.getTextContent({
     includeMarkedContent: false,
     disableNormalization: false,
   });
 
-  const lines: Array<{
-    parts: string[];
-    top: number;
-    bottom: number;
-    baselineY: number;
-    lastX?: number;
-  }> = [];
-  let currentLine: {
-    parts: string[];
-    top: number;
-    bottom: number;
-    baselineY: number;
-    lastX?: number;
-  } | null = null;
+  const lines: PendingPdfTextLine[] = [];
+  let currentLine: PendingPdfTextLine | null = null;
 
   const flushCurrentLine = () => {
     if (!currentLine) {
@@ -404,61 +475,34 @@ const extractPageTextLines = async (page: {
   };
 
   for (const item of textContent.items) {
-    if (!item || typeof item !== 'object' || !('str' in item)) {
-      continue;
-    }
+    const fragment = readPositionedPdfTextFragment(item, viewport);
+    if (!fragment) continue;
 
-    const text = typeof item.str === 'string' ? item.str : '';
-    if (!text.trim()) {
-      continue;
-    }
-
-    const itemMetrics = item as unknown as {
-      transform?: number[];
-      height?: number;
-      width?: number;
-      hasEOL?: boolean;
-    };
-    const transform =
-      Array.isArray(itemMetrics.transform) && itemMetrics.transform.length >= 6
-        ? itemMetrics.transform
-        : [1, 0, 0, 1, 0, 0];
-    const [x, y] = viewport.convertToViewportPoint(transform[4], transform[5]);
-    const height = Math.max(
-      1,
-      Math.abs(typeof itemMetrics.height === 'number' ? itemMetrics.height : transform[3])
-    );
-    const width = typeof itemMetrics.width === 'number' ? itemMetrics.width : 0;
-    const top = Math.min(y, y - height);
-    const bottom = Math.max(y, y - height);
-
-    if (!currentLine || Math.abs(currentLine.baselineY - y) > LINE_THRESHOLD) {
+    if (!currentLine || Math.abs(currentLine.baselineY - fragment.baselineY) > LINE_THRESHOLD) {
       flushCurrentLine();
       currentLine = {
+        baselineY: fragment.baselineY,
+        bottom: fragment.bottom,
         parts: [],
-        top,
-        bottom,
-        baselineY: y,
+        top: fragment.top,
       };
     } else {
-      currentLine.top = Math.min(currentLine.top, top);
-      currentLine.bottom = Math.max(currentLine.bottom, bottom);
+      currentLine.top = Math.min(currentLine.top, fragment.top);
+      currentLine.bottom = Math.max(currentLine.bottom, fragment.bottom);
     }
 
     if (
       currentLine.lastX !== undefined &&
-      x - currentLine.lastX > CELL_THRESHOLD &&
+      fragment.left - currentLine.lastX > CELL_THRESHOLD &&
       currentLine.parts.length > 0
     ) {
       currentLine.parts.push(' ');
     }
 
-    currentLine.parts.push(text);
-    currentLine.lastX = x + width;
+    currentLine.parts.push(fragment.text);
+    currentLine.lastX = fragment.left + fragment.width;
 
-    if (itemMetrics.hasEOL === true || text.endsWith('\n')) {
-      flushCurrentLine();
-    }
+    if (fragment.endsLine) flushCurrentLine();
   }
 
   flushCurrentLine();
@@ -474,15 +518,7 @@ const extractPageTextLines = async (page: {
 };
 
 const extractPageImagePlacements = async (
-  page: {
-    commonObjs: {
-      has: (name: unknown) => boolean;
-      get: (name: unknown, callback: (imgData: unknown) => void) => void;
-    };
-    objs: { get: (name: unknown, callback: (imgData: unknown) => void) => void };
-    getViewport: (params: { scale: number }) => { transform: number[] };
-    getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
-  },
+  page: PdfPageProxy,
   imageThreshold: number
 ): Promise<PageImagePlacement[]> => {
   const pdfjs = await getPdfJsModule();
@@ -552,10 +588,16 @@ interface PdfImagePage {
   images: { dataUrl?: string }[];
 }
 
+interface PdfImagePageResult {
+  failedPages: number[];
+  pages: PdfImagePage[];
+  successfulPages: number[];
+}
+
 const fetchImagesForPages = async (
   parser: PDFParse,
   pages: number[] | undefined
-): Promise<PdfImagePage[]> => {
+): Promise<PdfImagePageResult> => {
   if (!pages || pages.length === 0) {
     try {
       const bulk = await parser.getImage({
@@ -563,7 +605,14 @@ const fetchImagesForPages = async (
         imageBuffer: false,
         imageDataUrl: true,
       });
-      return bulk.pages as PdfImagePage[];
+      const imagePages = bulk.pages as PdfImagePage[];
+      return {
+        failedPages: [],
+        pages: imagePages,
+        successfulPages: [...new Set(imagePages.map(page => page.pageNumber))].sort(
+          (left, right) => left - right
+        ),
+      };
     } catch (error) {
       console.warn(
         '[Backend] Bulk PDF image extraction failed, falling back to per-page extraction.',
@@ -572,13 +621,16 @@ const fetchImagesForPages = async (
       const doc = (parser as unknown as { doc?: { numPages?: number } }).doc;
       const numPages = doc?.numPages ?? 0;
       if (numPages <= 0) {
-        return [];
+        throw new PdfImageExtractionError([], error);
       }
       pages = Array.from({ length: numPages }, (_, index) => index + 1);
     }
   }
 
   const collected: PdfImagePage[] = [];
+  const failedPages: number[] = [];
+  const successfulPages: number[] = [];
+  let firstFailure: unknown;
   for (const pageNumber of pages) {
     try {
       const pageResult = await parser.getImage({
@@ -590,14 +642,119 @@ const fetchImagesForPages = async (
       for (const page of pageResult.pages as PdfImagePage[]) {
         collected.push(page);
       }
+      successfulPages.push(pageNumber);
     } catch (error) {
-      console.warn(
-        `[Backend] Skipping PDF page ${pageNumber} during image extraction due to an error.`,
-        error instanceof Error ? error.message : error
-      );
+      firstFailure ??= error;
+      failedPages.push(pageNumber);
+      console.warn('[Backend] PDF page image extraction failed.', { error, pageNumber });
     }
   }
-  return collected;
+  if (successfulPages.length === 0 && failedPages.length > 0) {
+    throw new PdfImageExtractionError(failedPages, firstFailure);
+  }
+  return { failedPages, pages: collected, successfulPages };
+};
+
+interface PdfImageCandidateInput {
+  existingImages: ReadonlyMap<string, ExtractedPdfImage>;
+  image: PdfImagePage['images'][number];
+  imageNumber: number;
+  pageLines: PositionedPdfTextLine[];
+  pageNumber: number;
+  placement?: PageImagePlacement;
+}
+
+const buildExtractedPdfImage = ({
+  existingImages,
+  image,
+  imageNumber,
+  pageLines,
+  pageNumber,
+  placement,
+}: PdfImageCandidateInput): ExtractedPdfImage | null => {
+  if (!image.dataUrl) return null;
+
+  const mimeType = getMimeTypeFromDataUrl(image.dataUrl);
+  const dataBuffer = decodeImageDataUrl(image.dataUrl);
+  if (dataBuffer.length < MIN_IMAGE_BYTES) return null;
+
+  const intrinsicDimensions =
+    resolveImageIntrinsicDimensions(dataBuffer, mimeType) ||
+    (placement
+      ? {
+          width: placement.intrinsicWidth,
+          height: placement.intrinsicHeight,
+        }
+      : null);
+  if (
+    intrinsicDimensions &&
+    isPdfImageTooSmallForStandaloneFigure({
+      isInline: placement?.isInline ?? false,
+      intrinsicHeight: intrinsicDimensions.height,
+      intrinsicWidth: intrinsicDimensions.width,
+      renderedHeight: placement?.renderedHeight,
+      renderedWidth: placement?.renderedWidth,
+    })
+  ) {
+    return null;
+  }
+
+  const hash = buildSha256HexDigest(dataBuffer);
+  if (existingImages.has(hash)) return null;
+
+  const imageContext = placement
+    ? buildLocalImageTextContext(pageLines, placement.rect)
+    : emptyImageTextContext;
+  return {
+    dataUrl: image.dataUrl,
+    hash,
+    id: `pdf-img-${String(imageNumber).padStart(3, '0')}`,
+    intrinsicHeight: intrinsicDimensions?.height,
+    intrinsicWidth: intrinsicDimensions?.width,
+    mimeType,
+    pageNumber,
+    sizeBytes: dataBuffer.length,
+    textAfter: imageContext.textAfter,
+    textBefore: imageContext.textBefore,
+    textCurrent: imageContext.textCurrent,
+  };
+};
+
+const appendPdfPageImages = async ({
+  dedupedImages,
+  limit,
+  page,
+  pageProxy,
+  signal,
+}: {
+  dedupedImages: Map<string, ExtractedPdfImage>;
+  limit: number;
+  page: PdfImagePage;
+  pageProxy: PdfPageProxy | null;
+  signal?: AbortSignal;
+}): Promise<void> => {
+  const [pageLines, pagePlacements]: [PositionedPdfTextLine[], PageImagePlacement[]] = pageProxy
+    ? await Promise.all([
+        extractPageTextLines(pageProxy),
+        extractPageImagePlacements(pageProxy, IMAGE_DIMENSION_THRESHOLD),
+      ])
+    : [[], []];
+
+  for (const [pageImageIndex, image] of page.images.entries()) {
+    signal?.throwIfAborted();
+    const extractedImage = buildExtractedPdfImage({
+      existingImages: dedupedImages,
+      image,
+      imageNumber: dedupedImages.size + 1,
+      pageLines,
+      pageNumber: page.pageNumber,
+      placement: pagePlacements[pageImageIndex],
+    });
+    if (!extractedImage) continue;
+
+    dedupedImages.set(extractedImage.hash, extractedImage);
+    if (dedupedImages.size >= limit) break;
+  }
 };
 
 export const extractPdfImages = async (
@@ -605,7 +762,7 @@ export const extractPdfImages = async (
   limit = 36,
   partialPages?: number[],
   signal?: AbortSignal
-): Promise<ExtractedPdfImage[]> => {
+): Promise<PdfImageExtractionResult> => {
   signal?.throwIfAborted();
   const pdfBuffer = decodePdfDataUrl(pdfDataUrl);
   const parser = new PDFParse({ data: pdfBuffer });
@@ -615,117 +772,57 @@ export const extractPdfImages = async (
   signal?.addEventListener('abort', abortExtraction, { once: true });
   const dedupedImages = new Map<string, ExtractedPdfImage>();
   const sanitizedPartialPages = sanitizePartialPages(partialPages);
+  const failedPages = new Set<number>();
+  const successfulPages = new Set<number>();
+  let firstPageProcessingFailure: unknown;
 
   try {
-    const imagePages = await fetchImagesForPages(parser, sanitizedPartialPages);
+    const pageResult = await fetchImagesForPages(parser, sanitizedPartialPages);
+    for (const pageNumber of pageResult.failedPages) failedPages.add(pageNumber);
+    for (const pageNumber of pageResult.successfulPages) successfulPages.add(pageNumber);
     signal?.throwIfAborted();
-    const pdfDocument = (
-      parser as unknown as {
-        doc?: {
-          getPage: (pageNumber: number) => Promise<{
-            cleanup: () => void;
-            commonObjs: {
-              has: (name: unknown) => boolean;
-              get: (name: unknown, callback: (imgData: unknown) => void) => void;
-            };
-            objs: { get: (name: unknown, callback: (imgData: unknown) => void) => void };
-            getViewport: (params: { scale: number }) => {
-              transform: number[];
-              convertToViewportPoint: (x: number, y: number) => [number, number];
-            };
-            getOperatorList: () => Promise<{ fnArray: number[]; argsArray: unknown[] }>;
-            getTextContent: (params: {
-              includeMarkedContent: boolean;
-              disableNormalization: boolean;
-            }) => Promise<{ items: unknown[] }>;
-          }>;
-        };
-      }
-    ).doc;
+    const pdfDocument = (parser as unknown as { doc?: PdfDocumentProxy }).doc;
 
-    for (const page of imagePages) {
+    for (const page of pageResult.pages) {
       signal?.throwIfAborted();
-      const pageProxy = pdfDocument ? await pdfDocument.getPage(page.pageNumber) : null;
-      const [pageLines, pagePlacements] = pageProxy
-        ? await Promise.all([
-            extractPageTextLines(pageProxy),
-            extractPageImagePlacements(pageProxy, IMAGE_DIMENSION_THRESHOLD),
-          ])
-        : [[], []];
-
-      for (const [pageImageIndex, image] of page.images.entries()) {
-        signal?.throwIfAborted();
-        if (!image.dataUrl) {
-          continue;
-        }
-
-        const mimeType = getMimeTypeFromDataUrl(image.dataUrl);
-        const dataBuffer = decodeImageDataUrl(image.dataUrl);
-        if (dataBuffer.length < MIN_IMAGE_BYTES) {
-          continue;
-        }
-
-        const placement = pagePlacements[pageImageIndex];
-        const intrinsicDimensions =
-          resolveImageIntrinsicDimensions(dataBuffer, mimeType) ||
-          (placement
-            ? {
-                width: placement.intrinsicWidth,
-                height: placement.intrinsicHeight,
-              }
-            : null);
-
-        if (
-          intrinsicDimensions &&
-          isPdfImageTooSmallForStandaloneFigure({
-            isInline: placement?.isInline ?? false,
-            intrinsicHeight: intrinsicDimensions.height,
-            intrinsicWidth: intrinsicDimensions.width,
-            renderedHeight: placement?.renderedHeight,
-            renderedWidth: placement?.renderedWidth,
-          })
-        ) {
-          continue;
-        }
-
-        const hash = buildSha256HexDigest(dataBuffer);
-        if (dedupedImages.has(hash)) {
-          continue;
-        }
-
-        const imageContext = placement
-          ? buildLocalImageTextContext(pageLines, placement.rect)
-          : emptyImageTextContext;
-
-        dedupedImages.set(hash, {
-          id: `pdf-img-${String(dedupedImages.size + 1).padStart(3, '0')}`,
-          mimeType,
-          dataUrl: image.dataUrl,
-          sizeBytes: dataBuffer.length,
-          hash,
-          pageNumber: page.pageNumber,
-          intrinsicWidth: intrinsicDimensions?.width,
-          intrinsicHeight: intrinsicDimensions?.height,
-          textBefore: imageContext.textBefore,
-          textCurrent: imageContext.textCurrent,
-          textAfter: imageContext.textAfter,
+      let pageProxy: PdfPageProxy | null = null;
+      try {
+        pageProxy = pdfDocument ? await pdfDocument.getPage(page.pageNumber) : null;
+        await appendPdfPageImages({
+          dedupedImages,
+          limit,
+          page,
+          pageProxy,
+          signal,
         });
-
-        if (dedupedImages.size >= limit) {
-          break;
-        }
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        firstPageProcessingFailure ??= error;
+        failedPages.add(page.pageNumber);
+        successfulPages.delete(page.pageNumber);
+        console.warn('[Backend] PDF page image processing failed.', {
+          error,
+          pageNumber: page.pageNumber,
+        });
+      } finally {
+        pageProxy?.cleanup();
       }
-
-      pageProxy?.cleanup();
 
       if (dedupedImages.size >= limit) {
         break;
       }
+    }
+
+    if (successfulPages.size === 0 && failedPages.size > 0) {
+      throw new PdfImageExtractionError([...failedPages], firstPageProcessingFailure);
     }
   } finally {
     signal?.removeEventListener('abort', abortExtraction);
     await parser.destroy().catch(() => undefined);
   }
 
-  return Array.from(dedupedImages.values());
+  return {
+    failedPages: [...failedPages].sort((left, right) => left - right),
+    images: Array.from(dedupedImages.values()),
+  };
 };

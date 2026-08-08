@@ -31,7 +31,7 @@ export const resolveTypedYouTubeClips = (
     const interval = normalizeYouTubeClipInterval(source.url, clip.startSeconds, clip.endSeconds);
     if (
       !interval ||
-      !isYouTubeClipWithinTranscriptBounds(interval, source.youtubeTranscript.ranges)
+      !isYouTubeClipWithinTranscriptBounds(interval, source.youtubeTranscript.segments)
     ) {
       return [];
     }
@@ -70,7 +70,7 @@ const resolveLessonClip = (
   );
   if (
     !interval ||
-    !isYouTubeClipWithinTranscriptBounds(interval, source.youtubeTranscript.ranges)
+    !isYouTubeClipWithinTranscriptBounds(interval, source.youtubeTranscript.segments)
   ) {
     return null;
   }

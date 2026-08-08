@@ -1,3 +1,4 @@
+import type { LessonWorkflowFailure } from '@shared/lessonWorkflowContract';
 import { callOpenRouter } from './client.ts';
 import { LOW_REASONING_CONFIG } from './config.ts';
 import { parseCleanJson } from './json.ts';
@@ -12,13 +13,77 @@ export type GenerationStage =
   | 'ready';
 
 export interface GenerationProgressSnapshot {
+  attempt?: number;
+  failure?: LessonWorkflowFailure;
   operation: GenerationOperation;
+  retrying?: boolean;
   sections: string[];
   stage: GenerationStage;
   startedAt: number;
   stepOffset: number;
   subject: string;
 }
+
+export interface DurableGenerationProgressSnapshot {
+  attempt?: number;
+  createdAt: string;
+  failure?: LessonWorkflowFailure;
+  retrying: boolean;
+  startedAt?: string;
+}
+
+export const createGenerationProgressBridge = ({
+  getProgress,
+  setProgress,
+}: {
+  getProgress: () => GenerationProgressSnapshot | undefined;
+  setProgress: (progress: GenerationProgressSnapshot) => void;
+}) => {
+  let attempt: number | undefined;
+  let failure: GenerationProgressSnapshot['failure'];
+  let retrying: boolean | undefined;
+  let startedAt: number | undefined;
+
+  const withWorkflowProgress = (
+    progress: GenerationProgressSnapshot
+  ): GenerationProgressSnapshot => ({
+    ...progress,
+    attempt,
+    failure,
+    retrying,
+    ...(startedAt === undefined ? {} : { startedAt }),
+  });
+
+  return {
+    updateFromObserver(progress: GenerationProgressSnapshot): void {
+      setProgress(withWorkflowProgress(progress));
+    },
+    updateFromWorkflow(snapshot: DurableGenerationProgressSnapshot): void {
+      const previousStartedAt = startedAt;
+      for (const value of [snapshot.createdAt, snapshot.startedAt]) {
+        if (!value) continue;
+        const parsed = Date.parse(value);
+        if (Number.isFinite(parsed) && (startedAt === undefined || parsed < startedAt)) {
+          startedAt = parsed;
+        }
+      }
+      if (
+        snapshot.attempt === attempt &&
+        snapshot.failure?.code === failure?.code &&
+        snapshot.failure?.kind === failure?.kind &&
+        snapshot.retrying === retrying &&
+        startedAt === previousStartedAt
+      ) {
+        return;
+      }
+      attempt = snapshot.attempt;
+      failure = snapshot.failure;
+      retrying = snapshot.retrying;
+      const progress = getProgress();
+      if (progress) setProgress(withWorkflowProgress(progress));
+    },
+  };
+};
 
 interface ProgressSummaryPayload {
   sections?: unknown;

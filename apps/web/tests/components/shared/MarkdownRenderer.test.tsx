@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
+import type { ProjectDocumentImageAsset } from '@shared/projectAsset';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import MarkdownRenderer from '../../../components/shared/MarkdownRenderer.tsx';
+import { resolveProjectDocumentImage } from '../../../services/projects/projectDocumentImageResolver.ts';
 import { resolveSectionAnnotationHighlightEntries } from '../../../utils/learning/sectionAnnotationHighlights.ts';
+
+vi.mock('../../../services/projects/projectDocumentImageResolver.ts', async importOriginal => ({
+  ...(await importOriginal()),
+  resolveProjectDocumentImage: vi.fn(),
+}));
 
 const originalRangeGetClientRects = Range.prototype.getClientRects;
 
 afterEach(() => {
+  vi.mocked(resolveProjectDocumentImage).mockReset();
   vi.unstubAllGlobals();
   if (originalRangeGetClientRects) {
     Object.defineProperty(Range.prototype, 'getClientRects', {
@@ -397,6 +405,41 @@ describe('MarkdownRenderer', () => {
       'data:image/png;base64,ZmFrZQ=='
     );
     expect(screen.getByText('Descrizione immagine')).toBeInTheDocument();
+  });
+
+  test('passes the project identity when resolving a durable PDF placeholder', async () => {
+    const durableAsset: ProjectDocumentImageAsset = {
+      asset: {
+        byteSize: 4,
+        hash: 'b'.repeat(64),
+        id: 'a'.repeat(64),
+        mediaType: 'image/png',
+      },
+      id: 'pdf-image-logical-1',
+      sourceOrder: 1,
+      textAfter: 'dopo',
+      textBefore: 'prima',
+    };
+    vi.mocked(resolveProjectDocumentImage).mockResolvedValue({
+      release: vi.fn(),
+      src: 'blob:durable-pdf-image',
+    });
+
+    render(
+      <MarkdownRenderer
+        content="{{PDF_IMAGE:pdf-image-logical-1|alt=Schema durevole}}"
+        lessonAssetsById={{ 'pdf-image-logical-1': durableAsset }}
+        projectId="project-1"
+      />
+    );
+
+    expect(await screen.findByRole('img', { name: 'Schema durevole' })).toHaveAttribute(
+      'src',
+      'blob:durable-pdf-image'
+    );
+    expect(resolveProjectDocumentImage).toHaveBeenCalledWith(
+      expect.objectContaining({ image: durableAsset, projectId: 'project-1' })
+    );
   });
 
   test('preserves custom annotation attributes on rendered mark elements', () => {

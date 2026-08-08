@@ -1,11 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
-import { createGeneratedVisualRetryHandler } from '../../app/useReaderShellProps.ts';
-import type {
-  LessonGeneratedVisual,
-  LessonGeneratedVisualBlock,
-  LessonNode,
-  LessonVisualRetryPlan,
-} from '../../types.ts';
+import { createGeneratedVisualRetryCoordinator } from '../../app/useReaderShellProps.ts';
+import type { LessonGeneratedVisualBlock, LessonNode, LessonVisualRetryPlan } from '../../types.ts';
 
 const buildPlan = (slotId: string): LessonVisualRetryPlan => ({
   slotId,
@@ -28,14 +23,6 @@ const buildFailedBlock = (slotId: string): LessonGeneratedVisualBlock => ({
   type: 'generated-visual',
 });
 
-const buildVisual = (slotId: string): LessonGeneratedVisual => ({
-  code: 'data:image/png;base64,AAAA',
-  createdAt: '2026-07-26T00:00:00.000Z',
-  id: `visual-${slotId}`,
-  kind: 'image',
-  title: `Visuale ${slotId}`,
-});
-
 const buildSection = (...slotIds: string[]): LessonNode => ({
   content: 'Lezione completa.',
   contentBlocks: slotIds.map(buildFailedBlock),
@@ -52,111 +39,151 @@ const createContextHarness = (section = buildSection('slot-001')) => {
   let context = {
     activeSection: section as LessonNode | null,
     activeSectionId: section.id as string | null,
-    generationNotes: undefined,
+    applyPersistedProjectRevision: vi.fn(async () => true),
     lessonWorkflowRequestId: 0,
-    patchSectionLessonContent: vi.fn(
-      async (_sectionId: string, _patch: Pick<LessonNode, 'contentBlocks' | 'generatedVisuals'>) =>
-        true
-    ),
     projectId: 'project-1' as string | null,
-    sectionContent: section.content || '',
-    updateSection: vi.fn(),
   };
   return {
+    applyRevision: context.applyPersistedProjectRevision,
     getContext: () => context,
-    getSection: () => context.activeSection,
-    patch: context.patchSectionLessonContent,
     replaceContext: (next: Partial<typeof context>) => {
       context = { ...context, ...next };
     },
-    setCurrentSection: (nextSection: LessonNode) => {
-      context = { ...context, activeSection: nextSection };
+  };
+};
+
+const createRetryHarness = (
+  contextHarness: ReturnType<typeof createContextHarness>,
+  retryVisual: Parameters<typeof createGeneratedVisualRetryCoordinator>[0]['retryVisual']
+) => {
+  const coordinator = createGeneratedVisualRetryCoordinator({
+    initialContext: contextHarness.getContext(),
+    retryVisual,
+  });
+  return {
+    replaceContext: (
+      next: Parameters<ReturnType<typeof createContextHarness>['replaceContext']>[0]
+    ) => {
+      contextHarness.replaceContext(next);
+      coordinator.setContext(contextHarness.getContext());
     },
-    update: context.updateSection,
+    retry: coordinator.retry,
   };
 };
 
 describe('generated visual retry coordination', () => {
-  test('serializes concurrent slots and preserves both successful results', async () => {
-    const firstBlock = buildFailedBlock('slot-001');
-    const secondBlock = buildFailedBlock('slot-002');
+  test('runs different slots concurrently and hydrates each committed revision', async () => {
     const harness = createContextHarness(buildSection('slot-001', 'slot-002'));
-    const retry = createGeneratedVisualRetryHandler({
-      getContext: harness.getContext,
-      retrySlot: vi.fn(async ({ plan }) => buildVisual(plan.slotId)),
-      setCurrentSection: harness.setCurrentSection,
-    });
+    const retryVisual = vi
+      .fn()
+      .mockResolvedValueOnce({ projectRevision: 6 })
+      .mockResolvedValueOnce({ projectRevision: 7 });
+    const { retry } = createRetryHarness(harness, retryVisual);
 
-    await expect(Promise.all([retry(firstBlock), retry(secondBlock)])).resolves.toEqual([
-      true,
-      true,
-    ]);
+    await expect(
+      Promise.all([retry(buildFailedBlock('slot-001')), retry(buildFailedBlock('slot-002'))])
+    ).resolves.toEqual([true, true]);
 
-    expect(harness.getSection()?.contentBlocks).toEqual([
-      { slotId: 'slot-001', type: 'generated-visual', visualId: 'visual-slot-001' },
-      { slotId: 'slot-002', type: 'generated-visual', visualId: 'visual-slot-002' },
-    ]);
-    expect(harness.getSection()?.generatedVisuals?.map(visual => visual.id)).toEqual([
-      'visual-slot-001',
-      'visual-slot-002',
-    ]);
-    expect(harness.patch).toHaveBeenCalledTimes(2);
-    expect(harness.patch.mock.calls[1]?.[1].generatedVisuals).toHaveLength(2);
+    expect(retryVisual).toHaveBeenCalledTimes(2);
+    expect(retryVisual).toHaveBeenNthCalledWith(
+      1,
+      {
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        slotId: 'slot-001',
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(retryVisual).toHaveBeenNthCalledWith(
+      2,
+      {
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        slotId: 'slot-002',
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(harness.applyRevision).toHaveBeenCalledWith({ projectId: 'project-1', revision: 6 });
+    expect(harness.applyRevision).toHaveBeenCalledWith({ projectId: 'project-1', revision: 7 });
   });
 
-  test('drops a completed provider result after navigation without persisting it', async () => {
-    let finishRetry: ((visual: LessonGeneratedVisual) => void) | undefined;
+  test('does not hydrate a completed backend retry after navigation', async () => {
+    let finishRetry: ((result: { projectRevision: number }) => void) | undefined;
     const harness = createContextHarness();
-    const retry = createGeneratedVisualRetryHandler({
-      getContext: harness.getContext,
-      retrySlot: () =>
+    const coordinator = createRetryHarness(
+      harness,
+      () =>
         new Promise(resolve => {
           finishRetry = resolve;
-        }),
-      setCurrentSection: harness.setCurrentSection,
-    });
+        })
+    );
 
-    const result = retry(buildFailedBlock('slot-001'));
-    harness.replaceContext({ activeSectionId: 'lesson-2', projectId: 'project-2' });
-    finishRetry?.(buildVisual('slot-001'));
+    const result = coordinator.retry(buildFailedBlock('slot-001'));
+    coordinator.replaceContext({ activeSectionId: 'lesson-2', projectId: 'project-2' });
+    finishRetry?.({ projectRevision: 6 });
 
     await expect(result).resolves.toBe(false);
-    expect(harness.patch).not.toHaveBeenCalled();
-    expect(harness.update).not.toHaveBeenCalled();
+    expect(harness.applyRevision).not.toHaveBeenCalled();
   });
 
-  test('drops a completed provider result after the lesson workflow changes', async () => {
-    let finishRetry: ((visual: LessonGeneratedVisual) => void) | undefined;
+  test('does not hydrate after a newer lesson workflow takes ownership', async () => {
+    let finishRetry: ((result: { projectRevision: number }) => void) | undefined;
     const harness = createContextHarness();
-    const retry = createGeneratedVisualRetryHandler({
-      getContext: harness.getContext,
-      retrySlot: () =>
+    const coordinator = createRetryHarness(
+      harness,
+      () =>
         new Promise(resolve => {
           finishRetry = resolve;
-        }),
-      setCurrentSection: harness.setCurrentSection,
-    });
+        })
+    );
 
-    const result = retry(buildFailedBlock('slot-001'));
-    harness.replaceContext({ lessonWorkflowRequestId: 1 });
-    finishRetry?.(buildVisual('slot-001'));
+    const result = coordinator.retry(buildFailedBlock('slot-001'));
+    coordinator.replaceContext({ lessonWorkflowRequestId: 1 });
+    finishRetry?.({ projectRevision: 6 });
 
     await expect(result).resolves.toBe(false);
-    expect(harness.patch).not.toHaveBeenCalled();
-    expect(harness.update).not.toHaveBeenCalled();
+    expect(harness.applyRevision).not.toHaveBeenCalled();
   });
 
-  test('keeps the failed slot when persistence rejects the successful visual', async () => {
+  test('reports failure when the authoritative revision cannot be hydrated', async () => {
     const harness = createContextHarness();
-    harness.patch.mockResolvedValueOnce(false);
-    const retry = createGeneratedVisualRetryHandler({
-      getContext: harness.getContext,
-      retrySlot: vi.fn(async ({ plan }) => buildVisual(plan.slotId)),
-      setCurrentSection: harness.setCurrentSection,
-    });
+    harness.applyRevision.mockResolvedValueOnce(false);
+    const { retry } = createRetryHarness(
+      harness,
+      vi.fn(async () => ({ projectRevision: 6 }))
+    );
 
     await expect(retry(buildFailedBlock('slot-001'))).resolves.toBe(false);
-    expect(harness.getSection()?.contentBlocks?.[0]).toEqual(buildFailedBlock('slot-001'));
-    expect(harness.update).not.toHaveBeenCalled();
+  });
+
+  test('shares one in-flight retry for repeated clicks on the same slot', async () => {
+    const harness = createContextHarness();
+    const retryVisual = vi.fn(async () => ({ projectRevision: 6 }));
+    const { retry } = createRetryHarness(harness, retryVisual);
+    const block = buildFailedBlock('slot-001');
+
+    await expect(Promise.all([retry(block), retry(block)])).resolves.toEqual([true, true]);
+    expect(retryVisual).toHaveBeenCalledOnce();
+    expect(harness.applyRevision).toHaveBeenCalledOnce();
+  });
+
+  test('aborts browser polling when navigation makes a retry irrelevant', async () => {
+    const harness = createContextHarness();
+    let receivedSignal: AbortSignal | undefined;
+    const coordinator = createRetryHarness(harness, (_target, options) => {
+      receivedSignal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+          once: true,
+        });
+      });
+    });
+
+    const result = coordinator.retry(buildFailedBlock('slot-001'));
+    coordinator.replaceContext({ activeSectionId: 'lesson-2' });
+
+    await expect(result).resolves.toBe(false);
+    expect(receivedSignal?.aborted).toBe(true);
+    expect(harness.applyRevision).not.toHaveBeenCalled();
   });
 });

@@ -27,7 +27,10 @@ const getPdfImageSearchText = (image: PdfImageContext): string =>
 const scoreKeywordHits = (haystack: string, keywords: Iterable<string>): number =>
   Array.from(keywords).reduce((total, keyword) => total + (haystack.includes(keyword) ? 1 : 0), 0);
 
-const scorePageProximity = (pageNumber: number | undefined, targetedPages: number[]): number => {
+const scorePageProximity = (
+  pageNumber: number | undefined,
+  targetedPages: readonly number[]
+): number => {
   const [firstPage, ...remainingPages] = targetedPages;
   if (typeof pageNumber !== 'number' || !Number.isInteger(pageNumber) || firstPage === undefined) {
     return 0;
@@ -106,7 +109,7 @@ export const selectCandidatePdfImages = <T extends PdfImageContext>(
   images: T[],
   sectionTitle: string,
   sectionDescription: string,
-  targetedPages: number[] = []
+  targetedPagesForImage: (image: T) => readonly number[] = () => []
 ): T[] => {
   const keywords = new Set(getSearchKeywords(`${sectionTitle} ${sectionDescription}`));
   const scored = images
@@ -115,7 +118,7 @@ export const selectCandidatePdfImages = <T extends PdfImageContext>(
       image,
       score:
         scoreKeywordHits(normalizeSearchText(getPdfImageSearchText(image)), keywords) * 3 +
-        scorePageProximity(image.pageNumber, targetedPages),
+        scorePageProximity(image.pageNumber, targetedPagesForImage(image)),
     }))
     .sort((left, right) =>
       right.score === left.score

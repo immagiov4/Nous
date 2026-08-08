@@ -9,9 +9,18 @@ const supportedLocales = new Set<string>(SUPPORTED_APP_LOCALES);
 let renderingLocaleOverride: AppLocale | null = null;
 
 const ENGLISH_UI_MESSAGES = {
+  'Alcuni contenuti non sono disponibili': 'Some content is unavailable',
+  'Alcune immagini del PDF non sono state incluse nella lezione.':
+    'Some PDF images were not included in the lesson.',
+  'Contenuti non disponibili': 'Unavailable content',
+  'Gli aiuti didattici aggiuntivi non sono disponibili per questa lezione.':
+    'Additional learning aids are unavailable for this lesson.',
+  'I video di approfondimento non sono disponibili per questa lezione.':
+    'Supplementary videos are unavailable for this lesson.',
   'Apri {videoTitle} su YouTube': 'Open {videoTitle} on YouTube',
   automatico: 'automatic',
   'Annulla creazione corso': 'Cancel course creation',
+  'Intervista in corso': 'Interview in progress',
   'Argomento del nuovo corso non valido.': 'Invalid new course topic.',
   'Argomento del corso': 'Course topic',
   'Avvio nuovo corso': 'Starting new course',
@@ -101,6 +110,8 @@ const ENGLISH_UI_MESSAGES = {
     'Known limitation: web search still depends on the active provider; this lab isolates the YouTube pipeline.',
   'Playlist espansa': 'Playlist expanded',
   'Aggiungi ai preferiti': 'Add to favorites',
+  'Aggiungi altri dettagli…': 'Add more details…',
+  'Aggiungi dettagli': 'Add details',
   'Aggiungi {courseTitle} ai preferiti': 'Add {courseTitle} to favorites',
   'Aiutami a ripassare il corso': 'Help me review the course:',
   'Apri corso': 'Open course',
@@ -198,6 +209,9 @@ const ENGLISH_UI_MESSAGES = {
   Struttura: 'Structure',
   'Tempo trascorso': 'Elapsed time',
   'Elaborazione in corso': 'Working',
+  'Nuovo tentativo in corso.': 'Starting another attempt.',
+  Tentativo: 'Attempt',
+  'Un passaggio non è riuscito. Riprovo automaticamente.': 'A step failed. Retrying automatically.',
   Verifica: 'Review',
   'Apri progetto': 'Open project',
   'Apri cartella': 'Open folder',
@@ -592,6 +606,7 @@ const ENGLISH_UI_MESSAGES = {
   'Generazione artefatto in corso...': 'Generating artifact...',
   'Immagine generata': 'Generated image',
   'Immagine non disponibile': 'Image unavailable',
+  'Esempio visuale non disponibile': 'Visual example unavailable',
   'Immagine PDF': 'PDF image',
   Immagini: 'Images',
   'Immagini (Codex/OpenAI)': 'Images (Codex/OpenAI)',
@@ -706,6 +721,8 @@ const ENGLISH_UI_MESSAGES = {
     'This project was imported without its source file. Reconnect the PDF or ZIP to generate new lessons.',
   'Il PDF originale di questo corso non e disponibile. Ricaricalo per generare o rigenerare le lezioni senza perdere il corso.':
     'The original PDF for this course is unavailable. Upload it again to generate or regenerate lessons without losing the course.',
+  'Il materiale sorgente originale non e disponibile. Ricollegalo per generare o rigenerare le lezioni.':
+    'The original source material is unavailable. Reconnect it to generate or regenerate lessons.',
   'Ricarica PDF': 'Upload PDF again',
   'Ricollega sorgente': 'Reconnect source',
   'Rigenerare {demonstrative} {subjectLabel}?': 'Regenerate {demonstrative} {subjectLabel}?',
@@ -1002,6 +1019,7 @@ const ENGLISH_UI_MESSAGES = {
   'Genera artefatto': 'Generate artifact',
   'Ho raccolto tutte le informazioni necessarie. Vuoi generare il corso?':
     'I have gathered all the necessary information. Do you want to generate the course?',
+  'Proposta pronta': 'Proposal ready',
   'Imposta un nuovo corso': 'Set up a new course',
   Indietro: 'Back',
   'Indice libreria': 'Library index',

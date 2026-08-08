@@ -60,6 +60,8 @@ export interface ProjectRevisionEvent {
   revision: number;
 }
 
+export const PROJECT_REVISION_RESYNC_EVENT = 'project-revision-resync';
+
 export interface ProjectWriteOptions {
   expectedRevision?: number;
 }
@@ -67,14 +69,15 @@ export interface ProjectWriteOptions {
 export interface SectionPatch {
   sectionId: string;
   annotations?: unknown[];
-  content?: string;
-  contentBlocks?: unknown[];
-  generatedVisuals?: unknown[];
-  imageRefs?: unknown[];
+  content?: string | null;
+  contentBlocks?: unknown[] | null;
+  generationWarnings?: unknown[] | null;
+  generatedVisuals?: unknown[] | null;
+  imageRefs?: unknown[] | null;
   isCompleted?: boolean;
-  learningAids?: unknown[];
-  lastGenerationJobId?: string;
-  quiz?: unknown[];
+  learningAids?: unknown[] | null;
+  lastGenerationRunId?: string | null;
+  quiz?: unknown[] | null;
   visualPlanningDecision?: unknown;
 }
 
@@ -88,6 +91,8 @@ export interface ProjectPatch {
   syllabus?: unknown[];
   researchCoursePlan?: Record<string, unknown> | null;
   researchDossiersBySectionId?: Record<string, unknown>;
+  /** Internal ownership marker for an atomic course-generation commit. */
+  lastCourseGenerationRunId?: string | null;
   documentAssets?: Record<string, unknown> | null;
   documentIndex?: Record<string, unknown> | null;
   source?: unknown;

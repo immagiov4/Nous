@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { pushNousDebugTrace } from '../../../services/core/debugTrace.ts';
 import {
   createWorkspaceWorkflowState,
@@ -7,26 +7,20 @@ import {
   type WorkspaceWorkflowState,
 } from '../../../services/workspace/workflow.ts';
 import { AppState, type Message } from '../../../types.ts';
-import type {
-  WorkspaceChatSession,
-  WorkspaceControllerStateAdapter,
-  WorkspaceGenerationKind,
-} from './types.ts';
+import type { WorkspaceControllerStateAdapter, WorkspaceGenerationKind } from './types.ts';
 
 export const useWorkspaceControllerState = () => {
-  const [screenState, setScreenState] = useState<AppState>(AppState.LIBRARY);
+  const [screenState, setScreenStateValue] = useState<AppState>(AppState.LIBRARY);
   const [assessmentMessages, setAssessmentMessages] = useState<Message[]>([]);
-  const [chatSession, setChatSession] = useState<WorkspaceChatSession | null>(null);
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const openingProjectIdRef = useRef<string | null>(null);
   const [workflowState, setWorkflowState] = useState<WorkspaceWorkflowState>(
     createWorkspaceWorkflowState
   );
   const [missingSourceProjectId, setMissingSourceProjectId] = useState<string | null>(null);
-  const [, setGenerationRevision] = useState(0);
+  const [, commitGenerationChange] = useReducer(currentRevision => currentRevision + 1, 0);
 
   const assessmentMessagesRef = useRef(assessmentMessages);
-  const chatSessionRef = useRef(chatSession);
   const generationByProjectRef = useRef(
     new Map<
       string | null,
@@ -35,14 +29,11 @@ export const useWorkspaceControllerState = () => {
   );
   const nextGenerationTokenRef = useRef(0);
   const workflowStateRef = useRef(workflowState);
+  const screenStateRef = useRef(screenState);
 
   useEffect(() => {
     assessmentMessagesRef.current = assessmentMessages;
   }, [assessmentMessages]);
-
-  useEffect(() => {
-    chatSessionRef.current = chatSession;
-  }, [chatSession]);
 
   useEffect(() => {
     workflowStateRef.current = workflowState;
@@ -53,8 +44,9 @@ export const useWorkspaceControllerState = () => {
     setWorkflowState(nextState);
   };
 
-  const commitGenerationChange = () => {
-    setGenerationRevision(currentRevision => currentRevision + 1);
+  const setScreenState = (nextScreenState: AppState) => {
+    screenStateRef.current = nextScreenState;
+    setScreenStateValue(nextScreenState);
   };
 
   return {
@@ -110,10 +102,10 @@ export const useWorkspaceControllerState = () => {
         commitGenerationChange();
       },
       getAssessmentMessages: () => assessmentMessagesRef.current,
-      getChatSession: () => chatSessionRef.current,
       getGeneratingSectionId: projectId =>
         generationByProjectRef.current.get(projectId)?.sectionId ?? null,
       getOpeningProjectId: () => openingProjectIdRef.current,
+      getScreenState: () => screenStateRef.current,
       getWorkflowState: () => workflowStateRef.current,
       invalidateWorkflows: workflowIds => {
         const nextState = invalidateWorkspaceWorkflows(workflowStateRef.current, workflowIds);
@@ -127,8 +119,6 @@ export const useWorkspaceControllerState = () => {
       resetSessionState: () => {
         setAssessmentMessages([]);
         assessmentMessagesRef.current = [];
-        setChatSession(null);
-        chatSessionRef.current = null;
         openingProjectIdRef.current = null;
         setOpeningProjectId(null);
         setMissingSourceProjectId(null);
@@ -152,10 +142,6 @@ export const useWorkspaceControllerState = () => {
           sectionId,
         });
         commitGenerationChange();
-      },
-      setChatSession: nextChatSession => {
-        chatSessionRef.current = nextChatSession;
-        setChatSession(nextChatSession);
       },
       setOpeningProjectId: (projectId: string | null) => {
         openingProjectIdRef.current = projectId;

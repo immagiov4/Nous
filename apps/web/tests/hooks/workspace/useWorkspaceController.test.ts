@@ -7,16 +7,18 @@ import type {
 } from '../../../hooks/workspace/controller/types.ts';
 import {
   createWorkspaceController,
-  type WorkspaceChatSession,
   type WorkspaceDomainControllerAdapter,
   type WorkspaceProjectLibraryAdapter,
 } from '../../../hooks/workspace/useWorkspaceController.ts';
-import { LessonGenerationBusyError } from '../../../services/openrouter/lessonGenerationClient.ts';
-import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
+import type { CourseInterviewSnapshot } from '../../../services/openrouter/courseInterviewClient.ts';
 import {
-  createProjectSnapshot,
-  normalizeImportedProject,
-} from '../../../services/projects/projectSnapshot.ts';
+  LESSON_SOURCE_UNAVAILABLE_MESSAGE,
+  LessonGenerationBusyError,
+  LessonSourceUnavailableError,
+} from '../../../services/openrouter/lessonGenerationClient.ts';
+import { createProjectArchiveBlob } from '../../../services/projects/projectArchive.ts';
+import { createProjectSnapshot } from '../../../services/projects/projectSnapshot.ts';
 import { createProjectSourceFromFile } from '../../../services/projects/projectSource.ts';
 import {
   createWorkspaceWorkflowState,
@@ -33,9 +35,7 @@ import {
   type Message,
   type PdfTextIndex,
   type ProjectSnapshot,
-  type ResearchCoursePlan,
   type SavedProjectMeta,
-  type SyllabusItem,
   type UserProfile,
 } from '../../../types.ts';
 import {
@@ -43,7 +43,6 @@ import {
   flattenLessons,
   updateLessons,
 } from '../../../utils/learning/pathNodes.ts';
-import { getPdfProjectHydrationState } from '../../../utils/pdf/projectHydration.ts';
 import {
   buildTestLearningPlan,
   buildTestLesson,
@@ -61,6 +60,47 @@ const markdownFile: FileData = {
   mimeType: 'text/markdown',
   data: 'IyBUaXRvbG8KCkNvbnRlbnV0bw==',
 };
+
+const interviewProfile: UserProfile = {
+  context: 'Sviluppatore frontend',
+  experienceLevel: 'Intermedio',
+  goals: 'Costruire applicazioni robuste',
+  language: 'Italiano',
+  learningStyle: 'Pratico e progressivo',
+  topic: 'TypeScript',
+};
+
+const createInterviewSnapshot = (
+  overrides: Partial<CourseInterviewSnapshot> = {}
+): CourseInterviewSnapshot => ({
+  messages: [{ role: 'model', text: 'Domanda iniziale' }],
+  projectId: 'interview-project',
+  proposal: null,
+  result: null,
+  runId: 'interview-run',
+  status: 'waiting',
+  wait: {
+    expiresAt: '2026-08-09T10:00:00.000Z',
+    signalType: 'user-answer',
+    waitId: 'answer-wait',
+  },
+  ...overrides,
+});
+
+const createProposalSnapshot = (projectId: string): CourseInterviewSnapshot =>
+  createInterviewSnapshot({
+    messages: [
+      { role: 'user', text: 'Voglio imparare TypeScript' },
+      { role: 'model', text: 'Confermi questa proposta?' },
+    ],
+    projectId,
+    proposal: interviewProfile,
+    wait: {
+      expiresAt: '2026-08-09T10:00:00.000Z',
+      signalType: 'course-decision',
+      waitId: 'decision-wait',
+    },
+  });
 
 type TestLearningPlanOverrides = Partial<Omit<LearningPlan, 'modules'>> & {
   sections?: LearningSection[];
@@ -348,12 +388,19 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
   const appliedProjectRevisions: Parameters<
     WorkspaceProjectLibraryAdapter['applyPersistedProjectRevision']
   >[0][] = [];
+  const completedProjectHydrations: Parameters<
+    WorkspaceProjectLibraryAdapter['completeProjectHydration']
+  >[0][] = [];
   let loadedSnapshot: ProjectSnapshot | null = null;
 
   const adapter: WorkspaceProjectLibraryAdapter = {
     applyPersistedProjectRevision: async args => {
       appliedProjectRevisions.push(args);
       return true;
+    },
+    completeProjectHydration: project => {
+      completedProjectHydrations.push(project);
+      adapter.setProjectHydrated(true);
     },
     createFolder: async ({ name, parentFolderId }) => ({
       id: 'folder-1',
@@ -372,6 +419,10 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
     downloadProject: async projectId => {
       exportedProjectIds.push(projectId);
     },
+    importProjectArchive: async () => ({
+      meta: buildMeta('imported-project'),
+      snapshot: createProjectSnapshot({ id: 'imported-project' }),
+    }),
     importProjectData: async () => ({
       meta: buildMeta('imported-project'),
       snapshot: createProjectSnapshot({ id: 'imported-project' }),
@@ -392,6 +443,10 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
         })
       ),
     loadStoredProject: async () => loadedSnapshot,
+    loadStoredProjectWithRevision: async projectId => {
+      const snapshot = await adapter.loadStoredProject(projectId);
+      return snapshot ? { revision: 1, snapshot } : null;
+    },
     loadStoredProjectSource: async () => null,
     loadStoredProjectSources: async () => [],
     moveFolder: async () => null,
@@ -440,6 +495,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
   return {
     appliedProjectRevisions,
     adapter,
+    completedProjectHydrations,
     deletedProjectIds,
     exportedProjectIds,
     persistedSnapshots,
@@ -457,7 +513,6 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
 const createStateAdapter = () => {
   const internalState = {
     assessmentMessages: [] as Message[],
-    chatSession: null as WorkspaceChatSession | null,
     generationByProject: new Map<
       string | null,
       { kind: WorkspaceGenerationKind; sectionId: string | null; token: number }
@@ -504,10 +559,10 @@ const createStateAdapter = () => {
       }
     },
     getAssessmentMessages: () => internalState.assessmentMessages,
-    getChatSession: () => internalState.chatSession,
     getGeneratingSectionId: projectId =>
       internalState.generationByProject.get(projectId)?.sectionId ?? null,
     getOpeningProjectId: () => internalState.openingProjectId,
+    getScreenState: () => internalState.screenState,
     getWorkflowState: () => internalState.workflowState,
     invalidateWorkflows: workflowIds => {
       internalState.workflowState = invalidateWorkspaceWorkflows(
@@ -522,7 +577,6 @@ const createStateAdapter = () => {
       internalState.workflowState[workflowId].requestId === requestId,
     resetSessionState: () => {
       internalState.assessmentMessages = [];
-      internalState.chatSession = null;
       internalState.openingProjectId = null;
       internalState.missingSourceProjectId = null;
     },
@@ -531,9 +585,6 @@ const createStateAdapter = () => {
         typeof nextMessages === 'function'
           ? nextMessages(internalState.assessmentMessages)
           : nextMessages;
-    },
-    setChatSession: chatSession => {
-      internalState.chatSession = chatSession;
     },
     setGeneratingSectionId: (projectId, token, sectionId) => {
       const activeGeneration = internalState.generationByProject.get(projectId);
@@ -629,34 +680,31 @@ const createOpenRouterMock = (
 ) =>
   ({
     askContextualQuestion: async () => 'Risposta',
-    createAssessmentChat: async () => ({
-      getHistory: () => [
-        { role: 'system', content: 'System prompt' },
-        { role: 'user', content: 'Source content' },
-        { role: 'assistant', content: 'Domanda iniziale' },
-      ],
-      sendMessage: async () => ({ text: 'Domanda iniziale' }),
+    buildAssessmentDocumentContextFromSourceSet: (
+      sources: Parameters<
+        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentContextFromSourceSet
+      >[0]
+    ) => ({
+      content: sources.map(source => `${source.id}:${source.name}`).join('\n'),
+      hasReliableSourceContext: true,
     }),
-    createAssessmentChatFromTextSource: async () => ({
-      getHistory: () => [
-        { role: 'system', content: 'System prompt' },
-        { role: 'user', content: 'Source content' },
-        { role: 'assistant', content: 'Domanda iniziale' },
-      ],
-      sendMessage: async () => ({ text: 'Domanda iniziale' }),
+    buildAssessmentDocumentContextFromTextSource: (
+      source: Parameters<
+        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentContextFromTextSource
+      >[0]
+    ) => ({
+      content: `${source.name}\n${source.text}`,
+      hasReliableSourceContext: Boolean(source.text.trim()),
     }),
-    createEmbeddedAssessmentChat: async () => ({
-      sendMessage: async () => ({ text: 'Domanda iniziale' }),
+    buildAssessmentDocumentPrompt: async (
+      file: Parameters<
+        typeof import('../../../services/openrouter/index.ts').buildAssessmentDocumentPrompt
+      >[0]
+    ) => ({
+      content: `${file.name}\nMateriale sorgente`,
+      hasReliableSourceContext: true,
     }),
-    createEmbeddedAssessmentChatFromTextSource: async () => ({
-      sendMessage: async () => ({ text: 'Domanda iniziale' }),
-    }),
-    createEmbeddedLearnAssessmentChat: () => ({
-      sendMessage: async () => ({ text: 'Profilazione' }),
-    }),
-    createLearnAssessmentChat: () => ({
-      sendMessage: async () => ({ text: 'Profilazione' }),
-    }),
+    cancelCourseInterview: async () => {},
     createGenerationProgressObserver: ({
       onUpdate,
       operation,
@@ -681,31 +729,6 @@ const createOpenRouterMock = (
         updateStatus: vi.fn(),
       };
     },
-    createArchiveSubChapterMetadata: async () => ({
-      id: 'deep-archive',
-      title: 'Approfondimento archivio',
-      description: 'Dettaglio',
-      isCompleted: false,
-      type: 'deep-dive',
-      parentId: 'lesson-1',
-      sourceArchiveSelectors: [],
-    }),
-    createLearnSubChapterMetadata: async () => ({
-      id: 'deep-learn',
-      title: 'Approfondimento AI',
-      description: 'Dettaglio',
-      isCompleted: false,
-      type: 'deep-dive',
-      parentId: 'lesson-1',
-    }),
-    createSubChapterMetadata: async () => ({
-      id: 'deep-1',
-      title: 'Approfondimento',
-      description: 'Dettaglio',
-      isCompleted: false,
-      type: 'deep-dive',
-      parentId: 'lesson-1',
-    }),
     generateApplicationExerciseFeedback: async () => ({
       caveats: [],
       evaluatedAt: '2026-03-20T10:00:00.000Z',
@@ -715,77 +738,15 @@ const createOpenRouterMock = (
       strengths: ['Consegna coerente con la traccia'],
       summary: 'Buon lavoro pratico con alcuni margini di chiarimento.',
     }),
-    generateResearchCoursePlan: async (
-      profile: UserProfile,
-      _onStatusUpdate: (message: string) => void,
-      _onStructureUpdate: (items: SyllabusItem[]) => void
-    ) => {
-      const syllabus = [
-        {
-          id: 'mod-1',
-          title: 'Modulo 1',
-          description: 'Base',
-          type: 'module' as const,
-          status: 'ready' as const,
-          children: [
-            {
-              id: 'lesson-1',
-              title: 'Lezione 1',
-              description: 'Intro',
-              type: 'lesson' as const,
-              status: 'pending' as const,
-              contextPrompt: 'Spiega il concetto',
-            },
-          ],
-        },
-      ];
-
-      return {
-        researchCoursePlan: {
-          generatedAt: '2026-03-20T10:00:00.000Z',
-          lessonCountReason: 'Percorso breve per test.',
-          title: profile.topic,
-          summary: profile.context,
-          lessons: [
-            {
-              id: 'lesson-1',
-              title: 'Lezione 1',
-              description: 'Intro',
-              moduleId: 'mod-1',
-              moduleTitle: 'Modulo 1',
-              prerequisites: [],
-              keyConcepts: ['Concetto'],
-              guidingQuestions: ['Domanda?'],
-              miniLab: 'Prova',
-              simplificationRisks: [],
-              sourceHints: [{ title: 'Fonte base', url: 'https://example.com' }],
-            },
-          ],
-        },
-        syllabus,
-      };
+    generateDurableCourse: async ({
+      onProgressStage,
+      projectId,
+    }: Parameters<
+      typeof import('../../../services/openrouter/index.ts').generateDurableCourse
+    >[0]) => {
+      onProgressStage?.('structure');
+      return { firstSectionId: 'lesson-1', projectId, projectRevision: 1 };
     },
-    buildLearningPlanFromResearchCourse: (
-      profile: UserProfile,
-      researchCoursePlan: ResearchCoursePlan,
-      syllabus: SyllabusItem[]
-    ) =>
-      buildPlan({
-        title: researchCoursePlan.title || profile.topic,
-        summary: researchCoursePlan.summary || profile.context,
-        sections: syllabus.flatMap(module =>
-          (module.children || []).map(lesson => ({
-            id: lesson.id,
-            title: lesson.title,
-            description: lesson.description,
-            isCompleted: false,
-            type: 'core' as const,
-            parentId: module.id,
-            contextPrompt: lesson.contextPrompt,
-          }))
-        ),
-      }),
-    generateLearningPlan: async () => buildPlan(),
     generateDurableLesson: async ({
       projectId,
       sectionId,
@@ -801,22 +762,81 @@ const createOpenRouterMock = (
       projectId,
       quiz: [],
       sectionId,
+      warnings: [],
       visualPlanningDecision: {
         initial: { outcome: 'none' as const, plans: [], rationale: 'Nessuna visuale utile.' },
         reviewed: { outcome: 'none' as const, plans: [], rationale: 'Decisione confermata.' },
         reviewedAt: '2026-07-17T12:00:00.000Z',
       },
     }),
-    planLessonInstructionPacks: async () => [],
-    getPdfLessonMappingState: () => 'idle' as const,
-    preparePdfLessonMappings: async (
-      _file: FileData,
-      plan: LearningPlan,
-      existingIndex?: PdfTextIndex | null
-    ) => ({
-      learningPlan: plan,
-      documentIndex: existingIndex ?? createReadyIndex(),
+    generateDurableSublesson: async ({
+      projectId,
+    }: Parameters<
+      typeof import('../../../services/openrouter/index.ts').generateDurableSublesson
+    >[0]) => ({
+      content: '# Lezione generata',
+      contentBlocks: [{ markdown: '# Lezione generata', type: 'markdown' as const }],
+      documentAssets: null,
+      generatedVisuals: [],
+      imageRefs: [],
+      learningAids: [],
+      projectId,
+      projectRevision: 2,
+      quiz: [],
+      sectionId: 'deep-1',
+      warnings: [],
     }),
+    repairDurablePdfMapping: async ({
+      projectId,
+    }: Parameters<
+      typeof import('../../../services/openrouter/index.ts').repairDurablePdfMapping
+    >[0]) => ({
+      projectId,
+      projectRevision: 1,
+      repaired: false,
+    }),
+    getActiveCourseInterview: async () => null,
+    resumeActiveDurableCourse: async () => null,
+    sendCourseInterviewAnswer: async (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewAnswer
+      >[0]
+    ) =>
+      createInterviewSnapshot({
+        messages: [
+          { role: 'user', text: input.text },
+          { role: 'model', text: 'Domanda successiva' },
+        ],
+        projectId: input.projectId,
+        runId: input.runId,
+      }),
+    sendCourseInterviewDecision: async (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewDecision
+      >[0]
+    ) =>
+      input.decision.kind === 'cancel'
+        ? createInterviewSnapshot({
+            messages: [],
+            projectId: input.projectId,
+            result: { kind: 'cancelled', projectId: input.projectId },
+            runId: input.runId,
+            status: 'cancelled',
+            wait: null,
+          })
+        : createProposalSnapshot(input.projectId),
+    startCourseInterview: async (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').startCourseInterview
+      >[0]
+    ) =>
+      createInterviewSnapshot({
+        messages: [
+          ...(input.initialMessage ? [{ role: 'user' as const, text: input.initialMessage }] : []),
+          { role: 'model', text: 'Domanda iniziale' },
+        ],
+        projectId: input.projectId,
+      }),
     validatePdfTextSource: async () => ({
       averageCharsPerPage: 120,
       extractedCharacterCount: 1200,
@@ -883,6 +903,141 @@ test('openProject starts document assessment when a stored project has a source 
   assert.equal(projectLibrary.adapter.currentProjectId, 'project-doc');
   assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
   assert.equal(state.internalState.assessmentMessages[0]?.text, 'Domanda iniziale');
+});
+
+test('openProject resumes an active durable course instead of restarting assessment', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-generating',
+    source: createProjectSourceFromFile(pdfFile),
+    state: AppState.PLANNING,
+  });
+  const resumeActiveDurableCourse = vi.fn(
+    async (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').resumeActiveDurableCourse
+      >[0]
+    ) => {
+      input.onProgressStage?.('drafting');
+      return {
+        firstSectionId: 'lesson-1',
+        projectId: input.projectId,
+        projectRevision: 7,
+      };
+    }
+  );
+  const { controller, projectLibrary, state } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: { resumeActiveDurableCourse },
+  });
+
+  const result = await controller.openProject(snapshot.id);
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(resumeActiveDurableCourse.mock.calls.length, 1);
+  assert.deepEqual(projectLibrary.appliedProjectRevisions, [
+    { projectId: snapshot.id, revision: 7 },
+  ]);
+  assert.equal(state.internalState.screenState, AppState.READING);
+  assert.deepEqual(state.internalState.assessmentMessages, []);
+});
+
+test('openProject preserves authoritative durable course progress while resuming', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-progress',
+    source: createProjectSourceFromFile(pdfFile),
+    state: AppState.PLANNING,
+  });
+  let finishResume: (() => void) | undefined;
+  let markResumeStarted: (() => void) | undefined;
+  const resumeGate = new Promise<void>(resolve => {
+    finishResume = resolve;
+  });
+  const resumeStarted = new Promise<void>(resolve => {
+    markResumeStarted = resolve;
+  });
+  const { controller, state } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: {
+      resumeActiveDurableCourse: async input => {
+        input.onWorkflowSnapshot?.({
+          createdAt: '2026-07-29T20:00:00.000Z',
+          id: 'course-run-1',
+          mode: 'document',
+          projectId: input.projectId,
+          retrying: false,
+          stage: 'sources',
+          status: 'queued',
+          updatedAt: '2026-07-29T20:00:00.000Z',
+        });
+        input.onWorkflowSnapshot?.({
+          attempt: 2,
+          createdAt: '2026-07-29T20:00:00.000Z',
+          id: 'course-run-1',
+          mode: 'document',
+          projectId: input.projectId,
+          retrying: true,
+          stage: 'drafting',
+          startedAt: '2026-07-29T20:01:00.000Z',
+          status: 'running',
+          updatedAt: '2026-07-29T20:02:00.000Z',
+        });
+        input.onProgressStage?.('drafting');
+        markResumeStarted?.();
+        await resumeGate;
+        return {
+          firstSectionId: 'lesson-1',
+          projectId: input.projectId,
+          projectRevision: 7,
+        };
+      },
+    },
+  });
+
+  const opening = controller.openProject(snapshot.id);
+  await resumeStarted;
+
+  assert.equal(
+    state.internalState.workflowState.generatePlan.progress?.startedAt,
+    Date.parse('2026-07-29T20:00:00.000Z')
+  );
+  assert.equal(state.internalState.workflowState.generatePlan.progress?.attempt, 2);
+  assert.equal(state.internalState.workflowState.generatePlan.progress?.retrying, true);
+
+  finishResume?.();
+  assert.equal((await opening).outcome, 'opened');
+});
+
+test('openProject reloads a course completed while the active-run lookup returned not found', async () => {
+  const pendingSnapshot = createProjectSnapshot({
+    id: 'project-race',
+    source: createProjectSourceFromFile(pdfFile),
+    state: AppState.PLANNING,
+  });
+  const completedSnapshot = createProjectSnapshot({
+    ...pendingSnapshot,
+    activeSectionId: 'lesson-1',
+    learningPlan: buildPlan({
+      sections: [buildTestLesson({ id: 'lesson-1', content: '# Pronta' })],
+    }),
+    state: AppState.READING,
+  });
+  let loads = 0;
+  const { controller, domain, state } = createControllerHarness({
+    projectLibrary: {
+      loadStoredProject: async () => {
+        loads += 1;
+        return loads === 1 ? pendingSnapshot : completedSnapshot;
+      },
+    },
+  });
+
+  const result = await controller.openProject(pendingSnapshot.id);
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(loads, 2);
+  assert.equal(domain.learningPlan?.title, completedSnapshot.learningPlan?.title);
+  assert.equal(state.internalState.screenState, AppState.READING);
+  assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
 test('openProject does not persist unchanged modern snapshots with reordered plan keys', async () => {
@@ -970,235 +1125,344 @@ test('openProject does not wait for a real hydration migration to be persisted',
   releasePersistence?.();
 });
 
-test('openProject hydrates pdf mappings before applying a stored plan', async () => {
-  const snapshot = createProjectSnapshot({
-    id: 'project-pdf',
+test('openProject reloads an authoritative PDF repair before hydrating the stored plan', async () => {
+  const staleSnapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
+    id: 'project-pdf-missing-index',
+    learningPlan: buildPlan({
+      sections: [buildTestLesson({ content: '# Già pronta', id: 'lesson-1' })],
+    }),
     source: createProjectSourceFromFile(pdfFile),
+    state: AppState.READING,
+  });
+  const repairedSnapshot = createProjectSnapshot({
+    ...staleSnapshot,
+    documentIndex: createReadyIndex(),
     learningPlan: buildPlan({
       sections: [
-        {
-          id: 'lesson-1',
-          title: 'Lezione 1',
-          description: 'Intro',
-          isCompleted: false,
-          type: 'core',
+        buildTestLesson({
           content: '# Già pronta',
+          id: 'lesson-1',
           primaryChunkIds: ['chunk-001'],
-        },
+          primaryChunkMappingSource: 'mapped',
+        }),
       ],
     }),
-    state: AppState.READING,
   });
-  const readyIndex = createReadyIndex();
+  const repairDurablePdfMapping = vi.fn(async () => ({
+    projectId: staleSnapshot.id,
+    projectRevision: 3,
+    repaired: true,
+  }));
+  let loadCount = 0;
   const { controller, domain, projectLibrary } = createControllerHarness({
-    openRouter: {
-      getPdfLessonMappingState: () => 'missing-document-index',
-      preparePdfLessonMappings: async () => ({
-        learningPlan: snapshot.learningPlan as LearningPlan,
-        documentIndex: readyIndex,
-      }),
+    openRouter: { repairDurablePdfMapping },
+    projectLibrary: {
+      loadStoredProject: async () => {
+        loadCount += 1;
+        return staleSnapshot;
+      },
+      loadStoredProjectWithRevision: async () => {
+        loadCount += 1;
+        return { revision: 3, snapshot: repairedSnapshot };
+      },
     },
-    loadedSnapshot: snapshot,
   });
 
-  const result = await controller.openProject('project-pdf');
+  const result = await controller.openProject(staleSnapshot.id);
 
   assert.equal(result.outcome, 'opened');
-  assert.equal(projectLibrary.persistedSnapshots.length, 2);
-  assert.equal(projectLibrary.persistedSnapshots[1]?.documentIndex?.chunks[0]?.id, 'chunk-001');
+  assert.equal(loadCount, 2);
+  assert.equal(repairDurablePdfMapping.mock.calls.length, 1);
   assert.equal(domain.documentIndex?.chunks[0]?.id, 'chunk-001');
+  assert.deepEqual(getLessons(domain.learningPlan)[0]?.primaryChunkIds, ['chunk-001']);
+  assert.deepEqual(projectLibrary.completedProjectHydrations, [
+    { revision: 3, snapshot: repairedSnapshot },
+  ]);
+  assert.equal(projectLibrary.appliedProjectRevisions.length, 0);
 });
 
-test('openProject remaps legacy fallback chunk assignments for old pdf projects', async () => {
+test('openProject requests a backend remap for legacy repeated PDF assignments', async () => {
   const staleIndex = createLargeReadyIndex();
   const stalePlan = buildPlan({
-    sections: Array.from({ length: 5 }, (_, index) => ({
-      id: `lesson-${index + 1}`,
-      title: `Lezione ${index + 1}`,
-      description: 'Intro',
-      isCompleted: false,
-      type: 'core' as const,
-      primaryChunkIds: ['chunk-001', 'chunk-002'],
-    })),
+    sections: Array.from({ length: 5 }, (_, index) =>
+      buildTestLesson({
+        id: `lesson-${index + 1}`,
+        primaryChunkIds: ['chunk-001', 'chunk-002'],
+      })
+    ),
   });
-  const snapshot = createProjectSnapshot({
-    id: 'project-pdf-stale',
-    source: createProjectSourceFromFile(pdfFile),
-    learningPlan: stalePlan,
+  const staleSnapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
     documentIndex: staleIndex,
+    id: 'project-pdf-legacy-mapping',
+    learningPlan: stalePlan,
+    source: createProjectSourceFromFile(pdfFile),
     state: AppState.READING,
   });
-  let prepareCalls = 0;
-
-  const { controller, projectLibrary } = createControllerHarness({
-    openRouter: {
-      getPdfLessonMappingState: (file, plan, documentIndex) =>
-        getPdfProjectHydrationState(file, plan, documentIndex),
-      preparePdfLessonMappings: async () => {
-        prepareCalls += 1;
-        let lessonIndex = 0;
-        return {
-          learningPlan: {
-            ...stalePlan,
-            modules: updateLessons(stalePlan.modules, section => {
-              const chunkNumber = lessonIndex + 3;
-              lessonIndex += 1;
-              return {
-                ...section,
-                primaryChunkIds: [`chunk-00${chunkNumber}`],
-              };
-            }),
-          },
-          documentIndex: staleIndex,
-        };
+  let lessonIndex = 0;
+  const repairedPlan = {
+    ...stalePlan,
+    modules: updateLessons(stalePlan.modules, lesson => {
+      const chunkNumber = lessonIndex + 3;
+      lessonIndex += 1;
+      return {
+        ...lesson,
+        primaryChunkIds: [`chunk-00${chunkNumber}`],
+        primaryChunkMappingSource: 'mapped' as const,
+      };
+    }),
+  };
+  const repairedSnapshot = createProjectSnapshot({
+    ...staleSnapshot,
+    learningPlan: repairedPlan,
+  });
+  const repairDurablePdfMapping = vi.fn(async () => ({
+    projectId: staleSnapshot.id,
+    projectRevision: 4,
+    repaired: true,
+  }));
+  let loadCount = 0;
+  const { controller, domain } = createControllerHarness({
+    openRouter: { repairDurablePdfMapping },
+    projectLibrary: {
+      loadStoredProject: async () => {
+        loadCount += 1;
+        return staleSnapshot;
+      },
+      loadStoredProjectWithRevision: async () => {
+        loadCount += 1;
+        return { revision: 4, snapshot: repairedSnapshot };
       },
     },
-    loadedSnapshot: snapshot,
   });
 
-  const result = await controller.openProject('project-pdf-stale');
+  const result = await controller.openProject(staleSnapshot.id);
 
   assert.equal(result.outcome, 'opened');
-  assert.equal(prepareCalls, 1);
-  assert.equal(projectLibrary.persistedSnapshots.length, 2);
-  assert.deepEqual(
-    getLessons(projectLibrary.persistedSnapshots[1]?.learningPlan)[0]?.primaryChunkIds,
-    ['chunk-003']
-  );
+  assert.equal(loadCount, 2);
+  assert.equal(repairDurablePdfMapping.mock.calls.length, 1);
+  assert.deepEqual(getLessons(domain.learningPlan)[0]?.primaryChunkIds, ['chunk-003']);
 });
 
-test('openProject does not retry pdf mapping after automatic recovery was exhausted', async () => {
-  const exhaustedIndex: PdfTextIndex = {
-    ...createReadyIndex(),
-    mappingRecovery: {
-      status: 'exhausted',
-      updatedAt: '2026-03-20T10:05:00.000Z',
+test('openProject reloads an already-repaired PDF when the server revision is newer', async () => {
+  const staleSnapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
+    id: 'project-pdf-repaired-elsewhere',
+    learningPlan: buildPlan({
+      sections: [buildTestLesson({ content: '# Vecchia', id: 'lesson-1' })],
+    }),
+    source: createProjectSourceFromFile(pdfFile),
+    state: AppState.READING,
+  });
+  const repairedSnapshot = createProjectSnapshot({
+    ...staleSnapshot,
+    documentIndex: createReadyIndex(),
+    learningPlan: buildPlan({
+      sections: [
+        buildTestLesson({
+          content: '# Aggiornata',
+          id: 'lesson-1',
+          primaryChunkIds: ['chunk-001'],
+          primaryChunkMappingSource: 'mapped',
+        }),
+      ],
+    }),
+  });
+  let loadCount = 0;
+  const repairDurablePdfMapping = vi.fn(async () => ({
+    projectId: staleSnapshot.id,
+    projectRevision: 5,
+    repaired: false,
+  }));
+  const { controller, domain, projectLibrary } = createControllerHarness({
+    openRouter: { repairDurablePdfMapping },
+    projectLibrary: {
+      loadStoredProject: async () => {
+        loadCount += 1;
+        return staleSnapshot;
+      },
+      loadStoredProjectWithRevision: async () => {
+        loadCount += 1;
+        return { revision: 5, snapshot: repairedSnapshot };
+      },
+      savedProjects: [{ ...buildMeta(staleSnapshot.id), revision: 4 }],
     },
-  };
-  const fallbackPlan = buildPlan({
+  });
+
+  const result = await controller.openProject(staleSnapshot.id);
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(loadCount, 2);
+  assert.equal(repairDurablePdfMapping.mock.calls.length, 1);
+  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Aggiornata');
+  assert.deepEqual(projectLibrary.completedProjectHydrations, [
+    { revision: 5, snapshot: repairedSnapshot },
+  ]);
+  assert.equal(projectLibrary.appliedProjectRevisions.length, 0);
+});
+
+test('openProject does not retry PDF mapping after recovery is marked exhausted', async () => {
+  const plan = buildPlan({
     sections: [
-      {
-        id: 'lesson-1',
-        title: 'Lezione 1',
-        description: 'Intro',
-        isCompleted: false,
-        type: 'core',
+      buildTestLesson({
         content: '# Già pronta',
+        id: 'lesson-1',
         primaryChunkIds: ['chunk-001'],
         primaryChunkMappingSource: 'fallback',
-      },
+      }),
     ],
   });
   const snapshot = createProjectSnapshot({
-    id: 'project-pdf-exhausted',
-    source: createProjectSourceFromFile(pdfFile),
-    learningPlan: fallbackPlan,
-    documentIndex: exhaustedIndex,
-    state: AppState.READING,
-  });
-  let prepareCalls = 0;
-  const { controller, domain } = createControllerHarness({
-    openRouter: {
-      getPdfLessonMappingState: (file, plan, documentIndex) =>
-        getPdfProjectHydrationState(file, plan, documentIndex),
-      preparePdfLessonMappings: async () => {
-        prepareCalls += 1;
-        return {
-          learningPlan: fallbackPlan,
-          documentIndex: exhaustedIndex,
-        };
+    activeSectionId: 'lesson-1',
+    documentIndex: {
+      ...createReadyIndex(),
+      mappingRecovery: {
+        status: 'exhausted',
+        updatedAt: '2026-08-01T08:00:00.000Z',
       },
     },
+    id: 'project-pdf-exhausted',
+    learningPlan: plan,
+    source: createProjectSourceFromFile(pdfFile),
+    state: AppState.READING,
+  });
+  const repairDurablePdfMapping = vi.fn();
+  const { controller } = createControllerHarness({
     loadedSnapshot: snapshot,
+    openRouter: { repairDurablePdfMapping },
   });
 
-  const result = await controller.openProject('project-pdf-exhausted');
+  const result = await controller.openProject(snapshot.id);
 
   assert.equal(result.outcome, 'opened');
-  assert.equal(prepareCalls, 0);
-  assert.equal(domain.documentIndex?.mappingRecovery?.status, 'exhausted');
+  assert.equal(repairDurablePdfMapping.mock.calls.length, 0);
 });
 
-test('openProject falls back to the stored snapshot when pdf hydration stalls', async () => {
+test('openProject falls back to the stored PDF snapshot when backend repair times out', async () => {
   vi.useFakeTimers();
-
   try {
     const snapshot = createProjectSnapshot({
+      activeSectionId: 'lesson-1',
       id: 'project-pdf-timeout',
-      source: createProjectSourceFromFile(pdfFile),
       learningPlan: buildPlan({
-        sections: [
-          {
-            id: 'lesson-1',
-            title: 'Lezione 1',
-            description: 'Intro',
-            isCompleted: false,
-            type: 'core',
-            content: '# Già pronta',
-          },
-        ],
+        sections: [buildTestLesson({ content: '# Già pronta', id: 'lesson-1' })],
       }),
+      source: createProjectSourceFromFile(pdfFile),
       state: AppState.READING,
     });
-
-    const { controller, domain, projectLibrary, state } = createControllerHarness({
-      openRouter: {
-        getPdfLessonMappingState: () => 'missing-document-index',
-        preparePdfLessonMappings: async () => await new Promise(() => {}),
-      },
+    const { controller, domain } = createControllerHarness({
       loadedSnapshot: snapshot,
+      openRouter: {
+        repairDurablePdfMapping: async () => await new Promise(() => {}),
+      },
     });
 
-    const resultPromise = controller.openProject('project-pdf-timeout');
-    await vi.advanceTimersByTimeAsync(20_001);
-    const result = await resultPromise;
+    const opening = controller.openProject(snapshot.id);
+    await vi.advanceTimersByTimeAsync(20_000);
+    const result = await opening;
 
     assert.equal(result.outcome, 'opened');
-    assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
-    assert.equal(projectLibrary.persistedSnapshots.length, 1);
-    assert.equal(projectLibrary.persistedSnapshots[0]?.documentIndex, null);
     assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Già pronta');
-    assert.equal(domain.documentIndex, null);
   } finally {
     vi.useRealTimers();
   }
 });
 
-test('openProject keeps the stored snapshot when pdf hydration repair throws', async () => {
+test('openProject does not start lesson generation while a timed-out PDF repair continues', async () => {
+  vi.useFakeTimers();
+  try {
+    const snapshot = createProjectSnapshot({
+      activeSectionId: 'lesson-1',
+      id: 'project-pdf-repair-still-running',
+      learningPlan: buildPlan({
+        sections: [buildTestLesson({ id: 'lesson-1' })],
+      }),
+      source: createProjectSourceFromFile(pdfFile),
+      state: AppState.READING,
+    });
+    const generateDurableLesson = vi.fn(
+      async (
+        _input: Parameters<
+          typeof import('../../../services/openrouter/index.ts').generateDurableLesson
+        >[0]
+      ) =>
+        await new Promise<
+          Awaited<
+            ReturnType<typeof import('../../../services/openrouter/index.ts').generateDurableLesson>
+          >
+        >(() => {})
+    );
+    const { controller } = createControllerHarness({
+      loadedSnapshot: snapshot,
+      openRouter: {
+        generateDurableLesson,
+        repairDurablePdfMapping: async () => await new Promise(() => {}),
+      },
+    });
+
+    const opening = controller.openProject(snapshot.id);
+    await vi.advanceTimersByTimeAsync(20_000);
+    const result = await opening;
+    await Promise.resolve();
+
+    assert.equal(result.outcome, 'opened');
+    assert.equal(generateDurableLesson.mock.calls.length, 0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('openProject keeps the stored PDF snapshot when backend repair fails', async () => {
   const snapshot = createProjectSnapshot({
-    id: 'project-pdf-error',
-    source: createProjectSourceFromFile(pdfFile),
+    activeSectionId: 'lesson-1',
+    id: 'project-pdf-repair-error',
     learningPlan: buildPlan({
-      sections: [
-        {
-          id: 'lesson-1',
-          title: 'Lezione 1',
-          description: 'Intro',
-          isCompleted: false,
-          type: 'core',
-          content: '# Già pronta',
-        },
-      ],
+      sections: [buildTestLesson({ id: 'lesson-1' })],
     }),
+    source: createProjectSourceFromFile(pdfFile),
     state: AppState.READING,
   });
-
+  const generateDurableLesson = vi.fn();
   const { controller, domain, state } = createControllerHarness({
+    loadedSnapshot: snapshot,
     openRouter: {
-      getPdfLessonMappingState: () => 'missing-primary-chunk-mappings',
-      preparePdfLessonMappings: async () => {
+      generateDurableLesson,
+      repairDurablePdfMapping: async () => {
         throw new Error('repair failed');
       },
     },
-    loadedSnapshot: snapshot,
   });
 
-  const result = await controller.openProject('project-pdf-error');
+  const result = await controller.openProject(snapshot.id);
+  await Promise.resolve();
 
   assert.equal(result.outcome, 'opened');
   assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
-  assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Già pronta');
-  assert.equal(domain.activeSectionId, 'lesson-1');
+  assert.equal(getLessons(domain.learningPlan)[0]?.id, 'lesson-1');
+  assert.equal(generateDurableLesson.mock.calls.length, 0);
+});
+
+test('openProject skips PDF repair for text document sources', async () => {
+  const snapshot = createProjectSnapshot({
+    activeSectionId: 'lesson-1',
+    id: 'project-text-ready',
+    learningPlan: buildPlan({
+      sections: [buildTestLesson({ content: '# Già pronta', id: 'lesson-1' })],
+    }),
+    source: createProjectSourceFromFile(markdownFile),
+    state: AppState.READING,
+  });
+  const repairDurablePdfMapping = vi.fn();
+  const { controller } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    openRouter: { repairDurablePdfMapping },
+  });
+
+  const result = await controller.openProject(snapshot.id);
+
+  assert.equal(result.outcome, 'opened');
+  assert.equal(repairDurablePdfMapping.mock.calls.length, 0);
 });
 
 test('openProject resolves immediately while loading an empty stored section in background', async () => {
@@ -1286,30 +1550,6 @@ test('openProject does not download detached PDF bytes when the active lesson is
   assert.equal(sourceLoadCalls, 0);
 });
 
-test('openProject skips pdf hydration checks for text document sources', async () => {
-  const snapshot = createProjectSnapshot({
-    id: 'project-md',
-    source: createProjectSourceFromFile(markdownFile),
-    state: AppState.ASSESSMENT,
-  });
-  let hydrationFileArg: FileData | null | undefined;
-
-  const { controller } = createControllerHarness({
-    openRouter: {
-      getPdfLessonMappingState: fileArg => {
-        hydrationFileArg = fileArg;
-        return 'idle';
-      },
-    },
-    loadedSnapshot: snapshot,
-  });
-
-  const result = await controller.openProject('project-md');
-
-  assert.equal(result.outcome, 'opened');
-  assert.equal(hydrationFileArg, null);
-});
-
 test('openProject starts assessment from stored text sources without rebuilding a file payload', async () => {
   const snapshot = createProjectSnapshot({
     id: 'project-md-direct',
@@ -1321,21 +1561,15 @@ test('openProject starts assessment from stored text sources without rebuilding 
 
   const { controller, state } = createControllerHarness({
     openRouter: {
-      createAssessmentChat: async () => {
+      buildAssessmentDocumentPrompt: async () => {
         fileAssessmentCalls += 1;
-        return {
-          getHistory: () => [],
-          sendMessage: async () => ({ text: 'Non dovrebbe partire' }),
-        };
+        return { content: 'Non dovrebbe partire', hasReliableSourceContext: true };
       },
-      createAssessmentChatFromTextSource: async source => {
+      buildAssessmentDocumentContextFromTextSource: source => {
         textAssessmentCalls += 1;
         assert.equal(source.name, 'notes.md');
         assert.equal(source.text.includes('Titolo'), true);
-        return {
-          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
-          sendMessage: async () => ({ text: 'Domanda iniziale' }),
-        };
+        return { content: source.text, hasReliableSourceContext: true };
       },
     },
     loadedSnapshot: snapshot,
@@ -1358,12 +1592,9 @@ test('openProject settles its own workflow before starting assessment follow-up'
 
   const { controller, state } = createControllerHarness({
     openRouter: {
-      createAssessmentChatFromTextSource: async () => {
+      startCourseInterview: async input => {
         assert.equal(state.internalState.workflowState.openProject.status, 'succeeded');
-        return {
-          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
-          sendMessage: async () => ({ text: 'Domanda iniziale' }),
-        };
+        return createInterviewSnapshot({ projectId: input.projectId });
       },
     },
     loadedSnapshot: snapshot,
@@ -1398,12 +1629,9 @@ test('openProject does not wait for library metadata refresh before continuing',
 
   const { controller, state } = createControllerHarness({
     openRouter: {
-      createAssessmentChatFromTextSource: async () => {
+      startCourseInterview: async input => {
         notifyAssessmentStarted?.();
-        return {
-          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
-          sendMessage: async () => ({ text: 'Domanda iniziale' }),
-        };
+        return createInterviewSnapshot({ projectId: input.projectId });
       },
     },
     loadedSnapshot: snapshot,
@@ -1464,12 +1692,9 @@ test('handleSourceUpload persists opaque ZIP bytes once and assesses the canonic
   const persistenceOrder: string[] = [];
   const { controller, domain } = createControllerHarness({
     openRouter: {
-      createAssessmentChatFromTextSource: async source => {
+      buildAssessmentDocumentContextFromTextSource: source => {
         assessmentText = source.text;
-        return {
-          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
-          sendMessage: async () => ({ text: 'Domanda iniziale' }),
-        };
+        return { content: source.text, hasReliableSourceContext: true };
       },
     },
     projectLibrary: {
@@ -1536,9 +1761,6 @@ test('handleSourceUpload reattach clears transient session state and invalidates
   });
 
   state.internalState.assessmentMessages = [{ role: 'model', text: 'Vecchia chat' }];
-  state.internalState.chatSession = {
-    sendMessage: async () => ({ text: 'unused' }),
-  };
   state.internalState.openingProjectId = 'project-opening';
   state.internalState.missingSourceProjectId = 'project-reattach';
   const staleLoadSectionRequestId = state.adapter.beginWorkflow(
@@ -1555,7 +1777,6 @@ test('handleSourceUpload reattach clears transient session state and invalidates
   assert.equal(projectLibrary.savedOverrides.length, 1);
   assert.equal(projectLibrary.savedOverrides[0]?.source?.kind, 'pdf');
   assert.deepEqual(state.internalState.assessmentMessages, []);
-  assert.equal(state.internalState.chatSession, null);
   assert.equal(state.internalState.openingProjectId, null);
   assert.equal(state.internalState.missingSourceProjectId, null);
   assert.equal(state.internalState.workflowState.loadSection.status, 'idle');
@@ -1563,11 +1784,8 @@ test('handleSourceUpload reattach clears transient session state and invalidates
   assert.equal(state.internalState.workflowState.attachSource.status, 'succeeded');
 });
 
-test('handleSourceUpload reattach preserves the active source and session when persistence fails', async () => {
+test('handleSourceUpload reattach preserves the active source and messages when persistence fails', async () => {
   const existingSource = createProjectSourceFromFile(markdownFile);
-  const existingChatSession = {
-    sendMessage: async () => ({ text: 'Sessione esistente' }),
-  };
   const hydrationStates: boolean[] = [];
   const { controller, domain, state } = createControllerHarness({
     domain: {
@@ -1582,7 +1800,6 @@ test('handleSourceUpload reattach preserves the active source and session when p
     },
   });
   state.internalState.assessmentMessages = [{ role: 'model', text: 'Chat esistente' }];
-  state.internalState.chatSession = existingChatSession;
   const activeLoadRequestId = state.adapter.beginWorkflow('loadSection', 'Caricamento esistente');
 
   const result = await controller.handleSourceUpload(
@@ -1596,7 +1813,6 @@ test('handleSourceUpload reattach preserves the active source and session when p
   assert.deepEqual(state.internalState.assessmentMessages, [
     { role: 'model', text: 'Chat esistente' },
   ]);
-  assert.equal(state.internalState.chatSession, existingChatSession);
   assert.equal(state.adapter.isWorkflowCurrent('loadSection', activeLoadRequestId), true);
   assert.equal(state.internalState.workflowState.attachSource.status, 'failed');
   assert.deepEqual(hydrationStates, [false, true]);
@@ -1669,12 +1885,9 @@ test('handleSourceUpload bounds previews for a 20k-file archive before starting 
   let assessmentText = '';
   const { controller } = createControllerHarness({
     openRouter: {
-      createAssessmentChatFromTextSource: async source => {
+      buildAssessmentDocumentContextFromTextSource: source => {
         assessmentText = source.text;
-        return {
-          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
-          sendMessage: async () => ({ text: 'Domanda iniziale' }),
-        };
+        return { content: source.text, hasReliableSourceContext: true };
       },
     },
     projectLibrary: {
@@ -1713,21 +1926,15 @@ test('handleSourceUpload accepts markdown sources with missing mime and stores t
   let fileAssessmentCalls = 0;
   const { controller, domain, projectLibrary, state } = createControllerHarness({
     openRouter: {
-      createAssessmentChat: async () => {
+      buildAssessmentDocumentPrompt: async () => {
         fileAssessmentCalls += 1;
-        return {
-          getHistory: () => [],
-          sendMessage: async () => ({ text: 'Non dovrebbe partire' }),
-        };
+        return { content: 'Non dovrebbe partire', hasReliableSourceContext: true };
       },
-      createAssessmentChatFromTextSource: async source => {
+      buildAssessmentDocumentContextFromTextSource: source => {
         textAssessmentCalls += 1;
         assert.equal(source.name, 'notes.md');
         assert.equal(source.text.includes('Titolo'), true);
-        return {
-          getHistory: () => [{ role: 'assistant', content: 'Domanda iniziale' }],
-          sendMessage: async () => ({ text: 'Domanda iniziale' }),
-        };
+        return { content: source.text, hasReliableSourceContext: true };
       },
     },
   });
@@ -1759,10 +1966,12 @@ test('handleSourceUpload imports Nous backup zips instead of treating them as co
   const archiveFile = new File([await archive.arrayBuffer()], 'nous-backup.nous.zip', {
     type: 'application/zip',
   });
+  let importedProjectId = '';
   const { controller, domain, projectLibrary, state } = createControllerHarness({
     projectLibrary: {
-      importProjectData: async data => {
-        const snapshot = normalizeImportedProject(data);
+      importProjectArchive: async (_archive, targetProjectId) => {
+        importedProjectId = targetProjectId;
+        const snapshot = { ...archivedSnapshot, id: targetProjectId };
         return {
           meta: buildMeta(snapshot.id),
           snapshot,
@@ -1776,11 +1985,60 @@ test('handleSourceUpload imports Nous backup zips instead of treating them as co
   });
 
   assert.equal(result.outcome, 'imported');
-  assert.equal(projectLibrary.adapter.currentProjectId, 'backup-project');
+  assert.notEqual(importedProjectId, archivedSnapshot.id);
+  assert.equal(projectLibrary.adapter.currentProjectId, importedProjectId);
   assert.equal(state.internalState.screenState, AppState.READING);
   assert.equal(domain.source?.kind, 'pdf');
   assert.equal(domain.learningPlan?.title, archivedSnapshot.learningPlan?.title);
   assert.deepEqual(state.internalState.assessmentMessages, []);
+});
+
+test('handleSourceUpload removes a restored project when post-import hydration fails', async () => {
+  const previousSnapshot = createProjectSnapshot({
+    id: 'previous-project',
+    learningPlan: buildPlan({ title: 'Corso precedente' }),
+    source: createProjectSourceFromFile(markdownFile),
+    state: AppState.READING,
+  });
+  const archivedSnapshot = createProjectSnapshot({
+    id: 'backup-project',
+    source: createProjectSourceFromFile(pdfFile),
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const archive = await createProjectArchiveBlob(archivedSnapshot);
+  const archiveFile = new File([await archive.arrayBuffer()], 'nous-backup.nous.zip', {
+    type: 'application/zip',
+  });
+  let importedProjectId = '';
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    loadedSnapshot: previousSnapshot,
+    projectLibrary: {
+      importProjectArchive: async (_archive, targetProjectId) => {
+        importedProjectId = targetProjectId;
+        return {
+          meta: buildMeta(targetProjectId),
+          snapshot: { ...archivedSnapshot, id: targetProjectId },
+        };
+      },
+      touchStoredProject: async () => {
+        throw new Error('touch failed');
+      },
+    },
+  });
+  projectLibrary.adapter.setCurrentProjectId(previousSnapshot.id);
+  domain.hydrateSnapshot(previousSnapshot);
+
+  const result = await controller.handleSourceUpload(archiveFile, { mode: 'new-project' });
+
+  assert.equal(result.outcome, 'started-assessment');
+  assert.equal(result.errorMessage, 'touch failed');
+  assert.notEqual(importedProjectId, '');
+  assert.deepEqual(projectLibrary.deletedProjectIds, [importedProjectId]);
+  assert.equal(projectLibrary.adapter.currentProjectId, previousSnapshot.id);
+  assert.equal(domain.learningPlan?.title, 'Corso precedente');
+  assert.equal(domain.source?.kind, 'document');
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
 });
 
 test('handleSourceUpload rejects unsupported binary sources with a clear error', async () => {
@@ -1801,49 +2059,23 @@ test('handleSourceUpload rejects unsupported binary sources with a clear error',
   assert.equal(projectLibrary.persistedSnapshots.length, 0);
 });
 
-test('startLearnJourney resets the workspace and lands in learn assessment', async () => {
-  const existingPlan = buildPlan();
-  const { controller, domain, projectLibrary, state } = createControllerHarness({
-    domain: {
-      activeSectionId: 'lesson-1',
-      isLearnMode: false,
-      learningPlan: existingPlan,
-      source: createProjectSourceFromFile(pdfFile),
-      domainState: {
-        source: createProjectSourceFromFile(pdfFile),
-        learningPlan: existingPlan,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: 'lesson-1',
-      },
-    },
-  });
-
-  const result = await controller.startLearnJourney();
-
-  assert.equal(result.outcome, 'started');
-  assert.equal(state.internalState.screenState, AppState.ASSESSMENT);
-  assert.equal(domain.isLearnMode, true);
-  assert.equal(domain.learningPlan, null);
-  assert.equal(projectLibrary.persistedSnapshots.length, 1);
-  assert.equal(projectLibrary.persistedSnapshots[0]?.isLearnMode, true);
-  assert.equal(state.internalState.assessmentMessages[0]?.text.includes('Architect'), true);
-});
-
-test('startHomeChat passes the Nuovo corso preference to the model without altering the visible user message', async () => {
-  let sentMessage = '';
+test('startHomeChat starts a durable interview with the visible user message', async () => {
+  const startCourseInterview = vi.fn(
+    async (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').startCourseInterview
+      >[0]
+    ) =>
+      createInterviewSnapshot({
+        messages: [
+          { role: 'user', text: input.initialMessage || '' },
+          { role: 'model', text: 'Profilazione' },
+        ],
+        projectId: input.projectId,
+      })
+  );
   const { controller, state } = createControllerHarness({
-    openRouter: {
-      createEmbeddedLearnAssessmentChat: () => ({
-        sendMessage: async ({ message }) => {
-          sentMessage = message;
-          return { text: 'Profilazione' };
-        },
-      }),
-    },
+    openRouter: { startCourseInterview },
   });
 
   const result = await controller.startHomeChat({
@@ -1856,8 +2088,91 @@ test('startHomeChat passes the Nuovo corso preference to the model without alter
     state.internalState.assessmentMessages[0]?.text,
     'Vorrei capire meglio come studiare'
   );
-  assert.equal(sentMessage.includes('[Preferenza utente attiva: Nuovo corso]'), true);
-  assert.equal(sentMessage.includes('Vorrei capire meglio come studiare'), true);
+  const startInput = startCourseInterview.mock.calls[0]?.[0];
+  assert.equal(startInput?.initialMessage, 'Vorrei capire meglio come studiare');
+  assert.equal(startInput?.mode, 'learn');
+  assert.equal(startInput?.hasReliableSourceContext, false);
+});
+
+test('startHomeChat resumes the authoritative active interview instead of starting another', async () => {
+  const startCourseInterview = vi.fn();
+  const active = createInterviewSnapshot({
+    messages: [{ role: 'model', text: 'Intervista ripresa' }],
+    projectId: 'active-project',
+  });
+  const { controller, state } = createControllerHarness({
+    openRouter: {
+      getActiveCourseInterview: async projectId => ({ ...active, projectId }),
+      startCourseInterview,
+    },
+  });
+
+  const result = await controller.startHomeChat({ input: 'Continuiamo' });
+
+  assert.equal(result.outcome, 'continued');
+  assert.deepEqual(state.internalState.assessmentMessages, active.messages);
+  assert.equal(startCourseInterview.mock.calls.length, 0);
+});
+
+test('startHomeChat removes a new draft when interview creation is definitively rejected', async () => {
+  const { controller, projectLibrary, state } = createControllerHarness({
+    openRouter: {
+      getActiveCourseInterview: async () => null,
+      startCourseInterview: async () => {
+        throw new Error('runtime unavailable');
+      },
+    },
+  });
+
+  const result = await controller.startHomeChat({ input: 'Voglio imparare crittografia' });
+
+  assert.equal(result.outcome, 'failed');
+  assert.equal(projectLibrary.deletedProjectIds.length, 1);
+  assert.equal(projectLibrary.adapter.currentProjectId, null);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+});
+
+test('startHomeChat preserves a recoverable draft when interview ownership is uncertain', async () => {
+  let activeLookupCount = 0;
+  const { controller, projectLibrary } = createControllerHarness({
+    openRouter: {
+      getActiveCourseInterview: async () => {
+        activeLookupCount += 1;
+        if (activeLookupCount === 1) return null;
+        throw new Error('network unavailable');
+      },
+      startCourseInterview: async () => {
+        throw new Error('poll interrupted');
+      },
+    },
+  });
+
+  const result = await controller.startHomeChat({ input: 'Voglio imparare crittografia' });
+
+  assert.equal(result.outcome, 'failed');
+  assert.deepEqual(projectLibrary.deletedProjectIds, []);
+});
+
+test('startHomeChat clears client state after semantic cancellation by the model', async () => {
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    openRouter: {
+      startCourseInterview: async input =>
+        createInterviewSnapshot({
+          messages: [{ role: 'model', text: 'Intervista annullata.' }],
+          projectId: input.projectId,
+          result: { kind: 'cancelled', projectId: input.projectId },
+          status: 'completed',
+          wait: null,
+        }),
+    },
+  });
+
+  const result = await controller.startHomeChat({ input: 'Ho aperto questo flusso per errore' });
+
+  assert.equal(result.outcome, 'abandoned');
+  assert.equal(projectLibrary.adapter.currentProjectId, null);
+  assert.equal(domain.userProfile, null);
+  assert.deepEqual(state.internalState.assessmentMessages, []);
 });
 
 test('startHomeChat saves a ZIP before assessment and uses only the server index', async () => {
@@ -1872,11 +2187,9 @@ test('startHomeChat saves a ZIP before assessment and uses only the server index
   let assessmentText = '';
   const { controller, domain } = createControllerHarness({
     openRouter: {
-      createEmbeddedAssessmentChatFromTextSource: async source => {
+      buildAssessmentDocumentContextFromTextSource: source => {
         assessmentText = source.text;
-        return {
-          sendMessage: async () => ({ text: 'Continuiamo.' }),
-        };
+        return { content: source.text, hasReliableSourceContext: true };
       },
     },
     projectLibrary: {
@@ -1932,8 +2245,9 @@ test('startHomeChat reports each unusable source while continuing with valid mat
         }
         return null;
       },
-      createEmbeddedAssessmentChatFromSourceSet: async () => ({
-        sendMessage: async () => ({ text: 'Continuiamo con la fonte valida.' }),
+      buildAssessmentDocumentContextFromSourceSet: sources => ({
+        content: sources.map(source => source.name).join('\n'),
+        hasReliableSourceContext: true,
       }),
     },
   });
@@ -1955,87 +2269,96 @@ test('startHomeChat reports each unusable source while continuing with valid mat
   ]);
 });
 
-test('submitAssessment in learn mode finalizes the profile and generates the first lesson', async () => {
-  const profileArgs = {
-    topic: 'TypeScript',
-    experienceLevel: 'Intermediate',
-    learningStyle: 'Practical',
-    goals: 'Ship features',
-    context: 'Frontend developer',
-  };
-  const { controller, domain, projectLibrary, state } = createControllerHarness({
-    domain: {
-      isLearnMode: true,
-      domainState: {
-        source: null,
-        learningPlan: null,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: true,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: null,
-      },
-    },
+test('submitAssessment sends the durable user-answer signal and applies the proposal', async () => {
+  const sendCourseInterviewAnswer = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewAnswer
+      >[0]
+    ) => createProposalSnapshot('learn-project')
+  );
+  const { controller, domain } = createControllerHarness({
     projectLibrary: {
       currentProjectId: 'learn-project',
     },
-  });
-
-  state.adapter.setChatSession({
-    sendMessage: async () => ({
-      text: '',
-      functionCalls: [{ name: 'finalizeProfile', args: profileArgs }],
-    }),
+    openRouter: {
+      getActiveCourseInterview: async () => createInterviewSnapshot({ projectId: 'learn-project' }),
+      sendCourseInterviewAnswer,
+    },
   });
 
   const result = await controller.submitAssessment('Fammi imparare TypeScript');
 
-  assert.equal(result.outcome, 'planned');
+  assert.equal(result.outcome, 'assessment-complete');
   assert.equal(domain.userProfile?.topic, 'TypeScript');
-  assert.equal(getLessons(domain.learningPlan).length, 1);
-  assert.equal(domain.activeSectionId, 'lesson-1');
-  assert.equal(state.internalState.screenState, AppState.READING);
-  assert.equal(projectLibrary.savedOverrides[0]?.userProfile?.topic, 'TypeScript');
+  assert.deepEqual(sendCourseInterviewAnswer.mock.calls[0]?.[0], {
+    projectId: 'learn-project',
+    runId: 'interview-run',
+    text: 'Fammi imparare TypeScript',
+    waitId: 'answer-wait',
+  });
 });
 
-test('submitAssessment forwards the Nuovo corso preference to the active chat session', async () => {
-  let sentMessage = '';
-  const { controller, state } = createControllerHarness({
-    domain: {
-      isLearnMode: true,
-      domainState: {
-        source: null,
-        learningPlan: null,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: true,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: null,
-      },
+test('submitAssessment sends add-details when the durable proposal awaits a decision', async () => {
+  const sendCourseInterviewDecision = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewDecision
+      >[0]
+    ) => createProposalSnapshot('learn-project')
+  );
+  const { controller } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'learn-project' },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('learn-project'),
+      sendCourseInterviewDecision,
     },
   });
 
-  state.adapter.setChatSession({
-    sendMessage: async ({ message }) => {
-      sentMessage = message;
-      return { text: 'Profilazione' };
+  const result = await controller.submitAssessment('Aggiungi più esercizi pratici');
+
+  assert.equal(result.outcome, 'assessment-complete');
+  assert.deepEqual(sendCourseInterviewDecision.mock.calls[0]?.[0], {
+    decision: { details: 'Aggiungi più esercizi pratici', kind: 'add-details' },
+    projectId: 'learn-project',
+    runId: 'interview-run',
+    waitId: 'decision-wait',
+  });
+});
+
+test('submitAssessment clears the old proposal when add-details opens another question', async () => {
+  const { controller, domain } = createControllerHarness({
+    domain: { userProfile: createProposalSnapshot('learn-project').proposal },
+    projectLibrary: { currentProjectId: 'learn-project' },
+    openRouter: {
+      getActiveCourseInterview: async () => createProposalSnapshot('learn-project'),
+      sendCourseInterviewDecision: async input =>
+        createInterviewSnapshot({
+          messages: [{ role: 'model', text: 'Quale tipo di esercizi preferisci?' }],
+          projectId: input.projectId,
+          wait: {
+            expiresAt: '2026-08-09T10:00:00.000Z',
+            signalType: 'user-answer',
+            waitId: 'answer-wait-2',
+          },
+        }),
     },
   });
 
-  const result = await controller.submitAssessment('Fammi una domanda utile', {
-    mode: 'new-course',
-    newCourse: true,
-  });
+  const result = await controller.submitAssessment('Aggiungi più esercizi pratici');
 
   assert.equal(result.outcome, 'continued');
-  assert.equal(sentMessage.includes('[Preferenza utente attiva: Nuovo corso]'), true);
-  assert.equal(sentMessage.includes('Fammi una domanda utile'), true);
-  assert.equal(state.internalState.assessmentMessages.at(-1)?.text, 'Profilazione');
+  assert.equal(domain.userProfile, null);
 });
 
-test('submitAssessment lets the assessment agent abandon an accidental course flow', async () => {
+test('cancelAssessment cancels a durable interview that is waiting for an answer', async () => {
+  const cancelCourseInterview = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').cancelCourseInterview
+      >[0]
+    ) => {}
+  );
   const { controller, domain, projectLibrary, state } = createControllerHarness({
     domain: {
       isLearnMode: true,
@@ -2053,137 +2376,142 @@ test('submitAssessment lets the assessment agent abandon an accidental course fl
     projectLibrary: {
       currentProjectId: 'accidental-course',
     },
+    openRouter: {
+      cancelCourseInterview,
+      getActiveCourseInterview: async () =>
+        createInterviewSnapshot({ projectId: 'accidental-course' }),
+    },
   });
   state.adapter.setAssessmentMessages([{ role: 'model', text: 'Prima domanda' }]);
-  state.adapter.setChatSession({
-    sendMessage: async () => ({
-      text: '',
-      functionCalls: [{ name: 'abandonAssessment', args: {} }],
-    }),
+
+  await controller.cancelAssessment();
+
+  assert.deepEqual(cancelCourseInterview.mock.calls[0]?.[0], {
+    projectId: 'accidental-course',
+    runId: 'interview-run',
   });
-
-  const result = await controller.submitAssessment('Sono entrato qui per sbaglio');
-
-  assert.equal(result.outcome, 'abandoned');
   assert.deepEqual(state.internalState.assessmentMessages, []);
   assert.equal(state.internalState.screenState, AppState.LIBRARY);
   assert.equal(projectLibrary.adapter.currentProjectId, null);
   assert.equal(domain.isLearnMode, false);
 });
 
-test('submitAssessment in document mode generates the plan after the minimum number of turns', async () => {
-  const { controller, domain, state } = createControllerHarness({
-    domain: {
-      file: pdfFile,
-      source: createProjectSourceFromFile(pdfFile),
-      domainState: {
-        source: createProjectSourceFromFile(pdfFile),
-        learningPlan: null,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: null,
-      },
-    },
+test('cancelAssessment sends the semantic cancel decision when a proposal is ready', async () => {
+  const cancelCourseInterview = vi.fn();
+  const sendCourseInterviewDecision = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewDecision
+      >[0]
+    ) =>
+      createInterviewSnapshot({
+        messages: [],
+        projectId: 'proposal-project',
+        result: { kind: 'cancelled', projectId: 'proposal-project' },
+        status: 'completed',
+        wait: null,
+      })
+  );
+  const { controller } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'proposal-project' },
     openRouter: {
-      generateLearningPlan: async () =>
-        buildPlan({
-          sections: [
-            {
-              id: 'lesson-1',
-              title: 'Lezione 1',
-              description: 'Intro',
-              isCompleted: false,
-              type: 'core',
-              content: '# Già pronta',
-              quiz: [],
-            },
-          ],
+      cancelCourseInterview,
+      getActiveCourseInterview: async () => createProposalSnapshot('proposal-project'),
+      sendCourseInterviewDecision,
+    },
+  });
+
+  await controller.cancelAssessment();
+
+  assert.deepEqual(sendCourseInterviewDecision.mock.calls[0]?.[0], {
+    decision: { kind: 'cancel' },
+    projectId: 'proposal-project',
+    runId: 'interview-run',
+    waitId: 'decision-wait',
+  });
+  assert.equal(cancelCourseInterview.mock.calls.length, 0);
+});
+
+test('submitAssessment exposes exhausted durable interviews as a controlled failure', async () => {
+  const { controller } = createControllerHarness({
+    projectLibrary: { currentProjectId: 'exhausted-project' },
+    openRouter: {
+      getActiveCourseInterview: async () =>
+        createInterviewSnapshot({ projectId: 'exhausted-project' }),
+      sendCourseInterviewAnswer: async () =>
+        createInterviewSnapshot({
+          messages: [],
+          projectId: 'exhausted-project',
+          result: { kind: 'exhausted', projectId: 'exhausted-project' },
+          status: 'completed',
+          wait: null,
         }),
     },
   });
 
-  state.adapter.setChatSession({
-    sendMessage: async () => ({ text: '[ASSESSMENT_COMPLETE]' }),
-  });
-  state.adapter.setAssessmentMessages([
-    { role: 'user', text: 'Uno' },
-    { role: 'model', text: 'Due' },
-    { role: 'user', text: 'Tre' },
-    { role: 'model', text: 'Quattro' },
-  ]);
+  const result = await controller.submitAssessment('Un altro dettaglio');
 
-  const assessmentResult = await controller.submitAssessment('Quinta risposta');
-  const result = await controller.confirmPlanGeneration();
-
-  assert.equal(assessmentResult.outcome, 'assessment-complete');
-  assert.equal(result.outcome, 'planned');
-  assert.equal(state.internalState.screenState, AppState.READING);
-  assert.equal(getLessons(domain.learningPlan)[0]?.title, 'Lezione 1');
+  assert.equal(result.outcome, 'failed');
+  assert.equal(result.errorMessage, 'L’intervista ha raggiunto il limite di sicurezza. Riprova.');
 });
 
-test('submitAssessment in document mode can generate a plan for text-backed sources', async () => {
-  const markdownSource = createProjectSourceFromFile(markdownFile);
-  let planFileArg: FileData | undefined;
-  const { controller, domain, state } = createControllerHarness({
+test('confirmPlanGeneration approves the durable proposal and resumes its course run', async () => {
+  const resumeActiveDurableCourse = vi.fn(
+    async (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').resumeActiveDurableCourse
+      >[0]
+    ) => ({ firstSectionId: 'lesson-1', projectId: input.projectId, projectRevision: 4 })
+  );
+  const sendCourseInterviewDecision = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').sendCourseInterviewDecision
+      >[0]
+    ) =>
+      createInterviewSnapshot({
+        generationRunId: 'course-run-1',
+        projectId: 'document-project',
+        result: {
+          generationRunId: 'course-run-1',
+          kind: 'approved',
+          projectId: 'document-project',
+        },
+        status: 'completed',
+        wait: null,
+      })
+  );
+  const { controller, projectLibrary, state } = createControllerHarness({
     domain: {
-      file: null,
-      source: markdownSource,
-      domainState: {
-        source: markdownSource,
-        learningPlan: null,
-        documentAssets: null,
-        documentIndex: null,
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: null,
-      },
+      file: pdfFile,
+      source: createProjectSourceFromFile(pdfFile),
+      userProfile: interviewProfile,
     },
+    projectLibrary: { currentProjectId: 'document-project' },
     openRouter: {
-      generateLearningPlan: async file => {
-        planFileArg = file;
-        return buildPlan({
-          sections: [
-            {
-              id: 'lesson-1',
-              title: 'Lezione 1',
-              description: 'Intro',
-              isCompleted: false,
-              type: 'core',
-              content: '# Già pronta',
-              quiz: [],
-            },
-          ],
-        });
-      },
+      getActiveCourseInterview: async () => createProposalSnapshot('document-project'),
+      resumeActiveDurableCourse,
+      sendCourseInterviewDecision,
     },
   });
 
-  state.adapter.setChatSession({
-    sendMessage: async () => ({ text: '[ASSESSMENT_COMPLETE]' }),
-  });
-  state.adapter.setAssessmentMessages([
-    { role: 'user', text: 'Uno' },
-    { role: 'model', text: 'Due' },
-    { role: 'user', text: 'Tre' },
-    { role: 'model', text: 'Quattro' },
-  ]);
-
-  const assessmentResult = await controller.submitAssessment('Quinta risposta');
   const result = await controller.confirmPlanGeneration();
 
-  assert.equal(assessmentResult.outcome, 'assessment-complete');
   assert.equal(result.outcome, 'planned');
-  assert.equal(planFileArg?.name, 'notes.md');
-  assert.equal(planFileArg?.mimeType, 'text/markdown');
   assert.equal(state.internalState.screenState, AppState.READING);
-  assert.equal(getLessons(domain.learningPlan)[0]?.title, 'Lezione 1');
+  assert.deepEqual(sendCourseInterviewDecision.mock.calls[0]?.[0], {
+    decision: { kind: 'approve' },
+    projectId: 'document-project',
+    runId: 'interview-run',
+    waitId: 'decision-wait',
+  });
+  assert.equal(resumeActiveDurableCourse.mock.calls[0]?.[0].projectId, 'document-project');
+  assert.deepEqual(projectLibrary.appliedProjectRevisions, [
+    { projectId: 'document-project', revision: 4 },
+  ]);
 });
 
-test('submitAssessment plans a reopened archive without downloading the ZIP', async () => {
+test('confirmPlanGeneration resumes a reopened archive without downloading the ZIP', async () => {
   const archiveSource = {
     file: {
       data: '',
@@ -2212,9 +2540,15 @@ test('submitAssessment plans a reopened archive without downloading the ZIP', as
       objectPath: `users/user/projects/project/source-archive/${'a'.repeat(64)}/original`,
     },
   };
-  let archivePlanningCalls = 0;
   let sourceDownloadCalls = 0;
-  const { controller, state } = createControllerHarness({
+  const resumeActiveDurableCourse = vi.fn(
+    async (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').resumeActiveDurableCourse
+      >[0]
+    ) => ({ firstSectionId: 'lesson-1', projectId: input.projectId, projectRevision: 5 })
+  );
+  const { controller } = createControllerHarness({
     domain: {
       file: null,
       source: archiveSource,
@@ -2237,30 +2571,15 @@ test('submitAssessment plans a reopened archive without downloading the ZIP', as
       },
     },
     openRouter: {
-      generateLearningPlan: async () => {
-        throw new Error('Archive planning must use the archive tool flow.');
-      },
-      generateLearningPlanFromSourceArchive: async () => {
-        archivePlanningCalls += 1;
-        return buildPlan();
-      },
+      getActiveCourseInterview: async () => createProposalSnapshot('archive-project'),
+      resumeActiveDurableCourse,
     },
   });
-  state.adapter.setChatSession({
-    sendMessage: async () => ({ text: '[ASSESSMENT_COMPLETE]' }),
-  });
-  state.adapter.setAssessmentMessages([
-    { role: 'user', text: 'Uno' },
-    { role: 'model', text: 'Due' },
-    { role: 'user', text: 'Tre' },
-    { role: 'model', text: 'Quattro' },
-  ]);
 
-  await controller.submitAssessment('Quinta risposta');
   const result = await controller.confirmPlanGeneration();
 
   assert.equal(result.outcome, 'planned');
-  assert.equal(archivePlanningCalls, 1);
+  assert.equal(resumeActiveDurableCourse.mock.calls[0]?.[0].projectId, 'archive-project');
   assert.equal(sourceDownloadCalls, 0);
 });
 
@@ -2308,6 +2627,7 @@ test('openSection reuses cached lessons and only generates when content is missi
           projectId: 'project-1',
           quiz: [],
           sectionId: 'lesson-1',
+          warnings: [],
         };
       },
     },
@@ -2380,6 +2700,14 @@ test('openSection delegates production lesson work to the durable backend job', 
         title: 'Fotosintesi',
       },
       sectionId: 'lesson-1',
+      warnings: [
+        {
+          code: 'lesson_pdf_image_extraction_incomplete' as const,
+          pageNumber: 4,
+          sourceId: 'source-1',
+          stage: 'sources' as const,
+        },
+      ],
     })
   );
   const { controller, domain, projectLibrary } = createControllerHarness({
@@ -2392,6 +2720,14 @@ test('openSection delegates production lesson work to the durable backend job', 
 
   assert.equal(outcome, 'loaded');
   assert.equal(getLessons(domain.learningPlan)[0]?.content, '# Lezione durevole');
+  assert.deepEqual(getLessons(domain.learningPlan)[0]?.generationWarnings, [
+    {
+      code: 'lesson_pdf_image_extraction_incomplete',
+      pageNumber: 4,
+      sourceId: 'source-1',
+      stage: 'sources',
+    },
+  ]);
   assert.equal(
     domain.researchDossiersBySectionId['lesson-1']?.factualSummary,
     'Dossier salvato dal backend.'
@@ -2402,11 +2738,13 @@ test('openSection delegates production lesson work to the durable backend job', 
   ]);
   const generationRequest = generateDurableLesson.mock.calls[0]?.[0];
   assert.equal(typeof generationRequest?.onProgressStage, 'function');
+  assert.equal(typeof generationRequest?.onWorkflowSnapshot, 'function');
   assert.deepEqual(generateDurableLesson.mock.calls, [
     [
       {
         forceRegenerate: false,
         onProgressStage: generationRequest?.onProgressStage,
+        onWorkflowSnapshot: generationRequest?.onWorkflowSnapshot,
         projectId: 'project-1',
         sectionId: 'lesson-1',
       },
@@ -2452,6 +2790,38 @@ test('openSection exposes a durable busy error instead of silently ignoring it',
   assert.equal(disposeProgressObserver.mock.calls.length, 1);
 });
 
+test('openSection marks a missing durable source for reattachment', async () => {
+  const plan = buildPlan({
+    sections: [
+      {
+        id: 'lesson-1',
+        title: 'Fotosintesi',
+        description: 'Energia luminosa',
+        isCompleted: false,
+        type: 'core',
+      },
+    ],
+  });
+  const sourceError = new LessonSourceUnavailableError();
+  const { controller, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      generateDurableLesson: vi.fn(async () => {
+        throw sourceError;
+      }),
+    },
+  });
+
+  await assert.rejects(controller.openSection(getLessons(plan)[0]), sourceError);
+  assert.equal(state.internalState.missingSourceProjectId, 'project-1');
+  assert.equal(state.internalState.workflowState.loadSection.status, 'failed');
+  assert.equal(
+    state.internalState.workflowState.loadSection.error,
+    t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
+  );
+});
+
 test('openSection ignores a durable result older than the known project revision', async () => {
   const plan = buildPlan({
     sections: [
@@ -2479,6 +2849,7 @@ test('openSection ignores a durable result older than the known project revision
         projectRevision: 5,
         quiz: [],
         sectionId: 'lesson-1',
+        warnings: [],
       })),
     },
   });
@@ -2563,6 +2934,131 @@ test('openSection never starts a second lesson generation', async () => {
   assert.equal(generationCalls, 0);
 });
 
+test('openSection reopens the lesson already generating without resetting its authoritative timer', async () => {
+  const plan = buildPlan({
+    sections: [
+      buildTestLesson({ id: 'lesson-1', title: 'Lezione in generazione' }),
+      buildTestLesson({
+        content: '# Lezione pronta',
+        id: 'lesson-2',
+        title: 'Lezione pronta',
+      }),
+    ],
+  });
+  let finishGeneration: (() => void) | undefined;
+  const generationGate = new Promise<void>(resolve => {
+    finishGeneration = resolve;
+  });
+  const generateDurableLesson = vi.fn(
+    async (
+      input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').generateDurableLesson
+      >[0]
+    ) => {
+      input.onWorkflowSnapshot?.({
+        createdAt: '2026-07-29T20:00:00.000Z',
+        id: 'run-1',
+        projectId: 'project-1',
+        retrying: false,
+        sectionId: 'lesson-1',
+        stage: 'sources',
+        status: 'queued',
+        updatedAt: '2026-07-29T20:00:00.000Z',
+      });
+      input.onWorkflowSnapshot?.({
+        attempt: 2,
+        createdAt: '2026-07-29T20:00:00.000Z',
+        failure: { code: 'lesson_provider_unavailable', kind: 'operational' },
+        id: 'run-1',
+        projectId: 'project-1',
+        retrying: true,
+        sectionId: 'lesson-1',
+        stage: 'structure',
+        startedAt: '2026-07-29T20:01:00.000Z',
+        status: 'running',
+        updatedAt: '2026-07-29T20:02:00.000Z',
+      });
+      input.onProgressStage?.('structure');
+      await generationGate;
+      return {
+        content: '# Lezione generata',
+        contentBlocks: [],
+        generatedVisuals: [],
+        imageRefs: [],
+        learningAids: [],
+        projectId: 'project-1',
+        quiz: [],
+        sectionId: 'lesson-1',
+        warnings: [],
+      };
+    }
+  );
+  const { controller, domain, state } = createControllerHarness({
+    domain: { learningPlan: plan },
+    projectLibrary: { currentProjectId: 'project-1' },
+    openRouter: {
+      createGenerationProgressObserver: ({
+        onUpdate,
+        operation,
+        subject,
+      }: Parameters<
+        typeof import('../../../services/openrouter/index.ts').createGenerationProgressObserver
+      >[0]) => {
+        const clientStartedAt = Date.parse('2026-07-29T20:10:00.000Z');
+        const emit = (stage: 'sources' | 'structure') =>
+          onUpdate({
+            operation,
+            sections: [],
+            stage,
+            startedAt: clientStartedAt,
+            stepOffset: 0,
+            subject,
+          });
+        emit('sources');
+        return {
+          complete: vi.fn(),
+          dispose: vi.fn(),
+          finish: vi.fn(async () => undefined),
+          push: vi.fn(),
+          setStage: vi.fn(stage => emit(stage as 'sources' | 'structure')),
+          updateStatus: vi.fn(),
+        };
+      },
+      generateDurableLesson,
+    },
+  });
+  const [generatingLesson, readyLesson] = getLessons(plan);
+
+  const generation = controller.openSection(generatingLesson);
+  await Promise.resolve();
+  const authoritativeStartedAt = Date.parse('2026-07-29T20:00:00.000Z');
+  assert.equal(
+    state.internalState.workflowState.loadSection.progress?.startedAt,
+    authoritativeStartedAt
+  );
+  assert.equal(state.internalState.workflowState.loadSection.progress?.attempt, 2);
+  assert.equal(state.internalState.workflowState.loadSection.progress?.retrying, true);
+  assert.deepEqual(state.internalState.workflowState.loadSection.progress?.failure, {
+    code: 'lesson_provider_unavailable',
+    kind: 'operational',
+  });
+  assert.equal(await controller.openSection(readyLesson), 'reused-cached');
+  assert.equal(domain.activeSectionId, 'lesson-2');
+
+  const reopened = await controller.openSection(generatingLesson);
+
+  assert.equal(reopened, 'reopened-generating');
+  assert.equal(domain.activeSectionId, 'lesson-1');
+  assert.equal(generateDurableLesson.mock.calls.length, 1);
+  assert.equal(
+    state.internalState.workflowState.loadSection.progress?.startedAt,
+    authoritativeStartedAt
+  );
+
+  finishGeneration?.();
+  assert.equal(await generation, 'loaded');
+});
+
 test('lesson generation discards an invalidated sublesson and rejects competing commands until it settles', async () => {
   const plan = buildPlan({
     sections: [
@@ -2570,15 +3066,15 @@ test('lesson generation discards an invalidated sublesson and rejects competing 
       buildTestLesson({ id: 'lesson-2', title: 'Lezione 2' }),
     ],
   });
-  let metadataCalls = 0;
-  let generationCalls = 0;
-  let releaseMetadata: (() => void) | undefined;
-  let markMetadataStarted: (() => void) | undefined;
-  const metadataGate = new Promise<void>(resolve => {
-    releaseMetadata = resolve;
+  let sublessonCalls = 0;
+  let lessonCalls = 0;
+  let releaseSublesson: (() => void) | undefined;
+  let markSublessonStarted: (() => void) | undefined;
+  const sublessonGate = new Promise<void>(resolve => {
+    releaseSublesson = resolve;
   });
-  const metadataStarted = new Promise<void>(resolve => {
-    markMetadataStarted = resolve;
+  const sublessonStarted = new Promise<void>(resolve => {
+    markSublessonStarted = resolve;
   });
   const { controller, recreateController, state } = createControllerHarness({
     domain: {
@@ -2590,21 +3086,35 @@ test('lesson generation discards an invalidated sublesson and rejects competing 
     },
     projectLibrary: { currentProjectId: 'project-1' },
     openRouter: {
-      createSubChapterMetadata: async () => {
-        metadataCalls += 1;
-        markMetadataStarted?.();
-        await metadataGate;
+      generateDurableSublesson: async input => {
+        sublessonCalls += 1;
+        markSublessonStarted?.();
+        input.onWorkflowSnapshot?.({
+          createdAt: '2026-07-30T18:00:00.000Z',
+          id: 'run-sublesson',
+          projectId: input.projectId,
+          retrying: false,
+          sectionId: 'deep-ignored',
+          stage: 'structure',
+          status: 'running',
+          updatedAt: '2026-07-30T18:00:01.000Z',
+        });
+        await sublessonGate;
         return {
-          id: `deep-${metadataCalls}`,
-          title: 'Approfondimento',
-          description: 'Dettaglio',
-          isCompleted: false,
-          type: 'deep-dive' as const,
-          parentId: 'lesson-1',
+          content: '# Approfondimento',
+          contentBlocks: [],
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          projectId: input.projectId,
+          projectRevision: 2,
+          quiz: [],
+          sectionId: 'deep-ignored',
+          warnings: [],
         };
       },
       generateDurableLesson: async () => {
-        generationCalls += 1;
+        lessonCalls += 1;
         return {
           content: '# Lezione generata',
           contentBlocks: [],
@@ -2615,6 +3125,7 @@ test('lesson generation discards an invalidated sublesson and rejects competing 
           projectId: 'project-1',
           quiz: [],
           sectionId: 'lesson-1',
+          warnings: [],
         };
       },
     },
@@ -2624,7 +3135,7 @@ test('lesson generation discards an invalidated sublesson and rejects competing 
     instructions: 'Approfondisci',
     selectedText: 'testo',
   });
-  await metadataStarted;
+  await sublessonStarted;
   state.adapter.invalidateWorkflows(['createLesson']);
   const recreatedController = recreateController();
 
@@ -2633,7 +3144,7 @@ test('lesson generation discards an invalidated sublesson and rejects competing 
     selectedText: 'testo',
   });
   const competingLesson = recreatedController.openSection(getLessons(plan)[1]);
-  releaseMetadata?.();
+  releaseSublesson?.();
 
   const [firstResult, duplicateResult, competingResult] = await Promise.all([
     firstSublesson,
@@ -2645,18 +3156,31 @@ test('lesson generation discards an invalidated sublesson and rejects competing 
   assert.equal(duplicateResult.outcome, 'failed');
   assert.ok(duplicateResult.errorMessage);
   assert.equal(competingResult, 'ignored-busy');
-  assert.equal(metadataCalls, 1);
-  assert.equal(generationCalls, 0);
+  assert.equal(sublessonCalls, 1);
+  assert.equal(lessonCalls, 0);
 
   const afterSuccess = await controller.openSection(getLessons(plan)[1]);
   assert.equal(afterSuccess, 'loaded');
-  assert.equal(generationCalls, 1);
+  assert.equal(lessonCalls, 1);
 });
 
 test('sublesson generation releases its gate after an error', async () => {
   const plan = buildPlan();
-  let metadataCalls = 0;
-  const { controller } = createControllerHarness({
+  const generatedPlan = buildPlan({
+    sections: [
+      buildTestLesson({ id: 'lesson-1', title: 'Lezione 1' }),
+      buildTestLesson({
+        id: 'deep-after-error',
+        title: 'Approfondimento',
+        type: 'deep-dive',
+        parentId: 'lesson-1',
+        content: '# Approfondimento',
+      }),
+      buildTestLesson({ id: 'lesson-2', title: 'Lezione 2' }),
+    ],
+  });
+  let sublessonCalls = 0;
+  const harness = createControllerHarness({
     domain: {
       activeSectionId: 'lesson-1',
       documentIndex: createReadyIndex(),
@@ -2666,35 +3190,51 @@ test('sublesson generation releases its gate after an error', async () => {
     },
     projectLibrary: { currentProjectId: 'project-1' },
     openRouter: {
-      createSubChapterMetadata: async () => {
-        metadataCalls += 1;
-        if (metadataCalls === 1) {
+      generateDurableSublesson: async input => {
+        sublessonCalls += 1;
+        if (sublessonCalls === 1) {
           throw new Error('Metadata non disponibili');
         }
         return {
-          id: 'deep-after-error',
-          title: 'Approfondimento',
-          description: 'Dettaglio',
-          isCompleted: false,
-          type: 'deep-dive' as const,
-          parentId: 'lesson-1',
+          content: '# Approfondimento',
+          contentBlocks: [],
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          projectId: input.projectId,
+          projectRevision: 2,
+          quiz: [],
+          sectionId: 'deep-after-error',
+          warnings: [],
         };
       },
     },
   });
+  harness.projectLibrary.adapter.applyPersistedProjectRevision = async args => {
+    harness.projectLibrary.appliedProjectRevisions.push(args);
+    harness.domain.hydrateSnapshot(
+      createProjectSnapshot({
+        activeSectionId: 'deep-after-error',
+        id: 'project-1',
+        learningPlan: generatedPlan,
+        state: AppState.READING,
+      })
+    );
+    return true;
+  };
 
-  const failed = await controller.createLessonFromSelection({
+  const failed = await harness.controller.createLessonFromSelection({
     instructions: 'Approfondisci',
     selectedText: 'testo',
   });
-  const retried = await controller.createLessonFromSelection({
+  const retried = await harness.controller.createLessonFromSelection({
     instructions: 'Riprova',
     selectedText: 'testo',
   });
 
   assert.equal(failed.outcome, 'failed');
   assert.equal(retried.outcome, 'created');
-  assert.equal(metadataCalls, 2);
+  assert.equal(sublessonCalls, 2);
 });
 
 test('lesson generation keeps its gate after workflow invalidation until the provider call settles', async () => {
@@ -2741,6 +3281,7 @@ test('lesson generation keeps its gate after workflow invalidation until the pro
           projectId: 'project-1',
           quiz: [],
           sectionId: 'lesson-1',
+          warnings: [],
         };
       },
     },
@@ -2824,6 +3365,7 @@ test('an active lesson generation blocks exercise brief and placement generation
           projectId: 'project-1',
           quiz: [],
           sectionId: 'lesson-1',
+          warnings: [],
         };
       },
     },
@@ -2878,6 +3420,7 @@ test('exercise brief generation keeps its gate after workflow invalidation until
     projectId: 'project-1',
     quiz: [],
     sectionId: 'lesson-1',
+    warnings: [],
   }));
   const { controller, state } = createControllerHarness({
     domain: {
@@ -2997,6 +3540,7 @@ test('exercise placement repair keeps its gate after workflow invalidation until
     projectId: 'project-1',
     quiz: [],
     sectionId: 'lesson-1',
+    warnings: [],
   }));
   const { controller, state } = createControllerHarness({
     domain: {
@@ -3096,14 +3640,7 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
     brief: '# Consegna',
     groundingSources: [],
   }));
-  const createSubChapterMetadata = vi.fn(async () => ({
-    id: 'deep-during-repair',
-    title: 'Approfondimento',
-    description: 'Dettaglio',
-    isCompleted: false,
-    type: 'deep-dive' as const,
-    parentId: 'lesson-1',
-  }));
+  const generateDurableSublesson = vi.fn();
   const generateDurableLesson = vi.fn(async () => ({
     content: '# Lezione generata',
     contentBlocks: [],
@@ -3114,6 +3651,7 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
     projectId: 'project-1',
     quiz: [],
     sectionId: 'lesson-1',
+    warnings: [],
   }));
   const { controller } = createControllerHarness({
     domain: {
@@ -3125,10 +3663,10 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
     },
     projectLibrary: { currentProjectId: 'project-1' },
     openRouter: {
-      createSubChapterMetadata,
       generateApplicationExerciseBrief,
       generateApplicationExercisePlacements,
       generateDurableLesson,
+      generateDurableSublesson,
       getExercisePrerequisiteGaps: () => [],
     },
   });
@@ -3145,7 +3683,7 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
 
   assert.equal(sublessonResult.outcome, 'failed');
   assert.equal(lessonResult, 'ignored-busy');
-  assert.equal(createSubChapterMetadata.mock.calls.length, 0);
+  assert.equal(generateDurableSublesson.mock.calls.length, 0);
   assert.equal(generateDurableLesson.mock.calls.length, 0);
   assert.equal(generateApplicationExerciseBrief.mock.calls.length, 0);
 
@@ -3153,62 +3691,20 @@ test('exercise placement generation blocks lesson, sublesson, and exercise brief
   assert.deepEqual(await repair, { outcome: 'repaired' });
 });
 
-test('createLessonFromSelection rolls back when nested lesson opening is ignored', async () => {
-  const plan = buildPlan();
-  let stateAdapter: WorkspaceControllerStateAdapter | undefined;
-  const generateDurableLesson = vi.fn();
-  const harness = createControllerHarness({
-    domain: {
-      activeSectionId: 'lesson-1',
-      isLearnMode: true,
-      learningPlan: plan,
-    },
-    projectLibrary: { currentProjectId: 'project-1' },
-    openRouter: {
-      createLearnSubChapterMetadata: async () => {
-        stateAdapter?.beginWorkflow('loadSection', 'Operazione concorrente');
-        return {
-          id: 'deep-ignored-open',
-          title: 'Approfondimento',
-          description: 'Dettaglio',
-          isCompleted: false,
-          type: 'deep-dive' as const,
-          parentId: 'lesson-1',
-        };
-      },
-      generateDurableLesson,
-    },
-  });
-  stateAdapter = harness.state.adapter;
-
-  const result = await harness.controller.createLessonFromSelection({
-    instructions: 'Approfondisci',
-    selectedText: 'testo',
-  });
-
-  assert.equal(result.outcome, 'failed');
-  assert.equal(generateDurableLesson.mock.calls.length, 0);
-  assert.deepEqual(
-    getLessons(harness.domain.learningPlan).map(lesson => lesson.id),
-    ['lesson-1', 'lesson-2']
-  );
-  assert.equal(harness.domain.activeSectionId, 'lesson-1');
-});
-
-test('createLessonFromSelection stops after persistence when another project is opened', async () => {
+test('createLessonFromSelection ignores durable completion after another project is opened', async () => {
   const firstPlan = buildPlan();
   const secondPlan = buildPlan({
     sections: [buildTestLesson({ id: 'project-2-lesson', title: 'Secondo progetto' })],
   });
-  let releasePersist: ((value: SavedProjectMeta | null) => void) | undefined;
-  let markPersistStarted: (() => void) | undefined;
-  const persistResult = new Promise<SavedProjectMeta | null>(resolve => {
-    releasePersist = resolve;
+  let releaseGeneration: (() => void) | undefined;
+  let markGenerationStarted: (() => void) | undefined;
+  const generationGate = new Promise<void>(resolve => {
+    releaseGeneration = resolve;
   });
-  const persistStarted = new Promise<void>(resolve => {
-    markPersistStarted = resolve;
+  const generationStarted = new Promise<void>(resolve => {
+    markGenerationStarted = resolve;
   });
-  const generateDurableLesson = vi.fn();
+  const applyPersistedProjectRevision = vi.fn(async () => true);
   const harness = createControllerHarness({
     domain: {
       activeSectionId: 'lesson-1',
@@ -3216,20 +3712,34 @@ test('createLessonFromSelection stops after persistence when another project is 
       learningPlan: firstPlan,
     },
     projectLibrary: {
+      applyPersistedProjectRevision,
       currentProjectId: 'project-1',
-      patchCurrentProject: async () => {
-        markPersistStarted?.();
-        return persistResult;
+    },
+    openRouter: {
+      generateDurableSublesson: async input => {
+        markGenerationStarted?.();
+        await generationGate;
+        return {
+          content: '# Approfondimento',
+          contentBlocks: [],
+          generatedVisuals: [],
+          imageRefs: [],
+          learningAids: [],
+          projectId: input.projectId,
+          projectRevision: 2,
+          quiz: [],
+          sectionId: 'deep-project-1',
+          warnings: [],
+        };
       },
     },
-    openRouter: { generateDurableLesson },
   });
 
   const creation = harness.controller.createLessonFromSelection({
     instructions: 'Approfondisci',
     selectedText: 'testo',
   });
-  await persistStarted;
+  await generationStarted;
 
   harness.projectLibrary.adapter.setCurrentProjectId('project-2');
   harness.state.adapter.invalidateWorkflows(['createLesson']);
@@ -3241,15 +3751,15 @@ test('createLessonFromSelection stops after persistence when another project is 
       learningPlan: secondPlan,
     })
   );
-  releasePersist?.(buildMeta('project-1'));
+  releaseGeneration?.();
 
   assert.deepEqual(await creation, { outcome: 'ignored-busy' });
   assert.equal(harness.domain.activeSectionId, 'project-2-lesson');
   assert.equal(harness.domain.learningPlan?.modules[0]?.children[0]?.id, 'project-2-lesson');
-  assert.equal(generateDurableLesson.mock.calls.length, 0);
+  assert.equal(applyPersistedProjectRevision.mock.calls.length, 0);
 });
 
-test('createLessonFromSelection inserts the deep dive after the parent subtree and opens it', async () => {
+test('createLessonFromSelection hydrates and opens the authoritative durable sublesson', async () => {
   const basePlan = buildPlan({
     sections: [
       {
@@ -3276,7 +3786,38 @@ test('createLessonFromSelection inserts the deep dive after the parent subtree a
       },
     ],
   });
-  const { controller, domain } = createControllerHarness({
+  const generatedPlan = buildPlan({
+    sections: [
+      ...getLessons(basePlan).slice(0, 2),
+      buildTestLesson({
+        id: 'deep-server',
+        title: 'Approfondimento generato',
+        type: 'deep-dive',
+        parentId: 'lesson-1',
+        content: '# Lezione generata',
+      }),
+      ...getLessons(basePlan).slice(2),
+    ],
+  });
+  const generateDurableSublesson = vi.fn(
+    async (
+      _input: Parameters<
+        typeof import('../../../services/openrouter/index.ts').generateDurableSublesson
+      >[0]
+    ) => ({
+      content: '# Lezione generata',
+      contentBlocks: [],
+      generatedVisuals: [],
+      imageRefs: [],
+      learningAids: [],
+      projectId: 'project-1',
+      projectRevision: 8,
+      quiz: [],
+      sectionId: 'deep-server',
+      warnings: [],
+    })
+  );
+  const harness = createControllerHarness({
     domain: {
       activeSectionId: 'lesson-1',
       documentIndex: createReadyIndex(),
@@ -3294,101 +3835,46 @@ test('createLessonFromSelection inserts the deep dive after the parent subtree a
         activeSectionId: 'lesson-1',
       },
     },
+    openRouter: { generateDurableSublesson },
     projectLibrary: { currentProjectId: 'project-1' },
   });
+  harness.projectLibrary.adapter.applyPersistedProjectRevision = async args => {
+    harness.projectLibrary.appliedProjectRevisions.push(args);
+    harness.domain.hydrateSnapshot(
+      createProjectSnapshot({
+        activeSectionId: 'deep-server',
+        documentIndex: createReadyIndex(),
+        id: 'project-1',
+        learningPlan: generatedPlan,
+        source: createProjectSourceFromFile(pdfFile),
+        state: AppState.READING,
+      })
+    );
+    return true;
+  };
 
-  const result = await controller.createLessonFromSelection({
+  const result = await harness.controller.createLessonFromSelection({
+    annotationNote: 'Nota',
+    contextAfter: 'Dopo',
+    contextBefore: 'Prima',
     instructions: 'Approfondisci',
     selectedText: 'testo',
   });
 
   assert.equal(result.outcome, 'created');
-  assert.equal(getLessons(domain.learningPlan)[2]?.id, 'deep-1');
-  assert.equal(domain.activeSectionId, 'deep-1');
-  assert.equal(getLessons(domain.learningPlan)[2]?.content, '# Lezione generata');
+  assert.equal(harness.domain.activeSectionId, 'deep-server');
+  assert.equal(getLessons(harness.domain.learningPlan)[2]?.content, '# Lezione generata');
+  assert.deepEqual(harness.projectLibrary.appliedProjectRevisions, [
+    { projectId: 'project-1', revision: 8 },
+  ]);
+  const request = generateDurableSublesson.mock.calls[0]?.[0];
+  assert.equal(request?.parentSectionId, 'lesson-1');
+  assert.equal(request?.selectedText, 'testo');
+  assert.equal(request?.annotationNote, 'Nota');
+  assert.equal('parentContent' in (request ?? {}), false);
 });
 
-test('createLessonFromSelection nests a child of child before the next sibling branch', async () => {
-  const basePlan = buildPlan({
-    sections: [
-      {
-        id: 'lesson-1',
-        title: 'Lezione 1',
-        description: 'Intro',
-        isCompleted: false,
-        type: 'core',
-      },
-      {
-        id: 'lesson-1-deep',
-        title: 'Approfondimento esistente',
-        description: 'Figlia diretta',
-        isCompleted: false,
-        type: 'deep-dive',
-        parentId: 'lesson-1',
-      },
-      {
-        id: 'lesson-1-deep-sibling',
-        title: 'Seconda figlia',
-        description: 'Ramo fratello',
-        isCompleted: false,
-        type: 'deep-dive',
-        parentId: 'lesson-1',
-      },
-      {
-        id: 'lesson-2',
-        title: 'Lezione 2',
-        description: 'Follow-up',
-        isCompleted: false,
-        type: 'core',
-      },
-    ],
-  });
-  const { controller, domain } = createControllerHarness({
-    domain: {
-      activeSectionId: 'lesson-1-deep',
-      documentIndex: createReadyIndex(),
-      file: pdfFile,
-      learningPlan: basePlan,
-      source: createProjectSourceFromFile(pdfFile),
-      domainState: {
-        source: createProjectSourceFromFile(pdfFile),
-        learningPlan: basePlan,
-        documentAssets: null,
-        documentIndex: createReadyIndex(),
-        isLearnMode: false,
-        userProfile: null,
-        syllabus: [],
-        activeSectionId: 'lesson-1-deep',
-      },
-    },
-    openRouter: {
-      createSubChapterMetadata: async () => ({
-        id: 'deep-1-nested',
-        title: 'Approfondimento annidato',
-        description: 'Dettaglio ricorsivo',
-        isCompleted: false,
-        type: 'deep-dive',
-        parentId: 'lesson-1-deep',
-      }),
-    },
-    projectLibrary: { currentProjectId: 'project-1' },
-  });
-
-  const result = await controller.createLessonFromSelection({
-    instructions: 'Scendi di un livello',
-    selectedText: 'testo',
-  });
-
-  assert.equal(result.outcome, 'created');
-  assert.deepEqual(
-    getLessons(domain.learningPlan).map(section => section.id),
-    ['lesson-1', 'lesson-1-deep', 'deep-1-nested', 'lesson-1-deep-sibling', 'lesson-2']
-  );
-  assert.equal(domain.activeSectionId, 'deep-1-nested');
-  assert.equal(getLessons(domain.learningPlan)[2]?.content, '# Lezione generata');
-});
-
-test('createLessonFromSelection rolls back the inserted lesson when generation fails', async () => {
+test('createLessonFromSelection leaves local state untouched when durable generation fails', async () => {
   const basePlan = buildPlan({
     sections: [
       {
@@ -3431,10 +3917,11 @@ test('createLessonFromSelection rolls back the inserted lesson when generation f
       },
     },
     openRouter: {
-      generateDurableLesson: async () => {
+      generateDurableSublesson: async () => {
         throw new Error('Risposta troncata');
       },
     },
+    projectLibrary: { currentProjectId: 'project-1' },
   });
 
   const result = await controller.createLessonFromSelection({
@@ -3448,7 +3935,7 @@ test('createLessonFromSelection rolls back the inserted lesson when generation f
     getLessons(domain.learningPlan).map(section => section.id),
     ['lesson-1', 'lesson-2']
   );
-  assert.equal(projectLibrary.savedOverrides.at(-1)?.activeSectionId, 'lesson-1');
+  assert.equal(projectLibrary.savedOverrides.length, 0);
   assert.equal(state.internalState.workflowState.createLesson.status, 'failed');
 });
 

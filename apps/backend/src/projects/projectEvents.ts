@@ -1,9 +1,11 @@
 import type { ProjectRevisionEvent } from './types.js';
 
 type ProjectRevisionListener = (event: ProjectRevisionEvent) => void;
+type ProjectRevisionCatchUpListener = () => void;
 
-// ponytail: in-process fan-out matches the single backend instance; use shared pub/sub before scaling horizontally.
+// Process-local SSE sink; workflow revision wakes enter every replica through the PostgreSQL inbox.
 const listenersByUserId = new Map<string, Set<ProjectRevisionListener>>();
+const catchUpListeners = new Set<ProjectRevisionCatchUpListener>();
 
 export const publishProjectRevision = (userId: string, event: ProjectRevisionEvent): void => {
   for (const listener of listenersByUserId.get(userId) || []) {
@@ -25,4 +27,17 @@ export const subscribeToProjectRevisions = (
       listenersByUserId.delete(userId);
     }
   };
+};
+
+export const requestProjectRevisionCatchUp = (): void => {
+  for (const listener of catchUpListeners) {
+    listener();
+  }
+};
+
+export const subscribeToProjectRevisionCatchUps = (
+  listener: ProjectRevisionCatchUpListener
+): (() => void) => {
+  catchUpListeners.add(listener);
+  return () => catchUpListeners.delete(listener);
 };

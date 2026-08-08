@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 
+import type { ProjectDocumentImageAsset } from '@shared/projectAsset';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -9,7 +10,13 @@ import { describe, expect, test, vi } from 'vitest';
 import ChatArtifactRenderer, {
   type ChatArtifactRegenerationStates,
 } from '../../../components/shared/ChatArtifactRenderer.tsx';
+import { resolveProjectDocumentImage } from '../../../services/projects/projectDocumentImageResolver.ts';
 import type { LearningArtifactRenderPayload } from '../../../types.ts';
+
+vi.mock('../../../services/projects/projectDocumentImageResolver.ts', async importOriginal => ({
+  ...(await importOriginal()),
+  resolveProjectDocumentImage: vi.fn(),
+}));
 
 const pdfArtifact: LearningArtifactRenderPayload = {
   image: {
@@ -30,6 +37,28 @@ const pdfArtifact: LearningArtifactRenderPayload = {
     projectId: 'project-1',
     projectTitle: 'Basi di dati',
     title: 'Schema ER',
+  },
+};
+
+const durablePdfImage: ProjectDocumentImageAsset = {
+  asset: {
+    byteSize: 4,
+    hash: 'b'.repeat(64),
+    id: 'a'.repeat(64),
+    mediaType: 'image/png',
+  },
+  id: 'pdf-img-durable-1',
+  sourceOrder: 1,
+  textAfter: '',
+  textBefore: '',
+};
+
+const durablePdfArtifact: LearningArtifactRenderPayload = {
+  image: durablePdfImage,
+  summary: {
+    ...pdfArtifact.summary,
+    id: 'project-1:lesson-1:pdf-image:pdf-img-durable-1',
+    title: 'Schema durevole',
   },
 };
 
@@ -90,6 +119,26 @@ describe('ChatArtifactRenderer', () => {
 
     expect(screen.getByText('simulatore chiusura')).toBeInTheDocument();
     expect(screen.getByText(/Interattivo/i)).toBeInTheDocument();
+  });
+
+  test('uses the artifact project when resolving a durable PDF image', async () => {
+    vi.mocked(resolveProjectDocumentImage).mockResolvedValue({
+      release: vi.fn(),
+      src: 'blob:durable-artifact-image',
+    });
+
+    render(<ChatArtifactRenderer artifacts={[durablePdfArtifact]} isDarkMode={false} />);
+
+    expect(await screen.findByRole('img', { name: 'Schema durevole' })).toHaveAttribute(
+      'src',
+      'blob:durable-artifact-image'
+    );
+    expect(resolveProjectDocumentImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        image: durablePdfImage,
+        projectId: durablePdfArtifact.summary.projectId,
+      })
+    );
   });
 
   test('opens and closes a responsive artifact overlay', async () => {

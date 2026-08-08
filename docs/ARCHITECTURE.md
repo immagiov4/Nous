@@ -6,7 +6,7 @@ This document explains how Nous Reader is organized and where to make changes. P
 
 Nous Reader takes one or more document sources (typically PDF, Markdown, or text) and generates a personalized study flow: onboarding chat, study plan, lessons, quizzes, and application exercises that are intercalated between lessons in the path and evaluated by AI.
 
-AI generation runs in two parallel infrastructures (see [Two AI Clients](#two-ai-clients) below). The backend proxies AI calls, extracts text and images from PDFs, validates Supabase Auth sessions, persists projects through the server repository, and provides TTS.
+Course, lesson, and generated-visual pipelines run as durable backend workflows. Interactive chats use the Vercel AI SDK, while the remaining bounded AI operations use authenticated backend endpoints. The backend also extracts text and images from PDFs, validates Supabase Auth sessions, persists projects and generated assets, and provides TTS.
 
 ## Runtime pieces
 
@@ -14,8 +14,8 @@ The application is made of two separate runtimes:
 
 | Piece | Default port | Purpose |
 | --- | --- | --- |
-| Frontend (`apps/web/`) | 5173 | React UI and most client-side orchestration (including AI calls) |
-| Backend (`apps/backend/`) | 3301 | API server for auth-gated AI proxy, PDF extraction, project storage, admin routes, and TTS |
+| Frontend (`apps/web/`) | 5173 | React UI, interaction state, and HTTP clients for backend operations |
+| Backend (`apps/backend/`) | 3301 | API server, durable AI workflows, PDF extraction, project and asset storage, admin routes, and TTS |
 
 `packages/shared-types/` holds the type-only contract used on the wire between the two (see [Shared types](#9-shared-types)). It is type-level only; nothing executes from it.
 
@@ -47,7 +47,7 @@ Think of the frontend as a set of concentric layers.
 
 Important subfolders:
 
-- `services/openrouter/` — OpenRouter HTTP client, prompt builders, model selection, retry, payload limits, and the **AI pipelines** for assessment, planning, research, curriculum, lesson generation, lesson verification, lesson markdown quality, lesson images, visual examples, PDF indexing, and TTS. The biggest folder in the frontend, with subfolders for `documentIndex/`, `lessonMarkdownQuality/`, `planning/`, and `exercises/` (exercise brief and placement pipelines).
+- `services/openrouter/` — authenticated clients for AI-backed operations. Course, lesson, visual-retry, and artifact clients start or resume durable backend workflows; assessment, exercises, contextual research, and TTS keep their focused request adapters here.
 - `services/exercises/` — application-exercise domain: pure plan operations (`plan.ts`), constants, and deliverable handling (attachments + zip).
 - `services/learning/` — pure functions on the learning plan that are not exercise-specific: sub-chapter grouping and legacy migration for old "mini-lab" lessons.
 - `services/projects/` — `ProjectRepository` interface, HTTP adapter, authenticated revision stream, server-only repository factory, project snapshot helpers, archives, persistence signatures, and sync state.
@@ -152,7 +152,7 @@ It handles:
 The library has its own small subsystem:
 
 - `hooks/library/useProjectLibrary.ts` — server project repository, folders, autosave, import/export.
-- `hooks/library/useLibraryAssistantChat.ts` — library assistant chat (Vercel AI SDK; see [Two AI Clients](#two-ai-clients)).
+- `hooks/library/useLibraryAssistantChat.ts` — library assistant chat (Vercel AI SDK; see [AI execution paths](#ai-execution-paths)).
 - `hooks/library/usePersistedLibraryFolderExpansion.ts` — which folders are expanded (localStorage).
 
 ### 8. UI components
@@ -201,19 +201,57 @@ If you add or change a field in the rich frontend `ProjectSnapshot`, follow the 
 
 Project snapshots may carry legacy fields `laboratory` and `activeLaboratoryExerciseId` inside the raw JSON blob loaded from older storage. These are stripped during `prepareSnapshotForHydration` on the frontend and are not part of the typed surface on either side; if present in inbound payloads they are silently dropped.
 
-## Two AI clients
+## AI execution paths
 
-The frontend uses two distinct AI infrastructures, **on purpose**:
+Nous Reader deliberately separates durable generation from interactive chat:
 
-| Client | Used for | Where |
+| Path | Used for | Where |
 | --- | --- | --- |
-| `services/openrouter/` | **Batch pipelines**: one-shot generations (assessment, planning, research, curriculum, lesson content, lesson verification, exercise brief & placement, lesson markdown quality, lesson images, visual examples, document indexing, TTS) | `services/openrouter/` (~30 top-level files) |
+| Durable workflow runtime | Course planning, lesson generation, generated visuals, artifact drafts, retries, cancellation, signals, undo, and durable events | `apps/backend/src/workflows/`, exposed through workflow-specific routes |
+| Authenticated bounded requests | Assessment, application-exercise operations, contextual research, images, and TTS that do not form a durable multi-step workflow | frontend service adapters plus backend routes/services |
 | **Vercel AI SDK** (`@ai-sdk/react`, `ai`) | **Interactive chat with tool calls**: Reader Ask-AI panel and Library Home Chat | `components/workspace/shell/ContextAnswerPanel.tsx` and `hooks/library/useLibraryAssistantChat.ts` |
 
-We did not unify because rebuilding the chat/tool-call/history stack on top of `callOpenRouter` would be expensive for low value. The two systems stay separate. The backend exposes both:
+Interactive chat stays separate because its streaming history and tool-call contract differs from a durable background workflow. The backend exposes:
 
-- `/api/openrouter/chat/completions` — raw proxy for `services/openrouter/`.
+- `/api/course-workflows`, `/api/lesson-workflows`, `/api/artifact-drafts`, and `/api/lesson-visual-retries` — durable generation entry points.
+- `/api/workflows` — shared workflow state, cancellation, and signal operations.
+- `/api/openrouter/chat/completions` — authenticated proxy for remaining bounded calls.
 - `/api/chat/context` and `/api/chat/library` — Vercel AI SDK protocol endpoints (streaming + tool calls).
+
+### Durable workflow runtime
+
+Workflow definitions are compositions of typed primitives registered and validated at backend
+startup. Registration rejects invalid graphs before work can begin. Each run stores its definition
+identifier, structural hash, model/configuration snapshot, node state, attempts, signals, waits,
+outbox events, undo state, and AI usage in PostgreSQL; `generation_jobs` is not a runtime fallback.
+
+The deployment manifest is activated atomically for the whole registry. For each workflow it names
+one current definition and a bounded set of older definitions allowed to drain; PostgreSQL keeps
+only the current and immediately previous manifest to classify rolling replicas. A monotonic
+workflow-set version changes only when a production registry adds or removes an entire workflow ID;
+definition hashes and resumable-definition lineage continue to handle changes within a workflow.
+The version orders otherwise ambiguous complete manifests, so an old replica cannot interpret a
+newly added workflow as an intentional removal. New runs may start only on the current definition.
+Claims, expired-lease recovery, signals, step checkpoints/failures, and undo completions/failures
+lock and verify the authoritative manifest in the same transaction, so a stale replica cannot run
+or commit a definition removed by the new deployment. Removing a definition is also the explicit
+kill switch: active runs using it are terminalized, their leases are fenced, and any unavailable
+cleanup is recorded for operator intervention instead of executing code from the removed
+definition.
+
+Workers claim nodes with leases and heartbeats, persist every transition before exposing it, and
+recover expired work after a crash. A failed workflow walks completed side-effecting nodes in
+reverse order and records every undo attempt; a no-op repeated undo does not publish another
+project revision. Cancellation uses the same durable terminal path and also aborts provider work
+when the provider supports it.
+
+Committed project revisions leave the workflow transaction through the **coda durevole delle
+notifiche**, implemented with a transactional outbox and an idempotent recipient inbox. Delivery
+records the PostgreSQL inbox entry before `LISTEN`/`NOTIFY` wakes every backend replica, which fans
+the revision out to its local authenticated SSE clients. Because PostgreSQL notifications
+themselves are ephemeral, a listener reconnect or notification-read failure emits a resync event:
+browsers then compare authoritative project revisions rather than trusting the missed notification
+history.
 
 The AI API key is held server-side: the browser never sees it, regardless of which client is making the call.
 
@@ -248,6 +286,8 @@ Main entries in `apps/backend/src/routes/`:
 - `/api/chat/context` (via `contextChat.ts`) — contextual conversation with project-aware AI (Vercel AI SDK protocol).
 - `/api/chat/library` (via `libraryChat.ts`) — library assistant chat with tool execution (Vercel AI SDK protocol).
 - `/api/openrouter` (via `openRouterProxy.ts`) — raw OpenRouter proxy used by `services/openrouter/`.
+- `/api/course-workflows`, `/api/lesson-workflows`, `/api/artifact-drafts`, and `/api/lesson-visual-retries` — start and inspect durable product workflows.
+- `/api/workflows` — read common workflow state, request cancellation, and deliver typed one-use signals.
 - `/api/pdf` — PDF text and image extraction.
 - `/api/projects` — auth-gated project repository API used by the frontend server repository.
 - `/api/status` — OpenRouter TTS readiness snapshot.
@@ -258,7 +298,8 @@ Main entries in `apps/backend/src/routes/`:
 
 Supporting modules:
 
-- `apps/backend/src/projects/` — `ProjectStore` interface, runtime `PostgresProjectStore`, project patching and metadata helpers.
+- `apps/backend/src/workflows/` — typed workflow primitives, registration validation, PostgreSQL persistence, worker/recovery loops, and the course, lesson, visual, and artifact workflow definitions.
+- `apps/backend/src/projects/` — `ProjectStore` interface, runtime `PostgresProjectStore`, project patching, generated-asset persistence, and metadata helpers.
 - `apps/backend/src/services/` — `pdfTextExtractor` (delegates to `pdftotext`), `pdfImageExtractor`, `ttsClient`, `sttClient`, `voiceService`, `statusService`.
 - `apps/backend/src/auth/currentUser.ts` — auth resolution. Supabase is the product path. `LOCAL_AUTH_BYPASS=true` is accepted only in tests or with `LOCAL_DEV_PROFILE=true`.
 - `apps/backend/src/config/` — env loading and server config (host, port, backend URL).
@@ -312,7 +353,7 @@ supplemental web and transcript-backed YouTube research, and lesson dossier gene
 own web and YouTube pass. Original material stays primary; online research fills gaps and supplies
 current references.
 
-Every project metadata response includes the server-owned monotonic `revision`. Existing-project PUT and PATCH requests send `expectedRevision`; a stale request receives HTTP 409 and never updates the snapshot. Authenticated server-sent events at `/api/projects/events` carry only `{ projectId, revision }`. `useProjectLibrary` refreshes metadata on an event, reconnect, foreground, or network recovery, and reloads the active snapshot only when the revision advanced and no local write or dirty autosave state is pending.
+Every project metadata response includes the server-owned monotonic `revision`. Existing-project PUT and PATCH requests send `expectedRevision`; a stale request receives HTTP 409 and never updates the snapshot. Authenticated server-sent events at `/api/projects/events` carry project revisions or a payload-free resync request after a backend listener reconnect. `useProjectLibrary` refreshes metadata on either event, browser reconnect, foreground, or network recovery, and reloads the active snapshot only when the revision advanced and no local write or dirty autosave state is pending.
 
 `GET /api/projects/covers/regenerate` starts or resumes a non-cacheable background job for every course owned by the authenticated user and returns immediately. `GET /api/projects/covers/regenerate/status` reads that user's current job without starting one, so the admin UI can safely restore and poll progress. Jobs use an in-memory per-user registry with a 15-minute completed cooldown and a fair per-user scheduler capped at four global operations. A backend restart loses job status and cooldown, but persisted covers remain intact.
 
@@ -344,7 +385,8 @@ Course cover generation uses the shared versioned prompt in `packages/shared-typ
 
 | Goal | Files to start with |
 | --- | --- |
-| Change an AI pipeline prompt | `services/openrouter/` |
+| Change a durable course, lesson, visual, or artifact prompt | the owning module in `apps/backend/src/workflows/` or `apps/backend/src/services/` |
+| Change a bounded frontend AI operation | the owning adapter in `apps/web/services/openrouter/` |
 | Change a chat (Ask-AI / Library) prompt | `apps/backend/src/routes/chatPrompts.ts` |
 | Add or adjust a model slot | `apps/backend/src/config/modelConfig.ts`, `apps/backend/src/routes/admin.ts`, and the `/admin` UI |
 | Add a new user operation | `hooks/workspace/controller/`, then `hooks/workspace/useWorkspaceReaderActions.ts` |
@@ -365,7 +407,7 @@ Course cover generation uses the shared versioned prompt in `packages/shared-typ
 - Components should not call services directly when a hook can own the side effect.
 - The domain should not depend on the current screen or visual state.
 - Each hook should stay inside one responsibility area.
-- AI pipelines (batch) go through `services/openrouter/`. Interactive chats with tool calls go through Vercel AI SDK. Do not mix the two stacks in a single feature.
+- Multi-step course, lesson, visual, and artifact generation goes through the durable backend workflow runtime. Interactive chats with tool calls go through Vercel AI SDK. Keep bounded request adapters outside the workflow runtime unless they become genuinely durable compositions.
 - All AI calls go through the backend proxy. The browser must never receive the AI API key.
 - `apps/backend/dist/` should not be edited directly.
 

@@ -7,6 +7,10 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { NewHomeView } from '../../../components/newHome/NewHomeView.tsx';
 import type { LibraryTree, ProjectSnapshot, SavedProjectMeta } from '../../../types.ts';
 
+vi.mock('../../../services/projects/courseCover.ts', () => ({
+  ensureProjectCover: vi.fn(async () => 'data:image/png;base64,cG5n'),
+}));
+
 const project: SavedProjectMeta = {
   id: 'project-1',
   title: 'Corso Mobile',

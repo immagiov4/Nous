@@ -8,7 +8,6 @@ import {
 } from '../config/modelConfig.js';
 import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
-import { retryProviderCall } from './providerRetry.js';
 
 const MIN_COVERAGE_CONTEXT_CHARS = 120;
 const COVERAGE_SYSTEM_INSTRUCTION =
@@ -69,40 +68,38 @@ MATERIALE ORIGINALE:
 ${sourceContext}
 
 Decidi se il materiale contiene spiegazioni sufficienti per insegnare l'obiettivo con precisione. Una semplice menzione, un titolo o una definizione isolata non bastano. Se e insufficiente, elenca solo i concetti mancanti che richiedono fonti esterne.`;
-  const decision = await retryProviderCall(
-    async () => {
-      if (resolveAiProviderForSlot(input.config, 'research') === 'codex') {
-        const modelConfig = resolveTextModelConfig(input.config, 'research');
-        const response = await runCodexAppServerTurn({
-          allowWebSearch: false,
-          developerInstructions: `${COVERAGE_SYSTEM_INSTRUCTION} Non usare strumenti e non accedere a file locali.`,
-          input: [{ text: prompt, type: 'text' }],
-          model: modelConfig.model,
-          outputSchema: PREREQUISITE_COVERAGE_SCHEMA.schema,
-          reasoningEffort: modelConfig.reasoningEffort,
-          serviceTier: resolveCodexServiceTierForSlot(input.config, 'research'),
-          signal: input.signal,
-        });
-        return JSON.parse(response) as { missingTopics: string[]; sufficient: boolean };
-      }
-      const configured = createConfiguredTextModel(input.config, 'research');
-      const { output } = await generateText({
-        abortSignal: input.signal,
-        model: configured.model,
-        output: Output.object({
-          name: PREREQUISITE_COVERAGE_SCHEMA.name,
-          schema: jsonSchema<{ missingTopics: string[]; sufficient: boolean }>(
-            PREREQUISITE_COVERAGE_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
-          ),
-        }),
-        prompt,
-        providerOptions: configured.providerOptions,
-        system: COVERAGE_SYSTEM_INSTRUCTION,
-      });
-      return output;
-    },
-    { delay: 500, retries: 2, signal: input.signal }
-  );
+  let decision: { missingTopics: string[]; sufficient: boolean };
+  if (resolveAiProviderForSlot(input.config, 'research') === 'codex') {
+    const modelConfig = resolveTextModelConfig(input.config, 'research');
+    const response = await runCodexAppServerTurn({
+      allowWebSearch: false,
+      developerInstructions: `${COVERAGE_SYSTEM_INSTRUCTION} Non usare strumenti e non accedere a file locali.`,
+      input: [{ text: prompt, type: 'text' }],
+      model: modelConfig.model,
+      outputSchema: PREREQUISITE_COVERAGE_SCHEMA.schema,
+      reasoningEffort: modelConfig.reasoningEffort,
+      serviceTier: resolveCodexServiceTierForSlot(input.config, 'research'),
+      signal: input.signal,
+    });
+    decision = JSON.parse(response) as typeof decision;
+  } else {
+    const configured = createConfiguredTextModel(input.config, 'research');
+    const { output } = await generateText({
+      abortSignal: input.signal,
+      maxRetries: 0,
+      model: configured.model,
+      output: Output.object({
+        name: PREREQUISITE_COVERAGE_SCHEMA.name,
+        schema: jsonSchema<typeof decision>(
+          PREREQUISITE_COVERAGE_SCHEMA.schema as unknown as Parameters<typeof jsonSchema>[0]
+        ),
+      }),
+      prompt,
+      providerOptions: configured.providerOptions,
+      system: COVERAGE_SYSTEM_INSTRUCTION,
+    });
+    decision = output;
+  }
 
   return normalizePrerequisiteCoverageDecision(decision, input.title);
 };

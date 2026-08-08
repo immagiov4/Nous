@@ -4,6 +4,7 @@ import { createInterface, type Interface as ReadLineInterface } from 'node:readl
 import { Readable } from 'node:stream';
 
 import type { ReasoningEffort } from '../config/modelConfig.js';
+import { recordWorkflowAiUsage, type WorkflowAiUsage } from '../workflows/workflowAiMetering.js';
 
 const CODEX_REQUEST_TIMEOUT_MS = 30_000;
 const CODEX_TURN_TIMEOUT_MS = 10 * 60_000;
@@ -572,6 +573,38 @@ const readTurnStatus = (params: unknown): string | undefined => {
   return readString(params.turn.status);
 };
 
+const readNonNegativeNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+
+const readTurnTokenUsage = (
+  params: unknown
+): {
+  readonly turnId: string;
+  readonly usage: Omit<WorkflowAiUsage, 'model' | 'provider'>;
+} | null => {
+  if (!isRecord(params) || !isRecord(params.tokenUsage) || !isRecord(params.tokenUsage.last)) {
+    return null;
+  }
+  const turnId = readString(params.turnId);
+  const inputTokens = readNonNegativeNumber(params.tokenUsage.last.inputTokens);
+  const outputTokens = readNonNegativeNumber(params.tokenUsage.last.outputTokens);
+  const reasoningTokens = readNonNegativeNumber(params.tokenUsage.last.reasoningOutputTokens);
+  const cacheReadTokens = readNonNegativeNumber(params.tokenUsage.last.cachedInputTokens);
+  if (
+    !turnId ||
+    inputTokens === undefined ||
+    outputTokens === undefined ||
+    reasoningTokens === undefined ||
+    cacheReadTokens === undefined
+  ) {
+    return null;
+  }
+  return {
+    turnId,
+    usage: { cacheReadTokens, inputTokens, outputTokens, reasoningTokens },
+  };
+};
+
 const readStartedTurnId = (response: unknown): string | undefined =>
   isRecord(response) && isRecord(response.turn) ? readString(response.turn.id) : undefined;
 
@@ -603,6 +636,7 @@ export const runCodexAppServerTurnWithClient = async (
   let streamedText = '';
   let hasStreamedReasoningText = false;
   let streamedReasoningSummary = '';
+  const usageByTurnId = new Map<string, Omit<WorkflowAiUsage, 'model' | 'provider'>>();
 
   await requireAuthenticatedCodexAccount(client);
   const toolsByName = new Map((turn.tools || []).map(tool => [tool.name, tool]));
@@ -676,6 +710,12 @@ export const runCodexAppServerTurnWithClient = async (
 
     const unsubscribe = client.onNotification((method, params) => {
       if (readThreadId(params) !== threadId) {
+        return;
+      }
+
+      if (method === 'thread/tokenUsage/updated') {
+        const metering = readTurnTokenUsage(params);
+        if (metering) usageByTurnId.set(metering.turnId, metering.usage);
         return;
       }
 
@@ -785,7 +825,12 @@ export const runCodexAppServerTurnWithClient = async (
       cleanupAbortListener = () => turn.signal?.removeEventListener('abort', onAbort);
     });
     try {
-      return await Promise.race([turnCompleted, aborted]);
+      const result = await Promise.race([turnCompleted, aborted]);
+      const usage = usageByTurnId.get(turnId);
+      if (usage) {
+        await recordWorkflowAiUsage({ ...usage, model: turn.model, provider: 'codex' });
+      }
+      return result;
     } finally {
       cleanupAbortListener();
     }
@@ -808,9 +853,11 @@ export const runCodexAppServerTurn = async (turn: CodexTurnInput): Promise<strin
 export const generateCodexAppServerImage = async ({
   model,
   prompt,
+  signal,
 }: {
   model: string;
   prompt: string;
+  signal?: AbortSignal;
 }): Promise<string> => {
   let imageResult = '';
   await runCodexAppServerTurn({
@@ -824,6 +871,7 @@ export const generateCodexAppServerImage = async ({
     },
     reasoningEffort: 'low',
     serviceTier: 'fast',
+    signal,
   });
   if (!imageResult) {
     throw new CodexAppServerError('Codex did not return a generated image.', 'protocol');

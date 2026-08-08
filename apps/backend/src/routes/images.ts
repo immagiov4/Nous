@@ -5,7 +5,11 @@ import {
   getResolvedModelConfigForProvider,
   resolveAiProviderForSlot,
 } from '../config/modelConfig.js';
-import { DEFAULT_IMAGE_MODEL, imageClient } from '../services/imageClient.js';
+import {
+  DEFAULT_IMAGE_MODEL,
+  imageClient,
+  toGeneratedImageDataUrl,
+} from '../services/imageClient.js';
 
 const router = Router();
 const MAX_IMAGE_PROMPT_CHARS = 12_000;
@@ -79,7 +83,7 @@ router.post('/generate', async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      dataUrl: image.dataUrl,
+      dataUrl: toGeneratedImageDataUrl(image),
       mediaType: image.mediaType,
       usage: image.usage,
     });

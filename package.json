@@ -50,10 +50,12 @@
     "supabase:templates:sync": "bun run scripts/sync-supabase-auth-emails.ts --apply",
     "supabase:typecheck": "supabase gen types typescript --local --schema public > apps/backend/src/supabase/database.types.ts",
     "test": "bun --bun vitest run --config apps/web/vitest.config.ts",
-    "test:supabase-contract": "RUN_SUPABASE_LOCAL_TESTS=1 bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/integration/supabaseLocal.integration.test.ts",
-    "test:supabase-local": "RUN_SUPABASE_LOCAL_TESTS=1 bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/integration/supabaseLocal.integration.test.ts",
+    "test:supabase-contract": "RUN_SUPABASE_LOCAL_TESTS=1 bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/integration/supabaseLocal.integration.test.ts apps/backend/tests/projects/postgresProjectAssetStore.integration.test.ts apps/backend/tests/projects/projectAssetReconciliation.integration.test.ts apps/backend/tests/projects/projectTransaction.integration.test.ts",
+    "test:supabase-local": "RUN_SUPABASE_LOCAL_TESTS=1 bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/integration/supabaseLocal.integration.test.ts apps/backend/tests/projects/postgresProjectAssetStore.integration.test.ts apps/backend/tests/projects/projectAssetReconciliation.integration.test.ts apps/backend/tests/projects/projectTransaction.integration.test.ts",
+    "test:workflow-postgres": "RUN_WORKFLOW_INTEGRATION_TESTS=1 bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/workflows/postgresWorkflowRunStore.integration.test.ts apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts apps/backend/tests/workflows/postgresWorkflowSignalStore.integration.test.ts apps/backend/tests/workflows/postgresWorkflowUndoStore.integration.test.ts apps/backend/tests/projects/projectTransaction.integration.test.ts && RUN_WORKFLOW_INTEGRATION_TESTS=1 bun --bun vitest run --config apps/web/vitest.config.ts apps/backend/tests/workflows/workflowProcessCrash.integration.test.ts",
+    "test:workflow-codex": "bun run scripts/run-real-workflow-provider-tests.ts",
     "test:watch": "bun --bun vitest --config apps/web/vitest.config.ts",
-    "test:coverage": "vitest run --coverage --config apps/web/vitest.config.ts apps/web/tests"
+    "test:coverage": "vitest run --coverage --config apps/web/vitest.config.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.139",

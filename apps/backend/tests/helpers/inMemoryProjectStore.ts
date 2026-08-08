@@ -7,6 +7,16 @@ import {
   SIBLING_ORDER_STEP,
   type SiblingItem,
 } from '@shared/libraryOrdering';
+import {
+  decodeProjectBackupArchive,
+  PROJECT_BACKUP_MAX_ENTRIES,
+  PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+  PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+} from '@shared/projectBackupArchive';
+import {
+  buildImportedProjectAssetIdentity,
+  remapProjectAssetReferences,
+} from '@shared/projectBackupAssets';
 import { resolveAvailableFolderName } from '../../src/projects/folderNames.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from '../../src/projects/projectMeta.js';
 import { applyProjectPatch } from '../../src/projects/projectPatch.js';
@@ -59,6 +69,7 @@ interface ProjectRecord {
 const clone = <T>(value: T): T => structuredClone(value);
 const PROJECT_IMPORT_DIAGNOSTIC_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const PROJECT_IMPORT_DIAGNOSTIC_LIST_LIMIT = 200;
+const INVALID_PROJECT_BACKUP_MESSAGE = 'Project backup archive is invalid.';
 
 const toEpochMillis = (value: string | undefined): number => {
   const timestamp = Date.parse(value || '');
@@ -169,9 +180,8 @@ export class InMemoryProjectStore implements ProjectStore {
   ): Promise<Uint8Array | null> {
     const index = this.getSourceArchiveIndexes(userId).get(id);
     if (
-      !index ||
-      index.version.sourceId !== version.sourceId ||
-      index.version.sourceHash !== version.sourceHash
+      index?.version.sourceId !== version.sourceId ||
+      index?.version.sourceHash !== version.sourceHash
     ) {
       return null;
     }
@@ -298,7 +308,7 @@ export class InMemoryProjectStore implements ProjectStore {
   async saveProject(
     userId: string,
     data: ProjectSnapshot,
-    { expectedRevision, sourceFile }: ProjectSaveOptions = {}
+    { expectedRevision, importedCover, sourceFile }: ProjectSaveOptions = {}
   ): Promise<ProjectSaveResult> {
     this.fullSaveCount += 1;
     const projects = this.getProjects(userId);
@@ -342,6 +352,7 @@ export class InMemoryProjectStore implements ProjectStore {
       revision: (existing?.meta.revision || 0) + 1,
     };
     projects.set(snapshot.id, { meta, snapshot });
+    if (importedCover) this.getCovers(userId).set(snapshot.id, clone(importedCover));
     this.ensurePlacement(userId, snapshot.id);
     return clone({ meta, snapshot });
   }
@@ -406,6 +417,32 @@ export class InMemoryProjectStore implements ProjectStore {
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
     const snapshot = normalizeProjectSnapshot(data, true);
     return this.saveProject(userId, snapshot);
+  }
+
+  async importProjectArchive(
+    userId: string,
+    bytes: Uint8Array,
+    targetProjectId: ProjectId
+  ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
+    const decoded = await decodeProjectBackupArchive<ProjectSnapshot>(bytes, {
+      invalidArchiveMessage: INVALID_PROJECT_BACKUP_MESSAGE,
+      maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
+      maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+      maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+    });
+    const sourceSnapshot = normalizeProjectSnapshot(decoded.project, true);
+    const idMap = new Map<string, string>();
+    for (const { ref } of decoded.assets) {
+      const identity = await buildImportedProjectAssetIdentity({
+        contentHash: ref.hash,
+        projectId: targetProjectId,
+        sourceAssetId: ref.id,
+        userId,
+      });
+      idMap.set(ref.id, identity.id);
+    }
+    const snapshot = remapProjectAssetReferences({ ...sourceSnapshot, id: targetProjectId }, idMap);
+    return this.saveProject(userId, snapshot, { importedCover: decoded.cover });
   }
 
   async exportProject(userId: string, id: ProjectId): Promise<ProjectExportData | null> {
