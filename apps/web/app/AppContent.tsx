@@ -121,13 +121,15 @@ const AppContent = () => {
       {screenState === AppState.ASSESSMENT && (
         <AssessmentScreenContainer
           assessmentMessages={controller.assessmentMessages}
+          cancelAssessment={controller.cancelAssessment}
+          confirmPlanGeneration={controller.confirmPlanGeneration}
+          hasCourseProposal={Boolean(controller.userProfile)}
           isLoading={isLoading}
           loadingStatus={loadingStatus}
           navigation={navigation}
           notify={notify}
           readerState={readerState}
           screenState={screenState}
-          startLearnJourney={controller.startLearnJourney}
           submitAssessment={controller.submitAssessment}
         />
       )}

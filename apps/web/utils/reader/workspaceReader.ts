@@ -4,7 +4,7 @@ import type {
   LessonNode,
   PathNode,
   PdfDocumentAssets,
-  PdfImageAsset,
+  PdfDocumentImageAsset,
   SyllabusItem,
 } from '../../types.ts';
 import { buildSectionHierarchyInfoById } from '../learning/sectionTree.ts';
@@ -56,7 +56,7 @@ export const buildLessonImageRefMap = (
 export const buildLessonAssetMap = (
   imageRefs: LessonImageRef[] | undefined,
   documentAssets: PdfDocumentAssets | null
-): Record<string, PdfImageAsset> => {
+): Record<string, PdfDocumentImageAsset> => {
   if (!documentAssets || !imageRefs?.length) {
     return {};
   }

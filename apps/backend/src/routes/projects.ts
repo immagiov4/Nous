@@ -1,12 +1,18 @@
 // Exposes project CRUD routes for the backend API.
 
 import { Readable } from 'node:stream';
-
+import { isProjectCoverMediaType, PROJECT_COVER_MAX_BYTES } from '@shared/projectBackupArchive';
+import { PROJECT_REVISION_RESYNC_EVENT } from '@shared/projectContract';
+import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
 import { type Request, type Response, Router } from 'express';
 
 import { getAuthMode, getCurrentUser } from '../auth/currentUser.js';
-import { publishProjectRevision, subscribeToProjectRevisions } from '../projects/projectEvents.js';
+import {
+  publishProjectRevision,
+  subscribeToProjectRevisionCatchUps,
+  subscribeToProjectRevisions,
+} from '../projects/projectEvents.js';
 import {
   cancelProjectImportUpload,
   completeProjectImportUpload,
@@ -48,9 +54,7 @@ const router = Router();
 
 const PROJECT_SOURCE_KINDS = new Set(['document', 'codebase', 'learn-mode', 'imported-json']);
 const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
-const PROJECT_COVER_MAX_BYTES = 6 * 1024 * 1024;
 const PROJECT_SNAPSHOT_MULTIPART_MAX_BYTES = 300_000_000;
-const PROJECT_COVER_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const BASE64_DATA_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
 const LIBRARY_IMPORT_DIAGNOSTIC_CODES = new Set([
   'LIBRARY_ARCHIVE_ENTRY_MISSING',
@@ -106,6 +110,19 @@ const readExpectedRevision = (body: Record<string, unknown>): number | undefined
     throw new Error('Revisione progetto non valida.');
   }
   return body.expectedRevision as number;
+};
+
+const readProjectImportChunk = (req: Request): string | Uint8Array => {
+  if (req.is('application/octet-stream')) {
+    return Buffer.isBuffer(req.body) ? new Uint8Array(req.body) : new Uint8Array();
+  }
+  return typeof req.body === 'string' ? req.body : '';
+};
+
+const projectImportChunkErrorStatus = (error: unknown): number => {
+  if (error instanceof ProjectImportCapacityError) return 429;
+  if (error instanceof ProjectImportInputError) return 400;
+  return 500;
 };
 
 const parseArchiveProjectSave = async (
@@ -255,6 +272,44 @@ const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectS
   };
 };
 
+const importBinaryProjectUpload = async (input: {
+  body: Record<string, unknown>;
+  bytes: Uint8Array;
+  store: ReturnType<typeof getProjectStore>;
+  userId: string;
+}) => {
+  if (input.body.payloadKind === PROJECT_IMPORT_BINARY_KIND.backup) {
+    if (typeof input.body.targetProjectId !== 'string' || !input.body.targetProjectId.trim()) {
+      throw new ProjectImportInputError('Identificativo del progetto importato non valido.');
+    }
+    return input.store.importProjectArchive(input.userId, input.bytes, input.body.targetProjectId);
+  }
+  if (input.body.payloadKind !== PROJECT_IMPORT_BINARY_KIND.sourceArchive) {
+    throw new ProjectImportInputError('Tipo di backup binario mancante o non valido.');
+  }
+
+  const snapshotRecord = input.body.snapshot;
+  const sourceFile = input.body.sourceFile;
+  if (!isRecord(snapshotRecord) || !isRecord(sourceFile) || typeof snapshotRecord.id !== 'string') {
+    throw new ProjectImportInputError('Metadati del backup binario non validi.');
+  }
+  const snapshot = requireProjectSnapshot({ snapshot: snapshotRecord }, snapshotRecord.id);
+  if (
+    !isRecord(snapshot.source) ||
+    snapshot.source.kind !== 'archive' ||
+    !isRecord(snapshot.source.file) ||
+    typeof sourceFile.name !== 'string' ||
+    typeof sourceFile.mimeType !== 'string' ||
+    snapshot.source.file.name !== sourceFile.name ||
+    snapshot.source.file.mimeType !== sourceFile.mimeType
+  ) {
+    throw new ProjectImportInputError('Metadati della sorgente archivio non validi.');
+  }
+  return input.store.saveProject(input.userId, snapshot, {
+    sourceFile: { bytes: input.bytes, name: sourceFile.name, mimeType: sourceFile.mimeType },
+  });
+};
+
 const requireSourceArchiveSelector = (value: unknown): SourceArchiveSelector => {
   if (
     !isRecord(value) ||
@@ -344,7 +399,7 @@ const requireProjectCoverFile = (body: unknown): ProjectCoverFile => {
     !isRecord(cover) ||
     typeof cover.name !== 'string' ||
     typeof cover.mimeType !== 'string' ||
-    !PROJECT_COVER_MIME_TYPES.has(cover.mimeType) ||
+    !isProjectCoverMediaType(cover.mimeType) ||
     typeof cover.data !== 'string' ||
     !BASE64_DATA_PATTERN.test(cover.data)
   ) {
@@ -387,6 +442,9 @@ router.get('/events', (req: Request, res: Response) => {
   const unsubscribe = subscribeToProjectRevisions(userId, event => {
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   });
+  const unsubscribeCatchUp = subscribeToProjectRevisionCatchUps(() => {
+    res.write(`event: ${PROJECT_REVISION_RESYNC_EVENT}\ndata: {}\n\n`);
+  });
   const heartbeat = globalThis.setInterval(
     () => res.write(': heartbeat\n\n'),
     PROJECT_EVENT_HEARTBEAT_MS
@@ -394,6 +452,7 @@ router.get('/events', (req: Request, res: Response) => {
   req.on('close', () => {
     globalThis.clearInterval(heartbeat);
     unsubscribe();
+    unsubscribeCatchUp();
   });
 });
 
@@ -666,6 +725,9 @@ const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefin
     annotations: Array.isArray(value.annotations) ? value.annotations : undefined,
     content: readOptionalString(value.content),
     contentBlocks: Array.isArray(value.contentBlocks) ? value.contentBlocks : undefined,
+    generationWarnings: Array.isArray(value.generationWarnings)
+      ? value.generationWarnings
+      : undefined,
     generatedVisuals: Array.isArray(value.generatedVisuals) ? value.generatedVisuals : undefined,
     imageRefs: Array.isArray(value.imageRefs) ? value.imageRefs : undefined,
     isCompleted: typeof value.isCompleted === 'boolean' ? value.isCompleted : undefined,
@@ -781,18 +843,7 @@ router.post('/import', async (req: Request, res: Response) => {
 router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Response) => {
   try {
     const userId = getCurrentUser(req).id;
-    const chunk = req.is('application/octet-stream')
-      ? new Uint8Array(
-          await new globalThis.Request(`http://localhost${req.originalUrl}`, {
-            body: Readable.toWeb(req) as unknown as ReadableStream,
-            duplex: 'half',
-            headers: req.headers as HeadersInit,
-            method: req.method,
-          } as RequestInit & { duplex: 'half' }).arrayBuffer()
-        )
-      : typeof req.body === 'string'
-        ? req.body
-        : '';
+    const chunk = readProjectImportChunk(req);
     const result = await storeProjectImportChunk({
       userId,
       uploadId: getRouteParam(req.params.uploadId),
@@ -805,11 +856,7 @@ router.put('/import/chunks/:uploadId/:chunkIndex', async (req: Request, res: Res
     if (error instanceof ProjectImportCapacityError) res.set('Retry-After', '1');
     sendErrorResponse(
       res,
-      error instanceof ProjectImportCapacityError
-        ? 429
-        : error instanceof ProjectImportInputError
-          ? 400
-          : 500,
+      projectImportChunkErrorStatus(error),
       error,
       'Failed to store project import chunk'
     );
@@ -877,29 +924,11 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
         return { projectId: imported.meta.id, meta: imported.meta };
       },
       importBinary: async bytes => {
-        const snapshotRecord = completionBody.snapshot;
-        const sourceFile = completionBody.sourceFile;
-        if (
-          !isRecord(snapshotRecord) ||
-          !isRecord(sourceFile) ||
-          typeof snapshotRecord.id !== 'string'
-        ) {
-          throw new ProjectImportInputError('Metadati del backup binario non validi.');
-        }
-        const snapshot = requireProjectSnapshot({ snapshot: snapshotRecord }, snapshotRecord.id);
-        if (
-          !isRecord(snapshot.source) ||
-          snapshot.source.kind !== 'archive' ||
-          !isRecord(snapshot.source.file) ||
-          typeof sourceFile.name !== 'string' ||
-          typeof sourceFile.mimeType !== 'string' ||
-          snapshot.source.file.name !== sourceFile.name ||
-          snapshot.source.file.mimeType !== sourceFile.mimeType
-        ) {
-          throw new ProjectImportInputError('Metadati della sorgente archivio non validi.');
-        }
-        const imported = await store.saveProject(userId, snapshot, {
-          sourceFile: { bytes, name: sourceFile.name, mimeType: sourceFile.mimeType },
+        const imported = await importBinaryProjectUpload({
+          body: completionBody,
+          bytes,
+          store,
+          userId,
         });
         publishMetaRevision(userId, imported.meta);
         return { projectId: imported.meta.id, meta: imported.meta };

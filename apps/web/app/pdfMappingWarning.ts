@@ -1,4 +1,4 @@
-import { PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING } from '../services/openrouter/documentIndex/mapping.ts';
+import { PDF_MAPPING_RECOVERY_EXHAUSTED_WARNING } from '@shared/pdfDocumentPolicy';
 import type { PdfTextIndex, ProjectSource } from '../types.ts';
 
 export const resolvePdfMappingWarning = (

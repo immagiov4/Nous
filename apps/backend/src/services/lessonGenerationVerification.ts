@@ -22,7 +22,6 @@ import { createConfiguredTextModel } from './aiSdkTextModel.js';
 import { runCodexAppServerTurn } from './codexAppServer.js';
 import { buildLessonGenerationPrompt } from './lessonGenerationPrompt.js';
 import type { LessonContentDraft, LessonGenerationInput } from './lessonGenerationTypes.js';
-import { retryProviderCall } from './providerRetry.js';
 
 interface LessonResponseSchemaContract {
   name: string;
@@ -120,40 +119,38 @@ export const verifyLessonContentDraft = async (input: {
   const checklist = buildLessonVerificationChecklist(generationInput.instructionPacks);
   const checkIds = checklist.map(item => item.checkId);
   const schema = buildVerificationSchema(input.responseSchema, checkIds);
-  const verified = await retryProviderCall(
-    async () => {
-      if (resolveAiProviderForSlot(generationInput.config, 'lesson') === 'codex') {
-        const modelConfig = resolveTextModelConfig(generationInput.config, 'lesson');
-        const response = await runCodexAppServerTurn({
-          allowWebSearch: false,
-          developerInstructions: `${SYSTEM_INSTRUCTION_TEACHER}\nVerify and minimally correct the supplied lesson draft. Return every required checklist item. Do not use tools or access local files.`,
-          input: [{ text: prompt, type: 'text' }],
-          model: modelConfig.model,
-          outputSchema: schema.schema,
-          reasoningEffort: modelConfig.reasoningEffort,
-          serviceTier: resolveCodexServiceTierForSlot(generationInput.config, 'lesson'),
-          signal: generationInput.signal,
-        });
-        return JSON.parse(response) as VerifiedLessonContentDraft;
-      }
-      const configured = createConfiguredTextModel(generationInput.config, 'lesson');
-      const { output } = await generateText({
-        abortSignal: generationInput.signal,
-        model: configured.model,
-        output: Output.object({
-          name: schema.name,
-          schema: jsonSchema<VerifiedLessonContentDraft>(
-            schema.schema as unknown as Parameters<typeof jsonSchema>[0]
-          ),
-        }),
-        prompt,
-        providerOptions: configured.providerOptions,
-        system: SYSTEM_INSTRUCTION_TEACHER,
-      });
-      return output;
-    },
-    { signal: generationInput.signal }
-  );
+  let verified: VerifiedLessonContentDraft;
+  if (resolveAiProviderForSlot(generationInput.config, 'lesson') === 'codex') {
+    const modelConfig = resolveTextModelConfig(generationInput.config, 'lesson');
+    const response = await runCodexAppServerTurn({
+      allowWebSearch: false,
+      developerInstructions: `${SYSTEM_INSTRUCTION_TEACHER}\nVerify and minimally correct the supplied lesson draft. Return every required checklist item. Do not use tools or access local files.`,
+      input: [{ text: prompt, type: 'text' }],
+      model: modelConfig.model,
+      outputSchema: schema.schema,
+      reasoningEffort: modelConfig.reasoningEffort,
+      serviceTier: resolveCodexServiceTierForSlot(generationInput.config, 'lesson'),
+      signal: generationInput.signal,
+    });
+    verified = JSON.parse(response) as VerifiedLessonContentDraft;
+  } else {
+    const configured = createConfiguredTextModel(generationInput.config, 'lesson');
+    const { output } = await generateText({
+      abortSignal: generationInput.signal,
+      maxRetries: 0,
+      model: configured.model,
+      output: Output.object({
+        name: schema.name,
+        schema: jsonSchema<VerifiedLessonContentDraft>(
+          schema.schema as unknown as Parameters<typeof jsonSchema>[0]
+        ),
+      }),
+      prompt,
+      providerOptions: configured.providerOptions,
+      system: SYSTEM_INSTRUCTION_TEACHER,
+    });
+    verified = output;
+  }
 
   const reportedIds = new Set(verified.verificationReport.map(item => item.checkId));
   if (reportedIds.size !== checkIds.length || checkIds.some(checkId => !reportedIds.has(checkId))) {

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const useChatMock = vi.fn();
 const addToolOutputMock = vi.fn();
+const generateLessonArtifactDraftMock = vi.fn();
 
 class MockDefaultChatTransport<UI_MESSAGE extends UIMessage> {
   api: string;
@@ -49,6 +50,10 @@ vi.mock('../../../services/auth/supabaseAuth.ts', () => ({
   fetchWithSupabaseAuth: vi.fn(),
 }));
 
+vi.mock('../../../services/openrouter/artifactDrafts.ts', () => ({
+  generateLessonArtifactDraft: generateLessonArtifactDraftMock,
+}));
+
 const { useLibraryAssistantChat } = await import(
   '../../../hooks/library/useLibraryAssistantChat.ts'
 );
@@ -57,6 +62,7 @@ describe('useLibraryAssistantChat', () => {
   beforeEach(() => {
     useChatMock.mockReset();
     addToolOutputMock.mockReset();
+    generateLessonArtifactDraftMock.mockReset();
     useChatMock.mockReturnValue({
       addToolOutput: addToolOutputMock,
       error: undefined,
@@ -309,5 +315,118 @@ describe('useLibraryAssistantChat', () => {
     });
 
     expect(result.current.courseAssessmentRequest).toBeNull();
+  });
+
+  test('reuses the source artifact identity across explicit regeneration attempts', async () => {
+    const sourceArtifact = {
+      summary: {
+        id: 'project-1:lesson-1:generated-visual:visual-1',
+        kind: 'generated-visual' as const,
+        lessonId: 'lesson-1',
+        lessonTitle: 'Titolo',
+        previewMode: 'thumbnail' as const,
+        projectId: 'project-1',
+        projectTitle: 'Corso TypeScript',
+        title: 'Mappa concettuale',
+      },
+      visual: {
+        code: '<svg viewBox="0 0 680 120"></svg>',
+        createdAt: '2026-08-01T10:00:00.000Z',
+        id: 'visual-1',
+        kind: 'svg' as const,
+        title: 'Mappa concettuale',
+      },
+    };
+    const replacementArtifact = {
+      summary: {
+        ...sourceArtifact.summary,
+        id: 'project-1:lesson-1:generated-visual:visual-2',
+        replacementOfArtifactId: sourceArtifact.summary.id,
+      },
+      visual: {
+        ...sourceArtifact.visual,
+        id: 'visual-2',
+      },
+    };
+    generateLessonArtifactDraftMock
+      .mockResolvedValueOnce({
+        artifactId: sourceArtifact.summary.id,
+        payload: sourceArtifact,
+        visual: sourceArtifact.visual,
+      })
+      .mockResolvedValue({
+        artifactId: replacementArtifact.summary.id,
+        payload: replacementArtifact,
+        visual: replacementArtifact.visual,
+      });
+    const snapshot = {
+      id: 'project-1',
+      learningPlan: {
+        applicationExercisePlanningStatus: 'not-run',
+        modules: [
+          {
+            children: [
+              {
+                content: 'Contenuto della lezione.',
+                description: 'Descrizione',
+                id: 'lesson-1',
+                isCompleted: false,
+                kind: 'lesson',
+                title: 'Titolo',
+                type: 'core',
+              },
+            ],
+            id: 'module-1',
+            title: 'Modulo',
+          },
+        ],
+        summary: 'Sintesi',
+        title: 'Corso TypeScript',
+      },
+    };
+    const loadProjectsById = vi.fn(async () => [snapshot as never]);
+    const { result } = renderHook(() =>
+      useLibraryAssistantChat({
+        folders: [folder],
+        loadProjectsById,
+        projects: [project],
+        tree: loadedTree,
+      })
+    );
+    const onToolCall = useChatMock.mock.calls[0]?.[0]?.onToolCall;
+
+    await act(async () => {
+      await onToolCall({
+        toolCall: {
+          dynamic: false,
+          input: {
+            lessonId: 'lesson-1',
+            projectId: 'project-1',
+            prompt: 'Crea una mappa concettuale.',
+          },
+          toolCallId: 'initial-artifact',
+          toolName: 'generateLearningArtifact',
+        },
+      });
+    });
+    await act(async () => {
+      await result.current.regenerateLearningArtifact({
+        artifactId: sourceArtifact.summary.id,
+        instructions: 'Rendila più leggibile.',
+      });
+    });
+    await act(async () => {
+      await result.current.regenerateLearningArtifact({
+        artifactId: sourceArtifact.summary.id,
+        instructions: 'Rendila più leggibile.',
+      });
+    });
+
+    expect(
+      generateLessonArtifactDraftMock.mock.calls.slice(1).map(([input]) => input.requestKey)
+    ).toEqual([
+      `library-replacement-${sourceArtifact.summary.id}`,
+      `library-replacement-${sourceArtifact.summary.id}`,
+    ]);
   });
 });

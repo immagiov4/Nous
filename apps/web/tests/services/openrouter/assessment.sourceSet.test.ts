@@ -1,28 +1,10 @@
 import assert from 'node:assert/strict';
-import { beforeEach, test, vi } from 'vitest';
+import { test } from 'vitest';
+import { buildAssessmentDocumentContextFromSourceSet } from '../../../services/openrouter/assessment.ts';
 import { buildCourseSourceDescriptors } from '../../../services/projects/courseSources.ts';
 import { encodeTextBase64 } from '../../../services/projects/projectSource.ts';
 
-const callOpenRouterMock = vi.fn();
-
-vi.mock('../../../services/openrouter/shared.ts', async importOriginal => {
-  const actual = await importOriginal<typeof import('../../../services/openrouter/shared.ts')>();
-  return {
-    ...actual,
-    callOpenRouter: callOpenRouterMock,
-    MODEL_ASSESSMENT: 'assessment-model',
-  };
-});
-
-const { createAssessmentChatFromSourceSet } = await import(
-  '../../../services/openrouter/assessment.ts'
-);
-
-beforeEach(() => {
-  callOpenRouterMock.mockReset();
-});
-
-test('multi-source assessment sends every independent source index to the interviewer', async () => {
+test('multi-source assessment context preserves every independent source index', () => {
   const sources = buildCourseSourceDescriptors([
     {
       name: 'fondamenti.md',
@@ -35,20 +17,10 @@ test('multi-source assessment sends every independent source index to the interv
       data: encodeTextBase64('Applicazioni e casi di studio.'),
     },
   ]);
-  callOpenRouterMock.mockResolvedValue('Quale parte conosci gia?');
+  const context = buildAssessmentDocumentContextFromSourceSet(sources);
 
-  const session = await createAssessmentChatFromSourceSet(sources);
-  await session.sendMessage({ message: 'Parto da zero.' });
-
-  const requestMessages = callOpenRouterMock.mock.calls[0]?.[0]?.messages || [];
-  const sourceMessage = String(requestMessages[1]?.content || '');
-  assert.ok(sources.every(source => sourceMessage.includes(source.id)));
-  assert.ok(sourceMessage.includes('Concetti di base.'));
-  assert.ok(sourceMessage.includes('Applicazioni e casi di studio.'));
-  assert.ok(
-    requestMessages.some(
-      (message: { content?: unknown; role?: string }) =>
-        message.role === 'user' && message.content === 'Parto da zero.'
-    )
-  );
+  assert.ok(sources.every(source => context.content.includes(source.id)));
+  assert.ok(context.content.includes('Concetti di base.'));
+  assert.ok(context.content.includes('Applicazioni e casi di studio.'));
+  assert.equal(context.hasReliableSourceContext, true);
 });

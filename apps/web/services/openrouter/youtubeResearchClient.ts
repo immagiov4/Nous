@@ -1,3 +1,4 @@
+import { parseYouTubeTranscript, type YouTubeTranscriptSegment } from '@shared/youtubeTranscript';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from './config.ts';
 
@@ -10,17 +11,11 @@ interface YouTubeResearchResponse {
   videoClipsEnabled?: unknown;
 }
 
-export interface YouTubeTranscriptRange {
-  endSeconds: number;
-  startSeconds: number;
-}
-
 export interface YouTubeVideoEvidence {
   commentCount?: number;
   likeCount?: number;
-  ranges: YouTubeTranscriptRange[];
+  segments: YouTubeTranscriptSegment[];
   title: string;
-  transcript: string;
   url: string;
   viewCount?: number;
 }
@@ -74,9 +69,10 @@ const normalizeVideoCandidates = (value: unknown): YouTubeVideoEvidence[] =>
     ? value.flatMap(candidate => {
         if (typeof candidate !== 'object' || candidate === null) return [];
         const record = candidate as {
-          ranges?: unknown;
           commentCount?: unknown;
           likeCount?: unknown;
+          ranges?: unknown;
+          segments?: unknown;
           title?: unknown;
           transcript?: unknown;
           url?: unknown;
@@ -85,35 +81,20 @@ const normalizeVideoCandidates = (value: unknown): YouTubeVideoEvidence[] =>
         if (
           typeof record.url !== 'string' ||
           typeof record.title !== 'string' ||
-          !record.title.trim() ||
-          typeof record.transcript !== 'string' ||
-          !record.transcript.trim() ||
-          !Array.isArray(record.ranges)
+          !record.title.trim()
         ) {
           return [];
         }
-        const ranges = record.ranges.flatMap(range => {
-          if (typeof range !== 'object' || range === null) return [];
-          const values = range as { endSeconds?: unknown; startSeconds?: unknown };
-          return typeof values.startSeconds === 'number' &&
-            typeof values.endSeconds === 'number' &&
-            Number.isFinite(values.startSeconds) &&
-            Number.isFinite(values.endSeconds) &&
-            values.startSeconds >= 0 &&
-            values.endSeconds > values.startSeconds
-            ? [{ endSeconds: values.endSeconds, startSeconds: values.startSeconds }]
-            : [];
-        });
-        return ranges.length
+        const transcript = parseYouTubeTranscript(record);
+        return transcript
           ? [
               {
                 ...(typeof record.commentCount === 'number'
                   ? { commentCount: record.commentCount }
                   : {}),
                 ...(typeof record.likeCount === 'number' ? { likeCount: record.likeCount } : {}),
-                ranges,
+                segments: transcript.segments,
                 title: record.title.trim(),
-                transcript: record.transcript.trim(),
                 url: record.url,
                 ...(typeof record.viewCount === 'number' ? { viewCount: record.viewCount } : {}),
               },

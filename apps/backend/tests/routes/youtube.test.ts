@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { createSupabaseTestToken } from '../helpers/auth.js';
 
 const youtubeResearchMocks = vi.hoisted(() => ({
-  buildYouTubeResearchBundle: vi.fn(),
   buildYouTubeResearchDiagnostic: vi.fn(),
   buildYouTubeResearchOutcome: vi.fn(),
 }));
@@ -25,12 +24,7 @@ describe('/api/youtube/admin/research-lab', () => {
       SUPABASE_JWT_SECRET: 'test-secret',
     };
     youtubeResearchMocks.buildYouTubeResearchDiagnostic.mockReset();
-    youtubeResearchMocks.buildYouTubeResearchBundle.mockReset();
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockReset();
-    youtubeResearchMocks.buildYouTubeResearchBundle.mockResolvedValue({
-      context: 'SOURCE Pixel art',
-      videoCandidates: [],
-    });
     youtubeResearchMocks.buildYouTubeResearchDiagnostic.mockResolvedValue({
       budget: {
         contextWindowTokens: 128_000,
@@ -143,7 +137,6 @@ describe('/api/youtube/research-context', () => {
       DECODO_SCRAPING_API_KEY: 'decodo-test-key',
       SUPABASE_JWT_SECRET: 'test-secret',
     };
-    youtubeResearchMocks.buildYouTubeResearchBundle.mockReset();
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockReset();
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockResolvedValue({
       context: 'SOURCE Pixel art',

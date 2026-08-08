@@ -3,12 +3,13 @@ import type {
   LearningArtifactRenderPayload,
   LearningArtifactSummary,
   LearningSection,
-  LessonGeneratedVisual,
   LessonImageRef,
   PdfDocumentAssets,
-  PdfImageAsset,
+  PdfDocumentImageAsset,
   ProjectSnapshot,
+  StoredLessonVisual,
 } from '../../types.ts';
+import { getStoredLessonVisualKind } from '../visuals/storedLessonVisual.ts';
 import { flattenLessons } from './pathNodes.ts';
 
 interface CollectLearningArtifactPayloadsInput {
@@ -41,15 +42,16 @@ const normalizeSearchText = (value: string): string =>
     .replaceAll(/\s+/g, ' ')
     .trim();
 
-const formatGeneratedVisualTitle = (title: string): string =>
-  title.replaceAll(/[_-]+/g, ' ').replaceAll(/\s+/g, ' ').trim() || 'Esempio visuale';
+const formatGeneratedVisualTitle = (title?: string): string =>
+  title?.replaceAll(/[_-]+/g, ' ').replaceAll(/\s+/g, ' ').trim() || 'Esempio visuale';
 
-export const getGeneratedVisualSourceLabel = (visual: LessonGeneratedVisual): string => {
-  if (visual.kind === 'image') {
+export const getGeneratedVisualSourceLabel = (visual: StoredLessonVisual): string => {
+  const kind = getStoredLessonVisualKind(visual);
+  if (kind === 'image') {
     return 'Immagine';
   }
 
-  return visual.kind === 'html' ? 'Interattivo' : 'Visuale';
+  return kind === 'html' ? 'Interattivo' : 'Visuale';
 };
 
 const buildArtifactId = ({
@@ -77,9 +79,9 @@ export const replaceGeneratedVisualPreservingId = ({
   visuals,
 }: {
   artifactId: string;
-  replacementVisual: LessonGeneratedVisual;
-  visuals?: LessonGeneratedVisual[];
-}): LessonGeneratedVisual[] | null => {
+  replacementVisual: StoredLessonVisual;
+  visuals?: StoredLessonVisual[];
+}): StoredLessonVisual[] | null => {
   const targetVisualId = readGeneratedVisualIdFromArtifactId(artifactId);
   let didReplace = false;
   const nextVisuals = (visuals || []).map(visual => {
@@ -113,7 +115,7 @@ const readPlaceholderOrder = (content: string) => {
   return orderByKey;
 };
 
-const getPdfImageTitle = (imageRef: LessonImageRef, asset: PdfImageAsset): string =>
+const getPdfImageTitle = (imageRef: LessonImageRef, asset: PdfDocumentImageAsset): string =>
   imageRef.caption?.trim() ||
   imageRef.alt?.trim() ||
   asset.caption?.trim() ||
@@ -130,7 +132,7 @@ const buildPdfImagePayload = ({
   projectId,
   projectTitle,
 }: {
-  asset: PdfImageAsset;
+  asset: PdfDocumentImageAsset;
   imageRef: LessonImageRef;
   lesson: LearningSection;
   projectId: string;
@@ -168,8 +170,9 @@ const buildPdfImagePayload = ({
 });
 
 const getVisualPreviewMode = (
-  visual: LessonGeneratedVisual
-): LearningArtifactSummary['previewMode'] => (visual.kind === 'html' ? 'chip-only' : 'thumbnail');
+  visual: StoredLessonVisual
+): LearningArtifactSummary['previewMode'] =>
+  getStoredLessonVisualKind(visual) === 'html' ? 'chip-only' : 'thumbnail';
 
 export const buildGeneratedVisualLearningArtifactPayload = ({
   lesson,
@@ -180,7 +183,7 @@ export const buildGeneratedVisualLearningArtifactPayload = ({
   lesson: LearningSection;
   projectId: string;
   projectTitle: string;
-  visual: LessonGeneratedVisual;
+  visual: StoredLessonVisual;
 }): LearningArtifactRenderPayload => ({
   searchText: [getSectionSearchText(lesson), visual.title, visual.altText, visual.anchorHeading]
     .filter(Boolean)

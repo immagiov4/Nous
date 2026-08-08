@@ -1,16 +1,4 @@
-export { buildPdfTextIndex } from './chunking.ts';
-export {
-  buildLessonChunkContext,
-  resolveLessonContextChunks,
-} from './context.ts';
-export type { PdfPageTextLayout } from './layout.ts';
-export {
-  buildPdfPageTextLayout,
-  resolvePdfChunkPageSpan,
-} from './layout.ts';
-export {
-  getPdfLessonMappingState,
-  needsPdfLessonMappingMigration,
-  preparePdfLessonMappings,
-  prepareSourceSetLessonMappings,
-} from './mapping.ts';
+export { buildPdfTextIndex, resolvePdfChunkPageSpan } from '@shared/pdfTextIndex';
+export type { PdfPageTextLayout } from '@shared/pdfTextLayout';
+export { buildPdfPageTextLayout } from '@shared/pdfTextLayout';
+export { resolveLessonContextChunks } from './context.ts';

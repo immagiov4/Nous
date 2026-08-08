@@ -254,8 +254,7 @@ describe('WorkspaceReaderContent', () => {
               title: 'Video completo sui quaternioni',
               url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
               youtubeTranscript: {
-                ranges: [{ startSeconds: 0, endSeconds: 90 }],
-                text: 'Transcript timestampato.',
+                segments: [{ startSeconds: 0, endSeconds: 90, text: 'Transcript timestampato.' }],
               },
             },
           ],
@@ -287,6 +286,49 @@ describe('WorkspaceReaderContent', () => {
 
     expect(screen.getByText('La lezione tipizzata è pronta.')).toBeInTheDocument();
     expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  test('renders durable lesson warnings once as product-facing notices', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          lessonWarnings: [
+            {
+              code: 'lesson_pdf_image_extraction_incomplete',
+              pageNumber: 3,
+              sourceId: 'source-1',
+              stage: 'sources',
+            },
+            {
+              code: 'lesson_pdf_image_extraction_incomplete',
+              pageNumber: 4,
+              sourceId: 'source-1',
+              stage: 'sources',
+            },
+            { code: 'lesson_learning_aids_unavailable', stage: 'aids' },
+            {
+              code: 'lesson_visual_generation_incomplete',
+              stage: 'visuals',
+              subjectId: 'slot-001',
+            },
+          ],
+          quiz: [],
+        })}
+      />
+    );
+
+    expect(screen.getByText('Alcuni contenuti non sono disponibili')).toBeInTheDocument();
+    expect(
+      screen.getAllByText('Alcune immagini del PDF non sono state incluse nella lezione.')
+    ).toHaveLength(1);
+    expect(
+      screen.getByText('Gli aiuti didattici aggiuntivi non sono disponibili per questa lezione.')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('Alcuni elementi visivi non sono disponibili per questa lezione.')
+    ).toBeNull();
+    expect(screen.queryByText(/lesson_pdf_image_extraction_incomplete/u)).toBeNull();
+    expect(screen.queryByText(/source-1/u)).toBeNull();
   });
 
   test('materializes annotations before rendering lesson chunks', () => {
@@ -457,8 +499,9 @@ describe('WorkspaceReaderContent', () => {
               url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
               note: 'Mostra il movimento della matita durante il passaggio pratico.',
               youtubeTranscript: {
-                ranges: [{ startSeconds: 65, endSeconds: 93 }],
-                text: '[01:05-01:33] Traccio le linee di ombra.',
+                segments: [
+                  { startSeconds: 65, endSeconds: 93, text: 'Traccio le linee di ombra.' },
+                ],
               },
               videoClip: { startSeconds: 65, endSeconds: 92 },
             },
@@ -486,8 +529,9 @@ describe('WorkspaceReaderContent', () => {
               title: 'Ombreggiatura a tratteggio',
               url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
               youtubeTranscript: {
-                ranges: [{ startSeconds: 65, endSeconds: 93 }],
-                text: '[01:05-01:33] Traccio le linee di ombra.',
+                segments: [
+                  { startSeconds: 65, endSeconds: 93, text: 'Traccio le linee di ombra.' },
+                ],
               },
               videoClip: { startSeconds: 65, endSeconds: 92 },
             },
@@ -534,16 +578,16 @@ describe('WorkspaceReaderContent', () => {
               title: 'Tecnica completa',
               url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
               youtubeTranscript: {
-                ranges: [{ startSeconds: 0, endSeconds: 90 }],
-                text: 'Transcript della tecnica completa.',
+                segments: [
+                  { startSeconds: 0, endSeconds: 90, text: 'Transcript della tecnica completa.' },
+                ],
               },
             },
             {
               title: 'Dettaglio complementare',
               url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
               youtubeTranscript: {
-                ranges: [{ startSeconds: 0, endSeconds: 30 }],
-                text: 'Transcript del dettaglio.',
+                segments: [{ startSeconds: 0, endSeconds: 30, text: 'Transcript del dettaglio.' }],
               },
             },
           ],
@@ -576,8 +620,9 @@ describe('WorkspaceReaderContent', () => {
               title: 'Ombreggiatura a tratteggio',
               url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
               youtubeTranscript: {
-                ranges: [{ startSeconds: 65, endSeconds: 93 }],
-                text: '[01:05-01:33] Traccio le linee di ombra.',
+                segments: [
+                  { startSeconds: 65, endSeconds: 93, text: 'Traccio le linee di ombra.' },
+                ],
               },
               videoClip: { startSeconds: 65, endSeconds: 92 },
             },

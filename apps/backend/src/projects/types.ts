@@ -11,6 +11,7 @@ export type {
   SectionPatch,
 } from '@shared/projectContract';
 
+import type { ProjectAssetRef } from '@shared/projectAsset';
 import type {
   LibraryFolder,
   LibraryPlacement,
@@ -63,6 +64,7 @@ export interface ProjectSnapshot {
   syllabus?: unknown[];
   researchCoursePlan?: unknown | null;
   researchDossiersBySectionId?: Record<string, unknown>;
+  lastCourseGenerationRunId?: string | null;
   activeSectionId?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -147,11 +149,18 @@ export interface ProjectSnapshotWithRevision {
 }
 
 export interface ProjectSaveOptions extends ProjectWriteOptions {
+  importedAssets?: readonly ImportedProjectAssetDescriptor[];
+  importedCover?: ProjectCoverFile;
   sourceFile?: {
     bytes: Uint8Array;
     mimeType: string;
     name: string;
   };
+}
+
+export interface ImportedProjectAssetDescriptor extends ProjectAssetRef {
+  idempotencyKey: string;
+  objectPath: string;
 }
 
 export interface ProjectImportDiagnosticInput {
@@ -181,6 +190,11 @@ export interface ProjectStore {
   importProject: (
     userId: string,
     data: unknown
+  ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
+  importProjectArchive: (
+    userId: string,
+    bytes: Uint8Array,
+    targetProjectId: ProjectId
   ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   listFolders: (userId: string) => Promise<LibraryFolder[]>;
   listPlacements: (userId: string) => Promise<LibraryPlacement[]>;

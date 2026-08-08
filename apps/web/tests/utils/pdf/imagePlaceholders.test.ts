@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import type { ProjectDocumentImageAsset } from '@shared/projectAsset';
 import { test } from 'vitest';
 import type { LessonImageRef, PdfImageAsset } from '../../../types';
 import {
+  parsePdfContentParts,
   replacePdfImagePlaceholders,
   restoreLegacyPdfImagePlaceholders,
   stripPdfImagePlaceholders,
@@ -43,6 +45,32 @@ test('drops orphan placeholders without throwing', () => {
 
   assert.equal(rendered.includes('pdf-img-404'), false);
   assert.match(rendered, /^Testo/);
+});
+
+test('resolves durable PDF images by logical placeholder ID, not storage asset ID', () => {
+  const durableAsset: ProjectDocumentImageAsset = {
+    asset: {
+      byteSize: 4,
+      hash: 'b'.repeat(64),
+      id: 'a'.repeat(64),
+      mediaType: 'image/png',
+    },
+    id: 'pdf-image-logical-1',
+    sourceOrder: 1,
+    textAfter: 'after',
+    textBefore: 'before',
+  };
+
+  const parts = parsePdfContentParts('{{PDF_IMAGE:pdf-image-logical-1|alt=Schema durevole}}', {
+    'pdf-image-logical-1': durableAsset,
+  });
+
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0]?.type, 'image');
+  assert.equal(parts[0]?.key, 'img-pdf-image-logical-1-0');
+  if (parts[0]?.type === 'image') {
+    assert.equal(parts[0].asset, durableAsset);
+  }
 });
 
 test('strips PDF image placeholders for speech preparation', () => {

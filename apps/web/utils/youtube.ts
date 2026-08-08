@@ -1,16 +1,11 @@
+import type { YouTubeClipInterval } from '@shared/youtubeTranscript';
+
+export type { YouTubeClipInterval } from '@shared/youtubeTranscript';
+export { isYouTubeClipWithinTranscriptBounds } from '@shared/youtubeTranscript';
+
 const YOUTUBE_VIDEO_ID_LENGTH = 11;
 const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_HOSTNAMES = new Set(['m.youtube.com', 'www.youtube.com', 'youtube.com', 'youtu.be']);
-
-export interface YouTubeClipInterval {
-  endSeconds: number;
-  startSeconds: number;
-}
-
-export interface YouTubeTranscriptRange {
-  endSeconds: number;
-  startSeconds: number;
-}
 
 const normalizeVideoId = (value: string | null | undefined): string | null =>
   value?.length === YOUTUBE_VIDEO_ID_LENGTH && YOUTUBE_VIDEO_ID_PATTERN.test(value) ? value : null;
@@ -92,14 +87,4 @@ export const normalizeYouTubeClipInterval = (
   return normalizedEnd > normalizedStart
     ? { endSeconds: normalizedEnd, startSeconds: normalizedStart }
     : null;
-};
-
-export const isYouTubeClipWithinTranscriptBounds = (
-  interval: YouTubeClipInterval,
-  ranges: readonly YouTubeTranscriptRange[]
-): boolean => {
-  if (ranges.length === 0) return false;
-  const transcriptStart = Math.min(...ranges.map(range => range.startSeconds));
-  const transcriptEnd = Math.max(...ranges.map(range => range.endSeconds));
-  return interval.startSeconds >= transcriptStart && interval.endSeconds <= transcriptEnd;
 };

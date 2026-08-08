@@ -36,6 +36,7 @@ export class ProjectSourceStorageError extends Error {
 export interface ProjectSourceIntegrity {
   byteSize: number;
   hash: string;
+  mimeType?: string;
 }
 
 export const verifyProjectSourceBytes = (
@@ -49,12 +50,19 @@ export const verifyProjectSourceBytes = (
 };
 
 export interface SupabaseProjectSourceStorageConfig {
+  bucket?: string;
   fetcher?: typeof fetch;
   serviceRoleKey: string;
   supabaseUrl: string;
 }
 
 type RequestErrorCode = 'delete-failed' | 'download-failed' | 'range-invalid' | 'upload-failed';
+
+const trimTrailingSlashes = (value: string): string => {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+};
 
 const normalizeConfig = ({
   serviceRoleKey,
@@ -64,7 +72,7 @@ const normalizeConfig = ({
   supabaseUrl: string;
 } => {
   const normalizedServiceRoleKey = serviceRoleKey.trim();
-  const normalizedSupabaseUrl = supabaseUrl.trim().replace(/\/+$/u, '');
+  const normalizedSupabaseUrl = trimTrailingSlashes(supabaseUrl.trim());
   let protocol: string | undefined;
 
   try {
@@ -91,13 +99,22 @@ const encodeObjectPath = (path: string): string => {
   return segments.map(segment => encodeURIComponent(segment)).join('/');
 };
 
+const normalizeBucket = (bucket = PROJECT_SOURCE_BUCKET): string => {
+  if (!/^[a-z0-9][a-z0-9-]*$/u.test(bucket)) {
+    throw new ProjectSourceStorageError('configuration-invalid');
+  }
+  return bucket;
+};
+
 export class SupabaseProjectSourceStorage {
+  private readonly bucket: string;
   private readonly fetcher: typeof fetch;
   private readonly headers: Record<string, string>;
   private readonly storageUrl: string;
 
   constructor(config: SupabaseProjectSourceStorageConfig) {
     const { serviceRoleKey, supabaseUrl } = normalizeConfig(config);
+    this.bucket = normalizeBucket(config.bucket);
     this.fetcher = config.fetcher ?? fetch;
     this.headers = {
       apikey: serviceRoleKey,
@@ -106,12 +123,17 @@ export class SupabaseProjectSourceStorage {
     this.storageUrl = `${supabaseUrl}/storage/v1`;
   }
 
-  async upload(path: string, bytes: Uint8Array, mimeType: string): Promise<void> {
+  async upload(
+    path: string,
+    bytes: Uint8Array,
+    mimeType: string,
+    signal?: AbortSignal
+  ): Promise<void> {
     // Bun fetch accepts ArrayBufferView bodies although its DOM BodyInit type omits them.
     const body = bytes as unknown as BodyInit;
     await this.request(
       'upload-failed',
-      `${this.storageUrl}/object/${PROJECT_SOURCE_BUCKET}/${encodeObjectPath(path)}`,
+      `${this.storageUrl}/object/${this.bucket}/${encodeObjectPath(path)}`,
       {
         body,
         headers: {
@@ -120,19 +142,30 @@ export class SupabaseProjectSourceStorage {
           'x-upsert': 'false',
         },
         method: 'POST',
+        ...(signal ? { signal } : {}),
       }
     );
   }
 
-  async download(path: string, expected: ProjectSourceIntegrity): Promise<Uint8Array> {
+  async download(
+    path: string,
+    expected: ProjectSourceIntegrity,
+    signal?: AbortSignal
+  ): Promise<Uint8Array> {
     const response = await this.request(
       'download-failed',
-      `${this.storageUrl}/object/${PROJECT_SOURCE_BUCKET}/${encodeObjectPath(path)}`,
+      `${this.storageUrl}/object/${this.bucket}/${encodeObjectPath(path)}`,
       {
         headers: this.headers,
         method: 'GET',
+        ...(signal ? { signal } : {}),
       }
     );
+
+    const actualMimeType = response.headers.get('Content-Type')?.split(';', 1)[0]?.toLowerCase();
+    if (expected.mimeType && actualMimeType !== expected.mimeType.toLowerCase()) {
+      throw new ProjectSourceStorageError('integrity-mismatch');
+    }
 
     let bytes: Uint8Array;
     try {
@@ -166,7 +199,7 @@ export class SupabaseProjectSourceStorage {
     const endInclusive = endExclusive - 1;
     const response = await this.request(
       'range-invalid',
-      `${this.storageUrl}/object/${PROJECT_SOURCE_BUCKET}/${encodeObjectPath(path)}`,
+      `${this.storageUrl}/object/${this.bucket}/${encodeObjectPath(path)}`,
       {
         headers: {
           ...this.headers,
@@ -194,15 +227,16 @@ export class SupabaseProjectSourceStorage {
     return bytes;
   }
 
-  async delete(path: string): Promise<void> {
+  async delete(path: string, signal?: AbortSignal): Promise<void> {
     encodeObjectPath(path);
-    await this.request('delete-failed', `${this.storageUrl}/object/${PROJECT_SOURCE_BUCKET}`, {
+    await this.request('delete-failed', `${this.storageUrl}/object/${this.bucket}`, {
       body: JSON.stringify({ prefixes: [path] }),
       headers: {
         ...this.headers,
         'Content-Type': 'application/json',
       },
       method: 'DELETE',
+      ...(signal ? { signal } : {}),
     });
   }
 

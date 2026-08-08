@@ -39,6 +39,7 @@ import type {
 } from '../../types';
 import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { useShouldAnimate } from '../../utils/motion/useShouldAnimate.ts';
+import { getStoredLessonVisualKind } from '../../utils/visuals/storedLessonVisual.ts';
 import ChatArtifactRenderer from '../shared/ChatArtifactRenderer.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
 import SpeechInputButton, { appendSpeechTranscription } from '../shared/SpeechInputButton.tsx';
@@ -727,12 +728,12 @@ const ContextMenu = ({
       >
         <div className="custom-scrollbar max-h-56 overflow-y-auto p-1 scroll-py-1">
           {attachableArtifactPayloads.map(artifact => {
-            const ArtifactIcon =
-              'visual' in artifact && artifact.visual.kind === 'image'
-                ? ImageIcon
-                : 'visual' in artifact && artifact.visual.kind === 'html'
-                  ? CodeXml
-                  : ChartNoAxesColumn;
+            let ArtifactIcon = ChartNoAxesColumn;
+            if ('visual' in artifact) {
+              const visualKind = getStoredLessonVisualKind(artifact.visual);
+              if (visualKind === 'image') ArtifactIcon = ImageIcon;
+              if (visualKind === 'html') ArtifactIcon = CodeXml;
+            }
 
             return (
               <button

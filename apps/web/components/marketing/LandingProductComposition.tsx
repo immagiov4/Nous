@@ -117,7 +117,7 @@ const REMOTION_STABILITY_CSS = `
 `;
 type GeneratedVisualArtifactPayload = Extract<
   LearningArtifactRenderPayload,
-  { visual: LessonGeneratedVisual }
+  { summary: { kind: 'generated-visual' } }
 >;
 
 const buildAttentionSwitchingArtifact = (

@@ -19,14 +19,17 @@ const applySectionPatchToNode = (
   ...(sectionPatch.contentBlocks === undefined
     ? {}
     : { contentBlocks: sectionPatch.contentBlocks }),
+  ...(sectionPatch.generationWarnings === undefined
+    ? {}
+    : { generationWarnings: sectionPatch.generationWarnings }),
   ...(sectionPatch.generatedVisuals !== undefined
     ? { generatedVisuals: sectionPatch.generatedVisuals }
     : {}),
   ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
   ...(sectionPatch.isCompleted !== undefined ? { isCompleted: sectionPatch.isCompleted } : {}),
   ...(sectionPatch.learningAids !== undefined ? { learningAids: sectionPatch.learningAids } : {}),
-  ...(sectionPatch.lastGenerationJobId !== undefined
-    ? { lastGenerationJobId: sectionPatch.lastGenerationJobId }
+  ...(sectionPatch.lastGenerationRunId !== undefined
+    ? { lastGenerationRunId: sectionPatch.lastGenerationRunId }
     : {}),
   ...(sectionPatch.quiz !== undefined ? { quiz: sectionPatch.quiz } : {}),
   ...(sectionPatch.visualPlanningDecision !== undefined
@@ -101,6 +104,9 @@ export const applyProjectPatch = (
   }
   if (patch.researchDossiersBySectionId !== undefined) {
     snapshot.researchDossiersBySectionId = patch.researchDossiersBySectionId;
+  }
+  if (patch.lastCourseGenerationRunId !== undefined) {
+    snapshot.lastCourseGenerationRunId = patch.lastCourseGenerationRunId;
   }
   if (patch.documentAssets !== undefined) snapshot.documentAssets = patch.documentAssets;
   if (patch.documentIndex !== undefined) snapshot.documentIndex = patch.documentIndex;

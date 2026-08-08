@@ -3,6 +3,8 @@ import {
   SourceArchiveSelectorContractError,
 } from '@shared/sourceArchiveSelectors';
 
+import type { ProjectSourceArchiveIndex, ProjectStore } from './types.js';
+
 export interface SourceArchiveIndexedDirectory {
   kind: 'directory';
   path: string;
@@ -377,3 +379,46 @@ export class SourceArchiveAccess {
     return entry as Extract<SourceArchiveIndexedEntry, { kind: TKind }>;
   }
 }
+
+export const createProjectSourceArchiveAccess = (input: {
+  index: ProjectSourceArchiveIndex;
+  maxContextBytes: number;
+  projectId: string;
+  signal: AbortSignal;
+  sourceUnavailableError: () => Error;
+  store: Pick<ProjectStore, 'loadProjectSourceArchiveEntry' | 'loadProjectSourceArchiveEntryRange'>;
+  userId: string;
+}): SourceArchiveAccess => {
+  const requireEntry = async (read: () => Promise<Uint8Array | null>): Promise<Uint8Array> => {
+    input.signal.throwIfAborted();
+    const bytes = await read();
+    input.signal.throwIfAborted();
+    if (!bytes) throw input.sourceUnavailableError();
+    return bytes;
+  };
+
+  return new SourceArchiveAccess({
+    index: input.index,
+    maxContextBytes: input.maxContextBytes,
+    readByteRange: (path, start, endExclusive) =>
+      requireEntry(() =>
+        input.store.loadProjectSourceArchiveEntryRange(
+          input.userId,
+          input.projectId,
+          path,
+          input.index.version,
+          start,
+          endExclusive
+        )
+      ),
+    readBytes: path =>
+      requireEntry(() =>
+        input.store.loadProjectSourceArchiveEntry(
+          input.userId,
+          input.projectId,
+          path,
+          input.index.version
+        )
+      ),
+  });
+};

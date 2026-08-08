@@ -95,7 +95,7 @@ const snapshotFor = (meta: SavedProjectMeta): ProjectSnapshot => ({
 });
 
 const imageResult = {
-  dataUrl: 'data:image/png;base64,ZmFrZS1pbWFnZQ==',
+  bytes: new TextEncoder().encode('fake-image'),
   mediaType: 'image/png' as const,
 };
 

@@ -1,3 +1,4 @@
+import { formatYouTubeTranscript } from '@shared/youtubeTranscript';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -183,7 +184,7 @@ const CandidateCard = ({
             {candidate.transcript.characterCount} {t('caratteri')}
           </summary>
           <pre className="max-h-80 overflow-auto whitespace-pre-wrap border-t border-stone-200 p-3 text-xs leading-5 dark:border-zinc-700">
-            {candidate.transcript.text}
+            {formatYouTubeTranscript(candidate.transcript.segments)}
           </pre>
         </details>
       ) : null}
@@ -279,7 +280,7 @@ export default function YouTubeResearchLab() {
         item => extractYouTubeVideoId(item.url) === extractYouTubeVideoId(decision.url)
       );
       if (!candidate) return [];
-      const range = candidate.ranges[0];
+      const range = candidate.segments[0];
       const details = run.research.diagnostic.candidates.find(
         item => extractYouTubeVideoId(item.url) === extractYouTubeVideoId(decision.url)
       );
@@ -302,7 +303,7 @@ export default function YouTubeResearchLab() {
         : [];
     })[0] ||
     run?.research.diagnostic.bundle.videoCandidates.flatMap(candidate => {
-      const range = candidate.ranges[0];
+      const range = candidate.segments[0];
       const details = run.research.diagnostic.candidates.find(
         item => extractYouTubeVideoId(item.url) === extractYouTubeVideoId(candidate.url)
       );

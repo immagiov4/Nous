@@ -12,8 +12,12 @@ import {
   withGeneratedExerciseBrief,
   withUpdatedExerciseDeliverable,
 } from '../../../services/exercises/plan.ts';
+import { createGenerationProgressBridge } from '../../../services/openrouter/generationProgress.ts';
+import {
+  LESSON_SOURCE_UNAVAILABLE_MESSAGE,
+  LessonSourceUnavailableError,
+} from '../../../services/openrouter/lessonGenerationClient.ts';
 import { getProjectSourceFile } from '../../../services/projects/projectSource.ts';
-import { resolveLearnSectionContext } from '../../../services/workspace/controller/learnMode.ts';
 import {
   selectIsBlocking,
   type WorkspaceWorkflowId,
@@ -23,12 +27,9 @@ import {
   AppState,
   type ExerciseAttachment,
   type LearningPlan,
-  type LearningSection,
   type LessonNode,
 } from '../../../types.ts';
-import { resolveLessonGenerationState } from '../../../utils/learning/lessonGenerationState.ts';
 import { findPathNodeById, flattenLessons } from '../../../utils/learning/pathNodes.ts';
-import { insertSectionAfterSubtree } from '../../../utils/learning/sectionTree.ts';
 import { loadProjectSourceFile } from './controllerContext.ts';
 import type {
   AdvanceSectionOutcome,
@@ -388,6 +389,22 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     // Ready lessons remain navigable, but every new lesson or sublesson generation
     // shares this gate so workflow invalidation and command recreation cannot open a race.
     const workflowState = state.getWorkflowState();
+    const currentProjectId = projectLibrary.currentProjectId;
+    if (
+      !forceRegenerate &&
+      workflowState.loadSection.status === 'pending' &&
+      state.isLessonGenerationActive(currentProjectId) &&
+      state.getGeneratingSectionId(currentProjectId) === section.id
+    ) {
+      stopAudio(true);
+      domain.setActiveSectionId(section.id);
+      void projectLibrary.patchCurrentProject({
+        activeSectionId: section.id,
+        state: AppState.READING,
+      });
+      return 'reopened-generating';
+    }
+
     const isLoadingSection = workflowState.loadSection.status === 'pending';
     const isCreatingLesson = workflowState.createLesson.status === 'pending';
     const isGeneratingExercises = workflowState.generateExercise.status === 'pending';
@@ -433,9 +450,13 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'ignored-busy';
     }
 
+    const progressBridge = createGenerationProgressBridge({
+      getProgress: () => state.getWorkflowState().loadSection.progress,
+      setProgress: progress => state.setWorkflowProgress('loadSection', requestId, progress),
+    });
     const progressObserver = openRouter.createGenerationProgressObserver({
       language: domain.userProfile?.language || 'Italiano',
-      onUpdate: progress => state.setWorkflowProgress('loadSection', requestId, progress),
+      onUpdate: progressBridge.updateFromObserver,
       operation: 'lesson',
       subject: section.title,
     });
@@ -448,6 +469,10 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       const result = await openRouter.generateDurableLesson({
         forceRegenerate,
         onProgressStage: progressObserver.setStage,
+        onWorkflowSnapshot: snapshot => {
+          if (!isGenerationRequestCurrent()) return;
+          progressBridge.updateFromWorkflow(snapshot);
+        },
         projectId,
         sectionId: section.id,
       });
@@ -472,6 +497,7 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
         ...currentSection,
         content: result.content,
         contentBlocks: result.contentBlocks,
+        generationWarnings: result.warnings,
         generatedVisuals: result.generatedVisuals,
         imageRefs: result.imageRefs,
         learningAids: result.learningAids,
@@ -486,7 +512,16 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       return 'loaded';
     } catch (error) {
       if (!isGenerationRequestCurrent()) return 'ignored-busy';
-      state.failWorkflow('loadSection', requestId, getErrorMessage(error));
+      if (error instanceof LessonSourceUnavailableError) {
+        state.setMissingSourceProjectId(projectId);
+      }
+      state.failWorkflow(
+        'loadSection',
+        requestId,
+        error instanceof LessonSourceUnavailableError
+          ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
+          : getErrorMessage(error)
+      );
       throw error;
     } finally {
       progressObserver.dispose();
@@ -567,7 +602,6 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     contextAfter?: string;
     contextBefore?: string;
     instructions: string;
-    parentContent?: string;
     selectedText: string;
   }): Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }> {
     if (!domain.learningPlan || !domain.activeSectionId) {
@@ -600,6 +634,12 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
       };
     }
     const projectId = projectLibrary.currentProjectId;
+    if (!projectId) {
+      return {
+        outcome: 'failed',
+        errorMessage: 'Il progetto corrente non è disponibile. Ricaricalo e riprova.',
+      };
+    }
     const generationToken = state.tryBeginGeneration(projectId, 'lesson');
     if (generationToken === null) {
       return {
@@ -610,185 +650,93 @@ export const createSectionCommands = (context: WorkspaceControllerContext) => {
     const activeGeneration = { projectId, token: generationToken };
 
     const requestId = state.beginWorkflow('createLesson', t('Creazione approfondimento...'));
-    const previousPlan = domain.learningPlan;
-    const previousDocumentIndex = domain.documentIndex;
-    const previousActiveSectionId = domain.activeSectionId;
-    const rollbackCreatedLesson = async () => {
-      domain.setLearningPlan(previousPlan);
-      domain.setDocumentIndex(previousDocumentIndex);
-      domain.setActiveSectionId(previousActiveSectionId);
-      await projectLibrary.saveCurrentProject({
-        activeSectionId: previousActiveSectionId,
-        documentIndex: previousDocumentIndex,
-        learningPlan: previousPlan,
-        state: AppState.READING,
-      });
-    };
+    const progressBridge = createGenerationProgressBridge({
+      getProgress: () => state.getWorkflowState().createLesson.progress,
+      setProgress: progress => state.setWorkflowProgress('createLesson', requestId, progress),
+    });
+    const progressObserver = openRouter.createGenerationProgressObserver({
+      language: domain.userProfile?.language || 'Italiano',
+      onUpdate: progressBridge.updateFromObserver,
+      operation: 'lesson',
+      subject: parentSection.title,
+    });
 
     try {
-      const sourceFile = await loadProjectSourceFile(context, () =>
-        state.isWorkflowCurrent('createLesson', requestId)
-      );
-      if (!state.isWorkflowCurrent('createLesson', requestId)) {
-        return { outcome: 'ignored-busy' };
-      }
-      const canCreateWithoutFile =
-        resolveLessonGenerationState({
-          file: null,
-          hasResearchContext: domain.researchCoursePlan !== null,
-          hasToolBackedSource: domain.source?.kind === 'archive',
-          isLearnMode: domain.isLearnMode,
-          learningPlan: domain.learningPlan,
-          syllabus: domain.syllabus,
-        }) !== 'blocked-missing-source';
-      const metadataContext = {
+      const result = await openRouter.generateDurableSublesson({
         annotationNote: args.annotationNote,
         contextAfter: args.contextAfter,
         contextBefore: args.contextBefore,
-        parentContent: args.parentContent,
-        parentSection,
-        selection: args.selectedText,
-        userInstructions: args.instructions,
-      };
-      const archiveSource = domain.source?.kind === 'archive' ? domain.source : null;
-      if (archiveSource && !projectId) {
-        throw new Error(
-          'Il progetto corrente non è disponibile per consultare la sorgente archivio.'
-        );
-      }
+        instructions: args.instructions,
+        onProgressStage: progressObserver.setStage,
+        onWorkflowSnapshot: snapshot => {
+          if (!state.isWorkflowCurrent('createLesson', requestId)) return;
+          state.setGeneratingSectionId(projectId, generationToken, snapshot.sectionId);
+          progressBridge.updateFromWorkflow(snapshot);
+        },
+        parentSectionId: parentSection.id,
+        projectId,
+        selectedText: args.selectedText,
+      });
 
-      let newSection: LearningSection | null = null;
-      if (archiveSource && projectId) {
-        newSection = await openRouter.createArchiveSubChapterMetadata({
-          ...metadataContext,
-          projectId,
-          source: archiveSource,
-        });
-      } else if (sourceFile) {
-        newSection = await openRouter.createSubChapterMetadata(sourceFile, metadataContext);
-      } else if (canCreateWithoutFile) {
-        newSection = await openRouter.createLearnSubChapterMetadata({
-          ...metadataContext,
-          moduleTitle: resolveLearnSectionContext(
-            parentSection,
-            domain.learningPlan,
-            domain.syllabus
-          ).moduleTitle,
-          profile: domain.userProfile,
-        });
-      }
-
-      if (!state.isWorkflowCurrent('createLesson', requestId)) {
+      if (
+        !state.isWorkflowCurrent('createLesson', requestId) ||
+        projectLibrary.getCurrentProjectId() !== projectId
+      ) {
         return { outcome: 'ignored-busy' };
       }
-
-      if (!newSection) {
-        state.succeedWorkflow('createLesson', requestId);
-        return { outcome: 'blocked-missing-source' };
+      if (typeof result.projectRevision !== 'number') {
+        throw new TypeError(
+          'La nuova lezione è stata generata, ma non è stato possibile caricarla.'
+        );
       }
 
-      const newLesson: LessonNode = { kind: 'lesson', ...newSection };
-      const updatedModules = domain.learningPlan.modules.map(module => {
-        const containsAnchor = module.children.some(
-          child => child.kind === 'lesson' && child.id === parentSection.id
-        );
-        if (!containsAnchor) {
-          return module;
-        }
-        const lessons = module.children.filter(
-          (child): child is LessonNode => child.kind === 'lesson'
-        );
-        const exercises = module.children.filter(child => child.kind === 'exercise');
-        const reorderedLessons = insertSectionAfterSubtree(lessons, parentSection.id, newLesson);
-        return { ...module, children: [...reorderedLessons, ...exercises] };
+      await projectLibrary.applyPersistedProjectRevision({
+        projectId,
+        revision: result.projectRevision,
       });
-      let updatedPlan = { ...domain.learningPlan, modules: updatedModules };
-      let nextDocumentIndex = domain.documentIndex;
-
-      if (sourceFile) {
-        state.setWorkflowMessage(
-          'createLesson',
-          requestId,
-          t('Associazione chunk alla nuova lezione...')
-        );
-        const prepared = await context.preparePdfLessonPlan(
-          sourceFile,
-          updatedPlan,
-          domain.documentIndex,
-          [newSection.id]
-        );
-        if (!state.isWorkflowCurrent('createLesson', requestId)) {
-          return { outcome: 'ignored-busy' };
-        }
-        updatedPlan = prepared.learningPlan;
-        // Se il mapping PDF fallisce/torna null, manteniamo l'indice esistente:
-        // un indice obsoleto è sempre meglio di nessun indice (i chunk delle altre
-        // sezioni continuano a funzionare).
-        nextDocumentIndex = prepared.documentIndex ?? domain.documentIndex;
-      }
-
-      domain.setLearningPlan(updatedPlan);
-      domain.setDocumentIndex(nextDocumentIndex);
-      const didPersistNewLesson = await projectLibrary.patchCurrentProject({
-        learningPlan: updatedPlan,
-        // Includiamo documentIndex solo se è effettivamente cambiato e non-null,
-        // così l'autosave o un altro patch non lo azzerano per sbaglio.
-        ...(nextDocumentIndex != null && nextDocumentIndex !== domain.documentIndex
-          ? { documentIndex: nextDocumentIndex }
-          : {}),
-        activeSectionId: domain.activeSectionId,
-        state: AppState.READING,
-      });
-      const isCurrentProject = projectLibrary.getCurrentProjectId() === projectId;
-      if (!state.isWorkflowCurrent('createLesson', requestId) || !isCurrentProject) {
-        if (isCurrentProject) {
-          await rollbackCreatedLesson();
-        }
+      if (
+        !state.isWorkflowCurrent('createLesson', requestId) ||
+        projectLibrary.getCurrentProjectId() !== projectId
+      ) {
         return { outcome: 'ignored-busy' };
       }
-      if (projectId && !didPersistNewLesson) {
-        await rollbackCreatedLesson();
-        throw new Error('La nuova lezione non è stata salvata. Riprova.');
+      const createdSection = domain.learningPlan
+        ? findPathNodeById(domain.learningPlan.modules, result.sectionId)
+        : null;
+      if (createdSection?.kind !== 'lesson') {
+        throw new Error('La nuova lezione è stata generata, ma non è stato possibile caricarla.');
       }
-
-      const mappedNewLesson =
-        flattenLessons(updatedPlan.modules).find(
-          currentLesson => currentLesson.id === newLesson.id
-        ) ?? newLesson;
+      if (domain.activeSectionId !== result.sectionId) {
+        stopAudio(true);
+        domain.setActiveSectionId(result.sectionId);
+        void projectLibrary.patchCurrentProject({
+          activeSectionId: result.sectionId,
+          state: AppState.READING,
+        });
+      }
+      await progressObserver.finish();
+      progressObserver.complete();
       state.succeedWorkflow('createLesson', requestId);
-      try {
-        const openOutcome = await openSectionWithGenerationGate(
-          mappedNewLesson,
-          { allowWhileBlocking: true },
-          activeGeneration
-        );
-        if (openOutcome === 'blocked-missing-source') {
-          await rollbackCreatedLesson();
-          return { outcome: 'blocked-missing-source' };
-        }
-        if (openOutcome === 'ignored-busy') {
-          throw new Error(t('Rigenerazione in corso'));
-        }
-      } catch (error) {
-        // Rollback save is critical for consistency — await is intentional.
-        await rollbackCreatedLesson();
-        throw error;
-      }
-
-      // Fire-and-forget: update active section after lesson open
-      void projectLibrary.patchCurrentProject({
-        activeSectionId: mappedNewLesson.id,
-        documentIndex: nextDocumentIndex,
-      });
       return { outcome: 'created' };
     } catch (error) {
       if (!state.isWorkflowCurrent('createLesson', requestId)) {
         return { outcome: 'ignored-busy' };
       }
-      const errorMessage = getErrorMessage(error);
+      if (error instanceof LessonSourceUnavailableError) {
+        state.setMissingSourceProjectId(projectId);
+      }
+      const errorMessage =
+        error instanceof LessonSourceUnavailableError
+          ? t(LESSON_SOURCE_UNAVAILABLE_MESSAGE)
+          : getErrorMessage(error);
       state.failWorkflow('createLesson', requestId, errorMessage);
-      return { outcome: 'failed', errorMessage };
+      return {
+        outcome:
+          error instanceof LessonSourceUnavailableError ? 'blocked-missing-source' : 'failed',
+        errorMessage,
+      };
     } finally {
+      progressObserver.dispose();
       state.finishGeneration(activeGeneration.projectId, activeGeneration.token);
     }
   }

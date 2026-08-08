@@ -1,3 +1,10 @@
+export class TransientRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TransientRequestError';
+  }
+}
+
 export const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message;

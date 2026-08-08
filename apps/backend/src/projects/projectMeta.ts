@@ -1,4 +1,5 @@
 // Builds metadata objects for persisted project records.
+import { parseYouTubeTranscript } from '@shared/youtubeTranscript';
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
 import { isRecord } from '../utils/validation.js';
@@ -19,6 +20,25 @@ const ensureString = (value: unknown, fallback = ''): string => {
 
   const trimmed = value.trim();
   return trimmed || fallback;
+};
+
+const normalizeResearchSource = (value: unknown): unknown => {
+  if (!isRecord(value) || !Object.hasOwn(value, 'youtubeTranscript')) return value;
+  const { youtubeTranscript: rawTranscript, ...source } = value;
+  const youtubeTranscript = parseYouTubeTranscript(rawTranscript);
+  return youtubeTranscript ? { ...source, youtubeTranscript } : source;
+};
+
+const normalizeResearchDossiers = (value: unknown): Record<string, unknown> | undefined => {
+  if (!isRecord(value)) return undefined;
+  return Object.fromEntries(
+    Object.entries(value).map(([sectionId, dossier]) => [
+      sectionId,
+      isRecord(dossier) && Array.isArray(dossier.sources)
+        ? { ...dossier, sources: dossier.sources.map(normalizeResearchSource) }
+        : dossier,
+    ])
+  );
 };
 
 const inferProjectSourceKind = (snapshot: ProjectSnapshot, imported = false): ProjectSourceKind => {
@@ -172,6 +192,7 @@ export const normalizeProjectSnapshot = (data: unknown, imported = false): Proje
 
   const normalizedSnapshot = {
     ...snapshot,
+    researchDossiersBySectionId: normalizeResearchDossiers(snapshot.researchDossiersBySectionId),
     sourceKind: inferProjectSourceKind(snapshot, imported),
   };
   const explicitTitle = ensureString(snapshot.title);

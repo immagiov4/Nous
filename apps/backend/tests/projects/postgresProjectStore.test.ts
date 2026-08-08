@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-
+import {
+  createProjectBackupArchive,
+  PROJECT_BACKUP_MAX_ENTRIES,
+  PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+  PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+} from '@shared/projectBackupArchive';
 import JSZip from 'jszip';
 import { describe, expect, test, vi } from 'vitest';
 
@@ -74,6 +79,11 @@ const createPostgresProjectStore = (
     download: ReturnType<typeof vi.fn>;
     downloadRange?: ReturnType<typeof vi.fn>;
     upload: ReturnType<typeof vi.fn>;
+  },
+  projectAssetDeletions = {
+    claimNextQueuedObject: vi.fn(async () => null),
+    cleanupQueuedObject: vi.fn(async () => 'deleted' as const),
+    queueProjectAssets: vi.fn(async () => []),
   }
 ) => {
   let transactionSql: ReturnType<typeof vi.fn> | undefined;
@@ -98,7 +108,8 @@ const createPostgresProjectStore = (
   return new PostgresProjectStore(
     undefined,
     sqlClient as never,
-    storage ? { downloadRange: vi.fn(), ...storage } : undefined
+    storage ? { downloadRange: vi.fn(), ...storage } : undefined,
+    projectAssetDeletions
   );
 };
 
@@ -181,6 +192,10 @@ describe('PostgresProjectStore', () => {
       statement.includes('insert into public.project_snapshots')
     );
     expect(snapshotStatementIndex).toBeGreaterThan(sourceInsertIndex);
+    const placementStatementIndex = transactionStatements.findIndex(statement =>
+      statement.includes('insert into public.library_placements')
+    );
+    expect(placementStatementIndex).toBeGreaterThan(snapshotStatementIndex);
     expect(JSON.stringify(transactionValues[snapshotStatementIndex])).not.toContain('Zmlyc3Q=');
     expect(JSON.stringify(transactionValues[snapshotStatementIndex])).not.toContain('c2Vjb25k');
   });
@@ -1176,6 +1191,9 @@ describe('PostgresProjectStore', () => {
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
         transactionStatements.push(statement);
+        if (statement.includes('select snapshot, document_index') && stored) {
+          return Promise.resolve([{ document_index: null, snapshot: stored.snapshot }]);
+        }
         const ref = stored?.snapshot.source?.ref;
         if (statement.includes('source_kind') && ref) {
           return Promise.resolve([
@@ -1357,6 +1375,9 @@ describe('PostgresProjectStore', () => {
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
         transactionStatements.push(statement);
+        if (statement.includes('select snapshot, document_index') && stored) {
+          return Promise.resolve([{ document_index: null, snapshot: stored.snapshot }]);
+        }
         const refs = stored?.snapshot.source?.sources?.map(source => source.ref) || [];
         if (statement.includes('source_kind') && refs[0]) {
           const ref = refs[0];
@@ -1659,7 +1680,12 @@ describe('PostgresProjectStore', () => {
       download: vi.fn(),
       upload: vi.fn(),
     };
-    const store = createPostgresProjectStore(sqlClient, storage);
+    const projectAssetDeletions = {
+      claimNextQueuedObject: vi.fn(async () => null),
+      cleanupQueuedObject: vi.fn(async () => 'deleted' as const),
+      queueProjectAssets: vi.fn(async () => ['asset/object/path']),
+    };
+    const store = createPostgresProjectStore(sqlClient, storage, projectAssetDeletions);
 
     await store.deleteProject('user-1', PROJECT_META.id);
 
@@ -1677,6 +1703,11 @@ describe('PostgresProjectStore', () => {
       )
     ).toBe(true);
     expect(transactionStatements.at(-1)).toContain('delete from public.projects');
+    expect(projectAssetDeletions.queueProjectAssets).toHaveBeenCalledWith(transactionSql, {
+      projectId: PROJECT_META.id,
+      userId: 'user-1',
+    });
+    expect(projectAssetDeletions.cleanupQueuedObject).not.toHaveBeenCalled();
   });
 
   test('touchProject updates metadata without loading the project snapshot', async () => {
@@ -1722,6 +1753,9 @@ describe('PostgresProjectStore', () => {
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
         transactionStatements.push(statement);
+        if (statement.includes('select snapshot, document_index')) {
+          return Promise.resolve([{ document_index: null, snapshot: existingSnapshot }]);
+        }
         return Promise.resolve(
           statement.includes('returning meta, revision')
             ? [{ meta: favoriteMeta, revision: 2 }]
@@ -1760,6 +1794,9 @@ describe('PostgresProjectStore', () => {
       statement.includes('update public.projects')
     );
     expect(metaUpdate).toContain("coalesce(meta -> 'isFavorite', 'false'::jsonb)");
+    expect(
+      transactionStatements.some(statement => statement.includes('update public.project_assets'))
+    ).toBe(false);
   });
 
   test('bounds import diagnostics to the active retention window', async () => {
@@ -1785,6 +1822,58 @@ describe('PostgresProjectStore', () => {
     expect(statements[1]).toContain('limit');
     expect(values[1]).toEqual(
       expect.arrayContaining([30, '550e8400-e29b-41d4-a716-446655440000', 200])
+    );
+  });
+
+  test('does not report a committed archive import as failed when lock release fails', async () => {
+    const snapshot = createMultiSourceSnapshot();
+    const archive = await createProjectBackupArchive(
+      { project: snapshot },
+      {
+        invalidArchiveMessage: 'Invalid project backup.',
+        maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
+        maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
+        maxTotalAttachmentBytes: PROJECT_BACKUP_MAX_TOTAL_ATTACHMENT_BYTES,
+      }
+    );
+    const release = vi.fn(async () => {
+      throw new Error('unlock failed');
+    });
+    const importer = {
+      prepare: vi.fn(async ({ projectId }: { projectId: string }) => ({
+        assets: [],
+        release,
+        snapshot: { ...snapshot, id: projectId },
+      })),
+    };
+    const sqlClient = Object.assign(
+      vi.fn(async () => []),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = new PostgresProjectStore(
+      undefined,
+      sqlClient as never,
+      undefined,
+      undefined,
+      importer as never
+    );
+    const saved = {
+      meta: { ...PROJECT_META, id: 'import-target' },
+      snapshot: { ...snapshot, id: 'import-target' },
+    };
+    vi.spyOn(store, 'saveProject').mockResolvedValue(saved);
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(store.importProjectArchive('user-1', archive, 'import-target')).resolves.toEqual(
+      saved
+    );
+    expect(release).toHaveBeenCalledOnce();
+    expect(warning).toHaveBeenCalledWith(
+      '[Projects] Failed to release imported project asset locks.',
+      expect.objectContaining({ projectId: 'import-target' })
     );
   });
 

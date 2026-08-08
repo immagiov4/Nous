@@ -4,7 +4,6 @@ import { test } from 'vitest';
 import {
   createLibraryArchiveBlob,
   readLibraryArchive,
-  readLibraryArchiveProjects,
   restoreLibraryArchiveOrganization,
 } from '../../../services/projects/libraryArchive.ts';
 import { encodeTextBase64 } from '../../../services/projects/projectSource.ts';
@@ -85,9 +84,14 @@ test('library backup round trip preserves courses, folders, and placements', asy
     ['course-one', 'course-two']
   );
   assert.deepEqual(
-    imported.projects.map(project => project.source),
-    projects.map(project => project.source)
+    imported.projects.map(project => project.title),
+    ['Primo corso', 'Secondo corso']
   );
+  assert.equal(
+    imported.projects.every(project => !Object.hasOwn(project, 'source')),
+    true
+  );
+  assert.equal(imported.projectArchives.length, 2);
   assert.deepEqual(imported.folders, folders);
   assert.deepEqual(imported.placements, placements);
 });
@@ -304,7 +308,7 @@ test('library backup import rejects a single-course archive', async () => {
   const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
 
   await assert.rejects(
-    () => readLibraryArchiveProjects(archive),
+    () => readLibraryArchive(archive),
     /Hai selezionato il backup di un singolo corso\./
   );
 });
@@ -318,7 +322,7 @@ test('library backup import identifies an unsupported manifest version', async (
   const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
 
   await assert.rejects(
-    () => readLibraryArchiveProjects(archive),
+    () => readLibraryArchive(archive),
     /La versione 99 del backup non è supportata\./
   );
 });
@@ -370,8 +374,31 @@ test('library backup import reports the missing nested course position', async (
   );
   const archive = new Blob([new Uint8Array(await zip.generateAsync({ type: 'uint8array' }))]);
 
-  await assert.rejects(
-    () => readLibraryArchiveProjects(archive),
-    /Nel backup manca il corso 1 di 1\./
+  await assert.rejects(() => readLibraryArchive(archive), /Nel backup manca il corso 1 di 1\./);
+});
+
+test('library backup rejects aggregate expansion before opening nested project archives', async () => {
+  const expandedNestedArchive = 'x'.repeat(2_000_000);
+  const zip = new JSZip();
+  zip.file(
+    'library.json',
+    JSON.stringify({
+      archiveVersion: 1,
+      format: 'nous-library-archive',
+      projects: [{ id: 'compressed-course', path: 'projects/course.nous.zip', title: 'Corso' }],
+    }),
+    { compression: 'DEFLATE' }
   );
+  zip.file('projects/course.nous.zip', expandedNestedArchive, { compression: 'DEFLATE' });
+  const archive = new Blob([
+    new Uint8Array(
+      await zip.generateAsync({
+        compression: 'DEFLATE',
+        compressionOptions: { level: 9 },
+        type: 'uint8array',
+      })
+    ),
+  ]);
+
+  await assert.rejects(() => readLibraryArchive(archive), /non è un archivio ZIP Nous leggibile/iu);
 });

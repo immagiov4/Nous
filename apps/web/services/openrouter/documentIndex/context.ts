@@ -1,22 +1,6 @@
 import type { PdfTextChunk, PdfTextIndex } from '../../../types.ts';
-import { MAX_CONTEXT_CHUNKS } from './constants.ts';
 
-export const buildLessonChunkContext = (
-  documentIndex: PdfTextIndex | null | undefined,
-  primaryChunkIds: string[] | undefined
-): string => {
-  if (!documentIndex || documentIndex.chunks.length === 0) {
-    return '';
-  }
-
-  return resolveLessonContextChunks(documentIndex, primaryChunkIds)
-    .map(
-      chunk => `CHUNK ${chunk.id}
-Heading path: ${chunk.headingPath.join(' > ') || 'Nessuno'}
-${chunk.text}`
-    )
-    .join('\n\n---\n\n');
-};
+const MAX_CONTEXT_CHUNKS = 6;
 
 export const resolveLessonContextChunks = (
   documentIndex: PdfTextIndex | null | undefined,

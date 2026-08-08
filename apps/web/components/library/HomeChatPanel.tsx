@@ -1309,7 +1309,7 @@ export default function HomeChatPanel({
                     }`}
                   >
                     <MarkdownRenderer
-                      content={message.text.replace('[ASSESSMENT_COMPLETE]', '')}
+                      content={message.text}
                       isDarkMode={isDarkMode}
                       className={
                         message.role === 'user'

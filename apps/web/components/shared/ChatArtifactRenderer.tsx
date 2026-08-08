@@ -14,7 +14,9 @@ import { createPortal } from 'react-dom';
 
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LearningArtifactRenderPayload } from '../../types.ts';
+import { getStoredLessonVisualKind } from '../../utils/visuals/storedLessonVisual.ts';
 import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
+import ResolvedPdfImage from './ResolvedPdfImage.tsx';
 
 export interface ChatArtifactActionRequest {
   artifactId: string;
@@ -65,11 +67,11 @@ const getArtifactKindLabel = (artifact: LearningArtifactRenderPayload): string =
     return t('Immagine PDF');
   }
 
-  if ('visual' in artifact && artifact.visual.kind === 'image') {
+  if ('visual' in artifact && getStoredLessonVisualKind(artifact.visual) === 'image') {
     return t('Immagine generata');
   }
 
-  if ('visual' in artifact && artifact.visual.kind === 'html') {
+  if ('visual' in artifact && getStoredLessonVisualKind(artifact.visual) === 'html') {
     return t('Interattivo');
   }
 
@@ -79,12 +81,12 @@ const getArtifactKindLabel = (artifact: LearningArtifactRenderPayload): string =
 const getArtifactIcon = (artifact: LearningArtifactRenderPayload) => {
   if (
     artifact.summary.kind === 'pdf-image' ||
-    ('visual' in artifact && artifact.visual.kind === 'image')
+    ('visual' in artifact && getStoredLessonVisualKind(artifact.visual) === 'image')
   ) {
     return FileImage;
   }
 
-  if ('visual' in artifact && artifact.visual.kind === 'html') {
+  if ('visual' in artifact && getStoredLessonVisualKind(artifact.visual) === 'html') {
     return MousePointerClick;
   }
 
@@ -120,8 +122,9 @@ const ArtifactPreview = ({
 
   if ('image' in artifact) {
     return (
-      <img
-        src={artifact.image.dataUrl}
+      <ResolvedPdfImage
+        image={artifact.image}
+        projectId={artifact.summary.projectId}
         alt={artifact.summary.title}
         className="h-12 w-full rounded-xl border border-stone-200/80 bg-stone-50 object-cover dark:border-zinc-700 dark:bg-zinc-900"
       />
@@ -133,6 +136,7 @@ const ArtifactPreview = ({
       <div className="pointer-events-none h-16 overflow-hidden rounded-xl border border-stone-200/80 bg-white/70 dark:border-zinc-700 dark:bg-zinc-900/60">
         <GeneratedVisualFrame
           isDarkMode={isDarkMode}
+          projectId={artifact.summary.projectId}
           title={artifact.summary.title}
           visual={artifact.visual}
         />
@@ -293,8 +297,9 @@ const ArtifactOverlay = ({
         </div>
         <div className="min-h-0 flex-1 overflow-auto bg-transparent p-4 sm:p-6">
           {'image' in artifact ? (
-            <img
-              src={artifact.image.dataUrl}
+            <ResolvedPdfImage
+              image={artifact.image}
+              projectId={artifact.summary.projectId}
               alt={artifact.summary.title}
               className="mx-auto block max-h-[72dvh] max-w-full rounded-xl object-contain"
             />
@@ -303,6 +308,7 @@ const ArtifactOverlay = ({
               <GeneratedVisualFrame
                 className="my-0"
                 isDarkMode={isDarkMode}
+                projectId={artifact.summary.projectId}
                 title={artifact.summary.title}
                 visual={artifact.visual}
               />

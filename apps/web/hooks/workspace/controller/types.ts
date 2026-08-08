@@ -1,5 +1,8 @@
 import type { GenerationProgressSnapshot } from '../../../services/openrouter/generationProgress.ts';
-import type { ProjectSaveResult } from '../../../services/projects/projectRepository.ts';
+import type {
+  ProjectSaveResult,
+  ProjectSnapshotWithRevision,
+} from '../../../services/projects/projectRepository.ts';
 import type {
   WorkspaceWorkflowId,
   WorkspaceWorkflowState,
@@ -43,13 +46,6 @@ export interface AssessmentSourceInput {
   file?: FileData | null;
   sources?: CourseSourceDescriptor[];
   textSource?: TextSourceInput | null;
-}
-
-export interface WorkspaceChatSession {
-  sendMessage: (params: { message: string }) => Promise<{
-    text: string;
-    functionCalls?: Array<{ name: string; args: unknown }>;
-  }>;
 }
 
 export type WorkspaceGenerationKind = 'exercise' | 'lesson';
@@ -97,6 +93,7 @@ export interface WorkspaceProjectLibraryAdapter {
     projectId: string;
     revision: number;
   }) => Promise<boolean>;
+  completeProjectHydration: (project: ProjectSnapshotWithRevision) => void;
   createFolder: (args: { name: string; parentFolderId?: string | null }) => Promise<LibraryFolder>;
   currentProjectId: string | null;
   getCurrentProjectId: () => string | null;
@@ -106,12 +103,17 @@ export interface WorkspaceProjectLibraryAdapter {
   importProjectData: (
     data: unknown
   ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
+  importProjectArchive: (
+    archive: Blob,
+    targetProjectId: string
+  ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
   isLibraryLoading: boolean;
   libraryFolders: LibraryFolder[];
   libraryPlacements: LibraryPlacement[];
   libraryTree: LibraryTree;
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
   loadStoredProject: (projectId: string) => Promise<ProjectSnapshot | null>;
+  loadStoredProjectWithRevision: (projectId: string) => Promise<ProjectSnapshotWithRevision | null>;
   loadStoredProjectSource: (projectId: string) => Promise<FileData | null>;
   loadStoredProjectSources: (projectId: string) => Promise<StoredProjectSourceFile[]>;
   moveFolder: (
@@ -150,6 +152,7 @@ export interface WorkspaceProjectLibraryAdapter {
         LessonNode,
         | 'content'
         | 'contentBlocks'
+        | 'generationWarnings'
         | 'generatedVisuals'
         | 'imageRefs'
         | 'learningAids'
@@ -171,9 +174,9 @@ export interface WorkspaceControllerStateAdapter {
   failWorkflow: (workflowId: WorkspaceWorkflowId, requestId: number, errorMessage: string) => void;
   finishGeneration: (projectId: string | null, token: number) => void;
   getAssessmentMessages: () => Message[];
-  getChatSession: () => WorkspaceChatSession | null;
   getGeneratingSectionId: (projectId: string | null) => string | null;
   getOpeningProjectId: () => string | null;
+  getScreenState: () => AppState;
   getWorkflowState: () => WorkspaceWorkflowState;
   invalidateWorkflows: (workflowIds: WorkspaceWorkflowId[]) => void;
   isGenerationActive: (projectId: string | null) => boolean;
@@ -183,7 +186,6 @@ export interface WorkspaceControllerStateAdapter {
   setAssessmentMessages: (
     nextMessages: Message[] | ((previousMessages: Message[]) => Message[])
   ) => void;
-  setChatSession: (chatSession: WorkspaceChatSession | null) => void;
   setOpeningProjectId: (projectId: string | null) => void;
   setScreenState: (screenState: AppState) => void;
   setGeneratingSectionId: (projectId: string | null, token: number, sectionId: string) => void;
@@ -215,6 +217,7 @@ export interface CreateWorkspaceControllerArgs {
 
 export type OpenSectionOutcome =
   | 'loaded'
+  | 'reopened-generating'
   | 'reused-cached'
   | 'blocked-missing-source'
   | 'ignored-busy';
@@ -231,13 +234,7 @@ export interface OpenSectionOptions {
 export interface WorkspaceControllerContext {
   domain: WorkspaceDomainControllerAdapter;
   openRouter: OpenRouterServiceModule;
-  persistHydratedSnapshot: (snapshot: ProjectSnapshot) => void;
-  preparePdfLessonPlan: (
-    sourceFile: FileData | null,
-    plan: LearningPlan,
-    existingIndex?: PdfTextIndex | null,
-    sectionIds?: string[]
-  ) => Promise<{ learningPlan: LearningPlan; documentIndex: PdfTextIndex | null }>;
+  persistHydratedSnapshot: (snapshot: ProjectSnapshot, revision?: number) => void;
   projectLibrary: WorkspaceProjectLibraryAdapter;
   scheduleHydration: (callback: () => void) => void;
   sleep: (ms: number) => Promise<void>;
@@ -246,7 +243,7 @@ export interface WorkspaceControllerContext {
 }
 
 export interface WorkspaceControllerCommands {
-  cancelAssessment: () => void;
+  cancelAssessment: () => Promise<void>;
   askContextQuestion: (args: {
     contextAfter?: string;
     contextBefore?: string;
@@ -260,7 +257,6 @@ export interface WorkspaceControllerCommands {
     contextAfter?: string;
     contextBefore?: string;
     instructions: string;
-    parentContent?: string;
     selectedText: string;
   }) => Promise<{ errorMessage?: string; outcome: CreateLessonOutcome }>;
   deleteProject: (projectId: string) => Promise<void>;
@@ -307,7 +303,6 @@ export interface WorkspaceControllerCommands {
       | 'planned';
     sourceWarnings?: Array<{ message: string; name: string }>;
   }>;
-  startLearnJourney: () => Promise<{ errorMessage?: string; outcome: 'failed' | 'started' }>;
   submitAssessment: (
     input: string,
     toolPreferences?: HomeChatToolPreferences

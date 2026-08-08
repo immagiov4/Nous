@@ -3,29 +3,18 @@ import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks'
 import type { GlobalModelConfig } from '../config/modelConfig.js';
 import type { ProjectSnapshot, ProjectStore } from '../projects/types.js';
 import { isRecord } from '../utils/validation.js';
-import { TransientGenerationJobError } from './generationJobs.js';
-import type { selectPrerequisiteSourceCoverage } from './lessonGenerationCoverage.js';
-import { selectCandidatePdfImages, toImageCandidate } from './lessonGenerationImages.js';
 import { findResearchLesson } from './lessonGenerationResearch.js';
 import {
   buildArchiveSourceContext,
   buildMappedSourceContext,
   buildStoredDocumentSourceContext,
-  extractStoredPdfImageAssets,
-  isPdfAssetSoftTimeoutError,
-  type LessonPdfImageAsset,
-  mergePdfImageAssets,
+  LessonSourceUnavailableError,
   parseResearchSource,
   type ResearchSource,
   readExistingDossier,
-  readExistingPdfImageAssets,
-  readMappedPdfPages,
   readProjectLanguage,
-  withPdfAssetSoftTimeout,
 } from './lessonGenerationSources.js';
 import type { LessonGenerationInput } from './lessonGenerationTypes.js';
-import type { captionPdfImage } from './pdfImageCaption.js';
-import type { extractPdfImages } from './pdfImageExtractor.js';
 
 const findNestedRecordById = (values: unknown, id: string): Record<string, unknown> | null => {
   if (!Array.isArray(values)) return null;
@@ -53,7 +42,7 @@ export const findLessonSection = (
   return null;
 };
 
-const buildPedagogicalContext = (
+export const buildLessonPedagogicalContext = (
   project: ProjectSnapshot,
   section: Record<string, unknown>
 ): string => {
@@ -82,7 +71,7 @@ const buildPedagogicalContext = (
     .join('\n\n');
 };
 
-const readPreviousLessonTitles = (project: ProjectSnapshot): string[] =>
+export const readPreviousLessonTitles = (project: ProjectSnapshot): string[] =>
   (project.learningPlan?.modules ?? []).flatMap(module =>
     (module.children ?? []).flatMap(candidate =>
       candidate.isCompleted && typeof candidate.title === 'string' ? [candidate.title] : []
@@ -116,7 +105,7 @@ export const resolveLessonSourceMaterials = async ({
       section,
       signal
     );
-    if (!sourceContext) throw new Error('Stored lesson source is unavailable.');
+    if (!sourceContext) throw new LessonSourceUnavailableError();
   }
   const existingDossier = readExistingDossier(project, sectionId);
   const existingSources = Array.isArray(existingDossier?.sources)
@@ -128,153 +117,27 @@ export const resolveLessonSourceMaterials = async ({
   return { existingDossier, existingSources, sourceContext };
 };
 
-const selectCoverageGaps = async ({
+export const buildLessonGenerationInput = ({
   config,
-  coverage,
-  existingDossier,
-  section,
-  sectionId,
-  signal,
-  sourceContext,
-}: {
-  config: GlobalModelConfig;
-  coverage: typeof selectPrerequisiteSourceCoverage;
-  existingDossier: Record<string, unknown> | null;
-  section: Record<string, unknown>;
-  sectionId: string;
-  signal: AbortSignal;
-  sourceContext: string;
-}): Promise<string[] | undefined> => {
-  if (section.type !== 'prerequisite' || existingDossier) return undefined;
-  const decision = await coverage({
-    config,
-    description: typeof section.description === 'string' ? section.description : '',
-    signal,
-    sourceContext,
-    title: typeof section.title === 'string' ? section.title : sectionId,
-  });
-  return decision.needsResearch ? decision.missingTopics : undefined;
-};
-
-const extractLessonPdfImages = async ({
-  captionImage,
-  config,
-  extractImages,
-  jobId,
-  project,
-  section,
-  sectionId,
-  signal,
-  store,
-  userId,
-}: {
-  captionImage: typeof captionPdfImage;
-  config: GlobalModelConfig;
-  extractImages: typeof extractPdfImages;
-  jobId: string;
-  project: ProjectSnapshot;
-  section: Record<string, unknown>;
-  sectionId: string;
-  signal: AbortSignal;
-  store: ProjectStore;
-  userId: string;
-}): Promise<LessonPdfImageAsset[]> => {
-  try {
-    return await withPdfAssetSoftTimeout(
-      operationSignal =>
-        extractStoredPdfImageAssets({
-          captionImage,
-          config,
-          extractImages,
-          project,
-          section,
-          signal: operationSignal,
-          store,
-          userId,
-        }),
-      signal
-    );
-  } catch (error) {
-    if (!isPdfAssetSoftTimeoutError(error)) throw error;
-    console.warn('[Generation job] PDF image extraction timed out; continuing text-only.', {
-      jobId,
-      sectionId,
-    });
-    return [];
-  }
-};
-
-export const prepareLessonGenerationInput = async ({
-  captionImage,
-  config,
-  coverage,
-  existingDossier,
-  extractImages,
-  jobId,
+  coverageGaps,
   project,
   researchSources,
   section,
   sectionId,
   signal,
   sourceContext,
-  store,
-  userId,
 }: {
-  captionImage: typeof captionPdfImage;
   config: GlobalModelConfig;
-  coverage: typeof selectPrerequisiteSourceCoverage;
-  existingDossier: Record<string, unknown> | null;
-  extractImages: typeof extractPdfImages;
-  jobId: string;
+  coverageGaps?: string[];
   project: ProjectSnapshot;
   researchSources: ResearchSource[];
   section: Record<string, unknown>;
   sectionId: string;
   signal: AbortSignal;
   sourceContext: string;
-  store: ProjectStore;
-  userId: string;
 }) => {
-  let coverageGaps: string[] | undefined;
-  try {
-    coverageGaps = await selectCoverageGaps({
-      config,
-      coverage,
-      existingDossier,
-      section,
-      sectionId,
-      signal,
-      sourceContext,
-    });
-  } catch (error) {
-    if (signal.aborted) throw error;
-    throw new TransientGenerationJobError(
-      'lesson_coverage_failed',
-      'Lesson source coverage provider failed.',
-      { cause: error }
-    );
-  }
   const sectionDescription = typeof section.description === 'string' ? section.description : '';
   const sectionTitle = typeof section.title === 'string' ? section.title : sectionId;
-  const extractedImages = await extractLessonPdfImages({
-    captionImage,
-    config,
-    extractImages,
-    jobId,
-    project,
-    section,
-    sectionId,
-    signal,
-    store,
-    userId,
-  });
-  const availableImages = mergePdfImageAssets(readExistingPdfImageAssets(project), extractedImages);
-  const candidateImages = selectCandidatePdfImages(
-    availableImages,
-    sectionTitle,
-    sectionDescription,
-    readMappedPdfPages(project, section) || []
-  );
   const generationInput: LessonGenerationInput = {
     config,
     coverageGaps,
@@ -283,14 +146,12 @@ export const prepareLessonGenerationInput = async ({
       typeof project.learningPlan?.generationNotes === 'string'
         ? project.learningPlan.generationNotes
         : undefined,
-    imageCandidates: candidateImages.map(image =>
-      toImageCandidate(image, sectionTitle, sectionDescription)
-    ),
+    imageCandidates: [],
     instructionPacks: Array.isArray(section.instructionPacks)
       ? normalizeLessonInstructionPacks(section.instructionPacks)
       : [],
     language: readProjectLanguage(project),
-    pedagogicalContext: buildPedagogicalContext(project, section),
+    pedagogicalContext: buildLessonPedagogicalContext(project, section),
     previousLessonTitles: readPreviousLessonTitles(project),
     researchContext: '',
     sectionTitle,
@@ -298,5 +159,5 @@ export const prepareLessonGenerationInput = async ({
     sourceContext,
     sources: researchSources,
   };
-  return { availableImages, candidateImages, generationInput, sectionDescription, sectionTitle };
+  return { generationInput, sectionDescription, sectionTitle };
 };

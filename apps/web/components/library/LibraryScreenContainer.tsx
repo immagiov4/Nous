@@ -6,6 +6,7 @@ import type { useWorkspaceFileActions } from '../../hooks/workspace/useWorkspace
 import type { useWorkspaceNavigation } from '../../hooks/workspace/useWorkspaceNavigation.ts';
 import type { useWorkspaceReaderState } from '../../hooks/workspace/useWorkspaceReaderState.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
+import { getErrorMessage } from '../../services/core/errorMessage.ts';
 import { sortSourceFiles } from '../../services/projects/courseSources.ts';
 import type { HomeChatMode, HomeChatToolPreferences } from '../../types.ts';
 import { NewHomeView } from '../newHome/NewHomeView.tsx';
@@ -164,11 +165,14 @@ export const LibraryScreenContainer = ({
   );
 
   const cancelNewCourse = useCallback(() => {
-    cancelAssessment();
-    setAssessmentComplete(false);
-    setPendingHomeSourceFiles([]);
-    setHomeChatMode('library-query');
-  }, [cancelAssessment]);
+    void cancelAssessment()
+      .then(() => {
+        setAssessmentComplete(false);
+        setPendingHomeSourceFiles([]);
+        setHomeChatMode('library-query');
+      })
+      .catch(error => notify(getErrorMessage(error)));
+  }, [cancelAssessment, notify]);
 
   useEffect(() => {
     if (!courseAssessmentRequest) {

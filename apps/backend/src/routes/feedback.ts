@@ -11,6 +11,7 @@ import {
 } from '../services/feedbackStore.js';
 import { GithubFeedbackError } from '../services/githubFeedback.js';
 import { buildSha256HexDigest } from '../utils/hash.js';
+import { sanitizeDiagnosticText } from '../utils/sanitizeDiagnosticText.js';
 import { isRecord, readOptionalString } from '../utils/validation.js';
 
 const FEEDBACK_CATEGORIES = new Set<FeedbackCategory>(['bug', 'enhancement']);
@@ -35,8 +36,6 @@ const FEEDBACK_UNAVAILABLE_MESSAGE =
 const RATE_LIMIT_MESSAGE = 'Hai inviato troppe segnalazioni. Riprova più tardi.';
 const ADMIN_REQUIRED_MESSAGE = 'Permessi di amministratore richiesti.';
 const GITHUB_NOT_CONFIGURED_MESSAGE = 'La sincronizzazione GitHub non è configurata.';
-const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 const ROUTE_ID_PATTERN =
   /^(?:\d+|[0-9a-f]{8}-[0-9a-f-]{27,}|(?:course|lesson|module|project|section|user)[-_][a-z0-9_-]{8,})$/i;
 
@@ -48,33 +47,6 @@ interface ParsedFeedbackInput {
   screenshot?: FeedbackScreenshot;
   title?: string;
 }
-
-const redactSensitiveText = (value: string): string =>
-  value
-    .replaceAll(HTTP_URL_PATTERN, rawUrl => {
-      try {
-        const url = new URL(rawUrl);
-        return `${url.origin}${url.pathname}`;
-      } catch {
-        return '[URL REDACTED]';
-      }
-    })
-    .replaceAll(EMAIL_PATTERN, '[EMAIL REDACTED]')
-    .replaceAll(/\b(authorization)(\s*[=:]\s*)[^\r\n]+/gi, '$1$2[REDACTED]')
-    .replaceAll(/(bearer\s+)[^\s"']+/gi, '$1[REDACTED]')
-    .replaceAll(
-      /\b(access[_-]?token|refresh[_-]?token|api[_-]?key|password|secret)(\s*[=:]\s*)[^\s,;"']+/gi,
-      '$1$2[REDACTED]'
-    )
-    .replaceAll(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[JWT REDACTED]')
-    .replaceAll(/\b(?:github_pat|gh[opsu]|sk)[-_]?[A-Za-z0-9_-]{16,}\b/g, '[SECRET REDACTED]');
-
-const sanitizeText = (value: string, maxLength: number): string =>
-  redactSensitiveText(value)
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: logs may contain unsafe terminal control bytes.
-    .replaceAll(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
-    .slice(0, maxLength)
-    .trim();
 
 const sanitizeUrl = (value: unknown): string | undefined => {
   const text = readOptionalString(value);
@@ -89,7 +61,9 @@ const sanitizeUrl = (value: unknown): string | undefined => {
     }
     const pathname = decodeURI(url.pathname)
       .split('/')
-      .map(segment => (ROUTE_ID_PATTERN.test(segment) ? '[ID]' : sanitizeText(segment, 120)))
+      .map(segment =>
+        ROUTE_ID_PATTERN.test(segment) ? '[ID]' : sanitizeDiagnosticText(segment, 120)
+      )
       .join('/')
       .slice(0, 1_000);
     return url.origin === 'https://local.nous.invalid' ? pathname : `${url.origin}${pathname}`;
@@ -117,7 +91,7 @@ const sanitizeConsoleEntries = (value: unknown): FeedbackConsoleEntry[] | undefi
     }
     const message =
       typeof entry.message === 'string'
-        ? sanitizeText(entry.message, MAX_CONSOLE_MESSAGE_LENGTH)
+        ? sanitizeDiagnosticText(entry.message, MAX_CONSOLE_MESSAGE_LENGTH)
         : '';
     if (!message) {
       return [];
@@ -143,7 +117,7 @@ const sanitizeCorrelationIds = (value: unknown): string[] | undefined => {
     ...new Set(
       value
         .filter((entry): entry is string => typeof entry === 'string')
-        .map(entry => sanitizeText(entry, MAX_CORRELATION_ID_LENGTH))
+        .map(entry => sanitizeDiagnosticText(entry, MAX_CORRELATION_ID_LENGTH))
         .filter(Boolean)
     ),
   ].slice(0, MAX_CORRELATION_IDS);
@@ -155,10 +129,10 @@ const sanitizeDiagnostics = (value: unknown, request: Request): FeedbackDiagnost
   const pageUrl = sanitizeUrl(diagnostics.pageUrl);
   const appVersion =
     typeof diagnostics.appVersion === 'string'
-      ? sanitizeText(diagnostics.appVersion, 64)
+      ? sanitizeDiagnosticText(diagnostics.appVersion, 64)
       : undefined;
-  const requestId = sanitizeText(request.get('x-request-id') || '', 128) || undefined;
-  const userAgent = sanitizeText(request.get('user-agent') || '', 300) || undefined;
+  const requestId = sanitizeDiagnosticText(request.get('x-request-id') || '', 128) || undefined;
+  const userAgent = sanitizeDiagnosticText(request.get('user-agent') || '', 300) || undefined;
   const correlationIds = sanitizeCorrelationIds(diagnostics.correlationIds);
   const consoleEntries = sanitizeConsoleEntries(diagnostics.consoleEntries);
 
@@ -300,14 +274,16 @@ const parseFeedbackInput = (body: unknown, request: Request): ParsedFeedbackInpu
 
   const description =
     typeof body.description === 'string'
-      ? sanitizeText(body.description, MAX_DESCRIPTION_LENGTH + 1)
+      ? sanitizeDiagnosticText(body.description, MAX_DESCRIPTION_LENGTH + 1)
       : '';
   if (!description || description.length > MAX_DESCRIPTION_LENGTH) {
     return null;
   }
 
   const title =
-    typeof body.title === 'string' ? sanitizeText(body.title, MAX_TITLE_LENGTH + 1) : undefined;
+    typeof body.title === 'string'
+      ? sanitizeDiagnosticText(body.title, MAX_TITLE_LENGTH + 1)
+      : undefined;
   if (title && title.length > MAX_TITLE_LENGTH) {
     return null;
   }

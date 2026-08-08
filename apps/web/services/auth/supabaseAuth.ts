@@ -1,3 +1,4 @@
+import { TransientRequestError } from '../core/errorMessage.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 import { getNousRuntimeConfig } from '../runtimeConfig.ts';
 
@@ -53,10 +54,19 @@ const SUPABASE_SESSION_STORAGE_KEY = 'nousSupabaseSession';
 const SUPABASE_SESSION_CHANGE_EVENT = 'nous:supabase-session-change';
 const SESSION_EXPIRY_SKEW_SECONDS = 30;
 export const SUPABASE_SESSION_REFRESH_RETRY_MS = 30_000;
+const SUPABASE_REFRESH_UNAVAILABLE_MESSAGE =
+  'Aggiornamento sessione temporaneamente non disponibile.';
 const LOCAL_AUTH_MODE = 'local-bypass';
 const SUPABASE_AUTH_MODE = 'supabase';
 let memorySession: string | null = null;
-let refreshSessionPromise: Promise<SupabaseUserSession | null> | null = null;
+let sessionGeneration = 0;
+let refreshSessionRequest:
+  | {
+      generation: number;
+      promise: Promise<SupabaseUserSession | null>;
+      session: SupabaseUserSession;
+    }
+  | undefined;
 
 export const getFrontendAuthMode = (): 'local-bypass' | 'supabase' | 'unconfigured' => {
   const configuredMode = getNousRuntimeConfig().authMode || import.meta.env.VITE_AUTH_MODE?.trim();
@@ -312,13 +322,17 @@ export const readSupabaseSession = (): SupabaseUserSession | null => {
     }
     return sanitizedSession;
   } catch {
-    storage?.removeItem(SUPABASE_SESSION_STORAGE_KEY);
-    memorySession = null;
+    clearSupabaseSession();
     return null;
   }
 };
 
-export const saveSupabaseSession = (session: SupabaseUserSession): void => {
+const hasSameSessionTokens = (
+  left: SupabaseUserSession | null,
+  right: SupabaseUserSession
+): boolean => left?.accessToken === right.accessToken && left.refreshToken === right.refreshToken;
+
+const writeSupabaseSession = (session: SupabaseUserSession): void => {
   const serializedSession = JSON.stringify(stripUnusedSessionFields(session));
   const storage = getStorage();
   if (storage) {
@@ -332,7 +346,13 @@ export const saveSupabaseSession = (session: SupabaseUserSession): void => {
   notifySupabaseSessionChange();
 };
 
+export const saveSupabaseSession = (session: SupabaseUserSession): void => {
+  if (!hasSameSessionTokens(readSupabaseSession(), session)) sessionGeneration += 1;
+  writeSupabaseSession(session);
+};
+
 export const clearSupabaseSession = (): void => {
+  sessionGeneration += 1;
   getStorage()?.removeItem(SUPABASE_SESSION_STORAGE_KEY);
   memorySession = null;
   notifySupabaseSessionChange();
@@ -354,59 +374,79 @@ export const mergeSupabaseAuthHeaders = (headers: HeadersInit | undefined = {}):
 });
 
 const requestRefreshedSupabaseSession = async (
-  session: SupabaseUserSession
+  session: SupabaseUserSession,
+  generation: number,
+  refreshToken: string
 ): Promise<SupabaseUserSession | null> => {
-  if (!session.refreshToken) {
-    clearSupabaseSession();
-    return null;
-  }
+  const isCurrentSession = (): boolean =>
+    generation === sessionGeneration && hasSameSessionTokens(readSupabaseSession(), session);
+  const currentSession = (): SupabaseUserSession | null => readSupabaseSession();
 
   const { anonKey, supabaseUrl } = getSupabaseAuthConfig();
-  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-    method: 'POST',
-    headers: {
-      apikey: anonKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ refresh_token: session.refreshToken }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+  } catch (error) {
+    if (!isCurrentSession()) return currentSession();
+    throw error;
+  }
+
+  if (!isCurrentSession()) return currentSession();
 
   if (!response.ok) {
     if (response.status === 400 || response.status === 401) {
       clearSupabaseSession();
       return null;
     }
-    throw new Error('Aggiornamento sessione temporaneamente non disponibile.');
+    if (response.status === 429 || response.status >= 500) {
+      throw new TransientRequestError(SUPABASE_REFRESH_UNAVAILABLE_MESSAGE);
+    }
+    throw new Error(SUPABASE_REFRESH_UNAVAILABLE_MESSAGE);
   }
 
   try {
-    const refreshedSession = normalizeSession(
-      (await response.json()) as SupabaseAuthResponse,
-      session
-    );
-    saveSupabaseSession(refreshedSession);
+    const payload = (await response.json()) as SupabaseAuthResponse;
+    if (!isCurrentSession()) return currentSession();
+    const refreshedSession = normalizeSession(payload, session);
+    writeSupabaseSession(refreshedSession);
     return refreshedSession;
   } catch {
-    clearSupabaseSession();
-    return null;
+    if (!isCurrentSession()) return currentSession();
+    throw new TransientRequestError(SUPABASE_REFRESH_UNAVAILABLE_MESSAGE);
   }
 };
 
 export const refreshSupabaseSession = (): Promise<SupabaseUserSession | null> => {
-  if (refreshSessionPromise !== null) {
-    return refreshSessionPromise;
-  }
-
   const session = readSupabaseSession();
   if (!session?.refreshToken) {
     clearSupabaseSession();
     return Promise.resolve(null);
   }
 
-  refreshSessionPromise = requestRefreshedSupabaseSession(session).finally(() => {
-    refreshSessionPromise = null;
+  if (
+    refreshSessionRequest?.generation === sessionGeneration &&
+    hasSameSessionTokens(refreshSessionRequest.session, session)
+  ) {
+    return refreshSessionRequest.promise;
+  }
+
+  const generation = sessionGeneration;
+  const promise = requestRefreshedSupabaseSession(
+    session,
+    generation,
+    session.refreshToken
+  ).finally(() => {
+    if (refreshSessionRequest?.promise === promise) refreshSessionRequest = undefined;
   });
-  return refreshSessionPromise;
+  refreshSessionRequest = { generation, promise, session };
+  return promise;
 };
 
 export const getValidSupabaseSession = async (): Promise<SupabaseUserSession | null> => {

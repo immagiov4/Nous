@@ -1,3 +1,4 @@
+import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import { motion } from 'framer-motion';
 import {
   Archive,
@@ -24,10 +25,10 @@ import type {
   ApplicationExerciseNode,
   LearningArtifactRenderPayload,
   LessonContentBlock,
-  LessonGeneratedVisual,
   LessonGeneratedVisualBlock,
   ResearchSourceReference,
   SectionAnnotation,
+  StoredLessonVisual,
 } from '../../../types.ts';
 import { getGeneratedVisualSourceLabel } from '../../../utils/learning/artifacts.ts';
 import { materializeSectionAnnotationMarks } from '../../../utils/learning/sectionAnnotationAnchors.ts';
@@ -43,6 +44,7 @@ import {
   resolveTypedYouTubeClips,
   splitYouTubeClipCarouselContent,
 } from '../../../utils/reader/youtubeClipCarousel.ts';
+import { getStoredLessonVisualKind } from '../../../utils/visuals/storedLessonVisual.ts';
 import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
@@ -56,6 +58,47 @@ import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 import YouTubeClipCarousel from './YouTubeClipCarousel.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
+
+const LESSON_WARNING_MESSAGES: Readonly<
+  Partial<Record<LessonWorkflowWarning['code'], () => string>>
+> = {
+  lesson_learning_aids_unavailable: () =>
+    t('Gli aiuti didattici aggiuntivi non sono disponibili per questa lezione.'),
+  lesson_pdf_image_extraction_incomplete: () =>
+    t('Alcune immagini del PDF non sono state incluse nella lezione.'),
+  lesson_youtube_research_unavailable: () =>
+    t('I video di approfondimento non sono disponibili per questa lezione.'),
+};
+
+function LessonGenerationWarnings({
+  warnings,
+}: {
+  readonly warnings: readonly LessonWorkflowWarning[];
+}) {
+  const messages = [
+    ...new Set(
+      warnings.flatMap(warning => {
+        const getMessage = LESSON_WARNING_MESSAGES[warning.code];
+        return getMessage ? [getMessage()] : [];
+      })
+    ),
+  ];
+  if (messages.length === 0) return null;
+
+  return (
+    <aside
+      aria-label={t('Contenuti non disponibili')}
+      className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/20 dark:text-amber-100"
+    >
+      <p className="text-sm font-semibold">{t('Alcuni contenuti non sono disponibili')}</p>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-6">
+        {messages.map(message => (
+          <li key={message}>{message}</li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
 
 function FailedVisualSlot({
   block,
@@ -108,13 +151,15 @@ function FailedVisualSlot({
 const createFallbackVisualArtifactPayload = ({
   activeSectionTitle,
   artifactId,
+  projectId,
   title,
   visual,
 }: {
   activeSectionTitle?: string | null;
   artifactId: string;
+  projectId?: string | null;
   title?: string;
-  visual: LessonGeneratedVisual;
+  visual: StoredLessonVisual;
 }): LearningArtifactRenderPayload => ({
   searchText: '',
   summary: {
@@ -123,8 +168,8 @@ const createFallbackVisualArtifactPayload = ({
     kind: 'generated-visual',
     lessonId: '',
     lessonTitle: activeSectionTitle || '',
-    previewMode: visual.kind === 'html' ? 'chip-only' : 'thumbnail',
-    projectId: '',
+    previewMode: getStoredLessonVisualKind(visual) === 'html' ? 'chip-only' : 'thumbnail',
+    projectId: projectId || '',
     projectTitle: '',
     sourceLabel: getGeneratedVisualSourceLabel(visual),
     title: title || visual.title?.replaceAll(/[_-]+/g, ' ').trim() || 'Esempio visuale',
@@ -137,11 +182,13 @@ const resolveAnnotationArtifactPayloads = ({
   activeSectionTitle,
   annotation,
   artifactPayloadById,
+  projectId,
 }: {
   activeSectionGeneratedVisualsById: WorkspaceReaderContentModel['activeSectionGeneratedVisualsById'];
   activeSectionTitle?: string | null;
   annotation: SectionAnnotation;
   artifactPayloadById: Map<string, LearningArtifactRenderPayload>;
+  projectId?: string | null;
 }): LearningArtifactRenderPayload[] =>
   (annotation.artifactRefs || []).flatMap(ref => {
     const payload = artifactPayloadById.get(ref.artifactId);
@@ -160,6 +207,7 @@ const resolveAnnotationArtifactPayloads = ({
           createFallbackVisualArtifactPayload({
             activeSectionTitle,
             artifactId: ref.artifactId,
+            projectId,
             title: ref.title,
             visual,
           }),
@@ -870,6 +918,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   isMobileViewport,
   learningAids,
   lessonSources = [],
+  lessonWarnings = [],
   onAdvanceSection,
   onAttachExerciseFiles,
   onCompleteSection,
@@ -893,6 +942,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   sectionReasoningText,
   sectionProgress,
   onUpdateExerciseInternalText,
+  projectId,
   sourcePageRangeLabel,
   ttsTextPicker,
 }: WorkspaceReaderContentModel) {
@@ -1001,10 +1051,17 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
             activeSectionTitle,
             annotation,
             artifactPayloadById,
+            projectId,
           }).map(payload => payload.summary.id)
         )
       ),
-    [activeSectionGeneratedVisualsById, activeSectionTitle, artifactPayloadById, lessonAnnotations]
+    [
+      activeSectionGeneratedVisualsById,
+      activeSectionTitle,
+      artifactPayloadById,
+      lessonAnnotations,
+      projectId,
+    ]
   );
   const sectionArtifactPayloads = useMemo(
     () =>
@@ -1020,6 +1077,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
               activeSectionTitle,
               annotation,
               artifactPayloadById,
+              projectId,
             })
           ),
       ]),
@@ -1029,6 +1087,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
       artifactPayloadById,
       currentLessonArtifactPayloads,
       lessonAnnotationArtifactIds,
+      projectId,
       sectionAnnotations,
     ]
   );
@@ -1147,6 +1206,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
           {shouldShowLessonContent ? (
             <div className={lessonLayoutClassName}>
               <div className="min-w-0 space-y-2">
+                <LessonGenerationWarnings warnings={lessonWarnings} />
                 {isMobileViewport ? (
                   <LessonLearningAids
                     isDarkMode={isDarkMode}
@@ -1189,6 +1249,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                               lessonAssetsById={activeSectionAssetsById}
                               lessonImageRefsById={activeSectionImageRefsById}
                               onClick={onContentClick}
+                              projectId={projectId}
                               sectionAnnotations={sectionAnnotations}
                               className={`prose-lg leading-7 sm:prose-xl sm:leading-loose prose-p:text-gray-800 dark:prose-p:text-gray-200 prose-headings:font-serif prose-headings:font-normal prose-headings:text-gray-900 dark:prose-headings:text-white prose-strong:font-semibold prose-strong:text-orange-800 dark:prose-strong:text-orange-400 ${isDarkMode ? 'prose-invert' : ''}`}
                             />
@@ -1228,7 +1289,8 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                           <GeneratedVisualFrame
                             key={`visual:${block.slotId}`}
                             isDarkMode={isDarkMode}
-                            title={visual.title}
+                            projectId={projectId}
+                            title={visual.title || activeSectionTitle || 'Esempio visuale'}
                             visual={visual}
                           />
                         ) : block.retryPlan ? (
@@ -1263,6 +1325,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                                 lessonAssetsById={activeSectionAssetsById}
                                 lessonImageRefsById={activeSectionImageRefsById}
                                 onClick={onContentClick}
+                                projectId={projectId}
                                 sectionAnnotations={sectionAnnotations}
                                 className={`prose-lg leading-7 sm:prose-xl sm:leading-loose
                           prose-p:text-gray-800 dark:prose-p:text-gray-200
@@ -1321,6 +1384,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                         activeSectionTitle,
                         annotation,
                         artifactPayloadById,
+                        projectId,
                       });
                       const hasNoteText = annotation.note?.trim().length > 0;
 

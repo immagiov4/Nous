@@ -60,12 +60,11 @@ test('normalizes optional learning aids with the previous caps, stable ids, exac
   expect(result[2]?.anchorHeading).toBeUndefined();
 });
 
-test('retries a transient provider failure before dropping optional learning aids', async () => {
+test('leaves a transient provider failure to the owning durable attempt after one request', async () => {
   vi.useFakeTimers();
   const requestDrafts = vi
     .fn()
-    .mockRejectedValueOnce(Object.assign(new Error('temporary upstream failure'), { status: 502 }))
-    .mockResolvedValueOnce([]);
+    .mockRejectedValue(Object.assign(new Error('temporary upstream failure'), { status: 502 }));
   const generate = createLessonLearningAidGenerator(requestDrafts);
 
   try {
@@ -76,11 +75,12 @@ test('retries a transient provider failure before dropping optional learning aid
       sectionTitle: 'Titolo',
       signal: new AbortController().signal,
     });
+    const rejection = expect(resultPromise).rejects.toThrow('temporary upstream failure');
 
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.runAllTimersAsync();
 
-    expect(await resultPromise).toEqual([]);
-    expect(requestDrafts).toHaveBeenCalledTimes(2);
+    await rejection;
+    expect(requestDrafts).toHaveBeenCalledOnce();
   } finally {
     vi.useRealTimers();
   }
@@ -128,7 +128,7 @@ test('skips malformed learning aids without discarding valid siblings', () => {
   ]);
 });
 
-test('optional learning-aid failure does not fail the lesson', async () => {
+test('reports an exhausted optional learning-aid request to the owning workflow', async () => {
   const requestDrafts = vi.fn().mockRejectedValue(new Error('invalid provider response'));
   const generate = createLessonLearningAidGenerator(requestDrafts);
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -142,7 +142,7 @@ test('optional learning-aid failure does not fail the lesson', async () => {
         sectionTitle: 'Titolo',
         signal: new AbortController().signal,
       })
-    ).resolves.toEqual([]);
+    ).rejects.toThrow('invalid provider response');
     expect(requestDrafts).toHaveBeenCalledOnce();
   } finally {
     warn.mockRestore();

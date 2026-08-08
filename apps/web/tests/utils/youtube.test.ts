@@ -32,8 +32,8 @@ describe('YouTube URLs', () => {
   test('accepts a clip inside transcript bounds even when captions contain long silent gaps', () => {
     expect(
       isYouTubeClipWithinTranscriptBounds({ startSeconds: 65, endSeconds: 92 }, [
-        { startSeconds: 65, endSeconds: 68 },
-        { startSeconds: 82, endSeconds: 93 },
+        { startSeconds: 65, endSeconds: 68, text: 'Prima frase' },
+        { startSeconds: 82, endSeconds: 93, text: 'Seconda frase' },
       ])
     ).toBe(true);
   });
