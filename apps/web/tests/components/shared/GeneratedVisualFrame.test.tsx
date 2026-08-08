@@ -23,6 +23,14 @@ const brightSvgVisual: LessonGeneratedVisual = {
   title: 'Nodo SVG',
 };
 
+const mermaidVisual: LessonGeneratedVisual = {
+  code: 'flowchart LR\n  A[Contesto] --> B[Agente]',
+  createdAt: '2026-08-08T00:00:00.000Z',
+  id: 'visual-mermaid',
+  kind: 'mermaid',
+  title: 'Flusso del contesto',
+};
+
 const scriptBeforeDomVisual: LessonGeneratedVisual = {
   code: '<script>document.getElementById("late-node").textContent = "ok";</script><div id="late-node"></div>',
   createdAt: '2026-05-07T00:00:00.000Z',
@@ -115,6 +123,25 @@ describe('GeneratedVisualFrame', () => {
         visual={brightHtmlVisual}
       />
     );
+  });
+
+  test('fits the complete Mermaid diagram inside a thumbnail viewport', () => {
+    render(
+      <div className="h-16">
+        <GeneratedVisualFrame
+          className="h-full my-0"
+          displayMode="thumbnail"
+          title="Flusso del contesto"
+          visual={mermaidVisual}
+        />
+      </div>
+    );
+
+    const frame = screen.getByTitle('Flusso del contesto');
+    expect(frame).toHaveClass('h-full');
+    expect(frame).toHaveStyle({ height: '100%', minHeight: '0' });
+    expect(frame).toHaveAttribute('srcDoc', expect.stringContaining('.mermaid > svg'));
+    expect(frame).toHaveAttribute('srcDoc', expect.stringContaining('max-height: 100% !important'));
   });
 
   test('mounts generated HTML before replaying embedded scripts', () => {

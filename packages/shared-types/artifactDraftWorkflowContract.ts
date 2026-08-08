@@ -1,5 +1,7 @@
 import type { ProjectLessonVisual } from './projectAsset';
 
+export const ARTIFACT_DRAFT_SLOT_ID = 'artifact-draft';
+
 export type ArtifactDraftWorkflowStage = 'finalizing' | 'planning' | 'rendering';
 export type ArtifactDraftWorkflowStatus = 'completed' | 'failed' | 'queued' | 'running';
 

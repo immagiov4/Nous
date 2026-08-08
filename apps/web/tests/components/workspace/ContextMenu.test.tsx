@@ -460,15 +460,31 @@ describe('ContextMenu', () => {
     ]);
   });
 
-  test('offers generated visuals but excludes images extracted from the source', async () => {
+  test('offers only user-generated artifacts and excludes lesson visuals and source images', async () => {
     const user = userEvent.setup();
-    const savedGeneratedArtifact: LearningArtifactRenderPayload = {
+    const lessonGeneratedArtifact: LearningArtifactRenderPayload = {
       ...annotationArtifact,
       summary: {
         ...annotationArtifact.summary,
         id: 'project-1:section-1:generated-visual:visual-001',
+        title: 'Diagramma della lezione',
       },
-      visual: { ...annotationArtifact.visual, id: 'visual-001' },
+      visual: { ...annotationArtifact.visual, id: 'visual-001', title: 'Diagramma della lezione' },
+    };
+    const durableUserArtifact: LearningArtifactRenderPayload = {
+      ...annotationArtifact,
+      summary: {
+        ...annotationArtifact.summary,
+        id: 'project-1:section-1:generated-visual:lesson-visual:run-1:artifact-draft',
+        title: 'Schema richiesto dall’utente',
+      },
+      visual: {
+        createdAt: '2026-05-05T10:00:00.000Z',
+        id: 'lesson-visual:run-1:artifact-draft',
+        render: { code: '<div>Schema</div>', embeddedAssets: [], kind: 'html' },
+        slotId: 'artifact-draft',
+        title: 'Schema richiesto dall’utente',
+      },
     };
     const sourceImageArtifact: LearningArtifactRenderPayload = {
       summary: {
@@ -490,7 +506,12 @@ describe('ContextMenu', () => {
     render(
       <ContextMenu
         {...buildProps()}
-        artifactPayloads={[sourceImageArtifact, savedGeneratedArtifact]}
+        artifactPayloads={[
+          sourceImageArtifact,
+          lessonGeneratedArtifact,
+          annotationArtifact,
+          durableUserArtifact,
+        ]}
       />
     );
 
@@ -498,6 +519,10 @@ describe('ContextMenu', () => {
     await user.click(screen.getByRole('button', { name: /Allega dagli artefatti/i }));
 
     expect(screen.getByRole('menuitem', { name: /Allega Mappa salvata/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: /Allega Schema richiesto dall’utente/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Diagramma della lezione/i })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: /Figura dal libro/i })).not.toBeInTheDocument();
   });
 

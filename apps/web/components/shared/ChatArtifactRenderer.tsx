@@ -135,6 +135,8 @@ const ArtifactPreview = ({
     return (
       <div className="pointer-events-none h-16 overflow-hidden rounded-xl border border-stone-200/80 bg-white/70 dark:border-zinc-700 dark:bg-zinc-900/60">
         <GeneratedVisualFrame
+          className="h-full my-0"
+          displayMode="thumbnail"
           isDarkMode={isDarkMode}
           projectId={artifact.summary.projectId}
           title={artifact.summary.title}
