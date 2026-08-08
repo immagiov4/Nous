@@ -297,7 +297,8 @@ const runRepairStage = <Input, Output>(
   });
 
 export const createPdfMappingRepairWorkflow = (
-  executionDefaults: CourseGenerationWorkflowConfig
+  executionDefaults: CourseGenerationWorkflowConfig,
+  configSchema: z.ZodType<CourseGenerationWorkflowConfig> = CourseGenerationWorkflowConfigSchema
 ) => {
   const prepareRepair = step<
     typeof PdfMappingRepairWorkflowInputSchema,
@@ -391,7 +392,7 @@ export const createPdfMappingRepairWorkflow = (
   });
 
   return workflow({
-    configSchema: CourseGenerationWorkflowConfigSchema,
+    configSchema,
     events: {
       [COURSE_PROJECT_REVISION_EVENT]: {
         durability: 'durable',

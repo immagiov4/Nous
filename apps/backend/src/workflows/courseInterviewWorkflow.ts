@@ -136,7 +136,8 @@ const latestMessage = (state: CourseInterviewState) => {
 
 export const createCourseInterviewWorkflow = (
   executionDefaults: CourseInterviewWorkflowConfig,
-  maxIterations: number
+  maxIterations: number,
+  configSchema: z.ZodType<CourseInterviewWorkflowConfig> = CourseInterviewWorkflowConfigSchema
 ) => {
   const emitInitialMessage = emit({
     event: COURSE_INTERVIEW_MESSAGE_EVENT,
@@ -609,7 +610,7 @@ export const createCourseInterviewWorkflow = (
   });
 
   return workflow({
-    configSchema: CourseInterviewWorkflowConfigSchema,
+    configSchema,
     events: {
       [COURSE_INTERVIEW_ENDED_EVENT]: {
         durability: 'durable',

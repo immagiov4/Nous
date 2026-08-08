@@ -49,7 +49,7 @@ describe('workflow error diagnostics', () => {
           message: 'PRIVATE_LESSON_MARKER',
           metadata: {
             error_type: 'invalid_request',
-            provider_code: 'reasoning_required',
+            provider_error_code: 'reasoning_required',
           },
           param: 'reasoning',
         },

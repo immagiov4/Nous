@@ -74,7 +74,9 @@ export const createAssessmentPlanningCommands = (
 
   const applyInterviewSnapshot = (snapshot: CourseInterviewSnapshot): CourseInterviewOutcome => {
     state.setAssessmentMessages([...snapshot.messages]);
-    domain.setUserProfile(snapshot.proposal);
+    state.setCourseProposal(
+      snapshot.wait?.signalType === COURSE_INTERVIEW_DECISION_SIGNAL ? snapshot.proposal : null
+    );
     return getCourseInterviewOutcome(snapshot);
   };
 
@@ -145,7 +147,7 @@ export const createAssessmentPlanningCommands = (
     textSource,
   }: AssessmentSourceInput): Promise<void> {
     const requestId = state.beginWorkflow('assessment', t('Avvio Valutazione...'));
-    state.setScreenState(AppState.ASSESSMENT);
+    state.setScreenState(AppState.LIBRARY);
     pushNousDebugTrace('assessment:start', {
       fileName: file?.name || null,
       hasFile: Boolean(file),
@@ -189,7 +191,7 @@ export const createAssessmentPlanningCommands = (
 
   async function startLearnAssessment(): Promise<void> {
     const requestId = state.beginWorkflow('assessment', t('Avvio Profilazione...'));
-    state.setScreenState(AppState.ASSESSMENT);
+    state.setScreenState(AppState.LIBRARY);
 
     try {
       const projectId = await ensureInterviewProject('learn');
@@ -206,20 +208,7 @@ export const createAssessmentPlanningCommands = (
     }
   }
 
-  const runDurableCourse = async ({
-    execute,
-    profile,
-    projectId,
-    requestId,
-  }: {
-    execute: (callbacks: {
-      onProgressStage: (stage: CourseWorkflowStage) => void;
-      onWorkflowSnapshot: (snapshot: CourseWorkflowSnapshot) => void;
-    }) => Promise<CourseWorkflowResult | null>;
-    profile: UserProfile | null;
-    projectId: string;
-    requestId: number;
-  }): Promise<boolean> => {
+  const createCourseProgressFeedback = (profile: UserProfile | null, requestId: number) => {
     const progressBridge = createGenerationProgressBridge({
       getProgress: () => state.getWorkflowState().generatePlan.progress,
       setProgress: progress => state.setWorkflowProgress('generatePlan', requestId, progress),
@@ -230,13 +219,33 @@ export const createAssessmentPlanningCommands = (
       operation: 'plan',
       subject: profile?.topic || getProjectSourceName(domain.source) || 'Nuovo percorso',
     });
+    return { progressBridge, progressObserver };
+  };
+
+  const runDurableCourse = async ({
+    execute,
+    profile,
+    progressFeedback,
+    projectId,
+    requestId,
+  }: {
+    execute: (callbacks: {
+      onProgressStage: (stage: CourseWorkflowStage) => void;
+      onWorkflowSnapshot: (snapshot: CourseWorkflowSnapshot) => void;
+    }) => Promise<CourseWorkflowResult | null>;
+    profile: UserProfile | null;
+    progressFeedback?: ReturnType<typeof createCourseProgressFeedback>;
+    projectId: string;
+    requestId: number;
+  }): Promise<boolean> => {
+    const feedback = progressFeedback ?? createCourseProgressFeedback(profile, requestId);
 
     try {
       const result = await execute({
-        onProgressStage: progressObserver.setStage,
+        onProgressStage: feedback.progressObserver.setStage,
         onWorkflowSnapshot: snapshot => {
           if (!state.isWorkflowCurrent('generatePlan', requestId)) return;
-          progressBridge.updateFromWorkflow(snapshot);
+          feedback.progressBridge.updateFromWorkflow(snapshot);
         },
       });
       if (!result) return false;
@@ -257,11 +266,11 @@ export const createAssessmentPlanningCommands = (
       }
 
       state.setScreenState(AppState.READING);
-      await progressObserver.finish();
-      progressObserver.complete();
+      await feedback.progressObserver.finish();
+      feedback.progressObserver.complete();
       return true;
     } finally {
-      progressObserver.dispose();
+      feedback.progressObserver.dispose();
     }
   };
 
@@ -546,6 +555,7 @@ export const createAssessmentPlanningCommands = (
     outcome: 'failed' | 'planned';
   }> {
     let requestId: number | undefined;
+    let progressFeedback: ReturnType<typeof createCourseProgressFeedback> | undefined;
     try {
       const projectId = projectLibrary.getCurrentProjectId();
       if (!projectId) throw new Error('Nessun corso da generare.');
@@ -553,8 +563,11 @@ export const createAssessmentPlanningCommands = (
       if (interview?.wait?.signalType !== COURSE_INTERVIEW_DECISION_SIGNAL) {
         throw new Error('La proposta del corso non è pronta.');
       }
+      const courseProposal = interview.proposal ?? state.getCourseProposal();
+      if (!courseProposal) throw new Error('La proposta del corso non è disponibile.');
       requestId = state.beginWorkflow('generatePlan', t('Creazione Piano Studi...'));
       state.setScreenState(AppState.PLANNING);
+      progressFeedback = createCourseProgressFeedback(courseProposal, requestId);
       await openRouter.sendCourseInterviewDecision({
         decision: { kind: 'approve' },
         projectId,
@@ -563,7 +576,8 @@ export const createAssessmentPlanningCommands = (
       });
       const generated = await runDurableCourse({
         execute: callbacks => openRouter.resumeActiveDurableCourse({ projectId, ...callbacks }),
-        profile: domain.userProfile,
+        profile: courseProposal,
+        progressFeedback,
         projectId,
         requestId,
       });
@@ -573,6 +587,7 @@ export const createAssessmentPlanningCommands = (
       }
       return { outcome: 'planned' };
     } catch (error) {
+      progressFeedback?.progressObserver.dispose();
       const errorMessage = getErrorMessage(error);
       if (requestId !== undefined && state.isWorkflowCurrent('generatePlan', requestId)) {
         state.setScreenState(AppState.LIBRARY);

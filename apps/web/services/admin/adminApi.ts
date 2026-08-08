@@ -262,6 +262,7 @@ export interface AdminModelConfig {
   progressModel: string;
   progressReasoningEffort: AdminReasoningEffort;
   researchModel: string;
+  researchReasoningEffort: AdminReasoningEffort;
   ttsModel: string;
   ttsVoice: string;
   updatedAt: string;
@@ -308,6 +309,7 @@ export type AdminModelConfigPatch = Partial<
     | 'progressModel'
     | 'progressReasoningEffort'
     | 'researchModel'
+    | 'researchReasoningEffort'
     | 'ttsModel'
     | 'ttsVoice'
   >
@@ -352,6 +354,7 @@ export const DEFAULT_ADMIN_MODEL_CONFIG: AdminModelConfig = {
   progressModel: 'google/gemini-3.1-flash-lite',
   progressReasoningEffort: 'low',
   researchModel: 'perplexity/sonar-pro-search',
+  researchReasoningEffort: 'none',
   ttsModel: 'x-ai/grok-voice-tts-1.0',
   ttsVoice: 'Ara',
   updatedAt: '',
@@ -536,6 +539,10 @@ const normalizeAdminModelConfig = (
     DEFAULT_ADMIN_MODEL_CONFIG.progressReasoningEffort
   ),
   researchModel: readConfigValue(config?.researchModel, DEFAULT_ADMIN_MODEL_CONFIG.researchModel),
+  researchReasoningEffort: readReasoningEffort(
+    config?.researchReasoningEffort,
+    DEFAULT_ADMIN_MODEL_CONFIG.researchReasoningEffort
+  ),
   ttsModel: readConfigValue(config?.ttsModel, DEFAULT_ADMIN_MODEL_CONFIG.ttsModel),
   ttsVoice: readConfigValue(config?.ttsVoice, DEFAULT_ADMIN_MODEL_CONFIG.ttsVoice),
   updatedAt: readConfigValue(config?.updatedAt, DEFAULT_ADMIN_MODEL_CONFIG.updatedAt),

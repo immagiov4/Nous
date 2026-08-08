@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { AssessmentScreenContainer } from '../components/assessment/AssessmentScreenContainer.tsx';
 import { LibraryScreenContainer } from '../components/library/LibraryScreenContainer.tsx';
 import LoadingScreen from '../components/shared/LoadingScreen';
 import { ReadingScreenContainer } from '../components/workspace/ReadingScreenContainer.tsx';
@@ -56,14 +55,8 @@ const AppContent = () => {
     stopAudio: readerState.ttsPlayer.stopAudio,
   });
 
-  const {
-    isBlocking,
-    isLibraryLoading,
-    openingProjectId,
-    savedProjects,
-    screenState,
-    workflowState,
-  } = controller;
+  const { isLibraryLoading, openingProjectId, savedProjects, screenState, workflowState } =
+    controller;
 
   const fileActions = useWorkspaceFileActions({
     confirmProjectDelete: projectTitle =>
@@ -100,7 +93,6 @@ const AppContent = () => {
     globalThis.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [screenState]);
 
-  const isLoading = isBlocking;
   const loadingStatus = controller.blockingMessage || t('Caricamento...');
   const loadingReasoningText = selectBlockingReasoning(workflowState);
   const loadingProgress = selectBlockingProgress(workflowState);
@@ -116,21 +108,6 @@ const AppContent = () => {
           navigation={navigation}
           notify={notify}
           requestConfirmation={requestConfirmation}
-        />
-      )}
-      {screenState === AppState.ASSESSMENT && (
-        <AssessmentScreenContainer
-          assessmentMessages={controller.assessmentMessages}
-          cancelAssessment={controller.cancelAssessment}
-          confirmPlanGeneration={controller.confirmPlanGeneration}
-          hasCourseProposal={Boolean(controller.userProfile)}
-          isLoading={isLoading}
-          loadingStatus={loadingStatus}
-          navigation={navigation}
-          notify={notify}
-          readerState={readerState}
-          screenState={screenState}
-          submitAssessment={controller.submitAssessment}
         />
       )}
       {screenState === AppState.PLANNING && (

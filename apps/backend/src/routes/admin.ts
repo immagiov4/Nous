@@ -250,6 +250,7 @@ router.patch('/model-config', async (req: Request, res: Response) => {
       progressModel: readOptionalString(req.body.progressModel),
       progressReasoningEffort: readReasoningEffortPatch(req.body.progressReasoningEffort),
       researchModel: readOptionalString(req.body.researchModel),
+      researchReasoningEffort: readReasoningEffortPatch(req.body.researchReasoningEffort),
       ttsModel: readOptionalString(req.body.ttsModel),
       ttsVoice: readOptionalString(req.body.ttsVoice),
     };

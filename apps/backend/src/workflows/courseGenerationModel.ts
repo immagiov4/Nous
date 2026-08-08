@@ -72,6 +72,18 @@ const toProviderSchema = (schema: z.ZodType): Record<string, unknown> => {
   return providerSchema;
 };
 
+const toStructuredOutputSchema = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(toStructuredOutputSchema);
+  if (!isRecord(value)) return value;
+
+  const converted = Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, toStructuredOutputSchema(child)])
+  );
+  if (converted.format !== 'uri') return converted;
+  const { format: _unsupportedFormat, ...supportedSchema } = converted;
+  return supportedSchema;
+};
+
 const acceptsNull = (schema: Record<string, unknown>): boolean =>
   schema.type === 'null' ||
   (Array.isArray(schema.anyOf) &&
@@ -299,7 +311,10 @@ export const createCourseObjectGenerator =
     input: GenerateCourseObjectInput<Schema>
   ): Promise<z.output<Schema>> => {
     const config = input.config as GlobalModelConfig;
-    const outputSchema = toProviderSchema(input.schema);
+    const outputSchema = toStructuredOutputSchema(toProviderSchema(input.schema)) as Record<
+      string,
+      unknown
+    >;
     const webSearch = input.webSearch ?? false;
     if (
       input.maxToolSteps !== undefined &&

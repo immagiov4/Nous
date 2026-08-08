@@ -10,10 +10,15 @@ vi.mock('../../../components/newHome/NewHomeView.tsx', () => ({
   NewHomeView: ({
     chatProps,
   }: {
-    chatProps: { homeChatMode: string; pendingFileNames?: string[] };
+    chatProps: {
+      assessmentComplete: boolean;
+      homeChatMode: string;
+      pendingFileNames?: string[];
+    };
   }) => (
     <div data-testid="new-home-surface">
-      {chatProps.homeChatMode}:{chatProps.pendingFileNames?.join(',')}
+      {chatProps.homeChatMode}:{String(chatProps.assessmentComplete)}:
+      {chatProps.pendingFileNames?.join(',')}
     </div>
   ),
 }));
@@ -22,6 +27,7 @@ const buildProps = () =>
   ({
     controller: {
       assessmentMessages: [],
+      courseProposal: null,
       confirmPlanGeneration: vi.fn(async () => ({})),
       isLibraryLoading: false,
       learningPlan: null,
@@ -69,7 +75,7 @@ describe('LibraryScreenContainer route fallback', () => {
 
     render(<LibraryScreenContainer {...buildProps()} />);
 
-    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course');
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false');
   });
 
   test('switches from library query to new course after choosing a local source', () => {
@@ -78,7 +84,7 @@ describe('LibraryScreenContainer route fallback', () => {
     const { container } = render(<LibraryScreenContainer {...buildProps()} />);
     const fileInput = container.querySelector<HTMLInputElement>('#library-source-file');
 
-    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('library-query');
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('library-query:false');
     expect(fileInput).not.toBeNull();
     if (!fileInput) {
       throw new Error('Expected the library source file input.');
@@ -88,6 +94,24 @@ describe('LibraryScreenContainer route fallback', () => {
       target: { files: [new File(['source'], 'source.md', { type: 'text/markdown' })] },
     });
 
-    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:source.md');
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:false:source.md');
+  });
+
+  test('restores an unfinished interview in the home chat without the legacy assessment screen', () => {
+    globalThis.history.replaceState({}, '', '/library');
+    const props = buildProps();
+    props.controller.assessmentMessages = [{ role: 'model', text: 'Proposta pronta' }];
+    props.controller.courseProposal = {
+      context: 'Studio individuale',
+      experienceLevel: 'Base',
+      goals: 'Capire il tema',
+      language: 'Italiano',
+      learningStyle: 'Progressivo',
+      topic: 'Sistemi distribuiti',
+    };
+
+    render(<LibraryScreenContainer {...props} />);
+
+    expect(screen.getByTestId('new-home-surface')).toHaveTextContent('new-course:true');
   });
 });
