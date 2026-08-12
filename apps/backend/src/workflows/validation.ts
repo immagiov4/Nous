@@ -28,17 +28,20 @@ type RuntimeWait = Extract<WorkflowNode, { kind: 'waitForSignal' }>;
 type RuntimeWorkflow = Extract<WorkflowNode, { kind: 'workflow' }>;
 type WorkflowCatalog = Pick<WorkflowDefinition, 'events' | 'signals'>;
 
-const registeredWorkflowSnapshots = new WeakSet<object>();
+type RegisteredWorkflowHashMode = 'current' | 'pre-compatibility-id';
+
+const registeredWorkflowSnapshots = new WeakMap<object, RegisteredWorkflowHashMode>();
 
 export const attestRegisteredWorkflow = <Definition extends object>(
-  definition: Definition
+  definition: Definition,
+  hashMode: RegisteredWorkflowHashMode = 'current'
 ): Definition => {
-  registeredWorkflowSnapshots.add(definition);
+  registeredWorkflowSnapshots.set(definition, hashMode);
   return definition;
 };
 
-const isAttestedRegisteredWorkflow = (definition: object): boolean =>
-  registeredWorkflowSnapshots.has(definition);
+const registeredWorkflowHashMode = (definition: object): RegisteredWorkflowHashMode | undefined =>
+  registeredWorkflowSnapshots.get(definition);
 
 const WORKFLOW_NODE_KINDS = new Set<WorkflowNodeKind>([
   'emit',
@@ -98,15 +101,10 @@ const schemaManifest = (schema: ZodType, path: string): unknown => {
 const validateWorkflowIdentity = (
   definition: WorkflowBoundary,
   compatibilityError: string
-): number => {
-  if (definition.compatibilityId !== undefined && !definition.compatibilityId.trim()) {
+): void => {
+  if (typeof definition.compatibilityId !== 'string' || !definition.compatibilityId.trim()) {
     throw new Error(compatibilityError);
   }
-  const version = definition.definitionHashVersion ?? WORKFLOW_DEFINITION_HASH_VERSION;
-  if (version !== WORKFLOW_DEFINITION_HASH_VERSION) {
-    throw new Error(`Unsupported workflow definition hash version: ${version}.`);
-  }
-  return version;
 };
 
 const validateWorkflowConfiguration = (
@@ -292,7 +290,7 @@ function validateNestedWorkflow(
   context: NodeValidationContext,
   path: string
 ): void {
-  validateWorkflowIdentity(node, `compatibilityId cannot be empty at ${path}.`);
+  validateWorkflowIdentity(node, `compatibilityId is required at ${path}.`);
   if (!schemasMatch(context.configSchema, node.configSchema)) {
     throw new Error(`Nested workflow ${node.id} has an incompatible configuration schema.`);
   }
@@ -402,12 +400,11 @@ const nodeManifest = (node: WorkflowNode, path: string): unknown => {
     }
     case 'workflow': {
       const root = assertNodeShape(node.root, `${path}.root`);
-      const definitionHashVersion = node.definitionHashVersion ?? WORKFLOW_DEFINITION_HASH_VERSION;
       return {
         ...common,
-        ...(node.compatibilityId === undefined ? {} : { compatibilityId: node.compatibilityId }),
+        compatibilityId: node.compatibilityId,
         configSchema: schemaManifest(node.configSchema, `${path}.config`),
-        definitionHashVersion,
+        definitionHashVersion: WORKFLOW_DEFINITION_HASH_VERSION,
         events: eventManifest(node, `${path}.events`),
         root: nodeManifest(root, `${path}.root.${root.id}`),
         signals: signalManifest(node, `${path}.signals`),
@@ -464,10 +461,7 @@ export const validateWorkflowDefinition = (
   definition: ErasedWorkflowDefinition
 ): WorkflowManifest => {
   if (!definition.id.trim()) throw new Error('Workflow id is required.');
-  const definitionHashVersion = validateWorkflowIdentity(
-    definition,
-    'compatibilityId cannot be empty.'
-  );
+  validateWorkflowIdentity(definition, 'compatibilityId is required.');
   validateWorkflowConfiguration(definition, 'executionDefaults', 'workflow.config');
   schemaManifest(definition.inputSchema, 'workflow.input');
   schemaManifest(definition.outputSchema, 'workflow.output');
@@ -489,11 +483,9 @@ export const validateWorkflowDefinition = (
   );
 
   return {
-    ...(definition.compatibilityId === undefined
-      ? {}
-      : { compatibilityId: definition.compatibilityId }),
+    compatibilityId: definition.compatibilityId,
     configSchema: schemaManifest(definition.configSchema, 'workflow.config'),
-    definitionHashVersion,
+    definitionHashVersion: WORKFLOW_DEFINITION_HASH_VERSION,
     events: eventManifest(definition, 'events'),
     id: definition.id,
     inputSchema: schemaManifest(definition.inputSchema, 'workflow.input'),
@@ -506,18 +498,39 @@ export const validateWorkflowDefinition = (
 export const hashWorkflowManifest = (manifest: WorkflowManifest): string =>
   createHash('sha256').update(canonicalJson(manifest)).digest('hex');
 
+const omitCompatibilityIds = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(omitCompatibilityIds);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== 'compatibilityId')
+      .map(([key, child]) => [key, omitCompatibilityIds(child)])
+  );
+};
+
+/** Reconstructs hashes written before compatibility ids became part of workflow manifests. */
+export const hashPreCompatibilityIdWorkflowManifest = (manifest: WorkflowManifest): string =>
+  createHash('sha256')
+    .update(canonicalJson(omitCompatibilityIds(manifest)))
+    .digest('hex');
+
 export const assertRegisteredWorkflowIntegrity = <Input, Output, Config, Services>(
   definition: RegisteredWorkflow<Input, Output, Config, Services>
 ): WorkflowManifest => {
+  const hashMode = registeredWorkflowHashMode(definition);
   if (
-    !isAttestedRegisteredWorkflow(definition) ||
+    hashMode === undefined ||
     typeof definition.definitionHash !== 'string' ||
     definition.manifest === undefined
   ) {
     throw new Error('Workflow definition must be registered before materialization.');
   }
   const currentManifest = validateWorkflowDefinition(definition);
-  if (hashWorkflowManifest(currentManifest) !== definition.definitionHash) {
+  const currentHash =
+    hashMode === 'pre-compatibility-id'
+      ? hashPreCompatibilityIdWorkflowManifest(currentManifest)
+      : hashWorkflowManifest(currentManifest);
+  if (currentHash !== definition.definitionHash) {
     throw new Error(`Registered workflow definition ${definition.id} changed after registration.`);
   }
   return currentManifest;

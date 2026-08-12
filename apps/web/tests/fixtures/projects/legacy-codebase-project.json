@@ -1,0 +1,56 @@
+{
+  "id": "legacy-codebase-course",
+  "version": "3.0",
+  "title": "Corso storico sul parser",
+  "state": "READING",
+  "source": {
+    "kind": "codebase-bundle",
+    "name": "parser-src.zip",
+    "aggregatedText": "--- src/parser.ts ---\nexport const parse = () => 'ok';\n\n--- README.md ---\n# Parser storico",
+    "files": [
+      {
+        "path": "src/parser.ts",
+        "text": "export const parse = () => 'ok';"
+      },
+      {
+        "path": "README.md",
+        "text": "# Parser storico",
+        "truncated": true
+      }
+    ],
+    "stats": {
+      "includedFileCount": 2,
+      "skippedFileCount": 0,
+      "truncatedFileCount": 1,
+      "totalCharacterCount": 50
+    }
+  },
+  "learningPlan": {
+    "title": "Titolo generato precedente",
+    "summary": "Fixture ricavata dal formato codebase-bundle precedente.",
+    "modules": [
+      {
+        "id": "module-1",
+        "title": "Fondamenti",
+        "children": [
+          {
+            "id": "lesson-1",
+            "kind": "lesson",
+            "title": "Parsing incrementale",
+            "instructionPacks": ["code", "technical-sources"],
+            "lastGenerationRunId": "run-legacy-17",
+            "isCompleted": false
+          }
+        ]
+      }
+    ]
+  },
+  "isLearnMode": false,
+  "userProfile": null,
+  "syllabus": [],
+  "activeSectionId": "lesson-1",
+  "createdAt": "2026-04-03T00:00:00.000Z",
+  "updatedAt": "2026-04-04T00:00:00.000Z",
+  "lastOpenedAt": "2026-04-05T00:00:00.000Z",
+  "legacyTheme": "paper"
+}

@@ -22,6 +22,7 @@ const app = createApp({
   lessonVisualRetryStarter: workflowRuntime.lessonVisualRetryStarter,
   pdfMappingRepairApi: workflowRuntime.pdfMappingRepairApi,
   projectAssetReader: workflowRuntime.projectAssetReader,
+  workflowOutboxAdmin: workflowRuntime.workflowOutboxAdmin,
   workflowRuntimeApi: workflowRuntime.api,
 });
 const config = loadServerConfig();

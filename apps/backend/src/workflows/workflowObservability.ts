@@ -157,7 +157,14 @@ interface WorkflowWaitLogEvent {
 }
 
 interface WorkflowNotificationLogEvent {
-  readonly action: 'claimed' | 'delivered' | 'lease-lost' | 'retry-scheduled';
+  readonly action:
+    | 'claimed'
+    | 'dead-lettered'
+    | 'delivered'
+    | 'lease-lost'
+    | 'requeued'
+    | 'retry-scheduled';
+  readonly actorIdDigest?: string;
   readonly attemptNumber: number;
   readonly event: 'workflow.notification';
   readonly eventType: string;
@@ -170,7 +177,7 @@ interface WorkflowNotificationLogEvent {
   readonly runId: string;
   readonly schemaVersion: number;
   readonly sequence: string;
-  readonly workerIdDigest: string;
+  readonly workerIdDigest?: string;
 }
 
 interface WorkflowRuntimeLogEvent {
@@ -221,7 +228,7 @@ interface WorkflowNotificationLogIdentity {
   readonly runId: string;
   readonly schemaVersion: number;
   readonly sequence: string;
-  readonly workerId: string;
+  readonly workerId?: string;
 }
 
 type WorkflowRunLogSource =
@@ -253,7 +260,7 @@ interface WorkflowAttemptLogSource {
   readonly entity: 'attempt';
   readonly failure?: StepFailure;
   readonly operation: WorkflowAttemptOperation;
-  readonly outcome?: WorkflowAttemptLogEvent['outcome'];
+  readonly outcome?: NonNullable<WorkflowAttemptLogEvent['outcome']>;
   readonly retryDelayMs?: number;
 }
 
@@ -268,6 +275,7 @@ interface WorkflowWaitLogSource {
 }
 
 interface WorkflowNotificationLogSource {
+  readonly actorId?: string;
   readonly action: WorkflowNotificationLogEvent['action'];
   readonly claim: WorkflowNotificationLogIdentity;
   readonly entity: 'notification';
@@ -346,8 +354,10 @@ const WAIT_LEVEL_BY_ACTION = {
 
 const NOTIFICATION_LEVEL_BY_ACTION = {
   claimed: 'info',
+  'dead-lettered': 'error',
   delivered: 'info',
   'lease-lost': 'error',
+  requeued: 'warn',
   'retry-scheduled': 'warn',
 } as const satisfies Record<WorkflowNotificationLogEvent['action'], WorkflowLogLevel>;
 
@@ -441,6 +451,7 @@ const projectNotificationLogEvent = (
   source: WorkflowNotificationLogSource
 ): WorkflowNotificationLogEvent => ({
   action: source.action,
+  ...(source.actorId ? { actorIdDigest: digestIdentifier(source.actorId) } : {}),
   attemptNumber: source.claim.attemptNumber,
   event: 'workflow.notification',
   eventType: source.claim.eventType,
@@ -452,7 +463,7 @@ const projectNotificationLogEvent = (
   runId: source.claim.runId,
   schemaVersion: source.claim.schemaVersion,
   sequence: source.claim.sequence,
-  workerIdDigest: digestIdentifier(source.claim.workerId),
+  ...(source.claim.workerId ? { workerIdDigest: digestIdentifier(source.claim.workerId) } : {}),
 });
 
 const projectRuntimeLogEvent = (source: WorkflowRuntimeLogSource): WorkflowRuntimeLogEvent => ({

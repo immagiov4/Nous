@@ -96,6 +96,7 @@ const failFrom = (
 describe('workflow continuation planning', () => {
   test('bubbles a nested workflow result into its parent sequence', () => {
     const nested = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       events: {
         prepared: { durability: 'durable', schema: Text, schemaVersion: 1 },
@@ -130,6 +131,7 @@ describe('workflow continuation planning', () => {
     });
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'nested-continuation',
@@ -186,6 +188,7 @@ describe('workflow continuation planning', () => {
 
   test('resumes a signal declared inside a nested workflow', () => {
     const nested = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'approval-flow',
@@ -205,6 +208,7 @@ describe('workflow continuation planning', () => {
     });
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'nested-signal',
@@ -243,6 +247,7 @@ describe('workflow continuation planning', () => {
     });
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'linear-continuation',
@@ -321,6 +326,7 @@ describe('workflow continuation planning', () => {
     });
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         events: {
           prepared: { durability: 'durable', schema: Text, schemaVersion: 1 },
@@ -367,6 +373,7 @@ describe('workflow continuation planning', () => {
     });
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'route-continuation',
@@ -408,6 +415,7 @@ describe('workflow continuation planning', () => {
     ) =>
       register(
         workflow({
+          compatibilityId: 'test-v1',
           configSchema: WorkflowExecutionDefaultsSchema,
           executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
           id: `repeat-${maxIterations}`,
@@ -485,6 +493,7 @@ describe('workflow continuation planning', () => {
     );
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'fan-continuation',
@@ -550,6 +559,7 @@ describe('workflow continuation planning', () => {
     aggregate.mockClear();
     const failFastDefinition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'fan-continuation-fail-fast',
@@ -603,6 +613,7 @@ describe('workflow continuation planning', () => {
     const makeDefinition = (failureMode: 'collect' | 'fail-fast') =>
       register(
         workflow({
+          compatibilityId: 'test-v1',
           configSchema: WorkflowExecutionDefaultsSchema,
           executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
           id: `failure-${failureMode}`,
@@ -682,6 +693,7 @@ describe('workflow continuation planning', () => {
     });
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'signal-continuation',
@@ -734,6 +746,7 @@ describe('workflow continuation planning', () => {
   test('keeps a present null completion distinct from an incomplete plan', () => {
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'null-continuation',
@@ -759,6 +772,7 @@ describe('workflow continuation planning', () => {
     const Output = z.object({ note: z.string().optional(), text: z.string() });
     const definition = register(
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'durable-output-continuation',

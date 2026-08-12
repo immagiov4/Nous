@@ -5,11 +5,10 @@ Nous Reader turns uploaded documents and researched topics into personalized cou
 ## Start Here
 
 - [AI instructions](AGENTS.md)
-- [Domain glossary](CONTEXT.md)
-- [Architecture guide](docs/ARCHITECTURE.md)
+- [Architecture and domain conventions](docs/ARCHITECTURE.md)
 - [Production deployment](docs/DEPLOYMENT.md)
-- [OpenAI and Codex providers](docs/OPENAI_PROVIDER_SPIKE.md)
-- [UI style guide](docs/UI_STYLE_GUIDE.md)
+- [Testing and quality gates](docs/TESTING.md)
+- [Product and design manifesto](https://github.com/immagiov4/Lumina-Reader/discussions/33)
 
 ## Run Locally
 
@@ -37,9 +36,12 @@ Nous now uses authenticated server storage as the product path.
 - Frontend auth should use `VITE_AUTH_MODE=supabase`.
 - Development can use `AUTH_MODE=local-bypass` only in tests or with `LOCAL_DEV_PROFILE=true` plus `LOCAL_AUTH_BYPASS=true`; projects still use the server HTTP repository.
 - Supabase Auth requires the backend URL and service-role key plus the frontend URL and publishable/anon key. HS256 installations also set `SUPABASE_JWT_SECRET`; asymmetric JWT installations use Supabase JWKS discovery or `SUPABASE_JWKS_URL`.
+- Set `SUPABASE_JWT_ISSUER` when the token issuer is different from the backend's internal `SUPABASE_URL`.
 - Backend route tests use an in-memory `ProjectStore`; PostgreSQL is the only runtime project store.
 
 The public production origin must be listed explicitly with `CORS_ALLOWED_ORIGINS`.
+Do not expose a `local-bypass` backend to an untrusted LAN: CORS limits browser origins but does not
+replace authentication.
 
 Supabase email templates live in `supabase/templates/` and are synced with:
 

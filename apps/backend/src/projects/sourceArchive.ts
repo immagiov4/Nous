@@ -230,7 +230,7 @@ const mapLoadedEntries = (
 
   for (const [path, metadata] of centralEntriesByPath) {
     const loadedEntry = loadedEntriesByPath.get(path);
-    if (!loadedEntry || loadedEntry.dir !== metadata.directory) {
+    if (loadedEntry?.dir !== metadata.directory) {
       throw invalidArchive(`inconsistent path "${path}"`);
     }
     if (metadata.directory) {

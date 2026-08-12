@@ -64,6 +64,7 @@ const announceInput = emit({
 });
 const composed = sequence({ id: 'root', nodes: [announceInput, parseCount, persistCount] });
 const parseWorkflow = workflow({
+  compatibilityId: 'test-v1',
   configSchema: CustomConfigSchema,
   executionDefaults: {
     maxAttempts: 3,
@@ -113,6 +114,7 @@ const verifyRejectedCompositions = (): void => {
   });
 
   workflow({
+    compatibilityId: 'test-v1',
     configSchema: CustomConfigSchema,
     executionDefaults: {
       maxAttempts: 3,

@@ -3,6 +3,11 @@ import JSZip from 'jszip';
 import type { ProjectAssetRef } from './projectAsset';
 import { collectProjectAssetReferences } from './projectBackupAssets';
 import {
+  type DecodedProjectSnapshotWire,
+  decodeProjectSnapshotWire,
+  encodeProjectSnapshotWire,
+} from './projectSnapshotWire';
+import {
   loadZipSafely,
   readZipEntryBytesWithinLimit,
   readZipEntryTextWithinLimit,
@@ -80,16 +85,16 @@ export interface ProjectBackupManifest {
   project: unknown;
 }
 
-export interface DecodedProjectBackup<T = unknown> {
+export interface DecodedProjectBackup {
   archiveVersion: number;
   assets: readonly ProjectBackupAssetInput[];
   cover?: ProjectBackupFile;
-  project: T;
+  project: DecodedProjectSnapshotWire;
 }
 
-export interface InspectedProjectBackup<T = unknown> {
+export interface InspectedProjectBackup {
   archiveVersion: number;
-  project: T;
+  project: unknown;
 }
 
 export class ProjectBackupArchiveError extends Error {
@@ -305,15 +310,15 @@ const detachDurableAssets = async (
   attachments.assets = assetAttachments;
 };
 
-export const createProjectBackupArchive = async <T>(
+export const createProjectBackupArchive = async (
   input: {
     assets?: readonly ProjectBackupAssetInput[];
     cover?: ProjectBackupFile | null;
-    project: T;
+    project: unknown;
   },
   limits: ProjectBackupLimits
 ): Promise<Uint8Array> => {
-  const project = structuredClone(input.project);
+  const project = structuredClone(encodeProjectSnapshotWire(input.project));
   if (!isRecord(project)) {
     throw new ProjectBackupArchiveError(
       'Archivio backup non valido: progetto mancante.',
@@ -476,7 +481,8 @@ const restoreMultipleSourceFiles = async (
 const restoreSourceFiles = async (
   project: Record<string, unknown>,
   attachments: ProjectBackupManifest['attachments'],
-  reader: AttachmentReader
+  reader: AttachmentReader,
+  allowEmbeddedSourceFiles: boolean
 ): Promise<void> => {
   if (project.source === null || project.source === undefined) return;
   if (!isRecord(project.source)) {
@@ -489,6 +495,19 @@ const restoreSourceFiles = async (
   const primaryFile = readSourceFile(source);
   if (Array.isArray(source.sources) && source.sources.length > 0) {
     const sourceFiles = attachments?.sourceFiles;
+    if (
+      allowEmbeddedSourceFiles &&
+      !sourceFiles &&
+      source.sources.every(
+        candidate =>
+          isRecord(candidate) &&
+          isRecord(candidate.file) &&
+          typeof candidate.file.data === 'string' &&
+          Boolean(candidate.file.data)
+      )
+    ) {
+      return;
+    }
     if (sourceFiles?.length !== source.sources.length || !sourceFiles?.every(assertFileMetadata)) {
       throw new ProjectBackupArchiveError(
         'Archivio backup non valido: allegati delle fonti incompleti.',
@@ -753,25 +772,33 @@ const loadProjectBackupManifest = async (
   return { manifest, zip };
 };
 
-export const inspectProjectBackupArchive = async <T = unknown>(
+export const inspectProjectBackupArchive = async (
   bytes: Uint8Array,
   limits: ProjectBackupLimits
-): Promise<InspectedProjectBackup<T>> => {
+): Promise<InspectedProjectBackup> => {
   const { manifest } = await loadProjectBackupManifest(bytes, limits);
   return {
     archiveVersion: manifest.archiveVersion,
-    project: structuredClone(manifest.project) as T,
+    project: structuredClone(manifest.project),
   };
 };
 
-export const decodeProjectBackupArchive = async <T = unknown>(
+export const decodeProjectBackupArchive = async (
   bytes: Uint8Array,
   limits: ProjectBackupLimits
-): Promise<DecodedProjectBackup<T>> => {
+): Promise<DecodedProjectBackup> => {
   const { manifest, zip } = await loadProjectBackupManifest(bytes, limits);
-  const project = structuredClone(manifest.project) as Record<string, unknown>;
+  const rawProject = structuredClone(manifest.project);
+  const hasLegacyCodebaseSource =
+    manifest.archiveVersion === 1 &&
+    isRecord(rawProject) &&
+    isRecord(rawProject.source) &&
+    rawProject.source.kind === 'codebase-bundle';
+  const project = (
+    hasLegacyCodebaseSource ? decodeProjectSnapshotWire(rawProject) : rawProject
+  ) as Record<string, unknown>;
   const reader = createAttachmentReader(zip, limits);
-  await restoreSourceFiles(project, manifest.attachments, reader);
+  await restoreSourceFiles(project, manifest.attachments, reader, manifest.archiveVersion === 1);
   const assets = await readDurableAssets(project, manifest, reader);
   if (manifest.archiveVersion === 1) {
     await restoreDocumentImages(project, undefined, reader);
@@ -779,7 +806,7 @@ export const decodeProjectBackupArchive = async <T = unknown>(
     return {
       archiveVersion: manifest.archiveVersion,
       assets,
-      project: project as T,
+      project: decodeProjectSnapshotWire(project),
     };
   }
 
@@ -790,6 +817,6 @@ export const decodeProjectBackupArchive = async <T = unknown>(
     archiveVersion: manifest.archiveVersion,
     assets,
     ...(cover ? { cover } : {}),
-    project: project as T,
+    project: decodeProjectSnapshotWire(project),
   };
 };

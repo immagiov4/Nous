@@ -568,7 +568,7 @@ describe.skipIf(!shouldRun || !databaseUrl)('workflow process crash recovery', (
     const deployedRegistry = createWorkflowRegistry();
     const deployed = deployedRegistry.register({
       current: createCurrentDeployWorkflowDefinition(),
-      resumableDefinitions: [createPreviousDeployWorkflowDefinition()],
+      previous: createPreviousDeployWorkflowDefinition(),
     });
     expect(deployed.current.definitionHash).not.toBe(previousDefinition.definitionHash);
 
@@ -597,7 +597,7 @@ describe.skipIf(!shouldRun || !databaseUrl)('workflow process crash recovery', (
     const deployedRegistry = createWorkflowRegistry();
     const deployed = deployedRegistry.register({
       current: createCurrentDeployWorkflowDefinition(),
-      resumableDefinitions: [createPreviousDeployWorkflowDefinition()],
+      previous: createPreviousDeployWorkflowDefinition(),
     });
     const oldRuntime = createCrashRuntimeWorker({
       registry: previousRegistry,
@@ -753,6 +753,7 @@ describe.skipIf(!shouldRun || !databaseUrl)('workflow process crash recovery', (
       const registry = createWorkflowRegistry();
       const definition = registry.register({
         current: workflow({
+          compatibilityId: 'test-v1',
           configSchema: WorkflowExecutionDefaultsSchema,
           events: {
             'lesson.ready': { durability: 'durable', schema: Payload, schemaVersion: 1 },

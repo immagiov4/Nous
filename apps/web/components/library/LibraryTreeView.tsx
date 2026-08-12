@@ -306,7 +306,7 @@ export default function LibraryTreeView({
   const movePendingRef = useRef(false);
 
   useEffect(() => {
-    if (typeof globalThis.window === 'undefined' || !globalThis.window.matchMedia) {
+    if (!globalThis.window?.matchMedia) {
       return;
     }
 

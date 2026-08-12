@@ -664,8 +664,7 @@ export const prepareHistoricalCodebaseMigration = (
   const source = getSnapshotSource(row.snapshot, projectId);
   if (
     !isRecord(row.snapshot) ||
-    !source ||
-    source.kind !== 'codebase-bundle' ||
+    source?.kind !== 'codebase-bundle' ||
     typeof source.aggregatedText !== 'string' ||
     !isAbsentOrEmptyArray(source.files) ||
     !isAbsentOrEmptyArray(source.sources)

@@ -34,6 +34,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore signal and recovery int
     const store = createStore(sql);
     const definition = createWorkflowRegistry().register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'signal-test',
@@ -197,7 +198,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore signal and recovery int
     const deployedRegistry = createWorkflowRegistry();
     const deployed = deployedRegistry.register({
       current: currentDefinition,
-      resumableDefinitions: [previousDefinition],
+      previous: previousDefinition,
     });
     const store = createStore(sql, { enforceCurrentDefinitions: true });
     await sql`
@@ -264,6 +265,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore signal and recovery int
     if (!sql) throw new Error('Workflow integration database is required.');
     const store = createStore(sql);
     const nested = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'approval-flow',
@@ -283,6 +285,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore signal and recovery int
     });
     const definition = createWorkflowRegistry().register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'nested-signal-test',
@@ -344,6 +347,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore signal and recovery int
     const store = createStore(sql);
     const workflowId = 'removed-wait-definition-test';
     const previousDefinition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: workflowId,
@@ -365,7 +369,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore signal and recovery int
     const deployedRegistry = createWorkflowRegistry();
     deployedRegistry.register({
       current: currentDefinition,
-      resumableDefinitions: [previousDefinition],
+      previous: previousDefinition,
     });
     const killSwitchRegistry = createWorkflowRegistry();
     killSwitchRegistry.register({ current: currentDefinition });
@@ -498,6 +502,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore signal and recovery int
     const store = createStore(sql);
     const definition = createWorkflowRegistry().register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'wait-expiry-test',

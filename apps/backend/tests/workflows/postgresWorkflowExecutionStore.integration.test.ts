@@ -242,7 +242,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       const usage = await sql`
       select
         attempt_number, cache_read_tokens, cache_write_tokens, input_tokens, model,
-        output_tokens, provider, provider_cost, reasoning_tokens
+        output_tokens, provider, provider_cost, reasoning_tokens, reported_after_interruption
       from public.workflow_ai_usage
       where run_id = ${created.run.id}
       order by attempt_number
@@ -258,6 +258,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
           provider: 'codex',
           provider_cost: null,
           reasoning_tokens: null,
+          reported_after_interruption: false,
         },
         {
           attempt_number: 2,
@@ -269,6 +270,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
           provider: 'openrouter',
           provider_cost: '0.004200000000',
           reasoning_tokens: 2,
+          reported_after_interruption: false,
         },
       ]);
 
@@ -360,6 +362,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       nodeInstanceId: claim.nodeInstanceId,
       outputTokens: 2,
       provider: 'codex',
+      reportedAfterInterruption: true,
       runId: claim.runId,
     } as const;
 
@@ -373,11 +376,18 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
 
     expect(await store.steps.heartbeat({ claim, leaseMs: 60_000 })).toEqual({ status: 'lost' });
     const rows = await sql`
-      select id, input_tokens, output_tokens
+      select id, input_tokens, output_tokens, reported_after_interruption
       from public.workflow_ai_usage
       where id = ${usage.id}
     `;
-    expect(rows).toEqual([{ id: usage.id, input_tokens: 10, output_tokens: 2 }]);
+    expect(rows).toEqual([
+      {
+        id: usage.id,
+        input_tokens: 10,
+        output_tokens: 2,
+        reported_after_interruption: true,
+      },
+    ]);
     await sql`delete from public.workflow_runs where id = ${created.run.id}`;
   });
 
@@ -464,6 +474,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
     });
     const definition = createWorkflowRegistry().register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'fanout-race-test',
@@ -589,13 +600,52 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
     });
   });
 
-  test('retries a permanently invalid notification without acknowledging delivery', async () => {
+  test('dead-letters a permanently invalid notification without blocking later events', async () => {
     if (!sql) throw new Error('Workflow integration database is required.');
     await withPostgresWorkflowTestLock(sql, POSTGRES_WORKFLOW_TEST_LOCK.outboxClaim, async () => {
       const store = createStore(sql);
-      const created = await createRevisionNotificationRun(store, 7);
+      const created = await store.createRun({
+        config: { maxAttempts: 3, timeoutMs: 60_000 },
+        definitionHash: 'e'.repeat(64),
+        definitionHashVersion: 1,
+        id: randomUUID(),
+        input: { projectId },
+        materialization: {
+          completedOutput: { projectId, revision: 8 },
+          durableEvents: [
+            {
+              eventType: COURSE_PROJECT_REVISION_EVENT,
+              payload: { projectId, revision: 7 },
+              schemaVersion: 1,
+            },
+            {
+              eventType: COURSE_PROJECT_REVISION_EVENT,
+              payload: { projectId, revision: 8 },
+              schemaVersion: 1,
+            },
+          ],
+          nodes: [],
+          stepPolicies: {},
+          stepPoliciesVersion: 1,
+          transientEvents: [],
+          waits: [],
+        },
+        projectId,
+        requestKey: randomUUID(),
+        userId,
+        workflowId: 'project-revision-inbox-test',
+      });
+      await sql`
+        update public.workflow_outbox
+        set available_at = case sequence
+          when 1 then '-infinity'::timestamptz
+          else 'epoch'::timestamptz
+        end
+        where run_id = ${created.run.id}
+      `;
       const claim = await store.outbox.claimNext({ leaseMs: 60_000, workerId: 'delivery-invalid' });
       if (!claim) throw new Error('Expected the invalid notification claim.');
+      expect(claim).toMatchObject({ runId: created.run.id, sequence: '1' });
 
       await store.outbox.recordFailure({
         claim,
@@ -608,10 +658,14 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       });
 
       expect(
+        await store.outbox.claimNext({ leaseMs: 60_000, workerId: 'delivery-next' })
+      ).toMatchObject({ runId: created.run.id, sequence: '2' });
+      expect(
         await sql`
           select
             status,
             delivered_at is not null as delivered,
+            dead_lettered_at is not null as dead_lettered,
             last_error ->> 'code' as error_code
           from public.workflow_outbox
           where id = ${claim.id}
@@ -619,6 +673,27 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore execution integration',
       ).toEqual([
         {
           delivered: false,
+          dead_lettered: true,
+          error_code: 'notification_unsupported',
+          status: 'dead-letter',
+        },
+      ]);
+
+      await expect(
+        store.outbox.retryDeadLetter({ id: claim.id, requestedBy: userId })
+      ).resolves.toBe(true);
+      expect(
+        await sql`
+          select
+            status,
+            dead_lettered_at is null as dead_letter_timestamp_cleared,
+            last_error ->> 'code' as error_code
+          from public.workflow_outbox
+          where id = ${claim.id}
+        `
+      ).toEqual([
+        {
+          dead_letter_timestamp_cleared: true,
           error_code: 'notification_unsupported',
           status: 'pending',
         },

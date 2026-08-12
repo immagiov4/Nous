@@ -1,4 +1,10 @@
 // Builds metadata objects for persisted project records.
+
+import {
+  decodeProjectSnapshotWire,
+  encodeProjectSnapshotWire,
+  type ProjectSnapshotWireDecodeOptions,
+} from '@shared/projectSnapshotWire';
 import { parseYouTubeTranscript } from '@shared/youtubeTranscript';
 import { createEntityId } from '../utils/ids.js';
 import { timestampIso } from '../utils/time.js';
@@ -50,7 +56,7 @@ const inferProjectSourceKind = (snapshot: ProjectSnapshot, imported = false): Pr
     return 'learn-mode';
   }
 
-  if (isRecord(snapshot.source) && snapshot.source.kind === 'codebase-bundle') {
+  if (isRecord(snapshot.source) && snapshot.source.kind === 'archive') {
     return 'codebase';
   }
 
@@ -88,7 +94,7 @@ const getProjectTitle = (snapshot: ProjectSnapshot): string => {
     }
   }
 
-  if (isRecord(snapshot.source) && snapshot.source.kind === 'codebase-bundle') {
+  if (isRecord(snapshot.source) && snapshot.source.kind === 'archive') {
     const bundleName = ensureString(snapshot.source.name).trim();
     if (bundleName) {
       return bundleName;
@@ -161,13 +167,19 @@ const buildCoverLabel = (snapshot: ProjectSnapshot, sourceKind: ProjectSourceKin
     return ensureString(snapshot.source.file.name, 'Documento');
   }
 
-  if (isRecord(snapshot.source) && snapshot.source.kind === 'codebase-bundle') {
-    if (sourceKind === 'document') {
-      return ensureString(snapshot.source.name, 'Documento');
-    }
+  if (isRecord(snapshot.source) && snapshot.source.kind === 'archive') {
+    const index = isRecord(snapshot.source.index) ? snapshot.source.index : null;
+    const entries = Array.isArray(index?.entries) ? index.entries : [];
+    const fileCount = entries.filter(entry => isRecord(entry) && entry.kind === 'file').length;
+    return fileCount > 0 ? `${fileCount} file` : ensureString(snapshot.source.name, 'Codice');
+  }
 
-    const files = Array.isArray(snapshot.source.files) ? snapshot.source.files : [];
-    return files.length > 0 ? `${files.length} file` : ensureString(snapshot.source.name, 'Codice');
+  if (
+    sourceKind === 'codebase' &&
+    isRecord(snapshot.source) &&
+    Array.isArray(snapshot.source.sources)
+  ) {
+    return `${snapshot.source.sources.length} file`;
   }
 
   if (sourceKind === 'learn-mode') {
@@ -178,13 +190,24 @@ const buildCoverLabel = (snapshot: ProjectSnapshot, sourceKind: ProjectSourceKin
   return lessonCount > 0 ? `${lessonCount} lezioni` : 'Bozza sincronizzata';
 };
 
-export const normalizeProjectSnapshot = (data: unknown, imported = false): ProjectSnapshot => {
+export const normalizeProjectSnapshot = (
+  data: unknown,
+  imported = false,
+  options: ProjectSnapshotWireDecodeOptions = {}
+): ProjectSnapshot => {
   const now = timestampIso();
-  const record = isRecord(data) ? data : {};
+  const record = decodeProjectSnapshotWire(data, options);
   const snapshot = {
     ...record,
     id: ensureString(record.id, createProjectId()),
     version: ensureString(record.version, DEFAULT_PROJECT_VERSION),
+    state: ensureString(record.state, record.learningPlan ? 'READING' : 'LIBRARY'),
+    source: record.source ?? null,
+    learningPlan: record.learningPlan ?? null,
+    isLearnMode: record.isLearnMode ?? false,
+    userProfile: record.userProfile ?? null,
+    syllabus: record.syllabus ?? [],
+    activeSectionId: record.activeSectionId ?? null,
     createdAt: ensureString(record.createdAt, now),
     updatedAt: ensureString(record.updatedAt, now),
     lastOpenedAt: ensureString(record.lastOpenedAt, now),
@@ -196,17 +219,17 @@ export const normalizeProjectSnapshot = (data: unknown, imported = false): Proje
     sourceKind: inferProjectSourceKind(snapshot, imported),
   };
   const explicitTitle = ensureString(snapshot.title);
-  if (!explicitTitle) {
-    return normalizedSnapshot;
-  }
+  const titledSnapshot = explicitTitle
+    ? {
+        ...normalizedSnapshot,
+        title: explicitTitle,
+        learningPlan: normalizedSnapshot.learningPlan
+          ? { ...normalizedSnapshot.learningPlan, title: explicitTitle }
+          : normalizedSnapshot.learningPlan,
+      }
+    : normalizedSnapshot;
 
-  return {
-    ...normalizedSnapshot,
-    title: explicitTitle,
-    learningPlan: normalizedSnapshot.learningPlan
-      ? { ...normalizedSnapshot.learningPlan, title: explicitTitle }
-      : normalizedSnapshot.learningPlan,
-  };
+  return encodeProjectSnapshotWire(titledSnapshot, options) as ProjectSnapshot;
 };
 
 export const buildProjectMeta = (

@@ -1,3 +1,4 @@
+import { patchProjectInTransaction } from '../projects/projectTransaction.js';
 import type { ProjectStore } from '../projects/types.js';
 import {
   type CourseGenerationResolvedStartDependencies,
@@ -20,6 +21,7 @@ type CourseInterviewRunStore = CourseGenerationResolvedStartDependencies['store'
 
 interface ProductionCourseInterviewDependencies
   extends Omit<CourseGenerationResolvedStartDependencies, 'store'> {
+  readonly patchProject?: typeof patchProjectInTransaction;
   readonly projectStore: Pick<ProjectStore, 'deleteProject' | 'loadProject' | 'patchProject'>;
   readonly runStore: CourseInterviewRunStore;
 }
@@ -28,6 +30,7 @@ export const createProductionCourseInterviewServices = (
   dependencies: ProductionCourseInterviewDependencies
 ): CourseInterviewWorkflowServices => {
   const model = createCourseInterviewModel();
+  const patchProject = dependencies.patchProject ?? patchProjectInTransaction;
   return {
     assessTurn: input => model.assessTurn(input),
     async discardUnclaimedDraftProject(input) {
@@ -45,6 +48,18 @@ export const createProductionCourseInterviewServices = (
       await dependencies.projectStore.deleteProject(input.userId, input.projectId);
     },
     async saveCourseProfile(input) {
+      await patchProject(input.transaction, {
+        buildPatch: () => ({
+          isLearnMode: input.mode === 'learn',
+          state: COURSE_INTERVIEW_PROJECT_STATE,
+          userProfile: input.profile,
+        }),
+        projectId: input.projectId,
+        updatedAt: new Date().toISOString(),
+        userId: input.userId,
+      });
+    },
+    async saveCourseProfileBeforeCheckpoint(input) {
       input.signal.throwIfAborted();
       await dependencies.projectStore.patchProject(input.userId, input.projectId, {
         isLearnMode: input.mode === 'learn',

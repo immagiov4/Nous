@@ -63,6 +63,7 @@ describe('POST /api/images/generate', () => {
   test('routes Codex image generation through the authenticated app-server capability', async () => {
     process.env.AUTH_MODE = 'supabase';
     process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    process.env.SUPABASE_URL = 'https://example.supabase.co';
     patchGlobalModelConfig({ codexArtifactModel: 'gpt-codex-artifact' });
     const token = createSupabaseTestToken({ aiProvider: 'codex' });
     const modelsResponse = await request(createApp())
@@ -132,6 +133,7 @@ describe('POST /api/images/generate', () => {
   test('uses the authenticated user OpenAI provider and ignores request headers', async () => {
     process.env.AUTH_MODE = 'supabase';
     process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    process.env.SUPABASE_URL = 'https://example.supabase.co';
     const token = createSupabaseTestToken({ aiProvider: 'openai' });
     const response = await request(createApp())
       .post('/api/images/generate')

@@ -16,6 +16,7 @@ import {
   CourseInterviewStartFieldsSchema,
   CourseInterviewUserAnswerSignalSchema,
 } from '@shared/courseInterviewContract.js';
+import type { TransactionSql } from 'postgres';
 import * as z from 'zod';
 
 import type { GlobalModelConfig } from '../config/modelConfig.js';
@@ -101,6 +102,14 @@ export interface CourseInterviewWorkflowServices {
   /** Deletes the draft only when no course-generation run has claimed the same project. */
   readonly discardUnclaimedDraftProject: (input: CourseInterviewCleanupInput) => Promise<void>;
   readonly saveCourseProfile: (input: {
+    mode: 'document' | 'learn';
+    profile: z.infer<typeof CourseInterviewProposalReadyEventSchema>['proposal'];
+    projectId: string;
+    transaction: TransactionSql;
+    userId: string;
+  }) => Promise<void>;
+  /** Resume-only adapter for runs created before profile persistence joined the checkpoint. */
+  readonly saveCourseProfileBeforeCheckpoint: (input: {
     execution: WorkflowStepExecutionIdentity;
     idempotencyKey: string;
     mode: 'document' | 'learn';
@@ -137,7 +146,8 @@ const latestMessage = (state: CourseInterviewState) => {
 export const createCourseInterviewWorkflow = (
   executionDefaults: CourseInterviewWorkflowConfig,
   maxIterations: number,
-  configSchema: z.ZodType<CourseInterviewWorkflowConfig> = CourseInterviewWorkflowConfigSchema
+  configSchema: z.ZodType<CourseInterviewWorkflowConfig> = CourseInterviewWorkflowConfigSchema,
+  profilePersistence: 'commit' | 'run' = 'commit'
 ) => {
   const emitInitialMessage = emit({
     event: COURSE_INTERVIEW_MESSAGE_EVENT,
@@ -368,20 +378,36 @@ export const createCourseInterviewWorkflow = (
     CourseInterviewWorkflowConfig,
     CourseInterviewWorkflowServices
   >({
+    ...(profilePersistence === 'commit'
+      ? {
+          commit: ({ input, services, transaction }) => {
+            if (!input.profile) throw new Error('Approved course interview requires a profile.');
+            return services.saveCourseProfile({
+              mode: input.mode,
+              profile: input.profile,
+              projectId: input.projectId,
+              transaction,
+              userId: input.userId,
+            });
+          },
+        }
+      : {}),
     id: 'save-course-interview-profile',
     inputSchema: CourseInterviewStateSchema,
     outputSchema: CourseInterviewStateSchema,
     run: async ({ execution, idempotencyKey, input, services, signal }) => {
       if (!input.profile) throw new Error('Approved course interview requires a profile.');
-      await services.saveCourseProfile({
-        execution,
-        idempotencyKey,
-        mode: input.mode,
-        profile: input.profile,
-        projectId: input.projectId,
-        signal,
-        userId: input.userId,
-      });
+      if (profilePersistence === 'run') {
+        await services.saveCourseProfileBeforeCheckpoint({
+          execution,
+          idempotencyKey,
+          mode: input.mode,
+          profile: input.profile,
+          projectId: input.projectId,
+          signal,
+          userId: input.userId,
+        });
+      }
       return input;
     },
   });
@@ -610,6 +636,8 @@ export const createCourseInterviewWorkflow = (
   });
 
   return workflow({
+    compatibilityId:
+      profilePersistence === 'commit' ? 'course-interview-v2' : 'course-interview-v1',
     configSchema,
     events: {
       [COURSE_INTERVIEW_ENDED_EVENT]: {

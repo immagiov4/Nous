@@ -220,11 +220,17 @@ const executeStepCallback = async <Services>(input: {
           {
             attemptNumber: input.claim.attemptNumber,
             nodeInstanceId: input.claim.nodeInstanceId,
-            record: usage =>
-              executeWorkflowCheckpointWithRetry(
-                () => input.store.recordAiUsage(usage),
-                controller.signal
-              ),
+            record: usage => {
+              const meteringSignal = AbortSignal.timeout(input.leaseMs);
+              const persistedUsage = {
+                ...usage,
+                ...(controller.signal.aborted ? { reportedAfterInterruption: true as const } : {}),
+              };
+              return executeWorkflowCheckpointWithRetry(
+                () => input.store.recordAiUsage(persistedUsage),
+                meteringSignal
+              );
+            },
             runId: input.claim.runId,
           },
           () =>

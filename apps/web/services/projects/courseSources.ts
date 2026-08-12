@@ -1,3 +1,4 @@
+import { buildStableProjectSourceHash } from '@shared/projectSnapshotWire';
 import type {
   CourseSourceDescriptor,
   FileData,
@@ -24,16 +25,6 @@ const compareSourceNames = (left: string, right: string): number => {
 
 export const sortSourceFiles = <T extends Pick<FileData, 'name'>>(files: readonly T[]): T[] =>
   [...files].sort((left, right) => compareSourceNames(left.name, right.name));
-
-const buildStableSourceHash = (file: FileData): string => {
-  let hash = 0x811c9dc5;
-  const value = `${file.name}\0${file.mimeType}\0${file.data}`;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0');
-};
 
 const slugify = (value: string): string =>
   value
@@ -208,7 +199,7 @@ export const buildCourseSourceDescriptors = (
 ): CourseSourceDescriptor[] => {
   const hashOccurrences = new Map<string, number>();
   return sortSourceFiles(files).map((originalFile, position) => {
-    const hash = buildStableSourceHash(originalFile);
+    const hash = buildStableProjectSourceHash(originalFile);
     const occurrence = (hashOccurrences.get(hash) || 0) + 1;
     hashOccurrences.set(hash, occurrence);
     const id = `source-${hash}-${occurrence}`;

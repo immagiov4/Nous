@@ -79,6 +79,7 @@ export const createCrashEffectWorkflowDefinition = () => {
     },
   });
   return workflow({
+    compatibilityId: 'test-v1',
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
     id: 'process-crash-effect-test',
@@ -103,6 +104,7 @@ export const createCrashFanOutWorkflowDefinition = () => {
     },
   });
   return workflow({
+    compatibilityId: 'test-v1',
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
     id: 'process-crash-fanout-test',
@@ -126,6 +128,7 @@ export const createCrashFanOutWorkflowDefinition = () => {
 
 export const createCrashSignalWorkflowDefinition = () =>
   workflow({
+    compatibilityId: 'test-v1',
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
     id: 'process-crash-signal-test',
@@ -177,6 +180,7 @@ export const createCrashUndoWorkflowDefinition = () => {
     run: async ({ input }) => input,
   });
   return workflow({
+    compatibilityId: 'test-v1',
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
     id: 'process-crash-undo-test',
@@ -188,6 +192,7 @@ export const createCrashUndoWorkflowDefinition = () => {
 
 export const createPreviousDeployWorkflowDefinition = () =>
   workflow({
+    compatibilityId: 'test-v1',
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
     id: 'process-crash-deploy-test',
@@ -203,6 +208,7 @@ export const createPreviousDeployWorkflowDefinition = () =>
 
 export const createCurrentDeployWorkflowDefinition = () =>
   workflow({
+    compatibilityId: 'test-v1',
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
     id: 'process-crash-deploy-test',

@@ -28,6 +28,7 @@ export interface WorkflowAiUsageRecord extends WorkflowAiUsage {
   readonly attemptNumber: number;
   readonly id: string;
   readonly nodeInstanceId: string;
+  readonly reportedAfterInterruption?: true;
   readonly runId: string;
 }
 

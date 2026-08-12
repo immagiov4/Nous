@@ -1,10 +1,14 @@
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
+import {
+  type DecodedProjectSnapshotWire,
+  decodeProjectSnapshotWire,
+  type ProjectSnapshotWire,
+} from '@shared/projectSnapshotWire';
 
 import type {
   FileData,
   LibraryFolder,
   LibraryPlacement,
-  ProjectExportData,
   ProjectId,
   ProjectPatch,
   ProjectRevisionEvent,
@@ -13,13 +17,19 @@ import type {
   SavedProjectMeta,
   StoredProjectSourceFile,
 } from '../../types';
+import { isRecord } from '../../utils/records.ts';
 import { fetchWithSupabaseAuth } from '../auth/supabaseAuth.ts';
 import { getBackendUrl } from '../openrouter/config.ts';
 import { attachStoredSources, getCourseSourceDescriptors } from './courseSources.ts';
 import type { ProjectRepository, ProjectSaveOptions, ProjectSaveResult } from './projectRepository';
-import { ProjectStorageError } from './projectRepository';
+import {
+  PROJECT_REVISION_CONFLICT_MESSAGE,
+  PROJECT_SYNC_ERROR_MESSAGE,
+  ProjectStorageError,
+  REMOTE_PROJECT_DELETED_MESSAGE,
+} from './projectRepository';
 import { subscribeToProjectRevisionStream } from './projectRevisionStream.ts';
-import { normalizeStoredProject } from './projectSnapshot.ts';
+import { exportProjectData, normalizeStoredProject } from './projectSnapshot.ts';
 
 interface ApiResponse {
   complete?: boolean;
@@ -27,7 +37,7 @@ interface ApiResponse {
   ready?: boolean;
   success: boolean;
   error?: string;
-  data?: ProjectExportData | null;
+  data?: unknown;
   folder?: LibraryFolder | null;
   folders?: LibraryFolder[];
   meta?: SavedProjectMeta;
@@ -48,8 +58,6 @@ interface ProjectImportConfig {
   requestTimeoutMs: number;
 }
 
-const PROJECT_SYNC_ERROR_MESSAGE =
-  'Sincronizzazione server non disponibile. Verifica che il backend sia acceso e raggiungibile.';
 const PROJECT_SYNC_TIMEOUT_MESSAGE =
   'La sincronizzazione sta impiegando troppo tempo. Il backend e raggiungibile, ma non ha completato la richiesta.';
 const PROJECT_REQUEST_TIMEOUT_MS = 15_000;
@@ -106,7 +114,7 @@ const splitProjectImport = (serialized: string, maxChunkBytes: number): string[]
 const createProjectSyncError = (error: unknown): ProjectStorageError => {
   console.warn('[Nous] Server project sync failed', error);
   if (error instanceof ProjectStorageError) {
-    return error;
+    return new ProjectStorageError(responseErrorMessage(error.code), error.code);
   }
   if (error instanceof Error && error.name === 'AbortError') {
     return new ProjectStorageError(PROJECT_SYNC_TIMEOUT_MESSAGE, 'persistence-failed');
@@ -116,10 +124,17 @@ const createProjectSyncError = (error: unknown): ProjectStorageError => {
 };
 
 const responseErrorCode = (status: number): ProjectStorageError['code'] => {
+  if (status === 404) return 'project-deleted';
   if (status === 409) return 'revision-conflict';
   if (status === 429) return 'quota-exceeded';
   return 'persistence-failed';
 };
+
+function responseErrorMessage(code: ProjectStorageError['code']): string {
+  if (code === 'project-deleted') return REMOTE_PROJECT_DELETED_MESSAGE;
+  if (code === 'revision-conflict') return PROJECT_REVISION_CONFLICT_MESSAGE;
+  return PROJECT_SYNC_ERROR_MESSAGE;
+}
 
 const readApiResponse = async <T>(response: Response): Promise<ApiResponse & T> => {
   try {
@@ -319,13 +334,16 @@ export class HttpProjectRepository implements ProjectRepository {
         };
       }
     }
+    const projectPayload = exportProjectData(snapshotToSave, {
+      externalArchiveBytesAvailable: Boolean(archiveFile?.size),
+    });
     if (archiveFile && archiveFile.size > PROJECT_ARCHIVE_DIRECT_MAX_BYTES) {
       const importConfig = await this.getProjectImportConfig();
-      return this.saveArchiveProjectInChunks(snapshotToSave, archiveFile, importConfig);
+      return this.saveArchiveProjectInChunks(projectPayload, archiveFile, importConfig, options);
     }
     const body = archiveFile
-      ? this.createArchiveSaveBody(snapshotToSave, archiveFile, options)
-      : JSON.stringify({ snapshot: snapshotToSave, ...options });
+      ? this.createArchiveSaveBody(projectPayload, archiveFile, options)
+      : JSON.stringify({ snapshot: projectPayload, ...options });
     const response = await this.request<{
       meta?: SavedProjectMeta;
       snapshot?: ProjectSnapshot;
@@ -346,7 +364,7 @@ export class HttpProjectRepository implements ProjectRepository {
   }
 
   private createArchiveSaveBody(
-    snapshot: ProjectSnapshot,
+    snapshot: ProjectSnapshotWire,
     archiveFile: File,
     options: ProjectWriteOptions
   ): FormData {
@@ -366,9 +384,10 @@ export class HttpProjectRepository implements ProjectRepository {
   }
 
   private async saveArchiveProjectInChunks(
-    snapshot: ProjectSnapshot,
+    snapshot: ProjectSnapshotWire,
     archiveFile: File,
-    config: ProjectImportConfig
+    config: ProjectImportConfig,
+    options: ProjectWriteOptions
   ): Promise<ProjectSaveResult> {
     if (snapshot.source?.kind !== 'archive') {
       throw new ProjectStorageError(
@@ -377,6 +396,16 @@ export class HttpProjectRepository implements ProjectRepository {
       );
     }
     const sourceFile = snapshot.source.file;
+    if (
+      !isRecord(sourceFile) ||
+      typeof sourceFile.name !== 'string' ||
+      typeof sourceFile.mimeType !== 'string'
+    ) {
+      throw new ProjectStorageError(
+        'Il file archivio richiede metadati validi.',
+        'persistence-failed'
+      );
+    }
     const uploadId = await this.uploadBinaryProjectImport(archiveFile, config);
     try {
       const response = await this.requestImportUpload<{
@@ -386,6 +415,7 @@ export class HttpProjectRepository implements ProjectRepository {
         `/api/projects/import/chunks/${encodeURIComponent(uploadId)}/complete`,
         {
           body: JSON.stringify({
+            ...options,
             payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
             snapshot,
             sourceFile: { name: sourceFile.name, mimeType: sourceFile.mimeType },
@@ -580,14 +610,19 @@ export class HttpProjectRepository implements ProjectRepository {
     };
   }
 
-  async exportProject(id: ProjectId): Promise<ProjectExportData | null> {
-    const response = await this.request<{ data?: ProjectExportData | null }>(
+  async exportProject(id: ProjectId): Promise<DecodedProjectSnapshotWire | null> {
+    const response = await this.request<{ data?: unknown }>(
       `/api/projects/projects/${encodeURIComponent(id)}/export`,
       {
         method: 'POST',
       }
     );
-    return response.data || null;
+    if (response.data == null) return null;
+    try {
+      return decodeProjectSnapshotWire(response.data);
+    } catch (error) {
+      throw createProjectSyncError(error);
+    }
   }
 
   async touchProject(id: ProjectId): Promise<void> {
@@ -731,9 +766,10 @@ export class HttpProjectRepository implements ProjectRepository {
       const data = await readApiResponse<T>(response);
 
       if (!response.ok || data.success === false) {
+        const errorCode = responseErrorCode(response.status);
         throw new ProjectStorageError(
           data.error || response.statusText || 'Richiesta server non riuscita.',
-          responseErrorCode(response.status)
+          errorCode
         );
       }
 

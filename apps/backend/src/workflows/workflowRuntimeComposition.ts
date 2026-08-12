@@ -42,7 +42,11 @@ import {
   CourseInterviewWorkflowConfigSchema,
   createCourseInterviewWorkflow,
 } from './courseInterviewWorkflow.js';
-import { createWorkflowRegistry, type WorkflowRegistry } from './definition.js';
+import {
+  createWorkflowRegistry,
+  preCompatibilityIdPrevious,
+  type WorkflowRegistry,
+} from './definition.js';
 import {
   createLessonGenerationApi,
   type LessonGenerationApi,
@@ -53,10 +57,7 @@ import {
   createLessonGenerationStarter,
   LESSON_GENERATION_WORKFLOW_ID,
 } from './lessonGenerationStart.js';
-import {
-  createLessonGenerationWorkflow,
-  LessonGenerationWorkflowConfigSchema,
-} from './lessonGenerationWorkflow.js';
+import { createLessonGenerationWorkflow } from './lessonGenerationWorkflow.js';
 import {
   createLessonVisualRetryStarter,
   type LessonVisualRetryStarter,
@@ -66,7 +67,6 @@ import {
   createLessonVisualWorkflows,
   LESSON_VISUAL_RETRY_WORKFLOW_ID,
 } from './lessonVisualWorkflow.js';
-import { PreviousGlobalModelConfigSchema } from './modelConfigSchema.js';
 import {
   createPdfMappingRepairApi,
   createPdfMappingRepairStarter,
@@ -78,6 +78,7 @@ import {
   createProductionPdfMappingRepairServices,
   PDF_MAPPING_REPAIR_WORKFLOW_ID,
 } from './pdfMappingRepairWorkflow.js';
+import type { PostgresWorkflowOutboxStore } from './postgresWorkflowOutboxStore.js';
 import { PostgresWorkflowStore } from './postgresWorkflowStore.js';
 import {
   COURSE_PROJECT_REVISION_EVENT,
@@ -132,6 +133,7 @@ export const createRuntimeProjectRevisionNotificationDelivery = (
   });
 
 export interface WorkflowRuntimeCompositionStore extends WorkflowRuntimeApiStore {
+  readonly outbox: Pick<PostgresWorkflowOutboxStore, 'listDeadLetters' | 'retryDeadLetter'>;
   readonly projectAssets?: ProjectAssetReader;
   close(): Promise<void>;
 }
@@ -150,6 +152,10 @@ export interface WorkflowRuntimeComposition {
   readonly lessonVisualRetryStarter: LessonVisualRetryStarter;
   readonly pdfMappingRepairApi: PdfMappingRepairApi;
   readonly projectAssetReader: ProjectAssetReader;
+  readonly workflowOutboxAdmin: Pick<
+    PostgresWorkflowOutboxStore,
+    'listDeadLetters' | 'retryDeadLetter'
+  >;
   close(): Promise<void>;
   start(): Promise<void>;
 }
@@ -174,15 +180,6 @@ const createProductionRegistry = (): WorkflowRegistry => {
   const registry = createWorkflowRegistry();
   const models = getGlobalModelConfig();
   const visual = resolveLessonVisualModelConfig(models);
-  const previousCourseConfigSchema = CourseGenerationWorkflowConfigSchema.extend({
-    models: PreviousGlobalModelConfigSchema,
-  }) as unknown as typeof CourseGenerationWorkflowConfigSchema;
-  const previousInterviewConfigSchema = CourseInterviewWorkflowConfigSchema.extend({
-    models: PreviousGlobalModelConfigSchema,
-  }) as unknown as typeof CourseInterviewWorkflowConfigSchema;
-  const previousLessonConfigSchema = LessonGenerationWorkflowConfigSchema.extend({
-    models: PreviousGlobalModelConfigSchema,
-  }) as unknown as typeof LessonGenerationWorkflowConfigSchema;
   const retryWorkflow = createLessonVisualWorkflows({
     maxAttempts: VISUAL_WORKFLOW_MAX_ATTEMPTS,
     timeoutMs: VISUAL_WORKFLOW_TIMEOUT_MS,
@@ -198,10 +195,7 @@ const createProductionRegistry = (): WorkflowRegistry => {
     models,
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
   });
-  const previousCourseWorkflow = createCourseGenerationWorkflow(
-    courseWorkflow.executionDefaults,
-    previousCourseConfigSchema
-  );
+  const previousCourseWorkflow = createCourseGenerationWorkflow(courseWorkflow.executionDefaults);
   const courseInterviewWorkflow = createCourseInterviewWorkflow(
     {
       maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -213,7 +207,8 @@ const createProductionRegistry = (): WorkflowRegistry => {
   const previousCourseInterviewWorkflow = createCourseInterviewWorkflow(
     courseInterviewWorkflow.executionDefaults,
     COURSE_INTERVIEW_MAX_ITERATIONS,
-    previousInterviewConfigSchema
+    CourseInterviewWorkflowConfigSchema,
+    'run'
   );
   const lessonWorkflow = createLessonGenerationWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
@@ -221,10 +216,7 @@ const createProductionRegistry = (): WorkflowRegistry => {
     timeoutMs: GENERATION_WORKFLOW_TIMEOUT_MS,
     visual,
   });
-  const previousLessonWorkflow = createLessonGenerationWorkflow(
-    lessonWorkflow.executionDefaults,
-    previousLessonConfigSchema
-  );
+  const previousLessonWorkflow = createLessonGenerationWorkflow(lessonWorkflow.executionDefaults);
   const pdfMappingRepairWorkflow = createPdfMappingRepairWorkflow({
     maxAttempts: GENERATION_WORKFLOW_MAX_ATTEMPTS,
     models,
@@ -232,19 +224,31 @@ const createProductionRegistry = (): WorkflowRegistry => {
   });
   const previousPdfMappingRepairWorkflow = createPdfMappingRepairWorkflow(
     pdfMappingRepairWorkflow.executionDefaults,
-    previousCourseConfigSchema
+    CourseGenerationWorkflowConfigSchema
   );
-  registry.register({ current: artifactDraftWorkflow });
-  registry.register({ current: retryWorkflow });
+  registry.register({
+    current: artifactDraftWorkflow,
+    previous: preCompatibilityIdPrevious(artifactDraftWorkflow),
+  });
+  registry.register({
+    current: retryWorkflow,
+    previous: preCompatibilityIdPrevious(retryWorkflow),
+  });
   registry.register({
     current: courseInterviewWorkflow,
-    resumableDefinitions: [previousCourseInterviewWorkflow],
+    previous: preCompatibilityIdPrevious(previousCourseInterviewWorkflow),
   });
-  registry.register({ current: courseWorkflow, resumableDefinitions: [previousCourseWorkflow] });
-  registry.register({ current: lessonWorkflow, resumableDefinitions: [previousLessonWorkflow] });
+  registry.register({
+    current: courseWorkflow,
+    previous: preCompatibilityIdPrevious(previousCourseWorkflow),
+  });
+  registry.register({
+    current: lessonWorkflow,
+    previous: preCompatibilityIdPrevious(previousLessonWorkflow),
+  });
   registry.register({
     current: pdfMappingRepairWorkflow,
-    resumableDefinitions: [previousPdfMappingRepairWorkflow],
+    previous: preCompatibilityIdPrevious(previousPdfMappingRepairWorkflow),
   });
   return registry;
 };
@@ -437,6 +441,7 @@ export const createWorkflowRuntimeComposition = (
     lessonVisualRetryStarter,
     projectAssetReader:
       options.projectAssetReader ?? store.projectAssets ?? unavailableProjectAssetReader,
+    workflowOutboxAdmin: store.outbox,
     close: () => {
       closePromise ??= (async () => {
         let workerFailure: unknown;

@@ -104,11 +104,7 @@ export default function YouTubeClipCarousel({ clips }: { clips: LessonYouTubeCli
 
       playerReadyRef.current = true;
       const pending = pendingClipRef.current;
-      if (
-        pending &&
-        pending.sequenceIdentity === sequenceIdentity &&
-        pending.videoId === playerVideoId
-      ) {
+      if (pending?.sequenceIdentity === sequenceIdentity && pending.videoId === playerVideoId) {
         playClipInExistingPlayer(player, pending.clip);
         pendingClipRef.current = null;
       }

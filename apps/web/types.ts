@@ -531,6 +531,7 @@ export interface LearningSection {
   learningAids?: LessonLearningAid[]; // Compact definitions, formulas, symbols, and analogies
   contextPrompt?: string; // For Learn Mode
   instructionPacks?: LessonInstructionPackId[];
+  lastGenerationRunId?: string | null;
   primaryChunkIds?: string[]; // Primary source chunks for PDF-backed lesson generation
   primaryChunkMappingSource?: 'fallback' | 'mapped';
   sourceArchiveSelectors?: SourceArchiveSelector[];
@@ -631,32 +632,15 @@ export interface ProjectSnapshot {
   syllabus: SyllabusItem[];
   researchCoursePlan?: ResearchCoursePlan | null;
   researchDossiersBySectionId?: ResearchDossiersBySectionId;
+  lastCourseGenerationRunId?: string | null;
   activeSectionId: string | null;
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
+  legacyUnmappedFields?: Record<string, unknown>;
   documentAssets?: PdfDocumentAssets | null;
   documentIndex?: PdfTextIndex | null;
-}
-
-export interface ProjectExportData {
-  id?: ProjectId;
-  version: string;
-  title?: string;
-  state?: AppState;
-  file?: FileData | null; // Legacy import fallback for older exports
-  source?: ProjectSource | null;
-  learningPlan: LearningPlan | null;
-  isLearnMode: boolean;
-  userProfile: UserProfile | null;
-  syllabus: SyllabusItem[];
-  researchCoursePlan?: ResearchCoursePlan | null;
-  researchDossiersBySectionId?: ResearchDossiersBySectionId;
-  activeSectionId?: string | null;
-  musicUrl?: string;
-  sourceKind?: ProjectSourceKind;
-  documentAssets?: PdfDocumentAssets | null;
-  documentIndex?: PdfTextIndex | null;
+  extensions?: Record<string, unknown>;
 }
 
 export type OpenRouterModelSlot =

@@ -56,6 +56,7 @@ import { normalizeMarkdownForRendering } from '../../utils/markdown/render.ts';
 import { parsePdfContentParts } from '../../utils/pdf/imagePlaceholders';
 import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
 import ResolvedPdfImage from './ResolvedPdfImage.tsx';
+import SurfaceErrorBoundary from './SurfaceErrorBoundary.tsx';
 
 export interface MarkdownRendererProps {
   readonly content: string;
@@ -548,12 +549,14 @@ const MarkdownRenderer = ({
             key={part.key}
             className="[content-visibility:auto] [contain-intrinsic-size:auto_520px]"
           >
-            <GeneratedVisualFrame
-              isDarkMode={isDarkMode}
-              projectId={projectId}
-              title={part.title}
-              visual={part.visual}
-            />
+            <SurfaceErrorBoundary resetKey={part.key} surface="visual">
+              <GeneratedVisualFrame
+                isDarkMode={isDarkMode}
+                projectId={projectId}
+                title={part.title}
+                visual={part.visual}
+              />
+            </SurfaceErrorBoundary>
           </div>
         )
       )}

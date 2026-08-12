@@ -1,6 +1,9 @@
 # Nous Reader Architecture
 
-This document explains how Nous Reader is organized and where to make changes. Production operations live in [DEPLOYMENT.md](DEPLOYMENT.md).
+This document is the technical source of truth for how Nous Reader is organized, its domain
+language, and where to make changes. Product and design direction lives in the
+[manifesto](https://github.com/immagiov4/Lumina-Reader/discussions/33); production operations live in
+[DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## What Nous Reader does
 
@@ -17,7 +20,8 @@ The application is made of two separate runtimes:
 | Frontend (`apps/web/`) | 5173 | React UI, interaction state, and HTTP clients for backend operations |
 | Backend (`apps/backend/`) | 3301 | API server, durable AI workflows, PDF extraction, project and asset storage, admin routes, and TTS |
 
-`packages/shared-types/` holds the type-only contract used on the wire between the two (see [Shared types](#9-shared-types)). It is type-level only; nothing executes from it.
+`packages/shared-types/` holds shared contracts and deterministic wire codecs used by both (see
+[Domain and wire types](#9-domain-and-wire-types)). It must remain independent from either app.
 
 ```text
 Browser -> static frontend -> Bun backend -> Supabase Auth/Postgres
@@ -47,7 +51,9 @@ Think of the frontend as a set of concentric layers.
 
 Important subfolders:
 
-- `services/openrouter/` — authenticated clients for AI-backed operations. Course, lesson, visual-retry, and artifact clients start or resume durable backend workflows; assessment, exercises, contextual research, and TTS keep their focused request adapters here.
+- `services/openrouter/` — authenticated clients for bounded AI operations. Durable course
+  interviews, course and lesson generation, visual retries, artifact drafts, and PDF mapping repair
+  are owned by backend workflows instead.
 - `services/exercises/` — application-exercise domain: pure plan operations (`plan.ts`), constants, and deliverable handling (attachments + zip).
 - `services/learning/` — pure functions on the learning plan that are not exercise-specific: sub-chapter grouping and legacy migration for old "mini-lab" lessons.
 - `services/projects/` — `ProjectRepository` interface, HTTP adapter, authenticated revision stream, server-only repository factory, project snapshot helpers, archives, persistence signatures, and sync state.
@@ -79,7 +85,7 @@ ranges where available.
 
 It should not know anything about the screen the user is on.
 
-Application exercises live inside `learningPlan.modules[].children` as `PathNode` entries with `kind: 'exercise'`, intercalated with lessons. There is no separate laboratory state. See [Shared types](#9-shared-types).
+Application exercises live inside `learningPlan.modules[].children` as `PathNode` entries with `kind: 'exercise'`, intercalated with lessons. There is no separate laboratory state. See [Domain and wire types](#9-domain-and-wire-types).
 
 ### 3. Controller
 
@@ -166,9 +172,9 @@ The library has its own small subsystem:
 
 Components should not call services directly when a hook can own the behavior instead.
 
-### 9. Shared types
+### 9. Domain and wire types
 
-Two type homes:
+The relevant type boundaries are:
 
 **`apps/web/types.ts`** holds the rich domain contract for the frontend app:
 
@@ -185,21 +191,26 @@ Two type homes:
 - `PdfDocumentAssets`, `PdfTextIndex`, `PdfTextChunk`, `PdfImageAsset`, `PdfTextPage`
 - `QuizQuestion`, `SectionAnnotation`, `LessonImageRef`, `LessonGeneratedVisual`, `ExerciseAttachment`
 
-**`packages/shared-types/projectContract.ts`** holds the wire contract shared between the frontend and the backend, imported via the `@shared/*` alias:
+**`packages/shared-types/projectContract.ts`** holds shared project identifiers, metadata, revision
+events, write preconditions, and PATCH shapes. **`packages/shared-types/projectSnapshotWire.ts`** is
+the canonical, versioned full-snapshot wire format used by normal saves, imports, exports, and
+backups.
 
-- `ProjectId`, `ProjectSourceKind`, `ProjectSyncState`
+- `ProjectId`, `ProjectSourceKind`
 - `LibraryFolder`, `LibraryPlacement`
 - `SavedProjectMeta`, `ProjectRevisionEvent`, `ProjectWriteOptions`
 - `SectionPatch`
 - `ProjectPatch` (the typed PATCH body — same shape on both sides of the wire)
 
-Both the frontend `types.ts` and the backend `apps/backend/src/projects/types.ts` re-export from `@shared/projectContract`, so the shared shapes have a single source of truth.
+The frontend keeps a richer hydrated `ProjectSnapshot`; the backend keeps its persistence shape.
+Both must cross the boundary through the shared wire decoder and encoder. Canonical payloads reject
+unknown or malformed fields. Legacy payloads explicitly discard the obsolete `laboratory` and
+`activeLaboratoryExerciseId` fields and quarantine other unmapped values in
+`legacyUnmappedFields` so migrations do not silently lose data.
 
-`ProjectSnapshot` is **not** shared. The frontend models it strictly against the rich domain (`LearningPlan`, `ProjectSource`, `PdfDocumentAssets`, …). The backend defines its own permissive JSON-shape `ProjectSnapshot` (`apps/backend/src/projects/types.ts`) because persistence treats its deep fields as JSON rather than importing the frontend domain. The two definitions diverge by design.
-
-If you add or change a field in the rich frontend `ProjectSnapshot`, follow the TypeScript errors to the affected layers. If you add a wire-level field that the backend must understand (typically a new `ProjectPatch` field), edit `packages/shared-types/projectContract.ts` once and both sides pick it up.
-
-Project snapshots may carry legacy fields `laboratory` and `activeLaboratoryExerciseId` inside the raw JSON blob loaded from older storage. These are stripped during `prepareSnapshotForHydration` on the frontend and are not part of the typed surface on either side; if present in inbound payloads they are silently dropped.
+Use **lesson** for a `LessonNode` and **path node** for a lesson-or-exercise union. Do not introduce
+the deprecated **laboratory**, **mini-lab**, or `section` terminology in new domain code; `section`
+remains only in established identifiers and legacy shapes.
 
 ## AI execution paths
 
@@ -207,13 +218,15 @@ Nous Reader deliberately separates durable generation from interactive chat:
 
 | Path | Used for | Where |
 | --- | --- | --- |
-| Durable workflow runtime | Course planning, lesson generation, generated visuals, artifact drafts, retries, cancellation, signals, undo, and durable events | `apps/backend/src/workflows/`, exposed through workflow-specific routes |
-| Authenticated bounded requests | Assessment, application-exercise operations, contextual research, images, and TTS that do not form a durable multi-step workflow | frontend service adapters plus backend routes/services |
+| Durable workflow runtime | Course interviews and planning, lesson generation, PDF mapping repair, generated visuals, artifact drafts, retries, cancellation, signals, undo, and durable events | `apps/backend/src/workflows/`, exposed through workflow-specific routes |
+| Authenticated bounded requests | Application-exercise operations, contextual research, images, speech, and other single-request work | frontend service adapters plus backend routes/services |
 | **Vercel AI SDK** (`@ai-sdk/react`, `ai`) | **Interactive chat with tool calls**: Reader Ask-AI panel and Library Home Chat | `components/workspace/shell/ContextAnswerPanel.tsx` and `hooks/library/useLibraryAssistantChat.ts` |
 
 Interactive chat stays separate because its streaming history and tool-call contract differs from a durable background workflow. The backend exposes:
 
-- `/api/course-workflows`, `/api/lesson-workflows`, `/api/artifact-drafts`, and `/api/lesson-visual-retries` — durable generation entry points.
+- `/api/course-interviews`, `/api/course-workflows` (including PDF mapping repair),
+  `/api/lesson-workflows`, `/api/artifact-drafts`, and the project-scoped visual retry endpoint —
+  durable generation entry points.
 - `/api/workflows` — shared workflow state, cancellation, and signal operations.
 - `/api/openrouter/chat/completions` — authenticated proxy for remaining bounded calls.
 - `/api/chat/context` and `/api/chat/library` — Vercel AI SDK protocol endpoints (streaming + tool calls).
@@ -271,6 +284,12 @@ again. The backend performs this resolution
 authoritatively for every request, so the browser cannot select a provider by changing a model name.
 The admin UI exposes the same hierarchy through compact expandable provider panels.
 
+OpenRouter and OpenAI use server-owned credentials. The optional self-hosted Codex adapter talks to
+one pinned `codex app-server` child over stdio; Nous never reads its credential files. The child
+inherits an allowlisted environment and receives only request-scoped tools: shell, filesystem,
+browser, apps, plugins, MCP, and workspace capabilities are not exposed. Missing or unavailable
+providers fail explicitly rather than silently switching quota.
+
 ## Backend
 
 The backend lives in `apps/backend/src/`, with `apps/backend/dist/` used as build output only.
@@ -286,7 +305,10 @@ Main entries in `apps/backend/src/routes/`:
 - `/api/chat/context` (via `contextChat.ts`) — contextual conversation with project-aware AI (Vercel AI SDK protocol).
 - `/api/chat/library` (via `libraryChat.ts`) — library assistant chat with tool execution (Vercel AI SDK protocol).
 - `/api/openrouter` (via `openRouterProxy.ts`) — raw OpenRouter proxy used by `services/openrouter/`.
-- `/api/course-workflows`, `/api/lesson-workflows`, `/api/artifact-drafts`, and `/api/lesson-visual-retries` — start and inspect durable product workflows.
+- `/api/course-interviews`, `/api/course-workflows` (including `/pdf-mapping-repairs`),
+  `/api/lesson-workflows`, `/api/artifact-drafts`, and
+  `/api/projects/:projectId/sections/:sectionId/visuals/:slotId/retry` — start durable product
+  workflows.
 - `/api/workflows` — read common workflow state, request cancellation, and deliver typed one-use signals.
 - `/api/pdf` — PDF text and image extraction.
 - `/api/projects` — auth-gated project repository API used by the frontend server repository.
@@ -298,7 +320,9 @@ Main entries in `apps/backend/src/routes/`:
 
 Supporting modules:
 
-- `apps/backend/src/workflows/` — typed workflow primitives, registration validation, PostgreSQL persistence, worker/recovery loops, and the course, lesson, visual, and artifact workflow definitions.
+- `apps/backend/src/workflows/` — typed workflow primitives, registration validation, PostgreSQL
+  persistence, worker/recovery loops, and the interview, course, lesson, PDF-repair, visual, and
+  artifact workflow definitions.
 - `apps/backend/src/projects/` — `ProjectStore` interface, runtime `PostgresProjectStore`, project patching, generated-asset persistence, and metadata helpers.
 - `apps/backend/src/services/` — `pdfTextExtractor` (delegates to `pdftotext`), `pdfImageExtractor`, `ttsClient`, `sttClient`, `voiceService`, `statusService`.
 - `apps/backend/src/auth/currentUser.ts` — auth resolution. Supabase is the product path. `LOCAL_AUTH_BYPASS=true` is accepted only in tests or with `LOCAL_DEV_PROFILE=true`.
@@ -308,7 +332,9 @@ Supporting modules:
 
 The frontend always uses backend HTTP storage through `HttpProjectRepository`. The backend always creates `PostgresProjectStore`; there is no runtime storage-mode switch. Backend route tests exercise the persistence contract through a dedicated in-memory `ProjectStore`, without carrying a second production-style database implementation.
 
-The frontend `ProjectRepository` and backend `ProjectStore` interfaces remain separate adapters, while their wire-level values are shared through `packages/shared-types/projectContract.ts` as described in [Shared types](#9-shared-types).
+The frontend `ProjectRepository` and backend `ProjectStore` interfaces remain separate adapters,
+while their wire-level values use the shared contracts and codecs described in
+[Domain and wire types](#9-domain-and-wire-types).
 
 Project-source bytes live only in the private Supabase Storage bucket `project-sources`. Postgres
 stores the primary reference in `project_sources`, every logical source descriptor in
@@ -373,11 +399,17 @@ Browser recordings are capped at 90 seconds. The backend validates the audio for
 
 Provider details stay in server logs; the frontend receives stable Italian error messages for denied microphone access, empty audio, and transcription failures.
 
-## Generated image artifacts
+## Generated visual artifacts
 
 The visual planner can select `illustrative_image` only for concrete appearance, texture, physical objects, organisms, places, historical scenes, or natural phenomena where a schematic representation would lose essential information. Processes, structures, comparisons, and quantitative data continue to use SVG, Mermaid, or interactive HTML.
 
 The frontend sends the pedagogical image prompt to the authenticated `/api/images/generate` route. The backend calls OpenRouter's dedicated `/images` endpoint with a server-owned model, defaulting to `google/gemini-3.1-flash-lite-image` and configurable through `MODEL_IMAGE`. Only PNG, JPEG, and WebP base64 responses are accepted and persisted; generated raster data URLs are never embedded in later LLM revision prompts.
+
+SVG, Mermaid, and interactive HTML render through `GeneratedVisualFrame`. Mermaid is bundled
+locally and rendered in strict mode. Generated HTML runs in a sandboxed iframe with scripts but no
+same-origin privilege; its CSP blocks external resources, network connections, forms, workers,
+plugins, and nested frames. Inline interaction remains allowed deliberately, so visual-generation
+prompts must restrict output to educational, non-destructive behavior.
 
 Course cover generation uses the shared versioned prompt in `packages/shared-types/courseCoverPrompt.ts` from both the automatic frontend flow and the authenticated backend batch route. This keeps provider planning, fallback direction, and image instructions aligned across new courses and operator-triggered regeneration.
 
@@ -385,13 +417,14 @@ Course cover generation uses the shared versioned prompt in `packages/shared-typ
 
 | Goal | Files to start with |
 | --- | --- |
-| Change a durable course, lesson, visual, or artifact prompt | the owning module in `apps/backend/src/workflows/` or `apps/backend/src/services/` |
+| Change a durable interview, course, lesson, PDF-repair, visual, or artifact prompt | the owning module in `apps/backend/src/workflows/` or `apps/backend/src/services/` |
 | Change a bounded frontend AI operation | the owning adapter in `apps/web/services/openrouter/` |
 | Change a chat (Ask-AI / Library) prompt | `apps/backend/src/routes/chatPrompts.ts` |
 | Add or adjust a model slot | `apps/backend/src/config/modelConfig.ts`, `apps/backend/src/routes/admin.ts`, and the `/admin` UI |
 | Add a new user operation | `hooks/workspace/controller/`, then `hooks/workspace/useWorkspaceReaderActions.ts` |
-| Add a field to the rich project model | `apps/web/types.ts` (frontend domain `ProjectSnapshot`), then follow the compiler errors. If the field also crosses the wire (e.g. it must survive a PATCH), add it to `packages/shared-types/projectContract.ts` and the backend `ProjectSnapshot` in `apps/backend/src/projects/types.ts` |
-| Add a field to the FE↔BE wire contract | `packages/shared-types/projectContract.ts` — both sides pick it up via the `@shared/*` alias |
+| Add a field to the rich project model | `apps/web/types.ts`, then follow the compiler errors through hydration and persistence |
+| Add a field to a project PATCH | `packages/shared-types/projectContract.ts` |
+| Add a field to a complete saved/imported/exported snapshot | `packages/shared-types/projectSnapshotWire.ts`, then the frontend and backend domain adapters |
 | Change reader layout or behavior | `components/workspace/` and `hooks/workspace/useWorkspaceReaderState.ts` |
 | Add a new UI element with state | `hooks/workspace/useWorkspaceReaderState.ts` plus a component in `components/workspace/` |
 | Change sidebar click behavior | `hooks/workspace/useWorkspaceReaderActions.ts` |
@@ -407,7 +440,9 @@ Course cover generation uses the shared versioned prompt in `packages/shared-typ
 - Components should not call services directly when a hook can own the side effect.
 - The domain should not depend on the current screen or visual state.
 - Each hook should stay inside one responsibility area.
-- Multi-step course, lesson, visual, and artifact generation goes through the durable backend workflow runtime. Interactive chats with tool calls go through Vercel AI SDK. Keep bounded request adapters outside the workflow runtime unless they become genuinely durable compositions.
+- Multi-step interviews, course and lesson generation, PDF repair, visuals, and artifact generation go
+  through the durable backend workflow runtime. Interactive chats with tool calls use the Vercel AI
+  SDK. Keep single-request adapters outside the workflow runtime.
 - All AI calls go through the backend proxy. The browser must never receive the AI API key.
 - `apps/backend/dist/` should not be edited directly.
 
@@ -417,5 +452,6 @@ Bun is the JavaScript package manager and task runner, and the root workspace ow
 lockfile for the frontend and backend. The quality gate uses `uvx` only to execute the pinned
 Semgrep CLI.
 
-Use `bun run dev` for the local stack and `bun run gate` for the complete local quality gate. The
-canonical check list and CI contract live in [Testing and quality gates](TESTING.md).
+Use `bun run dev` for the local stack, `bun run gate` for routine validation, and
+`bun run gate:full` after a non-trivial batch. The canonical check list and CI contract live in
+[Testing and quality gates](TESTING.md).

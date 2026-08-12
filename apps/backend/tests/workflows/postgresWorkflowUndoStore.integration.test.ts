@@ -117,6 +117,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore undo integration', () =
         });
         const definition = createWorkflowRegistry().register({
           current: workflow({
+            compatibilityId: 'test-v1',
             configSchema: WorkflowExecutionDefaultsSchema,
             executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
             id: 'undo-order-test',
@@ -219,6 +220,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore undo integration', () =
         });
         const definition = createWorkflowRegistry().register({
           current: workflow({
+            compatibilityId: 'test-v1',
             configSchema: WorkflowExecutionDefaultsSchema,
             executionDefaults: { maxAttempts: 1, timeoutMs: 60_000 },
             id: 'undo-restart-recovery-test',
@@ -375,6 +377,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore undo integration', () =
         });
         const definition = createWorkflowRegistry().register({
           current: workflow({
+            compatibilityId: 'test-v1',
             configSchema: WorkflowExecutionDefaultsSchema,
             executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
             id: 'concurrent-cleanup-reconciliation-test',
@@ -481,6 +484,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore undo integration', () =
         const versionOneRegistry = createWorkflowRegistry();
         const versionOne = versionOneRegistry.register({
           current: workflow({
+            compatibilityId: 'test-v1',
             configSchema: WorkflowExecutionDefaultsSchema,
             executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
             id: workflowId,
@@ -493,7 +497,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore undo integration', () =
         const rollingRegistry = createWorkflowRegistry();
         rollingRegistry.register({
           current: versionTwo,
-          resumableDefinitions: [versionOne],
+          previous: versionOne,
         });
         const killSwitchRegistry = createWorkflowRegistry();
         killSwitchRegistry.register({ current: versionTwo });

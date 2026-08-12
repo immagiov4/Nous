@@ -23,6 +23,7 @@ import { createProjectSourceFromFile } from '../../../services/projects/projectS
 import {
   createWorkspaceWorkflowState,
   invalidateWorkspaceWorkflows,
+  WORKSPACE_WORKFLOW_IDS,
 } from '../../../services/workspace/workflow.ts';
 import {
   type ApplicationExerciseNode,
@@ -447,6 +448,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       const snapshot = await adapter.loadStoredProject(projectId);
       return snapshot ? { revision: 1, snapshot } : null;
     },
+    validateStoredProjectForOpen: projectId => adapter.loadStoredProjectWithRevision(projectId),
     loadStoredProjectSource: async () => null,
     loadStoredProjectSources: async () => [],
     moveFolder: async () => null,
@@ -1044,6 +1046,28 @@ test('openProject reloads a course completed while the active-run lookup returne
   assert.equal(domain.learningPlan?.title, completedSnapshot.learningPlan?.title);
   assert.equal(state.internalState.screenState, AppState.READING);
   assert.deepEqual(state.internalState.assessmentMessages, []);
+});
+
+test('openProject aborts before hydration when the course disappears during opening', async () => {
+  const snapshot = createProjectSnapshot({
+    id: 'project-deleted-during-open',
+    learningPlan: buildPlan(),
+    state: AppState.READING,
+  });
+  const validateStoredProjectForOpen = vi.fn(async (_projectId: string) => null);
+  const { controller, domain, projectLibrary, state } = createControllerHarness({
+    loadedSnapshot: snapshot,
+    projectLibrary: { validateStoredProjectForOpen },
+  });
+
+  const result = await controller.openProject(snapshot.id);
+
+  assert.deepEqual(result, { outcome: 'missing' });
+  assert.equal(validateStoredProjectForOpen.mock.calls[0]?.[0], snapshot.id);
+  assert.equal(projectLibrary.adapter.currentProjectId, null);
+  assert.equal(projectLibrary.completedProjectHydrations.length, 0);
+  assert.equal(domain.learningPlan, null);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
 });
 
 test('openProject does not persist unchanged modern snapshots with reordered plan keys', async () => {
@@ -4108,4 +4132,35 @@ test('goToLibrary returns the UX to library and stops active audio playback', as
   assert.deepEqual(stopAudioCalls, [true]);
   assert.equal(state.adapter.isWorkflowCurrent('loadSection', lessonRequestId), true);
   assert.equal(state.adapter.isWorkflowCurrent('contextQuestion', questionRequestId), false);
+});
+
+test('remote deletion leaves the deleted course and invalidates every active workflow', () => {
+  const plan = buildPlan();
+  const { controller, domain, projectLibrary, state, stopAudioCalls } = createControllerHarness({
+    domain: {
+      activeSectionId: 'lesson-1',
+      learningPlan: plan,
+      source: createProjectSourceFromFile(pdfFile),
+    },
+    projectLibrary: { currentProjectId: 'project-deleted' },
+  });
+  state.adapter.setScreenState(AppState.READING);
+  const activeRequests = Object.fromEntries(
+    WORKSPACE_WORKFLOW_IDS.map(workflowId => [workflowId, state.adapter.beginWorkflow(workflowId)])
+  );
+
+  controller.handleRemoteProjectDeleted('project-deleted');
+
+  assert.equal(projectLibrary.adapter.currentProjectId, null);
+  assert.equal(domain.learningPlan, null);
+  assert.equal(domain.source, null);
+  assert.equal(state.internalState.screenState, AppState.LIBRARY);
+  assert.deepEqual(stopAudioCalls, [true]);
+  for (const workflowId of WORKSPACE_WORKFLOW_IDS) {
+    assert.equal(
+      state.adapter.isWorkflowCurrent(workflowId, activeRequests[workflowId]),
+      false,
+      `${workflowId} should have been invalidated`
+    );
+  }
 });

@@ -1,8 +1,9 @@
+import type { DecodedProjectSnapshotWire } from '@shared/projectSnapshotWire';
+
 import type {
   FileData,
   LibraryFolder,
   LibraryPlacement,
-  ProjectExportData,
   ProjectId,
   ProjectPatch,
   ProjectRevisionEvent,
@@ -12,8 +13,19 @@ import type {
   StoredProjectSourceFile,
 } from '../../types';
 
+export const PROJECT_SYNC_ERROR_MESSAGE =
+  'Sincronizzazione server non disponibile. Verifica che il backend sia acceso e raggiungibile.';
+export const PROJECT_REVISION_CONFLICT_MESSAGE =
+  "Il progetto è stato modificato in un'altra sessione. Ricaricalo prima di salvare.";
+export const REMOTE_PROJECT_DELETED_MESSAGE = 'Questo corso è stato cancellato';
+
 export class ProjectStorageError extends Error {
-  code: 'persistence-failed' | 'quota-exceeded' | 'revision-conflict' | 'unknown';
+  code:
+    | 'persistence-failed'
+    | 'project-deleted'
+    | 'quota-exceeded'
+    | 'revision-conflict'
+    | 'unknown';
 
   constructor(message: string, code: ProjectStorageError['code'] = 'unknown') {
     super(message);
@@ -80,6 +92,6 @@ export interface ProjectRepository {
     archive: Blob,
     targetProjectId: ProjectId
   ) => Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }>;
-  exportProject: (id: ProjectId) => Promise<ProjectExportData | null>;
+  exportProject: (id: ProjectId) => Promise<DecodedProjectSnapshotWire | null>;
   touchProject: (id: ProjectId) => Promise<void>;
 }

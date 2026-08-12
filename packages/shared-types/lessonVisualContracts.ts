@@ -266,7 +266,8 @@ export const HTML_ARTIFACT_RENDER_RULES = `Regole HTML obbligatorie:
 - Usa le variabili CSS --bg-paper, --bg-surface, --ink-primary, --ink-secondary, --accent, --border-subtle, --border-strong.
 - Niente @media (prefers-color-scheme: dark), position:fixed, ombre pesanti, blur, filter, backdrop-filter o gradienti. L'host gestisce il tema scuro.
 - Container in flow con display:block e width:100%. Ogni range input ha step e i numeri mostrati sono arrotondati o formattati.
-- Non usare rete, fetch, XMLHttpRequest, WebSocket o script esterni. Non creare pulsanti finti per link esterni o chat.
+- Il codice deve limitarsi all'esempio didattico mostrato nel proprio pannello e non deve eseguire azioni malevole, ingannevoli o estranee alla richiesta.
+- Non usare rete, fetch, XMLHttpRequest, WebSocket, EventSource, script esterni o import dinamici. Non navigare la pagina, aprire popup, avviare download, usare storage, cookie, clipboard, API del dispositivo o tentare di comunicare con la pagina parent. Non creare pulsanti finti per link esterni o chat.
 - Usa HTML/CSS/JavaScript per grafica naturalmente programmabile: pattern generativi, confronti CSS, simulazioni, stati, trasformazioni e shader semplici. Non renderizzare ASCII art o pseudo-pixel con testo monospace.
 - La grafica deve derivare da una legge o procedura verificabile. Non codificare a mano illustrazioni, modelli 3D o pixel art complessa come array di coordinate, celle o colori.
 - Se serve giudizio artistico o comprensione spaziale reale, usa un'immagine generata tramite imageRequests, non coordinate, CSS, canvas o SVG improvvisati.

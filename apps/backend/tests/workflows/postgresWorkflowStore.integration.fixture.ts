@@ -167,6 +167,7 @@ export const registeredStepWorkflow = (workflowId: string, stepId: string, event
     : generate;
   return createWorkflowRegistry().register({
     current: workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       events: eventType
         ? { [eventType]: { durability: 'durable', schema: Payload, schemaVersion: 1 } }

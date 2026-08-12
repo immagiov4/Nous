@@ -373,8 +373,7 @@ export default function AuthGate({ children }: AuthGateProps) {
     };
   }, []);
 
-  const shouldShowPublicLanding =
-    typeof globalThis.window !== 'undefined' && globalThis.window.location.pathname === '/landing';
+  const shouldShowPublicLanding = globalThis.window?.location.pathname === '/landing';
 
   if (shouldShowPublicLanding) {
     return (

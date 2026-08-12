@@ -75,6 +75,25 @@ jobs:
       - name: Run Canonical Auth/RLS Contract
         run: bun run test:supabase-contract
 
+      - name: Run Critical Workflow PostgreSQL Contract
+        if: github.event_name == 'pull_request'
+        run: |
+          eval "$(bunx supabase status -o env)"
+          WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL" RUN_WORKFLOW_INTEGRATION_TESTS=1 \
+            bun --bun vitest run --config apps/web/vitest.config.ts \
+              apps/backend/tests/workflows/postgresWorkflowRunStore.integration.test.ts \
+              apps/backend/tests/workflows/postgresWorkflowExecutionStore.integration.test.ts \
+              apps/backend/tests/workflows/postgresWorkflowSignalStore.integration.test.ts && \
+          WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL" RUN_WORKFLOW_INTEGRATION_TESTS=1 \
+            bun --bun vitest run --config apps/web/vitest.config.ts \
+              apps/backend/tests/workflows/workflowProcessCrash.integration.test.ts
+
+      - name: Run Full Workflow PostgreSQL Contract
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          eval "$(bunx supabase status -o env)"
+          WORKFLOW_INTEGRATION_DATABASE_URL="$DB_URL" bun run test:workflow-postgres
+
       - name: Stop Local Supabase
         if: always()
         run: bunx supabase stop --no-backup

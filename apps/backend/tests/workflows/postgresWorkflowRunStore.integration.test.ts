@@ -496,7 +496,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     const deployedRegistry = createWorkflowRegistry();
     const deployed = deployedRegistry.register({
       current: currentDefinition,
-      resumableDefinitions: [previousDefinition],
+      previous: previousDefinition,
     });
     await sql`
       delete from public.workflow_definition_deployments where workflow_id = ${workflowId}
@@ -570,7 +570,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     const rollingRegistry = createWorkflowRegistry();
     rollingRegistry.register({
       current: versionTwo,
-      resumableDefinitions: [versionOne],
+      previous: versionOne,
     });
     const killSwitchRegistry = createWorkflowRegistry();
     killSwitchRegistry.register({ current: versionTwo });
@@ -656,7 +656,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     const rollingRegistry = createWorkflowRegistry();
     rollingRegistry.register({
       current: versionTwo,
-      resumableDefinitions: [versionOne],
+      previous: versionOne,
     });
     const killSwitchRegistry = createWorkflowRegistry();
     killSwitchRegistry.register({ current: versionTwo });
@@ -741,12 +741,12 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     const versionTwoRegistry = createWorkflowRegistry();
     const registeredVersionTwo = versionTwoRegistry.register({
       current: versionTwo,
-      resumableDefinitions: [versionOne],
+      previous: versionOne,
     });
     const versionThreeRegistry = createWorkflowRegistry();
     const registeredVersionThree = versionThreeRegistry.register({
       current: versionThree,
-      resumableDefinitions: [versionTwo],
+      previous: versionTwo,
     });
     await sql`
       delete from public.workflow_definition_deployments where workflow_id = ${workflowId}
@@ -816,7 +816,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     const deployedRegistry = createWorkflowRegistry();
     deployedRegistry.register({
       current: currentDefinition,
-      resumableDefinitions: [previousDefinition],
+      previous: previousDefinition,
     });
     const killSwitchRegistry = createWorkflowRegistry();
     killSwitchRegistry.register({ current: currentDefinition });
@@ -994,7 +994,7 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     const conflictingRegistry = createWorkflowRegistry();
     conflictingRegistry.register({
       current: firstCurrent,
-      resumableDefinitions: [firstPrevious],
+      previous: firstPrevious,
     });
     conflictingRegistry.register({ current: incompatibleSecond });
 
@@ -1148,5 +1148,116 @@ describe.skipIf(!context.enabled)('PostgresWorkflowStore run persistence integra
     expect(state?.run).not.toHaveProperty('stepPolicies');
     expect(state?.run).not.toHaveProperty('userId');
     await sql`delete from public.workflow_runs where id = ${created.run.id}`;
+  });
+
+  test('preserves checkpoint and cancellation state after a draft project is deleted', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const store = createStore(sql);
+
+    const checkpointProjectId = `draft-${randomUUID()}`;
+    const checkpointDefinition = registeredStepWorkflow(
+      `draft-checkpoint-${randomUUID()}`,
+      'persist-draft',
+      'draft.completed'
+    );
+    await sql`
+      insert into public.projects (user_id, id, meta, updated_at, last_opened_at)
+      values (${userId}, ${checkpointProjectId}, '{}'::jsonb, now(), now())
+    `;
+    const checkpointRun = await store.createRun({
+      config: checkpointDefinition.executionDefaults,
+      definitionHash: checkpointDefinition.definitionHash,
+      definitionHashVersion: checkpointDefinition.definitionHashVersion,
+      id: randomUUID(),
+      input: { content: 'checkpoint after deletion' },
+      materialization: materializeWorkflowStart(
+        checkpointDefinition,
+        { content: 'checkpoint after deletion' },
+        { resolvedConfig: checkpointDefinition.executionDefaults }
+      ),
+      projectId: checkpointProjectId,
+      requestKey: randomUUID(),
+      userId,
+      workflowId: checkpointDefinition.id,
+    });
+    const checkpointClaim = await claimNextStep(
+      store,
+      checkpointDefinition,
+      'worker-draft-checkpoint'
+    );
+    if (!checkpointClaim) throw new Error('Expected the draft checkpoint step.');
+
+    await sql`
+      delete from public.projects where user_id = ${userId} and id = ${checkpointProjectId}
+    `;
+    await store.checkpointStep({
+      claim: checkpointClaim,
+      definition: checkpointDefinition,
+      output: { content: 'checkpoint after deletion' },
+    });
+
+    expect(
+      await sql`
+        select project_id, status from public.workflow_runs where id = ${checkpointRun.run.id}
+      `
+    ).toEqual([{ project_id: null, status: 'completed' }]);
+    expect(
+      await sql`
+        select event_type from public.workflow_outbox where run_id = ${checkpointRun.run.id}
+      `
+    ).toEqual([{ event_type: 'draft.completed' }]);
+
+    const cancellationProjectId = `draft-${randomUUID()}`;
+    const cancellationDefinition = registeredStepWorkflow(
+      `draft-cancellation-${randomUUID()}`,
+      'cancel-draft'
+    );
+    await sql`
+      insert into public.projects (user_id, id, meta, updated_at, last_opened_at)
+      values (${userId}, ${cancellationProjectId}, '{}'::jsonb, now(), now())
+    `;
+    const cancellationRun = await store.createRun({
+      config: cancellationDefinition.executionDefaults,
+      definitionHash: cancellationDefinition.definitionHash,
+      definitionHashVersion: cancellationDefinition.definitionHashVersion,
+      id: randomUUID(),
+      input: { content: 'cancel after deletion' },
+      materialization: materializeWorkflowStart(
+        cancellationDefinition,
+        { content: 'cancel after deletion' },
+        { resolvedConfig: cancellationDefinition.executionDefaults }
+      ),
+      projectId: cancellationProjectId,
+      requestKey: randomUUID(),
+      userId,
+      workflowId: cancellationDefinition.id,
+    });
+    const cancellationClaim = await claimNextStep(
+      store,
+      cancellationDefinition,
+      'worker-draft-cancellation'
+    );
+    if (!cancellationClaim) throw new Error('Expected the draft cancellation step.');
+
+    await sql`
+      delete from public.projects where user_id = ${userId} and id = ${cancellationProjectId}
+    `;
+    await store.cancellation.request({ runId: cancellationRun.run.id, userId });
+    expect(await store.steps.heartbeat({ claim: cancellationClaim, leaseMs: 60_000 })).toEqual({
+      status: 'cancelled',
+    });
+    await store.cancellation.releaseClaim(cancellationClaim);
+    await store.cancellation.reconcileNext();
+
+    expect(
+      await sql`
+        select project_id, status from public.workflow_runs where id = ${cancellationRun.run.id}
+      `
+    ).toEqual([{ project_id: null, status: 'cancelled' }]);
+
+    await sql`
+      delete from public.workflow_runs
+      where id in (${checkpointRun.run.id}, ${cancellationRun.run.id})
+    `;
   });
 });

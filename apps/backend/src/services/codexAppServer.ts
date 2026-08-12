@@ -627,10 +627,15 @@ const readTurnFailure = (params: unknown): string | undefined => {
     .join(': ');
 };
 
-export const runCodexAppServerTurnWithClient = async (
+interface CodexTurnExecution {
+  readonly result: Promise<string>;
+  readonly settled: Promise<void>;
+}
+
+const startCodexAppServerTurnWithClient = async (
   turn: CodexTurnInput,
   client: CodexJsonRpcClient
-): Promise<string> => {
+): Promise<CodexTurnExecution> => {
   turn.signal?.throwIfAborted();
   let completedText = '';
   let streamedText = '';
@@ -700,13 +705,24 @@ export const runCodexAppServerTurnWithClient = async (
     throw new CodexAppServerError('Codex did not return a thread id.', 'protocol');
   }
 
+  let cleanupCancellation = () => undefined;
   let cleanupTurnListener = () => undefined;
+  let rejectTurnCompleted: (error: unknown) => void = () => undefined;
+  let resolveTurnCompleted: (result: string) => void = () => undefined;
+  let turnCompletedSettled = false;
   const turnCompleted = new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(() => {
+    rejectTurnCompleted = error => {
+      if (turnCompletedSettled) return;
+      turnCompletedSettled = true;
       cleanupTurnListener();
-      reject(new CodexAppServerError('Codex turn timed out.', 'timeout'));
-    }, CODEX_TURN_TIMEOUT_MS);
-    timeout.unref?.();
+      reject(error);
+    };
+    resolveTurnCompleted = result => {
+      if (turnCompletedSettled) return;
+      turnCompletedSettled = true;
+      cleanupTurnListener();
+      resolve(result);
+    };
 
     const unsubscribe = client.onNotification((method, params) => {
       if (readThreadId(params) !== threadId) {
@@ -773,11 +789,10 @@ export const runCodexAppServerTurnWithClient = async (
         return;
       }
 
-      cleanupTurnListener();
       const status = readTurnStatus(params);
       if (status && status !== 'completed') {
         const failure = readTurnFailure(params);
-        reject(
+        rejectTurnCompleted(
           new CodexAppServerError(
             `Codex turn ${status}${failure ? `: ${failure}` : '.'}`,
             'protocol'
@@ -785,11 +800,11 @@ export const runCodexAppServerTurnWithClient = async (
         );
         return;
       }
-      resolve(completedText || streamedText);
+      resolveTurnCompleted(completedText || streamedText);
     });
     cleanupTurnListener = () => {
-      clearTimeout(timeout);
       unsubscribe();
+      cleanupCancellation();
     };
   });
 
@@ -809,45 +824,96 @@ export const runCodexAppServerTurnWithClient = async (
       throw new CodexAppServerError('Codex did not return a turn id.', 'protocol');
     }
 
-    let cleanupAbortListener: () => void = () => {};
-    const aborted = new Promise<never>((_resolve, reject) => {
-      const onAbort = () => {
-        void client.request('turn/interrupt', { threadId, turnId }).catch(error => {
-          console.warn('[Codex app-server] Turn interrupt failed.', { error, threadId, turnId });
-        });
-        reject(turn.signal?.reason ?? new DOMException('Codex turn aborted.', 'AbortError'));
-      };
-      if (turn.signal?.aborted) {
-        onAbort();
-        return;
-      }
-      turn.signal?.addEventListener('abort', onAbort, { once: true });
-      cleanupAbortListener = () => turn.signal?.removeEventListener('abort', onAbort);
+    let rejectCallerCancellation: (error: unknown) => void = () => undefined;
+    const callerCancellation = new Promise<never>((_resolve, reject) => {
+      rejectCallerCancellation = reject;
     });
-    try {
-      const result = await Promise.race([turnCompleted, aborted]);
+    const meteredCompletion = (async () => {
+      const outcome = await turnCompleted.then(
+        result => ({ result }),
+        error => ({ error })
+      );
       const usage = usageByTurnId.get(turnId);
       if (usage) {
         await recordWorkflowAiUsage({ ...usage, model: turn.model, provider: 'codex' });
       }
-      return result;
-    } finally {
-      cleanupAbortListener();
+      if ('error' in outcome) throw outcome.error;
+      return outcome.result;
+    })();
+    const result = Promise.race([meteredCompletion, callerCancellation]);
+    const settled = meteredCompletion.then(
+      () => undefined,
+      () => undefined
+    );
+
+    let cancellationStarted = false;
+    let protocolCloseTimeout: ReturnType<typeof setTimeout> | undefined;
+    let turnTimeout: ReturnType<typeof setTimeout> | undefined;
+    const interruptTurn = (callerError: unknown) => {
+      if (cancellationStarted) return;
+      cancellationStarted = true;
+      rejectCallerCancellation(callerError);
+      if (turnCompletedSettled) return;
+
+      void client.request('turn/interrupt', { threadId, turnId }).catch(error => {
+        console.warn('[Codex app-server] Turn interrupt failed.', { error, threadId, turnId });
+      });
+      protocolCloseTimeout = setTimeout(() => {
+        console.warn('[Codex app-server] Turn did not reach a terminal state after interruption.', {
+          threadId,
+          turnId,
+        });
+        rejectTurnCompleted(
+          new CodexAppServerError('Codex turn did not stop after interruption.', 'timeout')
+        );
+      }, CODEX_REQUEST_TIMEOUT_MS);
+      protocolCloseTimeout.unref?.();
+    };
+    const onAbort = () =>
+      interruptTurn(turn.signal?.reason ?? new DOMException('Codex turn aborted.', 'AbortError'));
+    cleanupCancellation = () => {
+      if (protocolCloseTimeout) clearTimeout(protocolCloseTimeout);
+      if (turnTimeout) clearTimeout(turnTimeout);
+      turn.signal?.removeEventListener('abort', onAbort);
+    };
+    if (!turnCompletedSettled) {
+      turnTimeout = setTimeout(
+        () => interruptTurn(new CodexAppServerError('Codex turn timed out.', 'timeout')),
+        CODEX_TURN_TIMEOUT_MS
+      );
+      turnTimeout.unref?.();
+      if (turn.signal?.aborted) {
+        onAbort();
+      } else {
+        turn.signal?.addEventListener('abort', onAbort, { once: true });
+      }
     }
-  } finally {
+
+    return { result, settled };
+  } catch (error) {
     cleanupTurnListener();
+    throw error;
   }
 };
+
+export const runCodexAppServerTurnWithClient = async (
+  turn: CodexTurnInput,
+  client: CodexJsonRpcClient
+): Promise<string> => (await startCodexAppServerTurnWithClient(turn, client)).result;
 
 export const runCodexAppServerTurn = async (turn: CodexTurnInput): Promise<string> => {
   const client = await startCodexAppServerClient(() =>
     spawnCodexAppServer({ allowImageGeneration: turn.allowImageGeneration })
   );
+  let execution: CodexTurnExecution;
   try {
-    return await runCodexAppServerTurnWithClient(turn, client);
-  } finally {
+    execution = await startCodexAppServerTurnWithClient(turn, client);
+  } catch (error) {
     client.close();
+    throw error;
   }
+  void execution.settled.then(() => client.close());
+  return execution.result;
 };
 
 export const generateCodexAppServerImage = async ({

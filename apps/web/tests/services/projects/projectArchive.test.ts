@@ -79,7 +79,7 @@ const sha256 = async (bytes: Uint8Array): Promise<string> => {
 };
 
 const decodeArchive = async (archive: Blob) =>
-  decodeProjectBackupArchive<ProjectSnapshot>(new Uint8Array(await archive.arrayBuffer()), {
+  decodeProjectBackupArchive(new Uint8Array(await archive.arrayBuffer()), {
     invalidArchiveMessage: 'Questo ZIP non contiene un backup Nous valido.',
     maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
     maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
@@ -179,8 +179,8 @@ test('project archive v2 stores durable, PDF, and cover bytes outside a stable m
   assert.ok(zip.file(manifest.attachments.documentImages[0]?.path || ''));
 
   const decoded = await decodeArchive(archive);
-  const imported = decoded.project;
-  assert.deepEqual(imported.documentAssets, snapshot.documentAssets);
+  const imported = normalizeImportedProject(decoded.project);
+  assert.deepEqual(decoded.project.documentAssets, snapshot.documentAssets);
   assert.deepEqual(
     flattenLessons(imported.learningPlan?.modules)[0]?.generatedVisuals,
     flattenLessons(snapshot.learningPlan?.modules)[0]?.generatedVisuals
@@ -329,8 +329,9 @@ test('project archive v1 normalizes legacy YouTube transcript ranges and re-expo
 
   const normalized = normalizeImportedProject((await decodeArchive(legacy)).project);
   const exported = exportProjectData(normalized);
+  const roundTripped = normalizeImportedProject(exported);
   const transcript =
-    exported.researchDossiersBySectionId?.['lesson-1']?.sources[0]?.youtubeTranscript;
+    roundTripped.researchDossiersBySectionId?.['lesson-1']?.sources[0]?.youtubeTranscript;
 
   assert.deepEqual(transcript, {
     segments: [
@@ -355,7 +356,7 @@ test('createProjectArchiveBlob keeps pdf bytes outside the manifest and restores
   );
   assert.equal(await isProjectArchiveFile(archive), true);
 
-  const imported = (await decodeArchive(archive)).project;
+  const imported = normalizeImportedProject((await decodeArchive(archive)).project);
 
   assert.deepEqual(imported.source, snapshot.source);
   assert.equal(flattenLessons(imported.learningPlan?.modules).length, 1);
@@ -536,7 +537,14 @@ test('readLegacyProjectImportData supports legacy json exports', async () => {
     type: 'application/json',
   });
 
-  assert.deepEqual(await readLegacyProjectImportData(legacyBlob), legacyExport);
+  assert.deepEqual(await readLegacyProjectImportData(legacyBlob), {
+    version: '4.1',
+    source: legacyExport.source,
+    learningPlan: null,
+    isLearnMode: false,
+    userProfile: null,
+    syllabus: [],
+  });
 });
 
 test('readLegacyProjectImportData rejects arbitrary json files that are not Nous backups', async () => {

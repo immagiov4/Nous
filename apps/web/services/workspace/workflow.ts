@@ -1,4 +1,4 @@
-const WORKSPACE_WORKFLOW_IDS = [
+export const WORKSPACE_WORKFLOW_IDS = [
   'openProject',
   'attachSource',
   'importProject',

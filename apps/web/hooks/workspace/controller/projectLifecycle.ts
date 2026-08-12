@@ -25,6 +25,7 @@ import {
   prepareSnapshotForHydrationResult,
   resolvePlanLesson,
 } from '../../../services/workspace/controller/snapshotHydration.ts';
+import { WORKSPACE_WORKFLOW_IDS } from '../../../services/workspace/workflow.ts';
 import { AppState, type FileData, type LessonNode, type ProjectSource } from '../../../types.ts';
 import {
   getPdfProjectHydrationState,
@@ -393,6 +394,7 @@ export const createProjectLifecycleCommands = (
 
       let snapshotToHydrate = snapshot;
       let repairedProjectRevision: number | undefined;
+      let hasAuthoritativeSnapshot = false;
       const pdfFile = snapshot.source?.kind === 'pdf' ? snapshot.source.file : null;
       if (needsPdfProjectHydration(pdfFile, snapshot.learningPlan, snapshot.documentIndex)) {
         const repairState = getPdfProjectHydrationState(
@@ -425,6 +427,7 @@ export const createProjectLifecycleCommands = (
             if (repairedProject) {
               snapshotToHydrate = repairedProject.snapshot;
               repairedProjectRevision = repairedProject.revision;
+              hasAuthoritativeSnapshot = true;
             }
           } else if (!repair) {
             pushNousDebugTrace('open-project:pdf-repair-timeout', {
@@ -444,6 +447,26 @@ export const createProjectLifecycleCommands = (
           pushNousDebugTrace('open-project:stale-after-pdf-repair', { projectId, requestId });
           return { outcome: 'stale' };
         }
+      }
+
+      if (!hasAuthoritativeSnapshot) {
+        const projectBeforeHydration = await projectLibrary.validateStoredProjectForOpen(projectId);
+        if (!state.isWorkflowCurrent('openProject', requestId)) {
+          pushNousDebugTrace('open-project:stale-before-authoritative-hydration', {
+            projectId,
+            requestId,
+          });
+          return { outcome: 'stale' };
+        }
+        if (!projectBeforeHydration) {
+          pushNousDebugTrace('open-project:deleted-before-hydration', { projectId, requestId });
+          state.succeedWorkflow('openProject', requestId);
+          didSettleOpenWorkflow = true;
+          state.setOpeningProjectId(null);
+          return { outcome: 'missing' };
+        }
+        snapshotToHydrate = projectBeforeHydration.snapshot;
+        repairedProjectRevision = projectBeforeHydration.revision;
       }
 
       const hydration = prepareSnapshotForHydrationResult(snapshotToHydrate);
@@ -603,8 +626,20 @@ export const createProjectLifecycleCommands = (
     await projectLibrary.refreshLibraryState();
   }
 
+  function handleRemoteProjectDeleted(projectId: string): void {
+    pushNousDebugTrace('project:remote-deleted', { projectId });
+    stopAudio(true);
+    projectLibrary.setProjectHydrated(false);
+    projectLibrary.setCurrentProjectId(null);
+    domain.resetDomain();
+    state.invalidateWorkflows([...WORKSPACE_WORKFLOW_IDS]);
+    state.resetSessionState();
+    state.setScreenState(AppState.LIBRARY);
+  }
+
   return {
     deleteProject,
+    handleRemoteProjectDeleted,
     handleSourceUpload,
     importProjectFile,
     openProject,

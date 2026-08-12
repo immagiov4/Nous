@@ -277,6 +277,7 @@ export const createArtifactDraftWorkflow = (executionDefaults: ArtifactDraftWork
   });
 
   return workflow({
+    compatibilityId: 'lesson-artifact-draft-v1',
     configSchema: ArtifactDraftWorkflowConfigSchema,
     executionDefaults,
     id: ARTIFACT_DRAFT_WORKFLOW_ID,

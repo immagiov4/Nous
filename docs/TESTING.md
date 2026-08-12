@@ -18,7 +18,9 @@ bun run gate:full
 - `test` runs the Vitest suite under Bun.
 - `gate:checks` runs `quality`, the Semgrep rule tests and repository scan, and Fallow.
 - `gate` adds the Vitest suite to `gate:checks`.
-- `gate:ci` uses the same blocking checks and reports Fallow against its regression baseline.
+- `gate:ci` uses the same blocking checks and fails when Fallow exceeds its versioned regression
+  baseline. The local `check:fallow` command remains informational. Refreshing the baseline first
+  verifies that the current result does not increase the recorded debt.
 - `gate:full` runs `gate`, generates frontend LCOV coverage on Node, and launches the local Sonar
   scan. The complete suite still runs on Bun; the Node pass is limited to frontend tests because
   backend deployment tests exercise Bun-specific APIs. The full gate completes every stage so a
@@ -87,11 +89,13 @@ WORKFLOW_INTEGRATION_DATABASE_URL=postgresql://... bun run test:workflow-postgre
 The command is intentionally opt-in because it writes temporary users, projects, workflow runs,
 and attempts. Never point it at production. Every fixture uses unique identifiers and removes its
 own data; `WORKFLOW_INTEGRATION_DATABASE_URL` is mandatory so the suite cannot silently reuse the
-application database. The test files run in parallel. Only fixtures that consume one of the two
-genuinely global queues share a transaction-scoped PostgreSQL advisory lock; ordinary workflow
-fixtures remain independent. The suite also covers rolling-definition authority, stale replicas,
+application database. The main persistence batch runs without file parallelism; abrupt-process
+recovery runs separately. The suite also covers rolling-definition authority, stale replicas,
 workflow-set version ordering, late checkpoint/undo fencing, worker crashes, and cross-replica
 project-revision inbox delivery.
+
+CI runs the critical run/execution/signal/crash subset on pull requests and the complete
+`test:workflow-postgres` contract on pushes to `main`. Real provider tests remain manual and paid.
 
 ## Real Codex workflow smoke test (manual and paid)
 

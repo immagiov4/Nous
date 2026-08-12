@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { LibraryScreenContainer } from '../components/library/LibraryScreenContainer.tsx';
 import LoadingScreen from '../components/shared/LoadingScreen';
+import SurfaceErrorBoundary from '../components/shared/SurfaceErrorBoundary.tsx';
 import { ReadingScreenContainer } from '../components/workspace/ReadingScreenContainer.tsx';
 import { useLibraryAssistantChat } from '../hooks/library/useLibraryAssistantChat.ts';
 import { useProjectLibrary } from '../hooks/library/useProjectLibrary.ts';
@@ -57,6 +58,17 @@ const AppContent = () => {
 
   const { isLibraryLoading, openingProjectId, savedProjects, screenState, workflowState } =
     controller;
+
+  useEffect(() => {
+    const syncState = projectLibrary.projectSyncState;
+    if (syncState.kind !== 'remoteDeleted') return;
+
+    projectLibrary.acknowledgeRemoteDeletion(syncState.projectId);
+    if (syncState.wasActive) {
+      controller.handleRemoteProjectDeleted(syncState.projectId);
+    }
+    notify(syncState.message);
+  }, [controller, notify, projectLibrary]);
 
   const fileActions = useWorkspaceFileActions({
     confirmProjectDelete: projectTitle =>
@@ -120,14 +132,16 @@ const AppContent = () => {
         />
       )}
       {screenState === AppState.READING && (
-        <ReadingScreenContainer
-          controller={controller}
-          readerState={readerState}
-          fileActions={fileActions}
-          navigation={navigation}
-          notify={notify}
-          screenState={screenState}
-        />
+        <SurfaceErrorBoundary resetKey={controller.currentProjectId} surface="reader">
+          <ReadingScreenContainer
+            controller={controller}
+            readerState={readerState}
+            fileActions={fileActions}
+            navigation={navigation}
+            notify={notify}
+            screenState={screenState}
+          />
+        </SurfaceErrorBoundary>
       )}
       {appOverlays}
     </>

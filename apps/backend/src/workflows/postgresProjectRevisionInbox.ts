@@ -17,6 +17,7 @@ import {
   PROJECT_REVISION_EVENT_SCHEMA_VERSION,
   ProjectRevisionEventSchema,
 } from './projectRevisionNotifications.js';
+import { failPermanently } from './retryPolicy.js';
 
 const PROJECT_REVISION_NOTIFICATION_CHANNEL = 'project_revision_notification_ready';
 
@@ -52,7 +53,10 @@ const assertMatchingNotification = (
     stored?.sequence !== claim.sequence ||
     !stored?.payload_matches
   ) {
-    throw new Error(`Project revision notification ${claim.id} conflicts with its durable inbox.`);
+    throw failPermanently({
+      code: 'notification_inbox_conflict',
+      message: 'The durable notification conflicts with its persisted receiver acknowledgement.',
+    });
   }
 };
 
@@ -72,7 +76,7 @@ export class PostgresProjectRevisionInbox {
 
   readonly deliver = async (claim: WorkflowOutboxClaim): Promise<void> => {
     await this.options.sql.begin(async transaction => {
-      await transaction`
+      const inserted = await transaction<{ notification_id: string }[]>`
         insert into public.project_revision_notification_inbox (
           notification_id, run_id, user_id, event_type, schema_version, sequence, payload
         ) values (
@@ -81,6 +85,7 @@ export class PostgresProjectRevisionInbox {
           ${transaction.json(asPostgresJson(claim.payload))}
         )
         on conflict (notification_id) do nothing
+        returning notification_id
       `;
       const rows = await transaction<MatchingProjectRevisionNotificationRow[]>`
         select
@@ -91,7 +96,9 @@ export class PostgresProjectRevisionInbox {
         where notification_id = ${claim.id}
       `;
       assertMatchingNotification(claim, rows[0]);
-      await transaction`select pg_notify(${PROJECT_REVISION_NOTIFICATION_CHANNEL}, ${claim.id})`;
+      if (inserted.length === 1) {
+        await transaction`select pg_notify(${PROJECT_REVISION_NOTIFICATION_CHANNEL}, ${claim.id})`;
+      }
     });
   };
 

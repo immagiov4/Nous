@@ -46,15 +46,24 @@ const STORED_META: SavedProjectMeta = {
 };
 
 const STORED_SNAPSHOT: ProjectSnapshot = {
+  activeSectionId: null,
+  projectFormatVersion: 1,
   id: 'project-1',
+  isLearnMode: false,
   version: '4.1',
   title: 'Titolo precedente',
   sourceKind: 'document',
-  source: { kind: 'document' },
+  state: 'READING',
+  source: {
+    file: { data: 'c291cmNl', mimeType: 'text/plain', name: 'source.txt' },
+    kind: 'document',
+  },
   learningPlan: {
     title: 'Titolo precedente',
     sections: [{ id: 'section-1', content: 'Contenuto precedente' }],
   },
+  syllabus: [],
+  userProfile: null,
   createdAt: '2026-07-01T08:00:00.000Z',
   updatedAt: '2026-07-01T08:00:00.000Z',
   lastOpenedAt: '2026-07-02T08:00:00.000Z',
@@ -111,6 +120,7 @@ describe('patchProjectInTransaction', () => {
         ...STORED_SNAPSHOT,
         documentIndex: { pages: [{ pageNumber: 1 }] },
         learningPlan: { ...STORED_SNAPSHOT.learningPlan, title: 'Titolo aggiornato' },
+        projectFormatVersion: 1,
         title: 'Titolo aggiornato',
         updatedAt,
       },
@@ -154,6 +164,7 @@ describe('patchProjectInTransaction', () => {
       snapshot: {
         ...storedSnapshot,
         learningPlan: { ...storedSnapshot.learningPlan, title: 'Titolo aggiornato' },
+        projectFormatVersion: 1,
         title: 'Titolo aggiornato',
       },
     });
@@ -196,7 +207,7 @@ describe('patchProjectInTransaction', () => {
     expect(result).toEqual({
       projectChanged: false,
       meta: { ...STORED_META, revision: 4 },
-      snapshot: STORED_SNAPSHOT,
+      snapshot: { ...STORED_SNAPSHOT, projectFormatVersion: 1 },
     });
   });
 

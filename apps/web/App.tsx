@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import AuthGate from './components/auth/AuthGate.tsx';
+import SurfaceErrorBoundary from './components/shared/SurfaceErrorBoundary.tsx';
 
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel.tsx'));
 const YouTubeResearchLab = lazy(() => import('./components/admin/YouTubeResearchLab.tsx'));
@@ -22,7 +23,9 @@ const renderCurrentPage = () => {
 
 const App = () => (
   <AuthGate>
-    <Suspense fallback={null}>{renderCurrentPage()}</Suspense>
+    <SurfaceErrorBoundary surface="shell">
+      <Suspense fallback={null}>{renderCurrentPage()}</Suspense>
+    </SurfaceErrorBoundary>
   </AuthGate>
 );
 

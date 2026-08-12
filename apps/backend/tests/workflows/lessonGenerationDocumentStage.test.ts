@@ -27,6 +27,7 @@ const project: ProjectSnapshot = {
           {
             description: 'Una lezione sui messaggi.',
             id: 'lesson-1',
+            kind: 'lesson',
             title: 'Comunicazioni a messaggi',
           },
         ],
@@ -121,6 +122,7 @@ describe('durable lesson document stage', () => {
               {
                 description: 'Una lezione sui messaggi.',
                 id: 'lesson-1',
+                kind: 'lesson',
                 primaryChunkIds: ['chunk-1'],
                 title: 'Comunicazioni a messaggi',
               },
@@ -136,7 +138,7 @@ describe('durable lesson document stage', () => {
           mimeType: 'application/pdf',
           name: 'messaggi.pdf',
         },
-        kind: 'document',
+        kind: 'pdf',
       },
     });
     const detachedProject = await store.loadProject('user-1', 'project-1');
@@ -223,6 +225,7 @@ describe('durable lesson document stage', () => {
               {
                 description: 'Una lezione basata su due fonti.',
                 id: 'lesson-1',
+                kind: 'lesson',
                 sourceReferences: [
                   { chunkIds: ['source-a:chunk-1'], sourceId: 'source-a' },
                   { chunkIds: ['source-b:chunk-1'], sourceId: 'source-b' },
@@ -236,7 +239,12 @@ describe('durable lesson document stage', () => {
         ],
       },
       source: {
-        kind: 'document',
+        file: {
+          data: Buffer.from('pdf bytes source A').toString('base64'),
+          mimeType: 'application/pdf',
+          name: 'source-a.pdf',
+        },
+        kind: 'pdf',
         sources: [
           {
             file: {
@@ -244,7 +252,14 @@ describe('durable lesson document stage', () => {
               mimeType: 'application/pdf',
               name: 'source-a.pdf',
             },
+            hash: 'a'.repeat(64),
             id: 'source-a',
+            kind: 'pdf',
+            name: 'source-a.pdf',
+            outline: [],
+            outlineOrigin: 'none',
+            position: 0,
+            status: 'ready',
           },
           {
             file: {
@@ -252,7 +267,14 @@ describe('durable lesson document stage', () => {
               mimeType: 'application/pdf',
               name: 'source-b.pdf',
             },
+            hash: 'b'.repeat(64),
             id: 'source-b',
+            kind: 'pdf',
+            name: 'source-b.pdf',
+            outline: [],
+            outlineOrigin: 'none',
+            position: 1,
+            status: 'ready',
           },
         ],
       },
@@ -299,7 +321,7 @@ describe('durable lesson document stage', () => {
           mimeType: 'application/pdf',
           name: 'messaggi.pdf',
         },
-        kind: 'document',
+        kind: 'pdf',
       },
     });
     const detachedProject = await store.loadProject('user-1', 'project-1');

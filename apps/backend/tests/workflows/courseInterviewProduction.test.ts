@@ -19,11 +19,12 @@ const createDependencies = () => {
     loadProject: vi.fn().mockResolvedValue({ id: 'project-1' }),
     patchProject: vi.fn().mockResolvedValue({}),
   };
+  const patchProject = vi.fn().mockResolvedValue({});
   const runStore = {
     createRun: vi.fn(),
     getActiveRun: vi.fn().mockResolvedValue(null),
   };
-  return { projectStore, registry: createWorkflowRegistry(), runStore };
+  return { patchProject, projectStore, registry: createWorkflowRegistry(), runStore };
 };
 
 describe('production course interview services', () => {
@@ -73,6 +74,19 @@ describe('production course interview services', () => {
     expect(dependencies.projectStore.deleteProject).toHaveBeenCalledWith('user-1', 'project-1');
   });
 
+  test('makes repeated draft cleanup harmless after the first deletion', async () => {
+    const dependencies = createDependencies();
+    dependencies.projectStore.loadProject
+      .mockResolvedValueOnce({ id: 'project-1' })
+      .mockResolvedValueOnce(null);
+    const services = createProductionCourseInterviewServices(dependencies);
+
+    await services.discardUnclaimedDraftProject(cleanupInput);
+    await services.discardUnclaimedDraftProject(cleanupInput);
+
+    expect(dependencies.projectStore.deleteProject).toHaveBeenCalledTimes(1);
+  });
+
   test('persists the complete profile and learn-mode flag', async () => {
     const dependencies = createDependencies();
     const services = createProductionCourseInterviewServices(dependencies);
@@ -86,16 +100,59 @@ describe('production course interview services', () => {
     };
 
     await services.saveCourseProfile({
-      ...cleanupInput,
       mode: 'learn',
       profile,
+      projectId: cleanupInput.projectId,
+      transaction: {} as never,
+      userId: cleanupInput.userId,
     });
 
-    expect(dependencies.projectStore.patchProject).toHaveBeenCalledWith('user-1', 'project-1', {
+    expect(dependencies.patchProject).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        buildPatch: expect.any(Function),
+        projectId: 'project-1',
+        userId: 'user-1',
+      })
+    );
+    expect(dependencies.patchProject.mock.calls[0]?.[1].buildPatch()).toEqual({
       isLearnMode: true,
       state: 'ASSESSMENT',
       userProfile: profile,
     });
+  });
+
+  test('keeps the separate profile patch available only for legacy run resumption', async () => {
+    const dependencies = createDependencies();
+    const services = createProductionCourseInterviewServices(dependencies);
+    const profile = {
+      context: 'Contesto',
+      experienceLevel: 'Intermediate',
+      goals: 'Obiettivi',
+      language: 'Italiano',
+      learningStyle: 'Practical',
+      topic: 'Sistemi distribuiti',
+    };
+
+    await services.saveCourseProfileBeforeCheckpoint({
+      execution: cleanupInput.execution,
+      idempotencyKey: 'legacy-profile',
+      mode: 'learn',
+      profile,
+      projectId: cleanupInput.projectId,
+      signal: cleanupInput.signal,
+      userId: cleanupInput.userId,
+    });
+
+    expect(dependencies.projectStore.patchProject).toHaveBeenCalledWith(
+      'user-1',
+      'project-1',
+      expect.objectContaining({
+        isLearnMode: true,
+        state: 'ASSESSMENT',
+        userProfile: profile,
+      })
+    );
   });
 
   test('starts the child with the frozen interview models', async () => {

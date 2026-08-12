@@ -55,6 +55,7 @@ const makeServices = (
   assessTurn: vi.fn(async () => ({ kind: 'question', message: 'Qual è il tuo obiettivo?' })),
   discardUnclaimedDraftProject: vi.fn(async () => undefined),
   saveCourseProfile: vi.fn(async () => undefined),
+  saveCourseProfileBeforeCheckpoint: vi.fn(async () => undefined),
   startCourseGeneration: vi.fn(async () => ({ runId: 'generation-1' })),
   ...overrides,
 });
@@ -139,7 +140,7 @@ describe('course interview workflow', () => {
     );
   });
 
-  test('saves the complete profile before starting one distinct generation', async () => {
+  test('checkpoints the complete profile before starting one distinct generation', async () => {
     const saveCourseProfile = vi.fn(async () => undefined);
     const startCourseGeneration = vi.fn(async () => ({ runId: 'generation-1' }));
     const services = makeServices({ saveCourseProfile, startCourseGeneration });
@@ -151,6 +152,15 @@ describe('course interview workflow', () => {
     >;
 
     const saved = await save.run(stepContext(approved, services));
+    expect(saveCourseProfile).not.toHaveBeenCalled();
+    await save.commit?.({
+      config,
+      execution: { nodeInstanceId: 'node-1', runId: 'interview-1' },
+      input: approved,
+      output: saved,
+      services,
+      transaction: {} as never,
+    });
     const started = await start.run(stepContext(saved, services));
 
     expect(saveCourseProfile).toHaveBeenCalledWith(
@@ -164,6 +174,29 @@ describe('course interview workflow', () => {
       })
     );
     expect(started).toEqual({ ...approved, generationRunId: 'generation-1' });
+  });
+
+  test('keeps the pre-checkpoint profile effect only in the resumable legacy definition', async () => {
+    const saveCourseProfileBeforeCheckpoint = vi.fn(async () => undefined);
+    const services = makeServices({ saveCourseProfileBeforeCheckpoint });
+    const definition = createCourseInterviewWorkflow(config, 8, undefined, 'run');
+    const save = [...indexWorkflowNodes(definition).values()].find(
+      entry => entry.node.id === 'save-course-interview-profile'
+    )?.node as StepDefinition<unknown, unknown> | undefined;
+    if (!save) throw new Error('Missing legacy profile persistence step.');
+
+    expect(definition.compatibilityId).toBe('course-interview-v1');
+    expect(save.commit).toBeUndefined();
+    await save.run(stepContext({ ...state, decision: 'approve' as const, profile }, services));
+
+    expect(saveCourseProfileBeforeCheckpoint).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: 'node-key',
+        profile,
+        projectId: 'project-1',
+        userId: 'user-1',
+      })
+    );
   });
 
   test('keeps cleanup authoritative for cancellation, expiry and the iteration fuse', async () => {

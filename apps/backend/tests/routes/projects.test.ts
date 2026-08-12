@@ -23,6 +23,7 @@ const createSnapshot = (id: string, title: string, updatedAt = '2026-04-26T10:00
     id,
     version: '4.1',
     sourceKind: 'document',
+    state: 'READING',
     learningPlan: {
       title,
       sections: [{ isCompleted: true }, { isCompleted: false }],
@@ -150,6 +151,100 @@ describe('/api/projects', () => {
 
     const emptyListResponse = await request(app).get('/api/projects/projects');
     expect(emptyListResponse.body.projects).toEqual([]);
+  });
+
+  test('rejects an incomplete canonical snapshot before persistence', async () => {
+    const response = await request(createApp())
+      .put('/api/projects/projects/incomplete-project')
+      .send({
+        snapshot: {
+          id: 'incomplete-project',
+          projectFormatVersion: 1,
+          title: 'Incomplete project',
+        },
+      });
+
+    expect(response.status).toBe(400);
+    expect(store.fullSaveCount).toBe(0);
+    expect((await request(createApp()).get('/api/projects/projects')).body.projects).toEqual([]);
+  });
+
+  test('returns 404 instead of recreating a course deleted by another session', async () => {
+    const app = createApp();
+    const snapshot = createSnapshot('deleted-project', 'Corso da eliminare');
+    const saveResponse = await request(app)
+      .put('/api/projects/projects/deleted-project')
+      .send({ snapshot });
+    expect(saveResponse.status).toBe(200);
+
+    const deleteResponse = await request(app).delete('/api/projects/projects/deleted-project');
+    expect(deleteResponse.status).toBe(200);
+
+    const stalePut = await request(app)
+      .put('/api/projects/projects/deleted-project')
+      .send({ expectedRevision: 1, snapshot: { ...snapshot, title: 'Scrittura tardiva' } });
+    const stalePatch = await request(app)
+      .patch('/api/projects/projects/deleted-project')
+      .send({ expectedRevision: 1, patch: { title: 'Patch tardiva' } });
+    const staleFavorite = await request(app)
+      .patch('/api/projects/projects/deleted-project/favorite')
+      .send({ isFavorite: true });
+    const staleTouch = await request(app).post('/api/projects/projects/deleted-project/touch');
+    const staleCover = await request(app)
+      .post('/api/projects/projects/deleted-project/cover')
+      .send({
+        cover: { data: 'iVBORw0KGgo=', mimeType: 'image/png', name: 'deleted-cover.png' },
+      });
+
+    expect(stalePut.status).toBe(404);
+    expect(stalePatch.status).toBe(404);
+    expect(staleFavorite.status).toBe(404);
+    expect(staleTouch.status).toBe(404);
+    expect(staleCover.status).toBe(404);
+    const listResponse = await request(app).get('/api/projects/projects');
+    expect(listResponse.status).toBe(200);
+    expect(listResponse.body.projects).toEqual([]);
+  });
+
+  test('round-trips explicit project titles through JSON and multipart saves', async () => {
+    const app = createApp();
+    const jsonSnapshot = {
+      ...createSnapshot('json-title-project', 'Titolo del piano JSON'),
+      title: 'Titolo esplicito JSON',
+    } satisfies ProjectSnapshot;
+
+    const jsonResponse = await request(app)
+      .put('/api/projects/projects/json-title-project')
+      .send({ snapshot: jsonSnapshot });
+
+    expect(jsonResponse.status).toBe(200);
+    expect(jsonResponse.body.snapshot.title).toBe('Titolo esplicito JSON');
+
+    const archive = new JSZip();
+    archive.file('main.ts', 'export const ready = true;');
+    const archiveBytes = await archive.generateAsync({ type: 'uint8array' });
+    const multipartSnapshot = {
+      ...createSnapshot('multipart-title-project', 'Titolo del piano multipart'),
+      title: 'Titolo esplicito multipart',
+      sourceKind: 'codebase' as const,
+      source: {
+        file: { data: '', mimeType: 'application/zip', name: 'source.zip' },
+        index: { entries: [] },
+        kind: 'archive',
+        name: 'source.zip',
+      },
+    };
+
+    const multipartResponse = await request(app)
+      .put('/api/projects/projects/multipart-title-project')
+      .field('snapshot', JSON.stringify(multipartSnapshot))
+      .attach('archive', Buffer.from(archiveBytes), {
+        contentType: 'application/zip',
+        filename: 'source.zip',
+      });
+
+    expect(multipartResponse.status).toBe(200);
+    expect(multipartResponse.body.snapshot.title).toBe('Titolo esplicito multipart');
   });
 
   test('stores favorites on the server with last-arrival-wins updates', async () => {
@@ -380,6 +475,62 @@ describe('/api/projects', () => {
     expect(arrayBufferSpy).not.toHaveBeenCalled();
   });
 
+  test('rejects chunked archive completion when the project revision changed during upload', async () => {
+    const app = createApp();
+    const projectId = 'concurrent-archive-project';
+    const initialSnapshot = createSnapshot(projectId, 'Corso iniziale');
+    const initialSave = await request(app)
+      .put(`/api/projects/projects/${projectId}`)
+      .send({ snapshot: initialSnapshot });
+    expect(initialSave.body.meta.revision).toBe(1);
+
+    const sourceZip = new JSZip();
+    sourceZip.file('main.ts', 'export const ready = true;');
+    const sourceBytes = Buffer.from(await sourceZip.generateAsync({ type: 'uint8array' }));
+    const uploadId = '623e4567-e89b-42d3-a456-426614174000';
+    const chunkResponse = await request(app)
+      .put(`/api/projects/import/chunks/${uploadId}/0?chunkCount=1`)
+      .set('Content-Type', 'application/octet-stream')
+      .send(sourceBytes);
+    expect(chunkResponse.status).toBe(202);
+
+    const concurrentPatch = await request(app)
+      .patch(`/api/projects/projects/${projectId}`)
+      .send({
+        expectedRevision: 1,
+        patch: { activeSectionId: 'saved-concurrently' },
+      });
+    expect(concurrentPatch.body.meta.revision).toBe(2);
+
+    const archiveSnapshot = {
+      ...initialSnapshot,
+      sourceKind: 'codebase' as const,
+      source: {
+        file: { data: '', mimeType: 'application/zip', name: 'engine.zip' },
+        index: { entries: [] },
+        kind: 'archive',
+        name: 'engine.zip',
+      },
+    };
+    const completionResponse = await request(app)
+      .post(`/api/projects/import/chunks/${uploadId}/complete`)
+      .send({
+        expectedRevision: 1,
+        payloadKind: PROJECT_IMPORT_BINARY_KIND.sourceArchive,
+        snapshot: archiveSnapshot,
+        sourceFile: { mimeType: 'application/zip', name: 'engine.zip' },
+      });
+
+    expect(completionResponse.status).toBe(409);
+    const loadResponse = await request(app).get(`/api/projects/projects/${projectId}`);
+    expect(loadResponse.body).toMatchObject({
+      project: { activeSectionId: 'saved-concurrently', source: null },
+      revision: 2,
+    });
+    const sourceResponse = await request(app).get(`/api/projects/projects/${projectId}/source`);
+    expect(sourceResponse.body.source).toBeNull();
+  });
+
   test('rejects unsupported chunk content types before a generic body parser can buffer them', async () => {
     const app = createApp();
     const uploadId = '423e4567-e89b-42d3-a456-426614174000';
@@ -465,7 +616,7 @@ describe('/api/projects', () => {
 
     const embeddedSources = sourceFiles.map(source => ({
       file: { ...source.file, sourceId: source.id },
-      hash: '',
+      hash: source.id,
       id: source.id,
       kind: 'text',
       name: source.file.name,
@@ -860,7 +1011,9 @@ describe('/api/projects', () => {
                 content: 'Regole condivise per scambiare messaggi.',
               },
             ],
+            instructionPacks: ['code', 'unsupported-pack', 'technical-sources'],
             isCompleted: true,
+            lastGenerationRunId: 'lesson-run-2',
           },
         },
       });
@@ -887,11 +1040,46 @@ describe('/api/projects', () => {
           content: 'Regole condivise per scambiare messaggi.',
         },
       ],
+      instructionPacks: ['code', 'technical-sources'],
       isCompleted: true,
+      lastGenerationRunId: 'lesson-run-2',
     });
     expect(loadResponse.body.project.learningPlan.modules[0].children[1]).toMatchObject({
       id: 'exercise-1',
       kind: 'exercise',
+    });
+
+    const clearResponse = await request(app)
+      .patch('/api/projects/projects/patch-module-project')
+      .send({
+        patch: {
+          section: {
+            sectionId: 'lesson-2',
+            content: null,
+            contentBlocks: null,
+            generationWarnings: null,
+            generatedVisuals: null,
+            imageRefs: null,
+            learningAids: null,
+            lastGenerationRunId: null,
+            quiz: null,
+            visualPlanningDecision: null,
+          },
+        },
+      });
+
+    expect(clearResponse.status).toBe(200);
+    const clearedProject = await request(app).get('/api/projects/projects/patch-module-project');
+    expect(clearedProject.body.project.learningPlan.modules[1].children[0]).toMatchObject({
+      content: null,
+      contentBlocks: null,
+      generationWarnings: null,
+      generatedVisuals: null,
+      imageRefs: null,
+      learningAids: null,
+      lastGenerationRunId: null,
+      quiz: null,
+      visualPlanningDecision: null,
     });
   });
 
@@ -1113,8 +1301,10 @@ describe('/api/projects', () => {
     });
     const previousAuthMode = process.env.AUTH_MODE;
     const previousJwtSecret = process.env.SUPABASE_JWT_SECRET;
+    const previousSupabaseUrl = process.env.SUPABASE_URL;
     process.env.AUTH_MODE = 'supabase';
     process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    process.env.SUPABASE_URL = 'https://example.supabase.co';
     try {
       const app = createApp();
       const userResponse = await request(app)
@@ -1150,6 +1340,8 @@ describe('/api/projects', () => {
       else process.env.AUTH_MODE = previousAuthMode;
       if (previousJwtSecret === undefined) delete process.env.SUPABASE_JWT_SECRET;
       else process.env.SUPABASE_JWT_SECRET = previousJwtSecret;
+      if (previousSupabaseUrl === undefined) delete process.env.SUPABASE_URL;
+      else process.env.SUPABASE_URL = previousSupabaseUrl;
     }
   });
 

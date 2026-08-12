@@ -57,6 +57,9 @@ describe('production deployment boundaries', () => {
     expect(validateDeploymentConfig(baseConfig)).toContain(
       'Managed SUPABASE_URL and NOUS_SUPABASE_PUBLIC_URL must use the same project origin.'
     );
+    expect(validateDeploymentConfig({ ...baseConfig, SUPABASE_JWT_ISSUER: 'not-a-url' })).toContain(
+      'SUPABASE_JWT_ISSUER must be an absolute URL.'
+    );
     expect(
       validateDeploymentConfig({ ...baseConfig, SUPABASE_URL: baseConfig.NOUS_SUPABASE_PUBLIC_URL })
     ).toEqual([]);
@@ -106,6 +109,7 @@ describe('production deployment boundaries', () => {
         'postgresql://postgres:generated-postgres-password@db:5432/postgres?sslmode=disable',
       NOUS_SUPABASE_ANON_KEY: 'generated-publishable-key',
       SUPABASE_JWKS_URL: 'http://kong:8000/auth/v1/.well-known/jwks.json',
+      SUPABASE_JWT_ISSUER: 'https://auth.acme.test/auth/v1',
       SUPABASE_JWT_SECRET: 'generated-jwt-secret',
       SUPABASE_SERVICE_ROLE_KEY: 'generated-service-key',
       SUPABASE_URL: 'http://kong:8000',

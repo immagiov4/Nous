@@ -8,6 +8,7 @@ import type { ExpiredStepRecoveryResult } from './postgresWorkflowStepStore.js';
 import type { WorkflowUndoClaim } from './postgresWorkflowUndoStore.js';
 import { WorkflowStepError } from './retryPolicy.js';
 import type { RegisteredWorkflow, WorkflowDefinitionBoundary, WorkflowStepClaim } from './types.js';
+import { WorkflowOutboxLeaseLostError } from './workflowErrors.js';
 import {
   consoleWorkflowLogger,
   emitWorkflowLog,
@@ -17,8 +18,10 @@ import {
   type WorkflowRuntimeLoop as WorkflowRuntimeLoopType,
   type WorkflowTransientEventPublisher,
 } from './workflowObservability.js';
+import { startWorkflowAttemptMonitor } from './workflowStepAttempt.js';
 import type { WorkflowDefinitionResolver } from './workflowStepResolution.js';
 import {
+  DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
   DEFAULT_WORKFLOW_LEASE_MS,
   runWorkflowStepClaim,
   type WorkflowStepRunnerStore,
@@ -65,7 +68,10 @@ export interface WorkflowRuntimeStore extends WorkflowStepRunnerStore {
   cancellation: WorkflowStepRunnerStore['cancellation'] & {
     reconcileNext(): Promise<object | null>;
   };
-  outbox: Pick<PostgresWorkflowOutboxStore, 'claimNext' | 'markDelivered' | 'recordFailure'>;
+  outbox: Pick<
+    PostgresWorkflowOutboxStore,
+    'claimNext' | 'heartbeat' | 'markDelivered' | 'recordFailure'
+  >;
   steps: WorkflowStepRunnerStore['steps'] & {
     claimNext(input: {
       leaseMs: number;
@@ -333,14 +339,35 @@ export class WorkflowRuntimeWorker<Services> {
       workerId: this.input.workerId,
     });
     if (!claim) return false;
+
+    const controller = new AbortController();
+    const monitor = startWorkflowAttemptMonitor({
+      controller,
+      heartbeat: () =>
+        this.input.store.outbox.heartbeat({
+          claim,
+          leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
+        }),
+      heartbeatIntervalMs: DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
+      interruptionError: () => new WorkflowOutboxLeaseLostError(),
+      leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
+    });
+    let deliveryError: unknown;
+    let deliveryFailed = false;
     try {
       await this.input.deliverNotification(claim);
     } catch (error) {
+      deliveryError = error;
+      deliveryFailed = true;
+    }
+    if (await monitor.stop()) return false;
+
+    if (deliveryFailed) {
       await this.input.store.outbox.recordFailure({
         claim,
         failure:
-          error instanceof WorkflowStepError
-            ? error.failure
+          deliveryError instanceof WorkflowStepError
+            ? deliveryError.failure
             : {
                 code: 'notification_delivery_failed',
                 kind: 'operational',
@@ -371,22 +398,50 @@ export class WorkflowRuntimeWorker<Services> {
   }
 
   private async runStepBatch(): Promise<boolean> {
-    const claims: WorkflowStepClaim[] = [];
+    const failures: unknown[] = [];
+    const runningSteps = new Set<Promise<void>>();
     const supportedDefinitions = this.input.registry.listRegisteredBoundaries();
-    while (this.active && claims.length < this.input.stepConcurrency) {
-      const claim = await this.input.store.steps.claimNext({
-        leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
-        supportedDefinitions,
-        workerId: this.input.workerId,
-      });
-      if (!claim) break;
-      claims.push(claim);
-    }
-    if (claims.length === 0) return false;
+    let claimedAny = false;
 
-    const outcomes = await Promise.allSettled(claims.map(claim => this.runStep(claim)));
-    throwFirstRejection(outcomes);
-    return true;
+    while (this.active) {
+      while (
+        this.active &&
+        runningSteps.size < this.input.stepConcurrency &&
+        failures.length === 0
+      ) {
+        let claim: WorkflowStepClaim | null = null;
+        try {
+          claim = await this.input.store.steps.claimNext({
+            leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
+            supportedDefinitions,
+            workerId: this.input.workerId,
+          });
+        } catch (error) {
+          failures.push(error);
+        }
+        if (!claim) break;
+
+        claimedAny = true;
+        let execution: Promise<void>;
+        execution = this.runStep(claim)
+          .catch(error => {
+            failures.push(error);
+          })
+          .finally(() => runningSteps.delete(execution));
+        runningSteps.add(execution);
+      }
+
+      if (failures.length > 0) {
+        await Promise.all(runningSteps);
+        throw failures[0];
+      }
+      if (runningSteps.size === 0) return claimedAny;
+      await Promise.race(runningSteps);
+    }
+
+    await Promise.all(runningSteps);
+    if (failures.length > 0) throw failures[0];
+    return claimedAny;
   }
 
   private async runStepRecovery(): Promise<boolean> {

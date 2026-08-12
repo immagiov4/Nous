@@ -20,7 +20,10 @@ import {
 import { resolveAvailableFolderName } from '../../src/projects/folderNames.js';
 import { buildProjectMeta, normalizeProjectSnapshot } from '../../src/projects/projectMeta.js';
 import { applyProjectPatch } from '../../src/projects/projectPatch.js';
-import { ProjectRevisionConflictError } from '../../src/projects/projectRevision.js';
+import {
+  ProjectNotFoundError,
+  ProjectRevisionConflictError,
+} from '../../src/projects/projectRevision.js';
 import {
   attachProjectSource,
   attachProjectSources,
@@ -41,7 +44,6 @@ import type {
   LibraryPlacement,
   ProjectCoverFile,
   ProjectCoverWriteOptions,
-  ProjectExportData,
   ProjectId,
   ProjectImportDiagnostic,
   ProjectImportDiagnosticInput,
@@ -213,7 +215,8 @@ export class InMemoryProjectStore implements ProjectStore {
     { expectedRevision }: ProjectCoverWriteOptions = {}
   ): Promise<boolean> {
     const record = this.getProjects(userId).get(id);
-    if (!record || (expectedRevision !== undefined && record.meta.revision !== expectedRevision)) {
+    if (!record) throw new ProjectNotFoundError();
+    if (expectedRevision !== undefined && record.meta.revision !== expectedRevision) {
       return false;
     }
     this.getCovers(userId).set(id, clone(cover));
@@ -313,11 +316,16 @@ export class InMemoryProjectStore implements ProjectStore {
     this.fullSaveCount += 1;
     const projects = this.getProjects(userId);
     const existing = projects.get(data.id);
+    if (expectedRevision !== undefined && !existing) {
+      throw new ProjectNotFoundError();
+    }
     if (expectedRevision !== undefined && existing?.meta.revision !== expectedRevision) {
       throw new ProjectRevisionConflictError();
     }
 
-    let snapshot = normalizeProjectSnapshot(clone(data));
+    let snapshot = normalizeProjectSnapshot(clone(data), false, {
+      externalArchiveBytesAvailable: Boolean(sourceFile?.bytes.byteLength),
+    });
     const embeddedSources = readEmbeddedProjectSources(snapshot);
     if (embeddedSources.length > 0) {
       snapshot = detachProjectSources(
@@ -366,7 +374,7 @@ export class InMemoryProjectStore implements ProjectStore {
     const projects = this.getProjects(userId);
     const existing = projects.get(id);
     if (!existing) {
-      throw new Error(`Progetto ${id} non trovato per patch.`);
+      throw new ProjectNotFoundError();
     }
     if (
       options.expectedRevision !== undefined &&
@@ -391,7 +399,7 @@ export class InMemoryProjectStore implements ProjectStore {
   ): Promise<SavedProjectMeta> {
     const record = this.getProjects(userId).get(id);
     if (!record) {
-      throw new Error(`Progetto ${id} non trovato per aggiornamento preferito.`);
+      throw new ProjectNotFoundError();
     }
     record.meta = {
       ...record.meta,
@@ -424,7 +432,7 @@ export class InMemoryProjectStore implements ProjectStore {
     bytes: Uint8Array,
     targetProjectId: ProjectId
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
-    const decoded = await decodeProjectBackupArchive<ProjectSnapshot>(bytes, {
+    const decoded = await decodeProjectBackupArchive(bytes, {
       invalidArchiveMessage: INVALID_PROJECT_BACKUP_MESSAGE,
       maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
       maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
@@ -445,7 +453,7 @@ export class InMemoryProjectStore implements ProjectStore {
     return this.saveProject(userId, snapshot, { importedCover: decoded.cover });
   }
 
-  async exportProject(userId: string, id: ProjectId): Promise<ProjectExportData | null> {
+  async exportProject(userId: string, id: ProjectId): Promise<ProjectSnapshot | null> {
     const snapshot = await this.loadProject(userId, id);
     if (!snapshot) {
       return null;
@@ -462,7 +470,7 @@ export class InMemoryProjectStore implements ProjectStore {
   async touchProject(userId: string, id: ProjectId): Promise<void> {
     const record = this.getProjects(userId).get(id);
     if (!record) {
-      return;
+      throw new ProjectNotFoundError();
     }
 
     const touchedAt = timestampIso();

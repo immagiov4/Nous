@@ -2,6 +2,13 @@ export const SUPPORTED_APP_LOCALES = ['en', 'it'] as const;
 
 export type AppLocale = (typeof SUPPORTED_APP_LOCALES)[number];
 
+export const SURFACE_ERROR_MESSAGES = {
+  chat: 'La chat non è disponibile. Ricarica la pagina.',
+  reader: 'La lezione non è disponibile. Ricarica la pagina.',
+  shell: "L'applicazione non è disponibile. Ricarica la pagina.",
+  visual: 'Questo elemento visivo non è disponibile.',
+} as const;
+
 type UiMessageVariables = Record<string, number | string>;
 
 const DEFAULT_APP_LOCALE: AppLocale = 'en';
@@ -10,13 +17,15 @@ let renderingLocaleOverride: AppLocale | null = null;
 
 const ENGLISH_UI_MESSAGES = {
   'Alcuni contenuti non sono disponibili': 'Some content is unavailable',
+  [SURFACE_ERROR_MESSAGES.shell]: 'The application is unavailable. Reload the page.',
+  [SURFACE_ERROR_MESSAGES.chat]: 'The chat is unavailable. Reload the page.',
+  [SURFACE_ERROR_MESSAGES.reader]: 'The lesson is unavailable. Reload the page.',
+  [SURFACE_ERROR_MESSAGES.visual]: 'This visual is unavailable.',
   'Alcune immagini del PDF non sono state incluse nella lezione.':
     'Some PDF images were not included in the lesson.',
   'Contenuti non disponibili': 'Unavailable content',
   'Gli aiuti didattici aggiuntivi non sono disponibili per questa lezione.':
     'Additional learning aids are unavailable for this lesson.',
-  'I video di approfondimento non sono disponibili per questa lezione.':
-    'Supplementary videos are unavailable for this lesson.',
   'Apri {videoTitle} su YouTube': 'Open {videoTitle} on YouTube',
   automatico: 'automatic',
   'Annulla creazione corso': 'Cancel course creation',
@@ -1098,8 +1107,7 @@ const ENGLISH_UI_MESSAGES = {
   'Importazione backup...': 'Importing backup...',
   'Importazione progetto...': 'Importing project...',
   'Indicizzazione capitoli del PDF...': 'Indexing PDF chapters...',
-  "Il corso aperto è stato eliminato in un'altra sessione.":
-    'The open course was deleted in another session.',
+  'Questo corso è stato cancellato': 'This course was deleted',
   'Preparazione sorgente...': 'Preparing source...',
   'Rigenerazione lezione...': 'Regenerating lesson...',
   'Salvataggio progresso...': 'Saving progress...',

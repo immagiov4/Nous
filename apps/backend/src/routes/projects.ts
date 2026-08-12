@@ -1,9 +1,14 @@
 // Exposes project CRUD routes for the backend API.
 
 import { Readable } from 'node:stream';
+import { normalizeLessonInstructionPacks } from '@shared/lessonInstructionPacks';
 import { isProjectCoverMediaType, PROJECT_COVER_MAX_BYTES } from '@shared/projectBackupArchive';
 import { PROJECT_REVISION_RESYNC_EVENT } from '@shared/projectContract';
 import { PROJECT_IMPORT_BINARY_KIND } from '@shared/projectImportContract';
+import {
+  decodeProjectSnapshotWire,
+  type ProjectSnapshotWireDecodeOptions,
+} from '@shared/projectSnapshotWire';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
 import { type Request, type Response, Router } from 'express';
 
@@ -22,7 +27,7 @@ import {
   storeProjectImportChunk,
 } from '../projects/projectImportChunks.js';
 import { getPublicProjectImportConfig } from '../projects/projectImportConfig.js';
-import { ProjectRevisionConflictError } from '../projects/projectRevision.js';
+import { ProjectNotFoundError, ProjectRevisionConflictError } from '../projects/projectRevision.js';
 import { getProjectStore } from '../projects/projectStore.js';
 import { PROJECT_SOURCE_ARCHIVE_MAX_COMPRESSED_BYTES } from '../projects/sourceArchive.js';
 import {
@@ -52,7 +57,6 @@ import {
 
 const router = Router();
 
-const PROJECT_SOURCE_KINDS = new Set(['document', 'codebase', 'learn-mode', 'imported-json']);
 const PROJECT_EVENT_HEARTBEAT_MS = 25_000;
 const PROJECT_SNAPSHOT_MULTIPART_MAX_BYTES = 300_000_000;
 const BASE64_DATA_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/u;
@@ -154,7 +158,9 @@ const parseArchiveProjectSave = async (
   ) {
     throw new Error('Snapshot progetto mancante o troppo grande.');
   }
-  const snapshot = requireProjectSnapshot({ snapshot: JSON.parse(serializedSnapshot) }, projectId);
+  const snapshot = requireProjectSnapshot({ snapshot: JSON.parse(serializedSnapshot) }, projectId, {
+    externalArchiveBytesAvailable: archive.size > 0,
+  });
   const sourceFile = isRecord(snapshot.source) ? snapshot.source.file : null;
   if (
     !isRecord(snapshot.source) ||
@@ -191,84 +197,40 @@ const publishMetaRevision = (userId: string, meta: { id: string; revision?: numb
   }
 };
 
-const sendProjectWriteError = (res: Response, error: unknown, fallbackMessage: string): void => {
+const sendProjectWriteError = (
+  res: Response,
+  error: unknown,
+  fallbackMessage: string,
+  fallbackStatus = 400
+): void => {
   sendErrorResponse(
     res,
-    error instanceof ProjectRevisionConflictError ? 409 : 400,
+    error instanceof ProjectNotFoundError
+      ? 404
+      : error instanceof ProjectRevisionConflictError
+        ? 409
+        : fallbackStatus,
     error,
     fallbackMessage
   );
 };
 
-const readProjectSourceKind = (value: unknown): ProjectSnapshot['sourceKind'] | undefined =>
-  typeof value === 'string' && PROJECT_SOURCE_KINDS.has(value)
-    ? (value as ProjectSnapshot['sourceKind'])
-    : undefined;
-
-const readLearningPlan = (value: unknown): ProjectSnapshot['learningPlan'] | undefined => {
-  if (value === null) {
-    return null;
-  }
-
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  if (value.sections !== undefined && !Array.isArray(value.sections)) {
-    return undefined;
-  }
-
-  if (value.modules !== undefined && !Array.isArray(value.modules)) {
-    return undefined;
-  }
-
-  return value as ProjectSnapshot['learningPlan'];
-};
-
-const readUserProfile = (value: unknown): ProjectSnapshot['userProfile'] | undefined => {
-  if (value === null) {
-    return null;
-  }
-
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  return value as ProjectSnapshot['userProfile'];
-};
-
-const requireProjectSnapshot = (body: unknown, routeProjectId: string): ProjectSnapshot => {
+const requireProjectSnapshot = (
+  body: unknown,
+  routeProjectId: string,
+  options: ProjectSnapshotWireDecodeOptions = {}
+): ProjectSnapshot => {
   const bodyRecord = getBodyRecord(body);
-  const snapshotRecord = bodyRecord.snapshot;
-
-  if (!isRecord(snapshotRecord)) {
-    throw new Error('Snapshot progetto mancante o non valida.');
-  }
+  const snapshot = decodeProjectSnapshotWire(bodyRecord.snapshot, options);
+  const now = timestampIso();
 
   return {
+    ...snapshot,
     id: routeProjectId,
-    version: readOptionalString(snapshotRecord.version) || '4.1',
-    sourceKind: readProjectSourceKind(snapshotRecord.sourceKind),
-    state: readOptionalString(snapshotRecord.state),
-    source: snapshotRecord.source,
-    learningPlan: readLearningPlan(snapshotRecord.learningPlan),
-    isLearnMode:
-      typeof snapshotRecord.isLearnMode === 'boolean' ? snapshotRecord.isLearnMode : undefined,
-    userProfile: readUserProfile(snapshotRecord.userProfile),
-    syllabus: Array.isArray(snapshotRecord.syllabus) ? snapshotRecord.syllabus : undefined,
-    researchCoursePlan:
-      snapshotRecord.researchCoursePlan === null || isRecord(snapshotRecord.researchCoursePlan)
-        ? snapshotRecord.researchCoursePlan
-        : undefined,
-    researchDossiersBySectionId: isRecord(snapshotRecord.researchDossiersBySectionId)
-      ? snapshotRecord.researchDossiersBySectionId
-      : undefined,
-    activeSectionId: readNullableString(snapshotRecord.activeSectionId),
-    createdAt: readOptionalString(snapshotRecord.createdAt) || timestampIso(),
-    updatedAt: readOptionalString(snapshotRecord.updatedAt) || timestampIso(),
-    lastOpenedAt: readOptionalString(snapshotRecord.lastOpenedAt) || timestampIso(),
-    documentAssets: snapshotRecord.documentAssets,
-    documentIndex: snapshotRecord.documentIndex,
+    version: snapshot.version || '4.1',
+    createdAt: snapshot.createdAt || now,
+    updatedAt: snapshot.updatedAt || now,
+    lastOpenedAt: snapshot.lastOpenedAt || now,
   };
 };
 
@@ -293,7 +255,9 @@ const importBinaryProjectUpload = async (input: {
   if (!isRecord(snapshotRecord) || !isRecord(sourceFile) || typeof snapshotRecord.id !== 'string') {
     throw new ProjectImportInputError('Metadati del backup binario non validi.');
   }
-  const snapshot = requireProjectSnapshot({ snapshot: snapshotRecord }, snapshotRecord.id);
+  const snapshot = requireProjectSnapshot({ snapshot: snapshotRecord }, snapshotRecord.id, {
+    externalArchiveBytesAvailable: input.bytes.byteLength > 0,
+  });
   if (
     !isRecord(snapshot.source) ||
     snapshot.source.kind !== 'archive' ||
@@ -306,6 +270,7 @@ const importBinaryProjectUpload = async (input: {
     throw new ProjectImportInputError('Metadati della sorgente archivio non validi.');
   }
   return input.store.saveProject(input.userId, snapshot, {
+    expectedRevision: readExpectedRevision(input.body),
     sourceFile: { bytes: input.bytes, name: sourceFile.name, mimeType: sourceFile.mimeType },
   });
 };
@@ -535,7 +500,7 @@ router.patch('/projects/:id/favorite', async (req: Request, res: Response) => {
     publishMetaRevision(userId, meta);
     res.json({ success: true, meta });
   } catch (error) {
-    sendErrorResponse(res, 400, error, 'Failed to update project favorite');
+    sendProjectWriteError(res, error, 'Failed to update project favorite');
   }
 });
 
@@ -672,7 +637,7 @@ router.post('/projects/:id/cover', async (req: Request, res: Response) => {
     }
     res.json({ success: true });
   } catch (error) {
-    sendErrorResponse(res, 400, error, 'Failed to save project cover');
+    sendProjectWriteError(res, error, 'Failed to save project cover');
   }
 });
 
@@ -709,6 +674,11 @@ router.put('/projects/:id', async (req: Request, res: Response) => {
   }
 });
 
+const readNullableArray = (value: unknown): unknown[] | null | undefined => {
+  if (value === null) return null;
+  return Array.isArray(value) ? value : undefined;
+};
+
 const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefined => {
   const value = body.section;
   if (!isRecord(value)) {
@@ -723,19 +693,22 @@ const readSectionPatch = (body: Record<string, unknown>): SectionPatch | undefin
   return {
     sectionId,
     annotations: Array.isArray(value.annotations) ? value.annotations : undefined,
-    content: readOptionalString(value.content),
-    contentBlocks: Array.isArray(value.contentBlocks) ? value.contentBlocks : undefined,
-    generationWarnings: Array.isArray(value.generationWarnings)
-      ? value.generationWarnings
-      : undefined,
-    generatedVisuals: Array.isArray(value.generatedVisuals) ? value.generatedVisuals : undefined,
-    imageRefs: Array.isArray(value.imageRefs) ? value.imageRefs : undefined,
+    content: readNullableString(value.content),
+    contentBlocks: readNullableArray(value.contentBlocks),
+    generationWarnings: readNullableArray(value.generationWarnings),
+    generatedVisuals: readNullableArray(value.generatedVisuals),
+    imageRefs: readNullableArray(value.imageRefs),
     isCompleted: typeof value.isCompleted === 'boolean' ? value.isCompleted : undefined,
-    learningAids: Array.isArray(value.learningAids) ? value.learningAids : undefined,
-    quiz: Array.isArray(value.quiz) ? value.quiz : undefined,
-    visualPlanningDecision: isRecord(value.visualPlanningDecision)
-      ? value.visualPlanningDecision
+    instructionPacks: Array.isArray(value.instructionPacks)
+      ? normalizeLessonInstructionPacks(value.instructionPacks)
       : undefined,
+    learningAids: readNullableArray(value.learningAids),
+    lastGenerationRunId: readNullableString(value.lastGenerationRunId),
+    quiz: readNullableArray(value.quiz),
+    visualPlanningDecision:
+      value.visualPlanningDecision === null || isRecord(value.visualPlanningDecision)
+        ? value.visualPlanningDecision
+        : undefined,
   };
 };
 
@@ -825,7 +798,7 @@ router.post('/projects/:id/touch', async (req: Request, res: Response) => {
     await getProjectStore().touchProject(getCurrentUser(req).id, getRouteParam(req.params.id));
     res.json({ success: true });
   } catch (error) {
-    sendErrorResponse(res, 500, error, 'Failed to touch project');
+    sendProjectWriteError(res, error, 'Failed to touch project', 500);
   }
 });
 
@@ -942,7 +915,11 @@ router.post('/import/chunks/:uploadId/complete', async (req: Request, res: Respo
   } catch (error) {
     sendErrorResponse(
       res,
-      error instanceof ProjectImportInputError ? 400 : 500,
+      error instanceof ProjectRevisionConflictError
+        ? 409
+        : error instanceof ProjectImportInputError
+          ? 400
+          : 500,
       error,
       'Failed to complete project import'
     );

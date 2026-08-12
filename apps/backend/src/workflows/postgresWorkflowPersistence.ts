@@ -93,12 +93,14 @@ export const insertWorkflowAiUsage = async (
     await sql`
       insert into public.workflow_ai_usage (
         id, run_id, node_instance_id, attempt_number, provider, model, input_tokens,
-        output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, provider_cost
+        output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, provider_cost,
+        reported_after_interruption
       ) values (
         ${usage.id}, ${usage.runId}, ${usage.nodeInstanceId}, ${usage.attemptNumber}, ${usage.provider},
         ${usage.model}, ${usage.inputTokens ?? null}, ${usage.outputTokens ?? null},
         ${usage.reasoningTokens ?? null}, ${usage.cacheReadTokens ?? null},
-        ${usage.cacheWriteTokens ?? null}, ${usage.providerCost ?? null}
+        ${usage.cacheWriteTokens ?? null}, ${usage.providerCost ?? null},
+        ${usage.reportedAfterInterruption ?? false}
       )
       on conflict (id) do nothing
     `;
