@@ -89,6 +89,7 @@ export interface StepExecutionContext<Input, Config, Services> {
   attemptNumber: number;
   config: DeepReadonly<Config>;
   readonly execution: WorkflowStepExecutionIdentity;
+  /** Stable across retries of this node. External adapters must use it to deduplicate effects. */
   readonly idempotencyKey: string;
   input: Input;
   previousAttemptFailure?: StepFailure;
@@ -136,12 +137,19 @@ export interface StepDefinition<
   Services = unknown,
 > extends WorkflowNodeReference<Input, Output>,
     WorkflowContextRequirement<Config, Services> {
+  /** Runs atomically with the durable checkpoint and may only perform transactional effects. */
   readonly commit?: (context: StepCommitContext<Input, Output, Config, Services>) => Promise<void>;
   readonly config?: WorkflowConfigOverride<Config>;
   readonly kind: 'step';
   readonly maxAttempts?: number;
+  /**
+   * Executes at least once: timeout, crash, or lease loss can start a retry while an earlier
+   * callback is still finishing. External effects must honor idempotencyKey; AbortSignal alone
+   * is not a correctness boundary.
+   */
   readonly run: (context: StepExecutionContext<Input, Config, Services>) => Promise<Output>;
   readonly timeoutMs?: number;
+  /** May be retried and therefore must be idempotent for the supplied idempotencyKey. */
   readonly undo?: (context: StepUndoContext<Input, Output, Config, Services>) => Promise<void>;
 }
 
@@ -279,9 +287,8 @@ interface RuntimeRepeatDefinition {
 }
 
 interface RuntimeWorkflowDefinition {
-  readonly compatibilityId?: string;
+  readonly compatibilityId: string;
   readonly configSchema: ZodType;
-  readonly definitionHashVersion?: number;
   readonly events: Readonly<Record<string, WorkflowEventDefinition>>;
   readonly executionDefaults: Readonly<WorkflowExecutionDefaults>;
   readonly kind: 'workflow';
@@ -332,9 +339,12 @@ export interface WorkflowDefinition<
   Services = unknown,
 > extends WorkflowNodeReference<Input, Output>,
     WorkflowContextRequirement<Config, Services> {
-  readonly compatibilityId?: string;
+  /**
+   * Explicit semantic contract for durable callbacks and persisted payloads.
+   * Keep it for compatible changes; change it when resume behavior changes.
+   */
+  readonly compatibilityId: string;
   readonly configSchema: ZodType<Config>;
-  readonly definitionHashVersion?: number;
   readonly events: Readonly<Record<string, WorkflowEventDefinition>>;
   readonly executionDefaults: Readonly<Config & WorkflowExecutionDefaults>;
   readonly id: string;
@@ -346,7 +356,7 @@ export interface WorkflowDefinition<
 }
 
 export interface WorkflowManifest {
-  readonly compatibilityId?: string;
+  readonly compatibilityId: string;
   readonly configSchema: unknown;
   readonly definitionHashVersion: number;
   readonly events: Readonly<
@@ -372,14 +382,7 @@ export interface RegisteredWorkflow<
 
 export type ErasedWorkflowDefinition = Pick<
   WorkflowDefinition,
-  | 'compatibilityId'
-  | 'definitionHashVersion'
-  | 'events'
-  | 'id'
-  | 'inputSchema'
-  | 'kind'
-  | 'outputSchema'
-  | 'signals'
+  'compatibilityId' | 'events' | 'id' | 'inputSchema' | 'kind' | 'outputSchema' | 'signals'
 > & {
   readonly configSchema: ZodType;
   readonly executionDefaults: Readonly<WorkflowExecutionDefaults>;
@@ -428,7 +431,7 @@ export interface WorkflowRegistration<
   Services = unknown,
 > {
   readonly current: RegisteredWorkflow<Input, Output, Config, Services>;
-  readonly resumableDefinitions: readonly ErasedRegisteredWorkflow[];
+  readonly previous: ErasedRegisteredWorkflow | null;
 }
 
 export interface WorkflowRun {

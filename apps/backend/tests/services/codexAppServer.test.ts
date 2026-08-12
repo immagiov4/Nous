@@ -53,12 +53,46 @@ const respond = (process: FakeCodexProcess, request: WireMessage, result: unknow
   process.send({ id: request.id, result });
 };
 
+const sendInterruptedTurnCompletion = (
+  process: FakeCodexProcess,
+  ids: { threadId: string; turnId: string },
+  usage: {
+    cacheReadTokens: number;
+    inputTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+  }
+): void => {
+  const tokenUsage = {
+    cachedInputTokens: usage.cacheReadTokens,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    reasoningOutputTokens: usage.reasoningTokens,
+    totalTokens: usage.inputTokens + usage.outputTokens,
+  };
+  process.send({
+    method: 'thread/tokenUsage/updated',
+    params: {
+      ...ids,
+      tokenUsage: { last: tokenUsage, modelContextWindow: 100_000, total: tokenUsage },
+    },
+  });
+  process.send({
+    method: 'turn/completed',
+    params: {
+      threadId: ids.threadId,
+      turn: { id: ids.turnId, status: 'interrupted' },
+    },
+  });
+};
+
 describe('Codex app-server protocol client', () => {
   beforeEach(() => {
     process.env.CODEX_APP_SERVER_ENABLED = 'true';
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     delete process.env.CODEX_APP_SERVER_ENABLED;
   });
 
@@ -558,6 +592,8 @@ describe('Codex app-server protocol client', () => {
   });
 
   test('interrupts the active Codex turn when its abort signal fires', async () => {
+    const recordAiUsage = vi.fn(async () => undefined);
+    let finishInterruptedTurn = () => undefined;
     let fakeProcess: FakeCodexProcess;
     fakeProcess = new FakeCodexProcess(message => {
       if (message.method === 'initialize') {
@@ -573,20 +609,41 @@ describe('Codex app-server protocol client', () => {
         respond(fakeProcess, message, { turn: { id: 'turn-abort' } });
       } else if (message.method === 'turn/interrupt') {
         respond(fakeProcess, message, {});
+        finishInterruptedTurn = () => {
+          sendInterruptedTurnCompletion(
+            fakeProcess,
+            { threadId: 'thread-abort', turnId: 'turn-abort' },
+            {
+              cacheReadTokens: 5,
+              inputTokens: 13,
+              outputTokens: 7,
+              reasoningTokens: 2,
+            }
+          );
+        };
       }
     });
 
     const client = await startCodexAppServerClient(() => fakeProcess as never);
     const controller = new AbortController();
-    const turnPromise = runCodexAppServerTurnWithClient(
+    const turnPromise = runWithWorkflowAttemptMetering(
       {
-        developerInstructions: 'Tutor.',
-        input: [{ type: 'text', text: 'Ciao' }],
-        model: 'gpt-test-a',
-        reasoningEffort: 'low',
-        signal: controller.signal,
+        attemptNumber: 3,
+        nodeInstanceId: 'root/codex-abort',
+        record: recordAiUsage,
+        runId: '33333333-3333-4333-8333-333333333333',
       },
-      client
+      () =>
+        runCodexAppServerTurnWithClient(
+          {
+            developerInstructions: 'Tutor.',
+            input: [{ type: 'text', text: 'Ciao' }],
+            model: 'gpt-test-a',
+            reasoningEffort: 'low',
+            signal: controller.signal,
+          },
+          client
+        )
     );
     await vi.waitFor(() => {
       expect(fakeProcess.received.some(message => message.method === 'turn/start')).toBe(true);
@@ -594,11 +651,117 @@ describe('Codex app-server protocol client', () => {
     controller.abort();
 
     await expect(turnPromise).rejects.toMatchObject({ name: 'AbortError' });
+    expect(recordAiUsage).not.toHaveBeenCalled();
     await vi.waitFor(() => {
       expect(
         fakeProcess.received.find(message => message.method === 'turn/interrupt')
       ).toMatchObject({
         params: { threadId: 'thread-abort', turnId: 'turn-abort' },
+      });
+    });
+    finishInterruptedTurn();
+    await vi.waitFor(() => {
+      expect(recordAiUsage).toHaveBeenCalledWith({
+        attemptNumber: 3,
+        cacheReadTokens: 5,
+        id: expect.any(String),
+        inputTokens: 13,
+        model: 'gpt-test-a',
+        nodeInstanceId: 'root/codex-abort',
+        outputTokens: 7,
+        provider: 'codex',
+        reasoningTokens: 2,
+        runId: '33333333-3333-4333-8333-333333333333',
+      });
+    });
+    client.close();
+  });
+
+  test('interrupts a timed-out turn and records usage from its terminal event', async () => {
+    vi.useFakeTimers();
+    const recordAiUsage = vi.fn(async () => undefined);
+    let finishInterruptedTurn = () => undefined;
+    let resolveTurnStarted = () => undefined;
+    const turnStarted = new Promise<void>(resolve => {
+      resolveTurnStarted = resolve;
+    });
+    let fakeProcess: FakeCodexProcess;
+    fakeProcess = new FakeCodexProcess(message => {
+      if (message.method === 'initialize') {
+        respond(fakeProcess, message, {});
+      } else if (message.method === 'account/read') {
+        respond(fakeProcess, message, {
+          account: { type: 'chatgpt', planType: 'plus' },
+          requiresOpenaiAuth: true,
+        });
+      } else if (message.method === 'thread/start') {
+        respond(fakeProcess, message, { thread: { id: 'thread-timeout' } });
+      } else if (message.method === 'turn/start') {
+        respond(fakeProcess, message, { turn: { id: 'turn-timeout' } });
+        resolveTurnStarted();
+      } else if (message.method === 'turn/interrupt') {
+        respond(fakeProcess, message, {});
+        finishInterruptedTurn = () => {
+          sendInterruptedTurnCompletion(
+            fakeProcess,
+            { threadId: 'thread-timeout', turnId: 'turn-timeout' },
+            {
+              cacheReadTokens: 3,
+              inputTokens: 11,
+              outputTokens: 5,
+              reasoningTokens: 1,
+            }
+          );
+        };
+      }
+    });
+
+    const client = await startCodexAppServerClient(() => fakeProcess as never);
+    const turnPromise = runWithWorkflowAttemptMetering(
+      {
+        attemptNumber: 4,
+        nodeInstanceId: 'root/codex-timeout',
+        record: recordAiUsage,
+        runId: '44444444-4444-4444-8444-444444444444',
+      },
+      () =>
+        runCodexAppServerTurnWithClient(
+          {
+            developerInstructions: 'Tutor.',
+            input: [{ type: 'text', text: 'Ciao' }],
+            model: 'gpt-test-a',
+            reasoningEffort: 'low',
+          },
+          client
+        )
+    );
+    await turnStarted;
+
+    const timeoutResult = expect(turnPromise).rejects.toMatchObject<CodexAppServerError>({
+      code: 'timeout',
+      message: 'Codex turn timed out.',
+    });
+    await vi.advanceTimersToNextTimerAsync();
+    await timeoutResult;
+    expect(fakeProcess.received.find(message => message.method === 'turn/interrupt')).toMatchObject(
+      {
+        params: { threadId: 'thread-timeout', turnId: 'turn-timeout' },
+      }
+    );
+
+    finishInterruptedTurn();
+    await vi.waitFor(() => {
+      expect(recordAiUsage).toHaveBeenCalledWith({
+        attemptNumber: 4,
+        cacheReadTokens: 3,
+        id: expect.any(String),
+        inputTokens: 11,
+        model: 'gpt-test-a',
+        nodeInstanceId: 'root/codex-timeout',
+        outputTokens: 5,
+        provider: 'codex',
+        reasoningTokens: 1,
+        runId: '44444444-4444-4444-8444-444444444444',
       });
     });
     client.close();

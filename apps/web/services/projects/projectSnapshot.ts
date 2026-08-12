@@ -1,3 +1,9 @@
+import {
+  decodeProjectSnapshotWire,
+  encodeProjectSnapshotWire,
+  type ProjectSnapshotWire,
+  type ProjectSnapshotWireDecodeOptions,
+} from '@shared/projectSnapshotWire';
 import { parseYouTubeTranscript } from '@shared/youtubeTranscript';
 import {
   AppState,
@@ -7,7 +13,6 @@ import {
   type PdfDocumentAssets,
   type PdfDocumentImageAsset,
   type PdfTextIndex,
-  type ProjectExportData,
   type ProjectId,
   type ProjectSnapshot,
   type ProjectSource,
@@ -170,12 +175,15 @@ export const createProjectSnapshot = (
     syllabus: partial.syllabus || [],
     researchCoursePlan: partial.researchCoursePlan ?? null,
     researchDossiersBySectionId: partial.researchDossiersBySectionId ?? {},
+    lastCourseGenerationRunId: partial.lastCourseGenerationRunId ?? null,
     activeSectionId: partial.activeSectionId || null,
     createdAt: partial.createdAt || timestampIso(),
     updatedAt: partial.updatedAt || timestampIso(),
     lastOpenedAt: partial.lastOpenedAt || timestampIso(),
+    ...(partial.legacyUnmappedFields ? { legacyUnmappedFields: partial.legacyUnmappedFields } : {}),
     documentAssets: partial.documentAssets ?? null,
     documentIndex: partial.documentIndex ?? null,
+    ...(partial.extensions ? { extensions: partial.extensions } : {}),
   };
 };
 
@@ -693,45 +701,44 @@ const parseExplicitSourceKind = (value: unknown): ProjectSourceKind | undefined 
 const normalizeProjectRecord = (data: unknown, imported: boolean): ProjectSnapshot => {
   const nextId = createProjectId();
   const now = timestampIso();
-
-  if (!isRecord(data)) {
-    return createProjectSnapshot({ id: nextId });
-  }
-
-  const learningPlan = parseLearningPlan(data.learningPlan ?? data);
-  const syllabus = parseSyllabus(data.syllabus);
-  const source = parseProjectSource(data.source);
+  const wire = decodeProjectSnapshotWire(data);
+  const learningPlan = parseLearningPlan(wire.learningPlan ?? wire);
+  const syllabus = parseSyllabus(wire.syllabus);
+  const source = parseProjectSource(wire.source);
   const hasParentLessons = learningPlan
     ? flattenLessons(learningPlan.modules).some(lesson => Boolean(lesson.parentId))
     : false;
   const isLearnMode =
-    typeof data.isLearnMode === 'boolean'
-      ? data.isLearnMode
+    typeof wire.isLearnMode === 'boolean'
+      ? wire.isLearnMode
       : syllabus.length > 0 || hasParentLessons;
-  const explicitSourceKind = parseExplicitSourceKind(data.sourceKind);
+  const explicitSourceKind = parseExplicitSourceKind(wire.sourceKind);
 
   return createProjectSnapshot({
-    id: isString(data.id) ? data.id : nextId,
-    version: ensureString(data.version, CURRENT_PROJECT_VERSION),
-    title: ensureString(data.title) || undefined,
+    id: isString(wire.id) ? wire.id : nextId,
+    version: ensureString(wire.version, CURRENT_PROJECT_VERSION),
+    title: ensureString(wire.title) || undefined,
     state: learningPlan ? AppState.READING : AppState.LIBRARY,
     sourceKind: explicitSourceKind || inferProjectSourceKind({ source, isLearnMode }, imported),
     source,
     learningPlan:
-      learningPlan && !learningPlan.backgroundMusicUrl && isString(data.musicUrl)
-        ? { ...learningPlan, backgroundMusicUrl: ensureString(data.musicUrl) }
+      learningPlan && !learningPlan.backgroundMusicUrl && isString(wire.musicUrl)
+        ? { ...learningPlan, backgroundMusicUrl: ensureString(wire.musicUrl) }
         : learningPlan,
     isLearnMode,
-    userProfile: parseUserProfile(data.userProfile),
+    userProfile: parseUserProfile(wire.userProfile),
     syllabus,
-    researchCoursePlan: parseResearchCoursePlan(data.researchCoursePlan),
-    researchDossiersBySectionId: parseResearchDossiers(data.researchDossiersBySectionId),
-    activeSectionId: ensureString(data.activeSectionId) || null,
-    createdAt: ensureString(data.createdAt, now),
-    updatedAt: ensureString(data.updatedAt, now),
-    lastOpenedAt: ensureString(data.lastOpenedAt, now),
-    documentAssets: parseDocumentAssets(data.documentAssets),
-    documentIndex: parseDocumentIndex(data.documentIndex),
+    researchCoursePlan: parseResearchCoursePlan(wire.researchCoursePlan),
+    researchDossiersBySectionId: parseResearchDossiers(wire.researchDossiersBySectionId),
+    lastCourseGenerationRunId: wire.lastCourseGenerationRunId ?? null,
+    activeSectionId: ensureString(wire.activeSectionId) || null,
+    createdAt: ensureString(wire.createdAt, now),
+    updatedAt: ensureString(wire.updatedAt, now),
+    lastOpenedAt: ensureString(wire.lastOpenedAt, now),
+    ...(wire.legacyUnmappedFields ? { legacyUnmappedFields: wire.legacyUnmappedFields } : {}),
+    documentAssets: parseDocumentAssets(wire.documentAssets),
+    documentIndex: parseDocumentIndex(wire.documentIndex),
+    ...(wire.extensions ? { extensions: wire.extensions } : {}),
   });
 };
 
@@ -741,21 +748,7 @@ export const normalizeStoredProject = (data: unknown): ProjectSnapshot =>
 export const normalizeImportedProject = (data: unknown): ProjectSnapshot =>
   normalizeProjectRecord(data, true);
 
-export const exportProjectData = (snapshot: ProjectSnapshot): ProjectExportData => ({
-  id: snapshot.id,
-  version: snapshot.version,
-  title: snapshot.title,
-  state: snapshot.state,
-  source: snapshot.source,
-  learningPlan: snapshot.learningPlan,
-  isLearnMode: snapshot.isLearnMode,
-  userProfile: snapshot.userProfile,
-  syllabus: snapshot.syllabus,
-  researchCoursePlan: snapshot.researchCoursePlan ?? null,
-  researchDossiersBySectionId: snapshot.researchDossiersBySectionId ?? {},
-  activeSectionId: snapshot.activeSectionId,
-  musicUrl: snapshot.learningPlan?.backgroundMusicUrl || '',
-  sourceKind: snapshot.sourceKind,
-  documentAssets: snapshot.documentAssets ?? null,
-  documentIndex: snapshot.documentIndex ?? null,
-});
+export const exportProjectData = (
+  snapshot: ProjectSnapshot,
+  options: ProjectSnapshotWireDecodeOptions = {}
+): ProjectSnapshotWire => encodeProjectSnapshotWire(snapshot, options);

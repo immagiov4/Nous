@@ -7,6 +7,7 @@ import {
   emit,
   fanOut,
   finishRepeat,
+  preCompatibilityIdPrevious,
   repeat,
   repeatDecisionSchema,
   routeBy,
@@ -62,9 +63,9 @@ const makeLessonWorkflow = (options: {
   ] as const;
 
   return workflow({
+    compatibilityId: options.compatibilityId ?? 'lesson-generation-v1',
     configSchema: TEST_CONFIG_SCHEMA,
     id: 'lesson-generation',
-    ...(options.compatibilityId !== undefined ? { compatibilityId: options.compatibilityId } : {}),
     inputSchema: LessonInput,
     outputSchema: LessonDraft,
     events: {
@@ -86,6 +87,7 @@ describe('workflow definition registration', () => {
   test('composes workflows as scoped nodes without colliding on internal ids', () => {
     const makeNested = (id: string) =>
       workflow({
+        compatibilityId: `${id}-v1`,
         configSchema: TEST_CONFIG_SCHEMA,
         executionDefaults: TEST_EXECUTION_DEFAULTS,
         id,
@@ -99,6 +101,7 @@ describe('workflow definition registration', () => {
         }),
       });
     const definition = workflow({
+      compatibilityId: 'nested-composition-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       executionDefaults: TEST_EXECUTION_DEFAULTS,
       id: 'nested-composition',
@@ -139,7 +142,7 @@ describe('workflow definition registration', () => {
     }).current;
 
     expect(registered.definitionHash).toBe(
-      '8a008eef751ceb5c9197ca67ab7cd908a8aa9b735bd7e450e67463709c685ac5'
+      '94257254b029c8b914bc05ae8df9e45617846b30fa92bdf7305620f56688bf1e'
     );
   });
 
@@ -172,23 +175,12 @@ describe('workflow definition registration', () => {
     expect(incompatible.definitionHash).not.toBe(base.definitionHash);
   });
 
-  test('rejects a fingerprint format that this runtime cannot reproduce', () => {
-    const definition = {
-      ...makeLessonWorkflow({ waitForApproval: false }),
-      definitionHashVersion: 2,
-    };
-
-    expect(() => createWorkflowRegistry().register({ current: definition })).toThrow(
-      'Unsupported workflow definition hash version: 2.'
-    );
-  });
-
   test('allows resumable definitions only for their persisted hash', () => {
     const previous = makeLessonWorkflow({ compatibilityId: 'previous', waitForApproval: false });
     const current = makeLessonWorkflow({ compatibilityId: 'current', waitForApproval: true });
     const registry = createWorkflowRegistry();
-    const registered = registry.register({ current, resumableDefinitions: [previous] });
-    const previousDefinition = registered.resumableDefinitions[0];
+    const registered = registry.register({ current, previous });
+    const previousDefinition = registered.previous;
     if (!previousDefinition) throw new Error('Expected one resumable workflow definition.');
 
     expect(registry.current('lesson-generation')).toBe(registered.current);
@@ -208,6 +200,29 @@ describe('workflow definition registration', () => {
       },
     ]);
     expect(registry.resolve('lesson-generation', 'missing')).toBeNull();
+  });
+
+  test('resolves a run persisted before compatibility ids entered the manifest', () => {
+    const definition = makeLessonWorkflow({ waitForApproval: false });
+    const registry = createWorkflowRegistry();
+    const registration = registry.register({
+      current: makeLessonWorkflow({
+        compatibilityId: 'lesson-generation-v2',
+        waitForApproval: true,
+      }),
+      previous: preCompatibilityIdPrevious(definition),
+    });
+    const previous = registration.previous;
+    if (!previous) throw new Error('Expected the pre-migration workflow definition.');
+
+    const persistedPreMigrationHash =
+      '3a84101cb97721700b92630e74ec669833a662f3fb41ee06932a4090121d1ab4';
+    expect(previous.definitionHash).toBe(persistedPreMigrationHash);
+    expect(registration.current.definitionHash).not.toBe(persistedPreMigrationHash);
+    expect(registration.current.manifest.compatibilityId).toBe('lesson-generation-v2');
+    expect(registry.resolve('lesson-generation', persistedPreMigrationHash)?.compatibilityId).toBe(
+      'lesson-generation-v1'
+    );
   });
 
   test('accepts type-erased resumable definitions with historical schemas', () => {
@@ -242,10 +257,10 @@ describe('workflow definition registration', () => {
 
     const registration = createWorkflowRegistry().register({
       current,
-      resumableDefinitions: [previous],
+      previous,
     });
 
-    expect(registration.resumableDefinitions).toHaveLength(1);
+    expect(registration.previous).not.toBeNull();
   });
 
   test('registers route, fan-out and repeat as structural primitives', () => {
@@ -295,6 +310,7 @@ describe('workflow definition registration', () => {
       select: () => 'plain',
     });
     const definition = workflow({
+      compatibilityId: 'composed-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       executionDefaults: TEST_EXECUTION_DEFAULTS,
       id: 'composed',
@@ -310,6 +326,35 @@ describe('workflow definition registration', () => {
 });
 
 describe('workflow definition validation', () => {
+  test('rejects a workflow without an explicit compatibility id', () => {
+    const { compatibilityId: _compatibilityId, ...definition } = makeLessonWorkflow({
+      waitForApproval: false,
+    });
+
+    expect(() => createWorkflowRegistry().register({ current: definition as never })).toThrow(
+      'compatibilityId is required.'
+    );
+  });
+
+  test('rejects a nested workflow without an explicit compatibility id', () => {
+    const { compatibilityId: _compatibilityId, ...nested } = makeLessonWorkflow({
+      waitForApproval: false,
+    });
+    const definition = workflow({
+      compatibilityId: 'parent-v1',
+      configSchema: TEST_CONFIG_SCHEMA,
+      executionDefaults: TEST_EXECUTION_DEFAULTS,
+      id: 'parent',
+      inputSchema: LessonInput,
+      outputSchema: LessonDraft,
+      root: nested as never,
+    });
+
+    expect(() => createWorkflowRegistry().register({ current: definition })).toThrow(
+      'compatibilityId is required at root.lesson-generation.'
+    );
+  });
+
   test('rejects nested step overrides that are invalid for the inherited run configuration', () => {
     const Config = WorkflowExecutionDefaultsSchema.extend({
       provider: z.union([
@@ -319,6 +364,7 @@ describe('workflow definition validation', () => {
     });
     type Config = z.infer<typeof Config>;
     const child = workflow({
+      compatibilityId: 'child-v1',
       configSchema: Config,
       executionDefaults: {
         maxAttempts: 3,
@@ -337,6 +383,7 @@ describe('workflow definition validation', () => {
       }),
     });
     const parent = workflow({
+      compatibilityId: 'parent-v1',
       configSchema: Config,
       executionDefaults: {
         maxAttempts: 3,
@@ -363,6 +410,7 @@ describe('workflow definition validation', () => {
     });
     type Config = z.infer<typeof Config>;
     const child = workflow({
+      compatibilityId: 'child-v1',
       configSchema: Config,
       executionDefaults: {
         maxAttempts: 3,
@@ -381,6 +429,7 @@ describe('workflow definition validation', () => {
       }),
     });
     const parent = workflow({
+      compatibilityId: 'parent-v1',
       configSchema: Config,
       executionDefaults: {
         maxAttempts: 3,
@@ -400,6 +449,7 @@ describe('workflow definition validation', () => {
 
   test('rejects a nested workflow with a different run configuration contract', () => {
     const incompatible = workflow({
+      compatibilityId: 'incompatible-v1',
       configSchema: WorkflowExecutionDefaultsSchema.extend({ mode: z.string().optional() }),
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'incompatible',
@@ -413,6 +463,7 @@ describe('workflow definition validation', () => {
       }),
     });
     const definition = workflow({
+      compatibilityId: 'configuration-boundary-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       executionDefaults: TEST_EXECUTION_DEFAULTS,
       id: 'configuration-boundary',
@@ -438,6 +489,7 @@ describe('workflow definition validation', () => {
     expect(() =>
       createWorkflowRegistry().register({
         current: workflow({
+          compatibilityId: 'oversized-step-policy-v1',
           configSchema: TEST_CONFIG_SCHEMA,
           executionDefaults: TEST_EXECUTION_DEFAULTS,
           id: 'oversized-step-policy',
@@ -461,6 +513,7 @@ describe('workflow definition validation', () => {
     expect(() =>
       createWorkflowRegistry().register({
         current: workflow({
+          compatibilityId: 'invalid-step-config-v1',
           configSchema: TEST_CONFIG_SCHEMA,
           executionDefaults: TEST_EXECUTION_DEFAULTS,
           id: 'invalid-step-config',
@@ -476,6 +529,7 @@ describe('workflow definition validation', () => {
     expect(() =>
       createWorkflowRegistry().register({
         current: workflow({
+          compatibilityId: 'invalid-event-version-v1',
           configSchema: TEST_CONFIG_SCHEMA,
           events: {
             completed: {
@@ -524,6 +578,7 @@ describe('workflow definition validation', () => {
     const definitionHashFor = <Schema extends z.ZodType>(schema: Schema) =>
       createWorkflowRegistry().register({
         current: workflow({
+          compatibilityId: 'ordered-union-v1',
           configSchema: TEST_CONFIG_SCHEMA,
           executionDefaults: TEST_EXECUTION_DEFAULTS,
           id: 'ordered-union',
@@ -564,6 +619,7 @@ describe('workflow definition validation', () => {
       run: async ({ input }) => input,
     });
     const definition = workflow({
+      compatibilityId: 'duplicates-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       id: 'duplicates',
       executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -584,6 +640,7 @@ describe('workflow definition validation', () => {
     ['custom refinement', z.string().refine(value => value.length > 0)],
   ])('rejects %s in a durable schema', (_name, unsupportedSchema) => {
     const invalid = workflow({
+      compatibilityId: 'invalid-schema-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       id: 'invalid-schema',
       executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -605,6 +662,7 @@ describe('workflow definition validation', () => {
   test('rejects a durable boundary that can produce an undefined JSON value', () => {
     const OptionalText = z.string().optional();
     const invalid = workflow({
+      compatibilityId: 'undefined-boundary-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       executionDefaults: TEST_EXECUTION_DEFAULTS,
       id: 'undefined-boundary',
@@ -631,6 +689,7 @@ describe('workflow definition validation', () => {
 
   test('rejects unknown signals and events', () => {
     const missingSignal = workflow({
+      compatibilityId: 'missing-signal-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       id: 'missing-signal',
       executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -646,6 +705,7 @@ describe('workflow definition validation', () => {
       }),
     });
     const missingEvent = workflow({
+      compatibilityId: 'missing-event-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       id: 'missing-event',
       executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -669,6 +729,7 @@ describe('workflow definition validation', () => {
 
   test('does not treat inherited object properties as declared signals or events', () => {
     const inheritedEvent = workflow({
+      compatibilityId: 'inherited-event-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       id: 'inherited-event',
       executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -682,6 +743,7 @@ describe('workflow definition validation', () => {
       }),
     });
     const inheritedSignal = workflow({
+      compatibilityId: 'inherited-signal-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       id: 'inherited-signal',
       executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -708,6 +770,7 @@ describe('workflow definition validation', () => {
   test('rejects invalid signal versions and wait payload schemas', () => {
     const invalidVersion = makeLessonWorkflow({});
     const mismatchedWait = workflow({
+      compatibilityId: 'mismatched-signal-schema-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       executionDefaults: TEST_EXECUTION_DEFAULTS,
       id: 'mismatched-signal-schema',
@@ -739,6 +802,7 @@ describe('workflow definition validation', () => {
 
   test('rejects disconnected sequence schemas', () => {
     const definition = workflow({
+      compatibilityId: 'disconnected-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       id: 'disconnected',
       executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -793,6 +857,7 @@ describe('workflow definition validation', () => {
     expect(() =>
       createWorkflowRegistry().register({
         current: workflow({
+          compatibilityId: 'mismatched-sequence-v1',
           configSchema: TEST_CONFIG_SCHEMA,
           id: 'mismatched-sequence',
           executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -805,6 +870,7 @@ describe('workflow definition validation', () => {
     expect(() =>
       createWorkflowRegistry().register({
         current: workflow({
+          compatibilityId: 'empty-sequence-v1',
           configSchema: TEST_CONFIG_SCHEMA,
           id: 'empty-sequence',
           executionDefaults: TEST_EXECUTION_DEFAULTS,
@@ -821,7 +887,7 @@ describe('workflow definition validation', () => {
       createWorkflowRegistry().register({
         current: makeLessonWorkflow({ compatibilityId: '', waitForApproval: false }),
       })
-    ).toThrow('compatibilityId cannot be empty.');
+    ).toThrow('compatibilityId is required.');
   });
 
   test.each([
@@ -847,6 +913,7 @@ describe('workflow definition validation', () => {
     ],
   ])('rejects a manually constructed %s', (_name, invalidRoot, expectedMessage) => {
     const invalidDefinition = workflow({
+      compatibilityId: 'invalid-node-shape-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       executionDefaults: TEST_EXECUTION_DEFAULTS,
       id: 'invalid-node-shape',
@@ -883,6 +950,7 @@ describe('workflow definition validation', () => {
     const mutableNodes: [typeof first, ...(typeof first)[]] = [first];
     const mutableDefaults = { maxAttempts: 3, timeoutMs: 60_000 };
     const definition = workflow({
+      compatibilityId: 'immutable-registration-v1',
       configSchema: TEST_CONFIG_SCHEMA,
       executionDefaults: mutableDefaults,
       id: 'immutable-registration',
@@ -944,6 +1012,7 @@ describe('workflow definition validation', () => {
     expect(() =>
       createWorkflowRegistry().register({
         current: workflow({
+          compatibilityId: 'invalid-fan-out-v1',
           configSchema: TEST_CONFIG_SCHEMA,
           executionDefaults: TEST_EXECUTION_DEFAULTS,
           id: 'invalid-fan-out',
@@ -961,6 +1030,7 @@ describe('workflow definition validation', () => {
     expect(() =>
       createWorkflowRegistry().register({
         current: workflow({
+          compatibilityId: 'invalid-repeat-v1',
           configSchema: TEST_CONFIG_SCHEMA,
           executionDefaults: TEST_EXECUTION_DEFAULTS,
           id: 'invalid-repeat',

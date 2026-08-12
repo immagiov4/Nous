@@ -6,12 +6,18 @@ import {
   createProjectSourceFromDescriptors,
 } from '../../../services/projects/courseSources.ts';
 import { HttpProjectRepository } from '../../../services/projects/httpProjectRepository.ts';
-import { ProjectStorageError } from '../../../services/projects/projectRepository.ts';
+import {
+  PROJECT_SYNC_ERROR_MESSAGE,
+  ProjectStorageError,
+} from '../../../services/projects/projectRepository.ts';
 import {
   consumeProjectRevisionStream,
   subscribeToProjectRevisionStream,
 } from '../../../services/projects/projectRevisionStream.ts';
-import { normalizeStoredProject } from '../../../services/projects/projectSnapshot.ts';
+import {
+  exportProjectData,
+  normalizeStoredProject,
+} from '../../../services/projects/projectSnapshot.ts';
 import { AppState, type ProjectSnapshot } from '../../../types.ts';
 
 const fetchMock = vi.fn();
@@ -49,6 +55,24 @@ const buildPdfSnapshot = (): ProjectSnapshot => ({
   documentIndex: null,
 });
 
+const withStoredArchiveReference = (snapshot: ProjectSnapshot): ProjectSnapshot => {
+  if (snapshot.source?.kind !== 'archive') throw new Error('Expected an archive source.');
+  return {
+    ...snapshot,
+    source: {
+      ...snapshot.source,
+      ref: {
+        byteSize: 1,
+        hash: 'archive-hash',
+        id: 'source-archive',
+        mimeType: snapshot.source.file.mimeType,
+        name: snapshot.source.file.name,
+        objectPath: 'users/user/projects/archive/source-archive/archive-hash/original',
+      },
+    },
+  };
+};
+
 test('HttpProjectRepository sends the Supabase bearer token to the backend', async () => {
   saveSupabaseSession({ accessToken: 'access-token-123' });
   fetchMock.mockResolvedValueOnce({
@@ -65,6 +89,37 @@ test('HttpProjectRepository sends the Supabase bearer token to the backend', asy
   const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
   expect(requestInit?.headers).toMatchObject({
     Authorization: 'Bearer access-token-123',
+  });
+});
+
+test('HttpProjectRepository validates exported projects at the wire boundary', async () => {
+  const exported = exportProjectData(buildPdfSnapshot());
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({ data: exported, success: true }),
+  });
+
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await expect(repository.exportProject('pdf-project')).resolves.toEqual(exported);
+});
+
+test('HttpProjectRepository rejects malformed canonical project exports', async () => {
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: { id: 'broken-project', projectFormatVersion: 1 },
+      success: true,
+    }),
+  });
+
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await expect(repository.exportProject('broken-project')).rejects.toMatchObject({
+    code: 'persistence-failed',
+    message: PROJECT_SYNC_ERROR_MESSAGE,
   });
 });
 
@@ -89,7 +144,7 @@ test('HttpProjectRepository writes favorites through the project API', async () 
   );
 });
 
-test('HttpProjectRepository preserves backend errors instead of reporting server as unavailable', async () => {
+test('HttpProjectRepository hides generic backend error details', async () => {
   fetchMock.mockResolvedValueOnce({
     ok: false,
     statusText: 'Unauthorized',
@@ -105,7 +160,9 @@ test('HttpProjectRepository preserves backend errors instead of reporting server
     () => repository.listFolders(),
     (error: unknown) =>
       error instanceof ProjectStorageError &&
-      error.message === 'Autenticazione non configurata per questa installazione.'
+      error.code === 'persistence-failed' &&
+      error.message ===
+        'Sincronizzazione server non disponibile. Verifica che il backend sia acceso e raggiungibile.'
   );
 });
 
@@ -192,7 +249,7 @@ test('HttpProjectRepository gives archive saves enough time to upload and index 
         hasSourceFile: true,
         coverLabel: 'engine.zip',
       },
-      snapshot,
+      snapshot: withStoredArchiveReference(snapshot),
     }),
   });
   await savePromise;
@@ -286,6 +343,12 @@ test('HttpProjectRepository creates a sourced project with one atomic PUT', asyn
     'http://localhost:3301/api/projects/projects/pdf-project'
   );
   const saveBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+  expect(saveBody.snapshot).toMatchObject({
+    createdAt: '2026-07-09T10:00:00.000Z',
+    lastOpenedAt: '2026-07-09T10:00:00.000Z',
+    projectFormatVersion: 1,
+    updatedAt: '2026-07-09T10:00:00.000Z',
+  });
   expect(saveBody.snapshot.source).toEqual({
     kind: 'pdf',
     file: {
@@ -511,7 +574,7 @@ test('HttpProjectRepository uploads archives as binary multipart without a JSON 
   expect(saved.snapshot.source).toEqual(detachedArchiveSource);
 });
 
-test('HttpProjectRepository chunks large binary archives before upload', async () => {
+test('HttpProjectRepository preserves the expected revision when saving chunked archives', async () => {
   const snapshot: ProjectSnapshot = {
     ...buildPdfSnapshot(),
     id: 'chunked-archive',
@@ -545,18 +608,26 @@ test('HttpProjectRepository chunks large binary archives before upload', async (
     .mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({ success: true, meta: { id: snapshot.id }, snapshot }),
+      json: async () => ({
+        success: true,
+        meta: { id: snapshot.id },
+        snapshot: withStoredArchiveReference(snapshot),
+      }),
     });
 
   await new HttpProjectRepository('http://localhost:3301').saveProject(snapshot, {
     archiveFile: new File([new Uint8Array(16_000_001)], 'engine.zip', {
       type: 'application/zip',
     }),
+    expectedRevision: 7,
   });
 
   expect(fetchMock).toHaveBeenCalledTimes(4);
   expect(fetchMock.mock.calls.slice(1, 3).every(call => call[1]?.body instanceof Blob)).toBe(true);
   expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/complete');
+  expect(JSON.parse(String(fetchMock.mock.calls[3]?.[1]?.body))).toMatchObject({
+    expectedRevision: 7,
+  });
 });
 
 test('HttpProjectRepository does not fall back to Base64 JSON for archives', async () => {
@@ -640,13 +711,36 @@ test('HttpProjectRepository sends the expected revision and preserves a 409 conf
   await assert.rejects(
     () =>
       repository.patchProject('project-1', { state: AppState.READING }, { expectedRevision: 4 }),
-    (error: unknown) => error instanceof ProjectStorageError && error.code === 'revision-conflict'
+    (error: unknown) =>
+      error instanceof ProjectStorageError &&
+      error.code === 'revision-conflict' &&
+      error.message ===
+        "Il progetto è stato modificato in un'altra sessione. Ricaricalo prima di salvare."
   );
 
   expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
     expectedRevision: 4,
     patch: { state: AppState.READING },
   });
+});
+
+test('HttpProjectRepository distinguishes a deleted project from a revision conflict', async () => {
+  fetchMock.mockResolvedValueOnce({
+    ok: false,
+    status: 404,
+    statusText: 'Not Found',
+    json: async () => ({ success: false, error: 'technical backend detail' }),
+  });
+  const repository = new HttpProjectRepository('http://localhost:3301');
+
+  await assert.rejects(
+    () =>
+      repository.patchProject('project-1', { state: AppState.READING }, { expectedRevision: 4 }),
+    (error: unknown) =>
+      error instanceof ProjectStorageError &&
+      error.code === 'project-deleted' &&
+      error.message === 'Questo corso è stato cancellato'
+  );
 });
 
 test('HttpProjectRepository chunks imports that exceed the proxy request limit', async () => {

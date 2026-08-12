@@ -38,6 +38,7 @@ const { createApp } = await import('../../src/index.js');
 const authenticateProvider = (aiProvider: 'codex' | 'openai' | 'openrouter'): string => {
   process.env.AUTH_MODE = 'supabase';
   process.env.SUPABASE_JWT_SECRET = 'test-secret';
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
   return createSupabaseTestToken({ aiProvider });
 };
 
@@ -447,6 +448,7 @@ describe('/api/openrouter proxy', () => {
     codexMocks.runCodexAppServerTurn.mockResolvedValue('Risposta mista');
     process.env.AUTH_MODE = 'supabase';
     process.env.SUPABASE_JWT_SECRET = 'test-secret';
+    process.env.SUPABASE_URL = 'https://example.supabase.co';
     const token = createSupabaseTestToken();
 
     const response = await request(createApp())

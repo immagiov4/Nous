@@ -39,6 +39,7 @@ const materializeDefinition = (
 describe('workflow start materialization', () => {
   test('materializes a nested workflow in the same run with scoped definitions', () => {
     const nested = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       events: {
         prepared: { durability: 'durable', schema: Output, schemaVersion: 1 },
@@ -66,6 +67,7 @@ describe('workflow start materialization', () => {
       }),
     });
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'nested-start',
@@ -120,6 +122,7 @@ describe('workflow start materialization', () => {
     });
     const registered = createWorkflowRegistry().register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'resolved-config',
@@ -160,6 +163,7 @@ describe('workflow start materialization', () => {
     });
     const registered = createWorkflowRegistry().register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: Config,
         executionDefaults: {
           maxAttempts: 3,
@@ -209,6 +213,7 @@ describe('workflow start materialization', () => {
       timeoutMs: z.number(),
     });
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: PermissiveConfigSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'invalid-resolved-defaults',
@@ -237,6 +242,7 @@ describe('workflow start materialization', () => {
   test('rejects an unregistered or mutated definition before materialization', () => {
     const MutableInput = z.object({ text: z.string() });
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'definition-integrity',
@@ -289,6 +295,7 @@ describe('workflow start materialization', () => {
       run: async ({ input }) => input,
     });
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'linear',
@@ -352,6 +359,7 @@ describe('workflow start materialization', () => {
     });
     const makeDefinition = (select: (input: z.output<typeof Input>) => string) =>
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'routed',
@@ -388,6 +396,7 @@ describe('workflow start materialization', () => {
   test('snapshots step policy even when operational overrides do not change the definition hash', () => {
     const makeDefinition = (maxAttempts: number, timeoutMs: number) =>
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'policy-snapshot',
@@ -449,6 +458,7 @@ describe('workflow start materialization', () => {
       undo: async () => undefined,
     });
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'undo-snapshot',
@@ -472,6 +482,7 @@ describe('workflow start materialization', () => {
       run: async ({ input }) => input,
     });
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'fan-out',
@@ -516,6 +527,7 @@ describe('workflow start materialization', () => {
         parentInput
     );
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'empty-fan-out',
@@ -553,6 +565,7 @@ describe('workflow start materialization', () => {
       run: async () => ({ kind: 'finish' as const, state: { revision: 1 } }),
     });
     const repeating = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'repeat',
@@ -567,6 +580,7 @@ describe('workflow start materialization', () => {
       }),
     });
     const waiting = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'wait',
@@ -607,6 +621,7 @@ describe('workflow start materialization', () => {
   test('rejects duplicate wait ids produced by a fan-out', () => {
     const FanInput = z.object({ values: z.array(z.string()) });
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'wait-id-uniqueness',
@@ -646,6 +661,7 @@ describe('workflow start materialization', () => {
   test('completes pure emit nodes while separating durable and transient events', () => {
     const makeEmitWorkflow = (durability: 'durable' | 'transient') =>
       workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         events: {
           ready: { durability, schema: Output, schemaVersion: 2 },
@@ -682,6 +698,7 @@ describe('workflow start materialization', () => {
     });
     const eventPayload = { nested: { value: 'ready' }, optional: undefined };
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       events: {
         ready: { durability: 'durable', schema: Snapshot, schemaVersion: 1 },
@@ -713,6 +730,7 @@ describe('workflow start materialization', () => {
 
   test('marks a pure workflow as completed independently of its output payload', () => {
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       events: {
         ready: { durability: 'durable', schema: z.object({}), schemaVersion: 1 },

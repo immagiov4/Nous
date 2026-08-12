@@ -48,7 +48,7 @@ export default function LandingPage({
   const mobileJourneyCopy = MARKETING_JOURNEY_COPY[activeJourneyStep];
 
   useEffect(() => {
-    if (typeof globalThis.window === 'undefined' || !globalThis.window.matchMedia) {
+    if (!globalThis.window?.matchMedia) {
       return;
     }
 

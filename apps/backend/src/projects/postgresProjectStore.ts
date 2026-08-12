@@ -39,7 +39,7 @@ import {
   stripProjectRevision,
   toPostgresJson,
 } from './projectPersistence.js';
-import { ProjectRevisionConflictError } from './projectRevision.js';
+import { ProjectNotFoundError, ProjectRevisionConflictError } from './projectRevision.js';
 import {
   attachProjectSource,
   attachProjectSources,
@@ -63,7 +63,6 @@ import type {
   LibraryPlacement,
   ProjectCoverFile,
   ProjectCoverWriteOptions,
-  ProjectExportData,
   ProjectId,
   ProjectImportDiagnostic,
   ProjectImportDiagnosticInput,
@@ -119,6 +118,10 @@ interface ProjectSnapshotRow {
 
 interface ProjectSnapshotWithRevisionRow extends ProjectSnapshotRow {
   revision: number | string;
+}
+
+interface ProjectSnapshotByIdRow extends ProjectSnapshotRow {
+  id: ProjectId;
 }
 
 interface ProjectSourceRow {
@@ -588,7 +591,9 @@ export class PostgresProjectStore implements ProjectStore {
         updated_at = excluded.updated_at
       returning project_id
     `;
-    return Boolean(rows[0]);
+    if (rows[0]) return true;
+    if (!(await this.readProjectMeta(userId, id))) throw new ProjectNotFoundError();
+    return false;
   }
 
   private async writeImportedProjectCover(
@@ -613,8 +618,18 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   async loadProjectsById(userId: string, ids: ProjectId[]): Promise<ProjectSnapshot[]> {
-    const snapshots = await Promise.all(ids.map(id => this.loadProject(userId, id)));
-    return snapshots.filter((snapshot): snapshot is ProjectSnapshot => Boolean(snapshot));
+    if (ids.length === 0) return [];
+
+    const rows = await this.sql<ProjectSnapshotByIdRow[]>`
+      select id, snapshot, document_index
+      from public.project_snapshots
+      where user_id = ${userId} and id = any(${ids}::text[])
+    `;
+    const snapshotsById = new Map(rows.map(row => [row.id, mergeProjectSnapshotRow(row)] as const));
+    return ids.flatMap(id => {
+      const snapshot = snapshotsById.get(id);
+      return snapshot ? [snapshot] : [];
+    });
   }
 
   private async writeProjectRevision(
@@ -683,12 +698,20 @@ export class PostgresProjectStore implements ProjectStore {
     data: ProjectSnapshot,
     { expectedRevision, importedAssets = [], importedCover, sourceFile }: ProjectSaveOptions = {}
   ): Promise<ProjectSaveResult> {
-    let snapshot = normalizeProjectSnapshot(data);
+    let snapshot = normalizeProjectSnapshot(data, false, {
+      externalArchiveBytesAvailable: Boolean(sourceFile?.bytes.byteLength),
+    });
     const existingMeta = await this.readProjectMeta(userId, snapshot.id);
+    if (expectedRevision !== undefined && !existingMeta) {
+      throw new ProjectNotFoundError();
+    }
     if (expectedRevision !== undefined && existingMeta?.revision !== expectedRevision) {
       throw new ProjectRevisionConflictError();
     }
     const existingSnapshot = await this.loadProject(userId, snapshot.id);
+    if (expectedRevision !== undefined && !existingSnapshot) {
+      throw new ProjectNotFoundError();
+    }
     if (existingSnapshot?.source) {
       snapshot = await this.detachUnchangedEmbeddedSource(userId, snapshot, existingSnapshot);
     }
@@ -742,12 +765,13 @@ export class PostgresProjectStore implements ProjectStore {
 
         let previousSnapshot: ProjectSnapshot | null = null;
         if (existingMeta) {
-          await sql`
+          const lockedRows = await sql<{ id: string }[]>`
             select id
             from public.projects
             where user_id = ${userId} and id = ${snapshot.id}
             for update
           `;
+          if (!lockedRows[0]) throw new ProjectNotFoundError();
         }
         const snapshotToPersist =
           !sourceWrite && snapshot.source != null
@@ -862,13 +886,18 @@ export class PostgresProjectStore implements ProjectStore {
     patch: ProjectPatch,
     options: ProjectWriteOptions = {}
   ): Promise<SavedProjectMeta> {
-    const existing = await this.loadProject(userId, id);
+    const existing = await this.loadProjectWithRevision(userId, id);
     if (!existing) {
-      throw new Error(`Progetto ${id} non trovato per patch.`);
+      throw new ProjectNotFoundError();
     }
 
-    const snapshot = applyProjectPatch(existing, patch, patch.updatedAt || timestampIso());
-    return (await this.saveProject(userId, snapshot, options)).meta;
+    const snapshot = applyProjectPatch(existing.snapshot, patch, patch.updatedAt || timestampIso());
+    return (
+      await this.saveProject(userId, snapshot, {
+        ...options,
+        expectedRevision: options.expectedRevision ?? existing.revision,
+      })
+    ).meta;
   }
 
   async setProjectFavorite(
@@ -885,7 +914,7 @@ export class PostgresProjectStore implements ProjectStore {
       returning meta, revision
     `;
     if (!rows[0]) {
-      throw new Error(`Progetto ${id} non trovato per aggiornamento preferito.`);
+      throw new ProjectNotFoundError();
     }
     return mergeProjectMetaRow(rows[0]);
   }
@@ -963,7 +992,7 @@ export class PostgresProjectStore implements ProjectStore {
     bytes: Uint8Array,
     targetProjectId: ProjectId
   ): Promise<{ meta: SavedProjectMeta; snapshot: ProjectSnapshot }> {
-    const decoded = await decodeProjectBackupArchive<ProjectSnapshot>(bytes, {
+    const decoded = await decodeProjectBackupArchive(bytes, {
       invalidArchiveMessage: INVALID_PROJECT_BACKUP_MESSAGE,
       maxEntries: PROJECT_BACKUP_MAX_ENTRIES,
       maxManifestBytes: PROJECT_BACKUP_MAX_MANIFEST_BYTES,
@@ -993,7 +1022,7 @@ export class PostgresProjectStore implements ProjectStore {
     }
   }
 
-  async exportProject(userId: string, id: ProjectId): Promise<ProjectExportData | null> {
+  async exportProject(userId: string, id: ProjectId): Promise<ProjectSnapshot | null> {
     const snapshot = await this.loadProject(userId, id);
     if (!snapshot) {
       return null;
@@ -1009,7 +1038,7 @@ export class PostgresProjectStore implements ProjectStore {
 
   async touchProject(userId: string, id: ProjectId): Promise<void> {
     const touchedAt = timestampIso();
-    await this.sql`
+    const rows = await this.sql<{ id: string }[]>`
       update public.projects
       set meta = jsonb_set(
             jsonb_set(meta, '{updatedAt}', to_jsonb(${touchedAt}::text), true),
@@ -1021,7 +1050,9 @@ export class PostgresProjectStore implements ProjectStore {
           last_opened_at = ${touchedAt},
           server_updated_at = now()
       where user_id = ${userId} and id = ${id}
+      returning id
     `;
+    if (!rows[0]) throw new ProjectNotFoundError();
   }
 
   async listFolders(userId: string): Promise<LibraryFolder[]> {
@@ -1183,7 +1214,6 @@ export class PostgresProjectStore implements ProjectStore {
     folderId: string | null,
     targetIndex?: number
   ): Promise<LibraryPlacement[]> {
-    await this.ensureAllProjectPlacements(userId);
     const placements = await this.listPlacements(userId);
     const folders = await this.listFolders(userId);
     const updatedAt = timestampIso();
@@ -1280,8 +1310,7 @@ export class PostgresProjectStore implements ProjectStore {
     if (
       sourceFile &&
       (snapshotSource?.kind !== 'archive' ||
-        !snapshotFile ||
-        snapshotFile.name !== sourceFile.name ||
+        snapshotFile?.name !== sourceFile.name ||
         snapshotFile.mimeType !== sourceFile.mimeType ||
         snapshotFile.data !== '')
     ) {
@@ -2266,10 +2295,6 @@ export class PostgresProjectStore implements ProjectStore {
     `;
   }
 
-  private async writePlacement(userId: string, placement: LibraryPlacement): Promise<void> {
-    await this.writePlacementWithClient(this.sql, userId, placement);
-  }
-
   private async writePlacementWithClient(
     sql: PostgresMutationSql,
     userId: string,
@@ -2288,17 +2313,13 @@ export class PostgresProjectStore implements ProjectStore {
     `;
   }
 
-  private async ensurePlacement(userId: string, projectId: ProjectId): Promise<void> {
-    await this.ensurePlacementWithClient(this.sql, userId, projectId);
-  }
-
   private async ensurePlacementWithClient(
     sql: PostgresMutationSql,
     userId: string,
     projectId: ProjectId
   ): Promise<void> {
     const placements = await this.listPlacementsWithoutRepairWithClient(sql, userId);
-    const existingPlacement = placements.find(placement => placement.projectId === projectId);
+    const existingPlacement = placements.some(placement => placement.projectId === projectId);
     if (existingPlacement) {
       return;
     }
@@ -2312,9 +2333,46 @@ export class PostgresProjectStore implements ProjectStore {
   }
 
   private async ensureAllProjectPlacements(userId: string): Promise<void> {
-    for (const meta of await this.listProjects(userId)) {
-      await this.ensurePlacement(userId, meta.id);
-    }
+    await this.sql`
+      with placement_state as (
+        select coalesce(max(order_index) filter (where folder_id is null), 0) as max_root_order
+        from public.library_placements
+        where user_id = ${userId}
+      ), missing_placements as (
+        select
+          project.id as project_id,
+          row_number() over (
+            order by project.last_opened_at desc nulls last, project.updated_at desc, project.id
+          ) as missing_position
+        from public.projects project
+        left join public.library_placements placement
+          on placement.user_id = project.user_id and placement.project_id = project.id
+        where project.user_id = ${userId} and placement.project_id is null
+      ), prepared_placements as (
+        select
+          missing.project_id,
+          (state.max_root_order + missing.missing_position * ${SIBLING_ORDER_STEP})::integer as order_index,
+          clock_timestamp() as updated_at
+        from missing_placements missing
+        cross join placement_state state
+      )
+      insert into public.library_placements
+        (user_id, project_id, placement, folder_id, order_index, updated_at)
+      select
+        ${userId},
+        project_id,
+        jsonb_build_object(
+          'projectId', project_id,
+          'folderId', null,
+          'order', order_index,
+          'updatedAt', updated_at
+        ),
+        null,
+        order_index,
+        updated_at
+      from prepared_placements
+      on conflict (user_id, project_id) do nothing
+    `;
   }
 
   private async listPlacementsWithoutRepairWithClient(
@@ -2344,25 +2402,48 @@ export class PostgresProjectStore implements ProjectStore {
     parentFolderId: string | null,
     updatedAt: string
   ): Promise<void> {
-    for (const [index, item] of items.entries()) {
-      const nextOrder = (index + 1) * SIBLING_ORDER_STEP;
-
-      if (item.kind === 'folder') {
-        await this.writeFolder(userId, {
-          ...item.value,
-          order: nextOrder,
-          parentFolderId,
-          updatedAt,
-        });
-        continue;
+    await this.sql.begin(async sql => {
+      const folderIds = items.flatMap(item => (item.kind === 'folder' ? [item.id] : []));
+      if (folderIds.length > 0) {
+        await sql`
+          select id
+          from public.library_folders
+          where user_id = ${userId} and id = any(${folderIds}::text[])
+          order by id
+          for update
+        `;
+      }
+      const projectIds = items.flatMap(item => (item.kind === 'project' ? [item.id] : []));
+      if (projectIds.length > 0) {
+        await sql`
+          select project_id
+          from public.library_placements
+          where user_id = ${userId} and project_id = any(${projectIds}::text[])
+          order by project_id
+          for update
+        `;
       }
 
-      await this.writePlacement(userId, {
-        ...item.value,
-        folderId: parentFolderId,
-        order: nextOrder,
-        updatedAt,
-      });
-    }
+      for (const [index, item] of items.entries()) {
+        const nextOrder = (index + 1) * SIBLING_ORDER_STEP;
+
+        if (item.kind === 'folder') {
+          await this.writeFolderWithClient(sql, userId, {
+            ...item.value,
+            order: nextOrder,
+            parentFolderId,
+            updatedAt,
+          });
+          continue;
+        }
+
+        await this.writePlacementWithClient(sql, userId, {
+          ...item.value,
+          folderId: parentFolderId,
+          order: nextOrder,
+          updatedAt,
+        });
+      }
+    });
   }
 }

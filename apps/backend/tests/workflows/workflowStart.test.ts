@@ -15,6 +15,7 @@ const Payload = z.object({ content: z.string() });
 const registry = createWorkflowRegistry();
 const definition = registry.register({
   current: workflow({
+    compatibilityId: 'test-v1',
     configSchema: Config,
     executionDefaults: {
       maxAttempts: 3,
@@ -126,6 +127,7 @@ describe('startWorkflowRun', () => {
     const transientRegistry = createWorkflowRegistry();
     const transientDefinition = transientRegistry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: Config,
         events: {
           progress: {

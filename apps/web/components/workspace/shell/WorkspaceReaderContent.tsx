@@ -52,6 +52,7 @@ import ChatArtifactRenderer from '../../shared/ChatArtifactRenderer.tsx';
 import GeneratedVisualFrame from '../../shared/GeneratedVisualFrame.tsx';
 import GenerationProgress from '../../shared/GenerationProgress.tsx';
 import MarkdownRenderer from '../../shared/MarkdownRenderer.tsx';
+import SurfaceErrorBoundary from '../../shared/SurfaceErrorBoundary.tsx';
 import ThinkingStream from '../../shared/ThinkingStream.tsx';
 import LessonDocumentSources from './LessonDocumentSources.tsx';
 import LessonLearningAids from './LessonLearningAids.tsx';
@@ -69,8 +70,6 @@ const LESSON_WARNING_MESSAGES: Readonly<
     t('Gli aiuti didattici aggiuntivi non sono disponibili per questa lezione.'),
   lesson_pdf_image_extraction_incomplete: () =>
     t('Alcune immagini del PDF non sono state incluse nella lezione.'),
-  lesson_youtube_research_unavailable: () =>
-    t('I video di approfondimento non sono disponibili per questa lezione.'),
 };
 
 function LessonGenerationWarnings({
@@ -982,12 +981,14 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
     : 'max-w-[90rem] px-4 pb-36 pt-4 sm:px-8 sm:pt-8 lg:px-14 xl:px-20 2xl:px-24';
   const readingColumnClassName = isFocusMode ? 'mx-auto max-w-[76ch]' : 'mx-auto max-w-[82ch]';
   const lessonLayoutClassName = readingColumnClassName;
+  const hasStructuredSourceAttribution =
+    documentSourceReferences.length > 0 || lessonSources.length > 0;
   const renderedSectionContent = useMemo(() => {
     const contentWithoutDuplicateSources =
       sectionContent && lessonSources.length > 0
         ? stripTerminalLessonSourcesSection(sectionContent)
         : sectionContent;
-    return contentWithoutDuplicateSources && sourcePageRangeLabel
+    return contentWithoutDuplicateSources && sourcePageRangeLabel && !hasStructuredSourceAttribution
       ? `${contentWithoutDuplicateSources.trim()}\n\n&nbsp;\n\n*${t(
           'Fonte originale: {sourcePageRangeLabel}',
           {
@@ -995,10 +996,12 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
           }
         )}*`
       : contentWithoutDuplicateSources;
-  }, [lessonSources.length, sectionContent, sourcePageRangeLabel]);
+  }, [hasStructuredSourceAttribution, lessonSources.length, sectionContent, sourcePageRangeLabel]);
   const typedContentBlocks = useMemo(() => {
     const blocks = normalizeLessonContentBlocks(sectionContentBlocks);
-    if (blocks.length === 0 || !sourcePageRangeLabel) return blocks;
+    if (blocks.length === 0 || !sourcePageRangeLabel || hasStructuredSourceAttribution) {
+      return blocks;
+    }
     let lastMarkdownIndex = -1;
     blocks.forEach((block, index) => {
       if (block.type === 'markdown') lastMarkdownIndex = index;
@@ -1015,7 +1018,7 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
             }
           : block
     );
-  }, [sectionContentBlocks, sourcePageRangeLabel]);
+  }, [hasStructuredSourceAttribution, sectionContentBlocks, sourcePageRangeLabel]);
   const hasTypedContent = typedContentBlocks.length > 0;
   const hasLessonContent = hasTypedContent || Boolean(sectionContent);
   const effectiveQuiz = useMemo(
@@ -1275,13 +1278,18 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
                           ? activeSectionGeneratedVisualsById[block.visualId]
                           : undefined;
                         return visual ? (
-                          <GeneratedVisualFrame
+                          <SurfaceErrorBoundary
                             key={`visual:${block.slotId}`}
-                            isDarkMode={isDarkMode}
-                            projectId={projectId}
-                            title={visual.title || activeSectionTitle || 'Esempio visuale'}
-                            visual={visual}
-                          />
+                            resetKey={visual.id}
+                            surface="visual"
+                          >
+                            <GeneratedVisualFrame
+                              isDarkMode={isDarkMode}
+                              projectId={projectId}
+                              title={visual.title || activeSectionTitle || 'Esempio visuale'}
+                              visual={visual}
+                            />
+                          </SurfaceErrorBoundary>
                         ) : block.retryPlan ? (
                           <FailedVisualSlot
                             key={`visual:${block.slotId}`}

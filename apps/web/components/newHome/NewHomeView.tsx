@@ -43,6 +43,7 @@ import { Pressable } from '../../utils/motion/index.ts';
 import AccountMenu from '../account/AccountMenu.tsx';
 import HomeChatPanel from '../library/HomeChatPanel.tsx';
 import MarkdownRenderer from '../shared/MarkdownRenderer.tsx';
+import SurfaceErrorBoundary from '../shared/SurfaceErrorBoundary.tsx';
 import {
   decodeSourceText,
   resolveSourceLibraryItemFile,
@@ -1346,16 +1347,18 @@ const HomePage = ({
           )}
         </p>
         <div className="new-home-chat mt-5 text-left sm:mt-7">
-          <HomeChatPanel
-            key={draftTemplate?.id || 'new-home-chat'}
-            {...chatProps}
-            draftTemplate={draftTemplate}
-            compactWhenEmpty
-            hideHeaderCopy
-            hideModeSelector
-            inputPlaceholder={t('Fai una domanda o allega una fonte...')}
-            showChatAvatars
-          />
+          <SurfaceErrorBoundary resetKey={draftTemplate?.id} surface="chat">
+            <HomeChatPanel
+              key={draftTemplate?.id || 'new-home-chat'}
+              {...chatProps}
+              draftTemplate={draftTemplate}
+              compactWhenEmpty
+              hideHeaderCopy
+              hideModeSelector
+              inputPlaceholder={t('Fai una domanda o allega una fonte...')}
+              showChatAvatars
+            />
+          </SurfaceErrorBoundary>
         </div>
         {!hasActiveConversation ? (
           <div className="new-home-filter-scroll -mx-4 mt-3 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:mt-4 sm:justify-center sm:px-0">

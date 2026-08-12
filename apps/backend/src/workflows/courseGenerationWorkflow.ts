@@ -338,6 +338,7 @@ export const createCourseGenerationWorkflow = <
   });
 
   return workflow({
+    compatibilityId: 'course-generation-v1',
     configSchema,
     executionDefaults,
     events: {

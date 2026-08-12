@@ -17,7 +17,10 @@ import {
   type WorkflowRuntimeWakeSubscription,
   type WorkflowRuntimeWorkerInput,
 } from '../../src/workflows/workflowRuntimeWorker.js';
-import { DEFAULT_WORKFLOW_LEASE_MS } from '../../src/workflows/workflowStepRunner.js';
+import {
+  DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_WORKFLOW_LEASE_MS,
+} from '../../src/workflows/workflowStepRunner.js';
 
 const POLL_INTERVAL_MS = 100;
 const Text = z.object({ text: z.string() });
@@ -72,6 +75,7 @@ const registerStepWorkflow = (run: (text: string) => Promise<string>) => {
   const registry = createWorkflowRegistry();
   const definition = registry.register({
     current: workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'runtime-worker',
@@ -129,6 +133,10 @@ const makeStore = (): WorkflowRuntimeStore => ({
   recordAiUsage: vi.fn(async () => undefined),
   outbox: {
     claimNext: vi.fn(async () => null),
+    heartbeat: vi.fn(async () => ({
+      leaseExpiresAt: '2026-07-29T12:01:00.000Z',
+      status: 'renewed' as const,
+    })),
     markDelivered: vi.fn(async () => undefined),
     recordFailure: vi.fn(async () => undefined),
   },
@@ -271,6 +279,75 @@ describe('workflow runtime worker', () => {
     expect(deliverNotification.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(store.outbox.markDelivered).mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
     );
+    await worker.stop();
+  });
+
+  test('renews a durable notification lease while delivery is still running', async () => {
+    vi.useFakeTimers();
+    const { registry } = registerStepWorkflow(async text => text);
+    const store = makeStore();
+    vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
+    let finishDelivery = (): void => undefined;
+    const delivery = new Promise<void>(resolve => {
+      finishDelivery = resolve;
+    });
+    const worker = createWorkflowRuntimeWorker({
+      deliverNotification: vi.fn(() => delivery),
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+
+    await worker.start();
+    await settleDrains();
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+
+    expect(store.outbox.heartbeat).toHaveBeenCalledWith({
+      claim: outboxClaim,
+      leaseMs: DEFAULT_WORKFLOW_LEASE_MS,
+    });
+    expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+
+    finishDelivery();
+    await vi.waitFor(() => expect(store.outbox.markDelivered).toHaveBeenCalledWith(outboxClaim));
+    await worker.stop();
+  });
+
+  test('does not acknowledge or reschedule after notification lease ownership is lost', async () => {
+    vi.useFakeTimers();
+    const { registry } = registerStepWorkflow(async text => text);
+    const store = makeStore();
+    vi.mocked(store.outbox.claimNext).mockResolvedValueOnce(outboxClaim).mockResolvedValue(null);
+    vi.mocked(store.outbox.heartbeat).mockResolvedValueOnce({ status: 'lost' });
+    let finishDelivery = (): void => undefined;
+    const delivery = new Promise<void>(resolve => {
+      finishDelivery = resolve;
+    });
+    const worker = createWorkflowRuntimeWorker({
+      deliverNotification: vi.fn(() => delivery),
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+
+    await worker.start();
+    await settleDrains();
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKFLOW_HEARTBEAT_INTERVAL_MS);
+    finishDelivery();
+    await settleDrains();
+
+    expect(store.outbox.markDelivered).not.toHaveBeenCalled();
+    expect(store.outbox.recordFailure).not.toHaveBeenCalled();
     await worker.stop();
   });
 
@@ -418,6 +495,88 @@ describe('workflow runtime worker', () => {
     }
 
     expect(store.checkpointStep).toHaveBeenCalledTimes(2);
+  });
+
+  test('claims new work as soon as one concurrency slot becomes free', async () => {
+    let releaseSlowStep!: () => void;
+    const slowStep = new Promise<void>(resolve => {
+      releaseSlowStep = resolve;
+    });
+    const startedInputs: string[] = [];
+    let runningCount = 0;
+    let maximumRunningCount = 0;
+    const { definition, registry } = registerStepWorkflow(async text => {
+      startedInputs.push(text);
+      runningCount += 1;
+      maximumRunningCount = Math.max(maximumRunningCount, runningCount);
+      if (text === 'slow') await slowStep;
+      runningCount -= 1;
+      return text;
+    });
+    const store = makeStore();
+    const inputs = ['slow', 'short-1', 'short-2', 'short-3', 'next'];
+    for (const [index, text] of inputs.entries()) {
+      vi.mocked(store.steps.claimNext).mockResolvedValueOnce(
+        makeClaim(definition, 'worker-1', {
+          input: { text },
+          runId: `${String(index + 1).padStart(8, '0')}-1111-4111-8111-111111111111`,
+        })
+      );
+    }
+    vi.mocked(store.steps.claimNext).mockResolvedValue(null);
+    const worker = createWorkflowRuntimeWorker({
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      stepConcurrency: 4,
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+
+    await worker.start();
+    try {
+      await vi.waitFor(() => expect(startedInputs).toContain('next'), { timeout: 200 });
+      expect(startedInputs[0]).toBe('slow');
+      expect(maximumRunningCount).toBeLessThanOrEqual(4);
+    } finally {
+      releaseSlowStep();
+      await worker.stop();
+    }
+  });
+
+  test('does not refill capacity after stop while a claim is in flight', async () => {
+    let resolveClaim!: (claim: WorkflowStepClaim) => void;
+    const pendingClaim = new Promise<WorkflowStepClaim>(resolve => {
+      resolveClaim = resolve;
+    });
+    const { definition, registry } = registerStepWorkflow(async text => text);
+    const store = makeStore();
+    vi.mocked(store.steps.claimNext)
+      .mockImplementationOnce(() => pendingClaim)
+      .mockResolvedValue(null);
+    const worker = createWorkflowRuntimeWorker({
+      onLoopError: vi.fn(),
+      pollIntervalMs: POLL_INTERVAL_MS,
+      reconcileUnavailableDefinitions: reconcileAvailableDefinitions,
+      registry,
+      services: {},
+      stepConcurrency: 4,
+      store,
+      wakeSource: new FakeWakeSource(),
+      workerId: 'worker-1',
+    });
+
+    await worker.start();
+    await vi.waitFor(() => expect(store.steps.claimNext).toHaveBeenCalledOnce());
+    const stopped = worker.stop();
+    resolveClaim(makeClaim(definition, 'worker-1'));
+    await stopped;
+
+    expect(store.steps.claimNext).toHaveBeenCalledOnce();
+    expect(store.checkpointStep).toHaveBeenCalledOnce();
   });
 
   test('drains terminal staged assets, object cleanup, and project-deletion tombstones', async () => {

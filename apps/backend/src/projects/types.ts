@@ -21,6 +21,7 @@ import type {
   ProjectWriteOptions,
   SavedProjectMeta,
 } from '@shared/projectContract';
+import type { ProjectSnapshotFormatVersion } from '@shared/projectSnapshotWire';
 
 export interface LearningPlanNodeSnapshot {
   id?: string;
@@ -50,12 +51,14 @@ export interface LearningPlanSnapshot {
 // permissive JSON persisted by the store. The two intentionally diverge.
 export interface ProjectSnapshot {
   id: ProjectId;
+  projectFormatVersion?: ProjectSnapshotFormatVersion;
   version: string;
   title?: string;
   sourceKind?: ProjectSourceKind;
   state?: string;
   source?: unknown;
   learningPlan?: LearningPlanSnapshot | null;
+  musicUrl?: string;
   isLearnMode?: boolean;
   userProfile?: {
     language?: string;
@@ -69,12 +72,10 @@ export interface ProjectSnapshot {
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string;
+  legacyUnmappedFields?: Record<string, unknown>;
   documentAssets?: unknown;
   documentIndex?: unknown;
-}
-
-export interface ProjectExportData extends ProjectSnapshot {
-  musicUrl?: string;
+  extensions?: Record<string, unknown>;
 }
 
 export interface ProjectSourceFile {
@@ -186,7 +187,7 @@ export interface ProjectStore {
   ) => Promise<LibraryFolder>;
   deleteFolder: (userId: string, folderId: string) => Promise<void>;
   deleteProject: (userId: string, id: ProjectId) => Promise<void>;
-  exportProject: (userId: string, id: ProjectId) => Promise<ProjectExportData | null>;
+  exportProject: (userId: string, id: ProjectId) => Promise<ProjectSnapshot | null>;
   importProject: (
     userId: string,
     data: unknown

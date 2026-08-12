@@ -9,7 +9,10 @@ import JSZip from 'jszip';
 import { describe, expect, test, vi } from 'vitest';
 
 import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
-import { ProjectRevisionConflictError } from '../../src/projects/projectRevision.js';
+import {
+  ProjectNotFoundError,
+  ProjectRevisionConflictError,
+} from '../../src/projects/projectRevision.js';
 import { buildProjectSourceObjectPath } from '../../src/projects/projectSource.js';
 import { ProjectSourceStorageError } from '../../src/projects/projectSourceStorage.js';
 import type { ProjectSnapshot, SavedProjectMeta } from '../../src/projects/types.js';
@@ -30,9 +33,13 @@ const PROJECT_META: SavedProjectMeta = {
 };
 
 const createMultiSourceSnapshot = (): ProjectSnapshot => ({
+  activeSectionId: null,
   id: PROJECT_META.id,
+  isLearnMode: false,
+  projectFormatVersion: 1,
   version: '4.1',
   sourceKind: 'document',
+  state: 'READING',
   source: {
     file: {
       data: 'Zmlyc3Q=',
@@ -49,7 +56,14 @@ const createMultiSourceSnapshot = (): ProjectSnapshot => ({
           name: 'notes.txt',
           sourceId: 'source-first',
         },
+        hash: 'hash-source-first',
         id: 'source-first',
+        kind: 'text',
+        name: 'notes.txt',
+        outline: [],
+        outlineOrigin: 'none',
+        position: 0,
+        status: 'ready',
       },
       {
         file: {
@@ -58,11 +72,20 @@ const createMultiSourceSnapshot = (): ProjectSnapshot => ({
           name: 'notes.txt',
           sourceId: 'source-second',
         },
+        hash: 'hash-source-second',
         id: 'source-second',
+        kind: 'text',
+        name: 'notes.txt',
+        outline: [],
+        outlineOrigin: 'none',
+        position: 1,
+        status: 'ready',
       },
     ],
   },
   learningPlan: { title: 'Reti', sections: [] },
+  syllabus: [],
+  userProfile: null,
   createdAt: PROJECT_META.createdAt,
   updatedAt: PROJECT_META.updatedAt,
   lastOpenedAt: PROJECT_META.lastOpenedAt,
@@ -114,6 +137,196 @@ const createPostgresProjectStore = (
 };
 
 describe('PostgresProjectStore', () => {
+  test('reports missing projects consistently for favorite and touch writes', async () => {
+    const sqlClient = Object.assign(
+      vi.fn(async () => []),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await expect(
+      store.setProjectFavorite('user-1', 'missing-project', true)
+    ).rejects.toBeInstanceOf(ProjectNotFoundError);
+    await expect(store.touchProject('user-1', 'missing-project')).rejects.toBeInstanceOf(
+      ProjectNotFoundError
+    );
+    await expect(
+      store.saveProjectCover('user-1', 'missing-project', {
+        data: 'ZmFrZQ==',
+        mimeType: 'image/png',
+        name: 'cover.png',
+      })
+    ).rejects.toBeInstanceOf(ProjectNotFoundError);
+  });
+
+  test('does not recreate a project deleted between patch load and transactional lock', async () => {
+    const snapshot = { ...createMultiSourceSnapshot(), source: null };
+    const rootStatements: string[] = [];
+    const transactionStatements: string[] = [];
+    const transactionSql = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        transactionStatements.push(strings.join('?'));
+        return Promise.resolve([]);
+      }),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        rootStatements.push(statement);
+        if (
+          statement.includes('from public.project_snapshots') &&
+          statement.includes('join public.projects')
+        ) {
+          return Promise.resolve([{ document_index: null, revision: 4, snapshot }]);
+        }
+        if (statement.includes('select meta, revision')) {
+          return Promise.resolve([{ meta: PROJECT_META, revision: 4 }]);
+        }
+        if (statement.includes('select snapshot, document_index')) {
+          return Promise.resolve([{ document_index: null, snapshot }]);
+        }
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await expect(
+      store.patchProject('user-1', snapshot.id, { title: 'Patch tardiva' })
+    ).rejects.toBeInstanceOf(ProjectNotFoundError);
+
+    expect(transactionStatements).toHaveLength(1);
+    expect(transactionStatements[0]).toContain('for update');
+    expect(
+      transactionStatements.some(statement => statement.includes('insert into public.projects'))
+    ).toBe(false);
+  });
+
+  test('loads requested project snapshots in one query and preserves request order', async () => {
+    const firstSnapshot = createMultiSourceSnapshot();
+    const secondSnapshot = {
+      ...createMultiSourceSnapshot(),
+      id: 'second-project',
+      learningPlan: { title: 'Secondo', sections: [] },
+    };
+    const statements: string[] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        statements.push(strings.join('?'));
+        return Promise.resolve([
+          { document_index: null, id: secondSnapshot.id, snapshot: secondSnapshot },
+          { document_index: null, id: firstSnapshot.id, snapshot: firstSnapshot },
+        ]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    const snapshots = await store.loadProjectsById('user-1', [
+      firstSnapshot.id,
+      secondSnapshot.id,
+      'missing-project',
+    ]);
+
+    expect(snapshots.map(snapshot => snapshot.id)).toEqual([firstSnapshot.id, secondSnapshot.id]);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('id = any');
+  });
+
+  test('repairs every missing library placement with one set-based insert', async () => {
+    const statements: string[] = [];
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        statements.push(strings.join('?'));
+        return Promise.resolve([]);
+      }),
+      {
+        begin: vi.fn(),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await store.listPlacements('user-1');
+
+    expect(
+      statements.filter(statement => statement.includes('insert into public.library_placements'))
+    ).toHaveLength(1);
+    expect(statements.some(statement => statement.includes('from public.projects'))).toBe(true);
+    expect(statements.some(statement => statement.includes('select meta, revision'))).toBe(false);
+  });
+
+  test('persists a complete sibling reorder through one database transaction', async () => {
+    const placements = [
+      {
+        folderId: null,
+        order: 1024,
+        projectId: 'project-1',
+        updatedAt: '2026-07-07T10:00:00.000Z',
+      },
+      {
+        folderId: null,
+        order: 2048,
+        projectId: 'project-2',
+        updatedAt: '2026-07-07T10:00:00.000Z',
+      },
+    ];
+    const rootStatements: string[] = [];
+    const transactionStatements: string[] = [];
+    const transactionSql = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        transactionStatements.push(strings.join('?'));
+        return Promise.resolve([]);
+      }),
+      { json: vi.fn((value: unknown) => value) }
+    );
+    const sqlClient = Object.assign(
+      vi.fn((strings: TemplateStringsArray) => {
+        const statement = strings.join('?');
+        rootStatements.push(statement);
+        return Promise.resolve(
+          statement.includes('select placement') ? placements.map(placement => ({ placement })) : []
+        );
+      }),
+      {
+        begin: vi.fn(async (operation: (sql: typeof transactionSql) => Promise<unknown>) =>
+          operation(transactionSql)
+        ),
+        json: vi.fn((value: unknown) => value),
+      }
+    );
+    const store = createPostgresProjectStore(sqlClient);
+
+    await store.moveProjects('user-1', ['project-2'], null, 0);
+
+    expect(sqlClient.begin).toHaveBeenCalledTimes(1);
+    expect(transactionStatements[0]).toContain('from public.library_placements');
+    expect(transactionStatements[0]).toContain('order by project_id');
+    expect(transactionStatements[0]).toContain('for update');
+    expect(
+      transactionStatements.filter(statement =>
+        statement.includes('insert into public.library_placements')
+      )
+    ).toHaveLength(2);
+    expect(
+      rootStatements.filter(statement =>
+        statement.includes('insert into public.library_placements')
+      )
+    ).toHaveLength(1);
+  });
+
   test('loads a project snapshot and its revision in one joined query', async () => {
     const storedSnapshot = createMultiSourceSnapshot();
     const statements: string[] = [];
@@ -858,7 +1071,14 @@ describe('PostgresProjectStore', () => {
       file: { data: string; mimeType: string; name: string; sourceId: string };
       sources: Array<{
         file: { data: string; mimeType: string; name: string; sourceId: string };
+        hash: string;
         id: string;
+        kind: string;
+        name: string;
+        outline: unknown[];
+        outlineOrigin: string;
+        position: number;
+        status: string;
       }>;
     };
     source.file = {
@@ -875,7 +1095,14 @@ describe('PostgresProjectStore', () => {
           name: 'new.txt',
           sourceId: 'source-new',
         },
+        hash: 'hash-source-new',
         id: 'source-new',
+        kind: 'text',
+        name: 'new.txt',
+        outline: [],
+        outlineOrigin: 'none',
+        position: 0,
+        status: 'ready',
       },
     ];
     await store.saveProject('user-1', snapshot);
@@ -1191,6 +1418,13 @@ describe('PostgresProjectStore', () => {
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
         transactionStatements.push(statement);
+        if (
+          statement.includes('from public.projects') &&
+          statement.includes('for update') &&
+          stored
+        ) {
+          return Promise.resolve([{ id: stored.snapshot.id }]);
+        }
         if (statement.includes('select snapshot, document_index') && stored) {
           return Promise.resolve([{ document_index: null, snapshot: stored.snapshot }]);
         }
@@ -1375,6 +1609,13 @@ describe('PostgresProjectStore', () => {
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
         transactionStatements.push(statement);
+        if (
+          statement.includes('from public.projects') &&
+          statement.includes('for update') &&
+          stored
+        ) {
+          return Promise.resolve([{ id: stored.snapshot.id }]);
+        }
         if (statement.includes('select snapshot, document_index') && stored) {
           return Promise.resolve([{ document_index: null, snapshot: stored.snapshot }]);
         }
@@ -1640,8 +1881,11 @@ describe('PostgresProjectStore', () => {
     const statements: string[] = [];
     const sqlClient = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
-        statements.push(strings.join('?'));
-        return Promise.resolve([]);
+        const statement = strings.join('?');
+        statements.push(statement);
+        return Promise.resolve(
+          statement.includes('select meta, revision') ? [{ meta: PROJECT_META, revision: 4 }] : []
+        );
       }),
       { json: vi.fn((value: unknown) => value) }
     );
@@ -1717,7 +1961,9 @@ describe('PostgresProjectStore', () => {
         const statement = strings.join('?');
         statements.push(statement);
         return Promise.resolve(
-          statement.includes('select meta') || statement.includes('returning meta')
+          statement.includes('select meta') ||
+            statement.includes('returning meta') ||
+            statement.includes('returning id')
             ? [{ meta: PROJECT_META, revision: 2 }]
             : []
         );
@@ -1753,6 +1999,9 @@ describe('PostgresProjectStore', () => {
       vi.fn((strings: TemplateStringsArray) => {
         const statement = strings.join('?');
         transactionStatements.push(statement);
+        if (statement.includes('from public.projects') && statement.includes('for update')) {
+          return Promise.resolve([{ id: PROJECT_META.id }]);
+        }
         if (statement.includes('select snapshot, document_index')) {
           return Promise.resolve([{ document_index: null, snapshot: existingSnapshot }]);
         }
@@ -1890,7 +2139,11 @@ describe('PostgresProjectStore', () => {
     const transactionStatements: string[] = [];
     const transactionSql = Object.assign(
       vi.fn((strings: TemplateStringsArray) => {
-        transactionStatements.push(strings.join('?'));
+        const statement = strings.join('?');
+        transactionStatements.push(statement);
+        if (statement.includes('from public.projects') && statement.includes('for update')) {
+          return Promise.resolve([{ id: PROJECT_META.id }]);
+        }
         return Promise.resolve([]);
       }),
       { json: vi.fn((value: unknown) => value) }

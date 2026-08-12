@@ -773,6 +773,7 @@ export const createLessonGenerationWorkflow = <
   });
 
   return workflow({
+    compatibilityId: 'lesson-generation-v1',
     configSchema,
     executionDefaults,
     events: {

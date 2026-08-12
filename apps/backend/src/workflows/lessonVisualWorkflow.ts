@@ -446,6 +446,7 @@ export const createLessonVisualWorkflows = <
   });
 
   const renderWorkflow = workflow({
+    compatibilityId: 'render-lesson-visual-v1',
     configSchema,
     executionDefaults,
     id: 'render-lesson-visual',
@@ -500,6 +501,7 @@ export const createLessonVisualWorkflows = <
   });
 
   const retryWorkflow = workflow({
+    compatibilityId: 'retry-lesson-visual-v1',
     configSchema,
     executionDefaults,
     events: {

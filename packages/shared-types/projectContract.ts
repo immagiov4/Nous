@@ -1,3 +1,5 @@
+import type { LessonInstructionPackId } from './lessonInstructionPacks';
+
 // Contract types shared between the frontend (apps/web) and the backend
 // (apps/backend). These shapes travel over the network and through the
 // repository / store interfaces. They are intentionally permissive where the
@@ -75,6 +77,7 @@ export interface SectionPatch {
   generatedVisuals?: unknown[] | null;
   imageRefs?: unknown[] | null;
   isCompleted?: boolean;
+  instructionPacks?: LessonInstructionPackId[];
   learningAids?: unknown[] | null;
   lastGenerationRunId?: string | null;
   quiz?: unknown[] | null;

@@ -16,6 +16,7 @@ const AUTH_REQUIRED_MESSAGE = 'Accesso richiesto.';
 const INVALID_AUTH_MESSAGE = 'Sessione non valida. Accedi di nuovo.';
 const PASSWORD_SETUP_REQUIRED_MESSAGE = 'Completa la configurazione della password.';
 const JWKS_CACHE_MS = 5 * 60 * 1000;
+const SUPABASE_ACCESS_TOKEN_AUDIENCE = 'authenticated';
 
 type AuthMode = typeof LOCAL_AUTH_MODE | typeof SUPABASE_AUTH_MODE;
 
@@ -119,10 +120,10 @@ const getSupabaseJwksUrl = (): string => {
   return `${supabaseUrl.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json`;
 };
 
-const loadSupabaseJwks = async (): Promise<Record<string, unknown>[]> => {
+const loadSupabaseJwks = async (forceRefresh = false): Promise<Record<string, unknown>[]> => {
   const url = getSupabaseJwksUrl();
   const now = Date.now();
-  if (cachedJwks && cachedJwks.url === url && cachedJwks.expiresAt > now) {
+  if (!forceRefresh && cachedJwks?.url === url && cachedJwks.expiresAt > now) {
     return cachedJwks.keys;
   }
 
@@ -161,7 +162,10 @@ const verifyEs256Signature = async ({
     throw new Error('JWT key id is required.');
   }
 
-  const jwk = (await loadSupabaseJwks()).find(key => key.kid === keyId);
+  const cachedKeys = await loadSupabaseJwks();
+  const jwk =
+    cachedKeys.find(key => key.kid === keyId) ||
+    (await loadSupabaseJwks(true)).find(key => key.kid === keyId);
   if (!jwk) {
     throw new Error('Supabase JWKS key not found.');
   }
@@ -211,14 +215,47 @@ const readPasswordSetupRequired = (payload: Record<string, unknown>): boolean =>
   return appMetadata?.password_setup_required === true;
 };
 
-const assertTokenNotExpired = (payload: Record<string, unknown>): void => {
-  if (typeof payload.exp !== 'number') {
-    return;
+const getSupabaseJwtIssuer = (): string => {
+  const explicitIssuer = process.env.SUPABASE_JWT_ISSUER?.trim();
+  if (explicitIssuer) {
+    return explicitIssuer.replace(/\/$/, '');
   }
 
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  if (!supabaseUrl) {
+    throw new Error('SUPABASE_URL or SUPABASE_JWT_ISSUER is required for JWT validation.');
+  }
+  return `${supabaseUrl.replace(/\/$/, '')}/auth/v1`;
+};
+
+const hasExpectedAudience = (audience: unknown): boolean => {
+  return (
+    audience === SUPABASE_ACCESS_TOKEN_AUDIENCE ||
+    (Array.isArray(audience) && audience.some(value => value === SUPABASE_ACCESS_TOKEN_AUDIENCE))
+  );
+};
+
+const assertSupabaseAccessTokenClaims = (payload: Record<string, unknown>): void => {
   const nowSeconds = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+    throw new Error('JWT expiration is required.');
+  }
   if (payload.exp <= nowSeconds) {
     throw new Error('JWT expired.');
+  }
+  if (payload.iss !== getSupabaseJwtIssuer()) {
+    throw new Error('Invalid JWT issuer.');
+  }
+  if (!hasExpectedAudience(payload.aud)) {
+    throw new Error('Invalid JWT audience.');
+  }
+  if (payload.nbf !== undefined) {
+    if (typeof payload.nbf !== 'number' || !Number.isFinite(payload.nbf)) {
+      throw new Error('Invalid JWT not-before claim.');
+    }
+    if (payload.nbf > nowSeconds) {
+      throw new Error('JWT is not active yet.');
+    }
   }
 };
 
@@ -253,7 +290,7 @@ const resolveSupabaseJwtUser = async (token: string): Promise<CurrentUser> => {
   }
 
   const payload = safeBase64UrlJsonParse(encodedPayload);
-  assertTokenNotExpired(payload);
+  assertSupabaseAccessTokenClaims(payload);
 
   const userId = readString(payload.sub);
   if (!userId) {

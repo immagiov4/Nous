@@ -66,6 +66,7 @@ const registerUndoWorkflow = (undo?: Parameters<typeof step>[0]['undo']) => {
   });
   const registry = createWorkflowRegistry();
   const child = workflow({
+    compatibilityId: 'test-v1',
     configSchema: WorkflowExecutionDefaultsSchema,
     executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
     id: 'child',
@@ -75,6 +76,7 @@ const registerUndoWorkflow = (undo?: Parameters<typeof step>[0]['undo']) => {
   });
   const registered = registry.register({
     current: workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'undo-runner',
@@ -148,6 +150,7 @@ describe('single workflow undo runner', () => {
       },
     });
     const child = workflow({
+      compatibilityId: 'test-v1',
       configSchema: Config,
       executionDefaults: { maxAttempts: 3, mode: 'normal', timeoutMs: 60_000 },
       id: 'child',
@@ -158,6 +161,7 @@ describe('single workflow undo runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: Config,
         executionDefaults: { maxAttempts: 3, mode: 'normal', timeoutMs: 60_000 },
         id: 'undo-step-config',

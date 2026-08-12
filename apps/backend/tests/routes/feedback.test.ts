@@ -19,9 +19,11 @@ const FEEDBACK_ID = 'cc49c9bd-c90e-449a-b12d-7117d7f16d49';
 const createToken = (role = 'user'): string =>
   signSupabaseJwt(
     {
+      aud: 'authenticated',
       app_metadata: { role },
       email: 'student@example.com',
       exp: Math.floor(Date.now() / 1000) + 60,
+      iss: 'https://example.supabase.co/auth/v1',
       sub: USER_ID,
     },
     'test-secret'
@@ -74,6 +76,7 @@ describe('/api/feedback', () => {
       ...ORIGINAL_ENV,
       AUTH_MODE: 'supabase',
       SUPABASE_JWT_SECRET: 'test-secret',
+      SUPABASE_URL: 'https://example.supabase.co',
     };
   });
 

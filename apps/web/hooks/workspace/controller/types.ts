@@ -114,6 +114,7 @@ export interface WorkspaceProjectLibraryAdapter {
   loadProjectsById: (ids: string[]) => Promise<ProjectSnapshot[]>;
   loadStoredProject: (projectId: string) => Promise<ProjectSnapshot | null>;
   loadStoredProjectWithRevision: (projectId: string) => Promise<ProjectSnapshotWithRevision | null>;
+  validateStoredProjectForOpen: (projectId: string) => Promise<ProjectSnapshotWithRevision | null>;
   loadStoredProjectSource: (projectId: string) => Promise<FileData | null>;
   loadStoredProjectSources: (projectId: string) => Promise<StoredProjectSourceFile[]>;
   moveFolder: (
@@ -264,6 +265,7 @@ export interface WorkspaceControllerCommands {
   deleteProject: (projectId: string) => Promise<void>;
   exportProject: (projectId?: string) => Promise<void>;
   goToLibrary: () => Promise<void>;
+  handleRemoteProjectDeleted: (projectId: string) => void;
   handleSourceUpload: (
     selectedFiles: File | File[],
     options?: { mode?: 'new-project' | 'reattach-source' }

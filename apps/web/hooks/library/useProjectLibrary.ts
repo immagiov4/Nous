@@ -22,6 +22,7 @@ import {
   type ProjectSaveResult,
   type ProjectSnapshotWithRevision,
   ProjectStorageError,
+  REMOTE_PROJECT_DELETED_MESSAGE,
 } from '../../services/projects/projectRepository';
 import {
   createProjectId,
@@ -63,6 +64,20 @@ interface PersistSnapshotOptions {
   throwOnError?: boolean;
 }
 
+interface ProjectWriteState {
+  batchFailed: boolean;
+  batchNeedsAutosave: boolean;
+  pendingCount: number;
+  queue: Promise<void>;
+}
+
+export type ProjectSyncState =
+  | { kind: 'idle' }
+  | { kind: 'load' | 'write' | 'import'; phase: 'failed' | 'pending'; message?: string }
+  | { kind: 'conflict'; message: string }
+  | { kind: 'remoteDeleted'; message: string; projectId: string; wasActive: boolean }
+  | { kind: 'realtimeDegraded' };
+
 const sortProjects = (projects: SavedProjectMeta[]) =>
   projects
     .slice()
@@ -79,6 +94,10 @@ export const useProjectLibrary = ({
   const [savedProjects, setSavedProjects] = useState<SavedProjectMeta[]>([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [projectSyncState, setProjectSyncState] = useState<ProjectSyncState>({
+    kind: 'load',
+    phase: 'pending',
+  });
   const [writeFailureVersion, setWriteFailureVersion] = useState(0);
   const autosaveTimeoutRef = useRef<number | null>(null);
   const attemptedAutosaveSignatureRef = useRef<string | null>(null);
@@ -87,10 +106,8 @@ export const useProjectLibrary = ({
   const persistentStorageRequestedRef = useRef(false);
   const didLoadInitialStateRef = useRef(false);
   const lastPersistedSignatureRef = useRef<string>('');
-  const pendingWriteCountRef = useRef<number>(0);
-  const trackedWriteBatchFailedRef = useRef(false);
-  const trackedWriteBatchNeedsAutosaveRef = useRef(false);
-  const projectWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const projectWritesRef = useRef(new Map<string, ProjectWriteState>());
+  const deletedProjectIdsRef = useRef(new Set<string>());
   const pendingRemoteRevisionRef = useRef<ProjectRevisionEvent | null>(null);
   const isApplyingRemoteRevisionRef = useRef(false);
   const isRevisionCatchUpActiveRef = useRef(false);
@@ -226,9 +243,70 @@ export const useProjectLibrary = ({
     return savedProjectsRef.current.find(project => project.id === projectId)?.revision;
   }, []);
 
+  const getProjectWriteState = useCallback((projectId: string): ProjectWriteState => {
+    const existing = projectWritesRef.current.get(projectId);
+    if (existing) return existing;
+
+    const created: ProjectWriteState = {
+      batchFailed: false,
+      batchNeedsAutosave: false,
+      pendingCount: 0,
+      queue: Promise.resolve(),
+    };
+    projectWritesRef.current.set(projectId, created);
+    return created;
+  }, []);
+
+  const invalidateRemoteDeletedProject = useCallback(
+    (projectId: string) => {
+      if (deletedProjectIdsRef.current.has(projectId)) return;
+
+      deletedProjectIdsRef.current.add(projectId);
+      const wasActive = currentProjectIdRef.current === projectId;
+      if (wasActive) {
+        if (autosaveTimeoutRef.current !== null) {
+          globalThis.clearTimeout(autosaveTimeoutRef.current);
+          autosaveTimeoutRef.current = null;
+        }
+        attemptedAutosaveSignatureRef.current = null;
+        isProjectHydratedRef.current = false;
+        pendingRemoteRevisionRef.current = null;
+      }
+      explicitProjectTitlesRef.current.delete(projectId);
+      storeSavedProjects(savedProjectsRef.current.filter(project => project.id !== projectId));
+      setLibraryPlacements(placements =>
+        placements.filter(placement => placement.projectId !== projectId)
+      );
+      if (wasActive) {
+        selectCurrentProject(null);
+      }
+
+      const message = t(REMOTE_PROJECT_DELETED_MESSAGE);
+      setStorageError(message);
+      setProjectSyncState({ kind: 'remoteDeleted', message, projectId, wasActive });
+      markSyncError();
+    },
+    [selectCurrentProject, storeSavedProjects]
+  );
+
+  const runDeletionAwareProjectAction = useCallback(
+    async <T>(projectId: string, operation: () => Promise<T>): Promise<T> => {
+      try {
+        return await operation();
+      } catch (error) {
+        if (error instanceof ProjectStorageError && error.code === 'project-deleted') {
+          invalidateRemoteDeletedProject(projectId);
+          throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
+        }
+        throw error;
+      }
+    },
+    [invalidateRemoteDeletedProject]
+  );
+
   const applyPersistedProjectRevision = useCallback(
     async ({ projectId, revision }: { projectId: string; revision: number }): Promise<boolean> => {
-      await projectWriteQueueRef.current;
+      await getProjectWriteState(projectId).queue;
       if (currentProjectIdRef.current !== projectId) return false;
 
       const localSignature = buildAutosaveSignature(domainStateRef.current);
@@ -240,7 +318,11 @@ export const useProjectLibrary = ({
       }
 
       const persisted = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
-      if (!persisted || persisted.revision < revision) {
+      if (!persisted) {
+        invalidateRemoteDeletedProject(projectId);
+        return false;
+      }
+      if (persisted.revision < revision) {
         throw new ProjectStorageError(
           'La lezione è stata salvata, ma non è stato possibile ricaricare la revisione aggiornata.',
           'persistence-failed'
@@ -287,48 +369,88 @@ export const useProjectLibrary = ({
       setStorageError(null);
       return persisted.revision === revision;
     },
-    [rememberExplicitProjectTitle, syncProjectMeta]
+    [
+      getProjectWriteState,
+      invalidateRemoteDeletedProject,
+      rememberExplicitProjectTitle,
+      syncProjectMeta,
+    ]
   );
 
   const runTrackedProjectWrite = useCallback(
-    (operation: () => Promise<SavedProjectMeta>, retryFullSnapshotOnFailure = true) => {
-      if (pendingWriteCountRef.current === 0) {
-        trackedWriteBatchFailedRef.current = false;
-        trackedWriteBatchNeedsAutosaveRef.current = false;
+    (
+      projectId: string,
+      operation: () => Promise<SavedProjectMeta>,
+      retryFullSnapshotOnFailure = true
+    ) => {
+      if (deletedProjectIdsRef.current.has(projectId)) {
+        return Promise.reject(
+          new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted')
+        );
       }
-      pendingWriteCountRef.current += 1;
-      const queuedWrite = projectWriteQueueRef.current.then(async () => {
+
+      const writeState = getProjectWriteState(projectId);
+      if (writeState.pendingCount === 0) {
+        writeState.batchFailed = false;
+        writeState.batchNeedsAutosave = false;
+      }
+      writeState.pendingCount += 1;
+      setProjectSyncState({ kind: 'write', phase: 'pending' });
+      const queuedWrite = writeState.queue.then(async () => {
         try {
+          if (deletedProjectIdsRef.current.has(projectId)) {
+            throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
+          }
           const meta = await operation();
+          if (deletedProjectIdsRef.current.has(projectId)) {
+            throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
+          }
           syncProjectMeta(meta);
           return meta;
         } catch (error) {
-          trackedWriteBatchFailedRef.current = true;
-          if (retryFullSnapshotOnFailure) {
-            trackedWriteBatchNeedsAutosaveRef.current = true;
+          writeState.batchFailed = true;
+          if (error instanceof ProjectStorageError && error.code === 'project-deleted') {
+            writeState.batchNeedsAutosave = false;
+            invalidateRemoteDeletedProject(projectId);
+            throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
           }
+          if (retryFullSnapshotOnFailure) {
+            writeState.batchNeedsAutosave = true;
+          }
+          const message =
+            error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
+          setProjectSyncState(
+            error instanceof ProjectStorageError && error.code === 'revision-conflict'
+              ? { kind: 'conflict', message }
+              : { kind: 'write', message, phase: 'failed' }
+          );
           throw error;
         } finally {
-          pendingWriteCountRef.current -= 1;
+          writeState.pendingCount -= 1;
           if (
-            pendingWriteCountRef.current === 0 &&
-            trackedWriteBatchFailedRef.current &&
-            trackedWriteBatchNeedsAutosaveRef.current
+            writeState.pendingCount === 0 &&
+            writeState.batchFailed &&
+            writeState.batchNeedsAutosave
           ) {
             setWriteFailureVersion(version => version + 1);
+          }
+          if (writeState.pendingCount === 0 && !writeState.batchFailed) {
+            setProjectSyncState(current =>
+              current.kind === 'remoteDeleted' ? current : { kind: 'idle' }
+            );
           }
           globalThis.setTimeout(() => {
             void processPendingRemoteRevisionRef.current();
           }, 0);
         }
       });
-      projectWriteQueueRef.current = queuedWrite.then(
+      writeState.queue = queuedWrite.then(
         () => undefined,
         () => undefined
       );
       return queuedWrite;
     },
-    [syncProjectMeta]
+    [getProjectWriteState, invalidateRemoteDeletedProject, syncProjectMeta]
   );
 
   const requestPersistentStorage = useCallback(async () => {
@@ -386,9 +508,7 @@ export const useProjectLibrary = ({
             ? overrides.researchCoursePlan
             : domainState.researchCoursePlan,
         researchDossiersBySectionId:
-          overrides?.researchDossiersBySectionId !== undefined
-            ? overrides.researchDossiersBySectionId
-            : domainState.researchDossiersBySectionId,
+          overrides?.researchDossiersBySectionId ?? domainState.researchDossiersBySectionId,
         activeSectionId:
           overrides?.activeSectionId !== undefined
             ? overrides.activeSectionId
@@ -418,19 +538,24 @@ export const useProjectLibrary = ({
 
       try {
         let detachedSnapshot: ProjectSnapshot | undefined;
-        const meta = await runTrackedProjectWrite(async () => {
-          const saved = await projectRepositoryRef.current.saveProject(snapshot, {
-            archiveFile: options.archiveFile,
-            expectedRevision: getExpectedRevision(snapshot.id),
-          });
-          detachedSnapshot = saved.snapshot;
-          return saved.meta;
-        }, false);
+        const meta = await runTrackedProjectWrite(
+          snapshot.id,
+          async () => {
+            const saved = await projectRepositoryRef.current.saveProject(snapshot, {
+              archiveFile: options.archiveFile,
+              expectedRevision: getExpectedRevision(snapshot.id),
+            });
+            detachedSnapshot = saved.snapshot;
+            return saved.meta;
+          },
+          false
+        );
         if (detachedSnapshot && domainStateRef.current.source === snapshot.source) {
           lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot);
           setSourceRef.current(detachedSnapshot.source);
         }
-        if (pendingWriteCountRef.current === 0 && !trackedWriteBatchFailedRef.current) {
+        const writeState = getProjectWriteState(snapshot.id);
+        if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
           lastPersistedSignatureRef.current = buildAutosaveSignature(detachedSnapshot || snapshot);
         }
@@ -461,7 +586,7 @@ export const useProjectLibrary = ({
         return null;
       }
     },
-    [getExpectedRevision, requestPersistentStorage, runTrackedProjectWrite]
+    [getExpectedRevision, getProjectWriteState, requestPersistentStorage, runTrackedProjectWrite]
   );
 
   const saveCurrentProject = useCallback(
@@ -533,18 +658,20 @@ export const useProjectLibrary = ({
 
       patch.updatedAt = timestampIso();
 
+      const persistedSignature = buildAutosaveSignature({
+        ...domainStateRef.current,
+        ...overrides,
+      });
       try {
-        const meta = await runTrackedProjectWrite(() =>
+        const meta = await runTrackedProjectWrite(currentProjectId, () =>
           projectRepositoryRef.current.patchProject(currentProjectId, patch, {
             expectedRevision: getExpectedRevision(currentProjectId),
           })
         );
-        if (pendingWriteCountRef.current === 0 && !trackedWriteBatchFailedRef.current) {
+        const writeState = getProjectWriteState(currentProjectId);
+        if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
-          lastPersistedSignatureRef.current = buildAutosaveSignature({
-            ...domainStateRef.current,
-            ...overrides,
-          });
+          lastPersistedSignatureRef.current = persistedSignature;
         }
         void requestPersistentStorage();
         return meta;
@@ -555,7 +682,13 @@ export const useProjectLibrary = ({
         return null;
       }
     },
-    [currentProjectId, getExpectedRevision, requestPersistentStorage, runTrackedProjectWrite]
+    [
+      currentProjectId,
+      getExpectedRevision,
+      getProjectWriteState,
+      requestPersistentStorage,
+      runTrackedProjectWrite,
+    ]
   );
 
   /**
@@ -580,16 +713,18 @@ export const useProjectLibrary = ({
         updatedAt: timestampIso(),
       };
 
+      const persistedSignature = buildAutosaveSignature(domainStateRef.current);
       try {
         markSyncSaving();
-        await runTrackedProjectWrite(() =>
+        await runTrackedProjectWrite(currentProjectId, () =>
           projectRepositoryRef.current.patchProject(currentProjectId, patch, {
             expectedRevision: getExpectedRevision(currentProjectId),
           })
         );
-        if (pendingWriteCountRef.current === 0 && !trackedWriteBatchFailedRef.current) {
+        const writeState = getProjectWriteState(currentProjectId);
+        if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
-          lastPersistedSignatureRef.current = buildAutosaveSignature(domainStateRef.current);
+          lastPersistedSignatureRef.current = persistedSignature;
           markSyncSaved();
         } else {
           markSyncError();
@@ -601,7 +736,7 @@ export const useProjectLibrary = ({
         markSyncError();
       }
     },
-    [currentProjectId, getExpectedRevision, runTrackedProjectWrite]
+    [currentProjectId, getExpectedRevision, getProjectWriteState, runTrackedProjectWrite]
   );
 
   const patchSectionLessonContent = useCallback(
@@ -631,15 +766,17 @@ export const useProjectLibrary = ({
         updatedAt: timestampIso(),
       };
 
+      const persistedSignature = buildAutosaveSignature(domainStateRef.current);
       try {
-        await runTrackedProjectWrite(() =>
+        await runTrackedProjectWrite(currentProjectId, () =>
           projectRepositoryRef.current.patchProject(currentProjectId, patch, {
             expectedRevision: getExpectedRevision(currentProjectId),
           })
         );
-        if (pendingWriteCountRef.current === 0 && !trackedWriteBatchFailedRef.current) {
+        const writeState = getProjectWriteState(currentProjectId);
+        if (writeState.pendingCount === 0 && !writeState.batchFailed) {
           setStorageError(null);
-          lastPersistedSignatureRef.current = buildAutosaveSignature(domainStateRef.current);
+          lastPersistedSignatureRef.current = persistedSignature;
         }
         void requestPersistentStorage();
         return true;
@@ -650,7 +787,13 @@ export const useProjectLibrary = ({
         return false;
       }
     },
-    [currentProjectId, getExpectedRevision, requestPersistentStorage, runTrackedProjectWrite]
+    [
+      currentProjectId,
+      getExpectedRevision,
+      getProjectWriteState,
+      requestPersistentStorage,
+      runTrackedProjectWrite,
+    ]
   );
 
   const saveLessonArtifactNote = useCallback(
@@ -667,45 +810,57 @@ export const useProjectLibrary = ({
       note: string;
       projectId: string;
     }): Promise<{ annotationId?: string; error?: string; saved: boolean }> => {
-      const snapshot = await projectRepositoryRef.current.loadProject(projectId);
-      const learningPlan = snapshot?.learningPlan;
-      const sectionNode = learningPlan ? findPathNodeById(learningPlan.modules, lessonId) : null;
-      const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
-      if (!snapshot || !learningPlan || !section) {
-        return { saved: false, error: t('Non ho trovato la lezione target in questo corso.') };
-      }
+      let annotationId: string | undefined;
+      try {
+        await runTrackedProjectWrite(projectId, async () => {
+          const persisted = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
+          if (!persisted) {
+            invalidateRemoteDeletedProject(projectId);
+            throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
+          }
+          const learningPlan = persisted.snapshot.learningPlan;
+          const sectionNode = learningPlan
+            ? findPathNodeById(learningPlan.modules, lessonId)
+            : null;
+          const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
+          if (!learningPlan || !section) {
+            throw new Error(t('Non ho trovato la lezione target in questo corso.'));
+          }
 
-      const annotationResult = createLessonSectionAnnotation({
-        annotations: section.annotations,
-        artifactRefs,
-        note,
-      });
-      const visualById = new Map(
-        (section.generatedVisuals || []).map(visual => [visual.id, visual])
-      );
-      (generatedVisuals || []).forEach(visual => {
-        if (!visualById.has(visual.id)) {
-          visualById.set(visual.id, visual);
-        }
-      });
+          const annotationResult = createLessonSectionAnnotation({
+            annotations: section.annotations,
+            artifactRefs,
+            note,
+          });
+          annotationId = annotationResult.annotationId;
+          const visualById = new Map(
+            (section.generatedVisuals || []).map(visual => [visual.id, visual])
+          );
+          (generatedVisuals || []).forEach(visual => {
+            if (!visualById.has(visual.id)) {
+              visualById.set(visual.id, visual);
+            }
+          });
 
-      await runTrackedProjectWrite(() =>
-        projectRepositoryRef.current.patchProject(
-          projectId,
-          {
-            section: {
-              sectionId: lessonId,
-              annotations: annotationResult.annotations,
-              generatedVisuals: Array.from(visualById.values()),
+          return projectRepositoryRef.current.patchProject(
+            projectId,
+            {
+              section: {
+                sectionId: lessonId,
+                annotations: annotationResult.annotations,
+                generatedVisuals: Array.from(visualById.values()),
+              },
+              updatedAt: timestampIso(),
             },
-            updatedAt: timestampIso(),
-          },
-          { expectedRevision: getExpectedRevision(projectId) }
-        )
-      );
-      return { annotationId: annotationResult.annotationId, saved: true };
+            { expectedRevision: persisted.revision }
+          );
+        });
+        return { annotationId, saved: true };
+      } catch (error) {
+        return { saved: false, error: getErrorMessage(error) };
+      }
     },
-    [getExpectedRevision, runTrackedProjectWrite]
+    [invalidateRemoteDeletedProject, runTrackedProjectWrite]
   );
 
   const replaceLessonGeneratedVisual = useCallback(
@@ -720,39 +875,49 @@ export const useProjectLibrary = ({
       projectId: string;
       visual: StoredLessonVisual;
     }): Promise<{ error?: string; replaced: boolean }> => {
-      const snapshot = await projectRepositoryRef.current.loadProject(projectId);
-      const learningPlan = snapshot?.learningPlan;
-      const sectionNode = learningPlan ? findPathNodeById(learningPlan.modules, lessonId) : null;
-      const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
-      if (!snapshot || !learningPlan || !section) {
-        return { replaced: false, error: t('Non ho trovato la lezione target in questo corso.') };
-      }
+      try {
+        await runTrackedProjectWrite(projectId, async () => {
+          const persisted = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
+          if (!persisted) {
+            invalidateRemoteDeletedProject(projectId);
+            throw new ProjectStorageError(t(REMOTE_PROJECT_DELETED_MESSAGE), 'project-deleted');
+          }
+          const learningPlan = persisted.snapshot.learningPlan;
+          const sectionNode = learningPlan
+            ? findPathNodeById(learningPlan.modules, lessonId)
+            : null;
+          const section = sectionNode?.kind === 'lesson' ? sectionNode : null;
+          if (!learningPlan || !section) {
+            throw new Error(t('Non ho trovato la lezione target in questo corso.'));
+          }
 
-      const nextGeneratedVisuals = replaceGeneratedVisualPreservingId({
-        artifactId,
-        replacementVisual: visual,
-        visuals: section.generatedVisuals,
-      });
-      if (!nextGeneratedVisuals) {
-        return { replaced: false, error: t('Non ho trovato l artefatto da sostituire.') };
-      }
+          const nextGeneratedVisuals = replaceGeneratedVisualPreservingId({
+            artifactId,
+            replacementVisual: visual,
+            visuals: section.generatedVisuals,
+          });
+          if (!nextGeneratedVisuals) {
+            throw new Error(t('Non ho trovato l artefatto da sostituire.'));
+          }
 
-      await runTrackedProjectWrite(() =>
-        projectRepositoryRef.current.patchProject(
-          projectId,
-          {
-            section: {
-              sectionId: lessonId,
-              generatedVisuals: nextGeneratedVisuals,
+          return projectRepositoryRef.current.patchProject(
+            projectId,
+            {
+              section: {
+                sectionId: lessonId,
+                generatedVisuals: nextGeneratedVisuals,
+              },
+              updatedAt: timestampIso(),
             },
-            updatedAt: timestampIso(),
-          },
-          { expectedRevision: getExpectedRevision(projectId) }
-        )
-      );
-      return { replaced: true };
+            { expectedRevision: persisted.revision }
+          );
+        });
+        return { replaced: true };
+      } catch (error) {
+        return { replaced: false, error: getErrorMessage(error) };
+      }
     },
-    [getExpectedRevision, runTrackedProjectWrite]
+    [invalidateRemoteDeletedProject, runTrackedProjectWrite]
   );
 
   const downloadBlob = useCallback((blob: Blob, filename: string) => {
@@ -833,7 +998,14 @@ export const useProjectLibrary = ({
 
   const importLibraryBackup = useCallback(
     async (file: File): Promise<number> => {
-      const archive = await readLibraryArchive(file);
+      setProjectSyncState({ kind: 'import', phase: 'pending' });
+      let archive: Awaited<ReturnType<typeof readLibraryArchive>>;
+      try {
+        archive = await readLibraryArchive(file);
+      } catch (error) {
+        setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        throw error;
+      }
       const projectArchivesById = new Map(
         archive.projectArchives.map(project => [project.id, project.archive])
       );
@@ -885,14 +1057,22 @@ export const useProjectLibrary = ({
               refreshError
             );
           }
-          throw new ProjectStorageError(
+          const rollbackError = new ProjectStorageError(
             'L’importazione è stata interrotta, ma alcuni elementi potrebbero essere rimasti nella libreria.',
             'persistence-failed'
           );
+          setProjectSyncState({
+            kind: 'import',
+            message: rollbackError.message,
+            phase: 'failed',
+          });
+          throw rollbackError;
         }
+        setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
         throw error;
       }
       await refreshLibraryState();
+      setProjectSyncState({ kind: 'idle' });
       return archive.projects.length;
     },
     [refreshLibraryState]
@@ -905,8 +1085,7 @@ export const useProjectLibrary = ({
       return;
     }
     if (pendingEvent.deleted) {
-      pendingRemoteRevisionRef.current = null;
-      setStorageError(t("Il corso aperto è stato eliminato in un'altra sessione."));
+      invalidateRemoteDeletedProject(pendingEvent.projectId);
       return;
     }
     if (
@@ -918,8 +1097,9 @@ export const useProjectLibrary = ({
       return;
     }
 
+    const writeState = getProjectWriteState(pendingEvent.projectId);
     const hasLocalChanges =
-      pendingWriteCountRef.current > 0 ||
+      writeState.pendingCount > 0 ||
       autosaveTimeoutRef.current !== null ||
       (isProjectHydratedRef.current &&
         buildAutosaveSignature(domainStateRef.current) !== lastPersistedSignatureRef.current);
@@ -932,11 +1112,16 @@ export const useProjectLibrary = ({
 
     isApplyingRemoteRevisionRef.current = true;
     try {
-      const snapshot = await projectRepositoryRef.current.loadProject(pendingEvent.projectId);
-      if (!snapshot || pendingWriteCountRef.current > 0) {
+      const persisted = await projectRepositoryRef.current.loadProjectWithRevision(
+        pendingEvent.projectId
+      );
+      if (!persisted) {
+        invalidateRemoteDeletedProject(pendingEvent.projectId);
         return;
       }
-      rememberExplicitProjectTitle(snapshot);
+      if (writeState.pendingCount > 0) {
+        return;
+      }
       if (buildAutosaveSignature(domainStateRef.current) !== lastPersistedSignatureRef.current) {
         return;
       }
@@ -945,21 +1130,27 @@ export const useProjectLibrary = ({
       if (latestPendingEvent?.projectId !== pendingEvent.projectId) {
         return;
       }
-      const hydratedSnapshot = prepareSnapshotForHydration(snapshot);
+      if (persisted.revision < latestPendingEvent.revision) {
+        return;
+      }
+      rememberExplicitProjectTitle(persisted.snapshot);
+      const hydratedSnapshot = prepareSnapshotForHydration(persisted.snapshot);
       pendingRemoteRevisionRef.current = null;
       loadedProjectRevisionRef.current = {
         projectId: pendingEvent.projectId,
-        revision: latestPendingEvent.revision,
+        revision: persisted.revision,
       };
       lastPersistedSignatureRef.current = buildAutosaveSignature(hydratedSnapshot);
       hydrateSnapshotRef.current(hydratedSnapshot);
       setStorageError(null);
+      setProjectSyncState({ kind: 'idle' });
     } catch (error) {
       console.warn('[Nous] Remote project revision could not be applied', error);
+      setProjectSyncState({ kind: 'realtimeDegraded' });
     } finally {
       isApplyingRemoteRevisionRef.current = false;
     }
-  }, [rememberExplicitProjectTitle]);
+  }, [getProjectWriteState, invalidateRemoteDeletedProject, rememberExplicitProjectTitle]);
 
   useEffect(() => {
     processPendingRemoteRevisionRef.current = processPendingRemoteRevision;
@@ -978,11 +1169,8 @@ export const useProjectLibrary = ({
     const loadedRevision = loadedProjectRevisionRef.current.revision;
     if (!remoteMeta) {
       if (loadedRevision !== undefined) {
-        pendingRemoteRevisionRef.current = {
-          deleted: true,
-          projectId,
-          revision: loadedRevision + 1,
-        };
+        invalidateRemoteDeletedProject(projectId);
+        return;
       }
     } else if (
       remoteMeta.revision !== undefined &&
@@ -997,8 +1185,9 @@ export const useProjectLibrary = ({
       }
     }
     setStorageError(null);
+    setProjectSyncState(current => (current.kind === 'remoteDeleted' ? current : { kind: 'idle' }));
     await processPendingRemoteRevisionRef.current();
-  }, [storeSavedProjects]);
+  }, [invalidateRemoteDeletedProject, storeSavedProjects]);
 
   const requestRevisionCatchUp = useCallback(() => {
     revisionCatchUpRequestedRef.current = true;
@@ -1011,6 +1200,7 @@ export const useProjectLibrary = ({
           await reconcileProjectRevisions();
         } catch (error) {
           console.warn('[Nous] Project revision catch-up failed', error);
+          setProjectSyncState({ kind: 'realtimeDegraded' });
         }
       }
       isRevisionCatchUpActiveRef.current = false;
@@ -1058,8 +1248,11 @@ export const useProjectLibrary = ({
       try {
         await refreshLibraryState();
         setStorageError(null);
+        setProjectSyncState({ kind: 'idle' });
       } catch (error) {
-        setStorageError(getErrorMessage(error));
+        const message = getErrorMessage(error);
+        setStorageError(message);
+        setProjectSyncState({ kind: 'load', message, phase: 'failed' });
       } finally {
         setIsLibraryLoading(false);
       }
@@ -1122,6 +1315,19 @@ export const useProjectLibrary = ({
     },
     [rememberExplicitProjectTitle]
   );
+  const validateStoredProjectForOpen = useCallback(
+    async (projectId: string) => {
+      if (deletedProjectIdsRef.current.has(projectId)) return null;
+      const project = await projectRepositoryRef.current.loadProjectWithRevision(projectId);
+      if (!project) {
+        invalidateRemoteDeletedProject(projectId);
+        return null;
+      }
+      rememberExplicitProjectTitle(project.snapshot);
+      return project;
+    },
+    [invalidateRemoteDeletedProject, rememberExplicitProjectTitle]
+  );
   const loadStoredProjectCover = useCallback(
     (projectId: string) => projectRepositoryRef.current.loadProjectCover(projectId),
     []
@@ -1136,13 +1342,16 @@ export const useProjectLibrary = ({
   );
   const saveStoredProjectCover = useCallback(
     (projectId: string, cover: FileData) =>
-      projectRepositoryRef.current.saveProjectCover(projectId, cover),
-    []
+      runDeletionAwareProjectAction(projectId, () =>
+        projectRepositoryRef.current.saveProjectCover(projectId, cover)
+      ),
+    [runDeletionAwareProjectAction]
   );
 
   const renameProject = useCallback(
     async (projectId: string, title: string) => {
       const meta = await runTrackedProjectWrite(
+        projectId,
         () =>
           projectRepositoryRef.current.patchProject(
             projectId,
@@ -1160,6 +1369,7 @@ export const useProjectLibrary = ({
   const setProjectFavorite = useCallback(
     (projectId: string, isFavorite: boolean) =>
       runTrackedProjectWrite(
+        projectId,
         () => projectRepositoryRef.current.setProjectFavorite(projectId, isFavorite),
         false
       ),
@@ -1185,7 +1395,7 @@ export const useProjectLibrary = ({
       return;
     }
 
-    if (pendingWriteCountRef.current > 0) {
+    if (getProjectWriteState(currentProjectId).pendingCount > 0) {
       return;
     }
 
@@ -1216,9 +1426,23 @@ export const useProjectLibrary = ({
         autosaveTimeoutRef.current = null;
       }
     };
-  }, [currentPersistenceSignature, currentProjectId, saveCurrentProject, writeFailureVersion]);
+  }, [
+    currentPersistenceSignature,
+    currentProjectId,
+    getProjectWriteState,
+    saveCurrentProject,
+    writeFailureVersion,
+  ]);
 
   return {
+    acknowledgeRemoteDeletion: (projectId: string) => {
+      setProjectSyncState(current =>
+        current.kind === 'remoteDeleted' && current.projectId === projectId
+          ? { kind: 'idle' }
+          : current
+      );
+      setStorageError(current => (current === t(REMOTE_PROJECT_DELETED_MESSAGE) ? null : current));
+    },
     applyPersistedProjectRevision,
     completeProjectHydration,
     createFolder: async (args: { name: string; parentFolderId?: string | null }) => {
@@ -1240,12 +1464,30 @@ export const useProjectLibrary = ({
     downloadLibraryBackup,
     importLibraryBackup,
     importProjectArchive: async (archive: Blob, targetProjectId: string) => {
-      return projectRepositoryRef.current.importProjectArchive(archive, targetProjectId);
+      setProjectSyncState({ kind: 'import', phase: 'pending' });
+      try {
+        const imported = await projectRepositoryRef.current.importProjectArchive(
+          archive,
+          targetProjectId
+        );
+        setProjectSyncState({ kind: 'idle' });
+        return imported;
+      } catch (error) {
+        setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        throw error;
+      }
     },
     importProjectData: async (data: unknown) => {
-      const imported = await projectRepositoryRef.current.importProject(data);
-      await refreshLibraryState();
-      return imported;
+      setProjectSyncState({ kind: 'import', phase: 'pending' });
+      try {
+        const imported = await projectRepositoryRef.current.importProject(data);
+        await refreshLibraryState();
+        setProjectSyncState({ kind: 'idle' });
+        return imported;
+      } catch (error) {
+        setProjectSyncState({ kind: 'import', message: getErrorMessage(error), phase: 'failed' });
+        throw error;
+      }
     },
     isLibraryLoading,
     isProjectHydratedRef,
@@ -1293,6 +1535,7 @@ export const useProjectLibrary = ({
     patchCurrentProject,
     patchSectionLessonContent,
     patchSectionAnnotations,
+    projectSyncState,
     savedProjects,
     setProjectFavorite,
     setCurrentProjectId: selectCurrentProject,
@@ -1304,6 +1547,10 @@ export const useProjectLibrary = ({
       }
     },
     storageError,
-    touchStoredProject: (projectId: string) => projectRepositoryRef.current.touchProject(projectId),
+    touchStoredProject: (projectId: string) =>
+      runDeletionAwareProjectAction(projectId, () =>
+        projectRepositoryRef.current.touchProject(projectId)
+      ),
+    validateStoredProjectForOpen,
   };
 };

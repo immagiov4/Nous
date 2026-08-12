@@ -14,6 +14,7 @@ import {
 } from '../../../services/projects/projectSnapshot.ts';
 import {
   createProjectSourceFromFile,
+  decodeTextBase64,
   encodeTextBase64,
   getProjectSourceFile,
 } from '../../../services/projects/projectSource.ts';
@@ -183,40 +184,19 @@ test('modern multi-source snapshots preserve every detached storage reference', 
 });
 
 test('rejects a detached source set instead of silently dropping a descriptor without a ref', () => {
-  const imported = normalizeImportedProject({
-    id: 'invalid-multi-source',
-    version: '4.1',
-    source: {
-      file: {
-        data: '',
-        mimeType: 'text/plain',
-        name: 'first.txt',
-        sourceId: 'source-first',
-      },
-      kind: 'document',
-      ref: {
-        byteSize: 1,
-        hash: 'a'.repeat(64),
-        id: 'source-first',
-        mimeType: 'text/plain',
-        name: 'first.txt',
-        objectPath: 'users/user/projects/project/source-first/original',
-      },
-      sources: [
-        {
+  assert.throws(
+    () =>
+      normalizeImportedProject({
+        id: 'invalid-multi-source',
+        version: '4.1',
+        source: {
           file: {
             data: '',
             mimeType: 'text/plain',
             name: 'first.txt',
             sourceId: 'source-first',
           },
-          hash: 'a'.repeat(64),
-          id: 'source-first',
-          kind: 'text',
-          name: 'first.txt',
-          outline: [],
-          outlineOrigin: 'none',
-          position: 0,
+          kind: 'document',
           ref: {
             byteSize: 1,
             hash: 'a'.repeat(64),
@@ -225,33 +205,56 @@ test('rejects a detached source set instead of silently dropping a descriptor wi
             name: 'first.txt',
             objectPath: 'users/user/projects/project/source-first/original',
           },
-          status: 'ready',
+          sources: [
+            {
+              file: {
+                data: '',
+                mimeType: 'text/plain',
+                name: 'first.txt',
+                sourceId: 'source-first',
+              },
+              hash: 'a'.repeat(64),
+              id: 'source-first',
+              kind: 'text',
+              name: 'first.txt',
+              outline: [],
+              outlineOrigin: 'none',
+              position: 0,
+              ref: {
+                byteSize: 1,
+                hash: 'a'.repeat(64),
+                id: 'source-first',
+                mimeType: 'text/plain',
+                name: 'first.txt',
+                objectPath: 'users/user/projects/project/source-first/original',
+              },
+              status: 'ready',
+            },
+            {
+              file: {
+                data: '',
+                mimeType: 'text/plain',
+                name: 'second.txt',
+                sourceId: 'source-second',
+              },
+              hash: 'b'.repeat(64),
+              id: 'source-second',
+              kind: 'text',
+              name: 'second.txt',
+              outline: [],
+              outlineOrigin: 'none',
+              position: 1,
+              status: 'ready',
+            },
+          ],
         },
-        {
-          file: {
-            data: '',
-            mimeType: 'text/plain',
-            name: 'second.txt',
-            sourceId: 'source-second',
-          },
-          hash: 'b'.repeat(64),
-          id: 'source-second',
-          kind: 'text',
-          name: 'second.txt',
-          outline: [],
-          outlineOrigin: 'none',
-          position: 1,
-          status: 'ready',
-        },
-      ],
-    },
-    learningPlan: null,
-    isLearnMode: false,
-    userProfile: null,
-    syllabus: [],
-  });
-
-  assert.equal(imported.source, null);
+        learningPlan: null,
+        isLearnMode: false,
+        userProfile: null,
+        syllabus: [],
+      }),
+    /descrittore sorgente non valido/iu
+  );
 });
 
 test('normalizeImportedProject preserves validated YouTube clip evidence', () => {
@@ -320,7 +323,9 @@ test('new exports keep one inspectable transcript representation and round-trip 
   });
 
   const exported = exportProjectData(snapshot);
-  const transcript = exported.researchDossiersBySectionId?.lesson?.sources[0]?.youtubeTranscript;
+  const transcript =
+    normalizeImportedProject(exported).researchDossiersBySectionId?.lesson?.sources[0]
+      ?.youtubeTranscript;
   assert.deepEqual(transcript, { segments });
   assert.equal(Object.hasOwn(transcript ?? {}, 'text'), false);
   assert.equal(Object.hasOwn(transcript ?? {}, 'ranges'), false);
@@ -454,71 +459,73 @@ test('exportProjectData keeps the source only once for modern exports', () => {
 
   assert.deepEqual(exported.source, snapshot.source);
   assert.equal(Object.hasOwn(exported, 'file'), false);
+  assert.equal(exported.createdAt, snapshot.createdAt);
+  assert.equal(exported.updatedAt, snapshot.updatedAt);
+  assert.equal(exported.lastOpenedAt, snapshot.lastOpenedAt);
 });
 
-test('legacy source payloads are discarded without losing their course', () => {
+test('legacy aggregate-only codebase sources are recovered without false file provenance', () => {
   const imported = normalizeImportedProject({
-    version: '3.0',
-    file: {
-      name: 'paper.pdf',
-      mimeType: 'application/pdf',
-      data: encodeTextBase64('fake-pdf-binary'),
-    },
+    id: 'legacy-project',
     source: {
       aggregatedText: '# Legacy source',
       files: [],
       kind: 'codebase-bundle',
       name: 'legacy.zip',
     },
-    learningPlan: {
-      applicationExercisePlanningStatus: 'not-run',
-      modules: [],
-      summary: 'Il corso resta disponibile.',
-      title: 'Corso esistente',
-    },
-    isLearnMode: false,
-    userProfile: null,
-    syllabus: [],
   });
 
-  assert.equal(imported.source, null);
-  assert.equal(imported.learningPlan?.title, 'Corso esistente');
-  assert.equal(imported.learningPlan?.summary, 'Il corso resta disponibile.');
+  assert.equal(imported.source?.kind, 'document');
+  assert.equal(imported.source?.file.name.includes('legacy.zip'), false);
+  assert.equal(decodeTextBase64(imported.source?.file.data ?? ''), '# Legacy source');
+  assert.equal(imported.source?.sources?.[0]?.status, 'partial');
+});
+
+test('legacy codebase sources without files or aggregate text fail explicitly', () => {
+  assert.throws(
+    () =>
+      normalizeImportedProject({
+        id: 'legacy-project',
+        source: { files: [], kind: 'codebase-bundle', name: 'legacy.zip' },
+      }),
+    /senza contenuto recuperabile/iu
+  );
 });
 
 test('an invalid archive index rejects the whole source instead of silently dropping entries', () => {
-  const imported = normalizeImportedProject({
-    source: {
-      file: {
-        data: encodeTextBase64('raw zip bytes'),
-        mimeType: 'application/zip',
-        name: 'broken.zip',
-      },
-      index: {
-        entries: [
-          { kind: 'directory', path: 'src' },
-          {
-            byteSize: -1,
-            contentKind: 'text',
-            kind: 'file',
-            path: 'src/index.ts',
-            preview: 'export {};',
+  assert.throws(
+    () =>
+      normalizeImportedProject({
+        source: {
+          file: {
+            data: encodeTextBase64('raw zip bytes'),
+            mimeType: 'application/zip',
+            name: 'broken.zip',
           },
-        ],
-      },
-      kind: 'archive',
-      name: 'broken.zip',
-    },
-    learningPlan: {
-      applicationExercisePlanningStatus: 'not-run',
-      modules: [],
-      summary: '',
-      title: 'Corso preservato',
-    },
-  });
-
-  assert.equal(imported.source, null);
-  assert.equal(imported.learningPlan?.title, 'Corso preservato');
+          index: {
+            entries: [
+              { kind: 'directory', path: 'src' },
+              {
+                byteSize: -1,
+                contentKind: 'text',
+                kind: 'file',
+                path: 'src/index.ts',
+                preview: 'export {};',
+              },
+            ],
+          },
+          kind: 'archive',
+          name: 'broken.zip',
+        },
+        learningPlan: {
+          applicationExercisePlanningStatus: 'not-run',
+          modules: [],
+          summary: '',
+          title: 'Corso preservato',
+        },
+      }),
+    /sorgente archivio non valida/iu
+  );
 });
 
 test('normalizeImportedProject preserves multi-source identities, outlines, and chunk provenance', () => {

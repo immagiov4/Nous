@@ -306,6 +306,7 @@ describe('WorkspaceReaderContent', () => {
               stage: 'sources',
             },
             { code: 'lesson_learning_aids_unavailable', stage: 'aids' },
+            { code: 'lesson_youtube_research_unavailable', stage: 'youtube' },
             {
               code: 'lesson_visual_generation_incomplete',
               stage: 'visuals',
@@ -327,8 +328,24 @@ describe('WorkspaceReaderContent', () => {
     expect(
       screen.queryByText('Alcuni elementi visivi non sono disponibili per questa lezione.')
     ).toBeNull();
+    expect(
+      screen.queryByText('I video di approfondimento non sono disponibili per questa lezione.')
+    ).toBeNull();
     expect(screen.queryByText(/lesson_pdf_image_extraction_incomplete/u)).toBeNull();
     expect(screen.queryByText(/source-1/u)).toBeNull();
+  });
+
+  test('does not present missing optional videos as unavailable lesson content', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          lessonWarnings: [{ code: 'lesson_youtube_research_unavailable', stage: 'youtube' }],
+          quiz: [],
+        })}
+      />
+    );
+
+    expect(screen.queryByRole('complementary', { name: 'Contenuti non disponibili' })).toBeNull();
   });
 
   test('materializes annotations before rendering lesson chunks', () => {
@@ -721,6 +738,37 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getAllByText('course.pdf')).toHaveLength(1);
     expect(screen.queryByText('Materiale originale del corso')).toBeNull();
     expect(screen.getByText('Fonte esterna')).toBeInTheDocument();
+  });
+
+  test('does not repeat a structured document page range inline', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          documentSourceReferences: [
+            {
+              chunkIds: ['source-course:chunk-1'],
+              file: {
+                data: '',
+                mimeType: 'application/pdf',
+                name: 'course.pdf',
+                sourceId: 'source-course',
+              },
+              kind: 'pdf',
+              name: 'course.pdf',
+              pageEnd: 24,
+              pageStart: 10,
+              sourceId: 'source-course',
+            },
+          ],
+          sourcePageRangeLabel: 'pag. 10-24',
+        })}
+      />
+    );
+
+    expect(screen.queryByText('Fonte originale: pag. 10-24')).toBeNull();
+    expect(screen.getByRole('complementary', { name: 'Fonti della sezione' })).toHaveTextContent(
+      'Pagine 10-24'
+    );
   });
 
   test('enables lesson completion once all inline questions have been answered', () => {

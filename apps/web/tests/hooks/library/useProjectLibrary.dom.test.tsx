@@ -6,6 +6,7 @@ import { ProjectStorageError } from '../../../services/projects/projectRepositor
 import { createEmptyWorkspaceDomainState } from '../../../services/workspace/domain.ts';
 import {
   AppState,
+  type ProjectRevisionEvent,
   type ProjectSnapshot,
   type ProjectSource,
   type SavedProjectMeta,
@@ -39,7 +40,7 @@ const repositoryMocks = vi.hoisted(() => ({
   touchProject: vi.fn(),
 }));
 
-let revisionListener: ((event: { projectId: string; revision: number }) => void) | null = null;
+let revisionListener: ((event: ProjectRevisionEvent) => void) | null = null;
 let revisionReconnect: (() => void) | null = null;
 
 vi.mock('../../../services/projects/httpProjectRepository.ts', () => ({
@@ -622,6 +623,69 @@ describe('useProjectLibrary', () => {
     expect(result.current.savedProjects[0]).toMatchObject({ revision: 5 });
   });
 
+  test('treats a missing persisted revision as authoritative remote deletion', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue(null);
+    const hydrateSnapshot = vi.fn();
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot,
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let applied = true;
+    await act(async () => {
+      applied = await result.current.applyPersistedProjectRevision({
+        projectId: 'project-1',
+        revision: 5,
+      });
+    });
+
+    expect(applied).toBe(false);
+    expect(result.current.currentProjectId).toBeNull();
+    expect(result.current.projectSyncState).toMatchObject({
+      kind: 'remoteDeleted',
+      projectId: 'project-1',
+      wasActive: true,
+    });
+    expect(result.current.storageError).toBe('Questo corso è stato cancellato');
+    expect(hydrateSnapshot).not.toHaveBeenCalled();
+  });
+
+  test('records a tombstone when opening validation finds the course deleted', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue(null);
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+
+    let validatedProject: unknown;
+    await act(async () => {
+      validatedProject = await result.current.validateStoredProjectForOpen('project-1');
+    });
+
+    expect(validatedProject).toBeNull();
+    expect(result.current.savedProjects).toEqual([]);
+    expect(result.current.projectSyncState).toMatchObject({
+      kind: 'remoteDeleted',
+      projectId: 'project-1',
+      wasActive: false,
+    });
+    expect(result.current.storageError).toBe('Questo corso è stato cancellato');
+  });
+
   test('completes hydration from the authoritative snapshot without treating it as a local edit', async () => {
     const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4);
     const baseState = createEmptyWorkspaceDomainState();
@@ -960,7 +1024,10 @@ describe('useProjectLibrary', () => {
     });
     const hydrateSnapshot = vi.fn();
     repositoryMocks.listProjects.mockResolvedValue([firstMeta]);
-    repositoryMocks.loadProject.mockResolvedValue(remoteSnapshot);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 2,
+      snapshot: remoteSnapshot,
+    });
 
     const { result } = renderHook(() =>
       useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
@@ -977,7 +1044,7 @@ describe('useProjectLibrary', () => {
     });
     await waitFor(() => expect(hydrateSnapshot).toHaveBeenCalledWith(remoteSnapshot));
 
-    expect(repositoryMocks.loadProject).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(1);
   });
 
   test('does not fetch the active snapshot when reconnect finds the same revision', async () => {
@@ -1000,7 +1067,194 @@ describe('useProjectLibrary', () => {
     });
     await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
 
-    expect(repositoryMocks.loadProject).not.toHaveBeenCalled();
+    expect(repositoryMocks.loadProjectWithRevision).not.toHaveBeenCalled();
+  });
+
+  test('invalidates pending writes and leaves an active course after a remote deletion event', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    let resolveFirstWrite!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.patchProject.mockReturnValue(
+      new Promise<SavedProjectMeta>(resolve => {
+        resolveFirstWrite = resolve;
+      })
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let activeWrite!: Promise<boolean>;
+    let queuedWrite!: Promise<boolean>;
+    act(() => {
+      activeWrite = result.current.patchSectionLessonContent('lesson-1', { content: 'prima' });
+      queuedWrite = result.current.patchSectionLessonContent('lesson-2', { content: 'seconda' });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      revisionListener?.({ deleted: true, projectId: 'project-1', revision: 2 });
+    });
+    await waitFor(() => expect(result.current.projectSyncState.kind).toBe('remoteDeleted'));
+
+    expect(result.current.currentProjectId).toBeNull();
+    expect(result.current.savedProjects).toEqual([]);
+    expect(result.current.storageError).toBe('Questo corso è stato cancellato');
+
+    await act(async () => {
+      resolveFirstWrite({ ...initialMeta, revision: 2 });
+      await Promise.all([activeWrite, queuedWrite]);
+    });
+    await new Promise(resolve => globalThis.setTimeout(resolve, 500));
+
+    expect(await activeWrite).toBe(false);
+    expect(await queuedWrite).toBe(false);
+    expect(repositoryMocks.patchProject).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
+    expect(result.current.savedProjects).toEqual([]);
+  });
+
+  test('treats a missing active course during reconnect catch-up as a remote deletion', async () => {
+    repositoryMocks.listProjects
+      .mockResolvedValueOnce([buildMeta('project-1', '2026-04-02T10:00:00.000Z', 4)])
+      .mockResolvedValueOnce([]);
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    act(() => {
+      revisionReconnect?.();
+    });
+
+    await waitFor(() => expect(result.current.projectSyncState.kind).toBe('remoteDeleted'));
+    expect(result.current.currentProjectId).toBeNull();
+    expect(result.current.storageError).toBe('Questo corso è stato cancellato');
+  });
+
+  test('uses the same remote deletion outcome when a local write receives project-deleted', async () => {
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 2),
+    ]);
+    repositoryMocks.patchProject.mockRejectedValue(
+      new ProjectStorageError('internal detail that must not reach the user', 'project-deleted')
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let writeResult!: boolean;
+    await act(async () => {
+      writeResult = await result.current.patchSectionLessonContent('lesson-1', {
+        content: 'modifica tardiva',
+      });
+    });
+
+    expect(writeResult).toBe(false);
+    expect(result.current.projectSyncState).toMatchObject({
+      kind: 'remoteDeleted',
+      projectId: 'project-1',
+    });
+    expect(result.current.currentProjectId).toBeNull();
+    expect(result.current.storageError).toBe('Questo corso è stato cancellato');
+  });
+
+  test('removes a remotely deleted background course without leaving the active course', async () => {
+    const activeMeta = buildMeta('project-active', '2026-04-02T10:00:00.000Z', 2);
+    const deletedMeta = buildMeta('project-deleted', '2026-04-02T10:00:00.000Z', 3);
+    repositoryMocks.listProjects.mockResolvedValue([activeMeta, deletedMeta]);
+    repositoryMocks.setProjectFavorite.mockRejectedValue(
+      new ProjectStorageError('technical database detail', 'project-deleted')
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-active');
+      result.current.setProjectHydrated(true);
+    });
+
+    await act(async () => {
+      await expect(
+        result.current.setProjectFavorite('project-deleted', true)
+      ).rejects.toMatchObject({
+        code: 'project-deleted',
+        message: 'Questo corso è stato cancellato',
+      });
+    });
+
+    expect(result.current.currentProjectId).toBe('project-active');
+    expect(result.current.savedProjects).toEqual([activeMeta]);
+    expect(result.current.projectSyncState).toMatchObject({
+      kind: 'remoteDeleted',
+      projectId: 'project-deleted',
+      wasActive: false,
+    });
+  });
+
+  test('uses the remote deletion outcome when saving a cover receives 404', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 2);
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta]);
+    repositoryMocks.saveProjectCover.mockRejectedValue(
+      new ProjectStorageError('technical storage detail', 'project-deleted')
+    );
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => result.current.setCurrentProjectId('project-1'));
+
+    await act(async () => {
+      await expect(
+        result.current.saveStoredProjectCover('project-1', {
+          data: 'iVBORw0KGgo=',
+          mimeType: 'image/png',
+          name: 'cover.png',
+        })
+      ).rejects.toMatchObject({
+        code: 'project-deleted',
+        message: 'Questo corso è stato cancellato',
+      });
+    });
+
+    expect(result.current.currentProjectId).toBeNull();
+    expect(result.current.projectSyncState).toMatchObject({
+      kind: 'remoteDeleted',
+      projectId: 'project-1',
+      wasActive: true,
+    });
   });
 
   test('serializes revision catch-up requests so an older response cannot overwrite a newer one', async () => {
@@ -1036,6 +1290,53 @@ describe('useProjectLibrary', () => {
     await waitFor(() => expect(result.current.savedProjects[0]?.revision).toBe(3));
   });
 
+  test('does not pair an older snapshot with a newer revision event', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    const revisionTwoSnapshot = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([], { title: 'Revisione due' }),
+    });
+    const revisionThreeSnapshot = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([], { title: 'Revisione tre' }),
+    });
+    let resolveFirstLoad!: (value: { revision: number; snapshot: ProjectSnapshot }) => void;
+    repositoryMocks.listProjects
+      .mockResolvedValueOnce([initialMeta])
+      .mockResolvedValueOnce([buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2)])
+      .mockResolvedValueOnce([buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3)]);
+    repositoryMocks.loadProject.mockResolvedValue(revisionTwoSnapshot);
+    repositoryMocks.loadProjectWithRevision
+      .mockReturnValueOnce(
+        new Promise(resolve => {
+          resolveFirstLoad = resolve;
+        })
+      )
+      .mockResolvedValueOnce({ revision: 3, snapshot: revisionThreeSnapshot });
+    const hydrateSnapshot = vi.fn();
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    act(() => {
+      revisionListener?.({ projectId: 'project-1', revision: 2 });
+    });
+    await waitFor(() => expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(1));
+    act(() => {
+      revisionListener?.({ projectId: 'project-1', revision: 3 });
+    });
+    await act(async () => {
+      resolveFirstLoad({ revision: 2, snapshot: revisionTwoSnapshot });
+    });
+
+    await waitFor(() => expect(hydrateSnapshot).toHaveBeenCalledWith(revisionThreeSnapshot));
+    expect(hydrateSnapshot).not.toHaveBeenCalledWith(revisionTwoSnapshot);
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledTimes(2);
+  });
+
   test('waits for an in-flight local write before applying a remote revision', async () => {
     let rejectPatch: ((error: Error) => void) | null = null;
     const patchPromise = new Promise<never>((_resolve, reject) => {
@@ -1046,9 +1347,10 @@ describe('useProjectLibrary', () => {
       buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
     ]);
     repositoryMocks.patchProject.mockReturnValue(patchPromise);
-    repositoryMocks.loadProject.mockResolvedValue(
-      buildSnapshot('project-1', { updatedAt: '2026-04-02T11:00:00.000Z' })
-    );
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 2,
+      snapshot: buildSnapshot('project-1', { updatedAt: '2026-04-02T11:00:00.000Z' }),
+    });
     const { result } = renderHook(() =>
       useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
     );
@@ -1070,7 +1372,7 @@ describe('useProjectLibrary', () => {
       await Promise.resolve();
     });
 
-    expect(repositoryMocks.loadProject).not.toHaveBeenCalled();
+    expect(repositoryMocks.loadProjectWithRevision).not.toHaveBeenCalled();
     expect(hydrateSnapshot).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -1091,9 +1393,10 @@ describe('useProjectLibrary', () => {
       buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
     ]);
     repositoryMocks.patchProject.mockReturnValue(patchPromise);
-    repositoryMocks.loadProject.mockResolvedValue(
-      buildSnapshot('project-1', { updatedAt: '2026-04-02T12:00:00.000Z' })
-    );
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 3,
+      snapshot: buildSnapshot('project-1', { updatedAt: '2026-04-02T12:00:00.000Z' }),
+    });
 
     const { result } = renderHook(() =>
       useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
@@ -1117,7 +1420,7 @@ describe('useProjectLibrary', () => {
       revisionListener?.({ projectId: 'project-1', revision: 3 });
       await Promise.resolve();
     });
-    expect(repositoryMocks.loadProject).not.toHaveBeenCalled();
+    expect(repositoryMocks.loadProjectWithRevision).not.toHaveBeenCalled();
 
     await act(async () => {
       resolvePatch(buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2));
@@ -1126,7 +1429,7 @@ describe('useProjectLibrary', () => {
     });
 
     expect(hydrateSnapshot).toHaveBeenCalledTimes(1);
-    expect(repositoryMocks.loadProject).toHaveBeenCalledWith('project-1');
+    expect(repositoryMocks.loadProjectWithRevision).toHaveBeenCalledWith('project-1');
   });
 
   test('serializes concurrent local writes against successive server revisions', async () => {
@@ -1184,6 +1487,219 @@ describe('useProjectLibrary', () => {
     });
     expect(await firstWrite).toBe(true);
     expect(await secondWrite).toBe(true);
+  });
+
+  test('does not let a write for another project block an active project refresh', async () => {
+    const initialMeta = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1);
+    const otherMeta = buildMeta('project-2', '2026-04-02T10:00:00.000Z', 1);
+    const remoteSnapshot = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([], { title: 'Aggiornato altrove' }),
+    });
+    let resolveOtherWrite!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.listProjects.mockResolvedValue([initialMeta, otherMeta]);
+    repositoryMocks.patchProject.mockImplementation((projectId: string) =>
+      projectId === 'project-2'
+        ? new Promise<SavedProjectMeta>(resolve => {
+            resolveOtherWrite = resolve;
+          })
+        : Promise.resolve(buildMeta(projectId, '2026-04-02T11:00:00.000Z', 2))
+    );
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 2,
+      snapshot: remoteSnapshot,
+    });
+    const hydrateSnapshot = vi.fn();
+    const { result } = renderHook(() =>
+      useProjectLibrary({ domainState: createEmptyWorkspaceDomainState(), hydrateSnapshot })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let otherWrite!: Promise<SavedProjectMeta>;
+    act(() => {
+      otherWrite = result.current.renameProject('project-2', 'Altro corso');
+    });
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2),
+      otherMeta,
+    ]);
+    await act(async () => {
+      revisionListener?.({ projectId: 'project-1', revision: 2 });
+    });
+
+    await waitFor(() => expect(hydrateSnapshot).toHaveBeenCalledWith(remoteSnapshot));
+    resolveOtherWrite({ ...otherMeta, title: 'Altro corso', revision: 2 });
+    await otherWrite;
+  });
+
+  test('reloads when local state changes while a patch is in flight', async () => {
+    vi.useFakeTimers();
+    const initialState = createEmptyWorkspaceDomainState();
+    const changedState: WorkspaceDomainState = {
+      ...initialState,
+      learningPlan: buildTestLearningPlan([], { title: 'Modifica non inclusa nella patch' }),
+    };
+    let resolvePatch!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.listProjects.mockResolvedValue([
+      {
+        ...buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+        hasSourceFile: false,
+      },
+    ]);
+    repositoryMocks.patchProject.mockReturnValue(
+      new Promise<SavedProjectMeta>(resolve => {
+        resolvePatch = resolve;
+      })
+    );
+    const { result, rerender } = renderHook(
+      ({ domainState }) => useProjectLibrary({ domainState, hydrateSnapshot: vi.fn() }),
+      { initialProps: { domainState: initialState } }
+    );
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let patch!: Promise<void>;
+    act(() => {
+      patch = result.current.patchSectionAnnotations('lesson-1', []);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    rerender({ domainState: changedState });
+    await act(async () => {
+      resolvePatch({
+        ...buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2),
+        hasSourceFile: false,
+      });
+      await patch;
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(repositoryMocks.saveProject).toHaveBeenCalledTimes(1);
+    expect(repositoryMocks.saveProject.mock.calls[0]?.[0]).toMatchObject({
+      learningPlan: { title: 'Modifica non inclusa nella patch' },
+    });
+  });
+
+  test('builds lesson notes from the snapshot read inside the project write queue', async () => {
+    const existingAnnotation = {
+      anchor: { kind: 'lesson' as const },
+      createdAt: '2026-04-02T10:00:00.000Z',
+      id: 'existing-note',
+      note: 'Nota concorrente',
+      updatedAt: '2026-04-02T10:00:00.000Z',
+    };
+    const staleSnapshot = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([buildTestLesson({ id: 'lesson-1', annotations: [] })]),
+    });
+    const currentSnapshot = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([
+        buildTestLesson({ id: 'lesson-1', annotations: [existingAnnotation] }),
+      ]),
+    });
+    let resolveFirstWrite!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.loadProject.mockResolvedValue(staleSnapshot);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 2,
+      snapshot: currentSnapshot,
+    });
+    repositoryMocks.patchProject
+      .mockReturnValueOnce(
+        new Promise<SavedProjectMeta>(resolve => {
+          resolveFirstWrite = resolve;
+        })
+      )
+      .mockResolvedValueOnce(buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let firstWrite!: Promise<boolean>;
+    let noteWrite!: Promise<{ annotationId?: string; error?: string; saved: boolean }>;
+    act(() => {
+      firstWrite = result.current.patchSectionLessonContent('lesson-2', { content: 'Prima' });
+      noteWrite = result.current.saveLessonArtifactNote({
+        lessonId: 'lesson-1',
+        note: 'Nuova nota',
+        projectId: 'project-1',
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(repositoryMocks.loadProjectWithRevision).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveFirstWrite(buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2));
+      await Promise.all([firstWrite, noteWrite]);
+    });
+
+    expect(await noteWrite).toMatchObject({ saved: true });
+    expect(repositoryMocks.patchProject.mock.calls[1]?.[1]).toMatchObject({
+      section: {
+        sectionId: 'lesson-1',
+        annotations: [existingAnnotation, expect.objectContaining({ note: 'Nuova nota' })],
+      },
+    });
+    expect(repositoryMocks.patchProject.mock.calls[1]?.[2]).toEqual({ expectedRevision: 2 });
+  });
+
+  test('treats a project deleted before a queued lesson note read as remotely deleted', async () => {
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue(null);
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let noteResult!: Awaited<ReturnType<typeof result.current.saveLessonArtifactNote>>;
+    await act(async () => {
+      noteResult = await result.current.saveLessonArtifactNote({
+        lessonId: 'lesson-1',
+        note: 'Nota tardiva',
+        projectId: 'project-1',
+      });
+    });
+
+    expect(noteResult).toEqual({ saved: false, error: 'Questo corso è stato cancellato' });
+    expect(repositoryMocks.patchProject).not.toHaveBeenCalled();
+    expect(result.current.currentProjectId).toBeNull();
+    expect(result.current.projectSyncState).toMatchObject({
+      kind: 'remoteDeleted',
+      projectId: 'project-1',
+      wasActive: true,
+    });
   });
 
   test('retries the full dirty snapshot when one queued local patch fails', async () => {
@@ -1270,8 +1786,9 @@ describe('useProjectLibrary', () => {
       code: '<div>Intatta</div>',
       createdAt: '2026-05-01T11:00:00.000Z',
     };
-    repositoryMocks.loadProject.mockResolvedValue(
-      buildSnapshot('project-1', {
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 1,
+      snapshot: buildSnapshot('project-1', {
         learningPlan: buildTestLearningPlan([
           buildTestLesson({
             id: 'lesson-1',
@@ -1290,8 +1807,8 @@ describe('useProjectLibrary', () => {
             ],
           }),
         ]),
-      })
-    );
+      }),
+    });
     repositoryMocks.patchProject.mockResolvedValue(
       buildMeta('project-1', '2026-05-02T10:00:00.000Z')
     );
@@ -1334,7 +1851,148 @@ describe('useProjectLibrary', () => {
           ],
         },
       }),
-      { expectedRevision: undefined }
+      { expectedRevision: 1 }
     );
+  });
+
+  test('builds visual replacement arrays from the snapshot read inside the write queue', async () => {
+    const visualOne = {
+      id: 'visual-1',
+      title: 'mappa_vecchia',
+      kind: 'svg' as const,
+      code: '<svg data-old="true"></svg>',
+      createdAt: '2026-05-01T10:00:00.000Z',
+    };
+    const concurrentVisual = {
+      id: 'visual-2',
+      title: 'aggiunta_concorrente',
+      kind: 'html' as const,
+      code: '<div>Nuovo</div>',
+      createdAt: '2026-05-01T11:00:00.000Z',
+    };
+    const staleSnapshot = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([
+        buildTestLesson({ id: 'lesson-1', generatedVisuals: [visualOne] }),
+      ]),
+    });
+    const currentSnapshot = buildSnapshot('project-1', {
+      learningPlan: buildTestLearningPlan([
+        buildTestLesson({
+          id: 'lesson-1',
+          generatedVisuals: [visualOne, concurrentVisual],
+        }),
+      ]),
+    });
+    let resolveFirstWrite!: (meta: SavedProjectMeta) => void;
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.loadProject.mockResolvedValue(staleSnapshot);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue({
+      revision: 2,
+      snapshot: currentSnapshot,
+    });
+    repositoryMocks.patchProject
+      .mockReturnValueOnce(
+        new Promise<SavedProjectMeta>(resolve => {
+          resolveFirstWrite = resolve;
+        })
+      )
+      .mockResolvedValueOnce(buildMeta('project-1', '2026-04-02T12:00:00.000Z', 3));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let firstWrite!: Promise<boolean>;
+    let replacement!: Promise<{ error?: string; replaced: boolean }>;
+    act(() => {
+      firstWrite = result.current.patchSectionLessonContent('lesson-2', { content: 'Prima' });
+      replacement = result.current.replaceLessonGeneratedVisual({
+        artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+        lessonId: 'lesson-1',
+        projectId: 'project-1',
+        visual: {
+          ...visualOne,
+          id: 'draft-id',
+          title: 'mappa_nuova',
+          code: '<svg data-new="true"></svg>',
+        },
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(repositoryMocks.loadProjectWithRevision).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveFirstWrite(buildMeta('project-1', '2026-04-02T11:00:00.000Z', 2));
+      await Promise.all([firstWrite, replacement]);
+    });
+
+    expect(await replacement).toEqual({ replaced: true });
+    expect(repositoryMocks.patchProject.mock.calls[1]?.[1]).toMatchObject({
+      section: {
+        sectionId: 'lesson-1',
+        generatedVisuals: [
+          expect.objectContaining({ id: 'visual-1', title: 'mappa_nuova' }),
+          concurrentVisual,
+        ],
+      },
+    });
+    expect(repositoryMocks.patchProject.mock.calls[1]?.[2]).toEqual({ expectedRevision: 2 });
+  });
+
+  test('treats a project deleted before a queued visual replacement read as remotely deleted', async () => {
+    repositoryMocks.listProjects.mockResolvedValue([
+      buildMeta('project-1', '2026-04-02T10:00:00.000Z', 1),
+    ]);
+    repositoryMocks.loadProjectWithRevision.mockResolvedValue(null);
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let replacementResult!: Awaited<ReturnType<typeof result.current.replaceLessonGeneratedVisual>>;
+    await act(async () => {
+      replacementResult = await result.current.replaceLessonGeneratedVisual({
+        artifactId: 'project-1:lesson-1:generated-visual:visual-1',
+        lessonId: 'lesson-1',
+        projectId: 'project-1',
+        visual: {
+          id: 'visual-draft',
+          title: 'mappa_nuova',
+          kind: 'svg',
+          code: '<svg></svg>',
+          createdAt: '2026-05-02T10:00:00.000Z',
+        },
+      });
+    });
+
+    expect(replacementResult).toEqual({
+      replaced: false,
+      error: 'Questo corso è stato cancellato',
+    });
+    expect(repositoryMocks.patchProject).not.toHaveBeenCalled();
+    expect(result.current.currentProjectId).toBeNull();
+    expect(result.current.projectSyncState).toMatchObject({
+      kind: 'remoteDeleted',
+      projectId: 'project-1',
+      wasActive: true,
+    });
   });
 });

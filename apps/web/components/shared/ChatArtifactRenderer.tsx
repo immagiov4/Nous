@@ -17,6 +17,7 @@ import type { LearningArtifactRenderPayload } from '../../types.ts';
 import { getStoredLessonVisualKind } from '../../utils/visuals/storedLessonVisual.ts';
 import GeneratedVisualFrame from './GeneratedVisualFrame.tsx';
 import ResolvedPdfImage from './ResolvedPdfImage.tsx';
+import SurfaceErrorBoundary from './SurfaceErrorBoundary.tsx';
 
 export interface ChatArtifactActionRequest {
   artifactId: string;
@@ -134,14 +135,16 @@ const ArtifactPreview = ({
   if ('visual' in artifact) {
     return (
       <div className="pointer-events-none h-16 overflow-hidden rounded-xl border border-stone-200/80 bg-white/70 dark:border-zinc-700 dark:bg-zinc-900/60">
-        <GeneratedVisualFrame
-          className="h-full my-0"
-          displayMode="thumbnail"
-          isDarkMode={isDarkMode}
-          projectId={artifact.summary.projectId}
-          title={artifact.summary.title}
-          visual={artifact.visual}
-        />
+        <SurfaceErrorBoundary resetKey={artifact.summary.id} surface="visual">
+          <GeneratedVisualFrame
+            className="h-full my-0"
+            displayMode="thumbnail"
+            isDarkMode={isDarkMode}
+            projectId={artifact.summary.projectId}
+            title={artifact.summary.title}
+            visual={artifact.visual}
+          />
+        </SurfaceErrorBoundary>
       </div>
     );
   }
@@ -307,13 +310,15 @@ const ArtifactOverlay = ({
             />
           ) : 'visual' in artifact ? (
             <div className="mx-auto max-w-4xl">
-              <GeneratedVisualFrame
-                className="my-0"
-                isDarkMode={isDarkMode}
-                projectId={artifact.summary.projectId}
-                title={artifact.summary.title}
-                visual={artifact.visual}
-              />
+              <SurfaceErrorBoundary resetKey={artifact.summary.id} surface="visual">
+                <GeneratedVisualFrame
+                  className="my-0"
+                  isDarkMode={isDarkMode}
+                  projectId={artifact.summary.projectId}
+                  title={artifact.summary.title}
+                  visual={artifact.visual}
+                />
+              </SurfaceErrorBoundary>
             </div>
           ) : null}
         </div>

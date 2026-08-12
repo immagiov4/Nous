@@ -94,6 +94,9 @@ export const validateDeploymentConfig = (env, { bootstrap = false } = {}) => {
     if (env.SUPABASE_URL && !isPlaceholder(env.SUPABASE_URL)) {
       validateUrl('SUPABASE_URL', env.SUPABASE_URL, errors);
     }
+    if (env.SUPABASE_JWT_ISSUER) {
+      validateUrl('SUPABASE_JWT_ISSUER', env.SUPABASE_JWT_ISSUER, errors);
+    }
     if (env.DATABASE_URL && !/^postgres(?:ql)?:\/\//.test(env.DATABASE_URL)) {
       errors.push('DATABASE_URL must be a PostgreSQL connection URL.');
     }
@@ -159,6 +162,7 @@ export const buildSelfHostedUpdates = (appEnv, supabaseEnv) => {
       DATABASE_URL: `postgresql://postgres:${encodedPassword}@db:${databasePort}/postgres?sslmode=disable`,
       NOUS_SUPABASE_ANON_KEY: publishableKey,
       SUPABASE_JWKS_URL: 'http://kong:8000/auth/v1/.well-known/jwks.json',
+      SUPABASE_JWT_ISSUER: `${publicSupabaseUrl}/auth/v1`,
       SUPABASE_JWT_SECRET: supabaseEnv.JWT_SECRET,
       SUPABASE_SERVICE_ROLE_KEY: serviceKey,
       SUPABASE_URL: 'http://kong:8000',

@@ -27,6 +27,7 @@ import type {
 } from './types.js';
 import {
   attestRegisteredWorkflow,
+  hashPreCompatibilityIdWorkflowManifest,
   hashWorkflowManifest,
   validateWorkflowDefinition,
 } from './validation.js';
@@ -42,12 +43,14 @@ export const step = <
   Config = WorkflowExecutionDefaults,
   Services = unknown,
 >(options: {
-  commit?: StepDefinition<
-    SchemaOutput<InputSchema>,
-    SchemaOutput<OutputSchema>,
-    Config,
-    Services
-  >['commit'];
+  commit?: NonNullable<
+    StepDefinition<
+      SchemaOutput<InputSchema>,
+      SchemaOutput<OutputSchema>,
+      Config,
+      Services
+    >['commit']
+  >;
   config?: WorkflowConfigOverride<Config>;
   id: string;
   inputSchema: InputSchema;
@@ -57,12 +60,9 @@ export const step = <
     context: StepExecutionContext<SchemaOutput<InputSchema>, Config, Services>
   ) => Promise<SchemaOutput<OutputSchema>>;
   timeoutMs?: number;
-  undo?: StepDefinition<
-    SchemaOutput<InputSchema>,
-    SchemaOutput<OutputSchema>,
-    Config,
-    Services
-  >['undo'];
+  undo?: NonNullable<
+    StepDefinition<SchemaOutput<InputSchema>, SchemaOutput<OutputSchema>, Config, Services>['undo']
+  >;
 }): StepDefinition<SchemaOutput<InputSchema>, SchemaOutput<OutputSchema>, Config, Services> => ({
   ...options,
   kind: 'step',
@@ -278,9 +278,8 @@ export const workflow = <
   Config extends WorkflowExecutionDefaults = WorkflowExecutionDefaults,
   Services = unknown,
 >(options: {
-  compatibilityId?: string;
+  compatibilityId: string;
   configSchema: ZodType<Config>;
-  definitionHashVersion?: number;
   events?: WorkflowDefinition['events'];
   executionDefaults: Config;
   id: string;
@@ -400,17 +399,37 @@ const snapshotDefinition = (definition: ErasedWorkflowDefinition): ErasedWorkflo
     ),
   });
 
-const registerDefinition = (definition: ErasedWorkflowDefinition): ErasedRegisteredWorkflow => {
+type PreviousWorkflowDefinition =
+  | ErasedWorkflowDefinition
+  | {
+      readonly definition: ErasedWorkflowDefinition;
+      readonly hashMode: 'pre-compatibility-id';
+    };
+
+/** Temporary resume bridge for runs persisted before compatibility ids entered the manifest. */
+export const preCompatibilityIdPrevious = (
+  definition: ErasedWorkflowDefinition
+): PreviousWorkflowDefinition => ({ definition, hashMode: 'pre-compatibility-id' });
+
+const registerDefinition = (
+  definition: ErasedWorkflowDefinition,
+  hashMode: 'current' | 'pre-compatibility-id' = 'current'
+): ErasedRegisteredWorkflow => {
   validateWorkflowDefinition(definition);
   const snapshot = snapshotDefinition(definition);
   const manifest = freezeConfigValue(validateWorkflowDefinition(snapshot)) as WorkflowManifest;
+  const definitionHash =
+    hashMode === 'pre-compatibility-id'
+      ? hashPreCompatibilityIdWorkflowManifest(manifest)
+      : hashWorkflowManifest(manifest);
   return attestRegisteredWorkflow(
     Object.freeze({
       ...snapshot,
-      definitionHash: hashWorkflowManifest(manifest),
+      definitionHash,
       definitionHashVersion: manifest.definitionHashVersion,
       manifest,
-    })
+    }),
+    hashMode
   );
 };
 
@@ -419,7 +438,7 @@ export class WorkflowRegistry {
 
   register<Input, Output, Config, Services>(input: {
     current: WorkflowDefinition<Input, Output, Config, Services>;
-    resumableDefinitions?: readonly ErasedWorkflowDefinition[];
+    previous?: PreviousWorkflowDefinition;
   }): WorkflowRegistration<Input, Output, Config, Services> {
     if (this.registrations.has(input.current.id)) {
       throw new Error(`Workflow already registered: ${input.current.id}`);
@@ -430,10 +449,14 @@ export class WorkflowRegistry {
       Config,
       Services
     >;
-    const resumableDefinitions = (input.resumableDefinitions ?? []).map(definition =>
-      registerDefinition(definition)
-    );
-    const allDefinitions = [current, ...resumableDefinitions];
+    const previousInput = input.previous;
+    const previous =
+      previousInput === undefined
+        ? null
+        : 'hashMode' in previousInput
+          ? registerDefinition(previousInput.definition, previousInput.hashMode)
+          : registerDefinition(previousInput);
+    const allDefinitions = previous === null ? [current] : [current, previous];
     if (allDefinitions.some(definition => definition.id !== current.id)) {
       throw new Error(`Resumable definitions must use workflow id ${current.id}.`);
     }
@@ -443,7 +466,7 @@ export class WorkflowRegistry {
     }
     const registration = Object.freeze({
       current,
-      resumableDefinitions: Object.freeze(resumableDefinitions),
+      previous,
     });
     this.registrations.set(current.id, registration);
     return registration;
@@ -457,17 +480,18 @@ export class WorkflowRegistry {
   resolve(workflowId: string, definitionHash: string): ErasedRegisteredWorkflow | null {
     const registration = this.registrations.get(workflowId) as WorkflowRegistration | undefined;
     if (!registration) return null;
-    return (
-      [registration.current, ...registration.resumableDefinitions].find(
-        definition => definition.definitionHash === definitionHash
-      ) ?? null
-    );
+    if (registration.current.definitionHash === definitionHash) return registration.current;
+    return registration.previous?.definitionHash === definitionHash ? registration.previous : null;
   }
 
   listRegisteredBoundaries(): readonly WorkflowDefinitionBoundary[] {
     return [...this.registrations.values()].flatMap(value => {
       const registration = value as WorkflowRegistration;
-      return [registration.current, ...registration.resumableDefinitions].map(definition => ({
+      const definitions =
+        registration.previous === null
+          ? [registration.current]
+          : [registration.current, registration.previous];
+      return definitions.map(definition => ({
         definitionHash: definition.definitionHash,
         definitionHashVersion: definition.definitionHashVersion,
         workflowId: definition.id,
@@ -488,7 +512,7 @@ export class WorkflowRegistry {
         const current = toBoundary(registration.current);
         const supportedDefinitions = [
           current,
-          ...registration.resumableDefinitions.map(toBoundary),
+          ...(registration.previous === null ? [] : [toBoundary(registration.previous)]),
         ].sort(
           (left, right) =>
             left.definitionHash.localeCompare(right.definitionHash) ||

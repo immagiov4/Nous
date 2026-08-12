@@ -27,6 +27,30 @@ interface OutboxHeartbeatRow {
   lease_expires_at: Date | string;
 }
 
+interface OutboxDeadLetterRow {
+  attempt_count: number;
+  created_at: Date | string;
+  dead_lettered_at: Date | string;
+  event_type: string;
+  id: string;
+  last_error: StepFailure;
+  payload: JsonValue;
+  run_id: string;
+  schema_version: number;
+  sequence: string;
+  user_id: string;
+}
+
+interface OutboxRetryRow {
+  attempt_count: number;
+  event_type: string;
+  fencing_token: string;
+  id: string;
+  run_id: string;
+  schema_version: number;
+  sequence: string;
+}
+
 export interface WorkflowOutboxClaim {
   attemptNumber: number;
   eventType: string;
@@ -44,6 +68,20 @@ export interface WorkflowOutboxClaim {
 export type WorkflowOutboxHeartbeatResult =
   | { leaseExpiresAt: string; status: 'renewed' }
   | { status: 'lost' };
+
+export interface WorkflowOutboxDeadLetter {
+  attemptCount: number;
+  createdAt: string;
+  deadLetteredAt: string;
+  eventType: string;
+  failure: StepFailure;
+  id: string;
+  payload: JsonValue;
+  runId: string;
+  schemaVersion: number;
+  sequence: string;
+  userId: string;
+}
 
 const DELIVERY_LEASE_EXPIRED_FAILURE: StepFailure = {
   code: 'notification_lease_expired',
@@ -190,12 +228,18 @@ export class PostgresWorkflowOutboxStore {
   }): Promise<void> {
     assertNonNegativeInteger(input.retryDelayMs, 'retryDelayMs');
     const failure = parseStepFailure(input.failure);
+    const status = failure.kind === 'operational' ? 'pending' : 'dead-letter';
     const rows = await this.sql`
       update public.workflow_outbox
-      set status = 'pending',
-          available_at = clock_timestamp() + (${input.retryDelayMs} * interval '1 millisecond'),
+      set status = ${status},
+          available_at = case
+            when ${status} = 'pending'
+              then clock_timestamp() + (${input.retryDelayMs} * interval '1 millisecond')
+            else available_at
+          end,
           worker_id = null,
           lease_expires_at = null,
+          dead_lettered_at = case when ${status} = 'dead-letter' then clock_timestamp() else null end,
           last_error = ${this.sql.json(asPostgresJson(failure))}
       where id = ${input.claim.id}
         and status = 'delivering'
@@ -206,11 +250,74 @@ export class PostgresWorkflowOutboxStore {
     `;
     if (rows.length !== 1) throw new WorkflowOutboxLeaseLostError();
     emitWorkflowLog(this.logger, {
-      action: 'retry-scheduled',
+      action: status === 'dead-letter' ? 'dead-lettered' : 'retry-scheduled',
       claim: input.claim,
       entity: 'notification',
       failure,
-      retryDelayMs: input.retryDelayMs,
+      ...(status === 'pending' ? { retryDelayMs: input.retryDelayMs } : {}),
     });
+  }
+
+  async listDeadLetters(): Promise<readonly WorkflowOutboxDeadLetter[]> {
+    const rows = await this.sql<OutboxDeadLetterRow[]>`
+      select
+        event.id, event.run_id, event.sequence::text, event.event_type,
+        event.schema_version, event.payload, event.attempt_count,
+        event.last_error, event.created_at, event.dead_lettered_at, run.user_id
+      from public.workflow_outbox event
+      join public.workflow_runs run on run.id = event.run_id
+      where event.status = 'dead-letter'
+      order by event.dead_lettered_at desc, event.id
+    `;
+    return rows.map(row => ({
+      attemptCount: row.attempt_count,
+      createdAt: toIsoString(row.created_at),
+      deadLetteredAt: toIsoString(row.dead_lettered_at),
+      eventType: row.event_type,
+      failure: parseStepFailure(row.last_error),
+      id: row.id,
+      payload: row.payload,
+      runId: row.run_id,
+      schemaVersion: row.schema_version,
+      sequence: row.sequence,
+      userId: row.user_id,
+    }));
+  }
+
+  async retryDeadLetter(input: { id: string; requestedBy: string }): Promise<boolean> {
+    if (!input.id.trim()) throw new Error('id is required.');
+    if (!input.requestedBy.trim()) throw new Error('requestedBy is required.');
+    const event = await this.sql.begin(async sql => {
+      const rows = await sql<OutboxRetryRow[]>`
+        update public.workflow_outbox
+        set status = 'pending',
+            available_at = clock_timestamp(),
+            dead_lettered_at = null
+        where id = ${input.id}
+          and status = 'dead-letter'
+        returning
+          id, run_id, sequence::text, event_type, schema_version,
+          attempt_count, fencing_token::text
+      `;
+      const requeued = rows[0];
+      if (requeued) await sql`select pg_notify('workflow_notification_ready', ${requeued.run_id})`;
+      return requeued;
+    });
+    if (!event) return false;
+    emitWorkflowLog(this.logger, {
+      action: 'requeued',
+      actorId: input.requestedBy,
+      claim: {
+        attemptNumber: event.attempt_count,
+        eventType: event.event_type,
+        fencingToken: event.fencing_token,
+        id: event.id,
+        runId: event.run_id,
+        schemaVersion: event.schema_version,
+        sequence: event.sequence,
+      },
+      entity: 'notification',
+    });
+    return true;
   }
 }

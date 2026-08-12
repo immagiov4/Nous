@@ -86,6 +86,7 @@ const { patchGlobalModelConfig, resetModelConfigForTesting } = await import(
 const authenticateProvider = (aiProvider: 'codex' | 'openai' | 'openrouter'): string => {
   process.env.AUTH_MODE = 'supabase';
   process.env.SUPABASE_JWT_SECRET = 'test-secret';
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
   return createSupabaseTestToken({ aiProvider });
 };
 

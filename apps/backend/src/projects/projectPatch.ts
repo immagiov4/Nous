@@ -27,6 +27,9 @@ const applySectionPatchToNode = (
     : {}),
   ...(sectionPatch.imageRefs !== undefined ? { imageRefs: sectionPatch.imageRefs } : {}),
   ...(sectionPatch.isCompleted !== undefined ? { isCompleted: sectionPatch.isCompleted } : {}),
+  ...(sectionPatch.instructionPacks !== undefined
+    ? { instructionPacks: sectionPatch.instructionPacks }
+    : {}),
   ...(sectionPatch.learningAids !== undefined ? { learningAids: sectionPatch.learningAids } : {}),
   ...(sectionPatch.lastGenerationRunId !== undefined
     ? { lastGenerationRunId: sectionPatch.lastGenerationRunId }

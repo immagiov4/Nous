@@ -30,8 +30,10 @@ export const createSupabaseTestToken = ({
 } = {}): string =>
   signSupabaseJwt(
     {
+      aud: 'authenticated',
       sub: userId,
       exp: Math.floor(Date.now() / 1000) + 60,
+      iss: `${(process.env.SUPABASE_URL?.trim() || 'https://example.supabase.co').replace(/\/$/, '')}/auth/v1`,
       app_metadata: {
         ...(aiProvider ? { ai_provider: aiProvider } : {}),
         ...(aiProviderOverrides ? { ai_provider_overrides: aiProviderOverrides } : {}),

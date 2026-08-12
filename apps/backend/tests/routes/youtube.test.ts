@@ -22,6 +22,7 @@ describe('/api/youtube/admin/research-lab', () => {
       AUTH_MODE: 'supabase',
       DECODO_SCRAPING_API_KEY: 'decodo-test-key',
       SUPABASE_JWT_SECRET: 'test-secret',
+      SUPABASE_URL: 'https://example.supabase.co',
     };
     youtubeResearchMocks.buildYouTubeResearchDiagnostic.mockReset();
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockReset();
@@ -136,6 +137,7 @@ describe('/api/youtube/research-context', () => {
       AUTH_MODE: 'supabase',
       DECODO_SCRAPING_API_KEY: 'decodo-test-key',
       SUPABASE_JWT_SECRET: 'test-secret',
+      SUPABASE_URL: 'https://example.supabase.co',
     };
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockReset();
     youtubeResearchMocks.buildYouTubeResearchOutcome.mockResolvedValue({

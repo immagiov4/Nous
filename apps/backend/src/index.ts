@@ -31,6 +31,10 @@ import sttRouter from './routes/stt.js';
 import ttsRouter from './routes/tts.js';
 import voicesRouter from './routes/voices.js';
 import waitlistRouter from './routes/waitlist.js';
+import {
+  createWorkflowOutboxAdminRouter,
+  type WorkflowOutboxAdmin,
+} from './routes/workflowOutboxAdmin.js';
 import { createWorkflowRouter } from './routes/workflows.js';
 import youtubeRouter from './routes/youtube.js';
 import { timestampIso } from './utils/time.js';
@@ -145,6 +149,7 @@ export interface CreateAppOptions {
   lessonVisualRetryStarter?: LessonVisualRetryStarter;
   pdfMappingRepairApi?: PdfMappingRepairApi;
   projectAssetReader?: ProjectAssetReader;
+  workflowOutboxAdmin?: WorkflowOutboxAdmin;
   workflowRuntimeApi?: WorkflowRuntimeApi;
 }
 
@@ -258,6 +263,13 @@ export const createApp = (options: CreateAppOptions = {}) => {
     )
   );
   app.use('/api/projects', projectsRouter);
+  if (options.workflowOutboxAdmin) {
+    app.use(
+      '/api/admin/workflow-outbox',
+      resolveCurrentUser,
+      createWorkflowOutboxAdminRouter(options.workflowOutboxAdmin)
+    );
+  }
   app.use('/api/admin', resolveCurrentUser, adminRouter);
 
   app.get('/', (_req, res) => {

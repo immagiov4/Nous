@@ -1,13 +1,19 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useResolvedProjectVisual } from '../../hooks/useResolvedProjectVisual.ts';
 import { translateUiMessage as t } from '../../i18n/uiMessages.ts';
 import type { LessonGeneratedVisual, StoredLessonVisual } from '../../types.ts';
 import { isSafeGeneratedImageSource } from '../../utils/visuals/generatedImage.ts';
+import {
+  GENERATED_VISUAL_CAPABILITY_VERSION,
+  GENERATED_VISUAL_CONTENT_SECURITY_POLICY,
+  supportsGeneratedVisualCapabilities,
+} from '../../utils/visuals/generatedVisualCapabilities.ts';
 import { GENERATED_VISUAL_HOST_STYLES } from '../../utils/visuals/generatedVisualHost.ts';
 import {
   findMissingDirectlyDereferencedHtmlElementIds,
   hasUnsafeHtmlElementDereferences,
 } from '../../utils/visuals/htmlElementReferences.ts';
+import { renderMermaidDiagram } from '../../utils/visuals/mermaidRenderer.ts';
 
 interface GeneratedVisualFrameProps {
   readonly className?: string;
@@ -35,6 +41,20 @@ body > * {
 `;
 
 const GENERATED_VISUAL_ROOT_ID = 'nous-generated-visual-root';
+
+const GENERATED_VISUAL_SECURITY_META = `
+<meta http-equiv="Content-Security-Policy" content="${GENERATED_VISUAL_CONTENT_SECURITY_POLICY}">
+<meta name="nous-generated-visual-capability-version" content="${GENERATED_VISUAL_CAPABILITY_VERSION}">`;
+
+const GENERATED_VISUAL_CAPABILITY_VIOLATION_SCRIPT = `
+window.addEventListener('securitypolicyviolation', event => {
+  window.parent.postMessage({
+    type: 'generated-visual-capability-blocked',
+    blockedUri: event.blockedURI,
+    directive: event.effectiveDirective,
+  }, '*');
+});
+`;
 
 const GENERATED_VISUAL_THUMBNAIL_HOST_OVERRIDE = `
 html, body {
@@ -77,7 +97,6 @@ const partialVisualError = ${toSafeScriptJson(
 const failedVisualError = ${toSafeScriptJson(
   t('Questo artefatto interattivo non e riuscito a caricarsi. Puoi rigenerarlo o sostituirlo.')
 )};
-const externalScriptError = ${toSafeScriptJson(t('Script esterno non caricato.'))};
 const root = document.getElementById('${GENERATED_VISUAL_ROOT_ID}');
 let hasShownGeneratedVisualError = false;
 
@@ -119,60 +138,19 @@ function notifyGeneratedVisualReady() {
 }
 
 function replayGeneratedVisualScript(script) {
-  return new Promise(resolve => {
-    const isExternalScript = Boolean(script.getAttribute('src'));
-    const scriptType = (script.getAttribute('type') || '').trim().toLowerCase();
-    const isClassicScript = !scriptType || scriptType === 'text/javascript' || scriptType === 'application/javascript';
-
-    if (!isExternalScript && !isClassicScript) {
-      showGeneratedVisualError(new Error('Unsupported generated visual script type.'));
-      resolve();
-      return;
-    }
-
-    if (!isExternalScript) {
-      try {
-        Function(script.textContent || '');
-      } catch (error) {
-        showGeneratedVisualError(error);
-        resolve();
-        return;
-      }
-    }
-
+  try {
     const replayedScript = document.createElement('script');
-    Array.from(script.attributes).forEach(attribute => {
-      replayedScript.setAttribute(attribute.name, attribute.value);
-    });
-    replayedScript.async = false;
     replayedScript.textContent = script.textContent || '';
-
-    if (isExternalScript) {
-      replayedScript.addEventListener('load', () => resolve(), { once: true });
-      replayedScript.addEventListener('error', event => {
-        showGeneratedVisualError(event.error || event.message || externalScriptError);
-        resolve();
-      }, { once: true });
-    }
-
-    try {
-      script.replaceWith(replayedScript);
-    } catch (error) {
-      showGeneratedVisualError(error);
-      resolve();
-      return;
-    }
-
-    if (!isExternalScript) {
-      resolve();
-    }
-  });
+    script.replaceWith(replayedScript);
+  } catch (error) {
+    showGeneratedVisualError(error);
+  }
 }
 
 async function replayGeneratedVisualScripts(container) {
   const scripts = Array.from(container.querySelectorAll('script'));
   for (const script of scripts) {
-    await replayGeneratedVisualScript(script);
+    replayGeneratedVisualScript(script);
   }
 }
 
@@ -484,32 +462,22 @@ setTimeout(normalizeAndMeasure, 500);
 setTimeout(normalizeAndMeasure, 1500);
 `;
 
-const buildMermaidHost = (
-  visual: LessonGeneratedVisual,
-  isDarkMode: boolean,
-  isThumbnail: boolean
-): string => `
+const buildMermaidHost = (svg: string, isDarkMode: boolean, isThumbnail: boolean): string => `
 <!DOCTYPE html>
 <html class="${isDarkMode ? 'dark' : ''}">
   <head>
     <meta charset="utf-8">
+    ${GENERATED_VISUAL_SECURITY_META}
     <style>${GENERATED_VISUAL_HOST_STYLES}
       body { padding: 0; }
       .mermaid { display: flex; justify-content: center; }
       ${GENERATED_VISUAL_TRANSPARENT_HOST_OVERRIDE}
       ${isThumbnail ? GENERATED_VISUAL_THUMBNAIL_HOST_OVERRIDE : ''}
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script>${GENERATED_VISUAL_CAPABILITY_VIOLATION_SCRIPT}</script>
   </head>
   <body>
-    <div class="mermaid"></div>
-    <script>
-      const diagramCode = ${JSON.stringify(visual.code)};
-      document.querySelector('.mermaid').textContent = diagramCode;
-      mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', theme: ${JSON.stringify(
-        isDarkMode ? 'dark' : 'default'
-      )} });
-    </script>
+    <div class="mermaid">${svg}</div>
     <script>${RESIZE_SCRIPT}</script>
   </body>
 </html>`;
@@ -523,7 +491,9 @@ export const buildVisualHost = (
 <html class="${isDarkMode ? 'dark' : ''}">
   <head>
     <meta charset="utf-8">
+    ${GENERATED_VISUAL_SECURITY_META}
     <style>${GENERATED_VISUAL_HOST_STYLES}</style>
+    <script>${GENERATED_VISUAL_CAPABILITY_VIOLATION_SCRIPT}</script>
   </head>
   <body>
     <div id="${GENERATED_VISUAL_ROOT_ID}"></div>
@@ -587,14 +557,50 @@ const ResolvedGeneratedVisualFrame = ({
   readonly visual: LessonGeneratedVisual;
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [blockedVisual, setBlockedVisual] = useState<LessonGeneratedVisual | null>(null);
+  const [mermaidRender, setMermaidRender] = useState<{
+    readonly failed: boolean;
+    readonly key: string;
+    readonly svg: string | null;
+  }>({ failed: false, key: '', svg: null });
   const isThumbnail = displayMode === 'thumbnail';
+  const mermaidRenderKey = `${visual.id}:${visual.code}:${isDarkMode ? 'dark' : 'light'}`;
+
+  useEffect(() => {
+    if (visual.kind !== 'mermaid') {
+      return;
+    }
+
+    const abortController = new AbortController();
+    renderMermaidDiagram(visual.code, isDarkMode, abortController.signal).then(
+      svg => setMermaidRender({ failed: false, key: mermaidRenderKey, svg }),
+      () => {
+        if (!abortController.signal.aborted) {
+          setMermaidRender({ failed: true, key: mermaidRenderKey, svg: null });
+        }
+      }
+    );
+    return () => abortController.abort();
+  }, [isDarkMode, mermaidRenderKey, visual.code, visual.kind]);
+
+  const renderedCode =
+    visual.kind === 'mermaid' && mermaidRender.key === mermaidRenderKey
+      ? mermaidRender.svg
+      : visual.kind === 'mermaid'
+        ? null
+        : visual.code;
+  const supportsCapabilities = useMemo(
+    () => renderedCode === null || supportsGeneratedVisualCapabilities(renderedCode),
+    [renderedCode]
+  );
+
   // Rebuild the iframe document on render so visual-host HMR updates only this
   // frame instead of requiring a full application reload.
   const hostDocument =
     visual.kind === 'image'
       ? ''
-      : visual.kind === 'mermaid'
-        ? buildMermaidHost(visual, isDarkMode, isThumbnail)
+      : visual.kind === 'mermaid' && renderedCode !== null
+        ? buildMermaidHost(renderedCode, isDarkMode, isThumbnail)
         : buildVisualHost(visual, isDarkMode, isThumbnail);
 
   useEffect(() => {
@@ -615,12 +621,18 @@ const ResolvedGeneratedVisualFrame = ({
 
       if (event.data?.type === 'generated-visual-error') {
         console.error('[Nous] Generated visual runtime error', event.data.error);
+        return;
+      }
+
+      if (event.data?.type === 'generated-visual-capability-blocked') {
+        console.error('[Nous] Generated visual capability blocked', event.data);
+        setBlockedVisual(visual);
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isThumbnail]);
+  }, [isThumbnail, visual]);
 
   if (visual.kind === 'image') {
     const imageAltText =
@@ -645,6 +657,30 @@ const ResolvedGeneratedVisualFrame = ({
     );
   }
 
+  const isMermaidLoading = visual.kind === 'mermaid' && mermaidRender.key !== mermaidRenderKey;
+  const isMermaidUnavailable =
+    visual.kind === 'mermaid' && mermaidRender.key === mermaidRenderKey && mermaidRender.failed;
+  if (
+    isMermaidLoading ||
+    isMermaidUnavailable ||
+    !supportsCapabilities ||
+    blockedVisual === visual
+  ) {
+    return (
+      <output
+        aria-busy={isMermaidLoading}
+        className={`${className} block min-h-40 rounded-2xl border border-stone-200 bg-stone-50 dark:border-zinc-700 dark:bg-zinc-900`}
+        data-nous-speech="ignore"
+      >
+        {isMermaidLoading ? null : (
+          <span className="block px-4 py-8 text-center text-sm text-stone-500 dark:text-zinc-400">
+            {t('Esempio visuale non disponibile')}
+          </span>
+        )}
+      </output>
+    );
+  }
+
   return (
     <figure className={`${className} overflow-hidden bg-transparent`} data-nous-speech="ignore">
       <iframe
@@ -652,7 +688,7 @@ const ResolvedGeneratedVisualFrame = ({
         ref={iframeRef}
         title={title}
         className={`block w-full border-0 bg-transparent ${isThumbnail ? 'h-full' : ''}`}
-        sandbox="allow-scripts allow-forms"
+        sandbox="allow-scripts"
         srcDoc={hostDocument}
         scrolling="no"
         style={

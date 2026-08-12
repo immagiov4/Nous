@@ -47,8 +47,10 @@ const createApiKey = (role: 'anon' | 'service_role'): string =>
 const createBackendAdminToken = (): string =>
   signSupabaseJwt(
     {
+      aud: 'authenticated',
       sub: '00000000-0000-4000-8000-00000000ad01',
       exp: Math.floor(Date.now() / 1000) + 300,
+      iss: `${LOCAL_SUPABASE_URL.replace(/\/$/, '')}/auth/v1`,
       app_metadata: {
         role: 'admin',
       },

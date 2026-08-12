@@ -18,6 +18,7 @@ import type {
   ChatArtifactRegenerateRequest,
   ChatArtifactReplaceRequest,
 } from '../shared/ChatArtifactRenderer.tsx';
+import SurfaceErrorBoundary from '../shared/SurfaceErrorBoundary.tsx';
 import HomeChatPanel from './HomeChatPanel';
 import LibraryTreeView from './LibraryTreeView.tsx';
 
@@ -221,46 +222,48 @@ const LibraryView = ({
           </div>
         ) : null}
 
-        <HomeChatPanel
-          assessmentComplete={assessmentComplete}
-          assessmentMessages={assessmentMessages}
-          homeChatMode={homeChatMode}
-          isDarkMode={isDarkMode}
-          isLibraryLoading={isLibraryLoading}
-          isLibraryModeLoading={isLibraryQueryLoading}
-          isNewCourseLoading={isNewCourseLoading}
-          libraryAttachedContextRefs={libraryAttachedContextRefs}
-          libraryArtifactPayloadsByToolCallId={libraryArtifactPayloadsByToolCallId}
-          libraryArtifactPreviewIdOverride={libraryArtifactPreviewIdOverride}
-          libraryArtifactPortalContainer={libraryArtifactPortalContainer}
-          libraryFloatingArtifactPayloads={libraryFloatingArtifactPayloads}
-          libraryErrorMessage={libraryErrorMessage}
-          libraryMessages={libraryMessages}
-          libraryTree={libraryTree}
-          libraryWebSearch={libraryWebSearch}
-          libraryGenerateArtifacts={libraryGenerateArtifacts}
-          newCourseLoadingStatus={newCourseLoadingStatus}
-          draftValueOverride={homeChatDraftValue}
-          scrollProgressOverride={homeChatScrollProgressOverride}
-          pendingFileName={pendingHomeFileName}
-          pendingFileNames={pendingHomeFileNames}
-          onClearPendingFile={onClearPendingHomeFile}
-          onClearLibraryMessages={onClearLibraryMessages}
-          onContinueAssessment={onContinueAssessment}
-          onConfirmGenerate={onConfirmGenerate}
-          onHomeChatModeChange={onHomeChatModeChange}
-          onLibraryMessageSend={onLibraryAssistantSend}
-          onLibraryArtifactNoteApprove={onLibraryArtifactNoteApprove}
-          onLibraryArtifactNoteReject={onLibraryArtifactNoteReject}
-          onLibraryArtifactDiscard={onLibraryArtifactDiscard}
-          onLibraryArtifactRegenerate={onLibraryArtifactRegenerate}
-          onLibraryArtifactReplace={onLibraryArtifactReplace}
-          onLibraryWebSearchChange={onLibraryWebSearchChange}
-          onLibraryGenerateArtifactsChange={onLibraryGenerateArtifactsChange}
-          onSendAssessmentMessage={onSendAssessmentMessage}
-          onToggleLibraryContextRef={onToggleLibraryContextRef}
-          onUploadSourceClick={onUploadSourceClick}
-        />
+        <SurfaceErrorBoundary surface="chat">
+          <HomeChatPanel
+            assessmentComplete={assessmentComplete}
+            assessmentMessages={assessmentMessages}
+            homeChatMode={homeChatMode}
+            isDarkMode={isDarkMode}
+            isLibraryLoading={isLibraryLoading}
+            isLibraryModeLoading={isLibraryQueryLoading}
+            isNewCourseLoading={isNewCourseLoading}
+            libraryAttachedContextRefs={libraryAttachedContextRefs}
+            libraryArtifactPayloadsByToolCallId={libraryArtifactPayloadsByToolCallId}
+            libraryArtifactPreviewIdOverride={libraryArtifactPreviewIdOverride}
+            libraryArtifactPortalContainer={libraryArtifactPortalContainer}
+            libraryFloatingArtifactPayloads={libraryFloatingArtifactPayloads}
+            libraryErrorMessage={libraryErrorMessage}
+            libraryMessages={libraryMessages}
+            libraryTree={libraryTree}
+            libraryWebSearch={libraryWebSearch}
+            libraryGenerateArtifacts={libraryGenerateArtifacts}
+            newCourseLoadingStatus={newCourseLoadingStatus}
+            draftValueOverride={homeChatDraftValue}
+            scrollProgressOverride={homeChatScrollProgressOverride}
+            pendingFileName={pendingHomeFileName}
+            pendingFileNames={pendingHomeFileNames}
+            onClearPendingFile={onClearPendingHomeFile}
+            onClearLibraryMessages={onClearLibraryMessages}
+            onContinueAssessment={onContinueAssessment}
+            onConfirmGenerate={onConfirmGenerate}
+            onHomeChatModeChange={onHomeChatModeChange}
+            onLibraryMessageSend={onLibraryAssistantSend}
+            onLibraryArtifactNoteApprove={onLibraryArtifactNoteApprove}
+            onLibraryArtifactNoteReject={onLibraryArtifactNoteReject}
+            onLibraryArtifactDiscard={onLibraryArtifactDiscard}
+            onLibraryArtifactRegenerate={onLibraryArtifactRegenerate}
+            onLibraryArtifactReplace={onLibraryArtifactReplace}
+            onLibraryWebSearchChange={onLibraryWebSearchChange}
+            onLibraryGenerateArtifactsChange={onLibraryGenerateArtifactsChange}
+            onSendAssessmentMessage={onSendAssessmentMessage}
+            onToggleLibraryContextRef={onToggleLibraryContextRef}
+            onUploadSourceClick={onUploadSourceClick}
+          />
+        </SurfaceErrorBoundary>
 
         <section className="mt-8">
           <div className="mb-6 flex flex-wrap items-end justify-between gap-4">

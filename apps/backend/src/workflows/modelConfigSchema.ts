@@ -59,8 +59,3 @@ export const GlobalModelConfigSchema = z.object({
   ttsVoice: z.string(),
   updatedAt: z.string(),
 }) satisfies z.ZodType<GlobalModelConfig>;
-
-const { researchReasoningEffort: _researchReasoningEffort, ...previousGlobalModelConfigShape } =
-  GlobalModelConfigSchema.shape;
-
-export const PreviousGlobalModelConfigSchema = z.object(previousGlobalModelConfigShape);

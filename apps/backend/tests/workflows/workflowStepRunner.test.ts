@@ -134,6 +134,7 @@ describe('single workflow step runner', () => {
       },
     });
     const nested = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'child',
@@ -142,6 +143,7 @@ describe('single workflow step runner', () => {
       root: work,
     });
     const definition = workflow({
+      compatibilityId: 'test-v1',
       configSchema: WorkflowExecutionDefaultsSchema,
       executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
       id: 'nested-runner',
@@ -229,6 +231,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: Config,
         executionDefaults: { maxAttempts: 3, mode: 'normal', timeoutMs: 60_000 },
         id: 'step-config-runner',
@@ -262,6 +265,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'compatibility',
@@ -298,6 +302,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'cancelled-unavailable-definition',
@@ -331,6 +336,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'compatibility',
@@ -377,6 +383,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'invalid-durable-input',
@@ -413,6 +420,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'invalid-durable-config',
@@ -452,6 +460,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'unsupported-step-policy-version',
@@ -487,6 +496,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'timeout',
@@ -540,6 +550,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'late-rejection',
@@ -574,6 +585,74 @@ describe('single workflow step runner', () => {
     expect(recordFailure).toHaveBeenCalledOnce();
   });
 
+  test('persists usage returned after timeout with the original attempt identity', async () => {
+    vi.useFakeTimers();
+    let finishProvider: (() => void) | undefined;
+    const work = step({
+      id: 'work',
+      inputSchema: Text,
+      outputSchema: Text,
+      run: async () => {
+        await new Promise<void>(resolve => {
+          finishProvider = resolve;
+        });
+        await recordWorkflowAiUsage({
+          inputTokens: 11,
+          model: 'late-model',
+          outputTokens: 7,
+          provider: 'late-provider',
+        });
+        return { text: 'late result' };
+      },
+    });
+    const registry = createWorkflowRegistry();
+    const registered = registry.register({
+      current: workflow({
+        compatibilityId: 'test-v1',
+        configSchema: WorkflowExecutionDefaultsSchema,
+        executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
+        id: 'late-usage',
+        inputSchema: Text,
+        outputSchema: Text,
+        root: work,
+      }),
+    }).current;
+    const recordAiUsage = vi
+      .fn()
+      .mockRejectedValueOnce(postgresError('40001'))
+      .mockResolvedValueOnce(undefined);
+    const execution = runWorkflowStepClaim({
+      claim: makeClaim(registered, {
+        nodeInstanceId: 'work',
+        stepPolicies: {
+          work: {
+            config: { maxAttempts: 3, timeoutMs: 1_000 },
+            maxAttempts: 3,
+            timeoutMs: 1_000,
+          },
+        },
+        timeoutMs: 1_000,
+      }),
+      registry,
+      services: {},
+      store: makeStore({ recordAiUsage }),
+    });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(execution).resolves.toMatchObject({ status: 'failure-recorded' });
+    finishProvider?.();
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    expect(recordAiUsage).toHaveBeenCalledTimes(2);
+    expect(recordAiUsage.mock.calls[0]?.[0]).toBe(recordAiUsage.mock.calls[1]?.[0]);
+    expect(recordAiUsage.mock.calls[0]?.[0]).toMatchObject({
+      attemptNumber: 1,
+      nodeInstanceId: 'work',
+      reportedAfterInterruption: true,
+      runId: '11111111-1111-4111-8111-111111111111',
+    });
+  });
+
   test.each([
     ['lost', 'lease-lost', false],
     ['cancelled', 'cancelled', true],
@@ -588,6 +667,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: `heartbeat-${heartbeatStatus}`,
@@ -632,6 +712,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: `initial-heartbeat-${heartbeatStatus}`,
@@ -671,6 +752,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'checkpoint-lease-loss',
@@ -717,6 +799,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'invalid-output',
@@ -755,6 +838,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'checkpoint-retry',
@@ -815,6 +899,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'usage-persistence-retry',
@@ -858,6 +943,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'checkpoint-cancelled',
@@ -897,6 +983,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: `checkpoint-${code}`,
@@ -938,6 +1025,7 @@ describe('single workflow step runner', () => {
     const registry = createWorkflowRegistry();
     const registered = registry.register({
       current: workflow({
+        compatibilityId: 'test-v1',
         configSchema: WorkflowExecutionDefaultsSchema,
         executionDefaults: { maxAttempts: 3, timeoutMs: 60_000 },
         id: 'normalized-failure',

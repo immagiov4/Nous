@@ -24,6 +24,10 @@ const createStore = (): WorkflowRuntimeCompositionStore => ({
   },
   close: vi.fn().mockResolvedValue(undefined),
   getRunState: vi.fn().mockResolvedValue(null),
+  outbox: {
+    listDeadLetters: vi.fn().mockResolvedValue([]),
+    retryDeadLetter: vi.fn().mockResolvedValue('retried'),
+  },
   signals: {
     receive: vi.fn().mockImplementation(input => {
       const definition = input.resolveDefinition({
@@ -139,6 +143,7 @@ describe('workflow runtime production composition', () => {
     expect(runtime.courseGenerationApi).toBe(courseGenerationApi);
     expect(runtime.courseInterviewApi).toBe(courseInterviewApi);
     expect(runtime.lessonVisualRetryStarter).toBe(lessonVisualRetryStarter);
+    expect(runtime.workflowOutboxAdmin).toBe(store.outbox);
 
     await runtime.start();
     expect(worker.start).toHaveBeenCalledOnce();

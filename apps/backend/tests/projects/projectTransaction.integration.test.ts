@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
+import { SIBLING_ORDER_STEP } from '@shared/libraryOrdering';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
+import { PostgresProjectStore } from '../../src/projects/postgresProjectStore.js';
 import { patchProjectInTransaction } from '../../src/projects/projectTransaction.js';
 import type { ProjectSnapshot, SavedProjectMeta } from '../../src/projects/types.js';
 
@@ -50,15 +52,24 @@ const projectMeta: SavedProjectMeta = {
 };
 
 const projectSnapshot: ProjectSnapshot = {
+  activeSectionId: null,
   id: projectId,
+  isLearnMode: false,
+  projectFormatVersion: 1,
   version: '4.1',
   title: 'Titolo precedente',
   sourceKind: 'document',
-  source: { kind: 'document' },
+  state: 'READING',
+  source: {
+    file: { data: 'c291cmNl', mimeType: 'text/plain', name: 'source.txt' },
+    kind: 'document',
+  },
   learningPlan: {
     title: 'Titolo precedente',
     sections: [{ content: 'Contenuto precedente', id: 'section-1' }],
   },
+  syllabus: [],
+  userProfile: null,
   createdAt,
   updatedAt: createdAt,
   lastOpenedAt: createdAt,
@@ -162,6 +173,62 @@ describe.skipIf(!shouldRun)('transactional project patch integration', () => {
       where user_id = ${userId} and id = ${projectId}
     `;
     expect(rows[0]).toEqual({ revision: '2', title: 'Titolo aggiornato' });
+  });
+
+  test('keeps every sibling order complete during concurrent project moves', async () => {
+    if (!sql) throw new Error('Workflow integration database is required.');
+    const projectIds = [
+      `library-order-a-${randomUUID()}`,
+      `library-order-b-${randomUUID()}`,
+      `library-order-c-${randomUUID()}`,
+    ];
+    for (const [index, siblingProjectId] of projectIds.entries()) {
+      const siblingMeta = {
+        ...projectMeta,
+        id: siblingProjectId,
+        title: `Corso ${index + 1}`,
+      };
+      const siblingSnapshot = {
+        ...projectSnapshot,
+        id: siblingProjectId,
+        title: siblingMeta.title,
+      };
+      await sql`
+        insert into public.projects
+          (user_id, id, meta, updated_at, last_opened_at, revision)
+        values
+          (${userId}, ${siblingProjectId}, ${sql.json(siblingMeta)}, ${createdAt}, ${createdAt}, 1)
+      `;
+      await sql`
+        insert into public.project_snapshots
+          (user_id, id, snapshot, updated_at)
+        values
+          (${userId}, ${siblingProjectId}, ${sql.json(siblingSnapshot)}, ${createdAt})
+      `;
+    }
+    const store = new PostgresProjectStore(undefined, sql);
+    const folder = await store.createFolder(userId, { name: 'Concorrenza' });
+    await store.moveProjects(userId, projectIds, folder.id, 0);
+
+    const results = await Promise.allSettled([
+      store.moveProjects(userId, [projectIds[0]], folder.id, 3),
+      store.moveProjects(userId, [projectIds[2]], folder.id, 0),
+    ]);
+
+    expect(results.every(result => result.status === 'fulfilled')).toBe(true);
+    const rows = await sql<Array<{ order_index: number; placement: { order: number } }>>`
+      select order_index, placement
+      from public.library_placements
+      where user_id = ${userId} and folder_id = ${folder.id} and project_id in ${sql(projectIds)}
+      order by order_index, project_id
+    `;
+    expect(rows).toHaveLength(projectIds.length);
+    expect(rows.map(row => row.order_index)).toEqual([
+      SIBLING_ORDER_STEP,
+      SIBLING_ORDER_STEP * 2,
+      SIBLING_ORDER_STEP * 3,
+    ]);
+    expect(rows.every(row => row.placement.order === row.order_index)).toBe(true);
   });
 
   test('releases workflow locks instead of deadlocking with project deletion cascade', async () => {

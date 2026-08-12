@@ -392,6 +392,7 @@ export const createPdfMappingRepairWorkflow = (
   });
 
   return workflow({
+    compatibilityId: 'pdf-mapping-repair-v1',
     configSchema,
     events: {
       [COURSE_PROJECT_REVISION_EVENT]: {
