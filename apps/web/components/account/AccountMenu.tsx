@@ -4,6 +4,7 @@ import {
   KeyRound,
   LogOut,
   MessageSquareWarning,
+  Moon,
   Settings,
   ShieldCheck,
   Upload,
@@ -418,6 +419,10 @@ const AccountPanel = ({
 interface AccountMenuProps {
   readonly onExportLibraryBackup?: () => Promise<number>;
   readonly onImportLibraryBackup?: (file: File) => Promise<number>;
+  readonly themeToggle?: {
+    readonly isDarkMode: boolean;
+    readonly onToggle: () => void;
+  };
   readonly triggerText?: string;
   readonly triggerVariant?: 'avatar' | 'settings';
 }
@@ -425,6 +430,7 @@ interface AccountMenuProps {
 export default function AccountMenu({
   onExportLibraryBackup,
   onImportLibraryBackup,
+  themeToggle,
   triggerText,
   triggerVariant = 'avatar',
 }: AccountMenuProps = {}) {
@@ -621,6 +627,32 @@ export default function AccountMenu({
               >
                 <Archive className="h-4 w-4" />
                 {t('Dati e backup')}
+              </button>
+            ) : null}
+            {themeToggle ? (
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={themeToggle.isDarkMode}
+                onClick={themeToggle.onToggle}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                <Moon className="h-4 w-4 shrink-0" />
+                <span className="flex-1">{t('Tema scuro')}</span>
+                <span
+                  aria-hidden="true"
+                  className={`flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+                    themeToggle.isDarkMode
+                      ? 'bg-gray-900 dark:bg-zinc-100'
+                      : 'bg-gray-200 dark:bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform dark:bg-zinc-900 ${
+                      themeToggle.isDarkMode ? 'translate-x-4' : ''
+                    }`}
+                  />
+                </span>
               </button>
             ) : null}
             {triggerVariant !== 'settings' ? (
