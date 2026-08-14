@@ -28,6 +28,7 @@ export interface SyllabusItem {
 }
 
 export interface ResearchSourceReference {
+  sourceId?: string;
   title: string;
   url?: string;
   note?: string;

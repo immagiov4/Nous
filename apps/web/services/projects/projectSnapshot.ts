@@ -584,10 +584,12 @@ const parseResearchSourceReferences = (value: unknown) =>
     ? value
         .filter(isRecord)
         .map(source => {
+          const sourceId = ensureString(source.sourceId) || undefined;
           const url = ensureString(source.url) || undefined;
           const videoClip = parseResearchVideoClip(source, url);
           const youtubeTranscript = parseYouTubeTranscript(source.youtubeTranscript) || undefined;
           return {
+            ...(sourceId ? { sourceId } : {}),
             title: ensureString(source.title),
             url,
             note: ensureString(source.note) || undefined,

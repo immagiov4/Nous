@@ -80,7 +80,7 @@ interface UseWorkspaceReaderActionsArgs {
     annotations: unknown,
     content?: string,
     generatedVisuals?: StoredLessonVisual[]
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   projectId: string | null;
   regenerateActiveSection: () => Promise<unknown>;
   sectionContent: string;
@@ -673,12 +673,20 @@ export const useWorkspaceReaderActions = ({
         annotations: result.annotations,
         generatedVisuals: nextGeneratedVisuals,
       }));
-      void patchSectionAnnotations(
+      const persisted = await patchSectionAnnotations(
         activeSectionId,
         result.annotations,
         undefined,
         nextGeneratedVisuals
       );
+
+      if (!persisted) {
+        return {
+          saved: false,
+          merged: result.merged,
+          error: t('Non sono riuscito a salvare la nota.'),
+        };
+      }
 
       return {
         saved: true,
@@ -777,12 +785,20 @@ export const useWorkspaceReaderActions = ({
         annotations: result.annotations,
         generatedVisuals: nextGeneratedVisuals,
       }));
-      void patchSectionAnnotations(
+      const persisted = await patchSectionAnnotations(
         activeSectionId,
         result.annotations,
         undefined,
         nextGeneratedVisuals
       );
+
+      if (!persisted) {
+        return {
+          saved: false,
+          merged: false,
+          error: t('Non sono riuscito a salvare la nota.'),
+        };
+      }
 
       return {
         saved: true,
@@ -857,18 +873,12 @@ export const useWorkspaceReaderActions = ({
         annotations: annotationResult.annotations,
         generatedVisuals: nextGeneratedVisuals,
       }));
-      try {
-        await patchSectionAnnotations(
-          activeSectionId,
-          annotationResult.annotations,
-          undefined,
-          nextGeneratedVisuals
-        );
-      } catch {
-        // PATCH failed — the optimistic local update is already applied, so the
-        // UI shows the artifact. The autosave fallback will retry persistence.
-        // The storage error is already surfaced by patchSectionAnnotations.
-      }
+      await patchSectionAnnotations(
+        activeSectionId,
+        annotationResult.annotations,
+        undefined,
+        nextGeneratedVisuals
+      );
     },
     [activeSectionId, getCurrentSection, patchSectionAnnotations, updateSection]
   );
@@ -892,17 +902,12 @@ export const useWorkspaceReaderActions = ({
         generatedVisuals: nextGeneratedVisuals,
       }));
 
-      try {
-        await patchSectionAnnotations(
-          activeSectionId,
-          currentSection.annotations,
-          undefined,
-          nextGeneratedVisuals
-        );
-      } catch {
-        // PATCH failure is surfaced by patchSectionAnnotations; the optimistic
-        // section update remains available for the autosave fallback.
-      }
+      await patchSectionAnnotations(
+        activeSectionId,
+        currentSection.annotations,
+        undefined,
+        nextGeneratedVisuals
+      );
     },
     [activeSectionId, getCurrentSection, patchSectionAnnotations, updateSection]
   );

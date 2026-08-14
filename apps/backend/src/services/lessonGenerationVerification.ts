@@ -94,13 +94,14 @@ CONTROLLI FINALI SPECIFICI:
 ${scopeRules}
 - Verifica l'ordine propedeutico locale paragrafo per paragrafo:
 ${LESSON_LOCAL_PROPEDEUTIC_RULES.map(rule => `- ${rule}`).join('\n')}
-- Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve seguire un blocco markdown che contiene le informazioni necessarie, avere quattro opzioni distinte e non essere una parafrasi diretta del testo.
+- Mantieni da zero a ${MAX_LESSON_QUIZ_QUESTIONS} pause attive. Ogni inline-quiz deve avere prima di se, dalla pausa precedente, un blocco markdown che contiene le informazioni necessarie; visuali generati o clip YouTube intermedi sono validi e non interrompono quel contesto. La pausa deve avere quattro opzioni distinte e non essere una parafrasi diretta del testo.
 - Domande e opzioni sono testo normale: rimuovi backticks o code fence che racchiudono l'intera stringa, preservando eventuale codice inline interno.
 - I blocchi markdown non contengono quiz, marker strutturali, markdown image syntax, tag img, assetId tecnici o una sezione fonti terminale.
 - Ogni imageRef usa un assetId disponibile, ha un anchorHeading esatto e una corrispondenza bidirezionale con il testo vicino. Rimuovi immagini ambigue, decorative, fuori tema o senza caption visiva chiara.
 - Ogni piano visuale ha esattamente un blocco generated-visual con lo stesso slotId e viceversa, fino a ${MAX_GENERATED_VISUALS_PER_LESSON}. ${VISUAL_FORMAT_SELECTION_RULE} ${INTERACTIVE_VISUAL_VALUE_RULE}
 - Ogni clip YouTube usa un sourceIndex valido e timestamp interamente compresi nel transcript; il titolo descrive il momento specifico e il blocco segue il testo che dice cosa osservare.
 - ${FORMULA_RELEVANCE_RULE} Correggi delimitatori o graffe KaTeX non bilanciati.
+- Ogni ambiente LaTeX aperto con \\begin{...} deve chiudersi con il corrispondente \\end{...} nello stesso blocco matematico. Se descrivi letteralmente un comando LaTeX, usa codice inline e non delimitatori matematici.
 - Codice, pseudocodice, comandi e output devono stare in un solo code block valido; non trasformare prosa o formule in codice.
 
 BOZZA DA VERIFICARE:

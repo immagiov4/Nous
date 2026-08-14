@@ -36,7 +36,7 @@ export const generateLessonResearchSummary = async ({
   research: GenerateResearch;
   youtubeOutcome: YouTubeResearchOutcome | null;
 }): Promise<LessonResearchSummary | null> => {
-  if (existingDossier) return null;
+  if (existingDossier && !generationInput.refreshResearch) return null;
   if (!shouldGenerateLessonResearch(generationInput) && !youtubeOutcome?.videoCandidates.length) {
     return null;
   }
@@ -56,9 +56,11 @@ export const generateLessonResearchSummary = async ({
 };
 
 export const shouldGenerateLessonResearch = (
-  generationInput: Pick<LessonGenerationInput, 'coverageGaps' | 'sourceContext'>
+  generationInput: Pick<LessonGenerationInput, 'coverageGaps' | 'refreshResearch' | 'sourceContext'>
 ): boolean =>
-  !generationInput.sourceContext.trim() || Boolean(generationInput.coverageGaps?.length);
+  generationInput.refreshResearch ||
+  !generationInput.sourceContext.trim() ||
+  Boolean(generationInput.coverageGaps?.length);
 
 export const selectLessonSources = ({
   discoveredYoutubeSources,

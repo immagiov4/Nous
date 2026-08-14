@@ -288,66 +288,6 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  test('renders durable lesson warnings once as product-facing notices', () => {
-    render(
-      <WorkspaceReaderContent
-        {...buildProps({
-          lessonWarnings: [
-            {
-              code: 'lesson_pdf_image_extraction_incomplete',
-              pageNumber: 3,
-              sourceId: 'source-1',
-              stage: 'sources',
-            },
-            {
-              code: 'lesson_pdf_image_extraction_incomplete',
-              pageNumber: 4,
-              sourceId: 'source-1',
-              stage: 'sources',
-            },
-            { code: 'lesson_learning_aids_unavailable', stage: 'aids' },
-            { code: 'lesson_youtube_research_unavailable', stage: 'youtube' },
-            {
-              code: 'lesson_visual_generation_incomplete',
-              stage: 'visuals',
-              subjectId: 'slot-001',
-            },
-          ],
-          quiz: [],
-        })}
-      />
-    );
-
-    expect(screen.getByText('Alcuni contenuti non sono disponibili')).toBeInTheDocument();
-    expect(
-      screen.getAllByText('Alcune immagini del PDF non sono state incluse nella lezione.')
-    ).toHaveLength(1);
-    expect(
-      screen.getByText('Gli aiuti didattici aggiuntivi non sono disponibili per questa lezione.')
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText('Alcuni elementi visivi non sono disponibili per questa lezione.')
-    ).toBeNull();
-    expect(
-      screen.queryByText('I video di approfondimento non sono disponibili per questa lezione.')
-    ).toBeNull();
-    expect(screen.queryByText(/lesson_pdf_image_extraction_incomplete/u)).toBeNull();
-    expect(screen.queryByText(/source-1/u)).toBeNull();
-  });
-
-  test('does not present missing optional videos as unavailable lesson content', () => {
-    render(
-      <WorkspaceReaderContent
-        {...buildProps({
-          lessonWarnings: [{ code: 'lesson_youtube_research_unavailable', stage: 'youtube' }],
-          quiz: [],
-        })}
-      />
-    );
-
-    expect(screen.queryByRole('complementary', { name: 'Contenuti non disponibili' })).toBeNull();
-  });
-
   test('materializes annotations before rendering lesson chunks', () => {
     const sectionContent =
       '# Lezione\n\nPrima **grassetto**, poi *corsivo* e [un link](https://example.com).';
@@ -738,6 +678,45 @@ describe('WorkspaceReaderContent', () => {
     expect(screen.getAllByText('course.pdf')).toHaveLength(1);
     expect(screen.queryByText('Materiale originale del corso')).toBeNull();
     expect(screen.getByText('Fonte esterna')).toBeInTheDocument();
+  });
+
+  test('does not render an unresolved original course source as a generic citation', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          documentSourceReferences: [],
+          lessonSources: [
+            {
+              title: 'Understanding Deep Learning -- raw metadata -- missing.pdf',
+              note: 'Materiale originale del corso',
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.queryByRole('complementary', { name: 'Fonti della sezione' })).toBeNull();
+    expect(screen.queryByText(/raw metadata/u)).toBeNull();
+    expect(screen.queryByText('Materiale originale del corso')).toBeNull();
+  });
+
+  test('keeps an external source whose identifier is unrelated to course documents', () => {
+    render(
+      <WorkspaceReaderContent
+        {...buildProps({
+          documentSourceReferences: [],
+          lessonSources: [
+            {
+              sourceId: 'external-video',
+              title: 'Approfondimento esterno',
+              url: 'https://example.com/video',
+            },
+          ],
+        })}
+      />
+    );
+
+    expect(screen.getByText('Approfondimento esterno')).toBeInTheDocument();
   });
 
   test('does not repeat a structured document page range inline', () => {

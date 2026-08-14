@@ -344,20 +344,34 @@ export const findSectionAnnotationHighlightHit = (
   y: number
 ): SectionAnnotationHighlightHit | null => {
   const point = getCaretPoint(x, y);
-  if (!point) {
-    return null;
-  }
 
   for (const entry of entries) {
-    const range = entry.ranges.find(candidate =>
-      candidate.isPointInRange(point.node, point.offset)
-    );
+    const range = point
+      ? entry.ranges.find(candidate => candidate.isPointInRange(point.node, point.offset))
+      : undefined;
     if (range) {
       return {
         annotationId: entry.annotationId,
         rect: range.getBoundingClientRect(),
         selectedText: entry.selectedText,
       };
+    }
+
+    for (const candidate of entry.ranges) {
+      const rect = Array.from(candidate.getClientRects()).find(
+        candidateRect =>
+          x >= candidateRect.left &&
+          x <= candidateRect.right &&
+          y >= candidateRect.top &&
+          y <= candidateRect.bottom
+      );
+      if (rect) {
+        return {
+          annotationId: entry.annotationId,
+          rect,
+          selectedText: entry.selectedText,
+        };
+      }
     }
   }
 

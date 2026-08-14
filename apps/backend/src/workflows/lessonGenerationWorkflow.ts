@@ -197,6 +197,7 @@ const researchModelSlot = (input: LessonYouTubeState, config: GlobalModelConfig)
   resolveLessonResearchRequest({
     config,
     coverageGaps: input.lessonInputData.coverageGaps,
+    refreshResearch: input.request.forceRegenerate,
     sourceContext: input.lessonInputData.sourceContext,
   }).slot;
 
@@ -557,7 +558,8 @@ export const createLessonGenerationWorkflow = <
     id: 'route-youtube-research',
     inputSchema: LessonSourcesStateSchema,
     outputSchema: LessonYouTubeStateSchema,
-    select: input => (input.existingDossierJson === null ? 'research' : 'bypass'),
+    select: input =>
+      input.request.forceRegenerate || input.existingDossierJson === null ? 'research' : 'bypass',
   });
 
   const researchLesson = step<

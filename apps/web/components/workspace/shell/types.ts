@@ -1,4 +1,3 @@
-import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import type { UIMessage } from 'ai';
 import type {
   MouseEvent as ReactMouseEvent,
@@ -212,7 +211,6 @@ export interface WorkspaceReaderContentModel {
   isMobileViewport: boolean;
   isQuizSubmitted: boolean;
   learningAids: LessonLearningAid[];
-  lessonWarnings?: LessonWorkflowWarning[];
   documentSourceReferences?: ResolvedLessonSourceReference[];
   loadDocumentSourceFile?: (sourceId: string) => Promise<FileData | null>;
   lessonSources?: ResearchSourceReference[];

@@ -4,6 +4,10 @@ import {
   MAX_LESSON_CONTEXT_CHUNKS,
   MAX_LESSON_SOURCE_CONTEXT_CHARS,
 } from '@shared/lessonSourceContext';
+import {
+  ORIGINAL_COURSE_ARCHIVE_SOURCE_NOTE,
+  ORIGINAL_COURSE_SOURCE_NOTE,
+} from '@shared/lessonSourceContract';
 import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
 import { LESSON_PDF_IMAGE_EXTRACTION_LIMIT } from '@shared/pdfImagePolicy';
 import { SOURCE_ARCHIVE_LESSON_CONTEXT_MAX_BYTES } from '@shared/sourceArchiveSelectors';
@@ -463,7 +467,7 @@ export const readOriginalSourceNames = (
     return [
       {
         ...(chunkIds.length ? { chunkIds: [...new Set(chunkIds)] } : {}),
-        note: 'Materiale originale del corso',
+        note: ORIGINAL_COURSE_SOURCE_NOTE,
         ...(pageEnds.length ? { pageEnd: Math.max(...pageEnds) } : {}),
         ...(pageStarts.length ? { pageStart: Math.min(...pageStarts) } : {}),
         ...(sourceId ? { sourceId } : {}),
@@ -475,6 +479,13 @@ export const readOriginalSourceNames = (
     isRecord(project.source.file) && typeof project.source.file.name === 'string'
       ? project.source.file.name.trim()
       : '';
+  const primarySourceId =
+    (isRecord(project.source.ref) && typeof project.source.ref.id === 'string'
+      ? project.source.ref.id.trim()
+      : '') ||
+    (isRecord(project.source.file) && typeof project.source.file.sourceId === 'string'
+      ? project.source.file.sourceId.trim()
+      : '');
   const archiveName =
     project.source.kind === 'archive' && typeof project.source.name === 'string'
       ? project.source.name.trim()
@@ -482,9 +493,15 @@ export const readOriginalSourceNames = (
   return mergeSources(
     descriptorSources,
     descriptors.length === 0 && fileName
-      ? [{ note: 'Materiale originale del corso', title: fileName }]
+      ? [
+          {
+            note: ORIGINAL_COURSE_SOURCE_NOTE,
+            ...(primarySourceId ? { sourceId: primarySourceId } : {}),
+            title: fileName,
+          },
+        ]
       : [],
-    archiveName ? [{ note: 'Archivio sorgente del corso', title: archiveName }] : []
+    archiveName ? [{ note: ORIGINAL_COURSE_ARCHIVE_SOURCE_NOTE, title: archiveName }] : []
   );
 };
 

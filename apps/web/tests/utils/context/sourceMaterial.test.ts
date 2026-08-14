@@ -268,6 +268,55 @@ test('resolveLessonSourceReferences keeps the original PDF identity, pages, and 
   );
 });
 
+test('resolveLessonSourceReferences links legacy chunk provenance to the only document source', () => {
+  const descriptors = buildCourseSourceDescriptors([
+    { data: '', mimeType: 'application/pdf', name: 'legacy.pdf' },
+  ]);
+  const activeSection: LessonNode = {
+    description: 'Lezione salvata prima dei riferimenti multisorgente.',
+    id: 'legacy-pdf-lesson',
+    isCompleted: true,
+    kind: 'lesson',
+    primaryChunkIds: ['chunk-022', 'chunk-023'],
+    title: 'Lezione legacy',
+    type: 'core',
+  };
+
+  const references = resolveLessonSourceReferences({
+    activeSection,
+    source: createProjectSourceFromDescriptors(descriptors),
+  });
+
+  assert.equal(references.length, 1);
+  assert.equal(references[0]?.sourceId, descriptors[0]?.id);
+  assert.equal(references[0]?.name, 'legacy.pdf');
+  assert.deepEqual(references[0]?.chunkIds, ['chunk-022', 'chunk-023']);
+});
+
+test('resolveLessonSourceReferences does not guess a legacy source in multisource courses', () => {
+  const descriptors = buildCourseSourceDescriptors([
+    { data: '', mimeType: 'application/pdf', name: 'one.pdf' },
+    { data: '', mimeType: 'application/pdf', name: 'two.pdf' },
+  ]);
+  const activeSection: LessonNode = {
+    description: 'Riferimento sorgente non disponibile.',
+    id: 'legacy-multisource-lesson',
+    isCompleted: true,
+    kind: 'lesson',
+    primaryChunkIds: ['chunk-022'],
+    title: 'Lezione multisorgente legacy',
+    type: 'core',
+  };
+
+  assert.deepEqual(
+    resolveLessonSourceReferences({
+      activeSection,
+      source: createProjectSourceFromDescriptors(descriptors),
+    }),
+    []
+  );
+});
+
 test('resolveLessonSourceReferences restores the original archive and exact lesson selectors', () => {
   const source: ProjectSource = {
     file: {

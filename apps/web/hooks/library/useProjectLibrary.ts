@@ -83,6 +83,19 @@ const sortProjects = (projects: SavedProjectMeta[]) =>
     .slice()
     .sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime());
 
+const haveSameProjectMetadata = (left: SavedProjectMeta, right: SavedProjectMeta): boolean => {
+  const leftKeys = Object.keys(left) as Array<keyof SavedProjectMeta>;
+  const rightKeys = Object.keys(right) as Array<keyof SavedProjectMeta>;
+  return leftKeys.length === rightKeys.length && leftKeys.every(key => left[key] === right[key]);
+};
+
+const haveSameProjectList = (
+  left: readonly SavedProjectMeta[],
+  right: readonly SavedProjectMeta[]
+): boolean =>
+  left.length === right.length &&
+  left.every((project, index) => haveSameProjectMetadata(project, right[index]));
+
 export const useProjectLibrary = ({
   domainState,
   hydrateSnapshot,
@@ -160,6 +173,9 @@ export const useProjectLibrary = ({
 
   const storeSavedProjects = useCallback((projects: SavedProjectMeta[]) => {
     const sortedProjects = sortProjects(projects);
+    if (haveSameProjectList(savedProjectsRef.current, sortedProjects)) {
+      return;
+    }
     savedProjectsRef.current = sortedProjects;
     setSavedProjects(sortedProjects);
   }, []);
@@ -705,8 +721,8 @@ export const useProjectLibrary = ({
       annotations: unknown,
       content?: string,
       generatedVisuals?: LearningSection['generatedVisuals']
-    ): Promise<void> => {
-      if (!currentProjectId) return;
+    ): Promise<boolean> => {
+      if (!currentProjectId) return false;
 
       const patch: Record<string, unknown> = {
         section: { sectionId, annotations, content, generatedVisuals },
@@ -729,11 +745,13 @@ export const useProjectLibrary = ({
         } else {
           markSyncError();
         }
+        return true;
       } catch (error) {
         const message =
           error instanceof ProjectStorageError ? error.message : getErrorMessage(error);
         setStorageError(message);
         markSyncError();
+        return false;
       }
     },
     [currentProjectId, getExpectedRevision, getProjectWriteState, runTrackedProjectWrite]

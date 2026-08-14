@@ -121,6 +121,7 @@ export const buildLessonGenerationInput = ({
   config,
   coverageGaps,
   project,
+  refreshResearch = false,
   researchSources,
   section,
   sectionId,
@@ -130,6 +131,7 @@ export const buildLessonGenerationInput = ({
   config: GlobalModelConfig;
   coverageGaps?: string[];
   project: ProjectSnapshot;
+  refreshResearch?: boolean;
   researchSources: ResearchSource[];
   section: Record<string, unknown>;
   sectionId: string;
@@ -153,6 +155,7 @@ export const buildLessonGenerationInput = ({
     language: readProjectLanguage(project),
     pedagogicalContext: buildLessonPedagogicalContext(project, section),
     previousLessonTitles: readPreviousLessonTitles(project),
+    refreshResearch,
     researchContext: '',
     sectionTitle,
     signal,

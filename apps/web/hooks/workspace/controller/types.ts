@@ -145,7 +145,7 @@ export interface WorkspaceProjectLibraryAdapter {
     annotations: unknown,
     content?: string,
     generatedVisuals?: LessonNode['generatedVisuals']
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   patchSectionLessonContent: (
     sectionId: string,
     patch: Partial<

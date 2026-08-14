@@ -146,27 +146,26 @@ const normalizeContentBlocks = <Visual extends StoredVisualReference>({
   visualsBySlotId: ReadonlyMap<string, Visual>;
 }): NormalizedLessonBlock[] => {
   const contentBlocks: NormalizedLessonBlock[] = [];
-  let previousBlockWasRetainedMarkdown = false;
+  let hasExplanatoryMarkdown = false;
   let quizCount = 0;
   let visualCount = 0;
   for (const block of draft.contentBlocks) {
     switch (block.type) {
       case 'inline-quiz':
-        if (quizCount >= MAX_LESSON_QUIZ_QUESTIONS || !previousBlockWasRetainedMarkdown) break;
+        if (quizCount >= MAX_LESSON_QUIZ_QUESTIONS || !hasExplanatoryMarkdown) break;
         quizCount += 1;
         contentBlocks.push({ ...block, quiz: sanitizeQuiz(block.quiz) });
-        previousBlockWasRetainedMarkdown = false;
+        hasExplanatoryMarkdown = false;
         break;
       case 'youtube-clips': {
         const normalizedBlock = normalizeYouTubeBlock(block, sources);
         if (normalizedBlock) contentBlocks.push(normalizedBlock);
-        previousBlockWasRetainedMarkdown = false;
         break;
       }
       case 'markdown': {
         const markdown = sanitizeMarkdownBlock(block.markdown, visibleLabelByAssetId);
         if (markdown) contentBlocks.push({ ...block, markdown });
-        previousBlockWasRetainedMarkdown = Boolean(markdown);
+        hasExplanatoryMarkdown = Boolean(markdown);
         break;
       }
       case 'generated-visual': {
@@ -177,7 +176,6 @@ const normalizeContentBlocks = <Visual extends StoredVisualReference>({
           visualCount,
           visualsBySlotId,
         });
-        previousBlockWasRetainedMarkdown = false;
         break;
       }
     }

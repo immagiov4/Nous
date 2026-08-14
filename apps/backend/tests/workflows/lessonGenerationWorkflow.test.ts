@@ -304,11 +304,21 @@ describe('lesson generation workflow', () => {
     expect(
       researchRoute.select({
         existingDossierJson: '{"factualSummary":"saved"}',
+        request: { forceRegenerate: false },
       } as LessonSourcesState)
     ).toBe('bypass');
-    expect(researchRoute.select({ existingDossierJson: null } as LessonSourcesState)).toBe(
-      'research'
-    );
+    expect(
+      researchRoute.select({
+        existingDossierJson: null,
+        request: { forceRegenerate: false },
+      } as LessonSourcesState)
+    ).toBe('research');
+    expect(
+      researchRoute.select({
+        existingDossierJson: '{"factualSummary":"saved"}',
+        request: { forceRegenerate: true },
+      } as LessonSourcesState)
+    ).toBe('research');
     expect(fallbackRoute.select(searchState)).toBe('fallback');
     expect(
       fallbackRoute.select({

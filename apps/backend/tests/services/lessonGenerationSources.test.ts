@@ -161,3 +161,29 @@ test('original course sources retain their stable id, chunks, and original page 
     },
   ]);
 });
+
+test('single detached course source keeps its stable id in regenerated dossiers', () => {
+  const sources = readOriginalSourceNames(
+    {
+      source: {
+        file: {
+          data: '',
+          mimeType: 'application/pdf',
+          name: 'dispensa.pdf',
+          sourceId: 'source-primary',
+        },
+        kind: 'pdf',
+        ref: { id: 'source-primary' },
+      },
+    } as never,
+    { primaryChunkIds: ['chunk-022'] }
+  );
+
+  expect(sources).toEqual([
+    {
+      note: 'Materiale originale del corso',
+      sourceId: 'source-primary',
+      title: 'dispensa.pdf',
+    },
+  ]);
+});

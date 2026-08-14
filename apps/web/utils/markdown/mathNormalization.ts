@@ -3,6 +3,8 @@ import { getMarkdownMathRangeAt } from './codeRanges.ts';
 const WORD_LIKE_MATH_SCRIPT_LABEL_REGEX = /^[A-Za-z][A-Za-z0-9-]{2,}(?:\s+[A-Za-z0-9-]+)*$/;
 const LIKELY_DISPLAY_MATH_CONTENT_REGEX =
   /(\\[A-Za-z]+|[_^=]|\\frac|\\sum|\\int|\\approx|\\cdot|\\omega|\\theta|\\alpha|\\beta|\\gamma|\\lambda)/;
+const BARE_DISPLAY_MATH_START_REGEX =
+  /^(?:\\[A-Za-z]+|[A-Za-z](?:[_^](?:\{[^}]+\}|[A-Za-z0-9]))?\s*=)/u;
 
 const mapMathDelimitedSegments = (
   segment: string,
@@ -97,6 +99,34 @@ const escapeLatexTextContent = (value: string): string =>
     .replaceAll(/(?<!\\)#/g, String.raw`\#`)
     .replaceAll(/(?<!\\)&/g, String.raw`\&`);
 
+const collapseDoubleEscapedLatexCommands = (value: string): string =>
+  value.replaceAll(/\\\\(?=[A-Za-z])/g, '\\');
+
+const LATEX_ENVIRONMENT_TOKEN_REGEX = /\\(begin|end)\{([A-Za-z][A-Za-z0-9*]*)\}/g;
+
+const hasUnbalancedLatexEnvironment = (value: string): boolean => {
+  const environments: string[] = [];
+  for (const match of value.matchAll(LATEX_ENVIRONMENT_TOKEN_REGEX)) {
+    const [, operation, environment] = match;
+    if (operation === 'begin') {
+      environments.push(environment as string);
+      continue;
+    }
+    if (environments.pop() !== environment) {
+      return true;
+    }
+  }
+  return environments.length > 0;
+};
+
+const literalizeUnbalancedInlineLatexEnvironment = (expression: string): string | null => {
+  if (!expression.startsWith('$') || expression.startsWith('$$') || !expression.endsWith('$')) {
+    return null;
+  }
+  const body = collapseDoubleEscapedLatexCommands(expression.slice(1, -1));
+  return hasUnbalancedLatexEnvironment(body) ? `\`${body}\`` : null;
+};
+
 const wrapWordLikeMathScriptLabel = (value: string): string | null => {
   const trimmedValue = value.trim();
   if (!WORD_LIKE_MATH_SCRIPT_LABEL_REGEX.test(trimmedValue)) {
@@ -124,19 +154,27 @@ const normalizeWordLikeMathScripts = (value: string): string => {
 
 const repairMathExpressionForKatex = (value: string): string =>
   normalizeWordLikeMathScripts(
-    value.replaceAll(/\\(?:text|mathrm|mathtt|operatorname)\{([^{}]*)\}/g, match => {
-      const innerMatch = match.match(/^\\([A-Za-z]+)\{([^{}]*)\}$/);
-      if (!innerMatch) {
-        return match;
-      }
+    collapseDoubleEscapedLatexCommands(value).replaceAll(
+      /\\(?:text|mathrm|mathtt|operatorname)\{([^{}]*)\}/g,
+      match => {
+        const innerMatch = match.match(/^\\([A-Za-z]+)\{([^{}]*)\}$/);
+        if (!innerMatch) {
+          return match;
+        }
 
-      const [, command, inner] = innerMatch;
-      return `\\${command}{${escapeLatexTextContent(inner)}}`;
-    })
+        const [, command, inner] = innerMatch;
+        return `\\${command}{${escapeLatexTextContent(inner)}}`;
+      }
+    )
   );
 
 const repairMathMarkdown = (segment: string): string =>
-  mapMathDelimitedSegments(segment, expression => repairMathExpressionForKatex(expression));
+  mapMathDelimitedSegments(
+    segment,
+    expression =>
+      literalizeUnbalancedInlineLatexEnvironment(expression) ??
+      repairMathExpressionForKatex(expression)
+  );
 
 const normalizeBareParenInlineMath = (segment: string): string =>
   mapMathDelimitedSegments(
@@ -160,6 +198,35 @@ const normalizeBackslashDelimitedMath = (segment: string): string =>
 
 const hasLikelyDisplayMathContent = (value: string): boolean =>
   LIKELY_DISPLAY_MATH_CONTENT_REGEX.test(value);
+
+const normalizeBareDisplayMathLine = (line: string): string[] | null => {
+  const trimmedLine = line.trim();
+  if (!trimmedLine) {
+    return null;
+  }
+
+  const normalizedLine = collapseDoubleEscapedLatexCommands(trimmedLine);
+  if (
+    !BARE_DISPLAY_MATH_START_REGEX.test(normalizedLine) ||
+    !hasLatexCommand(normalizedLine) ||
+    !hasLikelyDisplayMathContent(normalizedLine)
+  ) {
+    return null;
+  }
+
+  return ['$$', normalizedLine, '$$'];
+};
+
+const normalizeBareDisplayMath = (segment: string): string =>
+  mapMathDelimitedSegments(
+    segment,
+    expression => expression,
+    plainText =>
+      plainText
+        .split('\n')
+        .flatMap(line => normalizeBareDisplayMathLine(line) ?? [line])
+        .join('\n')
+  );
 
 interface OrphanedBracketMathCandidate {
   body: string;
@@ -259,6 +326,8 @@ export const getDisplayMathClosingDelimiter = (line: string): '$$' | '\\]' | nul
 export const normalizeMathMarkdownSegment = (segment: string): string =>
   repairMathMarkdown(
     normalizeBareParenInlineMath(
-      normalizeBackslashDelimitedMath(normalizeOrphanedBracketDisplayMath(segment))
+      normalizeBareDisplayMath(
+        normalizeBackslashDelimitedMath(normalizeOrphanedBracketDisplayMath(segment))
+      )
     )
   );
