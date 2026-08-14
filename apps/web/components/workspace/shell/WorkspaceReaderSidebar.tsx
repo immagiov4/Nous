@@ -21,6 +21,8 @@ import type { WorkspaceReaderSidebarModel } from './types.ts';
 const LAB_CONTEXT_MENU_VIEWPORT_PADDING = 12;
 const LESSON_CONTEXT_MENU_WIDTH = 272;
 const LESSON_CONTEXT_MENU_HEIGHT = 120;
+const MOBILE_SIDEBAR_MOTION_CLASS_NAME =
+  'max-sm:duration-150 max-sm:ease-[cubic-bezier(0.2,0.85,0.25,1)] max-sm:motion-reduce:transition-none';
 
 const getSectionStatusLabel = ({
   hasGeneratedContent,
@@ -253,22 +255,28 @@ const WorkspaceReaderSidebar = memo(function WorkspaceReaderSidebar({
   const isContainerPlaced = placement === 'container';
   const viewportPositionClassName = isContainerPlaced ? 'absolute' : 'fixed';
   const sidebarHeight = isContainerPlaced ? '100%' : '100dvh';
+  const sidebarTransformClassName = shouldShowSidebar
+    ? 'translate-x-0 max-sm:[transform:translate3d(0,0,0)]'
+    : '-translate-x-full max-sm:[transform:translate3d(-100%,0,0)]';
 
   return (
     <>
-      {isMobileViewport && shouldShowSidebar ? (
+      {isMobileViewport ? (
         <button
           type="button"
           aria-label={t('Chiudi elenco lezioni')}
-          className={`${viewportPositionClassName} inset-0 z-[60] bg-black/40 backdrop-blur-[1px]`}
+          aria-hidden={!shouldShowSidebar}
+          disabled={!shouldShowSidebar}
+          tabIndex={shouldShowSidebar ? 0 : -1}
+          className={`${viewportPositionClassName} inset-0 z-[60] bg-black/40 backdrop-blur-[1px] transition-none max-sm:backdrop-blur-none max-sm:transition-opacity max-sm:will-change-[opacity] ${MOBILE_SIDEBAR_MOTION_CLASS_NAME} ${
+            shouldShowSidebar ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+          }`}
           onClick={() => onSetIsMobileSidebarOpen(false)}
         />
       ) : null}
 
       <aside
-        className={`${viewportPositionClassName} inset-y-0 left-0 z-[70] flex min-h-0 flex-col overflow-hidden rounded-r-[2rem] border-r border-gray-200/80 bg-white transition-transform duration-300 dark:border-zinc-700/80 dark:bg-zinc-800 ${
-          shouldShowSidebar ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`${viewportPositionClassName} inset-y-0 left-0 z-[70] flex min-h-0 flex-col overflow-hidden rounded-r-[2rem] border-r border-gray-200/80 bg-white transition-transform duration-300 max-sm:will-change-transform dark:border-zinc-700/80 dark:bg-zinc-800 ${MOBILE_SIDEBAR_MOTION_CLASS_NAME} ${sidebarTransformClassName}`}
         style={{
           width: isMobileViewport ? 'min(92vw, 24rem)' : READER_SIDEBAR_WIDTH_PX,
           height: sidebarHeight,
