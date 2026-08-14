@@ -255,6 +255,16 @@ describe('WorkspaceReaderShell', () => {
     expect(screen.getByTestId('workspace-overlays')).toBeInTheDocument();
   });
 
+  test('confines reader overlays to the content layer below the header', () => {
+    render(<WorkspaceReaderShell {...buildProps()} />);
+
+    const contentLayer = screen.getByTestId('workspace-content').parentElement;
+
+    expect(contentLayer).toHaveAttribute('data-reader-content-layer', 'true');
+    expect(contentLayer).toContainElement(screen.getByTestId('workspace-overlays'));
+    expect(contentLayer).not.toContainElement(screen.getByTestId('workspace-header'));
+  });
+
   test('uses the visual viewport height for the application shell', () => {
     const { container } = render(<WorkspaceReaderShell {...buildProps()} />);
 

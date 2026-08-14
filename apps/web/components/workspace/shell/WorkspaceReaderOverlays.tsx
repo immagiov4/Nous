@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { translateUiMessage as t } from '../../../i18n/uiMessages.ts';
 import ContextMenu from '../ContextMenu.tsx';
 import ContextAnswerPanel from './ContextAnswerPanel.tsx';
 import type { WorkspaceReaderOverlaysModel } from './types.ts';
@@ -46,6 +47,15 @@ function WorkspaceReaderOverlays({
     <>
       {contextAnswer ? (
         <>
+          {isMobileViewport ? (
+            <button
+              type="button"
+              data-context-answer-backdrop="true"
+              aria-label={t('Chiudi follow-up dallo sfondo')}
+              className="absolute inset-0 z-40 bg-black/40"
+              onClick={onCloseContextAnswer}
+            />
+          ) : null}
           <ContextAnswerPanel
             key={contextAnswer.id}
             artifactActionFeedbackOverride={contextAnswerArtifactActionFeedbackOverride}

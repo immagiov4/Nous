@@ -78,6 +78,48 @@ test('mobile selection sync does not close an already-open selection menu for th
   assert.equal(result.current.contextMenu.selectedText, 'beta');
 });
 
+test('opening a context answer atomically closes the selection menu and cancels pending sync', () => {
+  vi.useFakeTimers();
+  const container = document.createElement('div');
+  const textNode = document.createTextNode('Alpha beta gamma delta');
+  container.append(textNode);
+  document.body.append(container);
+  const contentRef = { current: container };
+  const selection = buildSelection(container, textNode, 'beta');
+  const selectionSpy = vi.spyOn(globalThis, 'getSelection').mockReturnValue(selection);
+
+  const { result } = renderHook(() =>
+    useReaderContext({
+      activeSectionId: 'section-1',
+      contentRef,
+      isMobileViewport: true,
+      sectionContent: 'Alpha beta gamma delta',
+    })
+  );
+
+  act(() => {
+    result.current.openContextMenuFromSelection(selection, 'mobile-sheet');
+    document.dispatchEvent(new Event('selectionchange'));
+    result.current.openContextAnswer({
+      initialQuestion: 'Spiega beta',
+      selectedText: 'beta',
+    });
+  });
+
+  assert.ok(result.current.contextAnswer);
+  assert.equal(result.current.contextMenu.visible, false);
+
+  act(() => {
+    vi.advanceTimersByTime(1_000);
+    result.current.closeContextAnswer();
+  });
+
+  assert.equal(result.current.contextAnswer, null);
+  assert.equal(result.current.contextMenu.visible, false);
+  selectionSpy.mockRestore();
+  vi.useRealTimers();
+});
+
 test('desktop right pointer-down opens the selection menu immediately', () => {
   const container = document.createElement('div');
   const textNode = document.createTextNode('Alpha beta gamma delta');

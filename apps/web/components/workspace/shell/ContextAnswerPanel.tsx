@@ -5,6 +5,7 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
   type UIMessage,
 } from 'ai';
+import { motion } from 'framer-motion';
 import {
   Check,
   Globe,
@@ -286,8 +287,6 @@ const autoSubmittedInitialQuestionIds = new Set<string>();
 const STUCK_TOOL_GRACE_MS = 2_000;
 const STUCK_TOOL_HARD_TIMEOUT_MS = 15_000;
 const REPLACEMENT_DRAFT_TOOL_CALL_PREFIX = 'replacement-draft';
-const contextRequestStateStore = new Map<symbol, ContextRequestState>();
-
 export default function ContextAnswerPanel({ ...props }: ContextAnswerPanelProps) {
   return <ContextAnswerPanelSession key={props.contextAnswer.id} {...props} />;
 }
@@ -363,7 +362,7 @@ function ContextAnswerPanelSession({
     new Set()
   );
 
-  const { keyboardOffset } = useMobileKeyboardOffset();
+  const { keyboardOffset, viewportHeight } = useMobileKeyboardOffset();
 
   useEffect(() => {
     selectionAnchorRef.current = {
@@ -379,10 +378,25 @@ function ContextAnswerPanelSession({
     contextAnswer.selectedTextStart,
   ]);
 
-  const requestStateKey = useMemo(() => Symbol('context-request-state'), []);
+  const contextRequestStateRef = useRef<ContextRequestState>({
+    attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
+    attachedAnnotationText: contextAnswer.attachedAnnotationText,
+    contextAfter: contextAnswer.contextAfter,
+    contextBefore: contextAnswer.contextBefore,
+    contextScope: contextAnswer.contextScope,
+    lessonContent: contextAnswer.lessonContent,
+    lessonDescription: contextAnswer.lessonDescription,
+    lessonTitle: contextAnswer.lessonTitle,
+    selectedText: contextAnswer.selectedText,
+    selectedTextStart: contextAnswer.selectedTextStart,
+    sourceKind: contextAnswer.sourceKind,
+    sourceMaterial: contextAnswer.sourceMaterial,
+    sourceName: contextAnswer.sourceName,
+    toolPreferences,
+  });
 
   useEffect(() => {
-    contextRequestStateStore.set(requestStateKey, {
+    contextRequestStateRef.current = {
       attachedAnnotationNote: contextAnswer.attachedAnnotationNote,
       attachedAnnotationText: contextAnswer.attachedAnnotationText,
       contextAfter: contextAnswer.contextAfter,
@@ -397,10 +411,6 @@ function ContextAnswerPanelSession({
       sourceMaterial: contextAnswer.sourceMaterial,
       sourceName: contextAnswer.sourceName,
       toolPreferences,
-    });
-
-    return () => {
-      contextRequestStateStore.delete(requestStateKey);
     };
   }, [
     contextAnswer.attachedAnnotationNote,
@@ -416,7 +426,6 @@ function ContextAnswerPanelSession({
     contextAnswer.sourceKind,
     contextAnswer.sourceMaterial,
     contextAnswer.sourceName,
-    requestStateKey,
     toolPreferences,
   ]);
 
@@ -427,10 +436,7 @@ function ContextAnswerPanelSession({
         fetch: fetchWithSupabaseAuth,
         // `useChat` keeps the initial transport instance, so request data must come from a ref.
         prepareSendMessagesRequest: ({ headers, id, messages }) => {
-          const currentRequestState = contextRequestStateStore.get(requestStateKey);
-          if (!currentRequestState) {
-            throw new Error('Context request state is not initialized.');
-          }
+          const currentRequestState = contextRequestStateRef.current;
 
           return {
             headers,
@@ -454,7 +460,7 @@ function ContextAnswerPanelSession({
           };
         },
       }),
-    [requestStateKey]
+    []
   );
 
   const { addToolOutput, error, messages, sendMessage, status } = useChat<ContextChatMessage>({
@@ -496,7 +502,7 @@ function ContextAnswerPanelSession({
 
       if (toolCall.toolName === 'generateCurrentLessonArtifact') {
         const artifactInput = readGenerateCurrentLessonArtifactInput(toolCall.input);
-        const currentState = contextRequestStateStore.get(requestStateKey);
+        const currentState = contextRequestStateRef.current;
         const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
         const allArtifactPayloads = [
           ...currentLessonArtifactPayloads,
@@ -688,7 +694,7 @@ function ContextAnswerPanelSession({
       return;
     }
 
-    const currentState = contextRequestStateStore.get(requestStateKey);
+    const currentState = contextRequestStateRef.current;
     const hasExistingNote = Boolean(currentState?.attachedAnnotationNote?.trim());
     const mode: 'new' | 'update' = hasExistingNote ? 'update' : 'new';
     const runMutation = mode === 'update' ? onUpdateConversationNote : onSaveConversationNote;
@@ -800,7 +806,7 @@ function ContextAnswerPanelSession({
     instructions,
   }: ChatArtifactRegenerateRequest): Promise<boolean> => {
     const payload = artifactPayloadsById.get(artifactId);
-    const currentState = contextRequestStateStore.get(requestStateKey);
+    const currentState = contextRequestStateRef.current;
     const draftLesson = buildContextDraftLesson(contextAnswer, currentState);
     if (!payload || !('visual' in payload) || !contextAnswer.projectId || !draftLesson)
       return false;
@@ -1016,6 +1022,10 @@ function ContextAnswerPanelSession({
     const trimmedInput = displayedInput.trim();
     if (!trimmedInput) {
       return;
+    }
+
+    if (isMobileViewport && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
     }
 
     setInput('');
@@ -1242,24 +1252,33 @@ function ContextAnswerPanelSession({
   };
 
   return (
-    <div
+    <motion.div
       ref={contextAnswerPanelRef}
       data-context-answer-panel="true"
-      className={`fixed z-50 flex flex-col overflow-hidden rounded-2xl border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] animate-in slide-in-from-bottom-10 duration-500 dark:border-zinc-700/60 dark:bg-zinc-800 ${
-        isMobileViewport ? 'inset-x-3 top-24' : 'top-6 right-8'
+      className={`fixed z-50 flex flex-col overflow-hidden border border-stone-200 bg-white px-6 pb-5 pt-5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.2)] dark:border-zinc-700/60 dark:bg-zinc-800 ${
+        isMobileViewport
+          ? 'inset-x-0 h-[80dvh] rounded-t-[2rem] rounded-b-none border-x-0 border-b-0'
+          : 'right-8 top-6 rounded-2xl animate-in slide-in-from-bottom-10 duration-500'
       }`}
       style={
         isMobileViewport
           ? {
-              bottom: `calc(6rem + ${keyboardOffset}px)`,
-              maxHeight: `calc(100dvh - 6rem - ${keyboardOffset}px)`,
+              bottom: `${keyboardOffset}px`,
+              maxHeight:
+                viewportHeight === null
+                  ? `calc(100dvh - ${keyboardOffset}px)`
+                  : `${viewportHeight}px`,
             }
           : contextAnswerSize
       }
+      initial={isMobileViewport ? { opacity: 0, transform: 'translate3d(0, 100%, 0)' } : false}
+      animate={isMobileViewport ? { opacity: 1, transform: 'translate3d(0, 0, 0)' } : undefined}
+      transition={isMobileViewport ? { duration: 0.15, ease: [0.2, 0.85, 0.25, 1] } : undefined}
     >
       <button
         type="button"
         data-context-answer-target="close"
+        aria-label={t('Chiudi')}
         onClick={onClose}
         className="absolute right-4 top-4 rounded-full bg-gray-50 p-1 text-gray-400 hover:text-gray-600 dark:bg-zinc-700 dark:hover:text-gray-200"
       >
@@ -1342,8 +1361,11 @@ function ContextAnswerPanelSession({
             ) : null}
 
             {error ? (
-              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-                {error.message}
+              <div
+                role="alert"
+                className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200"
+              >
+                {t('Non è stato possibile ottenere una risposta. Riprova tra poco.')}
               </div>
             ) : null}
           </div>
@@ -1547,6 +1569,6 @@ function ContextAnswerPanelSession({
           </svg>
         </button>
       ) : null}
-    </div>
+    </motion.div>
   );
 }

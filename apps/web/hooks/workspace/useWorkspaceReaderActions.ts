@@ -268,10 +268,8 @@ export const useWorkspaceReaderActions = ({
         sourceMaterial: sourceContext.sourceMaterial,
         sourceName: sourceContext.sourceName,
       });
-      closeContextMenu();
     },
     [
-      closeContextMenu,
       contextMenu,
       documentIndex,
       getCurrentSection,
