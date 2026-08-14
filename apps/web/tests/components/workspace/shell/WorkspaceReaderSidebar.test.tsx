@@ -64,6 +64,61 @@ describe('WorkspaceReaderSidebar', () => {
     unmount();
   });
 
+  test('uses compositor-only phone motion while preserving the backdrop interaction', () => {
+    const onSetIsMobileSidebarOpen = vi.fn();
+    const { container, rerender } = render(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          isMobileViewport: true,
+          onSetIsMobileSidebarOpen,
+          shouldShowSidebar: false,
+        })}
+      />
+    );
+
+    const sidebar = container.querySelector('aside');
+    const backdrop = container.querySelector('button[aria-hidden="true"]');
+
+    expect(sidebar).toHaveClass(
+      'transition-transform',
+      'duration-300',
+      'max-sm:duration-150',
+      'max-sm:will-change-transform',
+      'max-sm:[transform:translate3d(-100%,0,0)]'
+    );
+    expect(backdrop).toHaveClass(
+      'pointer-events-none',
+      'opacity-0',
+      'max-sm:backdrop-blur-none',
+      'max-sm:transition-opacity',
+      'max-sm:will-change-[opacity]'
+    );
+    expect(backdrop).toBeDisabled();
+
+    rerender(
+      <WorkspaceReaderSidebar
+        {...buildProps({
+          isMobileViewport: true,
+          onSetIsMobileSidebarOpen,
+          shouldShowSidebar: true,
+        })}
+      />
+    );
+
+    const visibleBackdrop = container.querySelector('button[aria-hidden="false"]');
+    if (!(visibleBackdrop instanceof HTMLButtonElement)) {
+      throw new Error('Expected the visible mobile sidebar backdrop.');
+    }
+
+    expect(sidebar).toHaveClass('max-sm:[transform:translate3d(0,0,0)]');
+    expect(visibleBackdrop).toHaveClass('pointer-events-auto', 'opacity-100');
+    expect(visibleBackdrop).not.toBeDisabled();
+
+    fireEvent.click(visibleBackdrop);
+
+    expect(onSetIsMobileSidebarOpen).toHaveBeenCalledWith(false);
+  });
+
   test('adds hover tooltips to truncated module and lesson titles', () => {
     render(<WorkspaceReaderSidebar {...buildProps()} />);
 
