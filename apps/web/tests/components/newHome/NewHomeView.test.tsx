@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { NewHomeView } from '../../../components/newHome/NewHomeView.tsx';
 import type { LibraryTree, ProjectSnapshot, SavedProjectMeta } from '../../../types.ts';
@@ -85,10 +85,111 @@ const chatProps = {
   pendingFileName: null,
 };
 
+const originalMatchMedia = globalThis.matchMedia;
+
+const mockPhoneViewport = (isPhoneViewport: boolean) => {
+  globalThis.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: query === '(max-width: 639px)' ? isPhoneViewport : false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+};
+
 describe('NewHomeView library rename', () => {
   beforeEach(() => {
     globalThis.history.replaceState({}, '', '/');
     globalThis.localStorage.clear();
+  });
+
+  afterEach(() => {
+    globalThis.matchMedia = originalMatchMedia;
+  });
+
+  test.each([
+    { isPhoneViewport: true, visibleResumeCourseCount: 1 },
+    { isPhoneViewport: false, visibleResumeCourseCount: 3 },
+  ])('shows $visibleResumeCourseCount resume course(s) when phone viewport is $isPhoneViewport', ({
+    isPhoneViewport,
+    visibleResumeCourseCount,
+  }) => {
+    mockPhoneViewport(isPhoneViewport);
+    const resumeProjects = [
+      { ...project, id: 'recent-project', title: 'Corso più recente' },
+      { ...project, id: 'older-project', title: 'Corso precedente' },
+      { ...project, id: 'oldest-project', title: 'Corso meno recente' },
+    ];
+
+    const { container } = render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isLibraryLoading={false}
+        libraryFolders={[]}
+        libraryTree={{
+          descendantProjectIdsByFolderId: {},
+          folderById: {},
+          placementByProjectId: {},
+          rootNodes: [],
+        }}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={vi.fn()}
+        openingProjectId={null}
+        projects={resumeProjects}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    const resumeSection = within(container.querySelector('#recent') as HTMLElement);
+    expect(resumeSection.getByText('Corso più recente')).toBeInTheDocument();
+    if (visibleResumeCourseCount === 3) {
+      expect(resumeSection.getByText('Corso precedente')).toBeInTheDocument();
+      expect(resumeSection.getByText('Corso meno recente')).toBeInTheDocument();
+    } else {
+      expect(resumeSection.queryByText('Corso precedente')).not.toBeInTheDocument();
+      expect(resumeSection.queryByText('Corso meno recente')).not.toBeInTheDocument();
+    }
+  });
+
+  test('toggles the theme from the compact phone header control', async () => {
+    mockPhoneViewport(true);
+    const user = userEvent.setup();
+    const onToggleDarkMode = vi.fn();
+    const { container } = render(
+      <NewHomeView
+        chatProps={chatProps}
+        isDarkMode={false}
+        isLibraryLoading={false}
+        libraryFolders={[folder]}
+        libraryTree={tree}
+        loadProjectCover={vi.fn(async () => null)}
+        loadProjectSource={vi.fn(async () => null)}
+        loadProjectsById={vi.fn(async () => [])}
+        onCreateFolder={vi.fn(async () => {})}
+        onOpenProject={vi.fn()}
+        onToggleDarkMode={onToggleDarkMode}
+        openingProjectId={null}
+        projects={[project]}
+        saveProjectCover={vi.fn(async () => {})}
+      />
+    );
+
+    const mobileHeader = within(container.querySelector('header') as HTMLElement);
+    const themeToggle = mobileHeader.getByRole('button', {
+      name: /Usa tema scuro|Use dark theme/,
+    });
+    expect(themeToggle).toHaveAttribute('aria-pressed', 'false');
+    expect(themeToggle).toHaveAttribute('title');
+
+    await user.click(themeToggle);
+
+    expect(onToggleDarkMode).toHaveBeenCalledTimes(1);
   });
 
   test('imports a single course from the library header', async () => {
