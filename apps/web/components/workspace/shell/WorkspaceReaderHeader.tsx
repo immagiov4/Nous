@@ -100,9 +100,9 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
       <span className="h-2 w-2 rounded-full bg-orange-500" />
       <span className="truncate">{visibleLoadingStatus}</span>
     </div>
-  ) : (
+  ) : syncState === 'error' ? (
     <SyncBadge syncState={syncState} />
-  );
+  ) : null;
   const regenerateDialogClassName = isMobileViewport
     ? 'mx-auto w-[min(20rem,calc(100vw-2rem))]'
     : 'absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2rem))]';
@@ -119,7 +119,7 @@ const WorkspaceReaderHeader = memo(function WorkspaceReaderHeader({
     <header
       className={`
         sticky top-0 relative z-50 flex flex-shrink-0 overflow-visible border-b border-gray-100 bg-white/80 backdrop-blur transition-opacity duration-500 ease-in-out dark:border-zinc-700/80 dark:bg-zinc-800/80
-        ${isMobileViewport ? 'min-h-[4rem] flex-col gap-2.5 px-4 py-2.5' : 'h-16 items-center justify-between px-8'}
+        ${isMobileViewport ? 'flex-col gap-2.5 px-4 py-2.5 sm:min-h-[4rem]' : 'h-16 items-center justify-between px-8'}
         opacity-100
       `}
     >

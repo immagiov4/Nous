@@ -446,6 +446,8 @@ const ENGLISH_UI_MESSAGES = {
     'Could not save the password. Try again; if the link expired, request a new one.',
   'Non è stato possibile salvare la password. Riprova tra poco.':
     'Could not save the password. Try again shortly.',
+  'Non è stato possibile ottenere una risposta. Riprova tra poco.':
+    'Could not get an answer. Try again shortly.',
   'Invio in corso…': 'Sending…',
   'Importa backup Nous (.nous.zip, formato legacy o JSON legacy)':
     'Import Nous backup (.nous.zip, legacy format, or legacy JSON)',
@@ -773,6 +775,7 @@ const ENGLISH_UI_MESSAGES = {
   'Chiudi concetti chiave': 'Close key concepts',
   'Apri concetti chiave': 'Open key concepts',
   'Chiudi concetti chiave dallo sfondo': 'Close key concepts from the backdrop',
+  'Chiudi follow-up dallo sfondo': 'Close follow-up from the backdrop',
   'Chiudi menu audio': 'Close audio menu',
   'Comprimi concetti chiave': 'Collapse key concepts',
   'Comprimi {learningAidTitle}': 'Collapse {learningAidTitle}',

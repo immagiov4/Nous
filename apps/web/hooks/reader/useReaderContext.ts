@@ -111,10 +111,12 @@ export const useReaderContext = ({
   const [contextAnswerSize, setContextAnswerSize] = useState<ContextAnswerSize>(
     CONTEXT_ANSWER_DEFAULT_SIZE
   );
-  const visibleContextMenu =
-    contextMenuOwnerSectionId === activeSectionId ? contextMenu : createClosedContextMenuState();
   const visibleContextAnswer =
     contextAnswerOwnerSectionId === activeSectionId ? contextAnswer : null;
+  const visibleContextMenu =
+    visibleContextAnswer || contextMenuOwnerSectionId !== activeSectionId
+      ? createClosedContextMenuState()
+      : contextMenu;
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const contextAnswerPanelRef = useRef<HTMLDivElement>(null);
@@ -229,6 +231,7 @@ export const useReaderContext = ({
   );
 
   const closeContextMenu = useCallback(() => {
+    clearSelectionMenuTimeout();
     setContextMenuOwnerSectionId(null);
     contextMenuStateRef.current = createClosedContextMenuState();
     setContextMenu(currentMenu => {
@@ -238,7 +241,7 @@ export const useReaderContext = ({
 
       return createClosedContextMenuState();
     });
-  }, []);
+  }, [clearSelectionMenuTimeout]);
 
   const closeContextAnswer = useCallback(() => {
     setContextAnswerOwnerSectionId(null);
@@ -265,6 +268,7 @@ export const useReaderContext = ({
       sourceMaterial,
       sourceName,
     }: Omit<ContextAnswerState, 'id'>) => {
+      closeContextMenu();
       setContextAnswerOwnerSectionId(activeSectionId);
       setContextAnswer({
         attachedAnnotationNote,
@@ -287,7 +291,7 @@ export const useReaderContext = ({
         sourceName,
       });
     },
-    [activeSectionId]
+    [activeSectionId, closeContextMenu]
   );
 
   const openContextMenuFromLesson = useCallback(

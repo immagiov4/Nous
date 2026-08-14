@@ -154,6 +154,24 @@ describe('WorkspaceReaderHeader', () => {
     expect(screen.getByText('Errore')).toBeInTheDocument();
   });
 
+  test('does not reserve an empty mobile status row when the reader is idle', () => {
+    const props = buildProps();
+    const { rerender } = render(<WorkspaceReaderHeader {...props} isMobileViewport />);
+
+    expect(screen.getByRole('banner').children).toHaveLength(1);
+
+    rerender(<WorkspaceReaderHeader {...props} isLoading isMobileViewport />);
+
+    expect(screen.getByRole('banner').children).toHaveLength(2);
+  });
+
+  test('lets the phone header follow its content height while preserving the tablet minimum', () => {
+    render(<WorkspaceReaderHeader {...buildProps()} isMobileViewport />);
+
+    expect(screen.getByRole('banner')).toHaveClass('sm:min-h-[4rem]');
+    expect(screen.getByRole('banner')).not.toHaveClass('min-h-[4rem]');
+  });
+
   test('keeps the music player available on mobile', () => {
     const props = buildProps();
 

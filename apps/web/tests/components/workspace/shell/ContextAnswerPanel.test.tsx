@@ -14,8 +14,11 @@ const sendMessageMock = vi.fn();
 const addToolOutputMock = vi.fn();
 const useChatMock = vi.fn();
 const generateLessonArtifactDraftMock = vi.fn();
+const useMobileKeyboardOffsetMock = vi.fn();
 const chatTextComposerProps: Array<{
   disabled?: boolean;
+  inputDataTarget?: string;
+  onChange: (value: string) => void;
   onSubmit: () => void;
   placeholder: string;
   trailingContent?: ReactNode;
@@ -50,6 +53,8 @@ vi.mock('../../../../components/shared/MarkdownRenderer.tsx', () => ({
 vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
   default: (props: {
     disabled?: boolean;
+    inputDataTarget?: string;
+    onChange: (value: string) => void;
     onSubmit: () => void;
     placeholder: string;
     trailingContent?: ReactNode;
@@ -59,6 +64,11 @@ vi.mock('../../../../components/workspace/chat/ChatTextComposer.tsx', () => ({
     return (
       <>
         {props.trailingContent}
+        <input
+          data-chat-composer-target={props.inputDataTarget}
+          value={props.value}
+          onChange={event => props.onChange(event.target.value)}
+        />
         <button
           type="button"
           data-testid="chat-text-composer"
@@ -82,6 +92,10 @@ vi.mock('../../../../services/auth/supabaseAuth.ts', () => ({
 
 vi.mock('../../../../services/openrouter/artifactDrafts.ts', () => ({
   generateLessonArtifactDraft: generateLessonArtifactDraftMock,
+}));
+
+vi.mock('../../../../hooks/useMobileKeyboardOffset.ts', () => ({
+  useMobileKeyboardOffset: useMobileKeyboardOffsetMock,
 }));
 
 const { default: ContextAnswerPanel } = await import(
@@ -160,7 +174,113 @@ describe('ContextAnswerPanel', () => {
     addToolOutputMock.mockReset();
     useChatMock.mockReset();
     generateLessonArtifactDraftMock.mockReset();
+    useMobileKeyboardOffsetMock.mockReset();
+    useMobileKeyboardOffsetMock.mockReturnValue({ keyboardOffset: 0, viewportHeight: 768 });
     chatTextComposerProps.length = 0;
+  });
+
+  test('renders the mobile follow-up as a full-width bottom sheet that shrinks above the keyboard', () => {
+    useMobileKeyboardOffsetMock.mockReturnValue({ keyboardOffset: 240, viewportHeight: 528 });
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    const { container } = render(<ContextAnswerPanel {...buildProps()} isMobileViewport={true} />);
+
+    const panel = container.querySelector<HTMLElement>('[data-context-answer-panel="true"]');
+    expect(panel).not.toBeNull();
+    expect(panel).toHaveClass(
+      'inset-x-0',
+      'h-[80dvh]',
+      'rounded-t-[2rem]',
+      'rounded-b-none',
+      'border-x-0',
+      'border-b-0'
+    );
+    expect(panel).not.toHaveClass('inset-x-3', 'top-24', 'rounded-2xl');
+    expect(panel?.style.bottom).toBe('240px');
+    expect(panel?.style.height).toBe('');
+    expect(panel?.style.maxHeight).toBe('528px');
+    expect(screen.getByRole('button', { name: 'Chiudi' })).toHaveClass('right-4', 'top-4');
+    expect(screen.queryByRole('button', { name: 'Ridimensiona pannello risposta' })).toBeNull();
+  });
+
+  test('dismisses the mobile keyboard on follow-up submit so streaming can use the 80% sheet', async () => {
+    const user = userEvent.setup();
+    useMobileKeyboardOffsetMock.mockReturnValue({ keyboardOffset: 240, viewportHeight: 528 });
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Risposta iniziale', state: 'done' }],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    const { container, rerender } = render(
+      <ContextAnswerPanel {...buildProps()} isMobileViewport={true} />
+    );
+    const input = screen.getByRole('textbox');
+    await user.type(input, 'Un esempio breve');
+    expect(input).toHaveFocus();
+
+    act(() => chatTextComposerProps.at(-1)?.onSubmit());
+
+    expect(input).not.toHaveFocus();
+    expect(sendMessageMock).toHaveBeenLastCalledWith({ text: 'Un esempio breve' });
+
+    useMobileKeyboardOffsetMock.mockReturnValue({ keyboardOffset: 0, viewportHeight: 844 });
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [
+        {
+          id: 'assistant-2',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Risposta in streaming', state: 'streaming' }],
+        },
+      ],
+      sendMessage: sendMessageMock,
+      status: 'streaming',
+    });
+    rerender(<ContextAnswerPanel {...buildProps()} isMobileViewport={true} />);
+
+    const panel = container.querySelector<HTMLElement>('[data-context-answer-panel="true"]');
+    expect(panel).toHaveClass('h-[80dvh]');
+    expect(panel?.style.bottom).toBe('0px');
+    expect(panel?.style.maxHeight).toBe('844px');
+    expect(screen.getByText('Risposta in streaming')).toBeInTheDocument();
+  });
+
+  test('preserves the desktop panel placement, size, and resize handle', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: undefined,
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    const { container } = render(<ContextAnswerPanel {...buildProps()} />);
+
+    const panel = container.querySelector<HTMLElement>('[data-context-answer-panel="true"]');
+    expect(panel).not.toBeNull();
+    expect(panel).toHaveClass('right-8', 'top-6', 'rounded-2xl', 'slide-in-from-bottom-10');
+    expect(panel).not.toHaveClass('inset-x-0', 'rounded-b-none');
+    expect(panel?.style.width).toBe('360px');
+    expect(panel?.style.height).toBe('280px');
+    expect(
+      screen.getByRole('button', { name: 'Ridimensiona pannello risposta' })
+    ).toBeInTheDocument();
   });
 
   test('auto-submits the initial question only once under StrictMode', () => {
@@ -206,6 +326,24 @@ describe('ContextAnswerPanel', () => {
 
     expect(screen.getByText('Risposta in corso')).toBeInTheDocument();
     expect(screen.getByTestId('markdown-renderer')).toBeInTheDocument();
+  });
+
+  test('keeps the panel open and shows a stable error when a request fails', () => {
+    useChatMock.mockReturnValue({
+      addToolOutput: addToolOutputMock,
+      error: new Error('Sensitive backend failure'),
+      messages: [],
+      sendMessage: sendMessageMock,
+      status: 'ready',
+    });
+
+    const { container } = render(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(container.querySelector('[data-context-answer-panel="true"]')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Non è stato possibile ottenere una risposta. Riprova tra poco.'
+    );
+    expect(screen.queryByText('Sensitive backend failure')).toBeNull();
   });
 
   test('keeps assistant text after the note tool below the note card', () => {
@@ -322,6 +460,35 @@ describe('ContextAnswerPanel', () => {
 
     expect(request.body?.modelOverride).toBeUndefined();
     expect(request.headers).toEqual({ 'X-Existing-Header': 'kept' });
+  });
+
+  test('makes request context available synchronously when the chat session initializes', () => {
+    let preparedBody: Record<string, unknown> | undefined;
+    useChatMock.mockImplementation(
+      ({
+        transport,
+      }: {
+        transport: { prepareSendMessagesRequest: (args: unknown) => unknown };
+      }) => {
+        const request = transport.prepareSendMessagesRequest({
+          id: 'chat-immediate',
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'spiega meglio' }] }],
+        }) as { body?: Record<string, unknown> };
+        preparedBody = request.body;
+        return {
+          addToolOutput: addToolOutputMock,
+          error: undefined,
+          messages: [],
+          sendMessage: sendMessageMock,
+          status: 'ready',
+        };
+      }
+    );
+
+    render(<ContextAnswerPanel {...buildProps()} />);
+
+    expect(preparedBody?.selectedText).toBe('G-buffer');
+    expect(preparedBody?.lessonContent).toBe('Contenuto');
   });
 
   test('sends lesson context scope with context chat requests', () => {

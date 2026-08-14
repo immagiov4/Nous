@@ -99,9 +99,13 @@ const WorkspaceReaderShell = memo(function WorkspaceReaderShell({
       >
         <WorkspaceReaderBanners {...banners} />
         <WorkspaceReaderHeader {...header} />
-        <WorkspaceReaderContent {...contentModel} />
-
-        <WorkspaceReaderOverlays {...overlays} />
+        <div
+          data-reader-content-layer="true"
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          <WorkspaceReaderContent {...contentModel} />
+          <WorkspaceReaderOverlays {...overlays} />
+        </div>
       </div>
     </div>
   );
