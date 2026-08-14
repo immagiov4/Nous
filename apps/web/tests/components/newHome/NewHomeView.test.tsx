@@ -157,10 +157,8 @@ describe('NewHomeView library rename', () => {
     }
   });
 
-  test('toggles the theme from the compact phone header control', async () => {
+  test('does not add a standalone theme control to the phone header', () => {
     mockPhoneViewport(true);
-    const user = userEvent.setup();
-    const onToggleDarkMode = vi.fn();
     const { container } = render(
       <NewHomeView
         chatProps={chatProps}
@@ -173,7 +171,7 @@ describe('NewHomeView library rename', () => {
         loadProjectsById={vi.fn(async () => [])}
         onCreateFolder={vi.fn(async () => {})}
         onOpenProject={vi.fn()}
-        onToggleDarkMode={onToggleDarkMode}
+        onToggleDarkMode={vi.fn()}
         openingProjectId={null}
         projects={[project]}
         saveProjectCover={vi.fn(async () => {})}
@@ -181,15 +179,11 @@ describe('NewHomeView library rename', () => {
     );
 
     const mobileHeader = within(container.querySelector('header') as HTMLElement);
-    const themeToggle = mobileHeader.getByRole('button', {
-      name: /Usa tema scuro|Use dark theme/,
-    });
-    expect(themeToggle).toHaveAttribute('aria-pressed', 'false');
-    expect(themeToggle).toHaveAttribute('title');
-
-    await user.click(themeToggle);
-
-    expect(onToggleDarkMode).toHaveBeenCalledTimes(1);
+    expect(
+      mobileHeader.queryByRole('button', {
+        name: /Usa tema scuro|Use dark theme/,
+      })
+    ).not.toBeInTheDocument();
   });
 
   test('imports a single course from the library header', async () => {

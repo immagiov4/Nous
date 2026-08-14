@@ -171,6 +171,7 @@ const ENGLISH_UI_MESSAGES = {
   'Rimuovi {courseTitle} dai preferiti': 'Remove {courseTitle} from favorites',
   'Salvataggio...': 'Saving...',
   'Sto caricando le altre fonti...': 'Loading the remaining sources...',
+  'Tema scuro': 'Dark theme',
   'Tempo di studio': 'Study time',
   Testo: 'Text',
   Tutte: 'All',

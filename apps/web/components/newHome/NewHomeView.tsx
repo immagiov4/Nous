@@ -345,23 +345,11 @@ const MobileHeader = ({
         {t('Libreria')}
       </button>
     </nav>
-    <div className="flex items-center gap-1">
-      {isPhoneViewport ? (
-        <Pressable
-          aria-label={isDarkMode ? t('Usa tema chiaro') : t('Usa tema scuro')}
-          aria-pressed={isDarkMode}
-          title={isDarkMode ? t('Usa tema chiaro') : t('Usa tema scuro')}
-          onClick={onToggleDarkMode}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white/70 text-stone-600 hover:border-stone-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:hover:bg-white/10"
-        >
-          {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </Pressable>
-      ) : null}
-      <AccountMenu
-        onExportLibraryBackup={onExportLibraryBackup}
-        onImportLibraryBackup={onImportLibraryBackup}
-      />
-    </div>
+    <AccountMenu
+      onExportLibraryBackup={onExportLibraryBackup}
+      onImportLibraryBackup={onImportLibraryBackup}
+      themeToggle={isPhoneViewport ? { isDarkMode, onToggle: onToggleDarkMode } : undefined}
+    />
   </header>
 );
 

@@ -55,6 +55,30 @@ describe('AccountMenu', () => {
     expect(screen.getByText('student@example.com')).toBeInTheDocument();
   });
 
+  test('toggles the optional dark theme control inside the account menu', async () => {
+    const user = userEvent.setup();
+    const onToggle = vi.fn();
+    saveAccountSession(['email']);
+    fetchMock.mockResolvedValueOnce(accountResponse('email'));
+
+    const { rerender } = render(<AccountMenu themeToggle={{ isDarkMode: false, onToggle }} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: /Apri menu account/ }));
+
+    const themeToggle = screen.getByRole('menuitemcheckbox', { name: 'Tema scuro' });
+    expect(themeToggle).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(themeToggle);
+
+    expect(onToggle).toHaveBeenCalledTimes(1);
+
+    rerender(<AccountMenu themeToggle={{ isDarkMode: true, onToggle }} />);
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Tema scuro' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+  });
+
   test('opens authenticated in-app feedback directly above account settings', async () => {
     const user = userEvent.setup();
     saveAccountSession(['email']);
