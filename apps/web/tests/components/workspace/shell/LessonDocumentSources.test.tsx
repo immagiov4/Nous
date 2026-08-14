@@ -130,7 +130,7 @@ test('shows the original archive and exact code paths used by a legacy lesson', 
   expect(screen.queryByText('source-archive')).not.toBeInTheDocument();
 });
 
-test('keeps a long original document title on one line while preserving its full name', () => {
+test('keeps the full long document name available to assistive technology and pointer users', () => {
   const longName =
     'advanced-context-engineering-for-coding-agents_wsff.md at main - humanlayer_advanced-context-engineering-for-coding-agents - GitHub.pdf';
 
@@ -155,5 +155,4 @@ test('keeps a long original document title on one line while preserving its full
 
   const sourceTitle = screen.getByText(longName);
   expect(sourceTitle).toHaveAttribute('title', longName);
-  expect(sourceTitle).toHaveClass('truncate');
 });

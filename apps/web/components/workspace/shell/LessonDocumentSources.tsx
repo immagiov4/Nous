@@ -81,7 +81,7 @@ function DocumentSourceLink({
 
   let sourceControl = (
     <span
-      className="block w-full truncate text-left font-semibold text-stone-900 dark:text-stone-100"
+      className="block min-w-0 max-w-full whitespace-normal break-words text-left font-semibold leading-snug text-stone-900 sm:truncate dark:text-stone-100"
       title={source.name}
     >
       {source.name}
@@ -90,7 +90,7 @@ function DocumentSourceLink({
   if (canOpenSource) {
     sourceControl = (
       <button
-        className="block w-full truncate text-left font-semibold text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 disabled:cursor-wait disabled:text-stone-500 dark:text-orange-300 dark:hover:text-orange-100 dark:disabled:text-stone-400"
+        className="block min-w-0 max-w-full whitespace-normal break-words text-left font-semibold leading-snug text-orange-700 underline decoration-orange-300 underline-offset-4 hover:text-orange-900 disabled:cursor-wait disabled:text-stone-500 sm:w-full sm:truncate dark:text-orange-300 dark:hover:text-orange-100 dark:disabled:text-stone-400"
         disabled={isLoading}
         onClick={() => {
           void openSource();
@@ -104,7 +104,7 @@ function DocumentSourceLink({
   }
 
   return (
-    <li className="rounded-xl border border-stone-200/80 px-3 py-2.5 dark:border-stone-700">
+    <li className="min-w-0 max-w-full rounded-xl border border-stone-200/80 px-3 py-2.5 dark:border-stone-700">
       <div className="flex min-w-0 items-start gap-2">
         <SourceIcon className="mt-0.5 h-4 w-4 shrink-0 text-orange-700 dark:text-orange-300" />
         <div className="min-w-0 flex-1">

@@ -10,6 +10,7 @@ import {
   FileText,
   Flame,
   Folder,
+  FolderPlus,
   Heart,
   Home,
   Library,
@@ -39,6 +40,7 @@ import type {
   ProjectSnapshot,
   SavedProjectMeta,
 } from '../../types.ts';
+import { subscribeToMediaQuery } from '../../utils/mediaQuery.ts';
 import { Pressable } from '../../utils/motion/index.ts';
 import AccountMenu from '../account/AccountMenu.tsx';
 import HomeChatPanel from '../library/HomeChatPanel.tsx';
@@ -58,6 +60,14 @@ type ChatDraftTemplate = NonNullable<ChatProps['draftTemplate']>;
 type CourseFilter = 'all' | 'favorites' | `folder:${string}`;
 type SourceFilter = 'all' | SourceLibraryItem['kind'];
 type NewHomePage = 'home' | 'library';
+
+const PHONE_VIEWPORT_MEDIA_QUERY = '(max-width: 639px)';
+const PHONE_RESUME_PROJECT_LIMIT = 1;
+const DEFAULT_RESUME_PROJECT_LIMIT = 3;
+
+const readIsPhoneViewport = (): boolean =>
+  typeof globalThis.matchMedia === 'function' &&
+  globalThis.matchMedia(PHONE_VIEWPORT_MEDIA_QUERY).matches;
 
 const getNewHomePageFromLocation = (): NewHomePage =>
   typeof globalThis.window !== 'undefined' &&
@@ -296,15 +306,19 @@ const NewHomeSidebar = ({
 const MobileHeader = ({
   activePage,
   isDarkMode,
+  isPhoneViewport,
   onExportLibraryBackup,
   onImportLibraryBackup,
   onNavigate,
+  onToggleDarkMode,
 }: {
   activePage: NewHomePage;
   isDarkMode: boolean;
+  isPhoneViewport: boolean;
   onExportLibraryBackup?: () => Promise<number>;
   onImportLibraryBackup?: (file: File) => Promise<number>;
   onNavigate: (page: NewHomePage) => void;
+  onToggleDarkMode: () => void;
 }) => (
   <header className="sticky top-0 z-30 flex items-center justify-between border-b border-stone-200/80 bg-[#fdfbf7]/95 px-4 py-2.5 backdrop-blur md:hidden dark:border-white/10 dark:bg-[#252526]/95">
     <button type="button" onClick={() => onNavigate('home')} className="flex items-center gap-2">
@@ -331,10 +345,23 @@ const MobileHeader = ({
         {t('Libreria')}
       </button>
     </nav>
-    <AccountMenu
-      onExportLibraryBackup={onExportLibraryBackup}
-      onImportLibraryBackup={onImportLibraryBackup}
-    />
+    <div className="flex items-center gap-1">
+      {isPhoneViewport ? (
+        <Pressable
+          aria-label={isDarkMode ? t('Usa tema chiaro') : t('Usa tema scuro')}
+          aria-pressed={isDarkMode}
+          title={isDarkMode ? t('Usa tema chiaro') : t('Usa tema scuro')}
+          onClick={onToggleDarkMode}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-stone-200 bg-white/70 text-stone-600 hover:border-stone-300 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:hover:bg-white/10"
+        >
+          {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Pressable>
+      ) : null}
+      <AccountMenu
+        onExportLibraryBackup={onExportLibraryBackup}
+        onImportLibraryBackup={onImportLibraryBackup}
+      />
+    </div>
   </header>
 );
 
@@ -554,6 +581,7 @@ const CourseList = ({
   coverImages,
   favoriteIds,
   filter,
+  isPhoneViewport,
   libraryFolders,
   libraryTree,
   onCreateFolder,
@@ -575,6 +603,7 @@ const CourseList = ({
   coverImages: Record<string, string>;
   favoriteIds: string[];
   filter: CourseFilter;
+  isPhoneViewport: boolean;
   libraryFolders: LibraryFolder[];
   libraryTree: LibraryTree;
   onCreateFolder: (args: { name: string }) => Promise<unknown>;
@@ -804,7 +833,7 @@ const CourseList = ({
 
   return (
     <section id="courses" className="mt-10 scroll-mt-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-3 sm:flex-wrap sm:gap-4">
         <h2 className="font-serif text-[1.45rem] tracking-[-0.02em] text-stone-950 dark:text-stone-50">
           {t('I tuoi corsi')}
         </h2>
@@ -823,22 +852,36 @@ const CourseList = ({
               />
             </label>
           ) : null}
-          <Pressable
-            onClick={() => setDialog({ initialName: '' })}
-            className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 hover:border-stone-300 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
-          >
-            <Plus className="h-3.5 w-3.5" /> {t('Nuova cartella')}
-          </Pressable>
+          {!isPhoneViewport ? (
+            <Pressable
+              onClick={() => setDialog({ initialName: '' })}
+              className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-xs font-medium text-stone-600 hover:border-stone-300 dark:border-white/10 dark:bg-white/5 dark:text-stone-300"
+            >
+              <Plus className="h-3.5 w-3.5" /> {t('Nuova cartella')}
+            </Pressable>
+          ) : null}
         </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="w-full lg:w-[35%] lg:min-w-[16rem]">
-          <TopSearch
-            value={query}
-            onChange={onQueryChange}
-            placeholder={t('Cerca nei tuoi corsi...')}
-          />
+        <div className="flex w-full items-center justify-between gap-2 lg:w-[35%] lg:min-w-[16rem]">
+          <div className="w-4/5 sm:w-full">
+            <TopSearch
+              value={query}
+              onChange={onQueryChange}
+              placeholder={t('Cerca nei tuoi corsi...')}
+            />
+          </div>
+          {isPhoneViewport ? (
+            <Pressable
+              aria-label={t('Nuova cartella')}
+              title={t('Nuova cartella')}
+              onClick={() => setDialog({ initialName: '' })}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50 dark:border-white/10 dark:bg-white/5 dark:text-stone-300 dark:hover:bg-white/10"
+            >
+              <FolderPlus className="h-4 w-4" />
+            </Pressable>
+          ) : null}
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {canScrollLeft ? (
@@ -911,9 +954,9 @@ const CourseList = ({
           return (
             <div
               key={group.id}
-              className="overflow-hidden rounded-2xl border border-stone-200/90 bg-white dark:border-white/10 dark:bg-white/[0.035]"
+              className="overflow-hidden rounded-2xl border border-stone-200/90 bg-transparent sm:bg-white dark:border-white/10 dark:sm:bg-white/[0.035]"
             >
-              <div className="relative flex items-center gap-3 border-b border-stone-100 px-4 py-3 dark:border-white/10">
+              <div className="relative flex items-center gap-3 border-b border-stone-100 bg-white px-4 py-3 sm:bg-transparent dark:border-white/10 dark:bg-white/[0.035] dark:sm:bg-transparent">
                 <button
                   type="button"
                   aria-expanded={!isCollapsed}
@@ -990,15 +1033,8 @@ const CourseList = ({
                     return (
                       <div
                         key={project.id}
-                        className="group relative m-3 flex min-h-24 items-center gap-3 overflow-hidden rounded-[1.5rem] border border-stone-200/80 px-4 py-4 shadow-sm sm:m-0 sm:min-h-0 sm:gap-4 sm:rounded-none sm:border-x-0 sm:border-t-0 sm:px-4 sm:py-3 sm:shadow-none sm:last:border-b-0 dark:border-white/10"
+                        className="group relative flex items-center gap-3 border-b border-stone-200/70 px-2 py-3 last:border-b-0 sm:min-h-0 sm:gap-4 sm:border-stone-200/80 sm:px-4 sm:py-3 dark:border-white/10"
                       >
-                        <div aria-hidden="true" className="absolute inset-0 sm:hidden">
-                          <CourseCover
-                            imageUrl={getCourseCoverUrl(project, coverImages)}
-                            title={project.title}
-                          />
-                          <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(253,251,247,0.98)_0%,rgba(253,251,247,0.94)_58%,rgba(253,251,247,0.3)_100%)] dark:bg-[linear-gradient(90deg,rgba(37,37,38,0.98)_0%,rgba(37,37,38,0.94)_58%,rgba(37,37,38,0.35)_100%)]" />
-                        </div>
                         <div className="relative z-10 flex min-w-0 flex-1 items-center gap-4 text-left">
                           <button
                             type="button"
@@ -1008,7 +1044,7 @@ const CourseList = ({
                             }}
                             disabled={isOpening}
                             aria-busy={isOpening}
-                            className="relative hidden h-11 w-16 shrink-0 overflow-hidden rounded-lg disabled:cursor-wait sm:block"
+                            className="relative block h-11 w-16 shrink-0 overflow-hidden rounded-lg disabled:cursor-wait"
                           >
                             <div className="relative h-11 w-16 shrink-0 overflow-hidden rounded-lg">
                               {isOpening ? (
@@ -1109,7 +1145,7 @@ const CourseList = ({
                             onToggleFavorite(project.id);
                           }}
                           disabled={isOpening}
-                          className="relative z-10 rounded-full bg-[#fdfbf7] p-2 text-stone-600 hover:bg-stone-100 hover:text-[#b45c28] aria-pressed:text-[#b45c28] sm:bg-transparent sm:text-stone-400 dark:bg-[#252526] dark:text-stone-300 dark:hover:bg-white/5 dark:hover:text-[#f1c6a8] dark:aria-pressed:text-[#f1c6a8] dark:sm:bg-transparent dark:sm:text-stone-400"
+                          className="relative z-10 rounded-full p-2 text-stone-600 hover:bg-stone-100 hover:text-[#b45c28] aria-pressed:text-[#b45c28] sm:text-stone-400 dark:text-stone-300 dark:hover:bg-white/5 dark:hover:text-[#f1c6a8] dark:aria-pressed:text-[#f1c6a8] dark:sm:text-stone-400"
                         >
                           <Heart className="h-4 w-4" fill={isFavorite ? 'currentColor' : 'none'} />
                         </button>
@@ -1128,7 +1164,7 @@ const CourseList = ({
                             );
                           }}
                           disabled={isOpening}
-                          className="relative z-10 rounded-full bg-[#fdfbf7] p-2 text-stone-600 hover:bg-stone-100 sm:bg-transparent sm:text-stone-400 dark:bg-[#252526] dark:text-stone-300 dark:hover:bg-white/5 dark:sm:bg-transparent dark:sm:text-stone-400"
+                          className="relative z-10 rounded-full p-2 text-stone-600 hover:bg-stone-100 sm:text-stone-400 dark:text-stone-300 dark:hover:bg-white/5 dark:sm:text-stone-400"
                         >
                           <MoreVertical className="h-4 w-4" />
                         </button>
@@ -1287,6 +1323,7 @@ const HomePage = ({
   chatProps,
   coverImages,
   favoriteIds,
+  isPhoneViewport,
   isLibraryLoading,
   libraryFolders,
   libraryTree,
@@ -1306,6 +1343,7 @@ const HomePage = ({
   chatProps: ChatProps;
   coverImages: Record<string, string>;
   favoriteIds: string[];
+  isPhoneViewport: boolean;
   isLibraryLoading: boolean;
   libraryFolders: LibraryFolder[];
   libraryTree: LibraryTree;
@@ -1332,7 +1370,7 @@ const HomePage = ({
   const incompleteProjects = projects
     .filter(project => project.lessonCount === 0 || project.completedCount < project.lessonCount)
     .filter(project => matchesSearch(project.title, query))
-    .slice(0, 3);
+    .slice(0, isPhoneViewport ? PHONE_RESUME_PROJECT_LIMIT : DEFAULT_RESUME_PROJECT_LIMIT);
 
   return (
     <>
@@ -1433,6 +1471,7 @@ const HomePage = ({
             coverImages={coverImages}
             favoriteIds={favoriteIds}
             filter={filter}
+            isPhoneViewport={isPhoneViewport}
             libraryFolders={libraryFolders}
             libraryTree={libraryTree}
             onCreateFolder={onCreateFolder}
@@ -1813,10 +1852,21 @@ export const NewHomeView = ({
   saveProjectCover,
 }: NewHomeViewProps) => {
   const [activePage, setActivePage] = useState<NewHomePage>(getNewHomePageFromLocation);
+  const [isPhoneViewport, setIsPhoneViewport] = useState(readIsPhoneViewport);
   useEffect(() => {
     const handlePopState = () => setActivePage(getNewHomePageFromLocation());
     globalThis.window.addEventListener('popstate', handlePopState);
     return () => globalThis.window.removeEventListener('popstate', handlePopState);
+  }, []);
+  useEffect(() => {
+    if (typeof globalThis.matchMedia !== 'function') {
+      return;
+    }
+
+    const mediaQuery = globalThis.matchMedia(PHONE_VIEWPORT_MEDIA_QUERY);
+    const updateViewport = () => setIsPhoneViewport(mediaQuery.matches);
+    updateViewport();
+    return subscribeToMediaQuery(mediaQuery, updateViewport);
   }, []);
   const navigate = useCallback((page: NewHomePage, hash?: string) => {
     const pathname = page === 'library' ? '/library' : '/';
@@ -1873,9 +1923,11 @@ export const NewHomeView = ({
       <MobileHeader
         activePage={activePage}
         isDarkMode={isDarkMode}
+        isPhoneViewport={isPhoneViewport}
         onExportLibraryBackup={onExportLibraryBackup}
         onImportLibraryBackup={onImportLibraryBackup}
         onNavigate={navigate}
+        onToggleDarkMode={onToggleDarkMode}
       />
       <main className="px-4 pb-20 pt-3 sm:px-6 sm:pt-5 md:ml-[13.25rem] md:px-8 md:pt-6 lg:px-12">
         <div className="mx-auto max-w-[76rem]">
@@ -1891,6 +1943,7 @@ export const NewHomeView = ({
               chatProps={chatProps}
               coverImages={coverImages}
               favoriteIds={favoriteIds}
+              isPhoneViewport={isPhoneViewport}
               isLibraryLoading={isLibraryLoading}
               libraryFolders={libraryFolders}
               libraryTree={libraryTree}
