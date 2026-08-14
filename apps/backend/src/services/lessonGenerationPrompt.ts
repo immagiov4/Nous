@@ -83,7 +83,7 @@ ${buildImageRules(input.imageCandidates.length > 0)}
 
 PAUSE ATTIVE:
 - contentBlocks puo contenere da zero a tre pause attive. Usa il numero minimo necessario; non aggiungere una pausa per raggiungere un numero prefissato.
-- Ogni pausa e un blocco inline-quiz autosufficiente subito DOPO un blocco markdown che contiene tutte le informazioni necessarie. Non raggrupparle in fondo e non usare marker o un array quiz separato.
+- Ogni pausa e un blocco inline-quiz autosufficiente collocato dopo un blocco markdown che contiene tutte le informazioni necessarie. Tra quel markdown e la pausa possono esserci visuali generati o clip YouTube pertinenti; una pausa consuma il contesto esplicativo, quindi non inserire due inline-quiz consecutive. Non raggrupparle in fondo e non usare marker o un array quiz separato.
 - Ogni pausa richiede applicazione, confronto, inferenza, diagnosi, classificazione, sequenziamento, micro-sintesi o previsione. Se la risposta e una parafrasi del testo locale, trasformala in un caso nuovo oppure rimuovila.
 - Ogni pausa ha quattro opzioni testualmente distinte e distrattori plausibili. Domanda e opzioni sono testo normale, mai interamente racchiuso in backticks o code fence.
 - exerciseType deve appartenere a questo catalogo:

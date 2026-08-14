@@ -1471,9 +1471,6 @@ const getSourceIcon = (kind: SourceLibraryItem['kind']) => {
 };
 
 const getSourceKindLabel = (item: SourceLibraryItem): string => {
-  if (!item.isAvailable) {
-    return t('File originale non disponibile');
-  }
   if (item.kind === 'archive') {
     return t('Archivio');
   }
@@ -1733,7 +1730,7 @@ const SourceLibraryPage = ({
                         <button
                           key={item.id}
                           type="button"
-                          disabled={!item.isAvailable || isOpening}
+                          disabled={isOpening}
                           aria-busy={isOpening}
                           onClick={() => {
                             setOpeningItemId(item.id);

@@ -14,7 +14,6 @@ const COURSE_COVER_GENERATION_CONCURRENCY = 3;
 export interface SourceLibraryItem {
   file: FileData;
   id: string;
-  isAvailable: boolean;
   kind: CourseSourceDescriptor['kind'] | 'archive';
   projectId: string;
   projectTitle: string;
@@ -134,7 +133,6 @@ export const useSourceLibrary = ({
     queueMicrotask(() => {
       if (isCurrent) {
         setIsLoading(true);
-        setItems([]);
       }
     });
     void (async () => {
@@ -151,14 +149,16 @@ export const useSourceLibrary = ({
             const archiveSource = snapshot.source?.kind === 'archive' ? snapshot.source : null;
             if (archiveSource) {
               const isAvailable = Boolean(archiveSource.file.data || archiveSource.ref);
+              if (!isAvailable) {
+                continue;
+              }
               collectedItems.push({
                 file: archiveSource.file,
                 id: `${snapshot.id}:${archiveSource.ref?.id || archiveSource.file.sourceId || archiveSource.name}`,
-                isAvailable,
                 kind: 'archive',
                 projectId: snapshot.id,
                 projectTitle,
-                requiresPrimarySourceLoad: isAvailable && !archiveSource.file.data,
+                requiresPrimarySourceLoad: !archiveSource.file.data,
               });
               continue;
             }
@@ -173,12 +173,13 @@ export const useSourceLibrary = ({
               const isAvailable = Boolean(
                 descriptor.file.data || (isPrimaryPdfSource && pdfSource?.ref)
               );
-              const requiresPrimarySourceLoad =
-                isAvailable && isPrimaryPdfSource && !descriptor.file.data;
+              if (!isAvailable) {
+                continue;
+              }
+              const requiresPrimarySourceLoad = isPrimaryPdfSource && !descriptor.file.data;
               collectedItems.push({
                 file: descriptor.file,
                 id: `${snapshot.id}:${descriptor.id}`,
-                isAvailable,
                 kind: descriptor.kind,
                 projectId: snapshot.id,
                 projectTitle,

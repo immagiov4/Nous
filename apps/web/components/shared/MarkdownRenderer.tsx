@@ -94,6 +94,16 @@ interface AnnotationHighlightLineRect {
   top: number;
 }
 
+const areHighlightRectsOnSameLine = (
+  first: AnnotationHighlightLineRect,
+  second: DOMRect
+): boolean => {
+  const firstHeight = first.bottom - first.top;
+  const firstCenter = first.top + firstHeight / 2;
+  const secondCenter = second.top + second.height / 2;
+  return Math.abs(firstCenter - secondCenter) <= Math.min(firstHeight, second.height) / 2;
+};
+
 const mergeAnnotationHighlightLineRects = (
   entries: SectionAnnotationHighlightEntry[]
 ): AnnotationHighlightLineRect[] => {
@@ -107,9 +117,9 @@ const mergeAnnotationHighlightLineRects = (
   for (const rect of rects) {
     const mergeTarget = mergedRects.find(
       candidate =>
-        rect.top < candidate.bottom &&
-        rect.bottom > candidate.top &&
-        rect.left <= candidate.right + ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2
+        areHighlightRectsOnSameLine(candidate, rect) &&
+        rect.left <= candidate.right + ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2 &&
+        rect.right >= candidate.left - ANNOTATION_HIGHLIGHT_HORIZONTAL_PADDING_PX * 2
     );
     if (!mergeTarget) {
       mergedRects.push({

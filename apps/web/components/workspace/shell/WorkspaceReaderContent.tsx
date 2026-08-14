@@ -1,4 +1,7 @@
-import type { LessonWorkflowWarning } from '@shared/lessonWorkflowContract';
+import {
+  ORIGINAL_COURSE_ARCHIVE_SOURCE_NOTE,
+  ORIGINAL_COURSE_SOURCE_NOTE,
+} from '@shared/lessonSourceContract';
 import { motion } from 'framer-motion';
 import {
   Archive,
@@ -62,45 +65,6 @@ import WorkspaceReaderQuizFooter from './WorkspaceReaderQuizFooter.tsx';
 import YouTubeClipCarousel from './YouTubeClipCarousel.tsx';
 
 const CONTEXT_MENU_HINT_STORAGE_KEY = 'nous-context-menu-hint-dismissed';
-
-const LESSON_WARNING_MESSAGES: Readonly<
-  Partial<Record<LessonWorkflowWarning['code'], () => string>>
-> = {
-  lesson_learning_aids_unavailable: () =>
-    t('Gli aiuti didattici aggiuntivi non sono disponibili per questa lezione.'),
-  lesson_pdf_image_extraction_incomplete: () =>
-    t('Alcune immagini del PDF non sono state incluse nella lezione.'),
-};
-
-function LessonGenerationWarnings({
-  warnings,
-}: {
-  readonly warnings: readonly LessonWorkflowWarning[];
-}) {
-  const messages = [
-    ...new Set(
-      warnings.flatMap(warning => {
-        const getMessage = LESSON_WARNING_MESSAGES[warning.code];
-        return getMessage ? [getMessage()] : [];
-      })
-    ),
-  ];
-  if (messages.length === 0) return null;
-
-  return (
-    <aside
-      aria-label={t('Contenuti non disponibili')}
-      className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/20 dark:text-amber-100"
-    >
-      <p className="text-sm font-semibold">{t('Alcuni contenuti non sono disponibili')}</p>
-      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-6">
-        {messages.map(message => (
-          <li key={message}>{message}</li>
-        ))}
-      </ul>
-    </aside>
-  );
-}
 
 function FailedVisualSlot({
   block,
@@ -843,6 +807,11 @@ const getSafeSourceUrl = (url: string | undefined): string | null => {
   }
 };
 
+const ORIGINAL_COURSE_SOURCE_NOTES = new Set([
+  ORIGINAL_COURSE_SOURCE_NOTE,
+  ORIGINAL_COURSE_ARCHIVE_SOURCE_NOTE,
+]);
+
 function LessonSourceAttribution({
   documentSources,
   loadDocumentSourceFile,
@@ -852,14 +821,19 @@ function LessonSourceAttribution({
   loadDocumentSourceFile: WorkspaceReaderContentModel['loadDocumentSourceFile'];
   sources: ResearchSourceReference[];
 }) {
-  if (sources.length === 0 && !documentSources?.length) {
-    return null;
-  }
-
   const documentSourceNames = new Set(
     (documentSources || []).map(source => source.name.trim()).filter(Boolean)
   );
-  const externalSources = sources.filter(source => !documentSourceNames.has(source.title.trim()));
+  const documentSourceIds = new Set((documentSources || []).map(source => source.sourceId));
+  const externalSources = sources.filter(
+    source =>
+      (!source.sourceId || !documentSourceIds.has(source.sourceId)) &&
+      !ORIGINAL_COURSE_SOURCE_NOTES.has(source.note || '') &&
+      !documentSourceNames.has(source.title.trim())
+  );
+  if (externalSources.length === 0 && !documentSources?.length) {
+    return null;
+  }
 
   return (
     <aside
@@ -928,7 +902,6 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
   isMobileViewport,
   learningAids,
   lessonSources = [],
-  lessonWarnings = [],
   onAdvanceSection,
   onAttachExerciseFiles,
   onCompleteSection,
@@ -1198,7 +1171,6 @@ const WorkspaceReaderContent = memo(function WorkspaceReaderContent({
           {shouldShowLessonContent ? (
             <div className={lessonLayoutClassName}>
               <div className="min-w-0 space-y-2">
-                <LessonGenerationWarnings warnings={lessonWarnings} />
                 {isMobileViewport ? (
                   <LessonLearningAids
                     isDarkMode={isDarkMode}

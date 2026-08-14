@@ -18,6 +18,7 @@ const generationInput = (
   language: 'Italiano',
   pedagogicalContext: '',
   previousLessonTitles: [],
+  refreshResearch: false,
   researchContext: '',
   sectionTitle: 'Titolo',
   signal: new AbortController().signal,
@@ -64,6 +65,21 @@ describe('lesson research routing', () => {
 
   test('keeps research enabled for source-free lessons', () => {
     expect(shouldGenerateLessonResearch(generationInput({ sourceContext: '' }))).toBe(true);
+  });
+
+  test('rebuilds supplemental research when the lesson is explicitly regenerated', async () => {
+    const research = vi.fn().mockResolvedValue(researchSummary);
+    const input = generationInput({ refreshResearch: true });
+
+    const result = await generateLessonResearchSummary({
+      existingDossier: { factualSummary: 'Dossier precedente' },
+      generationInput: input,
+      research,
+      youtubeOutcome: null,
+    });
+
+    expect(result).toEqual(researchSummary);
+    expect(research).toHaveBeenCalledOnce();
   });
 
   test('still classifies discovered videos without enabling supplemental source research', async () => {

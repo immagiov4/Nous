@@ -240,6 +240,11 @@ export type LessonResearchRequest =
       readonly webSearch: true;
     }
   | {
+      readonly mode: 'source-backed-refresh';
+      readonly slot: 'research';
+      readonly webSearch: true;
+    }
+  | {
       readonly mode: 'source-free';
       readonly slot: 'research';
       readonly webSearch: true;
@@ -248,14 +253,19 @@ export type LessonResearchRequest =
 export const resolveLessonResearchRequest = ({
   config,
   coverageGaps,
+  refreshResearch,
   sourceContext,
 }: {
   readonly config: GlobalModelConfig;
   readonly coverageGaps?: readonly string[];
+  readonly refreshResearch: boolean;
   readonly sourceContext: string;
 }): LessonResearchRequest => {
   if (!sourceContext.trim()) {
     return { mode: 'source-free', slot: 'research', webSearch: true };
+  }
+  if (refreshResearch) {
+    return { mode: 'source-backed-refresh', slot: 'research', webSearch: true };
   }
   if (!coverageGaps?.length) {
     return { mode: 'source-sufficient', slot: 'lesson', webSearch: false };
@@ -274,6 +284,12 @@ const RESEARCH_MODE_INSTRUCTIONS: Record<
       'Build a factual research dossier as structured JSON. Use web search only for the declared missing topics. Do not access local files.',
     prompt:
       "Integra il materiale originale con ricerca web autorevole soltanto per gli argomenti mancanti dichiarati. Per ogni fonte web restituisci titolo leggibile, URL completo e una nota concisa sull'uso.",
+  },
+  'source-backed-refresh': {
+    developer:
+      'Rebuild a factual research dossier as structured JSON. Treat the supplied source as primary, verify and complement it with current authoritative web sources, and do not access local files.',
+    prompt:
+      "Rigenera integralmente il dossier: mantieni il materiale originale come fonte primaria e aggiungi ricerca web autorevole che verifichi i fatti, chiarisca i passaggi difficili e integri sviluppi pertinenti. Per ogni fonte web restituisci titolo leggibile, URL completo e una nota concisa sull'uso.",
   },
   'source-free': {
     developer:
@@ -376,15 +392,88 @@ export const generateLessonContent: GenerateLessonContent = async input => {
   return output;
 };
 
-const hasInvalidQuizPlacement = (draft: LessonContentDraft): boolean =>
-  draft.contentBlocks.some(
-    (block, index) =>
-      block.type === 'inline-quiz' && draft.contentBlocks[index - 1]?.type !== 'markdown'
-  );
+const hasInvalidQuizPlacement = (draft: LessonContentDraft): boolean => {
+  let hasExplanatoryMarkdown = false;
+  for (const block of draft.contentBlocks) {
+    if (block.type === 'markdown') {
+      hasExplanatoryMarkdown = Boolean(block.markdown.trim());
+      continue;
+    }
+    if (block.type !== 'inline-quiz') continue;
+    if (!hasExplanatoryMarkdown) return true;
+    hasExplanatoryMarkdown = false;
+  }
+  return false;
+};
 
 const assertValidQuizPlacement = (draft: LessonContentDraft, label: string): void => {
   if (hasInvalidQuizPlacement(draft)) {
     throw new Error(`${label} lesson has an invalid typed inline quiz contract.`);
+  }
+};
+
+const LATEX_ENVIRONMENT_TOKEN_REGEX = /\\(begin|end)\{([A-Za-z][A-Za-z0-9*]*)\}/g;
+
+const stripInlineCode = (line: string): string => {
+  let output = '';
+  let cursor = 0;
+  while (cursor < line.length) {
+    if (line[cursor] !== '`') {
+      output += line[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    let delimiterLength = 1;
+    while (line[cursor + delimiterLength] === '`') delimiterLength += 1;
+    const delimiter = '`'.repeat(delimiterLength);
+    const closingIndex = line.indexOf(delimiter, cursor + delimiterLength);
+    if (closingIndex < 0) {
+      output += line.slice(cursor);
+      break;
+    }
+    cursor = closingIndex + delimiterLength;
+  }
+  return output;
+};
+
+const assertBalancedLatexEnvironments = (draft: LessonContentDraft, label: string): void => {
+  for (const block of draft.contentBlocks) {
+    if (block.type !== 'markdown') continue;
+    const environments: string[] = [];
+    let fenceCharacter = '';
+    let fenceLength = 0;
+
+    for (const line of block.markdown.split('\n')) {
+      const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/u);
+      if (fenceMatch) {
+        const token = fenceMatch[1] as string;
+        if (!fenceCharacter) {
+          fenceCharacter = token[0] as string;
+          fenceLength = token.length;
+        } else if (token[0] === fenceCharacter && token.length >= fenceLength) {
+          fenceCharacter = '';
+          fenceLength = 0;
+        }
+        continue;
+      }
+      if (fenceCharacter) continue;
+
+      for (const match of stripInlineCode(line).matchAll(LATEX_ENVIRONMENT_TOKEN_REGEX)) {
+        const [, operation, environment] = match;
+        if (operation === 'begin') {
+          environments.push(environment as string);
+          continue;
+        }
+        if (environments.pop() !== environment) {
+          throw new Error(`${label} lesson has unbalanced LaTeX environments.`);
+        }
+      }
+    }
+
+    if (environments.length > 0) {
+      throw new Error(`${label} lesson has unbalanced LaTeX environments.`);
+    }
   }
 };
 
@@ -404,5 +493,6 @@ export const reviewLessonContentDraftStrict = async ({
     responseSchema: LESSON_JOB_RESPONSE_SCHEMA,
   });
   assertValidQuizPlacement(verifiedDraft, 'Verified');
+  assertBalancedLatexEnvironments(verifiedDraft, 'Verified');
   return verifiedDraft;
 };

@@ -461,7 +461,6 @@ export const useReaderShellProps = ({
         lessonSources: controller.activeSection
           ? controller.researchDossiersBySectionId[controller.activeSection.id]?.sources || []
           : [],
-        lessonWarnings: controller.activeSection?.generationWarnings || [],
         onAdvanceSection: () => {
           void readerActions.handleAdvanceSection();
         },

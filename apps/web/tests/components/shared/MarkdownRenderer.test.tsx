@@ -4,7 +4,10 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import MarkdownRenderer from '../../../components/shared/MarkdownRenderer.tsx';
 import { resolveProjectDocumentImage } from '../../../services/projects/projectDocumentImageResolver.ts';
-import { resolveSectionAnnotationHighlightEntries } from '../../../utils/learning/sectionAnnotationHighlights.ts';
+import {
+  getSectionAnnotationHighlightHit,
+  resolveSectionAnnotationHighlightEntries,
+} from '../../../utils/learning/sectionAnnotationHighlights.ts';
 
 vi.mock('../../../services/projects/projectDocumentImageResolver.ts', async importOriginal => ({
   ...(await importOriginal()),
@@ -37,7 +40,7 @@ describe('MarkdownRenderer', () => {
       configurable: true,
       value: () => [
         { bottom: 28, height: 18, left: 10, right: 35, top: 10, width: 25 },
-        { bottom: 29, height: 20, left: 35, right: 55, top: 9, width: 20 },
+        { bottom: 42, height: 33, left: 35, right: 55, top: 9, width: 20 },
         { bottom: 28, height: 18, left: 55, right: 80, top: 10, width: 25 },
         { bottom: 50, height: 18, left: 10, right: 45, top: 32, width: 35 },
       ],
@@ -102,6 +105,57 @@ describe('MarkdownRenderer', () => {
 
     unmount();
     expect(highlights.get('nous-annotations')?.size).toBe(0);
+  });
+
+  test('resolves native annotation clicks from highlight rectangles when caret lookup is unavailable', () => {
+    class TestHighlight extends Set<AbstractRange> {}
+
+    vi.stubGlobal('CSS', { highlights: new Map<string, TestHighlight>() });
+    vi.stubGlobal('Highlight', TestHighlight);
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [{ bottom: 28, height: 18, left: 10, right: 80, top: 10, width: 70 }],
+    });
+    let clickedEvent: Event | null = null;
+    const { container } = render(
+      <MarkdownRenderer
+        content="Passaggio annotato."
+        onClick={event => {
+          clickedEvent = event.nativeEvent;
+        }}
+        sectionAnnotations={[
+          {
+            anchor: {
+              kind: 'selection',
+              selector: {
+                end: 18,
+                exact: 'Passaggio annotato',
+                prefix: '',
+                start: 0,
+                suffix: '.',
+              },
+            },
+            createdAt: '2026-07-15T10:00:00.000Z',
+            id: 'annotation-mobile-hit',
+            note: 'Nota mobile',
+            updatedAt: '2026-07-15T10:00:00.000Z',
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(container.querySelector('article') as HTMLElement, {
+      clientX: 20,
+      clientY: 18,
+    });
+
+    if (!clickedEvent) {
+      throw new Error('The annotation click did not reach the Markdown renderer.');
+    }
+    expect(getSectionAnnotationHighlightHit(clickedEvent)).toMatchObject({
+      annotationId: 'annotation-mobile-hit',
+      selectedText: 'Passaggio annotato',
+    });
   });
 
   test('renders one continuous mark while preserving nested inline formatting', () => {

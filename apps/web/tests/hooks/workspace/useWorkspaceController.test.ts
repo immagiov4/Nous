@@ -480,7 +480,7 @@ const createProjectLibraryAdapter = (overrides: Partial<WorkspaceProjectLibraryA
       savedOverrides.push(snapshotPatch);
       return true;
     },
-    patchSectionAnnotations: async () => {},
+    patchSectionAnnotations: async () => true,
     savedProjects: [],
     setCurrentProjectId: projectId => {
       adapter.currentProjectId = projectId;

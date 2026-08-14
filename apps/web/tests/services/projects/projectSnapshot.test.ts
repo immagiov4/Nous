@@ -267,6 +267,7 @@ test('normalizeImportedProject preserves validated YouTube clip evidence', () =>
         title: 'Ombreggiatura',
         sources: [
           {
+            sourceId: 'source-video',
             title: 'Dimostrazione valida',
             url: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
             youtubeTranscript: {
@@ -289,6 +290,7 @@ test('normalizeImportedProject preserves validated YouTube clip evidence', () =>
     startSeconds: 65,
     endSeconds: 92,
   });
+  assert.equal(imported.researchDossiersBySectionId?.lesson?.sources[0]?.sourceId, 'source-video');
   assert.deepEqual(imported.researchDossiersBySectionId?.lesson?.sources[0]?.youtubeTranscript, {
     segments: [{ startSeconds: 65, endSeconds: 93, text: 'Traccio le linee di ombra.' }],
   });

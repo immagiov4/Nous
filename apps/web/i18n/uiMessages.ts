@@ -16,16 +16,10 @@ const supportedLocales = new Set<string>(SUPPORTED_APP_LOCALES);
 let renderingLocaleOverride: AppLocale | null = null;
 
 const ENGLISH_UI_MESSAGES = {
-  'Alcuni contenuti non sono disponibili': 'Some content is unavailable',
   [SURFACE_ERROR_MESSAGES.shell]: 'The application is unavailable. Reload the page.',
   [SURFACE_ERROR_MESSAGES.chat]: 'The chat is unavailable. Reload the page.',
   [SURFACE_ERROR_MESSAGES.reader]: 'The lesson is unavailable. Reload the page.',
   [SURFACE_ERROR_MESSAGES.visual]: 'This visual is unavailable.',
-  'Alcune immagini del PDF non sono state incluse nella lezione.':
-    'Some PDF images were not included in the lesson.',
-  'Contenuti non disponibili': 'Unavailable content',
-  'Gli aiuti didattici aggiuntivi non sono disponibili per questa lezione.':
-    'Additional learning aids are unavailable for this lesson.',
   'Apri {videoTitle} su YouTube': 'Open {videoTitle} on YouTube',
   automatico: 'automatic',
   'Annulla creazione corso': 'Cancel course creation',
@@ -149,7 +143,6 @@ const ENGLISH_UI_MESSAGES = {
     'Create a new course or ask questions about your courses to explore, clarify, and connect your knowledge.',
   'Espandi {folderName}': 'Expand {folderName}',
   'Fai una domanda o allega una fonte...': 'Ask a question or attach a source...',
-  'File originale non disponibile': 'Original file unavailable',
   Home: 'Home',
   'I tuoi corsi': 'Your courses',
   'Impara un nuovo argomento': 'Learn a new topic',

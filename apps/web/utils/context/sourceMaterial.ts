@@ -209,9 +209,23 @@ export const resolveLessonSourceReferences = ({
   const referencesBySourceId = new Map(
     (activeSection?.sourceReferences || []).map(reference => [reference.sourceId, reference])
   );
+  const descriptors = getCourseSourceDescriptors(source);
+  const legacySingleSourceReference =
+    referencesBySourceId.size === 0 &&
+    descriptors.length === 1 &&
+    Boolean(activeSection?.primaryChunkIds?.length)
+      ? {
+          chunkIds: activeSection?.primaryChunkIds || [],
+          sourceId: descriptors[0]?.id || '',
+        }
+      : null;
 
-  return getCourseSourceDescriptors(source).flatMap(descriptor => {
-    const reference = referencesBySourceId.get(descriptor.id);
+  return descriptors.flatMap(descriptor => {
+    const reference =
+      referencesBySourceId.get(descriptor.id) ||
+      (legacySingleSourceReference?.sourceId === descriptor.id
+        ? legacySingleSourceReference
+        : undefined);
     return reference
       ? [
           {

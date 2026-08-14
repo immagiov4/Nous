@@ -28,7 +28,7 @@ const SINGLE_LINE_CODE_LANGUAGES = new Map<string, string>([
 const CODE_LIKE_INLINE_REGEX =
   /(#include\b|std::|->|=>|::|[;[\]{}]|<=|>=|==|!=|\b(?:while|for|if|else|return|const|let|var|int|float|double|bool|char|void|class|struct|template|auto)\b)/;
 const CODE_DECLARATION_LINE_REGEX =
-  /^(#include\b.+|using\s+namespace\b.+|template\s*<.+|(?:const|let|var|int|float|double|bool|char|void|auto|std::\w+|\w+(?:::\w+)*)[\s<].*[,{;]|}\s*;?)$/;
+  /^(#include\b.+|using\s+namespace\b.+|template\s*<.+|(?:const|let|var|int|float|double|bool|char|void|auto|std::\w+)[\s<].*[,{;]|[A-Za-z_]\w*(?:::\w+)*[\s<].*[{;]|}\s*;?)$/;
 const LIKELY_MATH_FUNCTION_ASSIGNMENT_REGEX =
   /^[A-Za-z](?:_[A-Za-z0-9]+)?\s*=\s*[A-Za-z](?:_[A-Za-z0-9]+)?\s*\([^;{}]*\)$/u;
 

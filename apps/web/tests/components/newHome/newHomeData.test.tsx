@@ -142,7 +142,6 @@ describe('new home source library', () => {
     await waitFor(() => expect(result.current.items).toHaveLength(1));
     expect(result.current.items).toEqual([
       expect.objectContaining({
-        isAvailable: true,
         kind: 'archive',
         projectId: project.id,
         projectTitle: project.title,
@@ -150,5 +149,66 @@ describe('new home source library', () => {
       }),
     ]);
     expect(result.current.items[0]?.file.name).toBe('src.zip');
+  });
+
+  test('omits source descriptors whose original file is unavailable', async () => {
+    const project = buildProject(1);
+    const loadProjectsById = vi.fn().mockResolvedValue([
+      {
+        id: project.id,
+        source: {
+          file: { data: '', mimeType: 'application/pdf', name: 'missing.pdf' },
+          kind: 'pdf',
+        },
+      },
+    ]);
+
+    const { result } = renderHook(() =>
+      useSourceLibrary({ enabled: true, loadProjectsById, projects: [project] })
+    );
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.items).toEqual([]);
+  });
+
+  test('keeps collected sources visible while refreshed project metadata reloads', async () => {
+    const project = buildProject(1);
+    const snapshot = {
+      id: project.id,
+      source: {
+        file: {
+          data: 'c291cmNl',
+          mimeType: 'application/pdf',
+          name: 'source.pdf',
+          sourceId: 'source-1',
+        },
+        kind: 'pdf' as const,
+      },
+    };
+    let finishRefresh!: (snapshots: (typeof snapshot)[]) => void;
+    const loadProjectsById = vi
+      .fn()
+      .mockResolvedValueOnce([snapshot])
+      .mockReturnValueOnce(
+        new Promise<(typeof snapshot)[]>(resolve => {
+          finishRefresh = resolve;
+        })
+      );
+    const { result, rerender } = renderHook(
+      ({ projects }) => useSourceLibrary({ enabled: true, loadProjectsById, projects }),
+      { initialProps: { projects: [project] } }
+    );
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    rerender({ projects: [{ ...project, revision: 2 }] });
+    await waitFor(() => expect(result.current.isLoading).toBe(true));
+
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0]?.file.name).toBe('source.pdf');
+
+    await act(async () => {
+      finishRefresh([snapshot]);
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
   });
 });

@@ -11,6 +11,7 @@ describe('lesson research model routing', () => {
       resolveLessonResearchRequest({
         config: { ...config, aiProvider: 'openrouter' },
         coverageGaps: undefined,
+        refreshResearch: false,
         sourceContext: 'Materiale originale',
       })
     ).toEqual({ mode: 'source-sufficient', slot: 'lesson', webSearch: false });
@@ -21,6 +22,7 @@ describe('lesson research model routing', () => {
       resolveLessonResearchRequest({
         config: { ...config, aiProvider: 'openrouter' },
         coverageGaps: ['Concetto mancante'],
+        refreshResearch: false,
         sourceContext: 'Materiale originale',
       })
     ).toEqual({ mode: 'source-backed-gaps', slot: 'lesson', webSearch: true });
@@ -31,6 +33,7 @@ describe('lesson research model routing', () => {
       resolveLessonResearchRequest({
         config: { ...config, aiProvider: 'openai' },
         coverageGaps: ['Concetto mancante'],
+        refreshResearch: false,
         sourceContext: 'Materiale originale',
       })
     ).toEqual({ mode: 'source-backed-gaps', slot: 'research', webSearch: true });
@@ -41,8 +44,20 @@ describe('lesson research model routing', () => {
       resolveLessonResearchRequest({
         config: { ...config, aiProvider: 'openrouter' },
         coverageGaps: ['Dato di copertura non applicabile senza una fonte'],
+        refreshResearch: false,
         sourceContext: '',
       })
     ).toEqual({ mode: 'source-free', slot: 'research', webSearch: true });
+  });
+
+  test('uses the dedicated research model and web search for full regeneration', () => {
+    expect(
+      resolveLessonResearchRequest({
+        config: { ...config, aiProvider: 'openrouter' },
+        coverageGaps: undefined,
+        refreshResearch: true,
+        sourceContext: 'Materiale originale',
+      })
+    ).toEqual({ mode: 'source-backed-refresh', slot: 'research', webSearch: true });
   });
 });

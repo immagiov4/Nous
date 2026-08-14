@@ -384,6 +384,26 @@ describe('useProjectLibrary', () => {
     expect(result.current.storageError).toBeNull();
   });
 
+  test('keeps the saved project list stable when realtime catch-up returns unchanged metadata', async () => {
+    const project = buildMeta('project-1', '2026-04-02T10:00:00.000Z', 2);
+    repositoryMocks.listProjects.mockResolvedValue([project]);
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    const initialProjects = result.current.savedProjects;
+
+    act(() => {
+      revisionReconnect?.();
+    });
+    await waitFor(() => expect(repositoryMocks.listProjects).toHaveBeenCalledTimes(2));
+
+    expect(result.current.savedProjects).toBe(initialProjects);
+  });
+
   test('persistSnapshot syncs metadata and keeps the newest project first', async () => {
     repositoryMocks.listProjects.mockResolvedValue([
       buildMeta('older', '2026-04-01T10:00:00.000Z'),
@@ -993,6 +1013,29 @@ describe('useProjectLibrary', () => {
     expect(repositoryMocks.saveProject).not.toHaveBeenCalled();
   });
 
+  test('patchSectionAnnotations reports persistence failure to its caller', async () => {
+    repositoryMocks.patchProject.mockRejectedValue(new Error('annotazioni non salvate'));
+    const { result } = renderHook(() =>
+      useProjectLibrary({
+        domainState: createEmptyWorkspaceDomainState(),
+        hydrateSnapshot: vi.fn(),
+      })
+    );
+    await waitFor(() => expect(result.current.isLibraryLoading).toBe(false));
+    act(() => {
+      result.current.setCurrentProjectId('project-1');
+      result.current.setProjectHydrated(true);
+    });
+
+    let persisted!: boolean;
+    await act(async () => {
+      persisted = await result.current.patchSectionAnnotations('lesson-1', []);
+    });
+
+    expect(persisted).toBe(false);
+    expect(result.current.storageError).toBe('annotazioni non salvate');
+  });
+
   test('does not synthesize a timeout error while library init is still pending', async () => {
     vi.useFakeTimers();
     repositoryMocks.listProjects.mockImplementation(() => new Promise(() => {}));
@@ -1566,7 +1609,7 @@ describe('useProjectLibrary', () => {
       result.current.setProjectHydrated(true);
     });
 
-    let patch!: Promise<void>;
+    let patch!: Promise<boolean>;
     act(() => {
       patch = result.current.patchSectionAnnotations('lesson-1', []);
     });

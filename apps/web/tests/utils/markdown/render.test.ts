@@ -28,6 +28,12 @@ test('normalizeMarkdownForRendering converts single-line cpp snippets into fence
   assert.equal(output, 'Sintassi:\n\n```cpp\nwhile (i < 5) { std::cout << i; }\n```');
 });
 
+test('normalizeMarkdownForRendering keeps ordinary prose ending in a comma as prose', () => {
+  const input = 'Una unità nascosta può calcolare, per esempio,';
+
+  assert.equal(normalizeMarkdownForRendering(input), input);
+});
+
 test('normalizeMarkdownForRendering repairs language label plus multiline code into one fenced block', () => {
   const input =
     'Un esempio semplice chiarisce il valore della regola\n\ncpp\nif (condition) {\ndoSomething();\n} else { doSomethingElse();\n}';
@@ -492,6 +498,58 @@ test('normalizeMarkdownForRendering converts backslash-bracket display math into
   const input = 'La formula:\n\n\\[\ny = Ax\n\\]\n\nFine.';
 
   assert.equal(normalizeMarkdownForRendering(input), 'La formula:\n\n$$\ny = Ax\n$$\n\nFine.');
+});
+
+test('normalizeMarkdownForRendering repairs JSON-double-escaped commands inside display math', () => {
+  const input = String.raw`$$
+y = \\phi_0 + \\phi_1x
+$$`;
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    String.raw`$$
+y = \phi_0 + \phi_1x
+$$`
+  );
+});
+
+test('normalizeMarkdownForRendering renders an isolated LaTeX environment command as code', () => {
+  const input = String.raw`Il simbolo $\begin{aligned}$ serve soltanto ad allineare le righe.`;
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    'Il simbolo `\\begin{aligned}` serve soltanto ad allineare le righe.'
+  );
+});
+
+test('normalizeMarkdownForRendering wraps a bare double-escaped LaTeX environment', () => {
+  const input = String.raw`Prima.
+
+\\operatorname{ReLU}(z) = \\begin{cases} 0 & \\text{se } z < 0 \\ z & \\text{se } z \\ge 0 \\end{cases}
+
+Dopo.`;
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    String.raw`Prima.
+
+$$
+\operatorname{ReLU}(z) = \begin{cases} 0 & \text{se } z < 0 \\ z & \text{se } z \ge 0 \end{cases}
+$$
+
+Dopo.`
+  );
+});
+
+test('normalizeMarkdownForRendering wraps a bare assignment containing a LaTeX environment', () => {
+  const input = String.raw`y = \\begin{cases} 0 & \\text{se } x < 0 \\ x & \\text{se } x \\ge 0 \\end{cases}`;
+
+  assert.equal(
+    normalizeMarkdownForRendering(input),
+    String.raw`$$
+y = \begin{cases} 0 & \text{se } x < 0 \\ x & \text{se } x \ge 0 \end{cases}
+$$`
+  );
 });
 
 test('normalizeMarkdownForRendering does not treat a nested language fence as a closing fence', () => {

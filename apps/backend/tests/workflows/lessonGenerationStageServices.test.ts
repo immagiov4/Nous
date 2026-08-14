@@ -126,6 +126,38 @@ const lessonSourcesState = (keyConcepts: string[] = ['concetto']) =>
   });
 
 describe('lesson generation production stages', () => {
+  test('full regeneration discards the saved dossier and its derived sources', async () => {
+    const services = createLessonGenerationStageServices(
+      dependencies({
+        resolveSourceMaterials: vi.fn().mockResolvedValue({
+          existingDossier: {
+            factualSummary: 'Dossier precedente',
+            sectionId: 'lesson-1',
+            sources: [{ title: 'Fonte precedente', url: 'https://example.com/old' }],
+            title: 'Titolo precedente',
+          },
+          existingSources: [{ title: 'Fonte precedente', url: 'https://example.com/old' }],
+          sourceContext: 'CHUNK chunk-1\nContenuto originale.',
+        }),
+      })
+    );
+
+    const outcome = await services.prepareLesson(
+      stageContext({
+        forceRegenerate: true,
+        projectId: 'project-1',
+        sectionId: 'lesson-1',
+        userId: 'user-1',
+      })
+    );
+
+    expect(outcome.kind).toBe('generate');
+    if (outcome.kind !== 'generate') throw new Error('Expected generation context.');
+    expect(outcome.state.existingDossierJson).toBeNull();
+    expect(outcome.state.existingSources).toEqual([]);
+    expect(outcome.state.requiresCoverageAssessment).toBe(true);
+  });
+
   test('reads detached original bytes when no document index is available', async () => {
     const store = new InMemoryProjectStore();
     const sourceText = 'Il documento originale descrive la fase luminosa nei tilacoidi.';

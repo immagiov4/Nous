@@ -75,6 +75,7 @@ export interface LessonGenerationInput {
   language: string;
   pedagogicalContext: string;
   previousLessonTitles: string[];
+  refreshResearch: boolean;
   researchContext: string;
   sectionTitle: string;
   signal: AbortSignal;

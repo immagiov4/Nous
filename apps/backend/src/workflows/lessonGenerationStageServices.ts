@@ -108,7 +108,10 @@ const parseJsonRecord = (value: string | null): Record<string, unknown> | null =
   return parsed;
 };
 
-type LessonGenerationInputState = Pick<LessonContextState, 'existingSources' | 'lessonInputData'>;
+type LessonGenerationInputState = Pick<
+  LessonContextState,
+  'existingSources' | 'lessonInputData' | 'request'
+>;
 
 const buildGenerationInput = (
   state: LessonGenerationInputState,
@@ -118,6 +121,7 @@ const buildGenerationInput = (
 ): LessonGenerationInput => ({
   ...state.lessonInputData,
   config,
+  refreshResearch: state.request.forceRegenerate,
   researchContext: '',
   signal,
   sources,
@@ -254,6 +258,7 @@ const prepareLesson =
     const { generationInput } = buildLessonGenerationInput({
       config: modelConfig(context),
       project: record.snapshot,
+      refreshResearch: forceRegenerate,
       researchSources: mergeSources(originalSources, sourceMaterials.existingSources),
       section,
       sectionId,
@@ -265,10 +270,11 @@ const prepareLesson =
       kind: 'generate',
       state: {
         documentSourceHash: readDocumentSourceHash(record.snapshot),
-        existingDossierJson: sourceMaterials.existingDossier
-          ? canonicalJson(sourceMaterials.existingDossier)
-          : null,
-        existingSources: sourceMaterials.existingSources,
+        existingDossierJson:
+          !forceRegenerate && sourceMaterials.existingDossier
+            ? canonicalJson(sourceMaterials.existingDossier)
+            : null,
+        existingSources: forceRegenerate ? [] : sourceMaterials.existingSources,
         lessonInputData: {
           coverageGaps: generationInput.coverageGaps,
           description: generationInput.description,
@@ -284,7 +290,8 @@ const prepareLesson =
         originalSources,
         request: context.input,
         requiresCoverageAssessment:
-          section.type === 'prerequisite' && sourceMaterials.existingDossier === null,
+          section.type === 'prerequisite' &&
+          (forceRegenerate || sourceMaterials.existingDossier === null),
         sourceFingerprint: buildLessonGenerationSourceFingerprint(record.snapshot, sectionId),
         stage: 'context',
         targetFingerprint: buildLessonGenerationTargetFingerprint(record.snapshot, sectionId),
